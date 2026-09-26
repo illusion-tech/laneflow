@@ -1,0 +1,626 @@
+{
+  "identity": {
+    "base": "37c5e1af3c72b0f60cf2dd889bbf6713b2a77054",
+    "research_head": "4284ce3ce4536b97142a32bb6165692be5e367bd",
+    "parent_results_sha256": "65ea67d24c7670ab359b93afae0be9fbb3b5e3c747bc2876c4db0a5022e4f204",
+    "source_index_sha256": "5bc7055aaae95e0e3b42aaed472491c97f20c529a4b530530525f302abdafc2e",
+    "binary_sha256": "04d7d1a164c36d1fe4bd1cdef10e0ea04ed6e64a7289d9396d17cc68e6becda9",
+    "inputs": {
+      "plans\\10k-smoke.toml": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c",
+      "inputs\\urban-10k\\manifest.toml": "d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd",
+      "inputs\\urban-10k\\common.lfre": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+      "inputs\\urban-10k\\config.toml": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+      "inputs\\urban-10k\\network.lfca": "c97872ecd20a39e76c9d007ec28cc28dc5b317358f6c5a69a8c9cce8c3722210",
+      "inputs\\urban-10k\\routes.toml": "8f4118c64330b0621b8425a2881d39377b1cec7e733ddfc91998e6960223e413",
+      "inputs\\urban-10k\\topology.lfre": "ddaa0785d9d4239dde6c83025e996df5356a931ad0335fffa4b0cea43916a4cc",
+      "plans\\100k-smoke.toml": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7",
+      "inputs\\urban-100k\\manifest.toml": "5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140",
+      "inputs\\urban-100k\\common.lfre": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+      "inputs\\urban-100k\\config.toml": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+      "inputs\\urban-100k\\network.lfca": "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84",
+      "inputs\\urban-100k\\routes.toml": "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3",
+      "inputs\\urban-100k\\topology.lfre": "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae"
+    },
+    "ticks": 256,
+    "workers": 4,
+    "stage_names": [
+      "Preflight",
+      "Occupancy",
+      "WaitingPrepare",
+      "ConflictPrepare",
+      "MotionLoop",
+      "WaitingFinalize",
+      "Signals",
+      "ConflictFinalize",
+      "WaitingOutputs",
+      "Commit",
+      "Frontier",
+      "P4",
+      "P3Discover",
+      "P3Dispatch",
+      "P3Consume",
+      "P3Fused",
+      "P3Tail",
+      "Workload"
+    ],
+    "completed": true
+  },
+  "runs": [
+    {
+      "label": "100k-1-detail",
+      "step": {
+        "mean_ms": 42.94212239583334,
+        "p50_ms": 42.2626,
+        "p95_ms": 50.091,
+        "p99_ms": 53.4675,
+        "max_ms": 56.0171
+      },
+      "stages": {
+        "Preflight": {
+          "mean_ms": 3.5314989583333336,
+          "p50_ms": 3.7614,
+          "p95_ms": 4.73,
+          "p99_ms": 5.5043,
+          "max_ms": 5.6241
+        },
+        "Occupancy": {
+          "mean_ms": 4.607065104166667,
+          "p50_ms": 4.5156,
+          "p95_ms": 5.7035,
+          "p99_ms": 6.5035,
+          "max_ms": 7.0383
+        },
+        "WaitingPrepare": {
+          "mean_ms": 7.5870645833333334,
+          "p50_ms": 7.4685,
+          "p95_ms": 8.672,
+          "p99_ms": 10.2415,
+          "max_ms": 11.2632
+        },
+        "ConflictPrepare": {
+          "mean_ms": 8.846730208333334,
+          "p50_ms": 8.5406,
+          "p95_ms": 11.4394,
+          "p99_ms": 12.5878,
+          "max_ms": 12.869
+        },
+        "MotionLoop": {
+          "mean_ms": 5.368015625,
+          "p50_ms": 5.2379,
+          "p95_ms": 6.2623,
+          "p99_ms": 6.8395,
+          "max_ms": 7.0805
+        },
+        "WaitingFinalize": {
+          "mean_ms": 0.5445255208333334,
+          "p50_ms": 0.5167,
+          "p95_ms": 0.6995,
+          "p99_ms": 1.1,
+          "max_ms": 1.2315
+        },
+        "Signals": {
+          "mean_ms": 0.15167083333333334,
+          "p50_ms": 0.1407,
+          "p95_ms": 0.2056,
+          "p99_ms": 0.3842,
+          "max_ms": 0.4347
+        },
+        "ConflictFinalize": {
+          "mean_ms": 5.070624479166667,
+          "p50_ms": 5.0094,
+          "p95_ms": 6.3155,
+          "p99_ms": 6.8739,
+          "max_ms": 6.8923
+        },
+        "WaitingOutputs": {
+          "mean_ms": 5.136449479166667,
+          "p50_ms": 4.6374,
+          "p95_ms": 7.7651,
+          "p99_ms": 9.1628,
+          "max_ms": 9.4147
+        },
+        "Commit": {
+          "mean_ms": 2.088496875,
+          "p50_ms": 1.9702,
+          "p95_ms": 2.7979,
+          "p99_ms": 3.2464,
+          "max_ms": 3.3267
+        },
+        "Frontier": {
+          "mean_ms": 3.4986098958333334,
+          "p50_ms": 3.7128,
+          "p95_ms": 5.0752,
+          "p99_ms": 6.3726,
+          "max_ms": 6.7234
+        },
+        "P4": {
+          "mean_ms": 0.5160609375,
+          "p50_ms": 0.4625,
+          "p95_ms": 1.0555,
+          "p99_ms": 1.6172,
+          "max_ms": 2.5552
+        },
+        "P3Discover": {
+          "mean_ms": 2.5707276041666667,
+          "p50_ms": 2.4806,
+          "p95_ms": 3.1414,
+          "p99_ms": 3.5545,
+          "max_ms": 3.5662
+        },
+        "P3Dispatch": {
+          "mean_ms": 0.7203859375,
+          "p50_ms": 0.7729,
+          "p95_ms": 1.1839,
+          "p99_ms": 1.4085,
+          "max_ms": 1.6659
+        },
+        "P3Consume": {
+          "mean_ms": 0.3254458333333333,
+          "p50_ms": 0.3193,
+          "p95_ms": 0.6064,
+          "p99_ms": 0.837,
+          "max_ms": 0.8647
+        },
+        "P3Fused": {
+          "mean_ms": 0.531509375,
+          "p50_ms": 0.0,
+          "p95_ms": 3.4849,
+          "p99_ms": 4.2132,
+          "max_ms": 4.4674
+        },
+        "P3Tail": {
+          "mean_ms": 0.18532760416666666,
+          "p50_ms": 0.1543,
+          "p95_ms": 0.3913,
+          "p99_ms": 0.5656,
+          "max_ms": 0.5806
+        }
+      },
+      "p3_unattributed": {
+        "mean_ms": 0.4986630208333333,
+        "p50_ms": 0.4788,
+        "p95_ms": 0.7269,
+        "p99_ms": 1.0733,
+        "max_ms": 1.2904
+      },
+      "workload_min": 846,
+      "workload_max": 3423,
+      "workload_mean": 2419.4114583333335,
+      "dispatch_ticks": 163,
+      "fused_ticks": 29
+    },
+    {
+      "label": "100k-2-detail",
+      "step": {
+        "mean_ms": 43.9264375,
+        "p50_ms": 43.5523,
+        "p95_ms": 51.7409,
+        "p99_ms": 55.1958,
+        "max_ms": 55.2563
+      },
+      "stages": {
+        "Preflight": {
+          "mean_ms": 3.6164505208333333,
+          "p50_ms": 3.8806,
+          "p95_ms": 4.9322,
+          "p99_ms": 5.3706,
+          "max_ms": 5.8988
+        },
+        "Occupancy": {
+          "mean_ms": 4.704366145833333,
+          "p50_ms": 4.6551,
+          "p95_ms": 5.7051,
+          "p99_ms": 6.0639,
+          "max_ms": 6.7659
+        },
+        "WaitingPrepare": {
+          "mean_ms": 7.781301041666667,
+          "p50_ms": 7.6014,
+          "p95_ms": 9.1049,
+          "p99_ms": 9.6977,
+          "max_ms": 10.1754
+        },
+        "ConflictPrepare": {
+          "mean_ms": 9.02163125,
+          "p50_ms": 8.9091,
+          "p95_ms": 11.0978,
+          "p99_ms": 12.6354,
+          "max_ms": 13.1617
+        },
+        "MotionLoop": {
+          "mean_ms": 5.5115953125,
+          "p50_ms": 5.3712,
+          "p95_ms": 6.5046,
+          "p99_ms": 7.6261,
+          "max_ms": 8.2086
+        },
+        "WaitingFinalize": {
+          "mean_ms": 0.5442432291666667,
+          "p50_ms": 0.5205,
+          "p95_ms": 0.7098,
+          "p99_ms": 1.086,
+          "max_ms": 1.3177
+        },
+        "Signals": {
+          "mean_ms": 0.15034427083333335,
+          "p50_ms": 0.1388,
+          "p95_ms": 0.1974,
+          "p99_ms": 0.5364,
+          "max_ms": 0.948
+        },
+        "ConflictFinalize": {
+          "mean_ms": 5.156785416666667,
+          "p50_ms": 5.1356,
+          "p95_ms": 6.408,
+          "p99_ms": 7.1183,
+          "max_ms": 8.2451
+        },
+        "WaitingOutputs": {
+          "mean_ms": 5.2781026041666665,
+          "p50_ms": 4.8003,
+          "p95_ms": 8.4753,
+          "p99_ms": 9.3146,
+          "max_ms": 9.3406
+        },
+        "Commit": {
+          "mean_ms": 2.1519229166666665,
+          "p50_ms": 2.0257,
+          "p95_ms": 2.9326,
+          "p99_ms": 3.2031,
+          "max_ms": 3.3498
+        },
+        "Frontier": {
+          "mean_ms": 3.5720354166666666,
+          "p50_ms": 3.8058,
+          "p95_ms": 5.3547,
+          "p99_ms": 5.9658,
+          "max_ms": 6.6626
+        },
+        "P4": {
+          "mean_ms": 0.5314994791666666,
+          "p50_ms": 0.4627,
+          "p95_ms": 1.1371,
+          "p99_ms": 1.5979,
+          "max_ms": 2.548
+        },
+        "P3Discover": {
+          "mean_ms": 2.6421932291666663,
+          "p50_ms": 2.5701,
+          "p95_ms": 3.1083,
+          "p99_ms": 3.9107,
+          "max_ms": 4.3968
+        },
+        "P3Dispatch": {
+          "mean_ms": 0.7377447916666666,
+          "p50_ms": 0.7878,
+          "p95_ms": 1.2062,
+          "p99_ms": 1.6273,
+          "max_ms": 1.9485
+        },
+        "P3Consume": {
+          "mean_ms": 0.32880052083333333,
+          "p50_ms": 0.3228,
+          "p95_ms": 0.6329,
+          "p99_ms": 0.772,
+          "max_ms": 0.7972
+        },
+        "P3Fused": {
+          "mean_ms": 0.5330692708333333,
+          "p50_ms": 0.0,
+          "p95_ms": 3.6348,
+          "p99_ms": 4.048,
+          "max_ms": 4.1347
+        },
+        "P3Tail": {
+          "mean_ms": 0.18517916666666664,
+          "p50_ms": 0.1541,
+          "p95_ms": 0.3904,
+          "p99_ms": 0.4309,
+          "max_ms": 0.7611
+        }
+      },
+      "p3_unattributed": {
+        "mean_ms": 0.491109375,
+        "p50_ms": 0.4684,
+        "p95_ms": 0.7677,
+        "p99_ms": 0.9058,
+        "max_ms": 0.9383
+      },
+      "workload_min": 846,
+      "workload_max": 3423,
+      "workload_mean": 2419.4114583333335,
+      "dispatch_ticks": 163,
+      "fused_ticks": 29
+    },
+    {
+      "label": "100k-3-detail",
+      "step": {
+        "mean_ms": 43.87582447916667,
+        "p50_ms": 43.2915,
+        "p95_ms": 51.4652,
+        "p99_ms": 52.9686,
+        "max_ms": 55.0533
+      },
+      "stages": {
+        "Preflight": {
+          "mean_ms": 3.627490625,
+          "p50_ms": 3.8323,
+          "p95_ms": 5.0841,
+          "p99_ms": 5.2884,
+          "max_ms": 5.3953
+        },
+        "Occupancy": {
+          "mean_ms": 4.606768229166667,
+          "p50_ms": 4.5311,
+          "p95_ms": 5.6535,
+          "p99_ms": 6.8445,
+          "max_ms": 9.4769
+        },
+        "WaitingPrepare": {
+          "mean_ms": 7.771666666666667,
+          "p50_ms": 7.6081,
+          "p95_ms": 8.9402,
+          "p99_ms": 10.2523,
+          "max_ms": 10.3816
+        },
+        "ConflictPrepare": {
+          "mean_ms": 9.0014640625,
+          "p50_ms": 8.7577,
+          "p95_ms": 11.6467,
+          "p99_ms": 12.6541,
+          "max_ms": 13.5131
+        },
+        "MotionLoop": {
+          "mean_ms": 5.5464765625,
+          "p50_ms": 5.4302,
+          "p95_ms": 6.4765,
+          "p99_ms": 7.0307,
+          "max_ms": 7.8833
+        },
+        "WaitingFinalize": {
+          "mean_ms": 0.5841994791666666,
+          "p50_ms": 0.5521,
+          "p95_ms": 0.7791,
+          "p99_ms": 1.0479,
+          "max_ms": 1.0873
+        },
+        "Signals": {
+          "mean_ms": 0.14560833333333334,
+          "p50_ms": 0.1343,
+          "p95_ms": 0.2412,
+          "p99_ms": 0.3803,
+          "max_ms": 0.5109
+        },
+        "ConflictFinalize": {
+          "mean_ms": 5.171953645833333,
+          "p50_ms": 5.1344,
+          "p95_ms": 6.3607,
+          "p99_ms": 6.526,
+          "max_ms": 6.8525
+        },
+        "WaitingOutputs": {
+          "mean_ms": 5.289608333333333,
+          "p50_ms": 4.7849,
+          "p95_ms": 8.1571,
+          "p99_ms": 9.1778,
+          "max_ms": 9.5097
+        },
+        "Commit": {
+          "mean_ms": 2.121334375,
+          "p50_ms": 2.0352,
+          "p95_ms": 2.7188,
+          "p99_ms": 3.162,
+          "max_ms": 3.9441
+        },
+        "Frontier": {
+          "mean_ms": 3.5695005208333335,
+          "p50_ms": 3.7853,
+          "p95_ms": 5.5237,
+          "p99_ms": 5.8529,
+          "max_ms": 7.0874
+        },
+        "P4": {
+          "mean_ms": 0.5192776041666667,
+          "p50_ms": 0.4636,
+          "p95_ms": 1.1322,
+          "p99_ms": 1.5488,
+          "max_ms": 2.4772
+        },
+        "P3Discover": {
+          "mean_ms": 2.6456645833333337,
+          "p50_ms": 2.536,
+          "p95_ms": 3.3225,
+          "p99_ms": 3.7164,
+          "max_ms": 4.158
+        },
+        "P3Dispatch": {
+          "mean_ms": 0.7123770833333334,
+          "p50_ms": 0.7621,
+          "p95_ms": 1.2538,
+          "p99_ms": 1.6043,
+          "max_ms": 1.654
+        },
+        "P3Consume": {
+          "mean_ms": 0.3108421875,
+          "p50_ms": 0.3186,
+          "p95_ms": 0.5775,
+          "p99_ms": 0.7869,
+          "max_ms": 0.8825
+        },
+        "P3Fused": {
+          "mean_ms": 0.5562739583333334,
+          "p50_ms": 0.0,
+          "p95_ms": 3.6788,
+          "p99_ms": 4.1724,
+          "max_ms": 5.4626
+        },
+        "P3Tail": {
+          "mean_ms": 0.18994427083333335,
+          "p50_ms": 0.1544,
+          "p95_ms": 0.3919,
+          "p99_ms": 0.7735,
+          "max_ms": 0.821
+        }
+      },
+      "p3_unattributed": {
+        "mean_ms": 0.4975838541666667,
+        "p50_ms": 0.4769,
+        "p95_ms": 0.7283,
+        "p99_ms": 1.0914,
+        "max_ms": 1.3996
+      },
+      "workload_min": 846,
+      "workload_max": 3423,
+      "workload_mean": 2419.4114583333335,
+      "dispatch_ticks": 163,
+      "fused_ticks": 29
+    }
+  ],
+  "files": [
+    {
+      "path": "100k-1-detail/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-1-detail/diagnostics.json",
+      "bytes": 1069,
+      "sha256": "ce78256da6b3c88b266e6c97ea84d238e90249bd3d5e164b14d70410bbc595da"
+    },
+    {
+      "path": "100k-1-detail/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-1-detail/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-1-detail/result.json",
+      "bytes": 225787,
+      "sha256": "b864e5923f826614543fd7e23ba04b57e395f507071c1c8ac43b18c0aff3c476"
+    },
+    {
+      "path": "100k-1-detail/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-1-detail.process.json",
+      "bytes": 759,
+      "sha256": "24bbcec4c6a9057afab50219d40364e16c248c954d70beb3b913f7f30db6ef15"
+    },
+    {
+      "path": "100k-1-detail.stderr",
+      "bytes": 65524,
+      "sha256": "a77514cf162e7183a642e1d95756f4da8c4bf46a7f043e86db81abe535340c3d"
+    },
+    {
+      "path": "100k-1-detail.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-2-detail/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-2-detail/diagnostics.json",
+      "bytes": 1068,
+      "sha256": "e26047b245a9e3d4277c6e009e5ae6b95114d5935f6b7c7f2c55c529e47bfdeb"
+    },
+    {
+      "path": "100k-2-detail/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-2-detail/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-2-detail/result.json",
+      "bytes": 225787,
+      "sha256": "a852cc148207e07e6c2e6f6a731b41f417a87efc145c5cd318d9e5b2a9495607"
+    },
+    {
+      "path": "100k-2-detail/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-2-detail.process.json",
+      "bytes": 759,
+      "sha256": "eaba9fd3e91d8a9325dc6db32f61a0aff14208b875a988398c941b5c4f8361fa"
+    },
+    {
+      "path": "100k-2-detail.stderr",
+      "bytes": 65538,
+      "sha256": "c60898b552ff47486672ce5ffa1396d3925b8f91790c11f4e40565fcacf9d0e1"
+    },
+    {
+      "path": "100k-2-detail.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-3-detail/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-3-detail/diagnostics.json",
+      "bytes": 1069,
+      "sha256": "fae8e8de5a04705c3953edb5e210935f70333101f2e1c0b7d0c94ecdfd67825d"
+    },
+    {
+      "path": "100k-3-detail/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-3-detail/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-3-detail/result.json",
+      "bytes": 225787,
+      "sha256": "66b9be95f9dc9e8462244333b2379be9e998d49c51d1ec2aaf316c411ab094a0"
+    },
+    {
+      "path": "100k-3-detail/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-3-detail.process.json",
+      "bytes": 759,
+      "sha256": "88fed67107ed46aadb9c8ce94d073e3b055e776f894e9319f54e153cf13a1272"
+    },
+    {
+      "path": "100k-3-detail.stderr",
+      "bytes": 65530,
+      "sha256": "4ed2af031f802ce422c98a0c2fc879e59fad8878169fd633439c83a8f70199a4"
+    },
+    {
+      "path": "100k-3-detail.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "identity.json",
+      "bytes": 2337,
+      "sha256": "065fa0413fa3bd63ca1aaf38ca43a256d73c8b615e7d43b677957f42ecc846a1"
+    },
+    {
+      "path": "source.json",
+      "bytes": 118697,
+      "sha256": "5bc7055aaae95e0e3b42aaed472491c97f20c529a4b530530525f302abdafc2e"
+    }
+  ]
+}

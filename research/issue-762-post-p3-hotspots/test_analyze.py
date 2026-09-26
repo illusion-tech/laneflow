@@ -3,6 +3,7 @@ import json
 import unittest
 
 from analyze import rows_from_text, stats
+from detail import validate_rows
 
 
 class StageEvidenceTests(unittest.TestCase):
@@ -52,6 +53,22 @@ class StageEvidenceTests(unittest.TestCase):
         self.assertEqual(result["p95_ms"], 1)
         self.assertEqual(result["p99_ms"], 10)
         self.assertEqual(result["mean_ms"], 1.45)
+
+    def test_detail_threshold_and_phase_exclusivity(self):
+        rows = [{"tick": n, "step_ns": 1000, "stages_ns": [90] * 10 + [10] * 5 + [0, 10, 0],
+                 "calls": [1] * 13 + [1, 1, 0, 1, 1024]} for n in range(1, 257)]
+        validate_rows(rows)
+        for index, value in ((13, 0), (15, 1), (17, 1023)):
+            broken = copy.deepcopy(rows)
+            broken[100]["calls"][index] = value
+            with self.assertRaises(RuntimeError):
+                validate_rows(broken)
+
+    def test_detail_zero_and_small_worksets(self):
+        for workload in (0, 1, 1023):
+            rows = [{"tick": n, "step_ns": 1000, "stages_ns": [90] * 10 + [10] * 3 + [0, 0, 10 if workload else 0, 10, 0],
+                     "calls": [1] * 13 + [0, 0, int(workload > 0), 1, workload]} for n in range(1, 257)]
+            validate_rows(rows)
 
 
 if __name__ == "__main__":

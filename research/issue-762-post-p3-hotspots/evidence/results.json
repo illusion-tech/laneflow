@@ -1,0 +1,3106 @@
+{
+  "identity": {
+    "base": "37c5e1af3c72b0f60cf2dd889bbf6713b2a77054",
+    "research_head": "40392a233172e6d321b7b135b3eb096a59829d80",
+    "research_tree": "0a77f82dbae1897fa84b4ea2dfeabeff636f2491",
+    "order": [
+      "plain",
+      "stages",
+      "stages",
+      "plain",
+      "plain",
+      "stages"
+    ],
+    "workers": 4,
+    "ticks": 256,
+    "input_root": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04",
+    "inputs": {
+      "plans\\10k-smoke.toml": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c",
+      "inputs\\urban-10k\\manifest.toml": "d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd",
+      "inputs\\urban-10k\\common.lfre": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+      "inputs\\urban-10k\\config.toml": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+      "inputs\\urban-10k\\network.lfca": "c97872ecd20a39e76c9d007ec28cc28dc5b317358f6c5a69a8c9cce8c3722210",
+      "inputs\\urban-10k\\routes.toml": "8f4118c64330b0621b8425a2881d39377b1cec7e733ddfc91998e6960223e413",
+      "inputs\\urban-10k\\topology.lfre": "ddaa0785d9d4239dde6c83025e996df5356a931ad0335fffa4b0cea43916a4cc",
+      "plans\\100k-smoke.toml": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7",
+      "inputs\\urban-100k\\manifest.toml": "5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140",
+      "inputs\\urban-100k\\common.lfre": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+      "inputs\\urban-100k\\config.toml": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+      "inputs\\urban-100k\\network.lfca": "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84",
+      "inputs\\urban-100k\\routes.toml": "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3",
+      "inputs\\urban-100k\\topology.lfre": "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae"
+    },
+    "source_indexes": {
+      "plain": "03993397dc6b56c23a8cbe1e68151f69dc29c3d932e54debd2500d4fa7d71313",
+      "stages": "a2be7b0ff6367eea2aaafa41f81581d7cccc80740f163b3ecf904c65ff3c7079"
+    },
+    "binaries": {
+      "plain": {
+        "path": "E:\\projects\\worktrees\\post-p3-hotspots\\laneflow\\target\\hotspot-binaries\\plain.exe",
+        "sha256": "3497e07b6c9bba8302de8e24d9dc99db4c334bb2c07e36ecea952d8b69535f2b"
+      },
+      "stages": {
+        "path": "E:\\projects\\worktrees\\post-p3-hotspots\\laneflow\\target\\hotspot-binaries\\stages.exe",
+        "sha256": "9b914c081337635fd6fbc9cbbcc3f618cfbba05e265df54f07c12b0dd3631317"
+      }
+    },
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8\n",
+    "processor": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+    "logical_cpus": 32,
+    "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+    "started_utc": "2026-09-26T02:42:13.223859+00:00",
+    "completed": true,
+    "ended_utc": "2026-09-26T02:46:23.848679+00:00"
+  },
+  "runs": [
+    {
+      "label": "100k-1-plain",
+      "mode": "plain",
+      "scale": "100k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 42.71796171875,
+            "p50_ms": 43.6132,
+            "p95_ms": 52.7658,
+            "p99_ms": 55.7062,
+            "max_ms": 81.177
+          }
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 34.7690578125,
+            "p50_ms": 32.2638,
+            "p95_ms": 42.8438,
+            "p99_ms": 81.177,
+            "max_ms": 81.177
+          }
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 45.367596354166665,
+            "p50_ms": 45.1133,
+            "p95_ms": 53.1681,
+            "p99_ms": 55.7062,
+            "max_ms": 57.2997
+          }
+        }
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ],
+      "traffic": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      }
+    },
+    {
+      "label": "100k-2-stages",
+      "mode": "stages",
+      "scale": "100k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 42.3153359375,
+            "p50_ms": 42.1575,
+            "p95_ms": 50.9415,
+            "p99_ms": 54.5581,
+            "max_ms": 89.945
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 3.138540625,
+              "p50_ms": 3.647,
+              "p95_ms": 5.0845,
+              "p99_ms": 5.6539,
+              "max_ms": 6.4636
+            },
+            "Occupancy": {
+              "mean_ms": 4.446133984375,
+              "p50_ms": 4.384,
+              "p95_ms": 5.5629,
+              "p99_ms": 6.6918,
+              "max_ms": 6.9027
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.85846171875,
+              "p50_ms": 7.6285,
+              "p95_ms": 9.3708,
+              "p99_ms": 10.7051,
+              "max_ms": 11.1672
+            },
+            "ConflictPrepare": {
+              "mean_ms": 8.294606640625,
+              "p50_ms": 8.6373,
+              "p95_ms": 11.3268,
+              "p99_ms": 13.1935,
+              "max_ms": 53.6111
+            },
+            "MotionLoop": {
+              "mean_ms": 5.505010546875,
+              "p50_ms": 5.3426,
+              "p95_ms": 6.6161,
+              "p99_ms": 7.6041,
+              "max_ms": 8.3955
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.560519921875,
+              "p50_ms": 0.5358,
+              "p95_ms": 0.7089,
+              "p99_ms": 1.0867,
+              "max_ms": 1.4516
+            },
+            "Signals": {
+              "mean_ms": 0.149991796875,
+              "p50_ms": 0.1392,
+              "p95_ms": 0.1859,
+              "p99_ms": 0.3967,
+              "max_ms": 0.6173
+            },
+            "ConflictFinalize": {
+              "mean_ms": 4.991725,
+              "p50_ms": 5.0084,
+              "p95_ms": 6.4013,
+              "p99_ms": 7.5558,
+              "max_ms": 8.4734
+            },
+            "WaitingOutputs": {
+              "mean_ms": 5.120464453125,
+              "p50_ms": 4.7934,
+              "p95_ms": 8.1468,
+              "p99_ms": 9.1706,
+              "max_ms": 9.5417
+            },
+            "Commit": {
+              "mean_ms": 2.239539453125,
+              "p50_ms": 2.1173,
+              "p95_ms": 3.0433,
+              "p99_ms": 3.2649,
+              "max_ms": 3.3893
+            },
+            "Frontier": {
+              "mean_ms": 3.033559375,
+              "p50_ms": 3.6471,
+              "p95_ms": 5.341,
+              "p99_ms": 6.3218,
+              "max_ms": 50.3757
+            },
+            "P4": {
+              "mean_ms": 0.43190703125,
+              "p50_ms": 0.3972,
+              "p95_ms": 1.0565,
+              "p99_ms": 1.7542,
+              "max_ms": 2.5104
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.010341796875,
+            "p50_ms": 0.0098,
+            "p95_ms": 0.0125,
+            "p99_ms": 0.0207,
+            "max_ms": 0.0993
+          },
+          "ranking": [
+            "ConflictPrepare",
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Preflight",
+            "Commit",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 36.826296875,
+            "p50_ms": 36.0558,
+            "p95_ms": 41.6522,
+            "p99_ms": 89.945,
+            "max_ms": 89.945
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 1.4705640625,
+              "p50_ms": 1.4206,
+              "p95_ms": 2.0389,
+              "p99_ms": 2.1688,
+              "max_ms": 2.1688
+            },
+            "Occupancy": {
+              "mean_ms": 4.4674234375,
+              "p50_ms": 4.3834,
+              "p95_ms": 5.5715,
+              "p99_ms": 6.6918,
+              "max_ms": 6.6918
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.947690625,
+              "p50_ms": 7.8208,
+              "p95_ms": 9.4373,
+              "p99_ms": 11.1672,
+              "max_ms": 11.1672
+            },
+            "ConflictPrepare": {
+              "mean_ms": 5.5619703125,
+              "p50_ms": 3.7583,
+              "p95_ms": 9.2805,
+              "p99_ms": 53.6111,
+              "max_ms": 53.6111
+            },
+            "MotionLoop": {
+              "mean_ms": 5.66158125,
+              "p50_ms": 5.5707,
+              "p95_ms": 7.0145,
+              "p99_ms": 7.9107,
+              "max_ms": 7.9107
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.58544375,
+              "p50_ms": 0.5397,
+              "p95_ms": 0.8822,
+              "p99_ms": 1.4516,
+              "max_ms": 1.4516
+            },
+            "Signals": {
+              "mean_ms": 0.14125625,
+              "p50_ms": 0.1365,
+              "p95_ms": 0.1669,
+              "p99_ms": 0.2232,
+              "max_ms": 0.2232
+            },
+            "ConflictFinalize": {
+              "mean_ms": 4.0882140625,
+              "p50_ms": 4.0218,
+              "p95_ms": 4.662,
+              "p99_ms": 7.5558,
+              "max_ms": 7.5558
+            },
+            "WaitingOutputs": {
+              "mean_ms": 4.4293109375,
+              "p50_ms": 4.2179,
+              "p95_ms": 5.6938,
+              "p99_ms": 8.1716,
+              "max_ms": 8.1716
+            },
+            "Commit": {
+              "mean_ms": 2.462471875,
+              "p50_ms": 2.427,
+              "p95_ms": 3.1745,
+              "p99_ms": 3.3515,
+              "max_ms": 3.3515
+            },
+            "Frontier": {
+              "mean_ms": 1.225303125,
+              "p50_ms": 0.0037,
+              "p95_ms": 1.9092,
+              "p99_ms": 50.3757,
+              "max_ms": 50.3757
+            },
+            "P4": {
+              "mean_ms": 0.0970703125,
+              "p50_ms": 0.0036,
+              "p95_ms": 0.4289,
+              "p99_ms": 0.5856,
+              "max_ms": 0.5856
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.0103703125,
+            "p50_ms": 0.0098,
+            "p95_ms": 0.0133,
+            "p99_ms": 0.0221,
+            "max_ms": 0.0221
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "MotionLoop",
+            "ConflictPrepare",
+            "Occupancy",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 44.145015625,
+            "p50_ms": 44.3175,
+            "p95_ms": 51.1323,
+            "p99_ms": 54.5581,
+            "max_ms": 57.2517
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 3.6945328125,
+              "p50_ms": 3.8992,
+              "p95_ms": 5.1471,
+              "p99_ms": 5.9861,
+              "max_ms": 6.4636
+            },
+            "Occupancy": {
+              "mean_ms": 4.4390375,
+              "p50_ms": 4.384,
+              "p95_ms": 5.4403,
+              "p99_ms": 6.8495,
+              "max_ms": 6.9027
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.82871875,
+              "p50_ms": 7.6044,
+              "p95_ms": 9.2987,
+              "p99_ms": 10.5617,
+              "max_ms": 10.7051
+            },
+            "ConflictPrepare": {
+              "mean_ms": 9.205485416666667,
+              "p50_ms": 9.0785,
+              "p95_ms": 11.8318,
+              "p99_ms": 13.1935,
+              "max_ms": 13.5424
+            },
+            "MotionLoop": {
+              "mean_ms": 5.4528203125,
+              "p50_ms": 5.2847,
+              "p95_ms": 6.4399,
+              "p99_ms": 7.6041,
+              "max_ms": 8.3955
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.5522119791666666,
+              "p50_ms": 0.5333,
+              "p95_ms": 0.6935,
+              "p99_ms": 0.8841,
+              "max_ms": 1.1794
+            },
+            "Signals": {
+              "mean_ms": 0.15290364583333335,
+              "p50_ms": 0.1396,
+              "p95_ms": 0.1981,
+              "p99_ms": 0.471,
+              "max_ms": 0.6173
+            },
+            "ConflictFinalize": {
+              "mean_ms": 5.2928953125,
+              "p50_ms": 5.2963,
+              "p95_ms": 6.479,
+              "p99_ms": 8.0293,
+              "max_ms": 8.4734
+            },
+            "WaitingOutputs": {
+              "mean_ms": 5.350848958333333,
+              "p50_ms": 4.9519,
+              "p95_ms": 8.1912,
+              "p99_ms": 9.1954,
+              "max_ms": 9.5417
+            },
+            "Commit": {
+              "mean_ms": 2.1652286458333334,
+              "p50_ms": 2.0251,
+              "p95_ms": 3.0306,
+              "p99_ms": 3.2204,
+              "max_ms": 3.3893
+            },
+            "Frontier": {
+              "mean_ms": 3.6363114583333336,
+              "p50_ms": 3.9888,
+              "p95_ms": 5.3429,
+              "p99_ms": 6.1686,
+              "max_ms": 6.3218
+            },
+            "P4": {
+              "mean_ms": 0.5435192708333334,
+              "p50_ms": 0.4615,
+              "p95_ms": 1.2411,
+              "p99_ms": 2.0587,
+              "max_ms": 2.5104
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.010332291666666667,
+            "p50_ms": 0.0098,
+            "p95_ms": 0.0121,
+            "p99_ms": 0.0207,
+            "max_ms": 0.0993
+          },
+          "ranking": [
+            "ConflictPrepare",
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Preflight",
+            "Commit",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        }
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ],
+      "traffic": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      }
+    },
+    {
+      "label": "100k-3-stages",
+      "mode": "stages",
+      "scale": "100k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 42.68757578125,
+            "p50_ms": 42.4938,
+            "p95_ms": 51.9043,
+            "p99_ms": 54.0797,
+            "max_ms": 81.9526
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 3.158635546875,
+              "p50_ms": 3.5311,
+              "p95_ms": 4.9786,
+              "p99_ms": 5.4432,
+              "max_ms": 7.4905
+            },
+            "Occupancy": {
+              "mean_ms": 4.6898828125,
+              "p50_ms": 4.6208,
+              "p95_ms": 5.734,
+              "p99_ms": 6.3894,
+              "max_ms": 8.1792
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.83277109375,
+              "p50_ms": 7.7471,
+              "p95_ms": 8.9293,
+              "p99_ms": 9.9238,
+              "max_ms": 10.3821
+            },
+            "ConflictPrepare": {
+              "mean_ms": 8.37637578125,
+              "p50_ms": 8.6325,
+              "p95_ms": 11.8244,
+              "p99_ms": 12.9188,
+              "max_ms": 48.2967
+            },
+            "MotionLoop": {
+              "mean_ms": 5.563030078125,
+              "p50_ms": 5.417,
+              "p95_ms": 6.5716,
+              "p99_ms": 7.9817,
+              "max_ms": 8.7043
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.56251953125,
+              "p50_ms": 0.5222,
+              "p95_ms": 0.7528,
+              "p99_ms": 1.1051,
+              "max_ms": 1.2004
+            },
+            "Signals": {
+              "mean_ms": 0.157433203125,
+              "p50_ms": 0.1406,
+              "p95_ms": 0.2279,
+              "p99_ms": 0.4909,
+              "max_ms": 0.611
+            },
+            "ConflictFinalize": {
+              "mean_ms": 5.001476171875,
+              "p50_ms": 5.0345,
+              "p95_ms": 6.4323,
+              "p99_ms": 6.9219,
+              "max_ms": 7.1636
+            },
+            "WaitingOutputs": {
+              "mean_ms": 5.125791015625,
+              "p50_ms": 4.775,
+              "p95_ms": 8.0697,
+              "p99_ms": 9.2562,
+              "max_ms": 10.1075
+            },
+            "Commit": {
+              "mean_ms": 2.208846484375,
+              "p50_ms": 2.068,
+              "p95_ms": 3.0666,
+              "p99_ms": 3.4569,
+              "max_ms": 4.2515
+            },
+            "Frontier": {
+              "mean_ms": 3.04435390625,
+              "p50_ms": 3.5804,
+              "p95_ms": 5.4589,
+              "p99_ms": 6.8234,
+              "max_ms": 45.2938
+            },
+            "P4": {
+              "mean_ms": 0.42956484375,
+              "p50_ms": 0.3694,
+              "p95_ms": 1.1203,
+              "p99_ms": 1.7086,
+              "max_ms": 2.9251
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.0108140625,
+            "p50_ms": 0.0094,
+            "p95_ms": 0.0117,
+            "p99_ms": 0.0288,
+            "max_ms": 0.246
+          },
+          "ranking": [
+            "ConflictPrepare",
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Preflight",
+            "Commit",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 37.23204375,
+            "p50_ms": 36.6322,
+            "p95_ms": 43.7422,
+            "p99_ms": 81.9526,
+            "max_ms": 81.9526
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 1.5020125,
+              "p50_ms": 1.4617,
+              "p95_ms": 1.9053,
+              "p99_ms": 2.5936,
+              "max_ms": 2.5936
+            },
+            "Occupancy": {
+              "mean_ms": 4.7076109375,
+              "p50_ms": 4.7697,
+              "p95_ms": 5.4404,
+              "p99_ms": 5.8033,
+              "max_ms": 5.8033
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.8685640625,
+              "p50_ms": 7.9752,
+              "p95_ms": 8.8685,
+              "p99_ms": 10.3821,
+              "max_ms": 10.3821
+            },
+            "ConflictPrepare": {
+              "mean_ms": 5.7627296875,
+              "p50_ms": 3.7981,
+              "p95_ms": 9.9007,
+              "p99_ms": 48.2967,
+              "max_ms": 48.2967
+            },
+            "MotionLoop": {
+              "mean_ms": 5.5561328125,
+              "p50_ms": 5.459,
+              "p95_ms": 6.4177,
+              "p99_ms": 7.0827,
+              "max_ms": 7.0827
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.559309375,
+              "p50_ms": 0.5275,
+              "p95_ms": 0.7202,
+              "p99_ms": 0.8386,
+              "max_ms": 0.8386
+            },
+            "Signals": {
+              "mean_ms": 0.1571875,
+              "p50_ms": 0.1406,
+              "p95_ms": 0.2105,
+              "p99_ms": 0.4909,
+              "max_ms": 0.4909
+            },
+            "ConflictFinalize": {
+              "mean_ms": 4.1469703125,
+              "p50_ms": 4.097,
+              "p95_ms": 5.1418,
+              "p99_ms": 6.3713,
+              "max_ms": 6.3713
+            },
+            "WaitingOutputs": {
+              "mean_ms": 4.472284375,
+              "p50_ms": 4.3455,
+              "p95_ms": 5.159,
+              "p99_ms": 8.0697,
+              "max_ms": 8.0697
+            },
+            "Commit": {
+              "mean_ms": 2.486078125,
+              "p50_ms": 2.4254,
+              "p95_ms": 3.1684,
+              "p99_ms": 4.2515,
+              "max_ms": 4.2515
+            },
+            "Frontier": {
+              "mean_ms": 1.203078125,
+              "p50_ms": 0.0034,
+              "p95_ms": 1.6605,
+              "p99_ms": 45.2938,
+              "max_ms": 45.2938
+            },
+            "P4": {
+              "mean_ms": 0.0983078125,
+              "p50_ms": 0.0036,
+              "p95_ms": 0.4392,
+              "p99_ms": 0.757,
+              "max_ms": 0.757
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.0131640625,
+            "p50_ms": 0.0089,
+            "p95_ms": 0.0121,
+            "p99_ms": 0.246,
+            "max_ms": 0.246
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "Occupancy",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 44.506086458333336,
+            "p50_ms": 43.8494,
+            "p95_ms": 52.2129,
+            "p99_ms": 54.0797,
+            "max_ms": 57.6564
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 3.7108432291666666,
+              "p50_ms": 3.9881,
+              "p95_ms": 5.0813,
+              "p99_ms": 5.5313,
+              "max_ms": 7.4905
+            },
+            "Occupancy": {
+              "mean_ms": 4.6839734375,
+              "p50_ms": 4.5754,
+              "p95_ms": 5.806,
+              "p99_ms": 6.8805,
+              "max_ms": 8.1792
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.820840104166667,
+              "p50_ms": 7.7189,
+              "p95_ms": 8.9303,
+              "p99_ms": 9.9238,
+              "max_ms": 10.2105
+            },
+            "ConflictPrepare": {
+              "mean_ms": 9.247591145833335,
+              "p50_ms": 8.9247,
+              "p95_ms": 11.978,
+              "p99_ms": 12.9188,
+              "max_ms": 13.1561
+            },
+            "MotionLoop": {
+              "mean_ms": 5.565329166666667,
+              "p50_ms": 5.3949,
+              "p95_ms": 6.5769,
+              "p99_ms": 8.1501,
+              "max_ms": 8.7043
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.5635895833333334,
+              "p50_ms": 0.5217,
+              "p95_ms": 0.8102,
+              "p99_ms": 1.1835,
+              "max_ms": 1.2004
+            },
+            "Signals": {
+              "mean_ms": 0.15751510416666667,
+              "p50_ms": 0.1405,
+              "p95_ms": 0.2279,
+              "p99_ms": 0.5883,
+              "max_ms": 0.611
+            },
+            "ConflictFinalize": {
+              "mean_ms": 5.286311458333333,
+              "p50_ms": 5.239,
+              "p95_ms": 6.5197,
+              "p99_ms": 6.9535,
+              "max_ms": 7.1636
+            },
+            "WaitingOutputs": {
+              "mean_ms": 5.3436265625,
+              "p50_ms": 4.952,
+              "p95_ms": 8.2846,
+              "p99_ms": 9.293,
+              "max_ms": 10.1075
+            },
+            "Commit": {
+              "mean_ms": 2.1164359375,
+              "p50_ms": 1.9924,
+              "p95_ms": 3.0245,
+              "p99_ms": 3.3754,
+              "max_ms": 3.4569
+            },
+            "Frontier": {
+              "mean_ms": 3.6581125,
+              "p50_ms": 3.8429,
+              "p95_ms": 5.4752,
+              "p99_ms": 6.2579,
+              "max_ms": 6.8234
+            },
+            "P4": {
+              "mean_ms": 0.5399838541666666,
+              "p50_ms": 0.4731,
+              "p95_ms": 1.172,
+              "p99_ms": 1.8395,
+              "max_ms": 2.9251
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.010030729166666665,
+            "p50_ms": 0.0095,
+            "p95_ms": 0.0116,
+            "p99_ms": 0.0284,
+            "max_ms": 0.0721
+          },
+          "ranking": [
+            "ConflictPrepare",
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Preflight",
+            "Commit",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        }
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ],
+      "traffic": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      }
+    },
+    {
+      "label": "100k-4-plain",
+      "mode": "plain",
+      "scale": "100k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 41.847344140625,
+            "p50_ms": 42.4369,
+            "p95_ms": 51.2809,
+            "p99_ms": 55.0748,
+            "max_ms": 81.4403
+          }
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 35.2236953125,
+            "p50_ms": 35.0215,
+            "p95_ms": 41.2398,
+            "p99_ms": 81.4403,
+            "max_ms": 81.4403
+          }
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 44.055227083333335,
+            "p50_ms": 43.6241,
+            "p95_ms": 51.716,
+            "p99_ms": 55.0748,
+            "max_ms": 57.5372
+          }
+        }
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ],
+      "traffic": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      }
+    },
+    {
+      "label": "100k-5-plain",
+      "mode": "plain",
+      "scale": "100k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 42.464269921875,
+            "p50_ms": 42.1567,
+            "p95_ms": 51.797,
+            "p99_ms": 58.5913,
+            "max_ms": 86.2226
+          }
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 36.8053171875,
+            "p50_ms": 36.1334,
+            "p95_ms": 43.9065,
+            "p99_ms": 86.2226,
+            "max_ms": 86.2226
+          }
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 44.3505875,
+            "p50_ms": 43.9061,
+            "p95_ms": 52.1346,
+            "p99_ms": 58.5913,
+            "max_ms": 59.8315
+          }
+        }
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ],
+      "traffic": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      }
+    },
+    {
+      "label": "100k-6-stages",
+      "mode": "stages",
+      "scale": "100k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 41.484684375,
+            "p50_ms": 42.092,
+            "p95_ms": 48.3334,
+            "p99_ms": 53.3025,
+            "max_ms": 82.0607
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 3.08095234375,
+              "p50_ms": 3.5757,
+              "p95_ms": 4.7361,
+              "p99_ms": 5.1906,
+              "max_ms": 5.8629
+            },
+            "Occupancy": {
+              "mean_ms": 4.6482765625,
+              "p50_ms": 4.5872,
+              "p95_ms": 5.6975,
+              "p99_ms": 6.3874,
+              "max_ms": 8.2215
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.652335546875,
+              "p50_ms": 7.4546,
+              "p95_ms": 9.109,
+              "p99_ms": 10.1798,
+              "max_ms": 10.4977
+            },
+            "ConflictPrepare": {
+              "mean_ms": 8.004516015625,
+              "p50_ms": 8.4442,
+              "p95_ms": 10.5239,
+              "p99_ms": 11.8192,
+              "max_ms": 47.939
+            },
+            "MotionLoop": {
+              "mean_ms": 5.418876171875,
+              "p50_ms": 5.2442,
+              "p95_ms": 6.5167,
+              "p99_ms": 7.3608,
+              "max_ms": 8.5531
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.557945703125,
+              "p50_ms": 0.5271,
+              "p95_ms": 0.7983,
+              "p99_ms": 0.9735,
+              "max_ms": 1.0439
+            },
+            "Signals": {
+              "mean_ms": 0.148925,
+              "p50_ms": 0.1391,
+              "p95_ms": 0.203,
+              "p99_ms": 0.3369,
+              "max_ms": 0.5602
+            },
+            "ConflictFinalize": {
+              "mean_ms": 4.813752734375,
+              "p50_ms": 4.9974,
+              "p95_ms": 6.101,
+              "p99_ms": 6.7375,
+              "max_ms": 6.9916
+            },
+            "WaitingOutputs": {
+              "mean_ms": 4.97389296875,
+              "p50_ms": 4.6444,
+              "p95_ms": 7.8737,
+              "p99_ms": 8.7389,
+              "max_ms": 10.4731
+            },
+            "Commit": {
+              "mean_ms": 2.17548671875,
+              "p50_ms": 2.0535,
+              "p95_ms": 2.9979,
+              "p99_ms": 3.3795,
+              "max_ms": 3.9734
+            },
+            "Frontier": {
+              "mean_ms": 2.9185765625,
+              "p50_ms": 3.5626,
+              "p95_ms": 5.0591,
+              "p99_ms": 5.87,
+              "max_ms": 45.0888
+            },
+            "P4": {
+              "mean_ms": 0.40830625,
+              "p50_ms": 0.3817,
+              "p95_ms": 0.9861,
+              "p99_ms": 1.557,
+              "max_ms": 2.6679
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.009724609375,
+            "p50_ms": 0.0096,
+            "p95_ms": 0.0118,
+            "p99_ms": 0.0166,
+            "max_ms": 0.0215
+          },
+          "ranking": [
+            "ConflictPrepare",
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Preflight",
+            "Commit",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 35.8371671875,
+            "p50_ms": 35.8746,
+            "p95_ms": 40.7519,
+            "p99_ms": 82.0607,
+            "max_ms": 82.0607
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 1.406209375,
+              "p50_ms": 1.3544,
+              "p95_ms": 1.8795,
+              "p99_ms": 2.3092,
+              "max_ms": 2.3092
+            },
+            "Occupancy": {
+              "mean_ms": 4.63765,
+              "p50_ms": 4.4786,
+              "p95_ms": 5.8536,
+              "p99_ms": 8.2215,
+              "max_ms": 8.2215
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.595021875,
+              "p50_ms": 7.2792,
+              "p95_ms": 9.3182,
+              "p99_ms": 10.3014,
+              "max_ms": 10.3014
+            },
+            "ConflictPrepare": {
+              "mean_ms": 5.44728125,
+              "p50_ms": 3.6475,
+              "p95_ms": 9.6667,
+              "p99_ms": 47.939,
+              "max_ms": 47.939
+            },
+            "MotionLoop": {
+              "mean_ms": 5.5664796875,
+              "p50_ms": 5.3036,
+              "p95_ms": 6.6052,
+              "p99_ms": 8.5531,
+              "max_ms": 8.5531
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.5689828125,
+              "p50_ms": 0.531,
+              "p95_ms": 0.8719,
+              "p99_ms": 1.0439,
+              "max_ms": 1.0439
+            },
+            "Signals": {
+              "mean_ms": 0.1496875,
+              "p50_ms": 0.1412,
+              "p95_ms": 0.2329,
+              "p99_ms": 0.3654,
+              "max_ms": 0.3654
+            },
+            "ConflictFinalize": {
+              "mean_ms": 3.86614375,
+              "p50_ms": 3.8004,
+              "p95_ms": 4.5997,
+              "p99_ms": 4.7972,
+              "max_ms": 4.7972
+            },
+            "WaitingOutputs": {
+              "mean_ms": 4.229365625,
+              "p50_ms": 4.1783,
+              "p95_ms": 4.8118,
+              "p99_ms": 6.8919,
+              "max_ms": 6.8919
+            },
+            "Commit": {
+              "mean_ms": 2.360896875,
+              "p50_ms": 2.2406,
+              "p95_ms": 3.0899,
+              "p99_ms": 3.3795,
+              "max_ms": 3.3795
+            },
+            "Frontier": {
+              "mean_ms": 1.1480671875,
+              "p50_ms": 0.0032,
+              "p95_ms": 1.5794,
+              "p99_ms": 45.0888,
+              "max_ms": 45.0888
+            },
+            "P4": {
+              "mean_ms": 0.0936515625,
+              "p50_ms": 0.0036,
+              "p95_ms": 0.4474,
+              "p99_ms": 0.6102,
+              "max_ms": 0.6102
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.0094484375,
+            "p50_ms": 0.0092,
+            "p95_ms": 0.0118,
+            "p99_ms": 0.0166,
+            "max_ms": 0.0166
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "MotionLoop",
+            "ConflictPrepare",
+            "Occupancy",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 43.36719010416667,
+            "p50_ms": 43.2232,
+            "p95_ms": 48.5123,
+            "p99_ms": 53.3025,
+            "max_ms": 57.7318
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 3.6392,
+              "p50_ms": 3.9349,
+              "p95_ms": 4.8511,
+              "p99_ms": 5.8238,
+              "max_ms": 5.8629
+            },
+            "Occupancy": {
+              "mean_ms": 4.65181875,
+              "p50_ms": 4.5939,
+              "p95_ms": 5.6669,
+              "p99_ms": 6.3874,
+              "max_ms": 6.4919
+            },
+            "WaitingPrepare": {
+              "mean_ms": 7.671440104166667,
+              "p50_ms": 7.5032,
+              "p95_ms": 9.101,
+              "p99_ms": 9.8825,
+              "max_ms": 10.4977
+            },
+            "ConflictPrepare": {
+              "mean_ms": 8.856927604166666,
+              "p50_ms": 8.6603,
+              "p95_ms": 10.6371,
+              "p99_ms": 11.8192,
+              "max_ms": 13.7394
+            },
+            "MotionLoop": {
+              "mean_ms": 5.369675,
+              "p50_ms": 5.2328,
+              "p95_ms": 6.5111,
+              "p99_ms": 7.0935,
+              "max_ms": 7.5703
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.5542666666666666,
+              "p50_ms": 0.5222,
+              "p95_ms": 0.7501,
+              "p99_ms": 0.9623,
+              "max_ms": 0.9735
+            },
+            "Signals": {
+              "mean_ms": 0.14867083333333334,
+              "p50_ms": 0.1384,
+              "p95_ms": 0.2004,
+              "p99_ms": 0.3369,
+              "max_ms": 0.5602
+            },
+            "ConflictFinalize": {
+              "mean_ms": 5.129622395833333,
+              "p50_ms": 5.1654,
+              "p95_ms": 6.1072,
+              "p99_ms": 6.8355,
+              "max_ms": 6.9916
+            },
+            "WaitingOutputs": {
+              "mean_ms": 5.22206875,
+              "p50_ms": 4.8141,
+              "p95_ms": 8.0576,
+              "p99_ms": 9.5965,
+              "max_ms": 10.4731
+            },
+            "Commit": {
+              "mean_ms": 2.1136833333333334,
+              "p50_ms": 2.0063,
+              "p95_ms": 2.8465,
+              "p99_ms": 3.4185,
+              "max_ms": 3.9734
+            },
+            "Frontier": {
+              "mean_ms": 3.5087463541666666,
+              "p50_ms": 3.7682,
+              "p95_ms": 5.0829,
+              "p99_ms": 5.5222,
+              "max_ms": 5.87
+            },
+            "P4": {
+              "mean_ms": 0.5131911458333334,
+              "p50_ms": 0.4544,
+              "p95_ms": 1.0779,
+              "p99_ms": 1.5706,
+              "max_ms": 2.6679
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.009816666666666666,
+            "p50_ms": 0.0097,
+            "p95_ms": 0.0117,
+            "p99_ms": 0.0172,
+            "max_ms": 0.0215
+          },
+          "ranking": [
+            "ConflictPrepare",
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Preflight",
+            "Commit",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        }
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ],
+      "traffic": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      }
+    },
+    {
+      "label": "10k-1-plain",
+      "mode": "plain",
+      "scale": "10k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 3.2857953125,
+            "p50_ms": 3.2006,
+            "p95_ms": 4.0974,
+            "p99_ms": 5.3058,
+            "max_ms": 8.0631
+          }
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 3.024153125,
+            "p50_ms": 2.8699,
+            "p95_ms": 3.5661,
+            "p99_ms": 8.0631,
+            "max_ms": 8.0631
+          }
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 3.373009375,
+            "p50_ms": 3.2795,
+            "p95_ms": 4.1448,
+            "p99_ms": 5.3058,
+            "max_ms": 5.4761
+          }
+        }
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ],
+      "traffic": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      }
+    },
+    {
+      "label": "10k-2-stages",
+      "mode": "stages",
+      "scale": "10k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 3.2274453125,
+            "p50_ms": 3.1401,
+            "p95_ms": 4.0571,
+            "p99_ms": 5.1301,
+            "max_ms": 8.4122
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.16631015625,
+              "p50_ms": 0.1504,
+              "p95_ms": 0.2617,
+              "p99_ms": 0.3281,
+              "max_ms": 0.3854
+            },
+            "Occupancy": {
+              "mean_ms": 0.284105078125,
+              "p50_ms": 0.2701,
+              "p95_ms": 0.3825,
+              "p99_ms": 0.4481,
+              "max_ms": 0.4756
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.722145703125,
+              "p50_ms": 0.6885,
+              "p95_ms": 0.8846,
+              "p99_ms": 1.0944,
+              "max_ms": 1.4205
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.5754828125,
+              "p50_ms": 0.6075,
+              "p95_ms": 1.0293,
+              "p99_ms": 1.4765,
+              "max_ms": 4.7195
+            },
+            "MotionLoop": {
+              "mean_ms": 0.531673828125,
+              "p50_ms": 0.5039,
+              "p95_ms": 0.6978,
+              "p99_ms": 0.8455,
+              "max_ms": 1.3199
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.035374609375,
+              "p50_ms": 0.0337,
+              "p95_ms": 0.0446,
+              "p99_ms": 0.0538,
+              "max_ms": 0.0645
+            },
+            "Signals": {
+              "mean_ms": 0.014510546875,
+              "p50_ms": 0.0141,
+              "p95_ms": 0.0196,
+              "p99_ms": 0.0312,
+              "max_ms": 0.0346
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.315473046875,
+              "p50_ms": 0.3037,
+              "p95_ms": 0.3994,
+              "p99_ms": 0.4527,
+              "max_ms": 0.5259
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.37965859375,
+              "p50_ms": 0.3602,
+              "p95_ms": 0.5055,
+              "p99_ms": 0.7165,
+              "max_ms": 0.7526
+            },
+            "Commit": {
+              "mean_ms": 0.198412890625,
+              "p50_ms": 0.1838,
+              "p95_ms": 0.3027,
+              "p99_ms": 0.3468,
+              "max_ms": 0.4509
+            },
+            "Frontier": {
+              "mean_ms": 0.107388671875,
+              "p50_ms": 0.0786,
+              "p95_ms": 0.2945,
+              "p99_ms": 0.4511,
+              "max_ms": 4.4027
+            },
+            "P4": {
+              "mean_ms": 0.02494609375,
+              "p50_ms": 0.026,
+              "p95_ms": 0.0573,
+              "p99_ms": 0.1308,
+              "max_ms": 0.2583
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.004298046875,
+            "p50_ms": 0.0042,
+            "p95_ms": 0.0054,
+            "p99_ms": 0.0078,
+            "max_ms": 0.0146
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 2.8487671875,
+            "p50_ms": 2.7366,
+            "p95_ms": 3.0589,
+            "p99_ms": 8.4122,
+            "max_ms": 8.4122
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.127521875,
+              "p50_ms": 0.1209,
+              "p95_ms": 0.1659,
+              "p99_ms": 0.2165,
+              "max_ms": 0.2165
+            },
+            "Occupancy": {
+              "mean_ms": 0.2739375,
+              "p50_ms": 0.264,
+              "p95_ms": 0.3234,
+              "p99_ms": 0.4347,
+              "max_ms": 0.4347
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.691565625,
+              "p50_ms": 0.6581,
+              "p95_ms": 0.8469,
+              "p99_ms": 1.1973,
+              "max_ms": 1.1973
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.3324328125,
+              "p50_ms": 0.2421,
+              "p95_ms": 0.3843,
+              "p99_ms": 4.7195,
+              "max_ms": 4.7195
+            },
+            "MotionLoop": {
+              "mean_ms": 0.5223546875,
+              "p50_ms": 0.4941,
+              "p95_ms": 0.631,
+              "p99_ms": 1.0158,
+              "max_ms": 1.0158
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.0338953125,
+              "p50_ms": 0.0333,
+              "p95_ms": 0.0386,
+              "p99_ms": 0.0614,
+              "max_ms": 0.0614
+            },
+            "Signals": {
+              "mean_ms": 0.0143296875,
+              "p50_ms": 0.0141,
+              "p95_ms": 0.0174,
+              "p99_ms": 0.0339,
+              "max_ms": 0.0339
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.28755625,
+              "p50_ms": 0.2845,
+              "p95_ms": 0.3119,
+              "p99_ms": 0.3303,
+              "max_ms": 0.3303
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.3582390625,
+              "p50_ms": 0.3481,
+              "p95_ms": 0.4119,
+              "p99_ms": 0.4768,
+              "max_ms": 0.4768
+            },
+            "Commit": {
+              "mean_ms": 0.2027125,
+              "p50_ms": 0.1892,
+              "p95_ms": 0.2683,
+              "p99_ms": 0.3242,
+              "max_ms": 0.3242
+            },
+            "Frontier": {
+              "mean_ms": 0.086946875,
+              "p50_ms": 0.0025,
+              "p95_ms": 0.0578,
+              "p99_ms": 4.4027,
+              "max_ms": 4.4027
+            },
+            "P4": {
+              "mean_ms": 0.0024234375,
+              "p50_ms": 0.0023,
+              "p95_ms": 0.0029,
+              "p99_ms": 0.012,
+              "max_ms": 0.012
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.004221875,
+            "p50_ms": 0.0041,
+            "p95_ms": 0.0051,
+            "p99_ms": 0.0146,
+            "max_ms": 0.0146
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictPrepare",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 3.3536713541666665,
+            "p50_ms": 3.2372,
+            "p95_ms": 4.0842,
+            "p99_ms": 5.1301,
+            "max_ms": 5.2612
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.17923958333333334,
+              "p50_ms": 0.1573,
+              "p95_ms": 0.2706,
+              "p99_ms": 0.3314,
+              "max_ms": 0.3854
+            },
+            "Occupancy": {
+              "mean_ms": 0.2874942708333333,
+              "p50_ms": 0.2725,
+              "p95_ms": 0.3896,
+              "p99_ms": 0.4643,
+              "max_ms": 0.4756
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.7323390625,
+              "p50_ms": 0.692,
+              "p95_ms": 0.8965,
+              "p99_ms": 1.0944,
+              "max_ms": 1.4205
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.6564994791666666,
+              "p50_ms": 0.6284,
+              "p95_ms": 1.0496,
+              "p99_ms": 1.4765,
+              "max_ms": 1.5114
+            },
+            "MotionLoop": {
+              "mean_ms": 0.5347802083333334,
+              "p50_ms": 0.5066,
+              "p95_ms": 0.7134,
+              "p99_ms": 0.8455,
+              "max_ms": 1.3199
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.03586770833333334,
+              "p50_ms": 0.0338,
+              "p95_ms": 0.0449,
+              "p99_ms": 0.0538,
+              "max_ms": 0.0645
+            },
+            "Signals": {
+              "mean_ms": 0.014570833333333333,
+              "p50_ms": 0.0141,
+              "p95_ms": 0.0199,
+              "p99_ms": 0.0291,
+              "max_ms": 0.0346
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.3247786458333333,
+              "p50_ms": 0.3089,
+              "p95_ms": 0.4149,
+              "p99_ms": 0.4546,
+              "max_ms": 0.5259
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.3867984375,
+              "p50_ms": 0.364,
+              "p95_ms": 0.5468,
+              "p99_ms": 0.7391,
+              "max_ms": 0.7526
+            },
+            "Commit": {
+              "mean_ms": 0.1969796875,
+              "p50_ms": 0.1805,
+              "p95_ms": 0.3027,
+              "p99_ms": 0.3604,
+              "max_ms": 0.4509
+            },
+            "Frontier": {
+              "mean_ms": 0.11420260416666667,
+              "p50_ms": 0.0828,
+              "p95_ms": 0.2945,
+              "p99_ms": 0.395,
+              "max_ms": 0.4511
+            },
+            "P4": {
+              "mean_ms": 0.03245364583333333,
+              "p50_ms": 0.0296,
+              "p95_ms": 0.0634,
+              "p99_ms": 0.1653,
+              "max_ms": 0.2583
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.0043234375,
+            "p50_ms": 0.0043,
+            "p95_ms": 0.0054,
+            "p99_ms": 0.0078,
+            "max_ms": 0.0083
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        }
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ],
+      "traffic": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      }
+    },
+    {
+      "label": "10k-3-stages",
+      "mode": "stages",
+      "scale": "10k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 3.2442515625,
+            "p50_ms": 3.2303,
+            "p95_ms": 4.1275,
+            "p99_ms": 4.467,
+            "max_ms": 7.994
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.1610703125,
+              "p50_ms": 0.148,
+              "p95_ms": 0.251,
+              "p99_ms": 0.2929,
+              "max_ms": 0.3389
+            },
+            "Occupancy": {
+              "mean_ms": 0.2870171875,
+              "p50_ms": 0.2797,
+              "p95_ms": 0.3469,
+              "p99_ms": 0.441,
+              "max_ms": 0.4577
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.733705859375,
+              "p50_ms": 0.701,
+              "p95_ms": 0.9837,
+              "p99_ms": 1.0437,
+              "max_ms": 1.1166
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.574265625,
+              "p50_ms": 0.6126,
+              "p95_ms": 1.0024,
+              "p99_ms": 1.214,
+              "max_ms": 4.615
+            },
+            "MotionLoop": {
+              "mean_ms": 0.528896875,
+              "p50_ms": 0.4957,
+              "p95_ms": 0.7288,
+              "p99_ms": 0.8393,
+              "max_ms": 0.9425
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.0354125,
+              "p50_ms": 0.0337,
+              "p95_ms": 0.0476,
+              "p99_ms": 0.0725,
+              "max_ms": 0.1094
+            },
+            "Signals": {
+              "mean_ms": 0.01390703125,
+              "p50_ms": 0.0137,
+              "p95_ms": 0.0179,
+              "p99_ms": 0.0231,
+              "max_ms": 0.0357
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.31663828125,
+              "p50_ms": 0.3063,
+              "p95_ms": 0.3921,
+              "p99_ms": 0.4785,
+              "max_ms": 0.5401
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.37609453125,
+              "p50_ms": 0.3614,
+              "p95_ms": 0.4818,
+              "p99_ms": 0.6871,
+              "max_ms": 0.806
+            },
+            "Commit": {
+              "mean_ms": 0.213014453125,
+              "p50_ms": 0.1869,
+              "p95_ms": 0.3239,
+              "p99_ms": 0.3682,
+              "max_ms": 0.5449
+            },
+            "Frontier": {
+              "mean_ms": 0.109124609375,
+              "p50_ms": 0.0826,
+              "p95_ms": 0.2723,
+              "p99_ms": 0.4618,
+              "max_ms": 4.3467
+            },
+            "P4": {
+              "mean_ms": 0.023861328125,
+              "p50_ms": 0.0271,
+              "p95_ms": 0.0514,
+              "p99_ms": 0.1185,
+              "max_ms": 0.1919
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.00422890625,
+            "p50_ms": 0.0041,
+            "p95_ms": 0.0061,
+            "p99_ms": 0.0071,
+            "max_ms": 0.0077
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 2.8393,
+            "p50_ms": 2.6741,
+            "p95_ms": 3.3981,
+            "p99_ms": 7.994,
+            "max_ms": 7.994
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.1226578125,
+              "p50_ms": 0.1186,
+              "p95_ms": 0.1315,
+              "p99_ms": 0.2335,
+              "max_ms": 0.2335
+            },
+            "Occupancy": {
+              "mean_ms": 0.2790390625,
+              "p50_ms": 0.265,
+              "p95_ms": 0.3483,
+              "p99_ms": 0.4577,
+              "max_ms": 0.4577
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.684884375,
+              "p50_ms": 0.655,
+              "p95_ms": 0.8557,
+              "p99_ms": 1.1166,
+              "max_ms": 1.1166
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.331334375,
+              "p50_ms": 0.2378,
+              "p95_ms": 0.3711,
+              "p99_ms": 4.615,
+              "max_ms": 4.615
+            },
+            "MotionLoop": {
+              "mean_ms": 0.5009734375,
+              "p50_ms": 0.4549,
+              "p95_ms": 0.6917,
+              "p99_ms": 0.872,
+              "max_ms": 0.872
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.035425,
+              "p50_ms": 0.0345,
+              "p95_ms": 0.0492,
+              "p99_ms": 0.0725,
+              "max_ms": 0.0725
+            },
+            "Signals": {
+              "mean_ms": 0.0135,
+              "p50_ms": 0.0135,
+              "p95_ms": 0.019,
+              "p99_ms": 0.0271,
+              "max_ms": 0.0271
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.2935890625,
+              "p50_ms": 0.2821,
+              "p95_ms": 0.3508,
+              "p99_ms": 0.4224,
+              "max_ms": 0.4224
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.3597359375,
+              "p50_ms": 0.3488,
+              "p95_ms": 0.4364,
+              "p99_ms": 0.5958,
+              "max_ms": 0.5958
+            },
+            "Commit": {
+              "mean_ms": 0.214190625,
+              "p50_ms": 0.1875,
+              "p95_ms": 0.3409,
+              "p99_ms": 0.4079,
+              "max_ms": 0.4079
+            },
+            "Frontier": {
+              "mean_ms": 0.0862734375,
+              "p50_ms": 0.0022,
+              "p95_ms": 0.0528,
+              "p99_ms": 4.3467,
+              "max_ms": 4.3467
+            },
+            "P4": {
+              "mean_ms": 0.0021890625,
+              "p50_ms": 0.0022,
+              "p95_ms": 0.0033,
+              "p99_ms": 0.0053,
+              "max_ms": 0.0053
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.0039703125,
+            "p50_ms": 0.0039,
+            "p95_ms": 0.0066,
+            "p99_ms": 0.0077,
+            "max_ms": 0.0077
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictPrepare",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 3.3792354166666665,
+            "p50_ms": 3.3753,
+            "p95_ms": 4.1404,
+            "p99_ms": 4.467,
+            "max_ms": 4.4757
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.17387447916666665,
+              "p50_ms": 0.158,
+              "p95_ms": 0.2633,
+              "p99_ms": 0.2935,
+              "max_ms": 0.3389
+            },
+            "Occupancy": {
+              "mean_ms": 0.2896765625,
+              "p50_ms": 0.2829,
+              "p95_ms": 0.3393,
+              "p99_ms": 0.4213,
+              "max_ms": 0.4453
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.7499796875,
+              "p50_ms": 0.7185,
+              "p95_ms": 0.9896,
+              "p99_ms": 1.0437,
+              "max_ms": 1.0683
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.6552427083333334,
+              "p50_ms": 0.6389,
+              "p95_ms": 1.0135,
+              "p99_ms": 1.214,
+              "max_ms": 1.2407
+            },
+            "MotionLoop": {
+              "mean_ms": 0.5382046875,
+              "p50_ms": 0.5123,
+              "p95_ms": 0.7288,
+              "p99_ms": 0.8393,
+              "max_ms": 0.9425
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.03540833333333333,
+              "p50_ms": 0.0335,
+              "p95_ms": 0.0459,
+              "p99_ms": 0.0803,
+              "max_ms": 0.1094
+            },
+            "Signals": {
+              "mean_ms": 0.014042708333333334,
+              "p50_ms": 0.0138,
+              "p95_ms": 0.0179,
+              "p99_ms": 0.0231,
+              "max_ms": 0.0357
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.3243213541666667,
+              "p50_ms": 0.3096,
+              "p95_ms": 0.3946,
+              "p99_ms": 0.4801,
+              "max_ms": 0.5401
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.3815473958333333,
+              "p50_ms": 0.3647,
+              "p95_ms": 0.5617,
+              "p99_ms": 0.6963,
+              "max_ms": 0.806
+            },
+            "Commit": {
+              "mean_ms": 0.21262239583333334,
+              "p50_ms": 0.1856,
+              "p95_ms": 0.3165,
+              "p99_ms": 0.347,
+              "max_ms": 0.5449
+            },
+            "Frontier": {
+              "mean_ms": 0.11674166666666667,
+              "p50_ms": 0.0891,
+              "p95_ms": 0.2723,
+              "p99_ms": 0.3983,
+              "max_ms": 0.4618
+            },
+            "P4": {
+              "mean_ms": 0.031085416666666667,
+              "p50_ms": 0.03,
+              "p95_ms": 0.0532,
+              "p99_ms": 0.1188,
+              "max_ms": 0.1919
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.004315104166666667,
+            "p50_ms": 0.0042,
+            "p95_ms": 0.0061,
+            "p99_ms": 0.007,
+            "max_ms": 0.0072
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        }
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ],
+      "traffic": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      }
+    },
+    {
+      "label": "10k-4-plain",
+      "mode": "plain",
+      "scale": "10k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 3.336487109375,
+            "p50_ms": 3.2631,
+            "p95_ms": 4.4095,
+            "p99_ms": 4.9316,
+            "max_ms": 7.9012
+          }
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 2.997909375,
+            "p50_ms": 2.8714,
+            "p95_ms": 3.3827,
+            "p99_ms": 7.9012,
+            "max_ms": 7.9012
+          }
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 3.4493463541666665,
+            "p50_ms": 3.3207,
+            "p95_ms": 4.4245,
+            "p99_ms": 4.9316,
+            "max_ms": 5.0404
+          }
+        }
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ],
+      "traffic": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      }
+    },
+    {
+      "label": "10k-5-plain",
+      "mode": "plain",
+      "scale": "10k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 3.2877546875,
+            "p50_ms": 3.2364,
+            "p95_ms": 4.1103,
+            "p99_ms": 4.7369,
+            "max_ms": 7.9639
+          }
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 3.0683125,
+            "p50_ms": 2.842,
+            "p95_ms": 3.9879,
+            "p99_ms": 7.9639,
+            "max_ms": 7.9639
+          }
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 3.3609020833333334,
+            "p50_ms": 3.3056,
+            "p95_ms": 4.1508,
+            "p99_ms": 4.7369,
+            "max_ms": 4.9274
+          }
+        }
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ],
+      "traffic": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      }
+    },
+    {
+      "label": "10k-6-stages",
+      "mode": "stages",
+      "scale": "10k",
+      "windows": {
+        "all": {
+          "step": {
+            "mean_ms": 3.234503125,
+            "p50_ms": 3.1526,
+            "p95_ms": 4.1835,
+            "p99_ms": 4.9384,
+            "max_ms": 8.0184
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.166227734375,
+              "p50_ms": 0.1527,
+              "p95_ms": 0.2704,
+              "p99_ms": 0.3509,
+              "max_ms": 0.3681
+            },
+            "Occupancy": {
+              "mean_ms": 0.280107421875,
+              "p50_ms": 0.2702,
+              "p95_ms": 0.3363,
+              "p99_ms": 0.3902,
+              "max_ms": 0.633
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.73570390625,
+              "p50_ms": 0.6979,
+              "p95_ms": 0.9051,
+              "p99_ms": 1.1082,
+              "max_ms": 1.5555
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.57059375,
+              "p50_ms": 0.6154,
+              "p95_ms": 1.0083,
+              "p99_ms": 1.2936,
+              "max_ms": 4.3674
+            },
+            "MotionLoop": {
+              "mean_ms": 0.526437890625,
+              "p50_ms": 0.49,
+              "p95_ms": 0.7193,
+              "p99_ms": 0.8139,
+              "max_ms": 1.0484
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.036030859375,
+              "p50_ms": 0.0349,
+              "p95_ms": 0.0482,
+              "p99_ms": 0.0528,
+              "max_ms": 0.0667
+            },
+            "Signals": {
+              "mean_ms": 0.01545234375,
+              "p50_ms": 0.0151,
+              "p95_ms": 0.0187,
+              "p99_ms": 0.0339,
+              "max_ms": 0.0385
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.319550390625,
+              "p50_ms": 0.3067,
+              "p95_ms": 0.3963,
+              "p99_ms": 0.5488,
+              "max_ms": 0.6797
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.37568203125,
+              "p50_ms": 0.3604,
+              "p95_ms": 0.4552,
+              "p99_ms": 0.6927,
+              "max_ms": 0.7116
+            },
+            "Commit": {
+              "mean_ms": 0.20446640625,
+              "p50_ms": 0.1864,
+              "p95_ms": 0.3132,
+              "p99_ms": 0.3389,
+              "max_ms": 0.3541
+            },
+            "Frontier": {
+              "mean_ms": 0.106541015625,
+              "p50_ms": 0.08,
+              "p95_ms": 0.2775,
+              "p99_ms": 0.5647,
+              "max_ms": 4.1052
+            },
+            "P4": {
+              "mean_ms": 0.024638671875,
+              "p50_ms": 0.0279,
+              "p95_ms": 0.0563,
+              "p99_ms": 0.1352,
+              "max_ms": 0.2338
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.004250390625,
+            "p50_ms": 0.0041,
+            "p95_ms": 0.0057,
+            "p99_ms": 0.0073,
+            "max_ms": 0.0088
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "entry": {
+          "step": {
+            "mean_ms": 2.88784375,
+            "p50_ms": 2.7515,
+            "p95_ms": 3.3402,
+            "p99_ms": 8.0184,
+            "max_ms": 8.0184
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.120946875,
+              "p50_ms": 0.1197,
+              "p95_ms": 0.1289,
+              "p99_ms": 0.1426,
+              "max_ms": 0.1426
+            },
+            "Occupancy": {
+              "mean_ms": 0.2675953125,
+              "p50_ms": 0.2629,
+              "p95_ms": 0.2997,
+              "p99_ms": 0.32,
+              "max_ms": 0.32
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.70515625,
+              "p50_ms": 0.6564,
+              "p95_ms": 0.8703,
+              "p99_ms": 1.1526,
+              "max_ms": 1.1526
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.3306765625,
+              "p50_ms": 0.2438,
+              "p95_ms": 0.3559,
+              "p99_ms": 4.3674,
+              "max_ms": 4.3674
+            },
+            "MotionLoop": {
+              "mean_ms": 0.5457453125,
+              "p50_ms": 0.4958,
+              "p95_ms": 0.7563,
+              "p99_ms": 1.0484,
+              "max_ms": 1.0484
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.037371875,
+              "p50_ms": 0.0346,
+              "p95_ms": 0.0505,
+              "p99_ms": 0.0667,
+              "max_ms": 0.0667
+            },
+            "Signals": {
+              "mean_ms": 0.016378125,
+              "p50_ms": 0.0152,
+              "p95_ms": 0.0256,
+              "p99_ms": 0.0385,
+              "max_ms": 0.0385
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.2914796875,
+              "p50_ms": 0.2856,
+              "p95_ms": 0.3307,
+              "p99_ms": 0.3886,
+              "max_ms": 0.3886
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.3552515625,
+              "p50_ms": 0.3504,
+              "p95_ms": 0.382,
+              "p99_ms": 0.439,
+              "max_ms": 0.439
+            },
+            "Commit": {
+              "mean_ms": 0.2132078125,
+              "p50_ms": 0.1905,
+              "p95_ms": 0.3358,
+              "p99_ms": 0.3541,
+              "max_ms": 0.3541
+            },
+            "Frontier": {
+              "mean_ms": 0.08348125,
+              "p50_ms": 0.0022,
+              "p95_ms": 0.0544,
+              "p99_ms": 4.1052,
+              "max_ms": 4.1052
+            },
+            "P4": {
+              "mean_ms": 0.0023203125,
+              "p50_ms": 0.0023,
+              "p95_ms": 0.0037,
+              "p99_ms": 0.0062,
+              "max_ms": 0.0062
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.004034375,
+            "p50_ms": 0.004,
+            "p95_ms": 0.0052,
+            "p99_ms": 0.0073,
+            "max_ms": 0.0073
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictPrepare",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        },
+        "screen": {
+          "step": {
+            "mean_ms": 3.35005625,
+            "p50_ms": 3.2963,
+            "p95_ms": 4.1964,
+            "p99_ms": 4.9384,
+            "max_ms": 5.4298
+          },
+          "stages": {
+            "Preflight": {
+              "mean_ms": 0.18132135416666667,
+              "p50_ms": 0.1623,
+              "p95_ms": 0.2772,
+              "p99_ms": 0.3598,
+              "max_ms": 0.3681
+            },
+            "Occupancy": {
+              "mean_ms": 0.284278125,
+              "p50_ms": 0.2727,
+              "p95_ms": 0.3536,
+              "p99_ms": 0.4987,
+              "max_ms": 0.633
+            },
+            "WaitingPrepare": {
+              "mean_ms": 0.7458864583333333,
+              "p50_ms": 0.7079,
+              "p95_ms": 0.9054,
+              "p99_ms": 1.1082,
+              "max_ms": 1.5555
+            },
+            "ConflictPrepare": {
+              "mean_ms": 0.6505661458333334,
+              "p50_ms": 0.6333,
+              "p95_ms": 1.0322,
+              "p99_ms": 1.2936,
+              "max_ms": 1.3947
+            },
+            "MotionLoop": {
+              "mean_ms": 0.5200020833333333,
+              "p50_ms": 0.4887,
+              "p95_ms": 0.6869,
+              "p99_ms": 0.794,
+              "max_ms": 0.8326
+            },
+            "WaitingFinalize": {
+              "mean_ms": 0.035583854166666665,
+              "p50_ms": 0.0349,
+              "p95_ms": 0.045,
+              "p99_ms": 0.05,
+              "max_ms": 0.0521
+            },
+            "Signals": {
+              "mean_ms": 0.01514375,
+              "p50_ms": 0.0151,
+              "p95_ms": 0.0178,
+              "p99_ms": 0.0211,
+              "max_ms": 0.0233
+            },
+            "ConflictFinalize": {
+              "mean_ms": 0.3289072916666667,
+              "p50_ms": 0.3105,
+              "p95_ms": 0.4068,
+              "p99_ms": 0.5558,
+              "max_ms": 0.6797
+            },
+            "WaitingOutputs": {
+              "mean_ms": 0.3824921875,
+              "p50_ms": 0.3629,
+              "p95_ms": 0.4951,
+              "p99_ms": 0.701,
+              "max_ms": 0.7116
+            },
+            "Commit": {
+              "mean_ms": 0.20155260416666665,
+              "p50_ms": 0.1827,
+              "p95_ms": 0.3095,
+              "p99_ms": 0.3258,
+              "max_ms": 0.3322
+            },
+            "Frontier": {
+              "mean_ms": 0.11422760416666668,
+              "p50_ms": 0.0863,
+              "p95_ms": 0.2775,
+              "p99_ms": 0.3286,
+              "max_ms": 0.573
+            },
+            "P4": {
+              "mean_ms": 0.032078125,
+              "p50_ms": 0.0301,
+              "p95_ms": 0.0627,
+              "p99_ms": 0.1353,
+              "max_ms": 0.2338
+            }
+          },
+          "unattributed": {
+            "mean_ms": 0.004322395833333333,
+            "p50_ms": 0.0042,
+            "p95_ms": 0.0057,
+            "p99_ms": 0.0075,
+            "max_ms": 0.0088
+          },
+          "ranking": [
+            "WaitingPrepare",
+            "ConflictPrepare",
+            "MotionLoop",
+            "WaitingOutputs",
+            "ConflictFinalize",
+            "Occupancy",
+            "Commit",
+            "Preflight",
+            "WaitingFinalize",
+            "Signals"
+          ]
+        }
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ],
+      "traffic": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      }
+    }
+  ],
+  "stage_names": [
+    "Preflight",
+    "Occupancy",
+    "WaitingPrepare",
+    "ConflictPrepare",
+    "MotionLoop",
+    "WaitingFinalize",
+    "Signals",
+    "ConflictFinalize",
+    "WaitingOutputs",
+    "Commit",
+    "Frontier",
+    "P4"
+  ],
+  "files": [
+    {
+      "path": "100k-1-plain/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-1-plain/diagnostics.json",
+      "bytes": 1060,
+      "sha256": "ce6832c7d47fb990aad343e395ab0c8c7858030d56500fb24f996b7d9408f950"
+    },
+    {
+      "path": "100k-1-plain/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-1-plain/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-1-plain/result.json",
+      "bytes": 225787,
+      "sha256": "f164e4c5eacbce207d99034c344b59d449b7a1630bc571761ae96877b6c47dea"
+    },
+    {
+      "path": "100k-1-plain/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-1-plain.process.json",
+      "bytes": 904,
+      "sha256": "7d5e19241dc7bff860d83e91de7eb952407c944c1bfb8d139e87b03f9e163faa"
+    },
+    {
+      "path": "100k-1-plain.stderr",
+      "bytes": 33684,
+      "sha256": "6b8fec3dbadeb7d0418e068d0d80e5061dc0c32bfcc715b1254706baee4d1d9e"
+    },
+    {
+      "path": "100k-1-plain.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-2-stages/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-2-stages/diagnostics.json",
+      "bytes": 1062,
+      "sha256": "7f070adfcc935c810fd9f57d4c9c53574f1ebf1a2c006672324fe72a31447084"
+    },
+    {
+      "path": "100k-2-stages/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-2-stages/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-2-stages/result.json",
+      "bytes": 225787,
+      "sha256": "96c2b309956871d8d79fe30f7521893060d708a7b212af3d6ae2da77f3991fd4"
+    },
+    {
+      "path": "100k-2-stages/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-2-stages.process.json",
+      "bytes": 908,
+      "sha256": "0c142c119ce83937babe6f51b89891ccac28df6eefb515c244a71eb6f3261f1b"
+    },
+    {
+      "path": "100k-2-stages.stderr",
+      "bytes": 51193,
+      "sha256": "ac23199144384d40922760bd9a539f99ddd1573d89db3f1a74954cafe952c090"
+    },
+    {
+      "path": "100k-2-stages.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-3-stages/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-3-stages/diagnostics.json",
+      "bytes": 1061,
+      "sha256": "1796f7d25dc120432109339cd1c5eafcdcb161253c90f45365b8f2267e5c8b14"
+    },
+    {
+      "path": "100k-3-stages/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-3-stages/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-3-stages/result.json",
+      "bytes": 225787,
+      "sha256": "e89a37ce094487d5e9b80321239426c9535b04fc8546f2a40c1eec882f9be437"
+    },
+    {
+      "path": "100k-3-stages/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-3-stages.process.json",
+      "bytes": 908,
+      "sha256": "7c8a334c6381ccb7a5699106bd191b8dbcbb2144b2f39e77ff49a7a2a4f914a6"
+    },
+    {
+      "path": "100k-3-stages.stderr",
+      "bytes": 51199,
+      "sha256": "53d680e9497335ad563210fdcae02c1d99fde655b712c4c5b6a88afabdc3ff16"
+    },
+    {
+      "path": "100k-3-stages.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-4-plain/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-4-plain/diagnostics.json",
+      "bytes": 1060,
+      "sha256": "1f840477dd7a9807bc0a2b695c70b1f1a1538ebc63c45aed9528809a8a95215b"
+    },
+    {
+      "path": "100k-4-plain/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-4-plain/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-4-plain/result.json",
+      "bytes": 225787,
+      "sha256": "96af293b485169bc9971f3783022495e151e3221b78ea4304f50677202d4b145"
+    },
+    {
+      "path": "100k-4-plain/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-4-plain.process.json",
+      "bytes": 904,
+      "sha256": "7ad94bf8271b4c47ffc7e5aee361986262486fd2f9c5ec035520e83d8484f34f"
+    },
+    {
+      "path": "100k-4-plain.stderr",
+      "bytes": 33684,
+      "sha256": "6742dc96b3f8111cdbce54c25e23d7686249290ee16f02bd5fb9af1aebea7170"
+    },
+    {
+      "path": "100k-4-plain.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-5-plain/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-5-plain/diagnostics.json",
+      "bytes": 1060,
+      "sha256": "4b9e3570d9a6e9e36dbd09310bf06302aa1bd3454d40db995bc9c5e7ecdfa892"
+    },
+    {
+      "path": "100k-5-plain/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-5-plain/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-5-plain/result.json",
+      "bytes": 225787,
+      "sha256": "d3b49ec0ef81b976787d9ad090f3ba8b3fe053429c09c4ea86a30f8d421ef6a3"
+    },
+    {
+      "path": "100k-5-plain/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-5-plain.process.json",
+      "bytes": 904,
+      "sha256": "8be6d084ac037e2dce682d6610576b29f13e68a3e09338de8f6e35a1eefc7e6f"
+    },
+    {
+      "path": "100k-5-plain.stderr",
+      "bytes": 33684,
+      "sha256": "4bb4031bf9751d1c7b29b3d1fda4157fdbe32741b66252ca423ee1c2807e4e54"
+    },
+    {
+      "path": "100k-5-plain.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "100k-6-stages/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-6-stages/diagnostics.json",
+      "bytes": 1062,
+      "sha256": "4d780f03adb84ff69255c6785fbc333326ae9eeef05d71fec35f722905a3b9cf"
+    },
+    {
+      "path": "100k-6-stages/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-6-stages/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-6-stages/result.json",
+      "bytes": 225787,
+      "sha256": "bc33d69fcbaf93bbe4f074b48d051e10ba22357adf98f8dbf1f8bd5793c901ac"
+    },
+    {
+      "path": "100k-6-stages/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-6-stages.process.json",
+      "bytes": 908,
+      "sha256": "fdc5f87a59de8d8fbe49c9d7d12123b8b056e16b4f40d17c8e338d4e68685e3e"
+    },
+    {
+      "path": "100k-6-stages.stderr",
+      "bytes": 51164,
+      "sha256": "2957535df9ef204a00cdd6acd2bdb753e1c815590fb77a711addc27bf454c952"
+    },
+    {
+      "path": "100k-6-stages.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "10k-1-plain/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-1-plain/diagnostics.json",
+      "bytes": 1053,
+      "sha256": "f160ab00d052879094f285223d5f1535ee470f8c281badcbe67a42396d94187c"
+    },
+    {
+      "path": "10k-1-plain/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-1-plain/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-1-plain/result.json",
+      "bytes": 24374,
+      "sha256": "0a6161ca429cf59a16de5acbae44b6eb6a7e4ab7d573c1e6691a46ec796220d6"
+    },
+    {
+      "path": "10k-1-plain/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-1-plain.process.json",
+      "bytes": 899,
+      "sha256": "89feb792ee962b651bd98b152f2e988e754540e6fc8d3a912df42eb98089c5d5"
+    },
+    {
+      "path": "10k-1-plain.stderr",
+      "bytes": 33428,
+      "sha256": "9bd4bce96605b3a03f32846db11104dcfa49762fd09332b9a2f18b8a48557cba"
+    },
+    {
+      "path": "10k-1-plain.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "10k-2-stages/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-2-stages/diagnostics.json",
+      "bytes": 1055,
+      "sha256": "bdbc8e21ac1c5dc153bddc09a167220b8f373dccbe72eb6196a17cd55643197c"
+    },
+    {
+      "path": "10k-2-stages/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-2-stages/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-2-stages/result.json",
+      "bytes": 24374,
+      "sha256": "80280187016ee582c72426783b917d6b14594389cf7c5734769b634b2c408d49"
+    },
+    {
+      "path": "10k-2-stages/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-2-stages.process.json",
+      "bytes": 903,
+      "sha256": "1d0e7cd884e0f1a0e254f8fa6714f16da690fa1528a987e62a7f699b0b75432c"
+    },
+    {
+      "path": "10k-2-stages.stderr",
+      "bytes": 47674,
+      "sha256": "06c5d95a0e6ef77e7e7519832255982e7835396cfc4ee52d9165ca93ffecc911"
+    },
+    {
+      "path": "10k-2-stages.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "10k-3-stages/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-3-stages/diagnostics.json",
+      "bytes": 1054,
+      "sha256": "ae089fd9125435274525eb6267758b05b3ef34f14145a740ab461088723d9254"
+    },
+    {
+      "path": "10k-3-stages/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-3-stages/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-3-stages/result.json",
+      "bytes": 24374,
+      "sha256": "0c669ef2991f2abda2ead3638b8b368e5ace5e3bdd5ee1bff0de610801621b02"
+    },
+    {
+      "path": "10k-3-stages/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-3-stages.process.json",
+      "bytes": 903,
+      "sha256": "31a26af62bf96f21b04da15837fc35b1b21d11dc740423830e06469a9de89041"
+    },
+    {
+      "path": "10k-3-stages.stderr",
+      "bytes": 47666,
+      "sha256": "2b2e1fca6c29569c4d1012993b8e4cd30bdfe65c6912077f53d4c4adfff854a3"
+    },
+    {
+      "path": "10k-3-stages.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "10k-4-plain/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-4-plain/diagnostics.json",
+      "bytes": 1053,
+      "sha256": "87a34b1aa2cc0fd724de22e7796eb7f4bf5b7c011bc9a646cdd6ca8497ce73fe"
+    },
+    {
+      "path": "10k-4-plain/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-4-plain/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-4-plain/result.json",
+      "bytes": 24374,
+      "sha256": "ccb0bf0da556ab5aa5e49b904aa4e343438a3bbee613e7dec61b9e4b146ca544"
+    },
+    {
+      "path": "10k-4-plain/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-4-plain.process.json",
+      "bytes": 899,
+      "sha256": "cbc95ab0d17e68a27085099048c66844a16eefffcb150c285e0a353baa146ef9"
+    },
+    {
+      "path": "10k-4-plain.stderr",
+      "bytes": 33428,
+      "sha256": "f280b420cd3285ca552d7c7a8520d5f5373dc2665f1da7fc6ae8ff397587f291"
+    },
+    {
+      "path": "10k-4-plain.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "10k-5-plain/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-5-plain/diagnostics.json",
+      "bytes": 1053,
+      "sha256": "050aa1ae1b668aa82c5887b50fff37eceaf7f869e878bc13dcf5fab19f0f0b76"
+    },
+    {
+      "path": "10k-5-plain/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-5-plain/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-5-plain/result.json",
+      "bytes": 24374,
+      "sha256": "d2258d0e20c0a310902aaced7599ac43afdbcc920a3cd2a1752a5acc585f8847"
+    },
+    {
+      "path": "10k-5-plain/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-5-plain.process.json",
+      "bytes": 899,
+      "sha256": "f800dc9f86de4cb2722a782f6b54f5c88bcd87efcc63e525b783b1f630c9d6cd"
+    },
+    {
+      "path": "10k-5-plain.stderr",
+      "bytes": 33428,
+      "sha256": "a3c6d74993d64b7a215d325a7680ed4fbd3d810ec93f0778eb6a2087a46fb095"
+    },
+    {
+      "path": "10k-5-plain.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "10k-6-stages/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-6-stages/diagnostics.json",
+      "bytes": 1055,
+      "sha256": "25bbf2d616f0ba47115469693db9997e6db86d09da9138f4d546f481b4ac6b3c"
+    },
+    {
+      "path": "10k-6-stages/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-6-stages/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-6-stages/result.json",
+      "bytes": 24374,
+      "sha256": "3a62b2c4888ba8eefc242af7816d3c8e7ed5ec262867f30cc1e2bcf67d8d9101"
+    },
+    {
+      "path": "10k-6-stages/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-6-stages.process.json",
+      "bytes": 903,
+      "sha256": "aedd10350cbe93019370814fd3d920a193738282bb7f33cb66faf20f8103a3c2"
+    },
+    {
+      "path": "10k-6-stages.stderr",
+      "bytes": 47667,
+      "sha256": "dc98ee883beae892beebc4d0126673d5caae4513c5f62648b6b8293930e74fcd"
+    },
+    {
+      "path": "10k-6-stages.stdout",
+      "bytes": 30,
+      "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
+    },
+    {
+      "path": "identity.json",
+      "bytes": 3083,
+      "sha256": "4633c5f6d01e14d7e6ba6cacc6679630905ef748205ab173990ecf4ca06dee28"
+    },
+    {
+      "path": "plain-source.json",
+      "bytes": 118696,
+      "sha256": "03993397dc6b56c23a8cbe1e68151f69dc29c3d932e54debd2500d4fa7d71313"
+    },
+    {
+      "path": "stages-source.json",
+      "bytes": 118697,
+      "sha256": "a2be7b0ff6367eea2aaafa41f81581d7cccc80740f163b3ecf904c65ff3c7079"
+    }
+  ]
+}
