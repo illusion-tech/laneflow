@@ -1751,10 +1751,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// P2 逐车独立预览原语：受检读取 state/route/profile，求值 Waiting 前视窗
-    /// 与运动预览，不触碰共享工作区。与串行第一遍同一领域原语、同一检查次序：
+    /// 与必要的运动预览，不触碰共享工作区。融合/分发共用同一领域原语：
     /// state/route/profile 缺失为 `WaitingInvariantViolation`；horizon 或预览
     /// 非有限为 `NonFiniteMotion`。无后续 Gate、Gate 距离非有限或超出前视窗时
-    /// 按原语义返回 `None` 字段。调用方负责 Active 过滤（`vehicle` 必须来自
+    /// 按原语义返回 `None` 字段；明确不可达且无 membership 时保留 horizon，
+    /// 省略运动预览，运动内核内部错误随完整求值后移 P5。调用方负责 Active 过滤（`vehicle` 必须来自
     /// `update_sequence` 处的 live 配对）与 `update_sequence` 暂存。
     pub(crate) fn waiting_preview_entry(
         self,
