@@ -3,10 +3,13 @@ import json
 from pathlib import Path
 from analyze import analyze, captured_streams, digest, quantiles
 import csv
+from inventory import validate_inventory
+import sys
 
 here = Path(__file__).resolve().parent
-target = Path('target')
+target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('target')
 roots = ['review-screen', 'review-counts', 'review-long', 'scope-counts']
+validate_inventory([p for name in roots[:3] for p in sorted((target/name).glob('*.process.json'))])
 complete, excluded, index = [], [], []
 for name in roots:
     for meta_path in sorted((target/name).glob('*.process.json')):
@@ -31,14 +34,14 @@ for name in roots:
             result['source_identity'] = meta['source_identity_before']
             result['binary_sha256'] = meta['binary_sha256'].lower()
             result['bundle_head'] = meta['bundle_head']
-            result['directory'] = str(run.resolve())
+            result['directory'] = run.relative_to(target).as_posix()
             result['summary'].pop('evidence')
             complete.append(result)
             streams = captured_streams(meta_path, meta['label'])
             files = [meta_path, *run.glob('*'), *streams]
         for path in sorted(files):
             if path.is_file():
-                index.append({'path':str(path.resolve()),'bytes':path.stat().st_size,'sha256':digest(path)})
+                index.append({'path':path.relative_to(target).as_posix(),'bytes':path.stat().st_size,'sha256':digest(path)})
 assert len(complete)==28 and len(excluded)==1, 'experiment inventory changed'
 output = here/'evidence'
 (output/'results.json').write_text(json.dumps({'complete':complete,'excluded':excluded},indent=2)+'\n',encoding='utf-8')

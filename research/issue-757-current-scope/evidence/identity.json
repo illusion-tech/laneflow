@@ -218,7 +218,8 @@
   },
   "raw_evidence_index": {
     "source_commit": "7d9ccb782e3f1976c7f911a5962a42bcdde5231e",
-    "canonical_sha256": "434a2ac86d13c4bc376ba59a717df6212921160027f0b62655cffecc9b4e645d",
-    "scope": "collector inventory published before this validation fix; metadata hashes bind run UUID to all raw files; not a retroactively claimed producer digest"
+    "canonical_sha256": "6ca82912648fd8f011bd6ec3bb9fe31d7ac8b579186f6eb411ad7375aa0b3d9a",
+    "scope": "collector inventory published before this validation fix; metadata hashes bind run UUID to all raw files; not a retroactively claimed producer digest",
+    "path_mapping": "Paths normalized relative to the external target package; byte counts and SHA-256 unchanged from source_commit."
   }
 }

@@ -17,7 +17,7 @@ kernel = runtime + "src/kernel/"
 harness = "tools/laneflow-urban-harness/src/"
 edit(kernel + "mod.rs", "pub(crate) mod tick;", "pub(crate) mod tick;\npub(crate) mod scope;")
 edit(runtime + "Cargo.toml", "placement-fixtures = []", "placement-fixtures = []\nscope-counts = []")
-with (root / (runtime + "src/lib.rs")).open("a", encoding="utf-8") as f:
+with (root / (runtime + "src/lib.rs")).open("a", encoding="utf-8", newline="\r\n") as f:
     f.write('\n/// #757 独立单 worker 诊断计数；本函数仅在研究补丁中存在。\n#[doc(hidden)]\npub fn research_scope_counts() -> [u64; 9] { kernel::scope::take() }\n#[doc(hidden)]\npub fn research_scope_counting_enabled() -> bool { cfg!(feature = "scope-counts") }\n')
 (root / (kernel + "scope.rs")).write_bytes((here / "scope.rs").read_bytes())
 

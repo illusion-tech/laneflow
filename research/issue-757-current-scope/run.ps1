@@ -55,14 +55,11 @@ $stdoutTask = $process.StandardOutput.ReadToEndAsync()
 $stderrTask = $process.StandardError.ReadToEndAsync()
 $process.WaitForExit()
 $metadata['exit_code'] = $process.ExitCode
-$summaryPath = Join-Path $runPath 'summary.json'
-$metadata['peak_working_set_bytes'] = if (Test-Path -LiteralPath $summaryPath) {
-    (Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json).peak_resident_bytes
-} else { $null }
 $metadata['cpu_seconds'] = $process.TotalProcessorTime.TotalSeconds
 $metadata['ended_utc'] = [DateTime]::UtcNow.ToString('o')
 $stdoutTask.Result | Set-Content -LiteralPath (Join-Path $rootPath "$Label.stdout") -Encoding utf8NoBOM
 $stderrTask.Result | Set-Content -LiteralPath (Join-Path $rootPath "$Label.stderr") -Encoding utf8NoBOM
+$metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $metaPath -Encoding utf8NoBOM
 $afterIdentity = & python (Join-Path $PSScriptRoot 'seal.py') $sourcePath
 if ($LASTEXITCODE -ne 0) { throw 'post-run source seal failed' }
 $metadata['source_identity_after'] = $afterIdentity
@@ -71,6 +68,13 @@ $metadata['binary_unchanged'] = $metadata.binary_sha256 -eq (Get-FileHash -Liter
 $metadata['plan_unchanged'] = $metadata.plan_sha256 -eq (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash
 $metadata['bundle_head_after'] = (& git rev-parse HEAD)
 $metadata['bundle_head_unchanged'] = $metadata.bundle_head -eq $metadata.bundle_head_after
+$summaryPath = Join-Path $runPath 'summary.json'
+$metadata['peak_working_set_bytes'] = $null
+$metadata['summary_parse_error'] = $null
+if (Test-Path -LiteralPath $summaryPath) {
+    try { $metadata['peak_working_set_bytes'] = (Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json).peak_resident_bytes }
+    catch { $metadata['summary_parse_error'] = $_.Exception.Message }
+}
 $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $metaPath -Encoding utf8NoBOM
 Write-Output "$Label exit=$($process.ExitCode) peak=$($metadata.peak_working_set_bytes) source_unchanged=$($metadata.source_unchanged)"
-if ($process.ExitCode -ne 0 -or -not $metadata.source_unchanged -or -not $metadata.binary_unchanged -or -not $metadata.plan_unchanged -or -not $metadata.bundle_head_unchanged) { throw "run failed: $Label" }
+if ($null -ne $metadata.summary_parse_error -or $process.ExitCode -ne 0 -or -not $metadata.source_unchanged -or -not $metadata.binary_unchanged -or -not $metadata.plan_unchanged -or -not $metadata.bundle_head_unchanged) { throw "run failed: $Label" }
