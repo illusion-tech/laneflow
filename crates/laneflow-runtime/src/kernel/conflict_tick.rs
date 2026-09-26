@@ -21,6 +21,62 @@ use crate::{
     VehicleState, VehicleStatus,
 };
 
+/// 只排除本拍可证明到不了下一 Gate 的车辆；未知距离或运动域交还完整求值。
+/// 与 Gate 求值保持相同的跨边零点回看；MotionReach 的余量覆盖亚毫米 carry。
+fn gate_may_be_reached(
+    read: crate::kernel::phase::StepReadView<'_>,
+    state: &VehicleState,
+    delta_s: f32,
+) -> bool {
+    #[cfg(test)]
+    if CONFLICT_FULL_SCAN.with(std::cell::Cell::get) {
+        return true;
+    }
+    let Some(route) = read.compiled_route(state.route) else {
+        return true;
+    };
+    let cursor = if state.progress_mm == 0 && state.carry_um == 0 {
+        state.route_edge_index.saturating_sub(1)
+    } else {
+        state.route_edge_index
+    };
+    let Some(hop) = route
+        .gate_hops
+        .get(route.gate_hops.partition_point(|hop| *hop < cursor))
+        .copied()
+    else {
+        return false;
+    };
+    if hop < state.route_edge_index {
+        return true;
+    }
+    let Some(profile) = read
+        .binding
+        .revision
+        .traffic()
+        .relations()
+        .vehicle_profile(state.profile)
+    else {
+        return true;
+    };
+    let Some(reach) =
+        crate::kernel::tick::MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s)
+    else {
+        return true;
+    };
+    match crate::kernel::tables::distance_to_occurrence_start(
+        &route.occurrence_segments,
+        &route.occurrence_offsets,
+        &route.segment_totals,
+        state.route_edge_index as usize,
+        state.progress_mm,
+        hop as usize + 1,
+    ) {
+        Some(BoundedDistance::Finite(distance)) => !reach.excludes(distance),
+        Some(BoundedDistance::BeyondFinite) | None => true,
+    }
+}
+
 /// Conflict 决定的稳定动态路线锚点。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConflictRouteAnchor {
@@ -661,7 +717,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
         // #706 增量 D：Pool 执行器下走 P3 真实分发（阈值/强制 + 发现、槽位
         // 预留失败回退）；Caller/无执行器保持融合循环。分发或回退后共享
-        // 尾部 reserve + sort；融合循环体一行不动。增量 E：fuse 旋钮
+        // 尾部 reserve + sort；两条路径使用同一保守 Gate 筛选。增量 E：fuse 旋钮
         // （组合矩阵融合侧）优先于 force 与 Pool 执行器。
         let mut dispatched = false;
         if !conflict_dispatch_fuse_forced()
@@ -681,7 +737,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let mut active_index = 0;
             for sequence in 0..self.committed.live_order.len() {
                 let vehicle = self.committed.live_order[sequence];
-                let Some(state) = self.vehicle_state(vehicle).copied() else {
+                let Some(state) = self.vehicle_state(vehicle) else {
                     continue;
                 };
                 if state.status != VehicleStatus::Active {
@@ -692,6 +748,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 if self.conflict_read().reservation(vehicle).is_some() {
                     continue;
                 }
+                if !gate_may_be_reached(self.read_view(), state, delta_s) {
+                    continue;
+                }
+                let state = *state;
                 #[cfg(test)]
                 {
                     if conflict_injection::nonfinite_injected(self.binding.world_id, workload_index)
@@ -723,7 +783,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// P3 分发路径（D3/D5）：输入发现（镜像串行循环的跳过语义与
     /// cache_index 递增次序）→ 阈值/强制 → 槽位 → 块分发 → 完整 join →
     /// 协调器按 live×gate 发现序规范消费（共享写与真实预留原位施加）。
-    /// 返回 Ok(false) 表示回退融合（调用方执行原串行循环）；发现/槽位
+    /// 空工作集由协调器直接完成；返回 Ok(false) 表示回退融合；发现/槽位
     /// 预留失败与任务局部暂存不足都不新增领域错误。
     fn prepare_conflict_candidates_dispatched(
         &mut self,
@@ -752,21 +812,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let input_injected = conflict_injection::input_reserve_injected();
         #[cfg(not(test))]
         let input_injected = false;
-        // 3b：预留口径 = 实际计算投影（Active 且未被旧 reservation 跳过），
-        // 与发现谓词同口径；大量 Completed 留存世界不按 live_order 全量预留。
-        let projected = view
-            .read
-            .committed
-            .live_order
-            .iter()
-            .copied()
-            .filter(|vehicle| {
-                matches!(
-                    view.read.vehicle_state(*vehicle),
-                    Some(state) if state.status == VehicleStatus::Active
-                ) && view.conflict.reservation(*vehicle).is_none()
-            })
-            .count();
+        // Active 数是筛选工作集的上界，无须再扫描一遍 live_order 预数；
+        // Completed 留存不扩大预留，实际不足时仍回退同一融合求值。
+        let projected = view.read.derived.active_order.len();
         if inputs.try_reserve(projected).is_err() || input_injected {
             #[cfg(test)]
             count_conflict_path(|counts| counts.slot_fallback += 1);
@@ -780,11 +828,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if state.status != VehicleStatus::Active {
                 continue;
             }
-            // cache_index 在 reservation 跳过之前递增：Active 紧凑位与融合
-            // 循环保持一致，跳过车辆不占候选但占缓存位。
+            // cache_index 在 reservation 和可达性筛选之前递增：Active
+            // 紧凑位与融合循环保持一致，跳过车辆不占候选但占缓存位。
             let cache_index = active_index;
             active_index += 1;
             if view.conflict.reservation(vehicle).is_some() {
+                continue;
+            }
+            if !gate_may_be_reached(view.read, state, delta_s) {
                 continue;
             }
             let sequence =
@@ -792,6 +843,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             inputs.push((vehicle, sequence, cache_index, *state));
         }
         let workload = inputs.len();
+        if workload == 0 {
+            #[cfg(test)]
+            count_conflict_path(|counts| counts.fused += 1);
+            return Ok(true);
+        }
         #[cfg(test)]
         let forced = conflict_dispatch_forced();
         #[cfg(not(test))]
@@ -2472,6 +2528,198 @@ mod tests {
     };
 
     #[test]
+    fn gate_scope_retains_boundaries_and_unknown_motion() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let vehicle = world.state.committed.live_order[0];
+        let read = world.state.read_view();
+        let mut state = *read.vehicle_state(vehicle).unwrap();
+        let route = read.compiled_route(state.route).unwrap();
+        let gate = route.gate_hops[0];
+        let length = world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
+        state.route_edge_index = gate;
+        state.speed_mm_s = 0;
+        state.progress_mm = length - 1;
+        assert!(gate_may_be_reached(read, &state, 0.1));
+        state.progress_mm = 0;
+        assert!(!gate_may_be_reached(read, &state, 0.1));
+        state.speed_mm_s = 100_001;
+        assert!(gate_may_be_reached(read, &state, 0.1));
+        state.speed_mm_s = 0;
+        assert!(gate_may_be_reached(read, &state, f32::NAN));
+        assert!(gate_may_be_reached(read, &state, 0.001));
+        state.route_edge_index = gate + 1;
+        assert!(gate_may_be_reached(read, &state, 0.1));
+        state.route_edge_index = route.edges.len() as u32 - 1;
+        state.progress_mm = 1;
+        assert!(!gate_may_be_reached(read, &state, 0.1));
+    }
+
+    #[test]
+    fn gate_scope_uses_current_vehicle_generation() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let old = world.state.committed.live_order[0];
+        let state = *world.state.vehicle_state(old).unwrap();
+        world.despawn_vehicle(old).unwrap();
+        let new = world
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    state.profile,
+                    state.route,
+                    state.route_edge_index,
+                    state.progress_mm,
+                    state.speed_mm_s,
+                )
+                .with_open_entrance(),
+            )
+            .unwrap();
+        assert_eq!(old.index(), new.index());
+        assert_ne!(old, new);
+        let read = world.state.read_view();
+        assert!(read.vehicle_state(old).is_none());
+        assert!(gate_may_be_reached(
+            read,
+            read.vehicle_state(new).unwrap(),
+            0.1
+        ));
+        world.step(TickInput::new(100)).unwrap();
+    }
+
+    #[test]
+    fn gate_scope_sparse_inputs_match_full_scan_with_retry_and_reuse() {
+        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
+        fn fixture(workers: u32) -> TrafficWorld {
+            let mut world = crate::kernel::waiting::tests::multi_gate_world(32);
+            for (index, slot) in world.state.committed.vehicles.iter_mut().enumerate() {
+                if index % 2 == 0 {
+                    slot.state.as_mut().unwrap().progress_mm = 0;
+                }
+            }
+            world.state.rebuild_occupancy_index().unwrap();
+            let old = world.live_vehicles()[3];
+            let state = *world.state.vehicle_state(old).unwrap();
+            world.despawn_vehicle(old).unwrap();
+            let new = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        state.profile,
+                        state.route,
+                        state.route_edge_index,
+                        state.progress_mm,
+                        state.speed_mm_s,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            assert_eq!(old.index(), new.index());
+            assert_ne!(old, new);
+            install_execution(&mut world, workers);
+            world
+        }
+        for workers in [1, 2, 4, 8, 16] {
+            let mut reference = fixture(1);
+            let mut world = fixture(workers);
+            let before = world.capture_snapshot().unwrap();
+            {
+                // 过滤后的末位：跨越多个远门缓存位且包含同槽新代次。
+                let _failure =
+                    super::inject_conflict_nonfinite(world.state.binding.world_id, &[15]);
+                assert_eq!(
+                    world.step(TickInput::new(100)),
+                    Err(StepError::NonFiniteMotion)
+                );
+            }
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            for tick in 0..64 {
+                let expected = {
+                    let _full = super::full_conflict_scan();
+                    reference.step(TickInput::new(100)).unwrap()
+                };
+                let actual = world.step(TickInput::new(100)).unwrap();
+                assert_eq!(actual, expected, "workers={workers} tick={tick}");
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    reference.capture_snapshot().unwrap()
+                );
+                assert_eq!(
+                    world.latest_conflict_decisions(),
+                    reference.latest_conflict_decisions()
+                );
+                assert_eq!(
+                    world.latest_waiting_decisions(),
+                    reference.latest_waiting_decisions()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    reference.latest_transition_events()
+                );
+                if tick == 0 && workers > 1 {
+                    let inputs = &world.state.workspace.conflict_inputs;
+                    assert_eq!(inputs.len(), 16);
+                    assert!(
+                        inputs
+                            .iter()
+                            .enumerate()
+                            .any(|(index, input)| index != input.2)
+                    );
+                    assert!(
+                        inputs
+                            .iter()
+                            .all(|input| world.state.vehicle_state(input.0).is_some())
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gate_scope_resource_lifecycle_matches_full_scan() {
+        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        for workers in [1, 4, 16] {
+            let mut reference = conflict_scale_world(Arc::clone(&revision), 32);
+            let mut world = conflict_scale_world(Arc::clone(&revision), 32);
+            install_execution(&mut world, workers);
+            let leader = world.live_vehicles()[0];
+            let mut held = false;
+            let mut cleared = false;
+            // 目标是见证一次完整释放，最多推进 16.384 秒仿真时间。
+            for tick in 0..4_096 {
+                let expected = {
+                    let _full = super::full_conflict_scan();
+                    reference.step(TickInput::new(4)).unwrap()
+                };
+                assert_eq!(world.step(TickInput::new(4)).unwrap(), expected);
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    reference.capture_snapshot().unwrap(),
+                    "workers={workers} tick={tick}"
+                );
+                assert_eq!(
+                    world.latest_conflict_decisions(),
+                    reference.latest_conflict_decisions()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    reference.latest_transition_events()
+                );
+                if world.conflict_reservation(leader).is_some() {
+                    held = true;
+                } else if held {
+                    cleared = true;
+                    break;
+                }
+            }
+            assert!(
+                held && cleared,
+                "必须实际覆盖资源取得、跨拍持有和清空: held={held} cleared={cleared} leader={:?}",
+                world.vehicle(leader)
+            );
+        }
+    }
+
+    #[test]
     fn rejected_waiting_bundle_has_no_claim_counter_or_granted_output() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         assert_eq!(
@@ -2720,14 +2968,15 @@ mod tests {
     }
 
     fn run_conflict_dispatch_allocation_evidence() {
+        let _oracle = super::full_conflict_scan();
         use crate::admin::cutover_migration::tests::{
             conflict_scale_revision, conflict_scale_world,
         };
         use stats_alloc::{INSTRUMENTED_SYSTEM, Region};
 
         const WORKERS: u32 = 4;
-        // 1_200 车同路线：P2/P3/P5 三个分发阶段每拍都自然跨阈值
-        //（P3 工作集 = Active 且非旧 reservation）。
+        // 完整求值 oracle 保留全部 Active，验证底层分发器与暂存分配。
+        // 筛选后实际工作集由 gate_scope 和分发参与测试另行验证。
         let revision = conflict_scale_revision();
         let mut world = conflict_scale_world(Arc::clone(&revision), 1_200);
         world.execution = crate::kernel::execution::WorldExecution::start_private(
@@ -3271,10 +3520,12 @@ mod tests {
     /// D4/首错矩阵测试覆盖，本测试不扩展该范围。
     #[test]
     fn conflict_unconsumed_suffix_scratch_is_recovered() {
+        let _oracle = super::full_conflict_scan();
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
+        // 完整求值 oracle 保留足够槽位以验证底层未消费后缀协议。
         const J: usize = 3;
 
         fn slot_scratch(world: &mut TrafficWorld, index: usize) -> Option<(usize, usize, usize)> {
@@ -3472,6 +3723,7 @@ fn count_conflict_path(update: impl FnOnce(&mut ConflictPathCounts)) {
 #[cfg(test)]
 thread_local! {
     static CONFLICT_PATH_COUNTS: std::cell::Cell<ConflictPathCounts> = const { std::cell::Cell::new(ConflictPathCounts { dispatched: 0, fused: 0, slot_fallback: 0 }) };
+    static CONFLICT_FULL_SCAN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static CONFLICT_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// 组合矩阵融合侧入口：强制 P3 保持融合（fuse 优先于 force）。
     static CONFLICT_FORCE_FUSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -3510,6 +3762,20 @@ impl Drop for ForceConflictFuseGuard {
 #[cfg(test)]
 pub(crate) fn force_conflict_fuse() -> ForceConflictFuseGuard {
     ForceConflictFuseGuard(CONFLICT_FORCE_FUSE.with(|forced| forced.replace(true)))
+}
+
+/// 测试 oracle：禁用可达性排除，完整求值以检验筛选等价和底层槽位协议。
+#[cfg(test)]
+struct FullConflictScanGuard(bool);
+#[cfg(test)]
+impl Drop for FullConflictScanGuard {
+    fn drop(&mut self) {
+        CONFLICT_FULL_SCAN.with(|flag| flag.set(self.0));
+    }
+}
+#[cfg(test)]
+fn full_conflict_scan() -> FullConflictScanGuard {
+    FullConflictScanGuard(CONFLICT_FULL_SCAN.with(|flag| flag.replace(true)))
 }
 
 #[cfg(test)]
