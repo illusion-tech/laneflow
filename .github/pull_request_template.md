@@ -17,9 +17,9 @@
 
 ## 代码语言
 
-- 是否新增或修改非 Rust 代码（包括嵌入脚本）：`否` / `是`
+- 是否新增或修改非 Rust 代码（包括嵌入脚本，纯删除除外）：`否` / `是`
 - 若为是：语言选型 Issue、维护者接受结论链接、覆盖本次 diff 的语言/用途/路径：
-- 依据：[代码语言与非 Rust 入库审查](../docs/governance/code-language-policy.md)
+- 依据：[代码语言立项审查](../docs/governance/code-language-policy.md)（G0/G2 人流程）
 
 ## 影响
 
