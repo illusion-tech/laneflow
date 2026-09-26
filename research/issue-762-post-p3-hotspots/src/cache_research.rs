@@ -122,7 +122,7 @@ fn export(root: &Path, arm: &str, mode: &str, commit: &str) -> Result<()> {
         fs::write(lib, text)?;
         let lib = source.join("crates/laneflow-runtime/src/lib.rs");
         let mut text = fs::read_to_string(&lib)?;
-        text.push_str("\n/// 研究专用；拍末容量逻辑字节，不是进程 RSS。\n#[doc(hidden)]\npub fn research_storage(world: &TrafficWorld) -> [u64; 5] { let workspace = &world.state.workspace; [workspace.motion_cache.capacity() as u64, workspace.waiting_preview_slots.capacity() as u64, workspace.conflict_inputs.capacity() as u64, workspace.conflict_slots.capacity() as u64, workspace.retained_logical_bytes()] }\n");
+        text.push_str("\n/// 研究专用；四个缓存/分发缓冲的拍末容量字节，不是整个工作区或进程 RSS。\n#[doc(hidden)]\npub fn research_storage(world: &TrafficWorld) -> [u64; 5] { let workspace = &world.state.workspace; let layout = research_layout(); let bytes = workspace.motion_cache.capacity() * layout[0] + workspace.waiting_preview_slots.capacity() * layout[2] + workspace.conflict_inputs.capacity() * std::mem::size_of::<(VehicleHandle, u32, usize, VehicleState)>() + workspace.conflict_slots.capacity() * layout[3]; [workspace.motion_cache.capacity() as u64, workspace.waiting_preview_slots.capacity() as u64, workspace.conflict_inputs.capacity() as u64, workspace.conflict_slots.capacity() as u64, bytes as u64] }\n");
         fs::write(lib, text)?;
         edit(
             &source,
