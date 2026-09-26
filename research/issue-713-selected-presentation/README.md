@@ -3,13 +3,17 @@
 生产入口是城市 harness 的 `Presentation` 和 Bevy 封闭提取 API。本目录只编排独立
 进程、验证不可变输入与比较证据，不复制交通、选择、采样或实体生命周期实现。
 
+已完成的 10k 完整 performance 窗口结果见 [测量与验收报告](results.md) 和
+[机器可读证据汇总](results.json)。共 23 个独立进程，正常墙钟、分配与内部阶段
+诊断分别取证；范围与限制以报告为准。
+
 ## 复现
 
 先在已推送且干净的源码提交上构建生成器，按 `examples/config/cn-urban.toml` 生成
 10k 或 100k LFCA 输入，再用 harness `plan` 冻结 `MIXED-PEAK` 的完整 correctness
 或 performance 窗口。不能传入 probe 或缩短前缀；两种窗口分别按原合同完整运行，
-分析均排除暖机。完整 correctness 窗口用于本切片的三轮链路对照，不冒充 #544 的
-正式 performance 窗口或 #220 产品认证。
+分析均排除暖机。报告必须明确实际采用的窗口类型与完整 tick 数；correctness
+结果不能冒充 performance 结果，完整 performance 窗口也不等于 #220 产品认证。
 
 ```powershell
 $env:LANEFLOW_HARDWARE_ROLE = '<实测 CPU、内存及宿主用途>'
@@ -38,7 +42,7 @@ reverse true。正常构建各运行三次，诊断构建各运行一次完整�
 - 选择 API 错误优先级、重排、状态过滤、失效与缓冲原子性由生产合同测试验证。
   正常路径的来源查询、采样和提交细分由独立 profile 构建观察，不与正常墙钟混合。
 - `presentation_ns` 包括选择、提取、转换、绑定维护与应用。完整交通 oracle 与表现
-  验证保留但单列；不把几个分位数相加。选择仍扫描 live 个体，绑定维护仍扫描历史
+  验证保留但单列；不把几个分位数相加。选择仍扫描并排序 live 个体，绑定维护仍扫描历史
   绑定；不声称整条链路 O(K)。
   暖机后的各数量分布单独报告，包含实际 `active`，不把初始 Active 比例当测量实数；
   `cold` 保留初始化毫秒数和第一帧样本，与观察窗口分位数分开。
