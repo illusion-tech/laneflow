@@ -1,7 +1,7 @@
 # TrafficWorld 单世界精确并行执行
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-09-17<br>
+**最后更新**: 2026-09-27<br>
 **适用范围**: 道路机动车首版独立计算并行、规范串行联合裁决与整拍提交<br>
 **设计入口**: [#220](https://github.com/illusion-tech/laneflow/issues/220)<br>
 **关联决策**: [ADR 0030（Accepted）](../adr/0030-single-world-parallel-execution.md)<br>
