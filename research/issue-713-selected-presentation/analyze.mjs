@@ -23,6 +23,15 @@ async function* frames(path) {
   }
 }
 export function validateEvidence(e, row, batch) {
+  assert.equal(e.version, 'urban-cross-layer-evidence-v1');
+  assert.equal(e.case, 'MIXED-PEAK');
+  assert(['10k', '100k'].includes(e.scale), 'formal input scale required');
+  for (const key of ['plan_digest', 'manifest_sha256']) assert.match(e[key] ?? '', /^[a-f0-9]{64}$/, `missing ${key}`);
+  for (const name of ['common.lfre', 'config.toml', 'network.lfca', 'routes.toml', 'topology.lfre']) {
+    const file = e.artifact_files?.[name];
+    assert.match(file?.sha256 ?? '', /^[a-f0-9]{64}$/, `missing artifact ${name}`);
+    assert(Number.isSafeInteger(file.bytes) && file.bytes > 0, `invalid artifact size ${name}`);
+  }
   assert(['correctness-case-pass', 'performance-case-pass'].includes(e.status), 'complete accepted window required');
   assert.equal(e.error, null, 'failed run');
   assert.equal(e.source.commit, batch.source, 'source mismatch');
@@ -48,6 +57,9 @@ export function validateEvidence(e, row, batch) {
   assert.equal(e.target_ticks, e.completed_ticks);
   assert.equal(e.committed_world_tick, e.completed_ticks);
   assert.equal(e.stop_reason, 'tick-limit');
+  for (const tick of [0, e.window.warm_up_ticks, e.completed_ticks]) {
+    assert.match(e.checkpoints?.[tick] ?? '', /^[a-f0-9]{64}$/, `missing checkpoint ${tick}`);
+  }
   assert.equal(e.execution_id, row.execution_id);
   assert.equal(e.presentation_mode.mode, row.configuration === 'original' ? 'FullValidation' : row.configuration.endsWith('-full') ? 'FullValidationSelected' : 'SelectedPresentation');
   if (row.configuration !== 'original') {
@@ -140,28 +152,37 @@ export async function analyze(directory) {
       ? {purpose: 'correctness', warm_up_ticks: cycle, observation_ticks: 2 * cycle}
       : {purpose: 'performance', warm_up_ticks: Math.max(4 * cycle, 512), observation_ticks: Math.max(8 * cycle, 4096)}, 'unaccepted window');
     const timings = Object.fromEntries(metrics.map(key => [key, []]));
-    const counts = {requested: [], extracted: [], applied: [], presentable: []};
+    const counts = Object.fromEntries(['individual', 'active', 'host_selected', 'requested', 'extracted', 'applied', 'presentable', 'n_presented'].map(key => [key, []]));
     const allocation = {allocations: 0, reallocations: 0, bytes_allocated: 0, bytes_reallocated: 0};
     const lifecycle = {created: 0, reused: 0, hidden: 0, shown: 0, retired_bindings: 0};
     let tick = 0;
     let storage;
+    let firstFrame;
     for await (const frame of frames(join(run, 'frames.jsonl'))) {
       const p = frame.presentation;
       assert.equal(frame.runtime.tick, ++tick, 'missing/duplicate tick');
       assert.equal(p.tick, tick);
       equal(p.mode, e.presentation_mode);
+      for (const key of Object.keys(counts)) assert(Number.isSafeInteger(p[key]) && p[key] >= 0, `invalid count ${key}`);
       assert.equal(p.extracted, p.n_presented);
       assert.equal(p.individual, frame.runtime.N_individual);
       assert.equal(p.active, frame.runtime.N_active);
       assert.equal(p.n_presented, frame.runtime.N_presented);
+      assert(p.active <= p.individual && p.presentable <= p.individual && p.applied <= p.extracted, 'contradictory counts');
+      assert.equal(p.host_selected, e.presentation_mode.mode === 'FullValidation' ? p.applied : Math.floor(p.individual * p.mode.selection.percent / 100));
       if (e.presentation_mode.mode === 'SelectedPresentation') {
         assert.equal(p.requested, Math.floor(p.individual * p.mode.selection.percent / 100));
         assert.equal(p.applied, p.extracted);
         assert(p.extracted <= p.requested && p.extracted <= p.presentable);
-      } else { assert.equal(p.extracted, p.presentable); }
-      if (row.kind === 'allocation') assert(p.allocation, 'allocation samples absent');
+      } else { assert.equal(p.extracted, p.presentable); assert.equal(p.requested, p.individual); }
+      if (row.kind === 'allocation') {
+        assert(p.allocation, 'allocation samples absent');
+        for (const key of Object.keys(allocation)) assert(Number.isSafeInteger(p.allocation[key]) && (key === 'bytes_reallocated' || p.allocation[key] >= 0), `invalid allocation ${key}`);
+      }
       else assert.equal(p.allocation, null, 'allocation data in wrong build');
-      for (const [len, capacity] of Object.values(p.storage)) assert(len <= capacity, 'invalid capacity');
+      equal(Object.keys(p.storage).sort(), ['live_order', 'requested', 'requested_index', 'candidates', 'outputs', 'bindings', 'visible', 'previous_visible_scratch', 'extracted_index'].sort(), 'storage owners missing');
+      for (const [len, capacity] of Object.values(p.storage)) assert(Number.isSafeInteger(len) && Number.isSafeInteger(capacity) && len >= 0 && len <= capacity, 'invalid capacity');
+      if (tick === 1) firstFrame = p;
       if (tick > e.window.warm_up_ticks) {
         for (const metric of metrics) { assert(Number.isFinite(p[metric]) && p[metric] >= 0); timings[metric].push(p[metric]); }
         for (const count of Object.keys(counts)) counts[count].push(p[count]);
@@ -174,7 +195,8 @@ export async function analyze(directory) {
     const report = {kind: row.kind, configuration: row.configuration, round: row.round,
       timings: Object.fromEntries(metrics.map(key => [key, summary(timings[key])])),
       counts: Object.fromEntries(Object.entries(counts).map(([key, values]) => [key, summary(values)])),
-      allocation: row.kind === 'allocation' ? allocation : null, lifecycle, final_storage: storage};
+      allocation: row.kind === 'allocation' ? allocation : null, lifecycle, final_storage: storage,
+      cold: {initialization_ms: e.initialized_ms, first_presentation: firstFrame}};
     if (row.kind === 'profile') {
       const groups = {'pose-source': [], 'pose-spatial': [], 'pose-adapter': []};
       for await (const line of createInterface({input: createReadStream(join(directory, `${row.name}.stderr.log`)), crlfDelay: Infinity})) {
@@ -185,7 +207,12 @@ export async function analyze(directory) {
       report.profile = {};
       for (const [name, samples] of Object.entries(groups)) {
         assert.equal(samples.length, tick, `incomplete ${name} log`);
-        report.profile[name] = {last: samples.at(-1), timings: {}};
+        const required = name === 'pose-source' ? ['validation_ns', 'query_ns'] : name === 'pose-spatial' ? ['sample_ns', 'commit_ns'] : ['commit_ns'];
+        for (const sample of samples) {
+          for (const key of required) assert(Number.isFinite(sample[key]) && sample[key] >= 0, `missing profile ${name}.${key}`);
+          if (name === 'pose-source') equal(sample.mode, row.configuration.endsWith('-selected') ? 'selected' : 'full', 'wrong profile mode');
+        }
+        report.profile[name] = {first: samples[0], last: samples.at(-1), timings: {}};
         for (const key of Object.keys(samples[0]).filter(key => key.endsWith('_ns'))) {
           report.profile[name].timings[key] = summary(samples.slice(e.window.warm_up_ticks).map(s => s[key]));
         }
