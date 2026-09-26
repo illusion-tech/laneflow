@@ -273,6 +273,20 @@ fn labels(mode: &str) -> Result<Vec<(String, String, String)>> {
         .collect())
 }
 
+fn labels_for(mode: &str, experiment: Experiment) -> Result<Vec<(String, String, String)>> {
+    let mut rows = labels(mode)?;
+    if experiment.count_p2 && mode == "plain" {
+        for (index, (label, _, arm)) in rows.iter_mut().enumerate() {
+            if (index % 12) / 4 == 1 {
+                let next = if arm == "base" { "candidate" } else { "base" };
+                *label = label.replace(arm.as_str(), next);
+                *arm = next.to_owned();
+            }
+        }
+    }
+    Ok(rows)
+}
+
 fn capture(mode: &str, root: &Path, input: &Path, raw: &Path) -> Result<()> {
     capture_for(mode, root, input, raw, LEGACY)
 }
@@ -328,7 +342,7 @@ pub(crate) fn capture_for(
     )?;
     let identity_path = raw.join("identity.json");
     io::write_new(&identity_path, &identity)?;
-    for (label, scale, arm) in labels(mode)? {
+    for (label, scale, arm) in labels_for(mode, experiment)? {
         need(
             io::git(&repo, &["rev-parse", "HEAD"])? == head
                 && io::git(&repo, &["status", "--porcelain"])?.is_empty(),
@@ -490,7 +504,7 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
     let mut semantics = std::collections::BTreeMap::new();
     let mut ids = std::collections::BTreeSet::new();
     let mut runs = Vec::new();
-    for (label, scale, arm) in labels(mode)? {
+    for (label, scale, arm) in labels_for(mode, experiment)? {
         let dir = raw.join(&label);
         let meta = io::read_json(&raw.join(format!("{label}.process.json")))?;
         let native = io::read_json(&dir.join("result.json"))?;
@@ -679,6 +693,21 @@ mod tests {
             protocol: "p2-scope-abba-v1",
             count_p2: true,
         };
+        let matrix = labels_for("plain", experiment).unwrap();
+        assert_eq!(
+            matrix[4..8]
+                .iter()
+                .map(|r| r.2.as_str())
+                .collect::<Vec<_>>(),
+            ["candidate", "base", "base", "candidate"]
+        );
+        assert_eq!(
+            matrix[16..20]
+                .iter()
+                .map(|r| r.2.as_str())
+                .collect::<Vec<_>>(),
+            ["candidate", "base", "base", "candidate"]
+        );
         let ticks: Vec<_> = (1..=256)
             .map(|tick| json!({"tick":tick,"N_active":1}))
             .collect();
