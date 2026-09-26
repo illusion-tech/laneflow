@@ -38,7 +38,7 @@
 
 ## 3. G0 立项
 
-拟引入或修改非 Rust 代码时，还必须在 G0 完成
+拟新增或修改非 Rust 代码（纯删除除外）时，还必须在 G0 完成
 [代码语言立项审查](code-language-policy.md)，取得覆盖该语言、用途和路径的维护者
 明确接受结论后才可进入该方案的 G2。研究、测试、CI 与嵌入脚本均无默认豁免；
 本项独立于 G1 是否适用。
@@ -99,8 +99,9 @@ Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` �
 
 ## 6. 合并门禁
 
-涉及非 Rust 代码的 PR 必须链接语言选型 Issue 和接受结论，审阅者核对实际 diff
-是否在接受范围内，见[代码语言与非 Rust 入库审查](code-language-policy.md)。
+语言选型属于 [代码语言立项审查](code-language-policy.md) 规定的 G0/G2 人流程，
+不增加机器合并门禁输入。审阅者发现实际 diff 不符合接受范围时，以普通 review
+conversation 处理，继续适用下面的原生对话解决规则。
 
 目标：确认变更可以合入主干。
 
