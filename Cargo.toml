@@ -12,6 +12,7 @@ members = [
     "crates/laneflow-static-contract",
     "crates/laneflow-static-network",
     "research/issue-123-spatial-prototype",
+    "research/issue-762-post-p3-hotspots",
     "tools/laneflow-corridor-generator",
     "tools/laneflow-junction-generator",
     "tools/laneflow-urban-generator",
