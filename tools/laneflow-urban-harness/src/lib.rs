@@ -1,5 +1,7 @@
 //! Caller-owned, finite LF-CN-URBAN demand and replay. Road authority stays in TrafficWorld.
 
+#[cfg(feature = "allocation")]
+mod allocation;
 mod artifacts;
 #[cfg(feature = "adapter")]
 mod evidence;
@@ -26,7 +28,10 @@ pub use plan::{
     Window,
 };
 #[cfg(feature = "adapter")]
-pub use presentation::{Presentation, PresentationSample};
+pub use presentation::{
+    AllocationSample, Presentation, PresentationMode, PresentationSample, PresentationStorage,
+    SelectionWindow,
+};
 pub use report::{
     ComparedRun, ComparisonReport, MAX_WORKERS, PerformanceComparisonReport, PerformanceRound,
     RunResult, compare_performance_runs, compare_runs, run_to_directory,
