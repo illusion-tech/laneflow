@@ -6771,7 +6771,7 @@
   ],
   "excluded": [
     {
-      "label": "target\\scope-counts\\100k-p3",
+      "label": "scope-counts/100k-p3",
       "status": "interrupted-incomplete",
       "reason": "no exit status or summary; separately rerun in scope-counts-remaining"
     }

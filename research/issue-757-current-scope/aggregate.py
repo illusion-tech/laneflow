@@ -19,7 +19,7 @@ for name in roots:
             continue
         if name == 'scope-counts':
             require('exit_code' not in meta and not (run/'summary.json').exists(), 'exclusion changed')
-            excluded.append({'label':str(run),'status':'interrupted-incomplete','reason':'no exit status or summary; separately rerun in scope-counts-remaining'})
+            excluded.append({'label':run.relative_to(target).as_posix(),'status':'interrupted-incomplete','reason':'no exit status or summary; separately rerun in scope-counts-remaining'})
             files = [meta_path, *run.glob('*')]
         else:
             result = analyze(meta_path)
