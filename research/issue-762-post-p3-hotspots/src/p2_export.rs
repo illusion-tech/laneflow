@@ -5,11 +5,31 @@ use std::{fs, path::Path};
 fn edit(root: &Path, relative: &str, old: &str, new: &str) -> Result<()> {
     let path = root.join(relative);
     let text = fs::read_to_string(&path)?.replace("\r\n", "\n");
+    let (start, end) = if relative.ends_with("/tick.rs") {
+        (
+            text.find("    pub(crate) fn waiting_preview_entry(")
+                .ok_or("preview start")?,
+            text.find("    pub(crate) fn placement_motion(")
+                .ok_or("preview end")?,
+        )
+    } else {
+        (0, text.len())
+    };
+    need(start < end, "edit range")?;
+    let body = &text[start..end];
     need(
-        text.matches(old).count() == 1,
+        body.matches(old).count() == 1,
         &format!("anchor {relative}: {old}"),
     )?;
-    fs::write(path, text.replacen(old, new, 1))?;
+    fs::write(
+        path,
+        format!(
+            "{}{}{}",
+            &text[..start],
+            body.replacen(old, new, 1),
+            &text[end..]
+        ),
+    )?;
     Ok(())
 }
 fn timer(root: &Path, file: &str, old: &str, stage: &str, end: bool) -> Result<()> {
