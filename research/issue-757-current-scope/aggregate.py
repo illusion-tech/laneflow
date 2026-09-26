@@ -1,18 +1,20 @@
 """Bind the completed experiments and explicitly preserve the interrupted attempt."""
 import json
 from pathlib import Path
-from analyze import analyze, digest, quantiles
+from analyze import analyze, captured_streams, digest, quantiles
 import csv
 
 here = Path(__file__).resolve().parent
 target = Path('target')
-roots = ['scope-screen', 'scope-counts', 'scope-counts-remaining', 'scope-long']
+roots = ['review-screen', 'review-counts', 'review-long', 'scope-counts']
 complete, excluded, index = [], [], []
 for name in roots:
     for meta_path in sorted((target/name).glob('*.process.json')):
         meta = json.loads(meta_path.read_text())
         run = meta_path.parent/meta['label']
-        if name == 'scope-counts' and meta['label'] == '100k-p3':
+        if name == 'scope-counts' and meta['label'] != '100k-p3':
+            continue
+        if name == 'scope-counts':
             assert 'exit_code' not in meta and not (run/'summary.json').exists(), 'exclusion changed'
             excluded.append({'label':str(run),'status':'interrupted-incomplete','reason':'no exit status or summary; separately rerun in scope-counts-remaining'})
             files = [meta_path, *run.glob('*')]
@@ -32,7 +34,8 @@ for name in roots:
             result['directory'] = str(run.resolve())
             result['summary'].pop('evidence')
             complete.append(result)
-            files = [meta_path, *run.glob('*')]
+            streams = captured_streams(meta_path, meta['label'])
+            files = [meta_path, *run.glob('*'), *streams]
         for path in sorted(files):
             if path.is_file():
                 index.append({'path':str(path.resolve()),'bytes':path.stat().st_size,'sha256':digest(path)})
@@ -46,11 +49,11 @@ for r in complete:
         print(r['label'],r['work_totals'])
 for scale in ['10k','100k']:
     for mode in ['all','p3','waiting','both']:
-        rows = [r for r in complete if 'scope-screen' in r['directory'] and r['scale']==scale and r['mode']==mode]
+        rows = [r for r in complete if 'review-screen' in r['directory'] and r['scale']==scale and r['mode']==mode]
         values = [r['windows']['screen']['step_ms']['mean'] for r in rows]
         p95 = [r['windows']['screen']['step_ms']['p95'] for r in rows]
         iteration = [r['windows']['screen']['iteration_ms']['mean'] for r in rows]
         print(scale,mode,'mean',sum(values)/len(values),'p95 range',min(p95),max(p95),'iteration',sum(iteration)/len(iteration))
 for r in complete:
-    if 'scope-long' in r['directory']:
+    if 'review-long' in r['directory']:
         print(r['label'],r['trips'])

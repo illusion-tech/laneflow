@@ -119,7 +119,7 @@ impl Quality {
                         prefix + u128::from(s.progress_mm()) * 1_000 + u128::from(s.carry_um())
                     };
                     self.distance_um += position(after).saturating_sub(position(before));
-                    if before.speed_mm_s().saturating_sub(after.speed_mm_s()) as u64 > 8 * dt {
+                    if is_hard_brake(before, after, dt) {
                         self.hard_brakes += 1;
                     }
                 }
@@ -217,7 +217,12 @@ impl Quality {
         self.measured_ns += timer.elapsed().as_nanos();
         Ok(())
     }
-    pub(crate) fn finish(mut self, h: &Harness<'_>, output: &Path) -> Result<()> {
+    pub(crate) fn finish(
+        mut self,
+        h: &Harness<'_>,
+        output: &Path,
+        run_identity: &serde_json::Value,
+    ) -> Result<()> {
         let now = h.world.time_ms();
         for index in 0..self.trips.len() {
             if let Some(t) = self.trips[index].take() {
@@ -238,6 +243,7 @@ impl Quality {
         std::fs::write(
             output.join("extended-quality.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
+                "run_identity":run_identity,
                 "ticks":h.world.tick_index(),"observed_completed":self.completed,"max_continuous_stop_ms":self.max_stop_ms,
                 "multi_owner_zone_ms":self.overlap_zone_ms,"longest_multi_owner_zone_ms":self.max_overlap_zone_ms,
                 "multi_owner_enter_observations":self.overlap_events,"unmatched_clear_events":self.orphan_clears,
@@ -249,5 +255,82 @@ impl Quality {
             }))?,
         )?;
         Ok(())
+    }
+}
+
+fn is_hard_brake(
+    before: laneflow_runtime::VehicleState,
+    after: laneflow_runtime::VehicleState,
+    dt: u64,
+) -> bool {
+    active_deceleration(
+        before.status(),
+        after.status(),
+        before.speed_mm_s(),
+        after.speed_mm_s(),
+        dt,
+    )
+}
+
+fn active_deceleration(
+    before: VehicleStatus,
+    after: VehicleStatus,
+    before_speed: u32,
+    after_speed: u32,
+    dt: u64,
+) -> bool {
+    before == VehicleStatus::Active
+        && after == VehicleStatus::Active
+        && u64::from(before_speed.saturating_sub(after_speed)) > 8 * dt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hard_brake_excludes_lifecycle_speed_resets() {
+        assert!(active_deceleration(
+            VehicleStatus::Active,
+            VehicleStatus::Active,
+            10_000,
+            0,
+            16
+        ));
+        assert!(!active_deceleration(
+            VehicleStatus::Active,
+            VehicleStatus::Completed,
+            10_000,
+            0,
+            16
+        ));
+        assert!(!active_deceleration(
+            VehicleStatus::Active,
+            VehicleStatus::Parked,
+            10_000,
+            0,
+            16
+        ));
+        assert!(!active_deceleration(
+            VehicleStatus::Parked,
+            VehicleStatus::Active,
+            10_000,
+            0,
+            16
+        ));
+        assert!(!active_deceleration(
+            VehicleStatus::Active,
+            VehicleStatus::Active,
+            1_000,
+            872,
+            16
+        ));
+        assert!(active_deceleration(
+            VehicleStatus::Active,
+            VehicleStatus::Active,
+            1_000,
+            871,
+            16
+        ));
     }
 }

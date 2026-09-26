@@ -20,16 +20,27 @@ def quantiles(values):
         name: values[math.ceil(q * len(values)) - 1]
         for name, q in [('p50', .5), ('p95', .95), ('p99', .99), ('max', 1)]}}
 
+def captured_streams(meta_path, label):
+    streams = [meta_path.parent / (label + suffix) for suffix in ['.stdout', '.stderr']]
+    assert all(p.is_file() for p in streams), 'missing captured stream'
+    return streams
+
 def analyze(meta_path):
     meta = json.loads(meta_path.read_text(encoding='utf-8-sig'))
+    frozen = json.loads((Path(__file__).resolve().parent / 'evidence/identity.json').read_text(encoding='utf-8'))
+    assert meta['scale'] in frozen['inputs'], 'unknown scale'
     assert meta['exit_code'] == 0, 'failed process'
     for field in ['source_unchanged', 'binary_unchanged', 'plan_unchanged', 'bundle_head_unchanged']:
         assert meta[field] is True, field
     assert meta['source_identity_before'] == meta['source_identity_after'], 'source changed'
+    assert meta['source_identity_before'] == frozen['source_hash'], 'unfrozen source'
     assert meta['bundle_head'] == meta['bundle_head_after'], 'bundle HEAD changed'
     assert meta['bundle_status'] == '', 'uncommitted bundle'
     assert digest(Path(meta['binary'])) == meta['binary_sha256'].lower(), 'binary hash'
     assert digest(Path(meta['plan'])) == meta['plan_sha256'].lower(), 'plan hash'
+    assert meta['plan_sha256'].lower() == frozen['plans'][meta['scale']]['sha256'], 'unfrozen plan'
+    binary_name = Path(meta['binary']).name
+    assert binary_name in frozen['binaries'] and meta['binary_sha256'].lower() == frozen['binaries'][binary_name]['sha256'], 'unfrozen binary'
     run = meta_path.parent / meta['label']
     summary = json.loads((run / 'summary.json').read_text())
     assert summary['status'] == 'research-prefix-complete', 'incomplete run'
@@ -37,10 +48,20 @@ def analyze(meta_path):
     assert summary['mode'] == meta['mode'] and summary['workers'] == meta['workers'], 'mode/worker mismatch'
     assert summary['counting'] == meta['diagnostic'], 'counting mismatch'
     assert summary['plan_sha256'] == meta['plan_sha256'].lower(), 'summary plan hash'
+    assert summary['input_manifest_sha256'] == frozen['inputs'][meta['scale']]['manifest.toml']['sha256'], 'unfrozen input manifest'
+    expected_identity = {'run_id':meta['run_id'], 'mode':meta['mode'], 'scale':meta['scale'],
+        'workers':meta['workers'], 'counting':meta['diagnostic'], 'limit':meta['ticks'],
+        'plan_sha256':summary['plan_sha256'], 'input_manifest_sha256':summary['input_manifest_sha256'],
+        'quality_schema':'active-to-active-v1'}
+    assert summary['run_identity'] == expected_identity, 'summary run identity'
     rows = [{k: int(v) for k, v in r.items()} for r in csv.DictReader((run / 'timing.csv').open())]
     assert [r['tick'] for r in rows] == list(range(1, meta['ticks'] + 1)), 'missing/repeated ticks'
     assert summary['completed_ticks'] == meta['ticks'], 'completed tick count'
     quality = json.loads((run / 'extended-quality.json').read_text())
+    assert quality['ticks'] == summary['completed_ticks'], 'quality tick count'
+    assert quality['run_identity'] == expected_identity, 'quality run identity'
+    assert digest(run / 'extended-quality.json') == summary['quality_sha256'], 'quality hash'
+    assert digest(run / 'individual-quality.csv') == summary['trips_sha256'], 'trip hash'
     work = [{k: int(v) for k, v in r.items()} for r in csv.DictReader((run / 'work.csv').open())]
     assert [r['tick'] for r in work] == [r['tick'] for r in rows], 'work tick identity'
     if meta['diagnostic']:
