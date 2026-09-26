@@ -92,13 +92,7 @@ fn inputs(root: &Path) -> Result<Value> {
         let plan = root.join(format!("plans/{scale}-smoke.toml"));
         let data: Value =
             serde_json::to_value(toml::from_str::<toml::Value>(&fs::read_to_string(&plan)?)?)?;
-        need(
-            data["ticks"] == 256
-                && data["scale"] == scale
-                && data["case"] == "MIXED-PEAK"
-                && data["dt_ms"] == if scale == "10k" { 16 } else { 33 },
-            "plan protocol",
-        )?;
+        validate_plan(&data, scale)?;
         out[io::slash(plan.strip_prefix(root)?)] = json!(io::sha(&plan)?);
         let artifacts = root.join(format!("inputs/urban-{scale}"));
         let manifest = artifacts.join("manifest.toml");
@@ -118,6 +112,17 @@ fn inputs(root: &Path) -> Result<Value> {
         }
     }
     Ok(out)
+}
+
+fn validate_plan(data: &Value, scale: &str) -> Result<()> {
+    need(
+        data["window"] == json!({"purpose":"probe","warm_up_ticks":0,"observation_ticks":256})
+            && data["scale"] == scale
+            && data["case"] == "MIXED-PEAK"
+            && data["seed"] == 544
+            && data["dt"] == if scale == "10k" { 16 } else { 33 },
+        "plan protocol",
+    )
 }
 
 fn capture(root: &Path, input: &Path, raw: &Path) -> Result<()> {
@@ -528,6 +533,24 @@ mod tests {
                 validate_process(&bad, &identity, "label", "100k", "detail").is_err(),
                 "{field}"
             );
+        }
+    }
+    #[test]
+    fn probe_plan_rejects_window_and_workload_drift() {
+        let plan = json!({"window":{"purpose":"probe","warm_up_ticks":0,"observation_ticks":256},"scale":"10k","case":"MIXED-PEAK","seed":544,"dt":16});
+        validate_plan(&plan, "10k").unwrap();
+        for (field, value) in [
+            (
+                "window",
+                json!({"purpose":"probe","warm_up_ticks":64,"observation_ticks":256}),
+            ),
+            ("dt", json!(33)),
+            ("seed", json!(0)),
+            ("scale", json!("100k")),
+        ] {
+            let mut bad = plan.clone();
+            bad[field] = value;
+            assert!(validate_plan(&bad, "10k").is_err(), "{field}");
         }
     }
 }
