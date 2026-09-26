@@ -1836,6 +1836,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 preview: None,
             });
         }
+        // 本拍可达性不是运动复用证明；这里只省略没有 membership 的入口
+        // 预览。已有 horizon 仍供 P5 使用，最终运动及资源转移不能省略。
+        if gate_reachable == Some(false) && state.waiting_membership.is_none() {
+            return Ok(WaitingPreviewEntry {
+                gate_reachable,
+                horizon: Some(horizon),
+                preview: None,
+            });
+        }
         let preview = self
             .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))
             .ok_or(StepError::NonFiniteMotion)?;

@@ -2794,6 +2794,84 @@ mod tests {
     }
 
     #[test]
+    fn p2_cached_scope_preserves_horizon_and_full_fallback_near_boundaries() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let vehicle = world.live_vehicles()[0];
+        let original = *world.state.vehicle_state(vehicle).unwrap();
+        let route = world.state.compiled_route(original.route).unwrap();
+        let gate = route.gate_hops[0];
+        let length = world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
+        let mut skipped = 0;
+        let mut retained = 0;
+        for (distance, speed, carry) in
+            [(1, 0, 0), (50, 0, 999), (1_000, 0, 0), (1_000, 100_001, 0)]
+        {
+            world.state.committed.vehicles[vehicle.index() as usize].state =
+                Some(crate::VehicleState {
+                    route_edge_index: gate,
+                    progress_mm: length - distance,
+                    speed_mm_s: speed,
+                    carry_um: carry,
+                    ..original
+                });
+            world.state.rebuild_occupancy_index().unwrap();
+            let view = world.state.read_view();
+            let full = view.waiting_preview_entry(vehicle, 0, 0.1, false).unwrap();
+            let cached = view.waiting_preview_entry(vehicle, 0, 0.1, true).unwrap();
+            assert_eq!(cached.horizon, full.horizon);
+            assert!(full.preview.is_some(), "fixture must enter full preview");
+            if cached.gate_reachable == Some(false) {
+                assert!(cached.preview.is_none());
+                skipped += 1;
+            } else {
+                assert_eq!(cached.preview.unwrap().next, full.preview.unwrap().next);
+                retained += 1;
+            }
+        }
+        assert!(
+            skipped > 0 && retained > 0,
+            "exercise exclusion and fallback"
+        );
+    }
+
+    #[test]
+    fn p2_scope_matches_uncached_reference_through_waiting_hold_and_release() {
+        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = crate::kernel::waiting::force_preview_dispatch();
+        for workers in [1, 2, 4, 8, 16] {
+            let mut reference = crate::kernel::waiting::tests::multi_gate_world(16);
+            let mut world = crate::kernel::waiting::tests::multi_gate_world(16);
+            install_execution(&mut world, workers);
+            let owner = world.live_vehicles()[0];
+            let mut held = false;
+            let mut released = false;
+            for tick in 0..512 {
+                let expected = {
+                    let _cache = crate::kernel::tick::transaction_tests::CacheLimitGuard::set(0);
+                    reference.step(TickInput::new(100)).unwrap()
+                };
+                assert_eq!(world.step(TickInput::new(100)).unwrap(), expected);
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    reference.capture_snapshot().unwrap(),
+                    "workers={workers} tick={tick}"
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    reference.latest_transition_events()
+                );
+                if world.vehicle(owner).unwrap().waiting_membership().is_some() {
+                    held = true;
+                } else if held {
+                    released = true;
+                    break;
+                }
+            }
+            assert!(held && released, "real waiting lifecycle must complete");
+        }
+    }
+
+    #[test]
     fn gate_scope_resource_lifecycle_matches_full_scan() {
         let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();

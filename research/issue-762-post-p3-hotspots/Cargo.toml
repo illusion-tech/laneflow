@@ -24,3 +24,7 @@ uuid = { version = "1.24", features = ["v4"] }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "laneflow-p2-scope-research"
+path = "src/p2_scope_research.rs"
