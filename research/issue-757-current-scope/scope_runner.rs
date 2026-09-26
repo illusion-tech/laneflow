@@ -18,6 +18,10 @@ pub fn run_scope_prefix(
     limit: u64,
 ) -> Result<()> {
     let mode = std::env::var("LF757_SCOPE").unwrap_or_else(|_| "all".into());
+    let run_id = std::env::var("LF757_RUN_ID").map_err(|_| invalid("missing run identity"))?;
+    if run_id.is_empty() {
+        return Err(invalid("empty run identity"));
+    }
     if !["all", "p3", "waiting", "both"].contains(&mode.as_str())
         || !(1..=crate::MAX_WORKERS).contains(&workers)
     {
@@ -35,6 +39,11 @@ pub fn run_scope_prefix(
     let artifacts = Artifacts::load(artifacts)?;
     let plan = ResolvedPlan::read(plan_path)?;
     plan.validate(&artifacts)?;
+    let run_identity = serde_json::json!({
+        "run_id":run_id,"mode":mode,"scale":plan.scale,"workers":workers,"counting":counting,"limit":limit,
+        "plan_sha256":crate::sha256(&fs::read(plan_path)?),"input_manifest_sha256":artifacts.manifest_digest,
+        "quality_schema":"active-to-active-v1"
+    });
     if limit == 0 || limit >= plan.window.end() {
         return Err(invalid("prefix must be inside original plan"));
     }
@@ -124,12 +133,15 @@ pub fn run_scope_prefix(
     commands.flush()?;
     events.flush()?;
     counts.flush()?;
-    quality.finish(&h, output)?;
+    quality.finish(&h, output, &run_identity)?;
     let checkpoint = h.checkpoint();
     let peak_resident_bytes = crate::report::peak_resident_bytes();
     fs::write(
         output.join("summary.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
+            "run_identity":run_identity,
+            "quality_sha256":crate::sha256(&fs::read(output.join("extended-quality.json"))?),
+            "trips_sha256":crate::sha256(&fs::read(output.join("individual-quality.csv"))?),
             "status":if failure.is_none() { "research-prefix-complete" } else { "research-prefix-failed" },
             "mode":mode,"workers":workers,"counting":counting,"limit":limit,"expected_plan_end":plan.window.end(),"peak_resident_bytes":peak_resident_bytes,
             "plan_sha256":crate::sha256(&fs::read(plan_path)?),"input_manifest_sha256":artifacts.manifest_digest,

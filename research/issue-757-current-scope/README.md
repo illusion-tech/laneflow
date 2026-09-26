@@ -3,8 +3,9 @@
 Refs #757；#707 的独立研究切片。基线为
 `46fdfaf47ae0c000ddc63420c8a71443baa8fb04`，历史 #734 结果只提供方向。
 
-实测结论、窗口和未覆盖项见 [结果报告](results.md)。本次封存源于研究提交
-`7e34e008cece324c867413864fc8851007ae9034`，后续提交只补报告和分析工具。
+实测结论、窗口和未覆盖项见 [结果报告](results.md)。审阅修正了完成状态的急减速误计，
+并增加每次运行 UUID、质量文件与行程文件摘要、封存输入校验和进程输出索引。
+原始测量目录保留，修正后重新采集到 `target/review-*`，不混合两批计时。
 
 本目录保存隔离研究源码与重建工具。`prepare.py` 只用于导出的基线副本，
 不修改工作区生产文件。研究模块不加入 Cargo workspace，补丁中的实验入口、
@@ -24,16 +25,16 @@ Refs #757；#707 的独立研究切片。基线为
 
 ## 重建
 
-从仓库根导出固定基线到全新目录，例如 `target/study-source`：
+从仓库根导出固定基线到全新目录，例如 `target/review-source`：
 
 ```powershell
 git archive --format=tar --output=target/base-source.tar 46fdfaf47ae0c000ddc63420c8a71443baa8fb04
-New-Item -ItemType Directory target/study-source
-tar -xf target/base-source.tar -C target/study-source
-python research/issue-757-current-scope/prepare.py target/study-source
+New-Item -ItemType Directory target/review-source
+tar -xf target/base-source.tar -C target/review-source
+python research/issue-757-current-scope/prepare.py target/review-source
 $env:CARGO_INCREMENTAL='0'
 $env:CARGO_TARGET_DIR='<独立构建目录的绝对路径>'
-cargo +1.98.0 build --manifest-path target/study-source/Cargo.toml -p laneflow-urban-harness --release --locked --offline
+cargo +1.98.0 build --manifest-path target/review-source/Cargo.toml -p laneflow-urban-harness --release --locked --offline
 ```
 
 封存普通二进制后，另加 `--features laneflow-runtime/scope-counts` 构建诊断二进制。
@@ -50,7 +51,7 @@ cargo +1.98.0 build --manifest-path target/study-source/Cargo.toml -p laneflow-u
 `E:/projects/laneflow-evidence/issue-707/4de40e04`。例如：
 
 ```powershell
-./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/study-source -OutputRoot target/scope-runs -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
+./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/review-source -OutputRoot target/scope-runs -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
 python research/issue-757-current-scope/analyze.py target/scope-runs target/scope-summary.json
 ```
 
@@ -69,11 +70,15 @@ iteration 包含所有交通日志写出和质量观察，不含计时/计数 CS
 
 质量工具从历史研究的 `research_quality.rs` 提取并修改；记录左／右截断的行程、
 最长停车、Conflict enter/clear 配对与 reservation 持有；新增步进推进距离和
-超过 8 m/s² 的拍间减速次数。距离排除命令搬移；8 m/s² 仅作诊断阈值。
+前后均为 Active 且超过 8 m/s² 的拍间减速次数；完成或停车清零速度不算急减速。距离排除命令搬移；8 m/s² 仅作诊断阈值。
 原 Harness 继续校验车辆守恒、资源归属与同边车身重叠，首次失败保留失败包。
 同区多 owner 不等于碰撞；同边无重叠不证明完整二维安全；未完成行程不从报告中删除。
 不宣称急减速阈值、公平性容差或交通质量已经获得产品认证。
 
-`verify_analysis.py` 对本次已保存的第一臂运行施加八种损坏，确认分析器拒绝错误证据。
+`verify_analysis.py` 对本次真实运行施加损坏，核验退出状态、来源、输入、跨运行质量文件、
+拍数、摘要及丢失 stdout/stderr 等情况均被拒绝。质量 JSON 与 summary 共享运行 UUID、
+规模、模式、workers、拍数、计划与输入身份，并校验质量及行程文件摘要。
+分析器将来源、二进制、计划及输入清单绑定到 `evidence/identity.json`，不能把其他批次
+直接加入本批统计。新批次须单独封存身份，禁止覆盖历史原始包。
 `aggregate.py` 是本次 28 个完整运行及一个明确中断尝试的封存清单，数量与排除项固定；
 新的复测批次使用 `analyze.py` 独立报告，不追加到旧清单里改变历史统计。

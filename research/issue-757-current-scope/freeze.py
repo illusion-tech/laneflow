@@ -22,10 +22,10 @@ evidence.mkdir(exist_ok=True)
 result = {'baseline_commit':baseline, 'baseline_tree':run('git','rev-parse',baseline+'^{tree}'),
           'rustc':run('rustc','+1.98.0','-Vv'), 'cargo':run('cargo','+1.98.0','-V'),
           'build':'release; locked; offline; CARGO_INCREMENTAL=0; default features; diagnostic adds laneflow-runtime/scope-counts',
-          'source_hash':run(sys.executable,str(here/'seal.py'),'target/study-source'),
+          'source_hash':run(sys.executable,str(here/'seal.py'),'target/review-source'),
           'source_origin':'git archive baseline, then prepare.py; exported research tree, not a clean production checkout',
-          'archive':identity(root/'target/base-source.tar'), 'lock':identity(root/'target/study-source/Cargo.lock'),
-          'binaries':{p.name:identity(p) for p in (root/'target/binaries').glob('*-v1.exe')},
+          'archive':identity(root/'target/base-source.tar'), 'lock':identity(root/'target/review-source/Cargo.lock'),
+          'binaries':{p.name:identity(p) for p in (root/'target/binaries').glob('*-review.exe')},
           'inputs':{scale:{p.name:identity(p) for p in (frozen/'inputs'/('urban-'+scale)).iterdir() if p.is_file()}
                     for scale in ['10k','100k']},
           'plans':{scale:identity(frozen/'plans'/(scale+'-performance.toml')) for scale in ['10k','100k']},

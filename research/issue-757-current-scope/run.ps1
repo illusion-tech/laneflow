@@ -34,10 +34,12 @@ foreach ($arg in @('scope-prefix',$artifactsPath,$planPath,$runPath,"$Workers","
     $psi.ArgumentList.Add($arg)
 }
 $psi.Environment['LF757_SCOPE'] = $Mode
+$runId = [guid]::NewGuid().ToString()
+$psi.Environment['LF757_RUN_ID'] = $runId
 if ($Diagnostic) { $psi.Environment['LF757_DIAGNOSTIC'] = '1' }
 else { [void]$psi.Environment.Remove('LF757_DIAGNOSTIC') }
 $metadata = [ordered]@{
-    label=$Label; mode=$Mode; scale=$Scale; workers=$Workers; ticks=$Ticks;
+    label=$Label; run_id=$runId; mode=$Mode; scale=$Scale; workers=$Workers; ticks=$Ticks;
     diagnostic=[bool]$Diagnostic; source=$sourcePath; source_identity_before=$identity;
     bundle_head=(& git rev-parse HEAD); bundle_status=(& git status --porcelain | Out-String).Trim();
     binary=$exePath; binary_sha256=(Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash;

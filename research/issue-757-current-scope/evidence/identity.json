@@ -4,7 +4,7 @@
   "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
   "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
   "build": "release; locked; offline; CARGO_INCREMENTAL=0; default features; diagnostic adds laneflow-runtime/scope-counts",
-  "source_hash": "ad1012646e5c02f69d135b18b6113a82ca629f97d555997db4923e36b69b8fcf",
+  "source_hash": "820776cb821d8624228c705bf082f2fc84a46ce269cf921bddf25ac19ad27765",
   "source_origin": "git archive baseline, then prepare.py; exported research tree, not a clean production checkout",
   "archive": {
     "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\base-source.tar",
@@ -12,20 +12,20 @@
     "sha256": "c59d3d27952de8a0a951d70fbbb7ead2d5704386289ee6c9f098e7e3bb3cd142"
   },
   "lock": {
-    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\study-source\\Cargo.lock",
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\review-source\\Cargo.lock",
     "bytes": 129847,
     "sha256": "d84d1ef3ff31ad3bc5c87541014a126defd536f80d2d1097c9c92b2a005e26ba"
   },
   "binaries": {
-    "scope-counts-v1.exe": {
-      "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\binaries\\scope-counts-v1.exe",
-      "bytes": 4070400,
-      "sha256": "e5707d86199664a65f4d7568a94d219be80598dc03294d36a4dc733108f584df"
+    "scope-counts-review.exe": {
+      "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\binaries\\scope-counts-review.exe",
+      "bytes": 4081664,
+      "sha256": "126e1104f424783f205516a9ab653763a75beec7b76d958dc195070ade854075"
     },
-    "scope-plain-v1.exe": {
-      "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\binaries\\scope-plain-v1.exe",
-      "bytes": 4068864,
-      "sha256": "948cea7994660015020623dc0e6fcc8ef14c989b2c886aeafed653e85212d0c2"
+    "scope-plain-review.exe": {
+      "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\binaries\\scope-plain-review.exe",
+      "bytes": 4080128,
+      "sha256": "3e2dc8d1ab87c1c689413e0b1e1b1c80e6e29fbd50e1a195f0f6b0e094c15a28"
     }
   },
   "inputs": {
