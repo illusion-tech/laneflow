@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {validateEvidence, validateMatrix, compareFrame} from './analyze.mjs';
+import {validateEvidence, validateMatrix, compareFrame, validateSelectionPercent} from './analyze.mjs';
 
 const sha = 'a'.repeat(64);
 const commit = 'b'.repeat(40);
@@ -17,6 +17,16 @@ function evidence() {
 }
 const row = {kind: 'wall', configuration: 'stable-selected', execution_id: 'one'};
 const batch = {source: commit, builds: [{name: 'wall', sha256: sha}]};
+
+test('rejects selection percent drift across configurations and rounds', () => {
+  const expected = validateSelectionPercent(evidence());
+  assert.equal(expected, 10);
+  assert.equal(validateSelectionPercent(evidence(), expected), expected);
+  for (const percent of [1, 100, -1, 101, 10.5, null]) {
+    const changed = evidence(); changed.presentation_mode.selection.percent = percent;
+    assert.throws(() => validateSelectionPercent(changed, expected));
+  }
+});
 
 test('rejects partial, probe, failed, wrong build and source drift', () => {
   validateEvidence(evidence(), row, batch);

@@ -51,10 +51,19 @@ export function validateEvidence(e, row, batch) {
   assert.equal(e.execution_id, row.execution_id);
   assert.equal(e.presentation_mode.mode, row.configuration === 'original' ? 'FullValidation' : row.configuration.endsWith('-full') ? 'FullValidationSelected' : 'SelectedPresentation');
   if (row.configuration !== 'original') {
+    validateSelectionPercent(e);
     assert.equal(e.presentation_mode.selection.stride, row.configuration.startsWith('stable-') ? 0 : 137);
     assert.equal(e.presentation_mode.selection.offset, 53);
     assert.equal(e.presentation_mode.selection.reverse, true);
   }
+}
+
+export function validateSelectionPercent(e, expected) {
+  if (e.presentation_mode.mode === 'FullValidation') return expected;
+  const percent = e.presentation_mode.selection.percent;
+  assert(Number.isSafeInteger(percent) && percent >= 0 && percent <= 100, 'invalid selection percent');
+  if (expected !== undefined) equal(percent, expected, 'selection percent drift');
+  return percent;
 }
 
 export function validateMatrix(rows) {
@@ -99,12 +108,15 @@ export async function analyze(directory) {
   validateMatrix(batch.rows);
   const reports = new Map();
   let common;
+  let selectionPercent;
   for (const row of batch.rows) {
     const run = join(directory, row.name);
     const bytes = await readFile(join(run, 'evidence.json'));
     equal(digest(bytes), row.evidence_sha256, 'evidence digest');
     const e = JSON.parse(bytes);
     validateEvidence(e, row, batch);
+    selectionPercent = validateSelectionPercent(e, selectionPercent);
+    equal(e.presentation_mode, await json(join(directory, `${row.configuration}.json`)), 'recorded selection configuration differs');
     const provenance = {
       commit: e.source.commit, tree: e.source.tree, lock: e.source.cargo_lock,
       workspace: e.source.workspace_manifest, adapter: e.source.adapter_manifest,
