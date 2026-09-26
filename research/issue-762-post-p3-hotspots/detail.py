@@ -69,7 +69,10 @@ def analyze(root, parent):
     identity = json.loads((root / "identity.json").read_text())
     require(identity["completed"] and sha(parent) == identity["parent_results_sha256"], "detail parent")
     require(sha(root / "source.json") == identity["source_index_sha256"], "detail source binding")
+    require(identity["base"] == BASE and identity["ticks"] == 256 and identity["workers"] == 4 and identity["stage_names"] == NAMES, "detail protocol")
+    require({p.name for p in root.glob("*.process.json")} == {f"100k-{n}-detail.process.json" for n in range(1, 4)}, "detail matrix")
     semantic = None
+    executions = set()
     expected_traffic = next(r["traffic"] for r in reference["runs"] if r["scale"] == "100k")
     runs = []
     for n in range(1, 4):
@@ -79,6 +82,9 @@ def analyze(root, parent):
         require(metadata["exit_code"] == 0 and metadata["head_after"] == identity["research_head"] and not metadata["status_after"] and metadata["binary_after"] == identity["binary_sha256"], "detail process binding")
         result = json.loads((path / "result.json").read_text())
         diag = json.loads((path / "diagnostics.json").read_text())
+        require(result["scale"] == "100k" and result["case"] == "MIXED-PEAK" and diag["invocation"] == metadata["command"], "detail workload binding")
+        require(diag["execution_id"] not in executions, "duplicate detail execution")
+        executions.add(diag["execution_id"])
         require(diag["git_commit_at_run"] == identity["research_head"] and diag["git_status_at_run"] == "" and diag["binary"]["sha256"] == identity["binary_sha256"], "detail native identity")
         require(result["status"] == "probe-complete" and result["completed_ticks"] == 256 and diag["workers"] == 4 and diag["verified_steps"] == 256, "detail complete")
         for name, value in result["files"].items():
@@ -89,12 +95,10 @@ def analyze(root, parent):
         semantic = current
         rows = [json.loads(line[6:]) for line in (root / f"{label}.stderr").read_text().splitlines() if line.startswith("LF762 ")]
         require([r["tick"] for r in rows] == list(range(1, 257)), "detail ticks")
-        for r in rows:
-            t, c = r["stages_ns"], r["calls"]
-            require(len(t) == len(c) == 18 and all(type(x) is int and x >= 0 for x in t + c), "detail fields")
-            require(c[:13] == [1] * 13 and c[16] == 1 and c[13] == c[14], "detail clocks")
-            require(c[13] == int(c[17] >= 1024) and c[15] == int(0 < c[17] < 1024), "detail path")
-            require(sum(t[:10]) <= r["step_ns"] and sum(t[10:17]) <= t[3], "detail partition")
+        validate_rows(rows)
+        ordered = sorted(r["step_ns"] for r in rows)
+        for percentile in (50, 95, 99):
+            require(ordered[(256 * percentile + 99) // 100 - 1] == diag[f"step_ns_p{percentile}"], "detail native timing")
         part = rows[64:]
         runs.append({"label": label, "step": stats([r["step_ns"] for r in part]),
                      "stages": {s: stats([r["stages_ns"][i] for r in part]) for i, s in enumerate(NAMES[:-1])},
@@ -105,9 +109,20 @@ def analyze(root, parent):
     return {"identity": identity, "runs": runs, "files": [{"path": p.relative_to(root).as_posix(), "bytes": p.stat().st_size, "sha256": sha(p)} for p in sorted(root.rglob("*")) if p.is_file()]}
 
 
+def validate_rows(rows):
+    require([r["tick"] for r in rows] == list(range(1, 257)), "detail ticks")
+    for r in rows:
+        t, c = r["stages_ns"], r["calls"]
+        require(len(t) == len(c) == 18 and all(type(x) is int and x >= 0 for x in t + c), "detail fields")
+        require(c[:13] == [1] * 13 and c[16] == 1 and c[13] == c[14], "detail clocks")
+        require(c[13] == int(c[17] >= 1024) and c[15] == int(0 < c[17] < 1024), "detail path")
+        require(all(c[i] != 0 or t[i] == 0 for i in range(17)) and t[17] == 0, "inactive clock")
+        require(sum(t[:10]) <= r["step_ns"] and sum(t[10:17]) <= t[3], "detail partition")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["prepare", "run", "analyze"])
+    parser.add_argument("action", choices=["prepare", "run", "analyze", "verify"])
     parser.add_argument("paths", nargs="+", type=Path)
     a = parser.parse_args()
     if a.action == "prepare":
@@ -115,4 +130,9 @@ if __name__ == "__main__":
     elif a.action == "run":
         acquire(*(p.resolve() for p in a.paths))
     else:
-        write(a.paths[2], analyze(a.paths[0], a.paths[1]))
+        result = analyze(a.paths[0], a.paths[1])
+        if a.action == "verify":
+            require(result == json.loads(a.paths[2].read_text()), "published detail evidence differs")
+        else:
+            require(not a.paths[2].resolve().is_relative_to(a.paths[0].resolve()), "detail output must be outside raw package")
+            write(a.paths[2], result)
