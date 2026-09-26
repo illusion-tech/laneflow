@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
+from analyze import require
 from analyze import analyze
 from inventory import validate_inventory
 
@@ -16,7 +17,7 @@ def rejects(action, reason):
     try:
         action()
     except AssertionError as error:
-        assert str(error) == reason, (str(error), reason)
+        require(str(error) == reason, (str(error), reason))
     else:
         raise AssertionError('invalid archive accepted')
 
@@ -52,6 +53,24 @@ with tempfile.TemporaryDirectory(prefix='lf757-relocated-') as name:
         shutil.copy2(meta.parent / (saved['label'] + suffix), group)
     for kind, field in [('binaries', 'binary'), ('plans', 'plan')]:
         (root / kind).mkdir()
-        shutil.copy2(saved[field], root / kind / PureWindowsPath(saved[field]).name)
-    assert analyze(group / meta.name) == analyze(meta)
-print('exact inventory and relocated package accepted; 4 archive corruption variants rejected')
+        asset_name = PureWindowsPath(saved[field]).name
+        source_asset = meta.parent.parent / kind / asset_name
+        if not source_asset.is_file():
+            source_asset = Path(saved[field])
+        shutil.copy2(source_asset, root / kind / asset_name)
+    require(analyze(group / meta.name) == analyze(meta), 'test expectation failed')
+# A changed excluded file must fail before either tracked artifact is replaced.
+import runpy
+import analyze as analyzer
+before = {name: (Path(__file__).parent / 'evidence' / name).read_bytes()
+          for name in ['files.json', 'results.json']}
+real_digest = analyzer.digest
+def damaged_excluded(path):
+    return '0' * 64 if 'scope-counts' in path.parts else real_digest(path)
+with patch.object(analyzer, 'digest', damaged_excluded):
+    rejects(lambda: runpy.run_path(str(Path(__file__).parent / 'aggregate.py')),
+            'raw evidence index changed')
+for name, data in before.items():
+    require((Path(__file__).parent / 'evidence' / name).read_bytes() == data,
+            'rejected aggregation changed published files')
+print('exact inventory and relocated package accepted; 5 archive corruption variants rejected')
