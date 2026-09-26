@@ -44,6 +44,9 @@ docs/
 
 仓库安全扫描的期望配置、状态语义和发布阻断规则见 `docs/governance/security-scanning.md`。
 
+默认实现语言及非 Rust 代码入库前的立项审查见
+[`code-language-policy.md`](governance/code-language-policy.md)。研究与脚本同样适用。
+
 源代码许可证、开放/商业边界、Cargo 依赖许可证、RustSec 与 Dependabot 基线见 `docs/governance/dependency-security.md`。
 
 ## 推荐阅读顺序
