@@ -1,0 +1,2 @@
+# 原始摘要绑定证据字节；跨平台 checkout 不转换 JSON 的换行。
+evidence/*.json -text
