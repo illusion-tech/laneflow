@@ -1,0 +1,1550 @@
+{
+  "purpose": "bounded internal P3 integration probe; not #707 certification",
+  "raw_package": "target/p3-perf-final",
+  "baseline": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+  "candidate": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+  "order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline",
+    "baseline",
+    "candidate"
+  ],
+  "ticks": 256,
+  "workers": 4,
+  "summary": {
+    "10k": {
+      "baseline": {
+        "step_ns_p50": {
+          "runs_ms": [
+            3.844,
+            3.6418,
+            3.624
+          ],
+          "median_of_run_percentiles_ms": 3.6418
+        },
+        "step_ns_p95": {
+          "runs_ms": [
+            4.8958,
+            4.4383,
+            4.4146
+          ],
+          "median_of_run_percentiles_ms": 4.4383
+        }
+      },
+      "candidate": {
+        "step_ns_p50": {
+          "runs_ms": [
+            3.6327,
+            3.2889,
+            3.1628
+          ],
+          "median_of_run_percentiles_ms": 3.2889
+        },
+        "step_ns_p95": {
+          "runs_ms": [
+            4.8542,
+            4.0276,
+            4.2202
+          ],
+          "median_of_run_percentiles_ms": 4.2202
+        }
+      }
+    },
+    "100k": {
+      "baseline": {
+        "step_ns_p50": {
+          "runs_ms": [
+            48.1415,
+            47.7273,
+            48.5421
+          ],
+          "median_of_run_percentiles_ms": 48.1415
+        },
+        "step_ns_p95": {
+          "runs_ms": [
+            56.8963,
+            57.2394,
+            56.5751
+          ],
+          "median_of_run_percentiles_ms": 56.8963
+        }
+      },
+      "candidate": {
+        "step_ns_p50": {
+          "runs_ms": [
+            43.3929,
+            42.6668,
+            41.6442
+          ],
+          "median_of_run_percentiles_ms": 42.6668
+        },
+        "step_ns_p95": {
+          "runs_ms": [
+            54.4415,
+            51.8105,
+            49.6676
+          ],
+          "median_of_run_percentiles_ms": 51.8105
+        }
+      }
+    }
+  },
+  "runs": [
+    {
+      "process": {
+        "label": "100k-1-baseline",
+        "arm": "baseline",
+        "scale": "100k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+        "source": "E:/projects/worktrees/759-p3-baseline/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+        "binary_sha256": "388809AA6098ACD38A05BBCC6FA1F018991F9817221F590A82DBEBC45EA60ABD",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+        "plan_sha256": "F0ECB9EAE962E9F0207EFA9181E25F4FF8450D3162948CEDA262CA7F0F0246C7",
+        "manifest_sha256": "5E2A676FBB3DA4D6B66A3966B66A21BB2ABEDAD2C61634A1446A0F53C2812140",
+        "started_utc": "2026-09-26T01:44:06.2570463Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:44:44.7517533Z",
+        "head_after": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "388809aa6098acd38a05bbcc6fa1f018991f9817221f590a82dbebc45ea60abd"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 35.5490045,
+        "execution_id": "50876-1790387048621150400-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\100k-1-baseline",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 48141500,
+        "step_ns_p95": 56896300,
+        "step_ns_p99": 60761400,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      },
+      "checkpoints": {
+        "0": "ba4ac6dea423196ab9905296204cf92844f81fa0f0c05261140e91207b77ca10",
+        "256": "029dbd6186994dd129407c0a39d93c8df6c07c85b7b5eea360e688cdae82e9e0"
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ]
+    },
+    {
+      "process": {
+        "label": "100k-2-candidate",
+        "arm": "candidate",
+        "scale": "100k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "tree": "939ea47f01fa8d0faf149874630550de027c6c54",
+        "source": "E:/projects/worktrees/759-p3-runtime/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+        "binary_sha256": "F87A42F334A680803F19BBB54D38AF2E072454EC2C89053C28B7CC9B8D879A24",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+        "plan_sha256": "F0ECB9EAE962E9F0207EFA9181E25F4FF8450D3162948CEDA262CA7F0F0246C7",
+        "manifest_sha256": "5E2A676FBB3DA4D6B66A3966B66A21BB2ABEDAD2C61634A1446A0F53C2812140",
+        "started_utc": "2026-09-26T01:44:45.2908235Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:45:22.9620436Z",
+        "head_after": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3990016,
+          "sha256": "f87a42f334a680803f19bbb54d38af2e072454ec2c89053c28b7cc9b8d879a24"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 34.6713643,
+        "execution_id": "41476-1790387087688685500-0",
+        "git_commit_at_run": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\100k-2-candidate",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 43392900,
+        "step_ns_p95": 54441500,
+        "step_ns_p99": 61451800,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      },
+      "checkpoints": {
+        "0": "ba4ac6dea423196ab9905296204cf92844f81fa0f0c05261140e91207b77ca10",
+        "256": "029dbd6186994dd129407c0a39d93c8df6c07c85b7b5eea360e688cdae82e9e0"
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ]
+    },
+    {
+      "process": {
+        "label": "100k-3-candidate",
+        "arm": "candidate",
+        "scale": "100k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "tree": "939ea47f01fa8d0faf149874630550de027c6c54",
+        "source": "E:/projects/worktrees/759-p3-runtime/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+        "binary_sha256": "F87A42F334A680803F19BBB54D38AF2E072454EC2C89053C28B7CC9B8D879A24",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+        "plan_sha256": "F0ECB9EAE962E9F0207EFA9181E25F4FF8450D3162948CEDA262CA7F0F0246C7",
+        "manifest_sha256": "5E2A676FBB3DA4D6B66A3966B66A21BB2ABEDAD2C61634A1446A0F53C2812140",
+        "started_utc": "2026-09-26T01:45:23.5505517Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:46:00.4314030Z",
+        "head_after": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3990016,
+          "sha256": "f87a42f334a680803f19bbb54d38af2e072454ec2c89053c28b7cc9b8d879a24"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 33.8789756,
+        "execution_id": "49244-1790387125987236000-0",
+        "git_commit_at_run": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\100k-3-candidate",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 42666800,
+        "step_ns_p95": 51810500,
+        "step_ns_p99": 55237500,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      },
+      "checkpoints": {
+        "0": "ba4ac6dea423196ab9905296204cf92844f81fa0f0c05261140e91207b77ca10",
+        "256": "029dbd6186994dd129407c0a39d93c8df6c07c85b7b5eea360e688cdae82e9e0"
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ]
+    },
+    {
+      "process": {
+        "label": "100k-4-baseline",
+        "arm": "baseline",
+        "scale": "100k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+        "source": "E:/projects/worktrees/759-p3-baseline/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+        "binary_sha256": "388809AA6098ACD38A05BBCC6FA1F018991F9817221F590A82DBEBC45EA60ABD",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+        "plan_sha256": "F0ECB9EAE962E9F0207EFA9181E25F4FF8450D3162948CEDA262CA7F0F0246C7",
+        "manifest_sha256": "5E2A676FBB3DA4D6B66A3966B66A21BB2ABEDAD2C61634A1446A0F53C2812140",
+        "started_utc": "2026-09-26T01:46:00.9807585Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:46:39.1113484Z",
+        "head_after": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "388809aa6098acd38a05bbcc6fa1f018991f9817221f590a82dbebc45ea60abd"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 35.2037966,
+        "execution_id": "46312-1790387163314549300-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\100k-4-baseline",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 47727300,
+        "step_ns_p95": 57239400,
+        "step_ns_p99": 60057400,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      },
+      "checkpoints": {
+        "0": "ba4ac6dea423196ab9905296204cf92844f81fa0f0c05261140e91207b77ca10",
+        "256": "029dbd6186994dd129407c0a39d93c8df6c07c85b7b5eea360e688cdae82e9e0"
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ]
+    },
+    {
+      "process": {
+        "label": "100k-5-baseline",
+        "arm": "baseline",
+        "scale": "100k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+        "source": "E:/projects/worktrees/759-p3-baseline/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+        "binary_sha256": "388809AA6098ACD38A05BBCC6FA1F018991F9817221F590A82DBEBC45EA60ABD",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+        "plan_sha256": "F0ECB9EAE962E9F0207EFA9181E25F4FF8450D3162948CEDA262CA7F0F0246C7",
+        "manifest_sha256": "5E2A676FBB3DA4D6B66A3966B66A21BB2ABEDAD2C61634A1446A0F53C2812140",
+        "started_utc": "2026-09-26T01:46:39.6583228Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:47:19.7406941Z",
+        "head_after": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "388809aa6098acd38a05bbcc6fa1f018991f9817221f590a82dbebc45ea60abd"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 35.7577116,
+        "execution_id": "50492-1790387203240313500-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\100k-5-baseline",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 48542100,
+        "step_ns_p95": 56575100,
+        "step_ns_p99": 60567400,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      },
+      "checkpoints": {
+        "0": "ba4ac6dea423196ab9905296204cf92844f81fa0f0c05261140e91207b77ca10",
+        "256": "029dbd6186994dd129407c0a39d93c8df6c07c85b7b5eea360e688cdae82e9e0"
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ]
+    },
+    {
+      "process": {
+        "label": "100k-6-candidate",
+        "arm": "candidate",
+        "scale": "100k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "tree": "939ea47f01fa8d0faf149874630550de027c6c54",
+        "source": "E:/projects/worktrees/759-p3-runtime/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+        "binary_sha256": "F87A42F334A680803F19BBB54D38AF2E072454EC2C89053C28B7CC9B8D879A24",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+        "plan_sha256": "F0ECB9EAE962E9F0207EFA9181E25F4FF8450D3162948CEDA262CA7F0F0246C7",
+        "manifest_sha256": "5E2A676FBB3DA4D6B66A3966B66A21BB2ABEDAD2C61634A1446A0F53C2812140",
+        "started_utc": "2026-09-26T01:47:20.3064697Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:47:56.7110368Z",
+        "head_after": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3990016,
+          "sha256": "f87a42f334a680803f19bbb54d38af2e072454ec2c89053c28b7cc9b8d879a24"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 33.4879102,
+        "execution_id": "44320-1790387242649579800-0",
+        "git_commit_at_run": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\100k-6-candidate",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 41644200,
+        "step_ns_p95": 49667600,
+        "step_ns_p99": 53932600,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4",
+        "commands.jsonl": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918",
+        "events.jsonl": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+      },
+      "checkpoints": {
+        "0": "ba4ac6dea423196ab9905296204cf92844f81fa0f0c05261140e91207b77ca10",
+        "256": "029dbd6186994dd129407c0a39d93c8df6c07c85b7b5eea360e688cdae82e9e0"
+      },
+      "initial_counts": [
+        75000,
+        25000,
+        0
+      ],
+      "final_counts": [
+        70752,
+        25200,
+        4048
+      ]
+    },
+    {
+      "process": {
+        "label": "10k-1-baseline",
+        "arm": "baseline",
+        "scale": "10k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+        "source": "E:/projects/worktrees/759-p3-baseline/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+        "binary_sha256": "388809AA6098ACD38A05BBCC6FA1F018991F9817221F590A82DBEBC45EA60ABD",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+        "plan_sha256": "E4C9B0F403BB358EB265D969DE071893BC73C92572EEBF43C461837F90C8E53C",
+        "manifest_sha256": "D9F08F511B50F19EAB18A5A87D6F9DB5A3836B34F8D82054AB3323AC1583D9DD",
+        "started_utc": "2026-09-26T01:43:44.6037023Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:43:47.8133479Z",
+        "head_after": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "388809aa6098acd38a05bbcc6fa1f018991f9817221f590a82dbebc45ea60abd"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.5453834,
+        "execution_id": "50384-1790387024985789700-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\10k-1-baseline",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3844000,
+        "step_ns_p95": 4895800,
+        "step_ns_p99": 5451000,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      },
+      "checkpoints": {
+        "0": "62ba4454293b9911f37efd11bcd1787d7c828ae1858a7334d969895cf4f62aac",
+        "256": "16910f82b1fac5a939a1d7f0bf8225e7c2a663090cbc2df441b57de02f013e47"
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ]
+    },
+    {
+      "process": {
+        "label": "10k-2-candidate",
+        "arm": "candidate",
+        "scale": "10k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "tree": "939ea47f01fa8d0faf149874630550de027c6c54",
+        "source": "E:/projects/worktrees/759-p3-runtime/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+        "binary_sha256": "F87A42F334A680803F19BBB54D38AF2E072454EC2C89053C28B7CC9B8D879A24",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+        "plan_sha256": "E4C9B0F403BB358EB265D969DE071893BC73C92572EEBF43C461837F90C8E53C",
+        "manifest_sha256": "D9F08F511B50F19EAB18A5A87D6F9DB5A3836B34F8D82054AB3323AC1583D9DD",
+        "started_utc": "2026-09-26T01:43:48.5754187Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:43:51.8931572Z",
+        "head_after": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3990016,
+          "sha256": "f87a42f334a680803f19bbb54d38af2e072454ec2c89053c28b7cc9b8d879a24"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.4917096,
+        "execution_id": "40316-1790387029113192000-0",
+        "git_commit_at_run": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\10k-2-candidate",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3632700,
+        "step_ns_p95": 4854200,
+        "step_ns_p99": 5604500,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      },
+      "checkpoints": {
+        "0": "62ba4454293b9911f37efd11bcd1787d7c828ae1858a7334d969895cf4f62aac",
+        "256": "16910f82b1fac5a939a1d7f0bf8225e7c2a663090cbc2df441b57de02f013e47"
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ]
+    },
+    {
+      "process": {
+        "label": "10k-3-candidate",
+        "arm": "candidate",
+        "scale": "10k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "tree": "939ea47f01fa8d0faf149874630550de027c6c54",
+        "source": "E:/projects/worktrees/759-p3-runtime/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+        "binary_sha256": "F87A42F334A680803F19BBB54D38AF2E072454EC2C89053C28B7CC9B8D879A24",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+        "plan_sha256": "E4C9B0F403BB358EB265D969DE071893BC73C92572EEBF43C461837F90C8E53C",
+        "manifest_sha256": "D9F08F511B50F19EAB18A5A87D6F9DB5A3836B34F8D82054AB3323AC1583D9DD",
+        "started_utc": "2026-09-26T01:43:52.3759295Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:43:55.3030212Z",
+        "head_after": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3990016,
+          "sha256": "f87a42f334a680803f19bbb54d38af2e072454ec2c89053c28b7cc9b8d879a24"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.3230322,
+        "execution_id": "48208-1790387032710422500-0",
+        "git_commit_at_run": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\10k-3-candidate",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3288900,
+        "step_ns_p95": 4027600,
+        "step_ns_p99": 4491800,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      },
+      "checkpoints": {
+        "0": "62ba4454293b9911f37efd11bcd1787d7c828ae1858a7334d969895cf4f62aac",
+        "256": "16910f82b1fac5a939a1d7f0bf8225e7c2a663090cbc2df441b57de02f013e47"
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ]
+    },
+    {
+      "process": {
+        "label": "10k-4-baseline",
+        "arm": "baseline",
+        "scale": "10k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+        "source": "E:/projects/worktrees/759-p3-baseline/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+        "binary_sha256": "388809AA6098ACD38A05BBCC6FA1F018991F9817221F590A82DBEBC45EA60ABD",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+        "plan_sha256": "E4C9B0F403BB358EB265D969DE071893BC73C92572EEBF43C461837F90C8E53C",
+        "manifest_sha256": "D9F08F511B50F19EAB18A5A87D6F9DB5A3836B34F8D82054AB3323AC1583D9DD",
+        "started_utc": "2026-09-26T01:43:55.7897637Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:43:58.8171996Z",
+        "head_after": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "388809aa6098acd38a05bbcc6fa1f018991f9817221f590a82dbebc45ea60abd"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.4429552,
+        "execution_id": "50936-1790387036110965600-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\10k-4-baseline",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3641800,
+        "step_ns_p95": 4438300,
+        "step_ns_p99": 4881300,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      },
+      "checkpoints": {
+        "0": "62ba4454293b9911f37efd11bcd1787d7c828ae1858a7334d969895cf4f62aac",
+        "256": "16910f82b1fac5a939a1d7f0bf8225e7c2a663090cbc2df441b57de02f013e47"
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ]
+    },
+    {
+      "process": {
+        "label": "10k-5-baseline",
+        "arm": "baseline",
+        "scale": "10k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+        "source": "E:/projects/worktrees/759-p3-baseline/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+        "binary_sha256": "388809AA6098ACD38A05BBCC6FA1F018991F9817221F590A82DBEBC45EA60ABD",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+        "plan_sha256": "E4C9B0F403BB358EB265D969DE071893BC73C92572EEBF43C461837F90C8E53C",
+        "manifest_sha256": "D9F08F511B50F19EAB18A5A87D6F9DB5A3836B34F8D82054AB3323AC1583D9DD",
+        "started_utc": "2026-09-26T01:43:59.2925900Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:44:02.3600472Z",
+        "head_after": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "388809aa6098acd38a05bbcc6fa1f018991f9817221f590a82dbebc45ea60abd"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.4779067,
+        "execution_id": "50456-1790387039625687000-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\baseline.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\10k-5-baseline",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3624000,
+        "step_ns_p95": 4414600,
+        "step_ns_p99": 5200500,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      },
+      "checkpoints": {
+        "0": "62ba4454293b9911f37efd11bcd1787d7c828ae1858a7334d969895cf4f62aac",
+        "256": "16910f82b1fac5a939a1d7f0bf8225e7c2a663090cbc2df441b57de02f013e47"
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ]
+    },
+    {
+      "process": {
+        "label": "10k-6-candidate",
+        "arm": "candidate",
+        "scale": "10k",
+        "workers": 4,
+        "ticks": 256,
+        "head": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "tree": "939ea47f01fa8d0faf149874630550de027c6c54",
+        "source": "E:/projects/worktrees/759-p3-runtime/laneflow",
+        "binary": "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+        "binary_sha256": "F87A42F334A680803F19BBB54D38AF2E072454EC2C89053C28B7CC9B8D879A24",
+        "plan": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+        "plan_sha256": "E4C9B0F403BB358EB265D969DE071893BC73C92572EEBF43C461837F90C8E53C",
+        "manifest_sha256": "D9F08F511B50F19EAB18A5A87D6F9DB5A3836B34F8D82054AB3323AC1583D9DD",
+        "started_utc": "2026-09-26T01:44:02.8602216Z",
+        "hardware": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "logical_cpus": "32",
+        "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+        "exit_code": 0,
+        "ended_utc": "2026-09-26T01:44:05.7498403Z",
+        "head_after": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "status_after": "",
+        "binary_unchanged": true,
+        "plan_unchanged": true
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3990016,
+          "sha256": "f87a42f334a680803f19bbb54d38af2e072454ec2c89053c28b7cc9b8d879a24"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.2922658,
+        "execution_id": "37748-1790387043181015200-0",
+        "git_commit_at_run": "37b441a85d0866232c515f4d4e8dd0be494c0f47",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-binaries\\candidate.exe",
+          "run",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k",
+          "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-smoke.toml",
+          "E:\\projects\\worktrees\\759-p3-runtime\\laneflow\\target\\p3-perf-final\\10k-6-candidate",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3162800,
+        "step_ns_p95": 4220200,
+        "step_ns_p99": 4543900,
+        "verified_steps": 256,
+        "workers": 4
+      },
+      "traffic_sha256": {
+        "ticks.jsonl": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e",
+        "commands.jsonl": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e",
+        "events.jsonl": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+      },
+      "checkpoints": {
+        "0": "62ba4454293b9911f37efd11bcd1787d7c828ae1858a7334d969895cf4f62aac",
+        "256": "16910f82b1fac5a939a1d7f0bf8225e7c2a663090cbc2df441b57de02f013e47"
+      },
+      "initial_counts": [
+        7500,
+        2500,
+        0
+      ],
+      "final_counts": [
+        7310,
+        2520,
+        170
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "100k-1-baseline.process.json",
+      "bytes": 1172,
+      "sha256": "b7bab70c6e9a4b769bbce371e56b1f7c76e079b410b8226da2374ef0bacfdef5"
+    },
+    {
+      "path": "100k-1-baseline.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "100k-1-baseline.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "100k-1-baseline/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-1-baseline/diagnostics.json",
+      "bytes": 1058,
+      "sha256": "b3f07da63e9d7d6123aeb1ce5fd6eb2f10b648482a9e77f312342a2383a5b05e"
+    },
+    {
+      "path": "100k-1-baseline/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-1-baseline/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-1-baseline/result.json",
+      "bytes": 225787,
+      "sha256": "bcf4020efbcf25963c303420c6f748d09395d9a20480d6ae84435ab768aec890"
+    },
+    {
+      "path": "100k-1-baseline/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-2-candidate.process.json",
+      "bytes": 1174,
+      "sha256": "b4428b62f445a3b0dcf8d41b85939205bfad1fb92bdbf40ad2ba2e8ef5f7d8a8"
+    },
+    {
+      "path": "100k-2-candidate.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "100k-2-candidate.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "100k-2-candidate/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-2-candidate/diagnostics.json",
+      "bytes": 1060,
+      "sha256": "f7803b446ab66ba82c4513593fa8accccc916f88363cf08d9c04382da35d0533"
+    },
+    {
+      "path": "100k-2-candidate/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-2-candidate/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-2-candidate/result.json",
+      "bytes": 225787,
+      "sha256": "6f628202004e4be4476e2216686296de2ca4af80928b2ff00bb5a6795aea79bd"
+    },
+    {
+      "path": "100k-2-candidate/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-3-candidate.process.json",
+      "bytes": 1174,
+      "sha256": "c8025b45022b09ee6857afb495f59fee10443804d1f680594e1684574d54c0dc"
+    },
+    {
+      "path": "100k-3-candidate.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "100k-3-candidate.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "100k-3-candidate/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-3-candidate/diagnostics.json",
+      "bytes": 1060,
+      "sha256": "961b420c91d4924a5504a79e61d3cbc8fe9bbe07aebe37be1a4946195649236b"
+    },
+    {
+      "path": "100k-3-candidate/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-3-candidate/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-3-candidate/result.json",
+      "bytes": 225787,
+      "sha256": "5d2fd653f30eaa649478b73f02d76eafb586bfc00f6227c86ca7347b6a120eae"
+    },
+    {
+      "path": "100k-3-candidate/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-4-baseline.process.json",
+      "bytes": 1172,
+      "sha256": "5a5901a87bcdf563c561277942a670d2c1088f871260c31a2f9818685f1103ca"
+    },
+    {
+      "path": "100k-4-baseline.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "100k-4-baseline.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "100k-4-baseline/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-4-baseline/diagnostics.json",
+      "bytes": 1058,
+      "sha256": "a8a994828c6a0a2a16d37341c5fb7b0553c4002bd4adcf1f23e965fb0022b91a"
+    },
+    {
+      "path": "100k-4-baseline/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-4-baseline/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-4-baseline/result.json",
+      "bytes": 225787,
+      "sha256": "c9f7774da4ac2f7a23adc69f27abfb8f494b80b1a1e22d98e5c768d0b9a756c0"
+    },
+    {
+      "path": "100k-4-baseline/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-5-baseline.process.json",
+      "bytes": 1172,
+      "sha256": "8658c5bd84d489d55806f78e1f2756e01769bda2503edac14314d8641113e13f"
+    },
+    {
+      "path": "100k-5-baseline.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "100k-5-baseline.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "100k-5-baseline/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-5-baseline/diagnostics.json",
+      "bytes": 1058,
+      "sha256": "72e6ff2dc54c4edacdb25fe1b5b1318ff322fc754bd672854aa7426eede15adc"
+    },
+    {
+      "path": "100k-5-baseline/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-5-baseline/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-5-baseline/result.json",
+      "bytes": 225787,
+      "sha256": "9e007b8efbac294e5fc993dce27b7007d9ce330f5318c6476bf259bdc76773f7"
+    },
+    {
+      "path": "100k-5-baseline/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "100k-6-candidate.process.json",
+      "bytes": 1174,
+      "sha256": "87dff1da1c34443fd090dc76f109bffba263c46f51a6e0704215caa0063b2db3"
+    },
+    {
+      "path": "100k-6-candidate.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "100k-6-candidate.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "100k-6-candidate/commands.jsonl",
+      "bytes": 13065056,
+      "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
+    },
+    {
+      "path": "100k-6-candidate/diagnostics.json",
+      "bytes": 1060,
+      "sha256": "0534b8d1f899f883b8ebfab07eeeb46f008e206e57c018b1ab68df26fa9e7194"
+    },
+    {
+      "path": "100k-6-candidate/events.jsonl",
+      "bytes": 2513992,
+      "sha256": "05204064ecdd1f572478b922375cf6acd6bad6a5ad18e5c078b58138cd2637bd"
+    },
+    {
+      "path": "100k-6-candidate/resolved-plan.toml",
+      "bytes": 15194908,
+      "sha256": "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+    },
+    {
+      "path": "100k-6-candidate/result.json",
+      "bytes": 225787,
+      "sha256": "3d375d8fdf1e3af3da01d9cf3fac5ad9801e663957f9702030e166b105a66f61"
+    },
+    {
+      "path": "100k-6-candidate/ticks.jsonl",
+      "bytes": 159006,
+      "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
+    },
+    {
+      "path": "10k-1-baseline.process.json",
+      "bytes": 1169,
+      "sha256": "9e44a7e42605b36ab1f398da52a3d1ae6264470cf6ad549cf965e72a626d7001"
+    },
+    {
+      "path": "10k-1-baseline.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "10k-1-baseline.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "10k-1-baseline/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-1-baseline/diagnostics.json",
+      "bytes": 1051,
+      "sha256": "3984db4db31714d6be68b33f66806d104921f71bd581e1784b9e6d37ad883844"
+    },
+    {
+      "path": "10k-1-baseline/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-1-baseline/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-1-baseline/result.json",
+      "bytes": 24374,
+      "sha256": "f269286964006db6f0a1ed3b378986b759335776ed25cbd41c061a54a0a61f90"
+    },
+    {
+      "path": "10k-1-baseline/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-2-candidate.process.json",
+      "bytes": 1171,
+      "sha256": "c8b99665e37dbeec01b2429afc34f0eaffa2568e4c2de5b79e4b21654c5b8f2a"
+    },
+    {
+      "path": "10k-2-candidate.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "10k-2-candidate.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "10k-2-candidate/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-2-candidate/diagnostics.json",
+      "bytes": 1053,
+      "sha256": "dbfcaf458614477176909581103234b3b92848bbf128feb8de3c8eb635fcb482"
+    },
+    {
+      "path": "10k-2-candidate/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-2-candidate/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-2-candidate/result.json",
+      "bytes": 24374,
+      "sha256": "cb1963c2a3b8ecdfba2dd9642484b8ff1f2fa29e4892cd4d52a0265d573e7aed"
+    },
+    {
+      "path": "10k-2-candidate/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-3-candidate.process.json",
+      "bytes": 1171,
+      "sha256": "d8fb16c81edc253b94a93808556ade1afc45f01335e17f5e81d245ee75af1758"
+    },
+    {
+      "path": "10k-3-candidate.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "10k-3-candidate.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "10k-3-candidate/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-3-candidate/diagnostics.json",
+      "bytes": 1053,
+      "sha256": "db455f31d46397d96fca49c7b09e6c623d7675562627796f821e5812c8fb1c06"
+    },
+    {
+      "path": "10k-3-candidate/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-3-candidate/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-3-candidate/result.json",
+      "bytes": 24374,
+      "sha256": "32c4b3551658746e5f648c2f2cb6f60af0053204df7bcbc25b3447c51ed51597"
+    },
+    {
+      "path": "10k-3-candidate/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-4-baseline.process.json",
+      "bytes": 1169,
+      "sha256": "46e2364e635016a64e71fcecc96819fe1128ef210c13f2fef29de2ec3caeeee4"
+    },
+    {
+      "path": "10k-4-baseline.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "10k-4-baseline.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "10k-4-baseline/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-4-baseline/diagnostics.json",
+      "bytes": 1051,
+      "sha256": "451e8ab6edff0bbd55ea5a3d338c2ce1d6467ea5d0df8db40f4829474ff723e9"
+    },
+    {
+      "path": "10k-4-baseline/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-4-baseline/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-4-baseline/result.json",
+      "bytes": 24374,
+      "sha256": "e7a39f883c74da5b80bc878d2da4570d3c28e01c170133ba220019853073da13"
+    },
+    {
+      "path": "10k-4-baseline/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-5-baseline.process.json",
+      "bytes": 1169,
+      "sha256": "5e6a768787d92d9cc37fb14f19163955e18e3e55fcf21bd75e217a2f2de798bc"
+    },
+    {
+      "path": "10k-5-baseline.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "10k-5-baseline.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "10k-5-baseline/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-5-baseline/diagnostics.json",
+      "bytes": 1051,
+      "sha256": "4862fab8d07b2a84f66e27f6df1e64ddd019c2caa0fe63bd0013107ba7a2400f"
+    },
+    {
+      "path": "10k-5-baseline/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-5-baseline/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-5-baseline/result.json",
+      "bytes": 24374,
+      "sha256": "1ebe36d33b13026b5c312ca6fc79a81f3c06039ed91291f9f3d60145a9e065d1"
+    },
+    {
+      "path": "10k-5-baseline/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    },
+    {
+      "path": "10k-6-candidate.process.json",
+      "bytes": 1171,
+      "sha256": "f1ce71b4e96813ca4793b0f8551ca54d4b075368d0a93a74c7dbed3899cbd888"
+    },
+    {
+      "path": "10k-6-candidate.stdout",
+      "bytes": 32,
+      "sha256": "421547152f70302fbe18c9d160169c37c8971e7d4c8b12b8a0c196e039b5a670"
+    },
+    {
+      "path": "10k-6-candidate.stderr",
+      "bytes": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "10k-6-candidate/commands.jsonl",
+      "bytes": 405506,
+      "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
+    },
+    {
+      "path": "10k-6-candidate/diagnostics.json",
+      "bytes": 1053,
+      "sha256": "d879280d086439e7846c8d2992e0192bf0f4ca798302c643c859f7cb9d03aa98"
+    },
+    {
+      "path": "10k-6-candidate/events.jsonl",
+      "bytes": 168331,
+      "sha256": "c93bb40a2bba8ef32252405073edc0b45ac3ead3fe8f6480b29c9ffe050d3e65"
+    },
+    {
+      "path": "10k-6-candidate/resolved-plan.toml",
+      "bytes": 1464929,
+      "sha256": "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+    },
+    {
+      "path": "10k-6-candidate/result.json",
+      "bytes": 24374,
+      "sha256": "809ff6e47590e16558fc27d0b4242e7f6ba01a5ad50e043ace691c10e15b93a0"
+    },
+    {
+      "path": "10k-6-candidate/ticks.jsonl",
+      "bytes": 156617,
+      "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
+    }
+  ]
+}
