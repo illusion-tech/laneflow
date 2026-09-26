@@ -12,7 +12,8 @@ use laneflow_spatial::SpatialSession;
 use serde_json::{Value, json};
 
 use crate::{
-    Artifacts, Harness, Presentation, ResolvedPlan, Result, checked, invalid, observe,
+    Artifacts, Harness, Presentation, PresentationMode, ResolvedPlan, Result, checked, invalid,
+    observe,
     report::{
         command_output, digest_file, new_execution_id, peak_resident_bytes, peak_resident_method,
         sample_summary, validate_case, write_json,
@@ -57,17 +58,27 @@ pub(crate) fn source() -> Result<Value> {
         return Err(invalid("evidence requires a frozen clean source checkout"));
     }
     Ok(json!({"commit":commit,"git_status":status,
+        "tree":read("git", &["rev-parse", "HEAD^{tree}"])?,
+        "cargo_lock":digest_file(Path::new("Cargo.lock"))?,
+        "workspace_manifest":digest_file(Path::new("Cargo.toml"))?,
+        "harness_manifest":digest_file(Path::new("tools/laneflow-urban-harness/Cargo.toml"))?,
+        "adapter_manifest":digest_file(Path::new("crates/laneflow-bevy/Cargo.toml"))?,
+        "spatial_manifest":digest_file(Path::new("crates/laneflow-spatial/Cargo.toml"))?,
         "rustc":read("rustc", &["+1.98.0","-Vv"] )?,
         "cargo":read("cargo", &["+1.98.0","-V"] )?,
         "binary":digest_file(&std::env::current_exe()?)?,
-        "build_parameters":"cargo +1.98.0 build -p laneflow-urban-harness --features adapter --release --locked",
+        "allocation":cfg!(feature = "allocation"),
+        "pose_profiling":cfg!(feature = "pose-profiling"),
+        "build_parameters":if cfg!(feature = "allocation") {"cargo +1.98.0 build -p laneflow-urban-harness --features allocation --release --locked"} else if cfg!(feature = "pose-profiling") {"cargo +1.98.0 build -p laneflow-urban-harness --features pose-profiling --release --locked"} else {"cargo +1.98.0 build -p laneflow-urban-harness --features adapter --release --locked"},
         "hardware_role":std::env::var("LANEFLOW_HARDWARE_ROLE").map_err(|_| invalid("missing hardware role"))?,
         "power_role":std::env::var("LANEFLOW_POWER_ROLE").map_err(|_| invalid("missing power role"))?,
         "os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"workers":1}))
 }
 
-/// Correctness consumes the complete existing plan. A wall budget is a separate,
-/// explicitly truncated Mixed observation, never a formal three-round result.
+/// 执行完整正确性或性能窗口；限时 Mixed 观察只作为显式截短的 probe。
+///
+/// # Errors
+/// 输入、来源、窗口、表现配置或任一交通/表现验证失败时拒绝。
 pub fn run_evidence(
     artifact_directory: &Path,
     plan_path: &Path,
@@ -75,8 +86,13 @@ pub fn run_evidence(
     adapter: bool,
     wall_ms: Option<u64>,
     prefix_ticks: Option<u64>,
+    presentation_mode: PresentationMode,
 ) -> Result<Value> {
     let started = Instant::now();
+    presentation_mode.validate()?;
+    if !adapter && presentation_mode != PresentationMode::FullValidation {
+        return Err(invalid("presentation selection requires adapter mode"));
+    }
     let soft = wall_ms
         .map(|limit| {
             if !(WRITE_RESERVE_MS + 1..=600_000).contains(&limit) {
@@ -106,9 +122,9 @@ pub fn run_evidence(
                 "bounded evidence requires a 10k/100k Mixed probe of at most 4096 ticks without warmup",
             ));
         }
-    } else if plan.window.purpose != "correctness" {
+    } else if !matches!(plan.window.purpose.as_str(), "correctness" | "performance") {
         return Err(invalid(
-            "correctness evidence requires the complete accepted correctness window",
+            "unbounded evidence requires the complete accepted correctness or performance window",
         ));
     }
     let target = target_ticks(plan.window.end(), wall_ms, prefix_ticks)?;
@@ -127,7 +143,11 @@ pub fn run_evidence(
         .ok_or_else(|| invalid("canonical geometry is absent"))?;
         harness = harness.into_adapter(spatial)?;
     }
-    let mut presentation = adapter.then(Presentation::default);
+    let mut presentation = if adapter {
+        Some(Presentation::new(presentation_mode)?)
+    } else {
+        None
+    };
     let initial_counts = observe::counts(&harness)?;
     let initial_checkpoint = harness.checkpoint()?;
     let initialized_ms = started.elapsed().as_millis();
@@ -139,6 +159,10 @@ pub fn run_evidence(
     let mut selection_times = Vec::new();
     let mut apply_times = Vec::new();
     let mut frame_times = Vec::new();
+    let mut collection_times = Vec::new();
+    let mut conversion_times = Vec::new();
+    let mut presentation_times = Vec::new();
+    let mut validation_times = Vec::new();
     let mut last_presentation = None;
     let mut checkpoints = BTreeMap::from([(0, initial_checkpoint)]);
     let mut completed = 0;
@@ -155,11 +179,19 @@ pub fn run_evidence(
                 .as_mut()
                 .map(|p| p.sample(&mut harness))
                 .transpose()?;
+            let measured = plan.window.purpose != "performance"
+                || plan.window.contains_completed_step(record.tick);
             if let Some(sample) = &sample {
                 record.presented = sample.n_presented;
-                pose_times.push(sample.pose_ns);
-                selection_times.push(sample.selection_mapping_ns);
-                apply_times.push(sample.apply_ns);
+                if measured {
+                    pose_times.push(sample.pose_ns);
+                    selection_times.push(sample.selection_mapping_ns);
+                    apply_times.push(sample.apply_ns);
+                    collection_times.push(sample.selection_ns);
+                    conversion_times.push(sample.conversion_ns);
+                    presentation_times.push(sample.presentation_ns);
+                    validation_times.push(sample.validation_ns);
+                }
                 last_presentation = Some(sample.clone());
             }
             let frame_ns = frame_started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
@@ -171,10 +203,12 @@ pub fn run_evidence(
                 "observation_ns":harness.last_observation_ns,"frame_ns":frame_ns}),
             )?;
             frames.write_all(b"\n")?;
-            steps.push(harness.last_step_ns);
-            command_times.push(harness.last_command_ns);
-            observations.push(harness.last_observation_ns);
-            frame_times.push(frame_ns);
+            if measured {
+                steps.push(harness.last_step_ns);
+                command_times.push(harness.last_command_ns);
+                observations.push(harness.last_observation_ns);
+                frame_times.push(frame_ns);
+            }
             completed = record.tick;
             if wall_ms.is_none()
                 && (completed == plan.window.warm_up_ticks
@@ -273,13 +307,16 @@ pub fn run_evidence(
     }
     let measurements = json!({"step":summary(&mut steps)?,"commands":summary(&mut command_times)?,
         "observation":summary(&mut observations)?,"pose":summary(&mut pose_times)?,
-        "selection_mapping":summary(&mut selection_times)?,"apply":summary(&mut apply_times)?,"frame":summary(&mut frame_times)?});
+        "selection_mapping":summary(&mut selection_times)?,"apply":summary(&mut apply_times)?,"frame":summary(&mut frame_times)?,
+        "selection":summary(&mut collection_times)?,"conversion":summary(&mut conversion_times)?,
+        "presentation":summary(&mut presentation_times)?,"presentation_validation":summary(&mut validation_times)?});
     let mut result = json!({
         "version":"urban-cross-layer-evidence-v1",
-        "status":if error.is_some() {"failed"} else if wall_ms.is_some() {"bounded-observation-complete"} else {"correctness-case-pass"},
+        "status":if error.is_some() {"failed"} else if wall_ms.is_some() {"bounded-observation-complete"} else if plan.window.purpose == "performance" {"performance-case-pass"} else {"correctness-case-pass"},
         "execution_id":new_execution_id()?,"pid":std::process::id(),"source":provenance,
         "invocation":std::env::args().collect::<Vec<_>>(),"case":plan.case,"scale":plan.scale,
         "mode":if adapter {"adapter"} else {"headless"},"window":plan.window,
+        "presentation_mode":presentation_mode,
         "plan_digest":plan_digest,"artifact_files":artifacts.files,"manifest_sha256":artifacts.manifest_digest,
         "network_revision":artifacts.catalog.network_revision,"policy_id":artifacts.catalog.policy_id,
         "target_ticks":target,"prefix_ticks":prefix_ticks,"completed_ticks":completed,"committed_world_tick":harness.world().tick_index(),
@@ -290,7 +327,7 @@ pub fn run_evidence(
     let details = json!({
         "checkpoints":checkpoints,"tile_evidence":harness.evidence,"retry_reasons":harness.error_counts,
         "atomic_rejections":harness.atomic_rejections,"births":harness.births,"removals":harness.removals,"replacements":harness.replacements,
-        "timing_basis":if adapter {"step=Bevy fixed Step stage including scheduler boundaries; pose=full source materialization and extraction; selection_mapping=stable selection and proxy lifecycle; apply=Transform writes; validation and log IO separate"} else {"step=TrafficWorld::step public call; command=public lifecycle calls; observation=existing oracle"},
+        "timing_basis":if adapter {"step=Bevy fixed Step stage; selection=live identity sort/window; pose=complete production extraction call including validation/query/sampling/commit; conversion=all extracted Transform conversion and sort; selection_mapping=persistent binding checks, creation, reuse, hide/show; apply=Transform writes; presentation=selection through apply; validation and log IO separate; performance summaries exclude warmup"} else {"step=TrafficWorld::step public call; command=public lifecycle calls; observation=existing oracle"},
         "frame_basis":"commands, Runtime/Bevy step, oracle, full presentation and its validation; excludes frame log serialization and checkpoints; percentiles are not additive",
         "measurements_ns":measurements,
         "memory":{"status":if memory.is_some(){"measured"}else{"unmeasured"},"method":peak_resident_method(),"peak_resident_bytes":memory},

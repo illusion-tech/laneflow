@@ -12,6 +12,9 @@ publish = false
 name = "laneflow_spatial"
 path = "src/lib.rs"
 
+[features]
+pose-profiling = []
+
 [dependencies]
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }

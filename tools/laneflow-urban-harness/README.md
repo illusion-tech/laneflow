@@ -214,6 +214,42 @@ cargo +1.98.0 run -p laneflow-urban-harness --release --example boundary_probe -
 
 ## 跨层有限证据
 
+`evidence ... adapter --presentation-config <config.json>` 显式选择宿主表现模式。
+省略配置使用原 `FullValidation`。例如以下配置选择 live 个体的 10%，从稳定身份
+排序后的第 53 项开始，每次成功采样移动 137 项，循环到列表开头：
+
+```json
+{"mode":"SelectedPresentation","selection":{"percent":10,"offset":53,"stride":137,"reverse":false}}
+```
+
+`percent` 为 0–100 的整数，分母是本次具有当前句柄的 live 个体数，数量向下取整。
+`stride: 0` 保持稳定窗口；`reverse: true` 反转窗口内输入顺序。状态过滤由 Runtime
+来源查询执行，因此 requested 与 extracted 不必相等。Selected 应用全部提取结果。
+配对测量把 mode 改为 `FullValidationSelected`，保留相同 selection：它仍提取、转换
+全量位姿，但只应用同一选择集合。`FullValidation` 配置不含 selection。
+
+模式和完整选择配置进入 `evidence.json` 与每帧记录。计时分别记录选择收集、完整
+提取调用（含校验/查询/采样/提交）、转换、绑定进出、应用及验证；`presentation_ns`
+直接测选择到应用的整体时间。绑定记录 created/reused/hidden/shown/retired_bindings，
+retired_bindings 包括真正移除与 replacement 后旧宿主身份退出。退出选择只隐藏，
+仍保留绑定。`presentable` 由全量生命周期验证统计，不额外做全量 Spatial 采样。
+
+完整链路性能使用 `plan ... --performance` 产生的原始窗口，并以 `evidence` 无限时
+运行到末尾；汇总排除暖机，全部 tick 仍执行交通 oracle。`performance-case-pass`
+只表示该轮完整执行，不代表已经完成三轮对照或产品认证。至少三个独立进程、相同
+输入/计划和最终应用集合的比较及分配构建另行取证，probe 前缀不能替代。
+
+独立取证构建：`--features allocation` 使用已有锁定的 `stats_alloc 0.1.10`
+（crates.io，MIT/Apache-2.0）记录选择至应用区间的实际 alloc/realloc 和分配字节。
+计数为进程 allocator 增量，不是峰值驻留内存；不混入随后验证、序列化和日志。
+`--features pose-profiling` 在 stderr 输出成功批次的上下文/查重、来源查询、Spatial
+采样与提交、Adapter 提交时间，以及输入、候选、输出、查重容器的 len/capacity。
+Vec 元素大小用于容量字节账，Hash 表容量单位仍是元素；交换后分别计入各当前所有者，
+逻辑复制字节为零不表示内存总线没有流量。插桩构建的墙钟不参与正常构建的性能结论。
+默认 `adapter` 构建不含 allocator 或内部阶段插桩；三种构建须分别记录二进制摘要。
+每帧 `applied_digest` 按稳定个体身份及实际 Transform 数值生成，配对运行须逐帧一致；
+`requested` 表示提取需求（全量模式为 live 数），`host_selected` 另列宿主选择数量。
+
 `adapter` feature 使用真实 `LaneFlowPlugin`、`LaneFlowSession` 和同根 `SpatialSession`。
 每次 Bevy update 必须恰好提交一个固定步进且无积压。性能中的 Adapter `step` 是 Bevy
 Step 阶段（含调度边界），headless `step` 是公共 `TrafficWorld::step` 调用，报告分别标明。
