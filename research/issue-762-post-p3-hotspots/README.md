@@ -23,6 +23,7 @@ Refs #762。固定主干 `37c5e1af3c72b0f60cf2dd889bbf6713b2a77054`，只交付�
 两臂使用**不同 Cargo target-dir**，避免同包同版本导出树的增量指纹误复用。
 
 ```powershell
+New-Item -ItemType Directory -Force target
 python research/issue-762-post-p3-hotspots/prepare.py target/hotspot-plain plain > target/plain-source.json
 python research/issue-762-post-p3-hotspots/prepare.py target/hotspot-stages stages > target/stages-source.json
 $env:CARGO_INCREMENTAL='0'
@@ -35,6 +36,21 @@ python research/issue-762-post-p3-hotspots/run.py target/hotspot-runs E:/project
 python research/issue-762-post-p3-hotspots/analyze.py target/hotspot-runs target/hotspot-results.json
 python -m unittest discover -s research/issue-762-post-p3-hotspots -p 'test_*.py'
 ```
+
+首轮三次 100k 诊断均以 ConflictPrepare 为最大段；因此用 `detail.py` 追加三次同输入、
+同 256 拍的 100k 诊断，细分发现、分发、消费、融合回退及排序预留。只观测协调器时钟与
+已存在的 `inputs.len()`，不增加逐车时钟。结束条件是三次细分结果齐全，不追加长窗。
+
+```powershell
+python research/issue-762-post-p3-hotspots/detail.py prepare target/hotspot-detail > target/detail-source.json
+cargo +1.98.0 build --release --locked --offline -p laneflow-urban-harness --manifest-path target/hotspot-detail/Cargo.toml --target-dir target/hotspot-detail-build
+Copy-Item target/hotspot-detail-build/release/laneflow-urban-harness.exe target/hotspot-binaries/detail.exe
+python research/issue-762-post-p3-hotspots/detail.py run target/hotspot-detail-runs E:/projects/laneflow-evidence/issue-707/4de40e04 target/hotspot-results.json
+python research/issue-762-post-p3-hotspots/detail.py analyze target/hotspot-detail-runs target/hotspot-results.json target/hotspot-detail-results.json
+```
+
+核验已发布的首轮证据时传 `analyze.py <raw-package> <published-results.json> --verify`，
+文件清单或任何统计不一致就失败，不覆盖已发布索引。
 
 原始运行包、二进制和导出源码保存在独立工作树的 `target/`，不纳入 Git；远程复核需要
 对应外部包及冻结输入。源码索引和原始文件清单用于核对身份，不表示外部证据已随 Git 发布。

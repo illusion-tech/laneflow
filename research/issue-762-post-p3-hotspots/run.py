@@ -61,6 +61,7 @@ def acquire(output, inputs):
         identity["source_indexes"][mode] = sha(output / f"{mode}-source.json")
         binary = REPO / "target" / "hotspot-binaries" / f"{mode}.exe"
         identity["binaries"][mode] = {"path": str(binary), "sha256": sha(binary)}
+    require(identity["binaries"]["plain"]["sha256"] != identity["binaries"]["stages"]["sha256"], "same binary for different arms")
     write(output / "identity.json", identity)
     for scale in ("10k", "100k"):
         for number, mode in enumerate(ORDER, 1):
