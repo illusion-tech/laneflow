@@ -16,13 +16,22 @@ fn edit(root: &Path, relative: &str, old: &str, new: &str) -> Result<()> {
 }
 
 pub(crate) fn export(repo: &Path, destination: &Path, mode: &str) -> Result<Value> {
+    export_at(repo, destination, mode, BASE)
+}
+
+pub(crate) fn export_at(
+    repo: &Path,
+    destination: &Path,
+    mode: &str,
+    commit: &str,
+) -> Result<Value> {
     io::ensure_new(destination)?;
     fs::create_dir_all(destination.parent().unwrap_or(Path::new(".")))?;
     fs::create_dir(destination)?;
     let archive = destination.join(".source-export.tar");
     let output = Command::new("git")
         .current_dir(repo)
-        .args(["archive", "--format=tar", BASE, "--output"])
+        .args(["archive", "--format=tar", commit, "--output"])
         .arg(&archive)
         .output()?;
     need(output.status.success(), "git archive failed")?;
@@ -114,7 +123,7 @@ pub(crate) fn export(repo: &Path, destination: &Path, mode: &str) -> Result<Valu
     if mode == "detail" {
         detail(destination)?;
     }
-    Ok(json!({"base":BASE,"mode":mode,"source_files":io::source_index(destination)?}))
+    Ok(json!({"base":commit,"mode":mode,"source_files":io::source_index(destination)?}))
 }
 
 fn detail(root: &Path) -> Result<()> {
