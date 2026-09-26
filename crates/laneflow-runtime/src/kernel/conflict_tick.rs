@@ -2620,6 +2620,7 @@ mod tests {
 
         // 前一拍的逻辑条目不能随槽位或路线变化复活。
         let edges = world.route_edges(state.route).unwrap().to_vec();
+        let progress = world.traffic().lane_lengths_millimetres()[edges[0].index()] - 1;
         world.despawn_vehicle(old).unwrap();
         world.remove_route(state.route).unwrap();
         let route = world
@@ -2627,7 +2628,8 @@ mod tests {
             .unwrap();
         let new = world
             .spawn_vehicle(
-                crate::VehicleSpawnInput::new(state.profile, route, 0, 0, 0).with_open_entrance(),
+                crate::VehicleSpawnInput::new(state.profile, route, 0, progress, 10_000)
+                    .with_open_entrance(),
             )
             .unwrap();
         assert_eq!(old.index(), new.index());
@@ -2637,7 +2639,7 @@ mod tests {
         world.state.prepare_waiting_step(0.1).unwrap();
         let cached = world.state.workspace.motion_cache[0];
         assert_eq!(cached.vehicle, new);
-        assert_eq!(cached.gate_reachable, Some(false));
+        assert_eq!(cached.gate_reachable, Some(true));
         world.step(TickInput::new(100)).unwrap();
         assert!(world.state.workspace.motion_cache.is_empty());
     }
