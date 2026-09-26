@@ -3,7 +3,7 @@ import csv
 import hashlib
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import statistics
 import sys
 
@@ -34,7 +34,7 @@ def validate_frozen_run(meta_path, run, frozen):
         'summary.json', 'timing.csv', 'work.csv', 'initial.jsonl', 'ticks.jsonl',
         'commands.jsonl', 'events.jsonl', 'extended-quality.json', 'individual-quality.csv']]]
     for path in paths:
-        record = expected.get(str(path.resolve()))
+        record = expected.get(path.resolve().relative_to(meta_path.resolve().parent.parent).as_posix())
         assert record is not None, 'run absent from frozen evidence'
         assert path.stat().st_size == record['bytes'] and digest(path) == record['sha256'], 'frozen evidence hash: ' + path.name
 
@@ -49,10 +49,19 @@ def analyze(meta_path):
     assert meta['source_identity_before'] == frozen['source_hash'], 'unfrozen source'
     assert meta['bundle_head'] == meta['bundle_head_after'], 'bundle HEAD changed'
     assert meta['bundle_status'] == '', 'uncommitted bundle'
-    assert digest(Path(meta['binary'])) == meta['binary_sha256'].lower(), 'binary hash'
-    assert digest(Path(meta['plan'])) == meta['plan_sha256'].lower(), 'plan hash'
+    # Copied packages keep original metadata bytes; assets resolve beside the runs.
+    package = meta_path.resolve().parent.parent
+    binary_name = PureWindowsPath(meta['binary']).name
+    plan_name = PureWindowsPath(meta['plan']).name
+    binary_path = package / 'binaries' / binary_name
+    plan_path = package / 'plans' / plan_name
+    if not binary_path.is_file():
+        binary_path = Path(meta['binary'])
+    if not plan_path.is_file():
+        plan_path = Path(meta['plan'])
+    assert digest(binary_path) == meta['binary_sha256'].lower(), 'binary hash'
+    assert digest(plan_path) == meta['plan_sha256'].lower(), 'plan hash'
     assert meta['plan_sha256'].lower() == frozen['plans'][meta['scale']]['sha256'], 'unfrozen plan'
-    binary_name = Path(meta['binary']).name
     assert binary_name in frozen['binaries'] and meta['binary_sha256'].lower() == frozen['binaries'][binary_name]['sha256'], 'unfrozen binary'
     run = meta_path.parent / meta['label']
     summary = json.loads((run / 'summary.json').read_text())
@@ -83,6 +92,10 @@ def analyze(meta_path):
     else:
         assert all(v == 0 for r in work for k, v in r.items() if k != 'tick'), 'unexpected instrumentation'
     validate_frozen_run(meta_path, run, frozen)
+    # Frozen observer predates the command-Park boundary fix. No archived run
+    # contains a parked ending; reject it rather than publish a tick-late duration.
+    with (run / 'individual-quality.csv').open() as trip_file:
+        assert all(row['end_kind'] != 'parked' for row in csv.DictReader(trip_file)), 'unsupported command-parked trip'
     windows = {}
     cycle = 7656 if meta['scale'] == '10k' else 3712
     for name, low, high in [('entry', 1, 64), ('screen', 65, 512), ('running', 513, 2 * cycle), ('reflow', 2 * cycle + 1, meta['ticks'])]:
