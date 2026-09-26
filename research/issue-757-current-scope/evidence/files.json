@@ -1,0 +1,1442 @@
+[
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "d7519b8e05635eb4e21cf4a67ff9d8b9901f6fc8b9eddac234911289c4995e84"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\summary.json",
+    "bytes": 184365,
+    "sha256": "da9b2c95819b1aca69d58d34168867afc8a4952a6e8db208dafb869bef9733f2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\timing.csv",
+    "bytes": 30168,
+    "sha256": "fc59cf70034e6add28e2e5bdd6ce5023f1797ef5708d39fe8fb415804143ec48"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-1-all.process.json",
+    "bytes": 1523,
+    "sha256": "055df5ab5bb7770388ecafa54930bd454438b5cfa79a2a33e5e286f20116b522"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "508af633b4567c05ff99bc5489b44abdc86b027cef138ac64d7bb5885462fbb4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\summary.json",
+    "bytes": 184365,
+    "sha256": "ca8d9d95a436a4963c05aa0ed83c387643ef294f1b3d380b3118f6a7a7a44fb3"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\timing.csv",
+    "bytes": 30155,
+    "sha256": "bd77dabd5c21e7f2624694e55b52b6591cb5017ebb00c08bd82dd912ad4cc70f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-2-all.process.json",
+    "bytes": 1525,
+    "sha256": "6ffcd4a3312b60bbb56eac8f86ca0d1b9197b35bf826d4b41fa505b643520c7e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "329e275cf433ad0aea2e23bc3334b18aba15cce42cbf56b42216db59c59f6008"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\summary.json",
+    "bytes": 184364,
+    "sha256": "76aca950aae98e3df084ad1520f0a7801dede4784738dffdb7ee9491a5fe7cf7"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\timing.csv",
+    "bytes": 30149,
+    "sha256": "601215f6aaf7aa5eabe40bd361f1a35f9383aad59df6709979fe2078572b0bd5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-3-p3.process.json",
+    "bytes": 1521,
+    "sha256": "afbe0b8b0c38d557bb8789e396a8d59938f4d2ae4b1ac604c952db6a06b1ef86"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "0c7ddfe6e33886c61ce8e7314433f282abf8f293fbc245dbc6b3a215c2f80969"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\summary.json",
+    "bytes": 184369,
+    "sha256": "751f9b6693328ec519110ea6e043ff1f1210e5b6c397cf33167f0704d0b9f3ae"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\timing.csv",
+    "bytes": 30150,
+    "sha256": "20ef2b146d54bc3ab4a911654a189edfbc0b793c7e687bc905899e0544ceb72a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-4-waiting.process.json",
+    "bytes": 1532,
+    "sha256": "146e94670ee9bbfb3862c12791579b0297f3a13817c8420ab8bf02d0f5024339"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "349588da2dca5a4b026e5cf37087572a0fe9994ce91d7417475b5d2dbc30fff2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\summary.json",
+    "bytes": 184366,
+    "sha256": "bb0982b1422d5481d004413b4d45d045dce9dedf9e07fd7cb8c1367fa61e5dcf"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\timing.csv",
+    "bytes": 30115,
+    "sha256": "3061224f1963e07b22d9da78eb702f0477be910e52c90f5c46f003ea227900d7"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-5-both.process.json",
+    "bytes": 1527,
+    "sha256": "c897dcb2f0d449d21ffcc2c3ea870a15bf4b5bd20d17159463a68ca6c2e0c302"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "95ceb70966df25d880015e9b0baa26324c0a0148e43e99ae9cbd255afbdd466b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\summary.json",
+    "bytes": 184366,
+    "sha256": "99383e407a7c089e1893b7cf64933a4e9feebd0ef61b133f0b53c0f332710e68"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\timing.csv",
+    "bytes": 30104,
+    "sha256": "dcec23e6bda4778d87ecbba5a90029fea1e7f379e413eceb23c993774b7acb4f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-6-both.process.json",
+    "bytes": 1522,
+    "sha256": "0e73053b4895437dc4bde50aea10d3fea7c0d56e5aa342d52d8bf487a0e756b7"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "2de3d06c00c7c889e1d3cbdf69f0b4ef28d5ebf33d3fd71b2ac037cdea242026"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\summary.json",
+    "bytes": 184369,
+    "sha256": "2ff4f09316afc6b08e322bdb2a5fd4c0c70159aa15e1fb4ed2d2a5b8fed0d8ee"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\timing.csv",
+    "bytes": 30149,
+    "sha256": "e6124b81a7a31997c04784b6081170e4143a10381f5e08e62264d674c34afd47"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-7-waiting.process.json",
+    "bytes": 1533,
+    "sha256": "890b3677868c71cca14b2f348444bf8dd7ecc5bdbaf3b73af375d0bd4e03ef94"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "1394eeac301d7f574b00ac1b5ea30ee712757f1802c8efb2baac2220da202be4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\summary.json",
+    "bytes": 184364,
+    "sha256": "52cce8dc17bf4da5f7030c79b91ee2f9520d44804ba682c2bea7f63b36bb8107"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\timing.csv",
+    "bytes": 30135,
+    "sha256": "54c1c352834a2e4e2b09ce5c6a289e6a70d60eef655baf18b99c1ae30b72b12f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-8-p3.process.json",
+    "bytes": 1521,
+    "sha256": "0aa06d5ece1a4e239c5194876c0a9a576d214e161ac98cd9d285bc9625012c65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\commands.jsonl",
+    "bytes": 40819752,
+    "sha256": "c8e774a40d0eb11561d7ea4e253d8528f2f86f3fc18b950b57c227fbf3cae56c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\events.jsonl",
+    "bytes": 5954965,
+    "sha256": "415cffc96d046af9bc359f1f0e899d33f9340d7f5e67b1cccb191fe72303d5b2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\extended-quality.json",
+    "bytes": 739,
+    "sha256": "9ea79a5493b0cdeecff5fdbb668edef09b52e3d21d95d5ad4670fc52789b3178"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\individual-quality.csv",
+    "bytes": 3418544,
+    "sha256": "8ffbdb6cc10e9cd2d95f223436ded43d91dfe2f1846b6e68d954ae35999197ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\summary.json",
+    "bytes": 184365,
+    "sha256": "db982f823ebaa4dae5d77b40b204fd857fa060d2d241f3d8e86659d7129370b9"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\ticks.jsonl",
+    "bytes": 319935,
+    "sha256": "5a88244a18f1d102bb2ceb8973a3f831f901e3e8c6428fa5fd68bbfef9226d65"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\timing.csv",
+    "bytes": 30172,
+    "sha256": "024de69eee47753c9b09c03821b0c539abe983cc55118089e4d46ef6bf528101"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\100k-9-all.process.json",
+    "bytes": 1525,
+    "sha256": "f0d76664a261214d4a7ed7a26c93150d0709b177acf2e3b1452db78889ad5c30"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "a243d82bdc286a771c211b1df7401a77f47c27f184bc46be87a8bfcb66a70fe5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\summary.json",
+    "bytes": 20020,
+    "sha256": "4b93fd9e5ec5c276ac0ede3e5576a98e46c89e59720a04e1e70fbe0a2de87651"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\timing.csv",
+    "bytes": 25915,
+    "sha256": "86506ead47b08f7b92b2295aad3d7e97cf752be18ff0a2eec09060031aeff3d6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-1-all.process.json",
+    "bytes": 1520,
+    "sha256": "e06881956049e27b7224c00f434f7a6a514323dbd4728c2af842272a24fea698"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "ccbd93dad7406faf5e6597ebf9db7b313cd2f3de55a1673c641b9b1d4067b2d6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\summary.json",
+    "bytes": 20020,
+    "sha256": "66e63323c52d5b402bfb0752f846ab094310e800def14970c50a7472bc5590f5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\timing.csv",
+    "bytes": 25915,
+    "sha256": "03e99c57b2ffd7eef70f1ab198af4ec75441b58d2a2464aa8add385c0e7f2e37"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-2-all.process.json",
+    "bytes": 1517,
+    "sha256": "80d1bb5666849fa19d56086f1a7ea0e368ec85f77fc27b4fd78437ae84ae2077"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "6ed504abad1f07d968ffc717500d4ecf72338a64890702cc8e3e7659e46813af"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\summary.json",
+    "bytes": 20019,
+    "sha256": "a3c1e4feffb1d3a903806b630515f7ea40563c0b905e28122fba152ba803e16e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\timing.csv",
+    "bytes": 25898,
+    "sha256": "c59191a82bb56fa123fa9b39a694090db275cc0298a94c50032ece735c7d4183"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-3-p3.process.json",
+    "bytes": 1516,
+    "sha256": "0e6f0acf5ff0bac8b31fb570702d24e8d90e5c3c2d5935367095e3f661b28a57"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "ccade168002cd56761ea608f9b8b2b63888a9488c2e25f6a3b20e4be104dafd0"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\summary.json",
+    "bytes": 20024,
+    "sha256": "ee0e5d8aeec95bf17da99422b53256aec898a4b744c156bad1d3a7e9a6f9247a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\timing.csv",
+    "bytes": 25931,
+    "sha256": "2af0f33d8a2d3bdff771fc2915db33bc7c016bf964a8c4f03878bdfcd02ee85e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-4-waiting.process.json",
+    "bytes": 1528,
+    "sha256": "3026a7b72fdc3590b9658ccf02029dd5351b97614ccba8cf9955560eb4105859"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "f09d97a7bd4f541e190ef46c8bef9849ce02d5c0d740a76a18f8289adc4bd132"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\summary.json",
+    "bytes": 20021,
+    "sha256": "88afc6a3b0abcc8ec91668da3ecf806433557f3ce742c176fecacd58875d3619"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\timing.csv",
+    "bytes": 25912,
+    "sha256": "c8d4c53787dc55e606a466cb86875c701e60da7676e1df45871e1deecdcce2ad"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-5-both.process.json",
+    "bytes": 1521,
+    "sha256": "e6afd9e7f0186cd0fec8f3d351e229ae8f09f1b8083c241d566d8b9356bb2e61"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "bb163f9d2753aad87961c02afd03f7bdfd0eae55af70cebb0fa68f9e3aa5a23c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\summary.json",
+    "bytes": 20021,
+    "sha256": "63c1c0829332f81c82ba60748b3a5cdd66a115b76fec8e1b3d3c7190f91c90a4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\timing.csv",
+    "bytes": 25887,
+    "sha256": "c9c318d8d8d85f47f6b6814424600ee12e081514123be5f873b0e4228c14e0cf"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-6-both.process.json",
+    "bytes": 1521,
+    "sha256": "da8a2be8a579a6fd241be38ae274fe6af502a64176f6b123bb238989e5887bc5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "9943ddb6f08382a0522b48f2f32609de329f4987e4a278bfddf5ae57401dc3fc"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\summary.json",
+    "bytes": 20024,
+    "sha256": "39b8d272cae6cc4d7c6d1d29922055b01719985213956a7cde3224deb1a4cfe4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\timing.csv",
+    "bytes": 25921,
+    "sha256": "1caacf6fec0216283d20a416b96e068d9d355b30b7324ce53ddd82121c1a22cb"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-7-waiting.process.json",
+    "bytes": 1528,
+    "sha256": "05889ecdbc6373cbb5632f741a2c8c92be565950f9c37a5d57337bc2072622ff"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "3472b36b8e6404f062e1aa78aff04a1717fafed70e5d537af613e6843b65e6c9"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\summary.json",
+    "bytes": 20019,
+    "sha256": "4257609967dde9a74521eaf72971a06098a5f9460379f8543368f69bdbc47017"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\timing.csv",
+    "bytes": 25890,
+    "sha256": "45ff11f4183caeab55ff795b002a6a8e1a3d26a4108fc8ef7c5b4d7cb09f39db"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-8-p3.process.json",
+    "bytes": 1517,
+    "sha256": "ab8eec8a3bb01c33b58dc98ed245101be0251065d105c1b9e57d12666d27f01c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\commands.jsonl",
+    "bytes": 1144577,
+    "sha256": "39a3671b8d1bb9a018c63f6aa5959928715655f470b8788fe693e2963cb70418"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\events.jsonl",
+    "bytes": 316789,
+    "sha256": "50e202ecce507822f7d420e0aeeef9452bc51d5843ff2427a8439ed8f2325f29"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\extended-quality.json",
+    "bytes": 724,
+    "sha256": "f4af099d8257c8005026cc6fd763afca226baaf56e4f53a095085dac457391a4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\individual-quality.csv",
+    "bytes": 317322,
+    "sha256": "faa419b892e8a62dff0ef200ef13419b85814be431c7995eed7559cd32ed72f8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\summary.json",
+    "bytes": 20020,
+    "sha256": "169348118adf4d83eed8b80c0d0030ce27835954a6e25e93bff6569bcb12e2c5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\ticks.jsonl",
+    "bytes": 315156,
+    "sha256": "05d7720885e4f6333634e02258f116bed6775efb0bb2687ed05941e1288bb15a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\timing.csv",
+    "bytes": 25953,
+    "sha256": "a13b6b0275667220cb8ff4d25f3aba55dce924de5b6848737750a3978114725e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all\\work.csv",
+    "bytes": 11311,
+    "sha256": "5320a276b1e5d1be4e43ed92a2cfb46a122d83f34cc2691f8301112a34045312"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-screen\\10k-9-all.process.json",
+    "bytes": 1520,
+    "sha256": "04e5c27f87845a1d469cdeba33b7b9eb1a5de995f7208d437702ea231dc01f01"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\commands.jsonl",
+    "bytes": 11363396,
+    "sha256": "6c12620ae6260a37235fd22295ca48dd9145839f0c659439b59e00e2fa3664a6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\events.jsonl",
+    "bytes": 2442024,
+    "sha256": "bed31fcd638262c7065864f330938f42cc889b67ad2f962fe91a22c90ab2ec4b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\extended-quality.json",
+    "bytes": 729,
+    "sha256": "b0ede4b3903e8b13def0b1f7b5ff94486771ab38b75ececc6f6547d7a153def6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\individual-quality.csv",
+    "bytes": 3243328,
+    "sha256": "559da41c5d67f931d75550b873b952a6490139a7cea3a5123021c9178859227e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\summary.json",
+    "bytes": 184357,
+    "sha256": "90840c8199ed7a772783bf00e150031d455af3163e72290c730873dbd4dbe616"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\ticks.jsonl",
+    "bytes": 159534,
+    "sha256": "a833acbbe848043ad78b21d5afd5cc7ad05ef54cbb39f57d111f8b9cbe0ced91"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\timing.csv",
+    "bytes": 14990,
+    "sha256": "5bd7a703ba6832dfae9007e43a2d9bf7fe5b4f5514a84bd8b1f5bbf3f6145b82"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all\\work.csv",
+    "bytes": 12345,
+    "sha256": "93b46286decac2c76abebf7fada6246d7e8af4a4fa31f654593934671d900ded"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-all.process.json",
+    "bytes": 1521,
+    "sha256": "5b523a9bbecea43486a7fe191fa465e55ff1707a728931e2340e8151cacfc52a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\commands.jsonl",
+    "bytes": 7960182,
+    "sha256": "2e1030751a402e05e652f6eaf8b15771ad3757a4420cd676718eab582abb94ae"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\events.jsonl",
+    "bytes": 2284856,
+    "sha256": "c4fe792b8ade0706e6398fe08c33c79efc0c079a870291671724bb1acb20853c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\individual-quality.csv",
+    "bytes": 131049,
+    "sha256": "967e4cb92bcd1d578171767f6fa42b0000fc20fba014e5bd2d4691ea0a5118dc"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\ticks.jsonl",
+    "bytes": 122592,
+    "sha256": "1e224517d16a76cff9eb8da666fb5322fd521e583cf6ae004efa72afefcc5ef8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\timing.csv",
+    "bytes": 8192,
+    "sha256": "87094610268baa19d01f654cb6f764afeb7870ef24857606611341d63001a2b3"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3\\work.csv",
+    "bytes": 8190,
+    "sha256": "90f75bb7d51b539002667e1d011c3a4022ba25e898a1285008aa2f0249af5268"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\100k-p3.process.json",
+    "bytes": 1101,
+    "sha256": "f72aa0773951c03567dc1f14e81b63b950de9a3137b3c361834f54a8b01c4599"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\commands.jsonl",
+    "bytes": 346816,
+    "sha256": "cb7a16406a79957fae871851eb7f5f2e0f64b6ad54fd2eaf2d279427c6ee922b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\events.jsonl",
+    "bytes": 163771,
+    "sha256": "b4f66cc4aeeda50f1ea0e0512d680cc5206a414eb19ad23b2bad6e07b224e6a5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\extended-quality.json",
+    "bytes": 721,
+    "sha256": "25c90c633217675eef76ea26a6ddd7b4834802e57c991f64cf2e700511a1fb93"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\individual-quality.csv",
+    "bytes": 315231,
+    "sha256": "d729c6670290464a62993c29a1110428626659d18c68608f09cb26447e9d12c8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\summary.json",
+    "bytes": 20012,
+    "sha256": "66ab92bd51be0a41eb9e289ce8af8a3ce458b8103234e3036f051fd1014c865d"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\ticks.jsonl",
+    "bytes": 157212,
+    "sha256": "45db2ef9f6af20a67cf8f8998a302a0256ab788ef936150ffba6302defeec770"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\timing.csv",
+    "bytes": 12821,
+    "sha256": "57807b01528fcc8fe7772b258b61c9ae3adc53ff4efbcd65717f723bd397abc3"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all\\work.csv",
+    "bytes": 10800,
+    "sha256": "65bf38e42303f7086bdb20c21bc89b19b525ad704f16bd939e47b2223929537d"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-all.process.json",
+    "bytes": 1518,
+    "sha256": "896a7b4e4638833de8077cd9b417811a888287500660b8fb99ac19298bda0a17"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\commands.jsonl",
+    "bytes": 346816,
+    "sha256": "cb7a16406a79957fae871851eb7f5f2e0f64b6ad54fd2eaf2d279427c6ee922b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\events.jsonl",
+    "bytes": 163771,
+    "sha256": "b4f66cc4aeeda50f1ea0e0512d680cc5206a414eb19ad23b2bad6e07b224e6a5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\extended-quality.json",
+    "bytes": 721,
+    "sha256": "4c91194ec1ba771b78aea6dada2cf1f479113a801df73dc99c1b732ac4bcb6f2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\individual-quality.csv",
+    "bytes": 315231,
+    "sha256": "d729c6670290464a62993c29a1110428626659d18c68608f09cb26447e9d12c8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\summary.json",
+    "bytes": 20013,
+    "sha256": "616d9f61e9a6e7e24772b5e5457cfe3b9c602d1118b68fe456bb0f85f81e8398"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\ticks.jsonl",
+    "bytes": 157212,
+    "sha256": "45db2ef9f6af20a67cf8f8998a302a0256ab788ef936150ffba6302defeec770"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\timing.csv",
+    "bytes": 12829,
+    "sha256": "c05f016ad7b816f97032bb84be6db5c6857069b956f30c8f2f900a6982dcda73"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both\\work.csv",
+    "bytes": 10288,
+    "sha256": "247f16dd790fdfe64e08ca9b4d15763c3d5ab71bdf5cbcfa398dc542bff9325f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-both.process.json",
+    "bytes": 1517,
+    "sha256": "4a56bc12b61f1d082e9b973d0a100dbddf1c11651c507784a42f70dde9dfc7fc"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\commands.jsonl",
+    "bytes": 346816,
+    "sha256": "cb7a16406a79957fae871851eb7f5f2e0f64b6ad54fd2eaf2d279427c6ee922b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\events.jsonl",
+    "bytes": 163771,
+    "sha256": "b4f66cc4aeeda50f1ea0e0512d680cc5206a414eb19ad23b2bad6e07b224e6a5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\extended-quality.json",
+    "bytes": 721,
+    "sha256": "94fa7cf23b8989835a2c22c85f07d0dcfbf586092657804eca63e38de4094624"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\individual-quality.csv",
+    "bytes": 315231,
+    "sha256": "d729c6670290464a62993c29a1110428626659d18c68608f09cb26447e9d12c8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\summary.json",
+    "bytes": 20011,
+    "sha256": "18bb61f5cbfd7fcbe18da08a96669c94ae352d7bb7b818b5320cc71acf168dcb"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\ticks.jsonl",
+    "bytes": 157212,
+    "sha256": "45db2ef9f6af20a67cf8f8998a302a0256ab788ef936150ffba6302defeec770"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\timing.csv",
+    "bytes": 12799,
+    "sha256": "9a613f1d94c774d0e3e6c1559ba3f351225c54ecc00ad4e0346489865ddf3aa9"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3\\work.csv",
+    "bytes": 10288,
+    "sha256": "f8818e18cbeade7541e8ecf58bd93643163960fa7a07c40ac04af7fb500feaac"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-p3.process.json",
+    "bytes": 1515,
+    "sha256": "cb9d8d64fba56f1d63cf87b04d8a10c580048f0f46e3f85081901fd227c21b19"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\commands.jsonl",
+    "bytes": 346816,
+    "sha256": "cb7a16406a79957fae871851eb7f5f2e0f64b6ad54fd2eaf2d279427c6ee922b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\events.jsonl",
+    "bytes": 163771,
+    "sha256": "b4f66cc4aeeda50f1ea0e0512d680cc5206a414eb19ad23b2bad6e07b224e6a5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\extended-quality.json",
+    "bytes": 721,
+    "sha256": "5f85d22f00b852cc442681cd2c1968d183d2356f0d36d807381b3e7b3e6c1cca"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\individual-quality.csv",
+    "bytes": 315231,
+    "sha256": "d729c6670290464a62993c29a1110428626659d18c68608f09cb26447e9d12c8"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\summary.json",
+    "bytes": 20016,
+    "sha256": "50570fd8b710298612ac60e234daeb744d0cb6ba0abea9ed2f79ac0e519e4c68"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\ticks.jsonl",
+    "bytes": 157212,
+    "sha256": "45db2ef9f6af20a67cf8f8998a302a0256ab788ef936150ffba6302defeec770"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\timing.csv",
+    "bytes": 12815,
+    "sha256": "6c76204b78c561ce2fe6d2dad6657c2b5bfb1520e51cfb2c891524223cdf04e0"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting\\work.csv",
+    "bytes": 10800,
+    "sha256": "b6c83292f5ca6ee9f1f7d2c9a20d50a9682e28e18cbbac5f4ad038648e3905d3"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts\\10k-waiting.process.json",
+    "bytes": 1523,
+    "sha256": "b9e8dca412ab75dba22e551d3b40f706953b3abeea73195277b1c5925013f84c"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\commands.jsonl",
+    "bytes": 11363396,
+    "sha256": "6c12620ae6260a37235fd22295ca48dd9145839f0c659439b59e00e2fa3664a6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\events.jsonl",
+    "bytes": 2442024,
+    "sha256": "bed31fcd638262c7065864f330938f42cc889b67ad2f962fe91a22c90ab2ec4b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\extended-quality.json",
+    "bytes": 729,
+    "sha256": "36b86544e2b8004c8c1588a338eee7fb3f25d5c7b4586080823ba5d37dd535d6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\individual-quality.csv",
+    "bytes": 3243328,
+    "sha256": "559da41c5d67f931d75550b873b952a6490139a7cea3a5123021c9178859227e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\summary.json",
+    "bytes": 184358,
+    "sha256": "ce9e5040da0d3648fa57fe26179be804b2fb0c5efd83bbe9fdbe695de3e99bbd"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\ticks.jsonl",
+    "bytes": 159534,
+    "sha256": "a833acbbe848043ad78b21d5afd5cc7ad05ef54cbb39f57d111f8b9cbe0ced91"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\timing.csv",
+    "bytes": 14968,
+    "sha256": "9a4c788ebf77f1ed52d7bacaf4c7024b7284752a4dbb464319aa0fc3e22dcd28"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both\\work.csv",
+    "bytes": 12407,
+    "sha256": "7e57974b655f7984ac526d354d18c41def242a96d2b1276ddffbd362fdb0c816"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-both.process.json",
+    "bytes": 1524,
+    "sha256": "bb638fad6137a98e8819d573476037d9270ebfd68a5f5733ea65e9a42f3b8ff9"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\commands.jsonl",
+    "bytes": 11363396,
+    "sha256": "6c12620ae6260a37235fd22295ca48dd9145839f0c659439b59e00e2fa3664a6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\events.jsonl",
+    "bytes": 2442024,
+    "sha256": "bed31fcd638262c7065864f330938f42cc889b67ad2f962fe91a22c90ab2ec4b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\extended-quality.json",
+    "bytes": 729,
+    "sha256": "f01a378556703b21aea3e7fe7768fb3eacbabea38dd36925bb4252f5afd99fc2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\individual-quality.csv",
+    "bytes": 3243328,
+    "sha256": "559da41c5d67f931d75550b873b952a6490139a7cea3a5123021c9178859227e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\summary.json",
+    "bytes": 184356,
+    "sha256": "6ab59ff3632351920aa3781e519c227c15eee2a9f2590912f1eaba784e4ef9eb"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\ticks.jsonl",
+    "bytes": 159534,
+    "sha256": "a833acbbe848043ad78b21d5afd5cc7ad05ef54cbb39f57d111f8b9cbe0ced91"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\timing.csv",
+    "bytes": 14988,
+    "sha256": "db645050c981de6fd679d9cea6e10ed6e3f87d97a990fbaf9724b9db7eb08ff9"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3\\work.csv",
+    "bytes": 12395,
+    "sha256": "a065dd39c4d173b821fe9478d5ad3b07ff50915f9223b963e1223c091f280b16"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-p3.process.json",
+    "bytes": 1521,
+    "sha256": "868e3d07694eae001b82662def8d333908e2bd70a95e0f7a5630e0f45fdc0be6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\commands.jsonl",
+    "bytes": 11363396,
+    "sha256": "6c12620ae6260a37235fd22295ca48dd9145839f0c659439b59e00e2fa3664a6"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\events.jsonl",
+    "bytes": 2442024,
+    "sha256": "bed31fcd638262c7065864f330938f42cc889b67ad2f962fe91a22c90ab2ec4b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\extended-quality.json",
+    "bytes": 729,
+    "sha256": "92dc532e2836119f1c4af6e7f59bb3cabc78bc537eb518ad67f96917fde39e16"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\individual-quality.csv",
+    "bytes": 3243328,
+    "sha256": "559da41c5d67f931d75550b873b952a6490139a7cea3a5123021c9178859227e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\initial.jsonl",
+    "bytes": 40475599,
+    "sha256": "2c5effcf09a1fa68ce2331c533011556462e85ea44cfb21e4b69fa87b114111f"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\summary.json",
+    "bytes": 184361,
+    "sha256": "2048bbb24a5e45dd376a7369d79729dbf4673f832f44cbb718e1b004de406cdc"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\ticks.jsonl",
+    "bytes": 159534,
+    "sha256": "a833acbbe848043ad78b21d5afd5cc7ad05ef54cbb39f57d111f8b9cbe0ced91"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\timing.csv",
+    "bytes": 14988,
+    "sha256": "12e12a7d0ca3db407db86cd745dbb39dc06c4394f5dc30dba346c12d90e504ba"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting\\work.csv",
+    "bytes": 12357,
+    "sha256": "1992447e3d3cde873e4e2fe5e8b5049889525fbb439a9cc41db87d3f81a83d32"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-counts-remaining\\100k-waiting.process.json",
+    "bytes": 1531,
+    "sha256": "49d4fa13c92bc890416c5d71779d270f60955058bc415f4de4def7f8854811dc"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\commands.jsonl",
+    "bytes": 112023507,
+    "sha256": "c3eb9b93e0da694d4f5d384557b2eb5e9d93bcd68c9c843b0ebb526f3c6b6064"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\events.jsonl",
+    "bytes": 9948696,
+    "sha256": "4a101688a60fe53d71ee93136f021bcc6acb4b391715d77b2ab5577da11ae5b4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\extended-quality.json",
+    "bytes": 738,
+    "sha256": "d504fb2bd9131bad9ef216b505f582c264bca7ef98c0b31b8b69d6ab42879bb4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\individual-quality.csv",
+    "bytes": 425869,
+    "sha256": "091fb740aeeec0d1dc52a61673c306ba4daf2ba5ed40b1e72ea6bd6bcf1cf57b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\summary.json",
+    "bytes": 20043,
+    "sha256": "7515b5352b9c50c3d815365c849f930e75a76bc4dec5e1abd1ebd8ed119562c2"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\ticks.jsonl",
+    "bytes": 10229843,
+    "sha256": "f8dda73c4c706ab0cb283c8c5febfa89d9c9cf67f80fd2eb1246c8a6dd24c682"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\timing.csv",
+    "bytes": 878658,
+    "sha256": "82160365a0996b72b6ced4a33851b8e8a00f38987ec445247b0b70a6fe3843d5"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all\\work.csv",
+    "bytes": 382265,
+    "sha256": "4b9fe18c9f1a2c14bd78e39b4d7465ff48e5379a8d21f0c84326402ef2cdf693"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-all.process.json",
+    "bytes": 1521,
+    "sha256": "7f0fc9d08b6a023c1afbb26b0d258b03b48fe0143065dedf2fc6dfc126a1887e"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\commands.jsonl",
+    "bytes": 112023507,
+    "sha256": "c3eb9b93e0da694d4f5d384557b2eb5e9d93bcd68c9c843b0ebb526f3c6b6064"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\events.jsonl",
+    "bytes": 9948696,
+    "sha256": "4a101688a60fe53d71ee93136f021bcc6acb4b391715d77b2ab5577da11ae5b4"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\extended-quality.json",
+    "bytes": 738,
+    "sha256": "99e339faab01872fe96c421e412cc798d11c7acbd7e0da54ee2b3b7a3f42d1ea"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\individual-quality.csv",
+    "bytes": 425869,
+    "sha256": "091fb740aeeec0d1dc52a61673c306ba4daf2ba5ed40b1e72ea6bd6bcf1cf57b"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\initial.jsonl",
+    "bytes": 4022099,
+    "sha256": "aab9d1c0dfc52b417b6300409343c579375a38b40f3187013c6066af8aa7957a"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\summary.json",
+    "bytes": 20044,
+    "sha256": "5b557d351aa8096c05305e0adb6617dfb9ca256e5d35d005006ce20b70f25cb7"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\ticks.jsonl",
+    "bytes": 10229843,
+    "sha256": "f8dda73c4c706ab0cb283c8c5febfa89d9c9cf67f80fd2eb1246c8a6dd24c682"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\timing.csv",
+    "bytes": 877774,
+    "sha256": "c98d356854b7a5e461785ff322567af6cb222c095c5772ba0fbebc570d1c0e15"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both\\work.csv",
+    "bytes": 382265,
+    "sha256": "4b9fe18c9f1a2c14bd78e39b4d7465ff48e5379a8d21f0c84326402ef2cdf693"
+  },
+  {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\scope-long\\10k-both.process.json",
+    "bytes": 1523,
+    "sha256": "3de7dfd0da59e6dc1e4e438c369e5836f5c2d53da941eb2349d0f9802e70df05"
+  }
+]

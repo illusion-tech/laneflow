@@ -54,7 +54,7 @@ def analyze(meta_path):
         selected = [r for r in rows if low <= r['tick'] <= high]
         if selected:
             windows[name] = {'first': selected[0]['tick'], 'last': selected[-1]['tick'], 'samples': len(selected),
-                **{field: quantiles([r[field] / 1e6 for r in selected]) for field in
+                **{field.removesuffix('_ns') + '_ms': quantiles([r[field] / 1e6 for r in selected]) for field in
                     ['command_ns', 'step_ns', 'base_observation_ns', 'quality_ns', 'iteration_ns']},
                 'active': quantiles([r['active'] for r in selected])}
     command_results = {}
@@ -78,5 +78,5 @@ if __name__ == '__main__':
     Path(sys.argv[2]).write_text(json.dumps(runs, indent=2) + '\n', encoding='utf-8')
     for run in runs:
         s = run['windows']['screen']
-        print(run['label'], 'Core mean/p95', round(s['step_ns']['mean'], 3), round(s['step_ns']['p95'], 3),
-            'iteration', round(s['iteration_ns']['mean'], 3), 'replacements', run['summary']['replacements'])
+        print(run['label'], 'Core mean/p95 ms', round(s['step_ms']['mean'], 3), round(s['step_ms']['p95'], 3),
+            'iteration ms', round(s['iteration_ms']['mean'], 3), 'replacements', run['summary']['replacements'])
