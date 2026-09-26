@@ -1623,6 +1623,7 @@ fn stage_waiting_preview(
         motion_cache.push(crate::kernel::tick::MotionCacheEntry {
             vehicle,
             update_sequence,
+            gate_reachable: entry.gate_reachable,
             horizon: entry.horizon,
             preview: entry.preview,
         });
@@ -1651,7 +1652,12 @@ fn prepare_waiting_previews_fused(
         if state.status != crate::VehicleStatus::Active {
             continue;
         }
-        let entry = view.waiting_preview_entry(vehicle, update_sequence, delta_s)?;
+        let entry = view.waiting_preview_entry(
+            vehicle,
+            update_sequence,
+            delta_s,
+            cache_index < cache_limit,
+        )?;
         stage_waiting_preview(
             &mut workspace.motion_cache,
             &mut workspace.next_states,
@@ -1772,7 +1778,12 @@ fn prepare_waiting_previews_dispatched(
         for (offset, slot) in chunk.iter_mut().enumerate() {
             let index = start + offset;
             let (vehicle, update_sequence) = workspace.waiting_preview_inputs[index];
-            match chunk_view.waiting_preview_entry(vehicle, update_sequence, delta_s) {
+            match chunk_view.waiting_preview_entry(
+                vehicle,
+                update_sequence,
+                delta_s,
+                index < cache_limit,
+            ) {
                 Ok(entry) => *slot = crate::kernel::execution::DispatchSlot::Done(Ok(entry)),
                 Err(error) => {
                     first_error.fetch_min(index, Ordering::Relaxed);

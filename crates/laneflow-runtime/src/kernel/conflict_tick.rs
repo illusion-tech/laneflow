@@ -23,7 +23,7 @@ use crate::{
 
 /// 只排除本拍可证明到不了下一 Gate 的车辆；未知距离或运动域交还完整求值。
 /// 与 Gate 求值保持相同的跨边零点回看；MotionReach 的余量覆盖亚毫米 carry。
-fn gate_may_be_reached(
+pub(super) fn gate_may_be_reached(
     read: crate::kernel::phase::StepReadView<'_>,
     state: &VehicleState,
     delta_s: f32,
@@ -75,6 +75,26 @@ fn gate_may_be_reached(
         Some(BoundedDistance::Finite(distance)) => !reach.excludes(distance),
         Some(BoundedDistance::BeyondFinite) | None => true,
     }
+}
+
+/// 只有完整 Active 位、完整句柄及逻辑位置同时匹配，才消费同拍 P2 结果。
+fn cached_gate_may_be_reached(
+    read: crate::kernel::phase::StepReadView<'_>,
+    cache: &[crate::kernel::tick::MotionCacheEntry],
+    state: &VehicleState,
+    update_sequence: usize,
+    cache_index: usize,
+    delta_s: f32,
+) -> bool {
+    #[cfg(test)]
+    if CONFLICT_FULL_SCAN.with(std::cell::Cell::get) {
+        return true;
+    }
+    cache
+        .get(cache_index)
+        .filter(|entry| entry.vehicle == state.handle && entry.update_sequence == update_sequence)
+        .and_then(|entry| entry.gate_reachable)
+        .unwrap_or_else(|| gate_may_be_reached(read, state, delta_s))
 }
 
 /// Conflict 决定的稳定动态路线锚点。
@@ -748,7 +768,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 if self.conflict_read().reservation(vehicle).is_some() {
                     continue;
                 }
-                if !gate_may_be_reached(self.read_view(), state, delta_s) {
+                if !cached_gate_may_be_reached(
+                    self.read_view(),
+                    &self.workspace.motion_cache,
+                    state,
+                    sequence,
+                    cache_index,
+                    delta_s,
+                ) {
                     continue;
                 }
                 let state = *state;
@@ -835,7 +862,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if view.conflict.reservation(vehicle).is_some() {
                 continue;
             }
-            if !gate_may_be_reached(view.read, state, delta_s) {
+            if !cached_gate_may_be_reached(
+                view.read,
+                view.motion_cache,
+                state,
+                sequence,
+                cache_index,
+                delta_s,
+            ) {
                 continue;
             }
             let sequence =
@@ -2528,6 +2562,87 @@ mod tests {
     };
 
     #[test]
+    fn gate_cache_requires_full_identity_position_and_present_result() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        let read = world.state.read_view();
+        let vehicle = world.live_vehicles()[0];
+        let state = read.vehicle_state(vehicle).unwrap();
+        assert!(gate_may_be_reached(read, state, 0.1));
+        let mut cache = world.state.workspace.motion_cache.clone();
+        let sequence = cache[0].update_sequence;
+        assert_eq!(cache[0].gate_reachable, Some(true));
+        // 故意毒化为不可达：匹配时消费；任一身份条件失败必须重新保守求值。
+        cache[0].gate_reachable = Some(false);
+        let query = |entries: &[crate::kernel::tick::MotionCacheEntry], sequence, index| {
+            cached_gate_may_be_reached(read, entries, state, sequence, index, 0.1)
+        };
+        assert!(!query(&cache, sequence, 0));
+        assert!(query(&cache, sequence + 1, 0));
+        assert!(query(&cache, sequence, 1));
+        assert!(query(&[], sequence, 0));
+        cache[0].vehicle = VehicleHandle::new(vehicle.index(), vehicle.generation() + 1);
+        assert!(query(&cache, sequence, 0));
+        cache[0].vehicle = vehicle;
+        cache[0].gate_reachable = None;
+        assert!(query(&cache, sequence, 0));
+        eprintln!(
+            "p3-cache-layout motion={} waiting={} waiting-slot={} conflict-slot={}",
+            std::mem::size_of::<crate::kernel::tick::MotionCacheEntry>(),
+            std::mem::size_of::<crate::kernel::tick::WaitingPreviewEntry>(),
+            std::mem::size_of::<
+                crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>,
+            >(),
+            std::mem::size_of::<crate::kernel::execution::DispatchSlot<CandidateReport>>(),
+        );
+    }
+
+    #[test]
+    fn gate_cache_keeps_zero_boundary_lookback_and_reads_changed_route() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let old = world.live_vehicles()[0];
+        let mut state = *world.state.vehicle_state(old).unwrap();
+        let gate = world.state.compiled_route(state.route).unwrap().gate_hops[0];
+        state.route_edge_index = gate + 1;
+        state.progress_mm = 0;
+        state.carry_um = 0;
+        world.state.committed.vehicles[old.index() as usize].state = Some(state);
+        let read = world.state.read_view();
+        let entry = read.waiting_preview_entry(old, 0, 0.1, true).unwrap();
+        assert_eq!(entry.gate_reachable, Some(true));
+        assert_eq!(
+            read.waiting_preview_entry(old, 0, 0.1, false)
+                .unwrap()
+                .gate_reachable,
+            None
+        );
+
+        // 前一拍的逻辑条目不能随槽位或路线变化复活。
+        let edge = world.route_edges(state.route).unwrap()[gate as usize];
+        world.despawn_vehicle(old).unwrap();
+        world.remove_route(state.route).unwrap();
+        let route = world
+            .register_route(crate::RouteRegisterInput::new(vec![edge]))
+            .unwrap();
+        let new = world
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(state.profile, route, 0, 0, 0).with_open_entrance(),
+            )
+            .unwrap();
+        assert_eq!(old.index(), new.index());
+        assert_ne!(old, new);
+        assert_ne!(state.route, route);
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        let cached = world.state.workspace.motion_cache[0];
+        assert_eq!(cached.vehicle, new);
+        assert_eq!(cached.gate_reachable, Some(false));
+        world.step(TickInput::new(100)).unwrap();
+        assert!(world.state.workspace.motion_cache.is_empty());
+    }
+
+    #[test]
     fn gate_scope_retains_boundaries_and_unknown_motion() {
         let world = crate::kernel::waiting::tests::multi_gate_world(1);
         let vehicle = world.state.committed.live_order[0];
@@ -2616,7 +2731,11 @@ mod tests {
             install_execution(&mut world, workers);
             world
         }
-        for workers in [1, 2, 4, 8, 16] {
+        for (workers, limit) in [1, 2, 4, 8, 16]
+            .into_iter()
+            .flat_map(|workers| [0, 7, usize::MAX].map(|limit| (workers, limit)))
+        {
+            let _cache = crate::kernel::tick::transaction_tests::CacheLimitGuard::set(limit);
             let mut reference = fixture(1);
             let mut world = fixture(workers);
             let before = world.capture_snapshot().unwrap();
@@ -2677,7 +2796,7 @@ mod tests {
         let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
-        for workers in [1, 4, 16] {
+        for workers in [1, 2, 4, 8, 16] {
             let mut reference = conflict_scale_world(Arc::clone(&revision), 32);
             let mut world = conflict_scale_world(Arc::clone(&revision), 32);
             install_execution(&mut world, workers);
@@ -2687,6 +2806,7 @@ mod tests {
             // 目标是见证一次完整释放，最多推进 16.384 秒仿真时间。
             for tick in 0..4_096 {
                 let expected = {
+                    let _cache = crate::kernel::tick::transaction_tests::CacheLimitGuard::set(0);
                     let _full = super::full_conflict_scan();
                     reference.step(TickInput::new(4)).unwrap()
                 };

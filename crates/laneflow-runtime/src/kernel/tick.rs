@@ -194,6 +194,7 @@ fn sort_ranked_contenders(
 pub(crate) struct MotionCacheEntry {
     pub(crate) vehicle: crate::VehicleHandle,
     pub(crate) update_sequence: usize,
+    pub(crate) gate_reachable: Option<bool>,
     pub(crate) horizon: Option<LeaderQueryHorizon>,
     pub(crate) preview: Option<MotionPreview>,
 }
@@ -281,6 +282,7 @@ enum MotionBounds {
 /// 需要 `next` 时从 `preview` 提取（`preview.next`），不复制存储。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WaitingPreviewEntry {
+    pub(crate) gate_reachable: Option<bool>,
     pub(crate) horizon: Option<LeaderQueryHorizon>,
     pub(crate) preview: Option<MotionPreview>,
 }
@@ -834,14 +836,14 @@ fn injected_step_failure(point: StepFailpoint) -> Result<(), StepError> {
 }
 
 #[cfg(test)]
-mod transaction_tests {
+pub(crate) mod transaction_tests {
     use super::*;
     use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
 
-    struct CacheLimitGuard(usize);
+    pub(crate) struct CacheLimitGuard(usize);
 
     impl CacheLimitGuard {
-        fn set(limit: usize) -> Self {
+        pub(crate) fn set(limit: usize) -> Self {
             Self(MOTION_CACHE_LIMIT.replace(limit))
         }
     }
@@ -1759,6 +1761,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         vehicle: crate::VehicleHandle,
         update_sequence: usize,
         delta_s: f32,
+        cache_reachability: bool,
     ) -> Result<WaitingPreviewEntry, StepError> {
         debug_assert_eq!(
             self.committed.live_order.get(update_sequence),
@@ -1786,12 +1789,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let compiled = self
             .compiled_route(state.route)
             .ok_or(StepError::WaitingInvariantViolation)?;
+        // 同一 C(T) 的保守原语不产生领域错误；仅缓存前缀需要这次计算。
+        let gate_reachable = cache_reachability
+            .then(|| super::conflict_tick::gate_may_be_reached(self, &state, delta_s));
         let cursor = state.route_edge_index as usize;
         let gate_index = compiled
             .gate_hops
             .partition_point(|hop| (*hop as usize) < cursor);
         let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
             return Ok(WaitingPreviewEntry {
+                gate_reachable,
                 horizon: None,
                 preview: None,
             });
@@ -1817,12 +1824,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         );
         let Some(BoundedDistance::Finite(gate_distance_mm)) = gate_distance else {
             return Ok(WaitingPreviewEntry {
+                gate_reachable,
                 horizon: Some(horizon),
                 preview: None,
             });
         };
         if gate_distance_mm > horizon.front_query_mm {
             return Ok(WaitingPreviewEntry {
+                gate_reachable,
                 horizon: Some(horizon),
                 preview: None,
             });
@@ -1831,6 +1840,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))
             .ok_or(StepError::NonFiniteMotion)?;
         Ok(WaitingPreviewEntry {
+            gate_reachable,
             horizon: Some(horizon),
             preview: Some(preview),
         })
