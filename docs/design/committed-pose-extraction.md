@@ -70,6 +70,25 @@ VehicleHandle 选择列表，列表表达期望顺序；它不是 Runtime 或 Sp
 
 G1 接受的接口边界如下：
 
+```rust
+LaneFlowSession::extract_selected_committed_pose_batch(
+    context: LaneFlowConsumptionContext,
+    selected: &[VehicleHandle],
+    placement_token: FramePlacementToken,
+    output: &mut LaneFlowCommittedPoseBatch,
+) -> Result<(), LaneFlowAdapterError>
+```
+
+完整错误优先级固定为：消费上下文、Spatial 存在、根配对、完整列表查重、
+逐句柄来源查询、Spatial 采样。查重独立于来源查询：`[stale, A, A]` 返回重复，
+`[Completed, Completed]` 也返回重复；无重复时才按输入顺序报告第一个来源错误。
+重复错误携带完整句柄、首次与重复位置；来源错误携带输入位置、句柄和 Runtime
+原始错误。位置均从零开始。有效但无来源项不占用输出记录序号。
+
+Session 使用可复用 `HashMap<VehicleHandle, usize>` 保存首次位置，仅按输入序列访问，
+不按表迭代次序输出。容量来自历史选择规模，不来自世界配置容量；大选择后的小选择
+须单独测量保留容量与清理成本，不声明完整链路恒为 O(K)。
+
 1. 先验证选择上下文与当前世界身份/世代一致，再检查 Spatial 存在及根配对。
 2. 重复选择属于输入错误，按选择列表原始顺序报告首个重复；其检查使用可复用的
    受输入规模约束索引，不能每次清零世界容量大小的表。确定完整错误顺序后写测试。
@@ -120,6 +139,21 @@ Runtime fixed tick、交通数量、意图更新数或观察日志。
 选择作为独立运行模式，明确 N_individual、N_active、presentable、requested、extracted、
 applied；`N_presented` 按 glossary 现行定义，不把 applied 与 extracted 混写。
 全量模式在十万档可以 applied=extracted/10，但 N_presented 仍包括已提取个体。
+
+城市宿主的选择配置使用稳定 `IndividualId` 排序后的循环窗口：比例为当前具有句柄
+的 live 个体数的百分比（向下取整），显式记录初始 offset、每次成功采样的 stride
+和 reverse。选择仅依赖宿主身份，不先提取或筛选 Active 来源。配置不进入交通计划、
+`WorldConfig`、`ExecutionConfig` 或交通摘要。每个样本记录配置和实际数量。
+`FullValidation` 保留原有全量提取与应用比例；`FullValidationSelected` 是全量验证下
+使用指定应用集合的测量配置；`SelectedPresentation` 提取指定集合并应用全部结果。
+后两者的选择规则相同，用于排除最终表现集合不同带来的测量混淆。
+
+Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但不额外物化全量位姿。
+规范 pose 与 Transform 的完整对照在配对运行中取得。宿主选择排序可能扫描 N 个体，
+持续绑定核验与历史已绑定数量有关，均计入表现成本。全链路时间从选择开始到应用
+结束；完整交通 oracle、表现验证、日志和冷启动分别记录，不将各段分位数相加。
+非限时 evidence 接受完整 correctness 或 performance 窗口；performance 汇总仅纳入
+暖机后的观测窗口，逐 tick 记录和校验仍覆盖全部执行。限时 probe 不作为三轮完整测量。
 
 测量必须分开来源查询/分配、选择、采样、成功复制、Transform 转换、绑定维护、应用
 与验证。记录真实大小、容量、分配/重分配次数、逻辑复制字节和计时边界；逻辑复制

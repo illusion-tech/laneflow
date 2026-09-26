@@ -167,6 +167,17 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 
 ## 6. 批量处理与错误语义
 
+Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
+`extract_selected_committed_pose_batch(context, selected, token, output)` 两个封闭入口。
+后者接收 `LaneFlowConsumptionContext` 和有序 `&[VehicleHandle]`，读取当前已提交来源，
+不接受外部缓存的来源或几何。其固定首错顺序为上下文、Spatial 存在、根配对、整表
+查重、顺序来源查询、Spatial 采样。重复报告首次/重复位置；失效来源报告位置、句柄
+与原始 Runtime 错误。重复优先于任意 stale/unknown，合法无来源项才可省略。
+输出按过滤后的选择顺序排列，记录编号从零连续。空选择提交带当前修订、新 token、
+无 frame 的空批；失败保留完整旧输出与上下文。全量路径不先构造选择列表，不承担
+查重开销；两者共用生产采样与提交逻辑。完整合同见
+[已提交位姿缓冲与按需提取](committed-pose-extraction.md)。
+
 - `SpatialSession::extract_pose_batch(&mut self, placement_token, inputs, output)`
   接收调用方拥有的 input slice 与可复用 `CanonicalPoseBatch`。session 内部保留
   scratch，成功时写入 `output`。
