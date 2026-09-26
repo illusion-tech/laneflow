@@ -15,6 +15,12 @@
 - 本次变更：
 - 本次明确不做：
 
+## 代码语言
+
+- 是否新增或修改非 Rust 代码（包括嵌入脚本，纯删除除外）：`否` / `是`
+- 若为是：语言选型 Issue、维护者接受结论链接、覆盖本次 diff 的语言/用途/路径：
+- 依据：[代码语言立项审查](https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md)（G0/G2 人流程）
+
 ## 影响
 
 - Traffic Runtime API：`无` / 说明：

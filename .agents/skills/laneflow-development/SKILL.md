@@ -77,6 +77,10 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 
 ## 规则
 
+- 新实现默认使用 Rust；任何拟新增或修改的非 Rust 代码（纯删除除外）必须先完成
+  [`docs/governance/code-language-policy.md`](../../../docs/governance/code-language-policy.md)
+  的代码语言立项审查。研究、测试、CI 和嵌入脚本均按该单一事实源执行，Agent 不得自行豁免。
+
 - 1.0 正式发布前遵守 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
 - 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
 - 可运行世界使用中文规范名“LaneFlow 交通运行时”及精确标识符

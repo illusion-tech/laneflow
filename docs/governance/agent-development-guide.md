@@ -43,6 +43,10 @@ AI Agent 应遵守以下流程：
 6. 运行与变更匹配的检查。
 7. 在 PR 中记录测试、风险和未覆盖范围。
 
+新实现默认使用 Rust。任何拟新增或修改的非 Rust 代码（含研究、测试、CI 和嵌入脚本，纯删除除外），
+开工前必须按[代码语言立项审查](code-language-policy.md)取得维护者明确接受；
+Agent 不得用实现方便、临时用途或 G1 不适用自行豁免。
+
 提交信息应遵守 `docs/reference/commit-convention.md`：Conventional Commits 标题、
 `Refs: #<id>`，标题带 `!` 时加上 `BREAKING CHANGE:`。
 
