@@ -3,6 +3,8 @@
 Refs #768、#707。基线固定为 #763 合入的 `7bdf1f0ee4ae436ffc688903899ce9d16f89e41b`。
 使用既有 Rust package 中的 `laneflow-p2-cost-research`；不修改历史 #762/#763 协议或证据。
 
+成本排名、运行间波动和下一候选见[冻结结果](results.md)。
+
 ## 有界问题
 
 WaitingPrepare 包含初始化、P2 独立预览与规范组装。分别计时发现、槽位准备、
