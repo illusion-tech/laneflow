@@ -1,5 +1,6 @@
 """Exercise evidence rejection against real files without changing the saved run."""
 import copy
+import io
 import json
 from pathlib import Path
 import sys
@@ -48,6 +49,8 @@ rejected(quality_path, lambda q: q['run_identity'].update(mode='both'), 'quality
 other_quality = json.loads(original(meta.parent / '10k-2-all' / 'extended-quality.json'))
 rejected(quality_path, lambda q: (q.clear(), q.update(other_quality)), 'quality run identity')
 rejected(summary_path, lambda s: s.update(input_manifest_sha256='0'*64), 'unfrozen input manifest')
+frozen = json.loads(original(Path(__file__).resolve().parent / 'evidence/identity.json'))
+rejected(summary_path, lambda s: s.update(input_manifest_sha256=frozen['inputs']['100k']['manifest.toml']['sha256']), 'unfrozen input manifest')
 rejected(summary_path, lambda s: s.update(quality_sha256='0'*64), 'quality hash')
 rejected(summary_path, lambda s: s.update(trips_sha256='0'*64), 'trip hash')
 
@@ -61,4 +64,18 @@ for missing in streams:
         assert str(error) == 'missing captured stream'
     else:
         raise RuntimeError('missing stream accepted')
-print('valid run accepted; 17 invalid evidence variants rejected')
+
+timing_path = run / 'timing.csv'
+raw_lines = original(timing_path).splitlines(keepends=True)
+real_open = Path.open
+for damaged in [raw_lines[:-1], raw_lines + [raw_lines[-1]]]:
+    def open_timing(path, *args, **kwargs):
+        return io.StringIO(''.join(damaged)) if path == timing_path else real_open(path, *args, **kwargs)
+    try:
+        with patch.object(Path, 'open', open_timing):
+            analyze.analyze(meta)
+    except AssertionError as error:
+        assert str(error) == 'missing/repeated ticks'
+    else:
+        raise RuntimeError('invalid tick sequence accepted')
+print('valid run accepted; 20 invalid evidence variants rejected')
