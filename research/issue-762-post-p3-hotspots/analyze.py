@@ -43,6 +43,7 @@ def analyze(root):
     for mode in ("plain", "stages"):
         require(sha(root / f"{mode}-source.json") == identity["source_indexes"][mode], "source index")
     seen = set()
+    executions = set()
     semantics = {}
     runs = []
     for label in sorted(expected):
@@ -56,6 +57,10 @@ def analyze(root):
         path = root / label
         result = json.loads((path / "result.json").read_text())
         diagnostic = json.loads((path / "diagnostics.json").read_text())
+        require(result["scale"] == scale and result["case"] == "MIXED-PEAK", "native case")
+        require(diagnostic["invocation"] == meta["command"], "native invocation")
+        require(diagnostic["execution_id"] not in executions, "duplicate native execution")
+        executions.add(diagnostic["execution_id"])
         require(result["status"] == "probe-complete" and result["completed_ticks"] == 256 and result["error"] is None, "incomplete run")
         require(diagnostic["workers"] == 4 and diagnostic["verified_steps"] == 256, "run settings")
         require(diagnostic["git_commit_at_run"] == identity["research_head"] and diagnostic["git_status_at_run"] == "", "native git identity")
@@ -67,6 +72,9 @@ def analyze(root):
         require(scale not in semantics or semantics[scale] == semantic, "traffic changed")
         semantics[scale] = semantic
         rows = rows_from_text((root / f"{label}.stderr").read_text(), mode)
+        ordered_times = sorted(row["step_ns"] for row in rows)
+        for percentile in (50, 95, 99):
+            require(ordered_times[math.ceil(256 * percentile / 100) - 1] == diagnostic[f"step_ns_p{percentile}"], "native timing disagreement")
         windows = {}
         for name, start, end in (("all", 0, 256), ("entry", 0, 64), ("screen", 64, 256)):
             part = rows[start:end]
@@ -85,11 +93,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("raw", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--verify", action="store_true", help="compare to the published index without overwriting it")
     args = parser.parse_args()
     result = analyze(args.raw)
     result["files"] = [{"path": p.relative_to(args.raw).as_posix(), "bytes": p.stat().st_size, "sha256": sha(p)}
                        for p in sorted(args.raw.rglob("*")) if p.is_file()]
-    write(args.output, result)
+    if args.verify:
+        require(result == json.loads(args.output.read_text()), "published evidence differs")
+    else:
+        require(not args.output.resolve().is_relative_to(args.raw.resolve()), "output must be outside raw package")
+        write(args.output, result)
     for run in result["runs"]:
         window = run["windows"]["screen"]
         print(run["label"], window["step"], window.get("ranking", [])[:3])
