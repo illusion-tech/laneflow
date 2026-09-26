@@ -24,7 +24,7 @@ def export(destination):
             value += '\npub(crate) fn workload(count: usize) { CALLS.with(|cell| { let mut values = cell.get(); values[17] = count as u64; cell.set(values); }); }\n'
         p.write_text(value, encoding="utf-8", newline="\n")
     file = kernel + "conflict_tick.rs"
-    edit(destination, file, "        let view = ConflictTaskView {", "        let discover_timer = super::performance_profile::begin(super::performance_profile::Stage::P3Discover);\n        let view = ConflictTaskView {")
+    edit(destination, file, "    ) -> Result<bool, StepError> {\n        let view = ConflictTaskView {", "    ) -> Result<bool, StepError> {\n        let discover_timer = super::performance_profile::begin(super::performance_profile::Stage::P3Discover);\n        let view = ConflictTaskView {")
     edit(destination, file, "        let workload = inputs.len();", "        let workload = inputs.len();\n        super::performance_profile::workload(workload);\n        drop(discover_timer);")
     edit(destination, file, "        let dispatch_stats =\n            execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);", "        let dispatch_timer = super::performance_profile::begin(super::performance_profile::Stage::P3Dispatch);\n        let dispatch_stats =\n            execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);\n        drop(dispatch_timer);")
     edit(destination, file, "        for index in 0..self.workspace.conflict_inputs.len() {", "        let _consume_timer = super::performance_profile::begin(super::performance_profile::Stage::P3Consume);\n        for index in 0..self.workspace.conflict_inputs.len() {")
