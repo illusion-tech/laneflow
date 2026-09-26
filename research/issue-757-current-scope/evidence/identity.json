@@ -215,5 +215,10 @@
         "workers": 4
       }
     }
+  },
+  "raw_evidence_index": {
+    "source_commit": "7d9ccb782e3f1976c7f911a5962a42bcdde5231e",
+    "canonical_sha256": "434a2ac86d13c4bc376ba59a717df6212921160027f0b62655cffecc9b4e645d",
+    "scope": "collector inventory published before this validation fix; metadata hashes bind run UUID to all raw files; not a retroactively claimed producer digest"
   }
 }

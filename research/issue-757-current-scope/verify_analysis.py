@@ -78,4 +78,24 @@ for damaged in [raw_lines[:-1], raw_lines + [raw_lines[-1]]]:
         assert str(error) == 'missing/repeated ticks'
     else:
         raise RuntimeError('invalid tick sequence accepted')
-print('valid run accepted; 20 invalid evidence variants rejected')
+
+other_timing = original(meta.parent / '10k-2-all' / 'timing.csv')
+changed_fields = raw_lines[1].rstrip().split(',')
+changed_fields[5] = str(int(changed_fields[5]) + 1)
+changed_timing = raw_lines[0] + ','.join(changed_fields) + '\n' + ''.join(raw_lines[2:])
+for damaged in [other_timing, changed_timing]:
+    def open_timing(path, *args, **kwargs):
+        if path == timing_path:
+            mode = args[0] if args else kwargs.get('mode', 'r')
+            return io.BytesIO(damaged.encode()) if 'b' in mode else io.StringIO(damaged)
+        return real_open(path, *args, **kwargs)
+    try:
+        with patch.object(Path, 'open', open_timing):
+            analyze.analyze(meta)
+    except AssertionError as error:
+        assert str(error) == 'frozen evidence hash: timing.csv'
+    else:
+        raise RuntimeError('misattributed timing accepted')
+index_path = Path(__file__).resolve().parent / 'evidence/files.json'
+rejected(index_path, lambda entries: entries[0].update(sha256='0'*64), 'raw evidence index changed')
+print('valid run accepted; 23 invalid evidence variants rejected')

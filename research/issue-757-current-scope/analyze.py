@@ -25,6 +25,19 @@ def captured_streams(meta_path, label):
     assert all(p.is_file() for p in streams), 'missing captured stream'
     return streams
 
+def validate_frozen_run(meta_path, run, frozen):
+    index = json.loads((Path(__file__).resolve().parent / 'evidence/files.json').read_text(encoding='utf-8'))
+    canonical = json.dumps(index, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    assert hashlib.sha256(canonical).hexdigest() == frozen['raw_evidence_index']['canonical_sha256'], 'raw evidence index changed'
+    expected = {entry['path']: entry for entry in index}
+    paths = [meta_path, *captured_streams(meta_path, run.name), *[run / name for name in [
+        'summary.json', 'timing.csv', 'work.csv', 'initial.jsonl', 'ticks.jsonl',
+        'commands.jsonl', 'events.jsonl', 'extended-quality.json', 'individual-quality.csv']]]
+    for path in paths:
+        record = expected.get(str(path.resolve()))
+        assert record is not None, 'run absent from frozen evidence'
+        assert path.stat().st_size == record['bytes'] and digest(path) == record['sha256'], 'frozen evidence hash: ' + path.name
+
 def analyze(meta_path):
     meta = json.loads(meta_path.read_text(encoding='utf-8-sig'))
     frozen = json.loads((Path(__file__).resolve().parent / 'evidence/identity.json').read_text(encoding='utf-8'))
@@ -69,6 +82,7 @@ def analyze(meta_path):
         assert sum(r['waiting_entries'] for r in work) > 0, 'missing diagnostic counts'
     else:
         assert all(v == 0 for r in work for k, v in r.items() if k != 'tick'), 'unexpected instrumentation'
+    validate_frozen_run(meta_path, run, frozen)
     windows = {}
     cycle = 7656 if meta['scale'] == '10k' else 3712
     for name, low, high in [('entry', 1, 64), ('screen', 65, 512), ('running', 513, 2 * cycle), ('reflow', 2 * cycle + 1, meta['ticks'])]:

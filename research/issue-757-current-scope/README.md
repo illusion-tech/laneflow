@@ -52,7 +52,7 @@ cargo +1.98.0 build --manifest-path target/review-source/Cargo.toml -p laneflow-
 
 ```powershell
 ./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/review-source -OutputRoot target/scope-runs -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
-python research/issue-757-current-scope/analyze.py target/scope-runs target/scope-summary.json
+
 ```
 
 先 A/A，然后四臂交错并反转次序。入口 1–64、筛查 65–512 分列；较长运行至少
@@ -78,7 +78,11 @@ iteration 包含所有交通日志写出和质量观察，不含计时/计数 CS
 `verify_analysis.py` 对本次真实运行施加损坏，核验退出状态、来源、输入、跨运行质量文件、
 拍数、摘要及丢失 stdout/stderr 等情况均被拒绝。质量 JSON 与 summary 共享运行 UUID、
 规模、模式、workers、拍数、计划与输入身份，并校验质量及行程文件摘要。
-分析器将来源、二进制、计划及输入清单绑定到 `evidence/identity.json`，不能把其他批次
-直接加入本批统计。新批次须单独封存身份，禁止覆盖历史原始包。
+分析器将来源、二进制、计划及输入清单绑定到 `evidence/identity.json`，并校验其绑定的
+`files.json` 规范 JSON 摘要。该清单在 `7d9ccb78` 已先行提交，含每个进程元数据（UUID）与
+计时、工作量、交通日志和输出的摘要；验证通过后才统计窗口，不能靠重新索引接纳被替换的计时。
+这是已发布采集清单的绑定，不宣称旧程序曾输出不存在的 producer digest。
+`analyze.py` / `aggregate.py` 用于复核本次封存包，不接受新 UUID 的重跑包。上述运行命令
+可用于重新执行算法；新批次需单独建立身份和原始清单、另行分析，不覆盖或追加到旧包。
 `aggregate.py` 是本次 28 个完整运行及一个明确中断尝试的封存清单，数量与排除项固定；
-新的复测批次使用 `analyze.py` 独立报告，不追加到旧清单里改变历史统计。
+新的复测批次独立报告，不追加到旧清单里改变历史统计。
