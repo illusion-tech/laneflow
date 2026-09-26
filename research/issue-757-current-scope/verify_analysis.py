@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 from unittest.mock import patch
+from analyze import require
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import analyze
@@ -25,12 +26,12 @@ def rejected(path, change, reason):
         with patch.object(Path, 'read_text', read):
             analyze.analyze(meta)
     except AssertionError as error:
-        assert str(error) == reason, (str(error), reason)
+        require(str(error) == reason, (str(error), reason))
         return
     raise RuntimeError('invalid run accepted')
 
 result = analyze.analyze(meta)
-assert result['quality']['run_identity']['quality_schema'] == 'active-to-active-v1'
+require(result['quality']['run_identity']['quality_schema'] == 'active-to-active-v1', 'test expectation failed')
 for change, reason in [
     (lambda m: m.update(exit_code=1), 'failed process'),
     (lambda m: m.update(source_unchanged=False), 'source_unchanged'),
@@ -61,7 +62,7 @@ for missing in streams:
         with patch.object(Path, 'is_file', lambda p: False if p == missing else is_file(p)):
             analyze.captured_streams(meta, source['label'])
     except AssertionError as error:
-        assert str(error) == 'missing captured stream'
+        require(str(error) == 'missing captured stream', 'test expectation failed')
     else:
         raise RuntimeError('missing stream accepted')
 
@@ -75,7 +76,7 @@ for damaged in [raw_lines[:-1], raw_lines + [raw_lines[-1]]]:
         with patch.object(Path, 'open', open_timing):
             analyze.analyze(meta)
     except AssertionError as error:
-        assert str(error) == 'missing/repeated ticks'
+        require(str(error) == 'missing/repeated ticks', 'test expectation failed')
     else:
         raise RuntimeError('invalid tick sequence accepted')
 
@@ -93,7 +94,7 @@ for damaged in [other_timing, changed_timing]:
         with patch.object(Path, 'open', open_timing):
             analyze.analyze(meta)
     except AssertionError as error:
-        assert str(error) == 'frozen evidence hash: timing.csv'
+        require(str(error) == 'frozen evidence hash: timing.csv', 'test expectation failed')
     else:
         raise RuntimeError('misattributed timing accepted')
 index_path = Path(__file__).resolve().parent / 'evidence/files.json'

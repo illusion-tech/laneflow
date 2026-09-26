@@ -1,5 +1,6 @@
 """Exact archived matrix: labels alone or a total count cannot prove coverage."""
 import json
+from analyze import require
 
 def validate_inventory(paths):
     expected = set()
@@ -17,11 +18,11 @@ def validate_inventory(paths):
         key = (path.parent.name, meta['label'], meta['scale'], meta['mode'],
                meta['workers'], meta['ticks'], meta['diagnostic'])
         directory = (path.parent / meta['label']).resolve()
-        assert key not in actual, 'duplicate experiment'
-        assert meta['run_id'] not in ids, 'duplicate run identity'
-        assert directory not in directories, 'duplicate run directory'
-        assert path.name == meta['label'] + '.process.json', 'metadata filename mismatch'
+        require(key not in actual, 'duplicate experiment')
+        require(meta['run_id'] not in ids, 'duplicate run identity')
+        require(directory not in directories, 'duplicate run directory')
+        require(path.name == meta['label'] + '.process.json', 'metadata filename mismatch')
         actual.add(key)
         ids.add(meta['run_id'])
         directories.add(directory)
-    assert actual == expected, 'experiment matrix mismatch'
+    require(actual == expected, 'experiment matrix mismatch')

@@ -1,7 +1,7 @@
 """Bind the completed experiments and explicitly preserve the interrupted attempt."""
 import json
 from pathlib import Path
-from analyze import analyze, captured_streams, digest, quantiles
+from analyze import analyze, captured_streams, digest, quantiles, require, validate_frozen_index
 import csv
 from inventory import validate_inventory
 import sys
@@ -18,7 +18,7 @@ for name in roots:
         if name == 'scope-counts' and meta['label'] != '100k-p3':
             continue
         if name == 'scope-counts':
-            assert 'exit_code' not in meta and not (run/'summary.json').exists(), 'exclusion changed'
+            require('exit_code' not in meta and not (run/'summary.json').exists(), 'exclusion changed')
             excluded.append({'label':str(run),'status':'interrupted-incomplete','reason':'no exit status or summary; separately rerun in scope-counts-remaining'})
             files = [meta_path, *run.glob('*')]
         else:
@@ -42,7 +42,9 @@ for name in roots:
         for path in sorted(files):
             if path.is_file():
                 index.append({'path':path.relative_to(target).as_posix(),'bytes':path.stat().st_size,'sha256':digest(path)})
-assert len(complete)==28 and len(excluded)==1, 'experiment inventory changed'
+require(len(complete)==28 and len(excluded)==1, 'experiment inventory changed')
+frozen = json.loads((here/'evidence/identity.json').read_text(encoding='utf-8'))
+validate_frozen_index(index, frozen)
 output = here/'evidence'
 (output/'results.json').write_text(json.dumps({'complete':complete,'excluded':excluded},indent=2)+'\n',encoding='utf-8')
 (output/'files.json').write_text(json.dumps(index,indent=2)+'\n',encoding='utf-8')
