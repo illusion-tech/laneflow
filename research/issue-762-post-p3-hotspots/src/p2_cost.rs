@@ -281,8 +281,9 @@ fn validate_rows(rows: &[Value], ticks: &[Value], mode: &str) -> Result<()> {
                 && calls[22] == 1
                 && calls[23] == 0
                 && calls[25] == calls[31]
-                && calls[26] + calls[27] + calls[28] == calls[25]
-                && calls[29] + calls[26] == calls[25]
+                && calls[31] >= 1_024
+                && sum(&calls[26..29]) == u128::from(calls[25])
+                && u128::from(calls[29]) + u128::from(calls[26]) == u128::from(calls[25])
                 && calls[30] == calls[25]
                 && times[25..].iter().all(|v| *v == 0),
             "P2 path/counts",
@@ -310,17 +311,10 @@ fn analyze(raw: &Path) -> Result<Value> {
         let meta = io::read_json(&raw.join(format!("{label}.process.json")))?;
         let native = io::read_json(&dir.join("result.json"))?;
         let diagnostic = io::read_json(&dir.join("diagnostics.json"))?;
+        validate_process(&meta, &identity, &label, &scale, &mode)?;
         need(
-            meta["label"] == label
-                && meta["scale"] == scale
-                && meta["mode"] == mode
-                && meta["exit_code"] == 0
-                && meta["head"] == identity["head"]
-                && meta["head_after"] == identity["head"]
-                && meta["status_after"] == ""
-                && meta["binary_after"] == identity["binaries"][&mode]["sha256"]
-                && ids.insert(string(&meta["uuid"])?.to_owned()),
-            "process identity",
+            ids.insert(string(&meta["uuid"])?.to_owned()),
+            "duplicate process uuid",
         )?;
         need(
             native["status"] == "probe-complete"
@@ -405,6 +399,27 @@ fn analyze(raw: &Path) -> Result<Value> {
     Ok(json!({"identity":identity,"runs":runs,"files":io::file_index(raw)?}))
 }
 
+fn validate_process(
+    meta: &Value,
+    identity: &Value,
+    label: &str,
+    scale: &str,
+    mode: &str,
+) -> Result<()> {
+    need(
+        meta["label"] == label
+            && meta["scale"] == scale
+            && meta["mode"] == mode
+            && meta["exit_code"] == 0
+            && meta["head"] == identity["head"]
+            && meta["head_after"] == identity["head"]
+            && meta["status_after"] == ""
+            && meta["binary_after"] == identity["binaries"][mode]["sha256"]
+            && uuid::Uuid::parse_str(string(&meta["uuid"])?)?.get_version_num() == 4,
+        "process identity",
+    )
+}
+
 fn run() -> Result<()> {
     let a: Vec<_> = std::env::args().skip(1).collect();
     match a.first().map(String::as_str) {
@@ -426,7 +441,7 @@ mod tests {
     use super::*;
     fn fixture() -> (Vec<Value>, Vec<Value>) {
         let ticks = (1..=256)
-            .map(|tick| json!({"tick":tick,"N_active":2}))
+            .map(|tick| json!({"tick":tick,"N_active":2_048}))
             .collect();
         let rows = (1..=256)
             .map(|tick| {
@@ -435,12 +450,12 @@ mod tests {
                 calls[16] = 1;
                 calls[18..23].fill(1);
                 calls[24] = 1;
-                calls[25] = 2;
-                calls[26] = 1;
-                calls[28] = 1;
-                calls[29] = 1;
-                calls[30] = 2;
-                calls[31] = 2;
+                calls[25] = 2_048;
+                calls[26] = 1_024;
+                calls[28] = 1_024;
+                calls[29] = 1_024;
+                calls[30] = 2_048;
+                calls[31] = 2_048;
                 json!({"tick":tick,"step_ns":100,"stages_ns":vec![0;32],"calls":calls})
             })
             .collect();
@@ -472,6 +487,8 @@ mod tests {
         let mut bad = rows.clone();
         bad[0]["stages_ns"][18] = json!(101);
         assert!(validate_rows(&bad, &ticks, "detail").is_err());
+        bad[0]["calls"][26] = json!(u64::MAX);
+        assert!(validate_rows(&bad, &ticks, "detail").is_err());
     }
     #[test]
     fn plain_rejects_instrumentation_and_unknown_mode() {
@@ -492,5 +509,25 @@ mod tests {
             json!({"mean_ms":2.5,"p95_ms":4.0})
         );
         assert_eq!(labels().len(), 12);
+    }
+    #[test]
+    fn process_drift_and_invalid_uuid_fail() {
+        let identity = json!({"head":"frozen", "binaries":{"detail":{"sha256":"digest"}}});
+        let meta = json!({"label":"label","scale":"100k","mode":"detail","exit_code":0,"head":"frozen","head_after":"frozen","status_after":"","binary_after":"digest","uuid":uuid::Uuid::new_v4().to_string()});
+        validate_process(&meta, &identity, "label", "100k", "detail").unwrap();
+        for (field, value) in [
+            ("head_after", json!("other")),
+            ("status_after", json!("dirty")),
+            ("binary_after", json!("other")),
+            ("exit_code", json!(1)),
+            ("uuid", json!("invalid")),
+        ] {
+            let mut bad = meta.clone();
+            bad[field] = value;
+            assert!(
+                validate_process(&bad, &identity, "label", "100k", "detail").is_err(),
+                "{field}"
+            );
+        }
     }
 }
