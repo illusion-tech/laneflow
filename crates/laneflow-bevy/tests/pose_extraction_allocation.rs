@@ -185,4 +185,37 @@ fn warm_extraction_path_has_no_new_allocations() {
     assert_eq!(stats.reallocations, 0, "steady extract must not reallocate");
     assert_eq!(output.vehicles().len(), 5);
     assert_eq!(output.batch().records().len(), 5);
+    let selection = output.vehicles().iter().rev().copied().collect::<Vec<_>>();
+    let context = session.consumption_context();
+    let mut second_output = LaneFlowCommittedPoseBatch::new();
+    for round in 0..8 {
+        let destination = if round % 2 == 0 {
+            &mut output
+        } else {
+            &mut second_output
+        };
+        session
+            .extract_selected_committed_pose_batch(
+                context,
+                &selection,
+                FramePlacementToken::new(round),
+                destination,
+            )
+            .unwrap();
+    }
+    for count in [5, 1, 0, 5, 1] {
+        let region = stats_alloc::Region::new(ALLOCATOR);
+        session
+            .extract_selected_committed_pose_batch(
+                context,
+                &selection[..count],
+                FramePlacementToken::new(100),
+                &mut output,
+            )
+            .unwrap();
+        let stats = region.change();
+        assert_eq!(stats.allocations, 0, "warm selected allocation");
+        assert_eq!(stats.reallocations, 0, "warm selected reallocation");
+        assert_eq!(output.vehicles(), &selection[..count]);
+    }
 }

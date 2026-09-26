@@ -270,6 +270,119 @@ fn extract_once(session: &mut LaneFlowSession) -> LaneFlowCommittedPoseBatch {
     poses
 }
 
+#[test]
+fn selected_context_survives_failed_cutover_but_not_successful_cutover_or_restore() {
+    let fixture = fixture();
+    let Seeded {
+        mut session,
+        vehicle,
+        ..
+    } = seeded(&fixture.r1, "fixture://selected/r1");
+    let context = session.consumption_context();
+    let mut output = extract_once(&mut session);
+    let before = output.batch().clone();
+    let wrong_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r1.root))
+        .unwrap()
+        .unwrap();
+    assert!(
+        session
+            .cross_revision_cutover(
+                Arc::clone(&fixture.r2.root),
+                source(&fixture.r2.root, "fixture://selected/r2"),
+                &fixture.r2.diff,
+                fixture.r2.binding,
+                LaneFlowTargetSpatial::Rebind(wrong_spatial),
+                &PREFLIGHT,
+                &CutoverTransactionLimits::default(),
+            )
+            .is_err()
+    );
+    assert!(session.consumption_context_is_current(context));
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[vehicle],
+            FramePlacementToken::new(1),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.batch(), &before);
+    let spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
+        .unwrap()
+        .unwrap();
+    let _cutover = session
+        .cross_revision_cutover(
+            Arc::clone(&fixture.r2.root),
+            source(&fixture.r2.root, "fixture://selected/r2"),
+            &fixture.r2.diff,
+            fixture.r2.binding,
+            LaneFlowTargetSpatial::Rebind(spatial),
+            &PREFLIGHT,
+            &CutoverTransactionLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        session.extract_selected_committed_pose_batch(
+            context,
+            &[vehicle, vehicle],
+            FramePlacementToken::new(2),
+            &mut output,
+        ),
+        Err(LaneFlowAdapterError::StalePoseSelectionContext)
+    );
+    assert_eq!(output.batch(), &before);
+    assert_eq!(output.context(), context);
+    let current = session.consumption_context();
+    session
+        .extract_selected_committed_pose_batch(
+            current,
+            &[vehicle],
+            FramePlacementToken::new(2),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(
+        output.batch().records()[0].pose().position().y(),
+        OFFSET_R2_Y
+    );
+    let before_restore = output.batch().clone();
+    let r2_again = emit(&compile(OFFSET_R2_Y), None);
+    let spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&r2_again.root))
+        .unwrap()
+        .unwrap();
+    let _restore = session
+        .same_revision_restore(
+            Arc::clone(&r2_again.root),
+            source(&r2_again.root, "fixture://selected/r2-again"),
+            LaneFlowTargetSpatial::Rebind(spatial),
+            &PREFLIGHT,
+        )
+        .unwrap();
+    assert_eq!(
+        session.extract_selected_committed_pose_batch(
+            current,
+            &[],
+            FramePlacementToken::new(3),
+            &mut output,
+        ),
+        Err(LaneFlowAdapterError::StalePoseSelectionContext)
+    );
+    assert_eq!(output.batch(), &before_restore);
+    assert_eq!(output.context(), current);
+    session
+        .extract_selected_committed_pose_batch(
+            session.consumption_context(),
+            &[vehicle],
+            FramePlacementToken::new(3),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(
+        output.batch().records()[0].pose(),
+        before_restore.records()[0].pose()
+    );
+}
+
 fn pose_of_vehicle(
     result: &LaneFlowCommittedPoseBatch,
     vehicle: VehicleHandle,
