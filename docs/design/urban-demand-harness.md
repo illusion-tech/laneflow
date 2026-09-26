@@ -247,6 +247,29 @@ live；未来尚未到期和已到期 pending/exhausted 请求分别计数，均
 
 ## 6. 运行长度与结果包
 
+### 按需表现对照（#713）
+
+Adapter 的宿主表现配置独立于交通计划。`FullValidation` 保留全量提取及原表现行为；
+`FullValidationSelected` 全量提取、转换后应用指定身份窗口，作为匹配对照；
+`SelectedPresentation` 在提取前按 live 个体身份形成有序选择，仅提取、转换并应用
+其中具有已提交来源的车辆。窗口比例以 live 句柄数为分母，offset、stride、reverse
+及模式写入证据。选择退出、virtual Parked 和 Completed 仅隐藏表现，真正身份变更
+继续经过 typed 生命周期事务；应用前复核消费上下文与放置令牌。
+
+`requested`、`extracted`、`applied`、全世界 `presentable` 与 `N_presented` 分别记录。
+全量提取已发生时，不能用较小的 applied 替换 `N_presented`。选择路径保留完整交通
+oracle，但不额外物化全量 pose；独立全量对照逐 tick 核对交通及实际 Transform 摘要。
+选择、完整提取、转换、绑定维护、应用、验证分别计时，完整表现耗时从选择开始至
+应用结束。宿主仍扫描 live 个体及累计绑定，不能据采样减少宣称整个链路 O(K)。
+
+`evidence` 接受完整 correctness 或 performance 窗口；正式性能对照使用下述完整
+performance 窗口。三轮正常 release 与独立 allocator、内部阶段插桩构建分开，均绑定
+干净且远端可达的源码提交、工具链、输入、计划、窗口与策略。缓冲容量按当前所有者
+记录，交换不消除两侧存储，逻辑复制字节不等于实测内存流量。编排及拒绝路径见
+[按需表现取证](../../research/issue-713-selected-presentation/README.md)。
+
+### 完整窗口
+
 令 C 为输入中最长完整信号周期的 tick 数。当前目录最长周期 122496 ms，因此
 10k 的 C=7656，100k 的 C=3712。所有 phase/offset/需求量子必须能被实际 fixed step
 整除，输入变更导致不能整除时拒绝，不能由 harness 舍入相位。

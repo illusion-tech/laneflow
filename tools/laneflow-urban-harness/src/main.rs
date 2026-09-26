@@ -33,7 +33,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("capacity variant: {}", report["facility_key"]);
         }
         #[cfg(feature = "adapter")]
-        Some("evidence") if matches!(args.len(), 5 | 7 | 9) => {
+        Some("evidence") if args.len() >= 5 && (args.len() - 5).is_multiple_of(2) => {
             let adapter = match args[4].as_str() {
                 "adapter" => true,
                 "headless" => false,
@@ -41,10 +41,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let mut wall = None;
             let mut prefix = None;
+            let mut presentation_config = None;
             for option in args[5..].as_chunks::<2>().0 {
                 match option[0].as_str() {
                     "--wall-ms" if wall.is_none() => wall = Some(option[1].parse()?),
                     "--ticks" if prefix.is_none() => prefix = Some(option[1].parse()?),
+                    "--presentation-config" if presentation_config.is_none() => {
+                        presentation_config =
+                            Some(serde_json::from_slice::<
+                                laneflow_urban_harness::PresentationMode,
+                            >(&std::fs::read(&option[1])?)?);
+                    }
                     _ => return Err(usage().into()),
                 }
             }
@@ -55,6 +62,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 adapter,
                 wall,
                 prefix,
+                presentation_config.unwrap_or_default(),
             )?;
             println!("{}: {} ticks", result["status"], result["completed_ticks"]);
         }
@@ -159,5 +167,5 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
 }
