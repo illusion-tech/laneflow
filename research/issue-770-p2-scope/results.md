@@ -151,7 +151,9 @@ Runtime 原 516 passed / 15 ignored，新增 P5 失败用例单独验证：明�
 集成证据，不能替代这些边界测试。
 
 研究工具保留 #763 历史协议并严格重算历史两份 JSON；本项增加 P2 计数形状与
-反向平衡顺序检查。两份发布 JSON 均由 verify 原样复算通过。
+反向平衡顺序检查。合并 #768 工具后，研究包 all-targets 24 个测试及 clippy 通过；
+Runtime all-targets clippy、fmt、diff check 通过。两份发布 JSON 均由 verify 原样
+复算通过，故意修改发布 mean 的副本被拒绝，原发布摘要不变。
 设计已先行冻结并回写阶段/并行协议。正式 Runtime 逻辑与实测候选一致；后续
 新增仅测试与说明。新代码全部 Rust，无新依赖/公开 API/数据格式/Adapter 变更。
 
