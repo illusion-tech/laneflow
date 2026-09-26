@@ -2619,11 +2619,11 @@ mod tests {
         );
 
         // 前一拍的逻辑条目不能随槽位或路线变化复活。
-        let edge = world.route_edges(state.route).unwrap()[gate as usize];
+        let edges = world.route_edges(state.route).unwrap().to_vec();
         world.despawn_vehicle(old).unwrap();
         world.remove_route(state.route).unwrap();
         let route = world
-            .register_route(crate::RouteRegisterInput::new(vec![edge]))
+            .register_route(crate::RouteRegisterInput::new(edges))
             .unwrap();
         let new = world
             .spawn_vehicle(
