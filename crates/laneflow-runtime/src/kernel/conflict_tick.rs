@@ -2835,6 +2835,71 @@ mod tests {
     }
 
     #[test]
+    fn p2_excluded_preview_still_fails_atomically_in_p5_and_retries() {
+        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _p2 = crate::kernel::waiting::force_preview_dispatch();
+        let _p5 = crate::kernel::tick::force_motion_dispatch();
+        fn fixture(workers: u32) -> TrafficWorld {
+            let mut world = crate::kernel::waiting::tests::multi_gate_world(16);
+            let owner = world.live_vehicles()[0];
+            let state = *world.state.vehicle_state(owner).unwrap();
+            let route = world.state.compiled_route(state.route).unwrap();
+            let gate = route.gate_hops[0];
+            let length =
+                world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
+            world.state.committed.vehicles[owner.index() as usize].state =
+                Some(crate::VehicleState {
+                    route_edge_index: gate,
+                    progress_mm: length - 1_000,
+                    speed_mm_s: 0,
+                    ..state
+                });
+            world.state.rebuild_occupancy_index().unwrap();
+            let entry = world
+                .state
+                .read_view()
+                .waiting_preview_entry(owner, 0, 0.1, true)
+                .unwrap();
+            assert_eq!(entry.gate_reachable, Some(false));
+            assert!(entry.horizon.is_some() && entry.preview.is_none());
+            install_execution(&mut world, workers);
+            world
+        }
+        for workers in [1, 2, 4, 8, 16] {
+            let mut world = fixture(workers);
+            let mut fresh = fixture(workers);
+            let before = world.capture_snapshot().unwrap();
+            {
+                let _failure = crate::kernel::tick::inject_motion_nonfinite(
+                    world.state.binding.world_id,
+                    &[0],
+                );
+                assert_eq!(
+                    world.step(TickInput::new(100)),
+                    Err(StepError::NonFiniteMotion)
+                );
+            }
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            assert!(world.state.workspace.motion_cache.is_empty());
+            for _ in 0..8 {
+                assert_eq!(
+                    world.step(TickInput::new(100)).unwrap(),
+                    fresh.step(TickInput::new(100)).unwrap()
+                );
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    fresh.capture_snapshot().unwrap()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    fresh.latest_transition_events()
+                );
+                assert!(world.state.workspace.motion_cache.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn p2_scope_matches_uncached_reference_through_waiting_hold_and_release() {
         let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = crate::kernel::waiting::force_preview_dispatch();
