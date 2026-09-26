@@ -2,6 +2,33 @@ name: 功能
 description: 请求新增 LaneFlow 能力
 type: Feature
 body:
+  - type: dropdown
+    id: non-rust-code
+    attributes:
+      label: 非 Rust 代码计划
+      description: 是否计划新增或修改拟入库的非 Rust 代码？包括研究、测试、CI、维护脚本和嵌入代码；纯删除除外。
+      options:
+        - 否（无代码变更、仅 Rust 或纯删除）
+        - 是（须在该方案开工前完成代码语言立项审查）
+        - 尚未确定（建单时可选，实现前必须明确）
+    validations:
+      required: true
+  - type: textarea
+    id: code-language-review
+    attributes:
+      label: 代码语言立项审查
+      description: |
+        选“是”时记录拟议方案；可先写待审查，在维护者明确接受前不得进入该非 Rust 方案的 G2。选“否”可留空；尚未确定的任务在实现前补齐。
+        完整要求见[代码语言立项审查](https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md)；已有 Issue 可承载审查，不要求另开单。
+      placeholder: |
+        - 语言、用途、路径、代码范围和维护责任：
+        - Rust 方案、替代方案及选择非 Rust 的必要性：
+        - 工具链、依赖、跨平台、维护成本及许可证/安全要求：
+        - 验证、CI、复现入口及证据保存：
+        - 保留期限或理由、迁移/替换/删除条件：
+        - 维护者接受结论及链接：待审查（接受后补充语言/用途/路径范围）
+    validations:
+      required: false
   - type: textarea
     id: background
     attributes:
