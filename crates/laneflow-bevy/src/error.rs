@@ -4,7 +4,9 @@ use std::fmt;
 use std::time::Duration;
 
 use bevy_ecs::entity::Entity;
-use laneflow_runtime::{CutoverError, ParkingError, ReplaceError, StepError, VehicleHandle};
+use laneflow_runtime::{
+    CommittedPoseSourceError, CutoverError, ParkingError, ReplaceError, StepError, VehicleHandle,
+};
 use laneflow_spatial::SpatialError;
 
 /// LaneFlow Bevy Adapter 的结构化失败。
@@ -79,6 +81,26 @@ pub enum LaneFlowAdapterError {
     TargetSpatialRevisionMismatch,
     /// headless Session（无 Spatial 配对）不支持位姿提取。
     PoseExtractionWithoutSpatial,
+    /// 选择上下文不属于当前世界身份或世代。
+    StalePoseSelectionContext,
+    /// 有序选择列表包含同一个完整代际句柄。
+    DuplicatePoseSelection {
+        /// 重复句柄。
+        vehicle: VehicleHandle,
+        /// 首次出现的零起始位置。
+        first_index: usize,
+        /// 首个重复出现的零起始位置。
+        duplicate_index: usize,
+    },
+    /// 按输入顺序查询选择句柄时失败。
+    SelectedPoseSource {
+        /// 输入中的零起始位置。
+        index: usize,
+        /// 失败句柄。
+        vehicle: VehicleHandle,
+        /// Runtime 来源查询错误。
+        source: CommittedPoseSourceError,
+    },
     /// Spatial 批次提取失败。
     SpatialPoseExtraction {
         /// Spatial 错误。
@@ -146,6 +168,25 @@ impl fmt::Display for LaneFlowAdapterError {
             Self::SpatialPoseExtraction { source } => {
                 write!(formatter, "Spatial 位姿批次提取失败：{source}")
             }
+            Self::StalePoseSelectionContext => {
+                formatter.write_str("位姿选择上下文不属于当前世界身份或世代")
+            }
+            Self::DuplicatePoseSelection {
+                vehicle,
+                first_index,
+                duplicate_index,
+            } => write!(
+                formatter,
+                "位姿选择句柄 {vehicle:?} 重复：首次位置 {first_index}，重复位置 {duplicate_index}"
+            ),
+            Self::SelectedPoseSource {
+                index,
+                vehicle,
+                source,
+            } => write!(
+                formatter,
+                "位姿选择位置 {index} 的句柄 {vehicle:?} 查询失败：{source}"
+            ),
         }
     }
 }
@@ -163,7 +204,10 @@ impl std::error::Error for LaneFlowAdapterError {
             | Self::DuplicateEntityBinding { .. }
             | Self::StaleLifecycleEntity { .. }
             | Self::TargetSpatialRevisionMismatch
+            | Self::StalePoseSelectionContext
+            | Self::DuplicatePoseSelection { .. }
             | Self::PoseExtractionWithoutSpatial => None,
+            Self::SelectedPoseSource { source, .. } => Some(source),
             Self::VehicleReplace { source, .. } => Some(source),
             Self::VehicleDespawn { source, .. } => Some(source),
             Self::Cutover { source } => Some(source),
