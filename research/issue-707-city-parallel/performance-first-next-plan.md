@@ -75,7 +75,8 @@ p3 准备 3.258 ms 为参照，不把这次带计时的 3.310 ms 写成新的无
 old 30.517 ms，held 28.462 ms。候选身份已由版本化的
 [`retained-best-evidence-manifest.json`](evidence/retained-best-evidence-manifest.json)、
 源码补丁与 [Research Evidence 记录](evidence/retained-best-release.json)绑定；精确
-EXE 已上传至 draft prerelease，公开前不得把本机 `target/` 路径当作可复用基线。
+EXE 与 100k fixture 已发布到独立的 [Research Evidence prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-m16-best-19bf7ecb)，
+并从稳定 URL 重新下载、验签和完成 smoke；本机 `target/` 路径不再承担长期身份。
 held 环境为 `LF707_COAST=on`、`LF707_DEMAND=held`。M3 的 29.334 ms 不改写。
 [车道块闭合路径](lane-block-results.md)已淘汰：同一天的六臂里 after 比
 before 多 7.530 ms，快路径命中为 0。整边要求车长一致时，4.0 m、4.5 m、

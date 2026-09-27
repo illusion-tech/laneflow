@@ -49,10 +49,10 @@ Evidence 制品共同绑定：
 - 源码：基线 `4de40e045398e4b010b2aa36522afc02a4094c4d` 加
   [`retained-best-source-patch.tar.zst`](evidence/retained-best-source-patch.tar.zst)；归档内明文补丁
   SHA-256 为 `c15fbaf8ffbf4cf0a61c72d2644804412846e9ab0ae2d29b860b85fd1c82abc7`
-- 精确二进制：draft Research Evidence prerelease 的
-  `issue-707-m16-best-19bf7ecb5dfd.tar.zst`；草稿身份和上传摘要见
+- 精确二进制：[Research Evidence prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-m16-best-19bf7ecb) 的
+  `issue-707-m16-best-19bf7ecb5dfd.tar.zst`；发布身份和上传摘要见
   [`retained-best-release.json`](evidence/retained-best-release.json)
-- 运行输入：同一草稿的 `issue-707-m16-fixture-8b4294eb5ca8.tar.zst`，保存 `input/`、
+- 运行输入：同一 prerelease 的 `issue-707-m16-fixture-8b4294eb5ca8.tar.zst`，保存 `input/`、
   `plan.toml` 与 `inventory.json`
 - SHA-256：
   `19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602`
@@ -65,11 +65,11 @@ Evidence 制品共同绑定：
 offline、`CARGO_INCREMENTAL=0` 成功重建。不同绝对路径的重建 EXE 字节数相同但
 SHA-256 不同，所以字节身份以 Research Evidence 包内精确 EXE 为准，不以重编译替代。
 
-两个准备归档已在空目录解压，11 个 fixture 文件通过 manifest 摘要校验，精确 EXE
-完成 4-worker、8-tick smoke；结果已进入版本化小封套。公开该 prerelease 后还须从
-稳定 URL 再做一次定位、下载与 SHA-256 验证，下一次新候选才可继续使用这份 best；
-before 是新源码关掉候选开关，after 是候选，顺序 best、before、after、after、
-before、best。公开前状态是“已上传草稿、待发布”，不得只靠本机 `target/` 继续复用。
+两个 tar.zst 已从公开的 tag-based 稳定 URL 下载到空目录。主包 41 个文件通过
+`SHA256SUMS`，11 个 fixture 文件通过 manifest，精确 EXE 完成 4-worker、8-tick
+smoke；完成 owner 持有数、多 owner 时长和未配对 clear 均为 0。下一次新候选可按
+该版本化身份使用这份 best；before 是新源码关掉候选开关，after 是候选，顺序
+best、before、after、after、before、best，不再依赖本机 `target/`。
 
 ## 5. 证据
 
