@@ -64,7 +64,8 @@ ETA 的验收。那两个问题没有在本轮修改。
 
 后续研究组合是 B1 + H1 + 本轮屏障跳过。原构建源码仍在作者机器的
 `target/issue707-m2-source`；仓库另提交从基准到 M2 的累计二进制 Git 补丁和
-H1→M2 七文件增量，默认对照用 `LF707_BARRIER=skip`。
+从基准到 H1 父源码的补丁，以及 H1→M2 七文件增量，默认对照用
+`LF707_BARRIER=skip`。
 尚未整理成正式实现 PR，也没有改权威设计。
 
 输入读取仍是上一轮里的第二大段，约 11.6–11.9 ms CPU。它不在本轮候选里。
@@ -73,15 +74,18 @@ H1→M2 七文件增量，默认对照用 `LF707_BARRIER=skip`。
 
 - 机器可读封套见
   [`motion-barrier-evidence-manifest.json`](evidence/motion-barrier-evidence-manifest.json)：
-  它绑定十次运行各 17 个文件的完整树身份、二进制与计划身份、进程资源包络、
-  交通文件哈希、精确统计和最终计数。逐拍紧凑报告见
+  它绑定十次运行各 17 个文件的完整树身份、二进制与计划身份、每臂
+  `LF707_BARRIER` 处理模式、完整 `prefix-result`、进程资源包络、交通文件哈希、
+  精确统计和最终计数。逐拍紧凑报告见
   [`motion-barrier-public-step.csv`](evidence/motion-barrier-public-step.csv)，包含
   10 × 192 个 `public_step_ns` 与 `observation_ns` 样本。
 - [`motion-barrier-source-patch.tar.zst`](evidence/motion-barrier-source-patch.tar.zst)
-  包含两个只涉及 Rust/Cargo 构建源码的二进制 Git 补丁：从基准提交到 M2 的
-  48 文件累计补丁，以及从重建 H1 到 M2 的 7 文件增量。两条路径均已在新目录
-  回放，并与 451 个原构建源文件逐字节一致；历史 H1 的非 Rust 运行脚本未提交。
-- 父源码是封存 H1，提交 `4de40e045398e4b010b2aa36522afc02a4094c4d`。
+  包含三个只涉及 Rust/Cargo 构建源码的二进制 Git 补丁：从基准提交到 H1 的
+  47 文件父源码补丁、从基准到 M2 的 48 文件累计补丁，以及从 H1 到 M2 的 7 文件
+  增量。三条路径均已在新目录回放，并分别与 451 个原构建源文件逐字节一致；
+  历史 H1 的非 Rust 运行脚本未提交。
+- 基准提交是 `4de40e045398e4b010b2aa36522afc02a4094c4d`；父处理臂所用封存 H1
+  可由该基准加 47 文件父源码补丁重建。
 - Rust 1.98.0，release，locked，offline，`CARGO_INCREMENTAL=0`，
   feature `entry-frontier,barrier-reach`。
 - skip/direct 二进制 SHA-256：

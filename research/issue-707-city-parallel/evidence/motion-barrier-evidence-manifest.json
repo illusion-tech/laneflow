@@ -1,6 +1,6 @@
 {
-  "schema": "laneflow-issue-707-m2-evidence-envelope-v1",
-  "generated_at": "2026-09-27T20:46:11.9329683Z",
+  "schema": "laneflow-issue-707-m2-evidence-envelope-v2",
+  "generated_at": "2026-09-27T21:03:06.8332856Z",
   "hash_algorithm": "SHA-256",
   "classification": "research evidence for a retained candidate; not final performance certification, production deployment, public API, or compatibility commitment",
   "purpose": "bind the source delta and ten historical M2 runs behind the published timing and short-window traffic-equivalence claims",
@@ -13,10 +13,67 @@
       "compressor": "bsdtar 3.8.8 with libzstd 1.5.7, default compression",
       "magic": "28 b5 2f fd",
       "identity": {
-        "bytes": 121718,
-        "sha256": "47c0753988227310d3392200ada11618dc8d1d4f1329ba80ac61ab9bda7bcdb3"
+        "bytes": 131703,
+        "sha256": "1e47dcb0a44c5d680c5adc20bc55d4635804c270e04bdee9722d1a01e0758cd0"
       },
       "members": [
+        {
+          "path": "motion-barrier-h1-parent.patch",
+          "role": "binary Git patch from base commit to the exact H1 Rust/Cargo build source used by the parent arms",
+          "identity": {
+            "bytes": 146885,
+            "sha256": "be3e5bf3268090393ba6e7b24fc770ba52cec7a6609db5bfe83d6ab9d4ccfca7"
+          },
+          "changed_files": [
+            "Cargo.lock",
+            "Cargo.toml",
+            "crates/laneflow-runtime/Cargo.toml",
+            "crates/laneflow-runtime/examples/short_lifecycle.rs",
+            "crates/laneflow-runtime/src/admin/cutover_migration.rs",
+            "crates/laneflow-runtime/src/kernel/boundary.rs",
+            "crates/laneflow-runtime/src/kernel/conflict.rs",
+            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
+            "crates/laneflow-runtime/src/kernel/decision.rs",
+            "crates/laneflow-runtime/src/kernel/entry_frontier.rs",
+            "crates/laneflow-runtime/src/kernel/finish.rs",
+            "crates/laneflow-runtime/src/kernel/handle.rs",
+            "crates/laneflow-runtime/src/kernel/mod.rs",
+            "crates/laneflow-runtime/src/kernel/occupancy.rs",
+            "crates/laneflow-runtime/src/kernel/policy.rs",
+            "crates/laneflow-runtime/src/kernel/scope.rs",
+            "crates/laneflow-runtime/src/kernel/state.rs",
+            "crates/laneflow-runtime/src/kernel/tables.rs",
+            "crates/laneflow-runtime/src/kernel/tick.rs",
+            "crates/laneflow-runtime/src/kernel/transitions.rs",
+            "crates/laneflow-runtime/src/kernel/waiting.rs",
+            "crates/laneflow-runtime/src/kernel/world.rs",
+            "crates/laneflow-runtime/tests/compiled_networks.rs",
+            "crates/laneflow-runtime/tests/support/scope_cases.rs",
+            "research/issue-707-short-profile/lifecycle.rs",
+            "research/issue-707-short-profile/prefix.rs",
+            "research/issue-707-short-profile/profile.rs",
+            "research/lf707-profile/Cargo.toml",
+            "research/lf707-profile/src/lib.rs",
+            "tools/laneflow-urban-generator/src/config.rs",
+            "tools/laneflow-urban-generator/src/lib.rs",
+            "tools/laneflow-urban-generator/src/research_gap.rs",
+            "tools/laneflow-urban-generator/src/source.rs",
+            "tools/laneflow-urban-generator/src/source/junction.rs",
+            "tools/laneflow-urban-harness/Cargo.toml",
+            "tools/laneflow-urban-harness/src/artifacts.rs",
+            "tools/laneflow-urban-harness/src/gap_inventory.rs",
+            "tools/laneflow-urban-harness/src/host.rs",
+            "tools/laneflow-urban-harness/src/lib.rs",
+            "tools/laneflow-urban-harness/src/main.rs",
+            "tools/laneflow-urban-harness/src/observe.rs",
+            "tools/laneflow-urban-harness/src/observe/fused.rs",
+            "tools/laneflow-urban-harness/src/observe/work.rs",
+            "tools/laneflow-urban-harness/src/research_quality.rs",
+            "tools/laneflow-urban-harness/src/runner.rs",
+            "tools/laneflow-urban-harness/src/short_prefix.rs",
+            "tools/laneflow-urban-harness/tests/multi_gap.rs"
+          ]
+        },
         {
           "path": "motion-barrier-source.patch",
           "role": "binary Git patch from base commit to the exact M2 Rust/Cargo build source",
@@ -94,6 +151,12 @@
         }
       ]
     },
+    "h1_build_source_manifest": {
+      "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
+      "file_count": 451,
+      "manifest_bytes": 55038,
+      "manifest_sha256": "d65a6519c4118dc6ec469f4eb641024e1f15d1fe40269e22347f1941f6f58f9b"
+    },
     "build_source_manifest": {
       "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
       "file_count": 451,
@@ -101,6 +164,13 @@
       "manifest_sha256": "bf4b130db46e1576b4d67e74f731501a7d87b3473a7acdae24666d4406223000"
     },
     "independent_replay": {
+      "h1_parent_patch": {
+        "applied_to": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+        "files_compared": 451,
+        "mismatches": 0,
+        "extra_files": 0,
+        "raw_byte_identical": true
+      },
       "full_patch": {
         "applied_to": "4de40e045398e4b010b2aa36522afc02a4094c4d",
         "files_compared": 451,
@@ -117,12 +187,13 @@
       }
     },
     "h1_reconstruction": {
-      "external_patch_identity": {
+      "committed_parent_patch": "motion-barrier-h1-parent.patch",
+      "historical_external_patch_identity": {
         "bytes": 377823,
         "sha256": "bffb6239115edc4a3de9e4cba10dc271e94953657cb65c1fe941c3346f885bd1"
       },
-      "external_patch_committed": false,
-      "boundary": "the historical H1 patch contains non-Rust research drivers and is used only outside the repository to reconstruct the comparison parent",
+      "historical_external_patch_committed": false,
+      "boundary": "the committed parent patch retains the exact H1 Rust/Cargo build source; the historical full H1 patch contains non-Rust research drivers and is used only outside the repository as reconstruction lineage",
       "raw_representation_alignment": {
         "method": "when H1 reconstructed text and M2 text are identical after CRLF/lone-CR to LF comparison, restore the M2 raw bytes before freezing H1; this preserves inherited line endings without hiding semantic changes",
         "files": [
@@ -218,6 +289,23 @@
         "m2-direct-10k",
         "m2-skip-10k"
       ]
+    },
+    "treatment_mapping": {
+      "parent": {
+        "binary": "h1_parent",
+        "LF707_BARRIER": null,
+        "prefix_barrier_mode": null
+      },
+      "direct": {
+        "binary": "m2",
+        "LF707_BARRIER": "direct",
+        "prefix_barrier_mode": "direct"
+      },
+      "skip": {
+        "binary": "m2",
+        "LF707_BARRIER": "skip",
+        "prefix_barrier_mode": "skip"
+      }
     }
   },
   "compact_timing_report": {
@@ -248,6 +336,19 @@
       "source_directory": "target/issue707-m2-results/abba-1-parent/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "parent",
+        "LF707_BARRIER": {
+          "present": false,
+          "value": null,
+          "driver_action": "remove LF707_BARRIER before launching the frozen H1 parent binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": false,
+          "value": null
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1560,
@@ -366,6 +467,34 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-parent/prefix-result.json",
+          "identity": {
+            "bytes": 716,
+            "sha256": "1a578aab7f8801106b81608fb71e82c162595ba6b7685037018d8bc384dbab7f"
+          }
+        },
+        "retained": {
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-parent/timing.csv",
@@ -445,6 +574,19 @@
       "source_directory": "target/issue707-m2-results/abba-2-skip/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1560,
@@ -563,6 +705,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-skip/timing.csv",
@@ -642,6 +813,19 @@
       "source_directory": "target/issue707-m2-results/abba-3-skip/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1560,
@@ -760,6 +944,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-skip/timing.csv",
@@ -839,6 +1052,19 @@
       "source_directory": "target/issue707-m2-results/abba-4-parent/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "parent",
+        "LF707_BARRIER": {
+          "present": false,
+          "value": null,
+          "driver_action": "remove LF707_BARRIER before launching the frozen H1 parent binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": false,
+          "value": null
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1560,
@@ -957,6 +1183,34 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-parent/prefix-result.json",
+          "identity": {
+            "bytes": 716,
+            "sha256": "1a578aab7f8801106b81608fb71e82c162595ba6b7685037018d8bc384dbab7f"
+          }
+        },
+        "retained": {
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-parent/timing.csv",
@@ -1036,6 +1290,19 @@
       "source_directory": "target/issue707-m2-results/same-1-direct/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "direct",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "direct",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "direct"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1562,
@@ -1154,6 +1421,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-direct/prefix-result.json",
+          "identity": {
+            "bytes": 744,
+            "sha256": "e2dac29d5e12b9e959efcd94c03ce4030e16963074ffd10e7101873467d85c0c"
+          }
+        },
+        "retained": {
+          "barrier_mode": "direct",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-direct/timing.csv",
@@ -1233,6 +1529,19 @@
       "source_directory": "target/issue707-m2-results/same-2-skip/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1560,
@@ -1351,6 +1660,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-skip/timing.csv",
@@ -1430,6 +1768,19 @@
       "source_directory": "target/issue707-m2-results/same-3-skip/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1560,
@@ -1548,6 +1899,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-skip/timing.csv",
@@ -1627,6 +2007,19 @@
       "source_directory": "target/issue707-m2-results/same-4-direct/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "direct",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "direct",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "direct"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1562,
@@ -1745,6 +2138,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-direct/prefix-result.json",
+          "identity": {
+            "bytes": 744,
+            "sha256": "e2dac29d5e12b9e959efcd94c03ce4030e16963074ffd10e7101873467d85c0c"
+          }
+        },
+        "retained": {
+          "barrier_mode": "direct",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-direct/timing.csv",
@@ -1824,6 +2246,19 @@
       "source_directory": "target/issue707-m2-results/qual-10k-direct/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "direct",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "direct",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "direct"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1561,
@@ -1942,6 +2377,35 @@
           }
         ]
       },
+      "prefix_result": {
+        "source": {
+          "path": "1-direct/prefix-result.json",
+          "identity": {
+            "bytes": 743,
+            "sha256": "bb6e3f510d1f77aaa1474c3aaee2cf8b656fc124411ec305e02e0703f863e364"
+          }
+        },
+        "retained": {
+          "barrier_mode": "direct",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 295792,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "b0bca7bd4ce8cb542aa3650138f85c81de3a2f40f19cee18e76eb57eaa32a786",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "eb051e09acc1aadad7adbd33b42e7c2112f46aad32006e399949ac9573c432c3",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
       "timing": {
         "source": {
           "path": "1-direct/timing.csv",
@@ -2021,6 +2485,19 @@
       "source_directory": "target/issue707-m2-results/qual-10k-skip/",
       "harness_execution_id": null,
       "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
       "environment": {
         "source_identity": {
           "bytes": 1559,
@@ -2138,6 +2615,35 @@
             "sha256": "87ae2959f119c84852bfaa11e94e642fe979b6ef3e7e2a1352f10ac2b52458c2"
           }
         ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 741,
+            "sha256": "37498e149d6c7d61af49263ffc37b4a7ca608e8e9d6278f6b5bea6099ad96c13"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 295792,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "b0bca7bd4ce8cb542aa3650138f85c81de3a2f40f19cee18e76eb57eaa32a786",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "eb051e09acc1aadad7adbd33b42e7c2112f46aad32006e399949ac9573c432c3",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
       },
       "timing": {
         "source": {
@@ -2349,7 +2855,7 @@
   },
   "limitations": [
     "short-prefix emitted no harness execution_id; ordered evidence ids plus exact binary, input, configuration, process, and complete output-tree identities bind each run",
-    "the binary artifacts were not promoted to a project-controlled release; the cumulative source patch replays the exact Rust/Cargo build source but does not claim bit-reproducible MSVC output",
+    "the binary artifacts were not promoted to a project-controlled release; committed H1 and M2 source patches replay both exact Rust/Cargo build-source trees but do not claim bit-reproducible MSVC output",
     "the ten runs did not record a full independent machine-state snapshot beyond the retained power, WPR-idle, process, and driver evidence",
     "these short runs support candidate retention and source review; they do not establish final product performance or replace later certification"
   ]

@@ -139,11 +139,12 @@ L3 只有 w4，早晚车辆状态和命令组合不同。
 ## 5. 复核产物
 
 派生报告原件位于 `E:/projects/laneflow/target/issue707-l3-analysis-20260921/`。
-仓库在 [`evidence/wpr-l3/`](evidence/wpr-l3/) 提交 10 份隐私筛选后的紧凑副本：
+仓库在 [`evidence/wpr-l3/`](evidence/wpr-l3/) 提交 12 份隐私筛选后的紧凑副本：
 
 - 已提交：早/晚窗 `*-stats.txt`、`*-rundown.txt`、`*-frequency.txt`、
-  `*-harness-timeline.csv` 与 `*-top-symbols.csv`。提交副本只统一文本换行；来源与
-  提交副本身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+  `*-harness-timeline.csv`、整段 trace 的 `*-top-symbols.csv`，以及复核本页热点表的
+  `*-range-top-symbols.csv`。提交副本只统一文本换行；来源与提交副本身份见
+  [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
 - 作者机器当前仍有：`export.ps1`、`export-ranges.ps1`、`*-activity.txt`、
   `*-range-symbols.txt`、完整 `*-symbols.txt` 和 `*-util.txt`。这些文件及两份 ETL
   没有项目控制的持久链接，按**未长期留存**处理；不承诺可在该机器之外取回。
