@@ -32,3 +32,7 @@ path = "src/p2_scope_research.rs"
 [[bin]]
 name = "laneflow-p5-cost-research"
 path = "src/p5_cost.rs"
+
+[[bin]]
+name = "laneflow-p5-direct-research"
+path = "src/p5_direct_research.rs"
