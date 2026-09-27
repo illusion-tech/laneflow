@@ -1887,7 +1887,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.waiting_staged_decisions.clear();
         self.workspace.waiting_non_entry_anchors.clear();
         self.workspace.staged_transition_events.clear();
+        #[cfg(test)]
+        let sparse_clear =
+            super::sparse_cost_research::begin(0, self.workspace.waiting_plan_by_vehicle.len());
         self.workspace.waiting_plan_by_vehicle.fill(None);
+        #[cfg(test)]
+        drop(sparse_clear);
         reserve_waiting_exact(
             &mut self.workspace.waiting_plans,
             self.derived.active_order.len(),
@@ -2553,7 +2558,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.waiting_non_entry_anchors.clear();
         self.workspace.waiting_staged_decisions.clear();
         self.workspace.staged_transition_events.clear();
+        #[cfg(test)]
+        let sparse_clear =
+            super::sparse_cost_research::begin(0, self.workspace.waiting_plan_by_vehicle.len());
         self.workspace.waiting_plan_by_vehicle.fill(None);
+        #[cfg(test)]
+        drop(sparse_clear);
     }
 
     pub(crate) fn visit_waiting_events(

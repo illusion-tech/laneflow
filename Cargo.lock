@@ -3035,6 +3035,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-sparse-cost-research"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "laneflow-spatial"
 version = "0.0.0"
 dependencies = [
