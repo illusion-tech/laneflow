@@ -1,6 +1,6 @@
 {
   "schema": "laneflow-research-evidence-release-v1",
-  "status": "draft-uploaded-publication-pending",
+  "status": "published-and-stable-url-verified",
   "declaration": "研究证据制品；与 LaneFlow 产品发布无关，不代表最终性能认证、生产上线或兼容承诺。",
   "tag": "research-evidence-707-m16-best-19bf7ecb",
   "title": "[Research Evidence] #707 M16 frozen best",
@@ -10,9 +10,8 @@
     "format": "tar+zstd",
     "bytes": 1745110,
     "sha256": "a1e69ddb5dd15a890f5b68e1c1946b4257b362c23d54d97660d5cfdb425b0c67",
-    "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.tar.zst",
-    "draft_api_url": "https://api.github.com/repos/illusion-tech/laneflow/releases/assets/593450320",
-    "draft_browser_download_url": "https://github.com/illusion-tech/laneflow/releases/download/untagged-351fbf543fa8109d95bf/issue-707-m16-best-19bf7ecb5dfd.tar.zst",
+    "download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.tar.zst",
+    "api_url": "https://api.github.com/repos/illusion-tech/laneflow/releases/assets/593450320",
     "github_digest": "sha256:a1e69ddb5dd15a890f5b68e1c1946b4257b362c23d54d97660d5cfdb425b0c67"
   },
   "fixture_asset": {
@@ -20,16 +19,17 @@
     "format": "tar+zstd",
     "bytes": 34900526,
     "sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
-    "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
-    "draft_api_url": "https://api.github.com/repos/illusion-tech/laneflow/releases/assets/593450302",
-    "draft_browser_download_url": "https://github.com/illusion-tech/laneflow/releases/download/untagged-351fbf543fa8109d95bf/issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+    "download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+    "api_url": "https://api.github.com/repos/illusion-tech/laneflow/releases/assets/593450302",
     "github_digest": "sha256:517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080"
   },
-  "draft_release": {
-    "url": "https://github.com/illusion-tech/laneflow/releases/tag/untagged-351fbf543fa8109d95bf",
+  "published_release": {
+    "url": "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-m16-best-19bf7ecb",
     "target_commitish": "4de40e045398e4b010b2aa36522afc02a4094c4d",
-    "created_at": "2026-09-27T17:31:41Z",
-    "published_at": null
+    "tag_target": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+    "prerelease": true,
+    "draft": false,
+    "published_at": "2026-09-27T17:57:33Z"
   },
   "fresh_checkout_validation": {
     "fixture_files_verified": 11,
@@ -40,6 +40,22 @@
     "completed_owners_still_holding": 0,
     "longest_multi_owner_zone_ms": 0,
     "unmatched_clear_events": 0
+  },
+  "stable_download_validation": {
+    "verified_at_utc": "2026-09-27T17:59:18.5577263Z",
+    "source": "both assets downloaded from their public tag-based GitHub release URLs with curl --fail --location",
+    "package_files_verified": 41,
+    "fixture_files_verified": 11,
+    "binary_sha256": "19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602",
+    "workers": 4,
+    "ticks": 8,
+    "status": "diagnostic-prefix-complete",
+    "final_checkpoint": "1b85fe24230d445552aec258d85b6cb02d5d27f5f09b5bfe578c6cf60cbca669",
+    "completed_owners_still_holding": 0,
+    "longest_multi_owner_zone_ms": 0,
+    "unmatched_clear_events": 0,
+    "prefix_result_sha256": "ff369fdf6c62048676ab54d8760f050883b0023aedbcf1ba1cc0e2816e1dd4f8",
+    "extended_quality_sha256": "a171da25874c24062a21d44ebcbbcc5a9dd92aa5d25374f9e2a92e7f33d9bcfa"
   },
   "manifest": {
     "committed_path": "evidence/retained-best-evidence-manifest.json",
