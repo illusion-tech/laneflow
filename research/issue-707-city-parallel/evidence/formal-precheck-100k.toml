@@ -1,0 +1,32 @@
+# D0 现场确认（D2 100k r1 正式配对前置；UTC+9 本地时间口径）
+# 更正记录 manifest/corrections.md 已读：BatteryStatus=2 = 接通 AC、电池未放电（非放电）。
+
+[binary]
+sha256 = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523"
+sha256_match = true
+
+[checkout]
+head = "4de40e045398e4b010b2aa36522afc02a4094c4d"
+worktree_clean = true
+
+[inputs]
+artifacts = "inputs/urban-100k"
+manifest_sha256 = "5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140"
+evidence_manifest_sha256 = "5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140"
+match = true
+
+[plan]
+path = "plans/100k-performance.toml"
+sha256 = "ace2a6c50e6a66ba106b5ef09f1d39144fcc9e76c9bc82ef8002dc65f9c6974e"
+bytes = 120077925
+warm_up_ticks = 14848
+observation_ticks = 29696
+frozen_check = "fixtures/v3/plans.json 含 100k-mixed-peak-performance 条目；字节数核对与 manifest_digest 传导机制说明同 10k（input-diff.md 已闭合）"
+
+[environment]
+checked_at = "2026-09-21T03:05:00+0900"
+LANEFLOW_HARDWARE_ROLE = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
+LANEFLOW_POWER_ROLE = "win11-balanced-381b4222"
+power_scheme = "381b4222-f694-41f0-9685-ff5bb260df2e (平衡/Balanced)"
+disk_free = "E: 264G 可用 / 605G"
+other_load = "无 cargo/rustc/clippy 进程（ps 盘点 0 命中）；桌面宿主常态后台进程；Hyper-V 常驻"

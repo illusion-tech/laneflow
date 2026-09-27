@@ -1,7 +1,9 @@
 # #707 城市并行性能对照（第二切片：harness 入口验证与带暖机 pilot）
 
 后续诊断设计见[源码成本分析与短窗口诊断草案](short-profile-plan.md)。
-正式 r1 后续状态见 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)；
+正式 r1 后续状态见 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)，四轮
+身份、完整摘要和观察窗统计见版本化的
+[`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)；
 下文“未执行 D/E”专指原 pilot 切片，不表示截至今日未进行任何正式运行。
 2026-09-21 双窗口采集完成后的分析见 [L3 离线诊断](l3-findings.md)，包含采集
 边界、线程活动、函数热点及替换命令的新候选。

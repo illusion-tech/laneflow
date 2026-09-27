@@ -1,12 +1,28 @@
 # #707 第二切片证据索引（E:/projects/laneflow-evidence/issue-707/4de40e04/）
-# 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest 共 14 份，
-# 另有 1 份冻结计划重放记录）；
+# pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
+# 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
+# 8 份前置核查、diagnostics、comparison 原始小封套。
 # 大文件（逐拍日志、LFCA、计划本体）不入 Git，以证据根为准。
 
 manifest = "manifest/baseline-manifest-raw.toml"
 binary = { harness = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523", generator = "b54fbab5354a6b36a6d3f5126d92a1af185f52995b05707cbd9c71c2bd508969" }
 input_diff = "input-diff.md"
 frozen_plan_replay = "evidence/frozen-plan-replay.json"
+formal_r1_evidence = "evidence/formal-r1-evidence.json"
+formal_r1_prechecks = [
+    "evidence/formal-precheck-10k.toml",
+    "evidence/formal-precheck-100k.toml",
+]
+formal_r1_diagnostics = [
+    "evidence/formal-diagnostics-10k-w1-r1.json",
+    "evidence/formal-diagnostics-10k-w4-r1.json",
+    "evidence/formal-diagnostics-100k-w1-r1.json",
+    "evidence/formal-diagnostics-100k-w4-r1.json",
+]
+formal_r1_comparisons = [
+    "evidence/formal-comparison-10k-r1-w1-w4.json",
+    "evidence/formal-comparison-100k-r1-w1-w4.json",
+]
 
 [[runs]]
 dir = "smoke/10k-w1-r1"
