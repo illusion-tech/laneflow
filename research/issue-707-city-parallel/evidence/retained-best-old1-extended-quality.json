@@ -1,0 +1,17 @@
+{
+  "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+  "completed_owners_still_holding": 0,
+  "extra_observation_ns": 465383700,
+  "longest_multi_owner_zone_ms": 0,
+  "max_continuous_stop_ms": 6897,
+  "max_open_reservation_age_ms": 5676,
+  "max_released_reservation_ms": 0,
+  "multi_owner_enter_observations": 0,
+  "multi_owner_zone_ms": 0,
+  "observed_completed": 4190,
+  "open_passages": 4870,
+  "open_reservations": 1343,
+  "released_reservations": 0,
+  "ticks": 256,
+  "unmatched_clear_events": 0
+}

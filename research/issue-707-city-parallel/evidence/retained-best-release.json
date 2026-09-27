@@ -1,0 +1,47 @@
+{
+  "schema": "laneflow-research-evidence-release-v1",
+  "status": "draft-uploaded-publication-pending",
+  "declaration": "研究证据制品；与 LaneFlow 产品发布无关，不代表最终性能认证、生产上线或兼容承诺。",
+  "tag": "research-evidence-707-m16-best-19bf7ecb",
+  "title": "[Research Evidence] #707 M16 frozen best",
+  "prerelease": true,
+  "asset": {
+    "name": "issue-707-m16-best-19bf7ecb5dfd.zip",
+    "bytes": 1842827,
+    "sha256": "d169a4c78850daa8daff505918a41102796eefe4a7449f4cf9e32a0f5e442d3c",
+    "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.zip",
+    "draft_api_url": "https://api.github.com/repos/illusion-tech/laneflow/releases/assets/593435617",
+    "draft_browser_download_url": "https://github.com/illusion-tech/laneflow/releases/download/untagged-d50fd0f452cfe50e25c3/issue-707-m16-best-19bf7ecb5dfd.zip",
+    "github_digest": "sha256:d169a4c78850daa8daff505918a41102796eefe4a7449f4cf9e32a0f5e442d3c"
+  },
+  "fixture_asset": {
+    "name": "issue-707-m16-fixture-8b4294eb5ca8.zip",
+    "bytes": 57016862,
+    "sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
+    "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.zip",
+    "draft_api_url": "https://api.github.com/repos/illusion-tech/laneflow/releases/assets/593425259",
+    "draft_browser_download_url": "https://github.com/illusion-tech/laneflow/releases/download/untagged-d50fd0f452cfe50e25c3/issue-707-m16-fixture-8b4294eb5ca8.zip",
+    "github_digest": "sha256:7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a"
+  },
+  "draft_release": {
+    "url": "https://github.com/illusion-tech/laneflow/releases/tag/untagged-d50fd0f452cfe50e25c3",
+    "target_commitish": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+    "created_at": "2026-09-27T17:31:41Z",
+    "published_at": null
+  },
+  "fresh_checkout_validation": {
+    "fixture_files_verified": 11,
+    "binary_sha256": "19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602",
+    "workers": 4,
+    "ticks": 8,
+    "status": "diagnostic-prefix-complete",
+    "completed_owners_still_holding": 0,
+    "longest_multi_owner_zone_ms": 0,
+    "unmatched_clear_events": 0
+  },
+  "manifest": {
+    "committed_path": "evidence/retained-best-evidence-manifest.json",
+    "bytes": 42550,
+    "sha256": "de13f41c5c66a866a8a4c6a62d92677a422b46ee9d3a08ad91a42b65698b6077"
+  }
+}
