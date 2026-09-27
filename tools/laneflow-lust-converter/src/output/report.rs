@@ -31,8 +31,8 @@ pub struct ConversionReportInput {
     pub require_lust_population_count: bool,
     pub parking_registry_empty: bool,
     pub major_minor_green_collapsed: bool,
-    pub traffic_bytes: Vec<u8>,
-    pub spatial_bytes: Vec<u8>,
+    pub network_lfca_bytes: Vec<u8>,
+    pub routes_toml_bytes: Vec<u8>,
     pub manifest_bytes: Vec<u8>,
 }
 
@@ -102,15 +102,15 @@ struct ReportWarnings {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ReportDigests {
-    traffic: String,
-    spatial: String,
-    scenario_manifest: String,
+    network_lfca: String,
+    routes_toml: String,
+    manifest_toml: String,
 }
 
 /// Serialize the conversion report JSON (pretty + trailing newline).
 pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>> {
     let report = ConversionReport {
-        format_version: "0.1",
+        format_version: "0.2",
         source: ReportSource {
             repository: LUST_REPOSITORY,
             tag: LUST_TAG,
@@ -150,9 +150,9 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
             parking_polygons_not_synthesized: true,
         },
         digests: ReportDigests {
-            traffic: sha256_digest(&input.traffic_bytes),
-            spatial: sha256_digest(&input.spatial_bytes),
-            scenario_manifest: sha256_digest(&input.manifest_bytes),
+            network_lfca: sha256_digest(&input.network_lfca_bytes),
+            routes_toml: sha256_digest(&input.routes_toml_bytes),
+            manifest_toml: sha256_digest(&input.manifest_bytes),
         },
     };
     json_bytes("ConversionReport", &report)

@@ -2976,6 +2976,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-lust-converter"
+version = "0.0.0"
+dependencies = [
+ "laneflow-compiler",
+ "laneflow-format",
+ "laneflow-spatial",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "toml",
+]
+
+[[package]]
 name = "laneflow-post-p3-research"
 version = "0.0.0"
 dependencies = [
@@ -3018,22 +3033,6 @@ name = "laneflow-runtime-snapshot-wire"
 version = "0.0.0"
 dependencies = [
  "flatbuffers",
-]
-
-[[package]]
-name = "laneflow-lust-converter"
-version = "0.0.0"
-dependencies = [
- "jsonschema",
- "laneflow-core",
- "laneflow-data",
- "laneflow-spatial",
- "roxmltree",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.19",
- "toml",
 ]
 
 [[package]]

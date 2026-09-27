@@ -1,6 +1,7 @@
 //! End-to-end convert packaging: report, licenses, tar, provenance.
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -8,10 +9,11 @@ use std::{
 use crate::{
     Error, Result,
     config::LustConverterConfig,
-    convert::TopologyConvertOptions,
+    convert::{DEFAULT_FIXED_DELTA_MS, TopologyConvertOptions},
     convert_static_from_xml_with_due,
     output::{
         digest::{hex_sha256, sha256_digest},
+        model::{ManifestCounts, ManifestFileDigest, ManifestToml},
         provenance::{
             BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests,
             ReleaseAssetUrls, SemanticProvenanceInput, build_build_provenance,
@@ -24,11 +26,10 @@ use crate::{
     sumo::parse_sumo_network_xml,
 };
 
-const TRAFFIC_NAME: &str = "lust-topology.traffic.json";
-const SPATIAL_NAME: &str = "lust-topology.spatial.json";
-const MANIFEST_NAME: &str = "lust-topology.manifest.json";
+const NETWORK_LFCA_NAME: &str = "network.lfca";
+const ROUTES_NAME: &str = "routes.toml";
+const MANIFEST_NAME: &str = "manifest.toml";
 const REPORT_NAME: &str = "lust-conversion-report.json";
-const POPULATION_NAME: &str = "lust-population.json";
 const SOURCE_TAR_NAME: &str = "lust-source.tar";
 const STATIC_TAR_NAME: &str = "lust-static.tar";
 const SEMANTIC_NAME: &str = "lust-semantic-provenance.json";
@@ -41,11 +42,10 @@ const NOTICE_NAME: &str = "NOTICE";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConvertOutputPaths {
     pub output_dir: PathBuf,
-    pub traffic: PathBuf,
-    pub spatial: PathBuf,
+    pub network_lfca: PathBuf,
+    pub routes: PathBuf,
     pub manifest: PathBuf,
     pub conversion_report: PathBuf,
-    pub population: PathBuf,
     pub source_tar: PathBuf,
     pub static_tar: PathBuf,
     pub semantic_provenance: PathBuf,
@@ -74,8 +74,6 @@ fn convert_verified(
     let options = TopologyConvertOptions {
         require_lust_location_anchors: true,
         require_lust_population_count: true,
-        traffic_artifact_ref: TRAFFIC_NAME.to_owned(),
-        spatial_artifact_ref: SPATIAL_NAME.to_owned(),
         ..TopologyConvertOptions::default()
     };
     let static_artifacts = convert_static_from_xml_with_due(
@@ -87,28 +85,29 @@ fn convert_verified(
     )?;
 
     let network = parse_sumo_network_xml(&net_xml)?;
-    let traffic_counts = count_traffic_arrays(&static_artifacts.topology.traffic)?;
+    let counts = &static_artifacts.topology.counts;
+    let manifest = build_manifest_toml(&static_artifacts)?;
 
     let report = build_conversion_report(&ConversionReportInput {
         external_edge_count: network.external_edge_count() as u64,
         external_lane_count: network.external_lane_count() as u64,
         connection_count: network.connections.len() as u64,
-        junction_count: traffic_counts.junctions,
-        movement_count: traffic_counts.movements,
-        maneuver_path_count: traffic_counts.maneuver_paths,
+        junction_count: counts.junctions,
+        movement_count: counts.movements,
+        maneuver_path_count: counts.maneuver_paths,
         route_catalog_count: static_artifacts.route_count as u64,
-        vehicle_profile_count: traffic_counts.vehicle_profiles,
-        signal_controller_count: traffic_counts.signal_controllers,
-        signal_group_count: traffic_counts.signal_groups,
-        stop_line_count: traffic_counts.stop_lines,
-        maneuver_gate_count: traffic_counts.maneuver_gates,
+        vehicle_profile_count: counts.vehicle_profiles,
+        signal_controller_count: counts.signal_controllers,
+        signal_group_count: counts.signal_groups,
+        stop_line_count: counts.stop_lines,
+        maneuver_gate_count: counts.maneuver_gates,
         population_record_count: static_artifacts.population_record_count as u64,
         require_lust_population_count: true,
-        parking_registry_empty: traffic_counts.parking_empty,
+        parking_registry_empty: counts.parking_registry_empty,
         major_minor_green_collapsed: true,
-        traffic_bytes: static_artifacts.topology.traffic.clone(),
-        spatial_bytes: static_artifacts.topology.spatial.clone(),
-        manifest_bytes: static_artifacts.topology.manifest.clone(),
+        network_lfca_bytes: static_artifacts.topology.network_lfca.clone(),
+        routes_toml_bytes: static_artifacts.routes_toml.clone(),
+        manifest_bytes: manifest.clone(),
     })?;
 
     let licenses = LicenseArtifacts {
@@ -120,16 +119,16 @@ fn convert_verified(
     let source_tar = build_source_tar(verified, &licenses)?;
     let static_tar = write_deterministic_ustar(&[
         TarMember {
-            path: TRAFFIC_NAME.to_owned(),
-            contents: static_artifacts.topology.traffic.clone(),
+            path: NETWORK_LFCA_NAME.to_owned(),
+            contents: static_artifacts.topology.network_lfca.clone(),
         },
         TarMember {
-            path: SPATIAL_NAME.to_owned(),
-            contents: static_artifacts.topology.spatial.clone(),
+            path: ROUTES_NAME.to_owned(),
+            contents: static_artifacts.routes_toml.clone(),
         },
         TarMember {
             path: MANIFEST_NAME.to_owned(),
-            contents: static_artifacts.topology.manifest.clone(),
+            contents: manifest.clone(),
         },
         TarMember {
             path: REPORT_NAME.to_owned(),
@@ -159,11 +158,10 @@ fn convert_verified(
         release_urls,
         source_tar: source_tar.clone(),
         static_tar: static_tar.clone(),
-        traffic_bytes: static_artifacts.topology.traffic.clone(),
-        spatial_bytes: static_artifacts.topology.spatial.clone(),
-        manifest_bytes: static_artifacts.topology.manifest.clone(),
+        network_lfca_bytes: static_artifacts.topology.network_lfca.clone(),
+        routes_toml_bytes: static_artifacts.routes_toml.clone(),
+        manifest_bytes: manifest.clone(),
         conversion_report_bytes: report.clone(),
-        population_bytes: static_artifacts.population.clone(),
     })?;
 
     let converter_commit = resolve_converter_commit(config)?;
@@ -183,15 +181,12 @@ fn convert_verified(
             command: "convert",
             require_lust_location_anchors: true,
             require_lust_population_count: true,
-            traffic_artifact_ref: TRAFFIC_NAME.to_owned(),
-            spatial_artifact_ref: SPATIAL_NAME.to_owned(),
         },
         raw_output_digests: RawOutputDigests {
-            traffic: sha256_digest(&static_artifacts.topology.traffic),
-            spatial: sha256_digest(&static_artifacts.topology.spatial),
-            scenario_manifest: sha256_digest(&static_artifacts.topology.manifest),
+            network_lfca: sha256_digest(&static_artifacts.topology.network_lfca),
+            routes_toml: sha256_digest(&static_artifacts.routes_toml),
+            manifest_toml: sha256_digest(&manifest),
             conversion_report: sha256_digest(&report),
-            population_table: sha256_digest(&static_artifacts.population),
             source_tar: sha256_digest(&source_tar),
             static_tar: sha256_digest(&static_tar),
         },
@@ -204,22 +199,20 @@ fn convert_verified(
 
     let paths = ConvertOutputPaths {
         output_dir: config.output_dir.clone(),
-        traffic: config.output_dir.join(TRAFFIC_NAME),
-        spatial: config.output_dir.join(SPATIAL_NAME),
+        network_lfca: config.output_dir.join(NETWORK_LFCA_NAME),
+        routes: config.output_dir.join(ROUTES_NAME),
         manifest: config.output_dir.join(MANIFEST_NAME),
         conversion_report: config.output_dir.join(REPORT_NAME),
-        population: config.output_dir.join(POPULATION_NAME),
         source_tar: config.output_dir.join(SOURCE_TAR_NAME),
         static_tar: config.output_dir.join(STATIC_TAR_NAME),
         semantic_provenance: config.output_dir.join(SEMANTIC_NAME),
         build_provenance: config.output_dir.join(BUILD_NAME),
     };
 
-    write_file(&paths.traffic, &static_artifacts.topology.traffic)?;
-    write_file(&paths.spatial, &static_artifacts.topology.spatial)?;
-    write_file(&paths.manifest, &static_artifacts.topology.manifest)?;
+    write_file(&paths.network_lfca, &static_artifacts.topology.network_lfca)?;
+    write_file(&paths.routes, &static_artifacts.routes_toml)?;
+    write_file(&paths.manifest, &manifest)?;
     write_file(&paths.conversion_report, &report)?;
-    write_file(&paths.population, &static_artifacts.population)?;
     write_file(&paths.source_tar, &source_tar)?;
     write_file(&paths.static_tar, &static_tar)?;
     write_file(&paths.semantic_provenance, &semantic)?;
@@ -300,62 +293,43 @@ fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
     ))
 }
 
-#[derive(Debug)]
-struct TrafficCounts {
-    junctions: u64,
-    movements: u64,
-    maneuver_paths: u64,
-    vehicle_profiles: u64,
-    signal_controllers: u64,
-    signal_groups: u64,
-    stop_lines: u64,
-    maneuver_gates: u64,
-    parking_empty: bool,
-}
-
-fn count_traffic_arrays(traffic_bytes: &[u8]) -> Result<TrafficCounts> {
-    let value: serde_json::Value =
-        serde_json::from_slice(traffic_bytes).map_err(|source| Error::Json {
-            document: "TrafficPackage",
-            source,
-        })?;
-    let len = |key: &str| -> Result<u64> {
-        value
-            .get(key)
-            .and_then(|item| item.as_array())
-            .map(|items| items.len() as u64)
-            .ok_or_else(|| Error::SumoModel(format!("TrafficPackage missing array {key}")))
+fn build_manifest_toml(artifacts: &crate::convert::StaticConversionArtifacts) -> Result<Vec<u8>> {
+    let counts = &artifacts.topology.counts;
+    let mut files = BTreeMap::new();
+    let mut insert = |name: &str, bytes: &[u8]| {
+        files.insert(
+            name.to_owned(),
+            ManifestFileDigest {
+                bytes: u64::try_from(bytes.len()).expect("artifact size fits u64"),
+                sha256: sha256_digest(bytes),
+            },
+        );
     };
-    let signals = value
-        .get("signals")
-        .ok_or_else(|| Error::SumoModel("TrafficPackage missing signals".to_owned()))?;
-    let signal_len = |key: &str| -> Result<u64> {
-        signals
-            .get(key)
-            .and_then(|item| item.as_array())
-            .map(|items| items.len() as u64)
-            .ok_or_else(|| Error::SumoModel(format!("TrafficPackage.signals missing array {key}")))
+    insert(NETWORK_LFCA_NAME, &artifacts.topology.network_lfca);
+    insert(ROUTES_NAME, &artifacts.routes_toml);
+    let manifest = ManifestToml {
+        manifest_version: 1,
+        generator: "laneflow-lust-converter",
+        fixed_step_ms: DEFAULT_FIXED_DELTA_MS,
+        counts: ManifestCounts {
+            lane_edges: counts.lane_edges,
+            junctions: counts.junctions,
+            movements: counts.movements,
+            maneuver_paths: counts.maneuver_paths,
+            vehicle_profiles: counts.vehicle_profiles,
+            signal_controllers: counts.signal_controllers,
+            signal_groups: counts.signal_groups,
+            stop_lines: counts.stop_lines,
+            maneuver_gates: counts.maneuver_gates,
+            routes: artifacts.route_count as u64,
+            population_records: artifacts.population_record_count as u64,
+            parking_registry_empty: counts.parking_registry_empty,
+        },
+        files,
     };
-    let parking = value
-        .get("parking")
-        .ok_or_else(|| Error::SumoModel("TrafficPackage missing parking".to_owned()))?;
-    let areas_empty = parking
-        .get("areas")
-        .and_then(|item| item.as_array())
-        .is_some_and(Vec::is_empty);
-    let spaces_empty = parking
-        .get("spaces")
-        .and_then(|item| item.as_array())
-        .is_some_and(Vec::is_empty);
-    Ok(TrafficCounts {
-        junctions: len("junctions")?,
-        movements: len("movements")?,
-        maneuver_paths: len("maneuverPaths")?,
-        vehicle_profiles: len("vehicleProfiles")?,
-        signal_controllers: signal_len("controllers")?,
-        signal_groups: signal_len("groups")?,
-        stop_lines: signal_len("stopLines")?,
-        maneuver_gates: signal_len("maneuverGates")?,
-        parking_empty: areas_empty && spaces_empty,
-    })
+    let text = toml::to_string_pretty(&manifest).map_err(|source| Error::TomlSerialize {
+        document: "manifest.toml",
+        source,
+    })?;
+    Ok(text.into_bytes())
 }

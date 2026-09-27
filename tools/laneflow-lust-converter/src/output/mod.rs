@@ -8,7 +8,7 @@ pub mod provenance;
 pub mod report;
 pub mod tar;
 
-pub use emit::{TopologyArtifacts, finish_topology_artifacts, json_bytes};
+pub use emit::{TopologyArtifacts, TopologyCounts, compile_network_lfca};
 pub use pipeline::{ConvertOutputPaths, convert_with_config};
 pub use provenance::{
     BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls,
@@ -17,3 +17,14 @@ pub use provenance::{
 };
 pub use report::{ConversionReportInput, build_conversion_report};
 pub use tar::{TarMember, write_deterministic_ustar};
+
+/// Serialize `value` as pretty JSON with a trailing newline.
+pub(crate) fn json_bytes<T: serde::Serialize>(
+    document: &'static str,
+    value: &T,
+) -> crate::Result<Vec<u8>> {
+    let mut bytes =
+        serde_json::to_vec_pretty(value).map_err(|source| crate::Error::Json { document, source })?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}

@@ -34,19 +34,25 @@ fn fixture_topology_with_signals_and_profiles_round_trips() {
         &TopologyConvertOptions::default(),
     )
     .expect("topology+signals+profiles convert");
-    assert_eq!(artifacts.edge_count, 5);
-    let traffic = String::from_utf8_lossy(&artifacts.traffic);
-    assert!(String::from_utf8_lossy(&artifacts.spatial).contains(LUST_FRAME_ID));
-    assert!(traffic.contains("sumo:west_0"));
-    assert!(traffic.contains("\"id\": \"sumo:J\""));
-    assert!(traffic.contains("sumo:J:group-0"));
-    assert!(traffic.contains("sumo:stop:west"));
-    assert!(traffic.contains("\"durationMs\": 31000"));
-    assert!(traffic.contains("sumo:passenger1"));
-    assert!(traffic.contains("sumo:passenger5"));
-    assert!(traffic.contains("\"emergencyDeceleration\": 8.0"));
-    assert!(traffic.contains("\"timeHeadway\": 1.0"));
-    assert!(!traffic.contains("sumo:bus"));
+    let counts = &artifacts.counts;
+    assert_eq!(counts.lane_edges, 5);
+    assert_eq!(counts.junctions, 1);
+    assert_eq!(counts.movements, 2);
+    assert_eq!(counts.maneuver_paths, 2);
+    assert_eq!(counts.signal_controllers, 1);
+    assert_eq!(counts.stop_lines, 1);
+    assert_eq!(counts.vehicle_profiles, 6);
+    assert!(counts.parking_registry_empty);
+    // LFCA 是 FlatBuffers 二进制；声明键以字符串表形式内嵌，可按字节检索。
+    let lfca = &artifacts.network_lfca;
+    assert!(lfca.windows(4).any(|w| w == b"LFCA"), "missing LFCA magic");
+    assert!(contains_bytes(lfca, b"west_0"));
+    assert!(contains_bytes(lfca, b"group-0"));
+    assert!(contains_bytes(lfca, b"stop:west"));
+    assert!(contains_bytes(lfca, b"passenger1"));
+    assert!(contains_bytes(lfca, b"passenger5"));
+    assert!(contains_bytes(lfca, LUST_FRAME_ID.as_bytes()));
+    assert!(!contains_bytes(lfca, b"bus"));
 }
 
 #[test]
@@ -66,9 +72,8 @@ fn fixture_topology_is_byte_deterministic() {
         &options,
     )
     .expect("second");
-    assert_eq!(first.traffic, second.traffic);
-    assert_eq!(first.spatial, second.spatial);
-    assert_eq!(first.manifest, second.manifest);
+    assert_eq!(first.network_lfca, second.network_lfca);
+    assert_eq!(first.counts, second.counts);
 }
 
 #[test]
@@ -98,16 +103,15 @@ fn fixture_due_routes_and_population_round_trip() {
     .expect("static+due convert");
     assert_eq!(artifacts.population_record_count, 3);
     assert_eq!(artifacts.route_count, 2);
-    let traffic = String::from_utf8_lossy(&artifacts.topology.traffic);
-    assert!(traffic.contains("sumo:route-0"));
-    assert!(traffic.contains("sumo:west_0"));
-    assert!(traffic.contains("sumo::J_0_0") || traffic.contains("sumo::J_1_0"));
-    let population = String::from_utf8_lossy(&artifacts.population);
-    assert!(population.contains("\"populationRank\": 0"));
-    assert!(population.contains("west-east-a") || population.contains("west-south-b"));
-    assert!(population.contains("\"selectedCount\": 3"));
-    assert!(!population.contains("bus-in-window"));
-    assert!(!String::from_utf8_lossy(&artifacts.topology.manifest).contains("populationRank"));
+    let lfca = &artifacts.topology.network_lfca;
+    assert!(contains_bytes(lfca, b"west_0"));
+    assert!(contains_bytes(lfca, b"int:J_0_0") || contains_bytes(lfca, b"int:J_1_0"));
+    let routes = String::from_utf8_lossy(&artifacts.routes_toml);
+    assert!(routes.contains("route-0"));
+    assert!(routes.contains("population_rank = 0"));
+    assert!(routes.contains("west-east-a") || routes.contains("west-south-b"));
+    assert!(routes.contains("selected_count = 3"));
+    assert!(!routes.contains("bus-in-window"));
 }
 
 #[test]
@@ -137,8 +141,8 @@ fn fixture_due_population_is_byte_deterministic() {
         &options,
     )
     .expect("second");
-    assert_eq!(first.topology.traffic, second.topology.traffic);
-    assert_eq!(first.population, second.population);
+    assert_eq!(first.topology.network_lfca, second.topology.network_lfca);
+    assert_eq!(first.routes_toml, second.routes_toml);
 }
 
 #[test]
@@ -185,7 +189,13 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         },
     )
     .expect("full topology+signals+profiles convert");
-    assert_eq!(artifacts.edge_count, network.lanes.len());
+    assert_eq!(artifacts.counts.lane_edges, network.lanes.len() as u64);
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn fixture_net_xml() -> String {

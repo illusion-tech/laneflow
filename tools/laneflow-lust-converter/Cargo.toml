@@ -8,9 +8,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
-jsonschema = { version = "0.48", default-features = false }
-laneflow-core = { version = "0.0.0", path = "../../crates/laneflow-core" }
-laneflow-data = { version = "0.0.0", path = "../../crates/laneflow-data" }
+laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
+laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format" }
 laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial" }
 roxmltree = "0.21.1"
 serde = { version = "1.0", features = ["derive"] }

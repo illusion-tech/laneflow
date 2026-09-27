@@ -1,4 +1,9 @@
-//! Private Serialize DTOs for Traffic / Spatial / ScenarioManifest JSON.
+//! Internal conversion model plus Serialize DTOs for routes.toml / manifest.toml.
+//!
+//! Traffic / Spatial structs are the converter's intermediate representation: they are
+//! compiled into `network.lfca` via the checked compiler path, never serialized directly.
+
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 
@@ -34,13 +39,6 @@ pub(crate) struct LaneEdge {
     pub id: String,
     pub length: f64,
     pub speed_limit: f64,
-    pub connections: Vec<LaneConnection>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LaneConnection {
-    pub to_edge_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -53,6 +51,10 @@ pub(crate) struct Junction {
 pub(crate) struct Movement {
     pub id: String,
     pub junction_id: String,
+    /// SUMO road edge the movement enters from (approach key source).
+    pub from_road_edge_id: String,
+    /// SUMO road edge the movement exits onto (approach key source).
+    pub to_road_edge_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -66,7 +68,6 @@ pub(crate) struct ManeuverPath {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct Route {
     pub id: String,
     pub edge_ids: Vec<String>,
@@ -180,33 +181,46 @@ pub(crate) struct Centerline {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ScenarioManifest {
-    pub format_version: &'static str,
-    pub traffic: ArtifactDescriptor,
-    pub spatial: ArtifactDescriptor,
+pub(crate) struct ManifestToml {
+    pub manifest_version: u32,
+    pub generator: &'static str,
+    pub fixed_step_ms: u64,
+    pub counts: ManifestCounts,
+    pub files: BTreeMap<String, ManifestFileDigest>,
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ArtifactDescriptor {
-    pub artifact_ref: String,
-    pub media_type: &'static str,
-    pub digest: String,
-    pub size: u64,
+pub(crate) struct ManifestCounts {
+    pub lane_edges: u64,
+    pub junctions: u64,
+    pub movements: u64,
+    pub maneuver_paths: u64,
+    pub vehicle_profiles: u64,
+    pub signal_controllers: u64,
+    pub signal_groups: u64,
+    pub stop_lines: u64,
+    pub maneuver_gates: u64,
+    pub routes: u64,
+    pub population_records: u64,
+    pub parking_registry_empty: bool,
 }
 
-/// Harness-only population table (not Traffic / Spatial / Manifest).
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PopulationTable {
+pub(crate) struct ManifestFileDigest {
+    pub bytes: u64,
+    pub sha256: String,
+}
+
+/// Demand-side routes + population table, serialized as `routes.toml`.
+#[derive(Debug, Serialize)]
+pub(crate) struct RoutesToml {
     pub format_version: &'static str,
     pub selection: PopulationSelection,
+    pub routes: Vec<Route>,
     pub records: Vec<PopulationTableRecord>,
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct PopulationSelection {
     pub depart_start_seconds: &'static str,
     pub depart_end_seconds_exclusive: &'static str,
@@ -217,7 +231,6 @@ pub(crate) struct PopulationSelection {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct PopulationTableRecord {
     pub population_rank: u32,
     pub vehicle_id: String,

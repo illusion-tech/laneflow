@@ -3,8 +3,6 @@
 //! Emits Junction / Movement / ManeuverPath, optional static Signals,
 //! vehicleProfiles, and optional DUE-derived routes + population table.
 
-use std::collections::HashMap;
-
 use crate::{
     Error, Result,
     convert::{
@@ -17,17 +15,16 @@ use crate::{
         signals::convert_signals,
     },
     output::{
-        TopologyArtifacts, finish_topology_artifacts, json_bytes,
+        TopologyArtifacts, compile_network_lfca,
         model::{
-            Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, PopulationSelection,
-            PopulationTable, PopulationTableRecord, Route, SpatialEdge, SpatialPackage,
-            TrafficPackage, Units, VehicleProfile,
+            Centerline, LaneEdge, LaneGraph, Parking, PopulationSelection, PopulationTableRecord,
+            Route, RoutesToml, SpatialEdge, SpatialPackage, TrafficPackage, Units, VehicleProfile,
         },
     },
-    sumo::{DueVehicle, LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork, SumoTlLogic},
+    sumo::{DueVehicle, LUST_FRAME_ID, SumoNetwork, SumoTlLogic},
 };
 
-const DEFAULT_FIXED_DELTA_MS: u64 = 16;
+pub(crate) const DEFAULT_FIXED_DELTA_MS: u64 = 16;
 const DEFAULT_TRAFFIC_REF: &str = "lust-topology.traffic.json";
 const DEFAULT_SPATIAL_REF: &str = "lust-topology.spatial.json";
 
@@ -55,11 +52,11 @@ impl Default for TopologyConvertOptions {
     }
 }
 
-/// Topology packages plus harness-only population table bytes.
+/// Topology artifacts plus demand-side routes.toml bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StaticConversionArtifacts {
     pub topology: TopologyArtifacts,
-    pub population: Vec<u8>,
+    pub routes_toml: Vec<u8>,
     pub population_record_count: usize,
     pub route_count: usize,
 }
@@ -112,7 +109,7 @@ pub(crate) fn convert_static_with_due(
         options,
     )?;
 
-    let table = PopulationTable {
+    let table = RoutesToml {
         format_version: "0.1",
         selection: PopulationSelection {
             depart_start_seconds: POPULATION_DEPART_START_SECONDS,
@@ -124,6 +121,7 @@ pub(crate) fn convert_static_with_due(
             selected_count: u64::try_from(bundle.records.len()).expect("count fits u64"),
             route_catalog_count: u64::try_from(bundle.routes.len()).expect("count fits u64"),
         },
+        routes: bundle.routes.clone(),
         records: bundle
             .records
             .iter()
@@ -139,12 +137,16 @@ pub(crate) fn convert_static_with_due(
             })
             .collect(),
     };
-    let population_bytes = json_bytes("PopulationTable", &table)?;
+    let routes_toml =
+        toml::to_string_pretty(&table).map_err(|source| Error::TomlSerialize {
+            document: "routes.toml",
+            source,
+        })?;
     Ok(StaticConversionArtifacts {
         population_record_count: bundle.records.len(),
         route_count: bundle.routes.len(),
         topology,
-        population: population_bytes,
+        routes_toml: routes_toml.into_bytes(),
     })
 }
 
@@ -163,39 +165,6 @@ fn convert_network_packages(
     }
 
     let origin = network.location.canonical_origin()?;
-    let lane_by_edge_index = build_lane_index(network);
-    let mut connections_by_from: HashMap<String, Vec<String>> = HashMap::new();
-
-    for connection in &network.connections {
-        let from_lane = resolve_lane(
-            &lane_by_edge_index,
-            &connection.from_edge_id,
-            connection.from_lane,
-        )?;
-        let to_lane = resolve_lane(
-            &lane_by_edge_index,
-            &connection.to_edge_id,
-            connection.to_lane,
-        )?;
-        let mut chain = Vec::with_capacity(connection.via_lane_ids.len() + 2);
-        chain.push(from_lane.laneflow_id());
-        for via_id in &connection.via_lane_ids {
-            ensure_lane_exists(network, via_id)?;
-            chain.push(format!("{SUMO_ID_PREFIX}{via_id}"));
-        }
-        chain.push(to_lane.laneflow_id());
-        for window in chain.windows(2) {
-            connections_by_from
-                .entry(window[0].clone())
-                .or_default()
-                .push(window[1].clone());
-        }
-    }
-
-    for targets in connections_by_from.values_mut() {
-        targets.sort();
-        targets.dedup();
-    }
 
     let topology = normalize_junctions(network)?;
     let signals = convert_signals(network, tll_programs, &topology.path_by_connection)?;
@@ -219,19 +188,13 @@ fn convert_network_packages(
                 lane.id
             )));
         }
-        let connections = connections_by_from
-            .get(&id)
-            .into_iter()
-            .flatten()
-            .map(|to_edge_id| LaneConnection {
-                to_edge_id: to_edge_id.clone(),
-            })
-            .collect();
+        // 编译器规定路口穿越由 ManeuverPath 独占权威：路径链不写 LaneEdge 后继
+        // （涉及 internal 边的转移只能由 ManeuverPath 边序承载），因此 successor
+        // 一律为空，车道连接关系由 junction 归一化（normalize_junctions）承担。
         lane_edges.push(LaneEdge {
             id: id.clone(),
             length,
             speed_limit,
-            connections,
         });
 
         let mut points = Vec::with_capacity(lane.shape.len());
@@ -272,48 +235,5 @@ fn convert_network_packages(
         edges: spatial_edges,
     };
 
-    let edge_count = traffic.lane_graph.edges.len();
-    let traffic_bytes = json_bytes("TrafficPackage", &traffic)?;
-    let spatial_bytes = json_bytes("SpatialPackage", &spatial)?;
-    finish_topology_artifacts(
-        options.fixed_delta_ms,
-        options.traffic_artifact_ref.clone(),
-        options.spatial_artifact_ref.clone(),
-        traffic_bytes,
-        spatial_bytes,
-        edge_count,
-    )
-}
-
-fn build_lane_index(network: &SumoNetwork) -> HashMap<(String, u32), &SumoLane> {
-    network
-        .lanes
-        .iter()
-        .map(|lane| ((lane.edge_id.clone(), lane.index), lane))
-        .collect()
-}
-
-fn resolve_lane<'a>(
-    index: &HashMap<(String, u32), &'a SumoLane>,
-    edge_id: &str,
-    lane_index: u32,
-) -> Result<&'a SumoLane> {
-    index
-        .get(&(edge_id.to_owned(), lane_index))
-        .copied()
-        .ok_or_else(|| {
-            Error::SumoModel(format!(
-                "connection references unknown lane edge={edge_id:?} index={lane_index}"
-            ))
-        })
-}
-
-fn ensure_lane_exists(network: &SumoNetwork, lane_id: &str) -> Result<()> {
-    if network.lane(lane_id).is_some() {
-        Ok(())
-    } else {
-        Err(Error::SumoModel(format!(
-            "connection via references unknown lane {lane_id:?}"
-        )))
-    }
+    compile_network_lfca(&traffic, &spatial)
 }

@@ -17,6 +17,7 @@ pub use topology::{
     StaticConversionArtifacts, TopologyConvertOptions, convert_network_topology,
     convert_network_topology_with_tll,
 };
+pub(crate) use topology::DEFAULT_FIXED_DELTA_MS;
 pub(crate) use topology::{
     convert_network_topology_with_tll_and_profiles, convert_static_with_due,
 };

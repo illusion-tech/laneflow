@@ -233,18 +233,27 @@ artifact digest，必须使用新 workload ID。
 
 ### 3.6 共享输出
 
-converter 分别生成：
+converter 分别生成（G1 修订，2026-09-27：产物轴从旧 JSON 三件套 retarget 至
+compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON schema 与 Core 装载
+入口后，旧产物轴在仓库内已无可装载的生产路径）：
 
-- Traffic v0.10 package，包含 `junctions[]`、`movements[]`、
-  `maneuverPaths[]`、`signals.maneuverGates[]`、上述 ParticipantClass/profile
-  binding，以及显式空 `facilityBands[]`、`roadSections[]`、`laneGroups[]`、
-  `roadCorridors[]`、`accessRules[]`；LuST v1 不伪造尚未设计的横断面或准入语义；
-- SpatialPackage v0.1；
-- ScenarioManifest v0.1，用 size 和 SHA-256 配对 Traffic/Spatial；
+- `network.lfca`（Road Editing v4，经 `laneflow-compiler` 受检编译发射）：junctions、
+  movements、maneuverPaths、signals（stopLines / maneuverGates / groups /
+  controllers / phases）、上述 ParticipantClass/profile binding、CanonicalFrame 与
+  全部车道几何；`facilityBands`、`laneGroups`、`accessRules` 等以空表承载（路口
+  approach 派生链所需的 corridor/section/lane 声明除外），LuST v1 不伪造尚未设计的
+  横断面或准入语义。compiler 受检编译（preflight / lowering fail-closed）即产物
+  验收，不再存在独立的 JSON Schema 校验或 Core admission 环节。路口穿越由
+  ManeuverPath 独占权威：路径链不写 LaneEdge 后继，approach 边界边由
+  alignment → corridor → section → lane 链派生；
+- `routes.toml`：DUE 展开后的 route catalog 与精确一万 population record（含
+  selection config），替代旧 Traffic package 内嵌 routes 与独立 population JSON；
+- `manifest.toml`：以 size 和 SHA-256 配对 `network.lfca` / `routes.toml`，并记录
+  normalization object counts 与 fixed step（16 ms）；
 - conversion report，记录 source health、normalization object counts、
-  warning/loss boundaries，以及 Traffic/Spatial/ScenarioManifest 三个 direct payload
-  的 raw digests；report 不记录自身、shared static archive 或外部 manifest 的
-  digest；
+  warning/loss boundaries，以及 `network.lfca` / `routes.toml` / `manifest.toml`
+  三个 direct payload 的 raw digests；report 不记录自身、shared static archive 或
+  外部 manifest 的 digest；
 - semantic provenance manifest，记录第 2 节 source chain、config digest、licenses、
   Release assets 和 normalized semantic output digests；其内容和 digest 不包含
   converter commit、toolchain、build timestamp 或 host；
@@ -253,13 +262,13 @@ converter 分别生成：
   serialization，且不得写入 wall-clock timestamp、host name、绝对路径或未冻结的
   environment value，也不记录自身 digest。
 
-Traffic/Spatial/ScenarioManifest 与 conversion report 组成 shared static bundle。
-semantic provenance manifest 是 bundle 外的 versioned index，记录该 bundle 和其他
-Release assets 的 URL/size/digest；它不得嵌入任何由自己索引的 asset，否则会形成
-self-digest cycle。build provenance record 同样位于 bundle 外，作为逐次生成审计
-证据，不进入 semantic bundle 或 cross-build comparison digest。初始车辆、release
-schedule、runtime handles、Parking binding、lifecycle call log 和 presentation
-selection 不写入 Traffic/Spatial/ScenarioManifest。
+`network.lfca`、`routes.toml`、`manifest.toml` 与 conversion report 组成 shared
+static bundle。semantic provenance manifest 是 bundle 外的 versioned index，记录该
+bundle 和其他 Release assets 的 URL/size/digest；它不得嵌入任何由自己索引的
+asset，否则会形成 self-digest cycle。build provenance record 同样位于 bundle 外，
+作为逐次生成审计证据，不进入 semantic bundle 或 cross-build comparison digest。
+初始车辆、release schedule、runtime handles、Parking binding、lifecycle call log
+和 presentation selection 不写入 `network.lfca` / `routes.toml` / `manifest.toml`。
 
 ## 4. 共享精确一万 source population
 

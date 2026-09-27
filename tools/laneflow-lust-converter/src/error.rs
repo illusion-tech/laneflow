@@ -51,10 +51,11 @@ pub enum Error {
         source: serde_json::Error,
     },
 
-    #[error("{document} does not satisfy its repository JSON Schema: {message}")]
-    Schema {
+    #[error("could not serialize {document} TOML: {source}")]
+    TomlSerialize {
         document: &'static str,
-        message: String,
+        #[source]
+        source: toml::ser::Error,
     },
 
     #[error("{stage} validation failed: {message}")]

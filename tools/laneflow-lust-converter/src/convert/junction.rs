@@ -151,6 +151,8 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
             movements.push(Movement {
                 id: movement_id,
                 junction_id: format!("{SUMO_ID_PREFIX}{}", traversal.key.junction_id),
+                from_road_edge_id: traversal.key.from_road_edge_id.clone(),
+                to_road_edge_id: traversal.key.to_road_edge_id.clone(),
             });
         }
     }

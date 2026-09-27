@@ -57,11 +57,10 @@ fn run() -> Result<(), String> {
                 "convert ok: wrote static/source bundles under {}",
                 outputs.output_dir.display()
             );
-            println!("  {}", outputs.traffic.display());
-            println!("  {}", outputs.spatial.display());
+            println!("  {}", outputs.network_lfca.display());
+            println!("  {}", outputs.routes.display());
             println!("  {}", outputs.manifest.display());
             println!("  {}", outputs.conversion_report.display());
-            println!("  {}", outputs.population.display());
             println!("  {}", outputs.source_tar.display());
             println!("  {}", outputs.static_tar.display());
             println!("  {}", outputs.semantic_provenance.display());

@@ -31,11 +31,10 @@ pub struct SemanticProvenanceInput {
     pub release_urls: ReleaseAssetUrls,
     pub source_tar: Vec<u8>,
     pub static_tar: Vec<u8>,
-    pub traffic_bytes: Vec<u8>,
-    pub spatial_bytes: Vec<u8>,
+    pub network_lfca_bytes: Vec<u8>,
+    pub routes_toml_bytes: Vec<u8>,
     pub manifest_bytes: Vec<u8>,
     pub conversion_report_bytes: Vec<u8>,
-    pub population_bytes: Vec<u8>,
 }
 
 /// Inputs for the per-build provenance record.
@@ -56,18 +55,15 @@ pub struct BuildInvocation {
     pub command: &'static str,
     pub require_lust_location_anchors: bool,
     pub require_lust_population_count: bool,
-    pub traffic_artifact_ref: String,
-    pub spatial_artifact_ref: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawOutputDigests {
-    pub traffic: String,
-    pub spatial: String,
-    pub scenario_manifest: String,
+    pub network_lfca: String,
+    pub routes_toml: String,
+    pub manifest_toml: String,
     pub conversion_report: String,
-    pub population_table: String,
     pub source_tar: String,
     pub static_tar: String,
 }
@@ -129,11 +125,10 @@ struct ReleaseAsset {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SemanticOutputs {
-    traffic: ArtifactDigest,
-    spatial: ArtifactDigest,
-    scenario_manifest: ArtifactDigest,
+    network_lfca: ArtifactDigest,
+    routes_toml: ArtifactDigest,
+    manifest_toml: ArtifactDigest,
     conversion_report: ArtifactDigest,
-    population_table: ArtifactDigest,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,7 +165,7 @@ pub fn embedded_notice_bytes() -> &'static [u8] {
 /// Build semantic provenance JSON bytes.
 pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<u8>> {
     let manifest = SemanticProvenanceManifest {
-        format_version: "0.1",
+        format_version: "0.2",
         source_chain: SourceChain {
             repository: LUST_REPOSITORY,
             tag: LUST_TAG,
@@ -203,11 +198,10 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
             ),
         },
         semantic_outputs: SemanticOutputs {
-            traffic: artifact("lust-topology.traffic.json", &input.traffic_bytes),
-            spatial: artifact("lust-topology.spatial.json", &input.spatial_bytes),
-            scenario_manifest: artifact("lust-topology.manifest.json", &input.manifest_bytes),
+            network_lfca: artifact("network.lfca", &input.network_lfca_bytes),
+            routes_toml: artifact("routes.toml", &input.routes_toml_bytes),
+            manifest_toml: artifact("manifest.toml", &input.manifest_bytes),
             conversion_report: artifact("lust-conversion-report.json", &input.conversion_report_bytes),
-            population_table: artifact("lust-population.json", &input.population_bytes),
         },
     };
     json_bytes("SemanticProvenanceManifest", &manifest)
@@ -216,7 +210,7 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
 /// Build build-provenance JSON bytes.
 pub fn build_build_provenance(input: &BuildProvenanceInput) -> Result<Vec<u8>> {
     let record = BuildProvenanceRecord {
-        format_version: "0.1",
+        format_version: "0.2",
         converter_commit: input.converter_commit.clone(),
         rust_version: input.rust_version,
         cargo_lock_digest: format!("sha256:{}", input.cargo_lock_sha256),

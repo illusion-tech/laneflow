@@ -16,9 +16,9 @@ fn licenses_are_non_empty_and_contain_required_attribution() {
 
 #[test]
 fn conversion_report_records_payload_digests_not_self() {
-    let traffic = b"{\"traffic\":true}\n".to_vec();
-    let spatial = b"{\"spatial\":true}\n".to_vec();
-    let manifest = b"{\"manifest\":true}\n".to_vec();
+    let lfca = b"LFCA-fake\n".to_vec();
+    let routes = b"format_version = \"0.1\"\n".to_vec();
+    let manifest = b"manifest_version = 1\n".to_vec();
     let report = build_conversion_report(&ConversionReportInput {
         external_edge_count: 3,
         external_lane_count: 3,
@@ -36,8 +36,8 @@ fn conversion_report_records_payload_digests_not_self() {
         require_lust_population_count: false,
         parking_registry_empty: true,
         major_minor_green_collapsed: true,
-        traffic_bytes: traffic.clone(),
-        spatial_bytes: spatial.clone(),
+        network_lfca_bytes: lfca.clone(),
+        routes_toml_bytes: routes.clone(),
         manifest_bytes: manifest.clone(),
     })
     .expect("report");
@@ -62,8 +62,8 @@ fn conversion_report_records_payload_digests_not_self() {
         require_lust_population_count: false,
         parking_registry_empty: true,
         major_minor_green_collapsed: true,
-        traffic_bytes: traffic,
-        spatial_bytes: spatial,
+        network_lfca_bytes: lfca,
+        routes_toml_bytes: routes,
         manifest_bytes: manifest,
     })
     .expect("report again");
@@ -83,8 +83,8 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
     }])
     .expect("source tar");
     let static_tar = write_deterministic_ustar(&[TarMember {
-        path: "lust-topology.traffic.json".to_owned(),
-        contents: b"{}\n".to_vec(),
+        path: "network.lfca".to_owned(),
+        contents: b"LFCA\n".to_vec(),
     }])
     .expect("static tar");
     let semantic_input = SemanticProvenanceInput {
@@ -93,11 +93,10 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
         release_urls: ReleaseAssetUrls::default(),
         source_tar: source_tar.clone(),
         static_tar: static_tar.clone(),
-        traffic_bytes: b"{}\n".to_vec(),
-        spatial_bytes: b"{}\n".to_vec(),
-        manifest_bytes: b"{}\n".to_vec(),
+        network_lfca_bytes: b"LFCA\n".to_vec(),
+        routes_toml_bytes: b"format_version = \"0.1\"\n".to_vec(),
+        manifest_bytes: b"manifest_version = 1\n".to_vec(),
         conversion_report_bytes: b"{}\n".to_vec(),
-        population_bytes: b"{}\n".to_vec(),
     };
     let first = build_semantic_provenance(&semantic_input).expect("semantic");
     let second = build_semantic_provenance(&semantic_input).expect("semantic again");
@@ -115,15 +114,12 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
             command: "convert",
             require_lust_location_anchors: true,
             require_lust_population_count: true,
-            traffic_artifact_ref: "lust-topology.traffic.json".to_owned(),
-            spatial_artifact_ref: "lust-topology.spatial.json".to_owned(),
         },
         raw_output_digests: RawOutputDigests {
-            traffic: "sha256:a".to_owned(),
-            spatial: "sha256:b".to_owned(),
-            scenario_manifest: "sha256:c".to_owned(),
+            network_lfca: "sha256:a".to_owned(),
+            routes_toml: "sha256:b".to_owned(),
+            manifest_toml: "sha256:c".to_owned(),
             conversion_report: "sha256:d".to_owned(),
-            population_table: "sha256:e".to_owned(),
             source_tar: "sha256:f".to_owned(),
             static_tar: "sha256:0".to_owned(),
         },
