@@ -1,8 +1,8 @@
 {
-  "schema": "laneflow-issue-707-wpr-trace-identities-v1",
-  "computed_at": "2026-09-27T18:13:41.3459691Z",
+  "schema": "laneflow-issue-707-wpr-trace-identities-v2",
+  "computed_at": "2026-09-27T18:53:18.9728054Z",
   "hash_algorithm": "SHA-256",
-  "scope": "immutable identities for the external B1 and L3 ETL traces and the exact offline reports cited by the versioned findings; large trace files remain outside Git",
+  "scope": "immutable identities for the external B1 and L3 ETL traces and the exact offline reports cited by the versioned findings; L3 also records the ETL CodeView identity and retained SymCache boundary; large trace files remain outside Git",
   "b1": {
     "root": "E:/projects/laneflow/target/issue707-b1-wpr-20260922",
     "files": [
@@ -200,7 +200,67 @@
         "bytes": 73678,
         "sha256": "b9848a52bdc53f130350c3bce7d1036811ac0664f85b7fd19c5f120502b9f6e8"
       }
-    ]
+    ],
+    "symbol_identity": {
+      "extraction": {
+        "tool": "xperf symcache",
+        "command_shape": "xperf -i <trace> -a symcache -imageid -dbgid -image laneflow-urban-harness.exe",
+        "verified_traces": [
+          "l3-w4-early.etl",
+          "l3-w4-late.etl"
+        ],
+        "result": "both traces report the same image and CodeView record"
+      },
+      "image": {
+        "original_file_name": "laneflow-urban-harness.exe",
+        "time_date_stamp_hex": "0x6ab0a600",
+        "size_of_image_hex": "0x003a0000",
+        "captured_file_bytes": 3789312,
+        "captured_file_sha256": "960fe18ca04396fdcf7ded9455456b27b9434760562f3596b4a68ec704e80b95",
+        "identity_source": "diagnostics/wpr/diag-binary-manifest.md and l3-w4-meta.txt",
+        "current_availability": "the exact captured executable is not retained at the audited path; that path now contains a different rebuild"
+      },
+      "codeview": {
+        "signature": "RSDS",
+        "pdb_name": "laneflow_urban_harness.pdb",
+        "pdb_guid": "701cbf77-794f-4a2a-96b3-333c68f7790e",
+        "pdb_age": 1
+      },
+      "original_pdb": {
+        "recorded_bytes": 83603456,
+        "recorded_as_same_build_product": true,
+        "sha256": null,
+        "current_availability": "not retained; no PDB SHA-256 is asserted"
+      },
+      "retained_symcache": {
+        "format": "xperf symcache v3.1.0",
+        "bytes": 2215432,
+        "sha256": "14423276c1c145b9dcffcfa53c854933aae711864bb538842e24d1d3e106e709",
+        "pdb_guid_age_directory": "701CBF77794F4A2A96B3333C68F7790E1",
+        "evidence_relative_path": "SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/laneflow_urban_harness.pdb-v3.1.0.symcache",
+        "analysis_relative_path": "SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/laneflow_urban_harness.pdb-v3.1.0.symcache",
+        "copies_byte_identical": true
+      },
+      "supporting_records": [
+        {
+          "root": "evidence",
+          "relative_path": "diag-binary-manifest.md",
+          "bytes": 1621,
+          "sha256": "f7b47c18da7c5891489555f6c3abee002f62c692932afee4ebea434ac785198a"
+        },
+        {
+          "root": "evidence",
+          "relative_path": "l3-w4-meta.txt",
+          "bytes": 1622,
+          "sha256": "3fafc911e608d11f8db5aa4dd6f04e2c8bfc4588f02e3cd9d2e9c4463ab2b660"
+        }
+      ],
+      "attribution_scope": "ETL DbgId plus the byte-identified retained SymCache bind the existing symbolized exports to the recorded PDB GUID and age",
+      "independent_resymbolization": {
+        "status": "not-supported-by-current-evidence",
+        "reason": "the exact captured executable and original PDB were not retained; the SymCache and existing exports do not replace them for arbitrary stack re-symbolization"
+      }
+    }
   },
-  "conclusion": "all cited traces and matching report exports have byte size and SHA-256 identities; this binds existing diagnostics without rerunning or expanding their claims"
+  "conclusion": "all cited traces and matching report exports have byte size and SHA-256 identities; L3 attribution is additionally bound to the ETL CodeView GUID/age and retained SymCache, while the missing original executable/PDB limit independent re-symbolization; this records existing evidence without rerunning or expanding its claims"
 }

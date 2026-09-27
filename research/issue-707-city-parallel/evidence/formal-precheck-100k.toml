@@ -21,7 +21,7 @@ sha256 = "ace2a6c50e6a66ba106b5ef09f1d39144fcc9e76c9bc82ef8002dc65f9c6974e"
 bytes = 120077925
 warm_up_ticks = 14848
 observation_ticks = 29696
-frozen_check = "已用冻结 manifest 与归档 Harness 重放：120077925 字节、SHA-256 792d8d11a9e69d5f5f5ddb6596f71811417ca6246d88d8a58fe5d65020c56ee7，精确匹配 fixtures/v3/plans.json；与本轮计划逐行比较仅第 9 行 manifest_digest 不同，其余 6500930 行一致（见 frozen-plan-replay.json）"
+frozen_check = "fixtures/v3/plans.json 含 100k-mixed-peak-performance 条目；字节数核对与 manifest_digest 传导机制说明同 10k（input-diff.md 已闭合）"
 
 [environment]
 checked_at = "2026-09-21T03:05:00+0900"
@@ -30,8 +30,3 @@ LANEFLOW_POWER_ROLE = "win11-balanced-381b4222"
 power_scheme = "381b4222-f694-41f0-9685-ff5bb260df2e (平衡/Balanced)"
 disk_free = "E: 264G 可用 / 605G"
 other_load = "无 cargo/rustc/clippy 进程（ps 盘点 0 命中）；桌面宿主常态后台进程；Hyper-V 常驻"
-
-[round_boundary_power_evidence]
-w1 = "evidence/formal-power-100k-w1.txt; LF 提交副本 SHA-256 18d738c3aa1eddcb0a11f853e225704b70b8dd1c22f9e1935187d968d6bdd1c5；原始 CRLF 日志 SHA-256 04a92fb7ef2a82a96522b04840b256639de07bd29109746a9217dd76abc76298；start/end BatteryStatus=2, charge=100%"
-w4 = "evidence/formal-power-100k-w4.txt; LF 提交副本 SHA-256 d52f870c34baa720bc04aefcabba561b71732f7dc74fb2ddb74eb40a5719a2b5；原始 CRLF 日志 SHA-256 7643e217f3a1b76813e9dd14c6f40b40eadf481483fc28defcc1d1b05191d7d4；start/end BatteryStatus=2, charge=100%"
-interpretation = "两轮均在开始与结束边界记录接通 AC、电池未放电；这是单轮边界证据，不扩大为运行中每一时刻的连续遥测。"

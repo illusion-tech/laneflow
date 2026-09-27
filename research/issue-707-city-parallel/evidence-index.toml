@@ -1,7 +1,7 @@
 # #707 第二切片证据索引（E:/projects/laneflow-evidence/issue-707/4de40e04/）
 # pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
 # 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
-# 8 份前置核查、diagnostics、comparison 原始小封套，以及 2 份 D2 电源边界记录；
+# 8 份现场核查、diagnostics、comparison 原始小封套，以及 4 份 D1/D2 电源边界记录；
 # WPR trace/导出另有 1 份不可变身份记录。M16 retained-best 另绑定
 # 源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke 小封套。
 # 大文件（逐拍日志、LFCA、计划本体）不入 Git；冻结 EXE 进入独立 Research
@@ -14,6 +14,8 @@ frozen_plan_replay = "evidence/frozen-plan-replay.json"
 formal_r1_evidence = "evidence/formal-r1-evidence.json"
 wpr_trace_identities = "evidence/wpr-trace-identities.json"
 formal_r1_power_boundaries = [
+    "evidence/formal-power-10k-w1.txt",
+    "evidence/formal-power-10k-w4.txt",
     "evidence/formal-power-100k-w1.txt",
     "evidence/formal-power-100k-w4.txt",
 ]

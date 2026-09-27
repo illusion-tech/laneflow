@@ -7,7 +7,9 @@
 
 - 源码：`4de40e045398e4b010b2aa36522afc02a4094c4d`。
 - 诊断程序：`target/diag-release/release/laneflow-urban-harness.exe`，SHA-256
-  `960fe18ca04396fdcf7ded9455456b27b9434760562f3596b4a68ec704e80b95`。
+  `960fe18ca04396fdcf7ded9455456b27b9434760562f3596b4a68ec704e80b95`。这是采集
+  元数据登记的精确身份；该 EXE 的原路径后来被不同构建覆盖，当前没有保留这份
+  精确文件。
 - 证据目录：`E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/wpr/`。
 - 同一 PID 11984、workers=4、原始 100k 正式计划，从初态演进。
 - 元数据：`l3-w4-meta.txt`；采集：`l3-w4-early.etl`（1,154,482,176 字节，
@@ -16,6 +18,14 @@
   `279df9d9e222f838b3d86eb64b7cca0bb9b18901b45dcb5b705d377601d6ae89`）。
   匹配的早/晚窗口符号与活动报告身份见
   [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+- 两份 ETL 均由 xperf 报告同一 CodeView 记录：RSDS、PDB
+  `laneflow_urban_harness.pdb`、GUID
+  `701cbf77-794f-4a2a-96b3-333c68f7790e`、age 1。原登记记录说明同批 PDB 为
+  83,603,456 字节，但原 PDB 未保留，不能补写其 SHA-256。保留的 xperf SymCache
+  为 2,215,432 字节，SHA-256
+  `14423276c1c145b9dcffcfa53c854933aae711864bb538842e24d1d3e106e709`，目录键
+  `701CBF77794F4A2A96B3333C68F7790E1` 与 ETL 的 GUID/age 一致。机器记录同时绑定
+  ETL、采集 EXE 登记、CodeView 与 SymCache 身份。
 - 实际轮询端点：早窗 tick 66–536；晚窗 tick 21527–22531。端点不是
   ETW 事件与 Core step 的逐拍对齐标记，不能直接作为下面裁剪区间的拍数。
 - 两份 ETL 均报告 Lost Buffers=0、Lost Events=0。脚本结束后已确认程序退出。
@@ -35,9 +45,11 @@
 内存模式的保留边界是待查解释，尚未独立证明具体缺口原因。零丢失计数并不证明
 每种事件覆盖全部请求窗口。本次采用完整活动开始后的 44s，并去掉 rundown。
 
-分析使用本机 Windows Performance Toolkit xperf、匹配的本地 PDB；系统 DLL
-有未解析符号。CPU Sampled 用于定位函数采样热点；CSwitch Running 用于线程
-执行时间，二者不是阶段墙钟。方法参考
+原分析使用本机 Windows Performance Toolkit xperf 与当时匹配的本地 PDB；系统
+DLL 有未解析符号。现存 SymCache 与既有导出可审计本文有限函数归因，但原精确 EXE
+和 PDB 均未保留，因此当前证据不支持第三方从 ETL 任意重新选择调用栈并从零符号化。
+CPU Sampled 用于定位函数采样热点；CSwitch Running 用于线程执行时间，二者不是
+阶段墙钟。方法参考
 [Microsoft CPU Analysis](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/cpu-analysis)。
 
 ## 2. 主线程仍持续执行，辅助线程未持续占满 CPU
@@ -126,6 +138,8 @@ Git 忽略的可再生分析目录，不替代证据根的原文件：
 - `*-range-symbols.txt`：表中采用的裁剪区间函数分布。
 - `*-symbols.txt`、`*-top-symbols.csv`：整份 trace 分布，只作辅助，不作为本表分母。
 - `*-util.txt`、`*-frequency.txt`：采样覆盖与采样周期；不是 CPU 运行频率。
+- `SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/`：与两份
+  ETL CodeView 身份一致的保留符号缓存；不能替代缺失的原 PDB 做任意重符号化。
 
 原始 ETL 字节数分别为 1154482176、3331325952。后续 #734 收尾时可将本摘要及
 来源索引纳入交付；两份 ETL、元数据及本节列出的匹配离线导出均已在

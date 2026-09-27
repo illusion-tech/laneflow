@@ -1,9 +1,9 @@
 {
-  "schema": "laneflow-issue-707-formal-r1-evidence-v2",
+  "schema": "laneflow-issue-707-formal-r1-evidence-v3",
   "evidence_root": "E:/projects/laneflow-evidence/issue-707/4de40e04/",
   "source_commit": "4de40e045398e4b010b2aa36522afc02a4094c4d",
   "source_tree": "e88e559539042fad0b919c980af13c003542be41",
-  "scope": "D1/D2 r1 stage evidence only; #707 remains open; r2/r3, stable-Active, full matrix, resource accounting, and final certification remain separate work",
+  "scope": "D1/D2 r1 stage evidence only; D2 environment observation occurred 227 seconds after w1 start and is not launch-precondition evidence; #707 remains open; r2/r3, stable-Active, full matrix, resource accounting, and final certification remain separate work",
   "prechecks": [
     {
       "scale": "10k",
@@ -14,8 +14,21 @@
       },
       "committed_copy": {
         "path": "evidence/formal-precheck-10k.toml",
-        "bytes": 1727,
-        "sha256": "614e24dd3fee3e45ee44714ebafffe725d14ecaaaf4f9e1e3a6f9e77b0d94009"
+        "bytes": 1754,
+        "sha256": "f27fdef2f991f97403d17848a244703f448242326cd7c1d076a65b4254437c54"
+      },
+      "raw_copy_policy": "byte-for-byte copy of source; no post-run edits",
+      "observed_at": "2026-09-20T23:49:39+09:00",
+      "first_arm_started_at": "2026-09-20T23:50:58+09:00",
+      "observation_offset_seconds": -79,
+      "temporal_classification": "pre-run-launch-check",
+      "launch_precondition_coverage": "recorded before the first arm",
+      "post_run_analysis": {
+        "frozen_plan_replay": "evidence/frozen-plan-replay.json",
+        "power_boundary_evidence": [
+          "evidence/formal-power-10k-w1.txt",
+          "evidence/formal-power-10k-w4.txt"
+        ]
       }
     },
     {
@@ -27,10 +40,22 @@
       },
       "committed_copy": {
         "path": "evidence/formal-precheck-100k.toml",
-        "bytes": 2251,
-        "sha256": "300bd3b3af479a2d03e4ef1c1f9c574075f1f53a54e9c3d28fa95ac259e58856"
+        "bytes": 1369,
+        "sha256": "a7d16d6e813f5fcd7f6e6969a331d49d836af12a61ffbe6b1e748f54b17dabb7"
       },
-      "augmentation": "round_boundary_power_evidence appended from LF-normalized copies with separate source and committed SHA-256 identities"
+      "raw_copy_policy": "byte-for-byte copy of source; no post-run edits",
+      "observed_at": "2026-09-21T03:05:00+09:00",
+      "first_arm_started_at": "2026-09-21T03:01:13+09:00",
+      "observation_offset_seconds": 227,
+      "temporal_classification": "in-run-observation; not a pre-run launch check",
+      "launch_precondition_coverage": "incomplete: environment, load, and power-scheme snapshot does not prove the state at launch",
+      "post_run_analysis": {
+        "frozen_plan_replay": "evidence/frozen-plan-replay.json",
+        "power_boundary_evidence": [
+          "evidence/formal-power-100k-w1.txt",
+          "evidence/formal-power-100k-w4.txt"
+        ]
+      }
     }
   ],
   "runs": [
@@ -181,6 +206,35 @@
         "step_ns_p95": 8870000,
         "step_ns_p99": 9467000,
         "memory_measurement": null
+      },
+      "power_boundary": {
+        "scale": "10k",
+        "workers": 1,
+        "source": {
+          "path": "logs/10k-formal-w1-time.log",
+          "bytes": 233,
+          "sha256": "44ad7218d15e24c8417d2beb24a9e8de7cfed95d5638eed7e9005cde7a7cf08c"
+        },
+        "committed_copy": {
+          "path": "evidence/formal-power-10k-w1.txt",
+          "bytes": 216,
+          "sha256": "da591c1b3cb2081c810d5d20821cec264f9d3078782e24cc656510f4182d897b"
+        },
+        "start": {
+          "observed_at": "2026-09-20T23:50:58+09:00",
+          "battery_status": 2,
+          "estimated_charge_remaining_percent": 100
+        },
+        "end": {
+          "observed_at": "2026-09-21T00:11:28+09:00",
+          "battery_status": 2,
+          "estimated_charge_remaining_percent": 100
+        },
+        "exit_code": 0,
+        "elapsed_seconds_from_observed_boundaries": 1230,
+        "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
+        "copy_normalization": "source mixed CRLF/LF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
+        "byte_identical_to_source": false
       }
     },
     {
@@ -330,6 +384,35 @@
         "step_ns_p95": 7097100,
         "step_ns_p99": 7887300,
         "memory_measurement": null
+      },
+      "power_boundary": {
+        "scale": "10k",
+        "workers": 4,
+        "source": {
+          "path": "logs/10k-formal-w4-time.log",
+          "bytes": 233,
+          "sha256": "41d187b2b419d3fbc91ac09c0b294e8c334dfc0df4b63aef8cfb1583f7c3b755"
+        },
+        "committed_copy": {
+          "path": "evidence/formal-power-10k-w4.txt",
+          "bytes": 216,
+          "sha256": "6b27e390aeaf144383ec5bc560fe5862dc22bf151a350a3cf5c26f94cdf1c386"
+        },
+        "start": {
+          "observed_at": "2026-09-21T00:11:32+09:00",
+          "battery_status": 2,
+          "estimated_charge_remaining_percent": 100
+        },
+        "end": {
+          "observed_at": "2026-09-21T00:28:40+09:00",
+          "battery_status": 2,
+          "estimated_charge_remaining_percent": 100
+        },
+        "exit_code": 0,
+        "elapsed_seconds_from_observed_boundaries": 1028,
+        "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
+        "copy_normalization": "source mixed CRLF/LF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
+        "byte_identical_to_source": false
       }
     },
     {
@@ -506,7 +589,7 @@
         "exit_code": 0,
         "wall_seconds": 8039,
         "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
-        "copy_normalization": "source CRLF line endings normalized to repository LF; text lines and parsed boundary values preserved",
+        "copy_normalization": "source CRLF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
         "byte_identical_to_source": false
       }
     },
@@ -684,7 +767,7 @@
         "exit_code": 0,
         "wall_seconds": 8242,
         "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
-        "copy_normalization": "source CRLF line endings normalized to repository LF; text lines and parsed boundary values preserved",
+        "copy_normalization": "source CRLF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
         "byte_identical_to_source": false
       }
     }
@@ -755,6 +838,64 @@
   ],
   "power_boundary_evidence": [
     {
+      "scale": "10k",
+      "workers": 1,
+      "source": {
+        "path": "logs/10k-formal-w1-time.log",
+        "bytes": 233,
+        "sha256": "44ad7218d15e24c8417d2beb24a9e8de7cfed95d5638eed7e9005cde7a7cf08c"
+      },
+      "committed_copy": {
+        "path": "evidence/formal-power-10k-w1.txt",
+        "bytes": 216,
+        "sha256": "da591c1b3cb2081c810d5d20821cec264f9d3078782e24cc656510f4182d897b"
+      },
+      "start": {
+        "observed_at": "2026-09-20T23:50:58+09:00",
+        "battery_status": 2,
+        "estimated_charge_remaining_percent": 100
+      },
+      "end": {
+        "observed_at": "2026-09-21T00:11:28+09:00",
+        "battery_status": 2,
+        "estimated_charge_remaining_percent": 100
+      },
+      "exit_code": 0,
+      "elapsed_seconds_from_observed_boundaries": 1230,
+      "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
+      "copy_normalization": "source mixed CRLF/LF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
+      "byte_identical_to_source": false
+    },
+    {
+      "scale": "10k",
+      "workers": 4,
+      "source": {
+        "path": "logs/10k-formal-w4-time.log",
+        "bytes": 233,
+        "sha256": "41d187b2b419d3fbc91ac09c0b294e8c334dfc0df4b63aef8cfb1583f7c3b755"
+      },
+      "committed_copy": {
+        "path": "evidence/formal-power-10k-w4.txt",
+        "bytes": 216,
+        "sha256": "6b27e390aeaf144383ec5bc560fe5862dc22bf151a350a3cf5c26f94cdf1c386"
+      },
+      "start": {
+        "observed_at": "2026-09-21T00:11:32+09:00",
+        "battery_status": 2,
+        "estimated_charge_remaining_percent": 100
+      },
+      "end": {
+        "observed_at": "2026-09-21T00:28:40+09:00",
+        "battery_status": 2,
+        "estimated_charge_remaining_percent": 100
+      },
+      "exit_code": 0,
+      "elapsed_seconds_from_observed_boundaries": 1028,
+      "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
+      "copy_normalization": "source mixed CRLF/LF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
+      "byte_identical_to_source": false
+    },
+    {
       "scale": "100k",
       "workers": 1,
       "source": {
@@ -780,7 +921,7 @@
       "exit_code": 0,
       "wall_seconds": 8039,
       "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
-      "copy_normalization": "source CRLF line endings normalized to repository LF; text lines and parsed boundary values preserved",
+      "copy_normalization": "source CRLF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
       "byte_identical_to_source": false
     },
     {
@@ -809,7 +950,7 @@
       "exit_code": 0,
       "wall_seconds": 8242,
       "interpretation": "Win32_Battery BatteryStatus=2 means connected to AC and not discharging; both boundaries also reported 100% charge",
-      "copy_normalization": "source CRLF line endings normalized to repository LF; text lines and parsed boundary values preserved",
+      "copy_normalization": "source CRLF line endings normalized to repository LF and trailing blank-only lines removed; nonblank text and parsed boundary values preserved",
       "byte_identical_to_source": false
     }
   ]
