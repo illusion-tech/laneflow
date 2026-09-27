@@ -1,0 +1,712 @@
+{
+  "schema": "laneflow-issue-707-m16-aa-repeat-envelope-v1",
+  "generated_at": "2026-09-27T20:07:18.8967904Z",
+  "hash_algorithm": "SHA-256",
+  "classification": "research repeatability evidence only; not final performance certification, production deployment, public API, or compatibility commitment",
+  "purpose": "bind the four consecutive frozen-M16 repeats behind the observed 0.402 ms within-batch mean range and make every public_step_ns sample independently recomputable",
+  "retained_best_reference": {
+    "manifest": {
+      "path": "evidence/retained-best-evidence-manifest.json",
+      "identity": {
+        "bytes": 42770,
+        "sha256": "f1502b9cdfa0d54a12f92889ebe51fb1d52f716fcd700e11ae9c61d624128918"
+      }
+    },
+    "release_record": {
+      "path": "evidence/retained-best-release.json",
+      "identity": {
+        "bytes": 3241,
+        "sha256": "980aa9abd01ec2bf1854ebd233e9c66a13323d985bdee4f42c524efbb7b9fc63"
+      }
+    },
+    "frozen_binary": {
+      "name": "harness-m16-plain.exe",
+      "bytes": 4383232,
+      "sha256": "19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602",
+      "release_asset": "issue-707-m16-best-19bf7ecb5dfd.tar.zst",
+      "release_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.tar.zst"
+    },
+    "fixture": {
+      "release_asset": "issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+      "bytes": 34900526,
+      "sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
+      "release_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst"
+    },
+    "plan": {
+      "path": "plan.toml",
+      "bytes": 16994513,
+      "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+    }
+  },
+  "execution": {
+    "command_shape": "harness-m16-plain.exe short-prefix <fixture>/input <fixture>/plan.toml <output> 4 256",
+    "workers": 4,
+    "ticks": 256,
+    "observation_start_tick": 65,
+    "measured_ticks_per_run": 192,
+    "order": [
+      "aa-1",
+      "aa-2",
+      "aa-3",
+      "aa-4"
+    ],
+    "environment": {
+      "LANEFLOW_HARDWARE_ROLE": "amd-ryzen9-9955hx-16c-32t-64gb-hyperv",
+      "LANEFLOW_POWER_ROLE": "win11-balanced-381b4222",
+      "LF707_FRONTIER": "approx",
+      "LF707_SCOPE": "both",
+      "LF707_FINISH": "combined",
+      "LF707_BOUNDARY": "on",
+      "LF707_DECISION": "every",
+      "LF707_OBSERVE": "fused",
+      "LF707_BARRIER": "skip",
+      "LF707_BINDING": "dense",
+      "LF707_COAST": "on",
+      "LF707_DEMAND": "held"
+    }
+  },
+  "compact_timing_report": {
+    "path": "evidence/calibration-aa-public-step.csv",
+    "columns": [
+      "run",
+      "tick",
+      "public_step_ns"
+    ],
+    "rows": 768,
+    "identity": {
+      "bytes": 18322,
+      "sha256": "862667a77eba48dc9e893ed51e173e5ac5bc573b890c1e4b0dee5faad8591a91"
+    }
+  },
+  "runs": [
+    {
+      "evidence_run_id": "m16-aa-repeat-1",
+      "order": 1,
+      "source_directory": "target/issue707-aa-results/aa-1/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; ordered repeat id, exact frozen binary, input, plan, configuration, and the complete output-tree manifest bind this run",
+      "source_tree": {
+        "files": 15,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "5520e29bf475eac87861286ef489409aaac9e9848f9b8cc8f9b9236340797a49",
+        "entries": [
+          {
+            "path": "1-best.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-best.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-best/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-best/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-best/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-best/entry-work.csv",
+            "bytes": 7309,
+            "sha256": "aeae951c290762ccbd54048d16fe62ded34f700e48939d39ade272baf21c176f"
+          },
+          {
+            "path": "1-best/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-best/extended-quality.json",
+            "bytes": 628,
+            "sha256": "69a5f22d9eeb438c13990dc6ad33ccbccc79240d6f012c3263e9959e4d41c087"
+          },
+          {
+            "path": "1-best/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-best/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-best/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-best/prefix-result.json",
+            "bytes": 816,
+            "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+          },
+          {
+            "path": "1-best/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-best/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-best/timing.csv",
+            "bytes": 49382,
+            "sha256": "b3daef2cd9ef69ab43cef83e20309170d853217ec1f4dc11a93dad664670e94e"
+          }
+        ]
+      },
+      "timing": {
+        "source": {
+          "path": "1-best/timing.csv",
+          "identity": {
+            "bytes": 49382,
+            "sha256": "b3daef2cd9ef69ab43cef83e20309170d853217ec1f4dc11a93dad664670e94e"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5455614400,
+          "mean": 28414658.333333332,
+          "sample_stddev": 2899614.649597524,
+          "p95": 33287720.0
+        },
+        "public_step_ms": {
+          "mean": 28.414658333333332,
+          "sample_stddev": 2.8996146495975244,
+          "p95": 33.28771999999999
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "byte_identical_across_repeats": true,
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "max_overlap_pairs": 0,
+        "final_tick": 256,
+        "final_overlap_pairs": 0
+      },
+      "resource_boundary": {
+        "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+        "completed_owners_still_holding": 0,
+        "extra_observation_ns": 466487300,
+        "longest_multi_owner_zone_ms": 0,
+        "max_continuous_stop_ms": 6897,
+        "max_open_reservation_age_ms": 5676,
+        "max_released_reservation_ms": 0,
+        "multi_owner_enter_observations": 0,
+        "multi_owner_zone_ms": 0,
+        "observed_completed": 4190,
+        "open_passages": 4870,
+        "open_reservations": 1343,
+        "released_reservations": 0,
+        "ticks": 256,
+        "unmatched_clear_events": 0
+      }
+    },
+    {
+      "evidence_run_id": "m16-aa-repeat-2",
+      "order": 2,
+      "source_directory": "target/issue707-aa-results/aa-2/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; ordered repeat id, exact frozen binary, input, plan, configuration, and the complete output-tree manifest bind this run",
+      "source_tree": {
+        "files": 15,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "d2f7a6f08e09bc4f285bfdabbb9278bb3fa48aab8d61136d56c7bbb46ce3b1a7",
+        "entries": [
+          {
+            "path": "1-best.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-best.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-best/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-best/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-best/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-best/entry-work.csv",
+            "bytes": 7309,
+            "sha256": "aeae951c290762ccbd54048d16fe62ded34f700e48939d39ade272baf21c176f"
+          },
+          {
+            "path": "1-best/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-best/extended-quality.json",
+            "bytes": 628,
+            "sha256": "be3eabd81bf0e7eea8ff032ac3069db3483c373d962eae5d2b38d09bf3ddec56"
+          },
+          {
+            "path": "1-best/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-best/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-best/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-best/prefix-result.json",
+            "bytes": 816,
+            "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+          },
+          {
+            "path": "1-best/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-best/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-best/timing.csv",
+            "bytes": 49371,
+            "sha256": "be0b9a539c5bac3b53503d2f4d4af24989fedb5b821852973bec14b605b5bc47"
+          }
+        ]
+      },
+      "timing": {
+        "source": {
+          "path": "1-best/timing.csv",
+          "identity": {
+            "bytes": 49371,
+            "sha256": "be0b9a539c5bac3b53503d2f4d4af24989fedb5b821852973bec14b605b5bc47"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5513856100,
+          "mean": 28718000.520833332,
+          "sample_stddev": 2615744.0298079955,
+          "p95": 33230360.0
+        },
+        "public_step_ms": {
+          "mean": 28.718000520833332,
+          "sample_stddev": 2.6157440298079955,
+          "p95": 33.23036
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "byte_identical_across_repeats": true,
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "max_overlap_pairs": 0,
+        "final_tick": 256,
+        "final_overlap_pairs": 0
+      },
+      "resource_boundary": {
+        "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+        "completed_owners_still_holding": 0,
+        "extra_observation_ns": 473835200,
+        "longest_multi_owner_zone_ms": 0,
+        "max_continuous_stop_ms": 6897,
+        "max_open_reservation_age_ms": 5676,
+        "max_released_reservation_ms": 0,
+        "multi_owner_enter_observations": 0,
+        "multi_owner_zone_ms": 0,
+        "observed_completed": 4190,
+        "open_passages": 4870,
+        "open_reservations": 1343,
+        "released_reservations": 0,
+        "ticks": 256,
+        "unmatched_clear_events": 0
+      }
+    },
+    {
+      "evidence_run_id": "m16-aa-repeat-3",
+      "order": 3,
+      "source_directory": "target/issue707-aa-results/aa-3/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; ordered repeat id, exact frozen binary, input, plan, configuration, and the complete output-tree manifest bind this run",
+      "source_tree": {
+        "files": 15,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "ed34083817bb3f45ff60daa35d6bc191f1ba912beb38100b861cc23589a8daef",
+        "entries": [
+          {
+            "path": "1-best.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-best.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-best/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-best/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-best/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-best/entry-work.csv",
+            "bytes": 7309,
+            "sha256": "aeae951c290762ccbd54048d16fe62ded34f700e48939d39ade272baf21c176f"
+          },
+          {
+            "path": "1-best/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-best/extended-quality.json",
+            "bytes": 628,
+            "sha256": "71d34c3fd07f0683c99a03b9ae34320ef21df1fadc23fdee607dedc6ffb46f71"
+          },
+          {
+            "path": "1-best/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-best/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-best/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-best/prefix-result.json",
+            "bytes": 816,
+            "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+          },
+          {
+            "path": "1-best/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-best/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-best/timing.csv",
+            "bytes": 49350,
+            "sha256": "5ba26ac5ed92d6fc84f3009fcb254bc9d8da5ecf894d238a2cdaf04596cd404e"
+          }
+        ]
+      },
+      "timing": {
+        "source": {
+          "path": "1-best/timing.csv",
+          "identity": {
+            "bytes": 49350,
+            "sha256": "5ba26ac5ed92d6fc84f3009fcb254bc9d8da5ecf894d238a2cdaf04596cd404e"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5436716900,
+          "mean": 28316233.854166668,
+          "sample_stddev": 2161367.958538916,
+          "p95": 31955760.0
+        },
+        "public_step_ms": {
+          "mean": 28.31623385416667,
+          "sample_stddev": 2.161367958538916,
+          "p95": 31.955759999999998
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "byte_identical_across_repeats": true,
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "max_overlap_pairs": 0,
+        "final_tick": 256,
+        "final_overlap_pairs": 0
+      },
+      "resource_boundary": {
+        "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+        "completed_owners_still_holding": 0,
+        "extra_observation_ns": 456270900,
+        "longest_multi_owner_zone_ms": 0,
+        "max_continuous_stop_ms": 6897,
+        "max_open_reservation_age_ms": 5676,
+        "max_released_reservation_ms": 0,
+        "multi_owner_enter_observations": 0,
+        "multi_owner_zone_ms": 0,
+        "observed_completed": 4190,
+        "open_passages": 4870,
+        "open_reservations": 1343,
+        "released_reservations": 0,
+        "ticks": 256,
+        "unmatched_clear_events": 0
+      }
+    },
+    {
+      "evidence_run_id": "m16-aa-repeat-4",
+      "order": 4,
+      "source_directory": "target/issue707-aa-results/aa-4/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; ordered repeat id, exact frozen binary, input, plan, configuration, and the complete output-tree manifest bind this run",
+      "source_tree": {
+        "files": 15,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "8d858c8fd080d3a9117f51efbdabee9f6af4a48d999be9335f3976ba7c08ec6a",
+        "entries": [
+          {
+            "path": "1-best.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-best.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-best/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-best/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-best/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-best/entry-work.csv",
+            "bytes": 7309,
+            "sha256": "aeae951c290762ccbd54048d16fe62ded34f700e48939d39ade272baf21c176f"
+          },
+          {
+            "path": "1-best/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-best/extended-quality.json",
+            "bytes": 628,
+            "sha256": "8785f3ad22c2d47152ad197a858e0f983cb4cce28e32b60b00c9d96dc712e326"
+          },
+          {
+            "path": "1-best/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-best/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-best/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-best/prefix-result.json",
+            "bytes": 816,
+            "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+          },
+          {
+            "path": "1-best/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-best/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-best/timing.csv",
+            "bytes": 49411,
+            "sha256": "98fcf7c4eab0855ba87cd1f0c24db8e151e69b448fdbe6d6780ac301ed4cabb9"
+          }
+        ]
+      },
+      "timing": {
+        "source": {
+          "path": "1-best/timing.csv",
+          "identity": {
+            "bytes": 49411,
+            "sha256": "98fcf7c4eab0855ba87cd1f0c24db8e151e69b448fdbe6d6780ac301ed4cabb9"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5480740100,
+          "mean": 28545521.354166668,
+          "sample_stddev": 3921726.6281017805,
+          "p95": 34436790.0
+        },
+        "public_step_ms": {
+          "mean": 28.545521354166667,
+          "sample_stddev": 3.9217266281017804,
+          "p95": 34.43679
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "byte_identical_across_repeats": true,
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "max_overlap_pairs": 0,
+        "final_tick": 256,
+        "final_overlap_pairs": 0
+      },
+      "resource_boundary": {
+        "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+        "completed_owners_still_holding": 0,
+        "extra_observation_ns": 458731800,
+        "longest_multi_owner_zone_ms": 0,
+        "max_continuous_stop_ms": 6897,
+        "max_open_reservation_age_ms": 5676,
+        "max_released_reservation_ms": 0,
+        "multi_owner_enter_observations": 0,
+        "multi_owner_zone_ms": 0,
+        "observed_completed": 4190,
+        "open_passages": 4870,
+        "open_reservations": 1343,
+        "released_reservations": 0,
+        "ticks": 256,
+        "unmatched_clear_events": 0
+      }
+    }
+  ],
+  "aggregate": {
+    "run_means_ns": [
+      28414658.333333332,
+      28718000.520833332,
+      28316233.854166668,
+      28545521.354166668
+    ],
+    "mean_of_run_means_ns": 28498603.515625,
+    "range_of_run_means_ns": 401766.6666666642,
+    "sample_stddev_of_run_means_ns": 173821.57184712423,
+    "displayed_ms": {
+      "mean_of_run_means": 28.499,
+      "range_of_run_means": 0.402,
+      "sample_stddev_of_run_means": 0.174
+    }
+  },
+  "traffic_equivalence": {
+    "quality_ticks_events_sha256_equal_across_four_repeats": true,
+    "final_checkpoint_equal_across_four_repeats": true,
+    "max_overlap_pairs": 0,
+    "completed_owners_still_holding": 0,
+    "boundary": "four consecutive 256-tick short runs; this is a within-batch repeatability observation, not long-window traffic certification"
+  },
+  "interpretation": {
+    "evidence_backed_observation": "the four run means span 401766.6666666642 ns, displayed as 0.402 ms",
+    "use": "a candidate difference smaller than this observed within-batch range is not treated as a stable win in this research series; the existing two-after-below-two-before rule still applies within each candidate batch",
+    "limit": "this observed range is not a universal hardware threshold, confidence interval, or final product performance gate"
+  },
+  "limitations": [
+    "short-prefix emitted no harness execution_id; the envelope uses ordered evidence_run_id values plus exact binary, fixture, plan, configuration, and complete output-tree identities",
+    "the original runs did not retain per-run memory, AC, vendor-mode, or wall-clock start snapshots",
+    "the compact report preserves public_step_ns samples only; complete source outputs remain external and are byte-identified here"
+  ]
+}
