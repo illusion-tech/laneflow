@@ -12,7 +12,7 @@ input_diff = "input-diff.md"
 frozen_plan_replay = "evidence/frozen-plan-replay.json"
 formal_r1_evidence = "evidence/formal-r1-evidence.json"
 retained_best_manifest = "evidence/retained-best-evidence-manifest.json"
-retained_best_source_patch = "evidence/retained-best-source.patch.gz"
+retained_best_source_patch = "evidence/retained-best-source-patch.tar.zst"
 retained_best_release = "evidence/retained-best-release.json"
 retained_best_prefix_results = [
     "evidence/retained-best-old1-prefix-result.json",

@@ -14,10 +14,11 @@
     "base_tree": "e88e559539042fad0b919c980af13c003542be41",
     "patch": {
       "committed_archive": {
-        "path": "evidence/retained-best-source.patch.gz",
-        "compression": "gzip",
-        "bytes": 66139,
-        "sha256": "e98f97f49bf187db7dbb043577c6ae1d2935019b084b050ec685e6da68bcd3ad"
+        "path": "evidence/retained-best-source-patch.tar.zst",
+        "format": "tar+zstd",
+        "member": "retained-best-source.patch",
+        "bytes": 68633,
+        "sha256": "224942692702f9ec7d6699109473f884e876a2a5c2ad7f8221c73bc1e87e7a58"
       },
       "package_plain": {
         "path": "retained-best-source.patch",
@@ -123,15 +124,18 @@
     "tag": "research-evidence-707-m16-best-19bf7ecb",
     "title": "[Research Evidence] #707 M16 frozen best",
     "prerelease": true,
+    "archive_tool": "bsdtar 3.8.8; libzstd 1.5.7",
     "evidence_asset": {
-      "name": "issue-707-m16-best-19bf7ecb5dfd.zip",
-      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.zip"
+      "name": "issue-707-m16-best-19bf7ecb5dfd.tar.zst",
+      "format": "tar+zstd",
+      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.tar.zst"
     },
     "fixture_asset": {
-      "name": "issue-707-m16-fixture-8b4294eb5ca8.zip",
-      "bytes": 57016862,
-      "sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
-      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.zip",
+      "name": "issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+      "format": "tar+zstd",
+      "bytes": 34900526,
+      "sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
+      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
       "retention": "retained with the Research Evidence prerelease; input/ plus plan.toml and inventory.json"
     }
   },
@@ -327,10 +331,11 @@
       "input/inventory.json"
     ],
     "large_file_retention": {
-      "asset_name": "issue-707-m16-fixture-8b4294eb5ca8.zip",
-      "bytes": 57016862,
-      "sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
-      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.zip",
+      "asset_name": "issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+      "format": "tar+zstd",
+      "bytes": 34900526,
+      "sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
+      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
       "contents": [
         "input/",
         "plan.toml",
@@ -1017,11 +1022,11 @@
     }
   ],
   "fresh_checkout_validation": {
-    "performed_at_utc": "2026-09-27T17:36:45.9456178Z",
-    "source": "new empty directory populated only by extracting the prepared evidence and fixture archives",
+    "performed_at_utc": "2026-09-27T17:52:01.1467769Z",
+    "source": "new empty directory populated only by extracting the prepared tar+zstd evidence and fixture archives",
     "evidence_archive_sha256": null,
     "evidence_archive_identity_note": "the outer archive contains this manifest, so its non-self-referential SHA-256 is recorded by retained-best-release.json",
-    "fixture_archive_sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
+    "fixture_archive_sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
     "fixture_files_verified_against_manifest": 11,
     "binary_sha256": "19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602",
     "command_shape": "harness-m16-plain.exe short-prefix <downloaded-fixture>/input <downloaded-fixture>/plan.toml <output> 4 8",
@@ -1052,7 +1057,7 @@
       "extended_quality": {
         "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
         "completed_owners_still_holding": 0,
-        "extra_observation_ns": 3915800,
+        "extra_observation_ns": 4027000,
         "longest_multi_owner_zone_ms": 0,
         "max_continuous_stop_ms": 66,
         "max_open_reservation_age_ms": 0,

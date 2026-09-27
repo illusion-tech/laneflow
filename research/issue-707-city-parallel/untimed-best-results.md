@@ -47,12 +47,12 @@ Evidence 制品共同绑定：
 
 - manifest：[`retained-best-evidence-manifest.json`](evidence/retained-best-evidence-manifest.json)
 - 源码：基线 `4de40e045398e4b010b2aa36522afc02a4094c4d` 加
-  [`retained-best-source.patch.gz`](evidence/retained-best-source.patch.gz)；解压后明文补丁
+  [`retained-best-source-patch.tar.zst`](evidence/retained-best-source-patch.tar.zst)；归档内明文补丁
   SHA-256 为 `c15fbaf8ffbf4cf0a61c72d2644804412846e9ab0ae2d29b860b85fd1c82abc7`
 - 精确二进制：draft Research Evidence prerelease 的
-  `issue-707-m16-best-19bf7ecb5dfd.zip`；草稿身份和上传摘要见
+  `issue-707-m16-best-19bf7ecb5dfd.tar.zst`；草稿身份和上传摘要见
   [`retained-best-release.json`](evidence/retained-best-release.json)
-- 运行输入：同一草稿的 `issue-707-m16-fixture-8b4294eb5ca8.zip`，保存 `input/`、
+- 运行输入：同一草稿的 `issue-707-m16-fixture-8b4294eb5ca8.tar.zst`，保存 `input/`、
   `plan.toml` 与 `inventory.json`
 - SHA-256：
   `19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602`
