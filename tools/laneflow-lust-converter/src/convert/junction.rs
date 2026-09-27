@@ -260,14 +260,13 @@ fn resolve_owner(
 
     let mut int_owners = HashSet::new();
     for lane_id in internal_lane_ids {
-        let owner = owners_by_int_lane.get(lane_id.as_str()).copied().ok_or_else(|| {
-            Error::SumoModel(format!(
-                "internal lane {lane_id:?} is not listed in any junction@intLanes"
-            ))
-        })?;
-        int_owners.insert(owner);
+        // 未被任何 @intLanes 认领的内边不参与交叉校验：SUMO 里存在只出现在
+        // 内部节点 @incLanes 的内边（如 :-24112_2_0），归属以穿越端点为准。
+        if let Some(owner) = owners_by_int_lane.get(lane_id.as_str()) {
+            int_owners.insert(*owner);
+        }
     }
-    if !internal_lane_ids.is_empty() {
+    if !int_owners.is_empty() {
         if int_owners.len() != 1 {
             return Err(Error::SumoModel(format!(
                 "internal lanes {:?} span multiple junction owners {:?}",
@@ -295,14 +294,83 @@ fn resolve_owner(
 }
 
 fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
-    let mut owners = HashMap::new();
+    // SUMO 路口簇模型（LuST 有 1855 个 type="internal" 内部节点）：
+    // - road junction 的 @intLanes 直接列出部分内边，同时把内部节点 id
+    //   以"lane 同名"的形式一并列出；
+    // - 其余内边只被内部节点列出（如 :-11042_13_0 仅见于 :-11042_14_0 /
+    //   :-11042_16_0 的 @intLanes，road junction -11042 并不列它）。
+    // 归属权威只在 road junction：内部节点先归并到簇，再间接解析内边归属。
+    let is_internal = |id: &str| {
+        network
+            .junction(id)
+            .is_some_and(|junction| junction.junction_type == "internal")
+    };
+
+    // 第一遍：road junction 直接列出的内边 + 内部节点 → 簇的父映射种子。
+    let mut owners: HashMap<&str, &str> = HashMap::new();
+    let mut cluster_parent: HashMap<&str, &str> = HashMap::new();
     for junction in &network.junctions {
+        if !junction.can_own_road_junction() {
+            continue;
+        }
         for lane_id in &junction.int_lane_ids {
+            if is_internal(lane_id) {
+                cluster_parent.insert(lane_id.as_str(), junction.id.as_str());
+            }
             if let Some(previous) = owners.insert(lane_id.as_str(), junction.id.as_str()) {
                 return Err(Error::SumoModel(format!(
                     "internal lane {lane_id:?} listed in both junction {previous:?} and {:?}",
                     junction.id
                 )));
+            }
+        }
+    }
+
+    // 第二遍：嵌套内部节点的父映射不动点（内部节点再列出内部节点）。
+    loop {
+        let mut changed = false;
+        for junction in &network.junctions {
+            if junction.junction_type != "internal" {
+                continue;
+            }
+            let Some(&parent) = cluster_parent.get(junction.id.as_str()) else {
+                continue;
+            };
+            for lane_id in &junction.int_lane_ids {
+                if is_internal(lane_id)
+                    && !cluster_parent.contains_key(lane_id.as_str())
+                {
+                    cluster_parent.insert(lane_id.as_str(), parent);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // 第三遍：只被内部节点列出的内边，经簇父映射间接归并到 road junction。
+    for junction in &network.junctions {
+        if junction.junction_type != "internal" {
+            continue;
+        }
+        let Some(&parent) = cluster_parent.get(junction.id.as_str()) else {
+            continue;
+        };
+        for lane_id in &junction.int_lane_ids {
+            if is_internal(lane_id) {
+                continue;
+            }
+            match owners.insert(lane_id.as_str(), parent) {
+                Some(previous) if previous != parent => {
+                    return Err(Error::SumoModel(format!(
+                        "internal lane {lane_id:?} resolves to conflicting junction owners \
+                         {previous:?} and {parent:?} (via internal junction {:?})",
+                        junction.id
+                    )));
+                }
+                _ => {}
             }
         }
     }
