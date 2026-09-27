@@ -19,9 +19,10 @@
 下文 pilot/正式窗口流程是既有实验记录，不自动成为每个候选的研究门槛。
 多 profile 的新增输入、覆盖检查及局部时窗实验边界见[多 gap profile 夹具](multi-gap-fixtures.md)。
 下一阶段的代码原型、速度与交通结果见[入口候选与局部时窗结果](entry-frontier-results.md)。
-后续 [P3 / Waiting 工作范围实验](scope-results.md)已完成：100k 平衡复测均值
-52.750 → 44.038ms；新增共享目标多读者与混合转向夹具，并记录城市长等待问题。
-预检、收尾实验见[上一轮结果](finalize-results.md)。最新的
+后续 [P3 / Waiting 工作范围实验](scope-results.md)的作者本地历史记录为 100k
+平衡复测 52.750 → 44.038ms；新增共享目标多读者与混合转向夹具，并记录城市
+长等待问题。该切片及[预检、收尾实验](finalize-results.md)的原始结果与逐步源码
+增量未入库，数字不可从全新克隆独立复算，只作历史筛选上下文。最新的
 [边界变化与四拍控制复用结果](boundary-results.md)确认 B1 的约 5.44% 增量收益，
 B2 因负收益淘汰，并定位了红灯停止线 ETA=0 阻挡绿灯的样本。
 设计背景见[Motion 边界变化计划](motion-boundary-next-plan.md)。
@@ -66,8 +67,9 @@ P5 的布局尝试结束。后续
 [持久近门集合](near-set-results.md)已淘汰：集合仍是 2,449 辆车、564 个
 目标，短窗输出不变，但逐车读缓存槽使 frontier 没有下降，运动消费多
 1.64 ms。后续
-[已持有状态上的近门集合](held-set-results.md)已保留：frontier 少 2.019 ms，
-Core 少 1.162 ms，短窗输出与 M3 一致。后续
+[已持有状态上的近门集合](held-set-results.md)中的 frontier 少 2.019ms、Core 少
+1.162ms 是作者本地历史插桩诊断，原始输出未作为项目证据保留，不作为可移植的
+保留证明。后续
 [同边前车直接读](same-edge-leader-results.md)已淘汰：分发少 0.561 ms，
 占用重建多 1.192 ms，Core 没有留下净收益，短窗输出不变。
 [无计时最佳候选](untimed-best-results.md)已封存：同一二进制上 old 的
