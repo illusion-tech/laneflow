@@ -2,8 +2,9 @@
 # pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
 # 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
 # 8 份现场核查、diagnostics、comparison 原始小封套，以及 4 份 D1/D2 电源边界记录；
-# WPR trace/导出另有 1 份不可变身份记录。M16 retained-best 另绑定
-# 源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke 小封套。
+# WPR trace/导出另有 1 份不可变身份记录和 23 份隐私筛选紧凑报告。M16 retained-best
+# 另绑定源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke
+# 小封套；M21 校准审计另绑定五文件 Rust 增量、机器 manifest 与 4 份紧凑结果。
 # 大文件（逐拍日志、LFCA、计划本体）不入 Git；冻结 EXE 进入独立 Research
 # Evidence prerelease，不进入普通 Git 历史。
 
@@ -13,6 +14,41 @@ input_diff = "input-diff.md"
 frozen_plan_replay = "evidence/frozen-plan-replay.json"
 formal_r1_evidence = "evidence/formal-r1-evidence.json"
 wpr_trace_identities = "evidence/wpr-trace-identities.json"
+wpr_b1_reports = [
+    "evidence/wpr-b1/analysis.json",
+    "evidence/wpr-b1/capture.json",
+    "evidence/wpr-b1/identity.json",
+    "evidence/wpr-b1/provenance.json",
+    "evidence/wpr-b1/verification.json",
+    "evidence/wpr-b1/trace-stats.txt",
+    "evidence/wpr-b1/frequency.txt",
+    "evidence/wpr-b1/rundown.txt",
+    "evidence/wpr-b1/hotspots-exclusive-hits.csv",
+    "evidence/wpr-b1/hotspots-exclusive-weighted.csv",
+    "evidence/wpr-b1/hotspots-inclusive.csv",
+    "evidence/wpr-b1/thread-activity.csv",
+    "evidence/wpr-b1/caller-callee.csv",
+]
+wpr_l3_reports = [
+    "evidence/wpr-l3/early-harness-timeline.csv",
+    "evidence/wpr-l3/early-top-symbols.csv",
+    "evidence/wpr-l3/early-stats.txt",
+    "evidence/wpr-l3/early-frequency.txt",
+    "evidence/wpr-l3/early-rundown.txt",
+    "evidence/wpr-l3/late-harness-timeline.csv",
+    "evidence/wpr-l3/late-top-symbols.csv",
+    "evidence/wpr-l3/late-stats.txt",
+    "evidence/wpr-l3/late-frequency.txt",
+    "evidence/wpr-l3/late-rundown.txt",
+]
+calibration_audit_manifest = "evidence/calibration-audit-manifest.json"
+calibration_audit_source_patch = "evidence/calibration-audit-source-patch.tar.zst"
+calibration_audit_outputs = [
+    "evidence/calibration-audit.json",
+    "evidence/calibration-prefix-result.json",
+    "evidence/calibration-gap-inventory.json",
+    "evidence/calibration-extended-quality.json",
+]
 formal_r1_power_boundaries = [
     "evidence/formal-power-10k-w1.txt",
     "evidence/formal-power-10k-w4.txt",

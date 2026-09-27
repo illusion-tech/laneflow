@@ -127,21 +127,22 @@ L3 只有 w4，早晚车辆状态和命令组合不同。
 本次没有证明 w4 后段增量的唯一根因，也没有优化收益数值。它将“调度长期
 饿死/辅助线程持续空转”的优先级降低，并给出了可落地的命令与阶段诊断边界。
 
-## 5. 本地复核产物
+## 5. 复核产物
 
-派生报告位于 `E:/projects/laneflow/target/issue707-l3-analysis-20260921/`，属于
-Git 忽略的可再生分析目录，不替代证据根的原文件：
+派生报告原件位于 `E:/projects/laneflow/target/issue707-l3-analysis-20260921/`。
+仓库在 [`evidence/wpr-l3/`](evidence/wpr-l3/) 提交 10 份隐私筛选后的紧凑副本：
 
-- `export.ps1`、`export-ranges.ps1`：本次实际 xperf 导出入口。
-- `early/late-stats.txt`、`*-rundown.txt`：完整性和裁剪边界。
-- `*-activity.txt`、`*-harness-timeline.csv`：逐秒 Running 明细。
-- `*-range-symbols.txt`：表中采用的裁剪区间函数分布。
-- `*-symbols.txt`、`*-top-symbols.csv`：整份 trace 分布，只作辅助，不作为本表分母。
-- `*-util.txt`、`*-frequency.txt`：采样覆盖与采样周期；不是 CPU 运行频率。
+- 已提交：早/晚窗 `*-stats.txt`、`*-rundown.txt`、`*-frequency.txt`、
+  `*-harness-timeline.csv` 与 `*-top-symbols.csv`。提交副本只统一文本换行；来源与
+  提交副本身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+- 外部保留：`export.ps1`、`export-ranges.ps1`、`*-activity.txt`、
+  `*-range-symbols.txt`、完整 `*-symbols.txt` 和 `*-util.txt`。全系统导出含无关进程
+  标签和/或机器本地路径，不进入 Git；非 Rust 导出脚本也不进入本仓库交付。
 - `SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/`：与两份
   ETL CodeView 身份一致的保留符号缓存；不能替代缺失的原 PDB 做任意重符号化。
 
-原始 ETL 字节数分别为 1154482176、3331325952。后续 #734 收尾时可将本摘要及
-来源索引纳入交付；两份 ETL、元数据及本节列出的匹配离线导出均已在
-[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)登记字节数与
-SHA-256，大文件仍留在外部证据根。
+两份原始 ETL 字节数分别为 1154482176、3331325952；它们与外部完整导出均在机器
+记录中登记字节数与 SHA-256，大文件继续留在外部证据根。使用 bsdtar 3.8.8 与
+libzstd 1.5.7 默认压缩的标准输出计数表明，B1、L3 early、L3 late 三份 ETL 各自的
+`tar.zst` 均无需分片，合计约 695.430 MiB；本次没有落盘压缩包，因而没有压缩包
+SHA-256。该结果只回答容量问题，不解除 ETL 隐私复核或 L3 原精确 EXE/PDB 缺失边界。
