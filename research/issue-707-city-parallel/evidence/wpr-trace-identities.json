@@ -1,0 +1,206 @@
+{
+  "schema": "laneflow-issue-707-wpr-trace-identities-v1",
+  "computed_at": "2026-09-27T18:13:41.3459691Z",
+  "hash_algorithm": "SHA-256",
+  "scope": "immutable identities for the external B1 and L3 ETL traces and the exact offline reports cited by the versioned findings; large trace files remain outside Git",
+  "b1": {
+    "root": "E:/projects/laneflow/target/issue707-b1-wpr-20260922",
+    "files": [
+      {
+        "relative_path": "b1.etl",
+        "bytes": 1311768576,
+        "sha256": "42c47b65307dd19852492ae486d361ab5f99517608075c3470315b007ec211fc"
+      },
+      {
+        "relative_path": "symbols-5-40.txt",
+        "bytes": 281899,
+        "sha256": "ff755663cb487824434a0ba96ec00d53463b4c5749e2fd81dcddc31d1d5f369e"
+      },
+      {
+        "relative_path": "stacks-profile-5-40.html",
+        "bytes": 2068337,
+        "sha256": "ed9cd181472f277b76aa76dc824a70d3c2dee75f357763e6b747c5a1519e8980"
+      },
+      {
+        "relative_path": "activity.txt",
+        "bytes": 273191,
+        "sha256": "050267d27f358a6cbcb3af7ad62d84d48154ac17583a8efcb8d6b104f1c66739"
+      },
+      {
+        "relative_path": "trace-stats.txt",
+        "bytes": 943,
+        "sha256": "2746d714140ae8088a6f8f271d4d5a756092dd23a817299d70f2a4e09aa07f2d"
+      },
+      {
+        "relative_path": "frequency.txt",
+        "bytes": 90,
+        "sha256": "d86558057ca9104fa70f32edbd2084046b986f1647431370563866c3b3f4513e"
+      },
+      {
+        "relative_path": "rundown.txt",
+        "bytes": 103,
+        "sha256": "0f077737a4fde6b6326a17e6847946c81a90e4b3e026a814a3b3db089a759a6d"
+      },
+      {
+        "relative_path": "analysis.json",
+        "bytes": 4413,
+        "sha256": "63314a0a5545af58689cf8091b55ceb2ab65a991b96500655087864d78611de8"
+      },
+      {
+        "relative_path": "identity.json",
+        "bytes": 3274,
+        "sha256": "6c01cb5d6356133902ef5d6d63424131a111d09942144da72b84648f2b8fd1df"
+      },
+      {
+        "relative_path": "capture.json",
+        "bytes": 728,
+        "sha256": "4b710943ef6b250e7eb53a9091753598de971eecd04ae5fbc86a734992bfb9fa"
+      },
+      {
+        "relative_path": "provenance.json",
+        "bytes": 25750,
+        "sha256": "3147145b9b8a729c23eb9956c4e0f16a2f6a0d5af7e44bbf229d86d7d49220cc"
+      },
+      {
+        "relative_path": "verification.json",
+        "bytes": 336,
+        "sha256": "ac8d2849156e201e1d72b0876e5684c7b82d9e11b5d5415c115a08269e646594"
+      }
+    ]
+  },
+  "l3": {
+    "roots": {
+      "evidence": "E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/wpr",
+      "analysis": "E:/projects/laneflow/target/issue707-l3-analysis-20260921"
+    },
+    "files": [
+      {
+        "root": "evidence",
+        "relative_path": "l3-w4-early.etl",
+        "bytes": 1154482176,
+        "sha256": "39461dd8b147ff8688e3bdb49a13a7c8e7f78d9b2220bfa6227fe835be8edd52"
+      },
+      {
+        "root": "evidence",
+        "relative_path": "l3-w4-late.etl",
+        "bytes": 3331325952,
+        "sha256": "279df9d9e222f838b3d86eb64b7cca0bb9b18901b45dcb5b705d377601d6ae89"
+      },
+      {
+        "root": "evidence",
+        "relative_path": "l3-w4-meta.txt",
+        "bytes": 1622,
+        "sha256": "3fafc911e608d11f8db5aa4dd6f04e2c8bfc4588f02e3cd9d2e9c4463ab2b660"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-activity.txt",
+        "bytes": 429524,
+        "sha256": "49743285f67ece18b1095b7cda2c87240db201bc5791cea5b4e4edad99f8dc5c"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-frequency.txt",
+        "bytes": 90,
+        "sha256": "b2a560a9b015a99a51de10921d93aa01ea0ff92efe82628a7eeff2e9f5505a51"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-harness-timeline.csv",
+        "bytes": 4602,
+        "sha256": "d34e8c67fa33d98f57492a06b78eadf4b4b88c9f6c52c4fa3da0ec808e1cda68"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-range-symbols.txt",
+        "bytes": 348108,
+        "sha256": "455961abe1c6c863d843dd8635771ddd4c3509cffe25848becadbb564ae02fa3"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-rundown.txt",
+        "bytes": 103,
+        "sha256": "821ddebed3a618f9cf9337fd4ae65e47f32e3cbf7c9334b8ba5badc73c580721"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-stats.txt",
+        "bytes": 964,
+        "sha256": "5896a0740ade967d070edb5dd7dafa8fe0adc48fd82019af791ebe887c6f40ad"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-symbols.txt",
+        "bytes": 408831,
+        "sha256": "ad798144d130ac8d15b091a7c2e29624597eddf75ddcb9d7393ab5182dea3b83"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-top-symbols.csv",
+        "bytes": 4088,
+        "sha256": "8586bd6876fa22af8ce8819455f3cf7505130db53e1c8ca7dd4b458ff02fc8e3"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-util.txt",
+        "bytes": 29596,
+        "sha256": "da5520acfbf48ab5f00f1a2da07f788efb6aa2d6b842ee960427d498be951280"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-activity.txt",
+        "bytes": 1269015,
+        "sha256": "8fa70c243d435c53f7cf27a723aaa38007b2a5f200c69c28218c67c09de72bf6"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-frequency.txt",
+        "bytes": 90,
+        "sha256": "294fc453f26bc3f2c5eafeb5c4dc0e984f4731a62f78992bcbf2b0e71db9b8ac"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-harness-timeline.csv",
+        "bytes": 12149,
+        "sha256": "8143916b6fc3c93288b707fc578e88adf66594820cd3c1e20aa933c44d9b4bac"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-range-symbols.txt",
+        "bytes": 770162,
+        "sha256": "4e024dcc4a1dfe9c378cfc298bcc0c58d23c07fcbbc155581a527d8911191768"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-rundown.txt",
+        "bytes": 103,
+        "sha256": "0b4f2659b3b4b5d03404fc73928e1e191b6c6f83ead998d48ed1289d6944b592"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-stats.txt",
+        "bytes": 963,
+        "sha256": "88326f093010ef65d59ef885a95e40a7d6e8996a1d982311217dd4ce886a8645"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-symbols.txt",
+        "bytes": 850479,
+        "sha256": "e372d82bc2564817da399ab31525f22a05fe2d06c42fcac820957dac858dd781"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-top-symbols.csv",
+        "bytes": 4219,
+        "sha256": "a778bcda3e525e067a04240a1a18c0ed9f88d92735a55208677efd3bdcbd46a0"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-util.txt",
+        "bytes": 73678,
+        "sha256": "b9848a52bdc53f130350c3bce7d1036811ac0664f85b7fd19c5f120502b9f6e8"
+      }
+    ]
+  },
+  "conclusion": "all cited traces and matching report exports have byte size and SHA-256 identities; this binds existing diagnostics without rerunning or expanding their claims"
+}

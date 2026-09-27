@@ -24,7 +24,10 @@ Core 内仍应优先研究运动约束查询与车辆状态迁移，不宜继续
 - Windows build 29671，32 逻辑处理器，平衡电源方案。普通权限 Harness PID 22568；
   提权辅助进程仅执行 WPR。录制前无已有 WPR 会话，录制后已停止。
 - 在观察到第 128 拍完成后启动内置 `CPU.Verbose.File`，启动返回后约 45 秒请求停止。
-  ETL 为 1,311,768,576 字节，采样周期 1ms；lost events / lost buffers 均为 0。
+  `b1.etl` 为 1,311,768,576 字节，SHA-256 为
+  `42c47b65307dd19852492ae486d361ab5f99517608075c3470315b007ec211fc`；
+  采样周期 1ms，lost events / lost buffers 均为 0。匹配的符号、活动和调用栈导出
+  身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
 - ETL 起点为日本时间 **00:59:54.2520924**；统一分析相对 **[5s, 40s)**，即连续
   35 秒，早于 46.546s 开始的 rundown。全 ETL 长 69.729s，包含尾部处理，不能
   当作有效样本窗。WPR stop/merge 另耗约 117.5s，不能当作仿真运行耗时。
@@ -143,6 +146,8 @@ Core 的下一条独立研究线仍是运动约束查询；红灯停止线 ETA=0
 
 本机证据根：`E:/projects/laneflow/target/issue707-b1-wpr-20260922/`。
 这是本地诊断制品目录，不是已提交到仓库的证据包。
+仓库只提交上述 trace 与匹配报告的字节数和 SHA-256，不复制 1.3GB ETL；机器可读
+身份以 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json) 为准。
 
 - `identity.json`、`capture.json`、`recording-*.json`：源码/输入/二进制身份与采集时刻。
 - `b1.etl`、匹配的 `binaries/*.pdb`：原始 trace 与应用符号。
