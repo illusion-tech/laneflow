@@ -1,7 +1,7 @@
 # #707 H1：完整观测保持不变的 Harness 去重
 
-2026-09-22。用户已授权开始 H1。承接 [B1 WPR 诊断](b1-wpr-findings.md)与
-[评估并行执行](chatgpt-conversation://6ab15a67-bc0c-83e8-96dd-40256f9c397a)。
+2026-09-22。用户已授权开始 H1；本文件的目标、原型边界和验证步骤是该授权范围的
+版本化记录，不依赖私有会话链接。承接 [B1 WPR 诊断](b1-wpr-findings.md)。
 本切片已完成，见 [H1 结果](harness-dedup-results.md)：完整观测不变，observation
 均值下降 13.61%，iteration 下降 9.29%；Core 没有明确改善。下文保留实验设计。
 
