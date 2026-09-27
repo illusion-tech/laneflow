@@ -5,7 +5,10 @@
 # WPR trace/导出另有 1 份不可变身份记录和 25 份隐私筛选紧凑报告。M16 retained-best
 # 另绑定源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke
 # 小封套；四次 M16 A/A 重复另绑定完整输出树身份与 768 个逐拍紧凑样本；M21 校准
-# 审计另绑定五文件 Rust 增量、机器 manifest 与 4 份紧凑结果。M2 屏障跳过另绑定
+# 审计另绑定五文件 Rust 增量、机器 manifest 与 4 份紧凑结果。B1/H1 保留链另绑定
+# 三份 Rust/Cargo 二进制 Git 补丁、两份机器 manifest、两份原始摘要、各 1,792 个
+# ABBA 逐拍样本，以及 B1 的 376 个结果身份和 H1 的 309 个历史证据文件身份。
+# M2 屏障跳过另绑定
 # 三份 Rust/Cargo 二进制 Git 补丁、十次完整输出树身份与 1,920 个逐拍紧凑样本；
 # M3 稠密 binding 另绑定两份 Rust/Cargo 二进制 Git 补丁、四次完整输出树身份与
 # 768 个逐拍紧凑样本；M8 frontier 复用同样绑定两份 Rust/Cargo 二进制 Git 补丁、
@@ -19,6 +22,13 @@ input_diff = "input-diff.md"
 frozen_plan_replay = "evidence/frozen-plan-replay.json"
 formal_r1_evidence = "evidence/formal-r1-evidence.json"
 wpr_trace_identities = "evidence/wpr-trace-identities.json"
+retained_foundation_source_patch = "evidence/retained-foundation-source-patch.tar.zst"
+boundary_manifest = "evidence/boundary-evidence-manifest.json"
+boundary_summary = "evidence/boundary-summary.json"
+boundary_public_step = "evidence/boundary-public-step.csv"
+harness_dedup_manifest = "evidence/harness-dedup-evidence-manifest.json"
+harness_dedup_summary = "evidence/harness-dedup-summary.json"
+harness_dedup_public_step = "evidence/harness-dedup-public-step.csv"
 motion_barrier_manifest = "evidence/motion-barrier-evidence-manifest.json"
 motion_barrier_source_patch = "evidence/motion-barrier-source-patch.tar.zst"
 motion_barrier_public_step = "evidence/motion-barrier-public-step.csv"

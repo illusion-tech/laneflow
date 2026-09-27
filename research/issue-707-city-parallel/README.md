@@ -29,6 +29,9 @@ B2 因负收益淘汰，并定位了红灯停止线 ETA=0 阻挡绿灯的样本�
 入口占目标进程 CPU 样本 46.26%；Core 重点仍是运动约束查询与车辆状态迁移。
 后续 [H1 完整观测去重](harness-dedup-results.md)已完成：100k ABBA 的 observation
 均值下降 13.61%、iteration 下降 9.29%，观测内容与频率保持，Core 没有明确改善。
+B1/H1 的可移植封套现已保存精确 Rust/Cargo 源码、各 1,792 个 ABBA 逐拍样本、
+原始摘要，以及 B1 的 376 个结果身份/H1 的 309 个历史证据文件身份；入口见
+[`evidence-index.toml`](evidence-index.toml)。
 后续 [C1 门控规则复用](constraint-reuse-results.md)完成诊断、审计与 ABBA/BAAB：
 门控重复查询约 88.44%，但候选没有稳定净收益，已淘汰；继续保留 B1 + H1。
 后续 [Motion 四段成本](motion-phase-results.md)已量完：约束查询是最大段，
