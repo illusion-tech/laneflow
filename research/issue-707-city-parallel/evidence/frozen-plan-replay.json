@@ -1,0 +1,212 @@
+{
+  "schema": "laneflow-issue-707-frozen-plan-replay-v1",
+  "captured_at": "2026-09-27T16:55:32.9387245Z",
+  "source_commit": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+  "source_tree": "e88e559539042fad0b919c980af13c003542be41",
+  "source_export": "git archive of source_commit; no working-tree overlay",
+  "toolchain": {
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "profile": "release",
+    "locked": true,
+    "offline": true,
+    "incremental": false,
+    "cargo_lock_sha256": "d84d1ef3ff31ad3bc5c87541014a126defd536f80d2d1097c9c92b2a005e26ba"
+  },
+  "harness": {
+    "bytes": 3805184,
+    "sha256": "4d0a060e43c396148c9a347f327cc04fb09bd2c3cc740a472a5f19437360171e",
+    "plan_rs_blob": "5a00fa1dbf3bafd7260af43c4d78faab2682f88d",
+    "artifacts_rs_blob": "934caeba82c8106f7d926a6a875d4b577e49ebf4"
+  },
+  "artifact_content_source": "issue-707/4de40e04/inputs/urban-{scale}; every file checked against the versioned frozen manifest",
+  "replay_method": "replace the rebuilt manifest with the versioned frozen manifest, preserve manifest-bound content bytes, then run the archived harness plan command",
+  "frozen_plan_index": {
+    "path": "tools/laneflow-urban-harness/fixtures/v3/plans.json",
+    "sha256": "35f22ae6715c44ba3182a2889c2b2913214795787ee1698ed94502b94dfb115f"
+  },
+  "reproduction": {
+    "export": "git archive --format=tar --output=<archive> 4de40e045398e4b010b2aa36522afc02a4094c4d",
+    "build": "CARGO_INCREMENTAL=0 cargo +1.98.0 build --release --locked --offline -p laneflow-urban-harness",
+    "plan": "laneflow-urban-harness plan <content-files-plus-versioned-frozen-manifest> <new-plan>"
+  },
+  "scales": [
+    {
+      "scale": "10k",
+      "manifest": {
+        "bytes": 12563,
+        "sha256": "e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d",
+        "blob_at_40127704": "591db2887d8e6ff82f832068b27606884b665bb0",
+        "blob_at_4de40e04": "591db2887d8e6ff82f832068b27606884b665bb0",
+        "blob_stable": true,
+        "rebuilt_bytes": 12563,
+        "rebuilt_sha256": "d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd",
+        "rebuilt_difference_fields": [
+          "shared_headless_retained_bytes",
+          "shared_spatial_retained_bytes"
+        ]
+      },
+      "content_files": [
+        {
+          "name": "common.lfre",
+          "expected_bytes": 1024,
+          "actual_bytes": 1024,
+          "expected_sha256": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+          "actual_sha256": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+          "match": true
+        },
+        {
+          "name": "config.toml",
+          "expected_bytes": 1301,
+          "actual_bytes": 1301,
+          "expected_sha256": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+          "actual_sha256": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+          "match": true
+        },
+        {
+          "name": "genesis.lfsd",
+          "expected_bytes": 17123970,
+          "actual_bytes": 17123970,
+          "expected_sha256": "f48a5585eb2908c78a9c9e589b73dc59c9fc046d15d62d14c1906f8c72a91057",
+          "actual_sha256": "f48a5585eb2908c78a9c9e589b73dc59c9fc046d15d62d14c1906f8c72a91057",
+          "match": true
+        },
+        {
+          "name": "network.lfca",
+          "expected_bytes": 16240189,
+          "actual_bytes": 16240189,
+          "expected_sha256": "c97872ecd20a39e76c9d007ec28cc28dc5b317358f6c5a69a8c9cce8c3722210",
+          "actual_sha256": "c97872ecd20a39e76c9d007ec28cc28dc5b317358f6c5a69a8c9cce8c3722210",
+          "match": true
+        },
+        {
+          "name": "routes.toml",
+          "expected_bytes": 932336,
+          "actual_bytes": 932336,
+          "expected_sha256": "8f4118c64330b0621b8425a2881d39377b1cec7e733ddfc91998e6960223e413",
+          "actual_sha256": "8f4118c64330b0621b8425a2881d39377b1cec7e733ddfc91998e6960223e413",
+          "match": true
+        },
+        {
+          "name": "source-map.lfsm",
+          "expected_bytes": 21305129,
+          "actual_bytes": 21305129,
+          "expected_sha256": "ce98f1d59ff10ae3509ef3299313f46a68ca83cb1a36e521ea6ccc6dc9d969e4",
+          "actual_sha256": "ce98f1d59ff10ae3509ef3299313f46a68ca83cb1a36e521ea6ccc6dc9d969e4",
+          "match": true
+        },
+        {
+          "name": "topology.lfre",
+          "expected_bytes": 2487784,
+          "actual_bytes": 2487784,
+          "expected_sha256": "ddaa0785d9d4239dde6c83025e996df5356a931ad0335fffa4b0cea43916a4cc",
+          "actual_sha256": "ddaa0785d9d4239dde6c83025e996df5356a931ad0335fffa4b0cea43916a4cc",
+          "match": true
+        }
+      ],
+      "all_content_files_match": true,
+      "replayed_plan": {
+        "bytes": 4057834,
+        "sha256": "d0e58a7c9515ca22bfbee4352e9685279709d43b488e7b34dc0c6b7b389998c9",
+        "frozen_bytes": 4057834,
+        "frozen_sha256": "d0e58a7c9515ca22bfbee4352e9685279709d43b488e7b34dc0c6b7b389998c9",
+        "exact_match": true,
+        "rebuilt_bytes": 4057834,
+        "rebuilt_sha256": "1fe166ef8892e56fbe5316de83edfe8ed8ea74087cf0f20ac24b11ae92448880",
+        "rebuilt_difference_fields": [
+          "manifest_digest"
+        ],
+        "all_other_lines_match": true
+      }
+    },
+    {
+      "scale": "100k",
+      "manifest": {
+        "bytes": 13832,
+        "sha256": "694808d79940d5e9457c19280c56e3ad30cc1f609e863f3f761dfefe911f79f7",
+        "blob_at_40127704": "7bfb5755356120407f2057079c9cc107809f85d6",
+        "blob_at_4de40e04": "7bfb5755356120407f2057079c9cc107809f85d6",
+        "blob_stable": true,
+        "rebuilt_bytes": 13832,
+        "rebuilt_sha256": "5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140",
+        "rebuilt_difference_fields": [
+          "shared_headless_retained_bytes",
+          "shared_spatial_retained_bytes"
+        ]
+      },
+      "content_files": [
+        {
+          "name": "common.lfre",
+          "expected_bytes": 1024,
+          "actual_bytes": 1024,
+          "expected_sha256": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+          "actual_sha256": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
+          "match": true
+        },
+        {
+          "name": "config.toml",
+          "expected_bytes": 1301,
+          "actual_bytes": 1301,
+          "expected_sha256": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+          "actual_sha256": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
+          "match": true
+        },
+        {
+          "name": "genesis.lfsd",
+          "expected_bytes": 171296210,
+          "actual_bytes": 171296210,
+          "expected_sha256": "82c07851c7b446fccafd5d5002884146d3a1e3ab64ecd18b9be0a8ee608d6a54",
+          "actual_sha256": "82c07851c7b446fccafd5d5002884146d3a1e3ab64ecd18b9be0a8ee608d6a54",
+          "match": true
+        },
+        {
+          "name": "network.lfca",
+          "expected_bytes": 162397835,
+          "actual_bytes": 162397835,
+          "expected_sha256": "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84",
+          "actual_sha256": "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84",
+          "match": true
+        },
+        {
+          "name": "routes.toml",
+          "expected_bytes": 9390023,
+          "actual_bytes": 9390023,
+          "expected_sha256": "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3",
+          "actual_sha256": "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3",
+          "match": true
+        },
+        {
+          "name": "source-map.lfsm",
+          "expected_bytes": 213077371,
+          "actual_bytes": 213077371,
+          "expected_sha256": "c5014524bd4d7a28507566e79859af1466626f725c52d9cb543ccf7acb4504af",
+          "actual_sha256": "c5014524bd4d7a28507566e79859af1466626f725c52d9cb543ccf7acb4504af",
+          "match": true
+        },
+        {
+          "name": "topology.lfre",
+          "expected_bytes": 24870952,
+          "actual_bytes": 24870952,
+          "expected_sha256": "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae",
+          "actual_sha256": "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae",
+          "match": true
+        }
+      ],
+      "all_content_files_match": true,
+      "replayed_plan": {
+        "bytes": 40845093,
+        "sha256": "4f2dddc266b9f1a0dfd0c60c707ad0de56d1112b489df687eba22a3904e8fd49",
+        "frozen_bytes": 40845093,
+        "frozen_sha256": "4f2dddc266b9f1a0dfd0c60c707ad0de56d1112b489df687eba22a3904e8fd49",
+        "exact_match": true,
+        "rebuilt_bytes": 40845093,
+        "rebuilt_sha256": "71cfb0029a5143c5a9cf04d60861cec6514822c4e2afe5add2da3b70c4a83fb2",
+        "rebuilt_difference_fields": [
+          "manifest_digest"
+        ],
+        "all_other_lines_match": true
+      }
+    }
+  ],
+  "conclusion": "both correctness plans match tools/laneflow-urban-harness/fixtures/v3/plans.json exactly"
+}

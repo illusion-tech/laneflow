@@ -14,17 +14,17 @@
 `lfence; rdtsc; lfence`。采样拍是运行时 `tick_index` 为 4 的倍数且不小于 64。
 未采样拍不读时钟。
 
-| 桶 | 包含的工作 |
-| --- | --- |
-| waiting | `waiting_stop_for`，含够不着时的提前返回 |
-| reach | 调用方为屏障跳过读取 profile 并计算本拍行程上界 |
-| conflict | `conflict_stop_for`，含够不着时的提前返回 |
-| cache | 运动缓存探测和预览复用判断 |
-| route | 当前路段到路线终点的剩余距离 |
-| signal | 计算侧的行程上界，加 `signal_stop_distance` |
-| parking | `parking_stop_distance` |
-| merge | 信号、停车、路终、等待、冲突的停止点合并 |
-| hard | 当前路段长度、hop 许可和 `hard_room` |
+| 桶       | 包含的工作                                      |
+| -------- | ----------------------------------------------- |
+| waiting  | `waiting_stop_for`，含够不着时的提前返回        |
+| reach    | 调用方为屏障跳过读取 profile 并计算本拍行程上界 |
+| conflict | `conflict_stop_for`，含够不着时的提前返回       |
+| cache    | 运动缓存探测和预览复用判断                      |
+| route    | 当前路段到路线终点的剩余距离                    |
+| signal   | 计算侧的行程上界，加 `signal_stop_distance`     |
+| parking  | `parking_stop_distance`                         |
+| merge    | 信号、停车、路终、等待、冲突的停止点合并        |
+| hard     | 当前路段长度、hop 许可和 `hard_room`            |
 
 前车查询、跟车求解、输入表和下一状态不在本轮桶里。`decision=every` 时
 资格门控不进入热路径，决策尝试的构造单独留在桶外。

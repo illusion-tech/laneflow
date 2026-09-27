@@ -1,95 +1,95 @@
-# #707 WP C.1 输入差异核查（input-diff）
+# #707 WP C.1 输入差异与冻结计划重放
 
-> 结论先行：10k/100k 两档的冻结制品与本次重建制品**仅两个构建内存统计
-> 字段不同**（`shared_headless_retained_bytes`、`shared_spatial_retained_bytes`），
-> 全部交通消费字段（network_revision、全部内容文件摘要、config、routes、
-> LFCA/LFSD/LFSM/LFRE 源）逐字段/逐字节一致。差异是**非交通元数据**，
-> Runtime 消费字段等价——按审阅接受标准**接受重建制品**。plans.json 计划
-> 摘要不匹配已由本文件完整解释（唯一计划差异是内嵌的 `manifest_digest`，
-> 其输入即整张 manifest 的 SHA-256）。
-> 方法口径：文件身份用 SHA-256；Git 对象身份用 `git rev-parse <commit>:<path>`
-> 与 `git hash-object --no-filters`，两口径不混写。
+> 结论：10k/100k 重建制品的七个内容文件与版本化冻结 manifest 逐字节一致；
+> 重建 manifest 只改变两个共享构建保留内存统计字段。使用 `4de40e04` 的
+> 导出源码、版本化冻结 manifest 和这些内容文件重新生成 correctness 计划后，
+> 两档计划的字节数与 SHA-256 均精确匹配 `fixtures/v3/plans.json`。再将重放
+> 计划与重建制品计划逐行比较，两档都只有 `manifest_digest` 一行不同。
+> 因此计划差异已经由实际重放闭合，不再依赖“旧计划本体不可得”时的推断。
 
-## 1. manifest 逐字段比较
+完整的小型机器可读记录见
+[`evidence/frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。文件身份使用
+SHA-256；Git 对象身份使用 `git rev-parse <commit>:<path>`，两种口径不混写。
 
-冻结 manifest：`tools/laneflow-urban-generator/fixtures/v1/{10k,100k}/manifest.toml`
-（blob 身份经审阅核验：`40127704` 与 `4de40e04` 两提交均为
-`591db2887d8e6ff82f832068b27606884b665bb0`，即冻结值未漂移）。
-本地 manifest：`E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-{10k,100k}/manifest.toml`。
+## 1. 冻结 manifest 身份
 
-| 规模 | 比较结果                                                                                                                                                                                                                                                         |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10k  | 全部字段一致，**仅 2 个字段不同**：`shared_headless_retained_bytes` 1351804 → 1334868（−16936）；`shared_spatial_retained_bytes` 3591980 → 3575044（−16936）。`network_revision = bef82350bc89578b0565f56a05d0e5c8afe82ff066464aca855a0148b24c336a` 两边完全相同 |
-| 100k | 同样仅 2 个字段不同：`shared_headless_retained_bytes` 13488124 → 13318548；`shared_spatial_retained_bytes` 35900620 → 35731044。network_revision 一致                                                                                                            |
+冻结 manifest 位于
+`tools/laneflow-urban-generator/fixtures/v1/{10k,100k}/manifest.toml`。
+两档在 `40127704` 与 `4de40e04` 之间各自保持同一 blob；10k 与 100k 是两个
+不同对象：
 
-- 冻结 manifest 自身 SHA-256：10k `e79e75a5…`、100k `694808d7…`；本地：
-  10k `d9f08f51…`、100k（见 evidence/ 内副本复测）。**首个差异字段**：
-  `shared_headless_retained_bytes`。
-- 两档漂移量同为 −16936 字节，指向共享构建实现的构建统计口径演进
-  （制品冻结于 `026e09ea`「deliver connected urban topology artifacts」
-  时代；此后共享构建工作区统计随实现演进，#706 期间 workspace 字段
-  增删亦属同类）。该字段是**构建过程的内存统计记账**，描述共享构建
-  暂存规模，不被 TrafficWorld 消费。
+| 规模 | 字节数 | SHA-256 | Git blob（两提交相同） |
+| ---- | -----: | ------ | ---------------------- |
+| 10k | 12,563 | `e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d` | `591db2887d8e6ff82f832068b27606884b665bb0` |
+| 100k | 13,832 | `694808d79940d5e9457c19280c56e3ad30cc1f609e863f3f761dfefe911f79f7` | `7bfb5755356120407f2057079c9cc107809f85d6` |
 
-## 2. 消费文件逐文件摘要（本地实测复核 vs 冻结 manifest 记录）
+此前把 `591db288…` 同时写给两档是错误记录；本表和机器记录已分档修正。
 
-冻结与本地 manifest 的 `files` 表**逐条目完全一致**（上节逐字段比较
-已覆盖 `files` 键）；本地文件实测 SHA-256 与字节数对 manifest 记录
-**全部匹配**：
+## 2. 内容文件核对
 
-| 文件            | 10k 字节数 | 100k 字节数 | 摘要匹配 |
-| --------------- | ---------- | ----------- | -------- |
-| common.lfre     | 1 024      | 1 024       | ✓        |
-| config.toml     | 1 301      | 1 301       | ✓        |
-| topology.lfre   | 2 487 784  | 24 870 952  | ✓        |
-| routes.toml     | 932 336    | 9 390 023   | ✓        |
-| network.lfca    | 16 240 189 | 162 397 835 | ✓        |
-| genesis.lfsd    | 17 123 970 | 171 296 210 | ✓        |
-| source-map.lfsm | 21 305 129 | 213 077 371 | ✓        |
+证据根 `issue-707/4de40e04/inputs/urban-{10k,100k}` 中的七个内容文件逐个按
+字节数与 SHA-256 对版本化冻结 manifest 核验，14/14 匹配：
 
-（表内 sha256 值以证据根 inputs 目录内 manifest.toml 为准，此处不重复
-展开；逐文件值已由脚本复核 match。）
+| 文件 | 10k 字节数 | 100k 字节数 |
+| ---- | ---------: | ----------: |
+| `common.lfre` | 1,024 | 1,024 |
+| `config.toml` | 1,301 | 1,301 |
+| `genesis.lfsd` | 17,123,970 | 171,296,210 |
+| `network.lfca` | 16,240,189 | 162,397,835 |
+| `routes.toml` | 932,336 | 9,390,023 |
+| `source-map.lfsm` | 21,305,129 | 213,077,371 |
+| `topology.lfre` | 2,487,784 | 24,870,952 |
 
-## 3. 计划来源字段
+`network_revision` 也分别保持
+`bef82350bc89578b0565f56a05d0e5c8afe82ff066464aca855a0148b24c336a`
+与 `cd9cbe68dd9686216a9303ab95aef5ad26b5a819158fa507f8c46d0f238e58ee`。
 
-`ResolvedPlan` 内嵌的 `files` 表（plan 内）= 上列 5 个来源文件
-（common.lfre、config.toml、network.lfca、routes.toml、topology.lfre）
-的摘要——这些键的值与冻结一致（来源文件未变）。**唯一起变化的计划
-字段是 `manifest_digest`**：
+## 3. 重建 manifest 的实际差异
 
-- 本地 10k smoke 计划内嵌 `manifest_digest = d9f08f51…` == 本地
-  manifest.toml 的 SHA-256（实测 `sha256sum` 一致）。两份 correctness
-  参考计划本体已钉身份（evidence-index.toml）：10k
-  `1fe166ef…`（4 057 834 字节）、100k `71cfb002…`（40 845 093 字节），
-  与本文所引字节数一致。
-- 冻结 plans.json 的 `10k-mixed-peak` 计划字节数与本地生成**完全相同**
-  （4 057 834）而 SHA-256 不同：两张 manifest 的差异数字同为 7 位十进制
-  （1351804/1334868），经 `manifest_digest`（64 位十六进制、定长）进入
-  计划后**字节数不变、内容哈希变**——与观察完全吻合。
-- 计划展开逻辑 `tools/laneflow-urban-harness/src/plan.rs` 的 blob 在
-  `40127704` 与 `4de40e04` 相同（`5a00fa1d…`，审阅已核验），同一制品
-  重复生成计划逐字节一致（本切片已验证）→ 计划本体除 `manifest_digest`
-  外无其他差异来源。
+版本化冻结 manifest 与证据根重建 manifest 逐行比较，每档都只有以下两个字段
+不同，其余行相同：
 
-## 4. 交通需求字段
+| 规模 | `shared_headless_retained_bytes` | `shared_spatial_retained_bytes` | 重建 manifest SHA-256 |
+| ---- | --------------------------------: | -------------------------------: | ---------------------- |
+| 10k | 1,351,804 → 1,334,868 | 3,591,980 → 3,575,044 | `d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd` |
+| 100k | 13,488,124 → 13,318,548 | 35,900,620 → 35,731,044 | `5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140` |
 
-route_edges（来源 routes/topology.lfre + plan.rs 展开规则）、初态、
-profile、departures、leaves、arrivals、角色请求、重试规则、窗口、验收
-下限：全部由上述内容文件（逐字节一致）与未变化的 plan.rs 决定 →
-**无变化**。旧计划本体不可得，但差异已定位到唯一计划字段
-（`manifest_digest`，非交通字段），且其输入差异（两个构建统计字段）
-非交通消费字段——不存在无法推断的交通字段差异。
+它们是共享构建的保留内存统计，不被 `TrafficWorld` 当作交通输入。冻结 manifest
+及 `plans.json` 均未改写。
 
-## 5. 差异原因与接受结论
+## 4. 冻结计划重放
 
-| 差异字段                         | 性质                           | 原因                                         | 是否交通字段         |
-| -------------------------------- | ------------------------------ | -------------------------------------------- | -------------------- |
-| `shared_headless_retained_bytes` | 构建内存统计记账               | 共享构建实现演进（制品冻结于 026e09ea 时代） | 否                   |
-| `shared_spatial_retained_bytes`  | 构建内存统计记账               | 同上                                         | 否                   |
-| 计划 `manifest_digest`           | 计划对来源 manifest 的绑定摘要 | 上述两字段漂移的传导                         | 否（计划绑定元数据） |
+重放使用以下闭合步骤：
 
-- **未解释差异：无。**
-- 按审阅接受标准：仅来源/非交通元数据变化且 Runtime 消费字段等价 →
-  **接受重建制品**；完整新摘要与差异说明已存档（本文件 + evidence/
-  内 manifest 副本），**未覆盖旧 golden**（fixtures 与 plans.json 原样）。
-- WP D 放行建议：**放行**（见提交说明与 README 更新）。
+1. 从 `4de40e045398e4b010b2aa36522afc02a4094c4d` 执行 `git archive`，不叠加
+   工作树文件；使用 Rust/Cargo 1.98.0、release、locked、offline、关闭增量构建
+   `laneflow-urban-harness`。二进制 SHA-256 为
+   `4d0a060e43c396148c9a347f327cc04fb09bd2c3cc740a472a5f19437360171e`。
+2. 对证据根七个内容文件逐个通过冻结 manifest 校验，再把版本化冻结 manifest
+   与这些内容文件组合为只读重放输入。
+3. 用归档 Harness 分别生成 10k/100k `MIXED-PEAK` correctness 计划，并与
+   `tools/laneflow-urban-harness/fixtures/v3/plans.json` 比较。
+
+| 规模 | 重放计划字节数 | 重放 SHA-256 | `plans.json` |
+| ---- | -------------: | ------------ | ------------ |
+| 10k | 4,057,834 | `d0e58a7c9515ca22bfbee4352e9685279709d43b488e7b34dc0c6b7b389998c9` | 精确匹配 |
+| 100k | 40,845,093 | `4f2dddc266b9f1a0dfd0c60c707ad0de56d1112b489df687eba22a3904e8fd49` | 精确匹配 |
+
+重放计划再与证据根的重建 correctness 计划逐行流式比较：
+
+| 规模 | 重建计划 SHA-256 | 差异行 |
+| ---- | ----------------- | ------ |
+| 10k | `1fe166ef8892e56fbe5316de83edfe8ed8ea74087cf0f20ac24b11ae92448880` | 仅 `manifest_digest` |
+| 100k | `71cfb0029a5143c5a9cf04d60861cec6514822c4e2afe5add2da3b70c4a83fb2` | 仅 `manifest_digest` |
+
+两档的计划字节数不变；除该定长摘要行外，全部计划行一致。这里直接比较了实际
+重放结果，不再用相同字节数或未变化的生成器间接排除其他等长差异。
+
+## 5. 接受边界
+
+- 冻结计划身份、内容文件身份及重建计划的唯一差异均已复核；本项没有未解释的
+  输入或计划差异。
+- 重建制品可用于本 PR 已声明的 pilot/阶段研究范围；这项结论不替代 #707 的
+  worker 矩阵、稳定 Active、执行归因或最终性能认证。
+- 版本化 manifest、`fixtures/v3/plans.json` 与既有原始证据均保持原样；提交的
+  JSON 只保存复算身份、逐文件核对和差异字段，不把大型重放计划加入 Git。
