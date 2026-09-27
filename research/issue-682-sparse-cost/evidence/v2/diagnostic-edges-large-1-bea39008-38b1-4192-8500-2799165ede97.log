@@ -1,0 +1,26 @@
+
+running 1 test
+test kernel::sparse_cost_research::sparse_cost_diagnostic ... 
+sparse-stage case=edges-large stage=whole_step ns=26755300
+sparse-stage case=edges-large stage=preflight ns=866500
+sparse-stage case=edges-large stage=occupancy ns=3114000
+sparse-stage case=edges-large stage=waiting_prepare ns=1787100
+sparse-stage case=edges-large stage=conflict_prepare ns=1235100
+sparse-stage case=edges-large stage=motion_loop ns=14510200
+sparse-stage case=edges-large stage=waiting_finalize ns=184300
+sparse-stage case=edges-large stage=signals ns=3500
+sparse-stage case=edges-large stage=conflict_finalize ns=1324500
+sparse-stage case=edges-large stage=waiting_outputs ns=975900
+sparse-stage case=edges-large stage=commit ns=2697000
+sparse-occupancy case=edges-large stage=count ns=397100
+sparse-occupancy case=edges-large stage=layout ns=1038500
+sparse-occupancy case=edges-large stage=fill ns=704900
+sparse-occupancy case=edges-large stage=sort_suffix ns=952400
+sparse-clear case=edges-large waiting_ns=39800 conflict_ns=762600 waiting_slots=1280000 conflict_slots=2560000
+sparse-memory case=edges-large world=11792609 shared=429024 binding=21 committed=3264200 derived=994176 workspace=7534212 admin=0 vehicle_slot_size=96 vehicle_state_size=88 slots_len=1000 slots_capacity=10000
+sparse-work case=edges-large records=128000 inspections=125952 occurrence_walks=0 allocations=0 reallocations=0 bytes_allocated=0
+sparse-end case=edges-large active=1000 live=1000 high_water=1000 capacity=10000 edges=4096 warm=40 steps=128 digest=2c432c30798f53f6c98a815b476d2572fa5bf0712e013a1be62448c75373ab40 input=Sha256Digest(926a636bd815265ae60cdee67bef71e2dbef1e5dedd8f2cec518b305e497a803)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 534 filtered out; finished in 0.10s
+

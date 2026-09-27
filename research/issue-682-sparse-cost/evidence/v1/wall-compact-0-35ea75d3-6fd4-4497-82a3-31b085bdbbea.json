@@ -1,0 +1,43 @@
+{
+  "accepted": true,
+  "binary": "\\\\?\\E:\\projects\\worktrees\\713-acceptance-followup\\laneflow\\target\\release\\deps\\sparse_cost_evidence-f364ca23e5f2a2d2.exe",
+  "binary_sha256": "7999554a2c6518db573afbfc8ef6587a44c5b0884cb0ff73dbcdc92cf66bf8ad",
+  "case": "compact",
+  "clean_after": true,
+  "ended": 1790521977,
+  "exit_ok": true,
+  "id": "35ea75d3-6fd4-4497-82a3-31b085bdbbea",
+  "interference": [],
+  "lock": "3464367a1cf84c0c3bbc3121720e55ac9c31eec7bae61ba0f85763fd584d1453",
+  "log": "wall-compact-0-35ea75d3-6fd4-4497-82a3-31b085bdbbea.log",
+  "log_sha256": "3ec7d9b06a748e9e82a6f5eee34cbee1853d4bfa319a26662657aa095de6cfe7",
+  "manifest": "2500499338a72be921dee7d660b47308fbfbf4ca6b9521351d0a1b11bfe20217",
+  "mode": "wall",
+  "post": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      10.219943,
+      9.96756
+    ],
+    "quiet": true
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      14.465201,
+      7.072643
+    ],
+    "quiet": true
+  },
+  "round": 0,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "schema": 1,
+  "source": "147fb848cbaece5fac154792f5c468e97230d719",
+  "source_after": "147fb848cbaece5fac154792f5c468e97230d719",
+  "started": 1790521972,
+  "stderr": "wall-compact-0-35ea75d3-6fd4-4497-82a3-31b085bdbbea.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "tree": "4613ed90b0b06b5a133f6dd5768cb59dfe28826d"
+}
