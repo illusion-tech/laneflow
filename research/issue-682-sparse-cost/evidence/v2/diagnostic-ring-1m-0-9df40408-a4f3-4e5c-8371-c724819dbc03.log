@@ -1,0 +1,26 @@
+
+running 1 test
+test kernel::sparse_cost_research::sparse_cost_diagnostic ... 
+sparse-stage case=ring-1m stage=whole_step ns=12975000
+sparse-stage case=ring-1m stage=preflight ns=92900
+sparse-stage case=ring-1m stage=occupancy ns=2967700
+sparse-stage case=ring-1m stage=waiting_prepare ns=182500
+sparse-stage case=ring-1m stage=conflict_prepare ns=882600
+sparse-stage case=ring-1m stage=motion_loop ns=6488300
+sparse-stage case=ring-1m stage=waiting_finalize ns=57800
+sparse-stage case=ring-1m stage=signals ns=3500
+sparse-stage case=ring-1m stage=conflict_finalize ns=110100
+sparse-stage case=ring-1m stage=waiting_outputs ns=81900
+sparse-stage case=ring-1m stage=commit ns=2043100
+sparse-occupancy case=ring-1m stage=count ns=199800
+sparse-occupancy case=ring-1m stage=layout ns=1701000
+sparse-occupancy case=ring-1m stage=fill ns=174200
+sparse-occupancy case=ring-1m stage=sort_suffix ns=873400
+sparse-clear case=ring-1m waiting_ns=41800 conflict_ns=814600 waiting_slots=1280000 conflict_slots=2560000
+sparse-memory case=ring-1m world=13693537 shared=461792 binding=21 committed=4832840 derived=1487744 workspace=7372932 admin=0 vehicle_slot_size=96 vehicle_state_size=88 slots_len=64 slots_capacity=10000
+sparse-work case=ring-1m records=45440 inspections=156288 occurrence_walks=1080896 allocations=8640 reallocations=0 bytes_allocated=368640
+sparse-end case=ring-1m active=64 live=64 high_water=64 capacity=10000 edges=4096 warm=40 steps=128 digest=98898dd5d803ab330bb07cfb85db91cb02ebd95e7d50398a77142b1e2223f924 input=Sha256Digest(f5983cfc8664abce7353b6d4eb64aed8ec11cfe5cb5460274329b4a279a642eb)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 534 filtered out; finished in 0.09s
+

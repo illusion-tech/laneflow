@@ -1,0 +1,43 @@
+{
+  "accepted": true,
+  "binary": "\\\\?\\E:\\projects\\worktrees\\713-acceptance-followup\\laneflow\\target\\release\\deps\\laneflow_runtime-f2f90bad16c4a915.exe",
+  "binary_sha256": "643aca50193aa3503142d2479a052078bc2ac8bc755ecb2a44bad7f3fc45cd2b",
+  "case": "compact",
+  "clean_after": true,
+  "ended": 1790521988,
+  "exit_ok": true,
+  "id": "0a82a39f-822d-477c-bfb8-bb35aab51079",
+  "interference": [],
+  "lock": "3464367a1cf84c0c3bbc3121720e55ac9c31eec7bae61ba0f85763fd584d1453",
+  "log": "diagnostic-compact-0-0a82a39f-822d-477c-bfb8-bb35aab51079.log",
+  "log_sha256": "c63a35fa2ddfe3336fbe2a0d7190edf53c92631c8de2269cbef3d1c9bd65e2e3",
+  "manifest": "2500499338a72be921dee7d660b47308fbfbf4ca6b9521351d0a1b11bfe20217",
+  "mode": "diagnostic",
+  "post": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      5.087301,
+      19.396242
+    ],
+    "quiet": true
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      11.854245,
+      9.877636
+    ],
+    "quiet": true
+  },
+  "round": 0,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "schema": 1,
+  "source": "147fb848cbaece5fac154792f5c468e97230d719",
+  "source_after": "147fb848cbaece5fac154792f5c468e97230d719",
+  "started": 1790521983,
+  "stderr": "diagnostic-compact-0-0a82a39f-822d-477c-bfb8-bb35aab51079.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "tree": "4613ed90b0b06b5a133f6dd5768cb59dfe28826d"
+}

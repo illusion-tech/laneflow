@@ -307,6 +307,23 @@ fn parse(text: &str, mode: &str, case: &str) -> Result<Value> {
             require(rows.insert(key, f).is_none(), "duplicate resource row")?;
         }
         require(rows.len() == 18, "incomplete resource rows")?;
+        for scene in ["waiting-membership-1", "conflict-reservation-retry-2"] {
+            let reference = &rows[&format!("{scene}-0-2")];
+            for round in 0..3 {
+                for stage in 2..5 {
+                    let row = &rows[&format!("{scene}-{round}-{stage}")];
+                    require(
+                        row["digest"] == reference["digest"],
+                        "resource state differs",
+                    )?;
+                    let first = &rows[&format!("{scene}-0-{stage}")];
+                    require(
+                        row["calls"] == first["calls"] && row["items"] == first["items"],
+                        "resource work differs",
+                    )?;
+                }
+            }
+        }
         return Ok(json!({"rows":rows}));
     }
     let mut ticks = BTreeMap::new();
@@ -501,6 +518,7 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
     let mut summaries = BTreeMap::new();
     for case in CASES {
         let reference = &runs[keys[&(case.into(), 0, "wall".into())]];
+        let diagnostic = &runs[keys[&(case.into(), 0, "diagnostic".into())]]["result"]["rows"];
         for round in 0..3 {
             for mode in ["wall", "diagnostic"] {
                 let run = &runs[keys[&(case.into(), round, mode.into())]];
@@ -508,6 +526,21 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
                     run["result"]["end"] == reference["result"]["end"],
                     "input/count/digest differs between rounds or binaries",
                 )?;
+                if mode == "diagnostic" {
+                    for row in ["sparse-memory:", "sparse-work:"] {
+                        require(
+                            run["result"]["rows"][row] == diagnostic[row],
+                            "diagnostic work/memory differs",
+                        )?;
+                    }
+                    for field in ["waiting_slots", "conflict_slots"] {
+                        require(
+                            run["result"]["rows"]["sparse-clear:"][field]
+                                == diagnostic["sparse-clear:"][field],
+                            "clear work differs",
+                        )?;
+                    }
+                }
             }
         }
         let mut means = Vec::new();

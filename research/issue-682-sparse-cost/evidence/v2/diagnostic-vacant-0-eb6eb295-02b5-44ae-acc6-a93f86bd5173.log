@@ -1,0 +1,26 @@
+
+running 1 test
+test kernel::sparse_cost_research::sparse_cost_diagnostic ... 
+sparse-stage case=vacant stage=whole_step ns=25662300
+sparse-stage case=vacant stage=preflight ns=1267600
+sparse-stage case=vacant stage=occupancy ns=1473600
+sparse-stage case=vacant stage=waiting_prepare ns=1827100
+sparse-stage case=vacant stage=conflict_prepare ns=1263400
+sparse-stage case=vacant stage=motion_loop ns=14413900
+sparse-stage case=vacant stage=waiting_finalize ns=181000
+sparse-stage case=vacant stage=signals ns=3500
+sparse-stage case=vacant stage=conflict_finalize ns=1500000
+sparse-stage case=vacant stage=waiting_outputs ns=946200
+sparse-stage case=vacant stage=commit ns=2730000
+sparse-occupancy case=vacant stage=count ns=314800
+sparse-occupancy case=vacant stage=layout ns=127000
+sparse-occupancy case=vacant stage=fill ns=693000
+sparse-occupancy case=vacant stage=sort_suffix ns=321900
+sparse-clear case=vacant waiting_ns=40800 conflict_ns=779100 waiting_slots=1280000 conflict_slots=2560000
+sparse-memory case=vacant world=11470049 shared=29664 binding=21 committed=3264200 derived=625536 workspace=7580292 admin=0 vehicle_slot_size=96 vehicle_state_size=88 slots_len=10000 slots_capacity=10000
+sparse-work case=vacant records=128000 inspections=125952 occurrence_walks=0 allocations=0 reallocations=0 bytes_allocated=0
+sparse-end case=vacant active=1000 live=1000 high_water=10000 capacity=10000 edges=256 warm=40 steps=128 digest=aff44b9e456eac14b72430990a3fa759d2b47a212cfb7b5539a162be94f5cd4b input=Sha256Digest(49f3ed00f20f2a716555fe923aeb6f4201702ebebbdc9f550e73765c498d46a4)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 534 filtered out; finished in 0.44s
+
