@@ -274,14 +274,12 @@ pub(crate) struct TickWorkspace {
     /// 协调器按序消费。预留失败只退回融合求值，不新增领域错误。
     pub(crate) waiting_preview_slots:
         Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>>,
-    /// P5 逐车独立计算的输入三元组（Active 紧凑位置 -> 完整句柄 + 紧凑位 +
-    /// 拍初状态）；协调器构建，任务只读。
-    pub(crate) motion_inputs: Vec<(crate::VehicleHandle, usize, VehicleState)>,
     /// P5 逐车运动结果槽位，按 Active 紧凑位置索引；任务独占连续切片写入，
-    /// 协调器按序规范消费（到达真实预留留在消费侧原逻辑位置）。预留失败只
-    /// 退回融合求值，不新增领域错误。
-    pub(crate) motion_slots:
-        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::VehicleMotionOutcome>>,
+    /// 协调器按序规范消费（`None` 表示完整句柄核对后已失效；到达真实预留
+    /// 留在消费侧原逻辑位置）。预留失败只退回融合求值，不新增领域错误。
+    pub(crate) motion_slots: Vec<
+        crate::kernel::execution::DispatchSlot<Option<crate::kernel::tick::VehicleMotionOutcome>>,
+    >,
     /// #740 近门名单、冲突距离缓存与生命周期增量。已发布名单只在成功提交时替换。
     pub(crate) frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance,
     /// P3 候选求值输入四元组（live 序 -> 句柄 + live 序 + Active 紧凑位 +
@@ -419,7 +417,6 @@ impl TickWorkspace {
             next_states,
             waiting_preview_inputs,
             waiting_preview_slots,
-            motion_inputs,
             motion_slots,
             conflict_inputs,
             conflict_slots,
@@ -443,7 +440,6 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(motion_cache)
             + crate::kernel::state::vec_bytes(waiting_preview_inputs)
             + crate::kernel::state::vec_bytes(waiting_preview_slots)
-            + crate::kernel::state::vec_bytes(motion_inputs)
             + crate::kernel::state::vec_bytes(motion_slots)
             + crate::kernel::state::vec_bytes(conflict_inputs)
             + crate::kernel::state::vec_bytes(conflict_slots)
