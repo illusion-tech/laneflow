@@ -1,7 +1,7 @@
 {
   "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
   "completed_owners_still_holding": 0,
-  "extra_observation_ns": 3915800,
+  "extra_observation_ns": 4027000,
   "longest_multi_owner_zone_ms": 0,
   "max_continuous_stop_ms": 66,
   "max_open_reservation_age_ms": 0,
