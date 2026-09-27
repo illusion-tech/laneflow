@@ -82,10 +82,16 @@ ETA 的验收。那两个问题没有在本轮修改。
 - [`motion-barrier-source-patch.tar.zst`](evidence/motion-barrier-source-patch.tar.zst)
   包含三个只涉及 Rust/Cargo 构建源码的二进制 Git 补丁：从基准提交到 H1 的
   47 文件父源码补丁、从基准到 M2 的 48 文件累计补丁，以及从 H1 到 M2 的 7 文件
-  增量。三条路径均已在新目录回放，并分别与 451 个原构建源文件逐字节一致；
-  历史 H1 的非 Rust 运行脚本未提交。
-- 基准提交是 `4de40e045398e4b010b2aa36522afc02a4094c4d`；父处理臂所用封存 H1
-  可由该基准加 47 文件父源码补丁重建。
+  增量。M2 累计补丁逐字节回放为 451 文件的 M2 构建源；父补丁和增量使用为 M2
+  谱系冻结的 H1 文本表示。它与历史 H1 在源码文本上相同，但
+  `tools/laneflow-urban-harness/Cargo.toml` 使用 LF，而历史 provenance 记录为 CRLF，
+  因此不再把该父补丁称为历史 H1 的原始字节副本。历史 H1 的精确 Rust/Cargo 字节
+  与 B1→H1 增量改由
+  [`retained-foundation-source-patch.tar.zst`](evidence/retained-foundation-source-patch.tar.zst)
+  保存；两套历史非 Rust 运行脚本均未提交。
+- 基准提交是 `4de40e045398e4b010b2aa36522afc02a4094c4d`；M2 增量谱系使用的 H1
+  文本表示可由该基准加 47 文件父源码补丁重建。父处理臂对应的历史 H1 原始字节
+  由前述 foundation archive 重建。
 - Rust 1.98.0，release，locked，offline，`CARGO_INCREMENTAL=0`，
   feature `entry-frontier,barrier-reach`。
 - skip/direct 二进制 SHA-256：

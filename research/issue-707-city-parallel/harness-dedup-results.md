@@ -26,7 +26,8 @@ H1 在拍后 `state` 的车辆遍历中，同时完成原 `counts` 的身份/生
 - 多个错误同时存在时，融合路径可能先报告另一项错误；本切片要求错误仍被拒绝，
   不要求错误先后顺序相同。它不恢复旧版 Core 逐拍轨迹等价门槛。
 
-实现、二进制及数据仍在本地研究目录，未合入主线，也未提交或推送。
+原型实现、二进制及原始数据仍在作者机研究目录；仓库只保留本文末所列 Rust/Cargo
+源码补丁、紧凑样本、摘要和身份封套，不把研究原型包装成正式 Runtime 接入。
 
 ## 2. 工作量确实减少
 
@@ -129,6 +130,23 @@ paged-memory 高水位约 524.5–525.2MiB。没有明显的新增大缓存成�
 原目标仍为 100k 规模、33ms 仿真步长、Core p95≤16ms，当前没有达标。
 
 本机根：`E:/projects/laneflow/target/issue707-h1-results/`。
+
+仓库内长期复核入口：
+
+- [`harness-dedup-evidence-manifest.json`](evidence/harness-dedup-evidence-manifest.json)
+  保存四臂 H0/H1 ABBA 的环境和进程包络、完整输出树身份、原 provenance 的全部
+  309 个历史证据文件身份，以及从未舍入逐拍样本复算的 observation 13.61% 和 iteration
+  9.29% 降幅。[`harness-dedup-summary.json`](evidence/harness-dedup-summary.json)
+  完整保留原 JSON 数据，并按仓库规则将 CRLF 规范化为 LF；manifest 另保留原文件
+  长度与 SHA-256。
+- [`harness-dedup-public-step.csv`](evidence/harness-dedup-public-step.csv) 保存
+  reference/fused/fused/reference 四臂各 448 个暖机后整数纳秒样本，共 1,792 行；
+  同时保留 Core、observation、iteration、advance、writer 和 public command。
+- [`retained-foundation-source-patch.tar.zst`](evidence/retained-foundation-source-patch.tar.zst)
+  中基准→H1 与 B1→H1 两条路径都回放为 451 文件的历史 H1 构建源清单
+  `538d72b23b04d0869cb3bcef8992be4d92b0a65dc60a106d229cfa04827c0c90`。历史记录中的
+  `tools/laneflow-urban-harness/Cargo.toml` 是 CRLF；较早 M2 封套为增量谱系保存了同
+  内容的 LF 表示。新封套恢复 provenance 记录的原始字节，并明确区分两种表示。
 
 - `summary.json`：每臂 mean/p95/p99/max、Active、内存与观测一致性结果。
 - `audit-*`、`balanced-100k`：原始输出、工作量与进程元数据；失败预检目录单独排除。

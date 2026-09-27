@@ -19,7 +19,7 @@
       "members": [
         {
           "path": "motion-barrier-h1-parent.patch",
-          "role": "binary Git patch from base commit to the exact H1 Rust/Cargo build source used by the parent arms",
+          "role": "binary Git patch from base commit to the line-ending-normalized H1 Rust/Cargo build source used for M2 increment lineage; normalized source text matches historical H1, while exact historical bytes are retained in the foundation archive",
           "identity": {
             "bytes": 146885,
             "sha256": "be3e5bf3268090393ba6e7b24fc770ba52cec7a6609db5bfe83d6ab9d4ccfca7"
@@ -155,7 +155,8 @@
       "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
       "file_count": 451,
       "manifest_bytes": 55038,
-      "manifest_sha256": "d65a6519c4118dc6ec469f4eb641024e1f15d1fe40269e22347f1941f6f58f9b"
+      "manifest_sha256": "d65a6519c4118dc6ec469f4eb641024e1f15d1fe40269e22347f1941f6f58f9b",
+      "representation": "line-ending-normalized H1 lineage used by the M2 reconstruction; not the byte-exact historical H1 manifest"
     },
     "build_source_manifest": {
       "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
@@ -169,7 +170,8 @@
         "files_compared": 451,
         "mismatches": 0,
         "extra_files": 0,
-        "raw_byte_identical": true
+        "raw_byte_identical": true,
+        "comparison_target": "line-ending-normalized H1 lineage tree d65a6519c4118dc6ec469f4eb641024e1f15d1fe40269e22347f1941f6f58f9b"
       },
       "full_patch": {
         "applied_to": "4de40e045398e4b010b2aa36522afc02a4094c4d",
@@ -193,7 +195,7 @@
         "sha256": "bffb6239115edc4a3de9e4cba10dc271e94953657cb65c1fe941c3346f885bd1"
       },
       "historical_external_patch_committed": false,
-      "boundary": "the committed parent patch retains the exact H1 Rust/Cargo build source; the historical full H1 patch contains non-Rust research drivers and is used only outside the repository as reconstruction lineage",
+      "boundary": "the committed M2 parent patch retains H1 source text for M2 increment lineage; exact historical H1 Rust/Cargo bytes are retained by evidence/retained-foundation-source-patch.tar.zst, and historical non-Rust research drivers remain outside the repository",
       "raw_representation_alignment": {
         "method": "when H1 reconstructed text and M2 text are identical after CRLF/lone-CR to LF comparison, restore the M2 raw bytes before freezing H1; this preserves inherited line endings without hiding semantic changes",
         "files": [
@@ -201,6 +203,22 @@
           "tools/laneflow-urban-harness/src/observe.rs",
           "tools/laneflow-urban-harness/src/runner.rs"
         ]
+      },
+      "historical_byte_difference": {
+        "path": "tools/laneflow-urban-harness/Cargo.toml",
+        "normalized_parent_patch": {
+          "line_endings": "LF",
+          "bytes": 2143,
+          "sha256": "ec5994a601ff20ffefe9af1d403881c79a1691c7ee3f4d5b0fea7f66855b5729"
+        },
+        "historical_h1": {
+          "line_endings": "CRLF",
+          "bytes": 2187,
+          "sha256": "47ea6a85297d88e35870eaa9529eba3ae0c3d4ffe4d74fd88ae834100e8d05ab"
+        },
+        "normalized_text_equal": true,
+        "exact_historical_build_source_manifest": "538d72b23b04d0869cb3bcef8992be4d92b0a65dc60a106d229cfa04827c0c90",
+        "exact_historical_archive": "evidence/retained-foundation-source-patch.tar.zst"
       }
     }
   },

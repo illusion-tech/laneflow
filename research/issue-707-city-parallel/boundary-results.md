@@ -8,8 +8,9 @@
 
 - 源码：`target/issue707-boundary-source`，detached 基底
   `4de40e045398e4b010b2aa36522afc02a4094c4d`，应用上一轮 finalize 完整补丁后新增本轮原型。
-- 证据：`target/issue707-boundary-results`；入口、分析与局部设计在原型源码的
-  `research/issue-707-boundary/`。完整补丁、来源和输出哈希见该证据目录归档。
+- 作者机原始证据：`target/issue707-boundary-results`；入口、分析与局部设计在原型
+  源码的 `research/issue-707-boundary/`。仓库内可移植证据入口见本文末尾；原始目录
+  不作为长期可取得性承诺。
 - Rust 1.98.0、release、offline/locked、`CARGO_INCREMENTAL=0`，4 workers；
   Windows 平衡电源方案。构建、各臂运行和离线 Python 分析串行。
 - 三臂均继承 `approx + scope=both + finish=combined`。B0 boundary=off；
@@ -162,6 +163,23 @@ Conflict room=0。`findings.json` 对这些关联逐项断言，`dependencies.js
   场景；不要求旧轨迹或 worker 间逐拍等价，也不把小夹具的 4-worker 配置称作并行证明。
 - 离线分析器通过有效样本与 10 个故意破坏的负例。历史早期失败日志仍保留；
   `current-compiled-tests.*`、`combined-retry.*`、`mixed-tests-*` 是当前版本验证记录。
+
+## 可移植证据
+
+- [`boundary-evidence-manifest.json`](evidence/boundary-evidence-manifest.json) 保存
+  四臂 100k ABBA 的进程包络、六个保留运行的完整输出树身份、8192 拍长窗摘要、
+  原 provenance 的全部 376 个结果身份，以及从未舍入逐拍样本复算的 5.44% Core
+  降幅。[`boundary-summary.json`](evidence/boundary-summary.json) 完整保留原 JSON 数据，
+  并按仓库规则将 CRLF 规范化为 LF；manifest 另保留原文件长度与 SHA-256。
+- [`boundary-public-step.csv`](evidence/boundary-public-step.csv) 保存 off/on/on/off
+  四臂各 448 个暖机后整数纳秒样本，共 1,792 行，可独立重算 mean、p95、p99 和
+  两臂均值差。长窗不作为正式性能声明，因此不复制 8,192 拍计时正文；manifest
+  保留两臂所有文件身份、进程包络、交通汇总与长等待记录。
+- [`retained-foundation-source-patch.tar.zst`](evidence/retained-foundation-source-patch.tar.zst)
+  使用 zstd，包含基准→B1、基准→H1、B1→H1 三份仅涉及 Rust/Cargo 构建源码的
+  二进制 Git 补丁。B1 的 449 文件构建源清单为
+  `d7c3cb5580c4716305c9d56ffd7e12657098d1e881dba3ba09fed1d909a3607a`；三条路径均在
+  新目录回放并逐字节核对。历史 Python/PowerShell 驱动不进入仓库。
 
 本轮完成边界原型的筛选与窄版降频淘汰，尚未交付通用唤醒系统、所有生命周期的
 独立占用重建器、完整扫掠碰撞检测或可接受误差阈值。下一性能切片应减少仍占主导

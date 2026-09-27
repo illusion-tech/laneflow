@@ -1,0 +1,1287 @@
+{
+  "groups": [
+    {
+      "name": "audit-balanced-10k",
+      "instrumented": true,
+      "ticks_per_arm": 512,
+      "workers": 4,
+      "semantic_equal": true,
+      "semantic_reference": {
+        "files": {
+          "ticks.jsonl": "59f342acb7c0ff619cca4be2d6a90d307ab5e0ae8617d515255ba4eb2b99cb35",
+          "commands.jsonl": "c684d1439aa30b594dcb86935fae19c2d40b2df5ba810976f7db057477529cc8",
+          "events.jsonl": "eb8685f07f04c8915d37e7a8ed6688ac32162c6bfe2f2dd8b184db947129736e",
+          "quality.csv": "10a3194b3a5ab5e67fe77b3974efad8ad07a28c4ec4168f3b4b10fd23ecd5442",
+          "individual-quality.csv": "6c319dd08d8e8549d0df6c5cabeb95c56ad85756dec013aae33c7c19cf0e2d7c",
+          "entry-work.csv": "46e9d23fef524ef4839d638f864393942767398f5bca1d7d8b34275b92212da9",
+          "boundary-work.csv": "5b81e52910c06f87d34261d8930b1917c6d0028a820d3449d454a5074df971f4",
+          "decision-work.csv": "e208b49c72d6a69374d3e168db596956baad7e1c15618725c48f99cd9f9442e0"
+        },
+        "extended_quality": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6656,
+          "max_open_reservation_age_ms": 5456,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 451,
+          "open_passages": 452,
+          "open_reservations": 126,
+          "released_reservations": 0,
+          "ticks": 512,
+          "unmatched_clear_events": 0
+        },
+        "initial_checkpoint": "8ada02c0782d913349d95ff5c255db3d26f3369e81ae9c8e7dcbe0b32c561640",
+        "final_checkpoint": "8ed4a1dc05fff179954db370511f6077b4f8fddaa32a1d9ff79defdf540b0d32"
+      },
+      "arms": [
+        {
+          "name": "1-reference",
+          "mode": "reference",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 3.1898725446428573,
+              "p95": 3.844315,
+              "p99": 4.154886999999998,
+              "maximum": 4.5513
+            },
+            "observation_ns": {
+              "mean": 7.190776785714285,
+              "p95": 8.239394999999998,
+              "p99": 8.826443999999995,
+              "maximum": 9.9964
+            },
+            "iteration_ns": {
+              "mean": 10.56269732142857,
+              "p95": 12.014694999999998,
+              "p99": 14.168883999999977,
+              "maximum": 35.225
+            },
+            "advance_ns": {
+              "mean": 10.535751339285715,
+              "p95": 12.009194999999998,
+              "p99": 13.93907199999998,
+              "maximum": 34.903
+            },
+            "writer_ns": {
+              "mean": 0.026788839285714287,
+              "p95": 0.09566499999999986,
+              "p99": 0.4469979999999982,
+              "maximum": 0.644
+            },
+            "public_command_ns": {
+              "mean": 0.0077828125,
+              "p95": 0.0,
+              "p99": 0.2953669999999999,
+              "maximum": 0.4342
+            }
+          },
+          "active_min": 7043,
+          "active_max": 7500,
+          "process_wall_s": 6.4277555,
+          "peak_working_set_observed_bytes": null,
+          "peak_paged_memory_observed_bytes": null,
+          "memory_samples": 0,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 10240000,
+            "parking_reads": 15360000,
+            "individual_visits": 15360000,
+            "identity_scan_visits": 5120000
+          },
+          "parking_capacity_max": 224
+        },
+        {
+          "name": "2-fused",
+          "mode": "fused",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 3.286561607142857,
+              "p95": 4.1282049999999995,
+              "p99": 4.633268999999999,
+              "maximum": 6.1226
+            },
+            "observation_ns": {
+              "mean": 5.81705625,
+              "p95": 6.981439999999999,
+              "p99": 7.934172999999996,
+              "maximum": 8.6446
+            },
+            "iteration_ns": {
+              "mean": 9.291854017857144,
+              "p95": 11.3575,
+              "p99": 14.379261999999992,
+              "maximum": 34.7743
+            },
+            "advance_ns": {
+              "mean": 9.26385513392857,
+              "p95": 11.19002,
+              "p99": 13.902795999999999,
+              "maximum": 34.4135
+            },
+            "writer_ns": {
+              "mean": 0.027851339285714285,
+              "p95": 0.10041999999999998,
+              "p99": 0.4106569999999998,
+              "maximum": 0.7977
+            },
+            "public_command_ns": {
+              "mean": 0.00835,
+              "p95": 0.0,
+              "p99": 0.29270099999999943,
+              "maximum": 0.4761
+            }
+          },
+          "active_min": 7043,
+          "active_max": 7500,
+          "process_wall_s": 5.404892,
+          "peak_working_set_observed_bytes": null,
+          "peak_paged_memory_observed_bytes": null,
+          "memory_samples": 0,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 5120000,
+            "parking_reads": 5120000,
+            "individual_visits": 5120000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 224
+        },
+        {
+          "name": "3-audit",
+          "mode": "audit",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 3.3009698660714286,
+              "p95": 3.85692,
+              "p99": 4.174683999999998,
+              "maximum": 4.5489
+            },
+            "observation_ns": {
+              "mean": 11.491949330357144,
+              "p95": 13.359075,
+              "p99": 14.25081099999999,
+              "maximum": 15.0665
+            },
+            "iteration_ns": {
+              "mean": 15.00125513392857,
+              "p95": 17.234655,
+              "p99": 19.211499999999994,
+              "maximum": 47.9377
+            },
+            "advance_ns": {
+              "mean": 14.974506696428572,
+              "p95": 17.12547,
+              "p99": 18.717653999999996,
+              "maximum": 47.6376
+            },
+            "writer_ns": {
+              "mean": 0.0265953125,
+              "p95": 0.09148999999999999,
+              "p99": 0.43044799999999944,
+              "maximum": 0.6866
+            },
+            "public_command_ns": {
+              "mean": 0.008573883928571429,
+              "p95": 0.0,
+              "p99": 0.3170749999999998,
+              "maximum": 0.4479
+            }
+          },
+          "active_min": 7043,
+          "active_max": 7500,
+          "process_wall_s": 8.3669371,
+          "peak_working_set_observed_bytes": null,
+          "peak_paged_memory_observed_bytes": null,
+          "memory_samples": 0,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 5120000,
+            "parking_reads": 5120000,
+            "individual_visits": 5120000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 224
+        }
+      ]
+    },
+    {
+      "name": "audit-tail-10k",
+      "instrumented": true,
+      "ticks_per_arm": 512,
+      "workers": 4,
+      "semantic_equal": true,
+      "semantic_reference": {
+        "files": {
+          "ticks.jsonl": "59f342acb7c0ff619cca4be2d6a90d307ab5e0ae8617d515255ba4eb2b99cb35",
+          "commands.jsonl": "c684d1439aa30b594dcb86935fae19c2d40b2df5ba810976f7db057477529cc8",
+          "events.jsonl": "eb8685f07f04c8915d37e7a8ed6688ac32162c6bfe2f2dd8b184db947129736e",
+          "quality.csv": "10a3194b3a5ab5e67fe77b3974efad8ad07a28c4ec4168f3b4b10fd23ecd5442",
+          "individual-quality.csv": "6c319dd08d8e8549d0df6c5cabeb95c56ad85756dec013aae33c7c19cf0e2d7c",
+          "entry-work.csv": "46e9d23fef524ef4839d638f864393942767398f5bca1d7d8b34275b92212da9",
+          "boundary-work.csv": "5b81e52910c06f87d34261d8930b1917c6d0028a820d3449d454a5074df971f4",
+          "decision-work.csv": "e208b49c72d6a69374d3e168db596956baad7e1c15618725c48f99cd9f9442e0"
+        },
+        "extended_quality": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6656,
+          "max_open_reservation_age_ms": 5456,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 451,
+          "open_passages": 452,
+          "open_reservations": 126,
+          "released_reservations": 0,
+          "ticks": 512,
+          "unmatched_clear_events": 0
+        },
+        "initial_checkpoint": "eb051e09acc1aadad7adbd33b42e7c2112f46aad32006e399949ac9573c432c3",
+        "final_checkpoint": "1d1d7606c3147206c0e06c319fef9178f311e2142887aca63845c18a188eb0a9"
+      },
+      "arms": [
+        {
+          "name": "1-reference",
+          "mode": "reference",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 2.961539955357143,
+              "p95": 3.531325,
+              "p99": 3.687531,
+              "maximum": 4.26
+            },
+            "observation_ns": {
+              "mean": 7.217787276785715,
+              "p95": 8.31061,
+              "p99": 8.751511999999998,
+              "maximum": 11.8839
+            },
+            "iteration_ns": {
+              "mean": 10.354997544642856,
+              "p95": 11.704819999999998,
+              "p99": 13.165337999999995,
+              "maximum": 35.195
+            },
+            "advance_ns": {
+              "mean": 10.328541294642857,
+              "p95": 11.66384,
+              "p99": 12.964843999999994,
+              "maximum": 34.8905
+            },
+            "writer_ns": {
+              "mean": 0.026288839285714287,
+              "p95": 0.11239999999999944,
+              "p99": 0.3806239999999992,
+              "maximum": 0.8283
+            },
+            "public_command_ns": {
+              "mean": 0.007117410714285715,
+              "p95": 0.0,
+              "p99": 0.2773659999999994,
+              "maximum": 0.361
+            }
+          },
+          "active_min": 7043,
+          "active_max": 7500,
+          "process_wall_s": 6.0282042,
+          "peak_working_set_observed_bytes": 50495488,
+          "peak_paged_memory_observed_bytes": 53030912,
+          "memory_samples": 22,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 10240000,
+            "parking_reads": 15360000,
+            "individual_visits": 15360000,
+            "identity_scan_visits": 5120000
+          },
+          "parking_capacity_max": 224
+        },
+        {
+          "name": "2-fused",
+          "mode": "fused",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 2.8728703125,
+              "p95": 3.5249849999999996,
+              "p99": 3.712112999999999,
+              "maximum": 4.2212
+            },
+            "observation_ns": {
+              "mean": 5.732386607142857,
+              "p95": 6.78399,
+              "p99": 7.196046999999998,
+              "maximum": 8.351
+            },
+            "iteration_ns": {
+              "mean": 8.788659375,
+              "p95": 10.302199999999997,
+              "p99": 12.29215399999999,
+              "maximum": 37.1741
+            },
+            "advance_ns": {
+              "mean": 8.763074107142856,
+              "p95": 10.227685,
+              "p99": 12.097382999999999,
+              "maximum": 36.7625
+            },
+            "writer_ns": {
+              "mean": 0.0254140625,
+              "p95": 0.09349999999999987,
+              "p99": 0.4165059999999997,
+              "maximum": 0.6631
+            },
+            "public_command_ns": {
+              "mean": 0.007369419642857143,
+              "p95": 0.0,
+              "p99": 0.29273699999999997,
+              "maximum": 0.3619
+            }
+          },
+          "active_min": 7043,
+          "active_max": 7500,
+          "process_wall_s": 5.2025116,
+          "peak_working_set_observed_bytes": 50774016,
+          "peak_paged_memory_observed_bytes": 53362688,
+          "memory_samples": 19,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 5120000,
+            "parking_reads": 5120000,
+            "individual_visits": 5120000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 224
+        },
+        {
+          "name": "3-audit",
+          "mode": "audit",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 2.888856473214286,
+              "p95": 3.41985,
+              "p99": 3.8131279999999985,
+              "maximum": 4.1579
+            },
+            "observation_ns": {
+              "mean": 10.977941964285714,
+              "p95": 12.623675,
+              "p99": 13.048784,
+              "maximum": 13.4044
+            },
+            "iteration_ns": {
+              "mean": 14.055244419642856,
+              "p95": 16.05755,
+              "p99": 17.09575099999999,
+              "maximum": 44.3431
+            },
+            "advance_ns": {
+              "mean": 14.02772075892857,
+              "p95": 15.983655,
+              "p99": 16.90641099999999,
+              "maximum": 44.0334
+            },
+            "writer_ns": {
+              "mean": 0.02736941964285714,
+              "p95": 0.10652999999999996,
+              "p99": 0.4830699999999998,
+              "maximum": 0.7462
+            },
+            "public_command_ns": {
+              "mean": 0.008411830357142857,
+              "p95": 0.0,
+              "p99": 0.2997509999999998,
+              "maximum": 0.5872
+            }
+          },
+          "active_min": 7043,
+          "active_max": 7500,
+          "process_wall_s": 7.8726462,
+          "peak_working_set_observed_bytes": 50737152,
+          "peak_paged_memory_observed_bytes": 53342208,
+          "memory_samples": 29,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 5120000,
+            "parking_reads": 5120000,
+            "individual_visits": 5120000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 224
+        }
+      ]
+    },
+    {
+      "name": "audit-mixed-10k-768",
+      "instrumented": true,
+      "ticks_per_arm": 768,
+      "workers": 4,
+      "semantic_equal": true,
+      "semantic_reference": {
+        "files": {
+          "ticks.jsonl": "97192658f786d19010a5715ef53546e21c5d775b1e8199754f602e682b10c693",
+          "commands.jsonl": "54443aecbc7032417588aebdf60e847d2c763552c466ed4cecc7336b14b1fa4c",
+          "events.jsonl": "a9c144fbaa693421be02649201d0b8d602c66afa4ba5e81a3a94c4157b838ed5",
+          "quality.csv": "4ebd72f9df5ef78b17e5ddca16a7984124e9de81cfaaf67be56379c0a2f94d2a",
+          "individual-quality.csv": "5ae2d7c57b3b6ba88d4812884e9051229e3e90760b7f2a48e19bf2a9d0586f6d",
+          "entry-work.csv": "40f166b8b08f23546ebaac67e2b177c797aaecd6d2dfa96bf1db4e6b10d3017e",
+          "boundary-work.csv": "2bfadb32b651d745220b635fc6bae994eca05d8cb7d9ded0b4aaa810d3a19373",
+          "decision-work.csv": "fe09cd5d8828d12dc963c1d14bd8768b46960e4f139682d8f6ba12e8e3cfad56"
+        },
+        "extended_quality": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 10752,
+          "max_open_reservation_age_ms": 9552,
+          "max_released_reservation_ms": 8144,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 761,
+          "open_passages": 452,
+          "open_reservations": 126,
+          "released_reservations": 8,
+          "ticks": 768,
+          "unmatched_clear_events": 0
+        },
+        "initial_checkpoint": "6ee23a20c47a38c509238e2806b1559a5e93bd60026f1de1a85a6d5b049f8b21",
+        "final_checkpoint": "5abbc2ee04f85685b8f41f7101bf6f3aebc3bf908c16a38b6ce1c2def8e108c4"
+      },
+      "arms": [
+        {
+          "name": "1-reference",
+          "mode": "reference",
+          "observed_ticks": 704,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 3.0225485795454547,
+              "p95": 3.646945,
+              "p99": 4.205137,
+              "maximum": 5.0455
+            },
+            "observation_ns": {
+              "mean": 7.386558522727272,
+              "p95": 8.5715,
+              "p99": 9.168884000000002,
+              "maximum": 11.0819
+            },
+            "iteration_ns": {
+              "mean": 10.605214772727273,
+              "p95": 12.328745,
+              "p99": 15.060718000000001,
+              "maximum": 35.2403
+            },
+            "advance_ns": {
+              "mean": 10.574859090909092,
+              "p95": 12.31769,
+              "p99": 14.513565000000002,
+              "maximum": 34.9111
+            },
+            "writer_ns": {
+              "mean": 0.030174857954545456,
+              "p95": 0.09594000000000001,
+              "p99": 0.5530990000000002,
+              "maximum": 1.6573
+            },
+            "public_command_ns": {
+              "mean": 0.010056960227272729,
+              "p95": 0.0,
+              "p99": 0.3772510000000002,
+              "maximum": 0.6908
+            }
+          },
+          "active_min": 6761,
+          "active_max": 7500,
+          "process_wall_s": 8.9145088,
+          "peak_working_set_observed_bytes": 50733056,
+          "peak_paged_memory_observed_bytes": 53338112,
+          "memory_samples": 33,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 15360000,
+            "parking_reads": 23040000,
+            "individual_visits": 23040000,
+            "identity_scan_visits": 7680000
+          },
+          "parking_capacity_max": 224
+        },
+        {
+          "name": "2-fused",
+          "mode": "fused",
+          "observed_ticks": 704,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 2.9163478693181815,
+              "p95": 3.472795,
+              "p99": 3.732686,
+              "maximum": 4.9989
+            },
+            "observation_ns": {
+              "mean": 5.8112034090909095,
+              "p95": 6.78518,
+              "p99": 7.110122,
+              "maximum": 7.5807
+            },
+            "iteration_ns": {
+              "mean": 8.918825710227273,
+              "p95": 10.45456,
+              "p99": 13.211082000000017,
+              "maximum": 33.7895
+            },
+            "advance_ns": {
+              "mean": 8.886455823863637,
+              "p95": 10.410705,
+              "p99": 12.584548000000018,
+              "maximum": 33.469
+            },
+            "writer_ns": {
+              "mean": 0.03221946022727273,
+              "p95": 0.09248000000000002,
+              "p99": 0.6490010000000002,
+              "maximum": 1.1869
+            },
+            "public_command_ns": {
+              "mean": 0.010267329545454546,
+              "p95": 0.0,
+              "p99": 0.41042800000000007,
+              "maximum": 0.5623
+            }
+          },
+          "active_min": 6761,
+          "active_max": 7500,
+          "process_wall_s": 7.6441286,
+          "peak_working_set_observed_bytes": 50745344,
+          "peak_paged_memory_observed_bytes": 53358592,
+          "memory_samples": 28,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 7680000,
+            "parking_reads": 7680000,
+            "individual_visits": 7680000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 224
+        },
+        {
+          "name": "3-audit",
+          "mode": "audit",
+          "observed_ticks": 704,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 3.0849438920454544,
+              "p95": 3.7287100000000004,
+              "p99": 4.063093,
+              "maximum": 4.6935
+            },
+            "observation_ns": {
+              "mean": 11.610221590909092,
+              "p95": 13.332725,
+              "p99": 13.695329,
+              "maximum": 14.3449
+            },
+            "iteration_ns": {
+              "mean": 14.893898295454544,
+              "p95": 16.98978,
+              "p99": 19.663248000000003,
+              "maximum": 39.2846
+            },
+            "advance_ns": {
+              "mean": 14.861865340909091,
+              "p95": 16.97362,
+              "p99": 19.244312000000008,
+              "maximum": 38.946
+            },
+            "writer_ns": {
+              "mean": 0.03187755681818182,
+              "p95": 0.10939000000000011,
+              "p99": 0.6039800000000001,
+              "maximum": 1.208
+            },
+            "public_command_ns": {
+              "mean": 0.010832102272727273,
+              "p95": 0.0,
+              "p99": 0.40022800000000036,
+              "maximum": 0.6134
+            }
+          },
+          "active_min": 6761,
+          "active_max": 7500,
+          "process_wall_s": 12.187737199999999,
+          "peak_working_set_observed_bytes": 50589696,
+          "peak_paged_memory_observed_bytes": 53231616,
+          "memory_samples": 46,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 7680000,
+            "parking_reads": 7680000,
+            "individual_visits": 7680000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 224
+        }
+      ]
+    },
+    {
+      "name": "audit-tail-100k",
+      "instrumented": true,
+      "ticks_per_arm": 256,
+      "workers": 4,
+      "semantic_equal": true,
+      "semantic_reference": {
+        "files": {
+          "ticks.jsonl": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809",
+          "commands.jsonl": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155",
+          "events.jsonl": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401",
+          "quality.csv": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3",
+          "individual-quality.csv": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08",
+          "entry-work.csv": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8",
+          "boundary-work.csv": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4",
+          "decision-work.csv": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+        },
+        "extended_quality": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        },
+        "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d"
+      },
+      "arms": [
+        {
+          "name": "1-reference",
+          "mode": "reference",
+          "observed_ticks": 192,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 32.17958177083333,
+              "p95": 36.73646,
+              "p99": 40.419589,
+              "maximum": 40.7968
+            },
+            "observation_ns": {
+              "mean": 88.08855104166668,
+              "p95": 100.23383,
+              "p99": 100.968891,
+              "maximum": 103.5432
+            },
+            "iteration_ns": {
+              "mean": 123.3386328125,
+              "p95": 140.99162999999996,
+              "p99": 181.96349100000003,
+              "maximum": 190.5372
+            },
+            "advance_ns": {
+              "mean": 122.92182395833333,
+              "p95": 139.900775,
+              "p99": 175.274996,
+              "maximum": 178.5937
+            },
+            "writer_ns": {
+              "mean": 0.4166317708333333,
+              "p95": 3.016824999999999,
+              "p99": 6.6879950000000115,
+              "maximum": 11.9426
+            },
+            "public_command_ns": {
+              "mean": 0.6362723958333334,
+              "p95": 4.290944999999976,
+              "p99": 12.834999000000007,
+              "maximum": 15.6394
+            }
+          },
+          "active_min": 70761,
+          "active_max": 74392,
+          "process_wall_s": 35.6150955,
+          "peak_working_set_observed_bytes": 469905408,
+          "peak_paged_memory_observed_bytes": 549818368,
+          "memory_samples": 134,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 51200000,
+            "parking_reads": 76800000,
+            "individual_visits": 76800000,
+            "identity_scan_visits": 25600000
+          },
+          "parking_capacity_max": 3584
+        },
+        {
+          "name": "2-fused",
+          "mode": "fused",
+          "observed_ticks": 192,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 32.94109322916667,
+              "p95": 38.61745,
+              "p99": 40.802232,
+              "maximum": 42.9467
+            },
+            "observation_ns": {
+              "mean": 73.573321875,
+              "p95": 83.636205,
+              "p99": 85.120172,
+              "maximum": 88.02
+            },
+            "iteration_ns": {
+              "mean": 109.67981041666667,
+              "p95": 129.221365,
+              "p99": 171.77532000000002,
+              "maximum": 190.6915
+            },
+            "advance_ns": {
+              "mean": 109.26912864583333,
+              "p95": 128.47886999999997,
+              "p99": 164.602029,
+              "maximum": 180.9259
+            },
+            "writer_ns": {
+              "mean": 0.41044895833333334,
+              "p95": 3.1381449999999975,
+              "p99": 7.06454800000001,
+              "maximum": 10.9674
+            },
+            "public_command_ns": {
+              "mean": 0.6339192708333333,
+              "p95": 4.294034999999973,
+              "p99": 12.527641000000004,
+              "maximum": 16.8573
+            }
+          },
+          "active_min": 70761,
+          "active_max": 74392,
+          "process_wall_s": 31.8658917,
+          "peak_working_set_observed_bytes": 470085632,
+          "peak_paged_memory_observed_bytes": 549974016,
+          "memory_samples": 120,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 25600000,
+            "parking_reads": 25600000,
+            "individual_visits": 25600000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 3584
+        },
+        {
+          "name": "3-audit",
+          "mode": "audit",
+          "observed_ticks": 192,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 32.592609895833334,
+              "p95": 36.79201,
+              "p99": 38.262485,
+              "maximum": 38.5764
+            },
+            "observation_ns": {
+              "mean": 142.42385208333334,
+              "p95": 160.957545,
+              "p99": 165.817463,
+              "maximum": 167.8185
+            },
+            "iteration_ns": {
+              "mean": 178.00152916666664,
+              "p95": 201.7765,
+              "p99": 237.81112500000003,
+              "maximum": 258.1047
+            },
+            "advance_ns": {
+              "mean": 177.61082552083334,
+              "p95": 200.959105,
+              "p99": 229.69599900000003,
+              "maximum": 248.6264
+            },
+            "writer_ns": {
+              "mean": 0.390496875,
+              "p95": 2.9303399999999957,
+              "p99": 6.508656000000006,
+              "maximum": 9.4777
+            },
+            "public_command_ns": {
+              "mean": 0.5839880208333333,
+              "p95": 3.974529999999976,
+              "p99": 12.426030000000003,
+              "maximum": 13.1702
+            }
+          },
+          "active_min": 70761,
+          "active_max": 74392,
+          "process_wall_s": 49.390305,
+          "peak_working_set_observed_bytes": 469889024,
+          "peak_paged_memory_observed_bytes": 549814272,
+          "memory_samples": 187,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ],
+          "work_totals": {
+            "vehicle_reads": 25600000,
+            "parking_reads": 25600000,
+            "individual_visits": 25600000,
+            "identity_scan_visits": 0
+          },
+          "parking_capacity_max": 3584
+        }
+      ]
+    },
+    {
+      "name": "balanced-100k",
+      "instrumented": false,
+      "ticks_per_arm": 512,
+      "workers": 4,
+      "semantic_equal": true,
+      "semantic_reference": {
+        "files": {
+          "ticks.jsonl": "b9441966c1cd8331f6edcc8785f6da518dc8bd6ea1073130f2b962ff307e0f96",
+          "commands.jsonl": "4aa4dfc4dafec30a1c18a17c854bd5f09cced57c8a27e36a23abc51c74daeaae",
+          "events.jsonl": "b4202f590fe3a3eef68ebc9e7c7b8861f9b979947a02b7a9b4f2995d76c8286e",
+          "quality.csv": "0dfcb9ee159f11b4dea8cbb78f3530bbef181529fd51979d1baffbb289b90aae",
+          "individual-quality.csv": "fe86376f3a768ce02865b845603199bc8763492681882efa985e9f1d5af207d6",
+          "entry-work.csv": "46e9d23fef524ef4839d638f864393942767398f5bca1d7d8b34275b92212da9",
+          "boundary-work.csv": "c3cbbe53912391c8661e92b2106a78d84627e8487df8294e12d56142c8ccfc43",
+          "decision-work.csv": "e208b49c72d6a69374d3e168db596956baad7e1c15618725c48f99cd9f9442e0"
+        },
+        "extended_quality": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 15345,
+          "max_open_reservation_age_ms": 12144,
+          "max_released_reservation_ms": 12408,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 10269,
+          "open_passages": 4120,
+          "open_reservations": 1042,
+          "released_reservations": 1153,
+          "ticks": 512,
+          "unmatched_clear_events": 0
+        },
+        "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+        "final_checkpoint": "dfefe56e158fcd88914b9a2cf7be3b867ecca7a773b5229c941ace7724aafa41"
+      },
+      "arms": [
+        {
+          "name": "1-reference",
+          "mode": "reference",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 33.00929732142857,
+              "p95": 37.28549,
+              "p99": 38.731801999999995,
+              "maximum": 41.7023
+            },
+            "observation_ns": {
+              "mean": 81.36496607142857,
+              "p95": 91.76472,
+              "p99": 94.31135999999998,
+              "maximum": 102.6955
+            },
+            "iteration_ns": {
+              "mean": 120.59724754464285,
+              "p95": 146.18128999999996,
+              "p99": 232.7249,
+              "maximum": 538.8868
+            },
+            "advance_ns": {
+              "mean": 119.97057008928572,
+              "p95": 143.49495999999996,
+              "p99": 221.15635999999998,
+              "maximum": 527.9013
+            },
+            "writer_ns": {
+              "mean": 0.6264388392857143,
+              "p95": 4.375999999999996,
+              "p99": 12.51373799999999,
+              "maximum": 15.7085
+            },
+            "public_command_ns": {
+              "mean": 2.4850988839285715,
+              "p95": 9.993879999999983,
+              "p99": 51.961068999999874,
+              "maximum": 359.0986
+            }
+          },
+          "active_min": 65577,
+          "active_max": 74392,
+          "process_wall_s": 66.23857919999999,
+          "peak_working_set_observed_bytes": 473845760,
+          "peak_paged_memory_observed_bytes": 550670336,
+          "memory_samples": 249,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "name": "2-fused",
+          "mode": "fused",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 33.27016294642857,
+              "p95": 37.755655,
+              "p99": 40.48458,
+              "maximum": 45.0174
+            },
+            "observation_ns": {
+              "mean": 70.36347857142857,
+              "p95": 80.10685,
+              "p99": 82.39520499999999,
+              "maximum": 85.4574
+            },
+            "iteration_ns": {
+              "mean": 109.82245491071428,
+              "p95": 136.24527999999995,
+              "p99": 228.99540399999992,
+              "maximum": 545.1722
+            },
+            "advance_ns": {
+              "mean": 109.22307120535714,
+              "p95": 134.31756,
+              "p99": 215.87163699999994,
+              "maximum": 532.5278
+            },
+            "writer_ns": {
+              "mean": 0.5991363839285715,
+              "p95": 4.032024999999992,
+              "p99": 12.586471999999997,
+              "maximum": 15.2642
+            },
+            "public_command_ns": {
+              "mean": 2.439523660714286,
+              "p95": 9.098669999999988,
+              "p99": 48.85920999999993,
+              "maximum": 357.4891
+            }
+          },
+          "active_min": 65577,
+          "active_max": 74392,
+          "process_wall_s": 60.308855199999996,
+          "peak_working_set_observed_bytes": 469929984,
+          "peak_paged_memory_observed_bytes": 550019072,
+          "memory_samples": 228,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "name": "3-fused",
+          "mode": "fused",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 33.30053125,
+              "p95": 38.56134,
+              "p99": 41.652808999999955,
+              "maximum": 47.3461
+            },
+            "observation_ns": {
+              "mean": 71.58012857142857,
+              "p95": 83.2636,
+              "p99": 84.906043,
+              "maximum": 86.6036
+            },
+            "iteration_ns": {
+              "mean": 111.22000513392857,
+              "p95": 141.316305,
+              "p99": 233.66418899999974,
+              "maximum": 555.1272
+            },
+            "advance_ns": {
+              "mean": 110.58106964285714,
+              "p95": 138.11733499999985,
+              "p99": 221.1228669999998,
+              "maximum": 541.6245
+            },
+            "writer_ns": {
+              "mean": 0.6386774553571428,
+              "p95": 4.141499999999997,
+              "p99": 12.745737999999996,
+              "maximum": 16.5391
+            },
+            "public_command_ns": {
+              "mean": 2.491939508928571,
+              "p95": 9.49605499999999,
+              "p99": 51.88703799999972,
+              "maximum": 372.9222
+            }
+          },
+          "active_min": 65577,
+          "active_max": 74392,
+          "process_wall_s": 60.9007336,
+          "peak_working_set_observed_bytes": 469807104,
+          "peak_paged_memory_observed_bytes": 550105088,
+          "memory_samples": 230,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "name": "4-reference",
+          "mode": "reference",
+          "observed_ticks": 448,
+          "timings_ms": {
+            "public_step_ns": {
+              "mean": 33.78586741071428,
+              "p95": 38.97208,
+              "p99": 40.833082999999995,
+              "maximum": 47.995
+            },
+            "observation_ns": {
+              "mean": 82.94664933035715,
+              "p95": 96.353835,
+              "p99": 99.26757999999998,
+              "maximum": 111.336
+            },
+            "iteration_ns": {
+              "mean": 123.08102299107144,
+              "p95": 148.132845,
+              "p99": 241.02554499999985,
+              "maximum": 543.3407
+            },
+            "advance_ns": {
+              "mean": 122.43344754464285,
+              "p95": 144.82426,
+              "p99": 229.15743699999982,
+              "maximum": 527.6154
+            },
+            "writer_ns": {
+              "mean": 0.6473299107142857,
+              "p95": 4.424654999999999,
+              "p99": 13.117029999999977,
+              "maximum": 17.7261
+            },
+            "public_command_ns": {
+              "mean": 2.5122901785714284,
+              "p95": 9.183164999999988,
+              "p99": 55.56826099999997,
+              "maximum": 358.1539
+            }
+          },
+          "active_min": 65577,
+          "active_max": 74392,
+          "process_wall_s": 66.9335766,
+          "peak_working_set_observed_bytes": 469803008,
+          "peak_paged_memory_observed_bytes": 550113280,
+          "memory_samples": 253,
+          "background_python_cpu": [
+            {
+              "id": 37008,
+              "cpu_seconds": 0.0
+            },
+            {
+              "id": 39440,
+              "cpu_seconds": 0.0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "group": "balanced-100k",
+      "metrics": {
+        "public_step_ns": {
+          "h0_mean_ms": 33.397582366071425,
+          "h1_mean_ms": 33.28534709821429,
+          "reduction_percent": 0.3360580614097275
+        },
+        "observation_ns": {
+          "h0_mean_ms": 82.15580770089286,
+          "h1_mean_ms": 70.97180357142858,
+          "reduction_percent": 13.613163137756768
+        },
+        "iteration_ns": {
+          "h0_mean_ms": 121.83913526785715,
+          "h1_mean_ms": 110.52123002232142,
+          "reduction_percent": 9.289219937956627
+        },
+        "advance_ns": {
+          "h0_mean_ms": 121.20200881696428,
+          "h1_mean_ms": 109.90207042410714,
+          "reduction_percent": 9.32322698538931
+        },
+        "writer_ns": {
+          "h0_mean_ms": 0.636884375,
+          "h1_mean_ms": 0.6189069196428572,
+          "reduction_percent": 2.822718858056894
+        },
+        "public_command_ns": {
+          "h0_mean_ms": 2.49869453125,
+          "h1_mean_ms": 2.4657315848214285,
+          "reduction_percent": 1.3192067304073962
+        }
+      },
+      "h0_process_wall_s": 66.58607789999999,
+      "h1_process_wall_s": 60.6047944
+    }
+  ],
+  "warmup_excluded_ticks": 64,
+  "quantile": "linear interpolation on (n-1)*p",
+  "semantic_files": [
+    "ticks.jsonl",
+    "commands.jsonl",
+    "events.jsonl",
+    "quality.csv",
+    "individual-quality.csv",
+    "entry-work.csv",
+    "boundary-work.csv",
+    "decision-work.csv"
+  ],
+  "exclusions": {
+    "audit-mixed-10k": "preflight failed before run: 1024 equals plan end; retried as 768 ticks in a new directory"
+  },
+  "boundaries": [
+    "Instrumented and dual-oracle audit timings are not performance results.",
+    "Core algorithm unchanged; accompanying Core timing shifts are not algorithm gains.",
+    "Peak memory uses 250ms polling of high-water counters and can miss the final tail.",
+    "Full per-tick observation retained; no new continuous geometric collision guarantee."
+  ]
+}
