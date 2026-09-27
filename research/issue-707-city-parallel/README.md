@@ -160,9 +160,10 @@ laneflow-urban-harness.exe compare <pilot>/<scale>-w1-r1 <pilot>/<scale>-w4-r1 <
 - **plans.json 冻结摘要不匹配（已重放闭合，未改 golden）**：两档重建
   manifest 与冻结版只差 `shared_*_retained_bytes` 两个构建统计字段，七个
   内容文件逐项摘要一致。使用 `4de40e04` 归档源码、版本化冻结 manifest 和
-  已核验内容文件重新生成 correctness 计划，10k/100k 分别精确得到
-  `plans.json` 的 `d0e58a7c…` / `4f2dddc2…`；重放计划与重建计划逐行比较，
-  都只有 `manifest_digest` 不同。分档 blob 身份、全部摘要与重放二进制见
+  已核验内容文件重新生成 correctness 与 performance 计划，10k/100k 四份计划
+  均精确得到 `plans.json` 的冻结身份；其中 D1/D2 performance 计划分别命中
+  `10795510…` / `792d8d11…`。重放计划与重建计划逐行比较，都只有
+  `manifest_digest` 不同。分档 blob 身份、全部摘要与重放二进制见
   [输入差异与冻结计划重放](input-diff.md)及
   [`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。据此接受重建
   制品用于本 PR 的 pilot/阶段研究范围；#707 完整认证义务保持开放。

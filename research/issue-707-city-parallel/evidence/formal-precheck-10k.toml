@@ -22,7 +22,7 @@ sha256 = "139fc82241a728c50b5c33fb16600584b9ab5a5f3e33dbe1fa5800d4ae350853"
 bytes = 11930181
 warm_up_ticks = 30624
 observation_ticks = 61248
-frozen_check = "fixtures/v3/plans.json 含 10k-mixed-peak-performance 条目：字节数一致（11930181）、SHA-256 不一致——与 input-diff.md 已闭合的 manifest_digest 传导机制一致（两张 manifest 仅 shared_*_retained_bytes 差异，数字同为 7 位十进制，经定长 manifest_digest 进入计划后字节数不变）"
+frozen_check = "已用冻结 manifest 与归档 Harness 重放：11930181 字节、SHA-256 10795510d2af9520f543828514bd2c3d1a5d2765551dd6e3351c91e14afe5c27，精确匹配 fixtures/v3/plans.json；与本轮计划逐行比较仅第 9 行 manifest_digest 不同，其余 649774 行一致（见 frozen-plan-replay.json）"
 
 [environment]
 checked_at = "2026-09-20T23:49:39+0900"

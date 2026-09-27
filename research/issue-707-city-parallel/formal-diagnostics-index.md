@@ -7,7 +7,10 @@
 仓库内的 [`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)把四轮
 execution ID、完整 plan/result/measurements/diagnostics 摘要、观察窗统计和
 `result.json` 内全部大文件身份绑定为一条机器可读证据链；两份起跑核查、四份
-diagnostics 和两份跨 worker comparison 也以原始小封套提交在 `evidence/`。
+diagnostics、两份跨 worker comparison 与 D2 两轮电源边界原始记录也提交在
+`evidence/`。冻结 performance 计划的直接重放见
+[`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)，WPR trace 与匹配导出
+身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
 原始逐拍文件仍留在证据根，不把多 GB 日志复制进 Git。
 
 ## 正式 r1 的已完成范围
@@ -26,6 +29,11 @@ D2 的 Active p50/p95/max 为 45468/53656/55372；这是总个体 100k 的混合
 （w1 148.91ms）、observation p95 为 109.10ms（w1 88.10ms）；增量原因尚未分离。
 不能将三项 p95 相加，不能将命令与观测变化归因成 worker 的必然效果。
 
+D2 w1 与 w4 分别在单轮开始、结束边界记录 `Win32_Battery BatteryStatus=2`、
+电量 100%；LF 规范化提交副本为 `evidence/formal-power-100k-w{1,4}.txt`，机器记录
+分别保留原始 CRLF 日志与提交副本的身份及解析结果。这证明四个边界均接通 AC
+且未放电；它不是运行中每一时刻的连续遥测，也不把单轮 r1 扩大为最终性能认证。
+
 ## 来源定位
 
 | 项目               | 根目录下路径                                                                        | 用途                                                 |
@@ -35,9 +43,12 @@ D2 的 Active p50/p95/max 为 45468/53656/55372；这是总个体 100k 的混合
 | 原始语义轨迹       | 同目录 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`                              | 逐拍、命令、事件顺序核验                             |
 | 跨 worker 语义对照 | `comparisons/10k-r1-w1-w4.json`、`comparisons/100k-r1-w1-w4.json`                   | performance-match，不是三轮性能认证                  |
 | 原始计划           | `plans/10k-performance.toml`、`plans/100k-performance.toml`                         | 冻结输入，短测仍读取原计划                           |
+| 冻结计划重放       | 仓库内 `evidence/frozen-plan-replay.json`                                           | correctness/performance 四份均精确命中冻结摘要       |
+| D2 电源边界        | 仓库内 `evidence/formal-power-100k-w{1,4}.txt`                                      | 两轮开始/结束均为 AC、未放电、100%                   |
 | D2 分段诊断        | `diagnostics/d2-offline-decomposition.md`                                           | 后段成本变化，解释范围依原文                         |
 | L1                 | `diagnostics/wpr/l1-findings.md`、`l1-w4-prefix512.etl`                             | 早期机制筛查                                         |
 | L3                 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl`               | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
+| WPR 不可变身份     | 仓库内 `evidence/wpr-trace-identities.json`                                         | B1/L3 ETL 与匹配导出的字节数和 SHA-256               |
 
 原始摘要和逐文件 SHA-256 仍以证据封套及文件为准；本索引不声称重新执行正式测量。
 四轮 `measurements.toml` 均记录了 `Get-Process.PeakWorkingSet64`：10k w1/w4

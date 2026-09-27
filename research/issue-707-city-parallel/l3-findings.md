@@ -10,7 +10,12 @@
   `960fe18ca04396fdcf7ded9455456b27b9434760562f3596b4a68ec704e80b95`。
 - 证据目录：`E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/wpr/`。
 - 同一 PID 11984、workers=4、原始 100k 正式计划，从初态演进。
-- 元数据：`l3-w4-meta.txt`；采集：`l3-w4-early.etl`、`l3-w4-late.etl`。
+- 元数据：`l3-w4-meta.txt`；采集：`l3-w4-early.etl`（1,154,482,176 字节，
+  SHA-256 `39461dd8b147ff8688e3bdb49a13a7c8e7f78d9b2220bfa6227fe835be8edd52`）
+  与 `l3-w4-late.etl`（3,331,325,952 字节，SHA-256
+  `279df9d9e222f838b3d86eb64b7cca0bb9b18901b45dcb5b705d377601d6ae89`）。
+  匹配的早/晚窗口符号与活动报告身份见
+  [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
 - 实际轮询端点：早窗 tick 66–536；晚窗 tick 21527–22531。端点不是
   ETW 事件与 Core step 的逐拍对齐标记，不能直接作为下面裁剪区间的拍数。
 - 两份 ETL 均报告 Lost Buffers=0、Lost Events=0。脚本结束后已确认程序退出。
@@ -123,4 +128,6 @@ Git 忽略的可再生分析目录，不替代证据根的原文件：
 - `*-util.txt`、`*-frequency.txt`：采样覆盖与采样周期；不是 CPU 运行频率。
 
 原始 ETL 字节数分别为 1154482176、3331325952。后续 #734 收尾时可将本摘要及
-来源索引纳入交付；本轮未 commit、push 或修改 Issue/PR 状态。
+来源索引纳入交付；两份 ETL、元数据及本节列出的匹配离线导出均已在
+[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)登记字节数与
+SHA-256，大文件仍留在外部证据根。

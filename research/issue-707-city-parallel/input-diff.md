@@ -2,9 +2,10 @@
 
 > 结论：10k/100k 重建制品的七个内容文件与版本化冻结 manifest 逐字节一致；
 > 重建 manifest 只改变两个共享构建保留内存统计字段。使用 `4de40e04` 的
-> 导出源码、版本化冻结 manifest 和这些内容文件重新生成 correctness 计划后，
-> 两档计划的字节数与 SHA-256 均精确匹配 `fixtures/v3/plans.json`。再将重放
-> 计划与重建制品计划逐行比较，两档都只有 `manifest_digest` 一行不同。
+> 导出源码、版本化冻结 manifest 和这些内容文件重新生成 correctness 与
+> performance 计划后，四份计划的字节数与 SHA-256 均精确匹配
+> `fixtures/v3/plans.json`。再将重放计划与重建制品计划逐行比较，四份都只有
+> `manifest_digest` 一行不同。
 > 因此计划差异已经由实际重放闭合，不再依赖“旧计划本体不可得”时的推断。
 
 完整的小型机器可读记录见
@@ -67,28 +68,33 @@ SHA-256；Git 对象身份使用 `git rev-parse <commit>:<path>`，两种口径�
    `4d0a060e43c396148c9a347f327cc04fb09bd2c3cc740a472a5f19437360171e`。
 2. 对证据根七个内容文件逐个通过冻结 manifest 校验，再把版本化冻结 manifest
    与这些内容文件组合为只读重放输入。
-3. 用归档 Harness 分别生成 10k/100k `MIXED-PEAK` correctness 计划，并与
+3. 用归档 Harness 分别生成 10k/100k `MIXED-PEAK` correctness 计划及
+   `--performance` 计划，并与
    `tools/laneflow-urban-harness/fixtures/v3/plans.json` 比较。
 
-| 规模 | 重放计划字节数 | 重放 SHA-256 | `plans.json` |
-| ---- | -------------: | ------------ | ------------ |
-| 10k | 4,057,834 | `d0e58a7c9515ca22bfbee4352e9685279709d43b488e7b34dc0c6b7b389998c9` | 精确匹配 |
-| 100k | 40,845,093 | `4f2dddc266b9f1a0dfd0c60c707ad0de56d1112b489df687eba22a3904e8fd49` | 精确匹配 |
+| 规模 | 计划类型 | 重放计划字节数 | 重放 SHA-256 | `plans.json` |
+| ---- | -------- | -------------: | ------------ | ------------ |
+| 10k | correctness | 4,057,834 | `d0e58a7c9515ca22bfbee4352e9685279709d43b488e7b34dc0c6b7b389998c9` | 精确匹配 |
+| 10k | performance | 11,930,181 | `10795510d2af9520f543828514bd2c3d1a5d2765551dd6e3351c91e14afe5c27` | 精确匹配 |
+| 100k | correctness | 40,845,093 | `4f2dddc266b9f1a0dfd0c60c707ad0de56d1112b489df687eba22a3904e8fd49` | 精确匹配 |
+| 100k | performance | 120,077,925 | `792d8d11a9e69d5f5f5ddb6596f71811417ca6246d88d8a58fe5d65020c56ee7` | 精确匹配 |
 
-重放计划再与证据根的重建 correctness 计划逐行流式比较：
+重放计划再与证据根的重建计划逐行流式比较：
 
-| 规模 | 重建计划 SHA-256 | 差异行 |
-| ---- | ----------------- | ------ |
-| 10k | `1fe166ef8892e56fbe5316de83edfe8ed8ea74087cf0f20ac24b11ae92448880` | 仅 `manifest_digest` |
-| 100k | `71cfb0029a5143c5a9cf04d60861cec6514822c4e2afe5add2da3b70c4a83fb2` | 仅 `manifest_digest` |
+| 规模 | 计划类型 | 重建计划 SHA-256 | 逐行结果 |
+| ---- | -------- | ----------------- | -------- |
+| 10k | correctness | `1fe166ef8892e56fbe5316de83edfe8ed8ea74087cf0f20ac24b11ae92448880` | 仅第 9 行 `manifest_digest` |
+| 10k | performance | `139fc82241a728c50b5c33fb16600584b9ab5a5f3e33dbe1fa5800d4ae350853` | 649,774 行中仅第 9 行 `manifest_digest` |
+| 100k | correctness | `71cfb0029a5143c5a9cf04d60861cec6514822c4e2afe5add2da3b70c4a83fb2` | 仅第 9 行 `manifest_digest` |
+| 100k | performance | `ace2a6c50e6a66ba106b5ef09f1d39144fcc9e76c9bc82ef8002dc65f9c6974e` | 6,500,930 行中仅第 9 行 `manifest_digest` |
 
-两档的计划字节数不变；除该定长摘要行外，全部计划行一致。这里直接比较了实际
+四份计划的字节数不变；除该定长摘要行外，全部计划行一致。这里直接比较了实际
 重放结果，不再用相同字节数或未变化的生成器间接排除其他等长差异。
 
 ## 5. 接受边界
 
-- 冻结计划身份、内容文件身份及重建计划的唯一差异均已复核；本项没有未解释的
-  输入或计划差异。
+- correctness 与 D1/D2 performance 冻结计划身份、内容文件身份及重建计划的
+  唯一差异均已复核；本项没有未解释的输入或计划差异。
 - 重建制品可用于本 PR 已声明的 pilot/阶段研究范围；这项结论不替代 #707 的
   worker 矩阵、稳定 Active、执行归因或最终性能认证。
 - 版本化 manifest、`fixtures/v3/plans.json` 与既有原始证据均保持原样；提交的

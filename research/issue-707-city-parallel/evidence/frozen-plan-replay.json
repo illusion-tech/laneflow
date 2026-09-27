@@ -1,6 +1,6 @@
 {
-  "schema": "laneflow-issue-707-frozen-plan-replay-v1",
-  "captured_at": "2026-09-27T16:55:32.9387245Z",
+  "schema": "laneflow-issue-707-frozen-plan-replay-v2",
+  "captured_at": "2026-09-27T18:13:41.2119974Z",
   "source_commit": "4de40e045398e4b010b2aa36522afc02a4094c4d",
   "source_tree": "e88e559539042fad0b919c980af13c003542be41",
   "source_export": "git archive of source_commit; no working-tree overlay",
@@ -117,6 +117,37 @@
           "manifest_digest"
         ],
         "all_other_lines_match": true
+      },
+      "replayed_performance_plan": {
+        "generation": {
+          "command": "laneflow-urban-harness plan <content-files-plus-versioned-frozen-manifest> <new-plan> --case MIXED-PEAK --performance",
+          "manifest_sha256": "e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d"
+        },
+        "replayed": {
+          "bytes": 11930181,
+          "sha256": "10795510d2af9520f543828514bd2c3d1a5d2765551dd6e3351c91e14afe5c27",
+          "frozen_bytes": 11930181,
+          "frozen_sha256": "10795510d2af9520f543828514bd2c3d1a5d2765551dd6e3351c91e14afe5c27",
+          "exact_match": true
+        },
+        "historical_formal_plan": {
+          "path": "plans/10k-performance.toml",
+          "bytes": 11930181,
+          "sha256": "139fc82241a728c50b5c33fb16600584b9ab5a5f3e33dbe1fa5800d4ae350853"
+        },
+        "structural_diff": {
+          "total_lines": 649774,
+          "difference_count": 1,
+          "difference_lines": [
+            9
+          ],
+          "difference_fields": [
+            "manifest_digest"
+          ],
+          "frozen_line": "manifest_digest = \"e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d\"",
+          "historical_line": "manifest_digest = \"d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd\"",
+          "all_other_lines_match": true
+        }
       }
     },
     {
@@ -205,8 +236,39 @@
           "manifest_digest"
         ],
         "all_other_lines_match": true
+      },
+      "replayed_performance_plan": {
+        "generation": {
+          "command": "laneflow-urban-harness plan <content-files-plus-versioned-frozen-manifest> <new-plan> --case MIXED-PEAK --performance",
+          "manifest_sha256": "694808d79940d5e9457c19280c56e3ad30cc1f609e863f3f761dfefe911f79f7"
+        },
+        "replayed": {
+          "bytes": 120077925,
+          "sha256": "792d8d11a9e69d5f5f5ddb6596f71811417ca6246d88d8a58fe5d65020c56ee7",
+          "frozen_bytes": 120077925,
+          "frozen_sha256": "792d8d11a9e69d5f5f5ddb6596f71811417ca6246d88d8a58fe5d65020c56ee7",
+          "exact_match": true
+        },
+        "historical_formal_plan": {
+          "path": "plans/100k-performance.toml",
+          "bytes": 120077925,
+          "sha256": "ace2a6c50e6a66ba106b5ef09f1d39144fcc9e76c9bc82ef8002dc65f9c6974e"
+        },
+        "structural_diff": {
+          "total_lines": 6500930,
+          "difference_count": 1,
+          "difference_lines": [
+            9
+          ],
+          "difference_fields": [
+            "manifest_digest"
+          ],
+          "frozen_line": "manifest_digest = \"694808d79940d5e9457c19280c56e3ad30cc1f609e863f3f761dfefe911f79f7\"",
+          "historical_line": "manifest_digest = \"5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140\"",
+          "all_other_lines_match": true
+        }
       }
     }
   ],
-  "conclusion": "both correctness plans match tools/laneflow-urban-harness/fixtures/v3/plans.json exactly"
+  "conclusion": "both correctness and performance plans match tools/laneflow-urban-harness/fixtures/v3/plans.json exactly; each historical rebuilt plan differs from its frozen replay only at manifest_digest"
 }
