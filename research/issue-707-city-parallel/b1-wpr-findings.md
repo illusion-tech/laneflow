@@ -43,12 +43,12 @@ Core 内仍应优先研究运动约束查询与车辆状态迁移，不宜继续
 
 以下来自 context-switch 活动区间，不是全机任务管理器百分比。
 
-| 线程 | 35 秒内 Running | 相对一个逻辑处理器的占用 |
-| --- | ---: | ---: |
-| 主线程 16764 | 34.779s | 99.37% |
-| 辅助线程 26420 | 2.955s | 8.44% |
-| 辅助线程 9712 | 2.959s | 8.46% |
-| 辅助线程 5704 | 2.926s | 8.36% |
+| 线程           | 35 秒内 Running | 相对一个逻辑处理器的占用 |
+| -------------- | --------------: | -----------------------: |
+| 主线程 16764   |         34.779s |                   99.37% |
+| 辅助线程 26420 |          2.955s |                    8.44% |
+| 辅助线程 9712  |          2.959s |                    8.46% |
+| 辅助线程 5704  |          2.926s |                    8.36% |
 
 35 个一秒区间均有目标活动；主线程每秒 Running 最少 985.829ms。
 四线程合计 43.619 CPU 秒，平均使用约 **1.246 个逻辑处理器**。4 workers 的
@@ -64,13 +64,13 @@ Core 内仍应优先研究运动约束查询与车辆状态迁移，不宜继续
 下面百分比的分母都是**目标进程全部 CPU 调用栈样本**，不是 wall time，也不是
 32 核机器总容量。inclusive 包含子调用；不同层级不能相加。
 
-| 观测入口 | Inclusive hits | 占目标 CPU 样本 |
-| --- | ---: | ---: |
-| `observe::state` | 12889 | 29.75% |
-| `observe::counts` | 3369 | 7.78% |
-| `observe::events` | 1999 | 4.61% |
-| `observe::parking_invariants` | 1349 | 3.11% |
-| `observe::red_waiters` | 439 | 1.01% |
+| 观测入口                      | Inclusive hits | 占目标 CPU 样本 |
+| ----------------------------- | -------------: | --------------: |
+| `observe::state`              |          12889 |          29.75% |
+| `observe::counts`             |           3369 |           7.78% |
+| `observe::events`             |           1999 |           4.61% |
+| `observe::parking_invariants` |           1349 |           3.11% |
+| `observe::red_waiters`        |            439 |           1.01% |
 
 五项是 `Harness::advance` 的独立调用，合计 **46.26%**；其中前四项为 45.25%。
 这还没有包含整个观测阶段中的拍前快照构造、部分内联记录整理等成本，因此不是
@@ -99,15 +99,15 @@ Core 内仍应优先研究运动约束查询与车辆状态迁移，不宜继续
 
 ## 4. Core：运动约束和状态迁移仍是重点
 
-| Core 函数 | Inclusive | Self | 含义 |
-| --- | ---: | ---: | --- |
-| `TrafficWorld::step` | 21.69% | 0.00% | 只覆盖主线程调用栈，漏掉辅助线程计算 |
-| `MotionTaskView::vehicle_motion_outcome` | 19.08% | 4.26% | 汇合主线程与辅助线程运动样本 |
-| `StepWorkspace::stage_vehicle_transitions` | 16.83% | 4.68% | 主线程多阶段入口，包含内联准备/收尾代码 |
-| `StepReadView::calculate_active_vehicle_motion` | 13.07% | 2.79% | Motion 的约束、跟车与运动推进 |
-| `si_comfort_travel` | 3.27% | 3.11% | SI 运动模型计算 |
-| `OccupancyIndex::leader_relation` | 2.32% | 2.31% | 前车关系查询 |
-| `ConflictRead::owner_at` | 1.97% | 1.96% | 资源 owner 查询，多调用路径共享 |
+| Core 函数                                       | Inclusive |  Self | 含义                                    |
+| ----------------------------------------------- | --------: | ----: | --------------------------------------- |
+| `TrafficWorld::step`                            |    21.69% | 0.00% | 只覆盖主线程调用栈，漏掉辅助线程计算    |
+| `MotionTaskView::vehicle_motion_outcome`        |    19.08% | 4.26% | 汇合主线程与辅助线程运动样本            |
+| `StepWorkspace::stage_vehicle_transitions`      |    16.83% | 4.68% | 主线程多阶段入口，包含内联准备/收尾代码 |
+| `StepReadView::calculate_active_vehicle_motion` |    13.07% | 2.79% | Motion 的约束、跟车与运动推进           |
+| `si_comfort_travel`                             |     3.27% | 3.11% | SI 运动模型计算                         |
+| `OccupancyIndex::leader_relation`               |     2.32% | 2.31% | 前车关系查询                            |
+| `ConflictRead::owner_at`                        |     1.97% | 1.96% | 资源 owner 查询，多调用路径共享         |
 
 **这些行相互重叠，不能求和为 Core 占比。** 尤其不能把 `TrafficWorld::step` 的
 21.69% 当作 Core 全部成本；异步线程的调用栈不会包含调用线程的 step 帧。

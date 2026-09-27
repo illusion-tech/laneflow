@@ -150,12 +150,12 @@ laneflow-urban-harness.exe compare <pilot>/<scale>-w1-r1 <pilot>/<scale>-w4-r1 <
 
 - **制品为本次重建**：仓库现有目录（examples/data、research/issue-543-*、
   target/tmp）无可通过摘要校验的 10k/100k 城市制品，按冻结入口重建。
-- **plans.json 冻结摘要不匹配（已核查，结论见 input-diff.md；未改
-  golden）**：对重建制品生成的 MIXED-PEAK correctness 计划与
-  `fixtures/v3/plans.json` 的 `10k-mixed-peak`/`100k-mixed-peak`
-  **字节数完全一致**（4057834 / 40845093），SHA-256 不一致。WP C.1
-  逐字段核查定位：两档制品与冻结制品**仅两个构建内存统计字段不同**
-  （`shared_*_retained_bytes`），network_revision 与全部内容文件摘要
-  一致；唯一计划差异是内嵌 `manifest_digest`（其输入为整张 manifest
-  的 SHA-256），差异数字同为 7 位十进制故计划字节数不变。属非交通
-  元数据漂移，Runtime 消费字段等价——**接受重建制品**，golden 原样。
+- **plans.json 冻结摘要不匹配（已重放闭合，未改 golden）**：两档重建
+  manifest 与冻结版只差 `shared_*_retained_bytes` 两个构建统计字段，七个
+  内容文件逐项摘要一致。使用 `4de40e04` 归档源码、版本化冻结 manifest 和
+  已核验内容文件重新生成 correctness 计划，10k/100k 分别精确得到
+  `plans.json` 的 `d0e58a7c…` / `4f2dddc2…`；重放计划与重建计划逐行比较，
+  都只有 `manifest_digest` 不同。分档 blob 身份、全部摘要与重放二进制见
+  [输入差异与冻结计划重放](input-diff.md)及
+  [`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。据此接受重建
+  制品用于本 PR 的 pilot/阶段研究范围；#707 完整认证义务保持开放。

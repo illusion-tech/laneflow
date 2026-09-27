@@ -6,10 +6,10 @@
 
 ## 正式 r1 的已完成范围
 
-| 批次 | 暖机 / 观察拍数（每臂） | w1 / w4 Core p95 | 原预算 | 语义 / 预算结论 |
-| --- | --- | --- | --- | --- |
-| D1 10k | 30624 / 61248 | 7.89 / 5.33ms | 2ms @16ms 步长 | performance-match / 两臂未通过 |
-| D2 100k | 14848 / 29696 | 100.92 / 89.35ms | 16ms @33ms 步长 | performance-match / 两臂未通过 |
+| 批次    | 暖机 / 观察拍数（每臂） | w1 / w4 Core p95 | 原预算          | 语义 / 预算结论                |
+| ------- | ----------------------- | ---------------- | --------------- | ------------------------------ |
+| D1 10k  | 30624 / 61248           | 7.89 / 5.33ms    | 2ms @16ms 步长  | performance-match / 两臂未通过 |
+| D2 100k | 14848 / 29696           | 100.92 / 89.35ms | 16ms @33ms 步长 | performance-match / 两臂未通过 |
 
 数据来自 `formal/d1-batch-summary.md`、`formal/d2-batch-summary.md` 与其指向的
 `formal/{10k,100k}-w{1,4}-r1/measurements.toml` 观察窗；不是含暖机的 diagnostics
@@ -22,16 +22,16 @@ D2 的 Active p50/p95/max 为 45468/53656/55372；这是总个体 100k 的混合
 
 ## 来源定位
 
-| 项目 | 根目录下路径 | 用途 |
-| --- | --- | --- |
-| D1/D2 起跑核查 | `manifest/d0-d1-precheck.toml`、`manifest/d0-d2-precheck.toml` | 硬件/电源/源码/二进制/输入前置条件 |
-| 完成与样本封套 | `formal/{scale}-w{workers}-r1/result.json`、`measurements.toml`、`diagnostics.json` | 完成拍数、观察窗、测量身份与原始样本 |
-| 原始语义轨迹 | 同目录 `ticks.jsonl`、`commands.jsonl`、`events.jsonl` | 逐拍、命令、事件顺序核验 |
-| 跨 worker 语义对照 | `comparisons/10k-r1-w1-w4.json`、`comparisons/100k-r1-w1-w4.json` | performance-match，不是三轮性能认证 |
-| 原始计划 | `plans/10k-performance.toml`、`plans/100k-performance.toml` | 冻结输入，短测仍读取原计划 |
-| D2 分段诊断 | `diagnostics/d2-offline-decomposition.md` | 后段成本变化，解释范围依原文 |
-| L1 | `diagnostics/wpr/l1-findings.md`、`l1-w4-prefix512.etl` | 早期机制筛查 |
-| L3 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl` | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
+| 项目               | 根目录下路径                                                                        | 用途                                                 |
+| ------------------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| D1/D2 起跑核查     | `manifest/d0-d1-precheck.toml`、`manifest/d0-d2-precheck.toml`                      | 硬件/电源/源码/二进制/输入前置条件                   |
+| 完成与样本封套     | `formal/{scale}-w{workers}-r1/result.json`、`measurements.toml`、`diagnostics.json` | 完成拍数、观察窗、测量身份与原始样本                 |
+| 原始语义轨迹       | 同目录 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`                              | 逐拍、命令、事件顺序核验                             |
+| 跨 worker 语义对照 | `comparisons/10k-r1-w1-w4.json`、`comparisons/100k-r1-w1-w4.json`                   | performance-match，不是三轮性能认证                  |
+| 原始计划           | `plans/10k-performance.toml`、`plans/100k-performance.toml`                         | 冻结输入，短测仍读取原计划                           |
+| D2 分段诊断        | `diagnostics/d2-offline-decomposition.md`                                           | 后段成本变化，解释范围依原文                         |
+| L1                 | `diagnostics/wpr/l1-findings.md`、`l1-w4-prefix512.etl`                             | 早期机制筛查                                         |
+| L3                 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl`               | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
 
 原始摘要和逐文件 SHA-256 仍以证据封套及文件为准；本索引不声称重新执行正式测量。
 内存测量未提供，不能填 0。四基线分解、稳定 Active、资源成本及完整重复协议仍需

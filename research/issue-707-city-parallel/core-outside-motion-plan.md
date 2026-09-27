@@ -12,17 +12,17 @@
 使用已有的 `short-profile` 阶段计时。它在主线程用 `Instant` 包住整段，
 不是逐车 CPU。下面九段在一次 `step` 里顺序执行，互不重叠：
 
-| 段 | 计时名 |
-| --- | --- |
-| 预检 | preflight |
-| 占用索引 | occupancy |
-| 等待准备 | waiting_prepare |
-| 冲突准备 | conflict_prepare |
-| 等待收尾 | waiting_finalize |
-| 信号 | signals |
+| 段       | 计时名            |
+| -------- | ----------------- |
+| 预检     | preflight         |
+| 占用索引 | occupancy         |
+| 等待准备 | waiting_prepare   |
+| 冲突准备 | conflict_prepare  |
+| 等待收尾 | waiting_finalize  |
+| 信号     | signals           |
 | 冲突收尾 | conflict_finalize |
-| 等待输出 | waiting_outputs |
-| 提交 | commit |
+| 等待输出 | waiting_outputs   |
+| 提交     | commit            |
 
 `motion_loop` 一并记下，但不参加名次。占用索引内部还有 count、layout、
 fill、sort。冲突准备内部还有 frontier、p4 和 p3 的准备、分发、消费。
