@@ -1,9 +1,12 @@
 //! #768 当前主干 P2 成本诊断；只修改隔离导出树，保留历史研究协议。
 #[allow(dead_code)]
-mod io;
+#[path = "io.rs"]
+pub(crate) mod io;
+#[path = "p2_export.rs"]
 mod p2_export;
 #[allow(dead_code)]
-mod prepare;
+#[path = "prepare.rs"]
+pub(crate) mod prepare;
 
 use serde_json::{Value, json};
 use std::{
@@ -15,6 +18,13 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+#[derive(Clone, Copy)]
+pub(crate) struct Protocol {
+    pub(crate) baseline: &'static str,
+    pub(crate) name: &'static str,
+    pub(crate) stages: &'static [&'static str],
+    pub(crate) validate: fn(&[u64], &[u64], u64) -> Result<()>,
+}
 const BASE: &str = "7bdf1f0ee4ae436ffc688903899ce9d16f89e41b";
 const STAGES: [&str; 32] = [
     "Preflight",
@@ -50,6 +60,12 @@ const STAGES: [&str; 32] = [
     "P2GateCalc",
     "P2InputCount",
 ];
+const LEGACY: Protocol = Protocol {
+    baseline: BASE,
+    name: "p2-cost-v1",
+    stages: &STAGES,
+    validate: validate_p2,
+};
 
 fn need(ok: bool, message: &str) -> Result<()> {
     if ok {
@@ -126,23 +142,30 @@ fn validate_plan(data: &Value, scale: &str) -> Result<()> {
 }
 
 fn capture(root: &Path, input: &Path, raw: &Path) -> Result<()> {
+    capture_for(root, input, raw, LEGACY)
+}
+
+pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Protocol) -> Result<()> {
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
     need(
         io::git(&repo, &["status", "--porcelain"])?.is_empty(),
         "dirty collector",
     )?;
-    io::git(&repo, &["merge-base", "--is-ancestor", BASE, &head])?;
+    io::git(
+        &repo,
+        &["merge-base", "--is-ancestor", protocol.baseline, &head],
+    )?;
     io::ensure_new(raw)?;
     fs::create_dir_all(raw.parent().unwrap_or(Path::new(".")))?;
     fs::create_dir(raw)?;
     let raw = raw.canonicalize()?;
     let input = input.canonicalize()?;
-    let mut identity = json!({"protocol":"p2-cost-v1", "head":head, "tree":io::git(&repo,&["rev-parse","HEAD^{tree}"])?, "started":now()?, "workers":4, "ticks":256, "inputs":inputs(&input)?, "rustc":io::command(&repo,"rustc",&["+1.98.0","-Vv"])?, "sources":{}, "binaries":{}});
+    let mut identity = json!({"protocol":protocol.name, "head":head, "tree":io::git(&repo,&["rev-parse","HEAD^{tree}"])?, "started":now()?, "workers":4, "ticks":256, "inputs":inputs(&input)?, "rustc":io::command(&repo,"rustc",&["+1.98.0","-Vv"])?, "sources":{}, "binaries":{}});
     for mode in ["plain", "detail"] {
         let source = io::read_json(&root.join(format!("{mode}-source.json")))?;
         need(
-            source["base"] == BASE
+            source["base"] == protocol.baseline
                 && source["mode"] == mode
                 && source["source_files"]
                     == io::source_index(&root.join(format!("{mode}-source")))?,
@@ -234,12 +257,25 @@ fn stats(mut values: Vec<u64>) -> Value {
     json!({"mean_ms":values.iter().map(|v|u128::from(*v)).sum::<u128>() as f64 / values.len() as f64 / 1e6,"p95_ms":values[(values.len()*95).div_ceil(100)-1] as f64 / 1e6})
 }
 
+#[cfg(test)]
 fn validate_rows(rows: &[Value], ticks: &[Value], mode: &str) -> Result<()> {
+    validate_rows_for(rows, ticks, mode, LEGACY)
+}
+pub(crate) fn validate_rows_for(
+    rows: &[Value],
+    ticks: &[Value],
+    mode: &str,
+    protocol: Protocol,
+) -> Result<()> {
     need(
         ["plain", "detail"].contains(&mode) && rows.len() == 256 && ticks.len() == 256,
         "row protocol/count",
     )?;
-    let count = if mode == "plain" { 12 } else { STAGES.len() };
+    let count = if mode == "plain" {
+        12
+    } else {
+        protocol.stages.len()
+    };
     for (i, row) in rows.iter().enumerate() {
         need(
             row["tick"] == i + 1
@@ -264,48 +300,58 @@ fn validate_rows(rows: &[Value], ticks: &[Value], mode: &str) -> Result<()> {
         let sum = |a: &[u64]| a.iter().map(|v| u128::from(*v)).sum::<u128>();
         need(
             sum(&times[..10]) <= u128::from(row["step_ns"].as_u64().unwrap())
-                && sum(&times[10..17]) <= u128::from(times[3])
-                && u128::from(times[18]) + u128::from(times[24]) <= u128::from(times[2])
-                && sum(&times[19..24]) <= u128::from(times[18]),
+                && sum(&times[10..17]) <= u128::from(times[3]),
             "clock nesting",
         )?;
         need(
             calls[..13].iter().all(|v| *v == 1)
                 && calls[16] == 1
-                && calls[18] == 1
-                && calls[24] == 1
                 && calls[13] == calls[14]
                 && calls[13] == u64::from(calls[17] >= 1_024)
                 && calls[15] == u64::from(calls[17] > 0 && calls[17] < 1_024),
             "outer clock calls",
         )?;
-        need(
-            calls[19] == 1
-                && calls[20] == 1
-                && calls[21] == 1
-                && calls[22] == 1
-                && calls[23] == 0
-                && calls[25] == calls[31]
-                && calls[31] >= 1_024
-                && sum(&calls[26..29]) == u128::from(calls[25])
-                && u128::from(calls[29]) + u128::from(calls[26]) == u128::from(calls[25])
-                && calls[30] == calls[25]
-                && times[25..].iter().all(|v| *v == 0),
-            "P2 path/counts",
-        )?;
+        (protocol.validate)(&times, &calls, (i + 1) as u64)?;
     }
     Ok(())
 }
+fn validate_p2(times: &[u64], calls: &[u64], _tick: u64) -> Result<()> {
+    let sum = |a: &[u64]| a.iter().map(|v| u128::from(*v)).sum::<u128>();
+    need(
+        u128::from(times[18]) + u128::from(times[24]) <= u128::from(times[2])
+            && sum(&times[19..24]) <= u128::from(times[18]),
+        "P2 clock nesting",
+    )?;
+    need(
+        calls[18] == 1
+            && calls[24] == 1
+            && calls[19] == 1
+            && calls[20] == 1
+            && calls[21] == 1
+            && calls[22] == 1
+            && calls[23] == 0
+            && calls[25] == calls[31]
+            && calls[31] >= 1_024
+            && sum(&calls[26..29]) == u128::from(calls[25])
+            && u128::from(calls[29]) + u128::from(calls[26]) == u128::from(calls[25])
+            && calls[30] == calls[25]
+            && times[25..].iter().all(|v| *v == 0),
+        "P2 path/counts",
+    )
+}
 
 fn analyze(raw: &Path) -> Result<Value> {
+    analyze_for(raw, LEGACY)
+}
+pub(crate) fn analyze_for(raw: &Path, protocol: Protocol) -> Result<Value> {
     let identity = io::read_json(&raw.join("identity.json"))?;
     need(
-        identity["protocol"] == "p2-cost-v1"
+        identity["protocol"] == protocol.name
             && identity["completed"] == true
             && identity["workers"] == 4
             && identity["ticks"] == 256
-            && identity["sources"]["plain"]["base"] == BASE
-            && identity["sources"]["detail"]["base"] == BASE,
+            && identity["sources"]["plain"]["base"] == protocol.baseline
+            && identity["sources"]["detail"]["base"] == protocol.baseline,
         "protocol completion",
     )?;
     let mut ids = std::collections::BTreeSet::new();
@@ -365,7 +411,7 @@ fn analyze(raw: &Path) -> Result<Value> {
             .filter_map(|s| s.strip_prefix("LF762 "))
             .map(serde_json::from_str)
             .collect::<std::result::Result<_, _>>()?;
-        validate_rows(&rows, &ticks, &mode)?;
+        validate_rows_for(&rows, &ticks, &mode, protocol)?;
         let mut windows = json!({});
         for (window, start, end) in [("all", 0, 256), ("entry", 0, 64), ("screen", 64, 256)] {
             let part = &rows[start..end];
@@ -375,7 +421,7 @@ fn analyze(raw: &Path) -> Result<Value> {
                 .collect();
             let mut data = json!({"step":stats(part.iter().map(|r|r["step_ns"].as_u64().unwrap()).collect()),"active_min":active.iter().min(),"active_max":active.iter().max()});
             if mode == "detail" {
-                for (i, name) in STAGES.iter().enumerate() {
+                for (i, name) in protocol.stages.iter().enumerate() {
                     data["stages"][*name] = stats(
                         part.iter()
                             .map(|r| r["stages_ns"][i].as_u64().unwrap())
