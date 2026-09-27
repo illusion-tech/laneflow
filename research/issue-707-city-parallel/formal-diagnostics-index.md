@@ -4,6 +4,12 @@
 来源根目录：`E:/projects/laneflow-evidence/issue-707/4de40e04/`。
 源码身份：`4de40e045398e4b010b2aa36522afc02a4094c4d`。
 
+仓库内的 [`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)把四轮
+execution ID、完整 plan/result/measurements/diagnostics 摘要、观察窗统计和
+`result.json` 内全部大文件身份绑定为一条机器可读证据链；两份起跑核查、四份
+diagnostics 和两份跨 worker comparison 也以原始小封套提交在 `evidence/`。
+原始逐拍文件仍留在证据根，不把多 GB 日志复制进 Git。
+
 ## 正式 r1 的已完成范围
 
 | 批次    | 暖机 / 观察拍数（每臂） | w1 / w4 Core p95 | 原预算          | 语义 / 预算结论                |
@@ -34,5 +40,10 @@ D2 的 Active p50/p95/max 为 45468/53656/55372；这是总个体 100k 的混合
 | L3                 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl`               | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
 
 原始摘要和逐文件 SHA-256 仍以证据封套及文件为准；本索引不声称重新执行正式测量。
-内存测量未提供，不能填 0。四基线分解、稳定 Active、资源成本及完整重复协议仍需
-后续补足。先做[分层短测](short-profile-plan.md)，取得可消除成本后再扩大正式复验。
+四轮 `measurements.toml` 均记录了 `Get-Process.PeakWorkingSet64`：10k w1/w4
+分别为 239919104 / 239886336 bytes，100k w1/w4 分别为
+2336194560 / 2336428032 bytes。`diagnostics.json` 的 `memory_measurement=null`
+仅表示该 diagnostics 封套没有第二套内存字段；不能据此写成“未测”。现有数据
+只是进程峰值驻留集，不等同资源记账证明。四基线分解、稳定 Active、资源成本及
+完整重复协议仍需后续补足。先做[分层短测](short-profile-plan.md)，取得可消除成本
+后再扩大正式复验。
