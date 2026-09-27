@@ -6,7 +6,9 @@
 # 另绑定源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke
 # 小封套；四次 M16 A/A 重复另绑定完整输出树身份与 768 个逐拍紧凑样本；M21 校准
 # 审计另绑定五文件 Rust 增量、机器 manifest 与 4 份紧凑结果。M2 屏障跳过另绑定
-# 三份 Rust/Cargo 二进制 Git 补丁、十次完整输出树身份与 1,920 个逐拍紧凑样本。
+# 三份 Rust/Cargo 二进制 Git 补丁、十次完整输出树身份与 1,920 个逐拍紧凑样本；
+# M3 稠密 binding 另绑定两份 Rust/Cargo 二进制 Git 补丁、四次完整输出树身份与
+# 768 个逐拍紧凑样本。
 # 大文件（逐拍日志、LFCA、计划本体）不入 Git；冻结 EXE 进入独立 Research
 # Evidence prerelease，不进入普通 Git 历史。
 
@@ -19,6 +21,9 @@ wpr_trace_identities = "evidence/wpr-trace-identities.json"
 motion_barrier_manifest = "evidence/motion-barrier-evidence-manifest.json"
 motion_barrier_source_patch = "evidence/motion-barrier-source-patch.tar.zst"
 motion_barrier_public_step = "evidence/motion-barrier-public-step.csv"
+motion_input_manifest = "evidence/motion-input-evidence-manifest.json"
+motion_input_source_patch = "evidence/motion-input-source-patch.tar.zst"
+motion_input_public_step = "evidence/motion-input-public-step.csv"
 wpr_b1_reports = [
     "evidence/wpr-b1/analysis.json",
     "evidence/wpr-b1/capture.json",

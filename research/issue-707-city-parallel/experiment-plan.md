@@ -18,7 +18,7 @@
 | C pilot | 10k  | warm-up 1024 + probe 4096     | w1 / w4 | 各 1                                          |
 | C pilot | 100k | warm-up 1024 + probe 4096     | w1 / w4 | 各 1                                          |
 | D 正式  | 10k  | `--performance`（见窗口公式） | 1w/4w   | r1: 1w→4w 已完成；r2: 4w→1w、r3: 1w→4w 待执行 |
-| D 正式  | 100k | 同上                          | 1w/4w   | r1: 1w→4w 已完成；r2/r3 待执行                |
+| D 正式  | 100k | 同上                          | 1w/4w   | r1: 1w→4w 已完成；r2: 4w→1w、r3: 1w→4w 待执行 |
 
 r1 的 execution ID、计划/结果/测量/诊断身份和观察窗统计见
 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)及

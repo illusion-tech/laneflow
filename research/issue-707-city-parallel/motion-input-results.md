@@ -46,16 +46,29 @@ dense 的 p95 是 32.525 和 33.044 ms。其中一臂低于 33 ms，另一臂不
 ## 4. 保留与边界
 
 后续研究组合是 B1 + H1 + 屏障跳过 + 稠密 binding。源码在
-`target/issue707-m3-source`，对照用 `LF707_BINDING=dense` 和
-`LF707_BARRIER=skip`。尚未进入正式 PR，也没有改权威设计。
+`target/issue707-m3-source`；仓库另提交从基准到 M3 的累计二进制 Git 补丁和
+M2→M3 三文件增量。对照用 `LF707_BINDING=dense` 和 `LF707_BARRIER=skip`。
+尚未进入正式实现 PR，也没有改权威设计。
 
 这次只换了停车 binding 的读取组织。M1 的输入读取还包含路线、长度、限速和
 profile。0.629 ms 的 Core 节省说明哈希查询只是那一块里的一部分。
 
 ## 5. 证据
 
-- 父源码是 M2，再往上是封存 H1，提交
-  `4de40e045398e4b010b2aa36522afc02a4094c4d`。
+- 机器可读封套见
+  [`motion-input-evidence-manifest.json`](evidence/motion-input-evidence-manifest.json)：
+  它绑定四次运行各 17 个文件的完整树身份、同一精确二进制与计划身份、每臂
+  `LF707_BINDING` 处理模式、完整 `prefix-result`、进程资源包络、交通文件哈希、
+  未舍入统计和最终计数。逐拍紧凑报告见
+  [`motion-input-public-step.csv`](evidence/motion-input-public-step.csv)，包含 4 × 192 个
+  `public_step_ns`、`observation_ns` 与 `iteration_ns` 样本。
+- [`motion-input-source-patch.tar.zst`](evidence/motion-input-source-patch.tar.zst)
+  包含两个只涉及 Rust/Cargo 构建源码的二进制 Git 补丁：从基准提交到 M3 的
+  49 文件累计补丁，以及从已提交精确 M2 源码到 M3 的 3 文件增量。两条路径均已在
+  新目录回放，并与 451 个原 M3 构建源文件逐字节一致。
+- 基准提交是 `4de40e045398e4b010b2aa36522afc02a4094c4d`；M2 父源码可由已提交的
+  [`motion-barrier-source-patch.tar.zst`](evidence/motion-barrier-source-patch.tar.zst)
+  重建。
 - Rust 1.98.0，release，locked，offline，`CARGO_INCREMENTAL=0`，
   feature `entry-frontier,barrier-reach`。
 - 二进制 SHA-256：
@@ -65,4 +78,6 @@ profile。0.629 ms 的 Core 节省说明哈希查询只是那一块里的一部�
   `binding_reuse_observes_reserve_and_cancel_between_ticks`、
   `declared_virtual_capacity_is_not_a_runtime_storage_axis` 通过。
   未跑完整 runtime 测试套件。
-- 结果目录：`target/issue707-m3-results/`。平衡电源方案，WPR 未在录制。
+- 原四臂结果目录、精确 EXE 和历史 Windows 驱动仍只在作者机器，不承诺项目长期
+  留存；仓库内封套、逐拍样本与源码补丁是本页结论的可移植证据。运行使用平衡电源
+  方案，WPR 未在录制。

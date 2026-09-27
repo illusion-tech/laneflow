@@ -1,0 +1,1382 @@
+{
+  "schema": "laneflow-issue-707-m3-evidence-envelope-v1",
+  "generated_at": "2026-09-27T21:26:06.5613043Z",
+  "hash_algorithm": "SHA-256",
+  "classification": "research evidence for a retained candidate; not final performance certification, production deployment, public API, or compatibility commitment",
+  "purpose": "preserve the exact M2 to M3 Rust source delta and the four historical hash versus dense runs behind the retained M3 decision",
+  "source": {
+    "base_commit": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+    "base_tree": "e88e559539042fad0b919c980af13c003542be41",
+    "lineage": {
+      "m2_committed_archive": {
+        "path": "evidence/motion-barrier-source-patch.tar.zst",
+        "identity": {
+          "bytes": 131703,
+          "sha256": "1e47dcb0a44c5d680c5adc20bc55d4635804c270e04bdee9722d1a01e0758cd0"
+        }
+      },
+      "m2_cumulative_patch": {
+        "path": "motion-barrier-source.patch",
+        "identity": {
+          "bytes": 151599,
+          "sha256": "cca898b65ca52512a2d6d9017ec404733327335a6ad7aed13f7151aacdb42a85"
+        }
+      },
+      "m2_build_source_manifest": {
+        "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
+        "file_count": 451,
+        "manifest_bytes": 55038,
+        "manifest_sha256": "bf4b130db46e1576b4d67e74f731501a7d87b3473a7acdae24666d4406223000"
+      }
+    },
+    "archive": {
+      "path": "evidence/motion-input-source-patch.tar.zst",
+      "format": "tar.zst",
+      "compressor": "bsdtar 3.8.8 with libzstd 1.5.7, default compression",
+      "magic": "28 b5 2f fd",
+      "identity": {
+        "bytes": 120201,
+        "sha256": "e2067d91830819a2ab540f8b4e03ed44ef0109c633e4ee5875bd71ca17813425"
+      },
+      "members": [
+        {
+          "path": "motion-input-source.patch",
+          "role": "binary Git patch from base commit to the exact M3 Rust/Cargo build source",
+          "identity": {
+            "bytes": 154564,
+            "sha256": "8760caa3d6e9fc86b0dcc35621e0a4d9f910b4c20c99eea15a100d8cf53f8aff"
+          },
+          "changed_files": [
+            "Cargo.lock",
+            "Cargo.toml",
+            "crates/laneflow-runtime/Cargo.toml",
+            "crates/laneflow-runtime/examples/short_lifecycle.rs",
+            "crates/laneflow-runtime/src/admin/cutover_migration.rs",
+            "crates/laneflow-runtime/src/kernel/boundary.rs",
+            "crates/laneflow-runtime/src/kernel/conflict.rs",
+            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
+            "crates/laneflow-runtime/src/kernel/decision.rs",
+            "crates/laneflow-runtime/src/kernel/entry_frontier.rs",
+            "crates/laneflow-runtime/src/kernel/finish.rs",
+            "crates/laneflow-runtime/src/kernel/handle.rs",
+            "crates/laneflow-runtime/src/kernel/mod.rs",
+            "crates/laneflow-runtime/src/kernel/occupancy.rs",
+            "crates/laneflow-runtime/src/kernel/parking.rs",
+            "crates/laneflow-runtime/src/kernel/policy.rs",
+            "crates/laneflow-runtime/src/kernel/scope.rs",
+            "crates/laneflow-runtime/src/kernel/state.rs",
+            "crates/laneflow-runtime/src/kernel/tables.rs",
+            "crates/laneflow-runtime/src/kernel/tests/performance_profile/exact_query_replay.rs",
+            "crates/laneflow-runtime/src/kernel/tick.rs",
+            "crates/laneflow-runtime/src/kernel/transitions.rs",
+            "crates/laneflow-runtime/src/kernel/waiting.rs",
+            "crates/laneflow-runtime/src/kernel/world.rs",
+            "crates/laneflow-runtime/tests/compiled_networks.rs",
+            "crates/laneflow-runtime/tests/support/scope_cases.rs",
+            "research/issue-707-short-profile/lifecycle.rs",
+            "research/issue-707-short-profile/prefix.rs",
+            "research/issue-707-short-profile/profile.rs",
+            "research/lf707-profile/Cargo.toml",
+            "research/lf707-profile/src/lib.rs",
+            "tools/laneflow-urban-generator/src/config.rs",
+            "tools/laneflow-urban-generator/src/lib.rs",
+            "tools/laneflow-urban-generator/src/research_gap.rs",
+            "tools/laneflow-urban-generator/src/source.rs",
+            "tools/laneflow-urban-generator/src/source/junction.rs",
+            "tools/laneflow-urban-harness/Cargo.toml",
+            "tools/laneflow-urban-harness/src/artifacts.rs",
+            "tools/laneflow-urban-harness/src/gap_inventory.rs",
+            "tools/laneflow-urban-harness/src/host.rs",
+            "tools/laneflow-urban-harness/src/lib.rs",
+            "tools/laneflow-urban-harness/src/main.rs",
+            "tools/laneflow-urban-harness/src/observe.rs",
+            "tools/laneflow-urban-harness/src/observe/fused.rs",
+            "tools/laneflow-urban-harness/src/observe/work.rs",
+            "tools/laneflow-urban-harness/src/research_quality.rs",
+            "tools/laneflow-urban-harness/src/runner.rs",
+            "tools/laneflow-urban-harness/src/short_prefix.rs",
+            "tools/laneflow-urban-harness/tests/multi_gap.rs"
+          ]
+        },
+        {
+          "path": "motion-input-increment.patch",
+          "role": "binary Git patch from the committed exact M2 source to the exact M3 Rust/Cargo build source",
+          "identity": {
+            "bytes": 3581,
+            "sha256": "75c9af2e6a80c160b4014cefaea93951da0cbc1b66ca4837a136b52d5c654ab0"
+          },
+          "changed_files": [
+            "crates/laneflow-runtime/src/kernel/parking.rs",
+            "crates/laneflow-runtime/src/kernel/world.rs",
+            "tools/laneflow-urban-harness/src/short_prefix.rs"
+          ]
+        }
+      ]
+    },
+    "build_source_manifest": {
+      "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
+      "file_count": 451,
+      "manifest_bytes": 55039,
+      "manifest_sha256": "6e940ac01a93d18812bdf9bf5f019e441d7c7cbfcd6c079d778f5240275b6059"
+    },
+    "independent_replay": {
+      "full_patch": {
+        "applied_to": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+        "files_compared": 451,
+        "mismatches": 0,
+        "extra_files": 0,
+        "raw_byte_identical": true
+      },
+      "increment_patch": {
+        "applied_after": "committed motion-barrier-source.patch",
+        "files_compared": 451,
+        "mismatches": 0,
+        "extra_files": 0,
+        "raw_byte_identical": true
+      }
+    }
+  },
+  "binary": {
+    "name": "harness-m3.exe",
+    "identity": {
+      "bytes": 4330496,
+      "sha256": "90f6e67cbd8062b1baa01a47d0e7c9aaeb81002b0de1306270a0898e2fe9eb5d"
+    },
+    "role": "same exact binary for all hash and dense arms",
+    "retention": "author-local; immutable identity retained here while committed source patches preserve the exact Rust/Cargo build source"
+  },
+  "input": {
+    "plan": {
+      "bytes": 16994513,
+      "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+    },
+    "durable_fixture_asset": {
+      "name": "issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+      "bytes": 34900526,
+      "sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
+      "url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst"
+    }
+  },
+  "external_driver": {
+    "identity": {
+      "bytes": 6185,
+      "sha256": "93eb1d064daf5e16c10a2d19d6cfbb54287122bc9b6352e08a78ddd6d388f0bf"
+    },
+    "committed": false,
+    "role": "historical Windows run orchestration only; no non-Rust program enters the repository"
+  },
+  "execution": {
+    "command_shape": "<binary> short-prefix <fixture>/input <fixture>/plan.toml <output> 4 256",
+    "rust": "1.98.0",
+    "profile": "release, locked, offline, CARGO_INCREMENTAL=0",
+    "features": [
+      "entry-frontier",
+      "barrier-reach"
+    ],
+    "hardware_role": "amd-ryzen9-9955hx-16c-32t-64gb-hyperv",
+    "power_role": "win11-balanced-381b4222",
+    "configuration": {
+      "frontier": "approx",
+      "scope": "both",
+      "finish": "combined",
+      "boundary": "on",
+      "decision": "every",
+      "barrier": "skip",
+      "observation": "fused"
+    },
+    "observation_start_tick": 65,
+    "measured_ticks_per_run": 192,
+    "abba_order": [
+      "m3-hash-abba-1",
+      "m3-dense-abba-2",
+      "m3-dense-abba-3",
+      "m3-hash-abba-4"
+    ],
+    "treatment_mapping": {
+      "hash": {
+        "LF707_BINDING": "hash",
+        "prefix_binding_mode": "hash"
+      },
+      "dense": {
+        "LF707_BINDING": "dense",
+        "prefix_binding_mode": "dense"
+      }
+    }
+  },
+  "compact_timing_report": {
+    "path": "evidence/motion-input-public-step.csv",
+    "columns": [
+      "run",
+      "order",
+      "variant",
+      "population",
+      "tick",
+      "public_step_ns",
+      "observation_ns",
+      "iteration_ns"
+    ],
+    "rows": 768,
+    "identity": {
+      "bytes": 59274,
+      "sha256": "2aa6ac8b1ee8a1468981108454bb0daa9f7dae7a99481b36a0ec7166c21e3c1b"
+    }
+  },
+  "runs": [
+    {
+      "evidence_run_id": "m3-hash-abba-1",
+      "group": "hash_vs_dense_100k",
+      "order": 1,
+      "variant": "hash",
+      "population": 100000,
+      "source_directory": "target/issue707-m3-results/abba-1-hash/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; order, exact binary, plan, effective result modes, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "hash",
+        "LF707_BINDING": {
+          "present": true,
+          "value": "hash",
+          "driver_action": "historical driver set LF707_BINDING to the selected hash or dense arm before launch"
+        },
+        "reported_prefix_binding_mode": {
+          "present": true,
+          "value": "hash"
+        },
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "historical driver fixed LF707_BARRIER to skip for every arm"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1573,
+          "sha256": "892dede676bc307cdff61dd2a5ec4b22a4271e2e8fa4598d06f3a3e5feb65895"
+        },
+        "started_at": "2026-09-22T07:30:37.2729647+09:00",
+        "binary_sha256": "90f6e67cbd8062b1baa01a47d0e7c9aaeb81002b0de1306270a0898e2fe9eb5d",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every/barrier=skip",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "f07b32fa22dab1c1b7b5958892ff58c3548ed5f7501b8fdf86fd77dc1c94b4c4"
+        },
+        "elapsed_ms": 29252.8617,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 473432064,
+        "peak_paged_memory_observed_bytes": 550424576,
+        "memory_samples": 109,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "1c52cec0124215f188a04e62d04a1296e0ff3e6c24c50139f057a5dd23d7f7bb",
+        "entries": [
+          {
+            "path": "1-hash.process.json",
+            "bytes": 491,
+            "sha256": "f07b32fa22dab1c1b7b5958892ff58c3548ed5f7501b8fdf86fd77dc1c94b4c4"
+          },
+          {
+            "path": "1-hash.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-hash.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-hash/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-hash/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-hash/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-hash/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-hash/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-hash/extended-quality.json",
+            "bytes": 628,
+            "sha256": "176ee13cd4b39a601a21b47a6d9c08332c72518f60cee37f92eca8576a95c297"
+          },
+          {
+            "path": "1-hash/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-hash/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-hash/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-hash/prefix-result.json",
+            "bytes": 768,
+            "sha256": "8d68600d64309ea159945c84bd446fe42cf6122ff2722a73405e522e164e6e3e"
+          },
+          {
+            "path": "1-hash/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-hash/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-hash/timing.csv",
+            "bytes": 49425,
+            "sha256": "78df572a58dfe84986364887b8a2d3efd454a13693c57ce235a1ab5ccbb14e06"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1573,
+            "sha256": "892dede676bc307cdff61dd2a5ec4b22a4271e2e8fa4598d06f3a3e5feb65895"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-hash/prefix-result.json",
+          "identity": {
+            "bytes": 768,
+            "sha256": "8d68600d64309ea159945c84bd446fe42cf6122ff2722a73405e522e164e6e3e"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "binding_mode": "hash",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-hash/timing.csv",
+          "identity": {
+            "bytes": 49425,
+            "sha256": "78df572a58dfe84986364887b8a2d3efd454a13693c57ce235a1ab5ccbb14e06"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5749571600,
+          "mean": 29945685.416666668,
+          "sample_stddev": 2546676.093176328,
+          "p95": 34649610.0
+        },
+        "observation_ns": {
+          "sum": 12539089900,
+          "mean": 65307759.895833336,
+          "sample_stddev": 5522437.576978966,
+          "p95": 76144395.0
+        },
+        "iteration_ns": {
+          "sum": 18848359600,
+          "mean": 98168539.58333333,
+          "sample_stddev": 13556128.458063308,
+          "p95": 117529469.99999999
+        },
+        "displayed_ms": {
+          "public_step_mean": 29.946,
+          "public_step_sample_stddev": 2.547,
+          "public_step_p95": 34.65,
+          "observation_mean": 65.308,
+          "iteration_mean": 98.169
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 466399000,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m3-dense-abba-2",
+      "group": "hash_vs_dense_100k",
+      "order": 2,
+      "variant": "dense",
+      "population": 100000,
+      "source_directory": "target/issue707-m3-results/abba-2-dense/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; order, exact binary, plan, effective result modes, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "dense",
+        "LF707_BINDING": {
+          "present": true,
+          "value": "dense",
+          "driver_action": "historical driver set LF707_BINDING to the selected hash or dense arm before launch"
+        },
+        "reported_prefix_binding_mode": {
+          "present": true,
+          "value": "dense"
+        },
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "historical driver fixed LF707_BARRIER to skip for every arm"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1574,
+          "sha256": "79a8c403dc920628ce58bd1b3e93117aea3662eac339e1a16de3c2643c49cc17"
+        },
+        "started_at": "2026-09-22T07:31:10.8091735+09:00",
+        "binary_sha256": "90f6e67cbd8062b1baa01a47d0e7c9aaeb81002b0de1306270a0898e2fe9eb5d",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every/barrier=skip",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "ba97c4792d6dba9d786a9ac4df109bb592149edc3d0d492c1ac64d50b0bce0f5"
+        },
+        "elapsed_ms": 27871.7902,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 469966848,
+        "peak_paged_memory_observed_bytes": 550088704,
+        "memory_samples": 105,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "578d6b50faea6a9bd3a5c2cd88d37b2fbee5eb4620afe90c7b37244b672c4121",
+        "entries": [
+          {
+            "path": "1-dense.process.json",
+            "bytes": 491,
+            "sha256": "ba97c4792d6dba9d786a9ac4df109bb592149edc3d0d492c1ac64d50b0bce0f5"
+          },
+          {
+            "path": "1-dense.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-dense.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-dense/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-dense/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-dense/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-dense/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-dense/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-dense/extended-quality.json",
+            "bytes": 628,
+            "sha256": "9b76c014357801867fc4bb11081f455bffed7e9edfe880190108c05a5a5c0ffd"
+          },
+          {
+            "path": "1-dense/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-dense/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-dense/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-dense/prefix-result.json",
+            "bytes": 769,
+            "sha256": "c7ed46fca6ce0e634cfe1b5a75ca35025917a9e10640f88604575df5a04018c1"
+          },
+          {
+            "path": "1-dense/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-dense/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-dense/timing.csv",
+            "bytes": 49364,
+            "sha256": "e46d85d7fc049edf84f364f3e3c8cfcd08cab7cadbceb8bc0c8819d755d1d5b5"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1574,
+            "sha256": "79a8c403dc920628ce58bd1b3e93117aea3662eac339e1a16de3c2643c49cc17"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-dense/prefix-result.json",
+          "identity": {
+            "bytes": 769,
+            "sha256": "c7ed46fca6ce0e634cfe1b5a75ca35025917a9e10640f88604575df5a04018c1"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "binding_mode": "dense",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-dense/timing.csv",
+          "identity": {
+            "bytes": 49364,
+            "sha256": "e46d85d7fc049edf84f364f3e3c8cfcd08cab7cadbceb8bc0c8819d755d1d5b5"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5580781500,
+          "mean": 29066570.3125,
+          "sample_stddev": 1814342.3534730668,
+          "p95": 32524830.0
+        },
+        "observation_ns": {
+          "sum": 12057378700,
+          "mean": 62798847.395833336,
+          "sample_stddev": 3912127.127105141,
+          "p95": 69909985.0
+        },
+        "iteration_ns": {
+          "sum": 18170985900,
+          "mean": 94640551.5625,
+          "sample_stddev": 10797699.188679604,
+          "p95": 113243129.99999999
+        },
+        "displayed_ms": {
+          "public_step_mean": 29.067,
+          "public_step_sample_stddev": 1.814,
+          "public_step_p95": 32.525,
+          "observation_mean": 62.799,
+          "iteration_mean": 94.641
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 461338500,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m3-dense-abba-3",
+      "group": "hash_vs_dense_100k",
+      "order": 3,
+      "variant": "dense",
+      "population": 100000,
+      "source_directory": "target/issue707-m3-results/abba-3-dense/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; order, exact binary, plan, effective result modes, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "dense",
+        "LF707_BINDING": {
+          "present": true,
+          "value": "dense",
+          "driver_action": "historical driver set LF707_BINDING to the selected hash or dense arm before launch"
+        },
+        "reported_prefix_binding_mode": {
+          "present": true,
+          "value": "dense"
+        },
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "historical driver fixed LF707_BARRIER to skip for every arm"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1574,
+          "sha256": "62371ac836a05a296bd7ff3d9c47106af3e8d06f0fd415c654f43ef2db21c9e0"
+        },
+        "started_at": "2026-09-22T07:31:42.639898+09:00",
+        "binary_sha256": "90f6e67cbd8062b1baa01a47d0e7c9aaeb81002b0de1306270a0898e2fe9eb5d",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every/barrier=skip",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "4caad6378b0123de56088de40e72a2023b112a50c41d9ff22eda72574d00871e"
+        },
+        "elapsed_ms": 28031.9863,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 469950464,
+        "peak_paged_memory_observed_bytes": 550084608,
+        "memory_samples": 106,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "4fdb281b81677ccf241e0feeb1f0828ccee9e2283a2be9b15c96b388d2f03854",
+        "entries": [
+          {
+            "path": "1-dense.process.json",
+            "bytes": 491,
+            "sha256": "4caad6378b0123de56088de40e72a2023b112a50c41d9ff22eda72574d00871e"
+          },
+          {
+            "path": "1-dense.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-dense.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-dense/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-dense/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-dense/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-dense/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-dense/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-dense/extended-quality.json",
+            "bytes": 628,
+            "sha256": "f8669230faae8493efdc3cddc4e8e312e02cb5253210af7b26cb00de84deb291"
+          },
+          {
+            "path": "1-dense/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-dense/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-dense/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-dense/prefix-result.json",
+            "bytes": 769,
+            "sha256": "c7ed46fca6ce0e634cfe1b5a75ca35025917a9e10640f88604575df5a04018c1"
+          },
+          {
+            "path": "1-dense/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-dense/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-dense/timing.csv",
+            "bytes": 49384,
+            "sha256": "cf4b36da78884bec9c47fc6e3e70a5e0eaff5a821c517152625b1f4189c0920a"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1574,
+            "sha256": "62371ac836a05a296bd7ff3d9c47106af3e8d06f0fd415c654f43ef2db21c9e0"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-dense/prefix-result.json",
+          "identity": {
+            "bytes": 769,
+            "sha256": "c7ed46fca6ce0e634cfe1b5a75ca35025917a9e10640f88604575df5a04018c1"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "binding_mode": "dense",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-dense/timing.csv",
+          "identity": {
+            "bytes": 49384,
+            "sha256": "cf4b36da78884bec9c47fc6e3e70a5e0eaff5a821c517152625b1f4189c0920a"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5683418000,
+          "mean": 29601135.416666668,
+          "sample_stddev": 2028043.3723420084,
+          "p95": 33044344.999999996
+        },
+        "observation_ns": {
+          "sum": 11961419500,
+          "mean": 62299059.895833336,
+          "sample_stddev": 4388322.201871784,
+          "p95": 69702615.0
+        },
+        "iteration_ns": {
+          "sum": 18183820700,
+          "mean": 94707399.47916667,
+          "sample_stddev": 11160548.904357,
+          "p95": 109601199.99999996
+        },
+        "displayed_ms": {
+          "public_step_mean": 29.601,
+          "public_step_sample_stddev": 2.028,
+          "public_step_p95": 33.044,
+          "observation_mean": 62.299,
+          "iteration_mean": 94.707
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 467712400,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m3-hash-abba-4",
+      "group": "hash_vs_dense_100k",
+      "order": 4,
+      "variant": "hash",
+      "population": 100000,
+      "source_directory": "target/issue707-m3-results/abba-4-hash/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; order, exact binary, plan, effective result modes, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "hash",
+        "LF707_BINDING": {
+          "present": true,
+          "value": "hash",
+          "driver_action": "historical driver set LF707_BINDING to the selected hash or dense arm before launch"
+        },
+        "reported_prefix_binding_mode": {
+          "present": true,
+          "value": "hash"
+        },
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "historical driver fixed LF707_BARRIER to skip for every arm"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1573,
+          "sha256": "52d3aa160a2a526d224ca01be1d2271aa8b8b42335beedf185cc872813484eb9"
+        },
+        "started_at": "2026-09-22T07:32:14.6210796+09:00",
+        "binary_sha256": "90f6e67cbd8062b1baa01a47d0e7c9aaeb81002b0de1306270a0898e2fe9eb5d",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every/barrier=skip",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "6d9aadfb0f477c0132ca2e8067c869f0d11f1175cd1f86e9a59ef4db732b8fe7"
+        },
+        "elapsed_ms": 28835.3233,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 469946368,
+        "peak_paged_memory_observed_bytes": 550211584,
+        "memory_samples": 109,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "7e7d8d628eba1525b58dd59d5506bc6e7deb2c991e49d10b75f421abdb496e7c",
+        "entries": [
+          {
+            "path": "1-hash.process.json",
+            "bytes": 491,
+            "sha256": "6d9aadfb0f477c0132ca2e8067c869f0d11f1175cd1f86e9a59ef4db732b8fe7"
+          },
+          {
+            "path": "1-hash.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-hash.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-hash/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-hash/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-hash/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-hash/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-hash/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-hash/extended-quality.json",
+            "bytes": 628,
+            "sha256": "ed8cf8f4786a516fb4e7008d59d737539edfb212f6725a233242057e2d45d0b4"
+          },
+          {
+            "path": "1-hash/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-hash/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-hash/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-hash/prefix-result.json",
+            "bytes": 768,
+            "sha256": "8d68600d64309ea159945c84bd446fe42cf6122ff2722a73405e522e164e6e3e"
+          },
+          {
+            "path": "1-hash/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-hash/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-hash/timing.csv",
+            "bytes": 49403,
+            "sha256": "764dcbd672b64381eb56d30ddcfa62a82c6dde2984d2b05be9840984bd24a156"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1573,
+            "sha256": "52d3aa160a2a526d224ca01be1d2271aa8b8b42335beedf185cc872813484eb9"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-hash/prefix-result.json",
+          "identity": {
+            "bytes": 768,
+            "sha256": "8d68600d64309ea159945c84bd446fe42cf6122ff2722a73405e522e164e6e3e"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "binding_mode": "hash",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-hash/timing.csv",
+          "identity": {
+            "bytes": 49403,
+            "sha256": "764dcbd672b64381eb56d30ddcfa62a82c6dde2984d2b05be9840984bd24a156"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5756252300,
+          "mean": 29980480.729166668,
+          "sample_stddev": 2159664.3821560317,
+          "p95": 34262895.0
+        },
+        "observation_ns": {
+          "sum": 12551811600,
+          "mean": 65374018.75,
+          "sample_stddev": 4168719.456848628,
+          "p95": 73482535.0
+        },
+        "iteration_ns": {
+          "sum": 18854799600,
+          "mean": 98202081.25,
+          "sample_stddev": 11515172.624253117,
+          "p95": 116716900.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 29.98,
+          "public_step_sample_stddev": 2.16,
+          "public_step_p95": 34.263,
+          "observation_mean": 65.374,
+          "iteration_mean": 98.202
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 456034000,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    }
+  ],
+  "comparisons": {
+    "public_step": {
+      "metric": "public_step_ns",
+      "baseline_runs": [
+        "m3-hash-abba-1",
+        "m3-hash-abba-4"
+      ],
+      "candidate_runs": [
+        "m3-dense-abba-2",
+        "m3-dense-abba-3"
+      ],
+      "baseline_run_means_ns": [
+        29945685.416666668,
+        29980480.729166668
+      ],
+      "candidate_run_means_ns": [
+        29066570.3125,
+        29601135.416666668
+      ],
+      "baseline_mean_of_means_ns": 29963083.072916668,
+      "candidate_mean_of_means_ns": 29333852.864583336,
+      "reduction_ns": 629230.2083333321,
+      "reduction_percent": 2.100018235113085,
+      "baseline_range_ns": 34795.3125,
+      "slowest_candidate_below_fastest_baseline": true,
+      "displayed_ms": {
+        "baseline_mean_of_means": 29.963,
+        "candidate_mean_of_means": 29.334,
+        "reduction": 0.629,
+        "baseline_range": 0.035
+      }
+    },
+    "observation": {
+      "metric": "observation_ns",
+      "baseline_runs": [
+        "m3-hash-abba-1",
+        "m3-hash-abba-4"
+      ],
+      "candidate_runs": [
+        "m3-dense-abba-2",
+        "m3-dense-abba-3"
+      ],
+      "baseline_run_means_ns": [
+        65307759.895833336,
+        65374018.75
+      ],
+      "candidate_run_means_ns": [
+        62798847.395833336,
+        62299059.895833336
+      ],
+      "baseline_mean_of_means_ns": 65340889.32291667,
+      "candidate_mean_of_means_ns": 62548953.645833336,
+      "reduction_ns": 2791935.677083336,
+      "reduction_percent": 4.272876763714532,
+      "baseline_range_ns": 66258.85416666418,
+      "slowest_candidate_below_fastest_baseline": true,
+      "displayed_ms": {
+        "baseline_mean_of_means": 65.341,
+        "candidate_mean_of_means": 62.549,
+        "reduction": 2.792,
+        "baseline_range": 0.066
+      }
+    },
+    "iteration": {
+      "metric": "iteration_ns",
+      "baseline_runs": [
+        "m3-hash-abba-1",
+        "m3-hash-abba-4"
+      ],
+      "candidate_runs": [
+        "m3-dense-abba-2",
+        "m3-dense-abba-3"
+      ],
+      "baseline_run_means_ns": [
+        98168539.58333333,
+        98202081.25
+      ],
+      "candidate_run_means_ns": [
+        94640551.5625,
+        94707399.47916667
+      ],
+      "baseline_mean_of_means_ns": 98185310.41666666,
+      "candidate_mean_of_means_ns": 94673975.52083334,
+      "reduction_ns": 3511334.8958333135,
+      "reduction_percent": 3.576232412906111,
+      "baseline_range_ns": 33541.666666671634,
+      "slowest_candidate_below_fastest_baseline": true,
+      "displayed_ms": {
+        "baseline_mean_of_means": 98.185,
+        "candidate_mean_of_means": 94.674,
+        "reduction": 3.511,
+        "baseline_range": 0.034
+      }
+    }
+  },
+  "traffic_equivalence": {
+    "runs": [
+      "m3-hash-abba-1",
+      "m3-dense-abba-2",
+      "m3-dense-abba-3",
+      "m3-hash-abba-4"
+    ],
+    "m2_reference_run": "m2-parent-abba-1",
+    "quality_ticks_events_sha256_equal_across_m3_and_m2": true,
+    "final_checkpoint_equal_across_m3_and_m2": true,
+    "final_tick": 256,
+    "completed": 4039,
+    "parked": 25200,
+    "max_overlap_pairs": 0,
+    "boundary": "byte equality covers the measured 256-tick short window; it is not long-wait, signal-ETA, full-day, or final traffic certification"
+  },
+  "retention": {
+    "committed": [
+      "two Rust/Cargo source patches",
+      "complete identities for four 17-file run trees",
+      "full prefix results",
+      "768 timing sample rows",
+      "timing summaries",
+      "traffic identities and final counters"
+    ],
+    "author_local_only": [
+      "four original run trees",
+      "exact M3 binary",
+      "historical Windows driver"
+    ],
+    "promise": "the committed envelope is the durable evidence for the stated M3 retention claim; retrieval of author-local originals is not promised"
+  },
+  "limitations": [
+    "short-prefix emitted no harness execution_id; ordered evidence ids plus exact binary, input, effective modes, process, and complete output-tree identities bind each run",
+    "the exact binary was not promoted to a project-controlled release; committed patches replay the exact Rust/Cargo build-source tree but do not claim bit-reproducible MSVC output",
+    "these short runs support candidate retention and source review; they do not establish final product performance or replace later certification"
+  ]
+}
