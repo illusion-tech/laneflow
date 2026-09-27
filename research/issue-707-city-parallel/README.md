@@ -9,8 +9,13 @@
 边界、线程活动、函数热点及替换命令的新候选。
 第一轮实际插桩、前缀与生命周期结果见[分层短测结果](short-profile-results.md)。
 当前方向见[激进优化与结果验收计划](performance-first-next-plan.md)：直接研究
-入口队列、局部许可和多频更新，以实测性能与交通结果验收；不继承旧版严格对拍
-或跨 worker 逐拍一致要求。下文 pilot/正式窗口流程是既有实验记录，不构成新模型门槛。
+入口队列、局部许可和多频更新，以实测性能与交通结果筛选候选；研究筛选不要求
+复现旧版逐拍轨迹、事件顺序或跨 worker 字节摘要。该放宽只用于发现候选，不构成
+现行 exact single-world 接入或 #707 认证。除非另行评审并冻结 G1/ADR 或 fidelity
+设计，Runtime 接入仍须满足[并行执行等价范围](../../docs/design/traffic-runtime-parallel-execution.md#1-等价范围)
+与[现行 hard invariants](../../docs/design/core-runtime-performance-baseline.md#71-hard-invariants零容忍)，
+包括失败/重试、资源完整性及适用的 schedule/traversal/worker permutation 门禁。
+下文 pilot/正式窗口流程是既有实验记录，不自动成为每个候选的研究门槛。
 多 profile 的新增输入、覆盖检查及局部时窗实验边界见[多 gap profile 夹具](multi-gap-fixtures.md)。
 下一阶段的代码原型、速度与交通结果见[入口候选与局部时窗结果](entry-frontier-results.md)。
 后续 [P3 / Waiting 工作范围实验](scope-results.md)已完成：100k 平衡复测均值

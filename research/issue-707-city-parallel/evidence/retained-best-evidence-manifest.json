@@ -1,0 +1,1087 @@
+{
+  "schema": "laneflow-issue-707-retained-best-evidence-v1",
+  "classification": "research evidence only; unrelated to LaneFlow product releases; not final performance certification, production deployment, public API, or compatibility commitment",
+  "retained_candidate": "M16 held",
+  "published_result": {
+    "old_mean_public_step_ms": 30.517096354166668,
+    "held_mean_public_step_ms": 28.461283333333334,
+    "delta_ms": -2.055813020833334,
+    "target_ms": 16,
+    "target_met": false
+  },
+  "source": {
+    "base_commit": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+    "base_tree": "e88e559539042fad0b919c980af13c003542be41",
+    "patch": {
+      "committed_archive": {
+        "path": "evidence/retained-best-source.patch.gz",
+        "compression": "gzip",
+        "bytes": 66139,
+        "sha256": "e98f97f49bf187db7dbb043577c6ae1d2935019b084b050ec685e6da68bcd3ad"
+      },
+      "package_plain": {
+        "path": "retained-best-source.patch",
+        "bytes": 296332,
+        "sha256": "c15fbaf8ffbf4cf0a61c72d2644804412846e9ab0ae2d29b860b85fd1c82abc7"
+      },
+      "files": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/laneflow-runtime/Cargo.toml",
+        "crates/laneflow-runtime/examples/short_lifecycle.rs",
+        "crates/laneflow-runtime/src/admin/cutover_migration.rs",
+        "crates/laneflow-runtime/src/kernel/boundary.rs",
+        "crates/laneflow-runtime/src/kernel/conflict.rs",
+        "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
+        "crates/laneflow-runtime/src/kernel/decision.rs",
+        "crates/laneflow-runtime/src/kernel/entry_frontier.rs",
+        "crates/laneflow-runtime/src/kernel/finish.rs",
+        "crates/laneflow-runtime/src/kernel/handle.rs",
+        "crates/laneflow-runtime/src/kernel/mod.rs",
+        "crates/laneflow-runtime/src/kernel/occupancy.rs",
+        "crates/laneflow-runtime/src/kernel/parking.rs",
+        "crates/laneflow-runtime/src/kernel/policy.rs",
+        "crates/laneflow-runtime/src/kernel/scope.rs",
+        "crates/laneflow-runtime/src/kernel/state.rs",
+        "crates/laneflow-runtime/src/kernel/tables.rs",
+        "crates/laneflow-runtime/src/kernel/tests/performance_profile/exact_query_replay.rs",
+        "crates/laneflow-runtime/src/kernel/tick.rs",
+        "crates/laneflow-runtime/src/kernel/transitions.rs",
+        "crates/laneflow-runtime/src/kernel/waiting.rs",
+        "crates/laneflow-runtime/src/kernel/world.rs",
+        "crates/laneflow-runtime/tests/compiled_networks.rs",
+        "crates/laneflow-runtime/tests/support/scope_cases.rs",
+        "research/issue-707-short-profile/lifecycle.rs",
+        "research/issue-707-short-profile/prefix.rs",
+        "research/issue-707-short-profile/profile.rs",
+        "research/lf707-profile/Cargo.toml",
+        "research/lf707-profile/src/lib.rs",
+        "tools/laneflow-urban-generator/src/config.rs",
+        "tools/laneflow-urban-generator/src/lib.rs",
+        "tools/laneflow-urban-generator/src/research_gap.rs",
+        "tools/laneflow-urban-generator/src/source.rs",
+        "tools/laneflow-urban-generator/src/source/junction.rs",
+        "tools/laneflow-urban-harness/Cargo.toml",
+        "tools/laneflow-urban-harness/src/artifacts.rs",
+        "tools/laneflow-urban-harness/src/gap_inventory.rs",
+        "tools/laneflow-urban-harness/src/host.rs",
+        "tools/laneflow-urban-harness/src/lib.rs",
+        "tools/laneflow-urban-harness/src/main.rs",
+        "tools/laneflow-urban-harness/src/observe.rs",
+        "tools/laneflow-urban-harness/src/observe/fused.rs",
+        "tools/laneflow-urban-harness/src/observe/work.rs",
+        "tools/laneflow-urban-harness/src/research_quality.rs",
+        "tools/laneflow-urban-harness/src/runner.rs",
+        "tools/laneflow-urban-harness/src/short_prefix.rs",
+        "tools/laneflow-urban-harness/tests/multi_gap.rs"
+      ]
+    },
+    "cargo_lock": {
+      "canonical_lf_after_patch": {
+        "path": "Cargo.lock",
+        "bytes": 129937,
+        "sha256": "ca73680f66f2b6ec1ff95d6ff1502eb1763d8759e2b6ae354852357a2f154daf"
+      },
+      "original_windows_worktree": {
+        "path": "Cargo.lock",
+        "bytes": 129937,
+        "sha256": "ca73680f66f2b6ec1ff95d6ff1502eb1763d8759e2b6ae354852357a2f154daf"
+      },
+      "git_blob_sha1_after_patch": "82e3b0d5eeb7713c8a6fee24305f963a1b46e0c5"
+    }
+  },
+  "build": {
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
+    "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "target": "x86_64-pc-windows-msvc",
+    "command": "CARGO_INCREMENTAL=0 cargo +1.98.0 build -p laneflow-urban-harness --release --features entry-frontier,barrier-reach --offline --locked",
+    "features": [
+      "entry-frontier",
+      "barrier-reach"
+    ],
+    "short_profile": false,
+    "rustflags": [],
+    "original_cargo_fingerprint": {
+      "path": "target/release/.fingerprint/laneflow-urban-harness-e6a9b09d130f6da1/bin-laneflow-urban-harness.json",
+      "bytes": 1414,
+      "sha256": "ea2371581615ce4be32e02dcd6fa394404c89db6ae2f4ccd29285e822fb24ba3"
+    },
+    "frozen_binary": {
+      "package_path": "harness-m16-plain.exe",
+      "bytes": 4383232,
+      "sha256": "19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602"
+    },
+    "fresh_rebuild_at_different_absolute_path": {
+      "command_succeeded": true,
+      "bytes": 4383232,
+      "sha256": "acb9da31f6063c918dfe348ec91a6bb7d05e12cd2c222c286397124a061db5d2",
+      "exact_sha256_match": false,
+      "boundary": "same logical source patch and build flags; absolute source/output paths differ; exact frozen EXE is preserved separately"
+    }
+  },
+  "release_identity": {
+    "tag": "research-evidence-707-m16-best-19bf7ecb",
+    "title": "[Research Evidence] #707 M16 frozen best",
+    "prerelease": true,
+    "evidence_asset": {
+      "name": "issue-707-m16-best-19bf7ecb5dfd.zip",
+      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-best-19bf7ecb5dfd.zip"
+    },
+    "fixture_asset": {
+      "name": "issue-707-m16-fixture-8b4294eb5ca8.zip",
+      "bytes": 57016862,
+      "sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
+      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.zip",
+      "retention": "retained with the Research Evidence prerelease; input/ plus plan.toml and inventory.json"
+    }
+  },
+  "run_driver": {
+    "source": {
+      "path": "run.ps1",
+      "bytes": 4937,
+      "sha256": "2537d9835b7bc212e1e840948120882f62d0f7e19491624e90bbdf4ff25bb597"
+    },
+    "committed": false,
+    "reason": "PowerShell orchestration is not entering the repository; canonical arguments and environment are recorded below",
+    "command_shape": "harness-m16-plain.exe short-prefix <fixture>/input <fixture>/plan.toml <output> 4 256"
+  },
+  "configuration": {
+    "fixture": "junction_long_tail-100k",
+    "ticks": 256,
+    "observation_start_tick": 65,
+    "workers": 4,
+    "order": [
+      "old",
+      "held",
+      "held",
+      "old"
+    ],
+    "environment": {
+      "LANEFLOW_HARDWARE_ROLE": "amd-ryzen9-9955hx-16c-32t-64gb-hyperv",
+      "LANEFLOW_POWER_ROLE": "win11-balanced-381b4222",
+      "LF707_FRONTIER": "approx",
+      "LF707_SCOPE": "both",
+      "LF707_FINISH": "combined",
+      "LF707_BOUNDARY": "on",
+      "LF707_DECISION": "every",
+      "LF707_OBSERVE": "fused",
+      "LF707_BARRIER": "skip",
+      "LF707_BINDING": "dense",
+      "held": {
+        "LF707_COAST": "on",
+        "LF707_DEMAND": "held"
+      },
+      "old": {
+        "LF707_COAST": "off",
+        "LF707_DEMAND": "off"
+      }
+    },
+    "preflight": [
+      "no concurrent rustc/cargo/xperf/harness process",
+      "no Python process consumed more than 0.1 CPU seconds during a two-second probe",
+      "WPR status reported not recording"
+    ]
+  },
+  "environment_provenance": {
+    "os": "Windows",
+    "cpu": "AMD Ryzen 9 9955HX; hardware role is the recorded authority",
+    "memory_bytes": null,
+    "ac_state_per_run": null,
+    "vendor_performance_mode": null,
+    "power_scheme_role": "win11-balanced-381b4222",
+    "limitation": "the 2026-09-22 short-run driver did not retain per-run memory, AC snapshots, or vendor-mode queries; null is not zero and this evidence cannot satisfy final product certification"
+  },
+  "input": {
+    "source_root": "target/issue707-multi-gap-outcomes/junction_long_tail-100k/",
+    "plan": {
+      "path": "plan.toml",
+      "bytes": 16994513,
+      "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+    },
+    "files": [
+      {
+        "path": "generate.stdout",
+        "bytes": 124,
+        "sha256": "6cde9d301a5db66ac7d1de19ab9dceb2c5ce601ba4e53e6c65d25a987bab2f1d"
+      },
+      {
+        "path": "input/common.lfre",
+        "bytes": 1024,
+        "sha256": "72b7f55937e55a5071c27387177b3c41afd59d1dd7180bff61393ba28ffea1ee"
+      },
+      {
+        "path": "input/config.toml",
+        "bytes": 1641,
+        "sha256": "3102a10aff482b7b877f78ae31a4e65282fcbe79b6332954e0c565264bd9a4b8"
+      },
+      {
+        "path": "input/genesis.lfsd",
+        "bytes": 171296958,
+        "sha256": "0b85a69d851dd1ec186b7ab3be5c78852d03322c4f9d179dd7c16be765fa8444"
+      },
+      {
+        "path": "input/manifest.toml",
+        "bytes": 13832,
+        "sha256": "58a4d8430c21d38043e103b5cb5ae37cfd063e0ca1921f299cf8a1828a90be83"
+      },
+      {
+        "path": "input/measurements.toml",
+        "bytes": 1414,
+        "sha256": "08dccc4c5c1b83f38e5b053307b62ef1823c7a09b885f8f565eeb6d0624aefbb"
+      },
+      {
+        "path": "input/network.lfca",
+        "bytes": 162398451,
+        "sha256": "f462532c64bc3c0cd0b42b7bbcd9f866ca908cadf0eb1406dad092e32cf3208b"
+      },
+      {
+        "path": "input/routes.toml",
+        "bytes": 9390023,
+        "sha256": "2b3397cb2e4420fb9940a86d17ccfb562fcf3468e8f0a144c1d25ecd3074899b"
+      },
+      {
+        "path": "input/source-map.lfsm",
+        "bytes": 213081711,
+        "sha256": "c08a72401af5a245e6eed83c9ae0a32a2b503789f268bd9c2e27c50245261403"
+      },
+      {
+        "path": "input/topology.lfre",
+        "bytes": 24871144,
+        "sha256": "2051f85e3870c8c0988b0301bf063df25d5121db4a63ed2e07f66edc72ec9995"
+      },
+      {
+        "path": "inventory.json",
+        "bytes": 1220,
+        "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+      },
+      {
+        "path": "plan.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "plan.stdout",
+        "bytes": 65,
+        "sha256": "bd1f1f599a13b139e81dcca9ba871b8ba15ca26aa2e62a8b7e4762b5265e7809"
+      },
+      {
+        "path": "plan.toml",
+        "bytes": 16994513,
+        "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+      },
+      {
+        "path": "run.stderr",
+        "bytes": 183,
+        "sha256": "2579cb960a3ae8b0782d2a9f5e767eb5eca699bb1c8a34072a26063c0f8b48a0"
+      },
+      {
+        "path": "run.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "run/commands.jsonl",
+        "bytes": 44724607,
+        "sha256": "4aa4dfc4dafec30a1c18a17c854bd5f09cced57c8a27e36a23abc51c74daeaae"
+      },
+      {
+        "path": "run/events.jsonl",
+        "bytes": 6101142,
+        "sha256": "7977cae7a81592d2703390b4819d27a81d9dec39d5234fc87f48d1948e464bb0"
+      },
+      {
+        "path": "run/gap-activity.json",
+        "bytes": 909,
+        "sha256": "242fd4c11901a7a95653bdc14638e21f79c0c9fcb891e1ea6a82c81997dc42e2"
+      },
+      {
+        "path": "run/gap-inventory.json",
+        "bytes": 1220,
+        "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+      },
+      {
+        "path": "run/original-plan.toml",
+        "bytes": 16994513,
+        "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+      },
+      {
+        "path": "run/prefix-result.json",
+        "bytes": 395,
+        "sha256": "22b3dc96494f2cc25a0ca571f0f14bf58764874f92ea14785dbbbf45c3b22341"
+      },
+      {
+        "path": "run/ticks.jsonl",
+        "bytes": 318927,
+        "sha256": "8fb8ba5c40d211832efb7fc1b1a193413d91b4474cd1332bcf6bf921b1cc3fec"
+      },
+      {
+        "path": "run/timing.csv",
+        "bytes": 187116,
+        "sha256": "8d0bef1de1d17e81b51bb914019a67f18a77ee93efe100d0c272a7166dc0d844"
+      }
+    ],
+    "package_files": [
+      "input/manifest.toml",
+      "input/config.toml",
+      "input/measurements.toml",
+      "input/inventory.json"
+    ],
+    "large_file_retention": {
+      "asset_name": "issue-707-m16-fixture-8b4294eb5ca8.zip",
+      "bytes": 57016862,
+      "sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
+      "intended_download_url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.zip",
+      "contents": [
+        "input/",
+        "plan.toml",
+        "inventory.json"
+      ]
+    }
+  },
+  "runs": [
+    {
+      "evidence_run_id": "m16-untimed-abba-1-old",
+      "harness_execution_id": null,
+      "execution_id_note": "short-prefix did not emit an execution_id; order, arm, binary, input, plan, and complete output identities form the retained evidence identity",
+      "order": 1,
+      "arm": "old",
+      "source_directory": "target/issue707-m16-untimed-results/abba-1-old/",
+      "prefix_result": {
+        "source": {
+          "path": "abba-1-old/1-old/prefix-result.json",
+          "bytes": 816,
+          "sha256": "ca95494af5d4a22b9bd0647c9ecf6a6c9b46825bdceeb24b90e754d680fc4fd2"
+        },
+        "committed_copy": "evidence/retained-best-old1-prefix-result.json",
+        "value": {
+          "barrier_mode": "skip",
+          "binding_mode": "dense",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "coast_mode": "off",
+          "decision_mode": "every",
+          "demand_mode": "off",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "extended_quality": {
+        "source": {
+          "path": "abba-1-old/1-old/extended-quality.json",
+          "bytes": 628,
+          "sha256": "aca97b4ac1e199b48a5796af76a33304fdb6a6cb37564d0ae6c5e1c9577bbe1c"
+        },
+        "committed_copy": "evidence/retained-best-old1-extended-quality.json",
+        "value": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 465383700,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      },
+      "timing": {
+        "method": "tick >= 65; n=192; p95 uses linear interpolation at (n-1)*p; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5858202200,
+          "mean": 30511469.791666668,
+          "sample_stddev": 2031890.6032781415,
+          "p95": 33809180.0
+        },
+        "observation_ns": {
+          "sum": 12023590500,
+          "mean": 62622867.1875
+        },
+        "iteration_ns": {
+          "sum": 18432889900,
+          "mean": 96004634.89583333
+        }
+      },
+      "source_files": [
+        {
+          "path": "1-old.stderr",
+          "bytes": 87,
+          "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+        },
+        {
+          "path": "1-old.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "1-old/boundary-work.csv",
+          "bytes": 9307,
+          "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+        },
+        {
+          "path": "1-old/commands.jsonl",
+          "bytes": 13060294,
+          "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+        },
+        {
+          "path": "1-old/decision-work.csv",
+          "bytes": 2489,
+          "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+        },
+        {
+          "path": "1-old/entry-work.csv",
+          "bytes": 4058,
+          "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+        },
+        {
+          "path": "1-old/events.jsonl",
+          "bytes": 2476083,
+          "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+        },
+        {
+          "path": "1-old/extended-quality.json",
+          "bytes": 628,
+          "sha256": "aca97b4ac1e199b48a5796af76a33304fdb6a6cb37564d0ae6c5e1c9577bbe1c"
+        },
+        {
+          "path": "1-old/gap-inventory.json",
+          "bytes": 1220,
+          "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+        },
+        {
+          "path": "1-old/individual-quality.csv",
+          "bytes": 3241341,
+          "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+        },
+        {
+          "path": "1-old/original-plan.toml",
+          "bytes": 16994513,
+          "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+        },
+        {
+          "path": "1-old/prefix-result.json",
+          "bytes": 816,
+          "sha256": "ca95494af5d4a22b9bd0647c9ecf6a6c9b46825bdceeb24b90e754d680fc4fd2"
+        },
+        {
+          "path": "1-old/quality.csv",
+          "bytes": 9228,
+          "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+        },
+        {
+          "path": "1-old/ticks.jsonl",
+          "bytes": 159038,
+          "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+        },
+        {
+          "path": "1-old/timing.csv",
+          "bytes": 49394,
+          "sha256": "def128b100171922cc85e92af03842a3b37196450e7b58a8cd9e00fd8c4eeb59"
+        }
+      ],
+      "package_files": [
+        "runs/old1/prefix-result.json",
+        "runs/old1/extended-quality.json",
+        "runs/old1/quality.csv",
+        "runs/old1/timing.csv",
+        "runs/old1/gap-inventory.json",
+        "runs/old1/boundary-work.csv",
+        "runs/old1/decision-work.csv",
+        "runs/old1/entry-work.csv"
+      ]
+    },
+    {
+      "evidence_run_id": "m16-untimed-abba-2-held",
+      "harness_execution_id": null,
+      "execution_id_note": "short-prefix did not emit an execution_id; order, arm, binary, input, plan, and complete output identities form the retained evidence identity",
+      "order": 2,
+      "arm": "held",
+      "source_directory": "target/issue707-m16-untimed-results/abba-2-held/",
+      "prefix_result": {
+        "source": {
+          "path": "abba-2-held/1-held/prefix-result.json",
+          "bytes": 816,
+          "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+        },
+        "committed_copy": "evidence/retained-best-held2-prefix-result.json",
+        "value": {
+          "barrier_mode": "skip",
+          "binding_mode": "dense",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "coast_mode": "on",
+          "decision_mode": "every",
+          "demand_mode": "held",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "extended_quality": {
+        "source": {
+          "path": "abba-2-held/1-held/extended-quality.json",
+          "bytes": 628,
+          "sha256": "fed0748a82e4656d369567c3bb460214cc7f33dfab3c3d67fb3ba55a66fc7ec4"
+        },
+        "committed_copy": "evidence/retained-best-held2-extended-quality.json",
+        "value": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 460191000,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      },
+      "timing": {
+        "method": "tick >= 65; n=192; p95 uses linear interpolation at (n-1)*p; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5498599100,
+          "mean": 28638536.979166668,
+          "sample_stddev": 2686693.1942128353,
+          "p95": 32443440.0
+        },
+        "observation_ns": {
+          "sum": 12164217900,
+          "mean": 63355301.5625
+        },
+        "iteration_ns": {
+          "sum": 18240275800,
+          "mean": 95001436.45833333
+        }
+      },
+      "source_files": [
+        {
+          "path": "1-held.stderr",
+          "bytes": 87,
+          "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+        },
+        {
+          "path": "1-held.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "1-held/boundary-work.csv",
+          "bytes": 9307,
+          "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+        },
+        {
+          "path": "1-held/commands.jsonl",
+          "bytes": 13060294,
+          "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+        },
+        {
+          "path": "1-held/decision-work.csv",
+          "bytes": 2489,
+          "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+        },
+        {
+          "path": "1-held/entry-work.csv",
+          "bytes": 7309,
+          "sha256": "aeae951c290762ccbd54048d16fe62ded34f700e48939d39ade272baf21c176f"
+        },
+        {
+          "path": "1-held/events.jsonl",
+          "bytes": 2476083,
+          "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+        },
+        {
+          "path": "1-held/extended-quality.json",
+          "bytes": 628,
+          "sha256": "fed0748a82e4656d369567c3bb460214cc7f33dfab3c3d67fb3ba55a66fc7ec4"
+        },
+        {
+          "path": "1-held/gap-inventory.json",
+          "bytes": 1220,
+          "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+        },
+        {
+          "path": "1-held/individual-quality.csv",
+          "bytes": 3241341,
+          "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+        },
+        {
+          "path": "1-held/original-plan.toml",
+          "bytes": 16994513,
+          "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+        },
+        {
+          "path": "1-held/prefix-result.json",
+          "bytes": 816,
+          "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+        },
+        {
+          "path": "1-held/quality.csv",
+          "bytes": 9228,
+          "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+        },
+        {
+          "path": "1-held/ticks.jsonl",
+          "bytes": 159038,
+          "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+        },
+        {
+          "path": "1-held/timing.csv",
+          "bytes": 49376,
+          "sha256": "7fc5f154e4bdb942eb78cfe90dd27441df3a836534703e3bcfe39cfbcb4af2b1"
+        }
+      ],
+      "package_files": [
+        "runs/held2/prefix-result.json",
+        "runs/held2/extended-quality.json",
+        "runs/held2/quality.csv",
+        "runs/held2/timing.csv",
+        "runs/held2/gap-inventory.json",
+        "runs/held2/boundary-work.csv",
+        "runs/held2/decision-work.csv",
+        "runs/held2/entry-work.csv"
+      ]
+    },
+    {
+      "evidence_run_id": "m16-untimed-abba-3-held",
+      "harness_execution_id": null,
+      "execution_id_note": "short-prefix did not emit an execution_id; order, arm, binary, input, plan, and complete output identities form the retained evidence identity",
+      "order": 3,
+      "arm": "held",
+      "source_directory": "target/issue707-m16-untimed-results/abba-3-held/",
+      "prefix_result": {
+        "source": {
+          "path": "abba-3-held/1-held/prefix-result.json",
+          "bytes": 816,
+          "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+        },
+        "committed_copy": "evidence/retained-best-held3-prefix-result.json",
+        "value": {
+          "barrier_mode": "skip",
+          "binding_mode": "dense",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "coast_mode": "on",
+          "decision_mode": "every",
+          "demand_mode": "held",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "extended_quality": {
+        "source": {
+          "path": "abba-3-held/1-held/extended-quality.json",
+          "bytes": 628,
+          "sha256": "8b1294676b13f0bbf781e404adfe3f07922b1079449046a208ab68171e6214c6"
+        },
+        "committed_copy": "evidence/retained-best-held3-extended-quality.json",
+        "value": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 462075400,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      },
+      "timing": {
+        "method": "tick >= 65; n=192; p95 uses linear interpolation at (n-1)*p; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5430533700,
+          "mean": 28284029.6875,
+          "sample_stddev": 1975321.4520836102,
+          "p95": 31691665.0
+        },
+        "observation_ns": {
+          "sum": 12017433000,
+          "mean": 62590796.875
+        },
+        "iteration_ns": {
+          "sum": 17989277500,
+          "mean": 93694153.64583333
+        }
+      },
+      "source_files": [
+        {
+          "path": "1-held.stderr",
+          "bytes": 87,
+          "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+        },
+        {
+          "path": "1-held.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "1-held/boundary-work.csv",
+          "bytes": 9307,
+          "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+        },
+        {
+          "path": "1-held/commands.jsonl",
+          "bytes": 13060294,
+          "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+        },
+        {
+          "path": "1-held/decision-work.csv",
+          "bytes": 2489,
+          "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+        },
+        {
+          "path": "1-held/entry-work.csv",
+          "bytes": 7309,
+          "sha256": "aeae951c290762ccbd54048d16fe62ded34f700e48939d39ade272baf21c176f"
+        },
+        {
+          "path": "1-held/events.jsonl",
+          "bytes": 2476083,
+          "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+        },
+        {
+          "path": "1-held/extended-quality.json",
+          "bytes": 628,
+          "sha256": "8b1294676b13f0bbf781e404adfe3f07922b1079449046a208ab68171e6214c6"
+        },
+        {
+          "path": "1-held/gap-inventory.json",
+          "bytes": 1220,
+          "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+        },
+        {
+          "path": "1-held/individual-quality.csv",
+          "bytes": 3241341,
+          "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+        },
+        {
+          "path": "1-held/original-plan.toml",
+          "bytes": 16994513,
+          "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+        },
+        {
+          "path": "1-held/prefix-result.json",
+          "bytes": 816,
+          "sha256": "a7fb25fdf93aa6decd6190047c85204ca01d89db0d8e045739de989ff96fc8fe"
+        },
+        {
+          "path": "1-held/quality.csv",
+          "bytes": 9228,
+          "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+        },
+        {
+          "path": "1-held/ticks.jsonl",
+          "bytes": 159038,
+          "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+        },
+        {
+          "path": "1-held/timing.csv",
+          "bytes": 49348,
+          "sha256": "18813df973ff29678cea4d0c2daddc0aec5bd07e163b4dc566d0a0da6255e359"
+        }
+      ],
+      "package_files": [
+        "runs/held3/prefix-result.json",
+        "runs/held3/extended-quality.json",
+        "runs/held3/quality.csv",
+        "runs/held3/timing.csv",
+        "runs/held3/gap-inventory.json",
+        "runs/held3/boundary-work.csv",
+        "runs/held3/decision-work.csv",
+        "runs/held3/entry-work.csv"
+      ]
+    },
+    {
+      "evidence_run_id": "m16-untimed-abba-4-old",
+      "harness_execution_id": null,
+      "execution_id_note": "short-prefix did not emit an execution_id; order, arm, binary, input, plan, and complete output identities form the retained evidence identity",
+      "order": 4,
+      "arm": "old",
+      "source_directory": "target/issue707-m16-untimed-results/abba-4-old/",
+      "prefix_result": {
+        "source": {
+          "path": "abba-4-old/1-old/prefix-result.json",
+          "bytes": 816,
+          "sha256": "ca95494af5d4a22b9bd0647c9ecf6a6c9b46825bdceeb24b90e754d680fc4fd2"
+        },
+        "committed_copy": "evidence/retained-best-old4-prefix-result.json",
+        "value": {
+          "barrier_mode": "skip",
+          "binding_mode": "dense",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "coast_mode": "off",
+          "decision_mode": "every",
+          "demand_mode": "off",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "extended_quality": {
+        "source": {
+          "path": "abba-4-old/1-old/extended-quality.json",
+          "bytes": 628,
+          "sha256": "daaf6238de5b82e88642db640e0fd80bf52f83393bcc262e5c342b3545788b47"
+        },
+        "committed_copy": "evidence/retained-best-old4-extended-quality.json",
+        "value": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 468443700,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      },
+      "timing": {
+        "method": "tick >= 65; n=192; p95 uses linear interpolation at (n-1)*p; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5860362800,
+          "mean": 30522722.916666668,
+          "sample_stddev": 1958750.3074159087,
+          "p95": 33907445.0
+        },
+        "observation_ns": {
+          "sum": 12044505600,
+          "mean": 62731800.0
+        },
+        "iteration_ns": {
+          "sum": 18468182700,
+          "mean": 96188451.5625
+        }
+      },
+      "source_files": [
+        {
+          "path": "1-old.stderr",
+          "bytes": 87,
+          "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+        },
+        {
+          "path": "1-old.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "1-old/boundary-work.csv",
+          "bytes": 9307,
+          "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+        },
+        {
+          "path": "1-old/commands.jsonl",
+          "bytes": 13060294,
+          "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+        },
+        {
+          "path": "1-old/decision-work.csv",
+          "bytes": 2489,
+          "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+        },
+        {
+          "path": "1-old/entry-work.csv",
+          "bytes": 4058,
+          "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+        },
+        {
+          "path": "1-old/events.jsonl",
+          "bytes": 2476083,
+          "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+        },
+        {
+          "path": "1-old/extended-quality.json",
+          "bytes": 628,
+          "sha256": "daaf6238de5b82e88642db640e0fd80bf52f83393bcc262e5c342b3545788b47"
+        },
+        {
+          "path": "1-old/gap-inventory.json",
+          "bytes": 1220,
+          "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+        },
+        {
+          "path": "1-old/individual-quality.csv",
+          "bytes": 3241341,
+          "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+        },
+        {
+          "path": "1-old/original-plan.toml",
+          "bytes": 16994513,
+          "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+        },
+        {
+          "path": "1-old/prefix-result.json",
+          "bytes": 816,
+          "sha256": "ca95494af5d4a22b9bd0647c9ecf6a6c9b46825bdceeb24b90e754d680fc4fd2"
+        },
+        {
+          "path": "1-old/quality.csv",
+          "bytes": 9228,
+          "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+        },
+        {
+          "path": "1-old/ticks.jsonl",
+          "bytes": 159038,
+          "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+        },
+        {
+          "path": "1-old/timing.csv",
+          "bytes": 49404,
+          "sha256": "efd11bc8372446bb79d3ce548012ab6d05995795566c0ffb805f9e37ffab5214"
+        }
+      ],
+      "package_files": [
+        "runs/old4/prefix-result.json",
+        "runs/old4/extended-quality.json",
+        "runs/old4/quality.csv",
+        "runs/old4/timing.csv",
+        "runs/old4/gap-inventory.json",
+        "runs/old4/boundary-work.csv",
+        "runs/old4/decision-work.csv",
+        "runs/old4/entry-work.csv"
+      ]
+    }
+  ],
+  "fresh_checkout_validation": {
+    "performed_at_utc": "2026-09-27T17:36:45.9456178Z",
+    "source": "new empty directory populated only by extracting the prepared evidence and fixture archives",
+    "evidence_archive_sha256": null,
+    "evidence_archive_identity_note": "the outer archive contains this manifest, so its non-self-referential SHA-256 is recorded by retained-best-release.json",
+    "fixture_archive_sha256": "7dd8606e22b77661b16c27c7bdd5a8066da6d6c46fc01f219bcfac5c3897523a",
+    "fixture_files_verified_against_manifest": 11,
+    "binary_sha256": "19bf7ecb5dfd93a7f77c4deae10ffabf36f53fb70f13483d0a98cbb0f8992602",
+    "command_shape": "harness-m16-plain.exe short-prefix <downloaded-fixture>/input <downloaded-fixture>/plan.toml <output> 4 8",
+    "result": {
+      "prefix": {
+        "barrier_mode": "skip",
+        "binding_mode": "dense",
+        "boundary_mode": "on",
+        "boundary_route_constructed_bytes": 3028272,
+        "coast_mode": "on",
+        "decision_mode": "every",
+        "demand_mode": "held",
+        "entry_audit": false,
+        "final_checkpoint": "1b85fe24230d445552aec258d85b6cb02d5d27f5f09b5bfe578c6cf60cbca669",
+        "finish_mode": "combined",
+        "frontier_mode": "approx",
+        "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+        "observation_mode": "Fused",
+        "observation_work_instrumented": false,
+        "profile": false,
+        "scope_mode": "both",
+        "status": "diagnostic-prefix-complete",
+        "stop_trace": false,
+        "ticks": 8,
+        "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+        "workers": 4
+      },
+      "extended_quality": {
+        "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+        "completed_owners_still_holding": 0,
+        "extra_observation_ns": 3915800,
+        "longest_multi_owner_zone_ms": 0,
+        "max_continuous_stop_ms": 66,
+        "max_open_reservation_age_ms": 0,
+        "max_released_reservation_ms": 0,
+        "multi_owner_enter_observations": 0,
+        "multi_owner_zone_ms": 0,
+        "observed_completed": 0,
+        "open_passages": 0,
+        "open_reservations": 0,
+        "released_reservations": 0,
+        "ticks": 8,
+        "unmatched_clear_events": 0
+      },
+      "committed_prefix": "evidence/retained-best-fresh-smoke-prefix-result.json",
+      "committed_extended_quality": "evidence/retained-best-fresh-smoke-extended-quality.json"
+    }
+  },
+  "traffic_equivalence": {
+    "quality_ticks_events_sha256_equal_across_four_arms": true,
+    "final_checkpoint_equal_across_four_arms": true,
+    "longest_multi_owner_zone_ms": 0,
+    "completed_owners_still_holding": 0,
+    "boundary": "short 256-tick research window; this is not exact single-world parallel certification"
+  },
+  "limitations": [
+    "the harness did not emit execution_id for short-prefix; evidence_run_id plus complete immutable identities are used",
+    "the original run lacks per-run memory, AC, and vendor-mode snapshots",
+    "the fresh rebuild at another absolute path produced the same byte count but a different PE SHA-256; use the preserved exact EXE for byte identity",
+    "historical Markdown displayed 28.462 ms after averaging per-run means already rounded to three decimals; the exact combined 384-sample mean is 28.461283333333334 ms and the distinction does not change retention",
+    "the retained short-window comparator is not final performance certification"
+  ]
+}

@@ -1,14 +1,35 @@
 # #707 第二切片证据索引（E:/projects/laneflow-evidence/issue-707/4de40e04/）
 # pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
 # 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
-# 8 份前置核查、diagnostics、comparison 原始小封套。
-# 大文件（逐拍日志、LFCA、计划本体）不入 Git，以证据根为准。
+# 8 份前置核查、diagnostics、comparison 原始小封套。M16 retained-best 另绑定
+# 源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke 小封套。
+# 大文件（逐拍日志、LFCA、计划本体）不入 Git；冻结 EXE 进入独立 Research
+# Evidence prerelease，不进入普通 Git 历史。
 
 manifest = "manifest/baseline-manifest-raw.toml"
 binary = { harness = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523", generator = "b54fbab5354a6b36a6d3f5126d92a1af185f52995b05707cbd9c71c2bd508969" }
 input_diff = "input-diff.md"
 frozen_plan_replay = "evidence/frozen-plan-replay.json"
 formal_r1_evidence = "evidence/formal-r1-evidence.json"
+retained_best_manifest = "evidence/retained-best-evidence-manifest.json"
+retained_best_source_patch = "evidence/retained-best-source.patch.gz"
+retained_best_release = "evidence/retained-best-release.json"
+retained_best_prefix_results = [
+    "evidence/retained-best-old1-prefix-result.json",
+    "evidence/retained-best-held2-prefix-result.json",
+    "evidence/retained-best-held3-prefix-result.json",
+    "evidence/retained-best-old4-prefix-result.json",
+]
+retained_best_extended_quality = [
+    "evidence/retained-best-old1-extended-quality.json",
+    "evidence/retained-best-held2-extended-quality.json",
+    "evidence/retained-best-held3-extended-quality.json",
+    "evidence/retained-best-old4-extended-quality.json",
+]
+retained_best_fresh_smoke = [
+    "evidence/retained-best-fresh-smoke-prefix-result.json",
+    "evidence/retained-best-fresh-smoke-extended-quality.json",
+]
 formal_r1_prechecks = [
     "evidence/formal-precheck-10k.toml",
     "evidence/formal-precheck-100k.toml",

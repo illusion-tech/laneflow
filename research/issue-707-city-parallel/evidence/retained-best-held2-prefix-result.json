@@ -1,0 +1,23 @@
+{
+  "barrier_mode": "skip",
+  "binding_mode": "dense",
+  "boundary_mode": "on",
+  "boundary_route_constructed_bytes": 3028272,
+  "coast_mode": "on",
+  "decision_mode": "every",
+  "demand_mode": "held",
+  "entry_audit": false,
+  "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+  "finish_mode": "combined",
+  "frontier_mode": "approx",
+  "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+  "observation_mode": "Fused",
+  "observation_work_instrumented": false,
+  "profile": false,
+  "scope_mode": "both",
+  "status": "diagnostic-prefix-complete",
+  "stop_trace": false,
+  "ticks": 256,
+  "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+  "workers": 4
+}
