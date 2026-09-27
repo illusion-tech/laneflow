@@ -89,3 +89,8 @@ pub(crate) mod parking_command_research;
 #[cfg(test)]
 #[path = "tests/sparse_cost/diagnostic.rs"]
 pub(crate) mod sparse_cost_research;
+
+/// #679 路线查询诊断；不进入普通库构建。
+#[cfg(test)]
+#[path = "tests/route_query/diagnostic.rs"]
+pub(crate) mod route_query_research;

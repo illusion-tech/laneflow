@@ -42,7 +42,11 @@ pub(super) fn gate_may_be_reached(
     };
     let Some(hop) = route
         .gate_hops
-        .get(route.gate_hops.partition_point(|hop| *hop < cursor))
+        .get(route.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:45");
+            |hop| *hop < cursor
+        }))
         .copied()
     else {
         return false;
@@ -244,9 +248,11 @@ fn evaluate_gate_hop(
     waiting: Option<crate::kernel::tables::WaitingOccurrence>,
     waiting_plan: Option<crate::kernel::waiting::WaitingVehiclePlan>,
 ) -> Result<GateHopEvaluation, StepError> {
-    let maneuver_index = compiled
-        .maneuvers
-        .partition_point(|entry| entry.exit_route_edge_index <= gate_hop);
+    let maneuver_index = compiled.maneuvers.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("conflict_tick:249");
+        |entry| entry.exit_route_edge_index <= gate_hop
+    });
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
     if compiled
         .maneuvers
@@ -636,9 +642,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             state.route_edge_index
         };
         let held_waiting_hop = state.waiting_membership.and_then(|member| {
-            let index = compiled
-                .waiting
-                .partition_point(|entry| entry.release_hop < member.release_hop);
+            let index = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("conflict_tick:641");
+                |entry| entry.release_hop < member.release_hop
+            });
             compiled
                 .waiting
                 .get(index)
@@ -652,9 +660,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
         let mut minimum = first_hop;
         let conflict = loop {
-            let index = compiled
-                .conflicts
-                .partition_point(|entry| entry.admission_hop < minimum);
+            let index = compiled.conflicts.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("conflict_tick:657");
+                |entry| entry.admission_hop < minimum
+            });
             let Some(entry) = compiled.conflicts.get(index) else {
                 break None;
             };
@@ -666,9 +676,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .checked_add(1)
                 .ok_or(StepError::ConflictInvariantViolation)?;
         };
-        let waiting = compiled
-            .waiting
-            .partition_point(|entry| entry.entry_hop < first_hop);
+        let waiting = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:671");
+            |entry| entry.entry_hop < first_hop
+        });
         let waiting = compiled.waiting[waiting..]
             .iter()
             .find(|entry| !authorized(entry.entry_hop))
@@ -1477,9 +1489,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         } else {
             state.route_edge_index
         };
-        let first_gate = compiled
-            .gate_hops
-            .partition_point(|hop| *hop < first_possible_hop);
+        let first_gate = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:1482");
+            |hop| *hop < first_possible_hop
+        });
         let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
             return Ok(());
         };
@@ -1567,9 +1581,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if !reaches_gate {
                 break;
             }
-            let waiting_index = compiled
-                .waiting
-                .partition_point(|entry| entry.entry_hop < gate_hop);
+            let waiting_index = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("conflict_tick:1572");
+                |entry| entry.entry_hop < gate_hop
+            });
             let waiting = compiled
                 .waiting
                 .get(waiting_index)
@@ -2056,10 +2072,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let compiled =
             crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, next.route)
                 .ok_or(StepError::ConflictInvariantViolation)?;
-        let first = compiled.gate_hops.partition_point(|hop| *hop < first_hop);
-        let last = compiled
-            .gate_hops
-            .partition_point(|hop| *hop <= next.route_edge_index);
+        let first = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:2059");
+            |hop| *hop < first_hop
+        });
+        let last = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:2062");
+            |hop| *hop <= next.route_edge_index
+        });
         for index in first..last {
             let hop = compiled.gate_hops[index];
             let edge = compiled.edges[hop as usize];
@@ -2069,9 +2091,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             {
                 break;
             }
-            let waiting = compiled
-                .waiting
-                .partition_point(|entry| entry.entry_hop < hop);
+            let waiting = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("conflict_tick:2074");
+                |entry| entry.entry_hop < hop
+            });
             if compiled.conflict_gate_ranges[hop as usize].len != 0
                 || compiled
                     .waiting
@@ -2080,9 +2104,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             {
                 continue;
             }
-            let maneuver = compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= hop);
+            let maneuver = compiled.maneuvers.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("conflict_tick:2085");
+                |entry| entry.exit_route_edge_index <= hop
+            });
             compiled
                 .maneuvers
                 .get(maneuver)
