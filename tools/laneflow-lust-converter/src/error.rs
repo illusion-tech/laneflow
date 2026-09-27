@@ -38,6 +38,12 @@ pub enum Error {
         actual: String,
     },
 
+    #[error("could not determine LuST source revision under {source_dir}: {reason}")]
+    SourceRevisionUnknown { source_dir: PathBuf, reason: String },
+
+    #[error("LuST source revision mismatch: expected {expected}, got {actual}")]
+    SourceRevisionMismatch { expected: &'static str, actual: String },
+
     #[error("failed to parse SUMO XML: {0}")]
     XmlParse(String),
 
