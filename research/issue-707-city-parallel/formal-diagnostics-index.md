@@ -14,8 +14,11 @@ execution ID、完整 plan/result/measurements/diagnostics 摘要、观察窗统
 提交的隐私筛选紧凑报告与 `tar.zst` 容量实测见
 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)；M21 校准审计的可重建
 源码、构建、输入、运行配置和四份结果见
-[`calibration-audit-manifest.json`](evidence/calibration-audit-manifest.json)。原始逐拍文件
-和 ETL 仍留在证据根，不把多 GB 日志复制进 Git。
+[`calibration-audit-manifest.json`](evidence/calibration-audit-manifest.json)。M2 屏障跳过
+的源码补丁、十次运行树身份与逐拍紧凑报告见
+[`motion-barrier-evidence-manifest.json`](evidence/motion-barrier-evidence-manifest.json)。
+原始逐拍文件和 ETL 当前只在作者机器的证据根现存，没有项目控制的持久链接，按未
+长期留存处理；仓库不复制多 GB 日志。
 
 ## 正式 r1 的已完成范围
 
@@ -60,7 +63,8 @@ D2 现场核查时间为 03:05:00，晚于 w1 起点 03:01:13 共 227 秒，只�
 | L1                 | `diagnostics/wpr/l1-findings.md`、`l1-w4-prefix512.etl`                             | 早期机制筛查                                         |
 | L3                 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl`               | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
 | WPR 不可变身份     | 仓库内 `evidence/wpr-trace-identities.json`                                         | B1/L3 ETL 与匹配导出的字节数和 SHA-256               |
-| WPR 紧凑报告       | 仓库内 `evidence/wpr-b1/`、`evidence/wpr-l3/`                                       | 隐私筛选副本；全系统导出和 ETL 仍在外部              |
+| WPR 紧凑报告       | 仓库内 `evidence/wpr-b1/`、`evidence/wpr-l3/`                                       | 隐私筛选副本；原始 ETL/全系统导出未长期留存          |
+| M2 屏障跳过        | 仓库内 `evidence/motion-barrier-*`                                                  | Rust/Cargo 源码补丁、十次运行树身份及 1,920 拍样本   |
 | M21 校准审计       | 仓库内 `evidence/calibration-audit-*`、`evidence/calibration-*.json`                | 五文件源码增量、构建/输入/配置身份及四份结果         |
 
 ## ETL `tar.zst` 容量实测
