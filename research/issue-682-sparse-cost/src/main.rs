@@ -71,17 +71,21 @@ fn processes(exempt: Option<u32>) -> Result<Vec<String>> {
     }
     Ok(found)
 }
-fn cpu() -> Result<Vec<f64>> {
+fn cpu(count: usize) -> Result<Vec<f64>> {
     let text = command(
         "typeperf.exe",
-        &[r"\Processor(_Total)\% Processor Time", "-sc", "2"],
+        &[
+            r"\Processor(_Total)\% Processor Time",
+            "-sc",
+            &count.to_string(),
+        ],
     )?;
     let values: Vec<f64> = text
         .lines()
         .filter_map(|line| line.rsplit_once(',')?.1.trim_matches('"').parse().ok())
         .collect();
     require(
-        values.len() == 2
+        values.len() == count
             && values
                 .iter()
                 .all(|v| v.is_finite() && (0.0..=100.0).contains(v)),
@@ -89,12 +93,72 @@ fn cpu() -> Result<Vec<f64>> {
     )?;
     Ok(values)
 }
-fn idle() -> Result<Value> {
+fn calibrate(out: &Path) -> Result<()> {
+    fs::create_dir_all(out)?;
+    let path = out.join("baseline.json");
+    require(
+        !path.exists(),
+        "baseline already exists; use a new output directory",
+    )?;
     let before = processes(None)?;
-    let load = cpu()?;
+    require(before.is_empty(), "competing process before calibration")?;
+    let samples = cpu(30)?;
+    let after = processes(None)?;
+    let baseline = json!({"schema":2,"kind":"cpu-baseline","at":now(),
+        "before":before,"after":after,"cpu_percent":samples,
+        "warning_percent":warning_percent(&samples)});
+    fs::write(&path, serde_json::to_vec_pretty(&baseline)?)?;
+    validate_baseline(&baseline)?;
+    println!(
+        "calibrated CPU warning level {}% (advisory only)",
+        baseline["warning_percent"]
+    );
+    Ok(())
+}
+fn warning_percent(samples: &[f64]) -> f64 {
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    // #682: p95 加 10 个百分点只用于显式告警，不作为测量有效性的硬判据。
+    (sorted[28] + 10.0).min(100.0)
+}
+fn valid_cpu_samples(value: &Value, count: usize) -> bool {
+    value.as_array().is_some_and(|a| {
+        a.len() == count
+            && a.iter().all(|v| {
+                v.as_f64()
+                    .is_some_and(|n| n.is_finite() && (0.0..=100.0).contains(&n))
+            })
+    })
+}
+fn validate_baseline(value: &Value) -> Result<f64> {
+    require(
+        value["schema"] == 2
+            && value["kind"] == "cpu-baseline"
+            && value["before"] == json!([])
+            && value["after"] == json!([])
+            && valid_cpu_samples(&value["cpu_percent"], 30),
+        "invalid CPU baseline",
+    )?;
+    let samples: Vec<_> = value["cpu_percent"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    let warning = warning_percent(&samples);
+    require(
+        value["warning_percent"].as_f64() == Some(warning),
+        "baseline warning mismatch",
+    )?;
+    Ok(warning)
+}
+fn idle(warning: f64) -> Result<Value> {
+    let before = processes(None)?;
+    let load = cpu(2)?;
     let after = processes(None)?;
     Ok(json!({"before":before, "cpu_percent":load, "after":after,
-        "quiet": before.is_empty() && after.is_empty() && load.iter().all(|v| *v <= 20.0)}))
+        "no_competitors": before.is_empty() && after.is_empty(),
+        "cpu_warning":load.iter().any(|v| *v > warning)}))
 }
 fn capture(exe: &Path, mode: &str, case: &str, round: usize, out: &Path) -> Result<()> {
     require(
@@ -118,17 +182,29 @@ fn capture(exe: &Path, mode: &str, case: &str, round: usize, out: &Path) -> Resu
     let meta_path = out.join(format!("{stem}.json"));
     let log_path = out.join(format!("{stem}.log"));
     let err_path = out.join(format!("{stem}.stderr"));
-    let pre = idle()?;
-    let mut meta = json!({"schema":1,"id":id,"mode":mode,"case":case,"round":round,"source":head,
+    let baseline_path = out.join("baseline.json");
+    let baseline: Value = serde_json::from_slice(&fs::read(&baseline_path)?)?;
+    let warning = validate_baseline(&baseline)?;
+    let pre = idle(warning)?;
+    let mut meta = json!({"schema":2,"baseline_sha256":hash(&baseline_path)?,"id":id,"mode":mode,"case":case,"round":round,"source":head,
         "tree":command("git", &["rev-parse","HEAD^{tree}"])?,
         "lock":hash(Path::new("Cargo.lock"))?, "manifest":hash(Path::new("crates/laneflow-runtime/Cargo.toml"))?,
         "binary":exe.canonicalize()?.to_string_lossy(),"binary_sha256":hash(exe)?,
         "rustc":command("rustc", &["-Vv"])?,"started":now(),"pre":pre,"accepted":false});
     fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
     require(
-        pre["quiet"] == true,
-        &format!("同机负载干扰，未启动测量；记录 {}", meta_path.display()),
+        pre["no_competitors"] == true,
+        &format!(
+            "检测到同机竞争进程，未启动测量；记录 {}",
+            meta_path.display()
+        ),
     )?;
+    if pre["cpu_warning"] == true {
+        println!(
+            "CPU warning before {mode} {case} {round}: {}",
+            pre["cpu_percent"]
+        );
+    }
     let filter = match mode {
         "wall" => "sparse_cost_wall",
         "resource" => "resource_sort_diagnostic",
@@ -157,7 +233,7 @@ fn capture(exe: &Path, mode: &str, case: &str, round: usize, out: &Path) -> Resu
         }
         thread::sleep(Duration::from_secs(1));
     };
-    let post = idle()?;
+    let post = idle(warning)?;
     meta["ended"] = json!(now());
     meta["post"] = post.clone();
     meta["interference"] = json!(interference);
@@ -171,7 +247,7 @@ fn capture(exe: &Path, mode: &str, case: &str, round: usize, out: &Path) -> Resu
     meta["accepted"] = json!(
         status.success()
             && interference.is_empty()
-            && post["quiet"] == true
+            && post["no_competitors"] == true
             && meta["source_after"] == meta["source"]
             && meta["clean_after"] == true
     );
@@ -180,6 +256,12 @@ fn capture(exe: &Path, mode: &str, case: &str, round: usize, out: &Path) -> Resu
         meta["accepted"] == true,
         &format!("测量未接受，检查负载/退出记录 {}", meta_path.display()),
     )?;
+    if post["cpu_warning"] == true {
+        println!(
+            "CPU warning after {mode} {case} {round}: {}",
+            post["cpu_percent"]
+        );
+    }
     println!("accepted {mode} {case} {round}: {}", meta_path.display());
     Ok(())
 }
@@ -309,16 +391,40 @@ fn parse(text: &str, mode: &str, case: &str) -> Result<Value> {
         for row in ["sparse-clear:", "sparse-memory:", "sparse-work:"] {
             require(rows.contains_key(row), "missing ledger")?;
         }
+        let memory = &rows["sparse-memory:"];
+        let world: u64 = memory["world"].parse()?;
+        let owners: u64 = ["binding", "committed", "derived", "workspace", "admin"]
+            .iter()
+            .map(|key| memory[*key].parse::<u64>())
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .sum();
+        require(world == owners, "memory owners do not balance")?;
+        require(
+            memory["slots_len"] == end["high_water"],
+            "slot high-water mismatch",
+        )?;
+        for row in rows.values() {
+            for (key, value) in row {
+                if !["case", "stage"].contains(&key.as_str()) {
+                    let _: u64 = value.parse()?;
+                }
+            }
+        }
         Ok(json!({"end":end,"rows":rows}))
     }
 }
 fn verify(dir: &Path, output: &Path) -> Result<()> {
+    let baseline_path = dir.join("baseline.json");
+    let baseline: Value = serde_json::from_slice(&fs::read(&baseline_path)?)?;
+    let warning = validate_baseline(&baseline)?;
+    let baseline_hash = hash(&baseline_path)?;
     let mut runs = Vec::new();
     let mut keys = BTreeMap::new();
     let mut rejected = Vec::new();
     for file in fs::read_dir(dir)? {
         let path = file?.path();
-        if path.extension().is_none_or(|v| v != "json") {
+        if path.extension().is_none_or(|v| v != "json") || path == baseline_path {
             continue;
         }
         let meta: Value = serde_json::from_slice(&fs::read(&path)?)?;
@@ -351,8 +457,10 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
             )?;
         }
         require(
-            quiet_evidence(&meta["pre"])
-                && quiet_evidence(&meta["post"])
+            meta["schema"] == 2
+                && meta["baseline_sha256"] == baseline_hash
+                && environment_evidence(&meta["pre"], warning)
+                && environment_evidence(&meta["post"], warning)
                 && meta["interference"] == json!([])
                 && meta["exit_ok"] == true
                 && meta["clean_after"] == true
@@ -363,6 +471,34 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
         runs.push(json!({"metadata":meta,"result":parse(&log,mode,case)?}));
     }
     require(runs.len() == CASES.len() * 6 + 1, "incomplete matrix")?;
+    for run in &runs {
+        for field in ["source", "tree", "lock", "manifest", "rustc"] {
+            require(
+                run["metadata"][field].is_string()
+                    && run["metadata"][field] == runs[0]["metadata"][field],
+                "mixed source/environment",
+            )?;
+        }
+        let mode = run["metadata"]["mode"].as_str().unwrap();
+        let binary_mode = if mode == "resource" {
+            "diagnostic"
+        } else {
+            mode
+        };
+        let reference = &runs[keys[&("compact".into(), 0, binary_mode.into())]]["metadata"];
+        require(
+            run["metadata"]["binary_sha256"] == reference["binary_sha256"],
+            "mixed binary",
+        )?;
+    }
+    let source = runs[0]["metadata"]["source"].as_str().unwrap();
+    command("git", &["merge-base", "--is-ancestor", source, "HEAD"])?;
+    require(
+        command("git", &["rev-parse", &format!("{source}^{{tree}}")])?
+            == runs[0]["metadata"]["tree"],
+        "source tree mismatch",
+    )?;
+    let mut summaries = BTreeMap::new();
     for case in CASES {
         let reference = &runs[keys[&(case.into(), 0, "wall".into())]];
         for round in 0..3 {
@@ -372,17 +508,30 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
                     run["result"]["end"] == reference["result"]["end"],
                     "input/count/digest differs between rounds or binaries",
                 )?;
-                require(
-                    run["metadata"]["source"] == runs[0]["metadata"]["source"]
-                        && run["metadata"]["lock"] == runs[0]["metadata"]["lock"],
-                    "mixed source",
-                )?;
             }
         }
+        let mut means = Vec::new();
+        let mut p95 = Vec::new();
+        let mut warnings = 0;
+        for round in 0..3 {
+            let run = &runs[keys[&(case.into(), round, "wall".into())]];
+            means.push(run["result"]["mean_ns"].as_f64().unwrap());
+            p95.push(run["result"]["p95_ns"].as_f64().unwrap());
+            warnings += usize::from(
+                run["metadata"]["pre"]["cpu_warning"] == true
+                    || run["metadata"]["post"]["cpu_warning"] == true,
+            );
+        }
+        let mut sorted = means.clone();
+        sorted.sort_by(f64::total_cmp);
+        summaries.insert(case, json!({"round_mean_ns":means,"round_p95_ns":p95,
+            "mean_range_over_median_percent":100.0*(sorted[2]-sorted[0])/sorted[1],"cpu_warning_rounds":warnings}));
     }
     fs::write(
         output,
-        serde_json::to_vec_pretty(&json!({"schema":1,"runs":runs,"rejected":rejected}))?,
+        serde_json::to_vec_pretty(
+            &json!({"schema":2,"baseline":baseline,"summaries":summaries,"runs":runs,"rejected":rejected}),
+        )?,
     )?;
     println!(
         "verified 54 matrix runs and one resource run: {}",
@@ -393,6 +542,7 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("calibrate") if args.len() == 3 => calibrate(Path::new(&args[2])),
         Some("capture") if args.len() == 7 => capture(
             Path::new(&args[2]),
             &args[3],
@@ -419,28 +569,52 @@ fn main() -> Result<()> {
         }
         Some("verify") if args.len() == 4 => verify(Path::new(&args[2]), Path::new(&args[3])),
         _ => Err(
-            "usage: capture EXE MODE CASE ROUND DIR | matrix WALL DIAGNOSTIC DIR | verify DIR JSON"
+            "usage: calibrate DIR | capture EXE MODE CASE ROUND DIR | matrix WALL DIAGNOSTIC DIR | verify DIR JSON"
                 .into(),
         ),
     }
 }
 
-fn quiet_evidence(value: &Value) -> bool {
-    value["quiet"] == true
+fn environment_evidence(value: &Value, warning: f64) -> bool {
+    value["no_competitors"] == true
         && value["before"] == json!([])
         && value["after"] == json!([])
-        && value["cpu_percent"].as_array().is_some_and(|a| {
-            a.len() == 2
-                && a.iter().all(|v| {
-                    v.as_f64()
-                        .is_some_and(|n| n.is_finite() && (0.0..=20.0).contains(&n))
-                })
-        })
+        && valid_cpu_samples(&value["cpu_percent"], 2)
+        && value["cpu_warning"]
+            == json!(
+                value["cpu_percent"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v.as_f64().unwrap() > warning)
+            )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cpu_warning_preserves_samples_but_competitors_reject() {
+        let mut value = json!({"no_competitors":true,"before":[],"after":[],"cpu_percent":[22.0,41.0],"cpu_warning":true});
+        assert!(environment_evidence(&value, 20.0));
+        value["cpu_warning"] = json!(false);
+        assert!(!environment_evidence(&value, 20.0));
+        value["cpu_warning"] = json!(true);
+        value["before"] = json!(["123:rustc.exe"]);
+        assert!(!environment_evidence(&value, 20.0));
+        value["before"] = json!([]);
+        value["cpu_percent"] = json!([22.0, 101.0]);
+        assert!(!environment_evidence(&value, 20.0));
+    }
+    #[test]
+    fn calibration_requires_complete_valid_samples() {
+        let mut value = json!({"schema":2,"kind":"cpu-baseline","before":[],"after":[],"cpu_percent":vec![8.0;30],"warning_percent":18.0});
+        assert_eq!(validate_baseline(&value).unwrap(), 18.0);
+        value["warning_percent"] = json!(25.0);
+        assert!(validate_baseline(&value).is_err());
+        value["cpu_percent"] = json!([8.0]);
+        assert!(validate_baseline(&value).is_err());
+    }
     fn wall() -> String {
         let mut log = String::new();
         for tick in 0..128 {
