@@ -145,13 +145,11 @@ pub fn compile_network_lfca(
 /// Strip the `sumo:` prefix; internal lanes (`:J_0_0`) become `int:J_0_0` so keys
 /// start with an alphanumeric byte as the token grammar requires.
 fn edge_key(laneflow_id: &str) -> String {
-    let raw = laneflow_id
-        .strip_prefix(SUMO_ID_PREFIX)
-        .unwrap_or(laneflow_id);
+    let raw = bare(laneflow_id);
     if let Some(rest) = raw.strip_prefix(':') {
-        format!("int:{rest}")
+        token(&format!("int:{rest}"))
     } else {
-        raw.to_owned()
+        token(raw)
     }
 }
 
@@ -159,6 +157,29 @@ fn bare(laneflow_id: &str) -> &str {
     laneflow_id
         .strip_prefix(SUMO_ID_PREFIX)
         .unwrap_or(laneflow_id)
+}
+
+/// Sanitize one id for the token grammar.
+///
+/// Two rules from `external_token_violation` (compiler source.rs):
+/// - `#` (SUMO split-edge marker) is not a token byte; `.` never appears in
+///   LuST source ids, so `#` -> `.` is collision-free and reversible.
+/// - First byte must be alphanumeric; LuST edge/junction ids start with `-`
+///   (or `:` for internal lanes, handled by `edge_key` before this point).
+///   Prepending `x` is collision-free for this source: no LuST id matches
+///   `^x[^A-Za-z0-9]` (verified against the pinned net).
+fn token(raw: &str) -> String {
+    let mapped = raw.replace('#', ".");
+    if mapped.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric) {
+        mapped
+    } else {
+        format!("x{mapped}")
+    }
+}
+
+/// `bare` + `token`: sanitize any non-edge key (junction, profile, signal, ...).
+fn id_key(laneflow_id: &str) -> String {
+    token(bare(laneflow_id))
 }
 
 fn edge_ref(key: &str) -> Result<re::LaneEdgeReference> {
@@ -200,7 +221,7 @@ fn add_profiles(
     for profile in &traffic.vehicle_profiles {
         builder.add_declaration(re::RoadEditingDeclaration::VehicleProfile(
             re::VehicleProfileInput::try_new(
-                bare(&profile.id),
+                id_key(&profile.id),
                 re::ParticipantClassReference::local(PARTICIPANT_CLASS_KEY)?,
                 re::IidmVehicleProfileInput::try_new(
                     profile.length,
@@ -295,14 +316,16 @@ fn add_edges(
 /// Local movement key within its junction owner: `sumo:J:A-to-B` -> `A-to-B`.
 fn movement_key(junction_key: &str, movement_id: &str) -> Result<String> {
     let with_prefix = format!("{junction_key}:");
-    bare(movement_id)
+    let bare_id = token(bare(movement_id));
+    let local = bare_id
         .strip_prefix(with_prefix.as_str())
-        .map(str::to_owned)
         .ok_or_else(|| {
             Error::SumoModel(format!(
                 "movement id {movement_id:?} does not start with its junction prefix {with_prefix:?}"
             ))
-        })
+        })?;
+    // 剥离路口前缀后，本地键仍以带 `-` 前缀的边路 id 开头，需再过一次首字节规则。
+    Ok(token(local))
 }
 
 /// Owner chain `(junction_key, movement_key, path_key)` for every ManeuverPath,
@@ -314,10 +337,10 @@ struct PathKeys {
 }
 
 fn path_keys(traffic: &TrafficPackage) -> Result<HashMap<String, PathKeys>> {
-    let junction_by_movement: HashMap<&str, &str> = traffic
+    let junction_by_movement: HashMap<&str, String> = traffic
         .movements
         .iter()
-        .map(|movement| (movement.id.as_str(), bare(&movement.junction_id)))
+        .map(|movement| (movement.id.as_str(), id_key(&movement.junction_id)))
         .collect();
     let mut ordinals: HashMap<&str, u64> = HashMap::new();
     let mut keys = HashMap::with_capacity(traffic.maneuver_paths.len());
@@ -360,7 +383,7 @@ fn add_junctions(
 ) -> Result<()> {
     let path_keys = path_keys(traffic)?;
     for junction in &traffic.junctions {
-        let junction_key = bare(&junction.id);
+        let junction_key = id_key(&junction.id);
         let mut approaches: Vec<String> = Vec::new();
         let mut internals: Vec<String> = Vec::new();
         for path in traffic
@@ -391,13 +414,13 @@ fn add_junctions(
         ))?;
     }
     for movement in &traffic.movements {
-        let junction_key = bare(&movement.junction_id);
+        let junction_key = id_key(&movement.junction_id);
         builder.add_declaration(re::RoadEditingDeclaration::Movement(
             re::MovementInput::try_new(
-                movement_key(junction_key, &movement.id)?,
+                movement_key(&junction_key, &movement.id)?,
                 re::JunctionReference::local(junction_key)?,
-                movement.from_road_edge_id.clone(),
-                movement.to_road_edge_id.clone(),
+                token(&movement.from_road_edge_id),
+                token(&movement.to_road_edge_id),
             )?,
         ))?;
     }
@@ -453,19 +476,23 @@ fn add_signals(
 
     for stop_line in &signals.stop_lines {
         builder.add_declaration(re::RoadEditingDeclaration::StopLine(
-            re::StopLineInput::try_new(bare(&stop_line.id), edge_ref(&edge_key(&stop_line.edge_id))?)?,
+            re::StopLineInput::try_new(
+                id_key(&stop_line.id),
+                edge_ref(&edge_key(&stop_line.edge_id))?,
+            )?,
         ))?;
     }
     for group in &signals.groups {
         builder.add_declaration(re::RoadEditingDeclaration::SignalGroup(
-            re::SignalGroupInput::try_new(bare(&group.id))?,
+            re::SignalGroupInput::try_new(id_key(&group.id))?,
         ))?;
     }
     for controller in &signals.controllers {
-        let controller_key = bare(&controller.id);
+        let controller_key = id_key(&controller.id);
         for phase in &controller.phases {
-            let phase_key = bare(&phase.id)
-                .strip_prefix(with_prefix(controller_key).as_str())
+            let phase_bare = token(bare(&phase.id));
+            let phase_key = phase_bare
+                .strip_prefix(with_prefix(&controller_key).as_str())
                 .ok_or_else(|| {
                     Error::SumoModel(format!(
                         "signal phase id {:?} does not start with its controller prefix",
@@ -477,7 +504,7 @@ fn add_signals(
                 .iter()
                 .map(|state| {
                     Ok(re::RoadEditingSignalPhaseState::try_new(
-                        re::SignalGroupReference::local(bare(&state.group_id))?,
+                        re::SignalGroupReference::local(id_key(&state.group_id))?,
                         aspect(state.aspect)?,
                     )?)
                 })
@@ -487,28 +514,29 @@ fn add_signals(
                     phase_key,
                     phase.duration_ms,
                     states,
-                    re::SignalControllerReference::local(controller_key)?,
+                    re::SignalControllerReference::local(controller_key.as_str())?,
                 )?,
             ))?;
         }
         builder.add_declaration(re::RoadEditingDeclaration::SignalController(
             re::SignalControllerInput::try_new(
-                controller_key,
+                controller_key.as_str(),
                 controller.offset_ms,
                 controller
                     .group_ids
                     .iter()
-                    .map(|id| Ok(re::SignalGroupReference::local(bare(id))?))
+                    .map(|id| Ok(re::SignalGroupReference::local(id_key(id))?))
                     .collect::<Result<Vec<_>>>()?,
                 controller
                     .phases
                     .iter()
                     .map(|phase| {
-                        let phase_key = bare(&phase.id)
-                            .strip_prefix(with_prefix(controller_key).as_str())
+                        let phase_bare = token(bare(&phase.id));
+                        let phase_key = phase_bare
+                            .strip_prefix(with_prefix(&controller_key).as_str())
                             .expect("phase prefix checked above");
                         Ok(re::SignalPhaseReference::owner_scoped(
-                            vec![controller_key.to_owned()],
+                            vec![controller_key.clone()],
                             phase_key,
                         )?)
                     })
@@ -542,9 +570,9 @@ fn add_signals(
                 "gate",
                 path_ref(keys)?,
                 gate.transition_index,
-                re::StopLineReference::local(bare(&gate.stop_line_id))?,
+                re::StopLineReference::local(id_key(&gate.stop_line_id))?,
                 re::RoadEditingSignalControl::SignalGroup(re::SignalGroupReference::local(
-                    bare(&gate.signal_control.group_id),
+                    id_key(&gate.signal_control.group_id),
                 )?),
             )?,
         ))?;
