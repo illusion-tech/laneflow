@@ -154,12 +154,14 @@ Core 的下一条独立研究线仍是运动约束查询；红灯停止线 ETA=0
 - 已提交：`identity.json`、`capture.json`、`provenance.json`、`verification.json`、
   `trace-stats.txt`、`frequency.txt`、`rundown.txt`、`analysis.json`、三份
   `hotspots-*.csv`、`caller-callee.csv` 与 `thread-activity.csv`。
-- 外部保留：`b1.etl`、匹配的 `binaries/*.pdb`、`recording-*.json`，以及包含全系统
-  进程/路径信息的 `symbols-5-40.txt`、`stacks-profile-5-40.html`、`activity.txt`。
+- 作者机器当前仍有：`b1.etl`、匹配的 `binaries/*.pdb`、`recording-*.json`，以及
+  包含全系统进程/路径信息的 `symbols-5-40.txt`、`stacks-profile-5-40.html`、
+  `activity.txt`。这些文件没有项目控制的持久链接，按**未长期留存**处理；不承诺
+  可在该机器之外取回。
 - 外部 `export.ps1` 使用相同 [5s,40s) 范围；外部 `analyze.py` 可从已有导出重算，
   包含 PID、非空表、丢失、频率、连续窗口、样本总和与已知独立入口的断言。这些
   非 Rust 诊断脚本不进入本仓库交付。
 
-原始 recorder 临时文件、符号缓存与失败预检记录继续外部保留；仓库不复制 1.3GB ETL，
-也不把可重建缓存和合并中间 ETL 再做一份归档。紧凑报告支持审阅现有结论，不能替代
-原 ETL、EXE/PDB 或任意重新选择调用栈的复核能力。
+原始 recorder 临时文件、符号缓存与失败预检记录同样只在作者机器现存，不属于项目
+长期留存。仓库不复制 1.3GB ETL，也不把可重建缓存和合并中间 ETL 再做一份归档。
+紧凑报告支持审阅现有结论，不能替代原 ETL、EXE/PDB 或任意重新选择调用栈的复核能力。

@@ -1,8 +1,8 @@
 {
-  "schema": "laneflow-issue-707-wpr-trace-identities-v4",
-  "computed_at": "2026-09-27T20:04:12.5619346+00:00",
+  "schema": "laneflow-issue-707-wpr-trace-identities-v5",
+  "computed_at": "2026-09-27T20:44:07.8875071+00:00",
   "hash_algorithm": "SHA-256",
-  "scope": "immutable identities for external B1/L3 ETL traces, external full-system exports, privacy-screened compact reports, and L3 exact-window symbol derivations committed for portable review; L3 also records the ETL CodeView identity and retained SymCache boundary",
+  "scope": "immutable identities and explicit non-retention disposition for author-local B1/L3 ETL traces and full-system exports, plus privacy-screened compact reports and L3 exact-window symbol derivations committed for portable review; L3 also records the ETL CodeView identity and retained SymCache boundary",
   "committed_report_normalization": {
     "policy": "decode text, convert CRLF and lone CR to LF, remove trailing LF characters, append exactly one final LF, encode UTF-8 without BOM",
     "semantic_change": false,
@@ -101,6 +101,20 @@
     "publication_boundaries": [
       "raw ETL needs a separate privacy review or controlled recapture before public upload",
       "L3 exact captured executable and original PDB are unavailable, so an L3 package cannot promise independent re-symbolization"
+    ]
+  },
+  "raw_artifact_retention": {
+    "classification": "not-long-term-retained",
+    "current_state": "the three ETL files, B1 matching symbols, retained L3 SymCache, and privacy-sensitive full-system exports currently exist only under author-local evidence roots",
+    "project_controlled_durable_retention": false,
+    "durable_url": null,
+    "retrieval_outside_author_machine_promised": false,
+    "reason": "no controlled durable upload has passed the required privacy review, and L3 also lacks the exact captured executable and original PDB",
+    "portable_record": "committed privacy-screened reports, exact byte identities, derivation metadata, and stated limitations remain the durable project evidence",
+    "scope": [
+      "B1 b1.etl and omitted full-system exports",
+      "L3 early and late ETL plus omitted full-system exports",
+      "author-local matching symbol files and retained SymCache"
     ]
   },
   "b1": {
@@ -741,5 +755,5 @@
       }
     }
   },
-  "conclusion": "portable compact B1/L3 reports and privacy-minimized L3 exact-window symbol derivations are committed with source identities; multi-GB ETL and privacy-sensitive full-system exports remain external; L3 CodeView/SymCache evidence supports the existing limited attribution but missing original EXE/PDB still prevents arbitrary independent re-symbolization"
+  "conclusion": "portable compact B1/L3 reports and privacy-minimized L3 exact-window symbol derivations are committed with source identities; multi-GB ETL and privacy-sensitive full-system exports are author-local and explicitly not under project-controlled long-term retention; L3 CodeView/SymCache evidence supports the existing limited attribution but missing original EXE/PDB still prevents arbitrary independent re-symbolization"
 }

@@ -144,14 +144,16 @@ L3 只有 w4，早晚车辆状态和命令组合不同。
 - 已提交：早/晚窗 `*-stats.txt`、`*-rundown.txt`、`*-frequency.txt`、
   `*-harness-timeline.csv` 与 `*-top-symbols.csv`。提交副本只统一文本换行；来源与
   提交副本身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
-- 外部保留：`export.ps1`、`export-ranges.ps1`、`*-activity.txt`、
-  `*-range-symbols.txt`、完整 `*-symbols.txt` 和 `*-util.txt`。全系统导出含无关进程
-  标签和/或机器本地路径，不进入 Git；非 Rust 导出脚本也不进入本仓库交付。
+- 作者机器当前仍有：`export.ps1`、`export-ranges.ps1`、`*-activity.txt`、
+  `*-range-symbols.txt`、完整 `*-symbols.txt` 和 `*-util.txt`。这些文件及两份 ETL
+  没有项目控制的持久链接，按**未长期留存**处理；不承诺可在该机器之外取回。
+  全系统导出含无关进程标签和/或机器本地路径，不进入 Git；非 Rust 导出脚本也不
+  进入本仓库交付。
 - `SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/`：与两份
   ETL CodeView 身份一致的保留符号缓存；不能替代缺失的原 PDB 做任意重符号化。
 
 两份原始 ETL 字节数分别为 1154482176、3331325952；它们与外部完整导出均在机器
-记录中登记字节数与 SHA-256，大文件继续留在外部证据根。使用 bsdtar 3.8.8 与
+记录中登记字节数与 SHA-256，但作者机器路径不是项目长期留存。使用 bsdtar 3.8.8 与
 libzstd 1.5.7 默认压缩的标准输出计数表明，B1、L3 early、L3 late 三份 ETL 各自的
 `tar.zst` 均无需分片，合计约 695.430 MiB；本次没有落盘压缩包，因而没有压缩包
 SHA-256。该结果只回答容量问题，不解除 ETL 隐私复核或 L3 原精确 EXE/PDB 缺失边界。

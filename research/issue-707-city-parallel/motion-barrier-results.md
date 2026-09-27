@@ -29,7 +29,9 @@ Active 均为 70,761–74,392。单位是毫秒。
 | H1 parent 4 |    31.202 |  2.137 | 35.443 |           67.543 |
 
 两次 H1 的 Core 均值极差 0.366 ms。
-两次 skip 均值 30.278 ms，比两次 H1 均值 31.385 ms 少 1.107 ms（3.53%）。
+按 192 拍原始整数纳秒重新聚合，两次 skip 均值 30.277 ms，比两次 H1 均值
+31.385 ms 少 1.108 ms（3.53%）。旧值 30.278 / 1.107 来自先将各臂显示到
+三位小数后再求均值；本页改用未舍入样本作为权威口径。
 较慢的 skip（30.409）仍快于较快的 H1（31.202）。
 
 同一新二进制再跑一组 direct/skip/skip/direct：
@@ -60,14 +62,25 @@ ETA 的验收。那两个问题没有在本轮修改。
 
 ## 4. 保留与边界
 
-后续研究组合是 B1 + H1 + 本轮屏障跳过。源码在
-`target/issue707-m2-source`，默认对照用 `LF707_BARRIER=skip`。
+后续研究组合是 B1 + H1 + 本轮屏障跳过。原构建源码仍在作者机器的
+`target/issue707-m2-source`；仓库另提交从基准到 M2 的累计二进制 Git 补丁和
+H1→M2 七文件增量，默认对照用 `LF707_BARRIER=skip`。
 尚未整理成正式实现 PR，也没有改权威设计。
 
 输入读取仍是上一轮里的第二大段，约 11.6–11.9 ms CPU。它不在本轮候选里。
 
 ## 5. 证据
 
+- 机器可读封套见
+  [`motion-barrier-evidence-manifest.json`](evidence/motion-barrier-evidence-manifest.json)：
+  它绑定十次运行各 17 个文件的完整树身份、二进制与计划身份、进程资源包络、
+  交通文件哈希、精确统计和最终计数。逐拍紧凑报告见
+  [`motion-barrier-public-step.csv`](evidence/motion-barrier-public-step.csv)，包含
+  10 × 192 个 `public_step_ns` 与 `observation_ns` 样本。
+- [`motion-barrier-source-patch.tar.zst`](evidence/motion-barrier-source-patch.tar.zst)
+  包含两个只涉及 Rust/Cargo 构建源码的二进制 Git 补丁：从基准提交到 M2 的
+  48 文件累计补丁，以及从重建 H1 到 M2 的 7 文件增量。两条路径均已在新目录
+  回放，并与 451 个原构建源文件逐字节一致；历史 H1 的非 Rust 运行脚本未提交。
 - 父源码是封存 H1，提交 `4de40e045398e4b010b2aa36522afc02a4094c4d`。
 - Rust 1.98.0，release，locked，offline，`CARGO_INCREMENTAL=0`，
   feature `entry-frontier,barrier-reach`。
@@ -77,4 +90,6 @@ ETA 的验收。那两个问题没有在本轮修改。
   `5525f9aea127793c69ab08d4891fd05e3049dd79585199e00272b5d050391080`
 - 距离表单测 `nearest_barrier_distance_is_measured_from_each_hop_start` 通过。
   带该 feature 的 runtime lib 测试能够编译。未跑完整 runtime 测试套件。
-- 结果目录：`target/issue707-m2-results/`。平衡电源方案，WPR 未在录制。
+- 原结果目录 `target/issue707-m2-results/` 与两个 EXE 当前只存在于作者机器，
+  不承诺由项目长期留存；仓库内封套、逐拍紧凑报告和源码补丁是本页结论的可移植
+  长期证据。运行使用平衡电源方案，WPR 未在录制。
