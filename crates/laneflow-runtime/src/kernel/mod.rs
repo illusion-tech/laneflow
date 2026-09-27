@@ -84,3 +84,8 @@ mod junction_ledger;
 #[cfg(test)]
 #[path = "tests/parking_commands.rs"]
 pub(crate) mod parking_command_research;
+
+/// #682 稀疏工作集研究；计时与账本仅进入单元测试构建。
+#[cfg(test)]
+#[path = "tests/sparse_cost/diagnostic.rs"]
+pub(crate) mod sparse_cost_research;

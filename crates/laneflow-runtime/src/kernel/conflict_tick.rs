@@ -722,8 +722,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.conflict_grants.clear();
         self.workspace.conflict_passage_transitions.clear();
         self.workspace.conflict_staged_decisions.clear();
+        #[cfg(test)]
+        let sparse_clear = super::sparse_cost_research::begin(
+            1,
+            self.workspace.conflict_motion_by_vehicle.len()
+                + self.workspace.conflict_next_eligibility.len(),
+        );
         self.workspace.conflict_motion_by_vehicle.fill(None);
         self.workspace.conflict_next_eligibility.fill(None);
+        #[cfg(test)]
+        drop(sparse_clear);
 
         self.rebuild_conflict_frontier()?;
         reserve(
@@ -801,9 +809,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut self.workspace.conflict_staged_decisions,
             self.workspace.conflict_candidates.len(),
         )?;
+        #[cfg(test)]
+        let sparse_sort =
+            super::sparse_cost_research::begin(2, self.workspace.conflict_candidates.len());
         self.workspace
             .conflict_candidates
             .sort_unstable_by_key(|candidate| (candidate.key, candidate.vehicle_update_sequence));
+        #[cfg(test)]
+        drop(sparse_sort);
         Ok(())
     }
 
@@ -1766,8 +1779,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 &mut preflight_no_grant,
             )?;
         }
+        #[cfg(test)]
+        let sparse_sort =
+            super::sparse_cost_research::begin(3, self.workspace.conflict_cell_work.len());
         self.workspace.conflict_cell_work.sort_unstable();
         self.workspace.conflict_cell_work.dedup();
+        #[cfg(test)]
+        drop(sparse_sort);
         let cells_start = self.workspace.conflict_candidate_cells.len();
         #[cfg(test)]
         if conflict_reserve_probe(
@@ -2239,6 +2257,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
         }
 
+        #[cfg(test)]
+        let sparse_sort =
+            super::sparse_cost_research::begin(4, self.workspace.conflict_staged_decisions.len());
         self.workspace
             .conflict_staged_decisions
             .sort_unstable_by_key(|decision| {
@@ -2248,6 +2269,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     decision.passage.map(|passage| passage.address()),
                 )
             });
+        #[cfg(test)]
+        drop(sparse_sort);
 
         Ok(())
     }
