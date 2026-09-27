@@ -169,13 +169,23 @@ LF707_COAST=on
 LF707_DEMAND=held
 ```
 
-保留组合的源码在本地 `target/issue707-m16-source`。二进制哈希不能把这份
-源码重建出来。原型、原始计时和 ETL 不进入本仓库。
+M16 保留组合现可由基线提交
+`4de40e045398e4b010b2aa36522afc02a4094c4d` 与仓库内
+[`retained-best-source-patch.tar.zst`](evidence/retained-best-source-patch.tar.zst)
+重建。M21 审计相对 M16 的五个 Rust 文件增量以单成员补丁提交在
+[`calibration-audit-source-patch.tar.zst`](evidence/calibration-audit-source-patch.tar.zst)，完整重建
+链、规范化源码清单、逐文件前后哈希、构建产品与运行配置见
+[`calibration-audit-manifest.json`](evidence/calibration-audit-manifest.json)。本地 M16/M21
+目录另有 35 个未进入原 M16 补丁的实验辅助文件；其中没有 Cargo/Rust 构建输入，
+已明确排除在可重建源码清单外。
 
 这一片的四次重复在 `target/issue707-aa-results/aa-1` 到 `aa-4`。
 审计程序是 `target/issue707-m21-source` 上的 release harness，feature
 `entry-frontier,barrier-reach`，没有 `short-profile`。SHA-256
 `f9b75bd2c2a64f1486ed51d09880829b7677589f9bcfdf4fcd0a4cab9ff85dab`。
-它只提供 `audit.json`，不作为新的 Core 数字。结果在
-`target/issue707-m21-results/audit-1/`。Rust 1.98.0，`--locked --offline`，
-`CARGO_INCREMENTAL=0`。未跑完整 runtime 测试套件。
+`audit.json`、`prefix-result.json`、`gap-inventory.json` 与
+`extended-quality.json` 的 LF 规范化副本已提交在 `evidence/calibration-*.json`；
+来源和提交副本分别绑定字节数与 SHA-256。输入计划 SHA-256
+`8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729`，也由已发布并
+验证稳定下载的 M16 fixture `tar.zst` 资产持久保存。该审计不作为新的 Core 数字；
+Rust 1.98.0，`--locked --offline`，`CARGO_INCREMENTAL=0`，未跑完整 runtime 测试套件。

@@ -1,0 +1,257 @@
+symbol,weight_us,target_cpu_percent
+laneflow-urban-harness.exe!sha2::sha256::x86_sha::compress,4923707,11.29355793314949
+"laneflow-urban-harness.exe!hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",4196533,9.625631369590764
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::state,2287880,5.247734140982405
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions,2047166,4.69560593670052
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::MotionTaskView::vehicle_motion_outcome,1852222,4.248460857247195
+"ntoskrnl.exe!""Unknown""",1638846,3.759038107773332
+laneflow-urban-harness.exe!std::hash::random::impl$4::write,1490943,3.419791459061983
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::si_comfort_travel,1350699,3.0981123382742073
+"vcruntime140.dll!""Unknown""",1298301,2.9779265009404328
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::calculate_active_vehicle_motion,1209342,2.773880317815595
+laneflow-urban-harness.exe!laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_relation,1007386,2.31065174106496
+"nvlddmkm.sys!""Unknown""",1003194,2.3010365070845946
+"ntdll.dll!""Unknown""",906391,2.0789984596129094
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictRead::owner_at,856850,1.965365752880734
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::parking_binding,807488,1.8521436203094568
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::small_sort_general<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId>,bool (*)(ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >,ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >)>",745836,1.7107317869703624
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::events,679527,1.5586381443167259
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::scope_near_gate,670271,1.5374075608906137
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::vehicle,641184,1.470690406599849
+"laneflow-urban-harness.exe!core::hash::BuildHasher::hash_one<std::hash::random::RandomState,ref$<laneflow_runtime::kernel::handle::RouteHandle> >",631922,1.4494460609113604
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::counts,611255,1.402041948155585
+"laneflow-urban-harness.exe!core::slice::sort::unstable::quicksort::quicksort<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId>,bool (*)(ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >,ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >)>",603997,1.38539419810084
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::leader_query_horizon,603073,1.3832748096948624
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::gate_policy_decision_with_signals,464158,1.0646440300234763
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::prepare_motion_dispatched,431321,0.9893254617474133
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::Hash::flush,416028,0.9542477486601693
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::CommittedStateMut::commit,415239,0.9524380111576625
+laneflow-urban-harness.exe!laneflow_runtime::kernel::occupancy::rebuild_occupancy_index,374907,0.8599280834629834
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::vehicle_profile,360605,0.8271234373782541
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::conflict_passage_occurrence_locator,331973,0.7614499213177054
+laneflow-urban-harness.exe!laneflow_runtime::kernel::waiting::prepare_waiting_previews_dispatched,316262,0.7254134372849002
+laneflow-urban-harness.exe!laneflow_runtime::kernel::state::WorldState::replace_completed_vehicle,279960,0.6421471624864216
+laneflow-urban-harness.exe!laneflow_urban_harness::research_quality::Quality::observe,270793,0.6211207192855606
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tables::occupancy_front_gap,257927,0.5916098413296015
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tables::for_each_admission_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >,245042,0.562055382876117
+"ucrtbase.dll!""Unknown""",239736,0.549884955514519
+laneflow-urban-harness.exe!laneflow_runtime::kernel::boundary::consume,236314,0.5420358785391349
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::red_waiters,221013,0.5069398157687223
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::waiting_preview_entry,219675,0.5038708312587679
+laneflow-urban-harness.exe!laneflow_runtime::kernel::state::WorldState::rebuild_active_order,212279,0.48690654916936377
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::Hash::id,211010,0.48399583067673885
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::parking_invariants,210260,0.4822755478796792
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::Hash::bytes,204043,0.46801555034725284
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictTaskView::evaluate_candidate,190911,0.43789454542593664
+"laneflow-urban-harness.exe!alloc::vec::spec_from_iter_nested::impl$1::from_iter<enum2$<core::option::Option<laneflow_runtime::kernel::vehicle::VehicleState> >,core::iter::adapters::map::Map<core::slice::iter::Iter<laneflow_urban_harness::runner::Individual>,laneflow_urban_harness::runner::impl$2::advance::closure_env$1> >",189062,0.4336534749035856
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::maneuver_gate,182094,0.4176709008637035
+laneflow-urban-harness.exe!laneflow_static_network::policy::PolicyView::gate_classes,181688,0.41673965444289524
+"laneflow-urban-harness.exe!core::hash::BuildHasher::hash_one<std::hash::random::RandomState,ref$<enum2$<laneflow_runtime::kernel::parking::ParkingTarget> > >",150151,0.34440290968173554
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$4::calculate_active_vehicle_motion::closure_env$4>,148978,0.3417123873871343
+laneflow-urban-harness.exe!laneflow_urban_harness::runner::Harness::stable_individual,147094,0.33739103700092044
+laneflow-urban-harness.exe!laneflow_runtime::kernel::state::WorldState::validate_leave_followers,126011,0.289032740720376
+laneflow-urban-harness.exe!lf707_profile::quality_motion,124745,0.2861289033589393
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::route_edges,123140,0.28244749817323167
+"laneflow-urban-harness.exe!core::hash::BuildHasher::hash_one<std::hash::random::RandomState,ref$<u32> >",115693,0.26536623685362754
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::parking_state_valid_with_binding,114667,0.26301288998725
+laneflow-urban-harness.exe!laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets,107180,0.24583988025180262
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictRead::cells_unavailable,105551,0.24210342601658907
+laneflow-urban-harness.exe!sha2::sha256::compress256,97855,0.22445103080836112
+laneflow-urban-harness.exe!laneflow_static_network::policy::PolicyView::gate,92922,0.21313615742450087
+laneflow-urban-harness.exe!laneflow_urban_harness::runner::Harness::advance,91931,0.21086309042198606
+"laneflow-urban-harness.exe!serde_json::value::ser::impl$0::serialize<ref_mut$<serde_json::ser::Serializer<ref_mut$<alloc::vec::Vec<u8,alloc::alloc::Global> >,serde_json::ser::CompactFormatter> > >",88998,0.20413563783028482
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count,87923,0.20166989915449934
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::conflict_reservation,84964,0.19488281009250005
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows,83510,0.19154775517660044
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::conflict_eligibility_valid_with_signals,74990,0.17200534260200295
+"laneflow-urban-harness.exe!rayon_core::scope::ScopeBase::execute_job_closure<rayon_core::scope::impl$0::spawn::closure$0::closure_env$0<laneflow_runtime::kernel::execution::impl$4::try_for_each_chunk::closure$0::closure_env$0<laneflow_runtime::kernel::tick::VehicleMotionOutcome,laneflow_runtime::kernel::tick::prepare_motion_dispatched::closure_env$0> >,tuple$<> >",74296,0.17041350758712379
+"dxgmms2.sys!""Unknown""",70119,0.16083267926269965
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictRead::evaluate_yield_target,69839,0.1601904403517974
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictResolution::insert_approach_owner_reduced,68925,0.1580939890497807
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictTaskView::prepare_resource_candidate_task,66804,0.15322902929969603
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::evaluate_gate_hop,66764,0.15313728088385287
+"laneflow-urban-harness.exe!serde_json::ser::format_escaped_str<ref_mut$<alloc::vec::Vec<u8,alloc::alloc::Global> >,serde_json::ser::PrettyFormatter>",65805,0.1509376126140126
+"laneflow-urban-harness.exe!core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::SpeedLimitDrop,laneflow_runtime::kernel::tick::constrain_upcoming_speed_limits::closure_env$0>",64000,0.14679746534908908
+laneflow-urban-harness.exe!std::sys::alloc::windows::process_heap_alloc,61847,0.14185910686632988
+"kernel32.dll!""Unknown""",61791,0.14173065908414942
+laneflow-urban-harness.exe!itoa::impl$32::fmt,56962,0.13065433158148143
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs,56908,0.13053047122009315
+"laneflow-urban-harness.exe!alloc::collections::binary_heap::BinaryHeap<core::cmp::Reverse<laneflow_runtime::kernel::conflict_tick::ReadyCandidate>,alloc::alloc::Global>::pop<core::cmp::Reverse<laneflow_runtime::kernel::conflict_tick::ReadyCandidate>,alloc::alloc::Global>",55868,0.12814501240817044
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictTaskView::collect_occurrence_fields,52677,0.12082578253428071
+"laneflow-urban-harness.exe!alloc::vec::Vec<enum2$<laneflow_runtime::kernel::execution::DispatchSlot<laneflow_runtime::kernel::tick::VehicleMotionOutcome> >,alloc::alloc::Global>::resize<enum2$<laneflow_runtime::kernel::execution::DispatchSlot<laneflow_runtime::kernel::tick::VehicleMotionOutcome> >,alloc::alloc::Global>",52185,0.11969727701940959
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tables::distance_to_occurrence_start,50935,0.11683013902431019
+"laneflow-urban-harness.exe!serde_json::ser::format_escaped_str<ref_mut$<std::io::buffered::bufwriter::BufWriter<std::fs::File> >,serde_json::ser::PrettyFormatter>",50099,0.11491259713318772
+"laneflow-urban-harness.exe!core::slice::sort::unstable::quicksort::quicksort<laneflow_runtime::kernel::conflict_tick::ConflictDecision,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictDecision,tuple$<u32,u32,enum2$<core::option::Option<laneflow_runtime::kernel::conflict::ConflictPassageAddress> > >,laneflow_runtime::kernel::conflict_tick::impl$6::finalize_conflict_step::closure_env$15> >",49913,0.11448596699951692
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictRead::reservation,48950,0.11227712388809234
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::impl$5::vehicle_motion_outcome::closure$3,46936,0.1076575911503882
+"laneflow-urban-harness.exe!core::slice::sort::unstable::quicksort::quicksort<laneflow_runtime::kernel::conflict_tick::ConflictCandidate,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictCandidate,tuple$<laneflow_runtime::kernel::conflict::ConflictCandidateOrderKey,u32>,laneflow_runtime::kernel::conflict_tick::impl$6::prepare_conflict_candidates::closure_env$1> >",46791,0.10732500314295668
+"laneflow-urban-harness.exe!laneflow_runtime::kernel::execution::run_dispatch_chunk<enum2$<laneflow_runtime::kernel::conflict_tick::CandidateReport>,laneflow_runtime::kernel::conflict_tick::impl$6::prepare_conflict_candidates_dispatched::closure_env$2>",44610,0.10232242076910725
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::sort4_stable<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId>,bool (*)(ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >,ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >)>",43904,0.1007030612294751
+laneflow-urban-harness.exe!laneflow_static_network::policy::SharedPolicyNetwork::policy,43017,0.09866854010815257
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",42943,0.09849880553884269
+"laneflow-urban-harness.exe!alloc::vec::Vec<enum2$<laneflow_runtime::kernel::execution::DispatchSlot<laneflow_runtime::kernel::tick::WaitingPreviewEntry> >,alloc::alloc::Global>::resize<enum2$<laneflow_runtime::kernel::execution::DispatchSlot<laneflow_runtime::kernel::tick::WaitingPreviewEntry> >,alloc::alloc::Global>",42923,0.0984529313309211
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::hop_permitted,42841,0.09826484707844257
+laneflow-urban-harness.exe!core::ptr::drop_glue<enum2$<serde_json::value::Value> >,39990,0.09172547873921988
+"laneflow-urban-harness.exe!alloc::collections::btree::map::BTreeMap<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global>::insert<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global>",39055,0.08958085951888553
+laneflow-urban-harness.exe!laneflow_runtime::kernel::boundary::advance,38976,0.08939965639759524
+"laneflow-urban-harness.exe!rayon_core::scope::ScopeBase::execute_job_closure<rayon_core::scope::impl$0::spawn::closure$0::closure_env$0<laneflow_runtime::kernel::execution::impl$4::try_for_each_chunk::closure$0::closure_env$0<laneflow_runtime::kernel::tick::WaitingPreviewEntry,laneflow_runtime::kernel::waiting::prepare_waiting_previews_dispatched::closure_env$0> >,tuple$<> >",37000,0.08486728465494212
+"laneflow-urban-harness.exe!enum2$<laneflow_runtime::kernel::execution::ExecutionResources>::try_for_each_chunk<laneflow_runtime::kernel::tick::VehicleMotionOutcome,laneflow_runtime::kernel::tick::prepare_motion_dispatched::closure_env$0>",36956,0.08476636139751462
+"laneflow-urban-harness.exe!alloc::collections::btree::map::entry::VacantEntry<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global>::insert_entry<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global>",35985,0.08253916860292142
+"laneflow-urban-harness.exe!core::slice::sort::shared::pivot::median3_rec<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId>,bool (*)(ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >,ref$<tuple$<u32,u64,u64,laneflow_urban_harness::runner::IndividualId> >)>",32951,0.07558005126121616
+"laneflow-urban-harness.exe!serde_core::ser::SerializeMap::serialize_entry<enum2$<serde_json::ser::Compound<ref_mut$<std::io::buffered::bufwriter::BufWriter<std::fs::File> >,serde_json::ser::CompactFormatter> >,alloc::string::String,enum2$<serde_json::value::Value> >",31046,0.07121053295668468
+"laneflow-urban-harness.exe!enum2$<core::option::Option<laneflow_runtime::kernel::tick::MotionPreview> >::or_else<laneflow_runtime::kernel::tick::MotionPreview,laneflow_runtime::kernel::conflict_tick::impl$9::evaluate_candidate::closure_env$8>",30992,0.07108667259529639
+"laneflow-urban-harness.exe!core::slice::iter::impl$171::find<laneflow_urban_generator::catalog::ParkingTarget,laneflow_urban_harness::plan::impl$3::for_case::closure_env$43>",30067,0.06896499047892284
+"laneflow-urban-harness.exe!alloc::collections::btree::map::BTreeMap<tuple$<laneflow_urban_harness::runner::IndividualId,u32>,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global>::insert<tuple$<laneflow_urban_harness::runner::IndividualId,u32>,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global>",30042,0.06890764771902085
+"laneflow-urban-harness.exe!hashbrown::raw::RawTable<tuple$<u32,std::collections::hash::set::HashSet<laneflow_runtime::kernel::handle::VehicleHandle,std::hash::random::RandomState,alloc::alloc::Global> >,alloc::alloc::Global>::reserve_rehash<tuple$<u32,std::collections::hash::set::HashSet<laneflow_runtime::kernel::handle::VehicleHandle,std::hash::random::RandomState,alloc::alloc::Global> >,alloc::alloc::Global,hashbrown::map::make_hasher::closure_env$0<u32,std::collections::hash::set::HashSet<laneflow_runtime::kernel::handle::VehicleHandle,std::hash::random::RandomState,alloc::alloc::Global>,std::hash::random::RandomState> >",29995,0.0687998433304051
+laneflow-urban-harness.exe!memcpy,29116,0.0667836718922512
+"laneflow-urban-harness.exe!serde_json::number::impl$6::serialize<ref_mut$<serde_json::ser::Serializer<ref_mut$<alloc::vec::Vec<u8,alloc::alloc::Global> >,serde_json::ser::CompactFormatter> > >",27950,0.06410920557042249
+"laneflow-urban-harness.exe!hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,tuple$<>,std::hash::random::RandomState,alloc::alloc::Global>::insert<laneflow_runtime::kernel::handle::VehicleHandle,tuple$<>,std::hash::random::RandomState,alloc::alloc::Global>",27908,0.06401286973378716
+laneflow-urban-harness.exe!laneflow_runtime::kernel::spawn_overlap::SpawnOverlapIndex::refresh,26971,0.06186366309266065
+"laneflow-urban-harness.exe!hashbrown::raw::RawTable<tuple$<u32,laneflow_urban_harness::runner::IndividualId>,alloc::alloc::Global>::reserve_rehash<tuple$<u32,laneflow_urban_harness::runner::IndividualId>,alloc::alloc::Global,hashbrown::map::make_hasher::closure_env$0<u32,laneflow_urban_harness::runner::IndividualId,std::hash::random::RandomState> >",24975,0.05728541714208593
+"laneflow-urban-harness.exe!alloc::collections::btree::map::IntoIter<alloc::string::String,laneflow_urban_harness::artifacts::FileDigest,alloc::alloc::Global>::dying_next<alloc::string::String,laneflow_urban_harness::artifacts::FileDigest,alloc::alloc::Global>",24009,0.05506969289947312
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals,24005,0.0550605180578888
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::conflict_tick::ConflictDecision,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictDecision,tuple$<u32,u32,enum2$<core::option::Option<laneflow_runtime::kernel::conflict::ConflictPassageAddress> > >,laneflow_runtime::kernel::conflict_tick::impl$6::finalize_conflict_step::closure_env$15> >",23867,0.05474398602322983
+"laneflow-urban-harness.exe!hashbrown::map::HashMap<u32,laneflow_urban_harness::runner::IndividualId,std::hash::random::RandomState,alloc::alloc::Global>::insert<u32,laneflow_urban_harness::runner::IndividualId,std::hash::random::RandomState,alloc::alloc::Global>",23032,0.05282873784250343
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::passage,21998,0.05045704129295721
+laneflow-urban-harness.exe!laneflow_urban_harness::runner::Harness::execute,21980,0.05041575450582778
+laneflow-urban-harness.exe!laneflow_runtime::kernel::world::fill_signal_aspects,21086,0.04836517741173269
+"laneflow-urban-harness.exe!alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut,alloc::string::String,enum2$<serde_json::value::Value>,enum2$<alloc::collections::btree::node::marker::Leaf> >,enum2$<alloc::collections::btree::node::marker::Edge> >::insert_recursing<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global,alloc::collections::btree::map::entry::impl$6::insert_entry::closure_env$0<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global> >",21029,0.04823443591915616
+laneflow-urban-harness.exe!laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout,19974,0.045814571451292266
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::conflict_tick::ConflictCandidate,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictCandidate,tuple$<laneflow_runtime::kernel::conflict::ConflictCandidateOrderKey,u32>,laneflow_runtime::kernel::conflict_tick::impl$6::prepare_conflict_candidates::closure_env$1> >",19160,0.04394749118888354
+"mtkwl6ex.sys!""Unknown""",19032,0.043653896258185367
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictWrite::ensure_cells,18801,0.043124049156691
+"laneflow-urban-harness.exe!serde_json::value::ser::impl$0::serialize<ref_mut$<serde_json::ser::Serializer<ref_mut$<std::io::buffered::bufwriter::BufWriter<std::fs::File> >,serde_json::ser::CompactFormatter> > >",18017,0.041325780206164654
+"laneflow-urban-harness.exe!serde_core::ser::Serializer::collect_seq<ref_mut$<serde_json::ser::Serializer<ref_mut$<alloc::vec::Vec<u8,alloc::alloc::Global> >,serde_json::ser::CompactFormatter> >,ref$<alloc::vec::Vec<enum2$<serde_json::value::Value>,alloc::alloc::Global> > >",17970,0.041217975817548914
+laneflow-urban-harness.exe!std::alloc::__default_lib_allocator::__rdl_dealloc,17014,0.0390251886788969
+"laneflow-urban-harness.exe!hashbrown::raw::RawTable<tuple$<laneflow_runtime::kernel::handle::VehicleHandle,tuple$<> >,alloc::alloc::Global>::reserve_rehash<tuple$<laneflow_runtime::kernel::handle::VehicleHandle,tuple$<> >,alloc::alloc::Global,hashbrown::map::make_hasher::closure_env$0<laneflow_runtime::kernel::handle::VehicleHandle,tuple$<>,std::hash::random::RandomState> >",15951,0.03658697452786437
+"laneflow-urban-harness.exe!enum2$<laneflow_runtime::kernel::execution::ExecutionResources>::try_for_each_chunk<laneflow_runtime::kernel::tick::WaitingPreviewEntry,laneflow_runtime::kernel::waiting::prepare_waiting_previews_dispatched::closure_env$0>",14122,0.03239177821343494
+laneflow-urban-harness.exe!laneflow_runtime::kernel::tables::for_each_admission_interval<laneflow_runtime::kernel::spawn_overlap::impl$1::insert::closure_env$0>,14051,0.03222892477531329
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::parking_space_state,13960,0.03202019712927005
+laneflow-urban-harness.exe!laneflow_urban_harness::observe::range,13886,0.03185046255996017
+"laneflow-urban-harness.exe!hashbrown::raw::RawTable<tuple$<enum2$<laneflow_runtime::kernel::parking::ParkingTarget>,tuple$<u64,u64> >,alloc::alloc::Global>::reserve_rehash<tuple$<enum2$<laneflow_runtime::kernel::parking::ParkingTarget>,tuple$<u64,u64> >,alloc::alloc::Global,hashbrown::map::make_hasher::closure_env$0<enum2$<laneflow_runtime::kernel::parking::ParkingTarget>,tuple$<u64,u64>,std::hash::random::RandomState> >",12956,0.02971731189160622
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictTaskView::waiting_stop_for,12938,0.029676025104476787
+laneflow-urban-harness.exe!laneflow_static_network::policy::PolicyView::stream_classes,12924,0.029643913158931674
+laneflow-urban-harness.exe!std::alloc::__default_lib_allocator::__rdl_alloc,12002,0.02752911217374636
+laneflow-urban-harness.exe!laneflow_static_network::policy::PolicyView::yield_targets,11047,0.025338618745490423
+laneflow-urban-harness.exe!compiler_builtins::int::udiv::__umodti3::__umodti3,10974,0.025171177886576617
+laneflow-urban-harness.exe!laneflow_runtime::kernel::downstream_index::DownstreamIndex::insert_at,10048,0.023047202059806985
+"amdi2c.sys!""Unknown""",10020,0.022982978168716757
+laneflow-urban-harness.exe!laneflow_runtime::kernel::downstream_index::DownstreamIndex::refresh,9995,0.02292563540881477
+"laneflow-urban-harness.exe!alloc::collections::binary_heap::BinaryHeap<core::cmp::Reverse<laneflow_runtime::kernel::conflict_tick::ReadyCandidate>,alloc::alloc::Global>::push<core::cmp::Reverse<laneflow_runtime::kernel::conflict_tick::ReadyCandidate>,alloc::alloc::Global>",9930,0.0227765442330696
+laneflow-urban-harness.exe!core::ptr::drop_glue<enum2$<laneflow_runtime::kernel::execution::DispatchSlot<enum2$<laneflow_runtime::kernel::conflict_tick::CandidateReport> > > >,9122,0.020923226233037353
+"dxgkrnl.sys!""Unknown""",9068,0.02079936587164906
+laneflow-urban-harness.exe!laneflow_urban_harness::runner::Harness::enqueue,9023,0.02069614890382548
+"laneflow-urban-harness.exe!alloc::collections::btree::map::BTreeMap<alloc::string::String,laneflow_runtime::kernel::handle::RouteHandle,alloc::alloc::Global>::get<alloc::string::String,laneflow_runtime::kernel::handle::RouteHandle,alloc::alloc::Global,alloc::string::String>",9019,0.02068697406224116
+laneflow-urban-harness.exe!laneflow_runtime::kernel::spawn_overlap::impl$2::indexed_overlap_blocker::closure$0,9006,0.020657155827092127
+"ReFS.SYS!""Unknown""",9001,0.02064568727511173
+"laneflow-urban-harness.exe!alloc::collections::btree::map::impl$93::eq<u32,u8,alloc::alloc::Global>",8974,0.020583757094417583
+"laneflow-urban-harness.exe!serde_json::ser::to_writer<ref_mut$<std::io::buffered::bufwriter::BufWriter<std::fs::File> >,enum2$<serde_json::value::Value> >",8966,0.02056540741124895
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::conflict::DownstreamInterval,bool (*)(ref$<laneflow_runtime::kernel::conflict::DownstreamInterval>,ref$<laneflow_runtime::kernel::conflict::DownstreamInterval>)>",8050,0.01846436868844011
+laneflow-urban-harness.exe!laneflow_runtime::kernel::boundary::Workspace::all_clear,8012,0.01837720769338909
+"laneflow-urban-harness.exe!serde_core::ser::SerializeMap::serialize_entry<enum2$<serde_json::value::ser::SerializeMap>,alloc::string::String,enum2$<serde_json::value::Value> >",7975,0.018292340408734148
+laneflow-urban-harness.exe!crossbeam_deque::deque::Stealer<rayon_core::job::JobRef>::steal<rayon_core::job::JobRef>,7056,0.01618442055473707
+"Wdf01000.sys!""Unknown""",7033,0.01613166521562724
+"laneflow-urban-harness.exe!core::ptr::drop_glue<alloc::collections::btree::map::IntoIter<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global> >",7002,0.016060560193348776
+"laneflow-urban-harness.exe!alloc::collections::btree::map::impl$0::drop<u32,u8,alloc::alloc::Global>",6012,0.013789786901230054
+"laneflow-urban-harness.exe!alloc::collections::btree::map::BTreeMap<u32,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global>::insert<u32,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global>",6008,0.013780612059645737
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::signal_controller,6003,0.01376914350766534
+laneflow-urban-harness.exe!crossbeam_deque::deque::Injector<rayon_core::job::JobRef>::steal<rayon_core::job::JobRef>,6003,0.01376914350766534
+"laneflow-urban-harness.exe!hashbrown::map::HashMap<u32,bool,std::hash::random::RandomState,alloc::alloc::Global>::insert<u32,bool,std::hash::random::RandomState,alloc::alloc::Global>",5997,0.013755381245288863
+laneflow-urban-harness.exe!laneflow_runtime::kernel::state::WorldState::parking_facility_counts,5986,0.013730150430931988
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::reservation_downstream_claim_plan,5976,0.013707213326971193
+"WppRecorder.sys!""Unknown""",5016,0.011505251346734855
+"laneflow-urban-harness.exe!alloc::collections::btree::node::NodeRef<enum2$<alloc::collections::btree::node::marker::Owned>,u32,u8,enum2$<alloc::collections::btree::node::marker::LeafOrInternal> >::bulk_push<u32,u8,alloc::collections::btree::dedup_sorted_iter::DedupSortedIter<u32,u8,alloc::vec::into_iter::IntoIter<tuple$<u32,u8>,alloc::alloc::Global> >,alloc::alloc::Global>",5006,0.011482314242774062
+laneflow-urban-harness.exe!laneflow_static_network::policy::PolicyView::stream,4994,0.011454789718021106
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::parking_facility,4991,0.011447908586832868
+laneflow-urban-harness.exe!_RNvCs6rREvFdRhLb_7___rustc35___rust_no_alloc_shim_is_unstable_v2,4982,0.011427265193268152
+"laneflow-urban-harness.exe!serde_json::number::impl$6::serialize<ref_mut$<serde_json::ser::Serializer<ref_mut$<std::io::buffered::bufwriter::BufWriter<std::fs::File> >,serde_json::ser::CompactFormatter> > >",4974,0.011408915510099517
+"msgpioclx.sys!""Unknown""",4098,0.00939962520313386
+laneflow-urban-harness.exe!std::time::Instant::now,4065,0.009323932760063236
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::insertion_sort_shift_left<enum2$<core::option::Option<laneflow_runtime::kernel::conflict::ApproachOwner> >,core::slice::impl$0::sort_unstable_by_key::closure_env$0<enum2$<core::option::Option<laneflow_runtime::kernel::conflict::ApproachOwner> >,tuple$<u8,u64,u32>,laneflow_runtime::kernel::conflict::impl$8::insert_owner_reduced::closure_env$1> >",4016,0.00921154095065534
+"laneflow-urban-harness.exe!serde_core::ser::impls::impl$107::serialize<enum2$<serde_json::value::Value>,serde_json::value::ser::Serializer>",4008,0.009193191267486703
+laneflow-urban-harness.exe!std::sys::sync::mutex::futex::Mutex::lock_contended,4008,0.009193191267486703
+"laneflow-urban-harness.exe!core::slice::sort::shared::pivot::median3_rec<laneflow_runtime::kernel::conflict_tick::ConflictDecision,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictDecision,tuple$<u32,u32,enum2$<core::option::Option<laneflow_runtime::kernel::conflict::ConflictPassageAddress> > >,laneflow_runtime::kernel::conflict_tick::impl$6::finalize_conflict_step::closure_env$15> >",4004,0.009184016425902386
+"FLTMGR.SYS!""Unknown""",3999,0.009172547873921988
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::downstream_claim_target,3995,0.00916337303233767
+"laneflow-urban-harness.exe!crossbeam_epoch::default::with_handle<crossbeam_epoch::default::pin::closure_env$0,crossbeam_epoch::guard::Guard>",3995,0.00916337303233767
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictSchedule::next,3994,0.00916107932194159
+laneflow-urban-harness.exe!std::hash::random::impl$0::new::KEYS::constant$0::closure$1::__RUST_STD_INTERNAL_VAL,3991,0.009154198190753351
+laneflow-urban-harness.exe!rayon_core::registry::WorkerThread::find_work,3990,0.009151904480357272
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictTaskView::downstream_plan_prechecks,3974,0.00911520511402
+"laneflow-urban-harness.exe!core::slice::sort::unstable::ipnsort<laneflow_runtime::kernel::conflict_tick::ConflictDecision,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictDecision,tuple$<u32,u32,enum2$<core::option::Option<laneflow_runtime::kernel::conflict::ConflictPassageAddress> > >,laneflow_runtime::kernel::conflict_tick::impl$6::finalize_conflict_step::closure_env$15> >",3022,0.0069315928169522995
+"NETIO.SYS!""Unknown""",3018,0.006922417975367982
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::phase_end_offset_ms,3016,0.006917830554575823
+"amdppm.sys!""Unknown""",3013,0.006910949423387584
+laneflow-urban-harness.exe!alloc::raw_vec::RawVecInner<alloc::alloc::Global>::try_reserve<alloc::alloc::Global>,3003,0.006888012319426789
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictRead::state_valid,3002,0.006885718609030709
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit,3000,0.00688113118823855
+"laneflow-urban-harness.exe!core::iter::adapters::chain::impl$1::try_fold<core::ops::range::Range<usize>,core::ops::range::Range<usize>,tuple$<>,core::iter::adapters::filter::filter_try_fold::closure_env$0<usize,tuple$<>,enum2$<core::ops::control_flow::ControlFlow<rayon_core::job::JobRef,tuple$<> > >,rayon_core::registry::impl$10::steal::closure_env$0,core::iter::traits::iterator::Iterator::find_map::check::closure_env$0<usize,rayon_core::job::JobRef,rayon_core::registry::impl$10::steal::closure_env$1> >,enum2$<core::ops::control_flow::ControlFlow<rayon_core::job::JobRef,tuple$<> > > >",2997,0.006874250057050312
+laneflow-urban-harness.exe!laneflow_urban_harness::runner::_::impl$0::serialize<serde_json::value::ser::Serializer>,2991,0.006860487794673835
+"watchdog.sys!""Unknown""",2978,0.006830669559524801
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::reserve<laneflow_runtime::kernel::conflict_tick::ConflictDecision>,2052,0.004706693732755169
+"laneflow-urban-harness.exe!alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut,u32,alloc::collections::btree::set_val::SetValZST,enum2$<alloc::collections::btree::node::marker::Leaf> >,enum2$<alloc::collections::btree::node::marker::Edge> >::insert_recursing<u32,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global,alloc::collections::btree::map::entry::impl$6::insert_entry::closure_env$0<u32,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global> >",2051,0.004704400022359089
+"laneflow-urban-harness.exe!alloc::vec::spec_from_iter_nested::impl$1::from_iter<tuple$<laneflow_static_contract::typed::Ordinal<laneflow_static_contract::typed::SignalGroupKind>,laneflow_static_contract::values::SignalAspect>,core::iter::adapters::map::Map<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<laneflow_static_contract::values::SignalAspect> >,laneflow_runtime::kernel::world::impl$3::committed_signal_groups::closure_env$0> >",2016,0.004624120158496306
+"laneflow-urban-harness.exe!alloc::vec::spec_from_iter::impl$0::from_iter<tuple$<u32,u8>,core::iter::adapters::GenericShunt<core::iter::adapters::map::Map<core::slice::iter::Iter<tuple$<laneflow_static_contract::typed::Ordinal<laneflow_static_contract::typed::SignalGroupKind>,laneflow_static_contract::values::SignalAspect> >,laneflow_urban_harness::runner::signal_signature::closure_env$0>,enum2$<core::result::Result<enum2$<core::convert::Infallible>,enum2$<laneflow_urban_harness::Error> > > > >",2012,0.004614945316911988
+laneflow-urban-harness.exe!laneflow_runtime::kernel::state::WorldState::conflict_state_valid,2007,0.00460347676493159
+"laneflow-urban-harness.exe!enum2$<laneflow_runtime::kernel::execution::ExecutionResources>::try_for_each_chunk<enum2$<laneflow_runtime::kernel::conflict_tick::CandidateReport>,laneflow_runtime::kernel::conflict_tick::impl$6::prepare_conflict_candidates_dispatched::closure_env$2>",2006,0.004601183054535511
+"laneflow-urban-harness.exe!alloc::collections::btree::map::impl$0::drop<alloc::string::String,enum2$<serde_json::value::Value>,alloc::alloc::Global>",2004,0.004596595633743351
+"laneflow-urban-harness.exe!core::slice::sort::stable::drift::sort<laneflow_urban_harness::runner::Request,alloc::slice::impl$0::sort_by_key::closure_env$0<laneflow_urban_harness::runner::Request,tuple$<u8,u64,usize,u32,u32>,laneflow_urban_harness::runner::impl$2::advance::closure_env$0> >",2003,0.004594301923347272
+laneflow-urban-harness.exe!core::str::iter::SplitInternal<char>::next<char>,2002,0.004592008212951193
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::tick_index,2002,0.004592008212951193
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::command_cursor,2002,0.004592008212951193
+laneflow-urban-harness.exe!crossbeam_epoch::internal::Global::try_advance,2000,0.004587420792159034
+"laneflow-urban-harness.exe!alloc::vec::Vec<laneflow_runtime::kernel::conflict::ConflictPassageAddress,alloc::alloc::Global>::dedup_by<laneflow_runtime::kernel::conflict::ConflictPassageAddress,alloc::alloc::Global,alloc::vec::impl$6::dedup::closure_env$0<laneflow_runtime::kernel::conflict::ConflictPassageAddress,alloc::alloc::Global> >",2000,0.004587420792159034
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::parking_facility_counts,1997,0.004580539660970795
+"laneflow-urban-harness.exe!core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::transitions::TrafficTransitionEvent,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::transitions::TrafficTransitionEvent,tuple$<u32,laneflow_runtime::kernel::conflict::DownstreamRoutePoint,tuple$<u8,u32,u32,u32>,u32,u32>,laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$4> >",1996,0.004578245950574715
+laneflow-urban-harness.exe!serde_json::value::ser::impl$8::serialize_field<u32>,1995,0.004575952240178636
+laneflow-urban-harness.exe!laneflow_runtime::kernel::waiting::first_gate_hop,1995,0.004575952240178636
+laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::waiting_zone,1993,0.004571364819386477
+"laneflow-urban-harness.exe!core::slice::sort::shared::pivot::median3_rec<laneflow_runtime::kernel::conflict_tick::ConflictCandidate,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::conflict_tick::ConflictCandidate,tuple$<laneflow_runtime::kernel::conflict::ConflictCandidateOrderKey,u32>,laneflow_runtime::kernel::conflict_tick::impl$6::prepare_conflict_candidates::closure_env$1> >",1991,0.004566777398594318
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::parking_space,1984,0.004550721425821761
+"tcpip.sys!""Unknown""",1962,0.004500259797108012
+"laneflow-urban-harness.exe!core::slice::iter::impl$171::any<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$26::owner_ranges_valid::closure_env$3>",1944,0.00445897300997858
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict_tick::ConflictSchedule::prepare,1038,0.0023808713911305382
+"ndis.sys!""Unknown""",1023,0.002346465735189346
+laneflow-urban-harness.exe!alloc::raw_vec::RawVecInner<alloc::alloc::Global>::finish_grow<alloc::alloc::Global>,1016,0.002330409762416789
+"WdFilter.sys!""Unknown""",1011,0.0023189412104363915
+laneflow-urban-harness.exe!std::sys::pal::windows::handle::Handle::synchronous_write,1009,0.0023143537896442323
+laneflow-urban-harness.exe!alloc::string::impl$6::clone,1009,0.0023143537896442323
+laneflow-urban-harness.exe!rint,1009,0.0023143537896442323
+laneflow-urban-harness.exe!rayon_core::sleep::Sleep::sleep<rayon_core::registry::impl$10::wait_until_cold::closure_env$0>,1005,0.002305178948059914
+laneflow-urban-harness.exe!rayon_core::registry::Registry::inject_or_push,1004,0.002302885237663835
+laneflow-urban-harness.exe!core::fmt::impl$12::pad_integral::write_prefix,1004,0.002302885237663835
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::phase_states,1004,0.002302885237663835
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictWrite::finish_releases,1003,0.0023005915272677553
+"laneflow-urban-harness.exe!laneflow_urban_harness::runner::_::impl$0::serialize<ref_mut$<serde_json::ser::Serializer<ref_mut$<std::io::buffered::bufwriter::BufWriter<std::fs::File> >,serde_json::ser::CompactFormatter> > >",1003,0.0023005915272677553
+"USBXHCI.SYS!""Unknown""",1002,0.0022982978168716757
+"laneflow-urban-harness.exe!laneflow_runtime::kernel::tables::route_access_denied<core::iter::adapters::map::Map<core::slice::iter::Iter<laneflow_runtime::kernel::tables::ManeuverOccurrence>,laneflow_runtime::kernel::world::impl$3::route_suffix_denied::closure_env$0> >",1002,0.0022982978168716757
+"laneflow-urban-harness.exe!alloc::collections::btree::map::BTreeMap<alloc::string::String,u64,alloc::alloc::Global>::entry<alloc::string::String,u64,alloc::alloc::Global>",1002,0.0022982978168716757
+laneflow-urban-harness.exe!laneflow_urban_harness::runner::signal_signature,1002,0.0022982978168716757
+"laneflow-urban-harness.exe!hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,usize,std::hash::random::RandomState,alloc::alloc::Global>::remove<laneflow_runtime::kernel::handle::VehicleHandle,usize,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",1001,0.0022960041064755965
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::ConflictRead::owner_ranges_valid,1001,0.0022960041064755965
+"winhvr.sys!""Unknown""",1000,0.002293710396079517
+laneflow-urban-harness.exe!laneflow_runtime::kernel::state::WorldState::overlap_relation,1000,0.002293710396079517
+"laneflow-urban-harness.exe!core::slice::sort::unstable::quicksort::quicksort<laneflow_runtime::kernel::transitions::TrafficTransitionEvent,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::transitions::TrafficTransitionEvent,tuple$<u32,laneflow_runtime::kernel::conflict::DownstreamRoutePoint,tuple$<u8,u32,u32,u32>,u32,u32>,laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$1> >",1000,0.002293710396079517
+laneflow-urban-harness.exe!crossbeam_epoch::internal::Global::collect,1000,0.002293710396079517
+laneflow-urban-harness.exe!crossbeam_deque::deque::Worker<rayon_core::job::JobRef>::pop<rayon_core::job::JobRef>,1000,0.002293710396079517
+laneflow-urban-harness.exe!laneflow_runtime::kernel::conflict::derive_downstream_claims_from_plan,1000,0.002293710396079517
+"laneflow-urban-harness.exe!core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::tick::impl$5::conflict_stop_for::closure_env$6>",1000,0.002293710396079517
+laneflow-urban-harness.exe!rayon_core::registry::WorkerThread::wait_until_cold,1000,0.002293710396079517
+laneflow-urban-harness.exe!std::sys::sync::condvar::futex::Condvar::wait,1000,0.002293710396079517
+"laneflow-urban-harness.exe!alloc::collections::btree::map::BTreeMap<u32,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global>::remove<u32,alloc::collections::btree::set_val::SetValZST,alloc::alloc::Global,u32>",999,0.0022914166856834372
+laneflow-urban-harness.exe!laneflow_static_network::relations::SharedRelationClosure::waiting_zone,999,0.0022914166856834372
+laneflow-urban-harness.exe!serde_json::value::to_value<ref$<ref$<str$> > >,999,0.0022914166856834372
+laneflow-urban-harness.exe!lf707_profile::read_boundary,998,0.0022891229752873576
+"laneflow-urban-harness.exe!serde_core::ser::Serializer::collect_seq<serde_json::value::ser::Serializer,ref$<alloc::vec::Vec<enum2$<serde_json::value::Value>,alloc::alloc::Global> > >",998,0.0022891229752873576
+"laneflow-urban-harness.exe!core::slice::iter::impl$171::all<laneflow_runtime::kernel::conflict::ConflictCellAuthority,laneflow_runtime::kernel::conflict::impl$26::authority_owners_valid::closure_env$13<laneflow_runtime::kernel::world::impl$3::conflict_state_valid::closure_env$1> >",998,0.0022891229752873576
+"laneflow-urban-harness.exe!alloc::vec::Vec<enum2$<serde_json::value::Value>,alloc::alloc::Global>::push_mut<enum2$<serde_json::value::Value>,alloc::alloc::Global>",998,0.0022891229752873576
+laneflow-urban-harness.exe!_RNvCs6rREvFdRhLb_7___rustc12___rust_alloc,997,0.0022868292648912784
+laneflow-urban-harness.exe!rayon_core::latch::LockLatch::wait,995,0.002282241844099119
+"laneflow-urban-harness.exe!alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut,tuple$<laneflow_urban_harness::runner::IndividualId,alloc::string::String,u32>,u32,enum2$<alloc::collections::btree::node::marker::Leaf> >,enum2$<alloc::collections::btree::node::marker::Edge> >::insert_recursing<tuple$<laneflow_urban_harness::runner::IndividualId,alloc::string::String,u32>,u32,alloc::alloc::Global,alloc::collections::btree::map::entry::impl$6::insert_entry::closure_env$0<tuple$<laneflow_urban_harness::runner::IndividualId,alloc::string::String,u32>,u32,alloc::alloc::Global> >",995,0.002282241844099119
+"nvpcf.sys!""Unknown""",994,0.0022799481337030395
+laneflow-urban-harness.exe!core::fmt::num::impl$16::fmt,994,0.0022799481337030395
+laneflow-urban-harness.exe!laneflow_runtime::kernel::waiting_graph::WaitingGraph::rollback,992,0.0022753607129108806
+laneflow-urban-harness.exe!memcmp,991,0.002273067002514801
+laneflow-urban-harness.exe!laneflow_runtime::kernel::phase::StepReadView::resource_matches_binding,989,0.002268479581722642
+laneflow-urban-harness.exe!rayon_core::sleep::Sleep::wake_specific_thread,983,0.002254717319346165
+"laneflow-urban-harness.exe!alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut,u32,u32,enum2$<alloc::collections::btree::node::marker::Leaf> >,enum2$<alloc::collections::btree::node::marker::Edge> >::insert_recursing<u32,u32,alloc::alloc::Global,alloc::collections::btree::map::entry::impl$6::insert_entry::closure_env$0<u32,u32,alloc::alloc::Global> >",949,0.0021767311658794615

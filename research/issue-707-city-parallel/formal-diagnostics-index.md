@@ -10,9 +10,12 @@ execution ID、完整 plan/result/measurements/diagnostics 摘要、观察窗统
 四份 diagnostics、两份跨 worker comparison 与 D1/D2 四轮电源边界原始记录也
 提交在 `evidence/`。两份现场核查保持与外部来源逐字节一致，后验计划重放和电源
 边界分析不回写原始副本。冻结 performance 计划的直接重放见
-[`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)，WPR trace 与匹配导出
-身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
-原始逐拍文件仍留在证据根，不把多 GB 日志复制进 Git。
+[`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。WPR trace、外部完整导出、
+提交的隐私筛选紧凑报告与 `tar.zst` 容量实测见
+[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)；M21 校准审计的可重建
+源码、构建、输入、运行配置和四份结果见
+[`calibration-audit-manifest.json`](evidence/calibration-audit-manifest.json)。原始逐拍文件
+和 ETL 仍留在证据根，不把多 GB 日志复制进 Git。
 
 ## 正式 r1 的已完成范围
 
@@ -57,6 +60,25 @@ D2 现场核查时间为 03:05:00，晚于 w1 起点 03:01:13 共 227 秒，只�
 | L1                 | `diagnostics/wpr/l1-findings.md`、`l1-w4-prefix512.etl`                             | 早期机制筛查                                         |
 | L3                 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl`               | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
 | WPR 不可变身份     | 仓库内 `evidence/wpr-trace-identities.json`                                         | B1/L3 ETL 与匹配导出的字节数和 SHA-256               |
+| WPR 紧凑报告       | 仓库内 `evidence/wpr-b1/`、`evidence/wpr-l3/`                                       | 隐私筛选副本；全系统导出和 ETL 仍在外部              |
+| M21 校准审计       | 仓库内 `evidence/calibration-audit-*`、`evidence/calibration-*.json`                | 五文件源码增量、构建/输入/配置身份及四份结果         |
+
+## ETL `tar.zst` 容量实测
+
+使用 bsdtar 3.8.8 与 libzstd 1.5.7 默认压缩，每份 ETL 单独生成压缩流并通过标准输出
+计数；没有落盘或修改制品文件。精确机器记录见
+[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+
+| ETL      | 原始大小                        | `tar.zst` 大小                  | 节省       |
+| -------- | ------------------------------- | ------------------------------- | ---------- |
+| B1       | 1,311,768,576 B / 1.222 GiB     | 153,978,880 B / 146.846 MiB     | 88.26%     |
+| L3 early | 1,154,482,176 B / 1.075 GiB     | 148,490,240 B / 141.611 MiB     | 87.14%     |
+| L3 late  | 3,331,325,952 B / 3.103 GiB     | 426,741,760 B / 406.973 MiB     | 87.19%     |
+| **合计** | **5,797,576,704 B / 5.399 GiB** | **729,210,880 B / 695.430 MiB** | **87.42%** |
+
+三份 ETL 各自无需分片。结果仅覆盖 ETL；精确 EXE、PDB、manifest 与派生报告会增加
+容量。因压缩包未落盘，当前没有压缩包 SHA-256；原 ETL 公开发布仍受隐私复核和 L3
+原精确 EXE/PDB 缺失边界约束。
 
 原始摘要和逐文件 SHA-256 仍以证据封套及文件为准；本索引不声称重新执行正式测量。
 四轮 `measurements.toml` 均记录了 `Get-Process.PeakWorkingSet64`：10k w1/w4

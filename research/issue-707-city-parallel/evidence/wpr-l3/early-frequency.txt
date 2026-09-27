@@ -1,0 +1,2 @@
+FreqZone,  StartTime,    EndTime,    Period
+FreqZone,          0,  104915987,    1000.0

@@ -1,7 +1,8 @@
 # #707 B1 暖机后 WPR 热点诊断
 
 2026-09-22。Refs #707。用户授权的本切片为采集与诊断；已完成一次短窗口采集、
-符号核对、线程活动与调用栈分析。未改 Runtime/Harness 算法，未提交或推送。
+符号核对、线程活动与调用栈分析。#734 收尾只提交隐私筛选后的紧凑报告与身份索引，
+未改 Runtime/Harness 算法。
 
 **结论：当前整轮耗时首先受主线程串行工作限制。Harness 观测是最大的可明确归属成本；
 Core 内仍应优先研究运动约束查询与车辆状态迁移，不宜继续围绕 B1 边界游标做微调。**
@@ -145,19 +146,20 @@ Core 的下一条独立研究线仍是运动约束查询；红灯停止线 ETA=0
 ## 6. 复核入口
 
 本机证据根：`E:/projects/laneflow/target/issue707-b1-wpr-20260922/`。
-这是本地诊断制品目录，不是已提交到仓库的证据包。
-仓库只提交上述 trace 与匹配报告的字节数和 SHA-256，不复制 1.3GB ETL；机器可读
-身份以 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json) 为准。
+这是外部诊断制品目录。仓库在 [`evidence/wpr-b1/`](evidence/wpr-b1/) 提交
+13 份隐私筛选后的紧凑 JSON/CSV/TXT 报告；提交副本只统一为 LF、去掉末尾多余换行并
+保留一个终止 LF。来源与提交副本的字节数、SHA-256 以及筛选边界以
+[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json) 为准。
 
-- `identity.json`、`capture.json`、`recording-*.json`：源码/输入/二进制身份与采集时刻。
-- `b1.etl`、匹配的 `binaries/*.pdb`：原始 trace 与应用符号。
-- `trace-stats.txt`、`frequency.txt`、`rundown.txt`：丢失、频率和停止边界。
-- `symbols-5-40.txt`、`stacks-profile-5-40.html`、`activity.txt`：原始离线导出。
-- `analysis.json`、`hotspots-*.csv`、`caller-callee.csv`、`thread-activity.csv`：归一化结果。
-- `export.ps1` 使用相同 [5s,40s) 范围；`analyze.py` 可仅从已有导出重新分析，包含
-  PID、非空表、丢失、频率、连续窗口、样本总和与已知独立入口的断言。
-- `provenance.json`、`verification.json`：选定制品与外部源码/输入摘要，以及独立复核结果。
+- 已提交：`identity.json`、`capture.json`、`provenance.json`、`verification.json`、
+  `trace-stats.txt`、`frequency.txt`、`rundown.txt`、`analysis.json`、三份
+  `hotspots-*.csv`、`caller-callee.csv` 与 `thread-activity.csv`。
+- 外部保留：`b1.etl`、匹配的 `binaries/*.pdb`、`recording-*.json`，以及包含全系统
+  进程/路径信息的 `symbols-5-40.txt`、`stacks-profile-5-40.html`、`activity.txt`。
+- 外部 `export.ps1` 使用相同 [5s,40s) 范围；外部 `analyze.py` 可从已有导出重算，
+  包含 PID、非空表、丢失、频率、连续窗口、样本总和与已知独立入口的断言。这些
+  非 Rust 诊断脚本不进入本仓库交付。
 
-无须重新采集即可运行 `python analyze.py`。`run-capture.ps1` 会拒绝覆盖已有 run。
-原始 recorder 临时文件、符号缓存与失败预检记录保留；provenance 只索引所需制品，
-不把可重建缓存和合并中间 ETL 全部再做一份归档。
+原始 recorder 临时文件、符号缓存与失败预检记录继续外部保留；仓库不复制 1.3GB ETL，
+也不把可重建缓存和合并中间 ETL 再做一份归档。紧凑报告支持审阅现有结论，不能替代
+原 ETL、EXE/PDB 或任意重新选择调用栈的复核能力。
