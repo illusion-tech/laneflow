@@ -1,0 +1,69 @@
+//! #775 复用共享平衡采集器，对直接 Active 投影 P5 做无插桩 A/B。
+#[allow(dead_code)]
+mod cache_research;
+use cache_research::io;
+
+use std::{error::Error, path::Path};
+
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+const BASE: &str = "2b5431201bb64d82f38ea8228076c54941fd2af3";
+const EXPERIMENT: cache_research::Experiment = cache_research::Experiment {
+    baseline: BASE,
+    protocol: "p5-direct-active-abba-v1",
+    count_p2: false,
+};
+
+fn need(ok: bool, message: &str) -> Result<()> {
+    if ok {
+        Ok(())
+    } else {
+        Err(message.to_owned().into())
+    }
+}
+
+fn run() -> Result<()> {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("prepare") if args.len() == 5 && args[2] == "plain" => {
+            cache_research::export_for(
+                Path::new(&args[4]),
+                &args[1],
+                &args[2],
+                &args[3],
+                EXPERIMENT,
+            )
+        }
+        Some("run") if args.len() == 5 && args[1] == "plain" => cache_research::capture_for(
+            &args[1],
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+            Path::new(&args[4]),
+            EXPERIMENT,
+        ),
+        Some("analyze" | "verify") if args.len() == 3 => {
+            let raw = Path::new(&args[1]);
+            let output = Path::new(&args[2]);
+            let value = cache_research::analyze_for(raw, EXPERIMENT)?;
+            if args[0] == "verify" {
+                need(value == io::read_json(output)?, "published mismatch")?;
+                println!("verified");
+                Ok(())
+            } else {
+                io::outside(raw, output)?;
+                io::write_new(output, &value)
+            }
+        }
+        _ => Err(
+            "prepare <base|candidate> plain <commit> <root> | run plain <root> <inputs> <new-raw> | analyze|verify <raw> <results>"
+                .into(),
+        ),
+    }
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
