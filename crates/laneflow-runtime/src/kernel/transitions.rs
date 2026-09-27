@@ -262,15 +262,21 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let first_hop = prepared.map_or(old.route_edge_index, |grant| {
                 old.route_edge_index.min(grant.gate_hop)
             });
-            let first = compiled.gate_hops.partition_point(|hop| *hop < first_hop);
+            let first = compiled.gate_hops.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("transitions:265");
+                |hop| *hop < first_hop
+            });
             for hop in compiled.gate_hops[first..]
                 .iter()
                 .copied()
                 .take_while(|hop| *hop < next.route_edge_index)
             {
-                let index = compiled
-                    .maneuvers
-                    .partition_point(|item| item.exit_route_edge_index <= hop);
+                let index = compiled.maneuvers.partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("transitions:273");
+                    |item| item.exit_route_edge_index <= hop
+                });
                 let gate =
                     compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
                 push(
@@ -364,12 +370,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     );
                 }
             }
-            let first_exit = compiled
-                .maneuvers
-                .partition_point(|item| item.exit_route_edge_index <= old.route_edge_index);
-            let last_exit = compiled
-                .maneuvers
-                .partition_point(|item| item.exit_route_edge_index <= next.route_edge_index);
+            let first_exit = compiled.maneuvers.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("transitions:369");
+                |item| item.exit_route_edge_index <= old.route_edge_index
+            });
+            let last_exit = compiled.maneuvers.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("transitions:372");
+                |item| item.exit_route_edge_index <= next.route_edge_index
+            });
             let delayed = old
                 .maneuver_traversal
                 .filter(|traversal| {
