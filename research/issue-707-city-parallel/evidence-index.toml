@@ -16,7 +16,7 @@
 # 大文件（逐拍日志、LFCA、计划本体）不入 Git；冻结 EXE 进入独立 Research
 # Evidence prerelease，不进入普通 Git 历史。
 
-manifest = "manifest/baseline-manifest-raw.toml"
+manifest = "baseline-manifest.toml"
 binary = { harness = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523", generator = "b54fbab5354a6b36a6d3f5126d92a1af185f52995b05707cbd9c71c2bd508969" }
 input_diff = "input-diff.md"
 frozen_plan_replay = "evidence/frozen-plan-replay.json"
