@@ -2,9 +2,10 @@
 # pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
 # 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
 # 8 份现场核查、diagnostics、comparison 原始小封套，以及 4 份 D1/D2 电源边界记录；
-# WPR trace/导出另有 1 份不可变身份记录和 23 份隐私筛选紧凑报告。M16 retained-best
+# WPR trace/导出另有 1 份不可变身份记录和 25 份隐私筛选紧凑报告。M16 retained-best
 # 另绑定源码补丁、机器 manifest、release 记录、8 份原运行小封套与 2 份 fresh-smoke
-# 小封套；M21 校准审计另绑定五文件 Rust 增量、机器 manifest 与 4 份紧凑结果。
+# 小封套；四次 M16 A/A 重复另绑定完整输出树身份与 768 个逐拍紧凑样本；M21 校准
+# 审计另绑定五文件 Rust 增量、机器 manifest 与 4 份紧凑结果。
 # 大文件（逐拍日志、LFCA、计划本体）不入 Git；冻结 EXE 进入独立 Research
 # Evidence prerelease，不进入普通 Git 历史。
 
@@ -31,16 +32,20 @@ wpr_b1_reports = [
 ]
 wpr_l3_reports = [
     "evidence/wpr-l3/early-harness-timeline.csv",
+    "evidence/wpr-l3/early-range-top-symbols.csv",
     "evidence/wpr-l3/early-top-symbols.csv",
     "evidence/wpr-l3/early-stats.txt",
     "evidence/wpr-l3/early-frequency.txt",
     "evidence/wpr-l3/early-rundown.txt",
     "evidence/wpr-l3/late-harness-timeline.csv",
+    "evidence/wpr-l3/late-range-top-symbols.csv",
     "evidence/wpr-l3/late-top-symbols.csv",
     "evidence/wpr-l3/late-stats.txt",
     "evidence/wpr-l3/late-frequency.txt",
     "evidence/wpr-l3/late-rundown.txt",
 ]
+calibration_aa_repeat_envelope = "evidence/calibration-aa-repeat-envelope.json"
+calibration_aa_public_step = "evidence/calibration-aa-public-step.csv"
 calibration_audit_manifest = "evidence/calibration-audit-manifest.json"
 calibration_audit_source_patch = "evidence/calibration-audit-source-patch.tar.zst"
 calibration_audit_outputs = [

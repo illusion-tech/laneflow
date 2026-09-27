@@ -114,6 +114,14 @@
 | 3   | 28.316 |      2.161 | 31.956 |
 | 4   | 28.546 |      3.922 | 34.437 |
 
+四次运行的精确二进制、输入、计划、环境、完整输出树身份和逐份 `timing.csv`
+摘要已绑定在
+[`calibration-aa-repeat-envelope.json`](evidence/calibration-aa-repeat-envelope.json)；
+可独立重算的 768 个 `public_step_ns` 样本见
+[`calibration-aa-public-step.csv`](evidence/calibration-aa-public-step.csv)。
+短测程序没有输出 `execution_id`，因此封套使用有序 `evidence_run_id` 加上述
+完整身份定义每次执行；这个替代边界已显式记录。
+
 四次均值的平均是 28.499 ms。极差是 0.402 ms。四次均值的样本标准差是
 0.174 ms。四次的 `quality.csv`、`ticks.jsonl`、`events.jsonl` SHA-256
 都与 M3 短窗相同，最后一拍重叠对数都是 0。
@@ -179,8 +187,13 @@ M16 保留组合现可由基线提交
 目录另有 35 个未进入原 M16 补丁的实验辅助文件；其中没有 Cargo/Rust 构建输入，
 已明确排除在可重建源码清单外。
 
-这一片的四次重复在 `target/issue707-aa-results/aa-1` 到 `aa-4`。
-审计程序是 `target/issue707-m21-source` 上的 release harness，feature
+这一片的四次完整原始输出在外部
+`target/issue707-aa-results/aa-1` 到 `aa-4`；仓库内的
+[`calibration-aa-repeat-envelope.json`](evidence/calibration-aa-repeat-envelope.json)
+记录全部文件身份，紧凑逐拍报告允许独立重算表中统计。
+这四次只使用上文的 M16 封存程序；下面的 M21 校准审计是另一条覆盖核对，
+不用于补写四次重复的执行身份。该审计程序是 `target/issue707-m21-source` 上的
+release harness，feature
 `entry-frontier,barrier-reach`，没有 `short-profile`。SHA-256
 `f9b75bd2c2a64f1486ed51d09880829b7677589f9bcfdf4fcd0a4cab9ff85dab`。
 `audit.json`、`prefix-result.json`、`gap-inventory.json` 与

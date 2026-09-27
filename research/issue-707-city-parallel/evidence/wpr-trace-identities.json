@@ -1,8 +1,8 @@
 {
-  "schema": "laneflow-issue-707-wpr-trace-identities-v3",
-  "computed_at": "2026-09-27T19:43:40.5904867+00:00",
+  "schema": "laneflow-issue-707-wpr-trace-identities-v4",
+  "computed_at": "2026-09-27T20:04:12.5619346+00:00",
   "hash_algorithm": "SHA-256",
-  "scope": "immutable identities for external B1/L3 ETL traces, external full-system exports, and privacy-screened compact reports committed for portable review; L3 also records the ETL CodeView identity and retained SymCache boundary",
+  "scope": "immutable identities for external B1/L3 ETL traces, external full-system exports, privacy-screened compact reports, and L3 exact-window symbol derivations committed for portable review; L3 also records the ETL CodeView identity and retained SymCache boundary",
   "committed_report_normalization": {
     "policy": "decode text, convert CRLF and lone CR to LF, remove trailing LF characters, append exactly one final LF, encode UTF-8 without BOM",
     "semantic_change": false,
@@ -24,6 +24,14 @@
     ],
     "allowed_root_reason": "project-local evidence lineage is retained; the committed subset contains no Windows user-profile path or username marker",
     "limitation": "bounded textual screening of the committed subset, not a general privacy certification of ETL or omitted full-system exports",
+    "derived_range_reports": {
+      "paths": [
+        "evidence/wpr-l3/early-range-top-symbols.csv",
+        "evidence/wpr-l3/late-range-top-symbols.csv"
+      ],
+      "minimization": "select only the exact target process from each full-system range export, aggregate identical symbols, and retain the 40 largest weights",
+      "result": "the committed derivations contain no unrelated process label or filesystem path"
+    },
     "omitted_full_system_exports": {
       "b1": [
         "symbols-5-40.txt",
@@ -619,6 +627,59 @@
         }
       }
     ],
+    "range_symbol_derivations": {
+      "method": "xperf profile CSV; select exact target process label; group identical Module Name!Function Name rows; sum every selected Weight as process denominator; sort by weight descending; retain top 40; compute process_percent = 100 * symbol weight / process weight",
+      "target_process": "laneflow-urban-harness.exe (11984)",
+      "committed_format": "UTF-8 without BOM, LF, quoted CSV fields",
+      "retained_rows": 40,
+      "table_rounding": "l3-findings.md displays process_percent rounded to two decimals",
+      "windows": [
+        {
+          "name": "early",
+          "interval": "[1s, 81s)",
+          "source": {
+            "relative_path": "early-range-symbols.txt",
+            "identity": {
+              "bytes": 348108,
+              "sha256": "455961abe1c6c863d843dd8635771ddd4c3509cffe25848becadbb564ae02fa3"
+            }
+          },
+          "selected_process_rows": 295,
+          "unique_symbols": 281,
+          "process_weight_total": 100054919,
+          "committed": {
+            "path": "evidence/wpr-l3/early-range-top-symbols.csv",
+            "rows": 40,
+            "identity": {
+              "bytes": 4619,
+              "sha256": "45da553a1a7bc33658fb1ba7a8fee1c754bf8a0cf76484fb3e7562798249538d"
+            }
+          }
+        },
+        {
+          "name": "late",
+          "interval": "[44s, 236s)",
+          "source": {
+            "relative_path": "late-range-symbols.txt",
+            "identity": {
+              "bytes": 770162,
+              "sha256": "4e024dcc4a1dfe9c378cfc298bcc0c58d23c07fcbbc155581a527d8911191768"
+            }
+          },
+          "selected_process_rows": 352,
+          "unique_symbols": 335,
+          "process_weight_total": 226351791,
+          "committed": {
+            "path": "evidence/wpr-l3/late-range-top-symbols.csv",
+            "rows": 40,
+            "identity": {
+              "bytes": 4675,
+              "sha256": "4ab72fc746d8c9448c49bd1ee087659455fe3ac6140708fec3a9572ef0daa130"
+            }
+          }
+        }
+      ]
+    },
     "symbol_identity": {
       "extraction": {
         "tool": "xperf symcache",
@@ -680,5 +741,5 @@
       }
     }
   },
-  "conclusion": "portable compact B1/L3 reports are committed with source and normalized identities; multi-GB ETL and privacy-sensitive full-system exports remain external; L3 CodeView/SymCache evidence supports the existing limited attribution but missing original EXE/PDB still prevents arbitrary independent re-symbolization"
+  "conclusion": "portable compact B1/L3 reports and privacy-minimized L3 exact-window symbol derivations are committed with source identities; multi-GB ETL and privacy-sensitive full-system exports remain external; L3 CodeView/SymCache evidence supports the existing limited attribution but missing original EXE/PDB still prevents arbitrary independent re-symbolization"
 }

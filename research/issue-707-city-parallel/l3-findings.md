@@ -80,6 +80,15 @@ ETL 头部 CPU Speed 字段不是窗口内实测频率。本次没有完整 Read
 
 分母为上述各自裁剪区间内目标进程全部 CPU 采样权重，包含所有线程和模块。
 这是函数 IP 的采样分布，受内联归属影响；不是调用树累计时间，也不是 Core p95。
+表中数值可由精确时间窗的
+[`early-range-top-symbols.csv`](evidence/wpr-l3/early-range-top-symbols.csv) 与
+[`late-range-top-symbols.csv`](evidence/wpr-l3/late-range-top-symbols.csv) 复核：
+早窗目标进程总权重为 100,054,919，晚窗为 226,351,791，表格将
+`process_percent` 四舍五入到两位小数。两份不带 `range` 的
+`early-top-symbols.csv` / `late-top-symbols.csv` 是整段 trace 摘要，分母不同，
+不用于复核本表。原始精确时间窗导出仍因包含全系统进程而留在外部；派生方法、
+源文件身份与紧凑报告身份见
+[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
 
 | 符号                                       | 早窗占比 | 晚窗占比 | 归因边界                                   |
 | ------------------------------------------ | -------- | -------- | ------------------------------------------ |
