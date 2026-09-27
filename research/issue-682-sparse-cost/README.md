@@ -39,10 +39,16 @@ cell 排序去重和公开决定排序的 calls/items/批次时间。这是很�
 
 采集前要求 Git 干净且 HEAD 与已推送的 upstream 相同；记录 source/tree、
 manifest/lock、rustc、二进制 SHA-256、进程 UUID、前后 HEAD/clean、日志摘要。
-采集器拒绝其他 Cargo/rustc/link/cl、已知 Runtime/harness 测量进程，并记录前后
-两次 CPU 样本，单样本高于 20% 时拒绝。运行中每秒检查已知竞争进程。
+采集器拒绝其他 Cargo/rustc/link/cl、已知 Runtime/harness 测量进程。运行中每秒
+检查已知竞争进程；短于采样间隔的任务仍可能漏检。先采集 30 个每秒 CPU 样本作为
+本轮空闲基线，前后检查已知竞争进程；每次运行前后各记录两个 CPU 样本。
+超过基线 p95（nearest rank）加 10 个百分点时只告警，不据此拒绝或认定干扰。
+该告警尺度是透明的经验规则，不是校准出的性能合格线。完整三轮均值、p95 与
+均值极差/中位数共同报告，不删除高 CPU 样本，也不以最低耗时代表性能。
 这是开发机干扰筛查，不证明操作系统完全静默，也不锁频或绑定 CPU。
-被拒绝的元数据和失败日志保留；出现干扰时停下并通知用户，再决定重测。
+被拒绝的元数据和失败日志保留；发现竞争进程时停下并通知用户，再决定重测。
+schema 1 的固定 20% 硬门禁记录保持原样，不重分类；schema 2 使用独立输出目录。
+`accepted` 只表示输入完整、无已观察到的竞争进程和源码稳定，不能单独证明性能稳定。
 
 正常构建输出全部 128 个逐拍时间；独立核验拒绝缺拍、重复、混合输入、截短窗口、
 摘要不一致、日志改动、缺失诊断与重复已接受轮次。诊断的 Occupancy 四段嵌套于
@@ -64,6 +70,8 @@ Occupancy 阶段，容量清空嵌套于准备阶段；不能重复相加。
 
 保存 Cargo 打印的两个测试二进制绝对路径，确认 source 已提交推送且工作树干净。
 直接调用采集器，避免把正在运行的 Cargo 混入测量：
+
+`laneflow-sparse-cost-research calibrate OUTPUT_DIR`
 
 `laneflow-sparse-cost-research matrix WALL_EXE DIAGNOSTIC_EXE OUTPUT_DIR`
 
