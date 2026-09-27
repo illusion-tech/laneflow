@@ -276,6 +276,7 @@ pub(crate) fn validate_rows_for(
     } else {
         protocol.stages.len()
     };
+    let mut totals = vec![0_u64; count];
     for (i, row) in rows.iter().enumerate() {
         need(
             row["tick"] == i + 1
@@ -293,6 +294,11 @@ pub(crate) fn validate_rows_for(
         };
         let times = read("stages_ns")?;
         let calls = read("calls")?;
+        for (total, value) in totals.iter_mut().zip(&calls) {
+            *total = total
+                .checked_add(*value)
+                .ok_or("cumulative call overflow")?;
+        }
         if mode == "plain" {
             need(times.iter().chain(&calls).all(|v| *v == 0), "plain clocks")?;
             continue;

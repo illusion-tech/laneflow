@@ -202,6 +202,13 @@ mod tests {
                 "span {index}"
             );
         }
+        // 门访问次数无法由单拍车辆数给出上界；跨行汇总仍必须拒绝溢出。
+        for index in [48, 49] {
+            let mut bad = rows.clone();
+            bad[0]["calls"][index] = json!(u64::MAX);
+            bad[1]["calls"][index] = json!(1);
+            assert!(p2_cost::validate_rows_for(&bad, &ticks, "detail", PROTOCOL).is_err());
+        }
         assert!(p2_cost::validate_rows_for(&rows[..255], &ticks, "detail", PROTOCOL).is_err());
     }
 }
