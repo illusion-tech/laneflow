@@ -689,7 +689,6 @@ mod motion_injection {
     pub(super) static NONFINITE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
     pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
     pub(super) static ARRIVAL_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static INPUT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
     pub(super) static SLOT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
 
     pub(super) fn position_mask(positions: &[usize]) -> u64 {
@@ -710,10 +709,6 @@ mod motion_injection {
 
     pub(super) fn arrival_reserve_injected() -> bool {
         ARRIVAL_RESERVE_FAILURE.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn input_reserve_injected() -> bool {
-        INPUT_RESERVE_FAILURE.load(Ordering::SeqCst)
     }
 
     pub(super) fn slot_reserve_injected() -> bool {
@@ -766,12 +761,6 @@ fn swap_motion_flag(flag: &'static std::sync::atomic::AtomicBool) -> MotionBoolG
 #[cfg(test)]
 pub(crate) fn fail_motion_arrival_reserve() -> MotionBoolGuard {
     swap_motion_flag(&motion_injection::ARRIVAL_RESERVE_FAILURE)
-}
-
-/// 测试专用：下一次输入发现预留强制失败（冷态/增长回退测试）。
-#[cfg(test)]
-pub(crate) fn fail_motion_input_reserve() -> MotionBoolGuard {
-    swap_motion_flag(&motion_injection::INPUT_RESERVE_FAILURE)
 }
 
 /// 测试专用：下一次结果槽位预留强制失败（冷态/增长回退测试）。
@@ -4434,9 +4423,9 @@ fn prepare_motion_fused(
     Ok(())
 }
 
-/// P5 分发路径：输入发现（checked 预留，失败/注入回退融合）→ 任务独占
-/// 结果槽位、只读冻结视图计算 → 完整 join → 协调器按 Active 序规范消费
-///（该车失败在此处返回；到达观察在此处真实预留；然后 updates 接纳）。
+/// P5 分发路径：任务按 Active 投影位置直接读取完整句柄及拍初状态，独占结果
+/// 槽位、只读冻结视图计算 → 完整 join → 协调器按 Active 序规范消费（该车
+/// 失败在此处返回；到达观察在此处真实预留；然后 updates 接纳）。
 /// 首错来自规范消费，任务侧 first_error 原子仅作更晚块跳过的调度提示。
 #[allow(clippy::too_many_arguments)]
 fn prepare_motion_dispatched(
@@ -4456,30 +4445,9 @@ fn prepare_motion_dispatched(
         conflict_staged: &workspace.conflict,
         motion_cache: &workspace.motion_cache,
     };
-    let inputs = &mut workspace.motion_inputs;
-    inputs.clear();
-    #[cfg(test)]
-    let input_injected = motion_injection::input_reserve_injected();
-    #[cfg(not(test))]
-    let input_injected = false;
-    // 上界用 Active 投影：输入只收 Active 三元组（§4 #5 同谓词）。
-    if inputs
-        .try_reserve(view.read.derived.active_order.len())
-        .is_err()
-        || input_injected
-    {
-        // 回退拍计入 slot_fallback，与 fused/dispatched 互斥。
-        #[cfg(test)]
-        count_motion_path(|counts| counts.slot_fallback += 1);
-        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
-    }
-    for (active_index, handle) in view.read.derived.active_order.iter().copied().enumerate() {
-        let Some(state) = view.read.vehicle_state(handle) else {
-            continue;
-        };
-        inputs.push((handle, active_index, *state));
-    }
-    let workload = inputs.len();
+    // Active 投影是任务的唯一位置表；任务在对应位置重新读取完整句柄并核对
+    // 代次，不再物化 `(handle, active_index, VehicleState)` 输入副本。
+    let workload = view.read.derived.active_order.len();
     #[cfg(test)]
     let forced = motion_dispatch_forced();
     #[cfg(not(test))]
@@ -4528,31 +4496,37 @@ fn prepare_motion_dispatched(
     });
     #[cfg(test)]
     let tls_baseline = diagnostics.then(motion_tls_snapshot);
-    let compute =
-        |_chunk_view: crate::kernel::phase::StepReadView<'_>,
-         start: usize,
-         chunk: &mut [crate::kernel::execution::DispatchSlot<VehicleMotionOutcome>]| {
-            #[cfg(test)]
-            let chunk_baseline = diagnostics.then(motion_tls_snapshot);
-            for (offset, slot) in chunk.iter_mut().enumerate() {
-                let index = start + offset;
-                let (_handle, active_index, state) = workspace.motion_inputs[index];
-                match view.vehicle_motion_outcome(&state, active_index, delta_s) {
-                    Ok(outcome) => {
-                        *slot = crate::kernel::execution::DispatchSlot::Done(Ok(outcome));
-                    }
-                    Err(error) => {
-                        first_error.fetch_min(index, Ordering::Relaxed);
-                        *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
-                        break;
-                    }
+    let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,
+                   start: usize,
+                   chunk: &mut [crate::kernel::execution::DispatchSlot<
+        Option<VehicleMotionOutcome>,
+    >]| {
+        #[cfg(test)]
+        let chunk_baseline = diagnostics.then(motion_tls_snapshot);
+        for (offset, slot) in chunk.iter_mut().enumerate() {
+            let active_index = start + offset;
+            let handle = view.read.derived.active_order[active_index];
+            let Some(state) = view.read.vehicle_state(handle) else {
+                // 与融合路径相同：完整句柄已失效时跳过该 Active 位置。
+                *slot = crate::kernel::execution::DispatchSlot::Done(Ok(None));
+                continue;
+            };
+            match view.vehicle_motion_outcome(state, active_index, delta_s) {
+                Ok(outcome) => {
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome)));
+                }
+                Err(error) => {
+                    first_error.fetch_min(active_index, Ordering::Relaxed);
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
+                    break;
                 }
             }
-            #[cfg(test)]
-            if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
-                records[start / chunk_size].store_deltas(baseline);
-            }
-        };
+        }
+        #[cfg(test)]
+        if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
+            records[start / chunk_size].store_deltas(baseline);
+        }
+    };
     let dispatch_stats =
         execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);
     #[cfg(test)]
@@ -4571,16 +4545,23 @@ fn prepare_motion_dispatched(
     }
     #[cfg(not(test))]
     let _ = dispatch_stats;
-    for ((vehicle, _active_index, _state), slot) in workspace.motion_inputs.iter().zip(slots.iter())
+    for (vehicle, slot) in view
+        .read
+        .derived
+        .active_order
+        .iter()
+        .copied()
+        .zip(slots.iter())
     {
         match slot {
-            crate::kernel::execution::DispatchSlot::Done(Ok(outcome)) => {
+            crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome))) => {
                 if let Some(arrival) = outcome.arrival {
                     push_parking_arrival(parking_arrivals, arrival)?;
                 }
                 let slot = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
                 updates.push((slot, outcome.next));
             }
+            crate::kernel::execution::DispatchSlot::Done(Ok(None)) => {}
             crate::kernel::execution::DispatchSlot::Done(Err(error)) => {
                 // 完整 join 后按 Active 序规范消费首错（不做最小下标预扫描）。
                 return Err(*error);

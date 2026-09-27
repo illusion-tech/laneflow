@@ -6819,9 +6819,8 @@ pub(crate) mod tests {
 
     use crate::kernel::tick::{
         MotionPathCounts, drop_motion_slot_at, fail_motion_arrival_reserve,
-        fail_motion_input_reserve, fail_motion_slot_reserve, force_motion_dispatch,
-        inject_motion_nonfinite, last_motion_dispatch_stats, motion_cache_use,
-        motion_diagnostic_counts, motion_path_counts,
+        fail_motion_slot_reserve, force_motion_dispatch, inject_motion_nonfinite,
+        last_motion_dispatch_stats, motion_cache_use, motion_diagnostic_counts, motion_path_counts,
     };
 
     /// 逐 tick 公开对拍记录：digest、Waiting/Conflict 决策、统一事件、
@@ -7005,9 +7004,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// 可选暂存回退：输入表/结果槽位的冷态（首拍）与热态（容量已建立）
-    /// 预留注入失败都退回融合路径，逐拍输出与 w1 融合参考一致，不新增
-    /// 领域错误；回退计数与分发计数互斥。
+    /// 可选暂存回退：结果槽位的首次尝试与容量已建立后的预留注入失败都退回
+    /// 融合路径，逐拍输出与 w1 融合参考一致，不新增领域错误；回退计数与
+    /// 分发计数互斥。
     #[test]
     fn motion_scratch_reserve_failure_falls_back_to_fused() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -7027,13 +7026,13 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1, None);
-        // 冷态：首拍输入表预留失败；其后热态槽位预留失败一拍。
+        // 首次尝试与容量已建立后各注入一次槽位预留失败。
         let counts_before = motion_path_counts();
         let mut world = multi_gate_world_with_id(16, WORLD_ID);
         install_execution(&mut world, 4);
         let mut records = Vec::new();
         {
-            let _guard = fail_motion_input_reserve();
+            let _guard = fail_motion_slot_reserve();
             let outcome = world.step(TickInput::new(100)).unwrap();
             records.push(motion_tick_record(&world, &outcome));
         }
