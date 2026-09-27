@@ -6,9 +6,10 @@
 
 仓库内的 [`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)把四轮
 execution ID、完整 plan/result/measurements/diagnostics 摘要、观察窗统计和
-`result.json` 内全部大文件身份绑定为一条机器可读证据链；两份起跑核查、四份
-diagnostics、两份跨 worker comparison 与 D2 两轮电源边界原始记录也提交在
-`evidence/`。冻结 performance 计划的直接重放见
+`result.json` 内全部大文件身份绑定为一条机器可读证据链；两份现场核查原始副本、
+四份 diagnostics、两份跨 worker comparison 与 D1/D2 四轮电源边界原始记录也
+提交在 `evidence/`。两份现场核查保持与外部来源逐字节一致，后验计划重放和电源
+边界分析不回写原始副本。冻结 performance 计划的直接重放见
 [`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)，WPR trace 与匹配导出
 身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
 原始逐拍文件仍留在证据根，不把多 GB 日志复制进 Git。
@@ -29,22 +30,29 @@ D2 的 Active p50/p95/max 为 45468/53656/55372；这是总个体 100k 的混合
 （w1 148.91ms）、observation p95 为 109.10ms（w1 88.10ms）；增量原因尚未分离。
 不能将三项 p95 相加，不能将命令与观测变化归因成 worker 的必然效果。
 
-D2 w1 与 w4 分别在单轮开始、结束边界记录 `Win32_Battery BatteryStatus=2`、
-电量 100%；LF 规范化提交副本为 `evidence/formal-power-100k-w{1,4}.txt`，机器记录
-分别保留原始 CRLF 日志与提交副本的身份及解析结果。这证明四个边界均接通 AC
-且未放电；它不是运行中每一时刻的连续遥测，也不把单轮 r1 扩大为最终性能认证。
+D1 与 D2 的 w1/w4 均在单轮开始、结束边界记录
+`Win32_Battery BatteryStatus=2`、电量 100%；LF 规范化提交副本为
+`evidence/formal-power-{10k,100k}-w{1,4}.txt`，机器记录分别保留原始日志与提交
+副本的身份及解析结果。这证明八个边界均接通 AC 且未放电；它不是运行中每一时刻
+的连续遥测，也不把单轮 r1 扩大为最终性能认证。
+
+D1 现场核查时间为 23:49:39，早于 w1 起点 23:50:58 共 79 秒，可作为起跑核查。
+D2 现场核查时间为 03:05:00，晚于 w1 起点 03:01:13 共 227 秒，只能归类为运行中
+观察，不能证明 D2 启动时的环境、负载和电源方案前置条件。D2 两臂完成、语义对照
+及边界电源记录仍为有效单轮观察；缺失的启动时刻现场核查限制已进入机器记录，最终
+认证保持开放。
 
 ## 来源定位
 
 | 项目               | 根目录下路径                                                                        | 用途                                                 |
 | ------------------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| D1/D2 起跑核查     | `manifest/d0-d1-precheck.toml`、`manifest/d0-d2-precheck.toml`                      | 硬件/电源/源码/二进制/输入前置条件                   |
+| D1/D2 现场核查     | `manifest/d0-d1-precheck.toml`、`manifest/d0-d2-precheck.toml`                      | D1 为起跑前；D2 为首臂开始 227 秒后的运行中观察      |
 | 完成与样本封套     | `formal/{scale}-w{workers}-r1/result.json`、`measurements.toml`、`diagnostics.json` | 完成拍数、观察窗、测量身份与原始样本                 |
 | 原始语义轨迹       | 同目录 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`                              | 逐拍、命令、事件顺序核验                             |
 | 跨 worker 语义对照 | `comparisons/10k-r1-w1-w4.json`、`comparisons/100k-r1-w1-w4.json`                   | performance-match，不是三轮性能认证                  |
 | 原始计划           | `plans/10k-performance.toml`、`plans/100k-performance.toml`                         | 冻结输入，短测仍读取原计划                           |
 | 冻结计划重放       | 仓库内 `evidence/frozen-plan-replay.json`                                           | correctness/performance 四份均精确命中冻结摘要       |
-| D2 电源边界        | 仓库内 `evidence/formal-power-100k-w{1,4}.txt`                                      | 两轮开始/结束均为 AC、未放电、100%                   |
+| D1/D2 电源边界     | 仓库内 `evidence/formal-power-{10k,100k}-w{1,4}.txt`                                | 四轮开始/结束均为 AC、未放电、100%                   |
 | D2 分段诊断        | `diagnostics/d2-offline-decomposition.md`                                           | 后段成本变化，解释范围依原文                         |
 | L1                 | `diagnostics/wpr/l1-findings.md`、`l1-w4-prefix512.etl`                             | 早期机制筛查                                         |
 | L3                 | `diagnostics/wpr/l3-w4-meta.txt`、`l3-w4-early.etl`、`l3-w4-late.etl`               | 同进程早晚采样，裁剪边界见 [L3 摘要](l3-findings.md) |
