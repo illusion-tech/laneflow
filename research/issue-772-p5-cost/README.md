@@ -3,6 +3,9 @@
 Refs #772。基线固定为 `05c505dde3b76fde0a5302a567bf46fdb236146f`，
 交付研究工具、可复算证据和一个后续候选决策。正式 Runtime 未接入诊断或候选。
 
+- [归因与下一候选](results.md)
+- [12 轮复算证据](evidence/results.json)
+
 Rust 工具为 `laneflow-p5-cost-research`，复用 #768 的采集、源身份与完整文件
 校验，保留 `laneflow-p2-cost-research` 的历史协议。冻结输入为 #707 `4de40e04`
 外部包，MIXED-PEAK、seed 544、workers 4、warm-up 0、observe 256。
