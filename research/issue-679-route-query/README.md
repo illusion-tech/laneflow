@@ -1,7 +1,7 @@
 # #679 长路线查询成本
 
 研究基线：`72102fabb2cda5ebadde52dc1260c8402762efda`。本切片使用 Rust 测试入口，
-不增加运行时 API、缓存或策略权威。结果形成前不预设优化采用。
+不增加运行时 API、缓存或策略权威。[测量结果与决定](results.md)已完成。
 
 ## 当前问题
 
@@ -51,6 +51,7 @@ cargo +1.98.0 test -p laneflow-runtime --release --test route_query_evidence --l
 cargo +1.98.0 test -p laneflow-runtime --release --lib --features placement-fixtures --locked --no-run
 <route_query_evidence.exe> --exact route_query_wall --ignored --nocapture --test-threads=1
 <laneflow_runtime.exe> --exact kernel::route_query_research::route_query_diagnostic --ignored --nocapture --test-threads=1
+cargo +1.98.0 test -p laneflow-runtime --test route_query_evidence --locked -- --nocapture
 ```
 
 结束条件：获得三轮普通墙钟、完整诊断与资源/生命周期回归结果，说明远门扫描是否
