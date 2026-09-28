@@ -89,3 +89,8 @@ pub(crate) mod parking_command_research;
 #[cfg(test)]
 #[path = "tests/sparse_cost/diagnostic.rs"]
 pub(crate) mod sparse_cost_research;
+
+/// #777 资格表提交归因；仅用于测试构建。
+#[cfg(test)]
+#[path = "tests/eligibility_commit/diagnostic.rs"]
+pub(crate) mod eligibility_commit_research;

@@ -1,6 +1,6 @@
 //! #682 正交账本与嵌套批次诊断。绝不把本二进制当未插桩生产延迟。
 use crate as runtime_types;
-mod fixture;
+pub(crate) mod fixture;
 use crate::kernel::{exact_path_research, performance_profile};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region};
 use std::{cell::Cell, time::Instant};
