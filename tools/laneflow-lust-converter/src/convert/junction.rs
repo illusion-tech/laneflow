@@ -303,9 +303,7 @@ fn resolve_owner(
     let from_edge = network
         .edge(from_road_edge_id)
         .expect("from road edge checked");
-    let to_edge = network
-        .edge(to_road_edge_id)
-        .expect("to road edge checked");
+    let to_edge = network.edge(to_road_edge_id).expect("to road edge checked");
     let from_to = from_edge.to_junction_id.as_deref().ok_or_else(|| {
         Error::SumoModel(format!(
             "external from-edge {from_road_edge_id:?} missing @to junction"
@@ -346,9 +344,9 @@ fn resolve_owner(
         }
     }
 
-    let junction = network.junction(from_to).ok_or_else(|| {
-        Error::SumoModel(format!("unknown junction owner {from_to:?}"))
-    })?;
+    let junction = network
+        .junction(from_to)
+        .ok_or_else(|| Error::SumoModel(format!("unknown junction owner {from_to:?}")))?;
     if !junction.can_own_road_junction() {
         return Err(Error::SumoModel(format!(
             "junction {from_to:?} type {:?} cannot own road ManeuverPath traversals",
@@ -402,9 +400,7 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
                 continue;
             };
             for lane_id in &junction.int_lane_ids {
-                if is_internal(lane_id)
-                    && !cluster_parent.contains_key(lane_id.as_str())
-                {
+                if is_internal(lane_id) && !cluster_parent.contains_key(lane_id.as_str()) {
                     cluster_parent.insert(lane_id.as_str(), parent);
                     changed = true;
                 }

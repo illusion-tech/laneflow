@@ -201,7 +201,10 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
             network_lfca: artifact("network.lfca", &input.network_lfca_bytes),
             routes_toml: artifact("routes.toml", &input.routes_toml_bytes),
             manifest_toml: artifact("manifest.toml", &input.manifest_bytes),
-            conversion_report: artifact("lust-conversion-report.json", &input.conversion_report_bytes),
+            conversion_report: artifact(
+                "lust-conversion-report.json",
+                &input.conversion_report_bytes,
+            ),
         },
     };
     json_bytes("SemanticProvenanceManifest", &manifest)

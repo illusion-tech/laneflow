@@ -57,7 +57,10 @@ pub fn convert_signals(
 
     let mut links_by_tl: BTreeMap<&str, Vec<&ControlledLink>> = BTreeMap::new();
     for link in &controlled {
-        links_by_tl.entry(link.tl_id.as_str()).or_default().push(link);
+        links_by_tl
+            .entry(link.tl_id.as_str())
+            .or_default()
+            .push(link);
     }
     for (tl_id, links) in &links_by_tl {
         if !program_by_id.contains_key(tl_id) {
@@ -163,10 +166,7 @@ pub fn convert_signals(
             gates.push(ManeuverGate {
                 id: format!(
                     "{SUMO_ID_PREFIX}gate:{}:{}-to-{}:{}",
-                    link.tl_id,
-                    link.from_road_edge_id,
-                    link.to_road_edge_id,
-                    link.link_index
+                    link.tl_id, link.from_road_edge_id, link.to_road_edge_id, link.link_index
                 ),
                 maneuver_path_id: path_id.clone(),
                 transition_index: 0,
@@ -182,7 +182,9 @@ pub fn convert_signals(
         for (phase_index, phase) in program.phases.iter().enumerate() {
             let duration_ms = phase.duration.to_strict_positive_millis()?;
             let mut states = Vec::with_capacity(group_ids.len());
-            for (group_id, members) in group_ids.iter().zip(group_entries.iter().map(|entry| &entry.1))
+            for (group_id, members) in group_ids
+                .iter()
+                .zip(group_entries.iter().map(|entry| &entry.1))
             {
                 let representative = members[0];
                 let ch = phase_state_char(phase, representative.link_index)?;
@@ -298,7 +300,13 @@ fn build_groups<'a>(
         let vector = program
             .phases
             .iter()
-            .map(|phase| phase.state.chars().nth(link.link_index as usize).expect("validated"))
+            .map(|phase| {
+                phase
+                    .state
+                    .chars()
+                    .nth(link.link_index as usize)
+                    .expect("validated")
+            })
             .collect::<Vec<_>>();
         groups.entry(vector).or_default().push(link);
     }
@@ -308,20 +316,13 @@ fn build_groups<'a>(
     groups
 }
 
-fn phase_state_char(
-    phase: &crate::sumo::net::SumoTlPhase,
-    link_index: u32,
-) -> Result<char> {
-    phase
-        .state
-        .chars()
-        .nth(link_index as usize)
-        .ok_or_else(|| {
-            Error::SumoModel(format!(
-                "phase state {:?} missing linkIndex {link_index}",
-                phase.state
-            ))
-        })
+fn phase_state_char(phase: &crate::sumo::net::SumoTlPhase, link_index: u32) -> Result<char> {
+    phase.state.chars().nth(link_index as usize).ok_or_else(|| {
+        Error::SumoModel(format!(
+            "phase state {:?} missing linkIndex {link_index}",
+            phase.state
+        ))
+    })
 }
 
 fn map_aspect(ch: char) -> Result<&'static str> {

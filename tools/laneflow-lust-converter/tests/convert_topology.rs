@@ -189,14 +189,12 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         emit_infeasibility_report: true,
         ..TopologyConvertOptions::default()
     };
-    let first = convert_topology_from_xml_with_tll_and_vtypes(
-        &net_xml, &tll_xml, &vtypes_xml, &options,
-    )
-    .expect("first diagnostic-report conversion");
-    let second = convert_topology_from_xml_with_tll_and_vtypes(
-        &net_xml, &tll_xml, &vtypes_xml, &options,
-    )
-    .expect("second diagnostic-report conversion");
+    let first =
+        convert_topology_from_xml_with_tll_and_vtypes(&net_xml, &tll_xml, &vtypes_xml, &options)
+            .expect("first diagnostic-report conversion");
+    let second =
+        convert_topology_from_xml_with_tll_and_vtypes(&net_xml, &tll_xml, &vtypes_xml, &options)
+            .expect("second diagnostic-report conversion");
     let report = first
         .infeasibility_report
         .as_ref()
@@ -279,16 +277,14 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn fixture_net_xml() -> String {
     fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/minimal/t-junction.net.xml"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minimal/t-junction.net.xml"),
     )
     .expect("read net fixture")
 }
 
 fn fixture_tll_xml() -> String {
     fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/minimal/t-junction.tll.xml"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minimal/t-junction.tll.xml"),
     )
     .expect("read tll fixture")
 }

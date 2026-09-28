@@ -61,14 +61,12 @@ impl ExactDecimal {
     /// `-0.0` is normalized to `+0.0`.
     pub fn to_f64(self) -> Result<f64> {
         let text = self.to_plain_string();
-        let value = f64::from_str(&text).map_err(|source| Error::SumoModel(format!(
-            "failed to convert exact decimal {text:?} to binary64: {source}"
-        )))?;
-        if value == 0.0 {
-            Ok(0.0)
-        } else {
-            Ok(value)
-        }
+        let value = f64::from_str(&text).map_err(|source| {
+            Error::SumoModel(format!(
+                "failed to convert exact decimal {text:?} to binary64: {source}"
+            ))
+        })?;
+        if value == 0.0 { Ok(0.0) } else { Ok(value) }
     }
 
     /// Convert a non-negative exact decimal number of seconds into integer milliseconds.
@@ -104,9 +102,7 @@ impl ExactDecimal {
     /// Zero is allowed (controller offsets).
     pub fn to_non_negative_millis(self) -> Result<u64> {
         if self.digits < 0 {
-            return Err(Error::SumoModel(
-                "offset must not be negative".to_owned(),
-            ));
+            return Err(Error::SumoModel("offset must not be negative".to_owned()));
         }
         if self.digits == 0 {
             return Ok(0);

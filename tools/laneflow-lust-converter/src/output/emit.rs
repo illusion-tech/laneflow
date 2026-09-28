@@ -228,7 +228,11 @@ fn bare(laneflow_id: &str) -> &str {
 ///   `^x[^A-Za-z0-9]` (verified against the pinned net).
 fn token(raw: &str) -> String {
     let mapped = raw.replace('#', ".");
-    if mapped.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric) {
+    if mapped
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
+    {
         mapped
     } else {
         format!("x{mapped}")
@@ -352,7 +356,10 @@ fn add_edges(
                     "lane",
                     edge_ref(&key)?,
                     re::RoadEditingLaneDirection::Forward,
-                    re::LinearWidthProfile::try_new(SUMO_LANE_WIDTH_METERS, SUMO_LANE_WIDTH_METERS)?,
+                    re::LinearWidthProfile::try_new(
+                        SUMO_LANE_WIDTH_METERS,
+                        SUMO_LANE_WIDTH_METERS,
+                    )?,
                     None,
                     section,
                 )?,
@@ -373,13 +380,11 @@ fn add_edges(
 fn movement_key(junction_key: &str, movement_id: &str) -> Result<String> {
     let with_prefix = format!("{junction_key}:");
     let bare_id = token(bare(movement_id));
-    let local = bare_id
-        .strip_prefix(with_prefix.as_str())
-        .ok_or_else(|| {
-            Error::SumoModel(format!(
-                "movement id {movement_id:?} does not start with its junction prefix {with_prefix:?}"
-            ))
-        })?;
+    let local = bare_id.strip_prefix(with_prefix.as_str()).ok_or_else(|| {
+        Error::SumoModel(format!(
+            "movement id {movement_id:?} does not start with its junction prefix {with_prefix:?}"
+        ))
+    })?;
     // 剥离路口前缀后，本地键仍以带 `-` 前缀的边路 id 开头，需再过一次首字节规则。
     Ok(token(local))
 }

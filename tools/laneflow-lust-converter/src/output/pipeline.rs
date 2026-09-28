@@ -53,7 +53,10 @@ pub struct ConvertOutputPaths {
 }
 
 /// Verify pinned source and emit static bundle + provenance under `output_dir`.
-pub fn convert_with_config(config: &LustConverterConfig, config_toml_bytes: &[u8]) -> Result<ConvertOutputPaths> {
+pub fn convert_with_config(
+    config: &LustConverterConfig,
+    config_toml_bytes: &[u8],
+) -> Result<ConvertOutputPaths> {
     let verified = verify_source_dir(&config.source_dir)?;
     convert_verified(config, config_toml_bytes, &verified)
 }
@@ -165,12 +168,13 @@ fn convert_verified(
     })?;
 
     let converter_commit = resolve_converter_commit(config)?;
-    let cargo_lock_sha256 = hex_sha256(&fs::read(workspace_cargo_lock()).map_err(|source| {
-        Error::Io {
-            path: workspace_cargo_lock(),
-            source,
-        }
-    })?);
+    let cargo_lock_sha256 =
+        hex_sha256(
+            &fs::read(workspace_cargo_lock()).map_err(|source| Error::Io {
+                path: workspace_cargo_lock(),
+                source,
+            })?,
+        );
     let build = build_build_provenance(&BuildProvenanceInput {
         converter_commit,
         rust_version: "1.98.0",
@@ -231,10 +235,12 @@ fn build_source_tar(verified: &VerifiedSourceSet, licenses: &LicenseArtifacts) -
             .files
             .iter()
             .find(|file| file.relative_path == pinned.relative_path)
-            .ok_or_else(|| Error::SumoModel(format!(
-                "verified set missing pinned file {}",
-                pinned.relative_path
-            )))?;
+            .ok_or_else(|| {
+                Error::SumoModel(format!(
+                    "verified set missing pinned file {}",
+                    pinned.relative_path
+                ))
+            })?;
         let contents = fs::read(&file.absolute_path).map_err(|source| Error::Io {
             path: file.absolute_path.clone(),
             source,
@@ -280,7 +286,11 @@ fn workspace_cargo_lock() -> PathBuf {
 }
 
 fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
-    if let Some(commit) = config.converter_commit.as_ref().filter(|value| !value.is_empty()) {
+    if let Some(commit) = config
+        .converter_commit
+        .as_ref()
+        .filter(|value| !value.is_empty())
+    {
         return Ok(commit.clone());
     }
     if let Ok(commit) = std::env::var("LANEFLOW_CONVERTER_COMMIT")

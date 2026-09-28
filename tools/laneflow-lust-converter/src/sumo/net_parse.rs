@@ -9,8 +9,8 @@ use crate::{
     sumo::{
         decimal::ExactDecimal,
         net::{
-            SumoConnection, SumoEdge, SumoJunction, SumoLane, SumoLocation, SumoNetwork, SumoTlLogic,
-            SumoTlPhase,
+            SumoConnection, SumoEdge, SumoJunction, SumoLane, SumoLocation, SumoNetwork,
+            SumoTlLogic, SumoTlPhase,
         },
     },
 };
@@ -204,18 +204,16 @@ fn parse_shape(raw: &str) -> Result<Vec<(ExactDecimal, ExactDecimal)>> {
 }
 
 fn parse_pair(raw: &str) -> Result<(ExactDecimal, ExactDecimal)> {
-    let (x, y) = raw.split_once(',').ok_or_else(|| {
-        Error::SumoModel(format!("expected comma-separated pair, got {raw:?}"))
-    })?;
+    let (x, y) = raw
+        .split_once(',')
+        .ok_or_else(|| Error::SumoModel(format!("expected comma-separated pair, got {raw:?}")))?;
     Ok((
         ExactDecimal::from_str(x.trim())?,
         ExactDecimal::from_str(y.trim())?,
     ))
 }
 
-fn parse_quad(
-    raw: &str,
-) -> Result<(ExactDecimal, ExactDecimal, ExactDecimal, ExactDecimal)> {
+fn parse_quad(raw: &str) -> Result<(ExactDecimal, ExactDecimal, ExactDecimal, ExactDecimal)> {
     let parts: Vec<&str> = raw.split(',').collect();
     if parts.len() != 4 {
         return Err(Error::SumoModel(format!(

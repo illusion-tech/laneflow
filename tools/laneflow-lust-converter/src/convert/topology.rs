@@ -102,8 +102,7 @@ pub(crate) fn convert_static_with_due(
     options: &TopologyConvertOptions,
 ) -> Result<StaticConversionArtifacts> {
     let topology_norm = normalize_junctions(network)?;
-    let population =
-        select_population(due_vehicles, options.require_lust_population_count)?;
+    let population = select_population(due_vehicles, options.require_lust_population_count)?;
     let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
 
     let topology = convert_network_packages(
@@ -142,11 +141,10 @@ pub(crate) fn convert_static_with_due(
             })
             .collect(),
     };
-    let routes_toml =
-        toml::to_string_pretty(&table).map_err(|source| Error::TomlSerialize {
-            document: "routes.toml",
-            source,
-        })?;
+    let routes_toml = toml::to_string_pretty(&table).map_err(|source| Error::TomlSerialize {
+        document: "routes.toml",
+        source,
+    })?;
     Ok(StaticConversionArtifacts {
         population_record_count: bundle.records.len(),
         route_count: bundle.routes.len(),

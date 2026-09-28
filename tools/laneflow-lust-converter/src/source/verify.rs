@@ -83,7 +83,9 @@ fn checkout_revision(source_dir: &Path) -> Result<String> {
             stderr.trim()
         )));
     }
-    let revision = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+    let revision = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_lowercase();
     if revision.len() != 40 || !revision.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(unknown(format!(
             "git rev-parse HEAD returned unexpected output: {revision:?}"
@@ -197,10 +199,8 @@ mod tests {
 
     #[test]
     fn checkout_revision_reads_git_head() {
-        let root = std::env::temp_dir().join(format!(
-            "laneflow-lust-verify-repo-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("laneflow-lust-verify-repo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create temp");
         let git = |args: &[&str]| {

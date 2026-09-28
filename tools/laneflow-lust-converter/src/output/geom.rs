@@ -150,7 +150,11 @@ fn parse_diagnosis_fields(entry: &str) -> (String, String, String, String, Strin
     let turn = entry
         .split_once("each turn ")
         .and_then(|(_, tail)| between(tail, "", " deg"))
-        .or_else(|| entry.split_once("turns ").and_then(|(_, tail)| between(tail, "", " deg >")))
+        .or_else(|| {
+            entry
+                .split_once("turns ")
+                .and_then(|(_, tail)| between(tail, "", " deg >"))
+        })
         .unwrap_or("?")
         .to_owned();
     let coord = between(entry, "at (", ");").unwrap_or("?").to_owned();
@@ -187,7 +191,10 @@ impl InfeasibilityReport {
     }
 
     pub fn mechanism_count(&self, mechanism: InfeasibilityMechanism) -> usize {
-        self.entries.iter().filter(|e| e.mechanism == mechanism).count()
+        self.entries
+            .iter()
+            .filter(|e| e.mechanism == mechanism)
+            .count()
     }
 
     /// 内车道子集的机制计数（普查锁定的口径；authored 边不计入）。
@@ -226,13 +233,17 @@ impl InfeasibilityReport {
             .len();
         let mut out = String::new();
         out.push_str("# LuST 发射层不可行诊断清单\n\n");
-        out.push_str("- 基线源：pinned c4bd5bd3 原样（无本地补丁）；`scenario/lust.net.xml` SHA-256 为\n");
+        out.push_str(
+            "- 基线源：pinned c4bd5bd3 原样（无本地补丁）；`scenario/lust.net.xml` SHA-256 为\n",
+        );
         out.push_str("  `6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341`。\n");
         out.push_str("- 语义：发射层（CR 平滑 + 边界钳制 + 倒圆 + 采样）在本套验收常数\n");
         out.push_str("  （Balanced2Deg 全角 2°、HIR 退化段 0.1 m、发射弦长下限 0.105 m、\n");
         out.push_str("  f32 端点量化）下无法给出可发射几何的 lane 全集；逐条含 span、弦长、\n");
         out.push_str("  单片/均转角、坐标、切向来源与机制分类。\n");
-        out.push_str("- 生成：converter 诊断模式（`TopologyConvertOptions::emit_infeasibility_report`）；\n");
+        out.push_str(
+            "- 生成：converter 诊断模式（`TopologyConvertOptions::emit_infeasibility_report`）；\n",
+        );
         out.push_str("  同一基线下两次运行本清单逐字节一致。\n\n");
         out.push_str("## 总量\n\n");
         out.push_str("| 类别 | 不可行 | 基数 | 占比 |\n| --- | ---: | ---: | ---: |\n");
@@ -266,15 +277,25 @@ impl InfeasibilityReport {
         for (index, e) in entries.iter().enumerate() {
             let i = index + 1;
             let (span, chord, turn, coord, start, finish) = parse_diagnosis_fields(&e.entry);
-            let cls = if e.is_internal { "SUMO 内车道" } else { "authored 边" };
-            let junction = e.junction.as_deref().unwrap_or(if e.is_internal { "(节点簇)" } else { "-" });
+            let cls = if e.is_internal {
+                "SUMO 内车道"
+            } else {
+                "authored 边"
+            };
+            let junction =
+                e.junction
+                    .as_deref()
+                    .unwrap_or(if e.is_internal { "(节点簇)" } else { "-" });
             out.push_str(&format!(
                 "| {i} | `{}` | {cls} | {junction} | {} | {span} | {chord} | {turn} | ({coord}) | {start} | {finish} |\n",
                 e.lane_id,
                 e.mechanism.label(),
             ));
         }
-        Self { entries, rendered: out }
+        Self {
+            entries,
+            rendered: out,
+        }
     }
 }
 
@@ -333,7 +354,9 @@ fn mean_dir(a: Vec3, b: Vec3, fallback: Vec3) -> Vec3 {
 }
 
 fn point3(value: Vec3) -> Result<re::RoadEditingPoint3> {
-    Ok(re::RoadEditingPoint3::try_new(value[0], value[1], value[2])?)
+    Ok(re::RoadEditingPoint3::try_new(
+        value[0], value[1], value[2],
+    )?)
 }
 
 // ---------------------------------------------------------------------------
@@ -409,13 +432,8 @@ enum Side {
 /// 折线首/末端的非零弦方向（跳过重复点）；全部退化时返回 `None`。
 fn end_chord_dir(points: &[Vec3], side: Side) -> Option<Vec3> {
     match side {
-        Side::Start => points
-            .windows(2)
-            .find_map(|w| unit(sub(w[1], w[0]))),
-        Side::Finish => points
-            .windows(2)
-            .rev()
-            .find_map(|w| unit(sub(w[1], w[0]))),
+        Side::Start => points.windows(2).find_map(|w| unit(sub(w[1], w[0]))),
+        Side::Finish => points.windows(2).rev().find_map(|w| unit(sub(w[1], w[0]))),
     }
 }
 
@@ -469,8 +487,12 @@ pub(crate) fn boundary_clamps(
     // 3. 端点 → 对索引。
     let mut ends: HashMap<(String, Side), Vec<usize>> = HashMap::new();
     for (index, &(a, b)) in pairs.iter().enumerate() {
-        ends.entry((a.to_owned(), Side::Finish)).or_default().push(index);
-        ends.entry((b.to_owned(), Side::Start)).or_default().push(index);
+        ends.entry((a.to_owned(), Side::Finish))
+            .or_default()
+            .push(index);
+        ends.entry((b.to_owned(), Side::Start))
+            .or_default()
+            .push(index);
     }
 
     // 4. 扇出端先定：全部候选的角均值。
@@ -893,13 +915,7 @@ fn emit_sampled_span(
 ///
 /// 优先级：边界钳制（过 90° 守卫）→ 倒圆预设切向 → 端点自然弦向 /
 /// 内部折点 CR 方向（前后节点的中心差分）。
-fn tangent_dir(
-    spans: &[Span],
-    j: usize,
-    side: Side,
-    clamp: Option<Vec3>,
-    chord: Vec3,
-) -> Vec3 {
+fn tangent_dir(spans: &[Span], j: usize, side: Side, clamp: Option<Vec3>, chord: Vec3) -> Vec3 {
     let node = match side {
         Side::Start => &spans[j].from,
         Side::Finish => &spans[j].to,
@@ -1164,7 +1180,8 @@ mod tests {
         // 发射时的量化 weld 预检必须 fail-closed 并报出方向预算，而不是把
         // 病态几何交给 compiler 在深处冻结。
         let points = [pt(0.0, 0.0), pt(20.0, 0.0), pt(20.0, 4.0)];
-        let err = repair_curve(&points, None, None, None, None).expect_err("tight fillet must fail");
+        let err =
+            repair_curve(&points, None, None, None, None).expect_err("tight fillet must fail");
         let message = err.to_string();
         assert!(
             message.contains("weld budget"),
@@ -1187,7 +1204,8 @@ mod tests {
         };
         // 端点位置不变；末弦与钳制的夹角应显著小于原弦与钳制的夹角（5.7°）。
         assert!((end.x() - 10.0).abs() < 1e-9 && end.y().abs() < 1e-9);
-        let program = repair_curve(&points, None, Some([1.0, 0.0, 0.0]), None, None).expect("repair");
+        let program =
+            repair_curve(&points, None, Some([1.0, 0.0, 0.0]), None, None).expect("repair");
         assert_eq!(seg_ends(&program), 1);
         assert!(matches!(
             program.segments()[0].geometry(),
@@ -1199,7 +1217,8 @@ mod tests {
     fn clamp_guard_rejects_opposite_direction() {
         // 钳制与弦近对径（> 90°）：回退自然弦向，保持 Line。
         let points = [pt(0.0, 0.0), pt(10.0, 0.0)];
-        let program = repair_curve(&points, None, Some([-1.0, 0.0, 0.0]), None, None).expect("repair");
+        let program =
+            repair_curve(&points, None, Some([-1.0, 0.0, 0.0]), None, None).expect("repair");
         assert!(matches!(
             program.segments()[0].geometry(),
             re::RoadEditingCurveSegmentGeometry::Line { .. }
@@ -1228,7 +1247,9 @@ mod tests {
             "error must name the weld budget, got: {message}"
         );
         assert!(
-            message.contains("boundary clamp (fan-out mean over maneuver boundary pairs [sibling->exit])"),
+            message.contains(
+                "boundary clamp (fan-out mean over maneuver boundary pairs [sibling->exit])"
+            ),
             "error must name the clamp provenance, got: {message}"
         );
         assert!(
@@ -1254,7 +1275,7 @@ mod tests {
             None,
             None,
         )
-            .expect("repair");
+        .expect("repair");
         assert_eq!(seg_ends(&program), 1);
         let re::RoadEditingCurveSegmentGeometry::Line { end } = program.segments()[0].geometry()
         else {

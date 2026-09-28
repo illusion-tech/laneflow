@@ -28,8 +28,8 @@ pub(crate) fn json_bytes<T: serde::Serialize>(
     document: &'static str,
     value: &T,
 ) -> crate::Result<Vec<u8>> {
-    let mut bytes =
-        serde_json::to_vec_pretty(value).map_err(|source| crate::Error::Json { document, source })?;
+    let mut bytes = serde_json::to_vec_pretty(value)
+        .map_err(|source| crate::Error::Json { document, source })?;
     bytes.push(b'\n');
     Ok(bytes)
 }

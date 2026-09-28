@@ -42,7 +42,9 @@ pub fn write_deterministic_ustar(members: &[TarMember]) -> Result<Vec<u8>> {
 
 fn validate_path(path: &str) -> Result<()> {
     if path.is_empty() {
-        return Err(Error::SumoModel("tar member path must not be empty".to_owned()));
+        return Err(Error::SumoModel(
+            "tar member path must not be empty".to_owned(),
+        ));
     }
     if path.as_bytes().contains(&0) {
         return Err(Error::SumoModel(format!(

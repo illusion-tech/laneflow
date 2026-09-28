@@ -149,7 +149,9 @@ impl SumoNetwork {
 
     /// Look up a junction by id.
     pub fn junction(&self, junction_id: &str) -> Option<&SumoJunction> {
-        self.junctions.iter().find(|junction| junction.id == junction_id)
+        self.junctions
+            .iter()
+            .find(|junction| junction.id == junction_id)
     }
 
     /// Look up a lane by id.

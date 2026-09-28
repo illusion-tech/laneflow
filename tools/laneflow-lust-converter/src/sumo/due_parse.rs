@@ -36,9 +36,9 @@ fn collect_vehicles(
 ) -> Result<()> {
     if node.is_element() && node.tag_name().name() == "vehicle" {
         vehicles.push(parse_vehicle(node, source_file_ordinal, *ordinal)?);
-        *ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            Error::SumoModel("DUE vehicle ordinal overflowed u64".to_owned())
-        })?;
+        *ordinal = ordinal
+            .checked_add(1)
+            .ok_or_else(|| Error::SumoModel("DUE vehicle ordinal overflowed u64".to_owned()))?;
         return Ok(());
     }
     for child in node.children().filter(Node::is_element) {
@@ -63,9 +63,7 @@ fn parse_vehicle(
     let route = node
         .children()
         .find(|child| child.is_element() && child.tag_name().name() == "route")
-        .ok_or_else(|| {
-            Error::SumoModel(format!("DUE vehicle {id:?} missing inline <route>"))
-        })?;
+        .ok_or_else(|| Error::SumoModel(format!("DUE vehicle {id:?} missing inline <route>")))?;
     let edges_raw = required_attr(route, "edges")?;
     let road_edge_ids = edges_raw
         .split_whitespace()
