@@ -1,0 +1,151 @@
+note: did not finalize incremental compilation session directory `\\?\E:\projects\worktrees\707-current-scope\laneflow\target\debug\incremental\laneflow_spatial-200lmsivhvkis\s-hmp4l2l706-0yesej5-working`: 拒绝访问。 (os error 5)
+  |
+  = help: the next build will not be able to reuse work from this compilation
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src\lib.rs (target\debug\deps\laneflow_runtime-1b9c9b01e7850a82.exe)
+
+running 1 test
+test kernel::route_query_research::route_query_diagnostic ... 
+route-policy policy=policy profile=car signal_gates=1 denied=false
+route-policy policy=policy profile=restricted signal_gates=1 denied=true
+route-policy policy=deny-policy profile=car signal_gates=1 denied=true
+route-policy policy=deny-policy profile=restricted signal_gates=1 denied=true
+route-search case=red-false-repeats-8 site=conflict_tick:45 calls=65536
+route-search case=red-false-repeats-8 site=tick:1788 calls=65536
+route-search case=red-false-repeats-8 site=tick:4009 calls=65536
+route-search case=red-false-repeats-8 site=tick:5127 calls=65536
+route-search case=red-false-repeats-8 site=tick:5259 calls=65536
+route-search case=red-false-repeats-8 site=waiting:1449 calls=65536
+route-search case=red-false-repeats-8 site=waiting:1457 calls=65536
+route-search case=red-false-repeats-8 site=waiting:2900 calls=65536
+route-search case=red-false-repeats-8 site=waiting:2918 calls=65536
+route-search case=red-false-repeats-8 site=waiting:2950 calls=65536
+route-search case=red-false-repeats-8 site=waiting:3019 calls=65536
+route-barrier case=red-false-repeats-8 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-false-repeats-8 world=717341 hops=24 gates=16 waiting=8 conflicts=0 state_sum=1332736691
+route-index case=red-false-repeats-8 round=0 queries=262144 build_ns=22300 bytes=600 binary_ns=69349600 dense_ns=23504200 checksum=7759487
+route-index case=red-false-repeats-8 round=1 queries=262144 build_ns=16600 bytes=600 binary_ns=60661400 dense_ns=22054000 checksum=7759487
+route-index case=red-false-repeats-8 round=2 queries=262144 build_ns=10300 bytes=600 binary_ns=60609500 dense_ns=22083600 checksum=7759487
+route-unbounded case=red-false-repeats-8 signal_gates=16 stop=None
+route-search case=red-false-repeats-128 site=conflict_tick:45 calls=65536
+route-search case=red-false-repeats-128 site=tick:1788 calls=65536
+route-search case=red-false-repeats-128 site=tick:4009 calls=65536
+route-search case=red-false-repeats-128 site=tick:5127 calls=65536
+route-search case=red-false-repeats-128 site=tick:5259 calls=65536
+route-search case=red-false-repeats-128 site=waiting:1449 calls=65536
+route-search case=red-false-repeats-128 site=waiting:1457 calls=65536
+route-search case=red-false-repeats-128 site=waiting:2900 calls=65536
+route-search case=red-false-repeats-128 site=waiting:2918 calls=65536
+route-search case=red-false-repeats-128 site=waiting:2950 calls=65536
+route-search case=red-false-repeats-128 site=waiting:3019 calls=65536
+route-barrier case=red-false-repeats-128 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-false-repeats-128 world=755741 hops=384 gates=256 waiting=128 conflicts=0 state_sum=1332736691
+route-index case=red-false-repeats-128 round=0 queries=262144 build_ns=160600 bytes=9240 binary_ns=96833800 dense_ns=22120200 checksum=117873027
+route-index case=red-false-repeats-128 round=1 queries=262144 build_ns=118300 bytes=9240 binary_ns=95651900 dense_ns=22303000 checksum=117873027
+route-index case=red-false-repeats-128 round=2 queries=262144 build_ns=111100 bytes=9240 binary_ns=94638600 dense_ns=22638600 checksum=117873027
+route-unbounded case=red-false-repeats-128 signal_gates=256 stop=None
+route-search case=red-false-repeats-2048 site=conflict_tick:45 calls=65536
+route-search case=red-false-repeats-2048 site=tick:1788 calls=65536
+route-search case=red-false-repeats-2048 site=tick:4009 calls=65536
+route-search case=red-false-repeats-2048 site=tick:5127 calls=65536
+route-search case=red-false-repeats-2048 site=tick:5259 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:1449 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:1457 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:2900 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:2918 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:2950 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:3019 calls=65536
+route-barrier case=red-false-repeats-2048 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-false-repeats-2048 world=1370141 hops=6144 gates=4096 waiting=2048 conflicts=0 state_sum=1332736691
+route-index case=red-false-repeats-2048 round=0 queries=262144 build_ns=2728700 bytes=147480 binary_ns=186243400 dense_ns=22548100 checksum=1879491897
+route-index case=red-false-repeats-2048 round=1 queries=262144 build_ns=2557500 bytes=147480 binary_ns=182405000 dense_ns=22355700 checksum=1879491897
+route-index case=red-false-repeats-2048 round=2 queries=262144 build_ns=2579700 bytes=147480 binary_ns=184257400 dense_ns=22317800 checksum=1879491897
+route-unbounded case=red-false-repeats-2048 signal_gates=4096 stop=None
+route-search case=red-true-repeats-8 site=conflict_tick:45 calls=65536
+route-search case=red-true-repeats-8 site=tick:1788 calls=65536
+route-search case=red-true-repeats-8 site=tick:4009 calls=65536
+route-search case=red-true-repeats-8 site=tick:5127 calls=65536
+route-search case=red-true-repeats-8 site=tick:5259 calls=65536
+route-search case=red-true-repeats-8 site=waiting:1449 calls=65536
+route-search case=red-true-repeats-8 site=waiting:1457 calls=65536
+route-search case=red-true-repeats-8 site=waiting:2900 calls=65536
+route-search case=red-true-repeats-8 site=waiting:2918 calls=65536
+route-search case=red-true-repeats-8 site=waiting:2950 calls=65536
+route-search case=red-true-repeats-8 site=waiting:3019 calls=65536
+route-barrier case=red-true-repeats-8 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-true-repeats-8 world=717341 hops=24 gates=16 waiting=8 conflicts=0 state_sum=1332736691
+route-index case=red-true-repeats-8 round=0 queries=262144 build_ns=14300 bytes=600 binary_ns=71934300 dense_ns=21789600 checksum=7759487
+route-index case=red-true-repeats-8 round=1 queries=262144 build_ns=16900 bytes=600 binary_ns=59397300 dense_ns=22810700 checksum=7759487
+route-index case=red-true-repeats-8 round=2 queries=262144 build_ns=12100 bytes=600 binary_ns=59506600 dense_ns=21980900 checksum=7759487
+route-unbounded case=red-true-repeats-8 signal_gates=2 stop=Some(Finite(15955690))
+route-search case=red-true-repeats-128 site=conflict_tick:45 calls=65536
+route-search case=red-true-repeats-128 site=tick:1788 calls=65536
+route-search case=red-true-repeats-128 site=tick:4009 calls=65536
+route-search case=red-true-repeats-128 site=tick:5127 calls=65536
+route-search case=red-true-repeats-128 site=tick:5259 calls=65536
+route-search case=red-true-repeats-128 site=waiting:1449 calls=65536
+route-search case=red-true-repeats-128 site=waiting:1457 calls=65536
+route-search case=red-true-repeats-128 site=waiting:2900 calls=65536
+route-search case=red-true-repeats-128 site=waiting:2918 calls=65536
+route-search case=red-true-repeats-128 site=waiting:2950 calls=65536
+route-search case=red-true-repeats-128 site=waiting:3019 calls=65536
+route-barrier case=red-true-repeats-128 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-true-repeats-128 world=755741 hops=384 gates=256 waiting=128 conflicts=0 state_sum=1332736691
+route-index case=red-true-repeats-128 round=0 queries=262144 build_ns=132700 bytes=9240 binary_ns=95426100 dense_ns=23603300 checksum=117873027
+route-index case=red-true-repeats-128 round=1 queries=262144 build_ns=118000 bytes=9240 binary_ns=96638600 dense_ns=21725300 checksum=117873027
+route-index case=red-true-repeats-128 round=2 queries=262144 build_ns=105900 bytes=9240 binary_ns=97708800 dense_ns=22750600 checksum=117873027
+route-unbounded case=red-true-repeats-128 signal_gates=2 stop=Some(Finite(15955690))
+route-search case=red-true-repeats-2048 site=conflict_tick:45 calls=65536
+route-search case=red-true-repeats-2048 site=tick:1788 calls=65536
+route-search case=red-true-repeats-2048 site=tick:4009 calls=65536
+route-search case=red-true-repeats-2048 site=tick:5127 calls=65536
+route-search case=red-true-repeats-2048 site=tick:5259 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:1449 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:1457 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:2900 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:2918 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:2950 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:3019 calls=65536
+route-barrier case=red-true-repeats-2048 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-true-repeats-2048 world=1370141 hops=6144 gates=4096 waiting=2048 conflicts=0 state_sum=1332736691
+route-index case=red-true-repeats-2048 round=0 queries=262144 build_ns=2595800 bytes=147480 binary_ns=182580000 dense_ns=21914200 checksum=1879491897
+route-index case=red-true-repeats-2048 round=1 queries=262144 build_ns=2547800 bytes=147480 binary_ns=182871600 dense_ns=22090700 checksum=1879491897
+route-index case=red-true-repeats-2048 round=2 queries=262144 build_ns=2623100 bytes=147480 binary_ns=184685700 dense_ns=21730800 checksum=1879491897
+route-unbounded case=red-true-repeats-2048 signal_gates=2 stop=Some(Finite(15955690))
+route-search case=waiting-membership-1 site=conflict_tick:45 calls=16
+route-search case=waiting-membership-1 site=tick:1788 calls=16
+route-search case=waiting-membership-1 site=tick:4009 calls=16
+route-search case=waiting-membership-1 site=tick:5127 calls=16
+route-search case=waiting-membership-1 site=tick:5259 calls=16
+route-search case=waiting-membership-1 site=waiting:1449 calls=16
+route-search case=waiting-membership-1 site=waiting:1457 calls=16
+route-search case=waiting-membership-1 site=waiting:1962 calls=16
+route-search case=waiting-membership-1 site=waiting:2900 calls=16
+route-search case=waiting-membership-1 site=waiting:2918 calls=16
+route-search case=waiting-membership-1 site=waiting:2950 calls=16
+route-search case=waiting-membership-1 site=waiting:3019 calls=16
+route-barrier case=waiting-membership-1 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-search case=conflict-reservation-retry-2 site=conflict_tick:1482 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:1572 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:2059 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:2062 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:2074 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:249 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:45 calls=32
+route-search case=conflict-reservation-retry-2 site=tick:1788 calls=32
+route-search case=conflict-reservation-retry-2 site=tick:4009 calls=48
+route-search case=conflict-reservation-retry-2 site=tick:4253 calls=16
+route-search case=conflict-reservation-retry-2 site=tick:5127 calls=48
+route-search case=conflict-reservation-retry-2 site=tick:5259 calls=48
+route-search case=conflict-reservation-retry-2 site=transitions:369 calls=16
+route-search case=conflict-reservation-retry-2 site=transitions:372 calls=16
+route-search case=conflict-reservation-retry-2 site=waiting:1962 calls=16
+route-search case=conflict-reservation-retry-2 site=waiting:2900 calls=32
+route-search case=conflict-reservation-retry-2 site=waiting:2918 calls=16
+route-search case=conflict-reservation-retry-2 site=waiting:2950 calls=16
+route-barrier case=conflict-reservation-retry-2 signal_gates=0 conflict_scans=16 waiting_scans=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 540 filtered out; finished in 5.35s
+
