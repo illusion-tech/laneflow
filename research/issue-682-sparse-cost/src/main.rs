@@ -1,4 +1,5 @@
 //! #682 Windows 有限研究采集与独立核验。无后台服务，不修改其他进程。
+mod eligibility;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -575,6 +576,7 @@ fn verify(dir: &Path, output: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("eligibility") => eligibility::run(&args[2..]),
         Some("calibrate") if args.len() == 3 => calibrate(Path::new(&args[2])),
         Some("capture") if args.len() == 7 => capture(
             Path::new(&args[2]),

@@ -740,8 +740,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.workspace.conflict_motion_by_vehicle.len()
                 + self.workspace.conflict_next_eligibility.len(),
         );
-        self.workspace.conflict_motion_by_vehicle.fill(None);
-        self.workspace.conflict_next_eligibility.fill(None);
+        {
+            #[cfg(test)]
+            let _clear = super::eligibility_commit_research::begin(
+                0,
+                self.workspace.conflict_motion_by_vehicle.len(),
+            );
+            self.workspace.conflict_motion_by_vehicle.fill(None);
+        }
+        {
+            #[cfg(test)]
+            let _clear = super::eligibility_commit_research::begin(
+                1,
+                self.workspace.conflict_next_eligibility.len(),
+            );
+            self.workspace.conflict_next_eligibility.fill(None);
+        }
         #[cfg(test)]
         drop(sparse_clear);
 
@@ -2473,10 +2487,22 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
 
     /// 提交本拍 Conflict 资格表与决定批次到已发布状态。
     pub(crate) fn commit_conflict_step(&mut self) {
+        #[cfg(test)]
+        let _commit = super::eligibility_commit_research::begin(
+            4,
+            self.workspace.conflict_next_eligibility.len(),
+        );
         self.committed.conflict_eligibility.clear();
-        self.committed
-            .conflict_eligibility
-            .extend_from_slice(&self.workspace.conflict_next_eligibility);
+        {
+            #[cfg(test)]
+            let _copy = super::eligibility_commit_research::begin(
+                2,
+                self.workspace.conflict_next_eligibility.len(),
+            );
+            self.committed
+                .conflict_eligibility
+                .extend_from_slice(&self.workspace.conflict_next_eligibility);
+        }
         self.normalize_conflict_eligibility();
         core::mem::swap(
             &mut self.committed.latest_conflict_decisions,

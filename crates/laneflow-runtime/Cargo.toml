@@ -50,6 +50,10 @@ name = "sparse_cost_evidence"
 path = "src/kernel/tests/sparse_cost/wall.rs"
 
 [[test]]
+name = "eligibility_commit_evidence"
+path = "src/kernel/tests/eligibility_commit/wall.rs"
+
+[[test]]
 name = "route_query_evidence"
 path = "src/kernel/tests/route_query/wall.rs"
 
