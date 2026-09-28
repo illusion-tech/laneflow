@@ -2,13 +2,18 @@
 
 pub mod digest;
 pub mod emit;
+pub mod geom;
 pub mod model;
 pub mod pipeline;
 pub mod provenance;
 pub mod report;
 pub mod tar;
 
-pub use emit::{TopologyArtifacts, TopologyCounts, compile_network_lfca};
+pub use emit::{
+    TopologyArtifacts, TopologyCounts, compile_network_lfca,
+    compile_network_lfca_with_infeasibility_report,
+};
+pub use geom::{InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport};
 pub use pipeline::{ConvertOutputPaths, convert_with_config};
 pub use provenance::{
     BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls,

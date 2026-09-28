@@ -173,7 +173,7 @@ fn convert_verified(
     })?);
     let build = build_build_provenance(&BuildProvenanceInput {
         converter_commit,
-        rust_version: "1.96.0",
+        rust_version: "1.98.0",
         cargo_lock_sha256,
         config_digest: sha256_digest(config_toml_bytes),
         semantic_provenance_digest: sha256_digest(&semantic),

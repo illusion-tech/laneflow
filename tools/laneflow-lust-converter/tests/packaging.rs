@@ -106,7 +106,7 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
 
     let build_input = BuildProvenanceInput {
         converter_commit: "abc123".to_owned(),
-        rust_version: "1.96.0",
+        rust_version: "1.98.0",
         cargo_lock_sha256: "deadbeef".to_owned(),
         config_digest: "sha256:00".to_owned(),
         semantic_provenance_digest: "sha256:11".to_owned(),

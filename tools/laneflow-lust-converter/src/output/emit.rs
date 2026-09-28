@@ -18,7 +18,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     Error, Result,
-    output::model::{SpatialPackage, TrafficPackage},
+    output::{
+        geom,
+        model::{SpatialPackage, TrafficPackage},
+    },
     source::LUST_COMMIT,
     sumo::{LUST_FRAME_ID, SUMO_ID_PREFIX},
 };
@@ -48,19 +51,47 @@ pub struct TopologyCounts {
     pub stop_lines: u64,
     pub maneuver_gates: u64,
     pub parking_registry_empty: bool,
+    /// 转换期移除并焊接的点状 stub 内边数量（LuST 全网为 58）。
+    pub dropped_point_stub_edges: u64,
 }
 
 /// Compiled `network.lfca` bytes plus the entity counts of the source model.
+///
+/// `infeasibility_report` 仅诊断清单模式（见
+/// `compile_network_lfca_with_infeasibility_report`）为 `Some`；该模式下
+/// `network_lfca` 为空（compiler 阶段跳过，清单为交付物）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopologyArtifacts {
     pub network_lfca: Vec<u8>,
     pub counts: TopologyCounts,
+    pub infeasibility_report: Option<geom::InfeasibilityReport>,
 }
 
 /// Compile the intermediate Traffic/Spatial model into checked `network.lfca` bytes.
+///
+/// Fail-fast：任一条 lane 的发射层不可行即整体报错（诊断含 span / 坐标 /
+/// 切向来源）。
 pub fn compile_network_lfca(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
+) -> Result<TopologyArtifacts> {
+    compile_network_lfca_inner(traffic, spatial, false)
+}
+
+/// 诊断清单模式：不可行的 lane 记录诊断后以占位程序兜底继续，不产出
+/// `network_lfca`，交付物为 `TopologyArtifacts::infeasibility_report`
+/// （#253 验收重划，见 G1 补充记录）。
+pub fn compile_network_lfca_with_infeasibility_report(
+    traffic: &TrafficPackage,
+    spatial: &SpatialPackage,
+) -> Result<TopologyArtifacts> {
+    compile_network_lfca_inner(traffic, spatial, true)
+}
+
+fn compile_network_lfca_inner(
+    traffic: &TrafficPackage,
+    spatial: &SpatialPackage,
+    diagnostics_mode: bool,
 ) -> Result<TopologyArtifacts> {
     let limits = CompileLimits::single_network_1m_v2();
     let config_text = format!(
@@ -102,9 +133,30 @@ pub fn compile_network_lfca(
         .iter()
         .flat_map(|path| [path.entry_edge_id.as_str(), path.exit_edge_id.as_str()])
         .collect();
-    add_edges(&mut builder, traffic, &curve_by_edge, &approach_edges)?;
+    // G1 修订（几何修复）：maneuver 边界端点切向钳制，配合 repair_curve 的
+    // Bezier 重拟合与硬角倒圆，保证 numeric freeze 的方向连续性。
+    let clamps = geom::boundary_clamps(traffic, &curve_by_edge)?;
+    add_edges(
+        &mut builder,
+        traffic,
+        &curve_by_edge,
+        &approach_edges,
+        &clamps,
+        diagnostics_mode,
+    )?;
     add_junctions(&mut builder, traffic)?;
     add_signals(&mut builder, traffic)?;
+
+    // 诊断清单模式：compiler 阶段跳过（兜底占位曲线不进入验收），交付
+    // 确定性渲染的诊断清单。
+    if diagnostics_mode {
+        let report = geom::InfeasibilityReport::render(geom::drain_infeasible_diagnostics());
+        return Ok(TopologyArtifacts {
+            network_lfca: Vec::new(),
+            counts: topology_counts(traffic),
+            infeasibility_report: Some(report),
+        });
+    }
 
     let model = builder.finish()?;
     let buffer = re::RoadEditingSourceWriter::new(&limits).write(model)?;
@@ -127,19 +179,25 @@ pub fn compile_network_lfca(
 
     Ok(TopologyArtifacts {
         network_lfca,
-        counts: TopologyCounts {
-            lane_edges: traffic.lane_graph.edges.len() as u64,
-            junctions: traffic.junctions.len() as u64,
-            movements: traffic.movements.len() as u64,
-            maneuver_paths: traffic.maneuver_paths.len() as u64,
-            vehicle_profiles: traffic.vehicle_profiles.len() as u64,
-            signal_controllers: traffic.signals.controllers.len() as u64,
-            signal_groups: traffic.signals.groups.len() as u64,
-            stop_lines: traffic.signals.stop_lines.len() as u64,
-            maneuver_gates: traffic.signals.maneuver_gates.len() as u64,
-            parking_registry_empty: true,
-        },
+        counts: topology_counts(traffic),
+        infeasibility_report: None,
     })
+}
+
+fn topology_counts(traffic: &TrafficPackage) -> TopologyCounts {
+    TopologyCounts {
+        lane_edges: traffic.lane_graph.edges.len() as u64,
+        junctions: traffic.junctions.len() as u64,
+        movements: traffic.movements.len() as u64,
+        maneuver_paths: traffic.maneuver_paths.len() as u64,
+        vehicle_profiles: traffic.vehicle_profiles.len() as u64,
+        signal_controllers: traffic.signals.controllers.len() as u64,
+        signal_groups: traffic.signals.groups.len() as u64,
+        stop_lines: traffic.signals.stop_lines.len() as u64,
+        maneuver_gates: traffic.signals.maneuver_gates.len() as u64,
+        parking_registry_empty: true,
+        dropped_point_stub_edges: traffic.dropped_point_stub_edges,
+    }
 }
 
 /// Strip the `sumo:` prefix; internal lanes (`:J_0_0`) become `int:J_0_0` so keys
@@ -186,26 +244,6 @@ fn edge_ref(key: &str) -> Result<re::LaneEdgeReference> {
     Ok(re::LaneEdgeReference::local(key)?)
 }
 
-fn curve(points: &[[f64; 3]]) -> Result<re::RoadEditingCurveProgram> {
-    let (start, rest) = points.split_first().ok_or_else(|| {
-        Error::SumoModel("spatial edge centerline must hold at least one point".to_owned())
-    })?;
-    let segments = rest
-        .iter()
-        .map(|end| Ok(re::RoadEditingCurveSegment::line(point3(*end)?)))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(re::RoadEditingCurveProgram::try_new(
-        point3(*start)?,
-        segments,
-    )?)
-}
-
-fn point3(value: [f64; 3]) -> Result<re::RoadEditingPoint3> {
-    Ok(re::RoadEditingPoint3::try_new(
-        value[0], value[1], value[2],
-    )?)
-}
-
 fn add_profiles(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
     traffic: &TrafficPackage,
@@ -240,11 +278,16 @@ fn add_profiles(
 
 /// Junction approach edges must be RoadSection-derived per compiler rules; every other
 /// edge carries explicit centerline geometry directly.
+///
+/// `diagnostics_mode` 下发射失败的 lane 记录诊断后以首末点直连的占位程序
+/// 兜底继续（compiler 阶段由调用方跳过）；默认 fail-fast 路径逐字节不变。
 fn add_edges(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
     traffic: &TrafficPackage,
     curve_by_edge: &HashMap<&str, &crate::output::model::SpatialEdge>,
     approach_edges: &HashSet<&str>,
+    clamps: &geom::BoundaryClamps,
+    diagnostics_mode: bool,
 ) -> Result<()> {
     let frame = re::CanonicalFrameReference::local(LUST_FRAME_ID)?;
     for edge in &traffic.lane_graph.edges {
@@ -254,6 +297,24 @@ fn add_edges(
         let spatial = curve_by_edge.get(edge.id.as_str()).ok_or_else(|| {
             Error::SumoModel(format!("lane edge {:?} has no spatial centerline", edge.id))
         })?;
+        let geometry = match geom::repair_curve(
+            &spatial.centerline.points,
+            clamps.at_start(&edge.id),
+            clamps.at_finish(&edge.id),
+            clamps.source_at_start(&edge.id),
+            clamps.source_at_finish(&edge.id),
+        ) {
+            Ok(program) => program,
+            Err(error) => {
+                let full = format!("lane edge {:?}: {error}", edge.id);
+                if diagnostics_mode {
+                    geom::record_infeasible(&edge.id, error.to_string());
+                    geom::survey_fallback_program(&spatial.centerline.points)?
+                } else {
+                    return Err(Error::SumoModel(full));
+                }
+            }
+        };
         if approach_edges.contains(edge.id.as_str()) {
             let corridor_key = format!("{key}.road");
             let section =
@@ -265,7 +326,7 @@ fn add_edges(
             builder.add_alignment(re::RoadAlignmentInput::try_new(
                 &key,
                 frame.clone(),
-                curve(&spatial.centerline.points)?,
+                geometry,
             )?)?;
             builder.add_declaration(re::RoadEditingDeclaration::RoadCorridor(
                 re::RoadCorridorInput::try_new(
@@ -301,12 +362,7 @@ fn add_edges(
             ))?;
         } else {
             builder.add_declaration(re::RoadEditingDeclaration::LaneEdge(
-                re::LaneEdgeInput::try_new(
-                    &key,
-                    edge.speed_limit,
-                    successors,
-                    Some(curve(&spatial.centerline.points)?),
-                )?,
+                re::LaneEdgeInput::try_new(&key, edge.speed_limit, successors, Some(geometry))?,
             ))?;
         }
     }

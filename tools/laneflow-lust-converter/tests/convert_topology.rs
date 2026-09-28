@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use laneflow_lust_converter::{
-    ExactDecimal, LUST_FRAME_ID, TopologyConvertOptions,
+    ExactDecimal, InfeasibilityMechanism, LUST_FRAME_ID, TopologyConvertOptions,
     convert_static_from_xml_with_due, convert_topology_from_xml_with_tll_and_vtypes,
     parse_due_routes_xml, parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes,
 };
@@ -164,6 +164,11 @@ fn simplified_origin_matches_three_step_formula_on_lust_location() {
     assert_eq!(z, 0.0);
 }
 
+/// 真实 LuST 全网验收（G1 锚点：2026-09-28 补充记录——验收重划为「converter
+/// 交付 + 确定性 fail-closed 诊断清单」；端到端编译依赖未来的路口级 maneuver
+/// 几何合成，另立 G1）。本测试锁定：source 锚点、诊断清单两次运行逐字节一致、
+/// 总量与机制分布、锚点条目；清单文件落盘 `target/issue253-infeasible-survey.md`
+/// 作为验收交付物。
 #[test]
 #[ignore = "requires LUST_SOURCE_DIR pointing at commit c4bd5bd3751d426d42a9a1749c815e47ea188549"]
 fn full_lust_net_topology_matches_external_lane_anchor() {
@@ -179,7 +184,69 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     assert_eq!(network.connections.len(), 30_051);
     assert_eq!(network.net_tl_logic_ids().len(), 201);
 
-    let artifacts = convert_topology_from_xml_with_tll_and_vtypes(
+    let options = TopologyConvertOptions {
+        require_lust_location_anchors: true,
+        emit_infeasibility_report: true,
+        ..TopologyConvertOptions::default()
+    };
+    let first = convert_topology_from_xml_with_tll_and_vtypes(
+        &net_xml, &tll_xml, &vtypes_xml, &options,
+    )
+    .expect("first diagnostic-report conversion");
+    let second = convert_topology_from_xml_with_tll_and_vtypes(
+        &net_xml, &tll_xml, &vtypes_xml, &options,
+    )
+    .expect("second diagnostic-report conversion");
+    let report = first
+        .infeasibility_report
+        .as_ref()
+        .expect("diagnostic report deliverable");
+    assert!(
+        first.network_lfca.is_empty() && second.network_lfca.is_empty(),
+        "diagnostic mode must not emit network.lfca"
+    );
+    assert_eq!(
+        report.rendered,
+        second
+            .infeasibility_report
+            .as_ref()
+            .expect("second report")
+            .rendered,
+        "diagnostic report must be byte-deterministic across runs"
+    );
+    // 点状 stub 内边被移除并焊接（pinned 数据 shape 端点距 < 0.5 m 的共 84 条，
+    // 实测锁定），其余 lane 全数保留。
+    assert_eq!(first.counts.dropped_point_stub_edges, 84);
+    assert_eq!(
+        first.counts.lane_edges + first.counts.dropped_point_stub_edges,
+        network.lanes.len() as u64
+    );
+
+    // 锁定诊断清单（pinned c4bd5bd3 基线；数字随源数据或发射语义变化而更新）。
+    assert_eq!(report.total(), 9_735);
+    assert_eq!(report.internal_count(), 8_939);
+    assert_eq!(report.external_count(), 796);
+    assert_eq!(report.junction_count(), 1_854);
+    assert_eq!(
+        report.internal_mechanism_count(InfeasibilityMechanism::BoundaryClamp),
+        4_436
+    );
+    assert_eq!(
+        report.internal_mechanism_count(InfeasibilityMechanism::InteriorCurvature),
+        4_061
+    );
+    assert_eq!(
+        report.internal_mechanism_count(InfeasibilityMechanism::HardCornerFillet),
+        442
+    );
+    let anchor_first = &report.entries[0].lane_id;
+    let anchor_second = &report.entries[1].lane_id;
+    assert_eq!(anchor_first, "sumo::-1000_2_0", "first infeasible lane");
+    assert_eq!(anchor_second, "sumo::-1000_7_0", "second infeasible lane");
+
+    // 默认 fail-fast 行为：同一基线下确定性中止于首条不可行 lane，
+    // 错误消息逐字节锁定（诊断模式不改变默认路径）。
+    let fail_fast = convert_topology_from_xml_with_tll_and_vtypes(
         &net_xml,
         &tll_xml,
         &vtypes_xml,
@@ -188,8 +255,20 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
             ..TopologyConvertOptions::default()
         },
     )
-    .expect("full topology+signals+profiles convert");
-    assert_eq!(artifacts.counts.lane_edges, network.lanes.len() as u64);
+    .expect_err("default mode must fail fast at the first infeasible lane");
+    let message = fail_fast.to_string();
+    assert!(
+        message.contains("sumo::-1000_2_0") && message.contains("span 2/2"),
+        "fail-fast point drifted: {message}"
+    );
+
+    // 验收交付物：确定性清单落盘（与测试断言同源，逐字节稳定）。
+    let out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("issue253-infeasible-survey.md");
+    fs::write(&out_path, &report.rendered).expect("write diagnostic survey file");
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

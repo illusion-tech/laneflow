@@ -20,6 +20,9 @@ pub(crate) struct TrafficPackage {
     pub vehicle_profiles: Vec<VehicleProfile>,
     pub signals: Signals,
     pub parking: Parking,
+    /// 转换期决策记录：被移除并焊接的点状 stub 内边数量（不序列化，仅入报告计数）。
+    #[serde(skip)]
+    pub dropped_point_stub_edges: u64,
 }
 
 #[derive(Debug, Serialize)]

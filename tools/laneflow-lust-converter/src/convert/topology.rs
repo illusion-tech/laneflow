@@ -15,7 +15,7 @@ use crate::{
         signals::convert_signals,
     },
     output::{
-        TopologyArtifacts, compile_network_lfca,
+        TopologyArtifacts, compile_network_lfca, compile_network_lfca_with_infeasibility_report,
         model::{
             Centerline, LaneEdge, LaneGraph, Parking, PopulationSelection, PopulationTableRecord,
             Route, RoutesToml, SpatialEdge, SpatialPackage, TrafficPackage, Units, VehicleProfile,
@@ -38,6 +38,10 @@ pub struct TopologyConvertOptions {
     pub require_lust_location_anchors: bool,
     /// When true, require exactly 10,592 filtered DUE candidates before taking 10k.
     pub require_lust_population_count: bool,
+    /// When true, deliver the deterministic emission-layer infeasibility
+    /// diagnosis report instead of `network.lfca`（#253 验收重划，见 G1 补充
+    /// 记录）；默认 false 保持 fail-fast 行为不变。
+    pub emit_infeasibility_report: bool,
 }
 
 impl Default for TopologyConvertOptions {
@@ -48,6 +52,7 @@ impl Default for TopologyConvertOptions {
             spatial_artifact_ref: DEFAULT_SPATIAL_REF.to_owned(),
             require_lust_location_anchors: false,
             require_lust_population_count: false,
+            emit_infeasibility_report: false,
         }
     }
 }
@@ -173,6 +178,10 @@ fn convert_network_packages(
     let mut spatial_edges = Vec::with_capacity(network.lanes.len());
 
     for lane in &network.lanes {
+        // 点状 stub 内边已被 junction 归一化移除并焊接，不再进入 lane graph / spatial。
+        if topology.dropped_stub_lane_ids.contains(lane.id.as_str()) {
+            continue;
+        }
         let id = lane.laneflow_id();
         let length = lane.length.to_f64()?;
         let speed_limit = lane.speed.to_f64()?;
@@ -205,6 +214,18 @@ fn convert_network_packages(
             let z = projected_y.checked_sub(origin.1)?.to_f64()?;
             points.push([x, 0.0, z]);
         }
+        // stub 焊接：入口边末点替换为出口边首点（同一投影链），消除点结处
+        // 1–6 cm 的位置缝；被替换末点本就是 stub 起点的噪声坐标。
+        if let Some((wx, wy)) = topology.stub_welds.get(lane.id.as_str()) {
+            let projected_x = wx.checked_sub(network.location.net_offset.0)?;
+            let projected_y = wy.checked_sub(network.location.net_offset.1)?;
+            let x = projected_x.checked_sub(origin.0)?.to_f64()?;
+            let z = projected_y.checked_sub(origin.1)?.to_f64()?;
+            let last = points.last_mut().ok_or_else(|| {
+                Error::SumoModel(format!("welded entry lane {:?} has empty shape", lane.id))
+            })?;
+            *last = [x, 0.0, z];
+        }
         spatial_edges.push(SpatialEdge {
             traffic_edge_id: id,
             centerline: Centerline { points },
@@ -228,6 +249,7 @@ fn convert_network_packages(
             areas: Vec::new(),
             spaces: Vec::new(),
         },
+        dropped_point_stub_edges: topology.dropped_stub_lane_ids.len() as u64,
     };
     let spatial = SpatialPackage {
         format_version: "0.1",
@@ -235,5 +257,9 @@ fn convert_network_packages(
         edges: spatial_edges,
     };
 
-    compile_network_lfca(&traffic, &spatial)
+    if options.emit_infeasibility_report {
+        compile_network_lfca_with_infeasibility_report(&traffic, &spatial)
+    } else {
+        compile_network_lfca(&traffic, &spatial)
+    }
 }

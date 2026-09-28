@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     Error, Result,
     output::model::{Junction, ManeuverPath, Movement},
-    sumo::{SUMO_ID_PREFIX, SumoLane, SumoNetwork},
+    sumo::{ExactDecimal, SUMO_ID_PREFIX, SumoLane, SumoNetwork},
 };
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -31,6 +31,8 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
     let adjacency = build_lane_adjacency(network, &lane_by_edge_index)?;
     let owners_by_int_lane = build_int_lane_owners(network)?;
 
+    let mut dropped_stub_lane_ids = HashSet::new();
+    let mut stub_welds: HashMap<String, (ExactDecimal, ExactDecimal)> = HashMap::new();
     let mut traversals = Vec::new();
     for connection in &network.connections {
         let from_edge = network.edge(&connection.from_edge_id).ok_or_else(|| {
@@ -77,6 +79,47 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
                 )));
             }
             internal_lane_ids.push(via_id.clone());
+        }
+
+        // 点状 stub 内边（LuST 有 84 条，全部在 dir="s" 的直行穿越上）：形状端点距
+        // 不足 0.5 m，其弦向是点结处的坐标抖动噪声（实测可达 173° 反向）。这类边在
+        // "两端点固定 + 5mm join 容差 + 2° 方向档"下无可行几何表示（位移方向与
+        // 行进方向矛盾），唯一出路是从路径中移除并把入口边末点焊接到出口边首点。
+        if internal_lane_ids.len() == 1 {
+            let stub_id = &internal_lane_ids[0];
+            let stub_lane = network.lane(stub_id).expect("via lane checked");
+            if lane_shape_span_meters(stub_lane)? < POINT_STUB_MAX_METERS {
+                let target = exit.shape.first().ok_or_else(|| {
+                    Error::SumoModel(format!("exit lane {:?} has empty shape", exit.id))
+                })?;
+                match stub_welds.entry(entry.id.clone()) {
+                    std::collections::hash_map::Entry::Occupied(previous) => {
+                        let previous = previous.get();
+                        let dx = previous.0.checked_sub(target.0)?.to_f64()?;
+                        let dy = previous.1.checked_sub(target.1)?.to_f64()?;
+                        if dx * dx + dy * dy > 1e-6 {
+                            return Err(Error::SumoModel(format!(
+                                "entry lane {:?} welded to conflicting targets by point-stub removal",
+                                entry.id
+                            )));
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(slot) => {
+                        slot.insert(target.clone());
+                    }
+                }
+                dropped_stub_lane_ids.insert(stub_id.clone());
+                internal_lane_ids.clear();
+            }
+        } else {
+            for via_id in &internal_lane_ids {
+                let lane = network.lane(via_id).expect("via lane checked");
+                if lane_shape_span_meters(lane)? < POINT_STUB_MAX_METERS {
+                    return Err(Error::SumoModel(format!(
+                        "point-stub internal lane {via_id:?} inside a multi-internal chain is unsupported"
+                    )));
+                }
+            }
         }
 
         let mut sequence = Vec::with_capacity(internal_lane_ids.len() + 2);
@@ -215,7 +258,25 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
         movements,
         maneuver_paths,
         path_by_connection,
+        dropped_stub_lane_ids,
+        stub_welds,
     })
+}
+
+/// 点状 stub 内边的形状端点距上限（米）：LuST 的 84 条 stub 均 ≤ 0.5 m。
+const POINT_STUB_MAX_METERS: f64 = 0.5;
+
+/// 内边形状首末点距离（米）。
+fn lane_shape_span_meters(lane: &SumoLane) -> Result<f64> {
+    let Some((first, rest)) = lane.shape.split_first() else {
+        return Ok(0.0);
+    };
+    let Some(last) = rest.last() else {
+        return Ok(0.0);
+    };
+    let dx = last.0.checked_sub(first.0)?.to_f64()?;
+    let dy = last.1.checked_sub(first.1)?.to_f64()?;
+    Ok((dx * dx + dy * dy).sqrt())
 }
 
 /// Junction normalization output used by topology and signal conversion.
@@ -226,6 +287,10 @@ pub struct NormalizedTopology {
     pub maneuver_paths: Vec<ManeuverPath>,
     /// `(from_road_edge, from_lane, to_road_edge, to_lane) -> ManeuverPath.id`
     pub path_by_connection: HashMap<(String, u32, String, u32), String>,
+    /// 被移除的点状 stub 内边（SUMO 原始 lane id）：不再出现在 lane graph / spatial。
+    pub dropped_stub_lane_ids: HashSet<String>,
+    /// stub 移除后的焊接指令：入口 lane 原始 id → 出口 lane 首点（SUMO 原始坐标）。
+    pub stub_welds: HashMap<String, (ExactDecimal, ExactDecimal)>,
 }
 
 fn resolve_owner(
@@ -409,6 +474,22 @@ fn build_lane_adjacency(
                 .entry(window[0].clone())
                 .or_default()
                 .insert(window[1].clone());
+        }
+        // 点状 stub 穿越在 normalize_junctions 中被移除并焊接为 from→to 直达，
+        // 邻接表需同步提供该直达边供 validate_sequence_connected 使用。
+        if connection.via_lane_ids.len() == 1 {
+            let via = network.lane(&connection.via_lane_ids[0]).ok_or_else(|| {
+                Error::SumoModel(format!(
+                    "connection via references unknown lane {:?}",
+                    connection.via_lane_ids[0]
+                ))
+            })?;
+            if lane_shape_span_meters(via)? < POINT_STUB_MAX_METERS {
+                adjacency
+                    .entry(from_lane.id.clone())
+                    .or_default()
+                    .insert(to_lane.id.clone());
+            }
         }
     }
     Ok(adjacency)
