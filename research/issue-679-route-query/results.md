@@ -41,7 +41,8 @@
 
 每组 512 × 128 = 65536 个车辆拍：
 
-- 当前 signal Gate 解释次数为 **0**，Motion Conflict/Waiting 屏障扫描均为 **0**。
+- 当前 `signal_stop_distance` 的 Gate 解释次数为 **0**，Motion Conflict/Waiting
+  屏障扫描均为 **0**；不是整个 step 的全部 Gate 策略解释次数。
   `MotionReach` 在第一扇够不着的门退出，与后缀受控门数量无关。
 - 显式 `reach=None` 的单次回放，全绿解释 16 / 256 / 4096 扇门；第二门红灯均
   解释 2 扇门。该回放说明旧算法为何会受长信号链影响，不能当作当前整步基线。
