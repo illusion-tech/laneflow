@@ -1,5 +1,6 @@
 //! #679 未插桩整步墙钟；路线登记在单独计时窗口，编译静态路网和生成车辆不计入。
 use laneflow_runtime as runtime_types;
+mod evidence;
 mod fixture;
 
 #[test]

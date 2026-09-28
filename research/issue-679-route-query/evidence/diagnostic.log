@@ -1,0 +1,181 @@
+
+running 1 test
+test kernel::route_query_research::route_query_diagnostic ... 
+route-policy policy=policy profile=car signal_gates=1 denied=false
+route-policy policy=policy profile=restricted signal_gates=1 denied=true
+route-policy policy=deny-policy profile=car signal_gates=1 denied=true
+route-policy policy=deny-policy profile=restricted signal_gates=1 denied=true
+route-search case=red-false-repeats-8 site=conflict_tick:2059 calls=65536
+route-search case=red-false-repeats-8 site=conflict_tick:2062 calls=65536
+route-search case=red-false-repeats-8 site=conflict_tick:45 calls=65536
+route-search case=red-false-repeats-8 site=tick:1788 calls=65536
+route-search case=red-false-repeats-8 site=tick:4009 calls=65536
+route-search case=red-false-repeats-8 site=tick:5127 calls=65536
+route-search case=red-false-repeats-8 site=tick:5259 calls=65536
+route-search case=red-false-repeats-8 site=transitions:265 calls=65536
+route-search case=red-false-repeats-8 site=transitions:369 calls=65536
+route-search case=red-false-repeats-8 site=transitions:372 calls=65536
+route-search case=red-false-repeats-8 site=waiting:1449 calls=65536
+route-search case=red-false-repeats-8 site=waiting:1457 calls=65536
+route-search case=red-false-repeats-8 site=waiting:2900 calls=65536
+route-search case=red-false-repeats-8 site=waiting:2918 calls=65536
+route-search case=red-false-repeats-8 site=waiting:2950 calls=65536
+route-search case=red-false-repeats-8 site=waiting:3019 calls=65536
+route-barrier case=red-false-repeats-8 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-false-repeats-8 world=717341 hops=24 gates=16 waiting=8 conflicts=0 state_sum=1332736691
+route-index case=red-false-repeats-8 round=0 queries=262144 build_ns=4900 bytes=600 binary_ns=3189300 dense_ns=366700 checksum=7759487
+route-index case=red-false-repeats-8 round=1 queries=262144 build_ns=1800 bytes=600 binary_ns=3166700 dense_ns=424400 checksum=7759487
+route-index case=red-false-repeats-8 round=2 queries=262144 build_ns=1300 bytes=600 binary_ns=3031900 dense_ns=401900 checksum=7759487
+route-unbounded case=red-false-repeats-8 signal_gates=16 stop=None
+route-search case=red-false-repeats-128 site=conflict_tick:2059 calls=65536
+route-search case=red-false-repeats-128 site=conflict_tick:2062 calls=65536
+route-search case=red-false-repeats-128 site=conflict_tick:45 calls=65536
+route-search case=red-false-repeats-128 site=tick:1788 calls=65536
+route-search case=red-false-repeats-128 site=tick:4009 calls=65536
+route-search case=red-false-repeats-128 site=tick:5127 calls=65536
+route-search case=red-false-repeats-128 site=tick:5259 calls=65536
+route-search case=red-false-repeats-128 site=transitions:265 calls=65536
+route-search case=red-false-repeats-128 site=transitions:369 calls=65536
+route-search case=red-false-repeats-128 site=transitions:372 calls=65536
+route-search case=red-false-repeats-128 site=waiting:1449 calls=65536
+route-search case=red-false-repeats-128 site=waiting:1457 calls=65536
+route-search case=red-false-repeats-128 site=waiting:2900 calls=65536
+route-search case=red-false-repeats-128 site=waiting:2918 calls=65536
+route-search case=red-false-repeats-128 site=waiting:2950 calls=65536
+route-search case=red-false-repeats-128 site=waiting:3019 calls=65536
+route-barrier case=red-false-repeats-128 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-false-repeats-128 world=755741 hops=384 gates=256 waiting=128 conflicts=0 state_sum=1332736691
+route-index case=red-false-repeats-128 round=0 queries=262144 build_ns=44700 bytes=9240 binary_ns=6690400 dense_ns=358900 checksum=117873027
+route-index case=red-false-repeats-128 round=1 queries=262144 build_ns=10900 bytes=9240 binary_ns=6586200 dense_ns=361400 checksum=117873027
+route-index case=red-false-repeats-128 round=2 queries=262144 build_ns=10200 bytes=9240 binary_ns=6430600 dense_ns=357200 checksum=117873027
+route-unbounded case=red-false-repeats-128 signal_gates=256 stop=None
+route-search case=red-false-repeats-2048 site=conflict_tick:2059 calls=65536
+route-search case=red-false-repeats-2048 site=conflict_tick:2062 calls=65536
+route-search case=red-false-repeats-2048 site=conflict_tick:45 calls=65536
+route-search case=red-false-repeats-2048 site=tick:1788 calls=65536
+route-search case=red-false-repeats-2048 site=tick:4009 calls=65536
+route-search case=red-false-repeats-2048 site=tick:5127 calls=65536
+route-search case=red-false-repeats-2048 site=tick:5259 calls=65536
+route-search case=red-false-repeats-2048 site=transitions:265 calls=65536
+route-search case=red-false-repeats-2048 site=transitions:369 calls=65536
+route-search case=red-false-repeats-2048 site=transitions:372 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:1449 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:1457 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:2900 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:2918 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:2950 calls=65536
+route-search case=red-false-repeats-2048 site=waiting:3019 calls=65536
+route-barrier case=red-false-repeats-2048 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-false-repeats-2048 world=1370141 hops=6144 gates=4096 waiting=2048 conflicts=0 state_sum=1332736691
+route-index case=red-false-repeats-2048 round=0 queries=262144 build_ns=295600 bytes=147480 binary_ns=11999400 dense_ns=367500 checksum=1879491897
+route-index case=red-false-repeats-2048 round=1 queries=262144 build_ns=690500 bytes=147480 binary_ns=11838200 dense_ns=359300 checksum=1879491897
+route-index case=red-false-repeats-2048 round=2 queries=262144 build_ns=260900 bytes=147480 binary_ns=13202400 dense_ns=372800 checksum=1879491897
+route-unbounded case=red-false-repeats-2048 signal_gates=4096 stop=None
+route-search case=red-true-repeats-8 site=conflict_tick:2059 calls=65536
+route-search case=red-true-repeats-8 site=conflict_tick:2062 calls=65536
+route-search case=red-true-repeats-8 site=conflict_tick:45 calls=65536
+route-search case=red-true-repeats-8 site=tick:1788 calls=65536
+route-search case=red-true-repeats-8 site=tick:4009 calls=65536
+route-search case=red-true-repeats-8 site=tick:5127 calls=65536
+route-search case=red-true-repeats-8 site=tick:5259 calls=65536
+route-search case=red-true-repeats-8 site=transitions:265 calls=65536
+route-search case=red-true-repeats-8 site=transitions:369 calls=65536
+route-search case=red-true-repeats-8 site=transitions:372 calls=65536
+route-search case=red-true-repeats-8 site=waiting:1449 calls=65536
+route-search case=red-true-repeats-8 site=waiting:1457 calls=65536
+route-search case=red-true-repeats-8 site=waiting:2900 calls=65536
+route-search case=red-true-repeats-8 site=waiting:2918 calls=65536
+route-search case=red-true-repeats-8 site=waiting:2950 calls=65536
+route-search case=red-true-repeats-8 site=waiting:3019 calls=65536
+route-barrier case=red-true-repeats-8 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-true-repeats-8 world=717341 hops=24 gates=16 waiting=8 conflicts=0 state_sum=1332736691
+route-index case=red-true-repeats-8 round=0 queries=262144 build_ns=2700 bytes=600 binary_ns=2814400 dense_ns=362800 checksum=7759487
+route-index case=red-true-repeats-8 round=1 queries=262144 build_ns=400 bytes=600 binary_ns=2902600 dense_ns=366400 checksum=7759487
+route-index case=red-true-repeats-8 round=2 queries=262144 build_ns=500 bytes=600 binary_ns=2908400 dense_ns=371200 checksum=7759487
+route-unbounded case=red-true-repeats-8 signal_gates=2 stop=Some(Finite(15955690))
+route-search case=red-true-repeats-128 site=conflict_tick:2059 calls=65536
+route-search case=red-true-repeats-128 site=conflict_tick:2062 calls=65536
+route-search case=red-true-repeats-128 site=conflict_tick:45 calls=65536
+route-search case=red-true-repeats-128 site=tick:1788 calls=65536
+route-search case=red-true-repeats-128 site=tick:4009 calls=65536
+route-search case=red-true-repeats-128 site=tick:5127 calls=65536
+route-search case=red-true-repeats-128 site=tick:5259 calls=65536
+route-search case=red-true-repeats-128 site=transitions:265 calls=65536
+route-search case=red-true-repeats-128 site=transitions:369 calls=65536
+route-search case=red-true-repeats-128 site=transitions:372 calls=65536
+route-search case=red-true-repeats-128 site=waiting:1449 calls=65536
+route-search case=red-true-repeats-128 site=waiting:1457 calls=65536
+route-search case=red-true-repeats-128 site=waiting:2900 calls=65536
+route-search case=red-true-repeats-128 site=waiting:2918 calls=65536
+route-search case=red-true-repeats-128 site=waiting:2950 calls=65536
+route-search case=red-true-repeats-128 site=waiting:3019 calls=65536
+route-barrier case=red-true-repeats-128 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-true-repeats-128 world=755741 hops=384 gates=256 waiting=128 conflicts=0 state_sum=1332736691
+route-index case=red-true-repeats-128 round=0 queries=262144 build_ns=12800 bytes=9240 binary_ns=6586200 dense_ns=360000 checksum=117873027
+route-index case=red-true-repeats-128 round=1 queries=262144 build_ns=10900 bytes=9240 binary_ns=6669200 dense_ns=358800 checksum=117873027
+route-index case=red-true-repeats-128 round=2 queries=262144 build_ns=10700 bytes=9240 binary_ns=6465700 dense_ns=353000 checksum=117873027
+route-unbounded case=red-true-repeats-128 signal_gates=2 stop=Some(Finite(15955690))
+route-search case=red-true-repeats-2048 site=conflict_tick:2059 calls=65536
+route-search case=red-true-repeats-2048 site=conflict_tick:2062 calls=65536
+route-search case=red-true-repeats-2048 site=conflict_tick:45 calls=65536
+route-search case=red-true-repeats-2048 site=tick:1788 calls=65536
+route-search case=red-true-repeats-2048 site=tick:4009 calls=65536
+route-search case=red-true-repeats-2048 site=tick:5127 calls=65536
+route-search case=red-true-repeats-2048 site=tick:5259 calls=65536
+route-search case=red-true-repeats-2048 site=transitions:265 calls=65536
+route-search case=red-true-repeats-2048 site=transitions:369 calls=65536
+route-search case=red-true-repeats-2048 site=transitions:372 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:1449 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:1457 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:2900 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:2918 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:2950 calls=65536
+route-search case=red-true-repeats-2048 site=waiting:3019 calls=65536
+route-barrier case=red-true-repeats-2048 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-memory case=red-true-repeats-2048 world=1370141 hops=6144 gates=4096 waiting=2048 conflicts=0 state_sum=1332736691
+route-index case=red-true-repeats-2048 round=0 queries=262144 build_ns=413700 bytes=147480 binary_ns=12823200 dense_ns=381900 checksum=1879491897
+route-index case=red-true-repeats-2048 round=1 queries=262144 build_ns=244900 bytes=147480 binary_ns=12131000 dense_ns=364800 checksum=1879491897
+route-index case=red-true-repeats-2048 round=2 queries=262144 build_ns=247200 bytes=147480 binary_ns=12555000 dense_ns=380500 checksum=1879491897
+route-unbounded case=red-true-repeats-2048 signal_gates=2 stop=Some(Finite(15955690))
+route-search case=waiting-membership-1 site=conflict_tick:2059 calls=16
+route-search case=waiting-membership-1 site=conflict_tick:2062 calls=16
+route-search case=waiting-membership-1 site=conflict_tick:45 calls=16
+route-search case=waiting-membership-1 site=tick:1788 calls=16
+route-search case=waiting-membership-1 site=tick:4009 calls=16
+route-search case=waiting-membership-1 site=tick:5127 calls=16
+route-search case=waiting-membership-1 site=tick:5259 calls=16
+route-search case=waiting-membership-1 site=transitions:265 calls=16
+route-search case=waiting-membership-1 site=transitions:369 calls=16
+route-search case=waiting-membership-1 site=transitions:372 calls=16
+route-search case=waiting-membership-1 site=waiting:1449 calls=16
+route-search case=waiting-membership-1 site=waiting:1457 calls=16
+route-search case=waiting-membership-1 site=waiting:1962 calls=16
+route-search case=waiting-membership-1 site=waiting:2900 calls=16
+route-search case=waiting-membership-1 site=waiting:2918 calls=16
+route-search case=waiting-membership-1 site=waiting:2950 calls=16
+route-search case=waiting-membership-1 site=waiting:3019 calls=16
+route-barrier case=waiting-membership-1 signal_gates=0 conflict_scans=0 waiting_scans=0
+route-search case=conflict-reservation-retry-2 site=conflict_tick:1482 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:1572 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:2059 calls=32
+route-search case=conflict-reservation-retry-2 site=conflict_tick:2062 calls=32
+route-search case=conflict-reservation-retry-2 site=conflict_tick:2074 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:249 calls=16
+route-search case=conflict-reservation-retry-2 site=conflict_tick:45 calls=32
+route-search case=conflict-reservation-retry-2 site=tick:1788 calls=32
+route-search case=conflict-reservation-retry-2 site=tick:4009 calls=48
+route-search case=conflict-reservation-retry-2 site=tick:4253 calls=16
+route-search case=conflict-reservation-retry-2 site=tick:5127 calls=48
+route-search case=conflict-reservation-retry-2 site=tick:5259 calls=48
+route-search case=conflict-reservation-retry-2 site=transitions:265 calls=32
+route-search case=conflict-reservation-retry-2 site=transitions:369 calls=32
+route-search case=conflict-reservation-retry-2 site=transitions:372 calls=32
+route-search case=conflict-reservation-retry-2 site=waiting:1962 calls=16
+route-search case=conflict-reservation-retry-2 site=waiting:2900 calls=32
+route-search case=conflict-reservation-retry-2 site=waiting:2918 calls=16
+route-search case=conflict-reservation-retry-2 site=waiting:2950 calls=16
+route-barrier case=conflict-reservation-retry-2 signal_gates=0 conflict_scans=16 waiting_scans=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 537 filtered out; finished in 0.53s
+
