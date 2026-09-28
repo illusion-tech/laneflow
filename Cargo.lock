@@ -2417,9 +2417,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.33.7"
+version = "0.33.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e762b9b188634fc508d4ec54b62ea3d352c43fd431d18d05d46f559f217f4725"
+checksum = "928452f9c953e142b2f0973e4bd5f34445fcaa8069556ea97a3c9d34d15a4cf8"
 
 [[package]]
 name = "gltf"
@@ -3057,7 +3057,7 @@ name = "laneflow-spatial-research"
 version = "0.0.0"
 dependencies = [
  "euclid",
- "glam 0.33.7",
+ "glam 0.33.10",
 ]
 
 [[package]]
