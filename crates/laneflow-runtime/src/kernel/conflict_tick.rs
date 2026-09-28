@@ -2458,7 +2458,20 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             self.workspace.conflict_next_eligibility.len(),
         );
         self.committed.conflict_eligibility.clear();
-        {
+        // P6 已完成本拍资格计算。全空表直接保留紧凑表示，避免先复制再清空；
+        // 非空表仍逐槽提交，沿用预留容量及 P7 不新增可恢复失败的约束。
+        let all_empty = {
+            #[cfg(test)]
+            let _scan = super::eligibility_commit_research::begin(
+                3,
+                self.workspace.conflict_next_eligibility.len(),
+            );
+            self.workspace
+                .conflict_next_eligibility
+                .iter()
+                .all(Option::is_none)
+        };
+        if !all_empty {
             #[cfg(test)]
             let _copy = super::eligibility_commit_research::begin(
                 2,
@@ -2468,7 +2481,6 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                 .conflict_eligibility
                 .extend_from_slice(&self.workspace.conflict_next_eligibility);
         }
-        self.normalize_conflict_eligibility();
         core::mem::swap(
             &mut self.committed.latest_conflict_decisions,
             &mut self.workspace.conflict_staged_decisions,
