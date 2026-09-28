@@ -99,3 +99,8 @@ pub(crate) mod eligibility_commit_research;
 #[cfg(test)]
 #[path = "tests/route_query/diagnostic.rs"]
 pub(crate) mod route_query_research;
+
+/// #787 Motion 分发的有界并发参与探针；只进入测试构建。
+#[cfg(test)]
+#[path = "tests/motion_participation.rs"]
+pub(crate) mod motion_participation;
