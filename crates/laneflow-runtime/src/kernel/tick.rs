@@ -682,14 +682,14 @@ fn aggregate_motion_tls(baseline: MotionTlsSnapshot, records: &[MotionWorkChunkR
 /// 武装；与 P2 的 preview_injection 相互独立，P2 融合首遍不会消费）。
 #[cfg(test)]
 mod motion_injection {
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     pub(super) const DISABLED_WORLD: u64 = u64::MAX;
 
     pub(super) static NONFINITE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
     pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
-    pub(super) static ARRIVAL_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static SLOT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static ARRIVAL_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static SLOT_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
 
     pub(super) fn position_mask(positions: &[usize]) -> u64 {
         positions.iter().fold(0_u64, |mask, position| {
@@ -707,12 +707,12 @@ mod motion_injection {
             && NONFINITE_POSITIONS.load(Ordering::SeqCst) & (1_u64 << active_position) != 0
     }
 
-    pub(super) fn arrival_reserve_injected() -> bool {
-        ARRIVAL_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn arrival_reserve_injected(world_id: u64) -> bool {
+        ARRIVAL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn slot_reserve_injected() -> bool {
-        SLOT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn slot_reserve_injected(world_id: u64) -> bool {
+        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 }
 
@@ -741,9 +741,9 @@ pub(crate) fn inject_motion_nonfinite(world_id: u64, positions: &[usize]) -> Mot
     )
 }
 
-/// 原子布尔注入的复位守卫。
+/// 原子武装世界注入的复位守卫。
 #[cfg(test)]
-pub(crate) struct MotionBoolGuard(&'static std::sync::atomic::AtomicBool, bool);
+pub(crate) struct MotionBoolGuard(&'static std::sync::atomic::AtomicU64, u64);
 
 #[cfg(test)]
 impl Drop for MotionBoolGuard {
@@ -753,20 +753,26 @@ impl Drop for MotionBoolGuard {
 }
 
 #[cfg(test)]
-fn swap_motion_flag(flag: &'static std::sync::atomic::AtomicBool) -> MotionBoolGuard {
-    MotionBoolGuard(flag, flag.swap(true, std::sync::atomic::Ordering::SeqCst))
+fn swap_motion_world(
+    flag: &'static std::sync::atomic::AtomicU64,
+    world_id: u64,
+) -> MotionBoolGuard {
+    MotionBoolGuard(
+        flag,
+        flag.swap(world_id, std::sync::atomic::Ordering::SeqCst),
+    )
 }
 
-/// 测试专用：下一次到达观察真实预留强制失败。
+/// 测试专用：武装世界下一次到达观察真实预留强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_motion_arrival_reserve() -> MotionBoolGuard {
-    swap_motion_flag(&motion_injection::ARRIVAL_RESERVE_FAILURE)
+pub(crate) fn fail_motion_arrival_reserve(world_id: u64) -> MotionBoolGuard {
+    swap_motion_world(&motion_injection::ARRIVAL_RESERVE_FAILURE_WORLD, world_id)
 }
 
-/// 测试专用：下一次结果槽位预留强制失败（冷态/增长回退测试）。
+/// 测试专用：武装世界下一次结果槽位预留强制失败（冷态/增长回退测试，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_motion_slot_reserve() -> MotionBoolGuard {
-    swap_motion_flag(&motion_injection::SLOT_RESERVE_FAILURE)
+pub(crate) fn fail_motion_slot_reserve(world_id: u64) -> MotionBoolGuard {
+    swap_motion_world(&motion_injection::SLOT_RESERVE_FAILURE_WORLD, world_id)
 }
 
 #[cfg(test)]
@@ -790,9 +796,10 @@ pub(crate) fn drop_motion_slot_at(position: usize) -> MotionSlotGapGuard {
 fn push_parking_arrival(
     parking_arrivals: &mut Vec<ParkingArrivalObservation>,
     arrival: ParkingArrivalObservation,
+    _world_id: u64,
 ) -> Result<(), StepError> {
     #[cfg(test)]
-    if motion_injection::arrival_reserve_injected()
+    if motion_injection::arrival_reserve_injected(_world_id)
         && parking_arrivals.len() == parking_arrivals.capacity()
     {
         // R4：注入仅在真实必要增长时触发（余量足够不得伪造预留失败）。
@@ -4439,7 +4446,7 @@ fn prepare_motion_fused(
         debug_assert_eq!(state.status, VehicleStatus::Active);
         let outcome = view.vehicle_motion_outcome(state, active_index, delta_s)?;
         if let Some(arrival) = outcome.arrival {
-            push_parking_arrival(parking_arrivals, arrival)?;
+            push_parking_arrival(parking_arrivals, arrival, view.read.binding.world_id)?;
         }
         let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
         updates.push((slot, outcome.next));
@@ -4484,7 +4491,7 @@ fn prepare_motion_dispatched(
     let slots = &mut workspace.motion_slots;
     slots.clear();
     #[cfg(test)]
-    let slot_injected = motion_injection::slot_reserve_injected();
+    let slot_injected = motion_injection::slot_reserve_injected(view.read.binding.world_id);
     #[cfg(not(test))]
     let slot_injected = false;
     if slots.try_reserve(workload).is_err() || slot_injected {
@@ -4586,7 +4593,7 @@ fn prepare_motion_dispatched(
         match slot {
             crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome))) => {
                 if let Some(arrival) = outcome.arrival {
-                    push_parking_arrival(parking_arrivals, arrival)?;
+                    push_parking_arrival(parking_arrivals, arrival, view.read.binding.world_id)?;
                 }
                 let slot = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
                 updates.push((slot, outcome.next));

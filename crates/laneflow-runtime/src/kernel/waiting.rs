@@ -3535,8 +3535,10 @@ pub(crate) mod tests {
         multi_gate_world_with_id(count, 82)
     }
 
-    /// 与 [`multi_gate_world`] 相同构造，但使用指定世界身份；故障注入按世界
-    /// 身份隔离的测试因此可以并行运行而互不观测到对方的武装状态。
+    /// 与 [`multi_gate_world`] 相同构造，但使用指定世界身份。故障注入按世界
+    /// 身份隔离（#792）：**武装注入的测试世界必须使用独占身份**（708_xxx
+    /// 保留区间，见 `conflict_tick` 测试的常量表）；同测试内需要快照对拍的
+    /// 多个世界共享同一身份。普通测试使用默认身份即可。
     pub(crate) fn multi_gate_world_with_id(count: usize, world_id: u64) -> TrafficWorld {
         multi_gate_world_partial(count, count, world_id).0
     }
@@ -6938,7 +6940,7 @@ pub(crate) mod tests {
 
         let mut world = parking_arrival_world(4, WORLD_ID);
         let before = world.capture_snapshot().unwrap();
-        let reserve_guard = fail_motion_arrival_reserve();
+        let reserve_guard = fail_motion_arrival_reserve(WORLD_ID);
         let nonfinite_guard = inject_motion_nonfinite(WORLD_ID, &[1]);
         let result = world.step(TickInput::new(100));
         drop(reserve_guard);
@@ -7069,7 +7071,7 @@ pub(crate) mod tests {
         install_execution(&mut world, 4);
         let mut records = Vec::new();
         {
-            let _guard = fail_motion_slot_reserve();
+            let _guard = fail_motion_slot_reserve(world.state.binding.world_id);
             let outcome = world.step(TickInput::new(100)).unwrap();
             records.push(motion_tick_record(&world, &outcome));
         }
@@ -7078,7 +7080,7 @@ pub(crate) mod tests {
             records.push(motion_tick_record(&world, &outcome));
         }
         {
-            let _guard = fail_motion_slot_reserve();
+            let _guard = fail_motion_slot_reserve(world.state.binding.world_id);
             let outcome = world.step(TickInput::new(100)).unwrap();
             records.push(motion_tick_record(&world, &outcome));
         }
@@ -7274,7 +7276,9 @@ pub(crate) mod tests {
     // downstream 非空 Computed 候选）覆盖 F1/F2/F3b/F4 与同车段序。
     // ------------------------------------------------------------------
 
-    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::admin::cutover_migration::tests::{
+        conflict_scale_revision, conflict_scale_world, conflict_scale_world_with_identity,
+    };
     use crate::kernel::conflict::conflict_work_counts;
     use crate::kernel::conflict_tick::{
         ConflictPathCounts, conflict_path_counts, drop_conflict_slot_at,
@@ -7312,10 +7316,13 @@ pub(crate) mod tests {
     #[test]
     fn earlier_f2_failure_beats_later_downstream_invariant() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_010;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
-        let mut probe = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut probe =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut probe, 4);
         let probe_id = probe.state.binding.world_id;
         let guard = inject_conflict_invariant_downstream(probe_id, &[0]);
@@ -7327,17 +7334,19 @@ pub(crate) mod tests {
             "downstream CIV 注入必须命中（预演臂）"
         );
 
-        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut fresh =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut fresh, 4);
         let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
         let fresh_snapshot = fresh.capture_snapshot().unwrap();
         let fresh_workspace = conflict_workspace_record(&mut fresh);
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         let world_id = world.state.binding.world_id;
         let before = world.capture_snapshot().unwrap();
-        let cells_guard = fail_conflict_cells_reserve();
+        let cells_guard = fail_conflict_cells_reserve(world_id);
         let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
         let result = world.step(TickInput::new(4));
         drop(cells_guard);
@@ -7365,19 +7374,23 @@ pub(crate) mod tests {
     #[test]
     fn earlier_f1_failure_beats_later_downstream_invariant() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_011;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
-        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut fresh =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut fresh, 4);
         let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
         let fresh_snapshot = fresh.capture_snapshot().unwrap();
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         let world_id = world.state.binding.world_id;
         let before = world.capture_snapshot().unwrap();
-        let cell_work_guard = fail_conflict_cell_work_reserve();
+        let cell_work_guard = fail_conflict_cell_work_reserve(world_id);
         let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
         let result = world.step(TickInput::new(4));
         drop(cell_work_guard);
@@ -7470,8 +7483,8 @@ pub(crate) mod tests {
         for input_failure in [true, false] {
             let mut world = multi_gate_world_with_id(16, WORLD_ID);
             install_execution(&mut world, 4);
-            let _input = input_failure.then(fail_conflict_input_reserve);
-            let _slot = (!input_failure).then(fail_conflict_slot_reserve);
+            let _input = input_failure.then(|| fail_conflict_input_reserve(WORLD_ID));
+            let _slot = (!input_failure).then(|| fail_conflict_slot_reserve(WORLD_ID));
             let outcome = world.step(TickInput::new(100)).unwrap();
             assert_eq!(
                 (
@@ -7665,9 +7678,9 @@ pub(crate) mod tests {
             install_execution(&mut world, 4);
             let before = world.capture_snapshot().unwrap();
             let guard = if arm == 0 {
-                fail_conflict_downstream_work_reserve()
+                fail_conflict_downstream_work_reserve(world.state.binding.world_id)
             } else {
-                fail_conflict_downstream_pool_reserve()
+                fail_conflict_downstream_pool_reserve(world.state.binding.world_id)
             };
             let result = world.step(TickInput::new(4));
             drop(guard);
@@ -7929,20 +7942,24 @@ pub(crate) mod tests {
     #[test]
     fn f4_reserve_injection_gated_by_real_growth_on_both_paths() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_013;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         for workers in [1_u32, 4] {
-            let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+            let mut fresh =
+                conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
             install_execution(&mut fresh, workers);
             let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
             let fresh_snapshot = fresh.capture_snapshot().unwrap();
 
             // 冷态 + 武装：F4 真实增长失败（F4 义务先于 F4 后检查公开）。
-            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            let mut world =
+                conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
             install_execution(&mut world, workers);
             let before = world.capture_snapshot().unwrap();
-            let guard = fail_conflict_downstream_work_reserve();
+            let guard = fail_conflict_downstream_work_reserve(world.state.binding.world_id);
             let result = world.step(TickInput::new(4));
             drop(guard);
             assert_eq!(
@@ -7959,7 +7976,7 @@ pub(crate) mod tests {
             // 候选周期内 F4 稀疏，持武装步进 12 拍全程不得公开错误，
             // 且探针 fired 计数必须为零（余量足够+已武装 ⇒ 永不伪造失败）。
             crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
-            let guard = fail_conflict_downstream_work_reserve();
+            let guard = fail_conflict_downstream_work_reserve(world.state.binding.world_id);
             for _ in 0..12 {
                 world.step(TickInput::new(4)).unwrap();
             }
@@ -7983,11 +8000,14 @@ pub(crate) mod tests {
             reset_conflict_reserve_probe_log,
         };
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_014;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         reset_conflict_reserve_probe_log();
         world.step(TickInput::new(4)).unwrap();
@@ -8004,7 +8024,7 @@ pub(crate) mod tests {
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
         install_execution(&mut world, 4);
         reset_conflict_reserve_probe_log();
-        let guard = fail_conflict_cell_work_reserve();
+        let guard = fail_conflict_cell_work_reserve(world.state.binding.world_id);
         let result = world.step(TickInput::new(4));
         drop(guard);
         assert_eq!(result, Err(crate::StepError::ConflictScratchAllocFailed));
@@ -8073,7 +8093,7 @@ pub(crate) mod tests {
             )
             .unwrap();
         world.reserve_parking(a, reserve).unwrap();
-        let guard = fail_motion_arrival_reserve();
+        let guard = fail_motion_arrival_reserve(world.state.binding.world_id);
         let result = world.step(TickInput::new(100));
         drop(guard);
         assert_eq!(
@@ -8085,7 +8105,7 @@ pub(crate) mod tests {
         assert_eq!(retry, fresh_outcome, "清注入重试必须等于 fresh 首拍");
         assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
         // 无到达拍 + 已武装：不得制造错误。
-        let guard = fail_motion_arrival_reserve();
+        let guard = fail_motion_arrival_reserve(world.state.binding.world_id);
         world.step(TickInput::new(100)).unwrap();
         world.step(TickInput::new(100)).unwrap();
         drop(guard);

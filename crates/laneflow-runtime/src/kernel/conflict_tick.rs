@@ -875,7 +875,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let inputs = &mut self.workspace.conflict_inputs;
         inputs.clear();
         #[cfg(test)]
-        let input_injected = conflict_injection::input_reserve_injected();
+        let input_injected = conflict_injection::input_reserve_injected(self.binding.world_id);
         #[cfg(not(test))]
         let input_injected = false;
         // Active 数是筛选工作集的上界，无须再扫描一遍 live_order 预数；
@@ -935,7 +935,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 峰值由 retained 计账）。工作集收缩时 resize 截断多余槽位。
         let slots = &mut self.workspace.conflict_slots;
         #[cfg(test)]
-        let slot_injected = conflict_injection::slot_reserve_injected();
+        let slot_injected = conflict_injection::slot_reserve_injected(self.binding.world_id);
         #[cfg(not(test))]
         let slot_injected = false;
         // W2：保留 len 后 additional = workload - len；相同/收缩 workload
@@ -1422,7 +1422,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             additional,
             self.workspace.conflict_cell_work.len(),
             self.workspace.conflict_cell_work.capacity(),
-            conflict_injection::cell_work_reserve_injected(),
+            conflict_injection::cell_work_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1437,7 +1437,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             additional,
             self.workspace.conflict_candidate_cells.len(),
             self.workspace.conflict_candidate_cells.capacity(),
-            conflict_injection::cells_reserve_injected(),
+            conflict_injection::cells_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1452,7 +1452,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             additional,
             self.workspace.conflict_downstream_work.len(),
             self.workspace.conflict_downstream_work.capacity(),
-            conflict_injection::downstream_work_reserve_injected(),
+            conflict_injection::downstream_work_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1467,7 +1467,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             additional,
             self.workspace.conflict_candidate_downstream.len(),
             self.workspace.conflict_candidate_downstream.capacity(),
-            conflict_injection::downstream_pool_reserve_injected(),
+            conflict_injection::downstream_pool_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1764,7 +1764,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             range.len as usize,
             self.workspace.conflict_cell_work.len(),
             self.workspace.conflict_cell_work.capacity(),
-            conflict_injection::cell_work_reserve_injected(),
+            conflict_injection::cell_work_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1823,7 +1823,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.workspace.conflict_cell_work.len(),
             self.workspace.conflict_candidate_cells.len(),
             self.workspace.conflict_candidate_cells.capacity(),
-            conflict_injection::cells_reserve_injected(),
+            conflict_injection::cells_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1858,7 +1858,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.workspace.conflict_downstream_work.len(),
             self.workspace.conflict_candidate_downstream.len(),
             self.workspace.conflict_candidate_downstream.capacity(),
-            conflict_injection::downstream_pool_reserve_injected(),
+            conflict_injection::downstream_pool_reserve_injected(self.binding.world_id),
         ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
@@ -1941,7 +1941,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             plan.raw_interval_capacity(),
             self.workspace.conflict_downstream_work.len(),
             self.workspace.conflict_downstream_work.capacity(),
-            conflict_injection::downstream_work_reserve_injected(),
+            conflict_injection::downstream_work_reserve_injected(self.binding.world_id),
         ) {
             return Err(ConflictAcquireError::ScratchAllocFailed);
         }
@@ -2652,7 +2652,9 @@ mod tests {
 
     use super::*;
     use crate::TickInput;
-    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::admin::cutover_migration::tests::{
+        conflict_scale_revision, conflict_scale_world, conflict_scale_world_with_identity,
+    };
     use crate::kernel::conflict::{
         ApproachFrontierCell, conflict_work_counts, reset_conflict_work_counts,
     };
@@ -2797,12 +2799,24 @@ mod tests {
         world.step(TickInput::new(100)).unwrap();
     }
 
+    /// #792：故障注入按世界身份隔离，武装注入的测试世界必须独占身份；
+    /// 本区间（708_xxx）保留给武装测试，禁止与其它测试共用。
+    const GATE_SCOPE_INJECT_WORLD: u64 = 708_001;
+    const P2_EXCLUDED_INJECT_WORLD: u64 = 708_002;
+    const ALLOCATION_EVIDENCE_INJECT_WORLD: u64 = 708_003;
+    const SCRATCH_SURVIVES_INJECT_WORLD: u64 = 708_004;
+    const F4_INJECT_WORLD: u64 = 708_005;
+    const UNSUFFIX_RECOVER_INJECT_WORLD: u64 = 708_006;
+
     #[test]
     fn gate_scope_sparse_inputs_match_full_scan_with_retry_and_reuse() {
         let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         fn fixture(workers: u32) -> TrafficWorld {
-            let mut world = crate::kernel::waiting::tests::multi_gate_world(32);
+            let mut world = crate::kernel::waiting::tests::multi_gate_world_with_id(
+                32,
+                GATE_SCOPE_INJECT_WORLD,
+            );
             for (index, slot) in world.state.committed.vehicles.iter_mut().enumerate() {
                 if index % 2 == 0 {
                     slot.state.as_mut().unwrap().progress_mm = 0;
@@ -2936,7 +2950,10 @@ mod tests {
         let _p2 = crate::kernel::waiting::force_preview_dispatch();
         let _p5 = crate::kernel::tick::force_motion_dispatch();
         fn fixture(workers: u32) -> TrafficWorld {
-            let mut world = crate::kernel::waiting::tests::multi_gate_world(16);
+            let mut world = crate::kernel::waiting::tests::multi_gate_world_with_id(
+                16,
+                P2_EXCLUDED_INJECT_WORLD,
+            );
             let owner = world.live_vehicles()[0];
             let state = *world.state.vehicle_state(owner).unwrap();
             let route = world.state.compiled_route(state.route).unwrap();
@@ -3331,7 +3348,7 @@ mod tests {
     fn run_conflict_dispatch_allocation_evidence() {
         let _oracle = super::full_conflict_scan();
         use crate::admin::cutover_migration::tests::{
-            conflict_scale_revision, conflict_scale_world,
+            conflict_scale_revision, conflict_scale_world_with_identity,
         };
         use stats_alloc::{INSTRUMENTED_SYSTEM, Region};
 
@@ -3339,7 +3356,12 @@ mod tests {
         // 完整求值 oracle 保留全部 Active，验证底层分发器与暂存分配。
         // 筛选后实际工作集由 gate_scope 和分发参与测试另行验证。
         let revision = conflict_scale_revision();
-        let mut world = conflict_scale_world(Arc::clone(&revision), 1_200);
+        let mut world = conflict_scale_world_with_identity(
+            Arc::clone(&revision),
+            1_200,
+            1,
+            ALLOCATION_EVIDENCE_INJECT_WORLD,
+        );
         world.execution = crate::kernel::execution::WorldExecution::start_private(
             crate::ExecutionConfig::new(std::num::NonZeroU32::new(WORKERS).unwrap()),
             &world.state,
@@ -3522,12 +3544,22 @@ mod tests {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
-        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut fresh = conflict_scale_world_with_identity(
+            Arc::clone(&revision),
+            16,
+            1,
+            SCRATCH_SURVIVES_INJECT_WORLD,
+        );
         install_execution(&mut fresh, 4);
         let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
         let fresh_snapshot = fresh.capture_snapshot().unwrap();
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world = conflict_scale_world_with_identity(
+            Arc::clone(&revision),
+            16,
+            1,
+            SCRATCH_SURVIVES_INJECT_WORLD,
+        );
         install_execution(&mut world, 4);
         let world_id = world.state.binding.world_id;
         let before = world.capture_snapshot().unwrap();
@@ -3614,7 +3646,8 @@ mod tests {
             CandidateResource,
             CandidateScratch,
         ) {
-            let mut world = conflict_scale_world(Arc::clone(revision), 16);
+            let mut world =
+                conflict_scale_world_with_identity(Arc::clone(revision), 16, 1, F4_INJECT_WORLD);
             let vehicle = world.state.committed.live_order[0];
             let state = *world.state.vehicle_state(vehicle).unwrap();
             let report = {
@@ -3655,9 +3688,10 @@ mod tests {
         {
             let (mut world, vehicle, state, resource, scratch) =
                 build(&revision, 1, Err(DownstreamFillError::Invariant));
+            let world_id = world.state.binding.world_id;
             let mut step = world.state.step_workspace();
             reset_conflict_reserve_probe_log();
-            let guard = super::fail_conflict_downstream_work_reserve();
+            let guard = super::fail_conflict_downstream_work_reserve(world_id);
             let result = step.consume_candidate_resource(vehicle, 0, state, 1, resource, &scratch);
             drop(guard);
             assert_eq!(
@@ -3671,13 +3705,14 @@ mod tests {
         {
             let (mut world, vehicle, state, resource, scratch) =
                 build(&revision, 1, Err(DownstreamFillError::Invariant));
+            let world_id = world.state.binding.world_id;
             let mut step = world.state.step_workspace();
             step.workspace
                 .conflict_downstream_work
                 .try_reserve(8)
                 .expect("预填 F4 余量");
             reset_conflict_reserve_probe_log();
-            let guard = super::fail_conflict_downstream_work_reserve();
+            let guard = super::fail_conflict_downstream_work_reserve(world_id);
             let result = step.consume_candidate_resource(vehicle, 0, state, 1, resource, &scratch);
             drop(guard);
             assert_eq!(
@@ -3695,13 +3730,14 @@ mod tests {
         // ③ PreFailed(Invariant) + F4 已武装 ⇒ CIV，F4 未被访问。
         {
             let (mut world, vehicle, state, mut resource, scratch) = build(&revision, 1, Ok(()));
+            let world_id = world.state.binding.world_id;
             let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
                 panic!("夹具必须产出 Computed 段");
             };
             *downstream = DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             let mut step = world.state.step_workspace();
             reset_conflict_reserve_probe_log();
-            let guard = super::fail_conflict_downstream_work_reserve();
+            let guard = super::fail_conflict_downstream_work_reserve(world_id);
             let result = step.consume_candidate_resource(vehicle, 0, state, 1, resource, &scratch);
             drop(guard);
             assert_eq!(
@@ -3910,7 +3946,12 @@ mod tests {
             }
         }
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world = conflict_scale_world_with_identity(
+            Arc::clone(&revision),
+            16,
+            1,
+            UNSUFFIX_RECOVER_INJECT_WORLD,
+        );
         install_execution(&mut world, 4);
         world.step(TickInput::new(4)).unwrap();
         // tick1 后槽位 0 必须携带非空 cells backing（首拍唯一候选车）。
@@ -4318,7 +4359,7 @@ pub(crate) fn reset_conflict_reserve_probe_log() {
 /// 注入面相互独立）。
 #[cfg(test)]
 mod conflict_injection {
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     pub(super) const DISABLED_WORLD: u64 = u64::MAX;
 
@@ -4326,12 +4367,14 @@ mod conflict_injection {
     pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
     pub(super) static INVARIANT_DOWNSTREAM_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
     pub(super) static INVARIANT_DOWNSTREAM_POSITIONS: AtomicU64 = AtomicU64::new(0);
-    pub(super) static CELLS_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static CELL_WORK_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static DOWNSTREAM_WORK_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static DOWNSTREAM_POOL_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static INPUT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static SLOT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static CELLS_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static CELL_WORK_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static DOWNSTREAM_WORK_RESERVE_FAILURE_WORLD: AtomicU64 =
+        AtomicU64::new(DISABLED_WORLD);
+    pub(super) static DOWNSTREAM_POOL_RESERVE_FAILURE_WORLD: AtomicU64 =
+        AtomicU64::new(DISABLED_WORLD);
+    pub(super) static INPUT_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static SLOT_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
 
     pub(super) fn position_mask(positions: &[usize]) -> u64 {
         positions.iter().fold(0_u64, |mask, position| {
@@ -4355,38 +4398,44 @@ mod conflict_injection {
             && INVARIANT_DOWNSTREAM_POSITIONS.load(Ordering::SeqCst) & (1_u64 << position) != 0
     }
 
-    pub(super) fn input_reserve_injected() -> bool {
-        INPUT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn input_reserve_injected(world_id: u64) -> bool {
+        INPUT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn slot_reserve_injected() -> bool {
-        SLOT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn slot_reserve_injected(world_id: u64) -> bool {
+        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn cell_work_reserve_injected() -> bool {
-        CELL_WORK_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn cell_work_reserve_injected(world_id: u64) -> bool {
+        CELL_WORK_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn cells_reserve_injected() -> bool {
-        CELLS_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn cells_reserve_injected(world_id: u64) -> bool {
+        CELLS_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn downstream_work_reserve_injected() -> bool {
-        DOWNSTREAM_WORK_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn downstream_work_reserve_injected(world_id: u64) -> bool {
+        DOWNSTREAM_WORK_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn downstream_pool_reserve_injected() -> bool {
-        DOWNSTREAM_POOL_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn downstream_pool_reserve_injected(world_id: u64) -> bool {
+        DOWNSTREAM_POOL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 }
 
 #[cfg(test)]
-fn swap_conflict_flag(flag: &'static std::sync::atomic::AtomicBool) -> ConflictBoolGuard {
-    ConflictBoolGuard(flag, flag.swap(true, std::sync::atomic::Ordering::SeqCst))
+fn swap_conflict_world(
+    flag: &'static std::sync::atomic::AtomicU64,
+    world_id: u64,
+) -> ConflictBoolGuard {
+    ConflictBoolGuard(
+        flag,
+        flag.swap(world_id, std::sync::atomic::Ordering::SeqCst),
+    )
 }
 
 #[cfg(test)]
-pub(crate) struct ConflictBoolGuard(&'static std::sync::atomic::AtomicBool, bool);
+pub(crate) struct ConflictBoolGuard(&'static std::sync::atomic::AtomicU64, u64);
 
 #[cfg(test)]
 impl Drop for ConflictBoolGuard {
@@ -4453,40 +4502,49 @@ pub(crate) fn inject_conflict_invariant_downstream(
     )
 }
 
-/// 测试专用：下一次 cell 工作区真实预留（F1 位）强制失败。
+/// 测试专用：武装世界下一次 cell 工作区真实预留（F1 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_cell_work_reserve() -> ConflictBoolGuard {
-    swap_conflict_flag(&conflict_injection::CELL_WORK_RESERVE_FAILURE)
+pub(crate) fn fail_conflict_cell_work_reserve(world_id: u64) -> ConflictBoolGuard {
+    swap_conflict_world(
+        &conflict_injection::CELL_WORK_RESERVE_FAILURE_WORLD,
+        world_id,
+    )
 }
 
-/// 测试专用：下一次 candidate_cells 真实预留（F2 位）强制失败。
+/// 测试专用：武装世界下一次 candidate_cells 真实预留（F2 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_cells_reserve() -> ConflictBoolGuard {
-    swap_conflict_flag(&conflict_injection::CELLS_RESERVE_FAILURE)
+pub(crate) fn fail_conflict_cells_reserve(world_id: u64) -> ConflictBoolGuard {
+    swap_conflict_world(&conflict_injection::CELLS_RESERVE_FAILURE_WORLD, world_id)
 }
 
-/// 测试专用：下一次 downstream 工作区真实预留（F4 位）强制失败。
+/// 测试专用：武装世界下一次 downstream 工作区真实预留（F4 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_downstream_work_reserve() -> ConflictBoolGuard {
-    swap_conflict_flag(&conflict_injection::DOWNSTREAM_WORK_RESERVE_FAILURE)
+pub(crate) fn fail_conflict_downstream_work_reserve(world_id: u64) -> ConflictBoolGuard {
+    swap_conflict_world(
+        &conflict_injection::DOWNSTREAM_WORK_RESERVE_FAILURE_WORLD,
+        world_id,
+    )
 }
 
-/// 测试专用：下一次 candidate_downstream 真实预留（F3b 位）强制失败。
+/// 测试专用：武装世界下一次 candidate_downstream 真实预留（F3b 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_downstream_pool_reserve() -> ConflictBoolGuard {
-    swap_conflict_flag(&conflict_injection::DOWNSTREAM_POOL_RESERVE_FAILURE)
+pub(crate) fn fail_conflict_downstream_pool_reserve(world_id: u64) -> ConflictBoolGuard {
+    swap_conflict_world(
+        &conflict_injection::DOWNSTREAM_POOL_RESERVE_FAILURE_WORLD,
+        world_id,
+    )
 }
 
-/// 测试专用：下一次 P3 输入表预留强制失败（冷态回退）。
+/// 测试专用：武装世界下一次 P3 输入表预留强制失败（冷态回退，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_input_reserve() -> ConflictBoolGuard {
-    swap_conflict_flag(&conflict_injection::INPUT_RESERVE_FAILURE)
+pub(crate) fn fail_conflict_input_reserve(world_id: u64) -> ConflictBoolGuard {
+    swap_conflict_world(&conflict_injection::INPUT_RESERVE_FAILURE_WORLD, world_id)
 }
 
-/// 测试专用：下一次 P3 槽位预留强制失败（热态回退）。
+/// 测试专用：武装世界下一次 P3 槽位预留强制失败（热态回退，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_slot_reserve() -> ConflictBoolGuard {
-    swap_conflict_flag(&conflict_injection::SLOT_RESERVE_FAILURE)
+pub(crate) fn fail_conflict_slot_reserve(world_id: u64) -> ConflictBoolGuard {
+    swap_conflict_world(&conflict_injection::SLOT_RESERVE_FAILURE_WORLD, world_id)
 }
 
 #[cfg(test)]
