@@ -33,18 +33,22 @@ setup identity。冻结配置为：
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
-  library 或发布分发物。#737 于 2026-09-21 核验当前 pin
-  `1c5b675653bb5c22dbe9b12b556ec555138e09fd`（`v4.38.1`）：official repository 的 annotated tag
-  `v4.38.1` peel 至该 commit，来源为
+  library 或发布分发物。#784 于 2026-09-29 核验当前 pin
+  `2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2`（`v4.38.2`；`init` 与 `analyze` 必须同版本，
+  两行同钉该 commit）：official repository 的 annotated tag `v4.38.2`（tag object
+  `88585263c0627ee42c0e1c5143a112c8d6f4aa18`）peel 至该 commit，来源为
   [GitHub 官方仓库](https://github.com/github/codeql-action)，该 revision 的
-  [许可证为 MIT](https://github.com/github/codeql-action/blob/1c5b675653bb5c22dbe9b12b556ec555138e09fd/LICENSE)。
-  当日 upstream published repository advisories 仍为
+  [许可证为 MIT](https://github.com/github/codeql-action/blob/2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2/LICENSE)。
+  当日 upstream advisory 核验：
   [GHSA-vqf5-2xx6-9wfm](https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm)
-  与 [GHSA-g36v-2xff-pv5m](https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m)，
-  公布的受影响范围分别止于旧 `v3.28.2` / `v2` 和旧 CodeQL runner；不包含当前 `v4.38.1`。
-  `v4.38.1` 的 [release notes](https://github.com/github/codeql-action/releases/tag/v4.38.1) 为
-  per-language CodeQL bundle 的实验性支持，不改变本仓库 `none` build mode 与 Ubuntu x64 runner 的适用性。这是有日期的 upstream
-  metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory 与分发边界。#660 于
+  公布受影响范围为 `>= 2.26.11, < 3.0.0` 与 `>= 3.26.11, <= 3.28.2`，不包含 `v4.38.2`；
+  [GHSA-g36v-2xff-pv5m](https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m)
+  当日未出现在全局 advisory API 索引，维持 repository advisory 页面公布的受影响范围（止于旧
+  CodeQL runner），同样不包含 `v4.38.2`。
+  `v4.38.2` 的 [release notes](https://github.com/github/codeql-action/releases/tag/v4.38.2)
+  为默认 CodeQL bundle 升至 2.27.1，不改变本仓库 `none` build mode 与 Ubuntu x64 runner 的适用性。这是有日期的 upstream
+  metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory 与分发边界。#737 于
+  2026-09-21 核验的前一 pin `1c5b675653bb5c22dbe9b12b556ec555138e09fd`（`v4.38.1`）、#660 于
   2026-09-14 核验的前一 pin `b96794f015dfd88f77b49b1c93e0fa7110f94c63`（`v4.38.0`）、#553 于
   2026-09-01 核验的 `cdf488f595d80d6e07e03d4674febd5ab45fa938`（`v4.37.9`）与 #485 于 2026-08-24
   核验的 `db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`（`v4.37.8`）只保留为历史审计，
