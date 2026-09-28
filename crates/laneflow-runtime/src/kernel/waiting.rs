@@ -7128,31 +7128,48 @@ pub(crate) mod tests {
         }
     }
 
-    /// 多线程参与（R5 表述修正：participating_threads 度量出现过的线程
-    /// 数，不等于同时执行重叠；真实并发重叠由 execution.rs 屏障测试覆
-    /// 盖）：64 车、worker=4、连续 16 拍自然强制分发，每拍 8 块全部
-    /// 完成且票据取完，参与线程数峰值 ≥ 2（调用线程 + 池任务）。
+    /// #787 短工作块可由单线程取完。每拍在真实 Motion 入口构造有界会合，
+    /// 独立核对线程身份与分发统计；既不依赖自然调度，也不把该测试当吞吐证据。
     #[test]
     fn motion_dispatch_multi_thread_participation() {
+        check_motion_dispatch_threads(Some(std::time::Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn motion_dispatch_natural_thread_ids_match_stats() {
+        check_motion_dispatch_threads(None);
+    }
+
+    fn check_motion_dispatch_threads(timeout: Option<std::time::Duration>) {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_150;
         let _force = force_motion_dispatch();
         let mut world = multi_gate_world_with_id(64, WORLD_ID);
         install_execution(&mut world, 4);
-        let mut peak_threads = 1_usize;
         for _ in 0..16 {
+            let probe = crate::kernel::motion_participation::Guard::start(timeout);
             world.step(TickInput::new(100)).unwrap();
+            let observation = probe.observation();
+            assert!(!observation.timed_out, "Motion chunk rendezvous timed out");
+            let threads: std::collections::HashSet<_> =
+                observation.entries.iter().map(|entry| entry.1).collect();
+            if timeout.is_some() {
+                assert!(threads.len() >= 2, "Motion needs real concurrent threads");
+            }
+            let mut starts: Vec<_> = observation.entries.iter().map(|entry| entry.0).collect();
+            starts.sort_unstable();
+            assert_eq!(starts, (0..64).step_by(8).collect::<Vec<_>>());
             let stats = last_motion_dispatch_stats().expect("分发统计");
             assert_eq!(stats.dispatched_chunks, 8);
             assert_eq!(stats.completed_chunks, 8);
             assert_eq!(stats.ticket_grabs, 8);
-            peak_threads = peak_threads.max(stats.participating_threads);
+            assert_eq!(stats.participating_threads, threads.len());
+            eprintln!(
+                "Motion synchronized={} threads={threads:?} stats={stats:?}",
+                timeout.is_some(),
+            );
         }
-        assert!(
-            peak_threads >= 2,
-            "必须观察到真实多线程参与，peak={peak_threads}"
-        );
     }
 
     /// 小场景强制分发等价：multi-gate（Waiting 密集）worker 2/4 逐拍

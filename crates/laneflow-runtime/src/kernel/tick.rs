@@ -4520,11 +4520,17 @@ fn prepare_motion_dispatched(
     });
     #[cfg(test)]
     let tls_baseline = diagnostics.then(motion_tls_snapshot);
+    #[cfg(test)]
+    let participation = super::motion_participation::current();
     let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,
                    start: usize,
                    chunk: &mut [crate::kernel::execution::DispatchSlot<
         Option<VehicleMotionOutcome>,
     >]| {
+        #[cfg(test)]
+        if let Some(probe) = &participation {
+            probe.enter(start);
+        }
         #[cfg(test)]
         let chunk_baseline = diagnostics.then(motion_tls_snapshot);
         for (offset, slot) in chunk.iter_mut().enumerate() {
