@@ -1,0 +1,49 @@
+{
+  "arm": "candidate",
+  "completed": true,
+  "diagnostic": {
+    "args": [
+      "test",
+      "-p",
+      "laneflow-runtime",
+      "--release",
+      "--features",
+      "placement-fixtures",
+      "--locked",
+      "--no-run",
+      "-j",
+      "2",
+      "--message-format=json",
+      "--lib"
+    ],
+    "path": "\\\\?\\E:\\projects\\worktrees\\713-acceptance-followup\\laneflow\\target\\777\\candidate\\laneflow-eligibility-diagnostic.exe",
+    "sha256": "3e3ae2eb9832388ed603aafb15277b4709da4787e5f02e21213dec41b5c6080f"
+  },
+  "features": "placement-fixtures",
+  "lock": "3464367a1cf84c0c3bbc3121720e55ac9c31eec7bae61ba0f85763fd584d1453",
+  "manifest": "a17a5c4bcc26178324750d5423eb04f62603e9f5d8392291b57b9e5d8b9e49e8",
+  "profile": "release",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "schema": 777,
+  "source": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "tree": "fa7ab23b78560691e4457c6f21900a11009d3217",
+  "wall": {
+    "args": [
+      "test",
+      "-p",
+      "laneflow-runtime",
+      "--release",
+      "--features",
+      "placement-fixtures",
+      "--locked",
+      "--no-run",
+      "-j",
+      "2",
+      "--message-format=json",
+      "--test",
+      "eligibility_commit_evidence"
+    ],
+    "path": "\\\\?\\E:\\projects\\worktrees\\713-acceptance-followup\\laneflow\\target\\777\\candidate\\laneflow-eligibility-wall.exe",
+    "sha256": "e1ff844f4630c726ad8b50e75082b1705e01072a9d956093d4fb94befff72b62"
+  }
+}

@@ -7,6 +7,10 @@
 已完成三轮测量，见 [结论与候选决策](results.md)、[完整数表](measurements.md) 和
 [封存核验结果](evidence/results.json)。原始日志随 Git 保存并禁用行尾转换。
 
+资格表提交的后续最小优化及独立 A/B 证据见
+[#777 资格表提交成本](../issue-777-eligibility-commit/README.md)。下述 #682 原始结论
+与证据保持原义，不用后续测量替换它们。
+
 ## 输入与完成边界
 
 同一张受检 LFCA、同一串行 `TrafficWorld`，每组暖机 40 拍、观察 128 拍，每拍

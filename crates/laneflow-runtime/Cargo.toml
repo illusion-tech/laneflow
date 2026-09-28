@@ -51,7 +51,7 @@ path = "src/kernel/tests/sparse_cost/wall.rs"
 
 [[test]]
 name = "eligibility_commit_evidence"
-path = "src/kernel/tests/eligibility_commit/wall.rs"
+path = "src/kernel/tests/eligibility_commit_evidence.rs"
 
 [features]
 # 默认关闭。只给回归测试放入“已经在路上”的状态；宿主构建不要打开。

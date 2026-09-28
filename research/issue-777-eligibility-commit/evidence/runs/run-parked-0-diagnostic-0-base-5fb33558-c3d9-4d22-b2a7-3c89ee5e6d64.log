@@ -1,0 +1,26 @@
+
+running 1 test
+test kernel::eligibility_commit_research::eligibility_commit_diagnostic ... 
+elig-end case=parked window=0 windows=1 ticks=128 input=Sha256Digest(49f3ed00f20f2a716555fe923aeb6f4201702ebebbdc9f550e73765c498d46a4) digest=ac461faf72ddf871931e3f5cdde16f2128f082a1a56610b691fc23dddbfdfb91
+elig-memory case=parked window=0 world=11347169 shared=29664 binding=21 committed=3264200 derived=625536 workspace=7457412 admin=0
+elig-detail case=parked stage=clear_motion ns=153100 items=1280000 calls=128
+elig-detail case=parked stage=clear_eligibility ns=753100 items=1280000 calls=128
+elig-detail case=parked stage=copy ns=1663700 items=1280000 calls=128
+elig-detail case=parked stage=scan ns=600500 items=1280000 calls=128
+elig-detail case=parked stage=eligibility_commit ns=2278000 items=1280000 calls=128
+elig-phase case=parked stage=whole_step ns=40754900
+elig-phase case=parked stage=preflight ns=6276900
+elig-phase case=parked stage=occupancy ns=4080200
+elig-phase case=parked stage=waiting_prepare ns=4094500
+elig-phase case=parked stage=conflict_prepare ns=2644300
+elig-phase case=parked stage=motion_loop ns=15880900
+elig-phase case=parked stage=waiting_finalize ns=270700
+elig-phase case=parked stage=signals ns=6100
+elig-phase case=parked stage=conflict_finalize ns=1671000
+elig-phase case=parked stage=waiting_outputs ns=1544700
+elig-phase case=parked stage=commit ns=4211300
+elig-work case=parked allocations=0 reallocations=0 bytes=0 min_eligible=0 max_eligible=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 536 filtered out; finished in 0.07s
+

@@ -1,0 +1,42 @@
+{
+  "accepted": true,
+  "arm": "candidate",
+  "baseline_sha256": "2a7fc238dc936f1b11cab7193323c08c7ede64678361ee6dc66344dbb46ad7d9",
+  "build_sha256": "d54ecaba3e1d40b9a1ae27138fffdf54817a1b9e92d711f1c9130f0b52f2b812",
+  "case": "compact",
+  "clean_after": true,
+  "controller_source": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "ended": 1790555126,
+  "exit_ok": true,
+  "interference": [],
+  "leg": 3,
+  "log": "run-compact-1-wall-3-candidate-88d0ca9a-9217-4941-82b0-0632fd3c6f72.log",
+  "log_sha256": "5576729b0458d6c87e50a2c34c575c769e96bd232220e45bd76b59bf3997caa8",
+  "mode": "wall",
+  "post": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      9.049185,
+      12.773132
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      15.262978,
+      15.566256
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "round": 1,
+  "schema": 777,
+  "source_after": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "started": 1790555111,
+  "stderr": "run-compact-1-wall-3-candidate-88d0ca9a-9217-4941-82b0-0632fd3c6f72.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
