@@ -61,14 +61,34 @@ SHA-256。采集元数据区分被测二进制源码与采集器所在提交，�
 本轮冻结 A=`c0d8cc0b056c3daaf5a03d8e6acdc392517acdd7`、
 B=`00df1af1031e25b8206ab1e40e2178fb6ffefc1d`。构建/采集使用 Windows
 tasklist/typeperf；离线核验只需要 Rust 工具、Git 历史及封存文件。无需重新编译
-被测二进制即可核验：
+被测二进制即可核验。核验器要求测量源码及采集器提交位于核验 checkout 的祖先链；
+#778 为解决 Merge Queue 的实际 Rebase 冲突重放提交后，主分支不再满足这项历史
+祖先关系。原封存提交由 `codex/777-evidence-before-queue-fix` 保留；在独立目录
+取得该分支并固定到 `0265189cc0492b302a9445e9286993f56eca22c5` 后运行核验：
+
+```text
+git clone --branch codex/777-evidence-before-queue-fix https://github.com/illusion-tech/laneflow.git laneflow-777-audit
+git -C laneflow-777-audit checkout --detach 0265189cc0492b302a9445e9286993f56eca22c5
+cd laneflow-777-audit
+```
 
 `cargo run --locked -p laneflow-sparse-cost-research -- eligibility verify research/issue-777-eligibility-commit/evidence/runs target/777-reverified.json`
+
+重放不修改原始 A/B、样本、摘要或核验器，也不把重放后的提交声称为已测源码。
+当前集成版本的正确性和 CI 单独验证，历史性能结论仍只适用于冻结的 A/B。
 
 最终入口从 `eligibility_commit/wall.rs` 移到 `eligibility_commit_evidence.rs`，
 使共享夹具引用不含 `..`，符合 wire 审计。该修复只改测试入口位置、模块路径和
 Cargo test path，未改生产逻辑或输入/时钟；历史测量仍准确绑定上述 A/B 提交，
 不把后续文档、归档或入口整理后的 HEAD 冒充被测源码。
+
+采集完成后主分支合入 #679 路线查询研究。同步 `b67c6ea9` 时保留双方测试入口，
+新上游在运行时处只增加 cfg(test) 查询计数，没有修改本项资格提交逻辑。
+历史 A/B 与诊断数字仍只绑定上述冻结提交；同步后另做功能、编译和门禁回归。
+同步后的 release 单元测试串行调度通过 521 项、忽略 19 个手工证据测试，
+all-targets Clippy 通过。首次并发调度测试曾出现多线程参与计数 peak=1，导致
+共享锁中毒并连带失败；单测隔离运行及全套串行调度均通过，未降低原断言或
+被测 runtime 的 worker 配置。该调度敏感性不作为本项性能认证。
 
 资格表分支不会自行缩减已预留容量，不能由整拍变快宣称等比例内存减少。最终
 取舍以三块正常库配对结果、非空路径退化及正确性为准，不预设固定收益百分比。
