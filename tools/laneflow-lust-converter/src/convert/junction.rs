@@ -105,7 +105,7 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
                         }
                     }
                     std::collections::hash_map::Entry::Vacant(slot) => {
-                        slot.insert(target.clone());
+                        slot.insert(*target);
                     }
                 }
                 dropped_stub_lane_ids.insert(stub_id.clone());

@@ -803,6 +803,7 @@ const QUANTIZED_MIN_SEGMENT_METERS: f32 = 0.1;
 /// - HIR 冻结 `DegenerateSegment`：量化后弦长 ≤ 0.1 m 拒绝（spatial_freeze.rs）；
 /// - road editing `DirectionDiscontinuity`：相邻量化弦全角 > 2°（Balanced2Deg）
 ///   拒绝（validate_canonical_polyline）。
+///
 /// 预检逐位复刻这两条（f32 差分 + hypot / f64 促升后夹角），失败即 fail-closed
 /// 报量化坐标与实测值——该处几何在本套验收常数下不可行，诚实亮诊断。
 struct EmissionSink {
@@ -928,10 +929,10 @@ fn tangent_dir(spans: &[Span], j: usize, side: Side, clamp: Option<Vec3>, chord:
         Side::Finish => j + 1 == spans.len(),
     };
     if at_end {
-        if let Some(dir) = clamp {
-            if angle_rad(dir, chord) <= CLAMP_GUARD_RAD {
-                return dir;
-            }
+        if let Some(dir) = clamp
+            && angle_rad(dir, chord) <= CLAMP_GUARD_RAD
+        {
+            return dir;
         }
         return chord;
     }
