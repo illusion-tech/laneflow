@@ -12,6 +12,10 @@ publish = false
 name = "laneflow_runtime"
 path = "src/lib.rs"
 
+[[test]]
+name = "spawn_overlap_allocation"
+harness = false
+
 # 测量入口与共享夹具放在同一目录，单测和集成测试均无需上级源码引用。
 [[test]]
 name = "parking_command_evidence"
@@ -76,6 +80,7 @@ laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-corridor-generator = { version = "0.0.0", path = "../../tools/laneflow-corridor-generator" }
 laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+libtest-mimic = "=0.8.2"
 stats_alloc = "=0.1.10"
 toml = "1.1.3"
 
