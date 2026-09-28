@@ -1,0 +1,42 @@
+{
+  "accepted": true,
+  "arm": "candidate",
+  "baseline_sha256": "2a7fc238dc936f1b11cab7193323c08c7ede64678361ee6dc66344dbb46ad7d9",
+  "build_sha256": "d54ecaba3e1d40b9a1ae27138fffdf54817a1b9e92d711f1c9130f0b52f2b812",
+  "case": "conflict-large",
+  "clean_after": true,
+  "controller_source": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "ended": 1790555878,
+  "exit_ok": true,
+  "interference": [],
+  "leg": 0,
+  "log": "run-conflict-large-2-diagnostic-0-candidate-85115a49-2fe8-4451-8ad4-31fa067e2819.log",
+  "log_sha256": "9c986a60f1c2d41b1b3d995840f3c13fdd75550722198dbb4433242c457778bd",
+  "mode": "diagnostic",
+  "post": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      10.612498,
+      14.326919
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      10.459098,
+      12.458688
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "round": 2,
+  "schema": 777,
+  "source_after": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "started": 1790555864,
+  "stderr": "run-conflict-large-2-diagnostic-0-candidate-85115a49-2fe8-4451-8ad4-31fa067e2819.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

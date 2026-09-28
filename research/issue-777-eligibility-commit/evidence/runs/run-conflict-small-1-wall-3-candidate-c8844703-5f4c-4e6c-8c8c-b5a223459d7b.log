@@ -1,0 +1,143 @@
+
+running 1 test
+test eligibility_commit_wall ... 
+elig-end case=conflict-small window=0 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=1 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=2 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=3 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=4 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=5 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=6 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-end case=conflict-small window=7 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-tick case=conflict-small tick=0 ns=1500
+elig-tick case=conflict-small tick=1 ns=1300
+elig-tick case=conflict-small tick=2 ns=1400
+elig-tick case=conflict-small tick=3 ns=1300
+elig-tick case=conflict-small tick=4 ns=1300
+elig-tick case=conflict-small tick=5 ns=1300
+elig-tick case=conflict-small tick=6 ns=1300
+elig-tick case=conflict-small tick=7 ns=1300
+elig-tick case=conflict-small tick=8 ns=1200
+elig-tick case=conflict-small tick=9 ns=1300
+elig-tick case=conflict-small tick=10 ns=1300
+elig-tick case=conflict-small tick=11 ns=1400
+elig-tick case=conflict-small tick=12 ns=1300
+elig-tick case=conflict-small tick=13 ns=1300
+elig-tick case=conflict-small tick=14 ns=1300
+elig-tick case=conflict-small tick=15 ns=1300
+elig-tick case=conflict-small tick=16 ns=1300
+elig-tick case=conflict-small tick=17 ns=1300
+elig-tick case=conflict-small tick=18 ns=1400
+elig-tick case=conflict-small tick=19 ns=1300
+elig-tick case=conflict-small tick=20 ns=1300
+elig-tick case=conflict-small tick=21 ns=1300
+elig-tick case=conflict-small tick=22 ns=1400
+elig-tick case=conflict-small tick=23 ns=1300
+elig-tick case=conflict-small tick=24 ns=1300
+elig-tick case=conflict-small tick=25 ns=1300
+elig-tick case=conflict-small tick=26 ns=1300
+elig-tick case=conflict-small tick=27 ns=1300
+elig-tick case=conflict-small tick=28 ns=1300
+elig-tick case=conflict-small tick=29 ns=1300
+elig-tick case=conflict-small tick=30 ns=1300
+elig-tick case=conflict-small tick=31 ns=1400
+elig-tick case=conflict-small tick=32 ns=1300
+elig-tick case=conflict-small tick=33 ns=1300
+elig-tick case=conflict-small tick=34 ns=1300
+elig-tick case=conflict-small tick=35 ns=1400
+elig-tick case=conflict-small tick=36 ns=1300
+elig-tick case=conflict-small tick=37 ns=1200
+elig-tick case=conflict-small tick=38 ns=1300
+elig-tick case=conflict-small tick=39 ns=1300
+elig-tick case=conflict-small tick=40 ns=1400
+elig-tick case=conflict-small tick=41 ns=1300
+elig-tick case=conflict-small tick=42 ns=1300
+elig-tick case=conflict-small tick=43 ns=1200
+elig-tick case=conflict-small tick=44 ns=1200
+elig-tick case=conflict-small tick=45 ns=1200
+elig-tick case=conflict-small tick=46 ns=1300
+elig-tick case=conflict-small tick=47 ns=1300
+elig-tick case=conflict-small tick=48 ns=1500
+elig-tick case=conflict-small tick=49 ns=1400
+elig-tick case=conflict-small tick=50 ns=1400
+elig-tick case=conflict-small tick=51 ns=1400
+elig-tick case=conflict-small tick=52 ns=1400
+elig-tick case=conflict-small tick=53 ns=1300
+elig-tick case=conflict-small tick=54 ns=1300
+elig-tick case=conflict-small tick=55 ns=1300
+elig-tick case=conflict-small tick=56 ns=1400
+elig-tick case=conflict-small tick=57 ns=1300
+elig-tick case=conflict-small tick=58 ns=1300
+elig-tick case=conflict-small tick=59 ns=1300
+elig-tick case=conflict-small tick=60 ns=1300
+elig-tick case=conflict-small tick=61 ns=1300
+elig-tick case=conflict-small tick=62 ns=1400
+elig-tick case=conflict-small tick=63 ns=1400
+elig-tick case=conflict-small tick=64 ns=1300
+elig-tick case=conflict-small tick=65 ns=1300
+elig-tick case=conflict-small tick=66 ns=1300
+elig-tick case=conflict-small tick=67 ns=1400
+elig-tick case=conflict-small tick=68 ns=1400
+elig-tick case=conflict-small tick=69 ns=1400
+elig-tick case=conflict-small tick=70 ns=1300
+elig-tick case=conflict-small tick=71 ns=1400
+elig-tick case=conflict-small tick=72 ns=1300
+elig-tick case=conflict-small tick=73 ns=1300
+elig-tick case=conflict-small tick=74 ns=1300
+elig-tick case=conflict-small tick=75 ns=1300
+elig-tick case=conflict-small tick=76 ns=1300
+elig-tick case=conflict-small tick=77 ns=1300
+elig-tick case=conflict-small tick=78 ns=1300
+elig-tick case=conflict-small tick=79 ns=1300
+elig-tick case=conflict-small tick=80 ns=1400
+elig-tick case=conflict-small tick=81 ns=1300
+elig-tick case=conflict-small tick=82 ns=1300
+elig-tick case=conflict-small tick=83 ns=1400
+elig-tick case=conflict-small tick=84 ns=1300
+elig-tick case=conflict-small tick=85 ns=1300
+elig-tick case=conflict-small tick=86 ns=1400
+elig-tick case=conflict-small tick=87 ns=1300
+elig-tick case=conflict-small tick=88 ns=1300
+elig-tick case=conflict-small tick=89 ns=1300
+elig-tick case=conflict-small tick=90 ns=1400
+elig-tick case=conflict-small tick=91 ns=1300
+elig-tick case=conflict-small tick=92 ns=1400
+elig-tick case=conflict-small tick=93 ns=1300
+elig-tick case=conflict-small tick=94 ns=1400
+elig-tick case=conflict-small tick=95 ns=1300
+elig-tick case=conflict-small tick=96 ns=1400
+elig-tick case=conflict-small tick=97 ns=1300
+elig-tick case=conflict-small tick=98 ns=1300
+elig-tick case=conflict-small tick=99 ns=1300
+elig-tick case=conflict-small tick=100 ns=1300
+elig-tick case=conflict-small tick=101 ns=11100
+elig-tick case=conflict-small tick=102 ns=1300
+elig-tick case=conflict-small tick=103 ns=1300
+elig-tick case=conflict-small tick=104 ns=1300
+elig-tick case=conflict-small tick=105 ns=1300
+elig-tick case=conflict-small tick=106 ns=1400
+elig-tick case=conflict-small tick=107 ns=1300
+elig-tick case=conflict-small tick=108 ns=1400
+elig-tick case=conflict-small tick=109 ns=1300
+elig-tick case=conflict-small tick=110 ns=1300
+elig-tick case=conflict-small tick=111 ns=1400
+elig-tick case=conflict-small tick=112 ns=1300
+elig-tick case=conflict-small tick=113 ns=1300
+elig-tick case=conflict-small tick=114 ns=1300
+elig-tick case=conflict-small tick=115 ns=1300
+elig-tick case=conflict-small tick=116 ns=1300
+elig-tick case=conflict-small tick=117 ns=1400
+elig-tick case=conflict-small tick=118 ns=1300
+elig-tick case=conflict-small tick=119 ns=1400
+elig-tick case=conflict-small tick=120 ns=1300
+elig-tick case=conflict-small tick=121 ns=1400
+elig-tick case=conflict-small tick=122 ns=1300
+elig-tick case=conflict-small tick=123 ns=1400
+elig-tick case=conflict-small tick=124 ns=1400
+elig-tick case=conflict-small tick=125 ns=1400
+elig-tick case=conflict-small tick=126 ns=1400
+elig-tick case=conflict-small tick=127 ns=1300
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+

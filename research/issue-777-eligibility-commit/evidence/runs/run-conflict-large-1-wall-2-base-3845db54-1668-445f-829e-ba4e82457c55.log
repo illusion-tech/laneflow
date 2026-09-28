@@ -1,0 +1,143 @@
+
+running 1 test
+test eligibility_commit_wall ... 
+elig-end case=conflict-large window=0 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=1 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=2 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=3 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=4 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=5 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=6 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-end case=conflict-large window=7 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-tick case=conflict-large tick=0 ns=335700
+elig-tick case=conflict-large tick=1 ns=338700
+elig-tick case=conflict-large tick=2 ns=339200
+elig-tick case=conflict-large tick=3 ns=343100
+elig-tick case=conflict-large tick=4 ns=336900
+elig-tick case=conflict-large tick=5 ns=378300
+elig-tick case=conflict-large tick=6 ns=380200
+elig-tick case=conflict-large tick=7 ns=365600
+elig-tick case=conflict-large tick=8 ns=383800
+elig-tick case=conflict-large tick=9 ns=336900
+elig-tick case=conflict-large tick=10 ns=334400
+elig-tick case=conflict-large tick=11 ns=329400
+elig-tick case=conflict-large tick=12 ns=336300
+elig-tick case=conflict-large tick=13 ns=406900
+elig-tick case=conflict-large tick=14 ns=326100
+elig-tick case=conflict-large tick=15 ns=329600
+elig-tick case=conflict-large tick=16 ns=401600
+elig-tick case=conflict-large tick=17 ns=362000
+elig-tick case=conflict-large tick=18 ns=364300
+elig-tick case=conflict-large tick=19 ns=345100
+elig-tick case=conflict-large tick=20 ns=335000
+elig-tick case=conflict-large tick=21 ns=327900
+elig-tick case=conflict-large tick=22 ns=326600
+elig-tick case=conflict-large tick=23 ns=332300
+elig-tick case=conflict-large tick=24 ns=325800
+elig-tick case=conflict-large tick=25 ns=334800
+elig-tick case=conflict-large tick=26 ns=330600
+elig-tick case=conflict-large tick=27 ns=395700
+elig-tick case=conflict-large tick=28 ns=344500
+elig-tick case=conflict-large tick=29 ns=347400
+elig-tick case=conflict-large tick=30 ns=350500
+elig-tick case=conflict-large tick=31 ns=372900
+elig-tick case=conflict-large tick=32 ns=368300
+elig-tick case=conflict-large tick=33 ns=359700
+elig-tick case=conflict-large tick=34 ns=343700
+elig-tick case=conflict-large tick=35 ns=357700
+elig-tick case=conflict-large tick=36 ns=409600
+elig-tick case=conflict-large tick=37 ns=419200
+elig-tick case=conflict-large tick=38 ns=347000
+elig-tick case=conflict-large tick=39 ns=348600
+elig-tick case=conflict-large tick=40 ns=344100
+elig-tick case=conflict-large tick=41 ns=343700
+elig-tick case=conflict-large tick=42 ns=709000
+elig-tick case=conflict-large tick=43 ns=342200
+elig-tick case=conflict-large tick=44 ns=348200
+elig-tick case=conflict-large tick=45 ns=356300
+elig-tick case=conflict-large tick=46 ns=349900
+elig-tick case=conflict-large tick=47 ns=405300
+elig-tick case=conflict-large tick=48 ns=355600
+elig-tick case=conflict-large tick=49 ns=351900
+elig-tick case=conflict-large tick=50 ns=335300
+elig-tick case=conflict-large tick=51 ns=350700
+elig-tick case=conflict-large tick=52 ns=342000
+elig-tick case=conflict-large tick=53 ns=343300
+elig-tick case=conflict-large tick=54 ns=347900
+elig-tick case=conflict-large tick=55 ns=343600
+elig-tick case=conflict-large tick=56 ns=354000
+elig-tick case=conflict-large tick=57 ns=349700
+elig-tick case=conflict-large tick=58 ns=643300
+elig-tick case=conflict-large tick=59 ns=355800
+elig-tick case=conflict-large tick=60 ns=350600
+elig-tick case=conflict-large tick=61 ns=362100
+elig-tick case=conflict-large tick=62 ns=341700
+elig-tick case=conflict-large tick=63 ns=341600
+elig-tick case=conflict-large tick=64 ns=344600
+elig-tick case=conflict-large tick=65 ns=339100
+elig-tick case=conflict-large tick=66 ns=389900
+elig-tick case=conflict-large tick=67 ns=389600
+elig-tick case=conflict-large tick=68 ns=588500
+elig-tick case=conflict-large tick=69 ns=345100
+elig-tick case=conflict-large tick=70 ns=341800
+elig-tick case=conflict-large tick=71 ns=357600
+elig-tick case=conflict-large tick=72 ns=331700
+elig-tick case=conflict-large tick=73 ns=487600
+elig-tick case=conflict-large tick=74 ns=378400
+elig-tick case=conflict-large tick=75 ns=406200
+elig-tick case=conflict-large tick=76 ns=339800
+elig-tick case=conflict-large tick=77 ns=336300
+elig-tick case=conflict-large tick=78 ns=332300
+elig-tick case=conflict-large tick=79 ns=701500
+elig-tick case=conflict-large tick=80 ns=332100
+elig-tick case=conflict-large tick=81 ns=324700
+elig-tick case=conflict-large tick=82 ns=319900
+elig-tick case=conflict-large tick=83 ns=325700
+elig-tick case=conflict-large tick=84 ns=320600
+elig-tick case=conflict-large tick=85 ns=321800
+elig-tick case=conflict-large tick=86 ns=323300
+elig-tick case=conflict-large tick=87 ns=320700
+elig-tick case=conflict-large tick=88 ns=609400
+elig-tick case=conflict-large tick=89 ns=337100
+elig-tick case=conflict-large tick=90 ns=338100
+elig-tick case=conflict-large tick=91 ns=337600
+elig-tick case=conflict-large tick=92 ns=342700
+elig-tick case=conflict-large tick=93 ns=326200
+elig-tick case=conflict-large tick=94 ns=321500
+elig-tick case=conflict-large tick=95 ns=319200
+elig-tick case=conflict-large tick=96 ns=322100
+elig-tick case=conflict-large tick=97 ns=329200
+elig-tick case=conflict-large tick=98 ns=331400
+elig-tick case=conflict-large tick=99 ns=327400
+elig-tick case=conflict-large tick=100 ns=325100
+elig-tick case=conflict-large tick=101 ns=335200
+elig-tick case=conflict-large tick=102 ns=336300
+elig-tick case=conflict-large tick=103 ns=334200
+elig-tick case=conflict-large tick=104 ns=328900
+elig-tick case=conflict-large tick=105 ns=333100
+elig-tick case=conflict-large tick=106 ns=385500
+elig-tick case=conflict-large tick=107 ns=446000
+elig-tick case=conflict-large tick=108 ns=354800
+elig-tick case=conflict-large tick=109 ns=356300
+elig-tick case=conflict-large tick=110 ns=359200
+elig-tick case=conflict-large tick=111 ns=369300
+elig-tick case=conflict-large tick=112 ns=338400
+elig-tick case=conflict-large tick=113 ns=335200
+elig-tick case=conflict-large tick=114 ns=334500
+elig-tick case=conflict-large tick=115 ns=330300
+elig-tick case=conflict-large tick=116 ns=334100
+elig-tick case=conflict-large tick=117 ns=330600
+elig-tick case=conflict-large tick=118 ns=329400
+elig-tick case=conflict-large tick=119 ns=390000
+elig-tick case=conflict-large tick=120 ns=362300
+elig-tick case=conflict-large tick=121 ns=333800
+elig-tick case=conflict-large tick=122 ns=344000
+elig-tick case=conflict-large tick=123 ns=318300
+elig-tick case=conflict-large tick=124 ns=322700
+elig-tick case=conflict-large tick=125 ns=318900
+elig-tick case=conflict-large tick=126 ns=317800
+elig-tick case=conflict-large tick=127 ns=318000
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.13s
+

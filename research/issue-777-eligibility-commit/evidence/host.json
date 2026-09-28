@@ -1,0 +1,15 @@
+{
+  "recorded_utc": "2026-09-28T00:41:48.8194831Z",
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32
+  },
+  "note": "采集完成后的只读主机信息；不证明测量窗口内频率或调度恒定。",
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29671",
+    "BuildNumber": "29671",
+    "TotalVisibleMemorySize": 64680184
+  }
+}

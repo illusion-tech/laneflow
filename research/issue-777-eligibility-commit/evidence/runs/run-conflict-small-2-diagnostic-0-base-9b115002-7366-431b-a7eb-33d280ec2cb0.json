@@ -1,0 +1,46 @@
+{
+  "accepted": false,
+  "arm": "base",
+  "baseline_sha256": "2a7fc238dc936f1b11cab7193323c08c7ede64678361ee6dc66344dbb46ad7d9",
+  "build_sha256": "f18f524e68225a8390368c1893f0da9732b720b970193b85b9b8f1581d721322",
+  "case": "conflict-small",
+  "clean_after": true,
+  "controller_source": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "ended": 1790555659,
+  "exit_ok": true,
+  "interference": [],
+  "leg": 0,
+  "log": "run-conflict-small-2-diagnostic-0-base-9b115002-7366-431b-a7eb-33d280ec2cb0.log",
+  "log_sha256": "12b483df649519aa4b4887694c3e11e4bb0a368e2da7c646ff5529cdc72d2e44",
+  "mode": "diagnostic",
+  "post": {
+    "after": [
+      "39976:cargo.exe"
+    ],
+    "before": [
+      "39976:cargo.exe"
+    ],
+    "cpu_percent": [
+      18.107775,
+      13.53086
+    ],
+    "cpu_warning": false,
+    "no_competitors": false
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      15.113581,
+      17.689893
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "round": 2,
+  "schema": 777,
+  "source_after": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "started": 1790555645,
+  "stderr": "run-conflict-small-2-diagnostic-0-base-9b115002-7366-431b-a7eb-33d280ec2cb0.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

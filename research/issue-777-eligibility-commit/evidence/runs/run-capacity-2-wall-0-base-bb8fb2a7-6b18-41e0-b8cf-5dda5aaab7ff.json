@@ -1,0 +1,42 @@
+{
+  "accepted": true,
+  "arm": "base",
+  "baseline_sha256": "2a7fc238dc936f1b11cab7193323c08c7ede64678361ee6dc66344dbb46ad7d9",
+  "build_sha256": "f18f524e68225a8390368c1893f0da9732b720b970193b85b9b8f1581d721322",
+  "case": "capacity",
+  "clean_after": true,
+  "controller_source": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "ended": 1790555288,
+  "exit_ok": true,
+  "interference": [],
+  "leg": 0,
+  "log": "run-capacity-2-wall-0-base-bb8fb2a7-6b18-41e0-b8cf-5dda5aaab7ff.log",
+  "log_sha256": "bdc523263a0e154661353ec7f61265423c6095a9d07a3702a425db62434a7af2",
+  "mode": "wall",
+  "post": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      25.474823,
+      16.272501
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      23.037015,
+      27.465456
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "round": 2,
+  "schema": 777,
+  "source_after": "00df1af1031e25b8206ab1e40e2178fb6ffefc1d",
+  "started": 1790555267,
+  "stderr": "run-capacity-2-wall-0-base-bb8fb2a7-6b18-41e0-b8cf-5dda5aaab7ff.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
