@@ -1,0 +1,44 @@
+
+running 1 test
+test kernel::eligibility_commit_research::eligibility_commit_diagnostic ... 
+elig-end case=conflict-large window=0 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=0 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=1 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=1 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=2 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=2 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=3 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=3 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=4 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=4 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=5 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=5 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=6 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=6 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-end case=conflict-large window=7 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=dde51337d7f39d46b6fa941b5069f76320d552b3fdcdc2aab71ef6524110cee4
+elig-memory case=conflict-large window=7 world=111606604 shared=7803 binding=28 committed=32402910 derived=6001612 workspace=73202054 admin=0
+elig-detail case=conflict-large stage=clear_motion ns=1410300 items=12800000 calls=128
+elig-detail case=conflict-large stage=clear_eligibility ns=6243500 items=12800000 calls=128
+elig-detail case=conflict-large stage=copy ns=14648400 items=12800000 calls=128
+elig-detail case=conflict-large stage=scan ns=4300 items=12800000 calls=128
+elig-detail case=conflict-large stage=eligibility_commit ns=14715600 items=12800000 calls=128
+elig-phase case=conflict-large stage=whole_step ns=31066600
+elig-phase case=conflict-large stage=preflight ns=7490200
+elig-phase case=conflict-large stage=occupancy ns=33900
+elig-phase case=conflict-large stage=waiting_prepare ns=451200
+elig-phase case=conflict-large stage=conflict_prepare ns=7767500
+elig-phase case=conflict-large stage=motion_loop ns=64300
+elig-phase case=conflict-large stage=waiting_finalize ns=392400
+elig-phase case=conflict-large stage=signals ns=10400
+elig-phase case=conflict-large stage=conflict_finalize ns=26300
+elig-phase case=conflict-large stage=waiting_outputs ns=23900
+elig-phase case=conflict-large stage=commit ns=14740700
+elig-work case=conflict-large allocations=0 reallocations=0 bytes=0 min_eligible=1 max_eligible=1
+elig-table case=conflict-large pattern=empty slots=100000 calls=128 commit_ns=6669800 copy_ns=0 scan_ns=6660400 copy_items=0 scan_items=12800000 allocations=0 reallocations=0
+elig-table case=conflict-large pattern=first slots=100000 calls=128 commit_ns=15616900 copy_ns=15543300 scan_ns=4500 copy_items=12800000 scan_items=12800000 allocations=0 reallocations=0
+elig-table case=conflict-large pattern=last slots=100000 calls=128 commit_ns=22569900 copy_ns=15312400 scan_ns=7193300 copy_items=12800000 scan_items=12800000 allocations=0 reallocations=0
+elig-table case=conflict-large pattern=dense slots=100000 calls=128 commit_ns=42405100 copy_ns=42335600 scan_ns=4600 copy_items=12800000 scan_items=12800000 allocations=0 reallocations=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 536 filtered out; finished in 0.21s
+

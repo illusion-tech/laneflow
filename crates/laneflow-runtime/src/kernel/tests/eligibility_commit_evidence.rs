@@ -1,8 +1,9 @@
 //! #777 正常库整拍；所有诊断钩子均不进入该库构建。
 use laneflow_runtime as runtime_types;
+#[path = "eligibility_commit/input.rs"]
 mod input;
 #[allow(dead_code)]
-#[path = "../sparse_cost/fixture.rs"]
+#[path = "sparse_cost/fixture.rs"]
 mod sparse;
 
 #[test]

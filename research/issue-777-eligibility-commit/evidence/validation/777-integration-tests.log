@@ -1,0 +1,34 @@
+   Compiling laneflow-runtime v0.0.0 (E:\projects\worktrees\713-acceptance-followup\laneflow\crates\laneflow-runtime)
+    Finished `release` profile [optimized] target(s) in 5.68s
+     Running tests\commit_p7_allocation_evidence.rs (target\release\deps\commit_p7_allocation_evidence-f75787d84b26789a.exe)
+
+running 2 tests
+test p7_corridor_steady_steps_zero_alloc ... ok
+test p7_parking_arrival_growth_is_in_p5_not_p7 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running src\kernel\tests\eligibility_commit\wall.rs (target\release\deps\eligibility_commit_evidence-45e6a1dcdfdbe9b1.exe)
+
+running 2 tests
+test eligibility_commit_wall ... ignored, manual #777 release balanced A/B
+test eligibility_resource_windows_remain_valid ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\policy_cutover.rs (target\release\deps\policy_cutover-68683aa56af54b84.exe)
+
+running 2 tests
+test cross_revision_preserves_pin_rebinds_ordinal_and_atomically_rebuilds_gap ... ok
+test incompatible_target_rejects_without_arming_or_modifying_world ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\snapshot_replay.rs (target\release\deps\snapshot_replay-05cd0b437a9943ce.exe)
+
+running 2 tests
+test checkpoint_replay_is_pointwise_equal_and_locates_first_desync_interval ... ok
+test replay_divergence_under_capacity_mismatch_is_a_desync_signal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
