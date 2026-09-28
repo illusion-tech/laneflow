@@ -262,11 +262,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let first_hop = prepared.map_or(old.route_edge_index, |grant| {
                 old.route_edge_index.min(grant.gate_hop)
             });
-            let first = compiled.gate_hops.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("transitions:265");
-                |hop| *hop < first_hop
-            });
+            // prepared grant 可能要求回看旧 cursor 之前的 Gate，不能只比较 old/next。
+            let first = if first_hop < next.route_edge_index {
+                compiled.gate_hops.partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("transitions:265");
+                    |hop| *hop < first_hop
+                })
+            } else {
+                compiled.gate_hops.len()
+            };
             for hop in compiled.gate_hops[first..]
                 .iter()
                 .copied()
@@ -370,16 +375,25 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     );
                 }
             }
-            let first_exit = compiled.maneuvers.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("transitions:369");
-                |item| item.exit_route_edge_index <= old.route_edge_index
-            });
-            let last_exit = compiled.maneuvers.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("transitions:372");
-                |item| item.exit_route_edge_index <= next.route_edge_index
-            });
+            // 同边无新出口，但 Clearing 仍可能在本拍车尾净空后完成。
+            let (first_exit, last_exit) = if old.route_edge_index == next.route_edge_index
+                && !old.maneuver_traversal.is_some_and(|traversal| {
+                    matches!(traversal.phase, ManeuverTraversalPhase::Clearing { .. })
+                }) {
+                (0, 0)
+            } else {
+                let first = compiled.maneuvers.partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("transitions:369");
+                    |item| item.exit_route_edge_index <= old.route_edge_index
+                });
+                let last = compiled.maneuvers.partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("transitions:372");
+                    |item| item.exit_route_edge_index <= next.route_edge_index
+                });
+                (first, last)
+            };
             let delayed = old
                 .maneuver_traversal
                 .filter(|traversal| {
@@ -472,3 +486,7 @@ mod tests {
         assert!(world.latest_transition_events().is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "tests/empty_ranges.rs"]
+mod empty_range_tests;

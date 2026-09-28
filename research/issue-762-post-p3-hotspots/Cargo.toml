@@ -36,3 +36,7 @@ path = "src/p5_cost.rs"
 [[bin]]
 name = "laneflow-p5-direct-research"
 path = "src/p5_direct_research.rs"
+
+[[bin]]
+name = "laneflow-empty-ranges-research"
+path = "src/empty_ranges.rs"
