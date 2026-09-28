@@ -2,6 +2,9 @@
 # files are auto-detected and left untouched.
 * text=auto eol=lf
 
+# #679 原始采集文件的摘要绑定实际字节。
+research/issue-679-route-query/evidence/* -text
+
 # Keep the checked-in flatc source canonical across platforms while preserving the
 # generator's own trailing spaces and final blank line for clean regeneration.
 crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs text eol=lf whitespace=-blank-at-eol,-blank-at-eof

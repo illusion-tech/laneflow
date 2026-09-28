@@ -1066,11 +1066,18 @@ impl crate::kernel::state::WorldState {
         };
         if compiled
             .waiting
-            .binary_search_by_key(&maneuver_index, |waiting| {
-                #[cfg(test)]
-                count_waiting_lookup(2);
-                waiting.maneuver_index as usize
-            })
+            .binary_search_by_key(
+                {
+                    #[cfg(test)]
+                    super::route_query_research::note_search("waiting:1069");
+                    &maneuver_index
+                },
+                |waiting| {
+                    #[cfg(test)]
+                    count_waiting_lookup(2);
+                    waiting.maneuver_index as usize
+                },
+            )
             .is_err()
         {
             return Ok(None);
@@ -1200,9 +1207,11 @@ impl crate::kernel::state::WorldState {
         let Some(membership) = state.waiting_membership else {
             // 目标修订可以新增区间，但不能让 Active cursor 在区间内凭空获得 storage。
             // Parked / Completed 的保留 cursor 不代表一次 Waiting 进入。
-            let next = compiled
-                .waiting
-                .partition_point(|occurrence| occurrence.release_hop < state.route_edge_index);
+            let next = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("waiting:1205");
+                |occurrence| occurrence.release_hop < state.route_edge_index
+            });
             return state.status != crate::VehicleStatus::Active
                 || compiled.waiting.get(next).is_none_or(|occurrence| {
                     !waiting_membership_cursor_valid(state.route_edge_index, occurrence)
@@ -1446,7 +1455,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         if compiled
             .waiting
-            .binary_search_by_key(&maneuver_index, |waiting| waiting.maneuver_index as usize)
+            .binary_search_by_key(
+                {
+                    #[cfg(test)]
+                    super::route_query_research::note_search("waiting:1449");
+                    &maneuver_index
+                },
+                |waiting| waiting.maneuver_index as usize,
+            )
             .is_err()
         {
             return Ok(None);
@@ -1454,7 +1470,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let maneuver = &compiled.maneuvers[maneuver_index];
         let first_gate = first_gate_hop(compiled, maneuver)
             .ok_or(crate::StepError::WaitingInvariantViolation)?;
-        let gate_index = compiled.gate_hops.partition_point(|hop| *hop < cursor);
+        let gate_index = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("waiting:1457");
+            |hop| *hop < cursor
+        });
         let last_crossed = gate_index
             .checked_sub(1)
             .and_then(|index| compiled.gate_hops.get(index).copied())
@@ -1957,9 +1977,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .compiled_route(state.route)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
             // Waiting 区间按路线顺序且不重叠；既有 membership 的 entry 已在 cursor 后方。
-            let first_pending = compiled
-                .waiting
-                .partition_point(|occurrence| occurrence.entry_hop < state.route_edge_index);
+            let first_pending = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("waiting:1962");
+                |occurrence| occurrence.entry_hop < state.route_edge_index
+            });
             let Some((occurrence_index, occurrence)) = compiled
                 .waiting
                 .iter()
@@ -2895,9 +2917,11 @@ fn non_entry_gate_anchors<'a>(
 ) -> impl Iterator<Item = (u32, u32)> + 'a {
     #[cfg(test)]
     NON_ENTRY_DISCOVERY_VISITS.set(NON_ENTRY_DISCOVERY_VISITS.get() + 1);
-    let start = compiled
-        .gate_hops
-        .partition_point(|hop| *hop < old.route_edge_index);
+    let start = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("waiting:2900");
+        |hop| *hop < old.route_edge_index
+    });
     compiled.gate_hops[start..]
         .iter()
         .copied()
@@ -2915,7 +2939,14 @@ fn non_entry_gate_anchor(
     compiled.hop_gate.get(hop).copied().flatten()?;
     if compiled
         .waiting
-        .binary_search_by_key(&hop_u32, |occurrence| occurrence.entry_hop)
+        .binary_search_by_key(
+            {
+                #[cfg(test)]
+                super::route_query_research::note_search("waiting:2918");
+                &hop_u32
+            },
+            |occurrence| occurrence.entry_hop,
+        )
         .is_ok()
     {
         return None;
@@ -2947,10 +2978,14 @@ fn next_crossed_waiting(
 }
 
 fn maneuver_index_at_hop(compiled: &CompiledRoute, hop: u32) -> Option<usize> {
-    let index = compiled.maneuvers.partition_point(|maneuver| {
+    let index = compiled.maneuvers.partition_point({
         #[cfg(test)]
-        count_waiting_lookup(1);
-        maneuver.exit_route_edge_index <= hop
+        super::route_query_research::note_search("waiting:2950");
+        |maneuver| {
+            #[cfg(test)]
+            count_waiting_lookup(1);
+            maneuver.exit_route_edge_index <= hop
+        }
     });
     compiled
         .maneuvers
@@ -3014,9 +3049,11 @@ fn first_gate_hop(
     compiled: &CompiledRoute,
     maneuver: &crate::kernel::tables::ManeuverOccurrence,
 ) -> Option<u32> {
-    let start = compiled
-        .gate_hops
-        .partition_point(|hop| *hop < maneuver.entry_route_edge_index);
+    let start = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("waiting:3019");
+        |hop| *hop < maneuver.entry_route_edge_index
+    });
     compiled
         .gate_hops
         .get(start)

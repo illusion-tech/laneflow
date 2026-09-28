@@ -1783,9 +1783,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let gate_reachable = cache_reachability
             .then(|| super::conflict_tick::gate_may_be_reached(self, &state, delta_s));
         let cursor = state.route_edge_index as usize;
-        let gate_index = compiled
-            .gate_hops
-            .partition_point(|hop| (*hop as usize) < cursor);
+        let gate_index = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:1788");
+            |hop| (*hop as usize) < cursor
+        });
         let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
             return Ok(WaitingPreviewEntry {
                 gate_reachable,
@@ -1937,12 +1939,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         } else {
             state.route_edge_index
         };
-        let mut conflict_index = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < first_hop);
-        let mut waiting_index = compiled
-            .waiting
-            .partition_point(|entry| entry.entry_hop < first_hop);
+        let mut conflict_index = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:1942");
+            |entry| entry.admission_hop < first_hop
+        });
+        let mut waiting_index = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:1945");
+            |entry| entry.entry_hop < first_hop
+        });
         let mut deferred: Option<crate::kernel::waiting::WaitingStopConstraint> = None;
         let mut blocked_by_reach = false;
         let mut granted_hop: Option<u32> = None;
@@ -2226,9 +2232,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let Some(compiled) = self.compiled_route(state.route) else {
             return AdmissionPreview::Unprovable;
         };
-        let occurrence_index = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < contender.hop);
+        let occurrence_index = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2231");
+            |entry| entry.admission_hop < contender.hop
+        });
         let mut index = occurrence_index;
         while index < compiled.conflicts.len()
             && compiled.conflicts[index].admission_hop == contender.hop
@@ -2430,11 +2438,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if range.len == 0 {
             return AdmissionPreview::Clear;
         }
-        let Ok(maneuver_index) = u32::try_from(
-            compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= hop),
-        ) else {
+        let Ok(maneuver_index) = u32::try_from(compiled.maneuvers.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2436");
+            |entry| entry.exit_route_edge_index <= hop
+        })) else {
             return AdmissionPreview::Unprovable;
         };
         let Some(passage) = crate::ConflictPassageRange::new(
@@ -2693,11 +2701,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if range.len == 0 {
             return Ok(ClaimRead::Open(Vec::new()));
         }
-        let Ok(maneuver_index) = u32::try_from(
-            compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= hop),
-        ) else {
+        let Ok(maneuver_index) = u32::try_from(compiled.maneuvers.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2699");
+            |entry| entry.exit_route_edge_index <= hop
+        })) else {
             return Err(AdmissionPreview::Unprovable);
         };
         let Some(passage) = crate::ConflictPassageRange::new(
@@ -2989,9 +2997,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Err(AdmissionPreview::Unprovable);
         };
         let cursor = state.route_edge_index as usize;
-        let gate_index = compiled
-            .gate_hops
-            .partition_point(|gate| (*gate as usize) < cursor);
+        let gate_index = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2994");
+            |gate| (*gate as usize) < cursor
+        });
         let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
             return Ok(None);
         };
@@ -3020,9 +3030,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return Err(AdmissionPreview::Unprovable);
         };
-        let first_pending = compiled
-            .waiting
-            .partition_point(|occurrence| occurrence.entry_hop < state.route_edge_index);
+        let first_pending = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:3025");
+            |occurrence| occurrence.entry_hop < state.route_edge_index
+        });
         let Some((occurrence_index, occurrence)) = compiled
             .waiting
             .iter()
@@ -3192,9 +3204,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let candidate_reaches =
             |gate: u32| candidate_blocked_at.is_none_or(|blocked| gate < blocked);
         let mut conflict_stop = None;
-        let mut index = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < first_hop);
+        let mut index = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:3197");
+            |entry| entry.admission_hop < first_hop
+        });
         while index < compiled.conflicts.len() {
             let hop = compiled.conflicts[index].admission_hop;
             let Some(stop_index) = usize::try_from(hop).ok().and_then(|hop| hop.checked_add(1))
@@ -4006,7 +4020,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         reach: Option<MotionReach>,
     ) -> Option<BoundedDistance> {
         let cursor_hop = u32::try_from(cursor).ok()?;
-        let start = compiled.gate_hops.partition_point(|hop| *hop < cursor_hop);
+        let start = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:4009");
+            |hop| *hop < cursor_hop
+        });
         for hop in compiled.gate_hops[start..].iter().copied() {
             let stop_index = usize::try_from(hop).ok()?.checked_add(1)?;
             let BoundedDistance::Finite(distance) = distance_to_occurrence_start(
@@ -4227,9 +4245,11 @@ impl MotionTaskView<'_> {
             state.route_edge_index
         };
         let held_waiting_hop = state.waiting_membership.and_then(|member| {
-            let index = compiled
-                .waiting
-                .partition_point(|entry| entry.release_hop < member.release_hop);
+            let index = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("tick:4232");
+                |entry| entry.release_hop < member.release_hop
+            });
             compiled
                 .waiting
                 .get(index)
@@ -4248,9 +4268,11 @@ impl MotionTaskView<'_> {
             #[cfg(test)]
             note_barrier_query(|counts| counts.conflict_scans += 1);
             loop {
-                let index = compiled
-                    .conflicts
-                    .partition_point(|entry| entry.admission_hop < minimum);
+                let index = compiled.conflicts.partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("tick:4253");
+                    |entry| entry.admission_hop < minimum
+                });
                 let Some(entry) = compiled.conflicts.get(index) else {
                     break None;
                 };
@@ -4268,9 +4290,11 @@ impl MotionTaskView<'_> {
         } else {
             #[cfg(test)]
             note_barrier_query(|counts| counts.waiting_entry_scans += 1);
-            let waiting = compiled
-                .waiting
-                .partition_point(|entry| entry.entry_hop < first_hop);
+            let waiting = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("tick:4273");
+                |entry| entry.entry_hop < first_hop
+            });
             compiled.waiting[waiting..]
                 .iter()
                 .find(|entry| !authorized(entry.entry_hop))
@@ -5122,9 +5146,11 @@ fn constrain_upcoming_speed_limits(
     let constraint_window =
         delta_s * (current_speed + next_speed) + next_speed * next_speed / comfort;
     let cursor_hop = u32::try_from(cursor).ok()?;
-    let first = compiled
-        .speed_limit_drop
-        .partition_point(|drop| drop.from_route_edge_index < cursor_hop);
+    let first = compiled.speed_limit_drop.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("tick:5127");
+        |drop| drop.from_route_edge_index < cursor_hop
+    });
     for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
         let limit = si_speed(drop.target_mm_s);
@@ -5254,9 +5280,11 @@ fn clamp_travel_to_speed_down_boundary(
 ) -> Option<f32> {
     let min_travel = 0.5 * current_speed * delta_s;
     let cursor_hop = u32::try_from(cursor).ok()?;
-    let first = compiled
-        .speed_limit_drop
-        .partition_point(|drop| drop.from_route_edge_index < cursor_hop);
+    let first = compiled.speed_limit_drop.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("tick:5259");
+        |drop| drop.from_route_edge_index < cursor_hop
+    });
     for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
         let limit = si_speed(drop.target_mm_s);

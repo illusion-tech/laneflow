@@ -851,8 +851,11 @@ fn signal_release_delay_ms(
     if phases.is_empty() {
         return None;
     }
-    let index = phases
-        .partition_point(|phase| relations.phase_end_offset_ms(*phase).unwrap_or(0) <= position);
+    let index = phases.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("entry_frontier:855");
+        |phase| relations.phase_end_offset_ms(*phase).unwrap_or(0) <= position
+    });
     let current = *phases.get(index)?;
     let mut wait = relations
         .phase_end_offset_ms(current)?
@@ -913,7 +916,11 @@ fn gate_distance_mm(compiled: &super::tables::CompiledRoute, state: &VehicleStat
     } else {
         state.route_edge_index
     };
-    let first = compiled.gate_hops.partition_point(|hop| *hop < cursor);
+    let first = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("entry_frontier:916");
+        |hop| *hop < cursor
+    });
     let Some(gate_hop) = compiled.gate_hops.get(first).copied() else {
         return NO_DISTANCE_MM;
     };
@@ -1239,7 +1246,11 @@ fn collect_vehicle_targets(
             };
             let first = compiled
                 .gate_hops
-                .partition_point(|hop| *hop < cursor)
+                .partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("entry_frontier:1242");
+                    |hop| *hop < cursor
+                })
                 .max(gate_list_index);
             for (offset, gate_hop) in compiled.gate_hops[first..].iter().copied().enumerate() {
                 let in_reach = if !reach.is_finite() || gate_hop < state.route_edge_index {
@@ -1466,11 +1477,15 @@ fn record_walk(
                 state.route,
             )
             .ok_or(StepError::ConflictInvariantViolation)?;
-        let first_conflict = compiled.conflicts.partition_point(|occurrence| {
-            (
-                occurrence.entry.route_edge_index,
-                occurrence.entry.progress_mm,
-            ) < (state.route_edge_index, state.progress_mm)
+        let first_conflict = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("entry_frontier:1469");
+            |occurrence| {
+                (
+                    occurrence.entry.route_edge_index,
+                    occurrence.entry.progress_mm,
+                ) < (state.route_edge_index, state.progress_mm)
+            }
         });
         if first_conflict == compiled.conflicts.len() {
             (Vec::new(), NO_DISTANCE_MM)
