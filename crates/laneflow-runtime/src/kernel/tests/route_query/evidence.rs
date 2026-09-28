@@ -1,14 +1,10 @@
 //! #679 已归档原始样本的完整性与统计复核；不需要采样机器或 Windows。
-#[cfg(test)]
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-#[cfg(test)]
-use std::{fs, path::PathBuf};
+use std::{collections::BTreeMap, fs, path::PathBuf};
 
 type Key = (u32, bool, usize);
 type Samples = BTreeMap<Key, Vec<u64>>;
 
-#[cfg(test)]
 fn directory() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../research/issue-679-route-query/evidence")
 }
@@ -20,7 +16,7 @@ fn fields(line: &str) -> BTreeMap<&str, &str> {
         .collect()
 }
 
-pub(crate) fn wall(text: &str) -> Result<Samples, String> {
+fn wall(text: &str) -> Result<Samples, String> {
     let mut samples: Samples = BTreeMap::new();
     let mut ends = BTreeMap::new();
     let mut inputs = BTreeMap::new();

@@ -1,6 +1,5 @@
 //! 长路线普通 integration 构建的三组 ABBA；严格复用 #679 输入和矩阵校验。
-#[allow(dead_code)]
-#[path = "../../../crates/laneflow-runtime/src/kernel/tests/route_query/evidence.rs"]
+#[path = "route_wall.rs"]
 mod evidence;
 
 use crate::{BASE, Result, io, need};
