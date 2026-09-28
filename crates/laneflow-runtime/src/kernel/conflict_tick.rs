@@ -2072,6 +2072,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let compiled =
             crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, next.route)
                 .ok_or(StepError::ConflictInvariantViolation)?;
+        // 零进度回看已计入 first_hop；同一 hop 内尚未到边尾时没有可定稿 Gate。
+        if first_hop == next.route_edge_index
+            && compiled.edges.get(first_hop as usize).is_some_and(|edge| {
+                next.progress_mm
+                    < self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+            })
+        {
+            return Ok(());
+        }
         let first = compiled.gate_hops.partition_point({
             #[cfg(test)]
             super::route_query_research::note_search("conflict_tick:2059");
