@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 mod cache_research;
 use cache_research::io;
+mod empty_ranges_route;
 
 use std::{error::Error, path::Path};
 
@@ -25,6 +26,18 @@ fn need(ok: bool, message: &str) -> Result<()> {
 fn run() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("route-run") if args.len() == 3 => {
+            empty_ranges_route::capture(Path::new(&args[1]), Path::new(&args[2]))
+        }
+        Some("route-analyze" | "route-verify") if args.len() == 3 => {
+            let result = empty_ranges_route::analyze(Path::new(&args[1]))?;
+            if args[0] == "route-verify" {
+                need(result == io::read_json(Path::new(&args[2]))?, "route published mismatch")
+            } else {
+                io::outside(Path::new(&args[1]), Path::new(&args[2]))?;
+                io::write_new(Path::new(&args[2]), &result)
+            }
+        }
         Some("prepare") if args.len() == 5 && args[2] == "plain" => {
             cache_research::export_for(
                 Path::new(&args[4]),
