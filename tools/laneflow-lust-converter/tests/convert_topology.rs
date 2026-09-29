@@ -269,6 +269,110 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     fs::write(&out_path, &report.rendered).expect("write diagnostic survey file");
 }
 
+/// R3 回归：诊断收集为每次转换局部状态——fail-fast 尝试不残留，连续两次
+/// 诊断转换条目互不相偷、逐字节一致。
+#[test]
+fn diagnostics_are_per_conversion_without_cross_run_pollution() {
+    let net = fixture_infeasible_net_xml();
+    // fail-fast 先行：报错且不留下任何诊断状态。
+    let fail_fast = convert_topology_from_xml_with_tll_and_vtypes(
+        &net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &TopologyConvertOptions::default(),
+    );
+    assert!(
+        fail_fast.is_err(),
+        "fixture 内车道不可行，fail-fast 必须报错"
+    );
+
+    let options = TopologyConvertOptions {
+        emit_infeasibility_report: true,
+        ..TopologyConvertOptions::default()
+    };
+    let first = convert_topology_from_xml_with_tll_and_vtypes(
+        &net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &options,
+    )
+    .expect("first diagnostics conversion");
+    let second = convert_topology_from_xml_with_tll_and_vtypes(
+        &net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &options,
+    )
+    .expect("second diagnostics conversion");
+    let first_report = first.infeasibility_report.expect("first report");
+    let second_report = second.infeasibility_report.expect("second report");
+    assert_eq!(
+        first_report, second_report,
+        "连续两次诊断转换必须互不相偷、逐字节一致"
+    );
+    assert_eq!(
+        first_report.total(),
+        1,
+        "fixture 恰一条不可行内车道（硬折角倒圆）"
+    );
+    assert_eq!(first_report.entries[0].lane_id, "sumo::J_1_0");
+}
+
+/// R2 回归：清单头对**实际转换输入的字节**求摘要并如实标注校验状态；
+/// 改输入字节（不改语义结构）即摘要变化，且不出现与输入不符的固定声明。
+#[test]
+fn diagnostic_report_tracks_actual_input_bytes() {
+    let net = fixture_infeasible_net_xml();
+    let options = TopologyConvertOptions {
+        emit_infeasibility_report: true,
+        ..TopologyConvertOptions::default()
+    };
+    let report = |net_xml: &str| {
+        convert_topology_from_xml_with_tll_and_vtypes(
+            net_xml,
+            &fixture_tll_xml(),
+            &fixture_vtypes_xml(),
+            &options,
+        )
+        .expect("diagnostics conversion")
+        .infeasibility_report
+        .expect("report")
+    };
+    let extract_digest = |rendered: &str| {
+        rendered
+            .split_once("本次转换输入 net XML 摘要：`")
+            .and_then(|(_, tail)| tail.split_once("`"))
+            .map(|(digest, _)| digest.to_owned())
+            .expect("digest line present")
+    };
+
+    let first = report(&net);
+    let header = &first.rendered;
+    assert!(
+        header.contains("不一致（输入不是 pinned 基线字节）"),
+        "旁路输入不得声称 pinned 一致: {header}"
+    );
+    assert!(
+        header.contains("未执行独立 verify-source"),
+        "旁路输入不得声称已校验: {header}"
+    );
+    assert!(
+        !header.contains("pinned c4bd5bd3 原样"),
+        "不得出现与输入不符的固定基线声明: {header}"
+    );
+
+    // 改输入字节（speed 13.89 -> 13.90）：摘要随之变化，清单其余结构不变。
+    let modified = net.replacen("13.89", "13.90", 1);
+    assert_ne!(net, modified);
+    let second = report(&modified);
+    assert_ne!(
+        extract_digest(&first.rendered),
+        extract_digest(&second.rendered),
+        "输入字节变化必须反映为摘要变化"
+    );
+    assert_eq!(first.entries, second.entries);
+}
+
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
@@ -287,6 +391,14 @@ fn fixture_tll_xml() -> String {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minimal/t-junction.tll.xml"),
     )
     .expect("read tll fixture")
+}
+
+fn fixture_infeasible_net_xml() -> String {
+    fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/minimal/infeasible-kink.net.xml"),
+    )
+    .expect("read infeasible-kink net fixture")
 }
 
 fn fixture_vtypes_xml() -> String {

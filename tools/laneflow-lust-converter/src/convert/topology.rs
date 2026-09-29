@@ -16,6 +16,7 @@ use crate::{
     },
     output::{
         TopologyArtifacts, compile_network_lfca, compile_network_lfca_with_infeasibility_report,
+        geom::ReportSource,
         model::{
             Centerline, LaneEdge, LaneGraph, Parking, PopulationSelection, PopulationTableRecord,
             Route, RoutesToml, SpatialEdge, SpatialPackage, TrafficPackage, Units, VehicleProfile,
@@ -74,13 +75,24 @@ pub fn convert_network_topology(
     convert_network_topology_with_tll(network, &[], options)
 }
 
+/// ReportSource 缺省：结构化入口不持有原始字节，清单标注「未知」且不声称已校验。
+fn unknown_report_source() -> ReportSource {
+    ReportSource::unverified_unknown()
+}
+
 /// Build validated packages using static programs from `tll.static.xml`.
 pub fn convert_network_topology_with_tll(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
     options: &TopologyConvertOptions,
 ) -> Result<TopologyArtifacts> {
-    convert_network_topology_with_tll_and_profiles(network, tll_programs, &[], options)
+    convert_network_topology_with_tll_and_profiles(
+        network,
+        tll_programs,
+        &[],
+        options,
+        unknown_report_source(),
+    )
 }
 
 /// Build validated packages with static signals and vehicle profiles.
@@ -89,8 +101,16 @@ pub(crate) fn convert_network_topology_with_tll_and_profiles(
     tll_programs: &[SumoTlLogic],
     vehicle_profiles: &[VehicleProfile],
     options: &TopologyConvertOptions,
+    report_source: ReportSource,
 ) -> Result<TopologyArtifacts> {
-    convert_network_packages(network, tll_programs, vehicle_profiles, &[], options)
+    convert_network_packages(
+        network,
+        tll_programs,
+        vehicle_profiles,
+        &[],
+        options,
+        report_source,
+    )
 }
 
 /// Convert topology + routes + population from network inputs and ordered DUE vehicles.
@@ -100,6 +120,7 @@ pub(crate) fn convert_static_with_due(
     vehicle_profiles: &[VehicleProfile],
     due_vehicles: &[DueVehicle],
     options: &TopologyConvertOptions,
+    report_source: ReportSource,
 ) -> Result<StaticConversionArtifacts> {
     let topology_norm = normalize_junctions(network)?;
     let population = select_population(due_vehicles, options.require_lust_population_count)?;
@@ -111,6 +132,7 @@ pub(crate) fn convert_static_with_due(
         vehicle_profiles,
         &bundle.routes,
         options,
+        report_source,
     )?;
 
     let table = RoutesToml {
@@ -159,6 +181,7 @@ fn convert_network_packages(
     vehicle_profiles: &[VehicleProfile],
     routes: &[Route],
     options: &TopologyConvertOptions,
+    report_source: ReportSource,
 ) -> Result<TopologyArtifacts> {
     if options.require_lust_location_anchors && !network.location.matches_lust_anchors() {
         return Err(Error::SumoModel(format!(
@@ -256,7 +279,7 @@ fn convert_network_packages(
     };
 
     if options.emit_infeasibility_report {
-        compile_network_lfca_with_infeasibility_report(&traffic, &spatial)
+        compile_network_lfca_with_infeasibility_report(&traffic, &spatial, report_source)
     } else {
         compile_network_lfca(&traffic, &spatial)
     }

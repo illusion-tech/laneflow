@@ -24,13 +24,13 @@
 //! 连续性（DiscontinuousJoin）不受影响。
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
 
 use laneflow_compiler::road_editing as re;
 
 use crate::{
     Error, Result,
     output::model::{SpatialEdge, TrafficPackage},
+    source::{LUST_COMMIT, PINNED_SOURCE_FILES},
     sumo::SUMO_ID_PREFIX,
 };
 
@@ -73,11 +73,9 @@ pub struct InfeasibilityDiagnosis {
     pub entry: String,
 }
 
-/// 收集 emission 层不可行诊断（lane 处理顺序即记录顺序，确定性）。
-static INFEASIBLE_DIAGNOSTICS: Mutex<Vec<InfeasibilityDiagnosis>> = Mutex::new(Vec::new());
-
-/// 记录一条不可行诊断（调用方已带 lane id 与 span 上下文）。
-pub(crate) fn record_infeasible(lane_id: &str, entry: String) {
+/// 由 lane id 与发射层规范错误串构造诊断记录（纯函数；收集由调用方持有，
+/// 无跨转换全局状态）。
+pub(crate) fn classify_infeasible(lane_id: &str, entry: String) -> InfeasibilityDiagnosis {
     let junction = lane_id
         .strip_prefix(SUMO_ID_PREFIX)
         .filter(|rest| rest.starts_with(':'))
@@ -91,25 +89,13 @@ pub(crate) fn record_infeasible(lane_id: &str, entry: String) {
     } else {
         InfeasibilityMechanism::InteriorCurvature
     };
-    INFEASIBLE_DIAGNOSTICS
-        .lock()
-        .expect("infeasible diagnostics lock poisoned")
-        .push(InfeasibilityDiagnosis {
-            lane_id: lane_id.to_owned(),
-            is_internal: is_internal_lane(lane_id),
-            junction,
-            mechanism,
-            entry,
-        });
-}
-
-/// 取走全部诊断并清空。
-pub(crate) fn drain_infeasible_diagnostics() -> Vec<InfeasibilityDiagnosis> {
-    INFEASIBLE_DIAGNOSTICS
-        .lock()
-        .expect("infeasible diagnostics lock poisoned")
-        .drain(..)
-        .collect()
+    InfeasibilityDiagnosis {
+        lane_id: lane_id.to_owned(),
+        is_internal: is_internal_lane(lane_id),
+        junction,
+        mechanism,
+        entry,
+    }
 }
 
 /// 诊断模式兜底：为不可发射的 lane 构造首末点直连的占位程序，保持 LaneEdge
@@ -168,6 +154,40 @@ fn parse_diagnosis_fields(entry: &str) -> (String, String, String, String, Strin
     (span, chord, turn, coord, start, finish)
 }
 
+/// 诊断清单的来源声明：实际参与转换的输入 net XML 字节摘要与独立校验状态。
+///
+/// 摘要对**实际转换所依据的字节**求值（构造点即 xml 入口），清单不可能声称
+/// 与输入不符的基线；`verified` 仅当输入经 `verify_source`（checkout revision +
+/// pinned digest）走过时为 true。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReportSource {
+    /// 实际转换输入的 SHA-256（`sha256:` 前缀十六进制）；入口未持有原始字节
+    /// 时为 `None`（渲染标注「未知」）。
+    pub net_digest: Option<String>,
+    /// 输入是否经 `verify_source` 独立校验。
+    pub verified: bool,
+}
+
+impl ReportSource {
+    /// 未持有原始字节的入口（SumoNetwork 结构化入口）的诚实缺省：不声称已校验。
+    pub fn unverified_unknown() -> Self {
+        Self {
+            net_digest: None,
+            verified: false,
+        }
+    }
+}
+
+/// pinned 基线参照（`scenario/lust.net.xml`）；清单头以此标注比对目标，
+/// 不声称输入即基线。
+fn pinned_net_reference() -> (&'static str, &'static str) {
+    let pinned = PINNED_SOURCE_FILES
+        .iter()
+        .find(|file| file.relative_path == "scenario/lust.net.xml")
+        .expect("pinned lust.net.xml entry");
+    (LUST_COMMIT, pinned.sha256_hex)
+}
+
 /// 确定性诊断清单（验收重划后的正式交付物，见 #253 G1 补充记录）：
 /// 同一输入下两次运行的 `rendered` 逐字节一致。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -214,7 +234,7 @@ impl InfeasibilityReport {
     }
 
     /// 由诊断记录渲染确定性 Markdown 清单。
-    pub fn render(entries: Vec<InfeasibilityDiagnosis>) -> Self {
+    pub fn render(entries: Vec<InfeasibilityDiagnosis>, source: ReportSource) -> Self {
         let internal = entries.iter().filter(|e| e.is_internal).count();
         let external = entries.len() - internal;
         let internal_mechanism = |m: InfeasibilityMechanism| {
@@ -233,10 +253,56 @@ impl InfeasibilityReport {
             .len();
         let mut out = String::new();
         out.push_str("# LuST 发射层不可行诊断清单\n\n");
-        out.push_str(
-            "- 基线源：pinned c4bd5bd3 原样（无本地补丁）；`scenario/lust.net.xml` SHA-256 为\n",
-        );
-        out.push_str("  `6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341`。\n");
+        let (pinned_commit, pinned_digest) = pinned_net_reference();
+        out.push_str(&format!(
+            "- 基线参照：pinned LuST v2.0 @ `{pinned_commit}`；`scenario/lust.net.xml`
+
+              pinned digest `sha256:{pinned_digest}`。
+"
+        ));
+        match &source.net_digest {
+            Some(digest) => out.push_str(&format!(
+                "- 本次转换输入 net XML 摘要：`{digest}`（对实际参与转换的字节求值）。
+"
+            )),
+            None => out.push_str(
+                "- 本次转换输入 net XML 摘要：未知（入口未持有原始字节）。
+",
+            ),
+        }
+        match (&source.net_digest, source.verified) {
+            (Some(digest), _) => {
+                let pinned = format!("sha256:{pinned_digest}");
+                if *digest == pinned {
+                    out.push_str(
+                        "- 与 pinned 比对：一致（输入为 pinned 基线字节）。
+",
+                    );
+                } else {
+                    out.push_str(
+                        "- 与 pinned 比对：不一致（输入不是 pinned 基线字节）。
+",
+                    );
+                }
+            }
+            (None, _) => out.push_str(
+                "- 与 pinned 比对：未知（无输入摘要）。
+",
+            ),
+        }
+        if source.verified {
+            out.push_str(
+                "- 来源校验：verify-source 已通过（checkout revision + pinned digest）。
+",
+            );
+        } else {
+            out.push_str(
+                "- 来源校验：未执行独立 verify-source；输入摘要针对实际转换的字节，\
+                 verify-source 校验磁盘 checkout（见 `laneflow_lust_converter::verify_source`），\
+                 两者互补，未校验输入不声称已校验。
+",
+            );
+        }
         out.push_str("- 语义：发射层（CR 平滑 + 边界钳制 + 倒圆 + 采样）在本套验收常数\n");
         out.push_str("  （Balanced2Deg 全角 2°、HIR 退化段 0.1 m、发射弦长下限 0.105 m、\n");
         out.push_str("  f32 端点量化）下无法给出可发射几何的 lane 全集；逐条含 span、弦长、\n");

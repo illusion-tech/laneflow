@@ -22,9 +22,10 @@ pub use error::{Error, Result};
 pub use output::{
     BuildInvocation, BuildProvenanceInput, ConversionReportInput, ConvertOutputPaths,
     InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport, LicenseArtifacts,
-    RawOutputDigests, ReleaseAssetUrls, SemanticProvenanceInput, TarMember, TopologyArtifacts,
-    TopologyCounts, build_build_provenance, build_conversion_report, build_semantic_provenance,
-    convert_with_config, embedded_notice_bytes, embedded_odbl_bytes, write_deterministic_ustar,
+    RawOutputDigests, ReleaseAssetUrls, ReportSource, SemanticConfig, SemanticProvenanceInput,
+    TarMember, TopologyArtifacts, TopologyCounts, build_build_provenance, build_conversion_report,
+    build_semantic_provenance, convert_with_config, embedded_notice_bytes, embedded_odbl_bytes,
+    write_deterministic_ustar,
 };
 pub use source::{
     LUST_COMMIT, LUST_REPOSITORY, LUST_TAG, PINNED_SOURCE_FILES, PinnedSourceFile,
@@ -78,6 +79,9 @@ pub fn convert_topology_from_xml_with_tll(
 }
 
 /// Convert topology + signals + passenger profiles from net/tll/vtypes XML.
+///
+/// 诊断清单模式的来源声明：摘要对 `net_xml` 实际字节求值；本入口不执行
+/// verify-source，报告按未校验输入如实标注（verify-source 见 [`verify_source`]）。
 pub fn convert_topology_from_xml_with_tll_and_vtypes(
     net_xml: &str,
     tll_xml: &str,
@@ -89,7 +93,21 @@ pub fn convert_topology_from_xml_with_tll_and_vtypes(
     let vtypes = parse_vtypes_xml(vtypes_xml)?;
     let passengers = select_passenger_vtypes(&vtypes)?;
     let profiles = convert_vehicle_profiles(&passengers)?;
-    convert_network_topology_with_tll_and_profiles(&network, &tll, &profiles, options)
+    convert_network_topology_with_tll_and_profiles(
+        &network,
+        &tll,
+        &profiles,
+        options,
+        xml_report_source(net_xml),
+    )
+}
+
+/// xml 入口的诊断来源声明：实际输入字节摘要 + 未执行独立校验。
+fn xml_report_source(net_xml: &str) -> ReportSource {
+    ReportSource {
+        net_digest: Some(output::digest::sha256_digest(net_xml.as_bytes())),
+        verified: false,
+    }
 }
 
 /// Convert topology + DUE routes + population table from net/tll/vtypes/DUE XML.
@@ -102,6 +120,26 @@ pub fn convert_static_from_xml_with_due(
     due_xmls: [&str; 3],
     options: &TopologyConvertOptions,
 ) -> Result<StaticConversionArtifacts> {
+    convert_static_from_xml_with_due_and_source(
+        net_xml,
+        tll_xml,
+        vtypes_xml,
+        due_xmls,
+        options,
+        xml_report_source(net_xml),
+    )
+}
+
+/// [`convert_static_from_xml_with_due`] 的显式来源声明变体：verify-source
+/// 走过的调用方传入 `verified = true` 与 pinned 校验得到的摘要。
+pub(crate) fn convert_static_from_xml_with_due_and_source(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    due_xmls: [&str; 3],
+    options: &TopologyConvertOptions,
+    report_source: ReportSource,
+) -> Result<StaticConversionArtifacts> {
     let network = parse_sumo_network_xml(net_xml)?;
     let tll = parse_tll_static_xml(tll_xml)?;
     let vtypes = parse_vtypes_xml(vtypes_xml)?;
@@ -112,7 +150,14 @@ pub fn convert_static_from_xml_with_due(
         let file_ordinal = u8::try_from(ordinal).expect("0..2 fits u8");
         due_vehicles.extend(parse_due_routes_xml(xml, file_ordinal)?);
     }
-    convert_static_with_due(&network, &tll, &profiles, &due_vehicles, options)
+    convert_static_with_due(
+        &network,
+        &tll,
+        &profiles,
+        &due_vehicles,
+        options,
+        report_source,
+    )
 }
 
 /// Verify pinned source and write static/source bundles plus provenance.

@@ -13,11 +13,11 @@ pub use emit::{
     TopologyArtifacts, TopologyCounts, compile_network_lfca,
     compile_network_lfca_with_infeasibility_report,
 };
-pub use geom::{InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport};
+pub use geom::{InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport, ReportSource};
 pub use pipeline::{ConvertOutputPaths, convert_with_config};
 pub use provenance::{
     BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls,
-    SemanticProvenanceInput, build_build_provenance, build_semantic_provenance,
+    SemanticConfig, SemanticProvenanceInput, build_build_provenance, build_semantic_provenance,
     embedded_notice_bytes, embedded_odbl_bytes,
 };
 pub use report::{ConversionReportInput, build_conversion_report};
