@@ -1,0 +1,128 @@
+{
+  "target_pid": 22568,
+  "window_seconds": [
+    5,
+    40
+  ],
+  "window_duration_seconds": 35,
+  "trace_lost_events": 0,
+  "trace_lost_buffers": 0,
+  "sample_period_us": 1000,
+  "profile_total_weight_us": 43597483,
+  "stack_total_hits": 43328,
+  "own_module_cpu_percent": 87.83955945346662,
+  "own_module_unknown_weight_us": 0,
+  "own_module_symbol_coverage_percent": 100.0,
+  "threads": [
+    {
+      "thread": "laneflow-urban-harness.exe (22568)-16764",
+      "running_seconds": 34.779219,
+      "single_cpu_percent": 99.36919714285713,
+      "minimum_second": 0.985829,
+      "maximum_second": 0.997809,
+      "empty_intervals": 0
+    },
+    {
+      "thread": "laneflow-urban-harness.exe (22568)-26420",
+      "running_seconds": 2.954721,
+      "single_cpu_percent": 8.44206,
+      "minimum_second": 0.055437,
+      "maximum_second": 0.099691,
+      "empty_intervals": 0
+    },
+    {
+      "thread": "laneflow-urban-harness.exe (22568)-9712",
+      "running_seconds": 2.959325,
+      "single_cpu_percent": 8.455214285714286,
+      "minimum_second": 0.053502,
+      "maximum_second": 0.099385,
+      "empty_intervals": 0
+    },
+    {
+      "thread": "laneflow-urban-harness.exe (22568)-5704",
+      "running_seconds": 2.9257020000000002,
+      "single_cpu_percent": 8.359148571428571,
+      "minimum_second": 0.05319,
+      "maximum_second": 0.100371,
+      "empty_intervals": 0
+    }
+  ],
+  "process_running_seconds": 43.618967,
+  "observation_roots": [
+    {
+      "symbol": "laneflow-urban-harness.exe!laneflow_urban_harness::observe::state",
+      "inclusive_hits": 12889,
+      "target_cpu_percent": 29.747507385524372,
+      "exclusive_hits": 2278,
+      "base": "0x0006b490"
+    },
+    {
+      "symbol": "laneflow-urban-harness.exe!laneflow_urban_harness::observe::counts",
+      "inclusive_hits": 3369,
+      "target_cpu_percent": 7.775572378138848,
+      "exclusive_hits": 606,
+      "base": "0x0006e920"
+    },
+    {
+      "symbol": "laneflow-urban-harness.exe!laneflow_urban_harness::observe::events",
+      "inclusive_hits": 1999,
+      "target_cpu_percent": 4.613644756277695,
+      "exclusive_hits": 677,
+      "base": "0x0006ee80"
+    },
+    {
+      "symbol": "laneflow-urban-harness.exe!laneflow_urban_harness::observe::parking_invariants",
+      "inclusive_hits": 1349,
+      "target_cpu_percent": 3.11346011816839,
+      "exclusive_hits": 206,
+      "base": "0x0006a6a0"
+    },
+    {
+      "symbol": "laneflow-urban-harness.exe!laneflow_urban_harness::observe::red_waiters",
+      "inclusive_hits": 439,
+      "target_cpu_percent": 1.013201624815362,
+      "exclusive_hits": 220,
+      "base": "0x00069ed0"
+    }
+  ],
+  "observation_root_hits": 20045,
+  "observation_root_cpu_percent": 46.26338626292467,
+  "core_step_on_main_thread": {
+    "symbol": "laneflow-urban-harness.exe!laneflow_runtime::facade::TrafficWorld::step",
+    "inclusive_hits": 9399,
+    "target_cpu_percent": 21.692669867060562,
+    "exclusive_hits": 0,
+    "base": "0x00203ba0"
+  },
+  "core_motion_all_threads": {
+    "symbol": "laneflow-urban-harness.exe!laneflow_runtime::kernel::tick::MotionTaskView::vehicle_motion_outcome",
+    "inclusive_hits": 8269,
+    "target_cpu_percent": 19.084656573116693,
+    "exclusive_hits": 1846,
+    "base": "0x0022cd40"
+  },
+  "boundary_named_self_hits": 282,
+  "warmed_run_context": {
+    "ticks": [
+      129,
+      768
+    ],
+    "active_min": 61630,
+    "active_max": 73174,
+    "mean_ms": {
+      "public_step_ns": 34.556123125,
+      "observation_ns": 77.06766640625,
+      "iteration_ns": 119.7365146875
+    }
+  },
+  "limits": [
+    "CPU samples and running time are not per-step wall time.",
+    "The run timing context includes traced and untraced ticks; not an A/B benchmark.",
+    "Inclusive ancestors and descendants overlap; sum only proven disjoint sibling roots.",
+    "Core step caller stacks exclude auxiliary thread work; motion includes all threads.",
+    "System/driver symbols were not downloaded; their module-only costs remain unattributed.",
+    "Inlining can attribute code to enclosing functions; boundary self hits are a lower bound.",
+    "xperf butterfly=5 trims small call paths and the tail of the inclusive function list.",
+    "Activity export omits threads with under 100ms total running time over the full trace."
+  ]
+}

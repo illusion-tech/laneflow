@@ -1,0 +1,47 @@
+{
+  "dt_ms": 33,
+  "global_horizon_ms": 5534,
+  "network_revision": "04b719f8a9f14680e41689262b7e22e3b01ca00667fd69b5499eef16cd128526",
+  "note": "Local horizon is the maximum needed by every reader of a target cell, not the target owner's own profile.",
+  "profiles": [
+    {
+      "bound_stream_class_rows": 150,
+      "index": 0,
+      "junctions": 40,
+      "key": "gap-long",
+      "lag_ms": 2500,
+      "lead_ms": 5533,
+      "proof_horizon_ms": 5534,
+      "target_references": 300
+    },
+    {
+      "bound_stream_class_rows": 450,
+      "index": 1,
+      "junctions": 120,
+      "key": "gap-medium",
+      "lag_ms": 1350,
+      "lead_ms": 3383,
+      "proof_horizon_ms": 3384,
+      "target_references": 900
+    },
+    {
+      "bound_stream_class_rows": 900,
+      "index": 2,
+      "junctions": 240,
+      "key": "gap-short",
+      "lag_ms": 750,
+      "lead_ms": 1783,
+      "proof_horizon_ms": 1784,
+      "target_references": 1800
+    }
+  ],
+  "queried_target_cells": 3000,
+  "scale": "100k",
+  "scope": "synthetic multi-gap workload, not field-calibrated traffic",
+  "shared_multi_profile_targets": 0,
+  "target_cell_max_reader_horizon_histogram": {
+    "1784": 1800,
+    "3384": 900,
+    "5534": 300
+  }
+}

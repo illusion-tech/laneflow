@@ -1,0 +1,30 @@
+{
+  "architecture": "x86_64",
+  "binary": {
+    "bytes": 3805184,
+    "sha256": "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523"
+  },
+  "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+  "elapsed_seconds": 86.5448536,
+  "execution_id": "14860-1789904539998030800-0",
+  "git_commit_at_run": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+  "git_status_at_run": "",
+  "invocation": [
+    "E:\\projects\\worktrees\\707-measure\\laneflow\\target\\release\\laneflow-urban-harness.exe",
+    "run",
+    "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-10k",
+    "E:/projects/laneflow-evidence/issue-707/4de40e04/plans/10k-pilot.toml",
+    "E:/projects/laneflow-evidence/issue-707/4de40e04/pilot/10k-w4-r1",
+    "--workers",
+    "4"
+  ],
+  "logical_cpus": 32,
+  "memory_measurement": null,
+  "os": "windows",
+  "purpose": "diagnostic-only-not-performance-certification",
+  "step_ns_p50": 8271000,
+  "step_ns_p95": 9767800,
+  "step_ns_p99": 10393900,
+  "verified_steps": 5120,
+  "workers": 4
+}

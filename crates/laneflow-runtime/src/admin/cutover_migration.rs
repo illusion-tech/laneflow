@@ -1016,7 +1016,6 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             next_states,
             waiting_preview_inputs: Vec::new(),
             waiting_preview_slots: Vec::new(),
-            motion_inputs: Vec::new(),
             motion_slots: Vec::new(),
             conflict_inputs: Vec::new(),
             conflict_slots: Vec::new(),
@@ -3000,6 +2999,23 @@ pub(crate) mod tests {
         vehicle_count: u32,
         route_capacity: u32,
     ) -> TrafficWorld {
+        conflict_scale_world_with_identity(
+            revision,
+            vehicle_count,
+            route_capacity,
+            u64::from(vehicle_count),
+        )
+    }
+
+    /// 同 `conflict_scale_world_with_route_capacity`，但显式指定世界身份。
+    /// 故障注入按世界身份隔离（#792）：武装注入的测试世界必须使用独占
+    /// 身份；同测试内需要快照对拍的多个世界共享同一身份。
+    pub(crate) fn conflict_scale_world_with_identity(
+        revision: Arc<SharedNetworkRevision>,
+        vehicle_count: u32,
+        route_capacity: u32,
+        world_id: u64,
+    ) -> TrafficWorld {
         const SPACING_MM: u64 = 6_500;
 
         let stream = revision
@@ -3069,7 +3085,7 @@ pub(crate) mod tests {
                 )
                 .expect("Conflict scale source"),
             },
-            u64::from(vehicle_count),
+            world_id,
             WorldPolicySelection::Pinned(PolicyPin {
                 policy: RightOfWayPolicySetId::from_untyped(
                     laneflow_compiler::derive_canonical_stable_id_v1(

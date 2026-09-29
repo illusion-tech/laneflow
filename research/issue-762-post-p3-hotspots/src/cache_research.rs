@@ -1,6 +1,9 @@
 //! #763 平衡整拍 A/B 与独立诊断；复用 #762 导出和身份校验，不改写历史证据。
 #[allow(dead_code)]
-mod io;
+#[path = "io.rs"]
+pub(crate) mod io;
+#[allow(dead_code)]
+#[path = "prepare.rs"]
 mod prepare;
 
 use serde_json::{Value, json};
@@ -14,6 +17,17 @@ use std::{
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const BASE: &str = "d6f5eee9e53f4a110dd6dcab64a4ab4458e5e426";
+#[derive(Clone, Copy)]
+pub(crate) struct Experiment {
+    pub(crate) baseline: &'static str,
+    pub(crate) protocol: &'static str,
+    pub(crate) count_p2: bool,
+}
+const LEGACY: Experiment = Experiment {
+    baseline: BASE,
+    protocol: "p3-cache-abba-v1",
+    count_p2: false,
+};
 const STAGES: [&str; 22] = [
     "Preflight",
     "Occupancy",
@@ -67,6 +81,16 @@ fn edit(root: &Path, relative: &str, old: &str, new: &str) -> Result<()> {
 }
 
 fn export(root: &Path, arm: &str, mode: &str, commit: &str) -> Result<()> {
+    export_for(root, arm, mode, commit, LEGACY)
+}
+
+pub(crate) fn export_for(
+    root: &Path,
+    arm: &str,
+    mode: &str,
+    commit: &str,
+    experiment: Experiment,
+) -> Result<()> {
     need(
         ["base", "candidate"].contains(&arm) && ["plain", "detail"].contains(&mode),
         "arm/mode",
@@ -74,14 +98,13 @@ fn export(root: &Path, arm: &str, mode: &str, commit: &str) -> Result<()> {
     let repo = std::env::current_dir()?;
     let commit = io::git(&repo, &["rev-parse", &format!("{commit}^{{commit}}")])?;
     io::git(&repo, &["merge-base", "--is-ancestor", &commit, "HEAD"])?;
-    need(arm != "base" || commit == BASE, "baseline drift")?;
+    need(
+        arm != "base" || commit == experiment.baseline,
+        "baseline drift",
+    )?;
     fs::create_dir_all(root)?;
     let source = root.join(format!("{arm}-{mode}-source"));
-    let mut index = if arm == "base" {
-        prepare::export(&repo, &source, mode)?
-    } else {
-        prepare::export_at(&repo, &source, mode, &commit)?
-    };
+    let mut index = prepare::export_at(&repo, &source, mode, &commit)?;
     if mode == "detail" {
         let profile = "crates/laneflow-runtime/src/kernel/performance_profile.rs";
         for file in [profile, "crates/laneflow-runtime/src/lib.rs"] {
@@ -156,12 +179,30 @@ fn export(root: &Path, arm: &str, mode: &str, commit: &str) -> Result<()> {
             old,
             &format!("    super::performance_profile::count(1);\n{old}"),
         )?;
-        if arm == "candidate" {
+        if fs::read_to_string(source.join(file))?
+            .contains("        .and_then(|entry| entry.gate_reachable)")
+        {
             edit(
                 &source,
                 file,
                 "        .and_then(|entry| entry.gate_reachable)",
                 "        .and_then(|entry| entry.gate_reachable)\n        .inspect(|_| super::performance_profile::count(2))",
+            )?;
+        }
+        if experiment.count_p2 {
+            for relative in [profile, "crates/laneflow-runtime/src/lib.rs"] {
+                let path = source.join(relative);
+                let mut text = fs::read_to_string(&path)?.replace("; 22]", "; 23]");
+                if relative == profile {
+                    text = text.replace("[0; 3]", "[0; 4]").replace("; 3]", "; 4]");
+                }
+                fs::write(path, text)?;
+            }
+            edit(
+                &source,
+                "crates/laneflow-runtime/src/kernel/tick.rs",
+                "        let preview = self\n            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))",
+                "        super::performance_profile::count(3);\n        let preview = self\n            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))",
             )?;
         }
         index["source_files"] = io::source_index(&source)?;
@@ -232,7 +273,31 @@ fn labels(mode: &str) -> Result<Vec<(String, String, String)>> {
         .collect())
 }
 
+fn labels_for(mode: &str, experiment: Experiment) -> Result<Vec<(String, String, String)>> {
+    let mut rows = labels(mode)?;
+    if experiment.count_p2 && mode == "plain" {
+        for (index, (label, _, arm)) in rows.iter_mut().enumerate() {
+            if (index % 12) / 4 == 1 {
+                let next = if arm == "base" { "candidate" } else { "base" };
+                *label = label.replace(arm.as_str(), next);
+                *arm = next.to_owned();
+            }
+        }
+    }
+    Ok(rows)
+}
+
 fn capture(mode: &str, root: &Path, input: &Path, raw: &Path) -> Result<()> {
+    capture_for(mode, root, input, raw, LEGACY)
+}
+
+pub(crate) fn capture_for(
+    mode: &str,
+    root: &Path,
+    input: &Path,
+    raw: &Path,
+    experiment: Experiment,
+) -> Result<()> {
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
     need(
@@ -244,7 +309,7 @@ fn capture(mode: &str, root: &Path, input: &Path, raw: &Path) -> Result<()> {
     fs::create_dir(raw)?;
     let raw = raw.canonicalize()?;
     let input = input.canonicalize()?;
-    let mut identity = json!({"protocol":"p3-cache-abba-v1","mode":mode,"head":head,"tree":io::git(&repo,&["rev-parse","HEAD^{tree}"] )?,"inputs":inputs(&input)?,"started":now()?,"workers":4,"ticks":256,"rustc":io::command(&repo,"rustc",&["+1.98.0","-Vv"] )?,"sources":{},"binaries":{}});
+    let mut identity = json!({"protocol":experiment.protocol,"mode":mode,"head":head,"tree":io::git(&repo,&["rev-parse","HEAD^{tree}"] )?,"inputs":inputs(&input)?,"started":now()?,"workers":4,"ticks":256,"rustc":io::command(&repo,"rustc",&["+1.98.0","-Vv"] )?,"sources":{},"binaries":{}});
     for arm in ["base", "candidate"] {
         let source = io::read_json(&root.join(format!("{arm}-{mode}-source.json")))?;
         need(
@@ -270,14 +335,14 @@ fn capture(mode: &str, root: &Path, input: &Path, raw: &Path) -> Result<()> {
         identity["binaries"][arm] = json!({"path":path,"sha256":io::sha(&path)?});
     }
     need(
-        identity["sources"]["base"]["base"] == BASE
+        identity["sources"]["base"]["base"] == experiment.baseline
             && identity["binaries"]["base"]["sha256"]
                 != identity["binaries"]["candidate"]["sha256"],
         "arms identity",
     )?;
     let identity_path = raw.join("identity.json");
     io::write_new(&identity_path, &identity)?;
-    for (label, scale, arm) in labels(mode)? {
+    for (label, scale, arm) in labels_for(mode, experiment)? {
         need(
             io::git(&repo, &["rev-parse", "HEAD"])? == head
                 && io::git(&repo, &["status", "--porcelain"])?.is_empty(),
@@ -354,9 +419,25 @@ fn stats(mut values: Vec<u64>) -> Value {
     json!({"mean_ms":values.iter().map(|v|u128::from(*v)).sum::<u128>() as f64 / values.len() as f64 / 1e6,"p95_ms":values[(values.len()*95).div_ceil(100)-1] as f64 / 1e6})
 }
 
+#[cfg(test)]
 fn validate_rows(rows: &[Value], ticks: &[Value], mode: &str) -> Result<()> {
+    validate_rows_for(rows, ticks, mode, LEGACY)
+}
+
+fn validate_rows_for(
+    rows: &[Value],
+    ticks: &[Value],
+    mode: &str,
+    experiment: Experiment,
+) -> Result<()> {
     need(rows.len() == 256 && ticks.len() == 256, "row count")?;
-    let count = if mode == "plain" { 12 } else { 22 };
+    let count = if mode == "plain" {
+        12
+    } else if experiment.count_p2 {
+        23
+    } else {
+        22
+    };
     for (i, row) in rows.iter().enumerate() {
         need(
             row["tick"] == i + 1
@@ -394,26 +475,36 @@ fn validate_rows(rows: &[Value], ticks: &[Value], mode: &str) -> Result<()> {
                     && calls[15] == u64::from(calls[17] > 0 && calls[17] < 1_024),
                 "clock calls/path",
             )?;
+            if experiment.count_p2 {
+                need(
+                    times[22] == 0 && calls[22] <= calls[19],
+                    "P2 preview counter",
+                )?;
+            }
         }
     }
     Ok(())
 }
 
 fn analyze(raw: &Path) -> Result<Value> {
+    analyze_for(raw, LEGACY)
+}
+
+pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
     let identity = io::read_json(&raw.join("identity.json"))?;
     let mode = string(&identity["mode"])?;
     need(
         identity["completed"] == true
-            && identity["protocol"] == "p3-cache-abba-v1"
+            && identity["protocol"] == experiment.protocol
             && identity["workers"] == 4
             && identity["ticks"] == 256
-            && identity["sources"]["base"]["base"] == BASE,
+            && identity["sources"]["base"]["base"] == experiment.baseline,
         "protocol completion",
     )?;
     let mut semantics = std::collections::BTreeMap::new();
     let mut ids = std::collections::BTreeSet::new();
     let mut runs = Vec::new();
-    for (label, scale, arm) in labels(mode)? {
+    for (label, scale, arm) in labels_for(mode, experiment)? {
         let dir = raw.join(&label);
         let meta = io::read_json(&raw.join(format!("{label}.process.json")))?;
         let native = io::read_json(&dir.join("result.json"))?;
@@ -475,7 +566,7 @@ fn analyze(raw: &Path) -> Result<Value> {
             .filter_map(|s| s.strip_prefix("LF762 "))
             .map(serde_json::from_str)
             .collect::<std::result::Result<_, _>>()?;
-        validate_rows(&rows, &ticks, mode)?;
+        validate_rows_for(&rows, &ticks, mode, experiment)?;
         let layouts: Vec<Value> = log
             .lines()
             .filter_map(|s| s.strip_prefix("LF763_LAYOUT "))
@@ -519,7 +610,12 @@ fn analyze(raw: &Path) -> Result<Value> {
             let part = &rows[start..end];
             let mut data = json!({"step":stats(part.iter().map(|r|r["step_ns"].as_u64().unwrap()).collect()),"active_min":ticks[start..end].iter().map(|t|t["N_active"].as_u64().ok_or("active")).collect::<std::result::Result<Vec<_>,_>>()?.iter().min(),"active_max":ticks[start..end].iter().map(|t|t["N_active"].as_u64().ok_or("active")).collect::<std::result::Result<Vec<_>,_>>()?.iter().max()});
             if mode == "detail" {
-                for (i, name) in STAGES.iter().enumerate() {
+                let names: Vec<_> = STAGES
+                    .iter()
+                    .copied()
+                    .chain(experiment.count_p2.then_some("P2Previews"))
+                    .collect();
+                for (i, name) in names.iter().enumerate() {
                     data["stages"][*name] = stats(
                         part.iter()
                             .map(|r| r["stages_ns"][i].as_u64().unwrap())
@@ -590,6 +686,48 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn p2_protocol_rejects_legacy_shape_and_inconsistent_counter() {
+        let experiment = Experiment {
+            baseline: "baseline",
+            protocol: "p2-scope-abba-v1",
+            count_p2: true,
+        };
+        let matrix = labels_for("plain", experiment).unwrap();
+        assert_eq!(
+            matrix[4..8]
+                .iter()
+                .map(|r| r.2.as_str())
+                .collect::<Vec<_>>(),
+            ["candidate", "base", "base", "candidate"]
+        );
+        assert_eq!(
+            matrix[16..20]
+                .iter()
+                .map(|r| r.2.as_str())
+                .collect::<Vec<_>>(),
+            ["candidate", "base", "base", "candidate"]
+        );
+        let ticks: Vec<_> = (1..=256)
+            .map(|tick| json!({"tick":tick,"N_active":1}))
+            .collect();
+        let rows: Vec<_> = (1..=256)
+            .map(|tick| {
+                let mut calls = vec![0; 23];
+                calls[..13].fill(1);
+                calls[16] = 1;
+                calls[18] = 1;
+                calls[19] = 1;
+                calls[22] = 1;
+                json!({"tick":tick,"step_ns":100,"stages_ns":vec![0;23],"calls":calls})
+            })
+            .collect();
+        validate_rows_for(&rows, &ticks, "detail", experiment).unwrap();
+        assert!(validate_rows_for(&rows, &ticks, "detail", LEGACY).is_err());
+        let mut bad = rows.clone();
+        bad[0]["calls"][22] = json!(2);
+        assert!(validate_rows_for(&bad, &ticks, "detail", experiment).is_err());
+    }
     #[test]
     fn matrix_is_three_balanced_blocks_per_scale() {
         let rows = labels("plain").unwrap();

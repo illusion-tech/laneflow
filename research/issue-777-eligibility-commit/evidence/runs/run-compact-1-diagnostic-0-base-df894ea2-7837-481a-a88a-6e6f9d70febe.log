@@ -1,0 +1,26 @@
+
+running 1 test
+test kernel::eligibility_commit_research::eligibility_commit_diagnostic ... 
+elig-end case=compact window=0 windows=1 ticks=128 input=Sha256Digest(49f3ed00f20f2a716555fe923aeb6f4201702ebebbdc9f550e73765c498d46a4) digest=22e36f386f535893101f373a7eeb4c0ee9019078cc853350e59ca8fbe3e2dfd1
+elig-memory case=compact window=0 world=11347169 shared=29664 binding=21 committed=3264200 derived=625536 workspace=7457412 admin=0
+elig-detail case=compact stage=clear_motion ns=160600 items=1280000 calls=128
+elig-detail case=compact stage=clear_eligibility ns=706100 items=1280000 calls=128
+elig-detail case=compact stage=copy ns=1783400 items=1280000 calls=128
+elig-detail case=compact stage=scan ns=652900 items=1280000 calls=128
+elig-detail case=compact stage=eligibility_commit ns=2450900 items=1280000 calls=128
+elig-phase case=compact stage=whole_step ns=29970100
+elig-phase case=compact stage=preflight ns=1116300
+elig-phase case=compact stage=occupancy ns=1929200
+elig-phase case=compact stage=waiting_prepare ns=2110500
+elig-phase case=compact stage=conflict_prepare ns=1485000
+elig-phase case=compact stage=motion_loop ns=16825800
+elig-phase case=compact stage=waiting_finalize ns=257000
+elig-phase case=compact stage=signals ns=4600
+elig-phase case=compact stage=conflict_finalize ns=1548800
+elig-phase case=compact stage=waiting_outputs ns=1179100
+elig-phase case=compact stage=commit ns=3441500
+elig-work case=compact allocations=0 reallocations=0 bytes=0 min_eligible=0 max_eligible=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 536 filtered out; finished in 0.05s
+

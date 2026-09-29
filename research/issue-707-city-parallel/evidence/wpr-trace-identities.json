@@ -1,0 +1,759 @@
+{
+  "schema": "laneflow-issue-707-wpr-trace-identities-v5",
+  "computed_at": "2026-09-27T20:44:07.8875071+00:00",
+  "hash_algorithm": "SHA-256",
+  "scope": "immutable identities and explicit non-retention disposition for author-local B1/L3 ETL traces and full-system exports, plus privacy-screened compact reports and L3 exact-window symbol derivations committed for portable review; L3 also records the ETL CodeView identity and retained SymCache boundary",
+  "committed_report_normalization": {
+    "policy": "decode text, convert CRLF and lone CR to LF, remove trailing LF characters, append exactly one final LF, encode UTF-8 without BOM",
+    "semantic_change": false,
+    "source_and_committed_byte_identities": "recorded separately because normalization intentionally changes byte counts and SHA-256 values"
+  },
+  "privacy_screening": {
+    "scope": "evidence/wpr-b1 and evidence/wpr-l3 only",
+    "checks": [
+      "Windows user-profile path or local username markers",
+      "explicit labels for unrelated desktop, browser, developer, and shell applications"
+    ],
+    "result": {
+      "personal_path_or_username_hits": 0,
+      "unrelated_application_label_hits": 0
+    },
+    "allowed_project_local_roots": [
+      "E:/projects/laneflow",
+      "E:/projects/laneflow-evidence"
+    ],
+    "allowed_root_reason": "project-local evidence lineage is retained; the committed subset contains no Windows user-profile path or username marker",
+    "limitation": "bounded textual screening of the committed subset, not a general privacy certification of ETL or omitted full-system exports",
+    "derived_range_reports": {
+      "paths": [
+        "evidence/wpr-l3/early-range-top-symbols.csv",
+        "evidence/wpr-l3/late-range-top-symbols.csv"
+      ],
+      "minimization": "select only the exact target process from each full-system range export, aggregate identical symbols, and retain the 40 largest weights",
+      "result": "the committed derivations contain no unrelated process label or filesystem path"
+    },
+    "omitted_full_system_exports": {
+      "b1": [
+        "symbols-5-40.txt",
+        "stacks-profile-5-40.html",
+        "activity.txt"
+      ],
+      "l3": [
+        "early-activity.txt",
+        "early-range-symbols.txt",
+        "early-symbols.txt",
+        "early-util.txt",
+        "late-activity.txt",
+        "late-range-symbols.txt",
+        "late-symbols.txt",
+        "late-util.txt"
+      ],
+      "reason": "the omitted reports expose unrelated process labels and/or paths outside the permitted project evidence roots; they remain external with byte identities where already recorded"
+    }
+  },
+  "packaging_feasibility": {
+    "classification": "capacity measurement only; it does not authorize publication or establish final performance certification",
+    "measured_with": {
+      "bsdtar": "3.8.8",
+      "libzstd": "1.5.7",
+      "compression": "default",
+      "layout": "one ETL per tar.zst stream",
+      "counting_method": "compressed stream bytes counted through standard output"
+    },
+    "archives_persisted": false,
+    "archive_sha256": null,
+    "measurements": [
+      {
+        "name": "B1 b1.etl",
+        "raw_bytes": 1311768576,
+        "raw_display": "1.222 GiB",
+        "tar_zst_bytes": 153978880,
+        "tar_zst_display": "146.846 MiB",
+        "saved_percent": 88.26
+      },
+      {
+        "name": "L3 early",
+        "raw_bytes": 1154482176,
+        "raw_display": "1.075 GiB",
+        "tar_zst_bytes": 148490240,
+        "tar_zst_display": "141.611 MiB",
+        "saved_percent": 87.14
+      },
+      {
+        "name": "L3 late",
+        "raw_bytes": 3331325952,
+        "raw_display": "3.103 GiB",
+        "tar_zst_bytes": 426741760,
+        "tar_zst_display": "406.973 MiB",
+        "saved_percent": 87.19
+      }
+    ],
+    "total": {
+      "raw_bytes": 5797576704,
+      "raw_display": "5.399 GiB",
+      "tar_zst_bytes": 729210880,
+      "tar_zst_display": "695.430 MiB",
+      "saved_percent": 87.42
+    },
+    "contents_measured": "ETL only; exact executable, PDB, manifest, and derived reports would add capacity",
+    "conclusion": "each measured ETL fits as one GitHub Release asset under the established packaging plan; splitting is unnecessary for these observed sizes",
+    "publication_status": "not-published",
+    "publication_boundaries": [
+      "raw ETL needs a separate privacy review or controlled recapture before public upload",
+      "L3 exact captured executable and original PDB are unavailable, so an L3 package cannot promise independent re-symbolization"
+    ]
+  },
+  "raw_artifact_retention": {
+    "classification": "not-long-term-retained",
+    "current_state": "the three ETL files, B1 matching symbols, retained L3 SymCache, and privacy-sensitive full-system exports currently exist only under author-local evidence roots",
+    "project_controlled_durable_retention": false,
+    "durable_url": null,
+    "retrieval_outside_author_machine_promised": false,
+    "reason": "no controlled durable upload has passed the required privacy review, and L3 also lacks the exact captured executable and original PDB",
+    "portable_record": "committed privacy-screened reports, exact byte identities, derivation metadata, and stated limitations remain the durable project evidence",
+    "scope": [
+      "B1 b1.etl and omitted full-system exports",
+      "L3 early and late ETL plus omitted full-system exports",
+      "author-local matching symbol files and retained SymCache"
+    ]
+  },
+  "b1": {
+    "root": "E:/projects/laneflow/target/issue707-b1-wpr-20260922",
+    "files": [
+      {
+        "relative_path": "b1.etl",
+        "bytes": 1311768576,
+        "sha256": "42c47b65307dd19852492ae486d361ab5f99517608075c3470315b007ec211fc"
+      },
+      {
+        "relative_path": "symbols-5-40.txt",
+        "bytes": 281899,
+        "sha256": "ff755663cb487824434a0ba96ec00d53463b4c5749e2fd81dcddc31d1d5f369e"
+      },
+      {
+        "relative_path": "stacks-profile-5-40.html",
+        "bytes": 2068337,
+        "sha256": "ed9cd181472f277b76aa76dc824a70d3c2dee75f357763e6b747c5a1519e8980"
+      },
+      {
+        "relative_path": "activity.txt",
+        "bytes": 273191,
+        "sha256": "050267d27f358a6cbcb3af7ad62d84d48154ac17583a8efcb8d6b104f1c66739"
+      },
+      {
+        "relative_path": "trace-stats.txt",
+        "bytes": 943,
+        "sha256": "2746d714140ae8088a6f8f271d4d5a756092dd23a817299d70f2a4e09aa07f2d"
+      },
+      {
+        "relative_path": "frequency.txt",
+        "bytes": 90,
+        "sha256": "d86558057ca9104fa70f32edbd2084046b986f1647431370563866c3b3f4513e"
+      },
+      {
+        "relative_path": "rundown.txt",
+        "bytes": 103,
+        "sha256": "0f077737a4fde6b6326a17e6847946c81a90e4b3e026a814a3b3db089a759a6d"
+      },
+      {
+        "relative_path": "analysis.json",
+        "bytes": 4413,
+        "sha256": "63314a0a5545af58689cf8091b55ceb2ab65a991b96500655087864d78611de8"
+      },
+      {
+        "relative_path": "identity.json",
+        "bytes": 3274,
+        "sha256": "6c01cb5d6356133902ef5d6d63424131a111d09942144da72b84648f2b8fd1df"
+      },
+      {
+        "relative_path": "capture.json",
+        "bytes": 728,
+        "sha256": "4b710943ef6b250e7eb53a9091753598de971eecd04ae5fbc86a734992bfb9fa"
+      },
+      {
+        "relative_path": "provenance.json",
+        "bytes": 25750,
+        "sha256": "3147145b9b8a729c23eb9956c4e0f16a2f6a0d5af7e44bbf229d86d7d49220cc"
+      },
+      {
+        "relative_path": "verification.json",
+        "bytes": 336,
+        "sha256": "ac8d2849156e201e1d72b0876e5684c7b82d9e11b5d5415c115a08269e646594"
+      }
+    ],
+    "committed_reports": [
+      {
+        "relative_path": "analysis.json",
+        "source": {
+          "bytes": 4413,
+          "sha256": "63314a0a5545af58689cf8091b55ceb2ab65a991b96500655087864d78611de8"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/analysis.json",
+          "identity": {
+            "bytes": 4287,
+            "sha256": "1baf6fe0ccecf4a1bf37c4f7f41431976754607177b3e51df9be71a20b10576e"
+          }
+        }
+      },
+      {
+        "relative_path": "capture.json",
+        "source": {
+          "bytes": 728,
+          "sha256": "4b710943ef6b250e7eb53a9091753598de971eecd04ae5fbc86a734992bfb9fa"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/capture.json",
+          "identity": {
+            "bytes": 710,
+            "sha256": "71b43a08cb8e4477a7578025020ba57a0d6ccf45f5f64133eb21fa85b394997c"
+          }
+        }
+      },
+      {
+        "relative_path": "identity.json",
+        "source": {
+          "bytes": 3274,
+          "sha256": "6c01cb5d6356133902ef5d6d63424131a111d09942144da72b84648f2b8fd1df"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/identity.json",
+          "identity": {
+            "bytes": 3200,
+            "sha256": "300723f0ed5f4126bd94c3706736c522bd6d05a5aee17d5865558057f87fc8cf"
+          }
+        }
+      },
+      {
+        "relative_path": "provenance.json",
+        "source": {
+          "bytes": 25750,
+          "sha256": "3147145b9b8a729c23eb9956c4e0f16a2f6a0d5af7e44bbf229d86d7d49220cc"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/provenance.json",
+          "identity": {
+            "bytes": 25105,
+            "sha256": "84d9d25446f52a026711d696f6a9209918614e3c94ac08947fe06ab873a63e65"
+          }
+        }
+      },
+      {
+        "relative_path": "verification.json",
+        "source": {
+          "bytes": 336,
+          "sha256": "ac8d2849156e201e1d72b0876e5684c7b82d9e11b5d5415c115a08269e646594"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/verification.json",
+          "identity": {
+            "bytes": 324,
+            "sha256": "fcb437ef1a29b4b37cc9ba62a10a52748afdc697f70f62d2ca83ade2a23489ed"
+          }
+        }
+      },
+      {
+        "relative_path": "trace-stats.txt",
+        "source": {
+          "bytes": 943,
+          "sha256": "2746d714140ae8088a6f8f271d4d5a756092dd23a817299d70f2a4e09aa07f2d"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/trace-stats.txt",
+          "identity": {
+            "bytes": 918,
+            "sha256": "bee7c4c453eee41bbcf36f82bc694f2d59562f96fc67c0e622a207f6d8e9b647"
+          }
+        }
+      },
+      {
+        "relative_path": "frequency.txt",
+        "source": {
+          "bytes": 90,
+          "sha256": "d86558057ca9104fa70f32edbd2084046b986f1647431370563866c3b3f4513e"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/frequency.txt",
+          "identity": {
+            "bytes": 88,
+            "sha256": "21166896d8cb669e149b3959ec3b56380a5d2a47e66262364aec300734996cff"
+          }
+        }
+      },
+      {
+        "relative_path": "rundown.txt",
+        "source": {
+          "bytes": 103,
+          "sha256": "0f077737a4fde6b6326a17e6847946c81a90e4b3e026a814a3b3db089a759a6d"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/rundown.txt",
+          "identity": {
+            "bytes": 100,
+            "sha256": "5fe4f787588724817319fcae5c25a9f1e78f5640f5f7c5a15887f239297535b7"
+          }
+        }
+      },
+      {
+        "relative_path": "hotspots-exclusive-hits.csv",
+        "source": {
+          "bytes": 154187,
+          "sha256": "c79e2d20872546ee326b1687f99fcd89f3ee1cfbb12476a785e4e5ddd1fad44a"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/hotspots-exclusive-hits.csv",
+          "identity": {
+            "bytes": 152283,
+            "sha256": "c46bf9dd8d4f6e904f82469cc540c1bcf22a41393fcb3cf23da4bcc28d1863bf"
+          }
+        }
+      },
+      {
+        "relative_path": "hotspots-exclusive-weighted.csv",
+        "source": {
+          "bytes": 45812,
+          "sha256": "524a701bf649cc2c1c06d982014f50fb7b207a6a7d74da8383868a973b625dce"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/hotspots-exclusive-weighted.csv",
+          "identity": {
+            "bytes": 45555,
+            "sha256": "2d0e390b339d024f16b2475806e69ad132aedbc756cc98fd9fc1614272320605"
+          }
+        }
+      },
+      {
+        "relative_path": "hotspots-inclusive.csv",
+        "source": {
+          "bytes": 89243,
+          "sha256": "3538bbc97ab6681d67eedfa71edd8c0d8cc62e44e80fa9b6fcac80200b1b192d"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/hotspots-inclusive.csv",
+          "identity": {
+            "bytes": 88325,
+            "sha256": "d47d01ee5a947c41750615e47b90bb166e93524b261bbfad9d90e8bf5e164299"
+          }
+        }
+      },
+      {
+        "relative_path": "thread-activity.csv",
+        "source": {
+          "bytes": 1800,
+          "sha256": "a015ef81a070573cf1d1d6c926b395c8170715147e0b45d9d427037f84083c41"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/thread-activity.csv",
+          "identity": {
+            "bytes": 1764,
+            "sha256": "1edabcfd7225815d7cab34e6040814ae84fb304ea0bf2d2096ee05575a8b2b69"
+          }
+        }
+      },
+      {
+        "relative_path": "caller-callee.csv",
+        "source": {
+          "bytes": 753695,
+          "sha256": "70488687bc1c66f9da4c948a333ece0bd76d73001c56a56199ac5c0666761e44"
+        },
+        "committed": {
+          "path": "evidence/wpr-b1/caller-callee.csv",
+          "identity": {
+            "bytes": 749088,
+            "sha256": "543431188aa22a27f73f4bb845bef4b95f1f484807ede24355d99800e0258e23"
+          }
+        }
+      }
+    ]
+  },
+  "l3": {
+    "roots": {
+      "evidence": "E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/wpr",
+      "analysis": "E:/projects/laneflow/target/issue707-l3-analysis-20260921"
+    },
+    "files": [
+      {
+        "root": "evidence",
+        "relative_path": "l3-w4-early.etl",
+        "bytes": 1154482176,
+        "sha256": "39461dd8b147ff8688e3bdb49a13a7c8e7f78d9b2220bfa6227fe835be8edd52"
+      },
+      {
+        "root": "evidence",
+        "relative_path": "l3-w4-late.etl",
+        "bytes": 3331325952,
+        "sha256": "279df9d9e222f838b3d86eb64b7cca0bb9b18901b45dcb5b705d377601d6ae89"
+      },
+      {
+        "root": "evidence",
+        "relative_path": "l3-w4-meta.txt",
+        "bytes": 1622,
+        "sha256": "3fafc911e608d11f8db5aa4dd6f04e2c8bfc4588f02e3cd9d2e9c4463ab2b660"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-activity.txt",
+        "bytes": 429524,
+        "sha256": "49743285f67ece18b1095b7cda2c87240db201bc5791cea5b4e4edad99f8dc5c"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-frequency.txt",
+        "bytes": 90,
+        "sha256": "b2a560a9b015a99a51de10921d93aa01ea0ff92efe82628a7eeff2e9f5505a51"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-harness-timeline.csv",
+        "bytes": 4602,
+        "sha256": "d34e8c67fa33d98f57492a06b78eadf4b4b88c9f6c52c4fa3da0ec808e1cda68"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-range-symbols.txt",
+        "bytes": 348108,
+        "sha256": "455961abe1c6c863d843dd8635771ddd4c3509cffe25848becadbb564ae02fa3"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-rundown.txt",
+        "bytes": 103,
+        "sha256": "821ddebed3a618f9cf9337fd4ae65e47f32e3cbf7c9334b8ba5badc73c580721"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-stats.txt",
+        "bytes": 964,
+        "sha256": "5896a0740ade967d070edb5dd7dafa8fe0adc48fd82019af791ebe887c6f40ad"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-symbols.txt",
+        "bytes": 408831,
+        "sha256": "ad798144d130ac8d15b091a7c2e29624597eddf75ddcb9d7393ab5182dea3b83"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-top-symbols.csv",
+        "bytes": 4088,
+        "sha256": "8586bd6876fa22af8ce8819455f3cf7505130db53e1c8ca7dd4b458ff02fc8e3"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "early-util.txt",
+        "bytes": 29596,
+        "sha256": "da5520acfbf48ab5f00f1a2da07f788efb6aa2d6b842ee960427d498be951280"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-activity.txt",
+        "bytes": 1269015,
+        "sha256": "8fa70c243d435c53f7cf27a723aaa38007b2a5f200c69c28218c67c09de72bf6"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-frequency.txt",
+        "bytes": 90,
+        "sha256": "294fc453f26bc3f2c5eafeb5c4dc0e984f4731a62f78992bcbf2b0e71db9b8ac"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-harness-timeline.csv",
+        "bytes": 12149,
+        "sha256": "8143916b6fc3c93288b707fc578e88adf66594820cd3c1e20aa933c44d9b4bac"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-range-symbols.txt",
+        "bytes": 770162,
+        "sha256": "4e024dcc4a1dfe9c378cfc298bcc0c58d23c07fcbbc155581a527d8911191768"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-rundown.txt",
+        "bytes": 103,
+        "sha256": "0b4f2659b3b4b5d03404fc73928e1e191b6c6f83ead998d48ed1289d6944b592"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-stats.txt",
+        "bytes": 963,
+        "sha256": "88326f093010ef65d59ef885a95e40a7d6e8996a1d982311217dd4ce886a8645"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-symbols.txt",
+        "bytes": 850479,
+        "sha256": "e372d82bc2564817da399ab31525f22a05fe2d06c42fcac820957dac858dd781"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-top-symbols.csv",
+        "bytes": 4219,
+        "sha256": "a778bcda3e525e067a04240a1a18c0ed9f88d92735a55208677efd3bdcbd46a0"
+      },
+      {
+        "root": "analysis",
+        "relative_path": "late-util.txt",
+        "bytes": 73678,
+        "sha256": "b9848a52bdc53f130350c3bce7d1036811ac0664f85b7fd19c5f120502b9f6e8"
+      }
+    ],
+    "committed_reports": [
+      {
+        "relative_path": "early-harness-timeline.csv",
+        "source": {
+          "bytes": 4602,
+          "sha256": "d34e8c67fa33d98f57492a06b78eadf4b4b88c9f6c52c4fa3da0ec808e1cda68"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/early-harness-timeline.csv",
+          "identity": {
+            "bytes": 4520,
+            "sha256": "9eff88ace185d3ce92753b087b44b6cebef500712656c11bb76f18ef25676b70"
+          }
+        }
+      },
+      {
+        "relative_path": "early-top-symbols.csv",
+        "source": {
+          "bytes": 4088,
+          "sha256": "8586bd6876fa22af8ce8819455f3cf7505130db53e1c8ca7dd4b458ff02fc8e3"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/early-top-symbols.csv",
+          "identity": {
+            "bytes": 4052,
+            "sha256": "88f936d2717b045e3c42432c7aacf50670a58f027919a7efa06a2788ae8e6bfd"
+          }
+        }
+      },
+      {
+        "relative_path": "early-stats.txt",
+        "source": {
+          "bytes": 964,
+          "sha256": "5896a0740ade967d070edb5dd7dafa8fe0adc48fd82019af791ebe887c6f40ad"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/early-stats.txt",
+          "identity": {
+            "bytes": 939,
+            "sha256": "0814beb1d301237ac1b5a24e49aafcb2abe82ece78ac4ae30acab4e2d035e6ec"
+          }
+        }
+      },
+      {
+        "relative_path": "early-frequency.txt",
+        "source": {
+          "bytes": 90,
+          "sha256": "b2a560a9b015a99a51de10921d93aa01ea0ff92efe82628a7eeff2e9f5505a51"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/early-frequency.txt",
+          "identity": {
+            "bytes": 88,
+            "sha256": "a1fe1ae40730e9227c3b4aec74d531f5791c8db42ea1cd1bf1261956cc612a13"
+          }
+        }
+      },
+      {
+        "relative_path": "early-rundown.txt",
+        "source": {
+          "bytes": 103,
+          "sha256": "821ddebed3a618f9cf9337fd4ae65e47f32e3cbf7c9334b8ba5badc73c580721"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/early-rundown.txt",
+          "identity": {
+            "bytes": 100,
+            "sha256": "339fbea0dc1b25a8896ef027d002806ecefec74f63f471745e42abeada498b6a"
+          }
+        }
+      },
+      {
+        "relative_path": "late-harness-timeline.csv",
+        "source": {
+          "bytes": 12149,
+          "sha256": "8143916b6fc3c93288b707fc578e88adf66594820cd3c1e20aa933c44d9b4bac"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/late-harness-timeline.csv",
+          "identity": {
+            "bytes": 11912,
+            "sha256": "cdba6a98cd71ab796168dabd76e29f76fcdfdad42b52efd31b31fd66fccf8d13"
+          }
+        }
+      },
+      {
+        "relative_path": "late-top-symbols.csv",
+        "source": {
+          "bytes": 4219,
+          "sha256": "a778bcda3e525e067a04240a1a18c0ed9f88d92735a55208677efd3bdcbd46a0"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/late-top-symbols.csv",
+          "identity": {
+            "bytes": 4183,
+            "sha256": "556b9efc8264a57ed67f3cfd8db5454d120adb687bf9915baa1931f1bf3dbdb3"
+          }
+        }
+      },
+      {
+        "relative_path": "late-stats.txt",
+        "source": {
+          "bytes": 963,
+          "sha256": "88326f093010ef65d59ef885a95e40a7d6e8996a1d982311217dd4ce886a8645"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/late-stats.txt",
+          "identity": {
+            "bytes": 938,
+            "sha256": "6b949f090580a9cfcf8daf8754c9f92f1d38f1c310fa70cdd8ae4168ef10f8df"
+          }
+        }
+      },
+      {
+        "relative_path": "late-frequency.txt",
+        "source": {
+          "bytes": 90,
+          "sha256": "294fc453f26bc3f2c5eafeb5c4dc0e984f4731a62f78992bcbf2b0e71db9b8ac"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/late-frequency.txt",
+          "identity": {
+            "bytes": 88,
+            "sha256": "93d8699e02d3a87c4a5cb2ef0225b8713e9b1868405a53cba0714898c24a348a"
+          }
+        }
+      },
+      {
+        "relative_path": "late-rundown.txt",
+        "source": {
+          "bytes": 103,
+          "sha256": "0b4f2659b3b4b5d03404fc73928e1e191b6c6f83ead998d48ed1289d6944b592"
+        },
+        "committed": {
+          "path": "evidence/wpr-l3/late-rundown.txt",
+          "identity": {
+            "bytes": 100,
+            "sha256": "4366791ed9f4d58eccfb0fde0b64ae4ba1becb2df1da6e350868689ec7d1e9cf"
+          }
+        }
+      }
+    ],
+    "range_symbol_derivations": {
+      "method": "xperf profile CSV; select exact target process label; group identical Module Name!Function Name rows; sum every selected Weight as process denominator; sort by weight descending; retain top 40; compute process_percent = 100 * symbol weight / process weight",
+      "target_process": "laneflow-urban-harness.exe (11984)",
+      "committed_format": "UTF-8 without BOM, LF, quoted CSV fields",
+      "retained_rows": 40,
+      "table_rounding": "l3-findings.md displays process_percent rounded to two decimals",
+      "windows": [
+        {
+          "name": "early",
+          "interval": "[1s, 81s)",
+          "source": {
+            "relative_path": "early-range-symbols.txt",
+            "identity": {
+              "bytes": 348108,
+              "sha256": "455961abe1c6c863d843dd8635771ddd4c3509cffe25848becadbb564ae02fa3"
+            }
+          },
+          "selected_process_rows": 295,
+          "unique_symbols": 281,
+          "process_weight_total": 100054919,
+          "committed": {
+            "path": "evidence/wpr-l3/early-range-top-symbols.csv",
+            "rows": 40,
+            "identity": {
+              "bytes": 4619,
+              "sha256": "45da553a1a7bc33658fb1ba7a8fee1c754bf8a0cf76484fb3e7562798249538d"
+            }
+          }
+        },
+        {
+          "name": "late",
+          "interval": "[44s, 236s)",
+          "source": {
+            "relative_path": "late-range-symbols.txt",
+            "identity": {
+              "bytes": 770162,
+              "sha256": "4e024dcc4a1dfe9c378cfc298bcc0c58d23c07fcbbc155581a527d8911191768"
+            }
+          },
+          "selected_process_rows": 352,
+          "unique_symbols": 335,
+          "process_weight_total": 226351791,
+          "committed": {
+            "path": "evidence/wpr-l3/late-range-top-symbols.csv",
+            "rows": 40,
+            "identity": {
+              "bytes": 4675,
+              "sha256": "4ab72fc746d8c9448c49bd1ee087659455fe3ac6140708fec3a9572ef0daa130"
+            }
+          }
+        }
+      ]
+    },
+    "symbol_identity": {
+      "extraction": {
+        "tool": "xperf symcache",
+        "command_shape": "xperf -i <trace> -a symcache -imageid -dbgid -image laneflow-urban-harness.exe",
+        "verified_traces": [
+          "l3-w4-early.etl",
+          "l3-w4-late.etl"
+        ],
+        "result": "both traces report the same image and CodeView record"
+      },
+      "image": {
+        "original_file_name": "laneflow-urban-harness.exe",
+        "time_date_stamp_hex": "0x6ab0a600",
+        "size_of_image_hex": "0x003a0000",
+        "captured_file_bytes": 3789312,
+        "captured_file_sha256": "960fe18ca04396fdcf7ded9455456b27b9434760562f3596b4a68ec704e80b95",
+        "identity_source": "diagnostics/wpr/diag-binary-manifest.md and l3-w4-meta.txt",
+        "current_availability": "the exact captured executable is not retained at the audited path; that path now contains a different rebuild"
+      },
+      "codeview": {
+        "signature": "RSDS",
+        "pdb_name": "laneflow_urban_harness.pdb",
+        "pdb_guid": "701cbf77-794f-4a2a-96b3-333c68f7790e",
+        "pdb_age": 1
+      },
+      "original_pdb": {
+        "recorded_bytes": 83603456,
+        "recorded_as_same_build_product": true,
+        "sha256": null,
+        "current_availability": "not retained; no PDB SHA-256 is asserted"
+      },
+      "retained_symcache": {
+        "format": "xperf symcache v3.1.0",
+        "bytes": 2215432,
+        "sha256": "14423276c1c145b9dcffcfa53c854933aae711864bb538842e24d1d3e106e709",
+        "pdb_guid_age_directory": "701CBF77794F4A2A96B3333C68F7790E1",
+        "evidence_relative_path": "SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/laneflow_urban_harness.pdb-v3.1.0.symcache",
+        "analysis_relative_path": "SymCache/laneflow_urban_harness.pdb/701CBF77794F4A2A96B3333C68F7790E1/laneflow_urban_harness.pdb-v3.1.0.symcache",
+        "copies_byte_identical": true
+      },
+      "supporting_records": [
+        {
+          "root": "evidence",
+          "relative_path": "diag-binary-manifest.md",
+          "bytes": 1621,
+          "sha256": "f7b47c18da7c5891489555f6c3abee002f62c692932afee4ebea434ac785198a"
+        },
+        {
+          "root": "evidence",
+          "relative_path": "l3-w4-meta.txt",
+          "bytes": 1622,
+          "sha256": "3fafc911e608d11f8db5aa4dd6f04e2c8bfc4588f02e3cd9d2e9c4463ab2b660"
+        }
+      ],
+      "attribution_scope": "ETL DbgId plus the byte-identified retained SymCache bind the existing symbolized exports to the recorded PDB GUID and age",
+      "independent_resymbolization": {
+        "status": "not-supported-by-current-evidence",
+        "reason": "the exact captured executable and original PDB were not retained; the SymCache and existing exports do not replace them for arbitrary stack re-symbolization"
+      }
+    }
+  },
+  "conclusion": "portable compact B1/L3 reports and privacy-minimized L3 exact-window symbol derivations are committed with source identities; multi-GB ETL and privacy-sensitive full-system exports are author-local and explicitly not under project-controlled long-term retention; L3 CodeView/SymCache evidence supports the existing limited attribution but missing original EXE/PDB still prevents arbitrary independent re-symbolization"
+}

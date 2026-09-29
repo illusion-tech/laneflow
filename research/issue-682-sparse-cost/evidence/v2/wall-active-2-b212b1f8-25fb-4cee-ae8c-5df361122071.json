@@ -1,0 +1,46 @@
+{
+  "accepted": true,
+  "baseline_sha256": "4d11224edae5209c20e97117d7b4ceb359e7c036bf43e7ecf9064a4a6e338b29",
+  "binary": "\\\\?\\E:\\projects\\worktrees\\713-acceptance-followup\\laneflow\\target\\release\\deps\\sparse_cost_evidence-f364ca23e5f2a2d2.exe",
+  "binary_sha256": "7999554a2c6518db573afbfc8ef6587a44c5b0884cb0ff73dbcdc92cf66bf8ad",
+  "case": "active",
+  "clean_after": true,
+  "ended": 1790522840,
+  "exit_ok": true,
+  "id": "b212b1f8-25fb-4cee-ae8c-5df361122071",
+  "interference": [],
+  "lock": "3464367a1cf84c0c3bbc3121720e55ac9c31eec7bae61ba0f85763fd584d1453",
+  "log": "wall-active-2-b212b1f8-25fb-4cee-ae8c-5df361122071.log",
+  "log_sha256": "d9f107cdd8c3a082acc30fc0781b160aa0744295cff12b781de28b1e63c3d7e9",
+  "manifest": "2500499338a72be921dee7d660b47308fbfbf4ca6b9521351d0a1b11bfe20217",
+  "mode": "wall",
+  "post": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      9.833981,
+      8.062851
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "pre": {
+    "after": [],
+    "before": [],
+    "cpu_percent": [
+      8.861428,
+      10.305234
+    ],
+    "cpu_warning": false,
+    "no_competitors": true
+  },
+  "round": 2,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "schema": 2,
+  "source": "2f5c51a8c068bda10462daf650f12470f55b46bc",
+  "source_after": "2f5c51a8c068bda10462daf650f12470f55b46bc",
+  "started": 1790522837,
+  "stderr": "wall-active-2-b212b1f8-25fb-4cee-ae8c-5df361122071.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "tree": "b922d2af85c7647a74cd9cfcbb86a0ae768bdf89"
+}

@@ -12,6 +12,10 @@ publish = false
 name = "laneflow_runtime"
 path = "src/lib.rs"
 
+[[test]]
+name = "spawn_overlap_allocation"
+harness = false
+
 # 测量入口与共享夹具放在同一目录，单测和集成测试均无需上级源码引用。
 [[test]]
 name = "parking_command_evidence"
@@ -45,6 +49,18 @@ path = "examples/preview_parallel_wall_clock/allocation_evidence.rs"
 name = "preview_at_threshold_equivalence"
 path = "examples/preview_parallel_wall_clock/at_threshold_equivalence.rs"
 
+[[test]]
+name = "sparse_cost_evidence"
+path = "src/kernel/tests/sparse_cost/wall.rs"
+
+[[test]]
+name = "eligibility_commit_evidence"
+path = "src/kernel/tests/eligibility_commit_evidence.rs"
+
+[[test]]
+name = "route_query_evidence"
+path = "src/kernel/tests/route_query/wall.rs"
+
 [features]
 # 默认关闭。只给回归测试放入“已经在路上”的状态；宿主构建不要打开。
 placement-fixtures = []
@@ -64,6 +80,7 @@ laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-corridor-generator = { version = "0.0.0", path = "../../tools/laneflow-corridor-generator" }
 laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+libtest-mimic = "=0.8.2"
 stats_alloc = "=0.1.10"
 toml = "1.1.3"
 

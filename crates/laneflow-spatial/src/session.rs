@@ -132,6 +132,8 @@ impl SpatialSession {
         inputs: &[PoseInput],
         output: &mut CanonicalPoseBatch,
     ) -> Result<(), SpatialError> {
+        #[cfg(feature = "pose-profiling")]
+        let sample_started = std::time::Instant::now();
         self.scratch.clear();
         self.scratch.reserve(inputs.len());
         let mut frame: Option<CanonicalFrameOrdinal> = None;
@@ -166,6 +168,10 @@ impl SpatialSession {
         let network_revision = Some(self.network_revision());
 
         // 全部采样和 frame 检查已成功；提交阶段不再执行可恢复失败操作。
+        #[cfg(feature = "pose-profiling")]
+        let sample_ns = sample_started.elapsed().as_nanos();
+        #[cfg(feature = "pose-profiling")]
+        let commit_started = std::time::Instant::now();
         std::mem::swap(&mut self.scratch, &mut output.records);
 
         // 接管上一批输出的存储，保留容量供下一批候选复用。
@@ -174,6 +180,20 @@ impl SpatialSession {
         output.network_revision = network_revision;
         output.canonical_frame = frame;
         output.placement_token = placement_token;
+        #[cfg(feature = "pose-profiling")]
+        {
+            use std::io::Write as _;
+            let commit_ns = commit_started.elapsed().as_nanos();
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "pose-spatial sample_ns={sample_ns} commit_ns={commit_ns} scratch_len={} scratch_cap={} output_len={} output_cap={} record_size={} logical_copy_bytes=0",
+                self.scratch.len(),
+                self.scratch.capacity(),
+                output.records.len(),
+                output.records.capacity(),
+                std::mem::size_of::<CanonicalPoseRecord>()
+            );
+        }
 
         Ok(())
     }

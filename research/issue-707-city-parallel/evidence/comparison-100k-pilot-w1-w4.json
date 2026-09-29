@@ -1,0 +1,25 @@
+{
+  "version": "urban-comparison-v2",
+  "status": "probe-match",
+  "purpose": "probe",
+  "case": "MIXED-PEAK",
+  "scale": "100k",
+  "plan_digest": "b4f03e0495bc1b0aefe67635f00c9fb9c4dca8f9d7351e3819ff49d011d31ec2",
+  "completed_ticks": 5120,
+  "left": {
+    "execution_id": "54672-1789904634935351700-0",
+    "workers": 1,
+    "result": {
+      "bytes": 242755,
+      "sha256": "e57cfe1d15dbde46460dbea93931a9bddb6270977238a09c2902d73cf4899ab1"
+    }
+  },
+  "right": {
+    "execution_id": "57376-1789905720868052000-0",
+    "workers": 4,
+    "result": {
+      "bytes": 242755,
+      "sha256": "048eea7dafb3fe91ab667d81ee284cfc91536bf440de3ebb7a71400ec323fab1"
+    }
+  }
+}

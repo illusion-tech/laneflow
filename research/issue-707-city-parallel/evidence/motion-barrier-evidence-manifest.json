@@ -1,0 +1,2880 @@
+{
+  "schema": "laneflow-issue-707-m2-evidence-envelope-v2",
+  "generated_at": "2026-09-27T21:03:06.8332856Z",
+  "hash_algorithm": "SHA-256",
+  "classification": "research evidence for a retained candidate; not final performance certification, production deployment, public API, or compatibility commitment",
+  "purpose": "bind the source delta and ten historical M2 runs behind the published timing and short-window traffic-equivalence claims",
+  "source": {
+    "base_commit": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+    "base_tree": "e88e559539042fad0b919c980af13c003542be41",
+    "archive": {
+      "path": "evidence/motion-barrier-source-patch.tar.zst",
+      "format": "tar.zst",
+      "compressor": "bsdtar 3.8.8 with libzstd 1.5.7, default compression",
+      "magic": "28 b5 2f fd",
+      "identity": {
+        "bytes": 131703,
+        "sha256": "1e47dcb0a44c5d680c5adc20bc55d4635804c270e04bdee9722d1a01e0758cd0"
+      },
+      "members": [
+        {
+          "path": "motion-barrier-h1-parent.patch",
+          "role": "binary Git patch from base commit to the line-ending-normalized H1 Rust/Cargo build source used for M2 increment lineage; normalized source text matches historical H1, while exact historical bytes are retained in the foundation archive",
+          "identity": {
+            "bytes": 146885,
+            "sha256": "be3e5bf3268090393ba6e7b24fc770ba52cec7a6609db5bfe83d6ab9d4ccfca7"
+          },
+          "changed_files": [
+            "Cargo.lock",
+            "Cargo.toml",
+            "crates/laneflow-runtime/Cargo.toml",
+            "crates/laneflow-runtime/examples/short_lifecycle.rs",
+            "crates/laneflow-runtime/src/admin/cutover_migration.rs",
+            "crates/laneflow-runtime/src/kernel/boundary.rs",
+            "crates/laneflow-runtime/src/kernel/conflict.rs",
+            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
+            "crates/laneflow-runtime/src/kernel/decision.rs",
+            "crates/laneflow-runtime/src/kernel/entry_frontier.rs",
+            "crates/laneflow-runtime/src/kernel/finish.rs",
+            "crates/laneflow-runtime/src/kernel/handle.rs",
+            "crates/laneflow-runtime/src/kernel/mod.rs",
+            "crates/laneflow-runtime/src/kernel/occupancy.rs",
+            "crates/laneflow-runtime/src/kernel/policy.rs",
+            "crates/laneflow-runtime/src/kernel/scope.rs",
+            "crates/laneflow-runtime/src/kernel/state.rs",
+            "crates/laneflow-runtime/src/kernel/tables.rs",
+            "crates/laneflow-runtime/src/kernel/tick.rs",
+            "crates/laneflow-runtime/src/kernel/transitions.rs",
+            "crates/laneflow-runtime/src/kernel/waiting.rs",
+            "crates/laneflow-runtime/src/kernel/world.rs",
+            "crates/laneflow-runtime/tests/compiled_networks.rs",
+            "crates/laneflow-runtime/tests/support/scope_cases.rs",
+            "research/issue-707-short-profile/lifecycle.rs",
+            "research/issue-707-short-profile/prefix.rs",
+            "research/issue-707-short-profile/profile.rs",
+            "research/lf707-profile/Cargo.toml",
+            "research/lf707-profile/src/lib.rs",
+            "tools/laneflow-urban-generator/src/config.rs",
+            "tools/laneflow-urban-generator/src/lib.rs",
+            "tools/laneflow-urban-generator/src/research_gap.rs",
+            "tools/laneflow-urban-generator/src/source.rs",
+            "tools/laneflow-urban-generator/src/source/junction.rs",
+            "tools/laneflow-urban-harness/Cargo.toml",
+            "tools/laneflow-urban-harness/src/artifacts.rs",
+            "tools/laneflow-urban-harness/src/gap_inventory.rs",
+            "tools/laneflow-urban-harness/src/host.rs",
+            "tools/laneflow-urban-harness/src/lib.rs",
+            "tools/laneflow-urban-harness/src/main.rs",
+            "tools/laneflow-urban-harness/src/observe.rs",
+            "tools/laneflow-urban-harness/src/observe/fused.rs",
+            "tools/laneflow-urban-harness/src/observe/work.rs",
+            "tools/laneflow-urban-harness/src/research_quality.rs",
+            "tools/laneflow-urban-harness/src/runner.rs",
+            "tools/laneflow-urban-harness/src/short_prefix.rs",
+            "tools/laneflow-urban-harness/tests/multi_gap.rs"
+          ]
+        },
+        {
+          "path": "motion-barrier-source.patch",
+          "role": "binary Git patch from base commit to the exact M2 Rust/Cargo build source",
+          "identity": {
+            "bytes": 151599,
+            "sha256": "cca898b65ca52512a2d6d9017ec404733327335a6ad7aed13f7151aacdb42a85"
+          },
+          "changed_files": [
+            "Cargo.lock",
+            "Cargo.toml",
+            "crates/laneflow-runtime/Cargo.toml",
+            "crates/laneflow-runtime/examples/short_lifecycle.rs",
+            "crates/laneflow-runtime/src/admin/cutover_migration.rs",
+            "crates/laneflow-runtime/src/kernel/boundary.rs",
+            "crates/laneflow-runtime/src/kernel/conflict.rs",
+            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
+            "crates/laneflow-runtime/src/kernel/decision.rs",
+            "crates/laneflow-runtime/src/kernel/entry_frontier.rs",
+            "crates/laneflow-runtime/src/kernel/finish.rs",
+            "crates/laneflow-runtime/src/kernel/handle.rs",
+            "crates/laneflow-runtime/src/kernel/mod.rs",
+            "crates/laneflow-runtime/src/kernel/occupancy.rs",
+            "crates/laneflow-runtime/src/kernel/policy.rs",
+            "crates/laneflow-runtime/src/kernel/scope.rs",
+            "crates/laneflow-runtime/src/kernel/state.rs",
+            "crates/laneflow-runtime/src/kernel/tables.rs",
+            "crates/laneflow-runtime/src/kernel/tests/performance_profile/exact_query_replay.rs",
+            "crates/laneflow-runtime/src/kernel/tick.rs",
+            "crates/laneflow-runtime/src/kernel/transitions.rs",
+            "crates/laneflow-runtime/src/kernel/waiting.rs",
+            "crates/laneflow-runtime/src/kernel/world.rs",
+            "crates/laneflow-runtime/tests/compiled_networks.rs",
+            "crates/laneflow-runtime/tests/support/scope_cases.rs",
+            "research/issue-707-short-profile/lifecycle.rs",
+            "research/issue-707-short-profile/prefix.rs",
+            "research/issue-707-short-profile/profile.rs",
+            "research/lf707-profile/Cargo.toml",
+            "research/lf707-profile/src/lib.rs",
+            "tools/laneflow-urban-generator/src/config.rs",
+            "tools/laneflow-urban-generator/src/lib.rs",
+            "tools/laneflow-urban-generator/src/research_gap.rs",
+            "tools/laneflow-urban-generator/src/source.rs",
+            "tools/laneflow-urban-generator/src/source/junction.rs",
+            "tools/laneflow-urban-harness/Cargo.toml",
+            "tools/laneflow-urban-harness/src/artifacts.rs",
+            "tools/laneflow-urban-harness/src/gap_inventory.rs",
+            "tools/laneflow-urban-harness/src/host.rs",
+            "tools/laneflow-urban-harness/src/lib.rs",
+            "tools/laneflow-urban-harness/src/main.rs",
+            "tools/laneflow-urban-harness/src/observe.rs",
+            "tools/laneflow-urban-harness/src/observe/fused.rs",
+            "tools/laneflow-urban-harness/src/observe/work.rs",
+            "tools/laneflow-urban-harness/src/research_quality.rs",
+            "tools/laneflow-urban-harness/src/runner.rs",
+            "tools/laneflow-urban-harness/src/short_prefix.rs",
+            "tools/laneflow-urban-harness/tests/multi_gap.rs"
+          ]
+        },
+        {
+          "path": "motion-barrier-increment.patch",
+          "role": "binary Git patch from reconstructed H1 to the exact M2 Rust/Cargo build source",
+          "identity": {
+            "bytes": 6774,
+            "sha256": "21119d2e99a735f6f33557e8e30894eddaa3e53cf088ee69638269435407e12c"
+          },
+          "changed_files": [
+            "crates/laneflow-runtime/Cargo.toml",
+            "crates/laneflow-runtime/src/kernel/entry_frontier.rs",
+            "crates/laneflow-runtime/src/kernel/tables.rs",
+            "crates/laneflow-runtime/src/kernel/tests/performance_profile/exact_query_replay.rs",
+            "crates/laneflow-runtime/src/kernel/tick.rs",
+            "tools/laneflow-urban-harness/Cargo.toml",
+            "tools/laneflow-urban-harness/src/short_prefix.rs"
+          ]
+        }
+      ]
+    },
+    "h1_build_source_manifest": {
+      "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
+      "file_count": 451,
+      "manifest_bytes": 55038,
+      "manifest_sha256": "d65a6519c4118dc6ec469f4eb641024e1f15d1fe40269e22347f1941f6f58f9b",
+      "representation": "line-ending-normalized H1 lineage used by the M2 reconstruction; not the byte-exact historical H1 manifest"
+    },
+    "build_source_manifest": {
+      "algorithm": "sorted build-source records: lowercase SHA-256, TAB, raw byte count, TAB, slash-separated relative path, LF; manifest UTF-8 without BOM",
+      "file_count": 451,
+      "manifest_bytes": 55038,
+      "manifest_sha256": "bf4b130db46e1576b4d67e74f731501a7d87b3473a7acdae24666d4406223000"
+    },
+    "independent_replay": {
+      "h1_parent_patch": {
+        "applied_to": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+        "files_compared": 451,
+        "mismatches": 0,
+        "extra_files": 0,
+        "raw_byte_identical": true,
+        "comparison_target": "line-ending-normalized H1 lineage tree d65a6519c4118dc6ec469f4eb641024e1f15d1fe40269e22347f1941f6f58f9b"
+      },
+      "full_patch": {
+        "applied_to": "4de40e045398e4b010b2aa36522afc02a4094c4d",
+        "files_compared": 451,
+        "mismatches": 0,
+        "extra_files": 0,
+        "raw_byte_identical": true
+      },
+      "increment_patch": {
+        "applied_to": "reconstructed H1 Rust/Cargo source",
+        "files_compared": 451,
+        "mismatches": 0,
+        "extra_files": 0,
+        "raw_byte_identical": true
+      }
+    },
+    "h1_reconstruction": {
+      "committed_parent_patch": "motion-barrier-h1-parent.patch",
+      "historical_external_patch_identity": {
+        "bytes": 377823,
+        "sha256": "bffb6239115edc4a3de9e4cba10dc271e94953657cb65c1fe941c3346f885bd1"
+      },
+      "historical_external_patch_committed": false,
+      "boundary": "the committed M2 parent patch retains H1 source text for M2 increment lineage; exact historical H1 Rust/Cargo bytes are retained by evidence/retained-foundation-source-patch.tar.zst, and historical non-Rust research drivers remain outside the repository",
+      "raw_representation_alignment": {
+        "method": "when H1 reconstructed text and M2 text are identical after CRLF/lone-CR to LF comparison, restore the M2 raw bytes before freezing H1; this preserves inherited line endings without hiding semantic changes",
+        "files": [
+          "tools/laneflow-urban-harness/src/host.rs",
+          "tools/laneflow-urban-harness/src/observe.rs",
+          "tools/laneflow-urban-harness/src/runner.rs"
+        ]
+      },
+      "historical_byte_difference": {
+        "path": "tools/laneflow-urban-harness/Cargo.toml",
+        "normalized_parent_patch": {
+          "line_endings": "LF",
+          "bytes": 2143,
+          "sha256": "ec5994a601ff20ffefe9af1d403881c79a1691c7ee3f4d5b0fea7f66855b5729"
+        },
+        "historical_h1": {
+          "line_endings": "CRLF",
+          "bytes": 2187,
+          "sha256": "47ea6a85297d88e35870eaa9529eba3ae0c3d4ffe4d74fd88ae834100e8d05ab"
+        },
+        "normalized_text_equal": true,
+        "exact_historical_build_source_manifest": "538d72b23b04d0869cb3bcef8992be4d92b0a65dc60a106d229cfa04827c0c90",
+        "exact_historical_archive": "evidence/retained-foundation-source-patch.tar.zst"
+      }
+    }
+  },
+  "binaries": {
+    "m2": {
+      "name": "harness-m2.exe",
+      "identity": {
+        "bytes": 4255232,
+        "sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59"
+      },
+      "role": "same binary for direct and skip arms"
+    },
+    "h1_parent": {
+      "name": "harness-parent.exe",
+      "identity": {
+        "bytes": 4321792,
+        "sha256": "5525f9aea127793c69ab08d4891fd05e3049dd79585199e00272b5d050391080"
+      },
+      "role": "frozen H1 binary for parent versus skip arms"
+    },
+    "retention": "binary files remain author-local; their immutable identities are retained here, while the committed cumulative source patch provides portable source review and exact raw-byte replay"
+  },
+  "inputs": {
+    "hundred_k": {
+      "plan": {
+        "bytes": 16994513,
+        "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+      },
+      "durable_fixture_asset": {
+        "name": "issue-707-m16-fixture-8b4294eb5ca8.tar.zst",
+        "bytes": 34900526,
+        "sha256": "517e434c6b8cbe5788d950685b7937d0c1ea8962c54b5dcbfc7e2a5f71e9c080",
+        "url": "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-707-m16-best-19bf7ecb/issue-707-m16-fixture-8b4294eb5ca8.tar.zst"
+      }
+    },
+    "ten_k": {
+      "plan": {
+        "bytes": 1562243,
+        "sha256": "dcd197b121296f858ced73950e37e9638c4dacbd2bc4ad3cad9b1981191aa6e1"
+      },
+      "retention": "the original 10k fixture remains author-local and is not promised as a project-controlled durable artifact; the pair is supplemental to the 100k comparisons"
+    }
+  },
+  "external_driver": {
+    "identity": {
+      "bytes": 6113,
+      "sha256": "a7767739a19be5782517c84fb553399f82c9bd93842f22f9808e3b1b55c34aee"
+    },
+    "committed": false,
+    "role": "historical Windows run orchestration only; no non-Rust program enters the repository"
+  },
+  "execution": {
+    "command_shape": "<binary> short-prefix <fixture>/input <fixture>/plan.toml <output> 4 256",
+    "rust": "1.98.0",
+    "profile": "release, locked, offline, CARGO_INCREMENTAL=0",
+    "m2_features": [
+      "entry-frontier",
+      "barrier-reach"
+    ],
+    "hardware_role": "amd-ryzen9-9955hx-16c-32t-64gb-hyperv",
+    "power_role": "win11-balanced-381b4222",
+    "configuration": {
+      "frontier": "approx",
+      "scope": "both",
+      "finish": "combined",
+      "boundary": "on",
+      "decision": "every",
+      "observation": "fused"
+    },
+    "observation_start_tick": 65,
+    "measured_ticks_per_run": 192,
+    "groups": {
+      "parent_vs_skip_100k": [
+        "m2-parent-abba-1",
+        "m2-skip-abba-2",
+        "m2-skip-abba-3",
+        "m2-parent-abba-4"
+      ],
+      "same_binary_100k": [
+        "m2-direct-same-1",
+        "m2-skip-same-2",
+        "m2-skip-same-3",
+        "m2-direct-same-4"
+      ],
+      "same_binary_10k": [
+        "m2-direct-10k",
+        "m2-skip-10k"
+      ]
+    },
+    "treatment_mapping": {
+      "parent": {
+        "binary": "h1_parent",
+        "LF707_BARRIER": null,
+        "prefix_barrier_mode": null
+      },
+      "direct": {
+        "binary": "m2",
+        "LF707_BARRIER": "direct",
+        "prefix_barrier_mode": "direct"
+      },
+      "skip": {
+        "binary": "m2",
+        "LF707_BARRIER": "skip",
+        "prefix_barrier_mode": "skip"
+      }
+    }
+  },
+  "compact_timing_report": {
+    "path": "evidence/motion-barrier-public-step.csv",
+    "columns": [
+      "group",
+      "run",
+      "order",
+      "variant",
+      "population",
+      "tick",
+      "public_step_ns",
+      "observation_ns"
+    ],
+    "rows": 1920,
+    "identity": {
+      "bytes": 164472,
+      "sha256": "4a6f11739d6b976f002ac2c1dad2e57a27156284b6348c9df92add7dc3745182"
+    }
+  },
+  "runs": [
+    {
+      "evidence_run_id": "m2-parent-abba-1",
+      "group": "parent_vs_skip_100k",
+      "order": 1,
+      "variant": "parent",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/abba-1-parent/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "parent",
+        "LF707_BARRIER": {
+          "present": false,
+          "value": null,
+          "driver_action": "remove LF707_BARRIER before launching the frozen H1 parent binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": false,
+          "value": null
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1560,
+          "sha256": "e77520c033a1c359cb1b85afc38e3a2b01cfec5940e32b0b3f40fdb4179d363f"
+        },
+        "started_at": "2026-09-22T05:52:50.7711956+09:00",
+        "binary_sha256": "5525f9aea127793c69ab08d4891fd05e3049dd79585199e00272b5d050391080",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 489,
+          "sha256": "81bb981f19f380a1e1b878f894840f3668d58493a740063370771f69c14401f6"
+        },
+        "elapsed_ms": 30068.4527,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 470085632,
+        "peak_paged_memory_observed_bytes": 549978112,
+        "memory_samples": 113,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "ef6697fc0e47ce0b7791f02c4a84cd2714cf8fa11278b2c2eda0e88f40bfe1c1",
+        "entries": [
+          {
+            "path": "1-parent.process.json",
+            "bytes": 489,
+            "sha256": "81bb981f19f380a1e1b878f894840f3668d58493a740063370771f69c14401f6"
+          },
+          {
+            "path": "1-parent.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-parent.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-parent/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-parent/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-parent/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-parent/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-parent/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-parent/extended-quality.json",
+            "bytes": 628,
+            "sha256": "5f87b8d7b8df17ee6b40d604f5c896f85b75258607fde2583598b9cb4a56b516"
+          },
+          {
+            "path": "1-parent/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-parent/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-parent/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-parent/prefix-result.json",
+            "bytes": 716,
+            "sha256": "1a578aab7f8801106b81608fb71e82c162595ba6b7685037018d8bc384dbab7f"
+          },
+          {
+            "path": "1-parent/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-parent/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-parent/timing.csv",
+            "bytes": 49463,
+            "sha256": "9728650b71370b23b3da66da9e2dba334c68548b333ca9b50958e11b16e79853"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1560,
+            "sha256": "e77520c033a1c359cb1b85afc38e3a2b01cfec5940e32b0b3f40fdb4179d363f"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-parent/prefix-result.json",
+          "identity": {
+            "bytes": 716,
+            "sha256": "1a578aab7f8801106b81608fb71e82c162595ba6b7685037018d8bc384dbab7f"
+          }
+        },
+        "retained": {
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-parent/timing.csv",
+          "identity": {
+            "bytes": 49463,
+            "sha256": "9728650b71370b23b3da66da9e2dba334c68548b333ca9b50958e11b16e79853"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 6061028500,
+          "mean": 31567856.770833332,
+          "sample_stddev": 2130058.5214181226,
+          "p95": 35396340.0
+        },
+        "observation_ns": {
+          "sum": 12969675000,
+          "mean": 67550390.625,
+          "sample_stddev": 4180275.915380169,
+          "p95": 75576395.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 31.568,
+          "public_step_sample_stddev": 2.13,
+          "public_step_p95": 35.396,
+          "observation_mean": 67.55
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 467098500,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-skip-abba-2",
+      "group": "parent_vs_skip_100k",
+      "order": 2,
+      "variant": "skip",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/abba-2-skip/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1560,
+          "sha256": "1269c403c50b3d5cfd222d4fcc6ca93aff34519321cac2ee165771f4db5601b9"
+        },
+        "started_at": "2026-09-22T05:53:24.9880818+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "a222ea42b413e177912e57fe1137cc37a27d69d3239d9dda801bfa97f2085430"
+        },
+        "elapsed_ms": 29286.1967,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 472952832,
+        "peak_paged_memory_observed_bytes": 550223872,
+        "memory_samples": 110,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "53ea78287ad4cd65c4f287518d17b1487615f7620e423907bfaddc7a8ef74eb8",
+        "entries": [
+          {
+            "path": "1-skip.process.json",
+            "bytes": 491,
+            "sha256": "a222ea42b413e177912e57fe1137cc37a27d69d3239d9dda801bfa97f2085430"
+          },
+          {
+            "path": "1-skip.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-skip.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-skip/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-skip/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-skip/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-skip/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-skip/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-skip/extended-quality.json",
+            "bytes": 628,
+            "sha256": "788e53b1cbe96666b6b6d1bf0dfcfa8a803430a23534946af9ab181971c124b0"
+          },
+          {
+            "path": "1-skip/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-skip/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-skip/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-skip/prefix-result.json",
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          },
+          {
+            "path": "1-skip/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-skip/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-skip/timing.csv",
+            "bytes": 49410,
+            "sha256": "e7561fb852fb38c5e82563d44b7f14fa63f9565f27a021569518546dee20a949"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1560,
+            "sha256": "1269c403c50b3d5cfd222d4fcc6ca93aff34519321cac2ee165771f4db5601b9"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-skip/timing.csv",
+          "identity": {
+            "bytes": 49410,
+            "sha256": "e7561fb852fb38c5e82563d44b7f14fa63f9565f27a021569518546dee20a949"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5787968100,
+          "mean": 30145667.1875,
+          "sample_stddev": 1903353.6256317857,
+          "p95": 33486600.0
+        },
+        "observation_ns": {
+          "sum": 12598572700,
+          "mean": 65617566.145833336,
+          "sample_stddev": 3951112.645792063,
+          "p95": 72985615.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 30.146,
+          "public_step_sample_stddev": 1.903,
+          "public_step_p95": 33.487,
+          "observation_mean": 65.618
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 457017100,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-skip-abba-3",
+      "group": "parent_vs_skip_100k",
+      "order": 3,
+      "variant": "skip",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/abba-3-skip/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1560,
+          "sha256": "8ee167815e7f0c2969d21fd637cfeb97e03f5a591c37acca2ce84cf67007fa74"
+        },
+        "started_at": "2026-09-22T05:53:58.6851375+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "2c525adc6c7b3dabbb2ba95a89db7bfb73380c15c64844c754200d67417402c2"
+        },
+        "elapsed_ms": 29042.8344,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 469794816,
+        "peak_paged_memory_observed_bytes": 549883904,
+        "memory_samples": 109,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "fada306907d6adffb121333c2c3df0581ff155c44bd2dfbd8678c825902f58ac",
+        "entries": [
+          {
+            "path": "1-skip.process.json",
+            "bytes": 491,
+            "sha256": "2c525adc6c7b3dabbb2ba95a89db7bfb73380c15c64844c754200d67417402c2"
+          },
+          {
+            "path": "1-skip.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-skip.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-skip/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-skip/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-skip/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-skip/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-skip/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-skip/extended-quality.json",
+            "bytes": 628,
+            "sha256": "7c10e7e7eb5d86dec66d54777b2d63b9498e67ce66926a4bb5c1d084b13a251b"
+          },
+          {
+            "path": "1-skip/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-skip/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-skip/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-skip/prefix-result.json",
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          },
+          {
+            "path": "1-skip/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-skip/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-skip/timing.csv",
+            "bytes": 49409,
+            "sha256": "4aa1c90f16c8d2298a4f06512a58f807b96208582125fb99773deb3f5e966c08"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1560,
+            "sha256": "8ee167815e7f0c2969d21fd637cfeb97e03f5a591c37acca2ce84cf67007fa74"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-skip/timing.csv",
+          "identity": {
+            "bytes": 49409,
+            "sha256": "4aa1c90f16c8d2298a4f06512a58f807b96208582125fb99773deb3f5e966c08"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5838451600,
+          "mean": 30408602.083333332,
+          "sample_stddev": 1967483.2643755146,
+          "p95": 33831920.0
+        },
+        "observation_ns": {
+          "sum": 12516313700,
+          "mean": 65189133.854166664,
+          "sample_stddev": 3835673.836450804,
+          "p95": 72529340.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 30.409,
+          "public_step_sample_stddev": 1.967,
+          "public_step_p95": 33.832,
+          "observation_mean": 65.189
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 463874600,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-parent-abba-4",
+      "group": "parent_vs_skip_100k",
+      "order": 4,
+      "variant": "parent",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/abba-4-parent/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "parent",
+        "LF707_BARRIER": {
+          "present": false,
+          "value": null,
+          "driver_action": "remove LF707_BARRIER before launching the frozen H1 parent binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": false,
+          "value": null
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1560,
+          "sha256": "0ec4fa0a11aae4e96b76540ca3cbe7e057a04765c06a553c85a4a5c576142023"
+        },
+        "started_at": "2026-09-22T05:54:31.7838768+09:00",
+        "binary_sha256": "5525f9aea127793c69ab08d4891fd05e3049dd79585199e00272b5d050391080",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 489,
+          "sha256": "f26c698eb20b091ea823fe5eb91ef2d397891d2f5491bbd2e297d71943dbf5a9"
+        },
+        "elapsed_ms": 29872.0492,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 470102016,
+        "peak_paged_memory_observed_bytes": 549969920,
+        "memory_samples": 113,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "ec565d5a8c031cdeeb592ff7c19a1efe44aee7c003f70e515522690007986e5c",
+        "entries": [
+          {
+            "path": "1-parent.process.json",
+            "bytes": 489,
+            "sha256": "f26c698eb20b091ea823fe5eb91ef2d397891d2f5491bbd2e297d71943dbf5a9"
+          },
+          {
+            "path": "1-parent.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-parent.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-parent/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-parent/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-parent/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-parent/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-parent/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-parent/extended-quality.json",
+            "bytes": 628,
+            "sha256": "a609e8ee12e63873320df5c047d39f05c0f6d95b7b6e757c1a010041901cdf56"
+          },
+          {
+            "path": "1-parent/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-parent/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-parent/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-parent/prefix-result.json",
+            "bytes": 716,
+            "sha256": "1a578aab7f8801106b81608fb71e82c162595ba6b7685037018d8bc384dbab7f"
+          },
+          {
+            "path": "1-parent/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-parent/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-parent/timing.csv",
+            "bytes": 49440,
+            "sha256": "37fa09336e4cf1056dcab2871c0274da8b3a0cd3a1a38cf0d0ef7d3d59f1f48f"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1560,
+            "sha256": "0ec4fa0a11aae4e96b76540ca3cbe7e057a04765c06a553c85a4a5c576142023"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-parent/prefix-result.json",
+          "identity": {
+            "bytes": 716,
+            "sha256": "1a578aab7f8801106b81608fb71e82c162595ba6b7685037018d8bc384dbab7f"
+          }
+        },
+        "retained": {
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-parent/timing.csv",
+          "identity": {
+            "bytes": 49440,
+            "sha256": "37fa09336e4cf1056dcab2871c0274da8b3a0cd3a1a38cf0d0ef7d3d59f1f48f"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5990776100,
+          "mean": 31201958.854166668,
+          "sample_stddev": 2137267.14104075,
+          "p95": 35442525.0
+        },
+        "observation_ns": {
+          "sum": 12968177300,
+          "mean": 67542590.10416667,
+          "sample_stddev": 3848886.2252239035,
+          "p95": 75426815.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 31.202,
+          "public_step_sample_stddev": 2.137,
+          "public_step_p95": 35.443,
+          "observation_mean": 67.543
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 457921000,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-direct-same-1",
+      "group": "same_binary_100k",
+      "order": 1,
+      "variant": "direct",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/same-1-direct/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "direct",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "direct",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "direct"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1562,
+          "sha256": "fe4a6ea52ef800add5dc45b67640fb190fdd3d0fd496bba676f47429276d1b8a"
+        },
+        "started_at": "2026-09-22T05:56:32.6444258+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "540cf8dd4c7a38847ab5745172a0e8bffa1f605b9f3fa2eaa2e19aa09d4139d1"
+        },
+        "elapsed_ms": 29699.0717,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 469790720,
+        "peak_paged_memory_observed_bytes": 549888000,
+        "memory_samples": 112,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "cffa38018d9f4c07ef0cb71984fa953dc7c483175f5270ad0b14da8e48ab81da",
+        "entries": [
+          {
+            "path": "1-direct.process.json",
+            "bytes": 491,
+            "sha256": "540cf8dd4c7a38847ab5745172a0e8bffa1f605b9f3fa2eaa2e19aa09d4139d1"
+          },
+          {
+            "path": "1-direct.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-direct.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-direct/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-direct/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-direct/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-direct/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-direct/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-direct/extended-quality.json",
+            "bytes": 628,
+            "sha256": "1b7be30d421246100b985aad94818f19376ac21da717322d508f0d88de1cf4a5"
+          },
+          {
+            "path": "1-direct/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-direct/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-direct/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-direct/prefix-result.json",
+            "bytes": 744,
+            "sha256": "e2dac29d5e12b9e959efcd94c03ce4030e16963074ffd10e7101873467d85c0c"
+          },
+          {
+            "path": "1-direct/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-direct/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-direct/timing.csv",
+            "bytes": 49454,
+            "sha256": "3531c65af16f6532de8ff43a1302b78f6e084e996cb919b570166794dfae9b07"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1562,
+            "sha256": "fe4a6ea52ef800add5dc45b67640fb190fdd3d0fd496bba676f47429276d1b8a"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-direct/prefix-result.json",
+          "identity": {
+            "bytes": 744,
+            "sha256": "e2dac29d5e12b9e959efcd94c03ce4030e16963074ffd10e7101873467d85c0c"
+          }
+        },
+        "retained": {
+          "barrier_mode": "direct",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-direct/timing.csv",
+          "identity": {
+            "bytes": 49454,
+            "sha256": "3531c65af16f6532de8ff43a1302b78f6e084e996cb919b570166794dfae9b07"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 6005617300,
+          "mean": 31279256.770833332,
+          "sample_stddev": 2223660.409107571,
+          "p95": 35794110.0
+        },
+        "observation_ns": {
+          "sum": 12820930800,
+          "mean": 66775681.25,
+          "sample_stddev": 4808101.5699739335,
+          "p95": 76215690.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 31.279,
+          "public_step_sample_stddev": 2.224,
+          "public_step_p95": 35.794,
+          "observation_mean": 66.776
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 457920500,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-skip-same-2",
+      "group": "same_binary_100k",
+      "order": 2,
+      "variant": "skip",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/same-2-skip/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1560,
+          "sha256": "c07db20c9b57fbe311b2ce0a4cb6be6d216c0cd62129758a2af5db8ab22e40b8"
+        },
+        "started_at": "2026-09-22T05:57:06.5512209+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "f8b3943c06db21c61dd8b549478349ac9b79c4f012125c7db6227f98dd753ec6"
+        },
+        "elapsed_ms": 29162.6522,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 469790720,
+        "peak_paged_memory_observed_bytes": 549879808,
+        "memory_samples": 110,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "5babbf7bc4a08983d55fb193e0bea408a603b58546eda97907ff43c15690c895",
+        "entries": [
+          {
+            "path": "1-skip.process.json",
+            "bytes": 491,
+            "sha256": "f8b3943c06db21c61dd8b549478349ac9b79c4f012125c7db6227f98dd753ec6"
+          },
+          {
+            "path": "1-skip.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-skip.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-skip/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-skip/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-skip/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-skip/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-skip/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-skip/extended-quality.json",
+            "bytes": 628,
+            "sha256": "f4df3cca44c848692aeaf4526b55988800b69a7cb33bf39d3b51794f5a3ad5f9"
+          },
+          {
+            "path": "1-skip/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-skip/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-skip/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-skip/prefix-result.json",
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          },
+          {
+            "path": "1-skip/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-skip/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-skip/timing.csv",
+            "bytes": 49396,
+            "sha256": "402030eaeebc52bd91dc4f9e56b6431bd6219b00909aac801f85eb443a3fc196"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1560,
+            "sha256": "c07db20c9b57fbe311b2ce0a4cb6be6d216c0cd62129758a2af5db8ab22e40b8"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-skip/timing.csv",
+          "identity": {
+            "bytes": 49396,
+            "sha256": "402030eaeebc52bd91dc4f9e56b6431bd6219b00909aac801f85eb443a3fc196"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5777961000,
+          "mean": 30093546.875,
+          "sample_stddev": 1933481.1464983346,
+          "p95": 33574030.0
+        },
+        "observation_ns": {
+          "sum": 12516316400,
+          "mean": 65189147.916666664,
+          "sample_stddev": 3725033.193695293,
+          "p95": 72223230.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 30.094,
+          "public_step_sample_stddev": 1.933,
+          "public_step_p95": 33.574,
+          "observation_mean": 65.189
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 459562100,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-skip-same-3",
+      "group": "same_binary_100k",
+      "order": 3,
+      "variant": "skip",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/same-3-skip/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1560,
+          "sha256": "70b5071918e969fd6bff2b0a264a8c5685e25926fe5818fc20cf8bfc04fdc1bf"
+        },
+        "started_at": "2026-09-22T05:57:39.7642908+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "06bede6f26b3b42baf52ad163b97066bdbb876e6c87033d9f2abdd64a0e8f15e"
+        },
+        "elapsed_ms": 28801.6928,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 470163456,
+        "peak_paged_memory_observed_bytes": 550514688,
+        "memory_samples": 109,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "8d5d9b0a636f47273bbe3107f67398750236d5d765bafd62507a0159404ce2f7",
+        "entries": [
+          {
+            "path": "1-skip.process.json",
+            "bytes": 491,
+            "sha256": "06bede6f26b3b42baf52ad163b97066bdbb876e6c87033d9f2abdd64a0e8f15e"
+          },
+          {
+            "path": "1-skip.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-skip.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-skip/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-skip/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-skip/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-skip/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-skip/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-skip/extended-quality.json",
+            "bytes": 628,
+            "sha256": "f2bb47fc7e1fd4d28093d324c4c7f50e6f4873382bb738b511384c662bace2ea"
+          },
+          {
+            "path": "1-skip/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-skip/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-skip/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-skip/prefix-result.json",
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          },
+          {
+            "path": "1-skip/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-skip/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-skip/timing.csv",
+            "bytes": 49386,
+            "sha256": "bf9e15f7ec1ab5f7649e2469e88ce10b20ebc896990fdfb14a9fccbf123563a1"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1560,
+            "sha256": "70b5071918e969fd6bff2b0a264a8c5685e25926fe5818fc20cf8bfc04fdc1bf"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 742,
+            "sha256": "224ce581f156c428ec64b136a32cd6ad9c69d8c5c195dc35d6aacdf863671f5d"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-skip/timing.csv",
+          "identity": {
+            "bytes": 49386,
+            "sha256": "bf9e15f7ec1ab5f7649e2469e88ce10b20ebc896990fdfb14a9fccbf123563a1"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5700317800,
+          "mean": 29689155.208333332,
+          "sample_stddev": 1813023.6816529755,
+          "p95": 33290344.999999996
+        },
+        "observation_ns": {
+          "sum": 12375742200,
+          "mean": 64456990.625,
+          "sample_stddev": 3489613.9117687615,
+          "p95": 71199160.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 29.689,
+          "public_step_sample_stddev": 1.813,
+          "public_step_p95": 33.29,
+          "observation_mean": 64.457
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 453680800,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-direct-same-4",
+      "group": "same_binary_100k",
+      "order": 4,
+      "variant": "direct",
+      "population": 100000,
+      "source_directory": "target/issue707-m2-results/same-4-direct/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "direct",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "direct",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "direct"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1562,
+          "sha256": "f292f55980eb25fe6dfd357e0be2403eb605acb70a168c727ef9897d21d68593"
+        },
+        "started_at": "2026-09-22T05:58:12.6034075+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 491,
+          "sha256": "c5c62ff39872f9188773bd95f60c6f5a130c2ea4f49c97ce68c9716044a78956"
+        },
+        "elapsed_ms": 29457.9916,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 470200320,
+        "peak_paged_memory_observed_bytes": 550354944,
+        "memory_samples": 111,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "277b01dd3917fa338abe8a658104c5b07b87c59c1c14cded1a0409ada9a3ff5a",
+        "entries": [
+          {
+            "path": "1-direct.process.json",
+            "bytes": 491,
+            "sha256": "c5c62ff39872f9188773bd95f60c6f5a130c2ea4f49c97ce68c9716044a78956"
+          },
+          {
+            "path": "1-direct.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-direct.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-direct/boundary-work.csv",
+            "bytes": 9307,
+            "sha256": "07497f524d1bc7e93bc81eb9a8e51cc083bdc093e772e2e9aa85f180ed6a3ae4"
+          },
+          {
+            "path": "1-direct/commands.jsonl",
+            "bytes": 13060294,
+            "sha256": "c9745776d34d4259c0c438ce7f717b3b11db0490166bd274c749a35b310f2155"
+          },
+          {
+            "path": "1-direct/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-direct/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-direct/events.jsonl",
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          },
+          {
+            "path": "1-direct/extended-quality.json",
+            "bytes": 628,
+            "sha256": "820199a25502c5b4fc8e2a2fbdd3575ea0dc2e505526035187809603a9703da3"
+          },
+          {
+            "path": "1-direct/gap-inventory.json",
+            "bytes": 1220,
+            "sha256": "ae94fc00a33d7f7735ec2a910c99fc4d1a239f5db0588c1cd07bfd335a6d977b"
+          },
+          {
+            "path": "1-direct/individual-quality.csv",
+            "bytes": 3241341,
+            "sha256": "0c2b9205f986f3cc44507ce10c87a3f834f1f19af85c03fca855adcd0980bb08"
+          },
+          {
+            "path": "1-direct/original-plan.toml",
+            "bytes": 16994513,
+            "sha256": "8b4294eb5ca81b7ef89b0baa34343af2ee5e5b329a887a6047dc5943bc46f729"
+          },
+          {
+            "path": "1-direct/prefix-result.json",
+            "bytes": 744,
+            "sha256": "e2dac29d5e12b9e959efcd94c03ce4030e16963074ffd10e7101873467d85c0c"
+          },
+          {
+            "path": "1-direct/quality.csv",
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          {
+            "path": "1-direct/ticks.jsonl",
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          {
+            "path": "1-direct/timing.csv",
+            "bytes": 49426,
+            "sha256": "053290762959839001e881033836ace4486c3b72027b360ea375ba837b4272be"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1562,
+            "sha256": "f292f55980eb25fe6dfd357e0be2403eb605acb70a168c727ef9897d21d68593"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-direct/prefix-result.json",
+          "identity": {
+            "bytes": 744,
+            "sha256": "e2dac29d5e12b9e959efcd94c03ce4030e16963074ffd10e7101873467d85c0c"
+          }
+        },
+        "retained": {
+          "barrier_mode": "direct",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 3028272,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "96bec41ddb8072d46d58100b7268bd15f3a52ab62a9edc2c9d21c9b70b4d257f",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-direct/timing.csv",
+          "identity": {
+            "bytes": 49426,
+            "sha256": "053290762959839001e881033836ace4486c3b72027b360ea375ba837b4272be"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 5990782100,
+          "mean": 31201990.104166668,
+          "sample_stddev": 2478637.1630026433,
+          "p95": 35583159.99999999
+        },
+        "observation_ns": {
+          "sum": 12484417600,
+          "mean": 65023008.333333336,
+          "sample_stddev": 4651370.062965608,
+          "p95": 73969085.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 31.202,
+          "public_step_sample_stddev": 2.479,
+          "public_step_p95": 35.583,
+          "observation_mean": 65.023
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 9228,
+            "sha256": "6267372c283ceaa80a01eb98640da9c4e3a4543d2b7e0c25798c02eeade742a3"
+          },
+          "ticks.jsonl": {
+            "bytes": 159038,
+            "sha256": "97482301293ecddc3fb9c30f683b441f7c98cbc037ac96ce203d38053ea6b809"
+          },
+          "events.jsonl": {
+            "bytes": 2476083,
+            "sha256": "a15d3a0a1ef020d0afd92340c85ca98254c6b616b100ac7dcb431494f1fd1401"
+          }
+        },
+        "final_checkpoint": "cab0f960013f341eb0461897b5425b8aef3b882332fe7ba9e7b104155623b72d",
+        "final_tick": 256,
+        "active": 70761,
+        "parked": 25200,
+        "completed": 4039,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 457043600,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 6897,
+          "max_open_reservation_age_ms": 5676,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 4190,
+          "open_passages": 4870,
+          "open_reservations": 1343,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-direct-10k",
+      "group": "same_binary_10k",
+      "order": 1,
+      "variant": "direct",
+      "population": 10000,
+      "source_directory": "target/issue707-m2-results/qual-10k-direct/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "direct",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "direct",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "direct"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1561,
+          "sha256": "c0a80e4d57608449177a1633732f9335ec848d5401b1268fc5d1a0581337452a"
+        },
+        "started_at": "2026-09-22T05:55:04.0576658+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "dcd197b121296f858ced73950e37e9638c4dacbd2bc4ad3cad9b1981191aa6e1",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 486,
+          "sha256": "96ea747270e09065b29e28614c4fcd43099abc1375d3992f631b7cfc5c5b1348"
+        },
+        "elapsed_ms": 2582.4205,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 50466816,
+        "peak_paged_memory_observed_bytes": 53035008,
+        "memory_samples": 9,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "b98234ca0cc9d958d525858fd44fb518de3df0baa548be6f400b04271db2920f",
+        "entries": [
+          {
+            "path": "1-direct.process.json",
+            "bytes": 486,
+            "sha256": "96ea747270e09065b29e28614c4fcd43099abc1375d3992f631b7cfc5c5b1348"
+          },
+          {
+            "path": "1-direct.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-direct.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-direct/boundary-work.csv",
+            "bytes": 7624,
+            "sha256": "200d36a786aebfbb4a8b7af7f4d6d97a0f36947a9f014649986b1d612cb771bb"
+          },
+          {
+            "path": "1-direct/commands.jsonl",
+            "bytes": 405524,
+            "sha256": "a36135c9c88b3f107b427b44fc43b7a28ba99f3bb2b0f4574b4343fa3ee503bb"
+          },
+          {
+            "path": "1-direct/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-direct/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-direct/events.jsonl",
+            "bytes": 167907,
+            "sha256": "1e528fc27f71a3c270f606a46408010c8f7d33dad8122892aadba96cce2f487a"
+          },
+          {
+            "path": "1-direct/extended-quality.json",
+            "bytes": 623,
+            "sha256": "728110bee3d573088408512c654576146d54d1b239b0b43ab81bb4e62b60f62c"
+          },
+          {
+            "path": "1-direct/gap-inventory.json",
+            "bytes": 1206,
+            "sha256": "8abef3ee55233fd67a68f8831c9e38b6eed9f632ae685f44d0b43399b094f5a9"
+          },
+          {
+            "path": "1-direct/individual-quality.csv",
+            "bytes": 315197,
+            "sha256": "987e4835987e089163069627aa953a2f621d0e61ca4f323fbccc86e1ac61e110"
+          },
+          {
+            "path": "1-direct/original-plan.toml",
+            "bytes": 1562243,
+            "sha256": "dcd197b121296f858ced73950e37e9638c4dacbd2bc4ad3cad9b1981191aa6e1"
+          },
+          {
+            "path": "1-direct/prefix-result.json",
+            "bytes": 743,
+            "sha256": "bb6e3f510d1f77aaa1474c3aaee2cf8b656fc124411ec305e02e0703f863e364"
+          },
+          {
+            "path": "1-direct/quality.csv",
+            "bytes": 8051,
+            "sha256": "d22314854b831eafd5de11b1bf4751cfde7a4966ac4d293a579f837778149db9"
+          },
+          {
+            "path": "1-direct/ticks.jsonl",
+            "bytes": 156725,
+            "sha256": "fb10ab7b90a0aa182d9048e4567093161ef5fe61386a7c8c2248b9da3524c88b"
+          },
+          {
+            "path": "1-direct/timing.csv",
+            "bytes": 47821,
+            "sha256": "73e3e0a9198350858788d9cc09d543b1af4a045ed9e42dd395f1ebf790ac963e"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1561,
+            "sha256": "c0a80e4d57608449177a1633732f9335ec848d5401b1268fc5d1a0581337452a"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-direct/prefix-result.json",
+          "identity": {
+            "bytes": 743,
+            "sha256": "bb6e3f510d1f77aaa1474c3aaee2cf8b656fc124411ec305e02e0703f863e364"
+          }
+        },
+        "retained": {
+          "barrier_mode": "direct",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 295792,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "b0bca7bd4ce8cb542aa3650138f85c81de3a2f40f19cee18e76eb57eaa32a786",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "eb051e09acc1aadad7adbd33b42e7c2112f46aad32006e399949ac9573c432c3",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-direct/timing.csv",
+          "identity": {
+            "bytes": 47821,
+            "sha256": "73e3e0a9198350858788d9cc09d543b1af4a045ed9e42dd395f1ebf790ac963e"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 508285500,
+          "mean": 2647320.3125,
+          "sample_stddev": 337368.07071058213,
+          "p95": 3342390.0
+        },
+        "observation_ns": {
+          "sum": 937600900,
+          "mean": 4883338.020833333,
+          "sample_stddev": 357842.7080856808,
+          "p95": 5600095.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 2.647,
+          "public_step_sample_stddev": 0.337,
+          "public_step_p95": 3.342,
+          "observation_mean": 4.883
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 8051,
+            "sha256": "d22314854b831eafd5de11b1bf4751cfde7a4966ac4d293a579f837778149db9"
+          },
+          "ticks.jsonl": {
+            "bytes": 156725,
+            "sha256": "fb10ab7b90a0aa182d9048e4567093161ef5fe61386a7c8c2248b9da3524c88b"
+          },
+          "events.jsonl": {
+            "bytes": 167907,
+            "sha256": "1e528fc27f71a3c270f606a46408010c8f7d33dad8122892aadba96cce2f487a"
+          }
+        },
+        "final_checkpoint": "b0bca7bd4ce8cb542aa3650138f85c81de3a2f40f19cee18e76eb57eaa32a786",
+        "final_tick": 256,
+        "active": 7312,
+        "parked": 2520,
+        "completed": 168,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 25710000,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 2560,
+          "max_open_reservation_age_ms": 1360,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 173,
+          "open_passages": 262,
+          "open_reservations": 82,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    },
+    {
+      "evidence_run_id": "m2-skip-10k",
+      "group": "same_binary_10k",
+      "order": 2,
+      "variant": "skip",
+      "population": 10000,
+      "source_directory": "target/issue707-m2-results/qual-10k-skip/",
+      "harness_execution_id": null,
+      "execution_identity_note": "short-prefix did not emit execution_id; group/order, exact binary, plan, configuration, process envelope, and complete output-tree identity bind the run",
+      "treatment": {
+        "driver_kind": "skip",
+        "LF707_BARRIER": {
+          "present": true,
+          "value": "skip",
+          "driver_action": "set LF707_BARRIER to the driver kind before launching the M2 binary"
+        },
+        "reported_prefix_barrier_mode": {
+          "present": true,
+          "value": "skip"
+        },
+        "binding_check": true
+      },
+      "environment": {
+        "source_identity": {
+          "bytes": 1559,
+          "sha256": "87ae2959f119c84852bfaa11e94e642fe979b6ef3e7e2a1352f10ac2b52458c2"
+        },
+        "started_at": "2026-09-22T05:55:08.982311+09:00",
+        "binary_sha256": "997c377104f0ae302dfa1bd0c8d9e700f59ab28d58748fa506a6937d55492a59",
+        "plan_sha256": "dcd197b121296f858ced73950e37e9638c4dacbd2bc4ad3cad9b1981191aa6e1",
+        "ticks": 256,
+        "workers": 4,
+        "model": "approx/both/combined/boundary=on/decision=every",
+        "active_power_scheme": "381b4222-f694-41f0-9685-ff5bb260df2e (balanced)",
+        "wpr_recording": false
+      },
+      "process": {
+        "source_identity": {
+          "bytes": 485,
+          "sha256": "4424fc6d6628cec18696af29564dd876e0341f20ad28776906616d65c3bdb483"
+        },
+        "elapsed_ms": 2528.978,
+        "exit_code": 0,
+        "peak_working_set_observed_bytes": 50475008,
+        "peak_paged_memory_observed_bytes": 53207040,
+        "memory_samples": 9,
+        "memory_boundary": "250ms polling of process high-water counters; final tail may be missed"
+      },
+      "source_tree": {
+        "files": 17,
+        "manifest_rule": "UTF-8 lines: relative path, TAB, byte count, TAB, lowercase SHA-256, LF; entries follow ascending PowerShell Sort-Object FullName order",
+        "manifest_sha256": "9642b1218cc4a67c673f9576bd43eb71d7b352d6e8f75fef7a7d1382f506c009",
+        "entries": [
+          {
+            "path": "1-skip.process.json",
+            "bytes": 485,
+            "sha256": "4424fc6d6628cec18696af29564dd876e0341f20ad28776906616d65c3bdb483"
+          },
+          {
+            "path": "1-skip.stderr",
+            "bytes": 87,
+            "sha256": "c20bfc19bef1378e37bc51daac3a423c39b843519dadf5cf23d56ee877ec3256"
+          },
+          {
+            "path": "1-skip.stdout",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "1-skip/boundary-work.csv",
+            "bytes": 7624,
+            "sha256": "200d36a786aebfbb4a8b7af7f4d6d97a0f36947a9f014649986b1d612cb771bb"
+          },
+          {
+            "path": "1-skip/commands.jsonl",
+            "bytes": 405524,
+            "sha256": "a36135c9c88b3f107b427b44fc43b7a28ba99f3bb2b0f4574b4343fa3ee503bb"
+          },
+          {
+            "path": "1-skip/decision-work.csv",
+            "bytes": 2489,
+            "sha256": "299c2d44d6cd3b03ef5f759ed257bbbceb05d8b7031342fbcaed7adfd9225b9f"
+          },
+          {
+            "path": "1-skip/entry-work.csv",
+            "bytes": 4058,
+            "sha256": "e0cd53685c196b4fbc0d93d94ad4412d2bafa7a58736b69c1e0a197b00eac6c8"
+          },
+          {
+            "path": "1-skip/events.jsonl",
+            "bytes": 167907,
+            "sha256": "1e528fc27f71a3c270f606a46408010c8f7d33dad8122892aadba96cce2f487a"
+          },
+          {
+            "path": "1-skip/extended-quality.json",
+            "bytes": 623,
+            "sha256": "6ca6eeccfe5f0cfed0c3304216e2b9572af4405f4ead3ff2f6a8a7e5413f97cb"
+          },
+          {
+            "path": "1-skip/gap-inventory.json",
+            "bytes": 1206,
+            "sha256": "8abef3ee55233fd67a68f8831c9e38b6eed9f632ae685f44d0b43399b094f5a9"
+          },
+          {
+            "path": "1-skip/individual-quality.csv",
+            "bytes": 315197,
+            "sha256": "987e4835987e089163069627aa953a2f621d0e61ca4f323fbccc86e1ac61e110"
+          },
+          {
+            "path": "1-skip/original-plan.toml",
+            "bytes": 1562243,
+            "sha256": "dcd197b121296f858ced73950e37e9638c4dacbd2bc4ad3cad9b1981191aa6e1"
+          },
+          {
+            "path": "1-skip/prefix-result.json",
+            "bytes": 741,
+            "sha256": "37498e149d6c7d61af49263ffc37b4a7ca608e8e9d6278f6b5bea6099ad96c13"
+          },
+          {
+            "path": "1-skip/quality.csv",
+            "bytes": 8051,
+            "sha256": "d22314854b831eafd5de11b1bf4751cfde7a4966ac4d293a579f837778149db9"
+          },
+          {
+            "path": "1-skip/ticks.jsonl",
+            "bytes": 156725,
+            "sha256": "fb10ab7b90a0aa182d9048e4567093161ef5fe61386a7c8c2248b9da3524c88b"
+          },
+          {
+            "path": "1-skip/timing.csv",
+            "bytes": 47821,
+            "sha256": "ecba422a561e1d81cba44115d3ec6d6953332a0764361840d8e1f35e83126c52"
+          },
+          {
+            "path": "environment.json",
+            "bytes": 1559,
+            "sha256": "87ae2959f119c84852bfaa11e94e642fe979b6ef3e7e2a1352f10ac2b52458c2"
+          }
+        ]
+      },
+      "prefix_result": {
+        "source": {
+          "path": "1-skip/prefix-result.json",
+          "identity": {
+            "bytes": 741,
+            "sha256": "37498e149d6c7d61af49263ffc37b4a7ca608e8e9d6278f6b5bea6099ad96c13"
+          }
+        },
+        "retained": {
+          "barrier_mode": "skip",
+          "boundary_mode": "on",
+          "boundary_route_constructed_bytes": 295792,
+          "decision_mode": "every",
+          "entry_audit": false,
+          "final_checkpoint": "b0bca7bd4ce8cb542aa3650138f85c81de3a2f40f19cee18e76eb57eaa32a786",
+          "finish_mode": "combined",
+          "frontier_mode": "approx",
+          "initial_checkpoint": "eb051e09acc1aadad7adbd33b42e7c2112f46aad32006e399949ac9573c432c3",
+          "observation_mode": "Fused",
+          "observation_work_instrumented": false,
+          "profile": false,
+          "scope_mode": "both",
+          "status": "diagnostic-prefix-complete",
+          "stop_trace": false,
+          "ticks": 256,
+          "timing_boundary": "iteration=advance+buffered semantic output; extended quality, profile CSV, final flush and checkpoints excluded",
+          "workers": 4
+        }
+      },
+      "timing": {
+        "source": {
+          "path": "1-skip/timing.csv",
+          "identity": {
+            "bytes": 47821,
+            "sha256": "ecba422a561e1d81cba44115d3ec6d6953332a0764361840d8e1f35e83126c52"
+          }
+        },
+        "method": "tick >= 65; n=192; p95 linearly interpolates at (n-1)*0.95; stddev uses sample denominator n-1",
+        "samples": 192,
+        "public_step_ns": {
+          "sum": 475080700,
+          "mean": 2474378.6458333335,
+          "sample_stddev": 250994.28898248172,
+          "p95": 3040724.999999999
+        },
+        "observation_ns": {
+          "sum": 925278500,
+          "mean": 4819158.854166667,
+          "sample_stddev": 301320.96613617043,
+          "p95": 5414555.0
+        },
+        "displayed_ms": {
+          "public_step_mean": 2.474,
+          "public_step_sample_stddev": 0.251,
+          "public_step_p95": 3.041,
+          "observation_mean": 4.819
+        }
+      },
+      "traffic": {
+        "identities": {
+          "quality.csv": {
+            "bytes": 8051,
+            "sha256": "d22314854b831eafd5de11b1bf4751cfde7a4966ac4d293a579f837778149db9"
+          },
+          "ticks.jsonl": {
+            "bytes": 156725,
+            "sha256": "fb10ab7b90a0aa182d9048e4567093161ef5fe61386a7c8c2248b9da3524c88b"
+          },
+          "events.jsonl": {
+            "bytes": 167907,
+            "sha256": "1e528fc27f71a3c270f606a46408010c8f7d33dad8122892aadba96cce2f487a"
+          }
+        },
+        "final_checkpoint": "b0bca7bd4ce8cb542aa3650138f85c81de3a2f40f19cee18e76eb57eaa32a786",
+        "final_tick": 256,
+        "active": 7312,
+        "parked": 2520,
+        "completed": 168,
+        "max_overlap_pairs": 0,
+        "final_overlap_pairs": 0,
+        "resource_boundary": {
+          "boundary": "outside iteration/Core timing; cumulative same-zone multi-owner exposure, not geometric collision certification; initial in-zone occupancy may be left-censored",
+          "completed_owners_still_holding": 0,
+          "extra_observation_ns": 25415700,
+          "longest_multi_owner_zone_ms": 0,
+          "max_continuous_stop_ms": 2560,
+          "max_open_reservation_age_ms": 1360,
+          "max_released_reservation_ms": 0,
+          "multi_owner_enter_observations": 0,
+          "multi_owner_zone_ms": 0,
+          "observed_completed": 173,
+          "open_passages": 262,
+          "open_reservations": 82,
+          "released_reservations": 0,
+          "ticks": 256,
+          "unmatched_clear_events": 0
+        }
+      }
+    }
+  ],
+  "comparisons": {
+    "h1_parent_vs_skip_100k": {
+      "baseline_runs": [
+        "m2-parent-abba-1",
+        "m2-parent-abba-4"
+      ],
+      "candidate_runs": [
+        "m2-skip-abba-2",
+        "m2-skip-abba-3"
+      ],
+      "baseline_run_means_ns": [
+        31567856.770833332,
+        31201958.854166668
+      ],
+      "candidate_run_means_ns": [
+        30145667.1875,
+        30408602.083333332
+      ],
+      "baseline_mean_of_means_ns": 31384907.8125,
+      "candidate_mean_of_means_ns": 30277134.635416664,
+      "reduction_ns": 1107773.1770833358,
+      "reduction_percent": 3.5296365492019426,
+      "baseline_range_ns": 365897.9166666642,
+      "slowest_candidate_below_fastest_baseline": true,
+      "displayed_ms": {
+        "baseline_mean_of_means": 31.385,
+        "candidate_mean_of_means": 30.277,
+        "reduction": 1.108,
+        "baseline_range": 0.366
+      }
+    },
+    "same_binary_direct_vs_skip_100k": {
+      "baseline_runs": [
+        "m2-direct-same-1",
+        "m2-direct-same-4"
+      ],
+      "candidate_runs": [
+        "m2-skip-same-2",
+        "m2-skip-same-3"
+      ],
+      "baseline_run_means_ns": [
+        31279256.770833332,
+        31201990.104166668
+      ],
+      "candidate_run_means_ns": [
+        30093546.875,
+        29689155.208333332
+      ],
+      "baseline_mean_of_means_ns": 31240623.4375,
+      "candidate_mean_of_means_ns": 29891351.041666664,
+      "reduction_ns": 1349272.3958333358,
+      "reduction_percent": 4.318967572886919,
+      "baseline_range_ns": 77266.66666666418,
+      "slowest_candidate_below_fastest_baseline": true,
+      "displayed_ms": {
+        "baseline_mean_of_means": 31.241,
+        "candidate_mean_of_means": 29.891,
+        "reduction": 1.349,
+        "baseline_range": 0.077
+      }
+    },
+    "same_binary_direct_vs_skip_10k": {
+      "baseline_runs": [
+        "m2-direct-10k"
+      ],
+      "candidate_runs": [
+        "m2-skip-10k"
+      ],
+      "baseline_run_means_ns": [
+        2647320.3125
+      ],
+      "candidate_run_means_ns": [
+        2474378.6458333335
+      ],
+      "baseline_mean_of_means_ns": 2647320.3125,
+      "candidate_mean_of_means_ns": 2474378.6458333335,
+      "reduction_ns": 172941.6666666665,
+      "reduction_percent": 6.532706520252883,
+      "baseline_range_ns": 0.0,
+      "slowest_candidate_below_fastest_baseline": true,
+      "displayed_ms": {
+        "baseline_mean_of_means": 2.647,
+        "candidate_mean_of_means": 2.474,
+        "reduction": 0.173,
+        "baseline_range": 0.0
+      }
+    }
+  },
+  "traffic_equivalence": {
+    "hundred_k": {
+      "runs": [
+        "m2-parent-abba-1",
+        "m2-skip-abba-2",
+        "m2-skip-abba-3",
+        "m2-parent-abba-4",
+        "m2-direct-same-1",
+        "m2-skip-same-2",
+        "m2-skip-same-3",
+        "m2-direct-same-4"
+      ],
+      "quality_ticks_events_sha256_equal": true,
+      "final_checkpoint_equal": true,
+      "final_tick": 256,
+      "completed": 4039,
+      "parked": 25200,
+      "max_overlap_pairs": 0
+    },
+    "ten_k": {
+      "runs": [
+        "m2-direct-10k",
+        "m2-skip-10k"
+      ],
+      "quality_ticks_events_sha256_equal": true,
+      "final_checkpoint_equal": true,
+      "final_tick": 256,
+      "completed": 168,
+      "parked": 2520,
+      "max_overlap_pairs": 0
+    },
+    "boundary": "byte equality covers the measured 256-tick short windows; it is not long-wait, signal-ETA, full-day, or final traffic certification"
+  },
+  "retention": {
+    "committed": [
+      "source patch archive",
+      "complete run-tree identities",
+      "1920 public-step and observation samples",
+      "timing summaries",
+      "traffic identities and final counters"
+    ],
+    "author_local_only": [
+      "ten original run trees",
+      "M2 binary",
+      "H1 parent binary",
+      "historical Windows driver"
+    ],
+    "promise": "the committed envelope is the durable evidence for the stated M2 claims; retrieval of author-local originals is not promised"
+  },
+  "limitations": [
+    "short-prefix emitted no harness execution_id; ordered evidence ids plus exact binary, input, configuration, process, and complete output-tree identities bind each run",
+    "the binary artifacts were not promoted to a project-controlled release; committed H1 and M2 source patches replay both exact Rust/Cargo build-source trees but do not claim bit-reproducible MSVC output",
+    "the ten runs did not record a full independent machine-state snapshot beyond the retained power, WPR-idle, process, and driver evidence",
+    "these short runs support candidate retention and source review; they do not establish final product performance or replace later certification"
+  ]
+}

@@ -1,0 +1,40 @@
+
+running 1 test
+test kernel::eligibility_commit_research::eligibility_commit_diagnostic ... 
+elig-end case=conflict-small window=0 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=0 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=1 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=1 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=2 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=2 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=3 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=3 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=4 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=4 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=5 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=5 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=6 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=6 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-end case=conflict-small window=7 windows=8 ticks=16 input=Sha256Digest(be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9) digest=d9f8ff818d1bd2b4388ea805957969da570d5831e6857fa26b8cbcc1414f934b
+elig-memory case=conflict-small window=7 world=15532 shared=7803 binding=28 committed=5502 derived=2092 workspace=7910 admin=0
+elig-detail case=conflict-small stage=clear_motion ns=3200 items=1024 calls=128
+elig-detail case=conflict-small stage=clear_eligibility ns=4100 items=1024 calls=128
+elig-detail case=conflict-small stage=copy ns=4200 items=1024 calls=128
+elig-detail case=conflict-small stage=scan ns=3200 items=1024 calls=128
+elig-detail case=conflict-small stage=eligibility_commit ns=18700 items=1024 calls=128
+elig-phase case=conflict-small stage=whole_step ns=288000
+elig-phase case=conflict-small stage=preflight ns=26800
+elig-phase case=conflict-small stage=occupancy ns=18500
+elig-phase case=conflict-small stage=waiting_prepare ns=33500
+elig-phase case=conflict-small stage=conflict_prepare ns=56300
+elig-phase case=conflict-small stage=motion_loop ns=36000
+elig-phase case=conflict-small stage=waiting_finalize ns=3700
+elig-phase case=conflict-small stage=signals ns=4900
+elig-phase case=conflict-small stage=conflict_finalize ns=14500
+elig-phase case=conflict-small stage=waiting_outputs ns=13100
+elig-phase case=conflict-small stage=commit ns=31700
+elig-work case=conflict-small allocations=0 reallocations=0 bytes=0 min_eligible=1 max_eligible=1
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 536 filtered out; finished in 0.01s
+

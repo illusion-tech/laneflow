@@ -1,0 +1,2 @@
+# #682: 原始证据按 SHA-256 核验，跨平台 checkout 不得改写字节或行尾。
+* -text whitespace=-blank-at-eol,-blank-at-eof

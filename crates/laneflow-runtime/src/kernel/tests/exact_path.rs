@@ -214,6 +214,7 @@ pub(crate) enum Stage {
 #[derive(Clone, Default)]
 struct Profile {
     enabled: bool,
+    batches_only: bool,
     phase: u64,
     calls: [u64; STAGES],
     samples: [u64; STAGES],
@@ -248,6 +249,9 @@ pub(crate) fn begin(stage: Stage) -> Span {
             return false;
         }
         let index = stage as usize;
+        if profile.batches_only && index >= Stage::RouteProfileInputs as usize {
+            return false;
+        }
         let ordinal = profile.calls[index];
         profile.calls[index] += 1;
         index < Stage::RouteProfileInputs as usize
@@ -269,6 +273,18 @@ impl Drop for Span {
 }
 
 struct Session;
+
+/// 只测既有 Occupancy 四个批次，不打开逐车查询抽样。
+pub(crate) fn measure_batches<R>(run: impl FnOnce() -> R) -> (R, [u128; 4]) {
+    let session = Session::start(0);
+    PROFILE.with_borrow_mut(|profile| profile.batches_only = true);
+    let result = run();
+    drop(session);
+    (
+        result,
+        PROFILE.with_borrow(|profile| profile.nanos[..4].try_into().unwrap()),
+    )
+}
 
 impl Session {
     fn start(phase: u64) -> Self {

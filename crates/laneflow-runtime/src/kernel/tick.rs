@@ -682,15 +682,14 @@ fn aggregate_motion_tls(baseline: MotionTlsSnapshot, records: &[MotionWorkChunkR
 /// 武装；与 P2 的 preview_injection 相互独立，P2 融合首遍不会消费）。
 #[cfg(test)]
 mod motion_injection {
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     pub(super) const DISABLED_WORLD: u64 = u64::MAX;
 
     pub(super) static NONFINITE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
     pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
-    pub(super) static ARRIVAL_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static INPUT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
-    pub(super) static SLOT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static ARRIVAL_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static SLOT_RESERVE_FAILURE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
 
     pub(super) fn position_mask(positions: &[usize]) -> u64 {
         positions.iter().fold(0_u64, |mask, position| {
@@ -708,16 +707,12 @@ mod motion_injection {
             && NONFINITE_POSITIONS.load(Ordering::SeqCst) & (1_u64 << active_position) != 0
     }
 
-    pub(super) fn arrival_reserve_injected() -> bool {
-        ARRIVAL_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn arrival_reserve_injected(world_id: u64) -> bool {
+        ARRIVAL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 
-    pub(super) fn input_reserve_injected() -> bool {
-        INPUT_RESERVE_FAILURE.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn slot_reserve_injected() -> bool {
-        SLOT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    pub(super) fn slot_reserve_injected(world_id: u64) -> bool {
+        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
     }
 }
 
@@ -746,9 +741,9 @@ pub(crate) fn inject_motion_nonfinite(world_id: u64, positions: &[usize]) -> Mot
     )
 }
 
-/// 原子布尔注入的复位守卫。
+/// 原子武装世界注入的复位守卫。
 #[cfg(test)]
-pub(crate) struct MotionBoolGuard(&'static std::sync::atomic::AtomicBool, bool);
+pub(crate) struct MotionBoolGuard(&'static std::sync::atomic::AtomicU64, u64);
 
 #[cfg(test)]
 impl Drop for MotionBoolGuard {
@@ -758,26 +753,26 @@ impl Drop for MotionBoolGuard {
 }
 
 #[cfg(test)]
-fn swap_motion_flag(flag: &'static std::sync::atomic::AtomicBool) -> MotionBoolGuard {
-    MotionBoolGuard(flag, flag.swap(true, std::sync::atomic::Ordering::SeqCst))
+fn swap_motion_world(
+    flag: &'static std::sync::atomic::AtomicU64,
+    world_id: u64,
+) -> MotionBoolGuard {
+    MotionBoolGuard(
+        flag,
+        flag.swap(world_id, std::sync::atomic::Ordering::SeqCst),
+    )
 }
 
-/// 测试专用：下一次到达观察真实预留强制失败。
+/// 测试专用：武装世界下一次到达观察真实预留强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_motion_arrival_reserve() -> MotionBoolGuard {
-    swap_motion_flag(&motion_injection::ARRIVAL_RESERVE_FAILURE)
+pub(crate) fn fail_motion_arrival_reserve(world_id: u64) -> MotionBoolGuard {
+    swap_motion_world(&motion_injection::ARRIVAL_RESERVE_FAILURE_WORLD, world_id)
 }
 
-/// 测试专用：下一次输入发现预留强制失败（冷态/增长回退测试）。
+/// 测试专用：武装世界下一次结果槽位预留强制失败（冷态/增长回退测试，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_motion_input_reserve() -> MotionBoolGuard {
-    swap_motion_flag(&motion_injection::INPUT_RESERVE_FAILURE)
-}
-
-/// 测试专用：下一次结果槽位预留强制失败（冷态/增长回退测试）。
-#[cfg(test)]
-pub(crate) fn fail_motion_slot_reserve() -> MotionBoolGuard {
-    swap_motion_flag(&motion_injection::SLOT_RESERVE_FAILURE)
+pub(crate) fn fail_motion_slot_reserve(world_id: u64) -> MotionBoolGuard {
+    swap_motion_world(&motion_injection::SLOT_RESERVE_FAILURE_WORLD, world_id)
 }
 
 #[cfg(test)]
@@ -801,9 +796,10 @@ pub(crate) fn drop_motion_slot_at(position: usize) -> MotionSlotGapGuard {
 fn push_parking_arrival(
     parking_arrivals: &mut Vec<ParkingArrivalObservation>,
     arrival: ParkingArrivalObservation,
+    _world_id: u64,
 ) -> Result<(), StepError> {
     #[cfg(test)]
-    if motion_injection::arrival_reserve_injected()
+    if motion_injection::arrival_reserve_injected(_world_id)
         && parking_arrivals.len() == parking_arrivals.capacity()
     {
         // R4：注入仅在真实必要增长时触发（余量足够不得伪造预留失败）。
@@ -1751,10 +1747,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// P2 逐车独立预览原语：受检读取 state/route/profile，求值 Waiting 前视窗
-    /// 与运动预览，不触碰共享工作区。与串行第一遍同一领域原语、同一检查次序：
+    /// 与必要的运动预览，不触碰共享工作区。融合/分发共用同一领域原语：
     /// state/route/profile 缺失为 `WaitingInvariantViolation`；horizon 或预览
     /// 非有限为 `NonFiniteMotion`。无后续 Gate、Gate 距离非有限或超出前视窗时
-    /// 按原语义返回 `None` 字段。调用方负责 Active 过滤（`vehicle` 必须来自
+    /// 按原语义返回 `None` 字段；明确不可达且无 membership 时保留 horizon，
+    /// 省略运动预览，运动内核内部错误随完整求值后移 P5。调用方负责 Active 过滤（`vehicle` 必须来自
     /// `update_sequence` 处的 live 配对）与 `update_sequence` 暂存。
     pub(crate) fn waiting_preview_entry(
         self,
@@ -1793,9 +1790,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let gate_reachable = cache_reachability
             .then(|| super::conflict_tick::gate_may_be_reached(self, &state, delta_s));
         let cursor = state.route_edge_index as usize;
-        let gate_index = compiled
-            .gate_hops
-            .partition_point(|hop| (*hop as usize) < cursor);
+        let gate_index = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:1788");
+            |hop| (*hop as usize) < cursor
+        });
         let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
             return Ok(WaitingPreviewEntry {
                 gate_reachable,
@@ -1830,6 +1829,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             });
         };
         if gate_distance_mm > horizon.front_query_mm {
+            return Ok(WaitingPreviewEntry {
+                gate_reachable,
+                horizon: Some(horizon),
+                preview: None,
+            });
+        }
+        // 本拍可达性不是运动复用证明；这里只省略没有 membership 的入口
+        // 预览。已有 horizon 仍供 P5 使用，最终运动及资源转移不能省略。
+        if gate_reachable == Some(false) && state.waiting_membership.is_none() {
             return Ok(WaitingPreviewEntry {
                 gate_reachable,
                 horizon: Some(horizon),
@@ -1938,12 +1946,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         } else {
             state.route_edge_index
         };
-        let mut conflict_index = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < first_hop);
-        let mut waiting_index = compiled
-            .waiting
-            .partition_point(|entry| entry.entry_hop < first_hop);
+        let mut conflict_index = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:1942");
+            |entry| entry.admission_hop < first_hop
+        });
+        let mut waiting_index = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:1945");
+            |entry| entry.entry_hop < first_hop
+        });
         let mut deferred: Option<crate::kernel::waiting::WaitingStopConstraint> = None;
         let mut blocked_by_reach = false;
         let mut granted_hop: Option<u32> = None;
@@ -2227,9 +2239,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let Some(compiled) = self.compiled_route(state.route) else {
             return AdmissionPreview::Unprovable;
         };
-        let occurrence_index = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < contender.hop);
+        let occurrence_index = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2231");
+            |entry| entry.admission_hop < contender.hop
+        });
         let mut index = occurrence_index;
         while index < compiled.conflicts.len()
             && compiled.conflicts[index].admission_hop == contender.hop
@@ -2431,11 +2445,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if range.len == 0 {
             return AdmissionPreview::Clear;
         }
-        let Ok(maneuver_index) = u32::try_from(
-            compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= hop),
-        ) else {
+        let Ok(maneuver_index) = u32::try_from(compiled.maneuvers.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2436");
+            |entry| entry.exit_route_edge_index <= hop
+        })) else {
             return AdmissionPreview::Unprovable;
         };
         let Some(passage) = crate::ConflictPassageRange::new(
@@ -2694,11 +2708,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if range.len == 0 {
             return Ok(ClaimRead::Open(Vec::new()));
         }
-        let Ok(maneuver_index) = u32::try_from(
-            compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= hop),
-        ) else {
+        let Ok(maneuver_index) = u32::try_from(compiled.maneuvers.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2699");
+            |entry| entry.exit_route_edge_index <= hop
+        })) else {
             return Err(AdmissionPreview::Unprovable);
         };
         let Some(passage) = crate::ConflictPassageRange::new(
@@ -2990,9 +3004,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Err(AdmissionPreview::Unprovable);
         };
         let cursor = state.route_edge_index as usize;
-        let gate_index = compiled
-            .gate_hops
-            .partition_point(|gate| (*gate as usize) < cursor);
+        let gate_index = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:2994");
+            |gate| (*gate as usize) < cursor
+        });
         let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
             return Ok(None);
         };
@@ -3021,9 +3037,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return Err(AdmissionPreview::Unprovable);
         };
-        let first_pending = compiled
-            .waiting
-            .partition_point(|occurrence| occurrence.entry_hop < state.route_edge_index);
+        let first_pending = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:3025");
+            |occurrence| occurrence.entry_hop < state.route_edge_index
+        });
         let Some((occurrence_index, occurrence)) = compiled
             .waiting
             .iter()
@@ -3193,9 +3211,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let candidate_reaches =
             |gate: u32| candidate_blocked_at.is_none_or(|blocked| gate < blocked);
         let mut conflict_stop = None;
-        let mut index = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < first_hop);
+        let mut index = compiled.conflicts.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:3197");
+            |entry| entry.admission_hop < first_hop
+        });
         while index < compiled.conflicts.len() {
             let hop = compiled.conflicts[index].admission_hop;
             let Some(stop_index) = usize::try_from(hop).ok().and_then(|hop| hop.checked_add(1))
@@ -4007,7 +4027,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         reach: Option<MotionReach>,
     ) -> Option<BoundedDistance> {
         let cursor_hop = u32::try_from(cursor).ok()?;
-        let start = compiled.gate_hops.partition_point(|hop| *hop < cursor_hop);
+        let start = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("tick:4009");
+            |hop| *hop < cursor_hop
+        });
         for hop in compiled.gate_hops[start..].iter().copied() {
             let stop_index = usize::try_from(hop).ok()?.checked_add(1)?;
             let BoundedDistance::Finite(distance) = distance_to_occurrence_start(
@@ -4228,9 +4252,11 @@ impl MotionTaskView<'_> {
             state.route_edge_index
         };
         let held_waiting_hop = state.waiting_membership.and_then(|member| {
-            let index = compiled
-                .waiting
-                .partition_point(|entry| entry.release_hop < member.release_hop);
+            let index = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("tick:4232");
+                |entry| entry.release_hop < member.release_hop
+            });
             compiled
                 .waiting
                 .get(index)
@@ -4249,9 +4275,11 @@ impl MotionTaskView<'_> {
             #[cfg(test)]
             note_barrier_query(|counts| counts.conflict_scans += 1);
             loop {
-                let index = compiled
-                    .conflicts
-                    .partition_point(|entry| entry.admission_hop < minimum);
+                let index = compiled.conflicts.partition_point({
+                    #[cfg(test)]
+                    super::route_query_research::note_search("tick:4253");
+                    |entry| entry.admission_hop < minimum
+                });
                 let Some(entry) = compiled.conflicts.get(index) else {
                     break None;
                 };
@@ -4269,9 +4297,11 @@ impl MotionTaskView<'_> {
         } else {
             #[cfg(test)]
             note_barrier_query(|counts| counts.waiting_entry_scans += 1);
-            let waiting = compiled
-                .waiting
-                .partition_point(|entry| entry.entry_hop < first_hop);
+            let waiting = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("tick:4273");
+                |entry| entry.entry_hop < first_hop
+            });
             compiled.waiting[waiting..]
                 .iter()
                 .find(|entry| !authorized(entry.entry_hop))
@@ -4416,7 +4446,7 @@ fn prepare_motion_fused(
         debug_assert_eq!(state.status, VehicleStatus::Active);
         let outcome = view.vehicle_motion_outcome(state, active_index, delta_s)?;
         if let Some(arrival) = outcome.arrival {
-            push_parking_arrival(parking_arrivals, arrival)?;
+            push_parking_arrival(parking_arrivals, arrival, view.read.binding.world_id)?;
         }
         let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
         updates.push((slot, outcome.next));
@@ -4424,9 +4454,9 @@ fn prepare_motion_fused(
     Ok(())
 }
 
-/// P5 分发路径：输入发现（checked 预留，失败/注入回退融合）→ 任务独占
-/// 结果槽位、只读冻结视图计算 → 完整 join → 协调器按 Active 序规范消费
-///（该车失败在此处返回；到达观察在此处真实预留；然后 updates 接纳）。
+/// P5 分发路径：任务按 Active 投影位置直接读取完整句柄及拍初状态，独占结果
+/// 槽位、只读冻结视图计算 → 完整 join → 协调器按 Active 序规范消费（该车
+/// 失败在此处返回；到达观察在此处真实预留；然后 updates 接纳）。
 /// 首错来自规范消费，任务侧 first_error 原子仅作更晚块跳过的调度提示。
 #[allow(clippy::too_many_arguments)]
 fn prepare_motion_dispatched(
@@ -4446,30 +4476,9 @@ fn prepare_motion_dispatched(
         conflict_staged: &workspace.conflict,
         motion_cache: &workspace.motion_cache,
     };
-    let inputs = &mut workspace.motion_inputs;
-    inputs.clear();
-    #[cfg(test)]
-    let input_injected = motion_injection::input_reserve_injected();
-    #[cfg(not(test))]
-    let input_injected = false;
-    // 上界用 Active 投影：输入只收 Active 三元组（§4 #5 同谓词）。
-    if inputs
-        .try_reserve(view.read.derived.active_order.len())
-        .is_err()
-        || input_injected
-    {
-        // 回退拍计入 slot_fallback，与 fused/dispatched 互斥。
-        #[cfg(test)]
-        count_motion_path(|counts| counts.slot_fallback += 1);
-        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
-    }
-    for (active_index, handle) in view.read.derived.active_order.iter().copied().enumerate() {
-        let Some(state) = view.read.vehicle_state(handle) else {
-            continue;
-        };
-        inputs.push((handle, active_index, *state));
-    }
-    let workload = inputs.len();
+    // Active 投影是任务的唯一位置表；任务在对应位置重新读取完整句柄并核对
+    // 代次，不再物化 `(handle, active_index, VehicleState)` 输入副本。
+    let workload = view.read.derived.active_order.len();
     #[cfg(test)]
     let forced = motion_dispatch_forced();
     #[cfg(not(test))]
@@ -4482,7 +4491,7 @@ fn prepare_motion_dispatched(
     let slots = &mut workspace.motion_slots;
     slots.clear();
     #[cfg(test)]
-    let slot_injected = motion_injection::slot_reserve_injected();
+    let slot_injected = motion_injection::slot_reserve_injected(view.read.binding.world_id);
     #[cfg(not(test))]
     let slot_injected = false;
     if slots.try_reserve(workload).is_err() || slot_injected {
@@ -4518,31 +4527,43 @@ fn prepare_motion_dispatched(
     });
     #[cfg(test)]
     let tls_baseline = diagnostics.then(motion_tls_snapshot);
-    let compute =
-        |_chunk_view: crate::kernel::phase::StepReadView<'_>,
-         start: usize,
-         chunk: &mut [crate::kernel::execution::DispatchSlot<VehicleMotionOutcome>]| {
-            #[cfg(test)]
-            let chunk_baseline = diagnostics.then(motion_tls_snapshot);
-            for (offset, slot) in chunk.iter_mut().enumerate() {
-                let index = start + offset;
-                let (_handle, active_index, state) = workspace.motion_inputs[index];
-                match view.vehicle_motion_outcome(&state, active_index, delta_s) {
-                    Ok(outcome) => {
-                        *slot = crate::kernel::execution::DispatchSlot::Done(Ok(outcome));
-                    }
-                    Err(error) => {
-                        first_error.fetch_min(index, Ordering::Relaxed);
-                        *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
-                        break;
-                    }
+    #[cfg(test)]
+    let participation = super::motion_participation::current();
+    let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,
+                   start: usize,
+                   chunk: &mut [crate::kernel::execution::DispatchSlot<
+        Option<VehicleMotionOutcome>,
+    >]| {
+        #[cfg(test)]
+        if let Some(probe) = &participation {
+            probe.enter(start);
+        }
+        #[cfg(test)]
+        let chunk_baseline = diagnostics.then(motion_tls_snapshot);
+        for (offset, slot) in chunk.iter_mut().enumerate() {
+            let active_index = start + offset;
+            let handle = view.read.derived.active_order[active_index];
+            let Some(state) = view.read.vehicle_state(handle) else {
+                // 与融合路径相同：完整句柄已失效时跳过该 Active 位置。
+                *slot = crate::kernel::execution::DispatchSlot::Done(Ok(None));
+                continue;
+            };
+            match view.vehicle_motion_outcome(state, active_index, delta_s) {
+                Ok(outcome) => {
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome)));
+                }
+                Err(error) => {
+                    first_error.fetch_min(active_index, Ordering::Relaxed);
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
+                    break;
                 }
             }
-            #[cfg(test)]
-            if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
-                records[start / chunk_size].store_deltas(baseline);
-            }
-        };
+        }
+        #[cfg(test)]
+        if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
+            records[start / chunk_size].store_deltas(baseline);
+        }
+    };
     let dispatch_stats =
         execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);
     #[cfg(test)]
@@ -4561,16 +4582,23 @@ fn prepare_motion_dispatched(
     }
     #[cfg(not(test))]
     let _ = dispatch_stats;
-    for ((vehicle, _active_index, _state), slot) in workspace.motion_inputs.iter().zip(slots.iter())
+    for (vehicle, slot) in view
+        .read
+        .derived
+        .active_order
+        .iter()
+        .copied()
+        .zip(slots.iter())
     {
         match slot {
-            crate::kernel::execution::DispatchSlot::Done(Ok(outcome)) => {
+            crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome))) => {
                 if let Some(arrival) = outcome.arrival {
-                    push_parking_arrival(parking_arrivals, arrival)?;
+                    push_parking_arrival(parking_arrivals, arrival, view.read.binding.world_id)?;
                 }
                 let slot = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
                 updates.push((slot, outcome.next));
             }
+            crate::kernel::execution::DispatchSlot::Done(Ok(None)) => {}
             crate::kernel::execution::DispatchSlot::Done(Err(error)) => {
                 // 完整 join 后按 Active 序规范消费首错（不做最小下标预扫描）。
                 return Err(*error);
@@ -5131,9 +5159,11 @@ fn constrain_upcoming_speed_limits(
     let constraint_window =
         delta_s * (current_speed + next_speed) + next_speed * next_speed / comfort;
     let cursor_hop = u32::try_from(cursor).ok()?;
-    let first = compiled
-        .speed_limit_drop
-        .partition_point(|drop| drop.from_route_edge_index < cursor_hop);
+    let first = compiled.speed_limit_drop.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("tick:5127");
+        |drop| drop.from_route_edge_index < cursor_hop
+    });
     for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
         let limit = si_speed(drop.target_mm_s);
@@ -5263,9 +5293,11 @@ fn clamp_travel_to_speed_down_boundary(
 ) -> Option<f32> {
     let min_travel = 0.5 * current_speed * delta_s;
     let cursor_hop = u32::try_from(cursor).ok()?;
-    let first = compiled
-        .speed_limit_drop
-        .partition_point(|drop| drop.from_route_edge_index < cursor_hop);
+    let first = compiled.speed_limit_drop.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("tick:5259");
+        |drop| drop.from_route_edge_index < cursor_hop
+    });
     for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
         let limit = si_speed(drop.target_mm_s);

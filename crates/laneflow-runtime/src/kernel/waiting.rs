@@ -1066,11 +1066,18 @@ impl crate::kernel::state::WorldState {
         };
         if compiled
             .waiting
-            .binary_search_by_key(&maneuver_index, |waiting| {
-                #[cfg(test)]
-                count_waiting_lookup(2);
-                waiting.maneuver_index as usize
-            })
+            .binary_search_by_key(
+                {
+                    #[cfg(test)]
+                    super::route_query_research::note_search("waiting:1069");
+                    &maneuver_index
+                },
+                |waiting| {
+                    #[cfg(test)]
+                    count_waiting_lookup(2);
+                    waiting.maneuver_index as usize
+                },
+            )
             .is_err()
         {
             return Ok(None);
@@ -1200,9 +1207,11 @@ impl crate::kernel::state::WorldState {
         let Some(membership) = state.waiting_membership else {
             // 目标修订可以新增区间，但不能让 Active cursor 在区间内凭空获得 storage。
             // Parked / Completed 的保留 cursor 不代表一次 Waiting 进入。
-            let next = compiled
-                .waiting
-                .partition_point(|occurrence| occurrence.release_hop < state.route_edge_index);
+            let next = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("waiting:1205");
+                |occurrence| occurrence.release_hop < state.route_edge_index
+            });
             return state.status != crate::VehicleStatus::Active
                 || compiled.waiting.get(next).is_none_or(|occurrence| {
                     !waiting_membership_cursor_valid(state.route_edge_index, occurrence)
@@ -1446,7 +1455,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         if compiled
             .waiting
-            .binary_search_by_key(&maneuver_index, |waiting| waiting.maneuver_index as usize)
+            .binary_search_by_key(
+                {
+                    #[cfg(test)]
+                    super::route_query_research::note_search("waiting:1449");
+                    &maneuver_index
+                },
+                |waiting| waiting.maneuver_index as usize,
+            )
             .is_err()
         {
             return Ok(None);
@@ -1454,7 +1470,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let maneuver = &compiled.maneuvers[maneuver_index];
         let first_gate = first_gate_hop(compiled, maneuver)
             .ok_or(crate::StepError::WaitingInvariantViolation)?;
-        let gate_index = compiled.gate_hops.partition_point(|hop| *hop < cursor);
+        let gate_index = compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("waiting:1457");
+            |hop| *hop < cursor
+        });
         let last_crossed = gate_index
             .checked_sub(1)
             .and_then(|index| compiled.gate_hops.get(index).copied())
@@ -1887,7 +1907,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.waiting_staged_decisions.clear();
         self.workspace.waiting_non_entry_anchors.clear();
         self.workspace.staged_transition_events.clear();
+        #[cfg(test)]
+        let sparse_clear =
+            super::sparse_cost_research::begin(0, self.workspace.waiting_plan_by_vehicle.len());
         self.workspace.waiting_plan_by_vehicle.fill(None);
+        #[cfg(test)]
+        drop(sparse_clear);
         reserve_waiting_exact(
             &mut self.workspace.waiting_plans,
             self.derived.active_order.len(),
@@ -1952,9 +1977,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .compiled_route(state.route)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
             // Waiting 区间按路线顺序且不重叠；既有 membership 的 entry 已在 cursor 后方。
-            let first_pending = compiled
-                .waiting
-                .partition_point(|occurrence| occurrence.entry_hop < state.route_edge_index);
+            let first_pending = compiled.waiting.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("waiting:1962");
+                |occurrence| occurrence.entry_hop < state.route_edge_index
+            });
             let Some((occurrence_index, occurrence)) = compiled
                 .waiting
                 .iter()
@@ -2553,7 +2580,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.waiting_non_entry_anchors.clear();
         self.workspace.waiting_staged_decisions.clear();
         self.workspace.staged_transition_events.clear();
+        #[cfg(test)]
+        let sparse_clear =
+            super::sparse_cost_research::begin(0, self.workspace.waiting_plan_by_vehicle.len());
         self.workspace.waiting_plan_by_vehicle.fill(None);
+        #[cfg(test)]
+        drop(sparse_clear);
     }
 
     pub(crate) fn visit_waiting_events(
@@ -2885,9 +2917,11 @@ fn non_entry_gate_anchors<'a>(
 ) -> impl Iterator<Item = (u32, u32)> + 'a {
     #[cfg(test)]
     NON_ENTRY_DISCOVERY_VISITS.set(NON_ENTRY_DISCOVERY_VISITS.get() + 1);
-    let start = compiled
-        .gate_hops
-        .partition_point(|hop| *hop < old.route_edge_index);
+    let start = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("waiting:2900");
+        |hop| *hop < old.route_edge_index
+    });
     compiled.gate_hops[start..]
         .iter()
         .copied()
@@ -2905,7 +2939,14 @@ fn non_entry_gate_anchor(
     compiled.hop_gate.get(hop).copied().flatten()?;
     if compiled
         .waiting
-        .binary_search_by_key(&hop_u32, |occurrence| occurrence.entry_hop)
+        .binary_search_by_key(
+            {
+                #[cfg(test)]
+                super::route_query_research::note_search("waiting:2918");
+                &hop_u32
+            },
+            |occurrence| occurrence.entry_hop,
+        )
         .is_ok()
     {
         return None;
@@ -2937,10 +2978,14 @@ fn next_crossed_waiting(
 }
 
 fn maneuver_index_at_hop(compiled: &CompiledRoute, hop: u32) -> Option<usize> {
-    let index = compiled.maneuvers.partition_point(|maneuver| {
+    let index = compiled.maneuvers.partition_point({
         #[cfg(test)]
-        count_waiting_lookup(1);
-        maneuver.exit_route_edge_index <= hop
+        super::route_query_research::note_search("waiting:2950");
+        |maneuver| {
+            #[cfg(test)]
+            count_waiting_lookup(1);
+            maneuver.exit_route_edge_index <= hop
+        }
     });
     compiled
         .maneuvers
@@ -3004,9 +3049,11 @@ fn first_gate_hop(
     compiled: &CompiledRoute,
     maneuver: &crate::kernel::tables::ManeuverOccurrence,
 ) -> Option<u32> {
-    let start = compiled
-        .gate_hops
-        .partition_point(|hop| *hop < maneuver.entry_route_edge_index);
+    let start = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("waiting:3019");
+        |hop| *hop < maneuver.entry_route_edge_index
+    });
     compiled
         .gate_hops
         .get(start)
@@ -3488,8 +3535,10 @@ pub(crate) mod tests {
         multi_gate_world_with_id(count, 82)
     }
 
-    /// 与 [`multi_gate_world`] 相同构造，但使用指定世界身份；故障注入按世界
-    /// 身份隔离的测试因此可以并行运行而互不观测到对方的武装状态。
+    /// 与 [`multi_gate_world`] 相同构造，但使用指定世界身份。故障注入按世界
+    /// 身份隔离（#792）：**武装注入的测试世界必须使用独占身份**（708_xxx
+    /// 保留区间，见 `conflict_tick` 测试的常量表）；同测试内需要快照对拍的
+    /// 多个世界共享同一身份。普通测试使用默认身份即可。
     pub(crate) fn multi_gate_world_with_id(count: usize, world_id: u64) -> TrafficWorld {
         multi_gate_world_partial(count, count, world_id).0
     }
@@ -6809,9 +6858,8 @@ pub(crate) mod tests {
 
     use crate::kernel::tick::{
         MotionPathCounts, drop_motion_slot_at, fail_motion_arrival_reserve,
-        fail_motion_input_reserve, fail_motion_slot_reserve, force_motion_dispatch,
-        inject_motion_nonfinite, last_motion_dispatch_stats, motion_cache_use,
-        motion_diagnostic_counts, motion_path_counts,
+        fail_motion_slot_reserve, force_motion_dispatch, inject_motion_nonfinite,
+        last_motion_dispatch_stats, motion_cache_use, motion_diagnostic_counts, motion_path_counts,
     };
 
     /// 逐 tick 公开对拍记录：digest、Waiting/Conflict 决策、统一事件、
@@ -6892,7 +6940,7 @@ pub(crate) mod tests {
 
         let mut world = parking_arrival_world(4, WORLD_ID);
         let before = world.capture_snapshot().unwrap();
-        let reserve_guard = fail_motion_arrival_reserve();
+        let reserve_guard = fail_motion_arrival_reserve(WORLD_ID);
         let nonfinite_guard = inject_motion_nonfinite(WORLD_ID, &[1]);
         let result = world.step(TickInput::new(100));
         drop(reserve_guard);
@@ -6995,9 +7043,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// 可选暂存回退：输入表/结果槽位的冷态（首拍）与热态（容量已建立）
-    /// 预留注入失败都退回融合路径，逐拍输出与 w1 融合参考一致，不新增
-    /// 领域错误；回退计数与分发计数互斥。
+    /// 可选暂存回退：结果槽位的首次尝试与容量已建立后的预留注入失败都退回
+    /// 融合路径，逐拍输出与 w1 融合参考一致，不新增领域错误；回退计数与
+    /// 分发计数互斥。
     #[test]
     fn motion_scratch_reserve_failure_falls_back_to_fused() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -7017,13 +7065,13 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1, None);
-        // 冷态：首拍输入表预留失败；其后热态槽位预留失败一拍。
+        // 首次尝试与容量已建立后各注入一次槽位预留失败。
         let counts_before = motion_path_counts();
         let mut world = multi_gate_world_with_id(16, WORLD_ID);
         install_execution(&mut world, 4);
         let mut records = Vec::new();
         {
-            let _guard = fail_motion_input_reserve();
+            let _guard = fail_motion_slot_reserve(world.state.binding.world_id);
             let outcome = world.step(TickInput::new(100)).unwrap();
             records.push(motion_tick_record(&world, &outcome));
         }
@@ -7032,7 +7080,7 @@ pub(crate) mod tests {
             records.push(motion_tick_record(&world, &outcome));
         }
         {
-            let _guard = fail_motion_slot_reserve();
+            let _guard = fail_motion_slot_reserve(world.state.binding.world_id);
             let outcome = world.step(TickInput::new(100)).unwrap();
             records.push(motion_tick_record(&world, &outcome));
         }
@@ -7082,31 +7130,48 @@ pub(crate) mod tests {
         }
     }
 
-    /// 多线程参与（R5 表述修正：participating_threads 度量出现过的线程
-    /// 数，不等于同时执行重叠；真实并发重叠由 execution.rs 屏障测试覆
-    /// 盖）：64 车、worker=4、连续 16 拍自然强制分发，每拍 8 块全部
-    /// 完成且票据取完，参与线程数峰值 ≥ 2（调用线程 + 池任务）。
+    /// #787 短工作块可由单线程取完。每拍在真实 Motion 入口构造有界会合，
+    /// 独立核对线程身份与分发统计；既不依赖自然调度，也不把该测试当吞吐证据。
     #[test]
     fn motion_dispatch_multi_thread_participation() {
+        check_motion_dispatch_threads(Some(std::time::Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn motion_dispatch_natural_thread_ids_match_stats() {
+        check_motion_dispatch_threads(None);
+    }
+
+    fn check_motion_dispatch_threads(timeout: Option<std::time::Duration>) {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_150;
         let _force = force_motion_dispatch();
         let mut world = multi_gate_world_with_id(64, WORLD_ID);
         install_execution(&mut world, 4);
-        let mut peak_threads = 1_usize;
         for _ in 0..16 {
+            let probe = crate::kernel::motion_participation::Guard::start(timeout);
             world.step(TickInput::new(100)).unwrap();
+            let observation = probe.observation();
+            assert!(!observation.timed_out, "Motion chunk rendezvous timed out");
+            let threads: std::collections::HashSet<_> =
+                observation.entries.iter().map(|entry| entry.1).collect();
+            if timeout.is_some() {
+                assert!(threads.len() >= 2, "Motion needs real concurrent threads");
+            }
+            let mut starts: Vec<_> = observation.entries.iter().map(|entry| entry.0).collect();
+            starts.sort_unstable();
+            assert_eq!(starts, (0..64).step_by(8).collect::<Vec<_>>());
             let stats = last_motion_dispatch_stats().expect("分发统计");
             assert_eq!(stats.dispatched_chunks, 8);
             assert_eq!(stats.completed_chunks, 8);
             assert_eq!(stats.ticket_grabs, 8);
-            peak_threads = peak_threads.max(stats.participating_threads);
+            assert_eq!(stats.participating_threads, threads.len());
+            eprintln!(
+                "Motion synchronized={} threads={threads:?} stats={stats:?}",
+                timeout.is_some(),
+            );
         }
-        assert!(
-            peak_threads >= 2,
-            "必须观察到真实多线程参与，peak={peak_threads}"
-        );
     }
 
     /// 小场景强制分发等价：multi-gate（Waiting 密集）worker 2/4 逐拍
@@ -7211,7 +7276,9 @@ pub(crate) mod tests {
     // downstream 非空 Computed 候选）覆盖 F1/F2/F3b/F4 与同车段序。
     // ------------------------------------------------------------------
 
-    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::admin::cutover_migration::tests::{
+        conflict_scale_revision, conflict_scale_world, conflict_scale_world_with_identity,
+    };
     use crate::kernel::conflict::conflict_work_counts;
     use crate::kernel::conflict_tick::{
         ConflictPathCounts, conflict_path_counts, drop_conflict_slot_at,
@@ -7249,10 +7316,13 @@ pub(crate) mod tests {
     #[test]
     fn earlier_f2_failure_beats_later_downstream_invariant() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_010;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
-        let mut probe = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut probe =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut probe, 4);
         let probe_id = probe.state.binding.world_id;
         let guard = inject_conflict_invariant_downstream(probe_id, &[0]);
@@ -7264,17 +7334,19 @@ pub(crate) mod tests {
             "downstream CIV 注入必须命中（预演臂）"
         );
 
-        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut fresh =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut fresh, 4);
         let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
         let fresh_snapshot = fresh.capture_snapshot().unwrap();
         let fresh_workspace = conflict_workspace_record(&mut fresh);
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         let world_id = world.state.binding.world_id;
         let before = world.capture_snapshot().unwrap();
-        let cells_guard = fail_conflict_cells_reserve();
+        let cells_guard = fail_conflict_cells_reserve(world_id);
         let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
         let result = world.step(TickInput::new(4));
         drop(cells_guard);
@@ -7302,19 +7374,23 @@ pub(crate) mod tests {
     #[test]
     fn earlier_f1_failure_beats_later_downstream_invariant() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_011;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
-        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut fresh =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut fresh, 4);
         let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
         let fresh_snapshot = fresh.capture_snapshot().unwrap();
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         let world_id = world.state.binding.world_id;
         let before = world.capture_snapshot().unwrap();
-        let cell_work_guard = fail_conflict_cell_work_reserve();
+        let cell_work_guard = fail_conflict_cell_work_reserve(world_id);
         let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
         let result = world.step(TickInput::new(4));
         drop(cell_work_guard);
@@ -7407,8 +7483,8 @@ pub(crate) mod tests {
         for input_failure in [true, false] {
             let mut world = multi_gate_world_with_id(16, WORLD_ID);
             install_execution(&mut world, 4);
-            let _input = input_failure.then(fail_conflict_input_reserve);
-            let _slot = (!input_failure).then(fail_conflict_slot_reserve);
+            let _input = input_failure.then(|| fail_conflict_input_reserve(WORLD_ID));
+            let _slot = (!input_failure).then(|| fail_conflict_slot_reserve(WORLD_ID));
             let outcome = world.step(TickInput::new(100)).unwrap();
             assert_eq!(
                 (
@@ -7602,9 +7678,9 @@ pub(crate) mod tests {
             install_execution(&mut world, 4);
             let before = world.capture_snapshot().unwrap();
             let guard = if arm == 0 {
-                fail_conflict_downstream_work_reserve()
+                fail_conflict_downstream_work_reserve(world.state.binding.world_id)
             } else {
-                fail_conflict_downstream_pool_reserve()
+                fail_conflict_downstream_pool_reserve(world.state.binding.world_id)
             };
             let result = world.step(TickInput::new(4));
             drop(guard);
@@ -7866,20 +7942,24 @@ pub(crate) mod tests {
     #[test]
     fn f4_reserve_injection_gated_by_real_growth_on_both_paths() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_013;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         for workers in [1_u32, 4] {
-            let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+            let mut fresh =
+                conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
             install_execution(&mut fresh, workers);
             let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
             let fresh_snapshot = fresh.capture_snapshot().unwrap();
 
             // 冷态 + 武装：F4 真实增长失败（F4 义务先于 F4 后检查公开）。
-            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            let mut world =
+                conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
             install_execution(&mut world, workers);
             let before = world.capture_snapshot().unwrap();
-            let guard = fail_conflict_downstream_work_reserve();
+            let guard = fail_conflict_downstream_work_reserve(world.state.binding.world_id);
             let result = world.step(TickInput::new(4));
             drop(guard);
             assert_eq!(
@@ -7896,7 +7976,7 @@ pub(crate) mod tests {
             // 候选周期内 F4 稀疏，持武装步进 12 拍全程不得公开错误，
             // 且探针 fired 计数必须为零（余量足够+已武装 ⇒ 永不伪造失败）。
             crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
-            let guard = fail_conflict_downstream_work_reserve();
+            let guard = fail_conflict_downstream_work_reserve(world.state.binding.world_id);
             for _ in 0..12 {
                 world.step(TickInput::new(4)).unwrap();
             }
@@ -7920,11 +8000,14 @@ pub(crate) mod tests {
             reset_conflict_reserve_probe_log,
         };
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_014;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         reset_conflict_reserve_probe_log();
         world.step(TickInput::new(4)).unwrap();
@@ -7941,7 +8024,7 @@ pub(crate) mod tests {
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
         install_execution(&mut world, 4);
         reset_conflict_reserve_probe_log();
-        let guard = fail_conflict_cell_work_reserve();
+        let guard = fail_conflict_cell_work_reserve(world.state.binding.world_id);
         let result = world.step(TickInput::new(4));
         drop(guard);
         assert_eq!(result, Err(crate::StepError::ConflictScratchAllocFailed));
@@ -8010,7 +8093,7 @@ pub(crate) mod tests {
             )
             .unwrap();
         world.reserve_parking(a, reserve).unwrap();
-        let guard = fail_motion_arrival_reserve();
+        let guard = fail_motion_arrival_reserve(world.state.binding.world_id);
         let result = world.step(TickInput::new(100));
         drop(guard);
         assert_eq!(
@@ -8022,7 +8105,7 @@ pub(crate) mod tests {
         assert_eq!(retry, fresh_outcome, "清注入重试必须等于 fresh 首拍");
         assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
         // 无到达拍 + 已武装：不得制造错误。
-        let guard = fail_motion_arrival_reserve();
+        let guard = fail_motion_arrival_reserve(world.state.binding.world_id);
         world.step(TickInput::new(100)).unwrap();
         world.step(TickInput::new(100)).unwrap();
         drop(guard);

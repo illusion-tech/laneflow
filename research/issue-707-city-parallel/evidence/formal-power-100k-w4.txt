@@ -1,0 +1,17 @@
+=== arm w4 start 2026-09-21T05:15:21+0900 ===
+observed_at: 2026-09-21T05:15:21+0900
+source_class: Win32_Battery
+
+
+BatteryStatus            : 2
+EstimatedChargeRemaining : 100
+
+
+
+=== arm w4 end 2026-09-21T07:32:46+0900 exit=0 wall=8242s ===
+observed_at: 2026-09-21T07:32:46+0900
+source_class: Win32_Battery
+
+
+BatteryStatus            : 2
+EstimatedChargeRemaining : 100

@@ -12,7 +12,8 @@ use laneflow_bevy::{
 use laneflow_compiler::{
     CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits, Compiler,
     IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
-    ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput, ParticipantClassReference,
+    ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
+    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
     PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, VehicleProfileInput, derive_canonical_stable_id_v1,
     emit_portable_candidate,
@@ -115,6 +116,19 @@ fn compile_two_frame() -> laneflow_compiler::CompilationOutput {
             virtual_exits: &[anchor("edge-alt", 20.0)],
         })
         .expect("facility")
+        .add_parking_space(ParkingSpaceInput {
+            parking_space_key: "space",
+            parking_facility: Some(ParkingFacilityReference::local("facility")),
+            entry: anchor("edge-main", 90.0),
+            exit: anchor("edge-main", 95.0),
+            geometry: ParkingSpaceGeometryInput {
+                lateral_offset_meters: -3.0,
+                heading_offset_radians: 0.25,
+                length_meters: 5.5,
+                width_meters: 2.6,
+            },
+        })
+        .expect("space")
         .add_canonical_frame(CanonicalFrameInput {
             canonical_frame_key: "frame-main",
             lane_edge_geometries: &[LaneEdgeGeometryInput {
@@ -169,6 +183,10 @@ fn root() -> Arc<SharedNetworkRevision> {
 }
 
 fn install_session(root: &Arc<SharedNetworkRevision>) -> LaneFlowSession {
+    install_session_with_id(root, 721)
+}
+
+fn install_session_with_id(root: &Arc<SharedNetworkRevision>, world_id: u64) -> LaneFlowSession {
     let edge_main = edge_ordinal(root, "edge-main");
     let edge_alt = edge_ordinal(root, "edge-alt");
     let origin = root.canonical_origin();
@@ -185,7 +203,7 @@ fn install_session(root: &Arc<SharedNetworkRevision>) -> LaneFlowSession {
             )
             .expect("source"),
         },
-        721,
+        world_id,
         WorldPolicySelection::NotRequired,
     )
     .expect("install");
@@ -310,6 +328,360 @@ fn leave_virtual_pool(session: &mut LaneFlowSession, stray: VehicleHandle, route
             },
         )
         .expect("leave virtual pool");
+}
+
+#[test]
+fn selected_reordering_filters_virtual_parking_and_renumbers_records() {
+    let revision = root();
+    let mut session = install_session(&revision);
+    let main = main_route(&mut session);
+    let alt = alt_route(&mut session);
+    let first = spawn_on_main(&mut session, main, 1_000);
+    let second = spawn_on_main(&mut session, main, 20_000);
+    let virtual_parked = spawn_on_alt(&mut session, alt);
+    park_stray_in_virtual_pool(&mut session, virtual_parked);
+    let context = session.consumption_context();
+    let mut full = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(1), &mut full)
+        .unwrap();
+    let mut output = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[second, virtual_parked, first],
+            FramePlacementToken::new(2),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[second, first]);
+    for (index, full_index) in [1, 0].into_iter().enumerate() {
+        assert_eq!(output.batch().records()[index].record().raw(), index as u32);
+        assert_eq!(
+            output.batch().records()[index].pose(),
+            full.batch().records()[full_index].pose()
+        );
+    }
+    assert_eq!(
+        output.batch().network_revision(),
+        full.batch().network_revision()
+    );
+    assert_eq!(
+        output.batch().canonical_frame(),
+        full.batch().canonical_frame()
+    );
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[],
+            FramePlacementToken::new(3),
+            &mut output,
+        )
+        .unwrap();
+    assert!(output.vehicles().is_empty());
+    assert!(output.batch().records().is_empty());
+    assert_eq!(
+        output.batch().network_revision(),
+        full.batch().network_revision()
+    );
+    assert_eq!(output.batch().canonical_frame(), None);
+    assert_eq!(
+        output.batch().placement_token(),
+        FramePlacementToken::new(3)
+    );
+    assert_eq!(output.context(), context);
+    // 普通命令不使上下文过期；同一选择下一次读取最新已提交来源。
+    leave_virtual_pool(&mut session, virtual_parked, alt);
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[virtual_parked],
+            FramePlacementToken::new(4),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[virtual_parked]);
+    assert_eq!(output.batch().records()[0].pose().position().y(), 50.0);
+}
+
+#[test]
+fn mixed_lifecycle_selection_reads_latest_state_and_preserves_typed_replacement_identity() {
+    use laneflow_runtime::{ParkedVehicleSpawnInput, VehicleStatus};
+    use laneflow_static_contract::ParkingSpaceOrdinal;
+    let revision = root();
+    let mut session = install_session(&revision);
+    let main = main_route(&mut session);
+    let alt = alt_route(&mut session);
+    let completed = spawn_on_main(&mut session, main, 199_500);
+    let active = spawn_on_main(&mut session, main, 1_000);
+    let virtual_parked = spawn_on_alt(&mut session, alt);
+    park_stray_in_virtual_pool(&mut session, virtual_parked);
+    let explicit = session
+        .world_mut()
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(PROFILE, main, 0, 0),
+            ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+        )
+        .unwrap()
+        .vehicle;
+    let context = session.consumption_context();
+    let selection = [completed, explicit, virtual_parked, active];
+    let mut output = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &selection,
+            FramePlacementToken::new(31),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[completed, explicit, active]);
+    let mut app = bevy_app::App::new();
+    app.insert_resource(bevy_time::Time::<()>::default());
+    app.insert_resource(session);
+    app.add_plugins(laneflow_bevy::LaneFlowPlugin);
+    let entity = app.world_mut().spawn_empty().id();
+    app.world_mut()
+        .resource_mut::<LaneFlowSession>()
+        .bind_vehicle_entity(completed, entity)
+        .unwrap();
+    for _ in 0..32 {
+        app.world_mut()
+            .resource_mut::<bevy_time::Time>()
+            .advance_by(std::time::Duration::from_millis(100));
+        app.update();
+        if app
+            .world()
+            .resource::<LaneFlowSession>()
+            .world()
+            .vehicle(completed)
+            .unwrap()
+            .status()
+            == VehicleStatus::Completed
+        {
+            break;
+        }
+    }
+    let mut session = app.world_mut().resource_mut::<LaneFlowSession>();
+    assert_eq!(
+        session.world().vehicle(completed).unwrap().status(),
+        VehicleStatus::Completed
+    );
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &selection,
+            FramePlacementToken::new(32),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[explicit, active]);
+    let mut full = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(32), &mut full)
+        .unwrap();
+    for (&handle, record) in output.vehicles().iter().zip(output.batch().records()) {
+        let index = full.vehicles().iter().position(|v| *v == handle).unwrap();
+        assert_eq!(record.pose(), full.batch().records()[index].pose());
+    }
+    let before = output.batch().clone();
+    assert!(matches!(
+        session.extract_selected_committed_pose_batch(
+            context,
+            &[completed, completed],
+            FramePlacementToken::new(33),
+            &mut output
+        ),
+        Err(LaneFlowAdapterError::DuplicatePoseSelection { .. })
+    ));
+    assert_eq!(output.batch(), &before);
+    let replaced = laneflow_bevy::replace_completed_vehicle(
+        app.world_mut(),
+        completed,
+        VehicleSpawnInput::new(PROFILE, main, 0, 60_000, 0).with_open_entrance(),
+    )
+    .unwrap();
+    let laneflow_bevy::LaneFlowVehicleReplaceOutcome::Replaced(record) = replaced else {
+        panic!("replacement must succeed")
+    };
+    let mut session = app.world_mut().resource_mut::<LaneFlowSession>();
+    assert_eq!(session.vehicle_entity(record.new), Some(entity));
+    assert_eq!(session.vehicle_entity(completed), None);
+    assert!(matches!(
+        session.extract_selected_committed_pose_batch(
+            context,
+            &[completed],
+            FramePlacementToken::new(33),
+            &mut output
+        ),
+        Err(LaneFlowAdapterError::SelectedPoseSource { .. })
+    ));
+    assert_eq!(output.batch(), &before);
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[record.new, explicit],
+            FramePlacementToken::new(34),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[record.new, explicit]);
+    let removed = laneflow_bevy::despawn_vehicle(app.world_mut(), record.new).unwrap();
+    assert_eq!(removed.entity, Some(entity));
+    assert_eq!(
+        app.world()
+            .resource::<LaneFlowSession>()
+            .vehicle_entity(record.new),
+        None
+    );
+}
+
+#[test]
+fn selected_errors_preserve_old_output_and_duplicates_precede_unknown() {
+    let revision = root();
+    let mut session = install_session(&revision);
+    let route = main_route(&mut session);
+    let removed = spawn_on_main(&mut session, route, 1_000);
+    let live = spawn_on_main(&mut session, route, 20_000);
+    for progress in [40_000, 60_000, 80_000, 100_000, 120_000, 140_000] {
+        spawn_on_main(&mut session, route, progress);
+    }
+    assert_eq!(session.world().live_vehicles().len(), 8);
+    let mut ecs = bevy_ecs::world::World::new();
+    ecs.insert_resource(session);
+    laneflow_bevy::despawn_vehicle(&mut ecs, removed).unwrap();
+    let mut session = ecs.remove_resource::<LaneFlowSession>().unwrap();
+    let replacement = spawn_on_main(&mut session, route, 1_000);
+    // 容量已满且仅移除一辆，成功新建必定复用唯一释放的槽位。
+    assert_ne!(replacement, removed);
+    let context = session.consumption_context();
+    let foreign = install_session_with_id(&revision, 713).consumption_context();
+    let mut output = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(11), &mut output)
+        .unwrap();
+    let vehicles = output.vehicles().to_vec();
+    let batch = output.batch().clone();
+    for (ctx, selected, expected) in [
+        (
+            foreign,
+            vec![removed, live, live],
+            LaneFlowAdapterError::StalePoseSelectionContext,
+        ),
+        (
+            context,
+            vec![removed, live, live],
+            LaneFlowAdapterError::DuplicatePoseSelection {
+                vehicle: live,
+                first_index: 1,
+                duplicate_index: 2,
+            },
+        ),
+        (
+            context,
+            vec![live, removed, replacement],
+            LaneFlowAdapterError::SelectedPoseSource {
+                index: 1,
+                vehicle: removed,
+                source: laneflow_runtime::CommittedPoseSourceError::UnknownVehicle {
+                    handle: removed,
+                },
+            },
+        ),
+    ] {
+        assert_eq!(
+            session.extract_selected_committed_pose_batch(
+                ctx,
+                &selected,
+                FramePlacementToken::new(12),
+                &mut output,
+            ),
+            Err(expected)
+        );
+        assert_eq!(output.vehicles(), vehicles);
+        assert_eq!(output.batch(), &batch);
+        assert_eq!(output.context(), context);
+    }
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[replacement, live],
+            FramePlacementToken::new(13),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[replacement, live]);
+}
+
+#[test]
+fn selected_mixed_frames_fail_atomically_in_each_order_and_full_validation_remains() {
+    let revision = root();
+    let mut session = install_session(&revision);
+    let main = main_route(&mut session);
+    let alt = alt_route(&mut session);
+    let first = spawn_on_main(&mut session, main, 1_000);
+    let second = spawn_on_main(&mut session, main, 20_000);
+    let stray = spawn_on_alt(&mut session, alt);
+    let context = session.consumption_context();
+    let mut output = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[second, first],
+            FramePlacementToken::new(21),
+            &mut output,
+        )
+        .unwrap();
+    let before = output.batch().clone();
+    for selected in [
+        [stray, first, second],
+        [first, stray, second],
+        [first, second, stray],
+    ] {
+        assert!(matches!(
+            session.extract_selected_committed_pose_batch(
+                context,
+                &selected,
+                FramePlacementToken::new(22),
+                &mut output,
+            ),
+            Err(LaneFlowAdapterError::SpatialPoseExtraction {
+                source: SpatialError::BatchFrameMismatch { .. }
+            })
+        ));
+        assert_eq!(output.vehicles(), &[second, first]);
+        assert_eq!(output.batch(), &before);
+        assert_eq!(output.context(), context);
+    }
+    assert!(
+        session
+            .extract_committed_pose_batch(FramePlacementToken::new(23), &mut output)
+            .is_err()
+    );
+    assert_eq!(output.batch(), &before);
+    park_stray_in_virtual_pool(&mut session, stray);
+    session
+        .extract_selected_committed_pose_batch(
+            context,
+            &[stray, first, second],
+            FramePlacementToken::new(24),
+            &mut output,
+        )
+        .unwrap();
+    assert_eq!(output.vehicles(), &[first, second]);
+    assert_eq!(
+        session.extract_selected_committed_pose_batch(
+            context,
+            &[stray, stray],
+            FramePlacementToken::new(25),
+            &mut output,
+        ),
+        Err(LaneFlowAdapterError::DuplicatePoseSelection {
+            vehicle: stray,
+            first_index: 0,
+            duplicate_index: 1,
+        })
+    );
 }
 
 /// 混 frame 批次（首/中/末来源位置）失败：完整旧输出（车辆、批次、上下文）不变。

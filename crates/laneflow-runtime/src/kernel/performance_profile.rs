@@ -74,6 +74,26 @@ impl Drop for Span {
     }
 }
 
+/// 用既有批次计时器观测一个有限窗口；嵌套统计不得相加为独占成本。
+pub(crate) fn measure<R>(run: impl FnOnce() -> R) -> (R, [u128; STAGE_COUNT]) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            ENABLED.set(false);
+        }
+    }
+    assert!(!ENABLED.replace(true), "profile session nested");
+    let _reset = Reset;
+    NANOS.set([0; STAGE_COUNT]);
+    CALLS.set([0; STAGE_COUNT]);
+    let result = run();
+    (result, NANOS.get())
+}
+
+pub(crate) fn stage_names() -> &'static [&'static str; STAGE_COUNT] {
+    &NAMES
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -43,6 +43,19 @@ campus / `native_reference` 的 Core 入口已删除。现行走廊 Bevy 最小�
 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
 
+## 按宿主选择提取位姿
+
+`extract_selected_committed_pose_batch(context, selected, token, output)` 接收当前
+`session.consumption_context()`、有序代际句柄和本次 placement token。Completed 与虚拟
+Parked 被省略，实际输出的 `vehicles()` 与批内连续记录编号对齐；重复、失效句柄和
+过期上下文整批拒绝，整个旧 output 保持不变。先完整查重，再查询来源。
+
+宿主在提取前选择句柄，提取后只转换实际输出；保持 output 跨帧复用。应用前复核
+`consumption_context_is_current(output.context())` 和当前 placement token。
+对上一帧可见而本帧缺席的实体移除 Transform 或隐藏，保留身份及绑定；真正移除或
+替换仍走 typed `despawn_vehicle` / `replace_completed_vehicle`。选择路径只验证本批
+Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
+
 ## 依赖与分发
 
 走廊 example / smoke 的第三方 **dev-dependency** 不进入 `laneflow-bevy` 生产 graph：

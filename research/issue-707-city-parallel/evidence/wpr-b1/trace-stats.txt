@@ -1,0 +1,23 @@
+Number of Processors : 32
+CPU Speed            : 2495 MHz
+OS Version           : 10.00.00.00
+OS Build Number      : 29671
+Clock type           : PerfCounter
+Boot time            : 2026/09/21:13:57:05.5000000
+Native Pointer Size  : 8 (64bit)
+Start time (UTC)     : 2026/09/21:15:59:54.2520924
+End time (UTC)       : 2026/09/21:16:01:03.9807337  (+         0:00:01:09.7286413)
+Total # Lost Buffers : 0
+Total # Lost Events  : 0
+
+Number of Traces     : 1
+
+Trace name: E:\projects\laneflow\target\issue707-b1-wpr-20260922/b1.etl
+    Log file mode        : Sequential Relogged
+    Pointer size         : 8 (64bit)
+    Start time (UTC)     : 2026/09/21:15:59:54.2520924
+    End time (UTC)       : 2026/09/21:16:01:03.9807337  (+         0:00:01:09.7286413)
+    Start time (Local)   : 2026/09/22:00:59:54.2520924
+    End time (Local)     : 2026/09/22:01:01:03.9807337
+    # Lost Buffers       : 0
+    # Lost Events        : 0

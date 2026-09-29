@@ -381,7 +381,6 @@ impl crate::kernel::state::WorldState {
                 next_states,
                 waiting_preview_inputs: Vec::new(),
                 waiting_preview_slots: Vec::new(),
-                motion_inputs: Vec::new(),
                 motion_slots: Vec::new(),
                 conflict_inputs: Vec::new(),
                 conflict_slots: Vec::new(),
@@ -2958,6 +2957,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 impl crate::kernel::phase::CommittedStateMut<'_> {
     /// 全空时清空 Conflict 资格表，恢复紧凑表示。
     pub(crate) fn normalize_conflict_eligibility(&mut self) {
+        #[cfg(test)]
+        let _scan =
+            super::eligibility_commit_research::begin(3, self.committed.conflict_eligibility.len());
         if self
             .committed
             .conflict_eligibility

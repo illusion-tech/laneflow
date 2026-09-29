@@ -84,3 +84,23 @@ mod junction_ledger;
 #[cfg(test)]
 #[path = "tests/parking_commands.rs"]
 pub(crate) mod parking_command_research;
+
+/// #682 稀疏工作集研究；计时与账本仅进入单元测试构建。
+#[cfg(test)]
+#[path = "tests/sparse_cost/diagnostic.rs"]
+pub(crate) mod sparse_cost_research;
+
+/// #777 资格表提交归因；仅用于测试构建。
+#[cfg(test)]
+#[path = "tests/eligibility_commit/diagnostic.rs"]
+pub(crate) mod eligibility_commit_research;
+
+/// #679 路线查询诊断；不进入普通库构建。
+#[cfg(test)]
+#[path = "tests/route_query/diagnostic.rs"]
+pub(crate) mod route_query_research;
+
+/// #787 Motion 分发的有界并发参与探针；只进入测试构建。
+#[cfg(test)]
+#[path = "tests/motion_participation.rs"]
+pub(crate) mod motion_participation;

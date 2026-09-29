@@ -1,0 +1,34 @@
+# D0 现场确认（D1 10k r1 正式配对前置；UTC+9 本地时间口径）
+
+[binary]
+path = "E:/projects/worktrees/707-measure/laneflow/target/release/laneflow-urban-harness.exe"
+sha256 = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523"
+sha256_match = true
+
+[checkout]
+path = "E:/projects/worktrees/707-measure/laneflow"
+head = "4de40e045398e4b010b2aa36522afc02a4094c4d"
+worktree_clean = true
+
+[inputs]
+artifacts = "inputs/urban-10k"
+manifest_sha256 = "d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd"
+evidence_manifest_sha256 = "d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd"
+match = true
+
+[plan]
+path = "plans/10k-performance.toml"
+sha256 = "139fc82241a728c50b5c33fb16600584b9ab5a5f3e33dbe1fa5800d4ae350853"
+bytes = 11930181
+warm_up_ticks = 30624
+observation_ticks = 61248
+frozen_check = "fixtures/v3/plans.json 含 10k-mixed-peak-performance 条目：字节数一致（11930181）、SHA-256 不一致——与 input-diff.md 已闭合的 manifest_digest 传导机制一致（两张 manifest 仅 shared_*_retained_bytes 差异，数字同为 7 位十进制，经定长 manifest_digest 进入计划后字节数不变）"
+
+[environment]
+checked_at = "2026-09-20T23:49:39+0900"
+LANEFLOW_HARDWARE_ROLE = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
+LANEFLOW_POWER_ROLE = "win11-balanced-381b4222"
+battery = "Win32_Battery BatteryStatus=2（规范含义：接通 AC、电池未放电）、EstimatedChargeRemaining=100%（见 baseline-manifest.toml ac_power 字段）"
+power_scheme = "381b4222-f694-41f0-9685-ff5bb260df2e (平衡/Balanced)"
+disk_free = "E: 266G 可用 / 605G"
+other_load = "无 cargo/rustc/clippy/benchmark 进程（ps 盘点 0 命中）；桌面宿主常态后台进程；Hyper-V 常驻"

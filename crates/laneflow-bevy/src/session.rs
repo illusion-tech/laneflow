@@ -89,6 +89,7 @@ pub struct LaneFlowSession {
     vehicle_entities: VehicleEntityMap,
     pose_scratch: Vec<PoseInput>,
     pose_vehicle_scratch: Vec<VehicleHandle>,
+    pose_selection_seen: HashMap<VehicleHandle, usize>,
 }
 
 impl LaneFlowSession {
@@ -122,6 +123,7 @@ impl LaneFlowSession {
             vehicle_entities,
             pose_scratch: Vec::new(),
             pose_vehicle_scratch: Vec::new(),
+            pose_selection_seen: HashMap::new(),
         })
     }
 
@@ -204,6 +206,8 @@ impl LaneFlowSession {
         placement_token: laneflow_spatial::FramePlacementToken,
         output: &mut LaneFlowCommittedPoseBatch,
     ) -> Result<(), LaneFlowAdapterError> {
+        #[cfg(feature = "pose-profiling")]
+        let validation_started = std::time::Instant::now();
         // 创建迭代器执行公开入口检查；创建本身不扫描来源。
         let sources = self.world.committed_pose_sources();
         let context = self.consumption_context();
@@ -214,6 +218,10 @@ impl LaneFlowSession {
         if !Arc::ptr_eq(&self.world.revision(), &spatial.revision()) {
             return Err(LaneFlowAdapterError::RevisionMismatch);
         }
+        #[cfg(feature = "pose-profiling")]
+        let validation_ns = validation_started.elapsed().as_nanos();
+        #[cfg(feature = "pose-profiling")]
+        let query_started = std::time::Instant::now();
         // 一次遍历同时构建两份候选；连续记录序号在来源过滤之后产生，
         // 与实际输出车辆一一对应。
         self.pose_scratch.clear();
@@ -225,14 +233,126 @@ impl LaneFlowSession {
                 .push(pose_input(PoseRecordId::new(record), source));
             self.pose_vehicle_scratch.push(vehicle);
         }
-        // 全部可失败工作已完成；提交阶段只做所有权交换与值更新。
-        spatial
+        #[cfg(feature = "pose-profiling")]
+        profile_pose_sources("full", validation_ns, query_started.elapsed().as_nanos());
+        self.sample_and_commit_pose_batch(context, placement_token, output)
+    }
+
+    /// 按调用方给出的有序代际句柄提取当前已提交位姿。
+    ///
+    /// 输出为输入省略有效但不可表现项后的顺序；记录序号从零连续编号。
+    /// 空选择仍检查上下文与根配对，并提交带当前修订和新 token 的空批。
+    /// 上下文不冻结普通步进或生命周期命令之前的状态。选择进出不等于 despawn。
+    ///
+    /// # Errors
+    ///
+    /// 依次检查上下文（[`LaneFlowAdapterError::StalePoseSelectionContext`]）、
+    /// Spatial 存在、根配对、完整列表重复（[`LaneFlowAdapterError::DuplicatePoseSelection`]）、
+    /// 顺序来源查询（[`LaneFlowAdapterError::SelectedPoseSource`]）和 Spatial 采样。
+    /// 重复优先于任一来源错误；每阶段按输入顺序返回首错。
+    /// 任一错误保持整个旧输出不变，包括车辆、记录、修订、frame、token 与上下文。
+    pub fn extract_selected_committed_pose_batch(
+        &mut self,
+        context: LaneFlowConsumptionContext,
+        selected: &[VehicleHandle],
+        placement_token: laneflow_spatial::FramePlacementToken,
+        output: &mut LaneFlowCommittedPoseBatch,
+    ) -> Result<(), LaneFlowAdapterError> {
+        #[cfg(feature = "pose-profiling")]
+        let validation_started = std::time::Instant::now();
+        if !self.consumption_context_is_current(context) {
+            return Err(LaneFlowAdapterError::StalePoseSelectionContext);
+        }
+        let Some(spatial) = self.spatial.as_ref() else {
+            return Err(LaneFlowAdapterError::PoseExtractionWithoutSpatial);
+        };
+        if !Arc::ptr_eq(&self.world.revision(), &spatial.revision()) {
+            return Err(LaneFlowAdapterError::RevisionMismatch);
+        }
+        self.pose_selection_seen.clear();
+        for (index, &vehicle) in selected.iter().enumerate() {
+            match self.pose_selection_seen.entry(vehicle) {
+                std::collections::hash_map::Entry::Occupied(first) => {
+                    return Err(LaneFlowAdapterError::DuplicatePoseSelection {
+                        vehicle,
+                        first_index: *first.get(),
+                        duplicate_index: index,
+                    });
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(index);
+                }
+            }
+        }
+        #[cfg(feature = "pose-profiling")]
+        let validation_ns = validation_started.elapsed().as_nanos();
+        #[cfg(feature = "pose-profiling")]
+        let query_started = std::time::Instant::now();
+        self.pose_scratch.clear();
+        self.pose_vehicle_scratch.clear();
+        for (index, &vehicle) in selected.iter().enumerate() {
+            let source = self
+                .world
+                .committed_pose_source(vehicle)
+                .map_err(|source| LaneFlowAdapterError::SelectedPoseSource {
+                    index,
+                    vehicle,
+                    source,
+                })?;
+            if let Some(source) = source {
+                let record = u32::try_from(self.pose_vehicle_scratch.len())
+                    .expect("pose record index fits vehicle capacity");
+                self.pose_scratch
+                    .push(pose_input(PoseRecordId::new(record), source));
+                self.pose_vehicle_scratch.push(vehicle);
+            }
+        }
+        #[cfg(feature = "pose-profiling")]
+        profile_pose_sources(
+            "selected",
+            validation_ns,
+            query_started.elapsed().as_nanos(),
+        );
+        self.sample_and_commit_pose_batch(context, placement_token, output)
+    }
+
+    fn sample_and_commit_pose_batch(
+        &mut self,
+        context: LaneFlowConsumptionContext,
+        placement_token: laneflow_spatial::FramePlacementToken,
+        output: &mut LaneFlowCommittedPoseBatch,
+    ) -> Result<(), LaneFlowAdapterError> {
+        self.spatial
+            .as_mut()
+            .expect("paired spatial checked before collecting sources")
             .extract_pose_batch(placement_token, &self.pose_scratch, &mut output.batch)
             .map_err(|source| LaneFlowAdapterError::SpatialPoseExtraction { source })?;
+        // 全部可失败工作已完成；提交阶段只做所有权交换与值更新。
+        #[cfg(feature = "pose-profiling")]
+        let commit_started = std::time::Instant::now();
         mem::swap(&mut self.pose_vehicle_scratch, &mut output.vehicles);
         // 接管上一批输出的车辆存储，保留容量供下一批候选复用。
         self.pose_vehicle_scratch.clear();
         output.context = context;
+        #[cfg(feature = "pose-profiling")]
+        {
+            use std::io::Write as _;
+            let commit_ns = commit_started.elapsed().as_nanos();
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "pose-adapter commit_ns={commit_ns} input_len={} input_cap={} input_size={} candidate_len={} candidate_cap={} output_len={} output_cap={} vehicle_size={} seen_len={} seen_cap={} logical_copy_bytes=0",
+                self.pose_scratch.len(),
+                self.pose_scratch.capacity(),
+                std::mem::size_of::<PoseInput>(),
+                self.pose_vehicle_scratch.len(),
+                self.pose_vehicle_scratch.capacity(),
+                output.vehicles.len(),
+                output.vehicles.capacity(),
+                std::mem::size_of::<VehicleHandle>(),
+                self.pose_selection_seen.len(),
+                self.pose_selection_seen.capacity()
+            );
+        }
         Ok(())
     }
 
@@ -513,6 +633,15 @@ impl LaneFlowSession {
         self.frame_report.catch_up_limit_reached =
             self.last_error.is_none() && self.accumulator >= self.fixed_quantum();
     }
+}
+
+#[cfg(feature = "pose-profiling")]
+fn profile_pose_sources(mode: &str, validation_ns: u128, query_ns: u128) {
+    use std::io::Write as _;
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "pose-source mode={mode} validation_ns={validation_ns} query_ns={query_ns}"
+    );
 }
 
 /// `world_mut` 可提交的生命周期命令。不含 replace，以免绕过映射轮换。
@@ -1128,6 +1257,108 @@ mod capacity_tests {
     fn extract(rig: &mut LaneFlowSession, output: &mut LaneFlowCommittedPoseBatch) {
         rig.extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(1), output)
             .expect("extract");
+    }
+
+    #[test]
+    fn selected_percentages_and_alternating_outputs_match_full_pose_oracle() {
+        let mut rig = rig();
+        spawn_slots(&mut rig, 0, 100);
+        let mut oracle = LaneFlowCommittedPoseBatch::new();
+        extract(&mut rig.session, &mut oracle);
+        let context = rig.session.consumption_context();
+        let mut outputs = [
+            LaneFlowCommittedPoseBatch::new(),
+            LaneFlowCommittedPoseBatch::new(),
+        ];
+        for (round, count) in [0, 1, 10, 100, 1, 0, 100, 10].into_iter().enumerate() {
+            // 乘 37 后模 100 形成覆盖全部索引的非前缀重排。
+            let indices: Vec<_> = (0..count).map(|i| (i * 37 + 53) % 100).collect();
+            let selection: Vec<_> = indices.iter().map(|&i| oracle.vehicles()[i]).collect();
+            let output = &mut outputs[round % 2];
+            rig.session
+                .extract_selected_committed_pose_batch(
+                    context,
+                    &selection,
+                    laneflow_spatial::FramePlacementToken::new(round as u64),
+                    output,
+                )
+                .unwrap();
+            assert_eq!(output.vehicles(), selection);
+            assert_eq!(output.batch().records().len(), count);
+            for (index, &oracle_index) in indices.iter().enumerate() {
+                assert_eq!(output.batch().records()[index].record().raw(), index as u32);
+                assert_eq!(
+                    output.batch().records()[index].pose(),
+                    oracle.batch().records()[oracle_index].pose()
+                );
+            }
+            assert_eq!(output.context(), context);
+            assert_eq!(rig.session.pose_selection_seen.len(), count);
+            eprintln!(
+                "selected-capacity count={count} seen={} input={} candidate={} output={}",
+                rig.session.pose_selection_seen.capacity(),
+                rig.session.pose_scratch.capacity(),
+                rig.session.pose_vehicle_scratch.capacity(),
+                output.vehicles.capacity()
+            );
+        }
+        let mut fresh = LaneFlowCommittedPoseBatch::new();
+        rig.session
+            .extract_selected_committed_pose_batch(
+                context,
+                &oracle.vehicles()[..1],
+                laneflow_spatial::FramePlacementToken::new(99),
+                &mut fresh,
+            )
+            .unwrap();
+        assert_eq!(fresh.vehicles(), &oracle.vehicles()[..1]);
+        assert_eq!(rig.session.world.committed_pose_sources().count(), 100);
+    }
+
+    #[test]
+    fn selected_context_spatial_and_pairing_precede_duplicate_validation() {
+        use crate::LaneFlowAdapterError as Error;
+        let mut rig = rig();
+        spawn_slots(&mut rig, 0, 1);
+        let mut output = LaneFlowCommittedPoseBatch::new();
+        extract(&mut rig.session, &mut output);
+        let vehicles = output.vehicles().to_vec();
+        let batch = output.batch().clone();
+        let context = output.context();
+        let foreign = super::LaneFlowConsumptionContext {
+            world_id: context.world_id.wrapping_add(1),
+            world_generation: context.world_generation,
+        };
+        let token = laneflow_spatial::FramePlacementToken::new(2);
+        let duplicate = [vehicles[0]; 2];
+        rig.session.spatial = None;
+        assert_eq!(
+            rig.session.extract_selected_committed_pose_batch(
+                foreign,
+                &duplicate,
+                token,
+                &mut output
+            ),
+            Err(Error::StalePoseSelectionContext)
+        );
+        assert_eq!(
+            rig.session
+                .extract_selected_committed_pose_batch(context, &[], token, &mut output),
+            Err(Error::PoseExtractionWithoutSpatial)
+        );
+        rig.session.spatial = SpatialSession::bind(revision()).unwrap();
+        assert_eq!(
+            rig.session.extract_selected_committed_pose_batch(
+                context,
+                &duplicate,
+                token,
+                &mut output
+            ),
+            Err(Error::RevisionMismatch)
+        );
+        assert_eq!(output.vehicles(), vehicles);
+        assert_eq!(output.batch(), &batch);
+        assert_eq!(output.context(), context);
     }
 
     /// 同一 Session/output：小批 → 大批 → 缩回小批。缩量通过合法生命周期

@@ -1,0 +1,13 @@
+=== arm w1 start 2026-09-20T23:50:58+0900
+
+
+BatteryStatus            : 2
+EstimatedChargeRemaining : 100
+
+
+
+=== arm w1 end 2026-09-21T00:11:28+0900 exit=0
+
+
+BatteryStatus            : 2
+EstimatedChargeRemaining : 100
