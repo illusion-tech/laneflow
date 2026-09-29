@@ -81,25 +81,39 @@ pub fn convert_topology_from_xml_with_tll(
 /// Convert topology + signals + passenger profiles from net/tll/vtypes XML.
 ///
 /// 诊断清单模式的来源声明：摘要对 `net_xml` 实际字节求值；本入口不执行
-/// verify-source，报告按未校验输入如实标注（verify-source 见 [`verify_source`]）。
+/// verify-source，报告按未验证输入如实标注（verify-source 见 [`verify_source`]）。
 pub fn convert_topology_from_xml_with_tll_and_vtypes(
     net_xml: &str,
     tll_xml: &str,
     vtypes_xml: &str,
     options: &TopologyConvertOptions,
 ) -> Result<TopologyArtifacts> {
+    convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        net_xml,
+        tll_xml,
+        vtypes_xml,
+        options,
+        xml_report_source(net_xml),
+    )
+}
+
+/// [`convert_topology_from_xml_with_tll_and_vtypes`] 的显式来源声明变体：
+/// 诊断清单模式的正式验收入口——来源已经 verify-source 走过（checkout
+/// revision + pinned digest）的调用方传入 `verified = true` 与 pinned 校验
+/// 得到的摘要（#253 R2 第三轮：先验证、再绑定、后转换）。
+pub fn convert_topology_from_xml_with_tll_and_vtypes_and_source(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    options: &TopologyConvertOptions,
+    source: ReportSource,
+) -> Result<TopologyArtifacts> {
     let network = parse_sumo_network_xml(net_xml)?;
     let tll = parse_tll_static_xml(tll_xml)?;
     let vtypes = parse_vtypes_xml(vtypes_xml)?;
     let passengers = select_passenger_vtypes(&vtypes)?;
     let profiles = convert_vehicle_profiles(&passengers)?;
-    convert_network_topology_with_tll_and_profiles(
-        &network,
-        &tll,
-        &profiles,
-        options,
-        xml_report_source(net_xml),
-    )
+    convert_network_topology_with_tll_and_profiles(&network, &tll, &profiles, options, source)
 }
 
 /// xml 入口的诊断来源声明：实际输入字节摘要 + 未执行独立校验。

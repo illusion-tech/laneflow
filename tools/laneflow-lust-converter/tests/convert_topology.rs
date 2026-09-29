@@ -1,10 +1,11 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, process::Command};
 
 use laneflow_lust_converter::{
-    ExactDecimal, InfeasibilityMechanism, LUST_FRAME_ID, PINNED_SOURCE_FILES,
-    TopologyConvertOptions, convert_static_from_xml_with_due,
-    convert_topology_from_xml_with_tll_and_vtypes, hex_sha256, parse_due_routes_xml,
-    parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes,
+    Error, ExactDecimal, InfeasibilityMechanism, LUST_COMMIT, LUST_FRAME_ID, PINNED_SOURCE_FILES,
+    ReportSource, TopologyConvertOptions, convert_static_from_xml_with_due,
+    convert_topology_from_xml_with_tll_and_vtypes,
+    convert_topology_from_xml_with_tll_and_vtypes_and_source, hex_sha256, parse_due_routes_xml,
+    parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes, verify_source_dir,
 };
 
 #[test]
@@ -214,12 +215,25 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         emit_infeasibility_report: true,
         ..TopologyConvertOptions::default()
     };
-    let first =
-        convert_topology_from_xml_with_tll_and_vtypes(&net_xml, &tll_xml, &vtypes_xml, &options)
-            .expect("first diagnostic-report conversion");
-    let second =
-        convert_topology_from_xml_with_tll_and_vtypes(&net_xml, &tll_xml, &vtypes_xml, &options)
-            .expect("second diagnostic-report conversion");
+    // R2 第三轮：正式诊断入口——来源验证（前置测试
+    // full_lust_source_verification_precedes_diagnostic_convert）之后，以
+    // verified = true + 消费字节摘要走显式来源声明入口；通用 XML 入口保持
+    // 未验证标注（旁路测试覆盖）。
+    let report_source = ReportSource {
+        net_digest: Some(format!("sha256:{}", hex_sha256(net_xml.as_bytes()))),
+        verified: true,
+    };
+    let convert = |options: &TopologyConvertOptions| {
+        convert_topology_from_xml_with_tll_and_vtypes_and_source(
+            &net_xml,
+            &tll_xml,
+            &vtypes_xml,
+            options,
+            report_source.clone(),
+        )
+    };
+    let first = convert(&options).expect("first diagnostic-report conversion");
+    let second = convert(&options).expect("second diagnostic-report conversion");
     let report = first
         .infeasibility_report
         .as_ref()
@@ -237,14 +251,19 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
             .rendered,
         "diagnostic report must be byte-deterministic across runs"
     );
-    // R2：验收输入即 pinned 基线字节，清单头必须如实标注「一致」（摘要对实际
-    // 转换字节求值，等于 pinned digest 即一致；未走 verify-source 时来源校验行
-    // 仍为「未执行」，两种声明互不越权）。
+    // R2：验收输入即 pinned 基线字节，清单头必须如实标注「一致」+「verify-source
+    // 已通过」（摘要取实际转换字节；两种声明互不越权）。
     assert!(
         report
             .rendered
             .contains("与 pinned 比对：一致（输入为 pinned 基线字节）"),
         "pinned 基线输入的清单头必须标注一致"
+    );
+    assert!(
+        report
+            .rendered
+            .contains("来源校验：verify-source 已通过（checkout revision + pinned digest）"),
+        "verified 正式入口的清单头必须标注 verify-source 已通过"
     );
     // 点状 stub 内边被移除并焊接（pinned 数据 shape 端点距 < 0.5 m 的共 84 条，
     // 实测锁定），其余 lane 全数保留。
@@ -301,6 +320,104 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         .join("target")
         .join("issue253-infeasible-survey.md");
     fs::write(&out_path, &report.rendered).expect("write diagnostic survey file");
+}
+
+/// R2 第三轮：正式诊断入口的来源验证前置段——verify_source_dir 先验 checkout
+/// revision + 全部 §2.2 pinned digest；三份诊断输入字节在转换前完成消费时
+/// 绑定；同字节 + 错误 HEAD/无仓库必须拒绝。本段不依赖 G1（R1 门控），与
+/// 「转换 + 清单锁定」段解耦，现在就必须绿。
+#[test]
+#[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3"]
+fn full_lust_source_verification_precedes_diagnostic_convert() {
+    let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
+    let root = PathBuf::from(&source_dir);
+
+    // 1) 正式验证通过：revision + pinned digest（含 net/tll/vtypes 三份输入）。
+    let verified =
+        verify_source_dir(&root).expect("verify_source_dir must accept the pinned checkout");
+
+    // 2) 转换前绑定：三份实际消费字节的消费时重哈希与验证记录一致（TOCTOU 闭合）。
+    for relative_path in [
+        "scenario/lust.net.xml",
+        "scenario/tll.static.xml",
+        "scenario/vtypes.add.xml",
+    ] {
+        let record = verified
+            .files
+            .iter()
+            .find(|file| file.relative_path == relative_path)
+            .expect("verification record present");
+        let bytes = fs::read(&record.absolute_path).expect("read verified file");
+        assert_eq!(
+            hex_sha256(&bytes),
+            record.sha256_hex,
+            "{relative_path} changed after verification"
+        );
+    }
+
+    // 3) 同字节 + 错误 HEAD：tmp git 仓摆 pinned 原字节，revision ≠ LUST_COMMIT 必拒。
+    //    探针放系统临时目录——worktree/target 本身在 git 仓内，git 会向上找到
+    //    父仓 HEAD，使「无仓库」用例失效。
+    let probe = std::env::temp_dir().join(format!("lust-verify-probe-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&probe);
+    for pinned in PINNED_SOURCE_FILES {
+        let to = probe.join(pinned.relative_path);
+        fs::create_dir_all(to.parent().expect("parent")).expect("create probe dir");
+        fs::copy(root.join(pinned.relative_path), &to).expect("copy pinned file");
+    }
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&probe)
+            .args(args)
+            .output()
+            .expect("run git")
+    };
+    match Command::new("git")
+        .arg("-C")
+        .arg(&probe)
+        .arg("init")
+        .output()
+    {
+        Ok(output) if output.status.success() => {}
+        _ => {
+            // 无 git 主机上跳过拒绝段（机制由 verify.rs 单测覆盖）。
+            let _ = fs::remove_dir_all(&probe);
+            return;
+        }
+    }
+    assert!(git(&["add", "."]).status.success());
+    assert!(
+        git(&[
+            "-c",
+            "user.name=lust-verify-probe",
+            "-c",
+            "user.email=probe@example.invalid",
+            "commit",
+            "-m",
+            "probe",
+        ])
+        .status
+        .success()
+    );
+    let wrong_head = verify_source_dir(&probe).expect_err("wrong HEAD must be rejected");
+    match wrong_head {
+        Error::SourceRevisionMismatch { expected, actual } => {
+            assert_eq!(expected, LUST_COMMIT);
+            assert_ne!(actual, LUST_COMMIT);
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+
+    // 4) 无仓库：同字节、无 .git，revision 不可知必拒（改名而非删除：.git 内
+    //    对象只读，Windows 的 remove_dir_all 会失败）。
+    fs::rename(probe.join(".git"), probe.join(".git-disabled")).expect("disable .git");
+    let no_repo = verify_source_dir(&probe).expect_err("missing repository must be rejected");
+    match no_repo {
+        Error::SourceRevisionUnknown { .. } => {}
+        other => panic!("unexpected error: {other}"),
+    }
+    let _ = fs::remove_dir_all(&probe);
 }
 
 /// R3 回归：诊断收集为每次转换局部状态——fail-fast 尝试不残留，连续两次
