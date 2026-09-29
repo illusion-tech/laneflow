@@ -35,6 +35,7 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
     let mut stub_welds: HashMap<String, (ExactDecimal, ExactDecimal)> = HashMap::new();
     let mut traversals = Vec::new();
     let continuations = internal_continuations(network);
+    let terminals = internal_terminals(network);
     for connection in &network.connections {
         let from_edge = network.edge(&connection.from_edge_id).ok_or_else(|| {
             Error::SumoModel(format!(
@@ -86,17 +87,23 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
         // movement 编码为外部 connection 的 via 仅含首段 + internal <connection> 续接
         // （SUMO 文档：该 movement 被拆成等待位置前后两段内边，续接 connection 的
         // to 与外部 to 相同、via 为下一段）。外部 via 列表因此不是完整链；先续全
-        // 再进 stub 处置。点状 stub 若为首段，仍走下方整条链删焊的旧路径（续接段
-        // 一并不进本条路径，与既有 84 条行为一致）。
-        internal_lane_ids =
-            extend_internal_chain(&continuations, internal_lane_ids, &connection.to_edge_id)?;
+        // 再进 stub 处置。点状 stub 若为首段且续链后带真续接段，删焊会吞掉有真实
+        // 几何的续接段，fail-closed（R1 焊接门控只授权恰一条 stub 的删焊）。
+        internal_lane_ids = extend_internal_chain(
+            &continuations,
+            &terminals,
+            internal_lane_ids,
+            &connection.to_edge_id,
+            connection.to_lane,
+        )?;
 
         // 点状 stub 内边（LuST 有 84 条，全部在 dir="s" 的直行穿越上）：形状端点距
         // 不足 0.5 m，其弦向是点结处的坐标抖动噪声（实测可达 173° 反向）。这类边在
         // "两端点固定 + 5mm join 容差 + 2° 方向档"下无可行几何表示（位移方向与
         // 行进方向矛盾），唯一出路是从路径中移除并把入口边末点焊接到出口边首点。
-        // 判定看原 via 的首段（续链前）：stub 为首段的链整条删焊（续接段一并不进
-        // 本条路径，与既有行为一致）；其余链含 stub 即 fail-closed。
+        // 判定看续链后的首段：stub 链带真续接段时删焊会吞掉真实几何，fail-closed；
+        // 恰为单段 stub 时按焊接位移门控（STUB_WELD_MAX_DISPLACEMENT_M）决定删焊
+        // 或 fail-closed；其余链含 stub 即 fail-closed。
         let first_is_stub = internal_lane_ids.first().is_some_and(|id| {
             lane_shape_span_meters(network.lane(id).expect("via lane checked"))
                 .is_ok_and(|span| span < POINT_STUB_MAX_METERS)
@@ -105,9 +112,29 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
             let stub_id = &internal_lane_ids[0];
             let stub_lane = network.lane(stub_id).expect("via lane checked");
             if lane_shape_span_meters(stub_lane)? < POINT_STUB_MAX_METERS {
+                if internal_lane_ids.len() > 1 {
+                    return Err(Error::SumoModel(format!(
+                        "point-stub internal lane {stub_id:?} with continuation segments \
+                         is unsupported: dropping it would swallow real continuation geometry"
+                    )));
+                }
                 let target = exit.shape.first().ok_or_else(|| {
                     Error::SumoModel(format!("exit lane {:?} has empty shape", exit.id))
                 })?;
+                let entry_end = entry.shape.last().ok_or_else(|| {
+                    Error::SumoModel(format!("entry lane {:?} has empty shape", entry.id))
+                })?;
+                let dx = target.0.checked_sub(entry_end.0)?.to_f64()?;
+                let dy = target.1.checked_sub(entry_end.1)?.to_f64()?;
+                let displacement = (dx * dx + dy * dy).sqrt();
+                if displacement > STUB_WELD_MAX_DISPLACEMENT_M {
+                    return Err(Error::SumoModel(format!(
+                        "point-stub removal would displace entry lane {:?} by \
+                         {displacement:.4} m (> {STUB_WELD_MAX_DISPLACEMENT_M} m) \
+                         to reach exit lane {:?} start",
+                        entry.id, exit.id
+                    )));
+                }
                 match stub_welds.entry(entry.id.clone()) {
                     std::collections::hash_map::Entry::Occupied(previous) => {
                         let previous = previous.get();
@@ -279,11 +306,13 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
     })
 }
 
-/// internal junction 续接（#253 R1）：from-lane → 候选 (to_edge, via lanes)。
-/// internal <connection> 的 from 为 internal 边；无 via 的 exit link
-/// （[from=:v to=:t] 伴随项）不进索引，它对链无贡献。
-fn internal_continuations(network: &SumoNetwork) -> HashMap<String, Vec<(String, Vec<String>)>> {
-    let mut map: HashMap<String, Vec<(String, Vec<String>)>> = HashMap::new();
+/// internal junction 续接候选列表：每条候选为 (to_edge, to_lane, via)。
+type ContinuationCandidates = Vec<(String, u32, Vec<String>)>;
+
+/// internal junction 续接（#253 R1/R5）：from-lane → 候选 (to_edge, to_lane, via)。
+/// internal <connection> 的 from 为 internal 边。
+fn internal_continuations(network: &SumoNetwork) -> HashMap<String, ContinuationCandidates> {
+    let mut map: HashMap<String, ContinuationCandidates> = HashMap::new();
     for connection in &network.connections {
         if !connection.from_edge_id.starts_with(':') {
             continue;
@@ -291,32 +320,63 @@ fn internal_continuations(network: &SumoNetwork) -> HashMap<String, Vec<(String,
         let from_lane = format!("{}_{}", connection.from_edge_id, connection.from_lane);
         map.entry(from_lane).or_default().push((
             connection.to_edge_id.clone(),
+            connection.to_lane,
             connection.via_lane_ids.clone(),
         ));
     }
     map
 }
 
-/// 沿 internal <connection> 续全 via 链。仅接受 to_edge 与外部 to 一致、贡献
-/// 新 lane 的续接；歧义（多条可用续接）、成环或深度越界即 fail-closed。
+/// 无 via 的终端 exit-link（SUMO 要求的 `[from=:v to=:t]` 伴随 connection），
+/// 以完整目的 lane 身份 (from_lane, to_edge, to_lane) 索引。
+fn internal_terminals(network: &SumoNetwork) -> HashSet<(String, String, u32)> {
+    network
+        .connections
+        .iter()
+        .filter(|connection| {
+            connection.from_edge_id.starts_with(':') && connection.via_lane_ids.is_empty()
+        })
+        .map(|connection| {
+            (
+                format!("{}_{}", connection.from_edge_id, connection.from_lane),
+                connection.to_edge_id.clone(),
+                connection.to_lane,
+            )
+        })
+        .collect()
+}
+
+/// 沿 internal <connection> 续全 via 链并验证终止语义（#253 R5）：
+/// - 仅接受 to_edge 与外部 to 一致、贡献新 lane 的续接；多条歧义即 fail-closed；
+/// - 指向同出口的带 via 候选全部因已访问被滤 → 回环 error；
+/// - 无可用续接时必须存在匹配 (末段 lane, to_edge, to_lane) 的无 via 终端
+///   connection（SUMO 官方要求），缺失或 toLane 不符分别报错；
+/// - 深度越界 fail-closed。
 fn extend_internal_chain(
-    continuations: &HashMap<String, Vec<(String, Vec<String>)>>,
+    continuations: &HashMap<String, ContinuationCandidates>,
+    terminals: &HashSet<(String, String, u32)>,
     mut chain: Vec<String>,
     to_edge_id: &str,
+    to_lane: u32,
 ) -> Result<Vec<String>> {
     let mut visited: HashSet<String> = chain.iter().cloned().collect();
     while let Some(last) = chain.last().cloned() {
         let Some(candidates) = continuations.get(&last) else {
+            require_terminal(terminals, &last, to_edge_id, to_lane)?;
             break;
         };
-        let usable: Vec<&(String, Vec<String>)> = candidates
+        let with_via: Vec<&(String, u32, Vec<String>)> = candidates
             .iter()
-            .filter(|(to, via)| to == to_edge_id && via.iter().any(|v| !visited.contains(v)))
+            .filter(|(_, _, via)| !via.is_empty())
+            .collect();
+        let usable: Vec<&(String, u32, Vec<String>)> = with_via
+            .iter()
+            .copied()
+            .filter(|(to, _, via)| to == to_edge_id && via.iter().any(|v| !visited.contains(v)))
             .collect();
         match usable.len() {
-            0 => break,
             1 => {
-                for lane in &usable[0].1 {
+                for lane in &usable[0].2 {
                     if visited.contains(lane) {
                         return Err(Error::SumoModel(format!(
                             "internal connection chain cycles at {lane:?} (to {to_edge_id:?})"
@@ -325,6 +385,17 @@ fn extend_internal_chain(
                     visited.insert(lane.clone());
                     chain.push(lane.clone());
                 }
+            }
+            0 => {
+                if with_via.iter().any(|(to, _, _)| to == to_edge_id) {
+                    // 有指向同出口的带 via 候选但全部已访问：回环。
+                    return Err(Error::SumoModel(format!(
+                        "internal connection chain cycles back to visited lanes \
+                         from {last:?} to {to_edge_id:?}"
+                    )));
+                }
+                require_terminal(terminals, &last, to_edge_id, to_lane)?;
+                break;
             }
             _ => {
                 return Err(Error::SumoModel(format!(
@@ -342,8 +413,40 @@ fn extend_internal_chain(
     Ok(chain)
 }
 
+/// 终止检查：末段 lane 必须有无 via 的 exit-link 直通 (to_edge, to_lane)。
+fn require_terminal(
+    terminals: &HashSet<(String, String, u32)>,
+    last_lane: &str,
+    to_edge_id: &str,
+    to_lane: u32,
+) -> Result<()> {
+    let any_target = terminals
+        .iter()
+        .any(|(from, to, _)| from == last_lane && to == to_edge_id);
+    if terminals.contains(&(last_lane.to_owned(), to_edge_id.to_owned(), to_lane)) {
+        Ok(())
+    } else if any_target {
+        Err(Error::SumoModel(format!(
+            "internal terminal connection from {last_lane:?} reaches {to_edge_id:?} \
+             but with a different toLane than the maneuver exit"
+        )))
+    } else {
+        Err(Error::SumoModel(format!(
+            "internal connection chain lacks the terminal exit-link connection \
+             from {last_lane:?} to {to_edge_id:?}"
+        )))
+    }
+}
+
 /// 点状 stub 内边的形状端点距上限（米）：LuST 的 84 条 stub 均 ≤ 0.5 m。
 const POINT_STUB_MAX_METERS: f64 = 0.5;
+
+/// 点状 stub 删焊的入口末点→出口首点位移上限（米）。#253 G1 补充记录按
+/// 「入口边界端点位移 1–6 cm」授权焊接，故取 6 cm；LuST pinned 基线实测
+/// 84 条 stub 中 48 条 6–46 cm（最大 0.4617 m）越界（证据见
+/// target/issue253-stub-weld-evidence.md），越界者 fail-closed，阈值待
+/// G1 修订获批后上调并重锁全网验收数字。
+const STUB_WELD_MAX_DISPLACEMENT_M: f64 = 0.06;
 
 /// 内边形状首末点距离（米）。
 fn lane_shape_span_meters(lane: &SumoLane) -> Result<f64> {
@@ -676,7 +779,7 @@ mod tests {
 <net>
   <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
   <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
-  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="east_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
   <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
   <edge id=":J_2" function="internal"><lane id=":J_2_0" index="0" speed="13.89" length="5.00" shape="6811.88,5727.52 6816.88,5727.52"/></edge>
   <junction id="J" type="priority" intLanes=":J_0_0 :J_2_0"/>
@@ -695,9 +798,9 @@ mod tests {
     }
 
     #[test]
-    fn sole_stub_via_with_continuation_still_drops_and_welds() {
-        // 点状 stub 为首段且带续接：维持「整条链删焊、入口焊到出口」的既有
-        // 行为（stub 无可行几何表示；续接段不进本条路径）。
+    fn stub_with_continuation_fails_closed() {
+        // 点状 stub 为首段且续链后带真续接段（:J_2_0，5 m）：删焊会吞掉有真实
+        // 几何的续接段，fail-closed——R1 焊接门控只授权「恰一条 stub」的删焊。
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>
   <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
@@ -712,19 +815,127 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network).expect_err("stub with continuation must fail");
+        assert!(
+            error.to_string().contains("continuation"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn sole_stub_weld_beyond_displacement_limit_fails_closed() {
+        // 恰一条 stub（无续接，含 SUMO 伴随的终端 exit-link）但入口末点→出口首点
+        // 位移 10 m，越出 STUB_WELD_MAX_DISPLACEMENT_M（0.06 m，G1 授权 ≤ 6 cm）：
+        // 删焊 fail-closed。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="0.40" shape="6806.88,5727.52 6807.18,5727.60"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network).expect_err("over-limit weld must fail");
+        let message = error.to_string();
+        assert!(
+            message.contains("displace") && message.contains("0.06"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[test]
+    fn sole_stub_within_displacement_limit_still_welds() {
+        // 门控正向路径：恰一条 stub 且焊接位移 ≤ 0.06 m（本例 ≈ 0.022 m），
+        // 删焊照旧——stub 移出路径，入口焊到出口首点。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6806.90,5727.53 6826.90,5727.53"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="0.40" shape="6806.88,5727.52 6807.18,5727.60"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
         let topology = normalize_junctions(&network).expect("normalize");
         assert_eq!(topology.maneuver_paths.len(), 1);
         assert!(
             topology.maneuver_paths[0].internal_edge_ids.is_empty(),
-            "stub 链应整条移出路径"
+            "stub 应移出路径"
         );
         assert_eq!(topology.dropped_stub_lane_ids.len(), 1);
         let weld = topology
             .stub_welds
             .get("west_0")
             .expect("entry lane welded to exit start");
-        assert_eq!(weld.0.to_f64().expect("x"), 6816.88);
-        assert_eq!(weld.1.to_f64().expect("y"), 5727.52);
+        assert_eq!(weld.0.to_f64().expect("x"), 6806.90);
+        assert_eq!(weld.1.to_f64().expect("y"), 5727.53);
+    }
+
+    const CHAIN_BASE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="east_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <edge id=":J_2" function="internal"><lane id=":J_2_0" index="0" speed="13.89" length="5.00" shape="6811.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0 :J_2_0"/>
+  CONNECTIONS
+</net>"#;
+
+    fn chain_xml(connections: &str) -> String {
+        CHAIN_BASE.replace("CONNECTIONS", connections)
+    }
+
+    #[test]
+    fn internal_chain_cycle_fails_closed() {
+        // in→out via A；A→out via B；B→out via A：回环不得静默结束于 [A, B]。
+        let xml = chain_xml(
+            r#"<connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0" via=":J_2_0"/>
+  <connection from=":J_2" to="east" fromLane="0" toLane="0" via=":J_0_0"/>"#,
+        );
+        let network = parse_sumo_network_xml(&xml).expect("parse");
+        let error = normalize_junctions(&network).expect_err("cycle must fail closed");
+        assert!(
+            error.to_string().contains("cycles"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn internal_chain_missing_terminal_fails_closed() {
+        // 有续接但缺无 via 的终端 exit-link（SUMO 官方要求的伴随 connection）。
+        let xml = chain_xml(
+            r#"<connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0" via=":J_2_0"/>"#,
+        );
+        let network = parse_sumo_network_xml(&xml).expect("parse");
+        let error = normalize_junctions(&network).expect_err("missing terminal must fail closed");
+        assert!(
+            error.to_string().contains("terminal"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn internal_chain_terminal_to_lane_mismatch_fails_closed() {
+        // 终端 exit-link 的 toLane 与 maneuver 出口 toLane 不一致。
+        let xml = chain_xml(
+            r#"<connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0" via=":J_2_0"/>
+  <connection from=":J_2" to="east" fromLane="0" toLane="1" dir="s" state="M"/>"#,
+        );
+        let network = parse_sumo_network_xml(&xml).expect("parse");
+        let error = normalize_junctions(&network).expect_err("toLane mismatch must fail closed");
+        assert!(
+            error.to_string().contains("toLane"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
