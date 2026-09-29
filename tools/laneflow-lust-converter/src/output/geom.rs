@@ -377,6 +377,12 @@ const FILLET_RADIUS_MAX_METERS: f64 = 5.0;
 /// 倒圆单点最大偏离预算（米，G1 修订 issuecomment-5853823447：「偏离原折点
 /// ≤ 5.0 m」）。半径选值受其约束 r ≤ 5/(sec(θ/2)−1)，构造出的 cubic 另做
 /// 数值校验（#253 R7）。
+///
+/// 口径：预算在**参考 cubic** 上以本常量强制执行（终检取 cubic 到原折点的
+/// 最近距离）。最终量化折线因 f32 端点量化可在参考值上叠加 ≤ 约 0.5 mm 的
+/// 量化噪声（120° 参考 cubic 实测 gap 5.000 m → 量化折线 5.000255 m，
+/// |坐标| ~7300 时 ulp ≈ 0.49 mm）——这是验收算术的固有粒度，不视为预算
+/// 违反；若未来要求预算约束离散终态，需在选值时预留量化余量。
 const FILLET_DEVIATION_MAX_METERS: f64 = 5.0;
 /// 偏离校验数值扫描的均匀采样数（构造期一次，确定性）。
 const FILLET_DEVIATION_SAMPLES: usize = 256;
@@ -886,6 +892,9 @@ const WELD_MAX_TURN_RAD: f64 = 1.95_f64 * std::f64::consts::PI / 180.0;
 const WELD_SAFE_TURN_RAD: f64 = 1.9_f64 * std::f64::consts::PI / 180.0;
 /// 单段等分片数上限（防御病态输入）。
 const SAMPLE_MAX_PIECES: u32 = 2048;
+/// 等 t 初始候选失败后的等切向角回溯轮数（R6 第三轮；0 = 禁用回溯的归因
+/// 对照，正常路径为 1：一轮等角重划分，与初始候选合计 ≤2 轮有界回溯）。
+const SAMPLE_BACKTRACK_ROUNDS: u32 = 1;
 /// HIR 冻结的退化段下限（米）：`SPATIAL_MIN_SEGMENT_LENGTH_METERS`，
 /// 长度 ≤ 该值的规范段被拒绝。发射时按同一算术（f32 差分 + hypot）预检。
 const QUANTIZED_MIN_SEGMENT_METERS: f32 = 0.1;
@@ -955,6 +964,14 @@ struct EmissionSink {
     prev_dir: Option<Vec3>,
 }
 
+/// 发射回溯检查点：记录已发射段数与链尾状态，O(1) 快照/回滚。
+#[derive(Clone)]
+struct SinkCheckpoint {
+    segments_len: usize,
+    prev_point: [f32; 3],
+    prev_dir: Option<Vec3>,
+}
+
 impl EmissionSink {
     fn new(start: Vec3) -> Self {
         Self {
@@ -962,6 +979,21 @@ impl EmissionSink {
             prev_point: quantize_vec3(start),
             prev_dir: None,
         }
+    }
+
+    /// O(1) 快照：只记录段数与链尾，回滚靠 truncate（划分回溯轮用）。
+    fn checkpoint(&self) -> SinkCheckpoint {
+        SinkCheckpoint {
+            segments_len: self.segments.len(),
+            prev_point: self.prev_point,
+            prev_dir: self.prev_dir,
+        }
+    }
+
+    fn restore(&mut self, checkpoint: &SinkCheckpoint) {
+        self.segments.truncate(checkpoint.segments_len);
+        self.prev_point = checkpoint.prev_point;
+        self.prev_dir = checkpoint.prev_dir;
     }
 
     fn push(&mut self, end: Vec3) -> Result<()> {
@@ -1149,11 +1181,9 @@ fn cubic_arc_len(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3) -> f64 {
 
 /// de Casteljau 细分采样三次 Bezier 为 Line 链。
 ///
-/// 片数按局部几何一次选定（等 t 参数切 n 片），而不是递归二分：二分网格
-///（弦长逐次减半）会跨过"弦长下限 0.105m 与 weld 全角预算夹出的可行窗口"
-/// ——例如 r=4.5m 倒圆的可行弦长窗口 (0.1, ~0.14]m，二分序列 …0.397 → 0.199
-/// → 0.099 恰好全部落在窗外。等 n 切分可命中任意窗口；非均匀曲率造成的单片
-/// 超差由递归重估（每片重新走一遍本函数）与 sink 的量化终检兜底。
+/// 片数按局部几何一次选定（质量目标 × 弧长容量下界），初始候选为等 t 参数
+/// 划分；局部失败时回溯一轮做等切向角重划分（见 emit_angle_pieces），两轮
+/// 都找不到合格候选报「sampling exhausted」（与已证预算冲突文案区分）。
 fn sample_cubic(
     a: Vec3,
     c1: Vec3,
@@ -1226,15 +1256,70 @@ fn sample_cubic(
             b[2]
         )));
     }
-    // 等 t 参数切 n 片：每次从剩余段切下 1/(剩余片数)。
+    // 候选划分序列（R6 第三轮）：round 0 等 t 初始候选（R6 第二轮路径，既有
+    // 行为字节级不变）；round 1..=SAMPLE_BACKTRACK_ROUNDS 等切向角重划分——
+    // 等 t 划分与非均匀曲率错配会让个别片切向超 1.9°（r=3.26 m 90° 倒圆
+    // 48 片局部 1.9349°），而等切向角 48 片每片恰 1.875° 全预算内。轮数取尽
+    // 仍失败报「sampling exhausted」（与已证预算冲突文案区分）；0 禁用回溯
+    // （均匀划分的归因对照）。完全确定：固定轮次、固定容差、无随机/时钟。
     let n = n as u32;
-    let mut rem = (a, c1, c2, dir_a);
+    let span = BezierSpan {
+        a,
+        c1,
+        c2,
+        b,
+        dir_a,
+        dir_b,
+    };
+    let checkpoint = sink.checkpoint();
+    for round in 0..=SAMPLE_BACKTRACK_ROUNDS {
+        let result = if round == 0 {
+            emit_uniform_pieces(&span, n, sink)
+        } else {
+            emit_angle_pieces(&span, n, sink)
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                sink.restore(&checkpoint);
+                if round == SAMPLE_BACKTRACK_ROUNDS {
+                    return Err(Error::SumoModel(format!(
+                        "repaired curve sampling exhausted: {n} pieces breach the quantized \
+                         weld budget under uniform and tangent-angle partitions at \
+                         ({}, {}, {}); last error: {error}",
+                        b[0], b[1], b[2]
+                    )));
+                }
+            }
+        }
+    }
+    unreachable!("loop returns by round {}", SAMPLE_BACKTRACK_ROUNDS);
+}
+
+/// 一段待采样的三次 Bezier 及其两端切向（束参数，避开 too_many_arguments）。
+struct BezierSpan {
+    a: Vec3,
+    c1: Vec3,
+    c2: Vec3,
+    b: Vec3,
+    dir_a: Vec3,
+    dir_b: Vec3,
+}
+
+/// 等 t 参数切 n 片（de Casteljau），逐片递归重估：非均匀曲率下该片可
+/// 自适应加密。sample_cubic 的初始候选划分。不用递归二分：二分网格（弦长
+/// 逐次减半）会跨过"弦长下限 0.105m 与 weld 全角预算夹出的可行窗口"——
+/// 例如 r=4.5m 倒圆的可行弦长窗口 (0.1, ~0.14]m，二分序列 …0.397 → 0.199
+/// → 0.099 恰好全部落在窗外。等 n 切分可命中任意窗口；非均匀曲率造成的
+/// 单片超差由递归重估（每片重新走一遍 sample_cubic，含一轮等角回溯）兜底。
+fn emit_uniform_pieces(span: &BezierSpan, n: u32, sink: &mut EmissionSink) -> Result<()> {
+    let mut rem = (span.a, span.c1, span.c2, span.dir_a);
     for k in 1..n {
         let t = 1.0 / f64::from(n - k + 1);
         let lerp = |p: Vec3, q: Vec3| add(p, scale(sub(q, p), t));
         let p01 = lerp(rem.0, rem.1);
         let p12 = lerp(rem.1, rem.2);
-        let p23 = lerp(rem.2, b);
+        let p23 = lerp(rem.2, span.b);
         let p012 = lerp(p01, p12);
         let p123 = lerp(p12, p23);
         let p0123 = lerp(p012, p123);
@@ -1245,7 +1330,91 @@ fn sample_cubic(
         // 剩余右子曲线：de Casteljau (p0123, p123, p23, b)。
         rem = (p0123, p123, p23, dir_split);
     }
-    sample_cubic(rem.0, rem.1, rem.2, b, rem.3, dir_b, sink)
+    sample_cubic(rem.0, rem.1, rem.2, span.b, rem.3, span.dir_b, sink)
+}
+
+/// 等切向角重划分（R6 第三轮回溯轮）：对 cubic 切向做密集累计角扫描，
+/// 按累计切向角等分选切分参数（确定性），de Casteljau 切 n 片后逐片走
+/// 常规采样。片数与初始候选相同（受 n_floor 约束），只重排参数分布。
+fn emit_angle_pieces(span: &BezierSpan, n: u32, sink: &mut EmissionSink) -> Result<()> {
+    let params = tangent_angle_split_params(span, n).ok_or_else(|| {
+        Error::SumoModel(
+            "tangent-angle partition unavailable: near-zero turn or degenerate tangent".to_owned(),
+        )
+    })?;
+    let mut rem = (span.a, span.c1, span.c2, span.dir_a);
+    let mut prev_t = 0.0_f64;
+    for &t in &params[1..params.len() - 1] {
+        // 参数是绝对量（原 cubic 的 t）；剩余子曲线的局部切分比例需按
+        // 剩余参数长度归一（等 t 路径的 t 本来就是局部比例，无需此步）。
+        let dt = (t - prev_t) / (1.0 - prev_t);
+        let lerp = |p: Vec3, q: Vec3| add(p, scale(sub(q, p), dt));
+        let p01 = lerp(rem.0, rem.1);
+        let p12 = lerp(rem.1, rem.2);
+        let p23 = lerp(rem.2, span.b);
+        let p012 = lerp(p01, p12);
+        let p123 = lerp(p12, p23);
+        let p0123 = lerp(p012, p123);
+        let dir_split = unit(sub(p123, p012)).unwrap_or(rem.3);
+        sample_cubic(rem.0, p01, p012, p0123, rem.3, dir_split, sink)?;
+        rem = (p0123, p123, p23, dir_split);
+        prev_t = t;
+    }
+    sample_cubic(rem.0, rem.1, rem.2, span.b, rem.3, span.dir_b, sink)
+}
+
+/// 等切向角切分参数：均匀参数扫描切向角并累计，按累计角等分（k/n 目标）
+/// 线性插值出切分参数（固定 512 点扫描，确定性；无随机/时钟）。
+fn tangent_angle_split_params(span: &BezierSpan, n: u32) -> Option<Vec<f64>> {
+    const SCAN: usize = 512;
+    let mut prev_dir = unit(cubic_tangent_at(span.a, span.c1, span.c2, span.b, 0.0))?;
+    let mut cumulative = vec![0.0_f64; SCAN + 1];
+    for k in 1..=SCAN {
+        let dir = unit(cubic_tangent_at(
+            span.a,
+            span.c1,
+            span.c2,
+            span.b,
+            k as f64 / SCAN as f64,
+        ))
+        .unwrap_or(prev_dir);
+        cumulative[k] = cumulative[k - 1] + angle_rad(prev_dir, dir);
+        prev_dir = dir;
+    }
+    let total = cumulative[SCAN];
+    if total <= 1e-12 {
+        return None;
+    }
+    let mut params = vec![0.0_f64; n as usize + 1];
+    *params.last_mut().expect("n + 1 entries") = 1.0;
+    let mut scan = 0_usize;
+    for (k, slot) in params.iter_mut().enumerate().take(n as usize).skip(1) {
+        let target = total * k as f64 / n as f64;
+        while scan + 1 < cumulative.len() && cumulative[scan + 1] < target {
+            scan += 1;
+        }
+        let t = if cumulative[scan + 1] > cumulative[scan] {
+            let f = (target - cumulative[scan]) / (cumulative[scan + 1] - cumulative[scan]);
+            (scan as f64 + f) / SCAN as f64
+        } else {
+            scan as f64 / SCAN as f64
+        };
+        *slot = t.clamp(0.0, 1.0);
+    }
+    Some(params)
+}
+
+/// 三次 Bezier 在 t 处的切向（导数方向，未归一）。
+fn cubic_tangent_at(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3, t: f64) -> Vec3 {
+    let mt = 1.0 - t;
+    let w0 = 3.0 * mt * mt;
+    let w1 = 6.0 * mt * t;
+    let w2 = 3.0 * t * t;
+    [
+        w0 * (c1[0] - a[0]) + w1 * (c2[0] - c1[0]) + w2 * (b[0] - c2[0]),
+        w0 * (c1[1] - a[1]) + w1 * (c2[1] - c1[1]) + w2 * (b[1] - c2[1]),
+        w0 * (c1[2] - a[2]) + w1 * (c2[2] - c1[2]) + w2 * (b[2] - c2[2]),
+    ]
 }
 
 #[cfg(test)]
@@ -1400,7 +1569,9 @@ mod tests {
     fn arc_capacity_uses_arc_length_not_chord() {
         // #253 R6 复审反例：r=3.5 m 90° 倒圆 cubic。整段端点弦长 4.9497 m →
         // 旧容量 47 片误拒（90/47 = 1.915° > 1.9°）；弧长 5.4978 m → 52 片，
-        // 逐片 ≤1.8°、量化弦长 >0.105 m，可行。
+        // 逐片 ≤1.8°，可行。两种弦长下限语义：0.105 m 是采样质量目标（尽力），
+        // 个别片可落到其下；0.1 m 是 sink/HIR 退化段硬下限，必须全片满足
+        // （Python 镜像：52 片最短量化弦 ≈ 0.103352 m，落在这两限之间）。
         let a = [16.5, 0.0, 0.0];
         let b = [20.0, 0.0, 3.5];
         let h = (4.0 / 3.0) * 3.5 * (std::f64::consts::FRAC_PI_8).tan();
@@ -1409,10 +1580,56 @@ mod tests {
         let mut sink = EmissionSink::new(a);
         sample_cubic(a, c1, c2, b, [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], &mut sink)
             .expect("arc-length capacity must emit the R6 counterexample");
-        // 从发射出的 Line 链复核：片数与逐片量化前几何转角。
+        // 从发射出的 Line 链复核：片数、逐片量化前几何转角与量化弦长。
         assert!(
             sink.segments.len() >= 50,
             "expected at least 50 pieces, got {}",
+            sink.segments.len()
+        );
+        let mut prev = a;
+        let mut prev_dir: Option<Vec3> = None;
+        let mut max_turn = 0.0_f64;
+        let mut min_chord = f64::INFINITY;
+        for segment in &sink.segments {
+            let re::RoadEditingCurveSegmentGeometry::Line { end } = segment.geometry() else {
+                panic!("sampled emission must be all-Line");
+            };
+            let next = [end.x(), end.y(), end.z()];
+            let chord = sub(next, prev);
+            min_chord = min_chord.min(norm(chord));
+            let dir = unit(chord).expect("nonzero chord");
+            if let Some(before) = prev_dir {
+                max_turn = max_turn.max(angle_rad(before, dir).to_degrees());
+            }
+            prev_dir = Some(dir);
+            prev = next;
+        }
+        assert!(max_turn <= 1.95, "peak piece turn {max_turn}");
+        assert!(
+            min_chord > 0.1,
+            "every quantized chord must clear the HIR 0.1 m degenerate floor, got {min_chord}"
+        );
+    }
+
+    #[test]
+    fn tangent_angle_partition_rescues_r326_counterexample() {
+        // #253 R6 第三轮反例：r=3.26 m 90° 倒圆 cubic（a=(20−r,0,0)、b=(20,0,r)）。
+        // 16 段弧长估计 5.1195 m → 48 片；等 t 48 片的局部片切向 1.9349° > 1.9°
+        // 被误拒（递归落到 n_floor<2 单弦回退）；等切向角 48 片每片恰 1.875°，
+        // 量化最短弦 0.10583 m > 0.105 m、最大 weld 角 1.8766° < 1.95°，全预算内。
+        // 回溯轮必须放行，且逐片几何转角 ≤ 1.9°。
+        let r = 3.26;
+        let a = [20.0 - r, 0.0, 0.0];
+        let b = [20.0, 0.0, r];
+        let h = (4.0 / 3.0) * r * (std::f64::consts::FRAC_PI_8).tan();
+        let c1 = add(a, scale([1.0, 0.0, 0.0], h));
+        let c2 = sub(b, scale([0.0, 0.0, 1.0], h));
+        let mut sink = EmissionSink::new(a);
+        sample_cubic(a, c1, c2, b, [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], &mut sink)
+            .expect("tangent-angle backtrack must emit the r=3.26 counterexample");
+        assert!(
+            sink.segments.len() >= 48,
+            "expected at least 48 pieces, got {}",
             sink.segments.len()
         );
         let mut prev = a;
@@ -1423,15 +1640,17 @@ mod tests {
                 panic!("sampled emission must be all-Line");
             };
             let next = [end.x(), end.y(), end.z()];
-            let chord = sub(next, prev);
-            let dir = unit(chord).expect("nonzero chord");
+            let dir = unit(sub(next, prev)).expect("nonzero chord");
             if let Some(before) = prev_dir {
                 max_turn = max_turn.max(angle_rad(before, dir).to_degrees());
             }
             prev_dir = Some(dir);
             prev = next;
         }
-        assert!(max_turn <= 1.95, "peak piece turn {max_turn}");
+        assert!(
+            max_turn <= 1.9,
+            "tangent-angle pieces must stay within the 1.9 deg safe turn, got {max_turn}"
+        );
     }
 
     #[test]
