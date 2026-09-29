@@ -221,21 +221,21 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     );
 
     // 锁定诊断清单（pinned c4bd5bd3 基线；数字随源数据或发射语义变化而更新）。
-    assert_eq!(report.total(), 9_735);
-    assert_eq!(report.internal_count(), 8_939);
-    assert_eq!(report.external_count(), 796);
+    assert_eq!(report.total(), 8_984);
+    assert_eq!(report.internal_count(), 8_236);
+    assert_eq!(report.external_count(), 748);
     assert_eq!(report.junction_count(), 1_854);
     assert_eq!(
         report.internal_mechanism_count(InfeasibilityMechanism::BoundaryClamp),
-        4_436
+        5_102
     );
     assert_eq!(
         report.internal_mechanism_count(InfeasibilityMechanism::InteriorCurvature),
-        4_061
+        2_695
     );
     assert_eq!(
         report.internal_mechanism_count(InfeasibilityMechanism::HardCornerFillet),
-        442
+        439
     );
     let anchor_first = &report.entries[0].lane_id;
     let anchor_second = &report.entries[1].lane_id;
