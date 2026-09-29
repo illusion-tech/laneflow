@@ -10,13 +10,14 @@ use crate::{
     Error, Result,
     config::LustConverterConfig,
     convert::{DEFAULT_FIXED_DELTA_MS, TopologyConvertOptions},
-    convert_static_from_xml_with_due,
+    convert_static_from_xml_with_due_and_source,
     output::{
         digest::{hex_sha256, sha256_digest},
+        geom::ReportSource,
         model::{ManifestCounts, ManifestFileDigest, ManifestToml},
         provenance::{
             BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests,
-            ReleaseAssetUrls, SemanticProvenanceInput, build_build_provenance,
+            ReleaseAssetUrls, SemanticConfig, SemanticProvenanceInput, build_build_provenance,
             build_semantic_provenance, embedded_notice_bytes, embedded_odbl_bytes,
         },
         report::{ConversionReportInput, build_conversion_report},
@@ -79,12 +80,24 @@ fn convert_verified(
         require_lust_population_count: true,
         ..TopologyConvertOptions::default()
     };
-    let static_artifacts = convert_static_from_xml_with_due(
+    // verify-source 已校验 revision + pinned digest；摘要取校验结果，
+    // 诊断清单据此标注「verify-source 已通过」。
+    let net_file = verified
+        .files
+        .iter()
+        .find(|file| file.relative_path == "scenario/lust.net.xml")
+        .expect("verified set contains lust.net.xml");
+    let report_source = ReportSource {
+        net_digest: Some(format!("sha256:{}", net_file.sha256_hex)),
+        verified: true,
+    };
+    let static_artifacts = convert_static_from_xml_with_due_and_source(
         &net_xml,
         &tll_xml,
         &vtypes_xml,
         [&due0, &due1, &due2],
         &options,
+        report_source,
     )?;
 
     let network = parse_sumo_network_xml(&net_xml)?;
@@ -156,7 +169,10 @@ fn convert_verified(
         static_bundle_url: config.static_bundle_url.clone(),
     };
     let semantic = build_semantic_provenance(&SemanticProvenanceInput {
-        config_toml_bytes: config_toml_bytes.to_vec(),
+        semantic_config: SemanticConfig {
+            source_bundle_url: config.source_bundle_url.clone(),
+            static_bundle_url: config.static_bundle_url.clone(),
+        },
         licenses: licenses.clone(),
         release_urls,
         source_tar: source_tar.clone(),

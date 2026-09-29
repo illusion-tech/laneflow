@@ -23,10 +23,22 @@ pub struct ReleaseAssetUrls {
     pub static_bundle_url: Option<String>,
 }
 
+/// 语义配置子集：随语义 provenance 求摘要的配置字段。
+///
+/// 只含影响语义产物的 Release asset URL；执行侧字段（converter_commit、
+/// source_dir、output_dir 等）属 build provenance，不得进入语义摘要
+/// （§3.6：语义 digest 不含 converter commit / toolchain / host）。
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticConfig {
+    pub source_bundle_url: Option<String>,
+    pub static_bundle_url: Option<String>,
+}
+
 /// Inputs for the versioned semantic provenance manifest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticProvenanceInput {
-    pub config_toml_bytes: Vec<u8>,
+    pub semantic_config: SemanticConfig,
     pub licenses: LicenseArtifacts,
     pub release_urls: ReleaseAssetUrls,
     pub source_tar: Vec<u8>,
@@ -179,7 +191,10 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
                 })
                 .collect(),
         },
-        config_digest: sha256_digest(&input.config_toml_bytes),
+        config_digest: sha256_digest(&crate::output::json_bytes(
+            "SemanticConfig",
+            &input.semantic_config,
+        )?),
         licenses: LicenseDigests {
             license_md: artifact("LICENSE.md", &input.licenses.license_md),
             odbl: artifact("ODbL-1.0.txt", &input.licenses.odbl),

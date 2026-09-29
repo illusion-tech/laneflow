@@ -307,7 +307,10 @@ compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON sche
   外部 manifest 的 digest；
 - semantic provenance manifest，记录第 2 节 source chain、config digest、licenses、
   Release assets 和 normalized semantic output digests；其内容和 digest 不包含
-  converter commit、toolchain、build timestamp 或 host；
+  converter commit、toolchain、build timestamp 或 host；config digest 只对语义
+  配置子集（Release asset URL）的规范化序列化求值，converter_commit、
+  source_dir、output_dir 等执行侧配置字段留在 build provenance 的全量配置
+  摘要中；
 - build provenance record，记录 converter commit、锁定 toolchain/依赖、调用参数、
   semantic provenance digest 和本次生成的 raw output digests；它使用 canonical
   serialization，且不得写入 wall-clock timestamp、host name、绝对路径或未冻结的

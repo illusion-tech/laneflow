@@ -1,8 +1,8 @@
 use laneflow_lust_converter::{
     BuildInvocation, BuildProvenanceInput, ConversionReportInput, LicenseArtifacts,
-    RawOutputDigests, ReleaseAssetUrls, SemanticProvenanceInput, TarMember, build_build_provenance,
-    build_conversion_report, build_semantic_provenance, embedded_notice_bytes, embedded_odbl_bytes,
-    write_deterministic_ustar,
+    RawOutputDigests, ReleaseAssetUrls, SemanticConfig, SemanticProvenanceInput, TarMember,
+    build_build_provenance, build_conversion_report, build_semantic_provenance,
+    embedded_notice_bytes, embedded_odbl_bytes, write_deterministic_ustar,
 };
 
 #[test]
@@ -88,7 +88,7 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
     }])
     .expect("static tar");
     let semantic_input = SemanticProvenanceInput {
-        config_toml_bytes: b"source_dir=\"x\"\noutput_dir=\"y\"\n".to_vec(),
+        semantic_config: SemanticConfig::default(),
         licenses,
         release_urls: ReleaseAssetUrls::default(),
         source_tar: source_tar.clone(),
@@ -128,4 +128,86 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
     let build_b = build_build_provenance(&build_input).expect("build again");
     assert_eq!(build_a, build_b);
     assert!(String::from_utf8_lossy(&build_a).contains("converterCommit"));
+}
+
+#[test]
+fn semantic_digest_tracks_only_semantic_config_subset() {
+    // R4 边界：semantic manifest 只随语义配置子集（Release asset URL）变化；
+    // converter commit / 路径类执行字段只出现在 build provenance，不进入
+    // 语义 manifest（§3.6：语义 digest 不含 converter commit / toolchain / host）。
+    let licenses = LicenseArtifacts {
+        license_md: b"MIT\n".to_vec(),
+        odbl: embedded_odbl_bytes().to_vec(),
+        notice: embedded_notice_bytes().to_vec(),
+    };
+    let make_input = |semantic_config: SemanticConfig| SemanticProvenanceInput {
+        semantic_config,
+        licenses: licenses.clone(),
+        release_urls: ReleaseAssetUrls::default(),
+        source_tar: write_deterministic_ustar(&[TarMember {
+            path: "LICENSE.md".to_owned(),
+            contents: licenses.license_md.clone(),
+        }])
+        .expect("source tar"),
+        static_tar: write_deterministic_ustar(&[TarMember {
+            path: "network.lfca".to_owned(),
+            contents: b"LFCA\n".to_vec(),
+        }])
+        .expect("static tar"),
+        network_lfca_bytes: b"LFCA\n".to_vec(),
+        routes_toml_bytes: b"format_version = \"0.1\"\n".to_vec(),
+        manifest_bytes: b"manifest_version = 1\n".to_vec(),
+        conversion_report_bytes: b"{}\n".to_vec(),
+    };
+    let base = make_input(SemanticConfig::default());
+    let base_bytes = build_semantic_provenance(&base).expect("base semantic");
+    let base_text = String::from_utf8_lossy(&base_bytes);
+    assert!(
+        !base_text.contains("sourceDir") && !base_text.contains("outputDir"),
+        "semantic manifest must not embed path-like build fields"
+    );
+
+    // build-only 字段变化（converter commit、cargo lock、全量 config digest）
+    // 不影响语义 manifest。
+    for (commit, lock, config_digest) in [
+        ("commit-a", "lock-a", "sha256:config-a"),
+        ("commit-b", "lock-b", "sha256:config-b"),
+    ] {
+        let build = build_build_provenance(&BuildProvenanceInput {
+            converter_commit: commit.to_owned(),
+            rust_version: "1.98.0",
+            cargo_lock_sha256: lock.to_owned(),
+            config_digest: config_digest.to_owned(),
+            semantic_provenance_digest: "sha256:x".to_owned(),
+            invocation: BuildInvocation {
+                command: "convert",
+                require_lust_location_anchors: true,
+                require_lust_population_count: true,
+            },
+            raw_output_digests: RawOutputDigests {
+                network_lfca: "sha256:a".to_owned(),
+                routes_toml: "sha256:b".to_owned(),
+                manifest_toml: "sha256:c".to_owned(),
+                conversion_report: "sha256:d".to_owned(),
+                source_tar: "sha256:f".to_owned(),
+                static_tar: "sha256:0".to_owned(),
+            },
+        })
+        .expect("build variant");
+        assert!(
+            String::from_utf8_lossy(&build).contains("converterCommit"),
+            "build provenance carries the audit-only fields"
+        );
+    }
+
+    // 语义字段（Release asset URL）变化 → 语义 manifest 变化。
+    let with_urls = make_input(SemanticConfig {
+        source_bundle_url: Some("https://example.invalid/lust-source.tar".to_owned()),
+        static_bundle_url: None,
+    });
+    let with_urls_bytes = build_semantic_provenance(&with_urls).expect("url semantic");
+    assert_ne!(
+        base_bytes, with_urls_bytes,
+        "semantic manifest must track the semantic config subset"
+    );
 }
