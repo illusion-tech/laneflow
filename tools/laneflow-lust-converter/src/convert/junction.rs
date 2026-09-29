@@ -347,9 +347,11 @@ fn internal_terminals(network: &SumoNetwork) -> HashSet<(String, String, u32)> {
 }
 
 /// 沿 internal <connection> 续全 via 链并验证终止语义（#253 R5）：
-/// - 仅接受 to_edge 与外部 to 一致、贡献新 lane 的续接；多条歧义即 fail-closed；
-/// - 指向同出口的带 via 候选全部因已访问被滤 → 回环 error；
-/// - 无可用续接时必须存在匹配 (末段 lane, to_edge, to_lane) 的无 via 终端
+/// - 仅接受 (to_edge, to_lane) 与外部目的完全一致、贡献新 lane 的续接；
+///   不相关目的 lane 的 connection 不参与本穿越（第三轮：中间跳 toLane
+///   不匹配不得被吞、也不得拐跑本可终止的链）；多条歧义即 fail-closed；
+/// - 匹配目的的带 via 候选全部因已访问被滤 → 回环 error；
+/// - 无匹配续接时必须存在匹配 (末段 lane, to_edge, to_lane) 的无 via 终端
 ///   connection（SUMO 官方要求），缺失或 toLane 不符分别报错；
 /// - 深度越界 fail-closed。
 fn extend_internal_chain(
@@ -369,10 +371,16 @@ fn extend_internal_chain(
             .iter()
             .filter(|(_, _, via)| !via.is_empty())
             .collect();
-        let usable: Vec<&(String, u32, Vec<String>)> = with_via
+        // 统一先匹配完整目的 (to_edge, to_lane) 再检查 visited（R5 第三轮）。
+        let matching: Vec<&(String, u32, Vec<String>)> = with_via
             .iter()
             .copied()
-            .filter(|(to, _, via)| to == to_edge_id && via.iter().any(|v| !visited.contains(v)))
+            .filter(|(to, lane, _)| to == to_edge_id && *lane == to_lane)
+            .collect();
+        let usable: Vec<&(String, u32, Vec<String>)> = matching
+            .iter()
+            .copied()
+            .filter(|(_, _, via)| via.iter().any(|v| !visited.contains(v)))
             .collect();
         match usable.len() {
             1 => {
@@ -387,11 +395,11 @@ fn extend_internal_chain(
                 }
             }
             0 => {
-                if with_via.iter().any(|(to, _, _)| to == to_edge_id) {
-                    // 有指向同出口的带 via 候选但全部已访问：回环。
+                if !matching.is_empty() {
+                    // 匹配目的的带 via 候选全部已访问：回环。
                     return Err(Error::SumoModel(format!(
                         "internal connection chain cycles back to visited lanes \
-                         from {last:?} to {to_edge_id:?}"
+                         from {last:?} to {to_edge_id:?} lane {to_lane}"
                     )));
                 }
                 require_terminal(terminals, &last, to_edge_id, to_lane)?;
@@ -399,7 +407,8 @@ fn extend_internal_chain(
             }
             _ => {
                 return Err(Error::SumoModel(format!(
-                    "ambiguous internal connection continuations from {last:?} to {to_edge_id:?}"
+                    "ambiguous internal connection continuations from {last:?} \
+                     to {to_edge_id:?} lane {to_lane}"
                 )));
             }
         }
@@ -889,6 +898,48 @@ mod tests {
 
     fn chain_xml(connections: &str) -> String {
         CHAIN_BASE.replace("CONNECTIONS", connections)
+    }
+
+    #[test]
+    fn internal_chain_middle_hop_to_lane_mismatch_fails_closed() {
+        // R5 第三轮反例 (i)：中间续接 A→east toLane=1 via B 指向 out_1，而穿越
+        // 出口是 out_0（终端 B→east toLane=0 正确）。只匹配 to_edge 的旧逻辑会
+        // 错误接受 [A, B]；严格化后 A 处无匹配 (east,0) 的续接 → 终端检查
+        // （A 无 out_0 终端）→ fail-closed。
+        let xml = chain_xml(
+            r#"<connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="1" via=":J_2_0"/>
+  <connection from=":J_2" to="east" fromLane="0" toLane="0"/>"#,
+        );
+        let network = parse_sumo_network_xml(&xml).expect("parse");
+        let error =
+            normalize_junctions(&network).expect_err("middle-hop toLane mismatch must fail");
+        assert!(
+            error.to_string().contains("terminal"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn internal_chain_ignores_unrelated_destination_lane_continuation() {
+        // R5 第三轮反例 (ii)：A 有正确的 out_0 终端，同时存在不相关的
+        // A→east toLane=1 via B 续接。旧逻辑优先跟随不相关续接，B 缺 out_0
+        // 终端 → 误拒。严格化后不相关目的 lane 的 connection 不参与本穿越，
+        // 链在 A 处经终端正确结束。
+        let xml = chain_xml(
+            r#"<connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="1" via=":J_2_0"/>
+  <connection from=":J_2" to="east" fromLane="0" toLane="1"/>"#,
+        );
+        let network = parse_sumo_network_xml(&xml).expect("parse");
+        let topology = normalize_junctions(&network)
+            .expect("unrelated toLane continuation must not derail the chain");
+        assert_eq!(topology.maneuver_paths.len(), 1);
+        assert_eq!(
+            topology.maneuver_paths[0].internal_edge_ids,
+            ["sumo::J_0_0".to_owned()]
+        );
     }
 
     #[test]
