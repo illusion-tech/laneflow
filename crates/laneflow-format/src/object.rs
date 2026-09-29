@@ -1128,6 +1128,14 @@ fn preflight_chunked_section(
         })?;
         let actual_digest: [u8; 32] = Sha256::digest(chunk).into();
         if actual_digest != expected_digest {
+            // 诊断探针（#794）：file-backed emission 摘要失配为稀有偶发，留置
+            // 现场数据（chunk 位置/期望vs实际摘要/内容头）供下次自然出现时定位
+            // 写回-读回分歧点；仅 std 面输出，不影响 no_std 与失败语义。
+            #[cfg(feature = "std")]
+            std::eprintln!(
+                "[digest-probe] entry={entry} offset={byte_offset} len={byte_length} expected={expected_digest:02x?} actual={actual_digest:02x?} head32={:02x?}",
+                &chunk[..chunk.len().min(32)]
+            );
             return Err(FormatError::DigestMismatch {
                 structure: FormatStructure::ChunkDirectoryEntry,
             });
