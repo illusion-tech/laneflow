@@ -47,9 +47,17 @@ P5Setup 极短，不用于细粒度优化推断。所有子阶段必须嵌套于
   目录；将 EXE 放为 `<build-root>/plain.exe`、`detail.exe`（Unix 无扩展名）。
 - `run <build-root> <frozen-input-root> <new-raw>`：要求采集器 Git 树干净；保存
   UUID、命令、退出码、前后 Git 状态、二进制哈希、输入与源码索引、原始输出。
+- `run-100k <build-root> <frozen-input-root> <new-raw>`：只复跑 100k 的 6 个
+  进程，身份记录明确保存 `matrix_scale=100k`，不拼接旧 10k 冒充新矩阵。
+  Windows 下在每个进程前后通过 `tasklist` 保存快照；发现已知编译或测量进程
+  即停止，保留不完整目录。边界快照不等于连续监测。
 - `analyze <raw> <results.json>`：核验原生摘要、逐拍序列、时钟/计数、交通文件
   字节一致性、整拍 p95，输出全量文件索引。结果必须位于 raw 之外。
 - `verify <raw> <results.json>`：重新派生并逐值比较，不覆盖现有证据。
+
+首批 12 次记录见 [results.json](evidence/results.json)。其结束快照发现
+`cargo.exe` 与 `rustc.exe`，全部样本保留，明确不接受为稳定性能基线。
+维护者随后要求单独重跑 100k；复跑沿用相同 Runtime EXE 与输入，另存证据。
 
 采集前后另存环境、已知编译/测量进程和电源快照；这不构成全程温度、频率或背景
 进程锁定。宿主扰动和诊断偏差保留在结果中，不通过剔除或选择重复掩盖。
