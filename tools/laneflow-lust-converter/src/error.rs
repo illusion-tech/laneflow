@@ -38,6 +38,15 @@ pub enum Error {
         actual: String,
     },
 
+    #[error(
+        "LuST source {relative_path} changed after verification: expected sha256:{expected}, got sha256:{actual}"
+    )]
+    SourceChangedAfterVerification {
+        relative_path: &'static str,
+        expected: String,
+        actual: String,
+    },
+
     #[error("could not determine LuST source revision under {source_dir}: {reason}")]
     SourceRevisionUnknown { source_dir: PathBuf, reason: String },
 

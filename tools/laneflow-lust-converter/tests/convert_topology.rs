@@ -1,9 +1,10 @@
 use std::{fs, path::PathBuf};
 
 use laneflow_lust_converter::{
-    ExactDecimal, InfeasibilityMechanism, LUST_FRAME_ID, TopologyConvertOptions,
-    convert_static_from_xml_with_due, convert_topology_from_xml_with_tll_and_vtypes,
-    parse_due_routes_xml, parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes,
+    ExactDecimal, InfeasibilityMechanism, LUST_FRAME_ID, PINNED_SOURCE_FILES,
+    TopologyConvertOptions, convert_static_from_xml_with_due,
+    convert_topology_from_xml_with_tll_and_vtypes, hex_sha256, parse_due_routes_xml,
+    parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes,
 };
 
 #[test]
@@ -169,14 +170,38 @@ fn simplified_origin_matches_three_step_formula_on_lust_location() {
 /// 几何合成，另立 G1）。本测试锁定：source 锚点、诊断清单两次运行逐字节一致、
 /// 总量与机制分布、锚点条目；清单文件落盘 `target/issue253-infeasible-survey.md`
 /// 作为验收交付物。
+///
+/// 当前状态（#253 R1 焊接门控）：`STUB_WELD_MAX_DISPLACEMENT_M = 0.06` 下
+/// pinned 基线 84 条 stub 中 48 条焊接位移 6–46 cm 越界、fail-closed，诊断转换
+/// 在 normalize 阶段即中止（实测首错 `--30260_0`→`-31938_0` @ 0.1000 m），
+/// 下列锁定数字（R1 前基线）与清单落盘均待 G1 修订阈值后重锁；
+/// fail-fast 锚点断言（sumo::-1000_2_0）同理漂移。
 #[test]
-#[ignore = "requires LUST_SOURCE_DIR pointing at commit c4bd5bd3751d426d42a9a1749c815e47ea188549"]
+#[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3; 待 G1 修订 STUB_WELD_MAX_DISPLACEMENT_M（48 条 6–46 cm 焊接越界 fail-closed，见 target/issue253-stub-weld-evidence.md）后重锁"]
 fn full_lust_net_topology_matches_external_lane_anchor() {
     let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
     let root = PathBuf::from(source_dir);
     let net_xml = fs::read_to_string(root.join("scenario/lust.net.xml")).expect("read net");
     let tll_xml = fs::read_to_string(root.join("scenario/tll.static.xml")).expect("read tll");
     let vtypes_xml = fs::read_to_string(root.join("scenario/vtypes.add.xml")).expect("read vtypes");
+    // R2：验收入口对全部实际消费字节绑定 pinned 基线——net 经下方 report 头
+    // 比对，tll/vtypes 在此直接对消费字节断言 §2.2 pinned digest；注释改动或
+    // 任何非 pinned 字节即测试失败。断言位于转换之前，R1 门控下转换在
+    // normalize 中止也不影响本断言先行执行。
+    for (relative_path, bytes) in [
+        ("scenario/tll.static.xml", tll_xml.as_bytes()),
+        ("scenario/vtypes.add.xml", vtypes_xml.as_bytes()),
+    ] {
+        let pinned = PINNED_SOURCE_FILES
+            .iter()
+            .find(|file| file.relative_path == relative_path)
+            .expect("pinned entry present");
+        assert_eq!(
+            hex_sha256(bytes),
+            pinned.sha256_hex,
+            "{relative_path} bytes must equal the pinned §2.2 baseline"
+        );
+    }
     let network = parse_sumo_network_xml(&net_xml).expect("parse lust.net.xml");
     assert!(network.location.matches_lust_anchors());
     assert_eq!(network.external_edge_count(), 5_779);
@@ -211,6 +236,15 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
             .expect("second report")
             .rendered,
         "diagnostic report must be byte-deterministic across runs"
+    );
+    // R2：验收输入即 pinned 基线字节，清单头必须如实标注「一致」（摘要对实际
+    // 转换字节求值，等于 pinned digest 即一致；未走 verify-source 时来源校验行
+    // 仍为「未执行」，两种声明互不越权）。
+    assert!(
+        report
+            .rendered
+            .contains("与 pinned 比对：一致（输入为 pinned 基线字节）"),
+        "pinned 基线输入的清单头必须标注一致"
     );
     // 点状 stub 内边被移除并焊接（pinned 数据 shape 端点距 < 0.5 m 的共 84 条，
     // 实测锁定），其余 lane 全数保留。

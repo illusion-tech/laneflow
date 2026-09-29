@@ -9,6 +9,7 @@ pub mod provenance;
 pub mod report;
 pub mod tar;
 
+pub use digest::hex_sha256;
 pub use emit::{
     TopologyArtifacts, TopologyCounts, compile_network_lfca,
     compile_network_lfca_with_infeasibility_report,

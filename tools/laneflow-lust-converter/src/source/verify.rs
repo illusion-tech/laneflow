@@ -164,8 +164,38 @@ fn hex_digest(bytes: &[u8; 32]) -> String {
 mod tests {
     use std::process::Command;
 
-    use super::{LUST_COMMIT, checkout_revision, hex_digest};
-    use crate::Error;
+    use super::{LUST_COMMIT, checkout_revision, hex_digest, verify_source_dir};
+    use crate::{Error, source::PINNED_SOURCE_FILES};
+
+    #[test]
+    fn verify_source_dir_rejects_digest_mismatch_before_revision_check() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-lust-verify-digest-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp");
+        // 仅摆放第一条 pinned 文件（net.xml，尺寸对齐、内容不符）：文件校验
+        // 先于 revision 检查执行，digest 失配必须报 SourceDigestMismatch 而非
+        // SourceRevisionUnknown——无需真实 pinned 字节或 git 仓即可锁定顺序。
+        let pinned = &PINNED_SOURCE_FILES[0];
+        let path = root.join(pinned.relative_path);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+        std::fs::write(&path, vec![b'x'; pinned.bytes as usize]).expect("write pinned-shaped file");
+        let error = verify_source_dir(&root).expect_err("corrupt pinned file must fail");
+        match error {
+            Error::SourceDigestMismatch {
+                relative_path,
+                expected,
+                ..
+            } => {
+                assert_eq!(relative_path, pinned.relative_path);
+                assert_eq!(expected, pinned.sha256_hex);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn hex_digest_encodes_lowercase() {
