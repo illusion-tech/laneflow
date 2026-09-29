@@ -372,8 +372,14 @@ const DEGENERATE_SEGMENT_METERS: f64 = SAMPLE_MIN_CHORD_METERS;
 
 /// 软/硬折点分界（度）：≤ 30° 视为采样伪影走平滑；> 30° 视为真实硬角走倒圆。
 const SOFT_KINK_MAX_DEG: f64 = 30.0;
-/// 倒圆半径上限（米，G1 修订冻结值）：90° 硬角时偏离原折点 ≤ 5.0 m。
+/// 倒圆半径上限（米，G1 修订冻结值）。
 const FILLET_RADIUS_MAX_METERS: f64 = 5.0;
+/// 倒圆单点最大偏离预算（米，G1 修订 issuecomment-5853823447：「偏离原折点
+/// ≤ 5.0 m」）。半径选值受其约束 r ≤ 5/(sec(θ/2)−1)，构造出的 cubic 另做
+/// 数值校验（#253 R7）。
+const FILLET_DEVIATION_MAX_METERS: f64 = 5.0;
+/// 偏离校验数值扫描的均匀采样数（构造期一次，确定性）。
+const FILLET_DEVIATION_SAMPLES: usize = 256;
 /// 单侧回切占相邻弦长比例上限，防止相邻倒圆互相吞没中间弦。
 const FILLET_CUTBACK_FRACTION: f64 = 0.45;
 /// 直线判定阈值（弧度）：两端切向与弦的方向差均小于此值时直接发单条 `Line`。
@@ -731,15 +737,37 @@ pub(crate) fn repair_curve(
         let w = chord_units[i];
         let theta = angle_rad(u, w);
         if theta > soft_max_rad {
-            let tan_half = (theta * 0.5).tan();
             let d_limit = FILLET_CUTBACK_FRACTION * chord_lens[i - 1].min(chord_lens[i]);
-            let radius = (d_limit / tan_half).min(FILLET_RADIUS_MAX_METERS);
+            let radius = fillet_radius(theta, d_limit);
             if radius > 1e-6 {
-                let d = radius * tan_half;
-                let t1 = add(v, scale(u, -d));
-                let t2 = add(v, scale(w, d));
+                let mut radius = radius;
+                let mut d = radius * (theta * 0.5).tan();
+                let mut t1 = add(v, scale(u, -d));
+                let mut t2 = add(v, scale(w, d));
                 // 圆弧的三次 Bezier 拟合：控制柄 (4/3)·r·tan(θ/4)，端点严格相切。
-                let handle = (4.0 / 3.0) * radius * (theta * 0.25).tan();
+                let mut handle = (4.0 / 3.0) * radius * (theta * 0.25).tan();
+                // 偏离预算终检（#253 R7）：cubic 弧到原折点的最近距离（切削
+                // 深度，理想值 r·(sec(θ/2)−1)）。注意不是 max|p−v|——那量到的
+                // 是回切端点距离 r·tan(θ/2)（恒更大），等于复现 tan 帽误拒。
+                let mut gap = fillet_corner_gap(t1, t2, handle, u, w, v);
+                if gap > FILLET_DEVIATION_MAX_METERS + 1e-9 {
+                    // 恰界（θ=120°、r=5.0 时理想切削深度恰 5.000 m）：cubic 拟合
+                    // 偏差可使实测略超预算。固定 θ 下深度 ≈ r·(sec(θ/2)−1) 对 r
+                    // 线性，按预算比例回缩一次再终检（确定性）；仍超才 fail-closed。
+                    radius *= FILLET_DEVIATION_MAX_METERS / gap;
+                    d = radius * (theta * 0.5).tan();
+                    t1 = add(v, scale(u, -d));
+                    t2 = add(v, scale(w, d));
+                    handle = (4.0 / 3.0) * radius * (theta * 0.25).tan();
+                    gap = fillet_corner_gap(t1, t2, handle, u, w, v);
+                }
+                if gap > FILLET_DEVIATION_MAX_METERS + 1e-9 {
+                    return Err(Error::SumoModel(format!(
+                        "fillet arc deviates {gap:.3} m from the original corner at \
+                         ({}, {}, {}), exceeding the {FILLET_DEVIATION_MAX_METERS} m budget",
+                        v[0], v[1], v[2]
+                    )));
+                }
                 let n1 = Node {
                     point: t1,
                     prescribed: Some(u),
@@ -861,6 +889,53 @@ const SAMPLE_MAX_PIECES: u32 = 2048;
 /// HIR 冻结的退化段下限（米）：`SPATIAL_MIN_SEGMENT_LENGTH_METERS`，
 /// 长度 ≤ 该值的规范段被拒绝。发射时按同一算术（f32 差分 + hypot）预检。
 const QUANTIZED_MIN_SEGMENT_METERS: f32 = 0.1;
+
+/// 倒圆半径选值（#253 R7）：半径上限、回切上限、偏离预算三者取最小。
+///
+/// 偏离预算的度量是弧矢高 r·(sec(θ/2)−1) ≤ 5.0 m（G1「偏离原折点
+/// ≤ 5.0 m」），**不是**切点距离 r·tan(θ/2)——后者在 θ<180° 恒大于前者，
+/// 用作约束会把 θ∈(约 94°, 134°) 的合规弯误压到 weld 容量可行半径下限
+/// （≈3.19 m）之下（复审修正）。sec 界随 θ→180° 自然趋 0，无解边界在
+/// 5/(sec(θ/2)−1) 低于可行下限处（约 θ ≳ 134°）。
+fn fillet_radius(theta_rad: f64, cutback_limit: f64) -> f64 {
+    let half = theta_rad * 0.5;
+    let tan_half = half.tan();
+    // 5/(sec(θ/2)−1) = 5·cos(θ/2)/(1−cos(θ/2))；用 sin² 半角恒等式
+    // （1−cos x = 2 sin²(x/2)）避免小角相消。
+    let cos_half = half.cos();
+    let sagitta_cap =
+        FILLET_DEVIATION_MAX_METERS * cos_half / (2.0 * (theta_rad * 0.25).sin().powi(2));
+    (cutback_limit / tan_half)
+        .min(FILLET_RADIUS_MAX_METERS)
+        .min(sagitta_cap)
+}
+
+/// 倒圆 cubic（t1→t2，端点切向 u/w，控制柄 handle）到原折点 v 的最近距离
+/// （切削深度）：均匀参数扫描 + 谷值附近一轮加密（确定性数值校验）。
+///
+/// 理想圆弧的闭合式为 r·(sec(θ/2)−1)，即 G1「偏离原折点 ≤ 5.0 m」的度量。
+/// 必须取弧到折点的**最小**距离：取 max|p−v| 会量到回切端点距离
+/// r·tan(θ/2)（θ<180° 恒更大），等于把回切距离当偏离预算，复现 tan 帽误拒。
+fn fillet_corner_gap(t1: Vec3, t2: Vec3, handle: f64, u: Vec3, w: Vec3, v: Vec3) -> f64 {
+    let c1 = add(t1, scale(u, handle));
+    let c2 = sub(t2, scale(w, handle));
+    let mut best_t = 0.0;
+    let mut best = f64::INFINITY;
+    for k in 0..=FILLET_DEVIATION_SAMPLES {
+        let t = k as f64 / FILLET_DEVIATION_SAMPLES as f64;
+        let d = norm(sub(cubic_at(t1, c1, c2, t2, t), v));
+        if d < best {
+            best = d;
+            best_t = t;
+        }
+    }
+    let refine = |k: usize, n: usize| (best_t + (k as f64 / n as f64 - 0.5) * 0.02).clamp(0.0, 1.0);
+    let window = (0..=16).map(|k| refine(k, 16));
+    for t in window {
+        best = best.min(norm(sub(cubic_at(t1, c1, c2, t2, t), v)));
+    }
+    best
+}
 
 /// 发射水槽：持有已发射的 Line 链，并在每段入链前按 compiler 的验收算术
 /// （端点 f32 量化 → 弦长 / 相邻弦全角）做确定性预检。
@@ -1046,6 +1121,32 @@ fn tangent_source_desc(
     "interior Catmull-Rom tangent".to_owned()
 }
 
+/// 三次 Bezier 在 t 处的点（弧长估计用）。
+fn cubic_at(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3, t: f64) -> Vec3 {
+    let mt = 1.0 - t;
+    let (w0, w1, w2, w3) = (mt * mt * mt, 3.0 * mt * mt * t, 3.0 * mt * t * t, t * t * t);
+    [
+        w0 * a[0] + w1 * c1[0] + w2 * c2[0] + w3 * b[0],
+        w0 * a[1] + w1 * c1[1] + w2 * c2[1] + w3 * b[1],
+        w0 * a[2] + w1 * c1[2] + w2 * c2[2] + w3 * b[2],
+    ]
+}
+
+/// 跨段容量的确定性弧长估计：16 段内接折线累加。内接折线必不超过曲线真
+/// 弧长，方向保守——#253 R6：整段端点弦长会系统性低估弧长（90° 圆弧
+/// chord/arc ≈ 0.90），把可行几何误判为不可行。
+fn cubic_arc_len(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3) -> f64 {
+    const SEGMENTS: usize = 16;
+    let mut len = 0.0;
+    let mut prev = a;
+    for k in 1..=SEGMENTS {
+        let p = cubic_at(a, c1, c2, b, k as f64 / SEGMENTS as f64);
+        len += norm(sub(p, prev));
+        prev = p;
+    }
+    len
+}
+
 /// de Casteljau 细分采样三次 Bezier 为 Line 链。
 ///
 /// 片数按局部几何一次选定（等 t 参数切 n 片），而不是递归二分：二分网格
@@ -1085,7 +1186,9 @@ fn sample_cubic(
     let n_quality = (turn / SAMPLE_MAX_TURN_RAD)
         .ceil()
         .max((sagitta / SAMPLE_MAX_SAGITTA_METERS).sqrt().ceil());
-    let n_floor = (chord_len / SAMPLE_MIN_CHORD_METERS).floor();
+    // 容量按弧长估计（而非整段端点弦长，见 cubic_arc_len）。
+    let span_len = cubic_arc_len(a, c1, c2, b);
+    let n_floor = (span_len / SAMPLE_MIN_CHORD_METERS).floor();
     if n_floor < 2.0 {
         // 再切必破弦长下限：单片在安全转角内则发射（sink 量化终检），否则该处
         // 几何在本套验收常数下不可行，fail-closed 报精确位置。
@@ -1094,8 +1197,9 @@ fn sample_cubic(
         }
         return Err(Error::SumoModel(format!(
             "repaired curve curvature is infeasible under the quantized weld budget: \
-             chord {chord_len:.4} m turns {:.2} deg > {:.2} deg at ({}, {}, {}); \
-             splitting finer would breach the {SAMPLE_MIN_CHORD_METERS} m chord floor",
+             span arc {span_len:.4} m (chord {chord_len:.4} m) turns {:.2} deg > {:.2} deg \
+             at ({}, {}, {}); splitting finer would breach the {SAMPLE_MIN_CHORD_METERS} m \
+             chord floor",
             turn.to_degrees(),
             WELD_SAFE_TURN_RAD.to_degrees(),
             b[0],
@@ -1290,6 +1394,200 @@ mod tests {
             program.segments()[0].geometry(),
             re::RoadEditingCurveSegmentGeometry::Line { .. }
         ));
+    }
+
+    #[test]
+    fn arc_capacity_uses_arc_length_not_chord() {
+        // #253 R6 复审反例：r=3.5 m 90° 倒圆 cubic。整段端点弦长 4.9497 m →
+        // 旧容量 47 片误拒（90/47 = 1.915° > 1.9°）；弧长 5.4978 m → 52 片，
+        // 逐片 ≤1.8°、量化弦长 >0.105 m，可行。
+        let a = [16.5, 0.0, 0.0];
+        let b = [20.0, 0.0, 3.5];
+        let h = (4.0 / 3.0) * 3.5 * (std::f64::consts::FRAC_PI_8).tan();
+        let c1 = add(a, scale([1.0, 0.0, 0.0], h));
+        let c2 = sub(b, scale([0.0, 0.0, 1.0], h));
+        let mut sink = EmissionSink::new(a);
+        sample_cubic(a, c1, c2, b, [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], &mut sink)
+            .expect("arc-length capacity must emit the R6 counterexample");
+        // 从发射出的 Line 链复核：片数与逐片量化前几何转角。
+        assert!(
+            sink.segments.len() >= 50,
+            "expected at least 50 pieces, got {}",
+            sink.segments.len()
+        );
+        let mut prev = a;
+        let mut prev_dir: Option<Vec3> = None;
+        let mut max_turn = 0.0_f64;
+        for segment in &sink.segments {
+            let re::RoadEditingCurveSegmentGeometry::Line { end } = segment.geometry() else {
+                panic!("sampled emission must be all-Line");
+            };
+            let next = [end.x(), end.y(), end.z()];
+            let chord = sub(next, prev);
+            let dir = unit(chord).expect("nonzero chord");
+            if let Some(before) = prev_dir {
+                max_turn = max_turn.max(angle_rad(before, dir).to_degrees());
+            }
+            prev_dir = Some(dir);
+            prev = next;
+        }
+        assert!(max_turn <= 1.95, "peak piece turn {max_turn}");
+    }
+
+    #[test]
+    fn fillet_radius_respects_deviation_budget() {
+        // #253 R7：偏离预算约束 r ≤ 5/(sec(θ/2)−1)（弧矢高；G1「偏离原折点
+        // ≤ 5.0 m」）。回切不绑定（big）时 90°/100°/120° 取满半径上限 5.0
+        // （120° 恰界：sec60°−1 = 1，r = 5 的矢高恰 5.000 m），150° 压至
+        // 5/(sec75°−1) = 1.746。约束不是切点距离 r·tan(θ/2)——后者恒更严，
+        // 会把 θ∈(约 94°, 134°) 的合规弯误压到 weld 容量下限之下。
+        let big = 1.0e9;
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-3;
+        assert!(near(fillet_radius(std::f64::consts::FRAC_PI_2, big), 5.0));
+        assert!(near(fillet_radius(100.0_f64.to_radians(), big), 5.0));
+        assert!(near(fillet_radius(120.0_f64.to_radians(), big), 5.0));
+        assert!(near(fillet_radius(150.0_f64.to_radians(), big), 1.7460));
+    }
+
+    #[test]
+    fn wide_corner_fillet_fails_closed_within_deviation_budget() {
+        // #253 R7：150° 硬角在偏离预算下半径被压至 1.746 m，倒圆在量化 weld
+        // 预算内不可行 → fail-closed（旧行为 r=5 可发射但偏离原折点 14.3 m，
+        // 违反 G1「偏离原折点 ≤ 5.0 m」）。
+        // 25 m 邻弦：回切上限 (0.45·25/tan75° ≈ 3.01) 高于偏离预算
+        // (5/(sec75°−1) ≈ 1.746)，确保压半径的是偏离预算本身。
+        let c150 = 150.0_f64.to_radians();
+        let points = [
+            pt(0.0, 0.0),
+            pt(25.0, 0.0),
+            pt(25.0 + 25.0 * c150.cos(), 25.0 * c150.sin()),
+        ];
+        let err = repair_curve(&points, None, None, None, None)
+            .expect_err("150 deg fillet must fail closed");
+        let message = err.to_string();
+        assert!(
+            message.contains("weld budget"),
+            "expected weld-budget infeasibility, got: {message}"
+        );
+    }
+
+    #[test]
+    fn deviation_capped_fillet_still_emits() {
+        // 100°（25 m 邻弦）：复审修正的正向锁定——半径取满 5.0（旧 tan 帽
+        // 会误压至 4.196），切削深度 5·(sec50°−1) ≈ 2.779 m 远在预算内，倒圆
+        // 发射。min-gap 锁定排除 tan 帽回归（tan 帽下 min-gap ≈ 2.332）。
+        let c100 = 100.0_f64.to_radians();
+        let points = [
+            pt(0.0, 0.0),
+            pt(25.0, 0.0),
+            pt(25.0 + 25.0 * c100.cos(), 25.0 * c100.sin()),
+        ];
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("100 deg fillet emits within budget");
+        // 倒圆几何（原 lane 两个端点除外）到原折点的最近距离：切削深度。
+        let corner = [25.0, 0.0, 0.0];
+        let start = program.start();
+        let mut min_gap = f64::INFINITY;
+        let mut prev: Vec3 = [start.x(), start.y(), start.z()];
+        for (index, segment) in program.segments().iter().enumerate() {
+            let re::RoadEditingCurveSegmentGeometry::Line { end } = segment.geometry() else {
+                panic!("sampled emission must be all-Line");
+            };
+            let next: Vec3 = [end.x(), end.y(), end.z()];
+            // 首段起点是原 lane 起点，不属于倒圆几何。
+            if index > 0 {
+                min_gap = min_gap.min(norm(sub(prev, corner)));
+            }
+            prev = next;
+        }
+        assert!(
+            (2.75..=2.85).contains(&min_gap),
+            "cut depth {min_gap} m must match r=5.0 (tan cap would give ~2.332)"
+        );
+        assert!(min_gap <= FILLET_DEVIATION_MAX_METERS + 1e-9);
+    }
+
+    #[test]
+    fn boundary_corner_fillet_keeps_full_radius() {
+        // 120° 恰界（25 m 邻弦）：半径取满 5.0，理想切削深度恰 5.000 m，
+        // cubic 实测不越预算（不回缩），T2 = V + w·5·tan60° = (25−4.330127, 7.5)
+        // 必须作为采样弦端点出现——锁定「恰界放行、半径不被回缩」。
+        let c120 = 120.0_f64.to_radians();
+        let points = [
+            pt(0.0, 0.0),
+            pt(25.0, 0.0),
+            pt(25.0 + 25.0 * c120.cos(), 25.0 * c120.sin()),
+        ];
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("120 deg boundary fillet emits at full radius");
+        let d = FILLET_RADIUS_MAX_METERS * (c120 * 0.5).tan();
+        let has_t2 = program.segments().iter().any(|segment| {
+            let re::RoadEditingCurveSegmentGeometry::Line { end } = segment.geometry() else {
+                return false;
+            };
+            let expected_x = 25.0 + c120.cos() * d;
+            let expected_y = c120.sin() * d;
+            (end.x() - expected_x).abs() < 1e-6 && (end.y() - expected_y).abs() < 1e-6
+        });
+        assert!(
+            has_t2,
+            "fillet arc must end at T2 at full radius (no shrink)"
+        );
+    }
+
+    #[test]
+    fn fillet_corner_gap_matches_sagitta_model() {
+        // 切削深度（cubic 到原折点最近距离）对理想弧闭合式 r·(sec(θ/2)−1) 的
+        // 数值校验；同时锁 gap < 回切距离 r·tan(θ/2)（排除 max|p−v| 语义回归）。
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-3;
+        let gap_at = |theta_deg: f64, r: f64| {
+            let theta = theta_deg.to_radians();
+            let d = r * (theta * 0.5).tan();
+            let u = unit([1.0, 0.0, 0.0]).expect("unit");
+            let w = [theta.cos(), 0.0, theta.sin()];
+            let v = [0.0, 0.0, 0.0];
+            let t1 = add(v, scale(u, -d));
+            let t2 = add(v, scale(w, d));
+            let handle = (4.0 / 3.0) * r * (theta * 0.25).tan();
+            fillet_corner_gap(t1, t2, handle, u, w, v)
+        };
+        let ideal = |theta_deg: f64, r: f64| {
+            let half = theta_deg.to_radians() * 0.5;
+            r * (half.cos().recip() - 1.0)
+        };
+        for (theta, r) in [(90.0, 5.0), (120.0, 5.0), (150.0, 1.7460)] {
+            let gap = gap_at(theta, r);
+            assert!(
+                near(gap, ideal(theta, r)),
+                "gap {gap} != ideal {} at theta={theta} r={r}",
+                ideal(theta, r)
+            );
+            assert!(
+                gap < r * (theta.to_radians() * 0.5).tan(),
+                "gap must be cut depth, not cutback distance"
+            );
+        }
+    }
+
+    #[test]
+    fn deviation_budget_makes_wide_corners_infeasible_not_violating() {
+        // 140°（25 m 邻弦）：偏离预算 r ≤ 5/(sec70°−1) = 2.599，低于 weld 容量
+        // 可行半径下限（≈3.19 m），两预算无交——fail-closed 必须是发射层拒绝，
+        // 而不是发出一个偏离原折点 >5 m 的倒圆。sec 界下无解边界在
+        // 5/(sec(θ/2)−1) < 3.19 m 处，即 θ ≳ 134°。
+        let c140 = 140.0_f64.to_radians();
+        let points = [
+            pt(0.0, 0.0),
+            pt(25.0, 0.0),
+            pt(25.0 + 25.0 * c140.cos(), 25.0 * c140.sin()),
+        ];
+        let err = repair_curve(&points, None, None, None, None)
+            .expect_err("140 deg fillet is infeasible under the joint budgets");
+        let message = err.to_string();
+        assert!(
+            message.contains("weld budget") || message.contains("deviates"),
+            "unexpected failure mode: {message}"
+        );
     }
 
     #[test]
