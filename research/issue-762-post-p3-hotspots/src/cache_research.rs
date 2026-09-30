@@ -30,6 +30,7 @@ const LEGACY: Experiment = Experiment {
 };
 #[derive(Clone, Copy)]
 pub(crate) struct CapturePlan {
+    pub(crate) arms: &'static [&'static str],
     pub(crate) scale: Option<&'static str>,
     pub(crate) alternate_quartets: bool,
     pub(crate) observe: fn(&Path, &str, &str) -> Result<()>,
@@ -39,6 +40,7 @@ pub(crate) struct CapturePlan {
 impl Default for CapturePlan {
     fn default() -> Self {
         Self {
+            arms: &["base", "candidate"],
             scale: None,
             alternate_quartets: false,
             observe: |_, _, _| Ok(()),
@@ -320,6 +322,34 @@ fn planned_labels(
             .is_none_or(|scale| ["10k", "100k"].contains(&scale)),
         "matrix scale",
     )?;
+    if plan.arms == ["base", "layout", "candidate"] {
+        need(mode == "plain", "three-arm plain matrix")?;
+        return Ok(["10k", "100k"]
+            .into_iter()
+            .filter(|scale| plan.scale.is_none_or(|selected| selected == *scale))
+            .flat_map(|scale| {
+                (0..3).flat_map(move |group| {
+                    let order = [
+                        group,
+                        (group + 1) % 3,
+                        (group + 2) % 3,
+                        (group + 2) % 3,
+                        (group + 1) % 3,
+                        group,
+                    ];
+                    order.into_iter().enumerate().map(move |(position, arm)| {
+                        let arm = plan.arms[arm];
+                        (
+                            format!("{scale}-{}-{}-{arm}-{mode}", group + 1, position + 1),
+                            scale.to_owned(),
+                            arm.to_owned(),
+                        )
+                    })
+                })
+            })
+            .collect());
+    }
+    need(plan.arms == ["base", "candidate"], "capture arms")?;
     let mut rows = labels_for(mode, experiment)?;
     if plan.alternate_quartets && !experiment.count_p2 && mode == "plain" {
         for (index, (label, _, arm)) in rows.iter_mut().enumerate() {
@@ -372,7 +402,10 @@ pub(crate) fn capture_planned_for(
         identity["matrix"] =
             json!({"scale":plan.scale,"alternate_quartets":plan.alternate_quartets});
     }
-    for arm in ["base", "candidate"] {
+    if plan.arms.len() == 3 {
+        identity["matrix"]["arms"] = json!(plan.arms);
+    }
+    for &arm in plan.arms {
         let source = io::read_json(&root.join(format!("{arm}-{mode}-source.json")))?;
         need(
             source["arm"] == arm
@@ -468,7 +501,7 @@ pub(crate) fn capture_planned_for(
         println!("{label} complete");
     }
     need(inputs(&input)? == identity["inputs"], "input drift")?;
-    for arm in ["base", "candidate"] {
+    for &arm in plan.arms {
         need(
             io::source_index(&root.join(format!("{arm}-{mode}-source")))?
                 == identity["sources"][arm]["source_files"],
@@ -567,11 +600,14 @@ pub(crate) fn analyze_planned_for(
 ) -> Result<Value> {
     let identity = io::read_json(&raw.join("identity.json"))?;
     let mode = string(&identity["mode"])?;
-    let expected_matrix = if plan.scale.is_some() || plan.alternate_quartets {
+    let mut expected_matrix = if plan.scale.is_some() || plan.alternate_quartets {
         json!({"scale":plan.scale,"alternate_quartets":plan.alternate_quartets})
     } else {
         Value::Null
     };
+    if plan.arms.len() == 3 {
+        expected_matrix["arms"] = json!(plan.arms);
+    }
     need(identity["matrix"] == expected_matrix, "matrix identity")?;
     need(
         identity["completed"] == true

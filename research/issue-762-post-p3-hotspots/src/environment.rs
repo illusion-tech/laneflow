@@ -26,6 +26,7 @@ fn contenders(csv: &str) -> Result<Vec<String>> {
                 "detail.exe",
                 "base-plain.exe",
                 "candidate-plain.exe",
+                "layout-plain.exe",
                 "base-detail.exe",
                 "candidate-detail.exe",
                 "laneflow-urban-harness.exe",
