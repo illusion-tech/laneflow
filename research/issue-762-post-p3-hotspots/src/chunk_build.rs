@@ -189,6 +189,9 @@ fn verify_record(source: &Value, digest: &Value) -> Result<()> {
             && b["source_files_sha256"] == value_sha(&source["source_files"])?
             && b["binary_sha256"] == *digest
             && b["binary_bytes"].as_u64().is_some_and(|v| v > 0)
+            && b["inherited_environment"]
+                .as_object()
+                .is_some_and(|vars| vars.values().all(|v| v.as_str().is_some()))
             && b["rustc"]
                 .as_str()
                 .is_some_and(|s| s.starts_with("rustc 1.98.0 "))
@@ -236,9 +239,50 @@ pub(crate) fn verify_raw(raw: &Path, source: &Value, digest: &Value) -> Result<(
     Ok(())
 }
 
+pub(crate) fn compatible(a: &Value, b: &Value) -> Result<()> {
+    for field in ["inherited_environment", "rustc", "cargo"] {
+        need(
+            !a[field].is_null() && a[field] == b[field],
+            "paired build environment/toolchain mismatch",
+        )?;
+    }
+    need(
+        a["command"]["environment"].is_object()
+            && a["command"]["environment"] == b["command"]["environment"],
+        "paired build controlled environment mismatch",
+    )
+}
+pub(crate) fn validate_pair(identity: &Value) -> Result<()> {
+    compatible(
+        &identity["sources"]["base"]["build"],
+        &identity["sources"]["candidate"]["build"],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inherited_optimization_flags_and_toolchains_must_match() {
+        let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0",
+            "command":{"environment":{"CARGO_INCREMENTAL":"0"}}});
+        let good = json!({"sources":{"base":{"build":build},"candidate":{"build":build}}});
+        validate_pair(&good).unwrap();
+        for key in [
+            "CARGO_PROFILE_RELEASE_LTO",
+            "CARGO_PROFILE_RELEASE_CODEGEN_UNITS",
+            "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS",
+        ] {
+            let mut bad = good.clone();
+            bad["sources"]["candidate"]["build"]["inherited_environment"][key] = json!("different");
+            assert!(validate_pair(&bad).is_err(), "{key}");
+        }
+        for field in ["rustc", "cargo"] {
+            let mut bad = good.clone();
+            bad["sources"]["candidate"]["build"][field] = json!("other toolchain");
+            assert!(validate_pair(&bad).is_err(), "{field}");
+        }
+    }
     #[test]
     fn build_provenance_excludes_authentication_environment() {
         for key in [
@@ -268,6 +312,7 @@ mod tests {
             json!({"arm":"base","mode":"plain","source_files":{"Cargo.lock":"frozen"}});
         source["build"] = json!({"schema":"p5-chunk-controlled-build-v1","protocol":EXPERIMENT.protocol,
             "exit_code":0,
+            "inherited_environment":{},
             "command":recipe(&root.join("base-plain-source"),&root.join("base-plain-target")),
             "source_files_sha256":value_sha(&source["source_files"]).unwrap(),"binary_sha256":io::sha(&binary).unwrap(),
             "binary_bytes":23,"rustc":"rustc 1.98.0 (fixture)","cargo":"cargo 1.98.0 (fixture)",

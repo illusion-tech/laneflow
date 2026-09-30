@@ -34,6 +34,7 @@ pub(crate) struct CapturePlan {
     pub(crate) alternate_quartets: bool,
     pub(crate) observe: fn(&Path, &str, &str) -> Result<()>,
     pub(crate) bind_build: fn(&Path, &Path, &Value, &Path) -> Result<()>,
+    pub(crate) validate_builds: fn(&Value) -> Result<()>,
 }
 impl Default for CapturePlan {
     fn default() -> Self {
@@ -42,6 +43,7 @@ impl Default for CapturePlan {
             alternate_quartets: false,
             observe: |_, _, _| Ok(()),
             bind_build: |_, _, _, _| Ok(()),
+            validate_builds: |_| Ok(()),
         }
     }
 }
@@ -401,6 +403,7 @@ pub(crate) fn capture_planned_for(
                 != identity["binaries"]["candidate"]["sha256"],
         "arms identity",
     )?;
+    (plan.validate_builds)(&identity)?;
     let identity_path = raw.join("identity.json");
     io::write_new(&identity_path, &identity)?;
     for (label, scale, arm) in matrix {

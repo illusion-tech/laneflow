@@ -1,14 +1,28 @@
 {
-  "file": "issue-801-p5-chunks.tar.zst",
-  "bytes": 109576548,
-  "sha256": "dd41d0085b4cfef3255963e89da9b7396a66e21d922127c4e8edd0a6695904ce",
-  "location": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\issue-801-p5-chunks.tar.zst",
-  "manifest_sha256": "c795c9496d58cd8f58e0eebc03405709224c82fcf89481f7de021b0abd1b4a4a",
-  "verified_files": 12431,
+  "file": "issue-801-p5-chunks-reviewed.tar.zst",
+  "bytes": 232182369,
+  "sha256": "77753698f7e4680dfac2a38df14c9556b3f4d150d1142c3d7819da087fffb80e",
+  "location": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\issue-801-p5-chunks-reviewed.tar.zst",
+  "manifest_sha256": "3b2b9f4a34cd164e6bcdf9a97570865e57d05a2f9284d2569219c12d2a5a1999",
+  "verified_files": 16014,
   "successful_runs": 30,
-  "rejected_diagnostic_processes": 1,
+  "rejected_guard_cases": 8,
+  "protocol": "p5-chunk-grain-v2",
+  "tool_heads": {
+    "builder": "7d9c9b5d9325bcfbcb797807238db6778cda7972",
+    "capture": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
+    "verifier": "93d42e5caf22aa6f3102c255ff2b790b6f8fd25d"
+  },
   "frozen_input_files_included": true,
   "exported_source_snapshots_included": true,
-  "verification": "fresh extraction: every listed file verified; 24 plain and 6 fixed diagnostic runs rederived; four successful runtime EXE hashes bound",
+  "build_source_exe_bindings_verified": 4,
+  "plain_reference_verified": true,
+  "previous_bundle": {
+    "file": "previous/issue-801-p5-chunks.tar.zst",
+    "sha256": "dd41d0085b4cfef3255963e89da9b7396a66e21d922127c4e8edd0a6695904ce",
+    "successful_runs": 30,
+    "rejected_diagnostic_processes": 1
+  },
+  "verification": "fresh extraction: all manifest files, four actual source/exe bindings and frozen inputs verified; 24 plain runs and 6 diagnostic runs rederived with required plain reference",
   "published_to_release": false
 }

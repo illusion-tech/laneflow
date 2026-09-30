@@ -1,5 +1,5 @@
 {
-  "utc": "2026-09-30T06:24:47.7086042Z",
+  "utc": "2026-09-30T07:41:07.7119782Z",
   "cpu": {
     "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
     "NumberOfCores": 16,
@@ -16,7 +16,6 @@
     "EstimatedChargeRemaining": 100
   },
   "known_contenders": [],
-  "collector_sha256": "848403786AE1514BC56917A3FAAFBC9B20DEB437400BF0F8617AAA13278905A8",
-  "restored_inputs_from": "E:/projects/archives/laneflow-evidence-issue-707.tar.zst",
-  "scope": "aggregate before snapshot; Rust records additional per-process boundaries, not continuous monitoring"
+  "collector_sha256": "29722a6bf880cd64015028c7151813924f68d07f817e14b8002160b981c9fab1",
+  "scope": "aggregate snapshot; Rust saves process boundary snapshots, not continuous monitoring"
 }

@@ -235,6 +235,12 @@ fn compare_modes(detail: &Value, plain: &Value) -> Result<()> {
             && plain["identity"]["inputs"] == detail["identity"]["inputs"],
         "plain/detail input or mode mismatch",
     )?;
+    for arm in ["base", "candidate"] {
+        chunk_build::compatible(
+            &detail["identity"]["sources"][arm]["build"],
+            &plain["identity"]["sources"][arm]["build"],
+        )?;
+    }
     let references: Vec<_> = plain["runs"]
         .as_array()
         .ok_or("plain runs")?
@@ -304,6 +310,8 @@ pub(crate) fn analyze(raw: &Path, plain_raw: Option<&Path>) -> Result<Value> {
         )?;
         chunk_build::verify_raw(raw, source, &identity["binaries"][arm]["sha256"])?;
     }
+    chunk_build::validate_pair(&identity)?;
+    output["build_settings_equal"] = json!(true);
     let runs = output["runs"].as_array_mut().ok_or("runs")?;
     for run in runs.iter_mut() {
         let label = run["label"].as_str().ok_or("label")?;
@@ -370,9 +378,10 @@ mod tests {
     fn identical_drift_in_both_diagnostic_arms_is_rejected_against_plain() {
         let run = json!({"scale":"100k","traffic":{"ticks.jsonl":"t","commands.jsonl":"c","events.jsonl":"e"},
             "initial_counts":[75_000,25_000,0],"final_counts":[70_752,25_200,4_048]});
-        let plain = json!({"identity":{"mode":"plain","inputs":{"frozen":"input"}},"runs":vec![run.clone();12]});
-        let detail =
-            json!({"identity":{"mode":"detail","inputs":{"frozen":"input"}},"runs":vec![run;6]});
+        let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0","command":{"environment":{}}});
+        let sources = json!({"base":{"build":build},"candidate":{"build":build}});
+        let plain = json!({"identity":{"mode":"plain","inputs":{"frozen":"input"},"sources":sources},"runs":vec![run.clone();12]});
+        let detail = json!({"identity":{"mode":"detail","inputs":{"frozen":"input"},"sources":sources},"runs":vec![run;6]});
         compare_modes(&detail, &plain).unwrap();
         for field in ["traffic", "initial_counts", "final_counts"] {
             let mut bad = detail.clone();
@@ -389,6 +398,12 @@ mod tests {
         bad["identity"]["inputs"]["frozen"] = json!("other");
         assert!(compare_modes(&bad, &plain).is_err());
         assert!(compare_modes(&detail, &detail).is_err());
+        let mut bad = detail.clone();
+        for arm in ["base", "candidate"] {
+            bad["identity"]["sources"][arm]["build"]["inherited_environment"]["CARGO_PROFILE_RELEASE_LTO"] =
+                json!("true");
+        }
+        assert!(compare_modes(&bad, &plain).is_err());
     }
     fn batch() -> Value {
         json!({"tick":1,"workload":8_000,"chunk_size":1_000,"dispatch_ns":30,
