@@ -30,7 +30,7 @@ fn name(source: &Value) -> Result<String> {
     let arm = source["arm"].as_str().ok_or("build arm")?;
     let mode = source["mode"].as_str().ok_or("build mode")?;
     need(
-        ["base", "candidate"].contains(&arm) && ["plain", "detail"].contains(&mode),
+        ["base", "layout", "candidate"].contains(&arm) && ["plain", "detail"].contains(&mode),
         "build arm/mode",
     )?;
     Ok(format!("{arm}-{mode}"))

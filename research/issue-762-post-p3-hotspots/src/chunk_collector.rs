@@ -1,5 +1,5 @@
 //! #801 从干净冻结提交受控构建采集器；普通命令只接受凭据绑定的实际 EXE。
-use crate::{EXPERIMENT, Result, chunk_build, chunk_config, chunk_native, io, need};
+use crate::{COLLECTOR_BIN, EXPERIMENT, Result, chunk_build, chunk_config, chunk_native, io, need};
 use serde_json::{Value, json};
 use std::{
     fs::{self, OpenOptions},
@@ -21,12 +21,12 @@ const ARGS: [&str; 10] = [
     "-p",
     "laneflow-post-p3-research",
     "--bin",
-    "laneflow-p5-chunk-research",
+    COLLECTOR_BIN,
     "--target-dir",
 ];
 
 fn binary_name() -> String {
-    format!("laneflow-p5-chunk-research{}", std::env::consts::EXE_SUFFIX)
+    format!("{COLLECTOR_BIN}{}", std::env::consts::EXE_SUFFIX)
 }
 fn recipe(source: &Path, target: &Path, environment: &Value) -> Value {
     let args: Vec<_> = ARGS
