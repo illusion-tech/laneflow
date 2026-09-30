@@ -1,13 +1,119 @@
 {
-  "partial_batch": {
-    "exit_code": 1,
-    "reason": "protocol completion"
-  },
-  "changed_published_comparison": {
-    "exit_code": 1,
-    "reason": "published mismatch"
-  },
-  "cross_mode_inputs_and_traffic": "all six fixed diagnostic runs match the 100k plain traffic hashes and initial/final counts",
-  "unit_corruptions": "chunk partitions, completion, interval bounds, worker overlap, stage calls/nesting, matrix order and screening repeatability",
-  "original_plain_unchanged": "5456BB7F3925125F8432A26863D6B22C73F05E56A55FECBBC40A9BDFB2679581"
+  "schema": "p5-chunk-guard-negative-v1",
+  "collector_head": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
+  "cases": [
+    {
+      "name": "prepare-existing-old-exe",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "prepare",
+        "base",
+        "plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\existing-old-exe"
+      ],
+      "exit_code": 1,
+      "expected": "output already exists",
+      "actual": "output already exists",
+      "log": "prepare-existing-old-exe.log"
+    },
+    {
+      "name": "run-swapped-exe",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "run",
+        "plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\swapped-build",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-inputs\\issue-707\\4de40e04",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\swapped-raw"
+      ],
+      "exit_code": 1,
+      "expected": "build attestation/source/binary mismatch",
+      "actual": "build attestation/source/binary mismatch",
+      "log": "run-swapped-exe.log"
+    },
+    {
+      "name": "detail-without-plain",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\missing-reference-results.json"
+      ],
+      "exit_code": 1,
+      "expected": "detail requires plain raw evidence",
+      "actual": "detail requires plain raw evidence; plain forbids a reference",
+      "log": "detail-without-plain.log"
+    },
+    {
+      "name": "cross-mode-both-arms-traffic",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-traffic",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\traffic-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+      ],
+      "exit_code": 1,
+      "expected": "plain/detail traffic mismatch",
+      "actual": "plain/detail traffic mismatch",
+      "log": "cross-mode-both-arms-traffic.log"
+    },
+    {
+      "name": "verify-both-arms-traffic",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-traffic",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+      ],
+      "exit_code": 1,
+      "expected": "plain/detail traffic mismatch",
+      "actual": "plain/detail traffic mismatch",
+      "log": "verify-both-arms-traffic.log"
+    },
+    {
+      "name": "cross-mode-both-arms-final-counts",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-final-counts",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\final-counts-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+      ],
+      "exit_code": 1,
+      "expected": "plain/detail final_counts mismatch",
+      "actual": "plain/detail final_counts mismatch",
+      "log": "cross-mode-both-arms-final-counts.log"
+    },
+    {
+      "name": "verify-both-arms-final-counts",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-final-counts",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+      ],
+      "exit_code": 1,
+      "expected": "plain/detail final_counts mismatch",
+      "actual": "plain/detail final_counts mismatch",
+      "log": "verify-both-arms-final-counts.log"
+    },
+    {
+      "name": "published-value-change",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\bad-published.json"
+      ],
+      "exit_code": 1,
+      "expected": "published mismatch",
+      "actual": "published mismatch",
+      "log": "published-value-change.log"
+    }
+  ],
+  "all_rejected": true,
+  "mutations": "complete cloned diagnostic batches; identical event addition or final Active/Completed transfer in all six runs; native event digest refreshed; no timing or identity changes"
 }

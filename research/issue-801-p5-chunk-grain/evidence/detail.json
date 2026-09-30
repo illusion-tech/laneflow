@@ -1,4 +1,5 @@
 {
+  "build_settings_equal": true,
   "files": [
     {
       "bytes": 13065056,
@@ -6,9 +7,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1198,
+      "bytes": 1191,
       "path": "100k-1-1-base-detail/diagnostics.json",
-      "sha256": "8cc9942d8316c317e6c2abaeedd9ea7540b0aa703f874466eff86923bd0c45f3"
+      "sha256": "c221cbb39cddd2f9c55954115926bc2736ec4e928acb3a5c87804b052aaa4d46"
     },
     {
       "bytes": 2513992,
@@ -23,7 +24,7 @@
     {
       "bytes": 225787,
       "path": "100k-1-1-base-detail/result.json",
-      "sha256": "13fdba7a530bcc63e892d4f7e0d4da6a268295910507ff8d73175777660eb0e8"
+      "sha256": "c072492ca21361d1d353852558c212b0de1f7649bc23fe0f20912f8d58f0d431"
     },
     {
       "bytes": 159006,
@@ -31,24 +32,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32519,
+      "bytes": 32203,
       "path": "100k-1-1-base-detail.environment-after.json",
-      "sha256": "cc5dfb9f8108b1b062fe2960f95dd90acb2743e82000cee7bdd605f1e4d7b7dc"
+      "sha256": "55365ac58fc04c12a15242304c63d3c9757b86adfd87ee23866fc4723534de59"
     },
     {
-      "bytes": 32515,
+      "bytes": 32158,
       "path": "100k-1-1-base-detail.environment-before.json",
-      "sha256": "c2d6efac4ebe4a238e5281514d92bd2c543196fcf7384f7dd09fd3391ef320a1"
+      "sha256": "bb6c4efd2ceadfcc42178a4ed6130afa843c78071bb9ff11de388a3c26f21906"
     },
     {
-      "bytes": 983,
+      "bytes": 976,
       "path": "100k-1-1-base-detail.process.json",
-      "sha256": "4bc07af54156bd8d8d8f6bb5645a3cdabae439683d42d73b2bd253051a3a8630"
+      "sha256": "bff6e547842ff794707e0e731560a159c025d99130f30a7bf653b0116e469838"
     },
     {
-      "bytes": 148880,
+      "bytes": 148875,
       "path": "100k-1-1-base-detail.stderr",
-      "sha256": "538d0e7f9ccac2cf476ea5855c7441e5020c6c0e642132b95efe1834e3f7938a"
+      "sha256": "9cbc02dffe0b69e9b5d2c0d89875eb550e046be58f44da4243f5209e28a3608e"
     },
     {
       "bytes": 30,
@@ -61,9 +62,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1208,
+      "bytes": 1200,
       "path": "100k-1-2-candidate-detail/diagnostics.json",
-      "sha256": "ffcec2ebe9a0fd6d7acb513192320ee843c44c9e6aebc54b8367c5049b6ee41c"
+      "sha256": "a182af553878c815df0a58d245ef1135967c5a2db1e4fb333f5f300eee17bf6f"
     },
     {
       "bytes": 2513992,
@@ -78,7 +79,7 @@
     {
       "bytes": 225787,
       "path": "100k-1-2-candidate-detail/result.json",
-      "sha256": "d9c4a0aecf5314605a32c27fcbe8b6a350b434238547e089b4c3d42e3a53954d"
+      "sha256": "68817b8a98d623635db6919ec853c917c459e3bae454f853d54502b01b2a63c7"
     },
     {
       "bytes": 159006,
@@ -86,24 +87,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32528,
+      "bytes": 32211,
       "path": "100k-1-2-candidate-detail.environment-after.json",
-      "sha256": "0efdc7d30f7efecb4759a2ecc64970a3575dd10354c2454966d78e83d8b1270d"
+      "sha256": "55febf93aad869a09b7e41eebdf5b404e15c383110a863c576dbbfeeef284f42"
     },
     {
-      "bytes": 32525,
+      "bytes": 32209,
       "path": "100k-1-2-candidate-detail.environment-before.json",
-      "sha256": "53ac2a4fc9c937968c14ed347de6b3e5b7f376e5ae644922e1fb4a3d6e0d2a73"
+      "sha256": "baadfde20bb3b644de8a46ec704845c21c7d56d4a84ef478ca000a19ec44b6fe"
     },
     {
-      "bytes": 1003,
+      "bytes": 996,
       "path": "100k-1-2-candidate-detail.process.json",
-      "sha256": "7667bd53deecfc49d20ca38c436df3992d8cad0ddf7a4a227ce812ea96f2ffb3"
+      "sha256": "135f7209461104eb11852300d909234f5dac04fa10518b03340518465dca3939"
     },
     {
-      "bytes": 226950,
+      "bytes": 227045,
       "path": "100k-1-2-candidate-detail.stderr",
-      "sha256": "5cf11ad6dad514c239cea1399cd0ac3a2a803a8d82d423d8d254b4293c76d1c2"
+      "sha256": "63fdc3db44c6e9c8839b1547c7f066670c799840839246b94e7cfbfb27f54837"
     },
     {
       "bytes": 30,
@@ -116,9 +117,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1198,
+      "bytes": 1191,
       "path": "100k-2-1-base-detail/diagnostics.json",
-      "sha256": "5617488dc74e0c6791ee2d46d42714776ca4b867937b18e58d4011117a98684d"
+      "sha256": "b74c5795c61c23cd3b30f559dc5e2512da0aad41ddd20faaa48b73d7e4be1dc0"
     },
     {
       "bytes": 2513992,
@@ -133,7 +134,7 @@
     {
       "bytes": 225787,
       "path": "100k-2-1-base-detail/result.json",
-      "sha256": "28bef6ea73e0244328ba1846513fd9a3c28b71a304f8d97441146fc44dab73a5"
+      "sha256": "ad219aaa886a659c643a10506f01078c94844fd752e4ea0ee14b1253443095f7"
     },
     {
       "bytes": 159006,
@@ -141,24 +142,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32579,
+      "bytes": 32083,
       "path": "100k-2-1-base-detail.environment-after.json",
-      "sha256": "120dc53026ad0125d2fa7073139d7ada43d8edff84f3028daff6a8b61ed520de"
+      "sha256": "32be9050d15f05ed4a0f4a8322a7ccf39b63d925a8b76908872641bc0707ab24"
     },
     {
-      "bytes": 32525,
+      "bytes": 32207,
       "path": "100k-2-1-base-detail.environment-before.json",
-      "sha256": "c9a5844336a1115bbf0cafa9b9ffd8ce45e8acde6d0f41b6cbcf6edf4ba1e2a6"
+      "sha256": "63110a283c4b3069203ddee7473334e97251504979e9731378631fd6b5aeb8fb"
     },
     {
-      "bytes": 983,
+      "bytes": 976,
       "path": "100k-2-1-base-detail.process.json",
-      "sha256": "8624f585dfedb7a5593f48037b21b72dd47136a4400dcc2c637056b975feb454"
+      "sha256": "804564a8064c2895cdc576a71dadb65c112416c1df5913f48172481d81cf5e6f"
     },
     {
-      "bytes": 148847,
+      "bytes": 148832,
       "path": "100k-2-1-base-detail.stderr",
-      "sha256": "cadc4ec7ba73e80c701b80b1769a35de3fa6b46beaa28fe6495aca409aed61e9"
+      "sha256": "cfda878381566df27c302be65e64515a9c2df4a62863ec9e99ba6e6b4685f6ab"
     },
     {
       "bytes": 30,
@@ -171,9 +172,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1208,
+      "bytes": 1201,
       "path": "100k-2-2-candidate-detail/diagnostics.json",
-      "sha256": "796e67366048d7217145d052c93f8968708d3dee5b334e8060bc005cc78310f5"
+      "sha256": "82b4ae5288f1878764252930ab796cc19c99250b100e3f89fbac9018c40eed58"
     },
     {
       "bytes": 2513992,
@@ -188,7 +189,7 @@
     {
       "bytes": 225787,
       "path": "100k-2-2-candidate-detail/result.json",
-      "sha256": "e618bc40b682391eeca2253b0ff7404638846b38659220a2aa10b5584f9500dc"
+      "sha256": "11b67d9eee0580ffbe17430d0c10fec72efc868a405258ed1bc7f61ab9cbee50"
     },
     {
       "bytes": 159006,
@@ -196,24 +197,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32584,
+      "bytes": 32311,
       "path": "100k-2-2-candidate-detail.environment-after.json",
-      "sha256": "32a294ef012aa7e74481b88b4502ddfbbcc9c141e65610a21fc25cd30cec3776"
+      "sha256": "b54e84f93189ebc47cf3792ee498d723389c0c25d50d5c236b75059491b25020"
     },
     {
-      "bytes": 32585,
+      "bytes": 32088,
       "path": "100k-2-2-candidate-detail.environment-before.json",
-      "sha256": "88943431ba96785070904863378b76a7bd2272aedc0ef54b94d1ef5c3442f05b"
+      "sha256": "0279af2bd464fd90d26fd896af5b2f6cc65a87bd481e906c55ca9cf1f0ece101"
     },
     {
-      "bytes": 1003,
+      "bytes": 996,
       "path": "100k-2-2-candidate-detail.process.json",
-      "sha256": "533ccf5ecd45da1674299b3904447be923bc3797ef75d156993b3669b7b29cf5"
+      "sha256": "0970cb511bcdb63feb5d612e1f9eee725189574a7562e6fa1794966d0cb771fd"
     },
     {
-      "bytes": 226917,
+      "bytes": 226991,
       "path": "100k-2-2-candidate-detail.stderr",
-      "sha256": "7660397985fe2524f2f6db5c23188a58ab9933be92a7142ff46257dcd69d95de"
+      "sha256": "ad26eda19e1f08d48f214d5ffee0dfd7d485bceb92879009c6e71d2a811aeda8"
     },
     {
       "bytes": 30,
@@ -226,9 +227,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1197,
+      "bytes": 1191,
       "path": "100k-3-1-base-detail/diagnostics.json",
-      "sha256": "0a5653e4041ab25f7520189e178a7d09677f4e84e66ffabfd6e9800bb8397298"
+      "sha256": "837edc137ff4979d30a917829dd800864d746380836ddcc6ab07ff2479d7af83"
     },
     {
       "bytes": 2513992,
@@ -243,7 +244,7 @@
     {
       "bytes": 225787,
       "path": "100k-3-1-base-detail/result.json",
-      "sha256": "50e449a05169e15310d08396366332c16fe5e0c652a0e31a594c51f51ed797d4"
+      "sha256": "4fed45c64489a592e18395341f5c502ea8858cecf097ee61dba6a69e8fc36f39"
     },
     {
       "bytes": 159006,
@@ -251,24 +252,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32450,
+      "bytes": 32138,
       "path": "100k-3-1-base-detail.environment-after.json",
-      "sha256": "7828775a49e8a0ea938373f48358595ba9b84ea8367340a0f2ddf8a30bbd9138"
+      "sha256": "95d44005630ff12d26fb73be764216149f532c3ffb0006d238d30948414cb810"
     },
     {
-      "bytes": 32580,
+      "bytes": 32376,
       "path": "100k-3-1-base-detail.environment-before.json",
-      "sha256": "3b28ffeca77fdef58ddc07e6650a6fbbbcb9d7db0ad5523e2666f71b0cf9f8d1"
+      "sha256": "d10cdd5189e472ebfe2052b950626e16faf967b744286b9c08c46f1984f319a0"
     },
     {
-      "bytes": 983,
+      "bytes": 976,
       "path": "100k-3-1-base-detail.process.json",
-      "sha256": "461d4952ca039949a2725cfd3203a91768a757821a1f474d2202aee16ff1182d"
+      "sha256": "450ca794ddbfb41ceb055b8215971a6cbbbddfa11909d97dcd0e30a8a5657da5"
     },
     {
-      "bytes": 148837,
+      "bytes": 148874,
       "path": "100k-3-1-base-detail.stderr",
-      "sha256": "a989162d30d32c597c453c1184c92e1c9adf5097dd5e2121e7908afe340aa131"
+      "sha256": "1a99ffa26f1bdeb208af99c93e936e0685b72cddc64a7b8d6bbc06cacbceb09d"
     },
     {
       "bytes": 30,
@@ -281,9 +282,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1208,
+      "bytes": 1201,
       "path": "100k-3-2-candidate-detail/diagnostics.json",
-      "sha256": "4427163bc75047680de145000754c0a9d280de20b1866c73ff9efcb066afd905"
+      "sha256": "b3b280f5c11ba9c230028fea8405434554c87008a4448b59f4d3a0a746655642"
     },
     {
       "bytes": 2513992,
@@ -298,7 +299,7 @@
     {
       "bytes": 225787,
       "path": "100k-3-2-candidate-detail/result.json",
-      "sha256": "b3eb04b2bf82a2bc304cd987e53f51c7f8633f6bed745574b437babbf49175b1"
+      "sha256": "28a3eab6568a58357c0d87ff04127311a9182063f14df90a72231d4c545bd891"
     },
     {
       "bytes": 159006,
@@ -306,24 +307,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32398,
+      "bytes": 31907,
       "path": "100k-3-2-candidate-detail.environment-after.json",
-      "sha256": "5e90d6f81b67b8742fe84bc0dfd4b8efb2456e579828f291617d6cb85d86445a"
+      "sha256": "eb1d7fb585a329c6623c1a44f703ac4e7ea720c63423f78dea4574ae3dacc5a0"
     },
     {
-      "bytes": 32456,
+      "bytes": 32144,
       "path": "100k-3-2-candidate-detail.environment-before.json",
-      "sha256": "6a0b6e92f9c64041392bd0d35d84872218a961d6c550e210cbb288ec98d0331d"
+      "sha256": "cb2b4ce565339d979500734c046a0b51e575941e5ec09f124605b1ab13b59e1d"
     },
     {
-      "bytes": 1003,
+      "bytes": 996,
       "path": "100k-3-2-candidate-detail.process.json",
-      "sha256": "d082075078d3456af079c4628582f628d49628ae5553c8595cedc318dbb79799"
+      "sha256": "4fc3ebde418ff5e7f8b4eff20aed0671bc727ce04c53fb26a896340ffa9dcd4d"
     },
     {
-      "bytes": 226959,
+      "bytes": 226940,
       "path": "100k-3-2-candidate-detail.stderr",
-      "sha256": "ff73f2835a2cad67d88c126525e679edd26af477634c5cae6f9771e6c09bc7d6"
+      "sha256": "ff5c35c4e4f530272ef0a7320ba229d0cbeac53dbc4802b8f956354b51cdb6ca"
     },
     {
       "bytes": 30,
@@ -331,25 +332,45 @@
       "sha256": "11fe54788fe0767de152740d9a469d587f23799563450d355f37e20ad81141db"
     },
     {
-      "bytes": 527464,
+      "bytes": 3443,
+      "path": "base-detail.build.stderr",
+      "sha256": "dbebac64037cdbe5c3b63a24d76320afa96f6983be6138b4ec1a715d3d9fc3f3"
+    },
+    {
+      "bytes": 0,
+      "path": "base-detail.build.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 3498,
+      "path": "candidate-detail.build.stderr",
+      "sha256": "53f7fa21db1fc5d13fc7027f5479ab98d885d3f377af08d7ffc3d527866cac85"
+    },
+    {
+      "bytes": 0,
+      "path": "candidate-detail.build.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 531502,
       "path": "identity.json",
-      "sha256": "dddcdafc08c4feb27f3845fd540f9e941ff483f29a023394f5caa36c9c555f62"
+      "sha256": "a3b9cb916eee31edb8db7dc22c044390b0efdb7e04667835979e09edf5e0d79a"
     }
   ],
   "identity": {
     "binaries": {
       "base": {
-        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-detail-caller-build\\base-detail.exe",
-        "sha256": "e64e9b3e9114f78dd5e2fea2f4532aab3959082d8248cbe90a8c861617f98c57"
+        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\base-detail.exe",
+        "sha256": "23f2aa151056f2fd6b750094f743eb6b67aa7a14550760efccd46e715e8c428b"
       },
       "candidate": {
-        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-detail-caller-build\\candidate-detail.exe",
-        "sha256": "b4906e8a5f25240ef556e6216f6c9a2651a73a601ef690ec77de678fdd228723"
+        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\candidate-detail.exe",
+        "sha256": "dee4cd8619b47355229b125114031fe1d5343365ab170e8e05b4cb3595f1502e"
       }
     },
     "completed": true,
-    "ended": "1790750189890045200",
-    "head": "908136270dd2e89b34383a77a42baa12a6d3c7d7",
+    "ended": "1790754434103939200",
+    "head": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
     "inputs": {
       "inputs/urban-100k/common.lfre": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
       "inputs/urban-100k/config.toml": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
@@ -371,15 +392,64 @@
       "scale": "100k"
     },
     "mode": "detail",
-    "protocol": "p5-chunk-grain-v1",
+    "protocol": "p5-chunk-grain-v2",
     "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
     "sources": {
       "base": {
         "arm": "base",
         "base": "cb562bde948b6f96484581b650422f149f6c5787",
+        "build": {
+          "binary_bytes": 3984384,
+          "binary_sha256": "23f2aa151056f2fd6b750094f743eb6b67aa7a14550760efccd46e715e8c428b",
+          "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+          "collector_head": "7d9c9b5d9325bcfbcb797807238db6778cda7972",
+          "command": {
+            "args": [
+              "+1.98.0",
+              "build",
+              "--release",
+              "--locked",
+              "--offline",
+              "-p",
+              "laneflow-urban-harness",
+              "--bin",
+              "laneflow-urban-harness",
+              "--target-dir",
+              "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\base-detail-target"
+            ],
+            "environment": {
+              "CARGO_ENCODED_RUSTFLAGS": "",
+              "CARGO_INCREMENTAL": "0",
+              "RUSTC_WORKSPACE_WRAPPER": "",
+              "RUSTC_WRAPPER": "",
+              "RUSTFLAGS": ""
+            },
+            "program": "cargo",
+            "working_directory": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\base-detail-source"
+          },
+          "exit_code": 0,
+          "inherited_environment": {
+            "CARGO_HOME": "E:\\.cargo",
+            "RUST_LOG": "warn"
+          },
+          "logs": [
+            {
+              "path": "base-detail.build.stdout",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "base-detail.build.stderr",
+              "sha256": "dbebac64037cdbe5c3b63a24d76320afa96f6983be6138b4ec1a715d3d9fc3f3"
+            }
+          ],
+          "protocol": "p5-chunk-grain-v2",
+          "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
+          "schema": "p5-chunk-controlled-build-v1",
+          "source_files_sha256": "c8bdf924c2d853e4c6cfc97e1f0946d629c81f400729f031c74dbd80cb9e9c45"
+        },
         "chunks_per_worker": 2,
         "mode": "detail",
-        "protocol": "p5-chunk-grain-v1",
+        "protocol": "p5-chunk-grain-v2",
         "source_files": {
           ".agents/README.md": "53337480d946bbce4294d695da407c6086ac529c5ad4ddf2c7689f7a51d023d1",
           ".agents/skills/laneflow-adapter/SKILL.md": "642c8ba817e35ecc6d85f0d30e5a2e92760353b195698f7909fd1475f7148e0c",
@@ -2097,9 +2167,58 @@
       "candidate": {
         "arm": "candidate",
         "base": "cb562bde948b6f96484581b650422f149f6c5787",
+        "build": {
+          "binary_bytes": 3984384,
+          "binary_sha256": "dee4cd8619b47355229b125114031fe1d5343365ab170e8e05b4cb3595f1502e",
+          "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+          "collector_head": "7d9c9b5d9325bcfbcb797807238db6778cda7972",
+          "command": {
+            "args": [
+              "+1.98.0",
+              "build",
+              "--release",
+              "--locked",
+              "--offline",
+              "-p",
+              "laneflow-urban-harness",
+              "--bin",
+              "laneflow-urban-harness",
+              "--target-dir",
+              "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\candidate-detail-target"
+            ],
+            "environment": {
+              "CARGO_ENCODED_RUSTFLAGS": "",
+              "CARGO_INCREMENTAL": "0",
+              "RUSTC_WORKSPACE_WRAPPER": "",
+              "RUSTC_WRAPPER": "",
+              "RUSTFLAGS": ""
+            },
+            "program": "cargo",
+            "working_directory": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\candidate-detail-source"
+          },
+          "exit_code": 0,
+          "inherited_environment": {
+            "CARGO_HOME": "E:\\.cargo",
+            "RUST_LOG": "warn"
+          },
+          "logs": [
+            {
+              "path": "candidate-detail.build.stdout",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "candidate-detail.build.stderr",
+              "sha256": "53f7fa21db1fc5d13fc7027f5479ab98d885d3f377af08d7ffc3d527866cac85"
+            }
+          ],
+          "protocol": "p5-chunk-grain-v2",
+          "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
+          "schema": "p5-chunk-controlled-build-v1",
+          "source_files_sha256": "0b56e5e8209e5e3634e0e94120349273d35bd118aa79b8be0cd55cdc8a616e8b"
+        },
         "chunks_per_worker": 4,
         "mode": "detail",
-        "protocol": "p5-chunk-grain-v1",
+        "protocol": "p5-chunk-grain-v2",
         "source_files": {
           ".agents/README.md": "53337480d946bbce4294d695da407c6086ac529c5ad4ddf2c7689f7a51d023d1",
           ".agents/skills/laneflow-adapter/SKILL.md": "642c8ba817e35ecc6d85f0d30e5a2e92760353b195698f7909fd1475f7148e0c",
@@ -3815,10 +3934,23 @@
         }
       }
     },
-    "started": "1790750077526859400",
+    "started": "1790754322011242000",
     "ticks": 256,
-    "tree": "66909788bae68d81bbab76feb9eec2ce7b5b0ad6",
+    "tree": "25fe4f2b2f1f337672d158d9860d4a5f57edf455",
     "workers": 4
+  },
+  "plain_reference": {
+    "collector_head": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
+    "compared_detail_runs": 6,
+    "compared_plain_runs": 12,
+    "fields": [
+      "traffic",
+      "initial_counts",
+      "final_counts"
+    ],
+    "files_sha256": "bf0944e7291d4757a74bd8d7637b418f237397186daa98cebd254bb2aedb16a7",
+    "identity_sha256": "416e0ed9b67c31d49bcf7e776d1061ec1292256e75157b8e9c9ac08fd972382b",
+    "matches": true
   },
   "runs": [
     {
@@ -3868,32 +4000,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.013905859375,
-              "p95_ms": 0.025
+              "mean_ms": 0.0126171875,
+              "p95_ms": 0.0307
             },
             "dispatch": {
-              "mean_ms": 3.252320703125,
-              "p95_ms": 3.8179
+              "mean_ms": 3.238688671875,
+              "p95_ms": 3.7001
             },
             "first_start": {
-              "mean_ms": 0.0111359375,
-              "p95_ms": 0.015
+              "mean_ms": 0.011911328125,
+              "p95_ms": 0.0161
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.236255859375,
-              "p95_ms": 0.6836
+              "mean_ms": 0.221311328125,
+              "p95_ms": 0.6566
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.80593203125,
-              "p95_ms": 2.2748
+              "mean_ms": 1.79007734375,
+              "p95_ms": 2.1825
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.215594140625,
-              "p95_ms": 3.7667
+              "mean_ms": 3.2015078125,
+              "p95_ms": 3.6699
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.71551171875,
-              "p95_ms": 3.0558
+              "mean_ms": 2.70939453125,
+              "p95_ms": 3.0335
             },
             "participating_workers": {
               "max": 4,
@@ -3906,85 +4038,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.73916328125,
-              "p95_ms": 13.2283
+              "mean_ms": 11.723746875,
+              "p95_ms": 13.112
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.94288828125,
-                "p95_ms": 3.4936
+                "mean_ms": 2.928307421875,
+                "p95_ms": 3.3704
               },
               {
-                "mean_ms": 2.94438671875,
-                "p95_ms": 3.5335
+                "mean_ms": 2.95258671875,
+                "p95_ms": 3.4533
               },
               {
-                "mean_ms": 2.99569140625,
-                "p95_ms": 3.649
+                "mean_ms": 3.015576953125,
+                "p95_ms": 3.49
               },
               {
-                "mean_ms": 2.856196875,
-                "p95_ms": 3.4644
+                "mean_ms": 2.82727578125,
+                "p95_ms": 3.4507
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.500082421875,
-              "p95_ms": 0.9698
+              "mean_ms": 0.49211328125,
+              "p95_ms": 0.9187
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.07825390625,
-              "p95_ms": 1.8679
+              "mean_ms": 1.12877265625,
+              "p95_ms": 1.9328
             },
             "ConflictFinalize": {
-              "mean_ms": 2.479140234375,
-              "p95_ms": 3.6371
+              "mean_ms": 2.41468984375,
+              "p95_ms": 3.327
             },
             "ConflictPrepare": {
-              "mean_ms": 4.18530859375,
-              "p95_ms": 6.2104
+              "mean_ms": 4.191912109375,
+              "p95_ms": 6.0058
             },
             "Frontier": {
-              "mean_ms": 1.757581640625,
-              "p95_ms": 3.21
+              "mean_ms": 1.772749609375,
+              "p95_ms": 3.0626
             },
             "MotionLoop": {
-              "mean_ms": 3.781480078125,
-              "p95_ms": 4.4719
+              "mean_ms": 3.80551640625,
+              "p95_ms": 4.4046
             },
             "Occupancy": {
-              "mean_ms": 2.081180859375,
-              "p95_ms": 2.8252
+              "mean_ms": 2.544678515625,
+              "p95_ms": 3.497
             },
             "P4": {
-              "mean_ms": 0.240917578125,
-              "p95_ms": 0.5731
+              "mean_ms": 0.244824609375,
+              "p95_ms": 0.6011
             },
             "Preflight": {
-              "mean_ms": 1.672298046875,
-              "p95_ms": 2.679
+              "mean_ms": 1.6768375,
+              "p95_ms": 2.6745
             },
             "Signals": {
-              "mean_ms": 0.118023046875,
-              "p95_ms": 0.1476
+              "mean_ms": 0.125566015625,
+              "p95_ms": 0.198
             },
             "WaitingFinalize": {
-              "mean_ms": 0.313974609375,
-              "p95_ms": 0.4767
+              "mean_ms": 0.361421875,
+              "p95_ms": 0.5266
             },
             "WaitingOutputs": {
-              "mean_ms": 2.08262109375,
-              "p95_ms": 3.1804
+              "mean_ms": 2.13370390625,
+              "p95_ms": 3.2184
             },
             "WaitingPrepare": {
-              "mean_ms": 2.465728125,
-              "p95_ms": 3.0431
+              "mean_ms": 2.478966796875,
+              "p95_ms": 3.0191
             }
           },
           "step": {
-            "mean_ms": 20.264486328125,
-            "p95_ms": 24.7918
+            "mean_ms": 20.867334375,
+            "p95_ms": 25.7536
           }
         },
         "entry": {
@@ -4006,32 +4138,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.02246875,
-              "p95_ms": 0.0329
+              "mean_ms": 0.01675,
+              "p95_ms": 0.0406
             },
             "dispatch": {
-              "mean_ms": 3.257934375,
-              "p95_ms": 4.0029
+              "mean_ms": 3.249665625,
+              "p95_ms": 3.6603
             },
             "first_start": {
-              "mean_ms": 0.0136125,
-              "p95_ms": 0.0167
+              "mean_ms": 0.012953125,
+              "p95_ms": 0.0161
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2160765625,
-              "p95_ms": 0.5904
+              "mean_ms": 0.271040625,
+              "p95_ms": 0.6945
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.8134625,
-              "p95_ms": 2.2997
+              "mean_ms": 1.7910640625,
+              "p95_ms": 2.0897
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.2087421875,
-              "p95_ms": 3.9576
+              "mean_ms": 3.2059046875,
+              "p95_ms": 3.5898
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7359765625,
-              "p95_ms": 3.266
+              "mean_ms": 2.681925,
+              "p95_ms": 2.9237
             },
             "participating_workers": {
               "max": 4,
@@ -4044,85 +4176,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.814990625,
-              "p95_ms": 14.0246
+              "mean_ms": 11.6510796875,
+              "p95_ms": 12.7866
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.938628125,
-                "p95_ms": 3.4995
+                "mean_ms": 2.928525,
+                "p95_ms": 3.333
               },
               {
-                "mean_ms": 2.969821875,
-                "p95_ms": 3.5781
+                "mean_ms": 2.91995,
+                "p95_ms": 3.4148
               },
               {
-                "mean_ms": 3.0286390625,
-                "p95_ms": 3.649
+                "mean_ms": 3.020253125,
+                "p95_ms": 3.4521
               },
               {
-                "mean_ms": 2.8779015625,
-                "p95_ms": 3.5814
+                "mean_ms": 2.7823515625,
+                "p95_ms": 3.5115
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.472765625,
-              "p95_ms": 1.027
+              "mean_ms": 0.5239796875,
+              "p95_ms": 0.9214
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0025390625,
-              "p95_ms": 1.6425
+              "mean_ms": 1.0575109375,
+              "p95_ms": 1.9687
             },
             "ConflictFinalize": {
-              "mean_ms": 1.7296703125,
-              "p95_ms": 2.4616
+              "mean_ms": 1.6857390625,
+              "p95_ms": 2.1814
             },
             "ConflictPrepare": {
-              "mean_ms": 2.235190625,
-              "p95_ms": 4.0287
+              "mean_ms": 2.2542546875,
+              "p95_ms": 4.1131
             },
             "Frontier": {
-              "mean_ms": 0.577071875,
-              "p95_ms": 0.9652
+              "mean_ms": 0.6130109375,
+              "p95_ms": 0.9319
             },
             "MotionLoop": {
-              "mean_ms": 3.830965625,
-              "p95_ms": 4.7632
+              "mean_ms": 3.8728734375,
+              "p95_ms": 4.453
             },
             "Occupancy": {
-              "mean_ms": 2.1677140625,
-              "p95_ms": 2.9369
+              "mean_ms": 2.387234375,
+              "p95_ms": 3.329
             },
             "P4": {
-              "mean_ms": 0.0619328125,
-              "p95_ms": 0.2951
+              "mean_ms": 0.06564375,
+              "p95_ms": 0.3214
             },
             "Preflight": {
-              "mean_ms": 0.611784375,
-              "p95_ms": 0.9101
+              "mean_ms": 0.637690625,
+              "p95_ms": 0.9544
             },
             "Signals": {
-              "mean_ms": 0.1172125,
-              "p95_ms": 0.1451
+              "mean_ms": 0.131471875,
+              "p95_ms": 0.1523
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3075296875,
-              "p95_ms": 0.4735
+              "mean_ms": 0.351275,
+              "p95_ms": 0.5266
             },
             "WaitingOutputs": {
-              "mean_ms": 1.7280578125,
-              "p95_ms": 2.2195
+              "mean_ms": 1.7863140625,
+              "p95_ms": 2.1152
             },
             "WaitingPrepare": {
-              "mean_ms": 2.132128125,
-              "p95_ms": 2.5743
+              "mean_ms": 2.2167859375,
+              "p95_ms": 2.8294
             }
           },
           "step": {
-            "mean_ms": 15.868484375,
-            "p95_ms": 18.8288
+            "mean_ms": 16.3868,
+            "p95_ms": 19.193
           }
         },
         "screen": {
@@ -4144,32 +4276,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.0110515625,
-              "p95_ms": 0.0249
+              "mean_ms": 0.011239583333333334,
+              "p95_ms": 0.025
             },
             "dispatch": {
-              "mean_ms": 3.2504494791666665,
-              "p95_ms": 3.7629
+              "mean_ms": 3.2350296875,
+              "p95_ms": 3.7591
             },
             "first_start": {
-              "mean_ms": 0.010310416666666666,
-              "p95_ms": 0.0137
+              "mean_ms": 0.0115640625,
+              "p95_ms": 0.0158
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.24298229166666666,
-              "p95_ms": 0.6836
+              "mean_ms": 0.20473489583333335,
+              "p95_ms": 0.617
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.803421875,
-              "p95_ms": 2.2381
+              "mean_ms": 1.7897484375,
+              "p95_ms": 2.2088
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.217878125,
-              "p95_ms": 3.7141
+              "mean_ms": 3.2000421875,
+              "p95_ms": 3.7472
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7086901041666667,
-              "p95_ms": 2.9609
+              "mean_ms": 2.7185510416666667,
+              "p95_ms": 3.0431
             },
             "participating_workers": {
               "max": 4,
@@ -4182,85 +4314,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.7138875,
-              "p95_ms": 13.0453
+              "mean_ms": 11.747969270833334,
+              "p95_ms": 13.1588
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.9443083333333333,
-                "p95_ms": 3.4382
+                "mean_ms": 2.9282348958333335,
+                "p95_ms": 3.3704
               },
               {
-                "mean_ms": 2.9359083333333333,
-                "p95_ms": 3.4781
+                "mean_ms": 2.963465625,
+                "p95_ms": 3.4533
               },
               {
-                "mean_ms": 2.9847088541666666,
-                "p95_ms": 3.5848
+                "mean_ms": 3.0140182291666666,
+                "p95_ms": 3.5374
               },
               {
-                "mean_ms": 2.8489619791666665,
-                "p95_ms": 3.4297
+                "mean_ms": 2.8422505208333333,
+                "p95_ms": 3.4165
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.5091880208333334,
-              "p95_ms": 0.9698
+              "mean_ms": 0.4814911458333333,
+              "p95_ms": 0.9184
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.1034921875,
-              "p95_ms": 1.8815
+              "mean_ms": 1.1525265625,
+              "p95_ms": 1.9019
             },
             "ConflictFinalize": {
-              "mean_ms": 2.7289635416666664,
-              "p95_ms": 3.7396
+              "mean_ms": 2.6576734375,
+              "p95_ms": 3.3552
             },
             "ConflictPrepare": {
-              "mean_ms": 4.835347916666667,
-              "p95_ms": 6.2393
+              "mean_ms": 4.837797916666667,
+              "p95_ms": 6.0631
             },
             "Frontier": {
-              "mean_ms": 2.1510848958333333,
-              "p95_ms": 3.2174
+              "mean_ms": 2.1593291666666663,
+              "p95_ms": 3.0771
             },
             "MotionLoop": {
-              "mean_ms": 3.7649848958333334,
-              "p95_ms": 4.3541
+              "mean_ms": 3.7830640625,
+              "p95_ms": 4.375
             },
             "Occupancy": {
-              "mean_ms": 2.0523364583333334,
-              "p95_ms": 2.7669
+              "mean_ms": 2.5971598958333333,
+              "p95_ms": 3.5464
             },
             "P4": {
-              "mean_ms": 0.3005791666666667,
-              "p95_ms": 0.6067
+              "mean_ms": 0.3045515625,
+              "p95_ms": 0.6471
             },
             "Preflight": {
-              "mean_ms": 2.0258026041666666,
-              "p95_ms": 2.7536
+              "mean_ms": 2.0232197916666665,
+              "p95_ms": 2.7613
             },
             "Signals": {
-              "mean_ms": 0.11829322916666667,
-              "p95_ms": 0.1476
+              "mean_ms": 0.12359739583333333,
+              "p95_ms": 0.1984
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3161229166666667,
-              "p95_ms": 0.481
+              "mean_ms": 0.3648041666666667,
+              "p95_ms": 0.5126
             },
             "WaitingOutputs": {
-              "mean_ms": 2.2008088541666666,
-              "p95_ms": 3.2963
+              "mean_ms": 2.2495005208333336,
+              "p95_ms": 3.2255
             },
             "WaitingPrepare": {
-              "mean_ms": 2.576928125,
-              "p95_ms": 3.1322
+              "mean_ms": 2.5663604166666665,
+              "p95_ms": 3.0219
             }
           },
           "step": {
-            "mean_ms": 21.7298203125,
-            "p95_ms": 24.8294
+            "mean_ms": 22.360845833333332,
+            "p95_ms": 26.0559
           }
         }
       }
@@ -4312,32 +4444,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.010784375,
-              "p95_ms": 0.0206
+              "mean_ms": 0.013103515625,
+              "p95_ms": 0.025
             },
             "dispatch": {
-              "mean_ms": 3.25049140625,
-              "p95_ms": 3.7888
+              "mean_ms": 3.313454296875,
+              "p95_ms": 3.7305
             },
             "first_start": {
-              "mean_ms": 0.010835546875,
-              "p95_ms": 0.018
+              "mean_ms": 0.0114515625,
+              "p95_ms": 0.0156
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2384828125,
-              "p95_ms": 0.579
+              "mean_ms": 0.214908984375,
+              "p95_ms": 0.5161
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.11093515625,
-              "p95_ms": 1.4883
+              "mean_ms": 1.113250390625,
+              "p95_ms": 1.4871
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.218230078125,
-              "p95_ms": 3.7375
+              "mean_ms": 3.276131640625,
+              "p95_ms": 3.7099
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.703134765625,
-              "p95_ms": 3.0142
+              "mean_ms": 2.782185546875,
+              "p95_ms": 3.1247
             },
             "participating_workers": {
               "max": 4,
@@ -4350,85 +4482,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.732351171875,
-              "p95_ms": 13.2858
+              "mean_ms": 12.03473203125,
+              "p95_ms": 13.6058
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.898704296875,
-                "p95_ms": 3.4173
+                "mean_ms": 3.028085546875,
+                "p95_ms": 3.541
               },
               {
-                "mean_ms": 2.9327828125,
-                "p95_ms": 3.4384
+                "mean_ms": 3.002128125,
+                "p95_ms": 3.5416
               },
               {
-                "mean_ms": 2.99125234375,
-                "p95_ms": 3.4716
+                "mean_ms": 3.06361875,
+                "p95_ms": 3.6165
               },
               {
-                "mean_ms": 2.90961171875,
-                "p95_ms": 3.4906
+                "mean_ms": 2.940899609375,
+                "p95_ms": 3.6595
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.5150953125,
-              "p95_ms": 0.8453
+              "mean_ms": 0.49394609375,
+              "p95_ms": 0.746
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.059530078125,
-              "p95_ms": 1.7527
+              "mean_ms": 1.141621875,
+              "p95_ms": 1.9132
             },
             "ConflictFinalize": {
-              "mean_ms": 2.422068359375,
-              "p95_ms": 3.3046
+              "mean_ms": 2.432594140625,
+              "p95_ms": 3.4909
             },
             "ConflictPrepare": {
-              "mean_ms": 4.20993046875,
-              "p95_ms": 6.1235
+              "mean_ms": 4.219276953125,
+              "p95_ms": 6.0947
             },
             "Frontier": {
-              "mean_ms": 1.770909375,
-              "p95_ms": 3.1014
+              "mean_ms": 1.8025984375,
+              "p95_ms": 3.1986
             },
             "MotionLoop": {
-              "mean_ms": 3.764968359375,
-              "p95_ms": 4.3794
+              "mean_ms": 3.8427296875,
+              "p95_ms": 4.419
             },
             "Occupancy": {
-              "mean_ms": 2.08206640625,
-              "p95_ms": 3.0249
+              "mean_ms": 2.309984375,
+              "p95_ms": 3.3316
             },
             "P4": {
-              "mean_ms": 0.229057421875,
-              "p95_ms": 0.5534
+              "mean_ms": 0.233371875,
+              "p95_ms": 0.6073
             },
             "Preflight": {
-              "mean_ms": 1.697763671875,
-              "p95_ms": 2.8287
+              "mean_ms": 1.67296875,
+              "p95_ms": 2.6384
             },
             "Signals": {
-              "mean_ms": 0.117194140625,
-              "p95_ms": 0.1437
+              "mean_ms": 0.121080078125,
+              "p95_ms": 0.1566
             },
             "WaitingFinalize": {
-              "mean_ms": 0.321672265625,
-              "p95_ms": 0.4914
+              "mean_ms": 0.336465234375,
+              "p95_ms": 0.5008
             },
             "WaitingOutputs": {
-              "mean_ms": 2.074401953125,
-              "p95_ms": 3.0929
+              "mean_ms": 2.130318359375,
+              "p95_ms": 3.053
             },
             "WaitingPrepare": {
-              "mean_ms": 2.47026015625,
-              "p95_ms": 2.9977
+              "mean_ms": 2.5393609375,
+              "p95_ms": 3.0863
             }
           },
           "step": {
-            "mean_ms": 20.226616796875,
-            "p95_ms": 24.4448
+            "mean_ms": 20.752318359375,
+            "p95_ms": 24.9447
           }
         },
         "entry": {
@@ -4450,32 +4582,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.010440625,
-              "p95_ms": 0.0218
+              "mean_ms": 0.0163359375,
+              "p95_ms": 0.0455
             },
             "dispatch": {
-              "mean_ms": 3.22435,
-              "p95_ms": 3.6665
+              "mean_ms": 3.3116265625,
+              "p95_ms": 3.715
             },
             "first_start": {
-              "mean_ms": 0.0119234375,
-              "p95_ms": 0.0147
+              "mean_ms": 0.0167828125,
+              "p95_ms": 0.0166
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2134953125,
-              "p95_ms": 0.4823
+              "mean_ms": 0.211625,
+              "p95_ms": 0.4893
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.1042796875,
-              "p95_ms": 1.4875
+              "mean_ms": 1.1296671875,
+              "p95_ms": 1.5655
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.18879375,
-              "p95_ms": 3.6343
+              "mean_ms": 3.2611296875,
+              "p95_ms": 3.6488
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.6576890625,
-              "p95_ms": 2.9415
+              "mean_ms": 2.7620953125,
+              "p95_ms": 3.0001
             },
             "participating_workers": {
               "max": 4,
@@ -4488,85 +4620,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.6291671875,
-              "p95_ms": 12.7762
+              "mean_ms": 11.9889625,
+              "p95_ms": 13.2591
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.90525,
-                "p95_ms": 3.4428
+                "mean_ms": 3.0468484375,
+                "p95_ms": 3.5114
               },
               {
-                "mean_ms": 2.9298921875,
-                "p95_ms": 3.3965
+                "mean_ms": 3.0084109375,
+                "p95_ms": 3.4496
               },
               {
-                "mean_ms": 2.94424375,
-                "p95_ms": 3.4211
+                "mean_ms": 3.0145375,
+                "p95_ms": 3.5046
               },
               {
-                "mean_ms": 2.84978125,
-                "p95_ms": 3.3962
+                "mean_ms": 2.919165625,
+                "p95_ms": 3.5654
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.5311046875,
-              "p95_ms": 0.8159
+              "mean_ms": 0.499034375,
+              "p95_ms": 0.6985
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 0.953465625,
-              "p95_ms": 1.6613
+              "mean_ms": 1.1187203125,
+              "p95_ms": 1.9004
             },
             "ConflictFinalize": {
-              "mean_ms": 1.6104875,
-              "p95_ms": 1.8745
+              "mean_ms": 1.696996875,
+              "p95_ms": 2.1343
             },
             "ConflictPrepare": {
-              "mean_ms": 2.282121875,
-              "p95_ms": 4.5161
+              "mean_ms": 2.3440296875,
+              "p95_ms": 4.545
             },
             "Frontier": {
-              "mean_ms": 0.5859921875,
-              "p95_ms": 0.8258
+              "mean_ms": 0.6344578125,
+              "p95_ms": 0.9228
             },
             "MotionLoop": {
-              "mean_ms": 3.7591046875,
-              "p95_ms": 4.3675
+              "mean_ms": 3.8708359375,
+              "p95_ms": 4.419
             },
             "Occupancy": {
-              "mean_ms": 2.1198953125,
-              "p95_ms": 3.0249
+              "mean_ms": 2.5513359375,
+              "p95_ms": 4.0374
             },
             "P4": {
-              "mean_ms": 0.0699765625,
-              "p95_ms": 0.3292
+              "mean_ms": 0.0690671875,
+              "p95_ms": 0.3154
             },
             "Preflight": {
-              "mean_ms": 0.609090625,
-              "p95_ms": 0.9523
+              "mean_ms": 0.65028125,
+              "p95_ms": 0.9919
             },
             "Signals": {
-              "mean_ms": 0.11324375,
-              "p95_ms": 0.1289
+              "mean_ms": 0.1214515625,
+              "p95_ms": 0.1566
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3054796875,
-              "p95_ms": 0.4547
+              "mean_ms": 0.355896875,
+              "p95_ms": 0.5964
             },
             "WaitingOutputs": {
-              "mean_ms": 1.696584375,
-              "p95_ms": 2.0942
+              "mean_ms": 1.77105625,
+              "p95_ms": 2.3061
             },
             "WaitingPrepare": {
-              "mean_ms": 2.1518140625,
-              "p95_ms": 2.6194
+              "mean_ms": 2.33123125,
+              "p95_ms": 3.0141
             }
           },
           "step": {
-            "mean_ms": 15.6070359375,
-            "p95_ms": 18.3538
+            "mean_ms": 16.818225,
+            "p95_ms": 21.1808
           }
         },
         "screen": {
@@ -4588,32 +4720,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.010898958333333333,
-              "p95_ms": 0.0198
+              "mean_ms": 0.012026041666666666,
+              "p95_ms": 0.0212
             },
             "dispatch": {
-              "mean_ms": 3.2592052083333334,
-              "p95_ms": 3.7906
+              "mean_ms": 3.3140635416666666,
+              "p95_ms": 3.7911
             },
             "first_start": {
-              "mean_ms": 0.010472916666666667,
-              "p95_ms": 0.0189
+              "mean_ms": 0.009674479166666666,
+              "p95_ms": 0.0149
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.24681197916666667,
-              "p95_ms": 0.5909
+              "mean_ms": 0.21600364583333334,
+              "p95_ms": 0.5252
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.1131536458333333,
-              "p95_ms": 1.5013
+              "mean_ms": 1.107778125,
+              "p95_ms": 1.4664
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.2280421875,
-              "p95_ms": 3.7651
+              "mean_ms": 3.2811322916666663,
+              "p95_ms": 3.7702
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7182833333333334,
-              "p95_ms": 3.0735
+              "mean_ms": 2.7888822916666665,
+              "p95_ms": 3.1441
             },
             "participating_workers": {
               "max": 4,
@@ -4626,85 +4758,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.766745833333333,
-              "p95_ms": 13.3374
+              "mean_ms": 12.049988541666666,
+              "p95_ms": 13.6722
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.8965223958333337,
-                "p95_ms": 3.395
+                "mean_ms": 3.02183125,
+                "p95_ms": 3.541
               },
               {
-                "mean_ms": 2.9337463541666664,
-                "p95_ms": 3.4596
+                "mean_ms": 3.0000338541666665,
+                "p95_ms": 3.6003
               },
               {
-                "mean_ms": 3.006921875,
-                "p95_ms": 3.4986
+                "mean_ms": 3.0799791666666665,
+                "p95_ms": 3.6406
               },
               {
-                "mean_ms": 2.9295552083333334,
-                "p95_ms": 3.5397
+                "mean_ms": 2.9481442708333336,
+                "p95_ms": 3.6673
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.5097588541666667,
-              "p95_ms": 0.8654
+              "mean_ms": 0.49225,
+              "p95_ms": 0.7466
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0948848958333333,
-              "p95_ms": 1.7808
+              "mean_ms": 1.1492557291666667,
+              "p95_ms": 1.9132
             },
             "ConflictFinalize": {
-              "mean_ms": 2.6925953125,
-              "p95_ms": 3.3847
+              "mean_ms": 2.6777932291666664,
+              "p95_ms": 3.825
             },
             "ConflictPrepare": {
-              "mean_ms": 4.852533333333333,
-              "p95_ms": 6.1924
+              "mean_ms": 4.844359375,
+              "p95_ms": 6.112
             },
             "Frontier": {
-              "mean_ms": 2.1658817708333333,
-              "p95_ms": 3.1371
+              "mean_ms": 2.1919786458333337,
+              "p95_ms": 3.2343
             },
             "MotionLoop": {
-              "mean_ms": 3.7669229166666667,
-              "p95_ms": 4.4
+              "mean_ms": 3.8333609375,
+              "p95_ms": 4.41
             },
             "Occupancy": {
-              "mean_ms": 2.0694567708333333,
-              "p95_ms": 2.9755
+              "mean_ms": 2.2295338541666667,
+              "p95_ms": 3.0534
             },
             "P4": {
-              "mean_ms": 0.282084375,
-              "p95_ms": 0.5773
+              "mean_ms": 0.2881401041666667,
+              "p95_ms": 0.6579
             },
             "Preflight": {
-              "mean_ms": 2.0606546875,
-              "p95_ms": 2.8734
+              "mean_ms": 2.013864583333333,
+              "p95_ms": 2.682
             },
             "Signals": {
-              "mean_ms": 0.1185109375,
-              "p95_ms": 0.151
+              "mean_ms": 0.12095625,
+              "p95_ms": 0.1534
             },
             "WaitingFinalize": {
-              "mean_ms": 0.32706979166666666,
-              "p95_ms": 0.4914
+              "mean_ms": 0.32998802083333334,
+              "p95_ms": 0.4685
             },
             "WaitingOutputs": {
-              "mean_ms": 2.2003411458333333,
-              "p95_ms": 3.151
+              "mean_ms": 2.2500723958333335,
+              "p95_ms": 3.1415
             },
             "WaitingPrepare": {
-              "mean_ms": 2.5764088541666665,
-              "p95_ms": 3.0193
+              "mean_ms": 2.6087375,
+              "p95_ms": 3.0902
             }
           },
           "step": {
-            "mean_ms": 21.76647708333333,
-            "p95_ms": 24.5985
+            "mean_ms": 22.0636828125,
+            "p95_ms": 25.218
           }
         }
       }
@@ -4756,32 +4888,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.011631640625,
-              "p95_ms": 0.0271
+              "mean_ms": 0.010859375,
+              "p95_ms": 0.0224
             },
             "dispatch": {
-              "mean_ms": 3.25820390625,
-              "p95_ms": 3.8905
+              "mean_ms": 3.28643125,
+              "p95_ms": 3.8628
             },
             "first_start": {
-              "mean_ms": 0.010961328125,
-              "p95_ms": 0.0175
+              "mean_ms": 0.01064375,
+              "p95_ms": 0.0176
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.232108984375,
-              "p95_ms": 0.8014
+              "mean_ms": 0.23070859375,
+              "p95_ms": 0.6944
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.803859375,
-              "p95_ms": 2.28
+              "mean_ms": 1.810098046875,
+              "p95_ms": 2.2726
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.2244046875,
-              "p95_ms": 3.8491
+              "mean_ms": 3.25349609375,
+              "p95_ms": 3.8398
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.717851171875,
-              "p95_ms": 3.0121
+              "mean_ms": 2.726137890625,
+              "p95_ms": 3.0498
             },
             "participating_workers": {
               "max": 4,
@@ -4794,85 +4926,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.787715625,
-              "p95_ms": 13.1075
+              "mean_ms": 11.874466796875,
+              "p95_ms": 13.1869
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.99347734375,
-                "p95_ms": 3.5284
+                "mean_ms": 3.014644140625,
+                "p95_ms": 3.5166
               },
               {
-                "mean_ms": 2.97378671875,
-                "p95_ms": 3.4649
+                "mean_ms": 2.988877734375,
+                "p95_ms": 3.5918
               },
               {
-                "mean_ms": 3.01681875,
-                "p95_ms": 3.4699
+                "mean_ms": 3.035819921875,
+                "p95_ms": 3.6364
               },
               {
-                "mean_ms": 2.8036328125,
-                "p95_ms": 3.3524
+                "mean_ms": 2.835125,
+                "p95_ms": 3.3646
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.506553515625,
-              "p95_ms": 1.1239
+              "mean_ms": 0.527358203125,
+              "p95_ms": 1.0707
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.020578125,
-              "p95_ms": 1.4591
+              "mean_ms": 1.048363671875,
+              "p95_ms": 1.625
             },
             "ConflictFinalize": {
-              "mean_ms": 2.4289671875,
-              "p95_ms": 3.3314
+              "mean_ms": 2.472081640625,
+              "p95_ms": 3.4468
             },
             "ConflictPrepare": {
-              "mean_ms": 4.2352546875,
-              "p95_ms": 6.3202
+              "mean_ms": 4.2203546875,
+              "p95_ms": 6.3619
             },
             "Frontier": {
-              "mean_ms": 1.7860328125,
-              "p95_ms": 3.1083
+              "mean_ms": 1.782514453125,
+              "p95_ms": 3.232
             },
             "MotionLoop": {
-              "mean_ms": 3.770322265625,
-              "p95_ms": 4.4765
+              "mean_ms": 3.809270703125,
+              "p95_ms": 4.3886
             },
             "Occupancy": {
-              "mean_ms": 2.2070171875,
-              "p95_ms": 3.0264
+              "mean_ms": 2.083856640625,
+              "p95_ms": 2.7744
             },
             "P4": {
-              "mean_ms": 0.22995078125,
-              "p95_ms": 0.5689
+              "mean_ms": 0.2358375,
+              "p95_ms": 0.5638
             },
             "Preflight": {
-              "mean_ms": 1.648561328125,
-              "p95_ms": 2.7052
+              "mean_ms": 1.67118359375,
+              "p95_ms": 2.6923
             },
             "Signals": {
-              "mean_ms": 0.120278125,
-              "p95_ms": 0.164
+              "mean_ms": 0.11830859375,
+              "p95_ms": 0.1474
             },
             "WaitingFinalize": {
-              "mean_ms": 0.30954609375,
-              "p95_ms": 0.4633
+              "mean_ms": 0.32481796875,
+              "p95_ms": 0.4944
             },
             "WaitingOutputs": {
-              "mean_ms": 2.096940625,
-              "p95_ms": 3.0401
+              "mean_ms": 2.091782421875,
+              "p95_ms": 3.2282
             },
             "WaitingPrepare": {
-              "mean_ms": 2.46039921875,
-              "p95_ms": 3.0404
+              "mean_ms": 2.4888484375,
+              "p95_ms": 3.1079
             }
           },
           "step": {
-            "mean_ms": 20.303641015625,
-            "p95_ms": 25.2399
+            "mean_ms": 20.334546875,
+            "p95_ms": 25.2981
           }
         },
         "entry": {
@@ -4894,32 +5026,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.0130671875,
-              "p95_ms": 0.0271
+              "mean_ms": 0.0099953125,
+              "p95_ms": 0.0224
             },
             "dispatch": {
-              "mean_ms": 3.224196875,
-              "p95_ms": 3.7083
+              "mean_ms": 3.2555984375,
+              "p95_ms": 3.7583
             },
             "first_start": {
-              "mean_ms": 0.013415625,
-              "p95_ms": 0.0203
+              "mean_ms": 0.011846875,
+              "p95_ms": 0.017
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.234896875,
-              "p95_ms": 0.6869
+              "mean_ms": 0.1868640625,
+              "p95_ms": 0.5138
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.802790625,
-              "p95_ms": 2.13
+              "mean_ms": 1.7966734375,
+              "p95_ms": 2.1774
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.1859265625,
-              "p95_ms": 3.6691
+              "mean_ms": 3.2215765625,
+              "p95_ms": 3.6917
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.6802828125,
-              "p95_ms": 2.9523
+              "mean_ms": 2.7214171875,
+              "p95_ms": 2.9646
             },
             "participating_workers": {
               "max": 4,
@@ -4932,85 +5064,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.6409328125,
-              "p95_ms": 12.8461
+              "mean_ms": 11.8731171875,
+              "p95_ms": 13.0385
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.962840625,
-                "p95_ms": 3.4255
+                "mean_ms": 2.9671984375,
+                "p95_ms": 3.4023
               },
               {
-                "mean_ms": 2.921490625,
-                "p95_ms": 3.2906
+                "mean_ms": 3.018703125,
+                "p95_ms": 3.5834
               },
               {
-                "mean_ms": 2.994134375,
-                "p95_ms": 3.4925
+                "mean_ms": 3.014971875,
+                "p95_ms": 3.5111
               },
               {
-                "mean_ms": 2.7624671875,
-                "p95_ms": 3.3524
+                "mean_ms": 2.87224375,
+                "p95_ms": 3.4274
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.50564375,
-              "p95_ms": 0.9582
+              "mean_ms": 0.500159375,
+              "p95_ms": 0.8932
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 0.9267265625,
-              "p95_ms": 1.3641
+              "mean_ms": 0.9925515625,
+              "p95_ms": 1.7219
             },
             "ConflictFinalize": {
-              "mean_ms": 1.7023125,
-              "p95_ms": 2.3817
+              "mean_ms": 1.7080546875,
+              "p95_ms": 2.1894
             },
             "ConflictPrepare": {
-              "mean_ms": 2.2639375,
-              "p95_ms": 4.4302
+              "mean_ms": 2.291771875,
+              "p95_ms": 4.3405
             },
             "Frontier": {
-              "mean_ms": 0.575103125,
-              "p95_ms": 1.0223
+              "mean_ms": 0.5797578125,
+              "p95_ms": 1.0299
             },
             "MotionLoop": {
-              "mean_ms": 3.7734734375,
-              "p95_ms": 4.2866
+              "mean_ms": 3.8340921875,
+              "p95_ms": 4.2943
             },
             "Occupancy": {
-              "mean_ms": 2.1910046875,
-              "p95_ms": 2.892
+              "mean_ms": 2.1980984375,
+              "p95_ms": 3.1224
             },
             "P4": {
-              "mean_ms": 0.060321875,
-              "p95_ms": 0.2834
+              "mean_ms": 0.0634921875,
+              "p95_ms": 0.2931
             },
             "Preflight": {
-              "mean_ms": 0.6143890625,
-              "p95_ms": 0.9356
+              "mean_ms": 0.64271875,
+              "p95_ms": 0.9519
             },
             "Signals": {
-              "mean_ms": 0.1198328125,
-              "p95_ms": 0.2076
+              "mean_ms": 0.1130625,
+              "p95_ms": 0.1329
             },
             "WaitingFinalize": {
-              "mean_ms": 0.312909375,
-              "p95_ms": 0.4675
+              "mean_ms": 0.3299015625,
+              "p95_ms": 0.5936
             },
             "WaitingOutputs": {
-              "mean_ms": 1.7003234375,
-              "p95_ms": 2.3616
+              "mean_ms": 1.7612796875,
+              "p95_ms": 2.2603
             },
             "WaitingPrepare": {
-              "mean_ms": 2.2052703125,
-              "p95_ms": 2.9839
+              "mean_ms": 2.2359796875,
+              "p95_ms": 2.7704
             }
           },
           "step": {
-            "mean_ms": 15.816075,
-            "p95_ms": 19.2114
+            "mean_ms": 16.113190625,
+            "p95_ms": 18.9875
           }
         },
         "screen": {
@@ -5032,32 +5164,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.011153125,
-              "p95_ms": 0.023
+              "mean_ms": 0.011147395833333334,
+              "p95_ms": 0.0223
             },
             "dispatch": {
-              "mean_ms": 3.2695395833333336,
-              "p95_ms": 3.9045
+              "mean_ms": 3.2967088541666665,
+              "p95_ms": 3.9033
             },
             "first_start": {
-              "mean_ms": 0.010143229166666667,
-              "p95_ms": 0.017
+              "mean_ms": 0.010242708333333335,
+              "p95_ms": 0.0183
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2311796875,
-              "p95_ms": 0.8014
+              "mean_ms": 0.2453234375,
+              "p95_ms": 0.7126
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.804215625,
-              "p95_ms": 2.3179
+              "mean_ms": 1.8145729166666666,
+              "p95_ms": 2.2814
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.2372307291666664,
-              "p95_ms": 3.8754
+              "mean_ms": 3.2641359375,
+              "p95_ms": 3.8615
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7303739583333333,
-              "p95_ms": 3.0121
+              "mean_ms": 2.7277114583333333,
+              "p95_ms": 3.0548
             },
             "participating_workers": {
               "max": 4,
@@ -5070,85 +5202,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.836643229166667,
-              "p95_ms": 13.1075
+              "mean_ms": 11.874916666666666,
+              "p95_ms": 13.2538
             },
             "worker_elapsed": [
               {
-                "mean_ms": 3.0036895833333337,
-                "p95_ms": 3.6106
+                "mean_ms": 3.030459375,
+                "p95_ms": 3.5546
               },
               {
-                "mean_ms": 2.99121875,
-                "p95_ms": 3.526
+                "mean_ms": 2.9789359375,
+                "p95_ms": 3.5918
               },
               {
-                "mean_ms": 3.0243802083333335,
-                "p95_ms": 3.4635
+                "mean_ms": 3.0427692708333334,
+                "p95_ms": 3.6737
               },
               {
-                "mean_ms": 2.8173546875,
-                "p95_ms": 3.3441
+                "mean_ms": 2.8227520833333335,
+                "p95_ms": 3.2851
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.5068567708333334,
-              "p95_ms": 1.1691
+              "mean_ms": 0.5364244791666666,
+              "p95_ms": 1.0908
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0518619791666668,
-              "p95_ms": 1.5323
+              "mean_ms": 1.0669677083333333,
+              "p95_ms": 1.6083
             },
             "ConflictFinalize": {
-              "mean_ms": 2.6711854166666664,
-              "p95_ms": 3.3944
+              "mean_ms": 2.7267572916666665,
+              "p95_ms": 3.4905
             },
             "ConflictPrepare": {
-              "mean_ms": 4.8923604166666665,
-              "p95_ms": 6.3612
+              "mean_ms": 4.863215625,
+              "p95_ms": 6.407
             },
             "Frontier": {
-              "mean_ms": 2.1896760416666665,
-              "p95_ms": 3.1593
+              "mean_ms": 2.1834333333333333,
+              "p95_ms": 3.2774
             },
             "MotionLoop": {
-              "mean_ms": 3.769271875,
-              "p95_ms": 4.4862
+              "mean_ms": 3.800996875,
+              "p95_ms": 4.4263
             },
             "Occupancy": {
-              "mean_ms": 2.2123546875,
-              "p95_ms": 3.0486
+              "mean_ms": 2.0457760416666666,
+              "p95_ms": 2.7327
             },
             "P4": {
-              "mean_ms": 0.28649375,
-              "p95_ms": 0.6226
+              "mean_ms": 0.2932859375,
+              "p95_ms": 0.6468
             },
             "Preflight": {
-              "mean_ms": 1.9932854166666667,
-              "p95_ms": 2.8026
+              "mean_ms": 2.0140052083333333,
+              "p95_ms": 2.7798
             },
             "Signals": {
-              "mean_ms": 0.1204265625,
-              "p95_ms": 0.1569
+              "mean_ms": 0.12005729166666668,
+              "p95_ms": 0.1542
             },
             "WaitingFinalize": {
-              "mean_ms": 0.308425,
-              "p95_ms": 0.4569
+              "mean_ms": 0.3231234375,
+              "p95_ms": 0.4891
             },
             "WaitingOutputs": {
-              "mean_ms": 2.2291463541666667,
-              "p95_ms": 3.0976
+              "mean_ms": 2.20195,
+              "p95_ms": 3.3506
             },
             "WaitingPrepare": {
-              "mean_ms": 2.5454421875,
-              "p95_ms": 3.0404
+              "mean_ms": 2.5731380208333334,
+              "p95_ms": 3.1157
             }
           },
           "step": {
-            "mean_ms": 21.799496354166667,
-            "p95_ms": 25.3614
+            "mean_ms": 21.741665625,
+            "p95_ms": 25.4298
           }
         }
       }
@@ -5200,32 +5332,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.009948046875,
-              "p95_ms": 0.0205
+              "mean_ms": 0.010349609375,
+              "p95_ms": 0.0194
             },
             "dispatch": {
-              "mean_ms": 3.242101953125,
-              "p95_ms": 3.7014
+              "mean_ms": 3.284953125,
+              "p95_ms": 3.7443
             },
             "first_start": {
-              "mean_ms": 0.00983203125,
-              "p95_ms": 0.0142
+              "mean_ms": 0.010469140625,
+              "p95_ms": 0.0156
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.242301953125,
-              "p95_ms": 0.5625
+              "mean_ms": 0.221526171875,
+              "p95_ms": 0.5498
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.09970703125,
-              "p95_ms": 1.4745
+              "mean_ms": 1.07221484375,
+              "p95_ms": 1.3816
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.21192109375,
-              "p95_ms": 3.6724
+              "mean_ms": 3.2537109375,
+              "p95_ms": 3.7215
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.711500390625,
-              "p95_ms": 2.9878
+              "mean_ms": 2.79310078125,
+              "p95_ms": 3.1081
             },
             "participating_workers": {
               "max": 4,
@@ -5238,85 +5370,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.721476171875,
-              "p95_ms": 13.166
+              "mean_ms": 11.980637109375,
+              "p95_ms": 13.4948
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.945783203125,
-                "p95_ms": 3.449
+                "mean_ms": 2.974669140625,
+                "p95_ms": 3.4742
               },
               {
-                "mean_ms": 2.93037109375,
-                "p95_ms": 3.3562
+                "mean_ms": 2.99469453125,
+                "p95_ms": 3.6398
               },
               {
-                "mean_ms": 2.9638921875,
-                "p95_ms": 3.4292
+                "mean_ms": 3.05339453125,
+                "p95_ms": 3.5599
               },
               {
-                "mean_ms": 2.8814296875,
-                "p95_ms": 3.533
+                "mean_ms": 2.95787890625,
+                "p95_ms": 3.517
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.500420703125,
-              "p95_ms": 0.7687
+              "mean_ms": 0.46061015625,
+              "p95_ms": 0.7416
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0318859375,
-              "p95_ms": 1.4323
+              "mean_ms": 1.11331484375,
+              "p95_ms": 1.9094
             },
             "ConflictFinalize": {
-              "mean_ms": 2.4111078125,
-              "p95_ms": 3.1893
+              "mean_ms": 2.425187109375,
+              "p95_ms": 3.3933
             },
             "ConflictPrepare": {
-              "mean_ms": 4.173446484375,
-              "p95_ms": 6.0113
+              "mean_ms": 4.2583,
+              "p95_ms": 6.1185
             },
             "Frontier": {
-              "mean_ms": 1.769391796875,
-              "p95_ms": 3.0839
+              "mean_ms": 1.768012109375,
+              "p95_ms": 3.0323
             },
             "MotionLoop": {
-              "mean_ms": 3.7442078125,
-              "p95_ms": 4.2825
+              "mean_ms": 3.82565,
+              "p95_ms": 4.3995
             },
             "Occupancy": {
-              "mean_ms": 2.076876953125,
-              "p95_ms": 2.8118
+              "mean_ms": 2.17550703125,
+              "p95_ms": 2.9991
             },
             "P4": {
-              "mean_ms": 0.23341640625,
-              "p95_ms": 0.5423
+              "mean_ms": 0.24045078125,
+              "p95_ms": 0.5493
             },
             "Preflight": {
-              "mean_ms": 1.651967578125,
-              "p95_ms": 2.666
+              "mean_ms": 1.6256734375,
+              "p95_ms": 2.5338
             },
             "Signals": {
-              "mean_ms": 0.118503515625,
-              "p95_ms": 0.1446
+              "mean_ms": 0.118579296875,
+              "p95_ms": 0.1516
             },
             "WaitingFinalize": {
-              "mean_ms": 0.2997015625,
-              "p95_ms": 0.4863
+              "mean_ms": 0.358883984375,
+              "p95_ms": 0.5175
             },
             "WaitingOutputs": {
-              "mean_ms": 2.07659296875,
-              "p95_ms": 3.0855
+              "mean_ms": 2.12922734375,
+              "p95_ms": 3.1881
             },
             "WaitingPrepare": {
-              "mean_ms": 2.454387890625,
-              "p95_ms": 2.8853
+              "mean_ms": 2.472487109375,
+              "p95_ms": 3.0648
             }
           },
           "step": {
-            "mean_ms": 20.044746484375,
-            "p95_ms": 24.0434
+            "mean_ms": 20.50863046875,
+            "p95_ms": 25.1678
           }
         },
         "entry": {
@@ -5338,32 +5470,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.0104828125,
-              "p95_ms": 0.0227
+              "mean_ms": 0.0111359375,
+              "p95_ms": 0.0195
             },
             "dispatch": {
-              "mean_ms": 3.25791875,
-              "p95_ms": 3.7335
+              "mean_ms": 3.2541109375,
+              "p95_ms": 3.7091
             },
             "first_start": {
-              "mean_ms": 0.01104375,
-              "p95_ms": 0.0139
+              "mean_ms": 0.01143125,
+              "p95_ms": 0.0146
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2315484375,
-              "p95_ms": 0.5359
+              "mean_ms": 0.230740625,
+              "p95_ms": 0.4875
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.1325359375,
-              "p95_ms": 1.4758
+              "mean_ms": 1.066753125,
+              "p95_ms": 1.3518
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.22309375,
-              "p95_ms": 3.713
+              "mean_ms": 3.2192625,
+              "p95_ms": 3.6751
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.711978125,
-              "p95_ms": 2.989
+              "mean_ms": 2.768071875,
+              "p95_ms": 3.0834
             },
             "participating_workers": {
               "max": 4,
@@ -5376,85 +5508,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.791503125,
-              "p95_ms": 13.2001
+              "mean_ms": 11.858653125,
+              "p95_ms": 13.3167
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.9605796875,
-                "p95_ms": 3.3581
+                "mean_ms": 2.9369296875,
+                "p95_ms": 3.4139
               },
               {
-                "mean_ms": 2.98630625,
-                "p95_ms": 3.4925
+                "mean_ms": 2.9199796875,
+                "p95_ms": 3.6457
               },
               {
-                "mean_ms": 2.936740625,
-                "p95_ms": 3.3014
+                "mean_ms": 3.0344890625,
+                "p95_ms": 3.4894
               },
               {
-                "mean_ms": 2.9078765625,
-                "p95_ms": 3.5902
+                "mean_ms": 2.9672546875,
+                "p95_ms": 3.5711
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.511115625,
-              "p95_ms": 0.765
+              "mean_ms": 0.451190625,
+              "p95_ms": 0.7416
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 0.979834375,
-              "p95_ms": 1.282
+              "mean_ms": 1.1175796875,
+              "p95_ms": 1.9612
             },
             "ConflictFinalize": {
-              "mean_ms": 1.7019265625,
-              "p95_ms": 2.2257
+              "mean_ms": 1.7225765625,
+              "p95_ms": 2.2604
             },
             "ConflictPrepare": {
-              "mean_ms": 2.253690625,
-              "p95_ms": 4.5626
+              "mean_ms": 2.4040109375,
+              "p95_ms": 4.4444
             },
             "Frontier": {
-              "mean_ms": 0.578759375,
-              "p95_ms": 0.8482
+              "mean_ms": 0.627390625,
+              "p95_ms": 0.9203
             },
             "MotionLoop": {
-              "mean_ms": 3.79694375,
-              "p95_ms": 4.3167
+              "mean_ms": 3.8296203125,
+              "p95_ms": 4.3995
             },
             "Occupancy": {
-              "mean_ms": 2.2346703125,
-              "p95_ms": 3.0262
+              "mean_ms": 2.371790625,
+              "p95_ms": 3.1636
             },
             "P4": {
-              "mean_ms": 0.0678578125,
-              "p95_ms": 0.2931
+              "mean_ms": 0.0624234375,
+              "p95_ms": 0.2947
             },
             "Preflight": {
-              "mean_ms": 0.6281734375,
-              "p95_ms": 1.1275
+              "mean_ms": 0.6066296875,
+              "p95_ms": 0.9163
             },
             "Signals": {
-              "mean_ms": 0.1244625,
-              "p95_ms": 0.1792
+              "mean_ms": 0.1242703125,
+              "p95_ms": 0.1641
             },
             "WaitingFinalize": {
-              "mean_ms": 0.2934859375,
-              "p95_ms": 0.4711
+              "mean_ms": 0.3630984375,
+              "p95_ms": 0.5538
             },
             "WaitingOutputs": {
-              "mean_ms": 1.749728125,
-              "p95_ms": 2.3948
+              "mean_ms": 1.80004375,
+              "p95_ms": 2.1933
             },
             "WaitingPrepare": {
-              "mean_ms": 2.2505515625,
-              "p95_ms": 2.6292
+              "mean_ms": 2.215559375,
+              "p95_ms": 2.5566
             }
           },
           "step": {
-            "mean_ms": 16.0208421875,
-            "p95_ms": 18.8267
+            "mean_ms": 16.561240625,
+            "p95_ms": 20.5348
           }
         },
         "screen": {
@@ -5476,32 +5608,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.009769791666666666,
-              "p95_ms": 0.0205
+              "mean_ms": 0.0100875,
+              "p95_ms": 0.0193
             },
             "dispatch": {
-              "mean_ms": 3.2368296875,
-              "p95_ms": 3.6719
+              "mean_ms": 3.2952338541666664,
+              "p95_ms": 3.7465
             },
             "first_start": {
-              "mean_ms": 0.009428125,
-              "p95_ms": 0.0145
+              "mean_ms": 0.0101484375,
+              "p95_ms": 0.0157
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.24588645833333334,
-              "p95_ms": 0.5625
+              "mean_ms": 0.2184546875,
+              "p95_ms": 0.5615
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.0887640625,
-              "p95_ms": 1.4387
+              "mean_ms": 1.0740354166666668,
+              "p95_ms": 1.3819
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.208196875,
-              "p95_ms": 3.6443
+              "mean_ms": 3.26519375,
+              "p95_ms": 3.7243
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7113411458333334,
-              "p95_ms": 2.9625
+              "mean_ms": 2.80144375,
+              "p95_ms": 3.1213
             },
             "participating_workers": {
               "max": 4,
@@ -5514,85 +5646,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.698133854166667,
-              "p95_ms": 12.9859
+              "mean_ms": 12.0212984375,
+              "p95_ms": 13.5407
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.9408510416666664,
-                "p95_ms": 3.449
+                "mean_ms": 2.9872489583333337,
+                "p95_ms": 3.4801
               },
               {
-                "mean_ms": 2.9117260416666664,
-                "p95_ms": 3.3502
+                "mean_ms": 3.0195994791666667,
+                "p95_ms": 3.621
               },
               {
-                "mean_ms": 2.9729427083333335,
-                "p95_ms": 3.4506
+                "mean_ms": 3.0596963541666664,
+                "p95_ms": 3.5701
               },
               {
-                "mean_ms": 2.8726140625,
-                "p95_ms": 3.4266
+                "mean_ms": 2.9547536458333337,
+                "p95_ms": 3.5129
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.4968557291666667,
-              "p95_ms": 0.7687
+              "mean_ms": 0.46375,
+              "p95_ms": 0.7367
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0492364583333333,
-              "p95_ms": 1.4323
+              "mean_ms": 1.1118932291666668,
+              "p95_ms": 1.8814
             },
             "ConflictFinalize": {
-              "mean_ms": 2.6475015625,
-              "p95_ms": 3.2807
+              "mean_ms": 2.659390625,
+              "p95_ms": 3.452
             },
             "ConflictPrepare": {
-              "mean_ms": 4.813365104166667,
-              "p95_ms": 6.1204
+              "mean_ms": 4.876396354166667,
+              "p95_ms": 6.1614
             },
             "Frontier": {
-              "mean_ms": 2.1662692708333333,
-              "p95_ms": 3.1739
+              "mean_ms": 2.1482192708333336,
+              "p95_ms": 3.0683
             },
             "MotionLoop": {
-              "mean_ms": 3.7266291666666667,
-              "p95_ms": 4.1861
+              "mean_ms": 3.8243265625,
+              "p95_ms": 4.3956
             },
             "Occupancy": {
-              "mean_ms": 2.0242791666666666,
-              "p95_ms": 2.7565
+              "mean_ms": 2.1100791666666665,
+              "p95_ms": 2.8483
             },
             "P4": {
-              "mean_ms": 0.28860260416666667,
-              "p95_ms": 0.6302
+              "mean_ms": 0.2997932291666667,
+              "p95_ms": 0.5997
             },
             "Preflight": {
-              "mean_ms": 1.9932322916666667,
-              "p95_ms": 2.7093
+              "mean_ms": 1.9653546875,
+              "p95_ms": 2.6169
             },
             "Signals": {
-              "mean_ms": 0.1165171875,
-              "p95_ms": 0.1426
+              "mean_ms": 0.11668229166666667,
+              "p95_ms": 0.1467
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3017734375,
-              "p95_ms": 0.4874
+              "mean_ms": 0.3574791666666667,
+              "p95_ms": 0.5113
             },
             "WaitingOutputs": {
-              "mean_ms": 2.1855479166666667,
-              "p95_ms": 3.1519
+              "mean_ms": 2.2389552083333335,
+              "p95_ms": 3.2148
             },
             "WaitingPrepare": {
-              "mean_ms": 2.5223333333333335,
-              "p95_ms": 2.9393
+              "mean_ms": 2.5581296875,
+              "p95_ms": 3.0682
             }
           },
           "step": {
-            "mean_ms": 21.38604791666667,
-            "p95_ms": 24.1185
+            "mean_ms": 21.824427083333333,
+            "p95_ms": 25.4501
           }
         }
       }
@@ -5644,32 +5776,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.012478515625,
-              "p95_ms": 0.0273
+              "mean_ms": 0.0109734375,
+              "p95_ms": 0.0219
             },
             "dispatch": {
-              "mean_ms": 3.271355078125,
-              "p95_ms": 3.9988
+              "mean_ms": 3.302496484375,
+              "p95_ms": 3.8818
             },
             "first_start": {
-              "mean_ms": 0.010509375,
-              "p95_ms": 0.0154
+              "mean_ms": 0.010777734375,
+              "p95_ms": 0.0163
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2502453125,
-              "p95_ms": 0.7609
+              "mean_ms": 0.22380703125,
+              "p95_ms": 0.6667
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.806177734375,
-              "p95_ms": 2.369
+              "mean_ms": 1.820109375,
+              "p95_ms": 2.2905
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.235918359375,
-              "p95_ms": 3.9534
+              "mean_ms": 3.269361328125,
+              "p95_ms": 3.8639
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.709594140625,
-              "p95_ms": 3.0552
+              "mean_ms": 2.78954375,
+              "p95_ms": 3.1716
             },
             "participating_workers": {
               "max": 4,
@@ -5682,85 +5814,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.774066796875,
-              "p95_ms": 13.4739
+              "mean_ms": 12.02285078125,
+              "p95_ms": 13.8442
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.946639453125,
-                "p95_ms": 3.5448
+                "mean_ms": 2.991132421875,
+                "p95_ms": 3.5676
               },
               {
-                "mean_ms": 2.984127734375,
-                "p95_ms": 3.6031
+                "mean_ms": 3.016771484375,
+                "p95_ms": 3.5786
               },
               {
-                "mean_ms": 3.03406640625,
-                "p95_ms": 3.6068
+                "mean_ms": 3.125065234375,
+                "p95_ms": 3.7668
               },
               {
-                "mean_ms": 2.809233203125,
-                "p95_ms": 3.3979
+                "mean_ms": 2.889881640625,
+                "p95_ms": 3.5241
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.52632421875,
-              "p95_ms": 1.2023
+              "mean_ms": 0.479817578125,
+              "p95_ms": 1.0084
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.047371484375,
-              "p95_ms": 1.8289
+              "mean_ms": 1.1021125,
+              "p95_ms": 1.6073
             },
             "ConflictFinalize": {
-              "mean_ms": 2.432107421875,
-              "p95_ms": 3.4086
+              "mean_ms": 2.364265625,
+              "p95_ms": 3.2961
             },
             "ConflictPrepare": {
-              "mean_ms": 4.170994140625,
-              "p95_ms": 6.0929
+              "mean_ms": 4.265077734375,
+              "p95_ms": 6.0792
             },
             "Frontier": {
-              "mean_ms": 1.75744921875,
-              "p95_ms": 2.9805
+              "mean_ms": 1.794609375,
+              "p95_ms": 3.1376
             },
             "MotionLoop": {
-              "mean_ms": 3.782362890625,
-              "p95_ms": 4.5974
+              "mean_ms": 3.889430859375,
+              "p95_ms": 4.5961
             },
             "Occupancy": {
-              "mean_ms": 2.09573359375,
-              "p95_ms": 2.8657
+              "mean_ms": 2.297840625,
+              "p95_ms": 3.2528
             },
             "P4": {
-              "mean_ms": 0.233073828125,
-              "p95_ms": 0.5196
+              "mean_ms": 0.24342734375,
+              "p95_ms": 0.5972
             },
             "Preflight": {
-              "mean_ms": 1.65811640625,
-              "p95_ms": 2.7316
+              "mean_ms": 1.70543046875,
+              "p95_ms": 2.7044
             },
             "Signals": {
-              "mean_ms": 0.117857421875,
-              "p95_ms": 0.1584
+              "mean_ms": 0.120203125,
+              "p95_ms": 0.1527
             },
             "WaitingFinalize": {
-              "mean_ms": 0.314970703125,
-              "p95_ms": 0.478
+              "mean_ms": 0.3868,
+              "p95_ms": 0.5919
             },
             "WaitingOutputs": {
-              "mean_ms": 2.07419453125,
-              "p95_ms": 3.1078
+              "mean_ms": 2.1250515625,
+              "p95_ms": 3.1243
             },
             "WaitingPrepare": {
-              "mean_ms": 2.43704609375,
-              "p95_ms": 2.9501
+              "mean_ms": 2.55231953125,
+              "p95_ms": 3.1313
             }
           },
           "step": {
-            "mean_ms": 20.136467578125,
-            "p95_ms": 24.356
+            "mean_ms": 20.81423046875,
+            "p95_ms": 25.292
           }
         },
         "entry": {
@@ -5782,32 +5914,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.0146546875,
-              "p95_ms": 0.0277
+              "mean_ms": 0.0133765625,
+              "p95_ms": 0.0243
             },
             "dispatch": {
-              "mean_ms": 3.27046875,
-              "p95_ms": 3.8983
+              "mean_ms": 3.4255671875,
+              "p95_ms": 4.2653
             },
             "first_start": {
-              "mean_ms": 0.011825,
-              "p95_ms": 0.0159
+              "mean_ms": 0.0123828125,
+              "p95_ms": 0.0172
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.2718515625,
-              "p95_ms": 0.7609
+              "mean_ms": 0.27093125,
+              "p95_ms": 0.688
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.8330015625,
-              "p95_ms": 2.3421
+              "mean_ms": 1.891171875,
+              "p95_ms": 2.3854
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.227990625,
-              "p95_ms": 3.8323
+              "mean_ms": 3.3843265625,
+              "p95_ms": 4.2106
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.67621875,
-              "p95_ms": 2.9548
+              "mean_ms": 2.8467578125,
+              "p95_ms": 3.3367
             },
             "participating_workers": {
               "max": 4,
@@ -5820,85 +5952,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.6937609375,
-              "p95_ms": 13.0504
+              "mean_ms": 12.34611875,
+              "p95_ms": 15.0496
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.93135,
-                "p95_ms": 3.484
+                "mean_ms": 3.034690625,
+                "p95_ms": 3.6692
               },
               {
-                "mean_ms": 2.9763453125,
-                "p95_ms": 3.6809
+                "mean_ms": 3.0971828125,
+                "p95_ms": 3.8411
               },
               {
-                "mean_ms": 3.0260078125,
-                "p95_ms": 3.4367
+                "mean_ms": 3.2374921875,
+                "p95_ms": 3.9667
               },
               {
-                "mean_ms": 2.7600578125,
-                "p95_ms": 3.4351
+                "mean_ms": 2.976753125,
+                "p95_ms": 3.7913
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.551771875,
-              "p95_ms": 1.2415
+              "mean_ms": 0.53756875,
+              "p95_ms": 1.0145
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0429015625,
-              "p95_ms": 2.0558
+              "mean_ms": 1.0403796875,
+              "p95_ms": 1.5623
             },
             "ConflictFinalize": {
-              "mean_ms": 1.6821296875,
-              "p95_ms": 2.1618
+              "mean_ms": 1.73496875,
+              "p95_ms": 2.1601
             },
             "ConflictPrepare": {
-              "mean_ms": 2.214265625,
-              "p95_ms": 3.7927
+              "mean_ms": 2.3988140625,
+              "p95_ms": 4.7228
             },
             "Frontier": {
-              "mean_ms": 0.580190625,
-              "p95_ms": 1.4048
+              "mean_ms": 0.61575,
+              "p95_ms": 1.4087
             },
             "MotionLoop": {
-              "mean_ms": 3.8392109375,
-              "p95_ms": 4.5361
+              "mean_ms": 4.0943140625,
+              "p95_ms": 5.0976
             },
             "Occupancy": {
-              "mean_ms": 2.1942671875,
-              "p95_ms": 2.8657
+              "mean_ms": 2.5185640625,
+              "p95_ms": 3.6461
             },
             "P4": {
-              "mean_ms": 0.067184375,
-              "p95_ms": 0.3193
+              "mean_ms": 0.073653125,
+              "p95_ms": 0.3452
             },
             "Preflight": {
-              "mean_ms": 0.6021484375,
-              "p95_ms": 0.9087
+              "mean_ms": 0.6473609375,
+              "p95_ms": 0.9604
             },
             "Signals": {
-              "mean_ms": 0.11860625,
-              "p95_ms": 0.1584
+              "mean_ms": 0.1281234375,
+              "p95_ms": 0.1655
             },
             "WaitingFinalize": {
-              "mean_ms": 0.32264375,
-              "p95_ms": 0.4507
+              "mean_ms": 0.42713125,
+              "p95_ms": 0.7603
             },
             "WaitingOutputs": {
-              "mean_ms": 1.6962515625,
-              "p95_ms": 2.2537
+              "mean_ms": 1.8870890625,
+              "p95_ms": 2.6201
             },
             "WaitingPrepare": {
-              "mean_ms": 2.1741359375,
-              "p95_ms": 2.5945
+              "mean_ms": 2.3052125,
+              "p95_ms": 2.9406
             }
           },
           "step": {
-            "mean_ms": 15.892271875,
-            "p95_ms": 18.9096
+            "mean_ms": 17.1885640625,
+            "p95_ms": 21.8342
           }
         },
         "screen": {
@@ -5920,32 +6052,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.011753125,
-              "p95_ms": 0.024
+              "mean_ms": 0.010172395833333334,
+              "p95_ms": 0.0217
             },
             "dispatch": {
-              "mean_ms": 3.2716505208333335,
-              "p95_ms": 4.0569
+              "mean_ms": 3.2614729166666665,
+              "p95_ms": 3.822
             },
             "first_start": {
-              "mean_ms": 0.010070833333333334,
-              "p95_ms": 0.015
+              "mean_ms": 0.010242708333333335,
+              "p95_ms": 0.0163
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.24304322916666665,
-              "p95_ms": 0.7147
+              "mean_ms": 0.20809895833333333,
+              "p95_ms": 0.5861
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.7972364583333333,
-              "p95_ms": 2.369
+              "mean_ms": 1.796421875,
+              "p95_ms": 2.1763
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.2385609375,
-              "p95_ms": 4.0328
+              "mean_ms": 3.2310395833333336,
+              "p95_ms": 3.7714
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7207192708333334,
-              "p95_ms": 3.0712
+              "mean_ms": 2.7704723958333335,
+              "p95_ms": 3.0456
             },
             "participating_workers": {
               "max": 4,
@@ -5958,85 +6090,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.800835416666667,
-              "p95_ms": 13.6602
+              "mean_ms": 11.915094791666666,
+              "p95_ms": 13.2321
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.9517359375,
-                "p95_ms": 3.5902
+                "mean_ms": 2.9766130208333337,
+                "p95_ms": 3.4863
               },
               {
-                "mean_ms": 2.986721875,
-                "p95_ms": 3.5911
+                "mean_ms": 2.9899677083333334,
+                "p95_ms": 3.4486
               },
               {
-                "mean_ms": 3.0367526041666664,
-                "p95_ms": 3.6539
+                "mean_ms": 3.0875895833333336,
+                "p95_ms": 3.564
               },
               {
-                "mean_ms": 2.825625,
-                "p95_ms": 3.3856
+                "mean_ms": 2.8609244791666666,
+                "p95_ms": 3.3726
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.5178416666666666,
-              "p95_ms": 1.0799
+              "mean_ms": 0.4605671875,
+              "p95_ms": 0.966
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0488614583333333,
-              "p95_ms": 1.4899
+              "mean_ms": 1.1226901041666668,
+              "p95_ms": 1.6238
             },
             "ConflictFinalize": {
-              "mean_ms": 2.6821,
-              "p95_ms": 3.6633
+              "mean_ms": 2.57403125,
+              "p95_ms": 3.4246
             },
             "ConflictPrepare": {
-              "mean_ms": 4.823236979166667,
-              "p95_ms": 6.1683
+              "mean_ms": 4.887165625,
+              "p95_ms": 6.1019
             },
             "Frontier": {
-              "mean_ms": 2.14986875,
-              "p95_ms": 2.9855
+              "mean_ms": 2.1875625,
+              "p95_ms": 3.1449
             },
             "MotionLoop": {
-              "mean_ms": 3.7634135416666665,
-              "p95_ms": 4.5974
+              "mean_ms": 3.8211364583333336,
+              "p95_ms": 4.4096
             },
             "Occupancy": {
-              "mean_ms": 2.0628890625,
-              "p95_ms": 2.8582
+              "mean_ms": 2.2242661458333335,
+              "p95_ms": 3.1474
             },
             "P4": {
-              "mean_ms": 0.2883703125,
-              "p95_ms": 0.57
+              "mean_ms": 0.30001875,
+              "p95_ms": 0.6027
             },
             "Preflight": {
-              "mean_ms": 2.010105729166667,
-              "p95_ms": 2.7547
+              "mean_ms": 2.0581203125,
+              "p95_ms": 2.7681
             },
             "Signals": {
-              "mean_ms": 0.1176078125,
-              "p95_ms": 0.1493
+              "mean_ms": 0.11756302083333332,
+              "p95_ms": 0.1474
             },
             "WaitingFinalize": {
-              "mean_ms": 0.31241302083333333,
-              "p95_ms": 0.478
+              "mean_ms": 0.37335625,
+              "p95_ms": 0.5107
             },
             "WaitingOutputs": {
-              "mean_ms": 2.2001755208333336,
-              "p95_ms": 3.2118
+              "mean_ms": 2.2043723958333334,
+              "p95_ms": 3.262
             },
             "WaitingPrepare": {
-              "mean_ms": 2.5246828125,
-              "p95_ms": 2.9682
+              "mean_ms": 2.6346885416666663,
+              "p95_ms": 3.1329
             }
           },
           "step": {
-            "mean_ms": 21.55119947916667,
-            "p95_ms": 24.5706
+            "mean_ms": 22.0227859375,
+            "p95_ms": 25.3385
           }
         }
       }
@@ -6088,32 +6220,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.011494140625,
-              "p95_ms": 0.0214
+              "mean_ms": 0.0093796875,
+              "p95_ms": 0.0225
             },
             "dispatch": {
-              "mean_ms": 3.241867578125,
-              "p95_ms": 3.6465
+              "mean_ms": 3.316427734375,
+              "p95_ms": 3.7518
             },
             "first_start": {
-              "mean_ms": 0.01113359375,
-              "p95_ms": 0.0196
+              "mean_ms": 0.01070703125,
+              "p95_ms": 0.0174
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.22161953125,
+              "mean_ms": 0.234684375,
               "p95_ms": 0.5371
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.09830234375,
-              "p95_ms": 1.4276
+              "mean_ms": 1.093855078125,
+              "p95_ms": 1.4017
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.209566015625,
-              "p95_ms": 3.6136
+              "mean_ms": 3.286491015625,
+              "p95_ms": 3.7164
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.72026640625,
-              "p95_ms": 3.0104
+              "mean_ms": 2.796156640625,
+              "p95_ms": 3.1199
             },
             "participating_workers": {
               "max": 4,
@@ -6126,85 +6258,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.7571765625,
-              "p95_ms": 13.0187
+              "mean_ms": 12.024061328125,
+              "p95_ms": 13.493
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.950816796875,
-                "p95_ms": 3.4213
+                "mean_ms": 3.007483984375,
+                "p95_ms": 3.4871
               },
               {
-                "mean_ms": 2.938940625,
-                "p95_ms": 3.4609
+                "mean_ms": 3.00686328125,
+                "p95_ms": 3.4906
               },
               {
-                "mean_ms": 2.9714171875,
-                "p95_ms": 3.4273
+                "mean_ms": 3.0353234375,
+                "p95_ms": 3.4147
               },
               {
-                "mean_ms": 2.896001953125,
-                "p95_ms": 3.3908
+                "mean_ms": 2.974390625,
+                "p95_ms": 3.6249
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.489299609375,
-              "p95_ms": 0.7332
+              "mean_ms": 0.490334375,
+              "p95_ms": 0.7304
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.005810546875,
-              "p95_ms": 1.4862
+              "mean_ms": 1.072244921875,
+              "p95_ms": 1.7692
             },
             "ConflictFinalize": {
-              "mean_ms": 2.41885,
-              "p95_ms": 3.3789
+              "mean_ms": 2.470208203125,
+              "p95_ms": 3.449
             },
             "ConflictPrepare": {
-              "mean_ms": 4.17960703125,
-              "p95_ms": 6.1365
+              "mean_ms": 4.260052734375,
+              "p95_ms": 6.3077
             },
             "Frontier": {
-              "mean_ms": 1.78639453125,
-              "p95_ms": 3.1404
+              "mean_ms": 1.7958078125,
+              "p95_ms": 3.1883
             },
             "MotionLoop": {
-              "mean_ms": 3.74401015625,
-              "p95_ms": 4.2249
+              "mean_ms": 3.8300359375,
+              "p95_ms": 4.3065
             },
             "Occupancy": {
-              "mean_ms": 2.005859375,
-              "p95_ms": 2.6732
+              "mean_ms": 2.21112109375,
+              "p95_ms": 3.2012
             },
             "P4": {
-              "mean_ms": 0.23541796875,
-              "p95_ms": 0.5632
+              "mean_ms": 0.24542109375,
+              "p95_ms": 0.6277
             },
             "Preflight": {
-              "mean_ms": 1.632828515625,
-              "p95_ms": 2.6358
+              "mean_ms": 1.6279859375,
+              "p95_ms": 2.6006
             },
             "Signals": {
-              "mean_ms": 0.11649296875,
-              "p95_ms": 0.1419
+              "mean_ms": 0.117313671875,
+              "p95_ms": 0.1461
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3184484375,
-              "p95_ms": 0.4638
+              "mean_ms": 0.32219453125,
+              "p95_ms": 0.4624
             },
             "WaitingOutputs": {
-              "mean_ms": 2.0633078125,
-              "p95_ms": 3.0864
+              "mean_ms": 2.09038984375,
+              "p95_ms": 3.2038
             },
             "WaitingPrepare": {
-              "mean_ms": 2.421480859375,
-              "p95_ms": 2.916
+              "mean_ms": 2.473341796875,
+              "p95_ms": 3.0427
             }
           },
           "step": {
-            "mean_ms": 19.91243125,
-            "p95_ms": 24.366
+            "mean_ms": 20.48078671875,
+            "p95_ms": 24.8865
           }
         },
         "entry": {
@@ -6226,32 +6358,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.0172328125,
-              "p95_ms": 0.0545
+              "mean_ms": 0.0096109375,
+              "p95_ms": 0.0191
             },
             "dispatch": {
-              "mean_ms": 3.2544875,
-              "p95_ms": 3.6238
+              "mean_ms": 3.3252859375,
+              "p95_ms": 3.7636
             },
             "first_start": {
-              "mean_ms": 0.0131765625,
-              "p95_ms": 0.0207
+              "mean_ms": 0.0119328125,
+              "p95_ms": 0.0168
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.1892875,
-              "p95_ms": 0.4053
+              "mean_ms": 0.224678125,
+              "p95_ms": 0.4982
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.1235171875,
-              "p95_ms": 1.4573
+              "mean_ms": 1.0900484375,
+              "p95_ms": 1.3064
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.212853125,
-              "p95_ms": 3.5702
+              "mean_ms": 3.291946875,
+              "p95_ms": 3.7524
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.73509375,
-              "p95_ms": 3.1135
+              "mean_ms": 2.7988734375,
+              "p95_ms": 3.0839
             },
             "participating_workers": {
               "max": 4,
@@ -6264,85 +6396,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.8511578125,
-              "p95_ms": 13.2112
+              "mean_ms": 12.080328125,
+              "p95_ms": 13.3008
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.980346875,
-                "p95_ms": 3.4213
+                "mean_ms": 3.007921875,
+                "p95_ms": 3.4871
               },
               {
-                "mean_ms": 2.9827046875,
-                "p95_ms": 3.5702
+                "mean_ms": 3.0613296875,
+                "p95_ms": 3.5081
               },
               {
-                "mean_ms": 2.9522859375,
-                "p95_ms": 3.4051
+                "mean_ms": 3.02035625,
+                "p95_ms": 3.4042
               },
               {
-                "mean_ms": 2.9358203125,
-                "p95_ms": 3.4718
+                "mean_ms": 2.9907203125,
+                "p95_ms": 3.6249
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.477759375,
-              "p95_ms": 0.7374
+              "mean_ms": 0.4930734375,
+              "p95_ms": 0.7132
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 0.911046875,
-              "p95_ms": 1.4299
+              "mean_ms": 1.1768546875,
+              "p95_ms": 2.0339
             },
             "ConflictFinalize": {
-              "mean_ms": 1.6619421875,
-              "p95_ms": 2.1222
+              "mean_ms": 1.83385,
+              "p95_ms": 3.057
             },
             "ConflictPrepare": {
-              "mean_ms": 2.3109625,
-              "p95_ms": 4.2294
+              "mean_ms": 2.36665625,
+              "p95_ms": 4.5314
             },
             "Frontier": {
-              "mean_ms": 0.6442671875,
-              "p95_ms": 0.9568
+              "mean_ms": 0.6331578125,
+              "p95_ms": 1.1034
             },
             "MotionLoop": {
-              "mean_ms": 3.792234375,
-              "p95_ms": 4.1527
+              "mean_ms": 3.8983296875,
+              "p95_ms": 4.3862
             },
             "Occupancy": {
-              "mean_ms": 2.08845,
-              "p95_ms": 2.8657
+              "mean_ms": 2.33255625,
+              "p95_ms": 3.6518
             },
             "P4": {
-              "mean_ms": 0.06978125,
-              "p95_ms": 0.2925
+              "mean_ms": 0.0672359375,
+              "p95_ms": 0.3255
             },
             "Preflight": {
-              "mean_ms": 0.608759375,
-              "p95_ms": 0.8457
+              "mean_ms": 0.60908125,
+              "p95_ms": 0.915
             },
             "Signals": {
-              "mean_ms": 0.11676875,
-              "p95_ms": 0.1421
+              "mean_ms": 0.11976875,
+              "p95_ms": 0.1489
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3107796875,
-              "p95_ms": 0.4414
+              "mean_ms": 0.3459890625,
+              "p95_ms": 0.4794
             },
             "WaitingOutputs": {
-              "mean_ms": 1.6685015625,
-              "p95_ms": 2.4215
+              "mean_ms": 1.7667046875,
+              "p95_ms": 2.4285
             },
             "WaitingPrepare": {
-              "mean_ms": 2.2056125,
-              "p95_ms": 2.7834
+              "mean_ms": 2.208071875,
+              "p95_ms": 2.6123
             }
           },
           "step": {
-            "mean_ms": 15.6807578125,
-            "p95_ms": 18.4858
+            "mean_ms": 16.664340625,
+            "p95_ms": 19.9685
           }
         },
         "screen": {
@@ -6364,32 +6496,32 @@
           },
           "p5": {
             "after_last_end": {
-              "mean_ms": 0.00958125,
-              "p95_ms": 0.0205
+              "mean_ms": 0.009302604166666666,
+              "p95_ms": 0.024
             },
             "dispatch": {
-              "mean_ms": 3.2376609375,
-              "p95_ms": 3.6465
+              "mean_ms": 3.313475,
+              "p95_ms": 3.7318
             },
             "first_start": {
-              "mean_ms": 0.010452604166666666,
-              "p95_ms": 0.0165
+              "mean_ms": 0.0102984375,
+              "p95_ms": 0.0174
             },
             "last_two_chunk_end_gap": {
-              "mean_ms": 0.232396875,
-              "p95_ms": 0.5608
+              "mean_ms": 0.23801979166666665,
+              "p95_ms": 0.5433
             },
             "max_chunk_elapsed": {
-              "mean_ms": 1.0898973958333333,
-              "p95_ms": 1.4065
+              "mean_ms": 1.0951239583333332,
+              "p95_ms": 1.4168
             },
             "max_worker_elapsed": {
-              "mean_ms": 3.2084703125,
-              "p95_ms": 3.6136
+              "mean_ms": 3.2846723958333337,
+              "p95_ms": 3.7093
             },
             "min_worker_elapsed": {
-              "mean_ms": 2.7153239583333333,
-              "p95_ms": 2.9982
+              "mean_ms": 2.7952510416666665,
+              "p95_ms": 3.1397
             },
             "participating_workers": {
               "max": 4,
@@ -6402,85 +6534,85 @@
               "min": 4
             },
             "summed_chunk_elapsed": {
-              "mean_ms": 11.725849479166666,
-              "p95_ms": 12.9952
+              "mean_ms": 12.005305729166666,
+              "p95_ms": 13.493
             },
             "worker_elapsed": [
               {
-                "mean_ms": 2.9409734375,
-                "p95_ms": 3.4093
+                "mean_ms": 3.0073380208333336,
+                "p95_ms": 3.4729
               },
               {
-                "mean_ms": 2.9243526041666663,
-                "p95_ms": 3.4287
+                "mean_ms": 2.9887078125,
+                "p95_ms": 3.4836
               },
               {
-                "mean_ms": 2.9777942708333334,
-                "p95_ms": 3.4586
+                "mean_ms": 3.0403125,
+                "p95_ms": 3.4147
               },
               {
-                "mean_ms": 2.8827291666666666,
-                "p95_ms": 3.3601
+                "mean_ms": 2.9689473958333337,
+                "p95_ms": 3.5693
               }
             ],
             "worker_elapsed_spread": {
-              "mean_ms": 0.4931463541666667,
-              "p95_ms": 0.7306
+              "mean_ms": 0.4894213541666667,
+              "p95_ms": 0.7348
             }
           },
           "stages": {
             "Commit": {
-              "mean_ms": 1.0373984375,
-              "p95_ms": 1.5164
+              "mean_ms": 1.037375,
+              "p95_ms": 1.5718
             },
             "ConflictFinalize": {
-              "mean_ms": 2.6711526041666667,
-              "p95_ms": 3.4125
+              "mean_ms": 2.6823276041666664,
+              "p95_ms": 3.5257
             },
             "ConflictPrepare": {
-              "mean_ms": 4.802488541666667,
-              "p95_ms": 6.3297
+              "mean_ms": 4.891184895833333,
+              "p95_ms": 6.315
             },
             "Frontier": {
-              "mean_ms": 2.1671036458333335,
-              "p95_ms": 3.269
+              "mean_ms": 2.1833578125,
+              "p95_ms": 3.1883
             },
             "MotionLoop": {
-              "mean_ms": 3.7279354166666665,
-              "p95_ms": 4.2249
+              "mean_ms": 3.8072713541666667,
+              "p95_ms": 4.2993
             },
             "Occupancy": {
-              "mean_ms": 1.9783291666666667,
-              "p95_ms": 2.6318
+              "mean_ms": 2.1706427083333333,
+              "p95_ms": 2.9413
             },
             "P4": {
-              "mean_ms": 0.2906302083333333,
-              "p95_ms": 0.5925
+              "mean_ms": 0.30481614583333333,
+              "p95_ms": 0.6892
             },
             "Preflight": {
-              "mean_ms": 1.9741848958333332,
-              "p95_ms": 2.6777
+              "mean_ms": 1.9676208333333332,
+              "p95_ms": 2.6362
             },
             "Signals": {
-              "mean_ms": 0.11640104166666668,
-              "p95_ms": 0.1394
+              "mean_ms": 0.1164953125,
+              "p95_ms": 0.1414
             },
             "WaitingFinalize": {
-              "mean_ms": 0.3210046875,
-              "p95_ms": 0.4638
+              "mean_ms": 0.3142630208333333,
+              "p95_ms": 0.4552
             },
             "WaitingOutputs": {
-              "mean_ms": 2.1949098958333333,
-              "p95_ms": 3.1469
+              "mean_ms": 2.1982848958333334,
+              "p95_ms": 3.2501
             },
             "WaitingPrepare": {
-              "mean_ms": 2.4934369791666664,
-              "p95_ms": 2.9427
+              "mean_ms": 2.5617651041666667,
+              "p95_ms": 3.121
             }
           },
           "step": {
-            "mean_ms": 21.3229890625,
-            "p95_ms": 24.6758
+            "mean_ms": 21.752935416666666,
+            "p95_ms": 24.9865
           }
         }
       }

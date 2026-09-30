@@ -42,6 +42,7 @@ fn plan(mode: &str) -> Result<CapturePlan> {
         alternate_quartets: true,
         observe: environment::observe,
         bind_build: chunk_build::bind_capture,
+        validate_builds: chunk_build::validate_pair,
     })
 }
 fn run() -> Result<()> {

@@ -1,6 +1,21 @@
 {
-  "utc": "2026-09-30T06:34:34.6672497Z",
+  "utc": "2026-09-30T07:45:20.0271607Z",
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29671",
+    "BuildNumber": "29671"
+  },
   "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
-  "collector_sha256": "82EAD67667CC46228D42B6C3CA7D01D334084C60DA9E23269C3B6E6CEA6C5108",
-  "scope": "before fixed diagnostic batch; per-process boundaries recorded by Rust"
+  "battery": {
+    "BatteryStatus": 2,
+    "EstimatedChargeRemaining": 100
+  },
+  "known_contenders": [],
+  "collector_sha256": "29722a6bf880cd64015028c7151813924f68d07f817e14b8002160b981c9fab1",
+  "scope": "aggregate snapshot; Rust saves process boundary snapshots, not continuous monitoring"
 }
