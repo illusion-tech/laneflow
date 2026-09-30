@@ -7,6 +7,11 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 4 个工作线程的活动路径分别生成 8 块和 16 块。未改变领域原语、规范消费顺序、
 资源生命周期、Runtime API、数据格式或 Adapter API，无需新增 ADR。
 
+- [结果与停止决定](results.md)
+- [24 次普通测试及逐组比较](evidence/plain.json)
+- [6 次独立块级诊断](evidence/detail.json)
+- [负向校验记录](evidence/negative-checks.json)
+
 ## 冻结方案
 
 - 使用 #707 的冻结 MIXED-PEAK 输入，seed 544；10k 为 16 ms，100k 为 33 ms。

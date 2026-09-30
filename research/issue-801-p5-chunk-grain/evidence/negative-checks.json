@@ -1,0 +1,13 @@
+{
+  "partial_batch": {
+    "exit_code": 1,
+    "reason": "protocol completion"
+  },
+  "changed_published_comparison": {
+    "exit_code": 1,
+    "reason": "published mismatch"
+  },
+  "cross_mode_inputs_and_traffic": "all six fixed diagnostic runs match the 100k plain traffic hashes and initial/final counts",
+  "unit_corruptions": "chunk partitions, completion, interval bounds, worker overlap, stage calls/nesting, matrix order and screening repeatability",
+  "original_plain_unchanged": "5456BB7F3925125F8432A26863D6B22C73F05E56A55FECBBC40A9BDFB2679581"
+}
