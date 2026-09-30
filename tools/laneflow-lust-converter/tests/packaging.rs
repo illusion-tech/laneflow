@@ -41,7 +41,7 @@ fn conversion_report_records_payload_digests_not_self() {
         major_minor_green_collapsed: true,
         network_lfca_bytes: Some(lfca.clone()),
         infeasibility_survey_bytes: None,
-        routes_toml_bytes: routes.clone(),
+        routes_toml_bytes: Some(routes.clone()),
         manifest_bytes: manifest.clone(),
     })
     .expect("report");
@@ -71,7 +71,7 @@ fn conversion_report_records_payload_digests_not_self() {
         major_minor_green_collapsed: true,
         network_lfca_bytes: Some(lfca),
         infeasibility_survey_bytes: None,
-        routes_toml_bytes: routes,
+        routes_toml_bytes: Some(routes),
         manifest_bytes: manifest,
     })
     .expect("report again");
@@ -103,7 +103,7 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
         static_tar: Some(static_tar.clone()),
         network_lfca_bytes: Some(b"LFCA\n".to_vec()),
         infeasibility_survey_bytes: None,
-        routes_toml_bytes: b"format_version = \"0.1\"\n".to_vec(),
+        routes_toml_bytes: Some(b"format_version = \"0.1\"\n".to_vec()),
         manifest_bytes: b"manifest_version = 1\n".to_vec(),
         conversion_report_bytes: b"{}\n".to_vec(),
     };
@@ -126,7 +126,7 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
         },
         raw_output_digests: RawOutputDigests {
             network_lfca: Some("sha256:a".to_owned()),
-            routes_toml: "sha256:b".to_owned(),
+            routes_toml: Some("sha256:b".to_owned()),
             manifest_toml: "sha256:c".to_owned(),
             conversion_report: "sha256:d".to_owned(),
             source_tar: "sha256:f".to_owned(),
@@ -168,7 +168,7 @@ fn semantic_digest_tracks_only_semantic_config_subset() {
         ),
         network_lfca_bytes: Some(b"LFCA\n".to_vec()),
         infeasibility_survey_bytes: None,
-        routes_toml_bytes: b"format_version = \"0.1\"\n".to_vec(),
+        routes_toml_bytes: Some(b"format_version = \"0.1\"\n".to_vec()),
         manifest_bytes: b"manifest_version = 1\n".to_vec(),
         conversion_report_bytes: b"{}\n".to_vec(),
     };
@@ -199,7 +199,7 @@ fn semantic_digest_tracks_only_semantic_config_subset() {
             },
             raw_output_digests: RawOutputDigests {
                 network_lfca: Some("sha256:a".to_owned()),
-                routes_toml: "sha256:b".to_owned(),
+                routes_toml: Some("sha256:b".to_owned()),
                 manifest_toml: "sha256:c".to_owned(),
                 conversion_report: "sha256:d".to_owned(),
                 source_tar: "sha256:f".to_owned(),

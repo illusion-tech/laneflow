@@ -60,7 +60,9 @@ fn run() -> Result<(), String> {
             if let Some(network_lfca) = &outputs.network_lfca {
                 println!("  {}", network_lfca.display());
             }
-            println!("  {}", outputs.routes.display());
+            if let Some(routes) = &outputs.routes {
+                println!("  {}", routes.display());
+            }
             println!("  {}", outputs.manifest.display());
             println!("  {}", outputs.conversion_report.display());
             println!("  {}", outputs.infeasibility_survey.display());

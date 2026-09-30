@@ -13,8 +13,8 @@ LuST Scenario v2.0 source/static converter for Issue #253.
     `evidence/lust-infeasible-survey.md` 逐字节一致）
   - `routes.toml`：**实现中**——DUE 展开 route catalog + 精确一万 population
     record；车道级展开语义待修订（`can_complete` 禁止边内换道，pinned 入选
-    10,000 中 9,350 条途径不可展开，另立 issue 跟踪），当前 CLI 在 pinned
-    输入上不产出
+    10,000 中 9,350 条途径不可展开，另立 issue 跟踪）——诊断模式不产出
+    （#253 L1 绕过展开），fail-fast 路径在展开成功后产出
   - `manifest.toml` / `lust-conversion-report.json`
   - deterministic `lust-source.tar`（static bundle 与 `network.lfca` 依赖
     「路口级 maneuver 几何合成」新设计，落地前不交付，诊断模式不产出

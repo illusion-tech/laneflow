@@ -49,7 +49,8 @@ pub struct SemanticProvenanceInput {
     pub network_lfca_bytes: Option<Vec<u8>>,
     /// 诊断交付物（`issue253-infeasible-survey.md`）；fail-fast 路径为 None。
     pub infeasibility_survey_bytes: Option<Vec<u8>>,
-    pub routes_toml_bytes: Vec<u8>,
+    /// 诊断模式为 None（#253 L1：routes.toml 不产出）。
+    pub routes_toml_bytes: Option<Vec<u8>>,
     pub manifest_bytes: Vec<u8>,
     pub conversion_report_bytes: Vec<u8>,
 }
@@ -80,7 +81,9 @@ pub struct RawOutputDigests {
     /// 诊断模式为 None（该字段序列化不出现）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_lfca: Option<String>,
-    pub routes_toml: String,
+    /// 诊断模式为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routes_toml: Option<String>,
     pub manifest_toml: String,
     pub conversion_report: String,
     pub source_tar: String,
@@ -155,7 +158,9 @@ struct SemanticOutputs {
     /// 交付物认证（#253 N1）。
     #[serde(skip_serializing_if = "Option::is_none")]
     network_lfca: Option<ArtifactDigest>,
-    routes_toml: ArtifactDigest,
+    /// 诊断模式为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    routes_toml: Option<ArtifactDigest>,
     manifest_toml: ArtifactDigest,
     conversion_report: ArtifactDigest,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,7 +243,10 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
                 .network_lfca_bytes
                 .as_ref()
                 .map(|bytes| artifact("network.lfca", bytes)),
-            routes_toml: artifact("routes.toml", &input.routes_toml_bytes),
+            routes_toml: input
+                .routes_toml_bytes
+                .as_ref()
+                .map(|bytes| artifact("routes.toml", bytes)),
             manifest_toml: artifact("manifest.toml", &input.manifest_bytes),
             conversion_report: artifact(
                 "lust-conversion-report.json",

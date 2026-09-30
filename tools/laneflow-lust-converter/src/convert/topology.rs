@@ -65,8 +65,11 @@ impl Default for TopologyConvertOptions {
 /// Topology artifacts plus demand-side routes.toml bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StaticConversionArtifacts {
+    /// Topology artifacts（诊断清单或编译产物）。
     pub topology: TopologyArtifacts,
-    pub routes_toml: Vec<u8>,
+    /// DUE route catalog + population table；诊断模式（#253 L1 绕过未完成的
+    /// lane-level 展开）为 None——不产出 routes.toml。
+    pub routes_toml: Option<Vec<u8>>,
     pub population_record_count: usize,
     pub route_count: usize,
     /// 「声明臂无受控 link」source-health 事实（#253 K4a；通常为 empty）。
@@ -132,55 +135,71 @@ pub(crate) fn convert_static_with_due(
     report_source: ReportSource,
 ) -> Result<StaticConversionArtifacts> {
     let topology_norm = normalize_junctions(network, &stub_weld_gate(options, &report_source))?;
+    // population 选取与健康事实（精确 10,000 计数）两模式都保留。
     let population = select_population(due_vehicles, options.require_lust_population_count)?;
-    let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
+
+    // #253 L1：诊断模式绕过未完成的 lane-level route 展开（`can_complete`
+    // 禁止边内换道，pinned 入选 10,000 中 9,350 条不可展开——实现语义缺口，
+    // 另立 issue 修复；§4/§3.6 文档已标「routes.toml 实现中」）。不展开即不产
+    // routes.toml（None）；fail-fast 路径保持原语义（展开失败仍 fail-closed）。
+    let (routes, routes_toml, population_record_count) = if options.emit_infeasibility_report {
+        (Vec::new(), None, population.len())
+    } else {
+        let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
+        let table = RoutesToml {
+            format_version: "0.1",
+            selection: PopulationSelection {
+                depart_start_seconds: POPULATION_DEPART_START_SECONDS,
+                depart_end_seconds_exclusive: POPULATION_DEPART_END_SECONDS,
+                require_lust_candidate_count: options.require_lust_population_count,
+                candidate_count_expected: options
+                    .require_lust_population_count
+                    .then_some(POPULATION_CANDIDATE_COUNT as u64),
+                selected_count: u64::try_from(bundle.records.len()).expect("count fits u64"),
+                route_catalog_count: u64::try_from(bundle.routes.len()).expect("count fits u64"),
+            },
+            routes: bundle.routes.clone(),
+            records: bundle
+                .records
+                .iter()
+                .map(|record| PopulationTableRecord {
+                    population_rank: record.population_rank,
+                    vehicle_id: record.vehicle_id.clone(),
+                    vehicle_profile_id: record.vehicle_profile_id.clone(),
+                    depart_seconds: record.depart.to_string(),
+                    route_id: record.route_id.clone(),
+                    road_edge_ids: record.road_edge_ids.clone(),
+                    source_file_ordinal: record.source_file_ordinal,
+                    source_vehicle_ordinal: record.source_vehicle_ordinal,
+                })
+                .collect(),
+        };
+        let routes_toml =
+            toml::to_string_pretty(&table).map_err(|source| Error::TomlSerialize {
+                document: "routes.toml",
+                source,
+            })?;
+        (
+            bundle.routes,
+            Some(routes_toml.into_bytes()),
+            bundle.records.len(),
+        )
+    };
 
     let (topology, signal_health) = convert_network_packages(
         network,
         tll_programs,
         vehicle_profiles,
-        &bundle.routes,
+        &routes,
         options,
         report_source,
     )?;
 
-    let table = RoutesToml {
-        format_version: "0.1",
-        selection: PopulationSelection {
-            depart_start_seconds: POPULATION_DEPART_START_SECONDS,
-            depart_end_seconds_exclusive: POPULATION_DEPART_END_SECONDS,
-            require_lust_candidate_count: options.require_lust_population_count,
-            candidate_count_expected: options
-                .require_lust_population_count
-                .then_some(POPULATION_CANDIDATE_COUNT as u64),
-            selected_count: u64::try_from(bundle.records.len()).expect("count fits u64"),
-            route_catalog_count: u64::try_from(bundle.routes.len()).expect("count fits u64"),
-        },
-        routes: bundle.routes.clone(),
-        records: bundle
-            .records
-            .iter()
-            .map(|record| PopulationTableRecord {
-                population_rank: record.population_rank,
-                vehicle_id: record.vehicle_id.clone(),
-                vehicle_profile_id: record.vehicle_profile_id.clone(),
-                depart_seconds: record.depart.to_string(),
-                route_id: record.route_id.clone(),
-                road_edge_ids: record.road_edge_ids.clone(),
-                source_file_ordinal: record.source_file_ordinal,
-                source_vehicle_ordinal: record.source_vehicle_ordinal,
-            })
-            .collect(),
-    };
-    let routes_toml = toml::to_string_pretty(&table).map_err(|source| Error::TomlSerialize {
-        document: "routes.toml",
-        source,
-    })?;
     Ok(StaticConversionArtifacts {
-        population_record_count: bundle.records.len(),
-        route_count: bundle.routes.len(),
+        population_record_count,
+        route_count: routes.len(),
         topology,
-        routes_toml: routes_toml.into_bytes(),
+        routes_toml,
         signal_health,
     })
 }

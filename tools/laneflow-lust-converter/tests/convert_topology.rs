@@ -109,7 +109,12 @@ fn fixture_due_routes_and_population_round_trip() {
     let lfca = &artifacts.topology.network_lfca;
     assert!(contains_bytes(lfca, b"west_0"));
     assert!(contains_bytes(lfca, b"int:J_0_0") || contains_bytes(lfca, b"int:J_1_0"));
-    let routes = String::from_utf8_lossy(&artifacts.routes_toml);
+    let routes = String::from_utf8_lossy(
+        artifacts
+            .routes_toml
+            .as_ref()
+            .expect("fail-fast mode delivers routes.toml"),
+    );
     assert!(routes.contains("route-0"));
     assert!(routes.contains("population_rank = 0"));
     assert!(routes.contains("west-east-a") || routes.contains("west-south-b"));
@@ -329,6 +334,68 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     );
 }
 
+/// L1 回归：诊断模式绕过未完成的 lane-level route 展开——population 选取
+/// 保留（计数健康事实），routes.toml 不产出；fail-fast 路径仍严格展开。
+#[test]
+fn diagnostic_mode_skips_route_expansion_but_keeps_population() {
+    // x(2 车道) → y 仅 (0,0) → z 仅 (1,1)：车道连续走法不存在（边内换道
+    // 语义缺口的最小复现），fail-fast 展开必败。
+    let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="x" from="X" to="J"><lane id="x_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/><lane id="x_1" index="1" speed="13.89" length="20.00" shape="6786.88,5730.52 6806.88,5730.52"/></edge>
+  <edge id="y" from="J" to="K"><lane id="y_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id="z" from="K" to="Z"><lane id="z_0" index="0" speed="13.89" length="20.00" shape="6846.88,5727.52 6866.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <edge id=":K_0" function="internal"><lane id=":K_0_0" index="0" speed="13.89" length="10.00" shape="6836.88,5727.52 6846.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <junction id="K" type="priority" intLanes=":K_0_0"/>
+  <connection from="x" to="y" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="y" fromLane="0" toLane="0"/>
+  <connection from="y" to="z" fromLane="0" toLane="0" via=":K_0_0"/>
+  <connection from=":K_0" to="z" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="Gr"/>
+  </tlLogic>
+</net>"#;
+    let due = |id: &str| {
+        format!(
+            r#"<routes>
+  <vehicle id="{id}" type="passenger1" depart="28800">
+    <route edges="x y z"/>
+  </vehicle>
+</routes>"#
+        )
+    };
+    // fail-fast：展开失败（routes 构建先于信号闭包）。
+    let fail_fast = convert_static_from_xml_with_due(
+        net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        [&due("v0"), &fixture_due1_xml(), &fixture_due2_xml()],
+        &TopologyConvertOptions::default(),
+    );
+    assert!(
+        fail_fast.is_err(),
+        "fail-fast 路径仍须严格展开（边内换道语义缺口下必败）"
+    );
+    // 诊断模式：绕过展开，population 计数保留，不产 routes.toml。
+    let artifacts = convert_static_from_xml_with_due(
+        net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        [&due("v0"), &fixture_due1_xml(), &fixture_due2_xml()],
+        &TopologyConvertOptions {
+            emit_infeasibility_report: true,
+            ..TopologyConvertOptions::default()
+        },
+    )
+    .expect("diagnostic mode bypasses route expansion");
+    assert_eq!(artifacts.population_record_count, 1);
+    assert!(artifacts.routes_toml.is_none(), "诊断模式不产 routes.toml");
+    assert!(artifacts.topology.infeasibility_report.is_some());
+}
+
 /// R8 回归：通用 XML 入口（未验证来源）+ 几何可焊形态 stub → 0.5 m 例外
 /// 不生效（BlockedOutOfDomain），stub 保留走普通穿越，处置记录入附录。
 #[test]
@@ -373,6 +440,73 @@ fn generic_xml_entry_stub_weld_blocked_outside_approved_domain() {
         &report.rendered[report.rendered.len().saturating_sub(2500)..]
     );
     assert_eq!(artifacts.counts.dropped_point_stub_edges, 0);
+}
+
+/// L1 端到端验收（真实 pinned）：`convert` CLI 在 pinned 输入上首次完整
+/// 跑通——诊断交付物 survey（字节 = evidence）、manifest 单配对 survey、
+/// report 含 K6/K7/K4a 健康事实（parking 175 / phase 1,298 / 声明臂
+/// -13968 缺 index 9）、population 计数保留、不产 network.lfca /
+/// lust-static.tar / routes.toml。
+#[test]
+#[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3"]
+fn full_lust_convert_cli_end_to_end() {
+    let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
+    let root = std::env::temp_dir().join(format!("lust-cli-e2e-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let config_path = root.join("config.toml");
+    fs::create_dir_all(&root).expect("create temp");
+    fs::write(
+        &config_path,
+        format!(
+            "source_dir = {source_dir:?}
+output_dir = {:?}
+converter_commit = \"e7004fe7000000000000000000000000000000000\"
+",
+            root.join("out").to_string_lossy().replace('\\', "/"),
+        ),
+    )
+    .expect("write config");
+    let paths = laneflow_lust_converter::convert(&config_path).expect("CLI convert");
+    let read =
+        |path: &std::path::Path| -> String { fs::read_to_string(path).expect("read output") };
+    // 诊断交付物：survey 字节 = evidence。
+    let survey = fs::read(&paths.infeasibility_survey).expect("read survey");
+    let evidence = fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md"),
+    )
+    .expect("read evidence");
+    assert_eq!(survey, evidence, "survey 必须与 evidence 逐字节一致");
+    // 不产出排除产物。
+    assert!(paths.network_lfca.is_none());
+    assert!(paths.static_tar.is_none());
+    assert!(paths.routes.is_none());
+    // manifest 单配对 survey。
+    let manifest = read(&paths.manifest);
+    assert!(
+        manifest.contains("[files.\"issue253-infeasible-survey.md\"]"),
+        "{manifest}"
+    );
+    assert!(!manifest.contains("network.lfca"), "{manifest}");
+    assert!(!manifest.contains("routes.toml"), "{manifest}");
+    assert!(
+        manifest.contains("population_records = 10000"),
+        "{manifest}"
+    );
+    // report 健康事实（K6/K7/K4a pinned 断言）。
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&paths.conversion_report).expect("read report"))
+            .expect("report json");
+    assert_eq!(report["health"]["parkingPolygonCount"], 175);
+    assert_eq!(report["normalization"]["signalPhaseCount"], 1298);
+    let arms = report["health"]["unclaimedSignalArms"]
+        .as_array()
+        .expect("arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0]["controllerId"], "-13968");
+    assert_eq!(arms[0]["missingLinkIndices"], serde_json::json!([9]));
+    assert!(report["digests"].get("networkLfca").is_none());
+    assert!(report["digests"].get("routesToml").is_none());
+    let _ = fs::remove_dir_all(&root);
 }
 
 /// R8 残留缺口回归（真实 pinned）：prepare 后改动 net/tll 字节、沿用旧

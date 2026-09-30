@@ -48,7 +48,8 @@ pub struct ConvertOutputPaths {
     pub output_dir: PathBuf,
     /// fail-fast 路径产出；诊断模式（G1 重划）不交付 network.lfca，为 None。
     pub network_lfca: Option<PathBuf>,
-    pub routes: PathBuf,
+    /// fail-fast 路径产出；诊断模式（#253 L1）不产出 routes.toml，为 None。
+    pub routes: Option<PathBuf>,
     pub manifest: PathBuf,
     pub conversion_report: PathBuf,
     pub infeasibility_survey: PathBuf,
@@ -171,7 +172,10 @@ fn convert_verified(
             },
             TarMember {
                 path: ROUTES_NAME.to_owned(),
-                contents: static_artifacts.routes_toml.clone(),
+                contents: static_artifacts
+                    .routes_toml
+                    .clone()
+                    .expect("fail-fast mode delivers routes.toml"),
             },
             TarMember {
                 path: MANIFEST_NAME.to_owned(),
@@ -238,7 +242,10 @@ fn convert_verified(
         raw_output_digests: RawOutputDigests {
             network_lfca: (!diagnostic)
                 .then(|| sha256_digest(&static_artifacts.topology.network_lfca)),
-            routes_toml: sha256_digest(&static_artifacts.routes_toml),
+            routes_toml: static_artifacts
+                .routes_toml
+                .as_ref()
+                .map(|bytes| sha256_digest(bytes)),
             manifest_toml: sha256_digest(&manifest),
             conversion_report: sha256_digest(&report),
             source_tar: sha256_digest(&source_tar),
@@ -263,7 +270,10 @@ fn convert_verified(
     let paths = ConvertOutputPaths {
         output_dir: config.output_dir.clone(),
         network_lfca: (!diagnostic).then(|| config.output_dir.join(NETWORK_LFCA_NAME)),
-        routes: config.output_dir.join(ROUTES_NAME),
+        routes: static_artifacts
+            .routes_toml
+            .as_ref()
+            .map(|_| config.output_dir.join(ROUTES_NAME)),
         manifest: config.output_dir.join(MANIFEST_NAME),
         conversion_report: config.output_dir.join(REPORT_NAME),
         infeasibility_survey: config.output_dir.join(SURVEY_NAME),
@@ -278,7 +288,9 @@ fn convert_verified(
     if let Some(network_lfca) = &paths.network_lfca {
         write_file(network_lfca, &static_artifacts.topology.network_lfca)?;
     }
-    write_file(&paths.routes, &static_artifacts.routes_toml)?;
+    if let (Some(path), Some(routes_toml)) = (&paths.routes, &static_artifacts.routes_toml) {
+        write_file(path, routes_toml)?;
+    }
     write_file(&paths.manifest, &manifest)?;
     write_file(&paths.conversion_report, &report)?;
     write_file(&paths.infeasibility_survey, survey.as_bytes())?;
@@ -394,7 +406,9 @@ fn build_manifest_toml(
     } else {
         insert(NETWORK_LFCA_NAME, &artifacts.topology.network_lfca);
     }
-    insert(ROUTES_NAME, &artifacts.routes_toml);
+    if let Some(routes_toml) = &artifacts.routes_toml {
+        insert(ROUTES_NAME, routes_toml);
+    }
     let manifest = ManifestToml {
         manifest_version: 1,
         generator: "laneflow-lust-converter",

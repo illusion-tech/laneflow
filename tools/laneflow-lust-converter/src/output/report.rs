@@ -50,7 +50,8 @@ pub struct ConversionReportInput {
     pub network_lfca_bytes: Option<Vec<u8>>,
     /// 诊断交付物 `issue253-infeasible-survey.md` 字节（fail-fast 路径 None）。
     pub infeasibility_survey_bytes: Option<Vec<u8>>,
-    pub routes_toml_bytes: Vec<u8>,
+    /// 诊断模式为 None（#253 L1：routes.toml 不产出）。
+    pub routes_toml_bytes: Option<Vec<u8>>,
     pub manifest_bytes: Vec<u8>,
 }
 
@@ -129,7 +130,9 @@ struct ReportDigests {
     /// 诊断模式无 network.lfca：字段不出现，认证对象替换为诊断清单（#253 N1）。
     #[serde(skip_serializing_if = "Option::is_none")]
     network_lfca: Option<String>,
-    routes_toml: String,
+    /// 诊断模式为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    routes_toml: Option<String>,
     manifest_toml: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     infeasibility_survey: Option<String>,
@@ -192,7 +195,10 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
                 .network_lfca_bytes
                 .as_ref()
                 .map(|bytes| sha256_digest(bytes)),
-            routes_toml: sha256_digest(&input.routes_toml_bytes),
+            routes_toml: input
+                .routes_toml_bytes
+                .as_ref()
+                .map(|bytes| sha256_digest(bytes)),
             manifest_toml: sha256_digest(&input.manifest_bytes),
             infeasibility_survey: input
                 .infeasibility_survey_bytes
