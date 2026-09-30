@@ -14,6 +14,10 @@ jobs:
   dhat-loop:
     name: dhat allocation probe loop
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,12 +49,12 @@ jobs:
           install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Loop full placement suite 8 times with dhat profiles
+      - name: Loop full placement suite 25 times with dhat profiles
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dhat-evidence"
-          for i in $(seq 1 8); do
+          for i in $(seq 1 25); do
             echo "=== iter ${i} ==="
             set +e
             cargo +1.98.0 nextest run -p laneflow-runtime --locked --features placement-fixtures 2>&1 | tee "$RUNNER_TEMP/iter-${i}.log"
@@ -73,6 +77,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: dhat-evidence
+          name: dhat-evidence-${{ matrix.shard }}
           path: ${{ runner.temp }}/dhat-evidence
           if-no-files-found: warn
