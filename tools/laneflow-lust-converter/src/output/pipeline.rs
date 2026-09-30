@@ -31,6 +31,9 @@ const NETWORK_LFCA_NAME: &str = "network.lfca";
 const ROUTES_NAME: &str = "routes.toml";
 const MANIFEST_NAME: &str = "manifest.toml";
 const REPORT_NAME: &str = "lust-conversion-report.json";
+/// 诊断清单交付物（G1 验收重划；与全网验收测试同一渲染器、同一基线逐字节
+/// 一致，文件名与验收落盘 issue253-infeasible-survey.md 保持一致）。
+const SURVEY_NAME: &str = "issue253-infeasible-survey.md";
 const SOURCE_TAR_NAME: &str = "lust-source.tar";
 const STATIC_TAR_NAME: &str = "lust-static.tar";
 const SEMANTIC_NAME: &str = "lust-semantic-provenance.json";
@@ -47,6 +50,7 @@ pub struct ConvertOutputPaths {
     pub routes: PathBuf,
     pub manifest: PathBuf,
     pub conversion_report: PathBuf,
+    pub infeasibility_survey: PathBuf,
     pub source_tar: PathBuf,
     pub static_tar: PathBuf,
     pub semantic_provenance: PathBuf,
@@ -75,9 +79,14 @@ fn convert_verified(
     let due2 = read_verified(verified, "scenario/DUERoutes/local.static.2.rou.xml")?;
     let license_md = read_verified(verified, "LICENSE.md")?;
 
+    // G1 验收重划后 converter 的交付物是确定性不可行诊断清单（network.lfca
+    // 编译另立 G1）；CLI 的 convert 因此显式走诊断模式（#253 C1）——默认
+    // fail-fast 语义不变（TopologyConvertOptions::default 仍 fail-fast，见
+    // 全网测试的 fail-fast 断言）。
     let options = TopologyConvertOptions {
         require_lust_location_anchors: true,
         require_lust_population_count: true,
+        emit_infeasibility_report: true,
         ..TopologyConvertOptions::default()
     };
     // verify-source 已校验 revision + pinned digest；read_verified 在消费时
@@ -93,6 +102,15 @@ fn convert_verified(
         &options,
         report_source,
     )?;
+    // 诊断交付物：与全网验收测试同一渲染器（InfeasibilityReport::rendered），
+    // 同一基线下逐字节一致。
+    let survey = static_artifacts
+        .topology
+        .infeasibility_report
+        .as_ref()
+        .expect("diagnostic mode delivers the infeasibility survey")
+        .rendered
+        .clone();
 
     let network = parse_sumo_network_xml(&net_xml)?;
     let counts = &static_artifacts.topology.counts;
@@ -217,6 +235,7 @@ fn convert_verified(
         routes: config.output_dir.join(ROUTES_NAME),
         manifest: config.output_dir.join(MANIFEST_NAME),
         conversion_report: config.output_dir.join(REPORT_NAME),
+        infeasibility_survey: config.output_dir.join(SURVEY_NAME),
         source_tar: config.output_dir.join(SOURCE_TAR_NAME),
         static_tar: config.output_dir.join(STATIC_TAR_NAME),
         semantic_provenance: config.output_dir.join(SEMANTIC_NAME),
@@ -227,6 +246,7 @@ fn convert_verified(
     write_file(&paths.routes, &static_artifacts.routes_toml)?;
     write_file(&paths.manifest, &manifest)?;
     write_file(&paths.conversion_report, &report)?;
+    write_file(&paths.infeasibility_survey, survey.as_bytes())?;
     write_file(&paths.source_tar, &source_tar)?;
     write_file(&paths.static_tar, &static_tar)?;
     write_file(&paths.semantic_provenance, &semantic)?;
@@ -241,20 +261,9 @@ fn convert_verified(
 fn build_source_tar(verified: &VerifiedSourceSet, licenses: &LicenseArtifacts) -> Result<Vec<u8>> {
     let mut members = Vec::with_capacity(PINNED_SOURCE_FILES.len() + 2);
     for pinned in PINNED_SOURCE_FILES {
-        let file = verified
-            .files
-            .iter()
-            .find(|file| file.relative_path == pinned.relative_path)
-            .ok_or_else(|| {
-                Error::SumoModel(format!(
-                    "verified set missing pinned file {}",
-                    pinned.relative_path
-                ))
-            })?;
-        let contents = fs::read(&file.absolute_path).map_err(|source| Error::Io {
-            path: file.absolute_path.clone(),
-            source,
-        })?;
+        // read_verified 在消费时重哈希与验证记录比对（TOCTOU 闭合，#253 C2）：
+        // 验证后、打包前被换的字节在此 fail-closed，不会静默进入 lust-source.tar。
+        let contents = read_verified(verified, pinned.relative_path)?.into_bytes();
         members.push(TarMember {
             path: pinned.relative_path.to_owned(),
             contents,
