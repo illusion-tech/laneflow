@@ -3,6 +3,8 @@
 mod cache_research;
 mod chunk_analysis;
 mod chunk_build;
+mod chunk_collector;
+mod chunk_config;
 mod chunk_export;
 mod chunk_native;
 mod environment;
@@ -12,7 +14,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const BASE: &str = "cb562bde948b6f96484581b650422f149f6c5787";
 const EXPERIMENT: Experiment = Experiment {
     baseline: BASE,
-    protocol: "p5-chunk-grain-v3",
+    protocol: "p5-chunk-grain-v4",
     count_p2: false,
 };
 const STAGES: [&str; 12] = [
@@ -48,7 +50,19 @@ fn plan(mode: &str) -> Result<CapturePlan> {
 }
 fn run() -> Result<()> {
     let a: Vec<_> = std::env::args().skip(1).collect();
+    if a.first().is_some_and(|s| s == "build-collector") && a.len() == 2 {
+        return chunk_collector::build(Path::new(&a[1]));
+    }
+    if !a.first().is_some_and(|s| s == "native-toolchain") {
+        let collector = chunk_collector::verify_running()?;
+        if a.first()
+            .is_some_and(|s| ["prepare", "run"].contains(&s.as_str()))
+        {
+            chunk_collector::verify_worktree(&collector)?;
+        }
+    }
     match a.first().map(String::as_str) {
+        Some("verify-collector") if a.len() == 2 => chunk_collector::verify_root(Path::new(&a[1])),
         Some("native-toolchain") if a.len() == 2 => io::write_new(Path::new(&a[1]), &chunk_native::snapshot()?),
         Some("prepare") if a.len() == 4 => chunk_export::export(Path::new(&a[3]), &a[1], &a[2]),
         Some("run") if a.len() == 5 => cache_research::capture_planned_for(&a[1], Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]), EXPERIMENT, plan(&a[1])?),
@@ -62,7 +76,7 @@ fn run() -> Result<()> {
                 Ok(())
             } else { io::outside(raw, out)?; io::write_new(out, &value) }
         }
-        _ => Err("prepare <base|candidate> <plain|detail> <new-build-root> | run <plain|detail> <root> <inputs> <new-raw> | analyze|verify <raw> <results> [plain-raw required for detail]".into()),
+        _ => Err("build-collector <new-tool-root> | verify-collector <tool-root> | prepare <base|candidate> <plain|detail> <new-build-root> | run <plain|detail> <root> <inputs> <new-raw> | analyze|verify <raw> <results> [plain-raw required for detail]".into()),
     }
 }
 fn main() {

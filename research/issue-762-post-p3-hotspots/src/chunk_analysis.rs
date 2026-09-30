@@ -311,7 +311,16 @@ pub(crate) fn analyze(raw: &Path, plain_raw: Option<&Path>) -> Result<Value> {
         chunk_build::verify_raw(raw, source, &identity["binaries"][arm]["sha256"])?;
     }
     chunk_build::validate_pair(&identity)?;
+    let collector = crate::chunk_collector::verify_running()?;
+    need(
+        identity["head"] == collector["source_git_head"]
+            && identity["tree"] == collector["source_git_tree"]
+            && identity["sources"]["base"]["build"]["collector"] == collector,
+        "raw collector differs from verified executable/source",
+    )?;
     output["build_settings_equal"] = json!(true);
+    output["collector_verified"] = json!(true);
+    output["cargo_configuration_absent"] = json!(true);
     let runs = output["runs"].as_array_mut().ok_or("runs")?;
     for run in runs.iter_mut() {
         let label = run["label"].as_str().ok_or("label")?;
@@ -378,7 +387,7 @@ mod tests {
     fn identical_drift_in_both_diagnostic_arms_is_rejected_against_plain() {
         let run = json!({"scale":"100k","traffic":{"ticks.jsonl":"t","commands.jsonl":"c","events.jsonl":"e"},
             "initial_counts":[75_000,25_000,0],"final_counts":[70_752,25_200,4_048]});
-        let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0","native_toolchain":crate::chunk_native::fixture(&std::env::temp_dir()),"command":{"environment":{}}});
+        let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0","native_toolchain":crate::chunk_native::fixture(&std::env::temp_dir()),"collector":crate::chunk_collector::fixture(&std::env::temp_dir()),"command":{"environment":{}}});
         let sources = json!({"base":{"build":build},"candidate":{"build":build}});
         let plain = json!({"identity":{"mode":"plain","inputs":{"frozen":"input"},"sources":sources},"runs":vec![run.clone();12]});
         let detail = json!({"identity":{"mode":"detail","inputs":{"frozen":"input"},"sources":sources},"runs":vec![run;6]});
