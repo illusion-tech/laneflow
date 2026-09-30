@@ -187,6 +187,7 @@ fn stub_weld_gate(
 ) -> crate::convert::junction::StubWeldGate {
     use crate::convert::junction::{StubWeldGate, StubWeldPolicy};
     match options.stub_weld_policy {
+        #[cfg(test)]
         StubWeldPolicy::AllowUnrestricted => StubWeldGate::Unrestricted,
         StubWeldPolicy::Auto => {
             if report_source.is_verified() {

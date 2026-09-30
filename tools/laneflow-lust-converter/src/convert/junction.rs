@@ -304,18 +304,32 @@ pub fn normalize_junctions(
                     .collect(),
                 exit_edge_id: format!("{SUMO_ID_PREFIX}{}", traversal.exit_lane_id),
             };
-            path_by_connection.insert(
-                (
-                    traversal.key.from_road_edge_id.clone(),
+            // #253 C7：同 (from,fromLane,to,toLane) 不同内链的重复穿越此前被
+            // 静默替换（路由/信号绑定只能发现后者）；重复键 fail-closed。
+            if path_by_connection
+                .insert(
+                    (
+                        traversal.key.from_road_edge_id.clone(),
+                        traversal.key.from_lane_index,
+                        traversal.key.to_road_edge_id.clone(),
+                        traversal.key.to_lane_index,
+                    ),
+                    path.id.clone(),
+                )
+                .is_some()
+            {
+                return Err(Error::SumoModel(format!(
+                    "duplicate connection mapping {:?}/{} -> {:?}/{} resolves to \
+                     multiple maneuver paths",
+                    traversal.key.from_road_edge_id,
                     traversal.key.from_lane_index,
-                    traversal.key.to_road_edge_id.clone(),
-                    traversal.key.to_lane_index,
-                ),
-                path.id.clone(),
-            );
-            path
+                    traversal.key.to_road_edge_id,
+                    traversal.key.to_lane_index
+                )));
+            }
+            Ok(path)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
     if junctions.iter().any(|junction| {
         !movements
@@ -976,8 +990,10 @@ pub enum StubWeldPolicy {
     /// （BlockedOutOfDomain，保留原始连接走正常穿越）。
     #[default]
     Auto,
-    /// 显式测试策略：跳过授权域检查。**仅限 fixture/单测**；生产入口
-    /// （pipeline/通用 XML）必须保持 Auto。
+    /// 显式测试策略：跳过授权域检查。**仅限 crate 内单测**——`cfg(test)`
+    /// 门控使生产公开 API 不可达（#253 C6；integration fixture 经审计无
+    /// stub 依赖，pipeline/通用 XML 必须保持 Auto）。
+    #[cfg(test)]
     AllowUnrestricted,
 }
 
@@ -1834,6 +1850,26 @@ mod tests {
             record.detail.contains("identity in approved set: false"),
             "unexpected detail: {}",
             record.detail
+        );
+    }
+
+    #[test]
+    fn duplicate_connection_quadruple_fails_closed() {
+        // #253 C7：同 (from,fromLane,to,toLane) 但内链不同的两条穿越——
+        // path_by_connection 此前静默替换前者（路由/信号绑定只能发现后者），
+        // 现 fail-closed 报重复映射。
+        let xml = chain_xml(
+            r#"<connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_2_0"/>
+  <connection from=":J_2" to="east" fromLane="0" toLane="0"/>"#,
+        );
+        let network = parse_sumo_network_xml(&xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("duplicate connection mapping must fail closed");
+        assert!(
+            error.to_string().contains("duplicate connection mapping"),
+            "unexpected error: {error}"
         );
     }
 

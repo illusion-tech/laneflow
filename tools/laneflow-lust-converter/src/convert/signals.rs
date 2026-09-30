@@ -115,7 +115,6 @@ pub fn convert_signals(
     }
 
     let mut stop_lines = Vec::new();
-    let mut stop_line_by_from_edge = HashMap::new();
     let mut gates = Vec::new();
     let mut groups = Vec::new();
     let mut controllers = Vec::new();
@@ -149,30 +148,26 @@ pub fn convert_signals(
             groups.push(SignalGroup { id: group_id });
         }
 
-        let mut from_edge_list = links
+        // #253 C4：StopLine 按 (from_edge, from_lane) 逐受控车道建立——compiler
+        // 的 ManeuverGateStopLineMismatch 是 LaneEdge 粒度（gate 的停止线必须
+        // 位于 pathEdges[transitionIndex] 同一边）；按 from-edge 共享 min-lane
+        // 线会让多车道进口道的车道 1/2 gate 绑到车道 0 的线上。
+        let mut from_lane_list = links
             .iter()
-            .map(|link| link.from_road_edge_id.clone())
+            .map(|link| (link.from_road_edge_id.clone(), link.from_lane_index))
             .collect::<Vec<_>>();
-        from_edge_list.sort();
-        from_edge_list.dedup();
-        for from_edge in from_edge_list {
-            if stop_line_by_from_edge.contains_key(&from_edge) {
-                continue;
-            }
-            let stop_lane_index = links
-                .iter()
-                .filter(|link| link.from_road_edge_id == from_edge)
-                .map(|link| link.from_lane_index)
-                .min()
-                .expect("from edge has at least one controlled link");
-            let stop_line_id = format!("{SUMO_ID_PREFIX}stop:{from_edge}");
-            let edge_id = format!("{SUMO_ID_PREFIX}{from_edge}_{stop_lane_index}");
+        from_lane_list.sort();
+        from_lane_list.dedup();
+        let mut stop_line_by_from_lane = HashMap::new();
+        for (from_edge, from_lane) in from_lane_list {
+            let stop_line_id = format!("{SUMO_ID_PREFIX}stop:{from_edge}_{from_lane}");
+            let edge_id = format!("{SUMO_ID_PREFIX}{from_edge}_{from_lane}");
             stop_lines.push(StopLine {
                 id: stop_line_id.clone(),
                 edge_id,
                 location: "edgeEnd",
             });
-            stop_line_by_from_edge.insert(from_edge, stop_line_id);
+            stop_line_by_from_lane.insert((from_edge, from_lane), stop_line_id);
         }
 
         for link in &links {
@@ -192,9 +187,9 @@ pub fn convert_signals(
                         link.to_lane_index
                     ))
                 })?;
-            let stop_line_id = stop_line_by_from_edge
-                .get(&link.from_road_edge_id)
-                .expect("stop line created for from edge")
+            let stop_line_id = stop_line_by_from_lane
+                .get(&(link.from_road_edge_id.clone(), link.from_lane_index))
+                .expect("stop line created for from lane")
                 .clone();
             let group_id = group_id_by_link
                 .get(link)
@@ -370,5 +365,76 @@ fn map_aspect(ch: char) -> Result<&'static str> {
         other => Err(Error::SumoModel(format!(
             "unsupported SUMO signal state character {other:?}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        convert::junction::{StubWeldGate, normalize_junctions},
+        sumo::{parse_sumo_network_xml, parse_tll_static_xml},
+    };
+
+    #[test]
+    fn multi_lane_controlled_approach_gets_stop_line_per_lane() {
+        // #253 C4：compiler 的 ManeuverGateStopLineMismatch 是 LaneEdge 粒度
+        // （hir/control.rs）——多车道受控进口道必须每车道一条 StopLine，gate
+        // 绑本车道线，否则车道 1/2 的 gate 落在车道 0 的线上。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/><lane id="west_1" index="1" speed="13.89" length="20.00" shape="6786.88,5730.52 6806.88,5730.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="east_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <edge id=":J_1" function="internal"><lane id=":J_1_0" index="0" speed="13.89" length="5.00" shape="6806.88,5730.52 6811.88,5730.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0 :J_1_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <connection from="west" to="east" fromLane="1" toLane="1" via=":J_1_0" tl="J" linkIndex="1"/>
+  <connection from=":J_1" to="east" fromLane="0" toLane="1"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GG"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GG"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let signals = super::convert_signals(&network, &tll, &topology.path_by_connection)
+            .expect("convert signals");
+        // 每受控车道一条 StopLine，绑本车道边。
+        assert_eq!(signals.stop_lines.len(), 2, "per-lane stop lines");
+        assert!(
+            signals
+                .stop_lines
+                .iter()
+                .any(|line| line.edge_id == "sumo:west_0")
+        );
+        assert!(
+            signals
+                .stop_lines
+                .iter()
+                .any(|line| line.edge_id == "sumo:west_1")
+        );
+        // 每个 gate 绑本车道的 StopLine（linkIndex 后缀区分 gate）。
+        let gate0 = signals
+            .maneuver_gates
+            .iter()
+            .find(|gate| gate.id.ends_with(":0"))
+            .expect("gate for lane 0");
+        let gate1 = signals
+            .maneuver_gates
+            .iter()
+            .find(|gate| gate.id.ends_with(":1"))
+            .expect("gate for lane 1");
+        assert_eq!(gate0.stop_line_id, "sumo:stop:west_0");
+        assert_eq!(gate1.stop_line_id, "sumo:stop:west_1");
     }
 }
