@@ -4,7 +4,7 @@
 pub(crate) mod io;
 #[allow(dead_code)]
 #[path = "prepare.rs"]
-mod prepare;
+pub(crate) mod prepare;
 
 use serde_json::{Value, json};
 use std::{
@@ -28,6 +28,26 @@ const LEGACY: Experiment = Experiment {
     protocol: "p3-cache-abba-v1",
     count_p2: false,
 };
+#[derive(Clone, Copy)]
+pub(crate) struct CapturePlan {
+    pub(crate) scale: Option<&'static str>,
+    pub(crate) alternate_quartets: bool,
+    pub(crate) observe: fn(&Path, &str, &str) -> Result<()>,
+}
+impl Default for CapturePlan {
+    fn default() -> Self {
+        Self {
+            scale: None,
+            alternate_quartets: false,
+            observe: |_, _, _| Ok(()),
+        }
+    }
+}
+#[derive(Clone, Copy)]
+pub(crate) struct DetailProtocol {
+    pub(crate) stages: &'static [&'static str],
+    pub(crate) validate: fn(&[Value], &[Value]) -> Result<()>,
+}
 const STAGES: [&str; 22] = [
     "Preflight",
     "Occupancy",
@@ -286,6 +306,29 @@ fn labels_for(mode: &str, experiment: Experiment) -> Result<Vec<(String, String,
     }
     Ok(rows)
 }
+fn planned_labels(
+    mode: &str,
+    experiment: Experiment,
+    plan: CapturePlan,
+) -> Result<Vec<(String, String, String)>> {
+    need(
+        plan.scale
+            .is_none_or(|scale| ["10k", "100k"].contains(&scale)),
+        "matrix scale",
+    )?;
+    let mut rows = labels_for(mode, experiment)?;
+    if plan.alternate_quartets && !experiment.count_p2 && mode == "plain" {
+        for (index, (label, _, arm)) in rows.iter_mut().enumerate() {
+            if (index % 12) / 4 == 1 {
+                let next = if arm == "base" { "candidate" } else { "base" };
+                *label = label.replace(arm.as_str(), next);
+                *arm = next.to_owned();
+            }
+        }
+    }
+    rows.retain(|(_, scale, _)| plan.scale.is_none_or(|selected| selected == scale));
+    Ok(rows)
+}
 
 fn capture(mode: &str, root: &Path, input: &Path, raw: &Path) -> Result<()> {
     capture_for(mode, root, input, raw, LEGACY)
@@ -298,6 +341,17 @@ pub(crate) fn capture_for(
     raw: &Path,
     experiment: Experiment,
 ) -> Result<()> {
+    capture_planned_for(mode, root, input, raw, experiment, CapturePlan::default())
+}
+pub(crate) fn capture_planned_for(
+    mode: &str,
+    root: &Path,
+    input: &Path,
+    raw: &Path,
+    experiment: Experiment,
+    plan: CapturePlan,
+) -> Result<()> {
+    let matrix = planned_labels(mode, experiment, plan)?;
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
     need(
@@ -310,6 +364,10 @@ pub(crate) fn capture_for(
     let raw = raw.canonicalize()?;
     let input = input.canonicalize()?;
     let mut identity = json!({"protocol":experiment.protocol,"mode":mode,"head":head,"tree":io::git(&repo,&["rev-parse","HEAD^{tree}"] )?,"inputs":inputs(&input)?,"started":now()?,"workers":4,"ticks":256,"rustc":io::command(&repo,"rustc",&["+1.98.0","-Vv"] )?,"sources":{},"binaries":{}});
+    if plan.scale.is_some() || plan.alternate_quartets {
+        identity["matrix"] =
+            json!({"scale":plan.scale,"alternate_quartets":plan.alternate_quartets});
+    }
     for arm in ["base", "candidate"] {
         let source = io::read_json(&root.join(format!("{arm}-{mode}-source.json")))?;
         need(
@@ -342,7 +400,8 @@ pub(crate) fn capture_for(
     )?;
     let identity_path = raw.join("identity.json");
     io::write_new(&identity_path, &identity)?;
-    for (label, scale, arm) in labels_for(mode, experiment)? {
+    for (label, scale, arm) in matrix {
+        (plan.observe)(&raw, &label, "before")?;
         need(
             io::git(&repo, &["rev-parse", "HEAD"])? == head
                 && io::git(&repo, &["status", "--porcelain"])?.is_empty(),
@@ -392,6 +451,7 @@ pub(crate) fn capture_for(
         meta["status_after"] = json!(io::git(&repo, &["status", "--porcelain"])?);
         meta["binary_after"] = json!(io::sha(binary)?);
         io::replace_owned(&path, &meta)?;
+        (plan.observe)(&raw, &label, "after")?;
         need(
             status.success()
                 && meta["head_after"] == head
@@ -491,8 +551,22 @@ fn analyze(raw: &Path) -> Result<Value> {
 }
 
 pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
+    analyze_planned_for(raw, experiment, CapturePlan::default(), None)
+}
+pub(crate) fn analyze_planned_for(
+    raw: &Path,
+    experiment: Experiment,
+    plan: CapturePlan,
+    detail: Option<DetailProtocol>,
+) -> Result<Value> {
     let identity = io::read_json(&raw.join("identity.json"))?;
     let mode = string(&identity["mode"])?;
+    let expected_matrix = if plan.scale.is_some() || plan.alternate_quartets {
+        json!({"scale":plan.scale,"alternate_quartets":plan.alternate_quartets})
+    } else {
+        Value::Null
+    };
+    need(identity["matrix"] == expected_matrix, "matrix identity")?;
     need(
         identity["completed"] == true
             && identity["protocol"] == experiment.protocol
@@ -504,7 +578,7 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
     let mut semantics = std::collections::BTreeMap::new();
     let mut ids = std::collections::BTreeSet::new();
     let mut runs = Vec::new();
-    for (label, scale, arm) in labels_for(mode, experiment)? {
+    for (label, scale, arm) in planned_labels(mode, experiment, plan)? {
         let dir = raw.join(&label);
         let meta = io::read_json(&raw.join(format!("{label}.process.json")))?;
         let native = io::read_json(&dir.join("result.json"))?;
@@ -518,6 +592,7 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
                 && meta["head_after"] == identity["head"]
                 && meta["status_after"] == ""
                 && meta["binary_after"] == identity["binaries"][&arm]["sha256"]
+                && uuid::Uuid::parse_str(string(&meta["uuid"])?)?.get_version_num() == 4
                 && ids.insert(string(&meta["uuid"])?.to_owned()),
             "process identity",
         )?;
@@ -566,7 +641,13 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
             .filter_map(|s| s.strip_prefix("LF762 "))
             .map(serde_json::from_str)
             .collect::<std::result::Result<_, _>>()?;
-        validate_rows_for(&rows, &ticks, mode, experiment)?;
+        if mode == "detail"
+            && let Some(detail) = detail
+        {
+            (detail.validate)(&rows, &ticks)?;
+        } else {
+            validate_rows_for(&rows, &ticks, mode, experiment)?;
+        }
         let layouts: Vec<Value> = log
             .lines()
             .filter_map(|s| s.strip_prefix("LF763_LAYOUT "))
@@ -578,8 +659,9 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
             .map(serde_json::from_str)
             .collect::<std::result::Result<_, _>>()?;
         need(
-            (mode == "plain" && storage.is_empty())
+            ((mode == "plain" || detail.is_some()) && storage.is_empty())
                 || (mode == "detail"
+                    && detail.is_none()
                     && storage.len() == 256
                     && storage.iter().all(|row| {
                         row.as_array()
@@ -597,8 +679,9 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
             })
             .collect();
         need(
-            (mode == "plain" && layouts.is_empty())
+            ((mode == "plain" || detail.is_some()) && layouts.is_empty())
                 || (mode == "detail"
+                    && detail.is_none()
                     && layouts.len() == 1
                     && layouts[0].as_array().is_some_and(|a| {
                         a.len() == 4 && a.iter().all(|v| v.as_u64().is_some_and(|n| n > 0))
@@ -610,22 +693,25 @@ pub(crate) fn analyze_for(raw: &Path, experiment: Experiment) -> Result<Value> {
             let part = &rows[start..end];
             let mut data = json!({"step":stats(part.iter().map(|r|r["step_ns"].as_u64().unwrap()).collect()),"active_min":ticks[start..end].iter().map(|t|t["N_active"].as_u64().ok_or("active")).collect::<std::result::Result<Vec<_>,_>>()?.iter().min(),"active_max":ticks[start..end].iter().map(|t|t["N_active"].as_u64().ok_or("active")).collect::<std::result::Result<Vec<_>,_>>()?.iter().max()});
             if mode == "detail" {
-                let names: Vec<_> = STAGES
-                    .iter()
-                    .copied()
-                    .chain(experiment.count_p2.then_some("P2Previews"))
-                    .collect();
+                let names: Vec<_> = if let Some(detail) = detail {
+                    detail.stages.to_vec()
+                } else {
+                    STAGES
+                        .iter()
+                        .copied()
+                        .chain(experiment.count_p2.then_some("P2Previews"))
+                        .collect()
+                };
                 for (i, name) in names.iter().enumerate() {
                     data["stages"][*name] = stats(
                         part.iter()
                             .map(|r| r["stages_ns"][i].as_u64().unwrap())
                             .collect(),
                     );
-                    data["calls"][*name] = json!(
-                        part.iter()
-                            .map(|r| r["calls"][i].as_u64().unwrap())
-                            .sum::<u64>()
-                    );
+                    data["calls"][*name] = json!(part.iter().try_fold(0_u64, |sum, row| {
+                        sum.checked_add(row["calls"][i].as_u64().unwrap())
+                            .ok_or("call total overflow")
+                    })?);
                 }
             }
             windows[window] = data;
@@ -740,6 +826,29 @@ mod tests {
         }
         assert_eq!(labels("detail").unwrap().len(), 12);
         assert!(labels("unknown").is_err());
+    }
+    #[test]
+    fn planned_matrix_alternates_without_changing_legacy() {
+        let plan = CapturePlan {
+            alternate_quartets: true,
+            ..CapturePlan::default()
+        };
+        let rows = planned_labels("plain", LEGACY, plan).unwrap();
+        assert_eq!(rows.len(), 24);
+        for scale in rows.as_chunks::<12>().0 {
+            assert_eq!(
+                scale[4..8].iter().map(|r| r.2.as_str()).collect::<Vec<_>>(),
+                ["candidate", "base", "base", "candidate"]
+            );
+        }
+        let scoped = CapturePlan {
+            scale: Some("100k"),
+            ..plan
+        };
+        let detail = planned_labels("detail", LEGACY, scoped).unwrap();
+        assert_eq!(detail.len(), 6);
+        assert!(detail.iter().all(|r| r.1 == "100k"));
+        assert_eq!(labels("detail").unwrap().len(), 12);
     }
     #[test]
     fn stats_use_nearest_rank_and_no_pooled_run_percentile() {
