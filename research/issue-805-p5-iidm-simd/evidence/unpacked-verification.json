@@ -1,0 +1,32 @@
+{
+  "schema": "p5-iidm-unpacked-verification-v1",
+  "archive_sha256": "0c5d8ef49a54f091e9463452d2181ce175bb90d88ca80f0154f828f1ad223ba2",
+  "seal_sha256": "c95331e97fbc7a52de1a5e13609ec185e40255a253a73b66523f854719c6fc55",
+  "payload_file_count": 21364,
+  "all_payload_hashes_verified": true,
+  "collector_verified": true,
+  "results_verified": true,
+  "commands": [
+    {
+      "program": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\805-unpacked-v4\\tools\\laneflow-p5-simd-research.exe",
+      "args": [
+        "verify-collector",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\805-unpacked-v4\\tools"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "program": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\805-unpacked-v4\\tools\\laneflow-p5-simd-research.exe",
+      "args": [
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\805-unpacked-v4\\raw",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\805-unpacked-v4\\results.json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "910e3046ca9af6014f04f773f983491f676b4d69f691c2d83e00a1ed9b9e3b8f",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

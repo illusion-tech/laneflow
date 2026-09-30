@@ -1,0 +1,59 @@
+[
+  {
+    "label": "research-tests",
+    "args": [
+      "+1.98.0",
+      "test",
+      "-p",
+      "laneflow-post-p3-research",
+      "--all-targets",
+      "--locked",
+      "--offline"
+    ],
+    "started_utc": "2026-09-30T23:40:00.0776614Z",
+    "ended_utc": "2026-09-30T23:40:02.1731442Z",
+    "exit_code": 0,
+    "stdout_sha256": "f1cbcf9eeb12047077ac5ade4318dc91447cff266849ae6415f314ca6f706774",
+    "stderr_sha256": "a1aff6da1a7d7f3f28f6c141a485efbc504d255f29008bd914057b98d5f5bc81"
+  },
+  {
+    "label": "research-clippy",
+    "args": [
+      "+1.98.0",
+      "clippy",
+      "-p",
+      "laneflow-post-p3-research",
+      "--all-targets",
+      "--locked",
+      "--offline",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "started_utc": "2026-09-30T23:40:02.2209070Z",
+    "ended_utc": "2026-09-30T23:40:03.1274622Z",
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "94bb00565a3497180558d57ae43704d571b269eef226274b330b7f39a8bfa21e"
+  },
+  {
+    "label": "markdown-tables",
+    "args": [
+      "+1.98.0",
+      "run",
+      "--locked",
+      "--offline",
+      "-p",
+      "xtask",
+      "--",
+      "format-md-tables",
+      "research/issue-805-p5-iidm-simd/README.md",
+      "research/issue-805-p5-iidm-simd/results.md"
+    ],
+    "started_utc": "2026-09-30T23:40:03.1375284Z",
+    "ended_utc": "2026-09-30T23:40:03.5772594Z",
+    "exit_code": 0,
+    "stdout_sha256": "b5ff14bfff668ad545b945af435770fdd597d0f11abe10611d22814f7b46044b",
+    "stderr_sha256": "dba907fc51dde5c30187a9b78b5fc935a815f3f14e8ad56402a0a5fde4beffd2"
+  }
+]
