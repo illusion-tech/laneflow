@@ -7,5 +7,5 @@ pub use pinned::{LUST_COMMIT, LUST_REPOSITORY, LUST_TAG, PINNED_SOURCE_FILES, Pi
 pub(crate) use verify::read_verified;
 pub use verify::{
     VerifiedLustInputs, VerifiedSourceFile, VerifiedSourceSet, prepare_verified_lust_inputs,
-    verify_source_dir,
+    recheck_source_revision, verify_source_dir,
 };

@@ -266,20 +266,34 @@ pub fn normalize_junctions(
         .collect::<Vec<_>>();
 
     let mut movements = Vec::new();
-    let mut movement_ids = HashSet::new();
+    // #253 K5：movement id 是 from + "-to-" + to 的拼接，含分隔符的合法 SUMO
+    // id 可碰撞（(a-to-b, c) 与 (a, b-to-c) 拼出同一串）。发射 id 格式不改，
+    // 但记录每个 id 的 (from, to) 来源：同 id 不同来源即歧义合并，fail-closed。
+    let mut movement_sources: HashMap<String, (String, String)> = HashMap::new();
     for traversal in &traversals {
         let movement_id = movement_id(
             &traversal.key.junction_id,
             &traversal.key.from_road_edge_id,
             &traversal.key.to_road_edge_id,
         );
-        if movement_ids.insert(movement_id.clone()) {
-            movements.push(Movement {
+        let source = (
+            traversal.key.from_road_edge_id.clone(),
+            traversal.key.to_road_edge_id.clone(),
+        );
+        match movement_sources.insert(movement_id.clone(), source.clone()) {
+            None => movements.push(Movement {
                 id: movement_id,
                 junction_id: format!("{SUMO_ID_PREFIX}{}", traversal.key.junction_id),
                 from_road_edge_id: traversal.key.from_road_edge_id.clone(),
                 to_road_edge_id: traversal.key.to_road_edge_id.clone(),
-            });
+            }),
+            Some(previous) if previous != source => {
+                return Err(Error::SumoModel(format!(
+                    "movement id {movement_id:?} collides between distinct movements \
+                     {previous:?} and {source:?}; delimiter-ambiguous SUMO edge ids"
+                )));
+            }
+            Some(_) => {}
         }
     }
     movements.sort_by(|left, right| left.id.cmp(&right.id));
@@ -1901,6 +1915,40 @@ mod tests {
         assert!(message.contains("duplicate lane address"), "{message}");
         assert!(
             message.contains("west_0") && message.contains("west_alt"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn movement_id_delimiter_collision_fails_closed() {
+        // #253 K5：movement id 是 from + "-to-" + to 拼接——(from="a-to-b", to="c")
+        // 与 (from="a", to="b-to-c") 拼出同一串，歧义合并必须 fail-closed
+        // （发射 id 格式不变，只检测碰撞）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="a-to-b" from="W1" to="J"><lane id="a-to-b_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="c" from="J" to="E1"><lane id="c_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id="a" from="W2" to="J"><lane id="a_0" index="0" speed="13.89" length="20.00" shape="6786.88,5737.52 6806.88,5737.52"/></edge>
+  <edge id="b-to-c" from="J" to="E2"><lane id="b-to-c_0" index="0" speed="13.89" length="20.00" shape="6816.88,5737.52 6836.88,5737.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <edge id=":J_1" function="internal"><lane id=":J_1_0" index="0" speed="13.89" length="5.00" shape="6806.88,5737.52 6811.88,5737.52"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0 :J_1_0"/>
+  <connection from="a-to-b" to="c" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="c" fromLane="0" toLane="0"/>
+  <connection from="a" to="b-to-c" fromLane="0" toLane="0" via=":J_1_0"/>
+  <connection from=":J_1" to="b-to-c" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("delimiter collision must fail closed");
+        let message = error.to_string();
+        assert!(
+            message.contains("collides between distinct movements"),
+            "{message}"
+        );
+        assert!(
+            message.contains("a-to-b") && message.contains("b-to-c"),
             "{message}"
         );
     }

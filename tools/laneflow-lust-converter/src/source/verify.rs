@@ -355,6 +355,21 @@ impl std::fmt::Debug for VerifiedLustInputs {
     }
 }
 
+/// 全部 pinned 文件消费完毕后的 revision 重校验（#253 K1）：verify-source
+/// 只在入口查一次 HEAD——检查与消费之间 checkout 被切到「保留了 pinned
+/// 字节的其他 HEAD」时，文件 digest 全过而 provenance 的 revision 声称失真。
+/// 漂移即 fail-closed（SourceRevisionMismatch）。
+pub fn recheck_source_revision(source_dir: &Path) -> Result<()> {
+    let actual = checkout_revision(source_dir)?;
+    if actual != LUST_COMMIT {
+        return Err(Error::SourceRevisionMismatch {
+            expected: LUST_COMMIT,
+            actual,
+        });
+    }
+    Ok(())
+}
+
 /// 正式诊断入口的准备函数：先验证、再绑定、后转换（#253 R2 第四轮）。
 ///
 /// 1. `verify_source_dir`：checkout revision 等于 pinned commit + 全部 §2.2
@@ -377,6 +392,58 @@ pub fn prepare_verified_lust_inputs(source_dir: &Path) -> Result<VerifiedLustInp
         vtypes_xml,
         report_source,
     })
+}
+
+#[cfg(test)]
+mod recheck_tests {
+    use super::{LUST_COMMIT, recheck_source_revision};
+    use crate::Error;
+
+    #[test]
+    fn recheck_rejects_wrong_head_after_consumption() {
+        // #253 K1：全部文件消费完毕后的 revision 重校验——checkout 被切到
+        // 其他 HEAD（即便 pinned 字节保留）即 fail-closed。
+        let root =
+            std::env::temp_dir().join(format!("laneflow-lust-recheck-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .output()
+                .expect("run git")
+        };
+        if !git(&["init"]).status.success() {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        std::fs::write(root.join("seed.txt"), b"seed").expect("write seed");
+        assert!(git(&["add", "seed.txt"]).status.success());
+        assert!(
+            git(&[
+                "-c",
+                "user.name=lust-test",
+                "-c",
+                "user.email=lust-test@example.invalid",
+                "commit",
+                "-m",
+                "seed",
+            ])
+            .status
+            .success()
+        );
+        let error = recheck_source_revision(&root).expect_err("wrong HEAD must fail");
+        match error {
+            Error::SourceRevisionMismatch { expected, actual } => {
+                assert_eq!(expected, LUST_COMMIT);
+                assert_ne!(actual, LUST_COMMIT);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 #[cfg(test)]

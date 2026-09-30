@@ -79,6 +79,7 @@ fn convert_verified(
     let due0 = read_verified(verified, "scenario/DUERoutes/local.static.0.rou.xml")?;
     let due1 = read_verified(verified, "scenario/DUERoutes/local.static.1.rou.xml")?;
     let due2 = read_verified(verified, "scenario/DUERoutes/local.static.2.rou.xml")?;
+    let poly_xml = read_verified(verified, "scenario/lust.poly.xml")?;
     let license_md = read_verified(verified, "LICENSE.md")?;
 
     // G1 验收重划后 converter 的交付物是确定性不可行诊断清单（network.lfca
@@ -134,11 +135,14 @@ fn convert_verified(
         vehicle_profile_count: counts.vehicle_profiles,
         signal_controller_count: counts.signal_controllers,
         signal_group_count: counts.signal_groups,
+        signal_phase_count: counts.signal_phases,
         stop_line_count: counts.stop_lines,
         maneuver_gate_count: counts.maneuver_gates,
         population_record_count: static_artifacts.population_record_count as u64,
         require_lust_population_count: true,
         parking_registry_empty: counts.parking_registry_empty,
+        parking_polygon_count: crate::sumo::parse_parking_polygon_count(&poly_xml)?,
+        unclaimed_signal_arms: static_artifacts.signal_health.clone(),
         major_minor_green_collapsed: true,
         network_lfca_bytes: (!diagnostic).then(|| static_artifacts.topology.network_lfca.clone()),
         infeasibility_survey_bytes: diagnostic.then(|| survey.clone().into_bytes()),
@@ -153,6 +157,10 @@ fn convert_verified(
     };
 
     let source_tar = build_source_tar(verified, &licenses)?;
+    // #253 K1：全部 pinned 文件消费完毕，revision 重校验——检查与消费之间
+    // checkout 被切换（即便 pinned 字节保留、digest 全过）也使 provenance
+    // 的 revision 声称失真；漂移即 fail-closed。
+    crate::source::recheck_source_revision(&config.source_dir)?;
     let static_tar = if diagnostic {
         None
     } else {
