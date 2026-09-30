@@ -250,8 +250,15 @@ fn compare_modes(detail: &Value, plain: &Value) -> Result<()> {
         need(run["scale"] == "100k", "detail scale")?;
         for reference in &references {
             for field in ["traffic", "initial_counts", "final_counts"] {
+                let valid_shape = if field == "traffic" {
+                    run[field].is_object()
+                } else {
+                    run[field]
+                        .as_array()
+                        .is_some_and(|v| v.len() == 3 && v.iter().all(|n| n.as_u64().is_some()))
+                };
                 need(
-                    run[field].is_object() && run[field] == reference[field],
+                    valid_shape && run[field] == reference[field],
                     &format!("plain/detail {field} mismatch"),
                 )?;
             }
@@ -362,7 +369,7 @@ mod tests {
     #[test]
     fn identical_drift_in_both_diagnostic_arms_is_rejected_against_plain() {
         let run = json!({"scale":"100k","traffic":{"ticks.jsonl":"t","commands.jsonl":"c","events.jsonl":"e"},
-            "initial_counts":{"active":75_000},"final_counts":{"active":70_752}});
+            "initial_counts":[75_000,25_000,0],"final_counts":[70_752,25_200,4_048]});
         let plain = json!({"identity":{"mode":"plain","inputs":{"frozen":"input"}},"runs":vec![run.clone();12]});
         let detail =
             json!({"identity":{"mode":"detail","inputs":{"frozen":"input"}},"runs":vec![run;6]});
@@ -370,7 +377,11 @@ mod tests {
         for field in ["traffic", "initial_counts", "final_counts"] {
             let mut bad = detail.clone();
             for run in bad["runs"].as_array_mut().unwrap() {
-                run[field] = json!({"identical_change_in_both_arms":1});
+                run[field] = if field == "traffic" {
+                    json!({"identical_change_in_both_arms":1})
+                } else {
+                    json!([1, 2, 3])
+                };
             }
             assert!(compare_modes(&bad, &plain).is_err(), "{field}");
         }
