@@ -1,4 +1,4 @@
-use crate::{BASE, EXPERIMENT, Result, cache_research::prepare, io, need};
+use crate::{BASE, EXPERIMENT, Result, cache_research::prepare, chunk_build, io, need};
 use serde_json::json;
 use std::{fs, path::Path};
 const TICK: &str = "crates/laneflow-runtime/src/kernel/tick.rs";
@@ -21,6 +21,7 @@ pub(crate) fn export(root: &Path, arm: &str, mode: &str) -> Result<()> {
     let repo = std::env::current_dir()?;
     io::git(&repo, &["merge-base", "--is-ancestor", BASE, "HEAD"])?;
     fs::create_dir_all(root)?;
+    chunk_build::ensure_outputs(root, arm, mode)?;
     let source = root.join(format!("{arm}-{mode}-source"));
     let mut index = prepare::export_at(
         &repo,
@@ -52,6 +53,7 @@ pub(crate) fn export(root: &Path, arm: &str, mode: &str) -> Result<()> {
     index["protocol"] = json!(EXPERIMENT.protocol);
     index["chunks_per_worker"] = json!(factor);
     index["source_files"] = io::source_index(&source)?;
+    index["build"] = chunk_build::build(root, &source, &index)?;
     io::write_new(&root.join(format!("{arm}-{mode}-source.json")), &index)
 }
 fn instrument(root: &Path) -> Result<()> {

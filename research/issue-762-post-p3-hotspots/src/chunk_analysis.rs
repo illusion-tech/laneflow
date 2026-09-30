@@ -1,4 +1,6 @@
-use crate::{BASE, EXPERIMENT, Result, STAGES, cache_research, environment, io, need, plan};
+use crate::{
+    BASE, EXPERIMENT, Result, STAGES, cache_research, chunk_build, environment, io, need, plan,
+};
 use cache_research::DetailProtocol;
 use serde_json::{Value, json};
 use std::{fs, path::Path};
@@ -226,9 +228,54 @@ fn summarize_plain(runs: &[Value]) -> Result<Value> {
     Ok(summary)
 }
 
-pub(crate) fn analyze(raw: &Path) -> Result<Value> {
+fn compare_modes(detail: &Value, plain: &Value) -> Result<()> {
+    need(
+        plain["identity"]["mode"] == "plain"
+            && detail["identity"]["mode"] == "detail"
+            && plain["identity"]["inputs"] == detail["identity"]["inputs"],
+        "plain/detail input or mode mismatch",
+    )?;
+    let references: Vec<_> = plain["runs"]
+        .as_array()
+        .ok_or("plain runs")?
+        .iter()
+        .filter(|r| r["scale"] == "100k")
+        .collect();
+    let diagnostics = detail["runs"].as_array().ok_or("detail runs")?;
+    need(
+        references.len() == 12 && diagnostics.len() == 6,
+        "cross-mode run count",
+    )?;
+    for run in diagnostics {
+        need(run["scale"] == "100k", "detail scale")?;
+        for reference in &references {
+            for field in ["traffic", "initial_counts", "final_counts"] {
+                need(
+                    run[field].is_object() && run[field] == reference[field],
+                    &format!("plain/detail {field} mismatch"),
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn analyze(raw: &Path, plain_raw: Option<&Path>) -> Result<Value> {
     let identity = io::read_json(&raw.join("identity.json"))?;
     let mode = identity["mode"].as_str().ok_or("mode")?;
+    need(
+        (mode == "detail") == plain_raw.is_some(),
+        "detail requires plain raw evidence; plain forbids a reference",
+    )?;
+    let plain = if let Some(reference) = plain_raw {
+        need(
+            io::read_json(&reference.join("identity.json"))?["mode"] == "plain",
+            "reference must be plain",
+        )?;
+        Some(analyze(reference, None)?)
+    } else {
+        None
+    };
     let mut output = cache_research::analyze_planned_for(
         raw,
         EXPERIMENT,
@@ -248,6 +295,7 @@ pub(crate) fn analyze(raw: &Path) -> Result<Value> {
                 && source["chunks_per_worker"] == factor,
             "source protocol",
         )?;
+        chunk_build::verify_raw(raw, source, &identity["binaries"][arm]["sha256"])?;
     }
     let runs = output["runs"].as_array_mut().ok_or("runs")?;
     for run in runs.iter_mut() {
@@ -298,12 +346,39 @@ pub(crate) fn analyze(raw: &Path) -> Result<Value> {
     output["timing_scope"] = json!(
         "chunk elapsed includes scheduling/preemption; sum is neither CPU time nor wall time; interval overlap is not CPU simultaneity; diagnostic-only"
     );
+    if let Some(plain) = plain {
+        compare_modes(&output, &plain)?;
+        output["plain_reference"] = json!({"identity_sha256":io::sha(&plain_raw.ok_or("plain reference")?.join("identity.json"))?,
+            "files_sha256":chunk_build::value_sha(&plain["files"])?,"collector_head":plain["identity"]["head"],
+            "compared_plain_runs":12,"compared_detail_runs":6,
+            "fields":["traffic","initial_counts","final_counts"],"matches":true});
+    }
     Ok(output)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn identical_drift_in_both_diagnostic_arms_is_rejected_against_plain() {
+        let run = json!({"scale":"100k","traffic":{"ticks.jsonl":"t","commands.jsonl":"c","events.jsonl":"e"},
+            "initial_counts":{"active":75_000},"final_counts":{"active":70_752}});
+        let plain = json!({"identity":{"mode":"plain","inputs":{"frozen":"input"}},"runs":vec![run.clone();12]});
+        let detail =
+            json!({"identity":{"mode":"detail","inputs":{"frozen":"input"}},"runs":vec![run;6]});
+        compare_modes(&detail, &plain).unwrap();
+        for field in ["traffic", "initial_counts", "final_counts"] {
+            let mut bad = detail.clone();
+            for run in bad["runs"].as_array_mut().unwrap() {
+                run[field] = json!({"identical_change_in_both_arms":1});
+            }
+            assert!(compare_modes(&bad, &plain).is_err(), "{field}");
+        }
+        let mut bad = detail.clone();
+        bad["identity"]["inputs"]["frozen"] = json!("other");
+        assert!(compare_modes(&bad, &plain).is_err());
+        assert!(compare_modes(&detail, &detail).is_err());
+    }
     fn batch() -> Value {
         json!({"tick":1,"workload":8_000,"chunk_size":1_000,"dispatch_ns":30,
             "chunks":(0..8).map(|i|vec![i*1_000,1_000,1+(i/4)*10,9+(i/4)*10,i%4,1]).collect::<Vec<_>>()})

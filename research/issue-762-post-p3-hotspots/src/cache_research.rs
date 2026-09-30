@@ -33,6 +33,7 @@ pub(crate) struct CapturePlan {
     pub(crate) scale: Option<&'static str>,
     pub(crate) alternate_quartets: bool,
     pub(crate) observe: fn(&Path, &str, &str) -> Result<()>,
+    pub(crate) bind_build: fn(&Path, &Path, &Value, &Path) -> Result<()>,
 }
 impl Default for CapturePlan {
     fn default() -> Self {
@@ -40,6 +41,7 @@ impl Default for CapturePlan {
             scale: None,
             alternate_quartets: false,
             observe: |_, _, _| Ok(()),
+            bind_build: |_, _, _, _| Ok(()),
         }
     }
 }
@@ -389,6 +391,7 @@ pub(crate) fn capture_planned_for(
         let path = root
             .join(format!("{arm}-{mode}{}", std::env::consts::EXE_SUFFIX))
             .canonicalize()?;
+        (plan.bind_build)(root, &raw, &source, &path)?;
         identity["sources"][arm] = source;
         identity["binaries"][arm] = json!({"path":path,"sha256":io::sha(&path)?});
     }
