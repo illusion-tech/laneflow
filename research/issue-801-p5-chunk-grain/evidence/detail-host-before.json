@@ -1,0 +1,6 @@
+{
+  "utc": "2026-09-30T06:34:34.6672497Z",
+  "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "collector_sha256": "82EAD67667CC46228D42B6C3CA7D01D334084C60DA9E23269C3B6E6CEA6C5108",
+  "scope": "before fixed diagnostic batch; per-process boundaries recorded by Rust"
+}
