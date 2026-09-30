@@ -8,7 +8,8 @@ pub mod signals;
 pub mod topology;
 
 pub use junction::{
-    StubWeldDisposition, StubWeldRecord, scan_stub_weld_candidates, stub_weld_manifest_json,
+    StubWeldDisposition, StubWeldPolicy, StubWeldRecord, scan_stub_weld_candidates,
+    stub_weld_manifest_json,
 };
 pub use population::{
     POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS, POPULATION_DEPART_START_SECONDS,

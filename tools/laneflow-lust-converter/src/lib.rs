@@ -15,9 +15,9 @@ pub use config::{LustConverterConfig, load_config, load_config_with_bytes};
 pub use convert::{
     LUST_PASSENGER_VTYPE_IDS, POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS,
     POPULATION_DEPART_START_SECONDS, POPULATION_SELECTED_COUNT, PopulationRecord,
-    StaticConversionArtifacts, StubWeldDisposition, StubWeldRecord, TopologyConvertOptions,
-    convert_network_topology, convert_network_topology_with_tll, scan_stub_weld_candidates,
-    select_passenger_vtypes, select_population, stub_weld_manifest_json,
+    StaticConversionArtifacts, StubWeldDisposition, StubWeldPolicy, StubWeldRecord,
+    TopologyConvertOptions, convert_network_topology, convert_network_topology_with_tll,
+    scan_stub_weld_candidates, select_passenger_vtypes, select_population, stub_weld_manifest_json,
 };
 pub use error::{Error, Result};
 pub use output::{

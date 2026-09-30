@@ -43,6 +43,9 @@ pub struct TopologyConvertOptions {
     /// diagnosis report instead of `network.lfca`（#253 验收重划，见 G1 补充
     /// 记录）；默认 false 保持 fail-fast 行为不变。
     pub emit_infeasibility_report: bool,
+    /// stub 删焊授权域策略（#253 R8；默认 `Auto` = G1 授权域三条件）：
+    /// `AllowUnrestricted` 仅限 fixture/单测，生产入口必须 Auto。
+    pub stub_weld_policy: crate::convert::junction::StubWeldPolicy,
 }
 
 impl Default for TopologyConvertOptions {
@@ -54,6 +57,7 @@ impl Default for TopologyConvertOptions {
             require_lust_location_anchors: false,
             require_lust_population_count: false,
             emit_infeasibility_report: false,
+            stub_weld_policy: crate::convert::junction::StubWeldPolicy::Auto,
         }
     }
 }
@@ -122,7 +126,7 @@ pub(crate) fn convert_static_with_due(
     options: &TopologyConvertOptions,
     report_source: ReportSource,
 ) -> Result<StaticConversionArtifacts> {
-    let topology_norm = normalize_junctions(network)?;
+    let topology_norm = normalize_junctions(network, &stub_weld_gate(options, &report_source))?;
     let population = select_population(due_vehicles, options.require_lust_population_count)?;
     let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
 
@@ -175,6 +179,27 @@ pub(crate) fn convert_static_with_due(
     })
 }
 
+/// R8 授权域门控推导：Auto 按 ReportSource 判定（verified 的类型级保证来自
+/// R2——外部调用方无法构造 verified=true）；AllowUnrestricted 仅 fixture。
+fn stub_weld_gate(
+    options: &TopologyConvertOptions,
+    report_source: &crate::output::geom::ReportSource,
+) -> crate::convert::junction::StubWeldGate {
+    use crate::convert::junction::{StubWeldGate, StubWeldPolicy};
+    match options.stub_weld_policy {
+        StubWeldPolicy::AllowUnrestricted => StubWeldGate::Unrestricted,
+        StubWeldPolicy::Auto => {
+            if report_source.is_verified() {
+                StubWeldGate::VerifiedDomain {
+                    net_digest: report_source.net_digest().map(str::to_owned),
+                }
+            } else {
+                StubWeldGate::BlockedDomain
+            }
+        }
+    }
+}
+
 fn convert_network_packages(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
@@ -192,7 +217,7 @@ fn convert_network_packages(
 
     let origin = network.location.canonical_origin()?;
 
-    let topology = normalize_junctions(network)?;
+    let topology = normalize_junctions(network, &stub_weld_gate(options, &report_source))?;
     let signals = convert_signals(network, tll_programs, &topology.path_by_connection)?;
     // G1 六条件之控制语义：焊接移除的 stub 内边不得出现在任何信号绑定
     // （stop line / maneuver gate 的路径 id）中；信号模型按运动（道路边）级

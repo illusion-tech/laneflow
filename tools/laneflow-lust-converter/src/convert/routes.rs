@@ -302,7 +302,11 @@ mod tests {
     fn fixture_west_east_expands_through_internal() {
         let xml = include_str!("../../tests/fixtures/minimal/t-junction.net.xml");
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("normalize");
+        let topology = normalize_junctions(
+            &network,
+            &crate::convert::junction::StubWeldGate::Unrestricted,
+        )
+        .expect("normalize");
         let vehicles = vec![DueVehicle {
             id: "v0".to_owned(),
             type_id: "passenger1".to_owned(),
@@ -331,7 +335,11 @@ mod tests {
     fn identical_lane_sequences_share_catalog_entry() {
         let xml = include_str!("../../tests/fixtures/minimal/t-junction.net.xml");
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("normalize");
+        let topology = normalize_junctions(
+            &network,
+            &crate::convert::junction::StubWeldGate::Unrestricted,
+        )
+        .expect("normalize");
         let population = vec![
             PopulationRecord {
                 population_rank: 0,

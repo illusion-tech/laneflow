@@ -26,7 +26,12 @@ struct NormalizedTraversal {
 }
 
 /// Emit Junction / Movement / ManeuverPath aggregates for a SUMO network.
-pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> {
+/// `stub_weld_gate` 为授权域门控（#253 R8）：0.5 m 位移例外仅限 pinned
+/// 批准域；fixture/单测传 `StubWeldGate::Unrestricted`。
+pub fn normalize_junctions(
+    network: &SumoNetwork,
+    stub_weld_gate: &StubWeldGate,
+) -> Result<NormalizedTopology> {
     let lane_by_edge_index = build_lane_index(network);
     let adjacency = build_lane_adjacency(network, &lane_by_edge_index)?;
     let owners_by_int_lane = build_int_lane_owners(network)?;
@@ -144,9 +149,12 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
                     &[],
                     &owners_by_int_lane,
                 )?;
-                let reference_counts = StubReferenceCounts {
-                    via: &via_ref_count,
-                    internal_from: &internal_from_count,
+                let context = StubEvaluationContext {
+                    reference_counts: StubReferenceCounts {
+                        via: &via_ref_count,
+                        internal_from: &internal_from_count,
+                    },
+                    gate: stub_weld_gate,
                 };
                 let evaluation = evaluate_stub_candidate(
                     network,
@@ -155,7 +163,7 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
                     exit,
                     stub_id,
                     &junction_id,
-                    &reference_counts,
+                    &context,
                 )?;
                 if evaluation.disposition != StubWeldDisposition::Welded {
                     // G1 §5：拒绝处置不中止——不删 stub、不写焊接，原始连接保留
@@ -497,7 +505,7 @@ fn evaluate_stub_candidate(
     exit: &SumoLane,
     stub_id: &str,
     junction_id: &str,
-    reference_counts: &StubReferenceCounts<'_>,
+    context: &StubEvaluationContext<'_>,
 ) -> Result<StubEvaluation> {
     let stub_lane = network.lane(stub_id).expect("via lane checked");
     let span = lane_shape_span_meters(stub_lane)?;
@@ -533,6 +541,46 @@ fn evaluate_stub_candidate(
         shared_traversals: Vec::new(),
         detail: String::new(),
     };
+    // R8 授权域门控先于几何门控：0.5 m 例外只对 pinned 批准域生效；不满足
+    // 一律 BlockedOutOfDomain（保留原始连接走正常穿越），不评估几何豁免。
+    match context.gate {
+        StubWeldGate::Unrestricted => {}
+        StubWeldGate::BlockedDomain => {
+            let detail = "stub weld blocked: source is not verify-source verified; \
+                          the 0.5 m displacement exception is limited to the pinned \
+                          approved domain"
+                .to_owned();
+            let mut record = base.clone();
+            record.disposition = StubWeldDisposition::BlockedOutOfDomain;
+            record.detail = detail.clone();
+            return Ok(StubEvaluation {
+                disposition: StubWeldDisposition::BlockedOutOfDomain,
+                record,
+            });
+        }
+        StubWeldGate::VerifiedDomain { net_digest } => {
+            let approved = approved_stub_set()?;
+            let digest_ok = net_digest.as_deref() == Some(approved.net_digest.as_str());
+            let identity_ok =
+                approved
+                    .identities
+                    .contains(&(stub_id, entry.id.as_str(), exit.id.as_str()));
+            if !digest_ok || !identity_ok {
+                let detail = format!(
+                    "stub weld blocked: candidate outside the approved pinned domain \
+                     (net digest matches manifest: {digest_ok}, identity in approved set: \
+                     {identity_ok})"
+                );
+                let mut record = base.clone();
+                record.disposition = StubWeldDisposition::BlockedOutOfDomain;
+                record.detail = detail.clone();
+                return Ok(StubEvaluation {
+                    disposition: StubWeldDisposition::BlockedOutOfDomain,
+                    record,
+                });
+            }
+        }
+    }
     if displacement > STUB_WELD_MAX_DISPLACEMENT_M {
         let detail = format!(
             "point-stub removal would displace entry lane {:?} by \
@@ -561,8 +609,14 @@ fn evaluate_stub_candidate(
             record,
         });
     }
-    let via_refs = reference_counts.via.get(stub_id).copied().unwrap_or(0);
-    let from_refs = reference_counts
+    let via_refs = context
+        .reference_counts
+        .via
+        .get(stub_id)
+        .copied()
+        .unwrap_or(0);
+    let from_refs = context
+        .reference_counts
         .internal_from
         .get(stub_id)
         .copied()
@@ -650,7 +704,9 @@ fn evaluate_stub_candidate(
 /// 全网点状 stub 候选扫描（G1 六条件之限定适用域：候选身份由可复现清单
 /// 固定；`evidence/lust-stub-weld-candidates.json` 的生成与防漂移比对的
 /// 共同数据源）。身份口径与 normalize 一致：外部 connection、原 via 恰
-/// 一条且首段 shape 端点距 < 0.5 m。
+/// 一条且首段 shape 端点距 < 0.5 m。扫描以 Unrestricted 门控评估几何
+/// 处置——R8 的授权域检查（BlockedOutOfDomain）是 runtime-only，manifest
+/// 逐字节稳定。
 pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRecord>> {
     let lane_by_edge_index = build_lane_index(network);
     let mut via_ref_count: HashMap<&str, usize> = HashMap::new();
@@ -727,9 +783,12 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
             &[],
             &owners,
         )?;
-        let reference_counts = StubReferenceCounts {
-            via: &via_ref_count,
-            internal_from: &internal_from_count,
+        let context = StubEvaluationContext {
+            reference_counts: StubReferenceCounts {
+                via: &via_ref_count,
+                internal_from: &internal_from_count,
+            },
+            gate: &StubWeldGate::Unrestricted,
         };
         let evaluation = evaluate_stub_candidate(
             network,
@@ -738,7 +797,7 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
             exit,
             stub_id,
             &junction_id,
-            &reference_counts,
+            &context,
         )?;
         candidates.push(evaluation.record);
     }
@@ -800,7 +859,8 @@ pub fn stub_weld_manifest_json(network: &SumoNetwork, net_digest: &str) -> Resul
 const POINT_STUB_MAX_METERS: f64 = 0.5;
 
 /// 点状 stub 删焊的入口末点→出口首点位移上限（米）。G1 修订已获项目所有者
-/// 最终确认（2026-09-30，评估文本 issuecomment-5901846033 第 5 节口径）：
+/// 最终确认（2026-09-30，issuecomment-5902944418；评估背景
+/// issuecomment-5901846033 第 5 节）：
 /// 仅位移预算上调至 0.5 m（LuST pinned 基线 84 条候选实测最大 0.4617 m，
 /// 全部纳入）；局部性 0.05 m / join 间隙 0.005 m / 端点距身份 0.5 m 均不动。
 /// G1 §5：超出位移预算或其他合法性条件的对象继续「拒绝处置并记录诊断」
@@ -866,6 +926,9 @@ pub enum StubWeldDisposition {
     /// 拓扑形态：via 多重引用 / internal from 引用数异常。
     RejectedTopology,
     RejectedSharedEntry,
+    /// 授权域门控拒绝（#253 R8，runtime-only）：0.5 m 例外仅限 pinned 基线 +
+    /// manifest 批准集；扫描器/manifest 永不产生本变体（manifest 逐字节稳定）。
+    BlockedOutOfDomain,
 }
 
 impl serde::Serialize for StubWeldDisposition {
@@ -885,8 +948,15 @@ impl StubWeldDisposition {
             StubWeldDisposition::RejectedLocality => "rejected-locality",
             StubWeldDisposition::RejectedTopology => "rejected-topology",
             StubWeldDisposition::RejectedSharedEntry => "rejected-shared-entry",
+            StubWeldDisposition::BlockedOutOfDomain => "blocked-out-of-domain",
         }
     }
+}
+
+/// 候选评估上下文：引用计数 + 授权域门控（#253 R8，束参数）。
+struct StubEvaluationContext<'a> {
+    reference_counts: StubReferenceCounts<'a>,
+    gate: &'a StubWeldGate,
 }
 
 /// 候选评估（度量 + 处置 + 记录），normalize 门控与候选扫描器共用；
@@ -894,6 +964,89 @@ impl StubWeldDisposition {
 struct StubEvaluation {
     disposition: StubWeldDisposition,
     record: StubWeldRecord,
+}
+
+/// stub 删焊策略（`TopologyConvertOptions.stub_weld_policy`，#253 R8）：0.5 m
+/// 位移例外是 G1 对**固定 pinned 基线 + manifest 批准集**的授权，通用输入
+/// 不得无条件继承。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StubWeldPolicy {
+    /// G1 授权域三条件（默认）：来源 verify-source 已验证 + net digest 命中
+    /// manifest + 候选身份（stub/entry/exit 三元组）∈ 批准集。缺一即拒
+    /// （BlockedOutOfDomain，保留原始连接走正常穿越）。
+    #[default]
+    Auto,
+    /// 显式测试策略：跳过授权域检查。**仅限 fixture/单测**；生产入口
+    /// （pipeline/通用 XML）必须保持 Auto。
+    AllowUnrestricted,
+}
+
+/// 运行时的授权域门控（由 options 策略 + ReportSource 推导，见
+/// convert_network_packages）。`ReportSource.verified` 的类型级保证（R2：
+/// 外部无法构造 verified=true）使「来源已验证」在 Auto 下可依赖。
+#[derive(Clone, Debug)]
+pub(crate) enum StubWeldGate {
+    /// Auto 且来源未 verified：候选一律 BlockedOutOfDomain。
+    BlockedDomain,
+    /// Auto 且来源 verified：net digest 须命中 manifest netDigest，候选身份
+    /// 须 ∈ 批准集。
+    VerifiedDomain { net_digest: Option<String> },
+    /// 显式测试策略：不做授权域检查（仅 fixture）。
+    Unrestricted,
+}
+
+/// 批准的 stub 候选集合（`evidence/lust-stub-weld-candidates.json` 内嵌，
+/// OnceLock 懒解析一次）。身份口径：SUMO 原始 id 三元组。
+struct ApprovedStubSet {
+    net_digest: String,
+    identities: HashSet<(&'static str, &'static str, &'static str)>,
+}
+
+#[derive(serde::Deserialize)]
+struct ApprovedManifestView {
+    #[serde(rename = "netDigest")]
+    net_digest: String,
+    candidates: Vec<ApprovedCandidateView>,
+}
+
+#[derive(serde::Deserialize)]
+struct ApprovedCandidateView {
+    #[serde(rename = "stubLaneId")]
+    stub_lane_id: String,
+    #[serde(rename = "entryLaneId")]
+    entry_lane_id: String,
+    #[serde(rename = "exitLaneId")]
+    exit_lane_id: String,
+}
+
+/// 内嵌的候选 manifest（junction.rs 位于 src/convert/，evidence 在其上两级）。
+const APPROVED_MANIFEST_JSON: &str = include_str!("../../evidence/lust-stub-weld-candidates.json");
+
+fn approved_stub_set() -> Result<&'static ApprovedStubSet> {
+    static SET: std::sync::OnceLock<std::result::Result<ApprovedStubSet, String>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(|| {
+        let view: ApprovedManifestView =
+            serde_json::from_str(APPROVED_MANIFEST_JSON).map_err(|error| error.to_string())?;
+        // 解析一次、泄漏一次：身份集合以 'static 引用服务整个进程生命周期。
+        let leaked: &'static ApprovedManifestView = Box::leak(Box::new(view));
+        Ok(ApprovedStubSet {
+            net_digest: leaked.net_digest.clone(),
+            identities: leaked
+                .candidates
+                .iter()
+                .map(|candidate| {
+                    (
+                        candidate.stub_lane_id.as_str(),
+                        candidate.entry_lane_id.as_str(),
+                        candidate.exit_lane_id.as_str(),
+                    )
+                })
+                .collect(),
+        })
+    })
+    .as_ref()
+    .map_err(|message| Error::SumoModel(format!("approved stub manifest parse failed: {message}")))
 }
 
 /// 内边形状首末点距离（米）。
@@ -1243,7 +1396,8 @@ mod tests {
     fn fixture_emits_one_junction_two_movements_two_paths() {
         let xml = include_str!("../../tests/fixtures/minimal/t-junction.net.xml");
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("normalize");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
         assert_eq!(topology.junctions.len(), 1);
         assert_eq!(topology.junctions[0].id, "sumo:J");
         assert_eq!(topology.movements.len(), 2);
@@ -1281,7 +1435,8 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("normalize");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
         assert_eq!(topology.maneuver_paths.len(), 1);
         assert_eq!(
             topology.maneuver_paths[0].internal_edge_ids,
@@ -1307,7 +1462,8 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("stub with continuation must fail");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("stub with continuation must fail");
         assert!(
             error.to_string().contains("continuation"),
             "unexpected error: {error}"
@@ -1330,7 +1486,8 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("refused weld retains the lane");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("refused weld retains the lane");
         assert!(
             topology.dropped_stub_lane_ids.is_empty(),
             "refused stub must not be dropped"
@@ -1368,7 +1525,8 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("normalize");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
         assert_eq!(topology.maneuver_paths.len(), 1);
         assert!(
             topology.maneuver_paths[0].internal_edge_ids.is_empty(),
@@ -1410,8 +1568,8 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="0"/>"#,
         );
         let network = parse_sumo_network_xml(&xml).expect("parse");
-        let error =
-            normalize_junctions(&network).expect_err("middle-hop toLane mismatch must fail");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("middle-hop toLane mismatch must fail");
         assert!(
             error.to_string().contains("terminal"),
             "unexpected error: {error}"
@@ -1431,7 +1589,7 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="1"/>"#,
         );
         let network = parse_sumo_network_xml(&xml).expect("parse");
-        let topology = normalize_junctions(&network)
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
             .expect("unrelated toLane continuation must not derail the chain");
         assert_eq!(topology.maneuver_paths.len(), 1);
         assert_eq!(
@@ -1449,7 +1607,8 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="0" via=":J_0_0"/>"#,
         );
         let network = parse_sumo_network_xml(&xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("cycle must fail closed");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("cycle must fail closed");
         assert!(
             error.to_string().contains("cycles"),
             "unexpected error: {error}"
@@ -1464,7 +1623,8 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0" via=":J_2_0"/>"#,
         );
         let network = parse_sumo_network_xml(&xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("missing terminal must fail closed");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("missing terminal must fail closed");
         assert!(
             error.to_string().contains("terminal"),
             "unexpected error: {error}"
@@ -1480,7 +1640,8 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="1" dir="s" state="M"/>"#,
         );
         let network = parse_sumo_network_xml(&xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("toLane mismatch must fail closed");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("toLane mismatch must fail closed");
         assert!(
             error.to_string().contains("toLane"),
             "unexpected error: {error}"
@@ -1503,7 +1664,8 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("non-local stub retained");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("non-local stub retained");
         assert_eq!(topology.stub_weld_records.len(), 1);
         let record = &topology.stub_weld_records[0];
         assert_eq!(record.disposition, StubWeldDisposition::RejectedLocality);
@@ -1533,7 +1695,8 @@ mod tests {
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
         // 两条 connection 各自评估同一 stub：均被拒（via 引用数 2），均保留。
-        let topology = normalize_junctions(&network).expect("multiply referenced stub retained");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("multiply referenced stub retained");
         assert_eq!(topology.stub_weld_records.len(), 2);
         for record in &topology.stub_weld_records {
             assert_eq!(record.disposition, StubWeldDisposition::RejectedTopology);
@@ -1561,7 +1724,8 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="1"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("shared-breaking weld retained");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("shared-breaking weld retained");
         assert_eq!(topology.stub_weld_records.len(), 1);
         let record = &topology.stub_weld_records[0];
         assert_eq!(record.disposition, StubWeldDisposition::RejectedSharedEntry);
@@ -1586,7 +1750,8 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let topology = normalize_junctions(&network).expect("controlled stub welds");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("controlled stub welds");
         assert_eq!(topology.stub_weld_records.len(), 1);
         let record = &topology.stub_weld_records[0];
         assert_eq!(record.rule_version, STUB_WELD_RULE_VERSION);
@@ -1602,6 +1767,77 @@ mod tests {
     }
 
     #[test]
+    fn stub_weld_blocked_domain_refuses_and_retains() {
+        // R8(a)：未验证来源（BlockedDomain 门控）+ 几何可焊形态 → 不焊、
+        // 保留原始连接走普通穿越，记录 BlockedOutOfDomain。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6806.90,5727.53 6826.90,5727.53"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="0.40" shape="6806.88,5727.52 6807.18,5727.60"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::BlockedDomain).expect("normalize");
+        assert!(
+            topology.stub_welds.is_empty(),
+            "blocked domain must not weld"
+        );
+        assert!(topology.dropped_stub_lane_ids.is_empty());
+        assert_eq!(
+            topology.maneuver_paths[0].internal_edge_ids,
+            ["sumo::J_0_0".to_owned()],
+            "原始连接保留"
+        );
+        assert_eq!(topology.stub_weld_records.len(), 1);
+        let record = &topology.stub_weld_records[0];
+        assert_eq!(record.disposition, StubWeldDisposition::BlockedOutOfDomain);
+        assert!(record.detail.contains("not verify-source verified"));
+    }
+
+    #[test]
+    fn stub_weld_verified_domain_rejects_unknown_identity() {
+        // R8(b)：verified 域内 net digest 命中 manifest，但候选身份（重命名/
+        // 同坐标新 id）不在批准集 → BlockedOutOfDomain，保留原始连接。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6806.90,5727.53 6826.90,5727.53"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="0.40" shape="6806.88,5727.52 6807.18,5727.60"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let gate = StubWeldGate::VerifiedDomain {
+            net_digest: Some(
+                "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341"
+                    .to_owned(),
+            ),
+        };
+        let topology = normalize_junctions(&network, &gate).expect("normalize");
+        assert!(topology.stub_welds.is_empty());
+        assert_eq!(topology.stub_weld_records.len(), 1);
+        let record = &topology.stub_weld_records[0];
+        assert_eq!(record.disposition, StubWeldDisposition::BlockedOutOfDomain);
+        assert!(
+            record.detail.contains("outside the approved pinned domain"),
+            "unexpected detail: {}",
+            record.detail
+        );
+        assert!(
+            record.detail.contains("identity in approved set: false"),
+            "unexpected detail: {}",
+            record.detail
+        );
+    }
+
+    #[test]
     fn dangling_via_fails_closed() {
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>
@@ -1612,7 +1848,8 @@ mod tests {
   <connection from="west" to="east" fromLane="0" toLane="0" via=":missing_0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("dangling via");
+        let error =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect_err("dangling via");
         assert!(error.to_string().contains("unknown lane"));
     }
 }

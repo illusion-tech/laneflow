@@ -312,7 +312,53 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     fs::write(&out_path, &report.rendered).expect("write diagnostic survey file");
 }
 
-/// R2 第三轮：正式诊断入口的来源验证前置段——verify_source_dir 先验 checkout
+/// R8 回归：通用 XML 入口（未验证来源）+ 几何可焊形态 stub → 0.5 m 例外
+/// 不生效（BlockedOutOfDomain），stub 保留走普通穿越，处置记录入附录。
+#[test]
+fn generic_xml_entry_stub_weld_blocked_outside_approved_domain() {
+    let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6806.90,5727.53 6826.90,5727.53"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="0.40" shape="6806.88,5727.52 6807.18,5727.60"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="Gr"/>
+    <phase duration="4" state="yr"/>
+    <phase duration="31" state="rG"/>
+  </tlLogic>
+</net>"#;
+    let artifacts = convert_topology_from_xml_with_tll_and_vtypes(
+        net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &TopologyConvertOptions {
+            require_lust_location_anchors: true,
+            emit_infeasibility_report: true,
+            ..TopologyConvertOptions::default()
+        },
+    )
+    .expect("generic entry normalizes with the stub retained");
+    let report = artifacts.infeasibility_report.expect("report");
+    // 附录记录 BlockedOutOfDomain；stub 保留（未进 dropped 计数）。
+    assert!(
+        report
+            .rendered
+            .contains("## 点状 stub 删焊处置（已归一化 / 拒绝保留）"),
+        "weld disposition appendix missing"
+    );
+    assert!(
+        report.rendered.contains("blocked-out-of-domain"),
+        "blocked disposition row missing: {}",
+        &report.rendered[report.rendered.len().saturating_sub(2500)..]
+    );
+    assert_eq!(artifacts.counts.dropped_point_stub_edges, 0);
+}
+
+/// R2 第四轮：正式诊断入口的来源验证前置段——verify_source_dir 先验 checkout
 /// revision + 全部 §2.2 pinned digest；三份诊断输入字节在转换前完成消费时
 /// 绑定；同字节 + 错误 HEAD/无仓库必须拒绝。本段不依赖 G1（R1 门控），与
 /// 「转换 + 清单锁定」段解耦，现在就必须绿。
