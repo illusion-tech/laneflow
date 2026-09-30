@@ -59,6 +59,27 @@ impl InfeasibilityMechanism {
     }
 }
 
+/// 发射预算裁决（#253 G1 六条件之重新验收）：诊断清单如实区分「采样候选
+/// 耗尽」与「已证预算冲突」（R6 的错误文案拆分），非预算类失败标 NotBudget。
+/// 与「已归一化（stub 删焊处置记录）」「未支持-未评估（结构性 unsupported
+/// fail-closed 于转换前，不进清单）」合为四类处置口径。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BudgetOutcome {
+    NotBudget,
+    SamplerExhausted,
+    ProvenBudgetConflict,
+}
+
+impl BudgetOutcome {
+    pub fn label(self) -> &'static str {
+        match self {
+            BudgetOutcome::NotBudget => "非预算裁决",
+            BudgetOutcome::SamplerExhausted => "采样候选耗尽",
+            BudgetOutcome::ProvenBudgetConflict => "已证预算冲突",
+        }
+    }
+}
+
 /// 一条不可行 lane 的确定性诊断记录。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InfeasibilityDiagnosis {
@@ -69,6 +90,8 @@ pub struct InfeasibilityDiagnosis {
     /// 整数路口（off-ramp 节点簇）时为 `None`。
     pub junction: Option<String>,
     pub mechanism: InfeasibilityMechanism,
+    /// 发射预算裁决（采样候选耗尽 / 已证预算冲突 / 非预算类）。
+    pub budget_outcome: BudgetOutcome,
     /// 单行规范诊断：span j/n、弦长、单片/均转角、坐标、start/finish 切向来源。
     pub entry: String,
 }
@@ -89,11 +112,19 @@ pub(crate) fn classify_infeasible(lane_id: &str, entry: String) -> Infeasibility
     } else {
         InfeasibilityMechanism::InteriorCurvature
     };
+    let budget_outcome = if entry.contains("sampling exhausted") {
+        BudgetOutcome::SamplerExhausted
+    } else if entry.contains("curvature is infeasible") {
+        BudgetOutcome::ProvenBudgetConflict
+    } else {
+        BudgetOutcome::NotBudget
+    };
     InfeasibilityDiagnosis {
         lane_id: lane_id.to_owned(),
         is_internal: is_internal_lane(lane_id),
         junction,
         mechanism,
+        budget_outcome,
         entry,
     }
 }
@@ -249,6 +280,13 @@ impl InfeasibilityReport {
             .count()
     }
 
+    pub fn outcome_count(&self, outcome: BudgetOutcome) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| e.budget_outcome == outcome)
+            .count()
+    }
+
     /// 内车道子集的机制计数（普查锁定的口径；authored 边不计入）。
     pub fn internal_mechanism_count(&self, mechanism: InfeasibilityMechanism) -> usize {
         self.entries
@@ -265,8 +303,13 @@ impl InfeasibilityReport {
             .len()
     }
 
-    /// 由诊断记录渲染确定性 Markdown 清单。
-    pub fn render(entries: Vec<InfeasibilityDiagnosis>, source: ReportSource) -> Self {
+    /// 由诊断记录渲染确定性 Markdown 清单；`weld_records` 为 stub 删焊处置
+    /// 记录（已归一化类），渲染为附录随清单落出（G1 可追溯）。
+    pub fn render(
+        entries: Vec<InfeasibilityDiagnosis>,
+        source: ReportSource,
+        weld_records: &[crate::convert::junction::StubWeldRecord],
+    ) -> Self {
         let internal = entries.iter().filter(|e| e.is_internal).count();
         let external = entries.len() - internal;
         let internal_mechanism = |m: InfeasibilityMechanism| {
@@ -358,6 +401,21 @@ impl InfeasibilityReport {
             entries.len(),
             entries.len() as f64 / 245.75
         ));
+        let exhausted = entries
+            .iter()
+            .filter(|e| e.budget_outcome == BudgetOutcome::SamplerExhausted)
+            .count();
+        let proven = entries
+            .iter()
+            .filter(|e| e.budget_outcome == BudgetOutcome::ProvenBudgetConflict)
+            .count();
+        out.push_str(&format!(
+            "- 发射预算裁决分布（G1 重新验收四类口径；采样候选耗尽 = 等 t 与等切向角 \
+             划分均失败，已证预算冲突 = 弦长下限与安全转角无交）：采样候选耗尽 {exhausted}、\
+             已证预算冲突 {proven}、非预算类 {}。
+",
+            entries.len() - exhausted - proven
+        ));
         out.push_str(&format!(
             "- 内车道不可行遍布 **{junctions} 个 junction**（XML 有内车道的 junction 共 1,942 个）。
 "
@@ -370,8 +428,10 @@ impl InfeasibilityReport {
 "
         ));
         out.push_str("## 全量清单（逐条诊断）\n\n");
-        out.push_str("| # | lane | 类别 | junction | 机制 | span | chord(m) | 单片/均转(°) | 坐标 | start 切向 | finish 切向 |\n");
-        out.push_str("| ---: | --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- |\n");
+        out.push_str("| # | lane | 类别 | junction | 机制 | 预算裁决 | span | chord(m) | 单片/均转(°) | 坐标 | start 切向 | finish 切向 |\n");
+        out.push_str(
+            "| ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- |\n",
+        );
         for (index, e) in entries.iter().enumerate() {
             let i = index + 1;
             let (span, chord, turn, coord, start, finish) = parse_diagnosis_fields(&e.entry);
@@ -385,11 +445,42 @@ impl InfeasibilityReport {
                     .as_deref()
                     .unwrap_or(if e.is_internal { "(节点簇)" } else { "-" });
             out.push_str(&format!(
-                "| {i} | `{}` | {cls} | {junction} | {} | {span} | {chord} | {turn} | ({coord}) | {start} | {finish} |\n",
+                "| {i} | `{}` | {cls} | {junction} | {} | {} | {span} | {chord} | {turn} | ({coord}) | {start} | {finish} |\n",
                 e.lane_id,
                 e.mechanism.label(),
+                e.budget_outcome.label(),
             ));
         }
+        out.push_str("\n## 点状 stub 删焊处置记录（已归一化）\n\n");
+        out.push_str(&format!(
+            "规则版本 `{}`（G1 issuecomment-5901846033 六条件；阈值：位移 ≤ 0.06 m、\
+             形状局部性 ≤ 0.05 m、共享 join 间隙 ≤ 0.005 m）；焊接为全局入口端点改写，\
+             共享入口关联穿越已逐条重验。共 {} 条。\n\n",
+            crate::convert::junction::STUB_WELD_RULE_VERSION,
+            weld_records.len()
+        ));
+        out.push_str("| stub lane | 入口 | 出口 | junction | 位移(m) | span(m) | shape长(m) | 局部性(m) | 受控 | 共享穿越 | 处置 |\n");
+        out.push_str("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | --- |\n");
+        for record in weld_records {
+            out.push_str(&format!(
+                "| `{}` | `{}` | `{}` | `{}` | {:.4} | {:.4} | {:.4} | {:.4} | {} | {} | {} |\n",
+                record.stub_lane_id,
+                record.entry_lane_id,
+                record.exit_lane_id,
+                record.junction_id,
+                record.displacement_m,
+                record.span_m,
+                record.shape_len_m,
+                record.locality_m,
+                if record.controlled { "是" } else { "否" },
+                record.shared_traversal_count,
+                record.disposition.label(),
+            ));
+        }
+        out.push_str(
+            "\n未支持-未评估：结构性 unsupported（如 stub 门控未过、控制语义检查）\
+                      fail-closed 于转换之前，不产生清单条目。\n",
+        );
         Self {
             entries,
             rendered: out,
@@ -1879,6 +1970,74 @@ mod tests {
         let points = [pt(0.0, 0.0), pt(0.0, 0.0), pt(10.0, 0.0)];
         let program = repair_curve(&points, None, None, None, None).expect("repair");
         assert_eq!(seg_ends(&program), 1);
+    }
+
+    #[test]
+    fn classify_distinguishes_budget_outcomes() {
+        // G1 六条件之重新验收：清单逐条如实区分「采样候选耗尽」与「已证预算
+        // 冲突」（R6 错误文案拆分），其余失败为非预算类。
+        let exhausted = classify_infeasible(
+            "sumo::-1000_2_0",
+            "span 1/1 (chord 1.0 m) is not emittable: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (1, 0, 2); last error: x; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+                .to_owned(),
+        );
+        assert_eq!(exhausted.budget_outcome, BudgetOutcome::SamplerExhausted);
+        let proven = classify_infeasible(
+            "sumo::-1000_2_0",
+            "span 1/1 (chord 1.0 m) is not emittable: repaired curve curvature is infeasible under the quantized weld budget: span arc 0.11 m turns 1.93 deg at (1, 0, 2); start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+                .to_owned(),
+        );
+        assert_eq!(proven.budget_outcome, BudgetOutcome::ProvenBudgetConflict);
+        let other = classify_infeasible(
+            "sumo::-1000_2_0",
+            "span 1/1 (chord 1.0 m) is not emittable: fillet arc deviates 5.1 m from the original corner at (1, 0, 2), exceeding the 5.0 m budget; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+                .to_owned(),
+        );
+        assert_eq!(other.budget_outcome, BudgetOutcome::NotBudget);
+    }
+
+    #[test]
+    fn render_includes_weld_records_and_outcome_column() {
+        // G1 可追溯 + 四类口径：清单渲染含预算裁决列、发射预算裁决分布、
+        // stub 删焊处置记录附录与「未支持-未评估」说明。
+        let entries = vec![classify_infeasible(
+            "sumo::lane_0",
+            "span 1/1 (chord 1.0 m) is not emittable: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+                .to_owned(),
+        )];
+        let records = vec![crate::convert::junction::StubWeldRecord {
+            rule_version: crate::convert::junction::STUB_WELD_RULE_VERSION,
+            disposition: crate::convert::junction::StubWeldDisposition::Welded,
+            stub_lane_id: ":J_0_0".to_owned(),
+            entry_lane_id: "west_0".to_owned(),
+            exit_lane_id: "east_0".to_owned(),
+            junction_id: "J".to_owned(),
+            entry_end_m: [6806.88, 5727.52],
+            weld_target_m: [6806.90, 5727.53],
+            displacement_m: 0.0224,
+            span_m: 0.3105,
+            shape_len_m: 0.3105,
+            locality_m: 0.0,
+            controlled: true,
+            shared_traversal_count: 0,
+            shared_traversals: Vec::new(),
+        }];
+        let report =
+            InfeasibilityReport::render(entries, ReportSource::unverified_unknown(), &records);
+        assert!(report.rendered.contains("| 机制 | 预算裁决 | span |"));
+        assert!(report.rendered.contains("采样候选耗尽"));
+        assert!(report.rendered.contains("- 发射预算裁决分布"));
+        assert!(
+            report
+                .rendered
+                .contains("## 点状 stub 删焊处置记录（已归一化）")
+        );
+        assert!(
+            report
+                .rendered
+                .contains("| `:J_0_0` | `west_0` | `east_0` | `J` |")
+        );
+        assert!(report.rendered.contains("未支持-未评估"));
     }
 
     #[test]

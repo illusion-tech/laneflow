@@ -194,6 +194,14 @@ fn convert_network_packages(
 
     let topology = normalize_junctions(network)?;
     let signals = convert_signals(network, tll_programs, &topology.path_by_connection)?;
+    // G1 六条件之控制语义：焊接移除的 stub 内边不得出现在任何信号绑定
+    // （stop line / maneuver gate 的路径 id）中；信号模型按运动（道路边）级
+    // 绑定，本条为 fail-closed 守卫，语义漂移即拒。
+    crate::convert::signals::validate_weld_signal_bindings(
+        &signals,
+        &topology.dropped_stub_lane_ids,
+    )?;
+    let stub_weld_records = topology.stub_weld_records.clone();
 
     let mut lane_edges = Vec::with_capacity(network.lanes.len());
     let mut spatial_edges = Vec::with_capacity(network.lanes.len());
@@ -279,7 +287,12 @@ fn convert_network_packages(
     };
 
     if options.emit_infeasibility_report {
-        compile_network_lfca_with_infeasibility_report(&traffic, &spatial, report_source)
+        compile_network_lfca_with_infeasibility_report(
+            &traffic,
+            &spatial,
+            report_source,
+            &stub_weld_records,
+        )
     } else {
         compile_network_lfca(&traffic, &spatial)
     }

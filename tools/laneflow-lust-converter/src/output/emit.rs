@@ -75,7 +75,7 @@ pub fn compile_network_lfca(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
 ) -> Result<TopologyArtifacts> {
-    compile_network_lfca_inner(traffic, spatial, None)
+    compile_network_lfca_inner(traffic, spatial, None, &[])
 }
 
 /// 诊断清单模式：不可行的 lane 记录诊断后以占位程序兜底继续，不产出
@@ -86,8 +86,9 @@ pub fn compile_network_lfca_with_infeasibility_report(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
     source: geom::ReportSource,
+    weld_records: &[crate::convert::junction::StubWeldRecord],
 ) -> Result<TopologyArtifacts> {
-    compile_network_lfca_inner(traffic, spatial, Some(source))
+    compile_network_lfca_inner(traffic, spatial, Some(source), weld_records)
 }
 
 /// `report` 为 `Some` 时进入诊断清单模式；`None` 为 fail-fast。诊断收集器
@@ -97,6 +98,7 @@ fn compile_network_lfca_inner(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
     report: Option<geom::ReportSource>,
+    weld_records: &[crate::convert::junction::StubWeldRecord],
 ) -> Result<TopologyArtifacts> {
     let mut diagnostic_entries = report.as_ref().map(|_| Vec::new());
     let limits = CompileLimits::single_network_1m_v2();
@@ -163,7 +165,11 @@ fn compile_network_lfca_inner(
         return Ok(TopologyArtifacts {
             network_lfca: Vec::new(),
             counts: topology_counts(traffic),
-            infeasibility_report: Some(geom::InfeasibilityReport::render(entries, source)),
+            infeasibility_report: Some(geom::InfeasibilityReport::render(
+                entries,
+                source,
+                weld_records,
+            )),
         });
     }
 

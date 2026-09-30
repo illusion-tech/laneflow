@@ -21,6 +21,43 @@ struct ControlledLink {
     to_lane_index: u32,
 }
 
+/// G1 六条件之控制语义守卫：被 stub 删焊移除的内边不得出现在任何信号绑定中
+/// （stop line 的 edge、maneuver gate 的路径 id）。信号模型按运动（道路边）级
+/// 绑定，内边本不该出现；本条 fail-closed 捕捉未来语义漂移。
+pub(crate) fn validate_weld_signal_bindings(
+    signals: &Signals,
+    dropped_stub_lane_ids: &std::collections::HashSet<String>,
+) -> Result<()> {
+    if dropped_stub_lane_ids.is_empty() {
+        return Ok(());
+    }
+    for stop_line in &signals.stop_lines {
+        if dropped_stub_lane_ids.contains(&stop_line.edge_id) {
+            return Err(Error::SumoModel(format!(
+                "point-stub weld removed internal lane still bound as stop line {:?}",
+                stop_line.id
+            )));
+        }
+    }
+    for gate in &signals.maneuver_gates {
+        // 路径 id 内边段以 ':'/'..' 分隔；内边 id 去掉前导 ':' 做精确 token 比对。
+        for stub in dropped_stub_lane_ids {
+            let token = stub.strip_prefix(':').unwrap_or(stub);
+            if gate
+                .maneuver_path_id
+                .split([':', '.'])
+                .any(|part| part == token)
+            {
+                return Err(Error::SumoModel(format!(
+                    "point-stub weld removed internal lane {stub:?} still bound by maneuver gate {:?}",
+                    gate.id
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Build Signals from network controlled connections + static tll programs.
 pub fn convert_signals(
     network: &SumoNetwork,
