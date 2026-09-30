@@ -346,6 +346,21 @@ fn collect_controlled_links(network: &SumoNetwork) -> Result<Vec<ControlledLink>
 }
 
 fn validate_program_states(program: &SumoTlLogic, links: &[&ControlledLink]) -> Result<()> {
+    // #253 L2：相位状态串等宽先行校验——不等宽的位置语义不可判（unclaimed
+    // arm 收集与 linkIndex 越界检查都以等宽为前提），fail-closed 报各宽度。
+    let widths: Vec<usize> = program
+        .phases
+        .iter()
+        .map(|phase| phase.state.len())
+        .collect();
+    if let Some(&first) = widths.first()
+        && widths.iter().any(|&width| width != first)
+    {
+        return Err(Error::SumoModel(format!(
+            "tlLogic {:?} phase states have inconsistent widths {widths:?}",
+            program.id
+        )));
+    }
     let max_index = links
         .iter()
         .map(|link| link.link_index)
@@ -439,6 +454,41 @@ mod tests {
             error.to_string().contains("\"J\""),
             "error must name the controller: {error}"
         );
+    }
+
+    #[test]
+    fn inconsistent_phase_widths_fail_closed() {
+        // #253 L2：相位状态串不等宽即 fail-closed（unclaimed arm 收集与
+        // linkIndex 校验以等宽为前提）。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+    <phase duration="4" state="Gr"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+    <phase duration="4" state="Gr"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let error = super::convert_signals(&network, &tll, &topology.path_by_connection)
+            .expect_err("inconsistent phase widths must fail closed");
+        assert!(error.to_string().contains("inconsistent widths"), "{error}");
     }
 
     #[test]

@@ -82,6 +82,14 @@ fn parse_edge(
     lanes: &mut Vec<SumoLane>,
 ) -> Result<()> {
     let edge_id = required_attr(edge, "id")?;
+    // #253 L4：重复 edge id  fail-closed——id 是全局寻址键，后者静默覆盖前者
+    // 会让 connection/寻址按 XML 序绑定歧义拓扑。
+    if let Some(previous) = edges.iter().find(|existing| existing.id == edge_id) {
+        return Err(Error::SumoModel(format!(
+            "duplicate edge id {edge_id:?}: earlier declaration function={:?}              conflicts with this one",
+            previous.function_internal
+        )));
+    }
     let function_internal = edge.attribute("function") == Some("internal");
     edges.push(SumoEdge {
         id: edge_id.clone(),
@@ -240,4 +248,21 @@ fn required_attr(node: Node<'_, '_>, name: &str) -> Result<String> {
 fn parse_u32(raw: String, field: &str) -> Result<u32> {
     raw.parse::<u32>()
         .map_err(|_| Error::SumoModel(format!("invalid u32 for {field}: {raw:?}")))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn duplicate_edge_id_fails_closed() {
+        // #253 L4：重复 edge id 的歧义拓扑 fail-closed（带冲突声明细节）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="dup" from="A" to="B"><lane id="dup_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <edge id="dup" from="C" to="D"><lane id="dup_0" index="0" speed="13.89" length="10.00" shape="0,5 10,5"/></edge>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate edge id");
+        assert!(error.to_string().contains("duplicate edge id"), "{error}");
+        assert!(error.to_string().contains("dup"), "{error}");
+    }
 }
