@@ -48,6 +48,8 @@ pub struct TopologyCounts {
     pub vehicle_profiles: u64,
     pub signal_controllers: u64,
     pub signal_groups: u64,
+    /// 信号相位对象计数（#253 K7；§3.3 契约与其他信号计数并列入转换报告）。
+    pub signal_phases: u64,
     pub stop_lines: u64,
     pub maneuver_gates: u64,
     pub parking_registry_empty: bool,
@@ -208,6 +210,12 @@ fn topology_counts(traffic: &TrafficPackage) -> TopologyCounts {
         vehicle_profiles: traffic.vehicle_profiles.len() as u64,
         signal_controllers: traffic.signals.controllers.len() as u64,
         signal_groups: traffic.signals.groups.len() as u64,
+        signal_phases: traffic
+            .signals
+            .controllers
+            .iter()
+            .map(|controller| controller.phases.len() as u64)
+            .sum(),
         stop_lines: traffic.signals.stop_lines.len() as u64,
         maneuver_gates: traffic.signals.maneuver_gates.len() as u64,
         parking_registry_empty: true,

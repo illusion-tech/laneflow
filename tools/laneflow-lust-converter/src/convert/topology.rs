@@ -69,6 +69,8 @@ pub struct StaticConversionArtifacts {
     pub routes_toml: Vec<u8>,
     pub population_record_count: usize,
     pub route_count: usize,
+    /// 「声明臂无受控 link」source-health 事实（#253 K4a；通常为 empty）。
+    pub signal_health: Vec<crate::convert::signals::UnclaimedSignalArm>,
 }
 
 /// Build validated Traffic/Spatial/Manifest bytes from a SUMO network.
@@ -107,14 +109,17 @@ pub(crate) fn convert_network_topology_with_tll_and_profiles(
     options: &TopologyConvertOptions,
     report_source: ReportSource,
 ) -> Result<TopologyArtifacts> {
-    convert_network_packages(
+    // signal health 事实只经 static 入口（conversion report）携带；topology-only
+    // 路径（诊断清单交付）不产 report，丢弃。
+    let (artifacts, _) = convert_network_packages(
         network,
         tll_programs,
         vehicle_profiles,
         &[],
         options,
         report_source,
-    )
+    )?;
+    Ok(artifacts)
 }
 
 /// Convert topology + routes + population from network inputs and ordered DUE vehicles.
@@ -130,7 +135,7 @@ pub(crate) fn convert_static_with_due(
     let population = select_population(due_vehicles, options.require_lust_population_count)?;
     let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
 
-    let topology = convert_network_packages(
+    let (topology, signal_health) = convert_network_packages(
         network,
         tll_programs,
         vehicle_profiles,
@@ -176,6 +181,7 @@ pub(crate) fn convert_static_with_due(
         route_count: bundle.routes.len(),
         topology,
         routes_toml: routes_toml.into_bytes(),
+        signal_health,
     })
 }
 
@@ -208,7 +214,10 @@ fn convert_network_packages(
     routes: &[Route],
     options: &TopologyConvertOptions,
     report_source: ReportSource,
-) -> Result<TopologyArtifacts> {
+) -> Result<(
+    TopologyArtifacts,
+    Vec<crate::convert::signals::UnclaimedSignalArm>,
+)> {
     if options.require_lust_location_anchors && !network.location.matches_lust_anchors() {
         return Err(Error::SumoModel(format!(
             "SUMO <location> does not match pinned LuST anchors (netOffset={:?}, convBoundary={:?})",
@@ -219,7 +228,8 @@ fn convert_network_packages(
     let origin = network.location.canonical_origin()?;
 
     let topology = normalize_junctions(network, &stub_weld_gate(options, &report_source))?;
-    let signals = convert_signals(network, tll_programs, &topology.path_by_connection)?;
+    let (signals, signal_health) =
+        convert_signals(network, tll_programs, &topology.path_by_connection)?;
     // G1 六条件之控制语义：焊接移除的 stub 内边不得出现在任何信号绑定
     // （stop line / maneuver gate 的路径 id）中；信号模型按运动（道路边）级
     // 绑定，本条为 fail-closed 守卫，语义漂移即拒。
@@ -312,7 +322,7 @@ fn convert_network_packages(
         edges: spatial_edges,
     };
 
-    if options.emit_infeasibility_report {
+    let artifacts = if options.emit_infeasibility_report {
         compile_network_lfca_with_infeasibility_report(
             &traffic,
             &spatial,
@@ -321,5 +331,6 @@ fn convert_network_packages(
         )
     } else {
         compile_network_lfca(&traffic, &spatial)
-    }
+    }?;
+    Ok((artifacts, signal_health))
 }

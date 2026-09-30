@@ -58,12 +58,23 @@ pub(crate) fn validate_weld_signal_bindings(
     Ok(())
 }
 
+/// 「声明臂无受控 link」source-health 事实（#253 K4a）：相位状态向量中无任何
+/// connection 认领的位置（如 pinned controller `-13968` 缺 index 9）。不
+/// fail——按 G1 契约修订记入 conversion report（明列 controller id 与缺失
+/// index）。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnclaimedSignalArm {
+    pub controller_id: String,
+    pub missing_link_indices: Vec<u32>,
+}
+
 /// Build Signals from network controlled connections + static tll programs.
+/// 返回值附带「声明臂无受控 link」health 事实（可能为空）。
 pub fn convert_signals(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
     path_by_connection: &HashMap<(String, u32, String, u32), String>,
-) -> Result<Signals> {
+) -> Result<(Signals, Vec<UnclaimedSignalArm>)> {
     let controlled = collect_controlled_links(network)?;
     if controlled.is_empty() {
         if !tll_programs.is_empty() {
@@ -81,7 +92,7 @@ pub fn convert_signals(
                 "network declares tlLogic controllers {declared:?} but has no controlled tl/linkIndex connections"
             )));
         }
-        return Ok(empty_signals());
+        return Ok((empty_signals(), Vec::new()));
     }
 
     let net_ids = network.net_tl_logic_ids();
@@ -123,6 +134,7 @@ pub fn convert_signals(
         }
     }
 
+    let mut unclaimed_arms = Vec::new();
     let mut stop_lines = Vec::new();
     let mut gates = Vec::new();
     let mut groups = Vec::new();
@@ -141,6 +153,24 @@ pub fn convert_signals(
             )));
         }
         validate_program_states(program, &links)?;
+        // K4a：相位向量中无受控 link 认领的位置（声明臂）不 fail，收集为
+        // health 事实（link 越界仍由 validate_program_states 严格拒绝）。
+        let state_len = program
+            .phases
+            .first()
+            .map(|phase| phase.state.len())
+            .unwrap_or(0);
+        let claimed: std::collections::HashSet<u32> =
+            links.iter().map(|link| link.link_index).collect();
+        let missing: Vec<u32> = (0..state_len as u32)
+            .filter(|index| !claimed.contains(index))
+            .collect();
+        if !missing.is_empty() {
+            unclaimed_arms.push(UnclaimedSignalArm {
+                controller_id: tl_id.to_owned(),
+                missing_link_indices: missing,
+            });
+        }
 
         let equivalence = build_groups(program, &links);
         let mut group_entries = equivalence.into_iter().collect::<Vec<_>>();
@@ -255,12 +285,15 @@ pub fn convert_signals(
     groups.sort_by(|left, right| left.id.cmp(&right.id));
     controllers.sort_by(|left, right| left.id.cmp(&right.id));
 
-    Ok(Signals {
-        stop_lines,
-        maneuver_gates: gates,
-        groups,
-        controllers,
-    })
+    Ok((
+        Signals {
+            stop_lines,
+            maneuver_gates: gates,
+            groups,
+            controllers,
+        },
+        unclaimed_arms,
+    ))
 }
 
 fn empty_signals() -> Signals {
@@ -409,6 +442,82 @@ mod tests {
     }
 
     #[test]
+    fn unclaimed_signal_arm_becomes_health_fact_not_failure() {
+        // #253 K4a：相位向量中的声明臂（无受控 link 的位置）不 fail——转换
+        // 成功并返回 health 事实（controller id + 缺失 index）。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="east_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <edge id=":J_1" function="internal"><lane id=":J_1_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5729.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0 :J_1_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <connection from="west" to="east" fromLane="0" toLane="1" via=":J_1_0" tl="J" linkIndex="2"/>
+  <connection from=":J_1" to="east" fromLane="0" toLane="1"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GrG"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GrG"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let (signals, unclaimed) =
+            super::convert_signals(&network, &tll, &topology.path_by_connection)
+                .expect("unclaimed arm is a health fact, not a failure");
+        assert_eq!(signals.controllers.len(), 1);
+        assert_eq!(
+            unclaimed,
+            vec![super::UnclaimedSignalArm {
+                controller_id: "J".to_owned(),
+                missing_link_indices: vec![1],
+            }]
+        );
+    }
+
+    #[test]
+    fn link_index_beyond_phase_vector_still_fails_closed() {
+        // K4a 严格性保留：受控 link 的 index 超出相位向量仍 fail。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="3"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GrG"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GrG"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let error = super::convert_signals(&network, &tll, &topology.path_by_connection)
+            .expect_err("link index beyond phase vector must fail");
+        assert!(error.to_string().contains("linkIndex 3"), "{error}");
+    }
+
+    #[test]
     fn multi_lane_controlled_approach_gets_stop_line_per_lane() {
         // #253 C4：compiler 的 ManeuverGateStopLineMismatch 是 LaneEdge 粒度
         // （hir/control.rs）——多车道受控进口道必须每车道一条 StopLine，gate
@@ -440,8 +549,10 @@ mod tests {
 </additional>"#,
         )
         .expect("parse tll");
-        let signals = super::convert_signals(&network, &tll, &topology.path_by_connection)
-            .expect("convert signals");
+        let (signals, unclaimed) =
+            super::convert_signals(&network, &tll, &topology.path_by_connection)
+                .expect("convert signals");
+        assert!(unclaimed.is_empty(), "fixture claims every arm");
         // 每受控车道一条 StopLine，绑本车道边。
         assert_eq!(signals.stop_lines.len(), 2, "per-lane stop lines");
         assert!(
@@ -469,5 +580,45 @@ mod tests {
             .expect("gate for lane 1");
         assert_eq!(gate0.stop_line_id, "sumo:stop:west_0");
         assert_eq!(gate1.stop_line_id, "sumo:stop:west_1");
+    }
+}
+
+#[cfg(test)]
+mod k7_count_tests {
+    #[test]
+    fn signal_phase_count_reaches_topology_counts() {
+        // K7：相位计数穿 TopologyCounts（fixture：1 controller × 2 phases）。
+        use crate::sumo::{parse_sumo_network_xml, parse_tll_static_xml};
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+    <phase duration="4" state="y"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+    <phase duration="4" state="y"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let artifacts = crate::convert_network_topology_with_tll(
+            &network,
+            &tll,
+            &crate::TopologyConvertOptions::default(),
+        )
+        .expect("fixture compiles");
+        assert_eq!(artifacts.counts.signal_phases, 2);
     }
 }

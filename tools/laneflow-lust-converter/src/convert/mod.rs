@@ -17,6 +17,7 @@ pub use population::{
 };
 pub(crate) use profiles::convert_vehicle_profiles;
 pub use profiles::{LUST_PASSENGER_VTYPE_IDS, select_passenger_vtypes};
+pub use signals::UnclaimedSignalArm;
 pub(crate) use topology::DEFAULT_FIXED_DELTA_MS;
 pub use topology::{
     StaticConversionArtifacts, TopologyConvertOptions, convert_network_topology,

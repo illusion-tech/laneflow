@@ -5,6 +5,7 @@ pub mod due;
 pub mod due_parse;
 pub mod net;
 pub mod net_parse;
+pub mod poly_parse;
 pub mod tll_parse;
 pub mod vtype;
 pub mod vtype_parse;
@@ -17,6 +18,7 @@ pub use net::{
     SumoNetwork, SumoTlLogic,
 };
 pub use net_parse::parse_sumo_network_xml;
+pub use poly_parse::parse_parking_polygon_count;
 pub use tll_parse::parse_tll_static_xml;
 pub use vtype::SumoVType;
 pub use vtype_parse::parse_vtypes_xml;

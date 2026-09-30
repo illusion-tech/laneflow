@@ -12,6 +12,14 @@ use crate::{
     source::{LUST_COMMIT, LUST_REPOSITORY, LUST_TAG},
 };
 
+/// 「声明臂无受控 link」report 序列化视图（#253 K4a）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReportUnclaimedArm {
+    controller_id: String,
+    missing_link_indices: Vec<u32>,
+}
+
 /// Inputs used to build a conversion report.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversionReportInput {
@@ -30,6 +38,12 @@ pub struct ConversionReportInput {
     pub population_record_count: u64,
     pub require_lust_population_count: bool,
     pub parking_registry_empty: bool,
+    /// §3.5 parking polygon 健康事实（pinned 基线 175，#253 K6）。
+    pub parking_polygon_count: u64,
+    /// §3.3 信号相位计数（与其他信号对象计数并列；pinned 基线 1,298，#253 K7）。
+    pub signal_phase_count: u64,
+    /// 「声明臂无受控 link」health 事实（#253 K4a；通常为 empty）。
+    pub unclaimed_signal_arms: Vec<crate::UnclaimedSignalArm>,
     pub major_minor_green_collapsed: bool,
     /// 诊断模式无 network.lfca（`None` → digest 字段序列化不出现，由
     /// infeasibility_survey_bytes 接任交付物认证，#253 N1）。
@@ -67,6 +81,10 @@ struct ReportHealth {
     external_lane_count: u64,
     connection_count: u64,
     parking_registry_empty: bool,
+    /// parking polygon 健康事实（§3.5；pinned 基线 175，#253 K6）。
+    parking_polygon_count: u64,
+    /// 「声明臂无受控 link」health 事实（K4a；pinned：controller -13968 缺 index 9）。
+    unclaimed_signal_arms: Vec<ReportUnclaimedArm>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,6 +97,8 @@ struct ReportNormalization {
     vehicle_profile_count: u64,
     signal_controller_count: u64,
     signal_group_count: u64,
+    /// 信号相位计数（§3.3；pinned 基线 1,298，#253 K7）。
+    signal_phase_count: u64,
     stop_line_count: u64,
     maneuver_gate_count: u64,
 }
@@ -129,6 +149,15 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
             external_lane_count: input.external_lane_count,
             connection_count: input.connection_count,
             parking_registry_empty: input.parking_registry_empty,
+            parking_polygon_count: input.parking_polygon_count,
+            unclaimed_signal_arms: input
+                .unclaimed_signal_arms
+                .iter()
+                .map(|arm| ReportUnclaimedArm {
+                    controller_id: arm.controller_id.clone(),
+                    missing_link_indices: arm.missing_link_indices.clone(),
+                })
+                .collect(),
         },
         normalization: ReportNormalization {
             junction_count: input.junction_count,
@@ -138,6 +167,7 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
             vehicle_profile_count: input.vehicle_profile_count,
             signal_controller_count: input.signal_controller_count,
             signal_group_count: input.signal_group_count,
+            signal_phase_count: input.signal_phase_count,
             stop_line_count: input.stop_line_count,
             maneuver_gate_count: input.maneuver_gate_count,
         },

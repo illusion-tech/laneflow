@@ -16,8 +16,9 @@ pub use convert::{
     LUST_PASSENGER_VTYPE_IDS, POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS,
     POPULATION_DEPART_START_SECONDS, POPULATION_SELECTED_COUNT, PopulationRecord,
     StaticConversionArtifacts, StubWeldDisposition, StubWeldPolicy, StubWeldRecord,
-    TopologyConvertOptions, convert_network_topology, convert_network_topology_with_tll,
-    scan_stub_weld_candidates, select_passenger_vtypes, select_population, stub_weld_manifest_json,
+    TopologyConvertOptions, UnclaimedSignalArm, convert_network_topology,
+    convert_network_topology_with_tll, scan_stub_weld_candidates, select_passenger_vtypes,
+    select_population, stub_weld_manifest_json,
 };
 pub use error::{Error, Result};
 pub use output::{
@@ -31,12 +32,12 @@ pub use output::{
 pub use source::{
     LUST_COMMIT, LUST_REPOSITORY, LUST_TAG, PINNED_SOURCE_FILES, PinnedSourceFile,
     VerifiedLustInputs, VerifiedSourceFile, VerifiedSourceSet, prepare_verified_lust_inputs,
-    verify_source_dir,
+    recheck_source_revision, verify_source_dir,
 };
 pub use sumo::{
     DueVehicle, ExactDecimal, LUST_CONV_BOUNDARY, LUST_FRAME_ID, LUST_NET_OFFSET, SUMO_ID_PREFIX,
-    SumoNetwork, SumoVType, parse_due_routes_xml, parse_sumo_network_xml, parse_tll_static_xml,
-    parse_vtypes_xml,
+    SumoNetwork, SumoVType, parse_due_routes_xml, parse_parking_polygon_count,
+    parse_sumo_network_xml, parse_tll_static_xml, parse_vtypes_xml,
 };
 
 use std::path::Path;
