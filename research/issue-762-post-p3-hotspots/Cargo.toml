@@ -44,3 +44,7 @@ path = "src/empty_ranges.rs"
 [[bin]]
 name = "laneflow-current-hotspots-research"
 path = "src/current_cost.rs"
+
+[[bin]]
+name = "laneflow-p5-chunk-research"
+path = "src/p5_chunks.rs"
