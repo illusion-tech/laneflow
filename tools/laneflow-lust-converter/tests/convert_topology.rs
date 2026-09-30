@@ -305,6 +305,17 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         .join("target")
         .join("issue253-infeasible-survey.md");
     fs::write(&out_path, &report.rendered).expect("write diagnostic survey file");
+
+    // G3 验收证据：与提交仓库的 evidence/lust-infeasible-survey.md 逐字节
+    // 一致（发射语义变化时按 evidence/README.md 流程双跑重锁并同步更新）。
+    let evidence_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md");
+    let evidence = fs::read_to_string(&evidence_path).expect("read committed survey evidence");
+    assert_eq!(
+        evidence.replace("\r\n", "\n").trim_end(),
+        report.rendered.trim_end(),
+        "survey drifted from committed evidence: regenerate per evidence/README.md and update both copies"
+    );
 }
 
 /// R8 回归：通用 XML 入口（未验证来源）+ 几何可焊形态 stub → 0.5 m 例外
@@ -397,6 +408,23 @@ fn verified_record_with_tampered_bytes_fails_closed() {
     match error {
         Error::SourceChangedAfterVerification { relative_path, .. } => {
             assert_eq!(relative_path, "scenario/tll.static.xml");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    // vtypes 追加换行：对称分支（第七轮非阻断建议）。
+    let mut vtypes_xml = prepared.vtypes_xml().to_owned();
+    vtypes_xml.push('\n');
+    let error = convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        prepared.net_xml(),
+        prepared.tll_xml(),
+        &vtypes_xml,
+        &options,
+        prepared.report_source().clone(),
+    )
+    .expect_err("tampered vtypes bytes must fail closed");
+    match error {
+        Error::SourceChangedAfterVerification { relative_path, .. } => {
+            assert_eq!(relative_path, "scenario/vtypes.add.xml");
         }
         other => panic!("unexpected error: {other}"),
     }

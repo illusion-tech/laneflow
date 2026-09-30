@@ -21,16 +21,16 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 
 ```text
 # 本地需先 checkout 精确 commit c4bd5bd3751d426d42a9a1749c815e47ea188549
-cargo +1.96.0 run -p laneflow-lust-converter -- verify-source --source-dir <LuSTScenario根目录>
+cargo +1.98.0 run -p laneflow-lust-converter -- verify-source --source-dir <LuSTScenario根目录>
 
-cargo +1.96.0 run -p laneflow-lust-converter -- convert --config <toml>
+cargo +1.98.0 run -p laneflow-lust-converter -- convert --config <toml>
 ```
 
 可选全量集成（默认 `cargo test` 跳过）：
 
 ```text
 set LUST_SOURCE_DIR=<LuSTScenario根目录>
-cargo +1.96.0 test -p laneflow-lust-converter --locked -- --ignored
+cargo +1.98.0 test -p laneflow-lust-converter --locked -- --ignored
 ```
 
 配置示例：
