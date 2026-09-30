@@ -303,16 +303,41 @@ pub(crate) fn read_verified(verified: &VerifiedSourceSet, relative_path: &str) -
 /// 诊断清单模式的已验证输入（#253 R2 第四轮）：`prepare_verified_lust_inputs`
 /// 的返回——绑定后的三份转换输入与 verified 来源声明。外部调用方无法自行
 /// 构造 `verified = true` 的 [`ReportSource`]（字段私有），已验证声明只能
-/// 经本路径或 crate 内 pipeline 获得。
+/// 经本路径或 crate 内 pipeline 获得。字段私有 + 只读 getter（#253 R8
+/// 残留缺口）：防止「合法记录 + 改动后字节」错配后经组合入口套取 0.5 m
+/// 例外——组合入口在消费时重算摘要，错配即 fail-closed。
 pub struct VerifiedLustInputs {
     /// 消费时重哈希绑定后的 `scenario/lust.net.xml` 文本。
-    pub net_xml: String,
+    net_xml: String,
     /// 消费时重哈希绑定后的 `scenario/tll.static.xml` 文本。
-    pub tll_xml: String,
+    tll_xml: String,
     /// 消费时重哈希绑定后的 `scenario/vtypes.add.xml` 文本。
-    pub vtypes_xml: String,
+    vtypes_xml: String,
     /// verified = true、摘要取 net 消费字节的来源声明。
-    pub report_source: crate::output::geom::ReportSource,
+    report_source: crate::output::geom::ReportSource,
+}
+
+impl VerifiedLustInputs {
+    /// 绑定后的 `scenario/lust.net.xml` 文本（只读）。
+    pub fn net_xml(&self) -> &str {
+        &self.net_xml
+    }
+
+    /// 绑定后的 `scenario/tll.static.xml` 文本（只读）。
+    pub fn tll_xml(&self) -> &str {
+        &self.tll_xml
+    }
+
+    /// 绑定后的 `scenario/vtypes.add.xml` 文本（只读）。
+    pub fn vtypes_xml(&self) -> &str {
+        &self.vtypes_xml
+    }
+
+    /// verified 来源声明（只读；`Clone` 出的旧记录错配改动字节会被组合入口
+    /// 的消费时重算绑定拒绝）。
+    pub fn report_source(&self) -> &crate::output::geom::ReportSource {
+        &self.report_source
+    }
 }
 
 impl std::fmt::Debug for VerifiedLustInputs {

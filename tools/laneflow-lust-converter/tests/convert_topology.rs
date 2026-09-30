@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf, process::Command};
 use laneflow_lust_converter::{
     BudgetOutcome, Error, ExactDecimal, InfeasibilityMechanism, LUST_COMMIT, LUST_FRAME_ID,
     PINNED_SOURCE_FILES, TopologyConvertOptions, convert_static_from_xml_with_due,
-    convert_topology_from_xml_with_tll_and_vtypes,
+    convert_topology_from_verified_lust_inputs, convert_topology_from_xml_with_tll_and_vtypes,
     convert_topology_from_xml_with_tll_and_vtypes_and_source, parse_due_routes_xml,
     parse_sumo_network_xml, parse_vtypes_xml, prepare_verified_lust_inputs,
     select_passenger_vtypes,
@@ -187,9 +187,9 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     // 来源声明（crate 内受控构造器，调用方无法自行声明已验证）。本测试单跑
     // 时此准备段照样执行：验证前置内建于主生成路径，不依赖任何其他测试。
     let prepared = prepare_verified_lust_inputs(&root).expect("prepare verified Lust inputs");
-    let net_xml = prepared.net_xml;
-    let tll_xml = prepared.tll_xml;
-    let vtypes_xml = prepared.vtypes_xml;
+    let net_xml = prepared.net_xml().to_owned();
+    let tll_xml = prepared.tll_xml().to_owned();
+    let vtypes_xml = prepared.vtypes_xml().to_owned();
     let network = parse_sumo_network_xml(&net_xml).expect("parse lust.net.xml");
     assert!(network.location.matches_lust_anchors());
     assert_eq!(network.external_edge_count(), 5_779);
@@ -202,16 +202,11 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         emit_infeasibility_report: true,
         ..TopologyConvertOptions::default()
     };
-    // 显式来源声明入口（verified=true 实例只能来自准备函数或 crate 内
-    // pipeline）；通用 XML 入口保持未验证标注（旁路测试覆盖）。
+    // 同源入口（#253 R8 残留缺口）：字节与验证记录内聚不可错配，内部委托
+    // 组合入口且消费时重算绑定仍会执行（双保险）；通用 XML 入口保持未验证
+    // 标注（旁路与 tamper 回归覆盖）。
     let convert = |options: &TopologyConvertOptions| {
-        convert_topology_from_xml_with_tll_and_vtypes_and_source(
-            &net_xml,
-            &tll_xml,
-            &vtypes_xml,
-            options,
-            prepared.report_source.clone(),
-        )
+        convert_topology_from_verified_lust_inputs(&prepared, options)
     };
     let first = convert(&options).expect("first diagnostic-report conversion");
     let second = convert(&options).expect("second diagnostic-report conversion");
@@ -358,6 +353,55 @@ fn generic_xml_entry_stub_weld_blocked_outside_approved_domain() {
     assert_eq!(artifacts.counts.dropped_point_stub_edges, 0);
 }
 
+/// R8 残留缺口回归（真实 pinned）：prepare 后改动 net/tll 字节、沿用旧
+/// verified 记录走组合入口——消费时重算绑定必须 fail-closed（解析/转换
+/// 之前，不降级、不静默继续）。
+#[test]
+#[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3"]
+fn verified_record_with_tampered_bytes_fails_closed() {
+    let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
+    let root = PathBuf::from(source_dir);
+    let prepared = prepare_verified_lust_inputs(&root).expect("prepare");
+    let options = TopologyConvertOptions {
+        require_lust_location_anchors: true,
+        ..TopologyConvertOptions::default()
+    };
+    // net 追加换行：记录摘要与本次消费字节失配（① 记录一致性检查）。
+    let mut net_xml = prepared.net_xml().to_owned();
+    net_xml.push('\n');
+    let error = convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        &net_xml,
+        prepared.tll_xml(),
+        prepared.vtypes_xml(),
+        &options,
+        prepared.report_source().clone(),
+    )
+    .expect_err("stale record with tampered net bytes must fail closed");
+    match error {
+        Error::SourceChangedAfterVerification { relative_path, .. } => {
+            assert_eq!(relative_path, "scenario/lust.net.xml");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    // tll 追加换行（net 与记录均未动）：pinned 条目命中检查拒绝（②）。
+    let mut tll_xml = prepared.tll_xml().to_owned();
+    tll_xml.push('\n');
+    let error = convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        prepared.net_xml(),
+        &tll_xml,
+        prepared.vtypes_xml(),
+        &options,
+        prepared.report_source().clone(),
+    )
+    .expect_err("tampered tll bytes must fail closed");
+    match error {
+        Error::SourceChangedAfterVerification { relative_path, .. } => {
+            assert_eq!(relative_path, "scenario/tll.static.xml");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+}
+
 /// R2 第四轮：正式诊断入口的来源验证前置段——verify_source_dir 先验 checkout
 /// revision + 全部 §2.2 pinned digest；三份诊断输入字节在转换前完成消费时
 /// 绑定；同字节 + 错误 HEAD/无仓库必须拒绝。本段不依赖 G1（R1 门控），与
@@ -376,7 +420,7 @@ fn full_lust_source_verification_precedes_diagnostic_convert() {
     let prepared =
         prepare_verified_lust_inputs(&root).expect("prepare must accept the pinned checkout");
     assert!(
-        prepared.report_source.is_verified(),
+        prepared.report_source().is_verified(),
         "prepared source must be verified"
     );
     let pinned_net = PINNED_SOURCE_FILES
@@ -384,11 +428,11 @@ fn full_lust_source_verification_precedes_diagnostic_convert() {
         .find(|file| file.relative_path == "scenario/lust.net.xml")
         .expect("pinned net entry");
     assert_eq!(
-        prepared.report_source.net_digest(),
+        prepared.report_source().net_digest(),
         Some(format!("sha256:{}", pinned_net.sha256_hex).as_str()),
         "net digest must bind the consumed pinned bytes"
     );
-    assert!(!prepared.net_xml.is_empty() && !prepared.tll_xml.is_empty());
+    assert!(!prepared.net_xml().is_empty() && !prepared.tll_xml().is_empty());
 
     // 2) 同字节 + 错误 HEAD：tmp git 仓摆 pinned 原字节，revision ≠ LUST_COMMIT
     //    在准备函数阶段必拒（早于任何 normalize/转换）。
