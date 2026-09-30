@@ -181,8 +181,6 @@ fn prepare_transaction(world: &mut TrafficWorld) -> laneflow_runtime::CutoverTra
         )
         .expect("prepare")
 }
-
-#[test]
 fn cross_revision_cutover_budget_evidence() {
     // —— 武装期在线准备干扰：武装前后稳态 tick 账本相等（硬断言）——
     let mut unarmed = world_with_fleet();
@@ -267,4 +265,20 @@ fn cross_revision_cutover_budget_evidence() {
     };
     println!("drain+commit ledger: {commit_ledger:?}");
     assert!(armed.migration_journal_stats().is_none());
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    let main_thread = std::thread::current().id();
+    let tests = vec![libtest_mimic::Trial::test(
+        "cross_revision_cutover_budget_evidence",
+        move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            cross_revision_cutover_budget_evidence();
+            Ok(())
+        },
+    )];
+    libtest_mimic::run(&args, tests).exit();
 }

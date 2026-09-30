@@ -179,8 +179,6 @@ fn sample_held_candidate(
     ));
     sample_from_stats(region.change(), candidate.retained_logical_bytes())
 }
-
-#[test]
 fn allocation_ledgers_and_per_world_live_bytes() {
     assert_stable_build(
         "min-headless",
@@ -312,4 +310,20 @@ fn allocation_ledgers_and_per_world_live_bytes() {
         max <= min.saturating_mul(2) + 64,
         "per-world live bytes must stay in a tight band, got {per_world:?}"
     );
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    let main_thread = std::thread::current().id();
+    let tests = vec![libtest_mimic::Trial::test(
+        "allocation_ledgers_and_per_world_live_bytes",
+        move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            allocation_ledgers_and_per_world_live_bytes();
+            Ok(())
+        },
+    )];
+    libtest_mimic::run(&args, tests).exit();
 }

@@ -90,3 +90,31 @@ toml = "1.1.3"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "commit_p7_allocation_evidence"
+harness = false
+
+[[test]]
+name = "conflict_budget_evidence"
+harness = false
+
+[[test]]
+name = "shared_network_allocation_evidence"
+harness = false
+
+[[test]]
+name = "cutover_budget_evidence"
+harness = false
+
+[[test]]
+name = "cutover_cross_budget_evidence"
+harness = false
+
+[[test]]
+name = "parking_sparse_scale_evidence"
+harness = false
+
+[[test]]
+name = "placement_account"
+harness = false
