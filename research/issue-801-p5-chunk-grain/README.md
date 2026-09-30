@@ -11,7 +11,9 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 - [24 次普通测试及逐组比较](evidence/plain.json)
 - [6 次独立块级诊断](evidence/detail.json)
 - [负向校验记录](evidence/negative-checks.json)
-- [实际原生编译覆盖隔离验证](evidence/native-env-isolation.json)
+- [此前 v3 的实际原生编译覆盖隔离验证](evidence/native-env-isolation.json)
+- [v4 受控采集器构建凭据](evidence/collector.json)
+- [性能采集期间的 CPU 协调记录](evidence/cpu-coordination.json)
 
 ## 冻结方案
 
@@ -23,7 +25,8 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
   和 nearest-rank p95；组内、组间再平均，不以 pooled tick p95 替代。
 - **采集前采用条件**：两个规模筛选窗均须三组方向一致、均值改善至少 2%，
   改善超过所有组内同臂两次均值的最大相对跨度，平均进程 p95 回退不超过 2%。
-  任一条件不满足则停止此候选，不接入正式 Runtime，也不强行延长 formal 窗口。
+  任一条件不满足则停止本轮单独采纳，不接入正式 Runtime，也不强行延长 formal 窗口。
+  该门槛仅用于本轮筛选；候选可以保留给有明确机制假设的组合研究，下一轮须预先制定判据。
 - 30 个进程运行前完成全部编译。每个进程前后用 Windows `tasklist` 保存边界
   快照；发现已知 cargo/rustc/测量程序立即停止，并保留已生成的失败目录。
   边界快照不是连续监测，不保证排除短暂或未知系统负载。

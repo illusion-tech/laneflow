@@ -1,0 +1,16 @@
+{
+  "schema": "p5-cpu-coordination-v1",
+  "requested_by": "user in LaneFlow chat",
+  "peer_thread": "01a0e50d-ff12-72c3-b228-5c99729ee6a2",
+  "peer_title": "深入评估 romance 插件",
+  "pause_requested": true,
+  "pause_confirmed": true,
+  "observed_utc": "2026-09-30T13:33:12.8693712Z",
+  "confirmation": "Peer confirmed compilation, packaging, installation, batch tests and local generation ended; DSH web PID 38384 and two resident Node processes sampled 0 percent CPU. Heavy work will remain paused until measurement completion notice.",
+  "scope": "peer reported snapshot plus local process boundary guards; not continuous CPU monitoring",
+  "measurement_complete_utc": "2026-09-30T13:46:06.3195034Z",
+  "successful_runs": 30,
+  "resume_notified": true,
+  "peer_resume_confirmed": true,
+  "peer_resume_confirmation": "Peer confirmed the measurement window closed and local development and validation resumed."
+}

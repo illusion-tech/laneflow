@@ -1,5 +1,5 @@
 {
-  "utc": "2026-09-30T09:36:13.5984495Z",
+  "utc": "2026-09-30T13:39:05.5926025Z",
   "cpu": {
     "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
     "NumberOfCores": 16,
@@ -16,6 +16,6 @@
     "EstimatedChargeRemaining": 98
   },
   "known_contenders": [],
-  "collector_sha256": "20a5ae432b8f14a396343f50d7395b242a206657eb7f874c12d8e5cb78d1640c",
+  "collector_sha256": "dfd5b45151cb761cf6e895fcecc1f3c1c0cec962c56c82cef64f101d9cbf7062",
   "scope": "aggregate snapshot; Rust saves process boundary snapshots, not continuous monitoring"
 }
