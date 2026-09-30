@@ -227,6 +227,17 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
             .rendered,
         "diagnostic report must be byte-deterministic across runs"
     );
+    // 验收证据逐字节比对（evidence/README.md 的锁定方式）：随仓库提交的清单
+    // 必须与 pinned 基线重扫结果一致（归一化换行，防 CRLF checkout 干扰）。
+    let evidence = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md"),
+    )
+    .expect("read committed evidence survey");
+    assert_eq!(
+        report.rendered,
+        evidence.replace("\r\n", "\n"),
+        "committed evidence survey drifted from the pinned baseline rescan"
+    );
     // R2：验收输入即 pinned 基线字节，清单头必须如实标注「一致」+「verify-source
     // 已通过」（摘要取实际转换字节；两种声明互不越权）。
     assert!(

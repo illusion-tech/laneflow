@@ -36,7 +36,8 @@ fn conversion_report_records_payload_digests_not_self() {
         require_lust_population_count: false,
         parking_registry_empty: true,
         major_minor_green_collapsed: true,
-        network_lfca_bytes: lfca.clone(),
+        network_lfca_bytes: Some(lfca.clone()),
+        infeasibility_survey_bytes: None,
         routes_toml_bytes: routes.clone(),
         manifest_bytes: manifest.clone(),
     })
@@ -62,7 +63,8 @@ fn conversion_report_records_payload_digests_not_self() {
         require_lust_population_count: false,
         parking_registry_empty: true,
         major_minor_green_collapsed: true,
-        network_lfca_bytes: lfca,
+        network_lfca_bytes: Some(lfca),
+        infeasibility_survey_bytes: None,
         routes_toml_bytes: routes,
         manifest_bytes: manifest,
     })
@@ -92,8 +94,9 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
         licenses,
         release_urls: ReleaseAssetUrls::default(),
         source_tar: source_tar.clone(),
-        static_tar: static_tar.clone(),
-        network_lfca_bytes: b"LFCA\n".to_vec(),
+        static_tar: Some(static_tar.clone()),
+        network_lfca_bytes: Some(b"LFCA\n".to_vec()),
+        infeasibility_survey_bytes: None,
         routes_toml_bytes: b"format_version = \"0.1\"\n".to_vec(),
         manifest_bytes: b"manifest_version = 1\n".to_vec(),
         conversion_report_bytes: b"{}\n".to_vec(),
@@ -116,12 +119,13 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
             require_lust_population_count: true,
         },
         raw_output_digests: RawOutputDigests {
-            network_lfca: "sha256:a".to_owned(),
+            network_lfca: Some("sha256:a".to_owned()),
             routes_toml: "sha256:b".to_owned(),
             manifest_toml: "sha256:c".to_owned(),
             conversion_report: "sha256:d".to_owned(),
             source_tar: "sha256:f".to_owned(),
-            static_tar: "sha256:0".to_owned(),
+            static_tar: Some("sha256:0".to_owned()),
+            infeasibility_survey: None,
         },
     };
     let build_a = build_build_provenance(&build_input).expect("build");
@@ -149,12 +153,15 @@ fn semantic_digest_tracks_only_semantic_config_subset() {
             contents: licenses.license_md.clone(),
         }])
         .expect("source tar"),
-        static_tar: write_deterministic_ustar(&[TarMember {
-            path: "network.lfca".to_owned(),
-            contents: b"LFCA\n".to_vec(),
-        }])
-        .expect("static tar"),
-        network_lfca_bytes: b"LFCA\n".to_vec(),
+        static_tar: Some(
+            write_deterministic_ustar(&[TarMember {
+                path: "network.lfca".to_owned(),
+                contents: b"LFCA\n".to_vec(),
+            }])
+            .expect("static tar"),
+        ),
+        network_lfca_bytes: Some(b"LFCA\n".to_vec()),
+        infeasibility_survey_bytes: None,
         routes_toml_bytes: b"format_version = \"0.1\"\n".to_vec(),
         manifest_bytes: b"manifest_version = 1\n".to_vec(),
         conversion_report_bytes: b"{}\n".to_vec(),
@@ -185,12 +192,13 @@ fn semantic_digest_tracks_only_semantic_config_subset() {
                 require_lust_population_count: true,
             },
             raw_output_digests: RawOutputDigests {
-                network_lfca: "sha256:a".to_owned(),
+                network_lfca: Some("sha256:a".to_owned()),
                 routes_toml: "sha256:b".to_owned(),
                 manifest_toml: "sha256:c".to_owned(),
                 conversion_report: "sha256:d".to_owned(),
                 source_tar: "sha256:f".to_owned(),
-                static_tar: "sha256:0".to_owned(),
+                static_tar: Some("sha256:0".to_owned()),
+                infeasibility_survey: None,
             },
         })
         .expect("build variant");

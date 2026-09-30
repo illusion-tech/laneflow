@@ -31,7 +31,11 @@ pub struct ConversionReportInput {
     pub require_lust_population_count: bool,
     pub parking_registry_empty: bool,
     pub major_minor_green_collapsed: bool,
-    pub network_lfca_bytes: Vec<u8>,
+    /// 诊断模式无 network.lfca（`None` → digest 字段序列化不出现，由
+    /// infeasibility_survey_bytes 接任交付物认证，#253 N1）。
+    pub network_lfca_bytes: Option<Vec<u8>>,
+    /// 诊断交付物 `issue253-infeasible-survey.md` 字节（fail-fast 路径 None）。
+    pub infeasibility_survey_bytes: Option<Vec<u8>>,
     pub routes_toml_bytes: Vec<u8>,
     pub manifest_bytes: Vec<u8>,
 }
@@ -102,9 +106,13 @@ struct ReportWarnings {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ReportDigests {
-    network_lfca: String,
+    /// 诊断模式无 network.lfca：字段不出现，认证对象替换为诊断清单（#253 N1）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network_lfca: Option<String>,
     routes_toml: String,
     manifest_toml: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    infeasibility_survey: Option<String>,
 }
 
 /// Serialize the conversion report JSON (pretty + trailing newline).
@@ -150,9 +158,16 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
             parking_polygons_not_synthesized: true,
         },
         digests: ReportDigests {
-            network_lfca: sha256_digest(&input.network_lfca_bytes),
+            network_lfca: input
+                .network_lfca_bytes
+                .as_ref()
+                .map(|bytes| sha256_digest(bytes)),
             routes_toml: sha256_digest(&input.routes_toml_bytes),
             manifest_toml: sha256_digest(&input.manifest_bytes),
+            infeasibility_survey: input
+                .infeasibility_survey_bytes
+                .as_ref()
+                .map(|bytes| sha256_digest(bytes)),
         },
     };
     json_bytes("ConversionReport", &report)

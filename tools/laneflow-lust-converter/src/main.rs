@@ -57,12 +57,17 @@ fn run() -> Result<(), String> {
                 "convert ok: wrote static/source bundles under {}",
                 outputs.output_dir.display()
             );
-            println!("  {}", outputs.network_lfca.display());
+            if let Some(network_lfca) = &outputs.network_lfca {
+                println!("  {}", network_lfca.display());
+            }
             println!("  {}", outputs.routes.display());
             println!("  {}", outputs.manifest.display());
             println!("  {}", outputs.conversion_report.display());
+            println!("  {}", outputs.infeasibility_survey.display());
             println!("  {}", outputs.source_tar.display());
-            println!("  {}", outputs.static_tar.display());
+            if let Some(static_tar) = &outputs.static_tar {
+                println!("  {}", static_tar.display());
+            }
             println!("  {}", outputs.semantic_provenance.display());
             println!("  {}", outputs.build_provenance.display());
             Ok(())

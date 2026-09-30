@@ -42,8 +42,13 @@ pub struct SemanticProvenanceInput {
     pub licenses: LicenseArtifacts,
     pub release_urls: ReleaseAssetUrls,
     pub source_tar: Vec<u8>,
-    pub static_tar: Vec<u8>,
-    pub network_lfca_bytes: Vec<u8>,
+    /// 诊断模式（G1 重划）不交付 static bundle：`None` 时 releaseAssets /
+    /// semanticOutputs 的对应字段序列化不出现（#253 N1）。
+    pub static_tar: Option<Vec<u8>>,
+    /// 同上：诊断模式无 network.lfca（编译另立 G1），认证对象为诊断清单。
+    pub network_lfca_bytes: Option<Vec<u8>>,
+    /// 诊断交付物（`issue253-infeasible-survey.md`）；fail-fast 路径为 None。
+    pub infeasibility_survey_bytes: Option<Vec<u8>>,
     pub routes_toml_bytes: Vec<u8>,
     pub manifest_bytes: Vec<u8>,
     pub conversion_report_bytes: Vec<u8>,
@@ -72,12 +77,19 @@ pub struct BuildInvocation {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawOutputDigests {
-    pub network_lfca: String,
+    /// 诊断模式为 None（该字段序列化不出现）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_lfca: Option<String>,
     pub routes_toml: String,
     pub manifest_toml: String,
     pub conversion_report: String,
     pub source_tar: String,
-    pub static_tar: String,
+    /// 诊断模式为 None（不产出 static tar）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_tar: Option<String>,
+    /// 诊断交付物摘要（fail-fast 路径为 None）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub infeasibility_survey: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -120,7 +132,9 @@ struct LicenseDigests {
 #[serde(rename_all = "camelCase")]
 struct ReleaseAssets {
     source_bundle: ReleaseAsset,
-    static_bundle: ReleaseAsset,
+    /// 诊断模式不交付 static bundle：字段不出现（#253 N1）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    static_bundle: Option<ReleaseAsset>,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,10 +151,15 @@ struct ReleaseAsset {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SemanticOutputs {
-    network_lfca: ArtifactDigest,
+    /// 诊断模式无 network.lfca：字段不出现，由 infeasibility_survey 接任
+    /// 交付物认证（#253 N1）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network_lfca: Option<ArtifactDigest>,
     routes_toml: ArtifactDigest,
     manifest_toml: ArtifactDigest,
     conversion_report: ArtifactDigest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    infeasibility_survey: Option<ArtifactDigest>,
 }
 
 #[derive(Debug, Serialize)]
@@ -206,20 +225,29 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
                 input.release_urls.source_bundle_url.clone(),
                 &input.source_tar,
             ),
-            static_bundle: release_asset(
-                "lust-static.tar",
-                input.release_urls.static_bundle_url.clone(),
-                &input.static_tar,
-            ),
+            static_bundle: input.static_tar.as_ref().map(|tar| {
+                release_asset(
+                    "lust-static.tar",
+                    input.release_urls.static_bundle_url.clone(),
+                    tar,
+                )
+            }),
         },
         semantic_outputs: SemanticOutputs {
-            network_lfca: artifact("network.lfca", &input.network_lfca_bytes),
+            network_lfca: input
+                .network_lfca_bytes
+                .as_ref()
+                .map(|bytes| artifact("network.lfca", bytes)),
             routes_toml: artifact("routes.toml", &input.routes_toml_bytes),
             manifest_toml: artifact("manifest.toml", &input.manifest_bytes),
             conversion_report: artifact(
                 "lust-conversion-report.json",
                 &input.conversion_report_bytes,
             ),
+            infeasibility_survey: input
+                .infeasibility_survey_bytes
+                .as_ref()
+                .map(|bytes| artifact("issue253-infeasible-survey.md", bytes)),
         },
     };
     json_bytes("SemanticProvenanceManifest", &manifest)

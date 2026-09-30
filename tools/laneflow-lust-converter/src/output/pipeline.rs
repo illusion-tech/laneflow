@@ -46,13 +46,15 @@ const NOTICE_NAME: &str = "NOTICE";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConvertOutputPaths {
     pub output_dir: PathBuf,
-    pub network_lfca: PathBuf,
+    /// fail-fast 路径产出；诊断模式（G1 重划）不交付 network.lfca，为 None。
+    pub network_lfca: Option<PathBuf>,
     pub routes: PathBuf,
     pub manifest: PathBuf,
     pub conversion_report: PathBuf,
     pub infeasibility_survey: PathBuf,
     pub source_tar: PathBuf,
-    pub static_tar: PathBuf,
+    /// 诊断模式不产出 static tar（static bundle 不交付），为 None。
+    pub static_tar: Option<PathBuf>,
     pub semantic_provenance: PathBuf,
     pub build_provenance: PathBuf,
 }
@@ -112,9 +114,14 @@ fn convert_verified(
         .rendered
         .clone();
 
+    // 输出集合按模式自洽（#253 N1；G1 §3.6「落地前 network.lfca 静态 bundle
+    // 不交付」）：诊断模式交付 survey + routes/manifest/report + source tar +
+    // provenance——不打包零字节 network.lfca、不产出 static tar，manifest /
+    // provenance 认证 survey 而非空 LFCA。fail-fast 默认路径产物逻辑不变。
+    let diagnostic = static_artifacts.topology.infeasibility_report.is_some();
     let network = parse_sumo_network_xml(&net_xml)?;
     let counts = &static_artifacts.topology.counts;
-    let manifest = build_manifest_toml(&static_artifacts)?;
+    let manifest = build_manifest_toml(&static_artifacts, diagnostic)?;
 
     let report = build_conversion_report(&ConversionReportInput {
         external_edge_count: network.external_edge_count() as u64,
@@ -133,7 +140,8 @@ fn convert_verified(
         require_lust_population_count: true,
         parking_registry_empty: counts.parking_registry_empty,
         major_minor_green_collapsed: true,
-        network_lfca_bytes: static_artifacts.topology.network_lfca.clone(),
+        network_lfca_bytes: (!diagnostic).then(|| static_artifacts.topology.network_lfca.clone()),
+        infeasibility_survey_bytes: diagnostic.then(|| survey.clone().into_bytes()),
         routes_toml_bytes: static_artifacts.routes_toml.clone(),
         manifest_bytes: manifest.clone(),
     })?;
@@ -145,36 +153,40 @@ fn convert_verified(
     };
 
     let source_tar = build_source_tar(verified, &licenses)?;
-    let static_tar = write_deterministic_ustar(&[
-        TarMember {
-            path: NETWORK_LFCA_NAME.to_owned(),
-            contents: static_artifacts.topology.network_lfca.clone(),
-        },
-        TarMember {
-            path: ROUTES_NAME.to_owned(),
-            contents: static_artifacts.routes_toml.clone(),
-        },
-        TarMember {
-            path: MANIFEST_NAME.to_owned(),
-            contents: manifest.clone(),
-        },
-        TarMember {
-            path: REPORT_NAME.to_owned(),
-            contents: report.clone(),
-        },
-        TarMember {
-            path: LICENSE_NAME.to_owned(),
-            contents: licenses.license_md.clone(),
-        },
-        TarMember {
-            path: ODBL_NAME.to_owned(),
-            contents: licenses.odbl.clone(),
-        },
-        TarMember {
-            path: NOTICE_NAME.to_owned(),
-            contents: licenses.notice.clone(),
-        },
-    ])?;
+    let static_tar = if diagnostic {
+        None
+    } else {
+        Some(write_deterministic_ustar(&[
+            TarMember {
+                path: NETWORK_LFCA_NAME.to_owned(),
+                contents: static_artifacts.topology.network_lfca.clone(),
+            },
+            TarMember {
+                path: ROUTES_NAME.to_owned(),
+                contents: static_artifacts.routes_toml.clone(),
+            },
+            TarMember {
+                path: MANIFEST_NAME.to_owned(),
+                contents: manifest.clone(),
+            },
+            TarMember {
+                path: REPORT_NAME.to_owned(),
+                contents: report.clone(),
+            },
+            TarMember {
+                path: LICENSE_NAME.to_owned(),
+                contents: licenses.license_md.clone(),
+            },
+            TarMember {
+                path: ODBL_NAME.to_owned(),
+                contents: licenses.odbl.clone(),
+            },
+            TarMember {
+                path: NOTICE_NAME.to_owned(),
+                contents: licenses.notice.clone(),
+            },
+        ])?)
+    };
 
     let release_urls = ReleaseAssetUrls {
         source_bundle_url: config.source_bundle_url.clone(),
@@ -189,7 +201,8 @@ fn convert_verified(
         release_urls,
         source_tar: source_tar.clone(),
         static_tar: static_tar.clone(),
-        network_lfca_bytes: static_artifacts.topology.network_lfca.clone(),
+        network_lfca_bytes: (!diagnostic).then(|| static_artifacts.topology.network_lfca.clone()),
+        infeasibility_survey_bytes: diagnostic.then(|| survey.clone().into_bytes()),
         routes_toml_bytes: static_artifacts.routes_toml.clone(),
         manifest_bytes: manifest.clone(),
         conversion_report_bytes: report.clone(),
@@ -215,12 +228,14 @@ fn convert_verified(
             require_lust_population_count: true,
         },
         raw_output_digests: RawOutputDigests {
-            network_lfca: sha256_digest(&static_artifacts.topology.network_lfca),
+            network_lfca: (!diagnostic)
+                .then(|| sha256_digest(&static_artifacts.topology.network_lfca)),
             routes_toml: sha256_digest(&static_artifacts.routes_toml),
             manifest_toml: sha256_digest(&manifest),
             conversion_report: sha256_digest(&report),
             source_tar: sha256_digest(&source_tar),
-            static_tar: sha256_digest(&static_tar),
+            static_tar: static_tar.as_ref().map(|tar| sha256_digest(tar)),
+            infeasibility_survey: diagnostic.then(|| sha256_digest(survey.as_bytes())),
         },
     })?;
 
@@ -231,24 +246,30 @@ fn convert_verified(
 
     let paths = ConvertOutputPaths {
         output_dir: config.output_dir.clone(),
-        network_lfca: config.output_dir.join(NETWORK_LFCA_NAME),
+        network_lfca: (!diagnostic).then(|| config.output_dir.join(NETWORK_LFCA_NAME)),
         routes: config.output_dir.join(ROUTES_NAME),
         manifest: config.output_dir.join(MANIFEST_NAME),
         conversion_report: config.output_dir.join(REPORT_NAME),
         infeasibility_survey: config.output_dir.join(SURVEY_NAME),
         source_tar: config.output_dir.join(SOURCE_TAR_NAME),
-        static_tar: config.output_dir.join(STATIC_TAR_NAME),
+        static_tar: static_tar
+            .as_ref()
+            .map(|_| config.output_dir.join(STATIC_TAR_NAME)),
         semantic_provenance: config.output_dir.join(SEMANTIC_NAME),
         build_provenance: config.output_dir.join(BUILD_NAME),
     };
 
-    write_file(&paths.network_lfca, &static_artifacts.topology.network_lfca)?;
+    if let Some(network_lfca) = &paths.network_lfca {
+        write_file(network_lfca, &static_artifacts.topology.network_lfca)?;
+    }
     write_file(&paths.routes, &static_artifacts.routes_toml)?;
     write_file(&paths.manifest, &manifest)?;
     write_file(&paths.conversion_report, &report)?;
     write_file(&paths.infeasibility_survey, survey.as_bytes())?;
     write_file(&paths.source_tar, &source_tar)?;
-    write_file(&paths.static_tar, &static_tar)?;
+    if let (Some(path), Some(tar)) = (&paths.static_tar, &static_tar) {
+        write_file(path, tar)?;
+    }
     write_file(&paths.semantic_provenance, &semantic)?;
     write_file(&paths.build_provenance, &build)?;
     write_file(&config.output_dir.join(LICENSE_NAME), &licenses.license_md)?;
@@ -310,7 +331,13 @@ fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
     ))
 }
 
-fn build_manifest_toml(artifacts: &crate::convert::StaticConversionArtifacts) -> Result<Vec<u8>> {
+/// manifest 以 size + SHA-256 配对交付物（#253 N1）：诊断模式配对
+/// `issue253-infeasible-survey.md` / `routes.toml`（不索引不存在的
+/// network.lfca）；fail-fast 路径配对 `network.lfca` / `routes.toml`。
+fn build_manifest_toml(
+    artifacts: &crate::convert::StaticConversionArtifacts,
+    diagnostic: bool,
+) -> Result<Vec<u8>> {
     let counts = &artifacts.topology.counts;
     let mut files = BTreeMap::new();
     let mut insert = |name: &str, bytes: &[u8]| {
@@ -322,7 +349,20 @@ fn build_manifest_toml(artifacts: &crate::convert::StaticConversionArtifacts) ->
             },
         );
     };
-    insert(NETWORK_LFCA_NAME, &artifacts.topology.network_lfca);
+    if diagnostic {
+        insert(
+            SURVEY_NAME,
+            artifacts
+                .topology
+                .infeasibility_report
+                .as_ref()
+                .expect("diagnostic mode delivers the survey")
+                .rendered
+                .as_bytes(),
+        );
+    } else {
+        insert(NETWORK_LFCA_NAME, &artifacts.topology.network_lfca);
+    }
     insert(ROUTES_NAME, &artifacts.routes_toml);
     let manifest = ManifestToml {
         manifest_version: 1,
