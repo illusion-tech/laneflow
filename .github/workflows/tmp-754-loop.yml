@@ -1,0 +1,58 @@
+name: TMP-754-loop
+
+# #754 修复的压力验证：以真实运行口径（nextest 全量 placement 套件）
+# 双分片 ×25 轮循环，任一轮失败即红。合并前撤除。
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stress-loop:
+    name: zero-alloc window stress loop
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust MSRV toolchain
+        shell: bash
+        run: rustup toolchain install 1.98.0 --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: laneflow-msrv-1.98.0-placement-fixtures
+
+      - name: Install cargo-nextest 0.9.145
+        shell: bash
+        env:
+          CARGO_NEXTEST_SHA256: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
+          CARGO_NEXTEST_VERSION: 0.9.145
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cargo-nextest.tar.gz"
+          extract_dir="$RUNNER_TEMP/cargo-nextest-extract"
+          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${CARGO_NEXTEST_VERSION}/cargo-nextest-${CARGO_NEXTEST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            --output "$archive"
+          echo "${CARGO_NEXTEST_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$extract_dir"
+          tar --extract --gzip --file "$archive" --directory "$extract_dir"
+          install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Loop full placement suite 25 times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 25); do
+            echo "=== iter ${i} ==="
+            cargo +1.98.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
+          done
