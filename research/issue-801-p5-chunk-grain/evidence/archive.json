@@ -1,29 +1,33 @@
 {
-  "file": "issue-801-p5-chunks-verified.tar.zst",
-  "bytes": 261961369,
-  "sha256": "3b7845c156b7880b82ebb74bd468633880b5b4380e53f1ee9b31ca6a2e8ee529",
-  "location": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\issue-801-p5-chunks-verified.tar.zst",
-  "manifest_sha256": "b161ba7b74b9a6942ea8eb2fe9ae05420254fa787b2ae2b87748e0d198f5bc47",
-  "verified_files": 19801,
+  "file": "issue-801-p5-chunks-native-final.tar.zst",
+  "bytes": 482129234,
+  "sha256": "9f4d1e521b95f2697ac68edad9a858cf967700a81aa1ee230a0c0f6453960b6b",
+  "location": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\issue-801-p5-chunks-native-final.tar.zst",
+  "manifest_sha256": "dfa49de9cab35575fd8035a2f00ee4f34a77d30950177d05d6c4d11f4173c291",
+  "verified_files": 30603,
   "successful_runs": 30,
-  "rejected_guard_cases": 13,
-  "protocol": "p5-chunk-grain-v2",
+  "rejected_guard_cases": 18,
+  "protocol": "p5-chunk-grain-v3",
   "tool_heads": {
-    "builder": "7d9c9b5d9325bcfbcb797807238db6778cda7972",
-    "capture": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
-    "verifier": "848d437ce25f19e7148f518681707693016f265a"
+    "builder": "4a648dfb673c5e66577c89da3018734739019859",
+    "capture": "4a648dfb673c5e66577c89da3018734739019859",
+    "verifier": "4a648dfb673c5e66577c89da3018734739019859"
   },
   "frozen_input_files_included": true,
   "exported_source_snapshots_included": true,
   "build_source_exe_bindings_verified": 4,
+  "native_toolchains_verified": 4,
+  "native_environment_isolation_proved": true,
+  "build_settings_equal_verified": true,
   "plain_reference_verified": true,
   "previous_bundle": {
-    "file": "previous/issue-801-p5-chunks.tar.zst",
-    "sha256": "dd41d0085b4cfef3255963e89da9b7396a66e21d922127c4e8edd0a6695904ce",
+    "file": "previous/issue-801-p5-chunks-verified.tar.zst",
+    "sha256": "3b7845c156b7880b82ebb74bd468633880b5b4380e53f1ee9b31ca6a2e8ee529",
+    "protocol": "p5-chunk-grain-v2",
     "successful_runs": 30,
-    "rejected_diagnostic_processes": 1
+    "rejected_guard_cases": 13,
+    "contains_v1_original": true
   },
-  "verification": "fresh extraction: all manifest files, four actual source/exe bindings, matching build settings/toolchains and frozen inputs verified; 24 plain runs and 6 diagnostic runs rederived with required plain reference",
-  "published_to_release": false,
-  "build_settings_equal_verified": true
+  "verification": "fresh extraction: all manifest files, four actual source/exe bindings, equal controlled environments and MSVC toolchain records, and frozen inputs verified; 24 plain runs and 6 diagnostic runs rederived with required plain reference",
+  "published_to_release": false
 }

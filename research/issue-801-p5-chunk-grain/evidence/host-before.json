@@ -1,5 +1,5 @@
 {
-  "utc": "2026-09-30T07:41:07.7119782Z",
+  "utc": "2026-09-30T09:36:13.5984495Z",
   "cpu": {
     "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
     "NumberOfCores": 16,
@@ -13,9 +13,9 @@
   "power": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
   "battery": {
     "BatteryStatus": 2,
-    "EstimatedChargeRemaining": 100
+    "EstimatedChargeRemaining": 98
   },
   "known_contenders": [],
-  "collector_sha256": "29722a6bf880cd64015028c7151813924f68d07f817e14b8002160b981c9fab1",
+  "collector_sha256": "20a5ae432b8f14a396343f50d7395b242a206657eb7f874c12d8e5cb78d1640c",
   "scope": "aggregate snapshot; Rust saves process boundary snapshots, not continuous monitoring"
 }

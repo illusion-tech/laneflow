@@ -1,0 +1,26 @@
+{
+  "schema": "p5-native-environment-isolation-v1",
+  "collector_head": "4a648dfb673c5e66577c89da3018734739019859",
+  "controlled_candidate_build_succeeded": true,
+  "injected_parent_overrides": {
+    "CC": "invalid-inherited-compiler.exe",
+    "CC_x86_64_pc_windows_msvc": "invalid-target-compiler.exe",
+    "CFLAGS": "/Od",
+    "HOST_CFLAGS": "/Od",
+    "BLAKE3_CI": "1",
+    "INCLUDE": "invalid-inherited-sdk",
+    "VCTOOLSINSTALLDIR": "invalid-inherited-msvc"
+  },
+  "child_environment_cleared": true,
+  "native_override_names_removed": [
+    "BLAKE3_CI",
+    "CC",
+    "CC_X86_64_PC_WINDOWS_MSVC",
+    "CFLAGS",
+    "HOST_CFLAGS"
+  ],
+  "all_four_build_settings_match": true,
+  "all_four_native_toolchains_match": true,
+  "binary_sha256": "b63bfe5c6e7564935ff29ad802bd10c89512436a3e259795a1d5f1adef720ccf",
+  "scope": "real candidate release build with invalid CC/target-CC and SDK plus CFLAGS overrides in parent; overrides excluded before native resolution/build"
+}
