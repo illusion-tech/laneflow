@@ -378,7 +378,7 @@ mod tests {
     fn identical_drift_in_both_diagnostic_arms_is_rejected_against_plain() {
         let run = json!({"scale":"100k","traffic":{"ticks.jsonl":"t","commands.jsonl":"c","events.jsonl":"e"},
             "initial_counts":[75_000,25_000,0],"final_counts":[70_752,25_200,4_048]});
-        let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0","command":{"environment":{}}});
+        let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0","native_toolchain":crate::chunk_native::fixture(&std::env::temp_dir()),"command":{"environment":{}}});
         let sources = json!({"base":{"build":build},"candidate":{"build":build}});
         let plain = json!({"identity":{"mode":"plain","inputs":{"frozen":"input"},"sources":sources},"runs":vec![run.clone();12]});
         let detail = json!({"identity":{"mode":"detail","inputs":{"frozen":"input"},"sources":sources},"runs":vec![run;6]});

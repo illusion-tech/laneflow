@@ -3093,6 +3093,7 @@ dependencies = [
 name = "laneflow-post-p3-research"
 version = "0.0.0"
 dependencies = [
+ "cc",
  "serde",
  "serde_json",
  "sha2",

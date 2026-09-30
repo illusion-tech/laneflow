@@ -4,6 +4,7 @@ mod cache_research;
 mod chunk_analysis;
 mod chunk_build;
 mod chunk_export;
+mod chunk_native;
 mod environment;
 use cache_research::{CapturePlan, Experiment, io};
 use std::{error::Error, path::Path};
@@ -11,7 +12,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const BASE: &str = "cb562bde948b6f96484581b650422f149f6c5787";
 const EXPERIMENT: Experiment = Experiment {
     baseline: BASE,
-    protocol: "p5-chunk-grain-v2",
+    protocol: "p5-chunk-grain-v3",
     count_p2: false,
 };
 const STAGES: [&str; 12] = [
@@ -48,6 +49,7 @@ fn plan(mode: &str) -> Result<CapturePlan> {
 fn run() -> Result<()> {
     let a: Vec<_> = std::env::args().skip(1).collect();
     match a.first().map(String::as_str) {
+        Some("native-toolchain") if a.len() == 2 => io::write_new(Path::new(&a[1]), &chunk_native::snapshot()?),
         Some("prepare") if a.len() == 4 => chunk_export::export(Path::new(&a[3]), &a[1], &a[2]),
         Some("run") if a.len() == 5 => cache_research::capture_planned_for(&a[1], Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]), EXPERIMENT, plan(&a[1])?),
         Some("analyze" | "verify") if a.len() == 3 || a.len() == 4 => {

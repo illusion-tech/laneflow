@@ -30,7 +30,7 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 ## 工具与诊断定义
 
 实现位于 `research/issue-762-post-p3-hotspots`，入口
-`laneflow-p5-chunk-research`，协议 `p5-chunk-grain-v2`。执行逻辑全部为 Rust。
+`laneflow-p5-chunk-research`，协议 `p5-chunk-grain-v3`。执行逻辑全部为 Rust。
 
 使用 Rust/Cargo 1.98.0、release、locked、offline、`CARGO_INCREMENTAL=0`；
 `prepare` 从每个 `<arm>-<mode>-source` 的 workspace 受控构建
@@ -40,10 +40,17 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 - `prepare <base|candidate> <plain|detail> <root>`：从冻结提交导出；任何替换锚点
   不唯一即拒绝；校验构建前后源码索引相同，受控构建并复制实际产物。
   来源记录绑定源码索引摘要、完整构建命令与环境、工具链版本、EXE 摘要及日志。
+  本协议的受控构建限定 Windows x64 MSVC。构建子进程先清空环境，再传入记录过的
+  系统路径、Rust 编译设置和固定 MSVC 设置；继承的 `CC`、`CFLAGS`、目标/HOST
+  变体、`BLAKE3_*`、`CL`/`LINK` 覆盖及 SDK/VC 选择覆盖均不传入。
+  通过已锁定的 `cc 1.2.66` 解析 `cl.exe`、`lib.exe`、`ml64.exe`、`link.exe`，
+  记录绝对路径、版本信息、文件大小、SHA-256、解析参数及 SDK 路径环境；
+  用 `CC=cl.exe` 与首位 PATH 固定 MSVC 分支，并固定归档器及 Rust 链接器。
+  构建前后重新解析且全部记录必须相同，任一工具漂移即拒绝产物。
 - `run <plain|detail> <root> <frozen-input-root> <new-raw>`：采集器 Git 树须干净；
   保存 UUID、命令、源码/输入/EXE 哈希、退出码、前后 Git 状态和进程快照。
   启动前验证 EXE 与构建记录相符，复制构建日志到原始批次；旧或交换的 EXE 被拒绝。
-  两臂的继承编译设置、受控环境及完整工具链版本必须相同，任一不一致在首个原生进程启动前拒绝。
+  两臂的继承编译设置、受控环境及完整 Rust/MSVC 工具链记录必须相同，任一不一致在首个原生进程启动前拒绝。
 - `analyze <raw> <new-results> [plain-raw]`：验证完整矩阵、构建来源、身份、原生日志哈希和各臂交通结果；
   重派生普通比较及诊断，结果只能写在原始目录外。
 - `verify <raw> <results> [plain-raw]`：重新派生并逐值比较，不覆盖证据。
