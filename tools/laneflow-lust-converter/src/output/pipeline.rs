@@ -239,6 +239,14 @@ fn convert_verified(
         },
     })?;
 
+    if diagnostic {
+        // #253 M2：排除产物不得残留——output_dir 复用时，此前 fail-fast 运行
+        // 留下的 network.lfca / lust-static.tar 不在本次 manifest/provenance
+        // 认证内，残留的陈旧未认证字节可能被当作本次交付；诊断模式显式删除
+        // （不要求空目录，保留增量使用体验；删除失败 fail-closed）。
+        remove_excluded_artifacts(&config.output_dir)?;
+    }
+
     fs::create_dir_all(&config.output_dir).map_err(|source| Error::Io {
         path: config.output_dir.clone(),
         source,
@@ -311,6 +319,21 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn workspace_cargo_lock() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock")
+}
+
+/// 诊断模式下删除本次不交付的排除产物（#253 M2）：output_dir 复用时残留的
+/// network.lfca / lust-static.tar 不被新 manifest/provenance 认证，必须清除，
+/// 避免陈旧未认证字节被当作本次交付。不存在视为成功；其他删除错误 fail-closed。
+fn remove_excluded_artifacts(output_dir: &Path) -> Result<()> {
+    for name in [NETWORK_LFCA_NAME, STATIC_TAR_NAME] {
+        let path = output_dir.join(name);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => return Err(Error::Io { path, source }),
+        }
+    }
+    Ok(())
 }
 
 fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
@@ -389,4 +412,33 @@ fn build_manifest_toml(
         source,
     })?;
     Ok(text.into_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remove_excluded_artifacts;
+
+    #[test]
+    fn remove_excluded_artifacts_clears_stale_static_outputs() {
+        // #253 M2：output_dir 复用时，残留的 network.lfca / lust-static.tar
+        // 必须被清除；不存在视为成功。
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-lust-pipeline-stale-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp");
+        std::fs::write(root.join("network.lfca"), b"stale-lfca").expect("write stale lfca");
+        std::fs::write(root.join("lust-static.tar"), b"stale-tar").expect("write stale tar");
+        std::fs::write(root.join("routes.toml"), b"keep-me").expect("write kept artifact");
+
+        remove_excluded_artifacts(&root).expect("stale artifacts removed");
+
+        assert!(!root.join("network.lfca").exists());
+        assert!(!root.join("lust-static.tar").exists());
+        assert!(root.join("routes.toml").exists(), "交付产物不得误删");
+        // 幂等：再次调用（产物已不存在）必须成功。
+        remove_excluded_artifacts(&root).expect("idempotent removal");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

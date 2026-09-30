@@ -32,7 +32,7 @@ pub fn normalize_junctions(
     network: &SumoNetwork,
     stub_weld_gate: &StubWeldGate,
 ) -> Result<NormalizedTopology> {
-    let lane_by_edge_index = build_lane_index(network);
+    let lane_by_edge_index = build_lane_index(network)?;
     let adjacency = build_lane_adjacency(network, &lane_by_edge_index)?;
     let owners_by_int_lane = build_int_lane_owners(network)?;
 
@@ -651,7 +651,7 @@ fn evaluate_stub_candidate(
     }
     // 共享入口影响重验：所有以 entry 为入口的其他穿越，焊接后首段 join 间隙
     // = |目标 T − 后继首点|，超 compiler join 容差即破坏该穿越。
-    let lane_by_edge_index = build_lane_index(network);
+    let lane_by_edge_index = build_lane_index(network)?;
     let mut record = base;
     let mut broken: Option<String> = None;
     for other in &network.connections {
@@ -722,7 +722,7 @@ fn evaluate_stub_candidate(
 /// 处置——R8 的授权域检查（BlockedOutOfDomain）是 runtime-only，manifest
 /// 逐字节稳定。
 pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRecord>> {
-    let lane_by_edge_index = build_lane_index(network);
+    let lane_by_edge_index = build_lane_index(network)?;
     let mut via_ref_count: HashMap<&str, usize> = HashMap::new();
     let mut internal_from_count: HashMap<String, usize> = HashMap::new();
     for connection in &network.connections {
@@ -1364,12 +1364,21 @@ fn validate_no_cycle(sequence: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn build_lane_index(network: &SumoNetwork) -> HashMap<(String, u32), &SumoLane> {
-    network
-        .lanes
-        .iter()
-        .map(|lane| ((lane.edge_id.clone(), lane.index), lane))
-        .collect()
+/// 按 (edge_id, index) 收集 lane 地址索引（#253 M3：同地址声明不同 lane id
+/// 的歧义拓扑 fail-closed，不得静默保留 XML 序最后一条）。
+fn build_lane_index(network: &SumoNetwork) -> Result<HashMap<(String, u32), &SumoLane>> {
+    let mut index = HashMap::with_capacity(network.lanes.len());
+    for lane in &network.lanes {
+        if let Some(previous) = index.insert((lane.edge_id.clone(), lane.index), lane)
+            && previous.id != lane.id
+        {
+            return Err(Error::SumoModel(format!(
+                "duplicate lane address: edge {:?} lane index {} declared as both {:?} and {:?}",
+                lane.edge_id, lane.index, previous.id, lane.id
+            )));
+        }
+    }
+    Ok(index)
 }
 
 fn resolve_lane<'a>(
@@ -1870,6 +1879,29 @@ mod tests {
         assert!(
             error.to_string().contains("duplicate connection mapping"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn duplicate_lane_address_fails_closed() {
+        // #253 M3：同 (edge, index) 声明两条不同 lane id——connection 按
+        // edge+index 寻址会产生歧义绑定，fail-closed 报错（带两个 lane id）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/><lane id="west_alt" index="0" speed="13.89" length="20.00" shape="6786.88,5727.62 6806.88,5727.62"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=""/>
+  <connection from="west" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("duplicate lane address must fail closed");
+        let message = error.to_string();
+        assert!(message.contains("duplicate lane address"), "{message}");
+        assert!(
+            message.contains("west_0") && message.contains("west_alt"),
+            "{message}"
         );
     }
 

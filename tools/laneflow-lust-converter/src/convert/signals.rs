@@ -72,6 +72,15 @@ pub fn convert_signals(
                     .to_owned(),
             ));
         }
+        // #253 M4：network 内嵌 tlLogic 声明了 controller 却无任何受控
+        // link——不一致的信号源不得静默变成无信号网络，fail-closed 报
+        // controller id。
+        let declared = network.net_tl_logic_ids();
+        if !declared.is_empty() {
+            return Err(Error::SumoModel(format!(
+                "network declares tlLogic controllers {declared:?} but has no controlled tl/linkIndex connections"
+            )));
+        }
         return Ok(empty_signals());
     }
 
@@ -374,6 +383,30 @@ mod tests {
         convert::junction::{StubWeldGate, normalize_junctions},
         sumo::{parse_sumo_network_xml, parse_tll_static_xml},
     };
+
+    #[test]
+    fn declared_controller_without_links_fails_closed() {
+        // #253 M4：network 内嵌 tlLogic 声明了 controller 却无任何受控
+        // connection——不一致的信号源不得静默变成无信号网络。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=""/>
+  <connection from="west" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let error = super::convert_signals(&network, &[], &Default::default())
+            .expect_err("declared controller without links must fail closed");
+        assert!(
+            error.to_string().contains("\"J\""),
+            "error must name the controller: {error}"
+        );
+    }
 
     #[test]
     fn multi_lane_controlled_approach_gets_stop_line_per_lane() {
