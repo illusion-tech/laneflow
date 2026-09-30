@@ -50,6 +50,25 @@ fn recipe(source: &Path, target: &Path) -> Value {
     json!({"program":"cargo","args":args,"working_directory":source,
         "environment":ENV.into_iter().collect::<std::collections::BTreeMap<_,_>>()})
 }
+fn build_environment(key: &str) -> bool {
+    // 离线构建来源只保存编译设置，不采集 registry token 或其它认证环境。
+    !["TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"]
+        .iter()
+        .any(|word| key.contains(word))
+        && (matches!(
+            key,
+            "CARGO_HOME"
+                | "CARGO_TARGET_DIR"
+                | "RUSTUP_HOME"
+                | "RUSTUP_TOOLCHAIN"
+                | "RUSTC"
+                | "RUSTDOC"
+                | "RUST_LOG"
+        ) || key.starts_with("CARGO_BUILD_")
+            || key.starts_with("CARGO_PROFILE_")
+            || (key.starts_with("CARGO_TARGET_")
+                && (key.ends_with("_LINKER") || key.ends_with("_RUSTFLAGS"))))
+}
 pub(crate) fn ensure_outputs(root: &Path, arm: &str, mode: &str) -> Result<()> {
     for suffix in [
         "-source.json",
@@ -92,10 +111,7 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
         .create_new(true)
         .open(root.join(&logs[1]))?;
     let inherited_environment: std::collections::BTreeMap<_, _> = std::env::vars()
-        .filter(|(key, _)| {
-            (key.starts_with("CARGO_") || key.starts_with("RUST"))
-                && !ENV.iter().any(|(k, _)| key == k)
-        })
+        .filter(|(key, _)| build_environment(key) && !ENV.iter().any(|(k, _)| key == k))
         .collect();
     let status = Command::new("cargo")
         .args(ARGS)
@@ -223,6 +239,25 @@ pub(crate) fn verify_raw(raw: &Path, source: &Value, digest: &Value) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn build_provenance_excludes_authentication_environment() {
+        for key in [
+            "CARGO_HOME",
+            "RUST_LOG",
+            "CARGO_PROFILE_RELEASE_LTO",
+            "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER",
+        ] {
+            assert!(build_environment(key), "{key}");
+        }
+        for key in [
+            "CARGO_REGISTRY_TOKEN",
+            "CARGO_REGISTRIES_PRIVATE_TOKEN",
+            "RUST_SECRET",
+            "CARGO_BUILD_AUTH_TOKEN",
+        ] {
+            assert!(!build_environment(key), "{key}");
+        }
+    }
     #[test]
     fn stale_swapped_binary_source_and_recipe_fail_closed() {
         let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
