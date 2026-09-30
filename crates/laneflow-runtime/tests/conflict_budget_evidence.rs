@@ -1,38 +1,49 @@
-#![cfg(feature = "placement-fixtures")]
 //! #569 Conflict 正式固定步进稳态 heap allocation 证据。
 //!
 //! 两条冲突流从真实 LFCA 完成 install -> register -> spawn -> tick；首次仲裁后，
 //! 在一个车辆持有冲突区预约、另一个车辆继续重试的窗口测量固定步进。
 
 #[path = "support/policy.rs"]
+#[cfg(feature = "placement-fixtures")]
 mod test_policy;
 
+#[cfg(feature = "placement-fixtures")]
 use std::alloc::System;
+#[cfg(feature = "placement-fixtures")]
 use std::sync::Arc;
 
+#[cfg(feature = "placement-fixtures")]
 use laneflow_format::{FormatLimits, check_canonical_network_input};
+#[cfg(feature = "placement-fixtures")]
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TickInput, TrafficWorld,
     VehicleSpawnInput, WorldConfig,
 };
+#[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::{ParticipantStreamOrdinal, VehicleProfileOrdinal};
+#[cfg(feature = "placement-fixtures")]
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
+#[cfg(feature = "placement-fixtures")]
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
+#[cfg(feature = "placement-fixtures")]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
+#[cfg(feature = "placement-fixtures")]
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
+#[cfg(feature = "placement-fixtures")]
 const DELTA_MS: u64 = 4;
+#[cfg(feature = "placement-fixtures")]
 const WARM_TICKS: u32 = 8;
+#[cfg(feature = "placement-fixtures")]
 const STEADY_TICKS: u32 = 16;
-
-#[test]
+#[cfg(feature = "placement-fixtures")]
 fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
     let input =
         check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked fixture");
@@ -183,6 +194,7 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
 }
 
 // 与上面的分配窗口串行运行，避免全局 allocator 被并发测试污染。
+#[cfg(feature = "placement-fixtures")]
 fn resource_free_gate_allocation_evidence() {
     let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
     let revision = build_shared_network_revision(
@@ -278,4 +290,24 @@ fn resource_free_gate_allocation_evidence() {
         observed[0] - 2,
         observed[1] - 2
     );
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    #[cfg_attr(not(feature = "placement-fixtures"), allow(unused_variables))]
+    let main_thread = std::thread::current().id();
+    #[cfg(feature = "placement-fixtures")]
+    let tests = vec![libtest_mimic::Trial::test(
+        "conflict_steady_tick_has_zero_heap_allocation_after_warmup",
+        move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            conflict_steady_tick_has_zero_heap_allocation_after_warmup();
+            Ok(())
+        },
+    )];
+    #[cfg(not(feature = "placement-fixtures"))]
+    let tests: Vec<libtest_mimic::Trial> = Vec::new();
+    libtest_mimic::run(&args, tests).exit();
 }

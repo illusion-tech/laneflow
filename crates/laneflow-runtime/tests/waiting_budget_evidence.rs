@@ -47,6 +47,7 @@ fn main() {
     let mut args = libtest_mimic::Arguments::from_args();
     // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
     args.test_threads = Some(1);
+    #[cfg_attr(not(feature = "placement-fixtures"), allow(unused_variables))]
     let main_thread = std::thread::current().id();
     #[cfg(feature = "placement-fixtures")]
     let tests = vec![libtest_mimic::Trial::test(

@@ -248,8 +248,6 @@ fn measure_round() -> (Ledger, Ledger, Ledger) {
     let steady_after = steady_tick_ledger(&mut world);
     (steady_before, cutover, steady_after)
 }
-
-#[test]
 fn cutover_side_budget_baseline() {
     let checked = check_canonical_network_input(CORRIDOR, FormatLimits::HARD).expect("checked");
     let artifact_digest = checked.canonical_artifact_digest();
@@ -297,4 +295,20 @@ fn cutover_side_budget_baseline() {
         round_one.1.live_delta_bytes,
         coexistence_logical_bytes,
     );
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    let main_thread = std::thread::current().id();
+    let tests = vec![libtest_mimic::Trial::test(
+        "cutover_side_budget_baseline",
+        move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            cutover_side_budget_baseline();
+            Ok(())
+        },
+    )];
+    libtest_mimic::run(&args, tests).exit();
 }
