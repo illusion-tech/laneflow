@@ -7,11 +7,15 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 ## 当前范围（切片 A）
 
 - `verify-source`：按 §2.2 对固定 commit / 文件做 size + SHA-256 fail-closed 校验。
-- `convert`：校验 source 后生成：
-  - Traffic v0.8 / Spatial v0.1 / ScenarioManifest v0.1
-  - DUE lane-level routes + 共享 10k `lust-population.json`（harness 输入，不进 Manifest）
-  - `lust-conversion-report.json`
-  - deterministic `lust-source.tar` / `lust-static.tar`
+- `convert`：校验 source 后生成（G1 验收重划口径，诊断模式输出集合）：
+  - `issue253-infeasible-survey.md`：确定性 fail-closed 诊断清单（全网不可行
+    普查，当前交付物；同基线与
+    `evidence/lust-infeasible-survey.md` 逐字节一致）
+  - `routes.toml`：DUE 展开 route catalog + 精确一万 population record
+  - `manifest.toml` / `lust-conversion-report.json`
+  - deterministic `lust-source.tar`（static bundle 与 `network.lfca` 依赖
+    「路口级 maneuver 几何合成」新设计，落地前不交付，诊断模式不产出
+    `lust-static.tar`）
   - `lust-semantic-provenance.json` / `lust-build-provenance.json`
   - `LICENSE.md`（upstream）、`ODbL-1.0.txt`、`NOTICE`
 - **不**交付 TOPO/DEMAND plan（#254 / #255）。

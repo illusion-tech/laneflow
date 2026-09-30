@@ -132,14 +132,15 @@ compiler 验收**；`:-1000_7_0` 平滑为 159°/165°/175° 三折线。
 普查结论（逐点修源路线证伪）：对 pinned 基线原样的全网不可行点普查
 （converter 诊断清单模式，已正式化为
 `TopologyConvertOptions::emit_infeasibility_report`）显示不可行点不是
-少数紧路口——R1（internal connection 链续接）落地后重锁：内车道不可行
-8,236 条、覆盖 1,854 个 junction（XML 有内车道的 junction 共 1,942 个，
-覆盖率 95.4%），另有 off-ramp 节点簇内车道，以及 authored 边 748 条。
-以 52% 的
-内车道失败率计，修通全网等价于重画全部路口内车道并扩容相当比例的
-口袋，工程上不可行；逐点修复路线就此终结，出路只剩治理层选项
-（发射架构/预算口径调整、真实路网验收标准重议、或大规模源数据
-重授权）。全量清单见 #253 工作记录 `target/issue253-infeasible-survey.md`。
+少数紧路口——G1 修订（0.5 m stub 焊接例外，rule
+`stub-weld/g1-six-cond@2`）落地后重锁：内车道不可行 7,533 条、覆盖
+1,854 个 junction（XML 有内车道的 junction 共 1,942 个，覆盖率 95.4%），
+另有 off-ramp 节点簇内车道，以及 authored 边 697 条。以 47.2% 的内车道
+失败率计，修通全网等价于重画全部路口内车道并扩容相当比例的口袋，工程上
+不可行；逐点修复路线就此终结，出路只剩治理层选项（发射架构/预算口径
+调整、真实路网验收标准重议、或大规模源数据重授权）。全量清单为随仓库
+提交的 `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`
+（`target/` 不进库）。
 
 已复核的 source health anchors 为：
 
@@ -291,7 +292,8 @@ artifact digest，必须使用新 workload ID。
 > 完整编译产出 `network.lfca` 与 Release assets 依赖未来的「路口级 maneuver
 > 几何合成」新设计（另立 G1），落地前 `network.lfca` 静态 bundle 不交付。本节
 > 描述的产物轴与验收语义对该未来状态仍然有效。诊断清单的语义与锁定数字见
-> §2.2.1 与 #253 工作记录 `target/issue253-infeasible-survey.md`。
+> §2.2.1 与随仓库提交的
+> `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`。
 
 converter 分别生成（G1 修订，2026-09-27：产物轴从旧 JSON 三件套 retarget 至
 compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON schema 与 Core 装载
