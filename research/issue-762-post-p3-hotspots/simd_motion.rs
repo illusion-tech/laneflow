@@ -21,6 +21,8 @@ struct PreparedActiveMotion<'a> {
 }
 
 #[derive(Clone, Copy)]
+// #805：固定四车栈暂存；盒装会引入逐批堆分配，大小在内核证据中单列。
+#[allow(clippy::large_enum_variant)]
 enum PreparedMotionState<'a> {
     Reused(VehicleState),
     Compute(PreparedActiveMotion<'a>),
