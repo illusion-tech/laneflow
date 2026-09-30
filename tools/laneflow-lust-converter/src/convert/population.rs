@@ -106,6 +106,11 @@ pub fn select_population(
         )));
     }
 
+    // #253 K3(a) 契约澄清：失败契约（unknown route / dangling edge）针对
+    // **入选**的 10,000 候选——截断先行，route/dangling-edge 验证在选取
+    // 集合上进行（build_routes_and_bind_population）。截断尾部不参与验证：
+    // pinned 实测尾部 592 个候选中 558 个无完整车道级路径，截断实质承担
+    // 过滤职能，非质量判定（§4 注记）。
     let selected_len = candidates.len().min(POPULATION_SELECTED_COUNT);
     let mut records = Vec::with_capacity(selected_len);
     for (rank, vehicle) in candidates.into_iter().take(selected_len).enumerate() {

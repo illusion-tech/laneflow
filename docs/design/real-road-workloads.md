@@ -247,7 +247,11 @@ v1 只接受已复核的 201 个 static controllers：
   让行差异不能由 current LaneFlow static indication 表达，必须在转换报告中记录；
 - group 由“全部 phases 中状态向量相同的受控 connection 等价类”确定，成员
   connection 的字典序决定稳定 group ID；
-- 同一 from edge 只生成一个 edge-end StopLine，相关 gates 共用该 StopLine；
+- 每个受控 (from_edge, from_lane) 各生成一条 edge-end StopLine（`edge_id =
+  sumo:{from_edge}_{from_lane}`），该车道的 gates 绑本车道线——compiler 的
+  `ManeuverGateStopLineMismatch` 校验是 LaneEdge 粒度（gate 的 StopLine 必须
+  位于 `pathEdges[transitionIndex]` 同一边），from-edge 级共享会让多车道
+  进口道的车道 ≥1 gate 绑错线（#253 C4 修正，pinned 536 个多车道受控进口道）；
 - 每个受控 lane-level connection 必须解析到唯一 `ManeuverPath`，并生成
   `ManeuverGate(maneuverPathId, transitionIndex=0)`；Gate crossing 是
   `entryEdge -> first internalEdge`，无 internal edge 时才是
@@ -258,6 +262,10 @@ v1 只接受已复核的 201 个 static controllers：
 
 不得固化 actuated program，也不存在“缺失 controller 时降级为 unsignalized”的
 路径。任一 controller 缺失、损坏、需要丢 phase 或需要降级时，转换立即失败。
+**例外（#253 K4a 契约修订）**：「声明臂无受控 link」——相位状态向量中无任何
+connection 认领的位置——不判失败，作为 source-health 事实记入 conversion
+report（明列 controller id 与缺失 index；pinned 实例：controller `-13968`
+缺 index 9，相位状态串长 14）。受控 link 的 index 仍必须在相位向量范围内。
 
 ### 3.4 Vehicle Profile
 
@@ -310,6 +318,7 @@ compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON sche
   alignment → corridor → section → lane 链派生；
 - `routes.toml`：DUE 展开后的 route catalog 与精确一万 population record（含
   selection config），替代旧 Traffic package 内嵌 routes 与独立 population JSON；
+  **实现中**（§3.1 边内换道语义修订前不产出，见 §4 实现状态注记）；
 - `manifest.toml`：以 size 和 SHA-256 配对 `network.lfca` / `routes.toml`，并记录
   normalization object counts 与 fixed step（16 ms）；
 - conversion report，记录 source health、normalization object counts、
@@ -350,6 +359,18 @@ asset，否则会形成 self-digest cycle。build provenance record 同样位于
 
 source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯一 vehicle ID 的
 排序。不得扩窗、换 seed、跳过无法转换的已选 record 或用第 10,001 个候选补位。
+
+> **#253 K3(a) 注记**：上述失败契约（空 ID / 重复 ID / 未知 vtype / unknown
+> route / dangling edge）针对**入选的** 10,000 候选——截断先行，route /
+> dangling-edge 验证在选取集合上进行。截断尾部候选不参与验证：pinned 实测
+> 尾部 592 个候选中 558 个不可车道级展开（语义见下），截断实质承担过滤职能，
+> 非质量判定。
+>
+> **实现状态（边内换道，另立 issue 跟踪）**：当前 pinned 基线上 routes 阶段
+> 整体受阻——§3.1 车道级展开（`can_complete`）禁止边内换道，而 SUMO DUE
+> route 为道路级、真实走法依赖边内换道，入选 10,000 中 9,350 条不可展开
+> （含 rank 0，实测 100/100 分块污染）。这是**实现语义缺口而非契约否定**：
+> §4 契约语义不变；修复落地前 CLI 不产出 `routes.toml`。
 
 完整一万 record table、selection config 和各自 digest 是 TOPO/DEMAND 的共享输入。
 
