@@ -30,19 +30,25 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 ## 工具与诊断定义
 
 实现位于 `research/issue-762-post-p3-hotspots`，入口
-`laneflow-p5-chunk-research`，协议 `p5-chunk-grain-v1`。执行逻辑全部为 Rust。
+`laneflow-p5-chunk-research`，协议 `p5-chunk-grain-v2`。执行逻辑全部为 Rust。
 
 使用 Rust/Cargo 1.98.0、release、locked、offline、`CARGO_INCREMENTAL=0`；
-每个 `<arm>-<mode>-source` 从其 workspace 构建 `laneflow-urban-harness`，
-target 必须放在该源树之外，EXE 保存为 `<root>/<arm>-<mode>.exe`。
+`prepare` 从每个 `<arm>-<mode>-source` 的 workspace 受控构建
+`laneflow-urban-harness`，使用全新且位于源树外的 target，EXE 保存为
+`<root>/<arm>-<mode>.exe`。已有 EXE、source、target 或构建日志均拒绝复用。
 
 - `prepare <base|candidate> <plain|detail> <root>`：从冻结提交导出；任何替换锚点
-  不唯一即拒绝；保存修改后源文件索引。
+  不唯一即拒绝；校验构建前后源码索引相同，受控构建并复制实际产物。
+  来源记录绑定源码索引摘要、完整构建命令与环境、工具链版本、EXE 摘要及日志。
 - `run <plain|detail> <root> <frozen-input-root> <new-raw>`：采集器 Git 树须干净；
   保存 UUID、命令、源码/输入/EXE 哈希、退出码、前后 Git 状态和进程快照。
-- `analyze <raw> <new-results>`：验证完整矩阵、身份、原生日志哈希和各臂交通结果；
+  启动前验证 EXE 与构建记录相符，复制构建日志到原始批次；旧或交换的 EXE 被拒绝。
+- `analyze <raw> <new-results> [plain-raw]`：验证完整矩阵、构建来源、身份、原生日志哈希和各臂交通结果；
   重派生普通比较及诊断，结果只能写在原始目录外。
-- `verify <raw> <results>`：重新派生并逐值比较，不覆盖证据。
+- `verify <raw> <results> [plain-raw]`：重新派生并逐值比较，不覆盖证据。
+- 诊断的 `analyze` 和 `verify` 必须传入 plain 原始批次；先完整重派生 plain，
+  再比较冻结输入、100k 全部 12 次普通与 6 次诊断的交通文件摘要、初始及末尾计数。
+  结果记录引用批次的身份与文件索引摘要；两臂诊断同时偏移也会被拒绝。
 
 诊断只在每块首尾取时钟并记计算线程序号，完整 join 后读取。workers=4 时
 Rayon 辅助线程使用 0–2，参与取块的调用线程使用 3。日志输出在
@@ -52,5 +58,5 @@ Rayon 辅助线程使用 0–2，参与取块的调用线程使用 3。日志输
 `after_last_end` 是最后块结束到分发返回的间隔。区间重叠不证明 CPU 同时执行。
 
 校验器拒绝非整数、错误拍序、缺失/未完成块、分区空洞、越界计时、同一 worker
-的区间重叠、阶段时钟嵌套错误、争用快照和跨臂交通结果变化。
+的区间重叠、阶段时钟嵌套错误、争用快照、构建来源错误、跨臂或跨模式交通结果变化。
 正式性能认证、长期交通质量和资源内存基线不在本切片范围内。
