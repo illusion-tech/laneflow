@@ -1,6 +1,6 @@
 {
   "schema": "p5-chunk-guard-negative-v1",
-  "collector_head": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
+  "collector_head": "75385f9df608b63bb2397e8608c25f1c18fe3bfc",
   "cases": [
     {
       "name": "prepare-existing-old-exe",
@@ -9,7 +9,7 @@
         "prepare",
         "base",
         "plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\existing-old-exe"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\existing-old-exe"
       ],
       "exit_code": 1,
       "expected": "output already exists",
@@ -22,9 +22,9 @@
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "run",
         "plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\swapped-build",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\swapped-build",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-inputs\\issue-707\\4de40e04",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\swapped-raw"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\swapped-raw"
       ],
       "exit_code": 1,
       "expected": "build attestation/source/binary mismatch",
@@ -37,7 +37,7 @@
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "analyze",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\missing-reference-results.json"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\missing-reference-results.json"
       ],
       "exit_code": 1,
       "expected": "detail requires plain raw evidence",
@@ -49,8 +49,8 @@
       "command": [
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-traffic",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\traffic-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-traffic",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\traffic-results.json",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
       ],
       "exit_code": 1,
@@ -63,7 +63,7 @@
       "command": [
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-traffic",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-traffic",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
       ],
@@ -77,8 +77,8 @@
       "command": [
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-final-counts",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\final-counts-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-final-counts",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\final-counts-results.json",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
       ],
       "exit_code": 1,
@@ -91,7 +91,7 @@
       "command": [
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\both-arms-final-counts",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-final-counts",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
       ],
@@ -106,14 +106,83 @@
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
         "verify",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative\\bad-published.json"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\bad-published.json"
       ],
       "exit_code": 1,
       "expected": "published mismatch",
       "actual": "published mismatch",
       "log": "published-value-change.log"
+    },
+    {
+      "name": "run-different-build-environment",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "run",
+        "plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-build-environment",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-inputs\\issue-707\\4de40e04",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-raw"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "run-different-build-environment.log"
+    },
+    {
+      "name": "analyze-different-environment-plain",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\plain-env-results.json"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "analyze-different-environment-plain.log"
+    },
+    {
+      "name": "verify-different-environment-plain",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain-results.json"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "verify-different-environment-plain.log"
+    },
+    {
+      "name": "analyze-different-environment-detail",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\detail-env-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "analyze-different-environment-detail.log"
+    },
+    {
+      "name": "verify-different-environment-detail",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "verify-different-environment-detail.log"
     }
   ],
   "all_rejected": true,
-  "mutations": "complete cloned diagnostic batches; identical event addition or final Active/Completed transfer in all six runs; native event digest refreshed; no timing or identity changes"
+  "mutations": "complete cloned batches; identical diagnostic event addition or final Active/Completed transfer; native event digest refreshed; separate build-setting changes in one plain arm or both detail arms; timing records unchanged"
 }
