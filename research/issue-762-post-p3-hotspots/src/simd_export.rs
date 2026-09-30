@@ -107,6 +107,11 @@ pub(crate) fn patch_tick(text: &mut String, arm: &str) -> Result<()> {
         .ok_or("IIDM scalar boundary")?
         + begin;
     text.replace_range(begin..end, "");
+    replace(
+        text,
+        "    use std::sync::atomic::{AtomicUsize, Ordering};",
+        "    use std::sync::atomic::AtomicUsize;",
+    )?;
 
     let begin = text
         .find("    fn vehicle_motion_outcome(")
@@ -181,6 +186,14 @@ pub(crate) fn export(root: &Path, arm: &str) -> Result<()> {
             "[dependencies]\nwide = \"=1.5.0\"\n",
         )?;
         fs::write(manifest, text)?;
+        let research_manifest = source.join("research/issue-762-post-p3-hotspots/Cargo.toml");
+        let mut text = fs::read_to_string(&research_manifest)?.replace("\r\n", "\n");
+        replace(
+            &mut text,
+            "[dependencies]\n",
+            "[dependencies]\nwide = \"=1.5.0\"\n",
+        )?;
+        fs::write(research_manifest, text)?;
         // 两臂共用同一锁文件，导出树独立添加研究 SIMD 依赖。
         fs::copy(repo.join("Cargo.lock"), source.join("Cargo.lock"))?;
         let mut lock = fs::read_to_string(source.join("Cargo.lock"))?.replace("\r\n", "\n");
