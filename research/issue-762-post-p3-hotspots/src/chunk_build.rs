@@ -1,4 +1,4 @@
-use crate::{EXPERIMENT, Result, chunk_native, io, need};
+use crate::{EXPERIMENT, Result, chunk_collector, chunk_config, chunk_native, io, need};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -19,7 +19,7 @@ const ARGS: [&str; 10] = [
     "laneflow-urban-harness",
     "--target-dir",
 ];
-const ENV: [(&str, &str); 5] = [
+pub(crate) const ENV: [(&str, &str); 5] = [
     ("CARGO_INCREMENTAL", "0"),
     ("RUSTFLAGS", ""),
     ("CARGO_ENCODED_RUSTFLAGS", ""),
@@ -41,7 +41,7 @@ pub(crate) fn value_sha(value: &Value) -> Result<String> {
         .map(|b| format!("{b:02x}"))
         .collect())
 }
-fn controlled_environment(
+pub(crate) fn controlled_environment(
     inherited: &Value,
     native: &Value,
 ) -> Result<std::collections::BTreeMap<String, String>> {
@@ -85,6 +85,25 @@ fn build_environment(key: &str) -> bool {
             || (key.starts_with("CARGO_TARGET_")
                 && (key.ends_with("_LINKER") || key.ends_with("_RUSTFLAGS"))))
 }
+pub(crate) fn inherited_environment() -> Value {
+    let environment: std::collections::BTreeMap<_, _> = std::env::vars()
+        .map(|(key, value)| {
+            (
+                if cfg!(windows) {
+                    key.to_ascii_uppercase()
+                } else {
+                    key
+                },
+                value,
+            )
+        })
+        .filter(|(key, _)| {
+            (build_environment(key) || chunk_native::infrastructure(key))
+                && !ENV.iter().any(|(k, _)| key == k)
+        })
+        .collect();
+    json!(environment)
+}
 pub(crate) fn ensure_outputs(root: &Path, arm: &str, mode: &str) -> Result<()> {
     for suffix in [
         "-source.json",
@@ -102,6 +121,7 @@ pub(crate) fn ensure_outputs(root: &Path, arm: &str, mode: &str) -> Result<()> {
     Ok(())
 }
 pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> {
+    let collector = chunk_collector::verify_running()?;
     let root = root.canonicalize()?;
     let source = source.canonicalize()?;
     let stem = name(index)?;
@@ -127,30 +147,19 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
         .write(true)
         .create_new(true)
         .open(root.join(&logs[1]))?;
-    let inherited_environment: std::collections::BTreeMap<_, _> = std::env::vars()
-        .map(|(key, value)| {
-            (
-                if cfg!(windows) {
-                    key.to_ascii_uppercase()
-                } else {
-                    key
-                },
-                value,
-            )
-        })
-        .filter(|(key, _)| {
-            (build_environment(key) || chunk_native::infrastructure(key))
-                && !ENV.iter().any(|(k, _)| key == k)
-        })
-        .collect();
+    let inherited = inherited_environment();
+    let mut probe_environment: std::collections::BTreeMap<String, String> =
+        serde_json::from_value(inherited.clone())?;
     let cleared_native_overrides: Vec<_> = std::env::vars_os()
         .map(|(key, _)| key.to_string_lossy().to_ascii_uppercase())
         .filter(|key| chunk_native::native_override(key))
         .collect();
-    let mut probe_environment = inherited_environment.clone();
     probe_environment.extend(ENV.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())));
     let native = chunk_native::probe(&root, &stem, ".native.json", &probe_environment)?;
-    let inherited = json!(inherited_environment);
+    let configuration = chunk_config::snapshot(
+        &source,
+        &json!(controlled_environment(&inherited, &native)?),
+    )?;
     let command = recipe(&source, &target, &inherited, &native)?;
     let status = Command::new("cargo")
         .args(ARGS)
@@ -169,6 +178,14 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
     need(
         native == native_after,
         "native toolchain drift during build",
+    )?;
+    need(
+        configuration
+            == chunk_config::snapshot(
+                &source,
+                &json!(controlled_environment(&inherited, &native)?),
+            )?,
+        "Cargo configuration drift during build",
     )?;
     need(
         io::source_index(&source)? == index["source_files"],
@@ -191,7 +208,6 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
     if pdb.try_exists()? {
         fs::copy(pdb, binary.with_extension("pdb"))?;
     }
-    let repo = std::env::current_dir()?;
     let log_records: Vec<_> = logs
         .iter()
         .map(|file| -> Result<Value> {
@@ -199,11 +215,11 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
         })
         .collect::<Result<_>>()?;
     Ok(
-        json!({"schema":"p5-chunk-controlled-build-v2","protocol":EXPERIMENT.protocol,
+        json!({"schema":"p5-chunk-controlled-build-v3","protocol":EXPERIMENT.protocol,
         "exit_code":status.code(),
         "source_files_sha256":value_sha(&index["source_files"])?,"command":command,
         "inherited_environment":inherited,"native_toolchain":native,"cleared_native_overrides":cleared_native_overrides,"rustc":rustc,"cargo":cargo,
-        "collector_head":io::git(&repo,&["rev-parse","HEAD"])?,
+        "collector":collector,"cargo_configuration":configuration,
         "binary_sha256":digest,"binary_bytes":fs::metadata(&binary)?.len(),"logs":log_records}),
     )
 }
@@ -227,8 +243,14 @@ fn verify_record(source: &Value, digest: &Value) -> Result<()> {
         .ok_or("build parent")?
         .join(format!("{stem}-target"));
     chunk_native::validate(&b["native_toolchain"])?;
+    chunk_config::validate(
+        &b["cargo_configuration"],
+        &cwd,
+        &b["command"]["environment"],
+    )?;
+    chunk_collector::validate(&b["collector"])?;
     need(
-        b["schema"] == "p5-chunk-controlled-build-v2"
+        b["schema"] == "p5-chunk-controlled-build-v3"
             && b["exit_code"] == 0
             && b["protocol"] == EXPERIMENT.protocol
             && b["command"]
@@ -265,6 +287,10 @@ fn verify_record(source: &Value, digest: &Value) -> Result<()> {
     )
 }
 pub(crate) fn bind_capture(root: &Path, raw: &Path, source: &Value, binary: &Path) -> Result<()> {
+    need(
+        source["build"]["collector"] == chunk_collector::verify_running()?,
+        "running collector differs from build collector",
+    )?;
     verify_record(source, &json!(io::sha(binary)?))?;
     need(
         source["build"]["binary_bytes"] == fs::metadata(binary)?.len(),
@@ -301,6 +327,7 @@ pub(crate) fn compatible(a: &Value, b: &Value) -> Result<()> {
         "rustc",
         "cargo",
         "native_toolchain",
+        "collector",
     ] {
         need(
             !a[field].is_null() && a[field] == b[field],
@@ -326,6 +353,7 @@ mod tests {
     #[test]
     fn inherited_optimization_flags_and_toolchains_must_match() {
         let build = json!({"inherited_environment":{},"rustc":"rustc 1.98.0 host","cargo":"cargo 1.98.0",
+            "collector":chunk_collector::fixture(&std::env::temp_dir()),
             "native_toolchain":chunk_native::fixture(&std::env::temp_dir()),
             "command":{"environment":{"CARGO_INCREMENTAL":"0"}}});
         let good = json!({"sources":{"base":{"build":build},"candidate":{"build":build}}});
@@ -339,7 +367,7 @@ mod tests {
             bad["sources"]["candidate"]["build"]["inherited_environment"][key] = json!("different");
             assert!(validate_pair(&bad).is_err(), "{key}");
         }
-        for field in ["rustc", "cargo", "native_toolchain"] {
+        for field in ["rustc", "cargo", "native_toolchain", "collector"] {
             let mut bad = good.clone();
             bad["sources"]["candidate"]["build"][field] = json!("other toolchain");
             assert!(validate_pair(&bad).is_err(), "{field}");
@@ -374,11 +402,14 @@ mod tests {
         let mut source =
             json!({"arm":"base","mode":"plain","source_files":{"Cargo.lock":"frozen"}});
         let native = chunk_native::fixture(&root);
-        source["build"] = json!({"schema":"p5-chunk-controlled-build-v2","protocol":EXPERIMENT.protocol,
+        let environment = json!({"CARGO_HOME":root.join("cargo-home")});
+        source["build"] = json!({"schema":"p5-chunk-controlled-build-v3","protocol":EXPERIMENT.protocol,
             "exit_code":0,
-            "inherited_environment":{},
+            "inherited_environment":environment,
             "native_toolchain":native,
-            "command":recipe(&root.join("base-plain-source"),&root.join("base-plain-target"),&json!({}),&native).unwrap(),
+            "collector":chunk_collector::fixture(&root),
+            "cargo_configuration":chunk_config::fixture(&root.join("base-plain-source"),&environment),
+            "command":recipe(&root.join("base-plain-source"),&root.join("base-plain-target"),&environment,&native).unwrap(),
             "source_files_sha256":value_sha(&source["source_files"]).unwrap(),"binary_sha256":io::sha(&binary).unwrap(),
             "binary_bytes":23,"rustc":"rustc 1.98.0 (fixture)","cargo":"cargo 1.98.0 (fixture)",
             "logs":[{"path":"base-plain.build.stdout"},{"path":"base-plain.build.stderr"}]});
