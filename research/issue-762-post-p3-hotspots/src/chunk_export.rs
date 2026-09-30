@@ -74,7 +74,7 @@ fn instrument(root: &Path) -> Result<()> {
         root,
         TICK,
         "    let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,",
-        "    let timing_records = (0..chunk_count).map(|_| super::performance_profile::ChunkTiming::default()).collect::<Vec<_>>();\n    let timing_origin = std::time::Instant::now();\n    let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,",
+        "    let timing_records = (0..chunk_count).map(|_| super::performance_profile::ChunkTiming::default()).collect::<Vec<_>>();\n    let timing_caller = execution.dispatch_threads() - 1;\n    let timing_origin = std::time::Instant::now();\n    let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,",
     )?;
     patch(
         root,
@@ -86,7 +86,7 @@ fn instrument(root: &Path) -> Result<()> {
         root,
         TICK,
         "        #[cfg(test)]\n        if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {\n            records[start / chunk_size].store_deltas(baseline);\n        }",
-        "        timing_records[start / chunk_size].store(start, chunk.len(), timing_start, timing_origin.elapsed().as_nanos() as u64, rayon_core::current_thread_index().expect(\"P5 pool worker\"));\n        #[cfg(test)]\n        if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {\n            records[start / chunk_size].store_deltas(baseline);\n        }",
+        "        timing_records[start / chunk_size].store(start, chunk.len(), timing_start, timing_origin.elapsed().as_nanos() as u64, rayon_core::current_thread_index().unwrap_or(timing_caller));\n        #[cfg(test)]\n        if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {\n            records[start / chunk_size].store_deltas(baseline);\n        }",
     )?;
     patch(
         root,
