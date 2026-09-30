@@ -51,6 +51,8 @@ fn recipe(source: &Path, target: &Path) -> Value {
         "environment":ENV.into_iter().collect::<std::collections::BTreeMap<_,_>>()})
 }
 fn build_environment(key: &str) -> bool {
+    let normalized = key.to_ascii_uppercase();
+    let key = normalized.as_str();
     // 离线构建来源只保存编译设置，不采集 registry token 或其它认证环境。
     !["TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"]
         .iter()
@@ -111,6 +113,16 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
         .create_new(true)
         .open(root.join(&logs[1]))?;
     let inherited_environment: std::collections::BTreeMap<_, _> = std::env::vars()
+        .map(|(key, value)| {
+            (
+                if cfg!(windows) {
+                    key.to_ascii_uppercase()
+                } else {
+                    key
+                },
+                value,
+            )
+        })
         .filter(|(key, _)| build_environment(key) && !ENV.iter().any(|(k, _)| key == k))
         .collect();
     let status = Command::new("cargo")
@@ -287,6 +299,7 @@ mod tests {
     fn build_provenance_excludes_authentication_environment() {
         for key in [
             "CARGO_HOME",
+            "cargo_profile_release_lto",
             "RUST_LOG",
             "CARGO_PROFILE_RELEASE_LTO",
             "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER",
