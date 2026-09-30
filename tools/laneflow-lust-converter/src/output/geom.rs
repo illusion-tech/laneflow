@@ -59,14 +59,24 @@ impl InfeasibilityMechanism {
     }
 }
 
-/// 发射预算裁决（#253 G1 六条件之重新验收）：诊断清单如实区分「采样候选
-/// 耗尽」与「已证预算冲突」（R6 的错误文案拆分），非预算类失败标 NotBudget。
+/// 发射预算裁决（#253 G1 六条件之重新验收；R9 审计拆分）：
+/// - `SamplerExhausted`：等 t 与等切向角划分均失败（R6 回溯轮取尽）。
+/// - `PreCheckRejected`：质量目标预检拒绝——`sample_cubic` 两处
+///   "curvature is infeasible" 文案均由 0.105 m **采样质量目标**（非硬下限
+///   0.1 m）驱动的候选搜索前预检产生，不构成硬预算无解证明（复审数值反例：
+///   预检拒绝的曲线两段划分后满足全部硬预算，见
+///   `quality_floor_precheck_is_not_proven_conflict` 回归）。
+/// - `ProvenBudgetConflict`：真必要条件证明。**审计结论：当前发射层无此
+///   发射点**（两处候选均为质量目标预检），枚举保留以备未来真证明路径。
+/// - `NotBudget`：非预算类失败。
+///
 /// 与「已归一化（stub 删焊处置记录）」「未支持-未评估（结构性 unsupported
-/// fail-closed 于转换前，不进清单）」合为四类处置口径。
+/// fail-closed 于转换前，不进清单）」合为处置口径。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BudgetOutcome {
     NotBudget,
     SamplerExhausted,
+    PreCheckRejected,
     ProvenBudgetConflict,
 }
 
@@ -75,6 +85,7 @@ impl BudgetOutcome {
         match self {
             BudgetOutcome::NotBudget => "非预算裁决",
             BudgetOutcome::SamplerExhausted => "采样候选耗尽",
+            BudgetOutcome::PreCheckRejected => "预算预检拒绝",
             BudgetOutcome::ProvenBudgetConflict => "已证预算冲突",
         }
     }
@@ -115,7 +126,9 @@ pub(crate) fn classify_infeasible(lane_id: &str, entry: String) -> Infeasibility
     let budget_outcome = if entry.contains("sampling exhausted") {
         BudgetOutcome::SamplerExhausted
     } else if entry.contains("curvature is infeasible") {
-        BudgetOutcome::ProvenBudgetConflict
+        // R9 审计：该文案只有质量目标预检一个来源（见 sample_cubic 两处
+        // 注释），不是硬预算无解证明。
+        BudgetOutcome::PreCheckRejected
     } else {
         BudgetOutcome::NotBudget
     };
@@ -409,12 +422,17 @@ impl InfeasibilityReport {
             .iter()
             .filter(|e| e.budget_outcome == BudgetOutcome::ProvenBudgetConflict)
             .count();
+        let precheck = entries
+            .iter()
+            .filter(|e| e.budget_outcome == BudgetOutcome::PreCheckRejected)
+            .count();
         out.push_str(&format!(
-            "- 发射预算裁决分布（G1 重新验收四类口径；采样候选耗尽 = 等 t 与等切向角 \
-             划分均失败，已证预算冲突 = 弦长下限与安全转角无交）：采样候选耗尽 {exhausted}、\
-             已证预算冲突 {proven}、非预算类 {}。
+            "- 发射预算裁决分布（G1 重新验收口径；采样候选耗尽 = 等 t 与等切向角划分均失败；\
+             预算预检拒绝 = 0.105 m 采样质量目标的候选搜索前预检，非硬预算无解证明（R9 审计）；\
+             已证预算冲突 = 真必要条件证明，当前发射层无此发射点）：采样候选耗尽 {exhausted}、\
+             预算预检拒绝 {precheck}、已证预算冲突 {proven}、非预算类 {}。
 ",
-            entries.len() - exhausted - proven
+            entries.len() - exhausted - precheck - proven
         ));
         out.push_str(&format!(
             "- 内车道不可行遍布 **{junctions} 个 junction**（XML 有内车道的 junction 共 1,942 个）。
@@ -1355,8 +1373,13 @@ fn sample_cubic(
     let span_len = cubic_arc_len(a, c1, c2, b);
     let n_floor = (span_len / SAMPLE_MIN_CHORD_METERS).floor();
     if n_floor < 2.0 {
-        // 再切必破弦长下限：单片在安全转角内则发射（sink 量化终检），否则该处
-        // 几何在本套验收常数下不可行，fail-closed 报精确位置。
+        // R9 审计（质量目标预检，非硬预算证明）：n_floor 按 0.105 m 采样质量
+        // 目标取整，硬下限是 0.1 m（sink/HIR 退化段）——floor(arc/0.105) < 2
+        // 不排除「两段各 ≥0.1 m 且 ≤1.9°」的合法划分（复审数值反例：
+        // arc 0.2066 m 预检拒绝，两段量化最短弦 0.1033 m > 0.1、weld
+        // 1.8495° < 1.95° 全过）。此处报 "curvature is infeasible" 仅宣告
+        // 质量目标预检拒绝，清单分类为 PreCheckRejected。单片在安全转角内
+        // 仍发射（sink 量化终检），否则 fail-closed 报精确位置。
         if turn <= WELD_SAFE_TURN_RAD {
             return sink.push(b);
         }
@@ -1381,6 +1404,9 @@ fn sample_cubic(
         )));
     }
     if n < n_quality && turn / n > WELD_SAFE_TURN_RAD {
+        // R9 审计（质量目标预检，非硬预算证明）：n 被 floor(arc/0.105) 压住，
+        // 0.105 是采样质量目标而非硬下限 0.1——「n 片每片超 1.9°」不证明
+        // 硬预算无解（0.1 m 硬下限允许更多片）。分类为 PreCheckRejected。
         return Err(Error::SumoModel(format!(
             "repaired curve curvature is infeasible under the quantized weld budget: \
              {n:.0} pieces (chord floor) each turn {:.2} deg > {:.2} deg at ({}, {}, {})",
@@ -1994,18 +2020,59 @@ mod tests {
                 .to_owned(),
         );
         assert_eq!(exhausted.budget_outcome, BudgetOutcome::SamplerExhausted);
-        let proven = classify_infeasible(
+        // R9："curvature is infeasible" 只有质量目标预检一个来源 → 预检拒绝，
+        // 不再冒充已证预算冲突（ProvenBudgetConflict 审计后当前无发射点）。
+        let precheck = classify_infeasible(
             "sumo::-1000_2_0",
             "span 1/1 (chord 1.0 m) is not emittable: repaired curve curvature is infeasible under the quantized weld budget: span arc 0.11 m turns 1.93 deg at (1, 0, 2); start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
                 .to_owned(),
         );
-        assert_eq!(proven.budget_outcome, BudgetOutcome::ProvenBudgetConflict);
+        assert_eq!(precheck.budget_outcome, BudgetOutcome::PreCheckRejected);
+        assert_ne!(precheck.budget_outcome, BudgetOutcome::ProvenBudgetConflict);
         let other = classify_infeasible(
             "sumo::-1000_2_0",
             "span 1/1 (chord 1.0 m) is not emittable: fillet arc deviates 5.1 m from the original corner at (1, 0, 2), exceeding the 5.0 m budget; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
                 .to_owned(),
         );
         assert_eq!(other.budget_outcome, BudgetOutcome::NotBudget);
+    }
+
+    #[test]
+    fn quality_floor_precheck_is_not_proven_conflict() {
+        // R9 复审数值反例：L/3 控制柄 cubic（起止切向夹角 3.7°，16 段弧长
+        // 估计 0.206646828 m → n_floor = floor(0.2066/0.105) = 1 < 2）。预检
+        // 拒绝它，但同曲线两段划分量化最短弦 0.103318997 m > 0.1 m、最大
+        // weld 1.849517822° < 1.95°、子段切向 1.85° < 1.9°、垂距上界
+        // 0.000556053 m < 0.01 m——满足全部硬预算。故诊断分类必须是
+        // PreCheckRejected，不得标 ProvenBudgetConflict。
+        let a = [0.0, 0.0, 0.0];
+        let c1 = [0.06887035952165224, 0.0, 0.0];
+        let c2 = [0.1377765790067887, 0.0, 0.002225658258883879];
+        let b = [0.20650338640946556, 0.0, 0.006670021529027181];
+        let dir_a = [1.0, 0.0, 0.0];
+        let dir_b = unit([b[0] - c2[0], b[1] - c2[1], b[2] - c2[2]]).expect("unit");
+        let mut sink = EmissionSink::new(a);
+        let error = sample_cubic(a, c1, c2, b, dir_a, dir_b, &mut sink)
+            .expect_err("quality-floor precheck rejects the counterexample");
+        assert!(
+            error.to_string().contains("curvature is infeasible"),
+            "unexpected error: {error}"
+        );
+        // 走实际清单分类路径（span 包装 + 切向来源与发射层一致）。
+        let wrapped = format!(
+            "span 1/1 (chord 0.2065 m) is not emittable: {error}; start tangent: interior \
+             Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+        );
+        let diagnosis = classify_infeasible("sumo::counterexample_0", wrapped);
+        assert_eq!(
+            diagnosis.budget_outcome,
+            BudgetOutcome::PreCheckRejected,
+            "quality-target precheck must not be labelled proven conflict"
+        );
+        assert_ne!(
+            diagnosis.budget_outcome,
+            BudgetOutcome::ProvenBudgetConflict
+        );
     }
 
     #[test]

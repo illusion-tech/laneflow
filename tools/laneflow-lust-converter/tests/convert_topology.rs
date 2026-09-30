@@ -273,12 +273,12 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         report.internal_mechanism_count(InfeasibilityMechanism::HardCornerFillet),
         503
     );
-    // 发射预算裁决分布（G1 重新验收四类口径；4 条保留 stub 为已证预算冲突）。
+    // 发射预算裁决分布（G1 重新验收口径 + R9 审计：curvature is infeasible
+    // 均为 0.105 m 质量目标预检 → 预检拒绝；已证预算冲突审计后无发射点为 0；
+    // 4 条保留 stub 亦为预检拒绝）。
     assert_eq!(report.outcome_count(BudgetOutcome::SamplerExhausted), 5_613);
-    assert_eq!(
-        report.outcome_count(BudgetOutcome::ProvenBudgetConflict),
-        2_599
-    );
+    assert_eq!(report.outcome_count(BudgetOutcome::PreCheckRejected), 2_599);
+    assert_eq!(report.outcome_count(BudgetOutcome::ProvenBudgetConflict), 0);
     assert_eq!(report.outcome_count(BudgetOutcome::NotBudget), 18);
     let anchor_first = &report.entries[0].lane_id;
     let anchor_second = &report.entries[1].lane_id;
