@@ -157,7 +157,10 @@ pub(crate) fn build(root: &Path) -> Result<()> {
     let tree = io::git(&repo, &["rev-parse", "HEAD^{tree}"])?;
     io::ensure_new(root)?;
     fs::create_dir_all(root)?;
-    let root = root.canonicalize()?;
+    let absolute = root.canonicalize()?;
+    // Windows Git 不接受 Rust canonicalize 的 verbatim 前缀；这里只转换已解析的绝对路径表示。
+    let text = absolute.to_string_lossy();
+    let root = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
     let source = root.join(SOURCE);
     fs::create_dir(&source)?;
     let export = Command::new("git")
