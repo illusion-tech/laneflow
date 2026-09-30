@@ -9,7 +9,7 @@
     {
       "bytes": 1188,
       "path": "100k-1-1-base-plain/diagnostics.json",
-      "sha256": "0638241bd940fa3c303a92cc005f4d1822f672283929704bf72fc2385cfcdeaa"
+      "sha256": "7b4c43fa5e79685ea2da983df396210362add2fbe01bf962b58918637d8b1a3f"
     },
     {
       "bytes": 2513992,
@@ -24,7 +24,7 @@
     {
       "bytes": 225787,
       "path": "100k-1-1-base-plain/result.json",
-      "sha256": "e8c5b9a710c204d82f693f6430529c0e79b30ca0da8f7d87d947cdde934866f3"
+      "sha256": "3f5f8c70589d13ae28888a1da0e5eeba919aa40960a771b475be3f581d4f1eb3"
     },
     {
       "bytes": 159006,
@@ -32,24 +32,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32211,
+      "bytes": 31642,
       "path": "100k-1-1-base-plain.environment-after.json",
-      "sha256": "ebd8955aacdb99752a03b92f287e313a61c5bdcfda5d43459cd6606e02740566"
+      "sha256": "21f6e94e75e7064b52e3661f0ed49de71b9834abc4b66df4d4b5bca3f6325d91"
     },
     {
-      "bytes": 32204,
+      "bytes": 31531,
       "path": "100k-1-1-base-plain.environment-before.json",
-      "sha256": "980a2bb62dbedcaad54d3139e3c1558c009b5d05f121de268278d9110b9b7639"
+      "sha256": "9abe20d1b152706d2ea18adadf3bb8631086fe7e3f16d37c225148f1bca12843"
     },
     {
       "bytes": 972,
       "path": "100k-1-1-base-plain.process.json",
-      "sha256": "83cab39534bcfb9cdb15e82ca31d4951aa932318740881527256de3564044f25"
+      "sha256": "f4541c8f266bfa7e5c3dd795b2bf13a2b55cd8fd866c384d2f7fa8738f0aa44e"
     },
     {
       "bytes": 33684,
       "path": "100k-1-1-base-plain.stderr",
-      "sha256": "fea43d644a61610a5ce4521423d7cbe4e84eee8613828e005c3e4271f8a1df0a"
+      "sha256": "8b1df4f7ac79ee4763acf5bff07b83ebb7938062118234814c355dc9c06d8b5a"
     },
     {
       "bytes": 30,
@@ -64,7 +64,7 @@
     {
       "bytes": 1198,
       "path": "100k-1-2-candidate-plain/diagnostics.json",
-      "sha256": "577ce681af62fdddf7d935e2fd04bed286461ccf6e18dce2834d8230c950159a"
+      "sha256": "6a94713434533c9a9a7e394f740c122b562aa1377592e52ef632699910c008e4"
     },
     {
       "bytes": 2513992,
@@ -79,7 +79,7 @@
     {
       "bytes": 225787,
       "path": "100k-1-2-candidate-plain/result.json",
-      "sha256": "82bb7e147ef7718a4edd8bea5cc86a681e0b767c1c6f21f044dd35b3d81476ee"
+      "sha256": "70a80c22df815f9ad78dde95ac966d2a18b0fe0ce856fe4e123d35b98a5300c2"
     },
     {
       "bytes": 159006,
@@ -87,24 +87,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32026,
+      "bytes": 31475,
       "path": "100k-1-2-candidate-plain.environment-after.json",
-      "sha256": "a0e8c686b74bb71cc4c0a636957eded1ccb452b1b90c2c214f0477fada7a89be"
+      "sha256": "a05da598b02ac262d093acfcb750c726d8b330fa8f51b48dd61409d2a9e7a3cd"
     },
     {
-      "bytes": 32216,
+      "bytes": 31535,
       "path": "100k-1-2-candidate-plain.environment-before.json",
-      "sha256": "148d4fc6f02bd04c6f9baf8e165c028c645c10256112b513369e45b07cbce520"
+      "sha256": "66d3ff38c788112bb0e6b7df5c50eacac1449a34ca0f8f08a60ad8c2738ac1d9"
     },
     {
       "bytes": 992,
       "path": "100k-1-2-candidate-plain.process.json",
-      "sha256": "e9802a9b210e138140e6da58c5f45bade7d6361dc6f75bfc500cc6894f9c7cfc"
+      "sha256": "722a093e188354ff756e9665813cc87572264653ab79852a974a4dc5c8e6e603"
     },
     {
       "bytes": 33684,
       "path": "100k-1-2-candidate-plain.stderr",
-      "sha256": "671709ba315c39855e4a02e3c5ab560e740b29853b861cdbb78c78439a991f94"
+      "sha256": "3971e01e6d3de06eb65fb0e8fa9d8afd2851e49345008628ce32bb6daa3e52cb"
     },
     {
       "bytes": 30,
@@ -119,7 +119,7 @@
     {
       "bytes": 1198,
       "path": "100k-1-3-candidate-plain/diagnostics.json",
-      "sha256": "289ba80eeb3856c4996defb53f68730a7f968f5a27c7a98c19f337c621aa32cf"
+      "sha256": "a640466e3925ef5124b6f27537c60daba333ad1478e503fa01e897e99517ee6d"
     },
     {
       "bytes": 2513992,
@@ -134,7 +134,7 @@
     {
       "bytes": 225787,
       "path": "100k-1-3-candidate-plain/result.json",
-      "sha256": "86ecb25f1d387cd20b154e7bd1d0c118830fbf1205dcbe43211efa6ddc005b92"
+      "sha256": "8ea78b7203d86812ca52760afa34d05babdfc67f3f35944a7c615cabdca471ad"
     },
     {
       "bytes": 159006,
@@ -142,24 +142,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32073,
+      "bytes": 31475,
       "path": "100k-1-3-candidate-plain.environment-after.json",
-      "sha256": "ee91244cf82bcdb45fecc0ba75459b6c5a955f2bead92ff7d3783643dc65a5a5"
+      "sha256": "82383a59b1f47a8ba0a2ee6da4b9adcb11f2665e71c91d410234d2151a8285d0"
     },
     {
-      "bytes": 32027,
+      "bytes": 31478,
       "path": "100k-1-3-candidate-plain.environment-before.json",
-      "sha256": "1ab1dc29f98a840edeb2dcb44cd80e9a1eb0e81acd3d2c27fa53728ef297222f"
+      "sha256": "5d0e69e9f2c82f621f362ca18b0d885abc3f06a377a90272fd14f1b8a54952e2"
     },
     {
       "bytes": 992,
       "path": "100k-1-3-candidate-plain.process.json",
-      "sha256": "1fdf0f2aa01578e29e5a688c3a5b86e20f6223aa78386944a467d984464131ce"
+      "sha256": "cba3ea703cfbca24073614a0cbce609aff4f01f8ab8fd6f9a449ac23ff6d008b"
     },
     {
       "bytes": 33684,
       "path": "100k-1-3-candidate-plain.stderr",
-      "sha256": "00628539aa0b980f26345140a72f7d32996670d0342acb9171b7eb87ed068ad4"
+      "sha256": "fdcd95fd4b155fdb92c79e77792c2c34aabbee4a533d6107e1666c9b9c681794"
     },
     {
       "bytes": 30,
@@ -172,9 +172,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1186,
+      "bytes": 1187,
       "path": "100k-1-4-base-plain/diagnostics.json",
-      "sha256": "c4f0cacd74f8245302110810ec31a21c13a8ab43c6bda771861ecb3f872196a0"
+      "sha256": "a5aafe698af27e66825a01cb6b07d85d3d44503d2629f1b3260e7392c6e95603"
     },
     {
       "bytes": 2513992,
@@ -189,7 +189,7 @@
     {
       "bytes": 225787,
       "path": "100k-1-4-base-plain/result.json",
-      "sha256": "480ef12da804162016a15c72b44536d2b0acfb74d5d8fe3ffba23443f225e3cd"
+      "sha256": "09479aa6652c7ad315638cd5d93041bbba434bbfdc0f1fce338359748a9438b7"
     },
     {
       "bytes": 159006,
@@ -197,24 +197,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32001,
+      "bytes": 31529,
       "path": "100k-1-4-base-plain.environment-after.json",
-      "sha256": "47030089984d6016ab1869b8c5b4ca9a8c6d06830236892b034a86f78b7ade70"
+      "sha256": "021ae0233c9e93d71c28dd75241b074470b8f97482316ae6f7666f05fbf6195f"
     },
     {
-      "bytes": 32069,
+      "bytes": 31471,
       "path": "100k-1-4-base-plain.environment-before.json",
-      "sha256": "ead55646d492c0ac92d1d596e3d1ca08703fd9957b54d61a307ab9ebcd7d0bf7"
+      "sha256": "b6a1f504b7369b04ed93aa3985f357b949a8b22221a5ab77315d777428d261d2"
     },
     {
       "bytes": 972,
       "path": "100k-1-4-base-plain.process.json",
-      "sha256": "5b2df1b42141f25898a41cb889a17f1451a6de04ef01b6ffc68bacd1762b2b24"
+      "sha256": "0c5577fcbb35966f8c00ad6451e544bfa2fee50ce678ceed348290c4a0fdaff7"
     },
     {
       "bytes": 33684,
       "path": "100k-1-4-base-plain.stderr",
-      "sha256": "26420d867ef4756227274c2906797712f1ecb30539682319b034bff91073d8c4"
+      "sha256": "e599f6fa5de7eba6a7a45c40f9186c99e7e2d01d029d8b015ec199589e7e6681"
     },
     {
       "bytes": 30,
@@ -229,7 +229,7 @@
     {
       "bytes": 1198,
       "path": "100k-2-1-candidate-plain/diagnostics.json",
-      "sha256": "18232f322a07ec4083f1db710b0f0166fdc82cc77ddf404ffda70d3f0a27b9e5"
+      "sha256": "8a7ee5fe43851f088df63add641568134f8b9664fce6dbab91172ec9970ab690"
     },
     {
       "bytes": 2513992,
@@ -244,7 +244,7 @@
     {
       "bytes": 225787,
       "path": "100k-2-1-candidate-plain/result.json",
-      "sha256": "e60f47bc370dba31145b15d1344e9d59e7fd99cbd774dde9d5d221f027691ff5"
+      "sha256": "dbca0fe34d6528f7573e2114d00288e53f357a7d9f537d9a276e47e6863f4c83"
     },
     {
       "bytes": 159006,
@@ -252,24 +252,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 31961,
+      "bytes": 31534,
       "path": "100k-2-1-candidate-plain.environment-after.json",
-      "sha256": "a8362f4d7bce5b6e43a4d283db19dc6248d59f186a0fc33707e4e24e69202462"
+      "sha256": "af2fc72ae3acf7e6c9cdfbd0b78c3f2667cc49afb1fb53240f4c29fbc61f260b"
     },
     {
-      "bytes": 32007,
+      "bytes": 31535,
       "path": "100k-2-1-candidate-plain.environment-before.json",
-      "sha256": "49644fb80d769639356458521d4d28097ab56da4e9023a11108d4b224a69951b"
+      "sha256": "8a156ea4c7eeb696d7a2f559fc3287dcda0a5ad621ffa105c556f59b6b5b22ec"
     },
     {
       "bytes": 992,
       "path": "100k-2-1-candidate-plain.process.json",
-      "sha256": "42dade3210973f78b6d42a87f717e30acdc277164694ae61a76d2f27b14e5535"
+      "sha256": "ed1312163d0a55b649df04f6e7e1a28747ed1b143e7f46d13bdd1d7db2325747"
     },
     {
       "bytes": 33684,
       "path": "100k-2-1-candidate-plain.stderr",
-      "sha256": "24326e2b7009a6ddaf31a19354dd894b4be166b46f920aeff7f74338515655e2"
+      "sha256": "1ece2392507d3acc0f9967330c1bf415c3539a49a407556d7cc3107fb54de147"
     },
     {
       "bytes": 30,
@@ -282,9 +282,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1187,
+      "bytes": 1188,
       "path": "100k-2-2-base-plain/diagnostics.json",
-      "sha256": "c7be533512c30bf5f4bf94c17a4dab262a1fe141f7ef544024bacf92bd282597"
+      "sha256": "85a5f7ae2efc66e84d81ab83913d1a4e5f7dcce40c5bad4e439f69e6bf8ff931"
     },
     {
       "bytes": 2513992,
@@ -299,7 +299,7 @@
     {
       "bytes": 225787,
       "path": "100k-2-2-base-plain/result.json",
-      "sha256": "021812bbc81deecc1a91e652c9415c75f2066aebde622447579cd6a89d1ed0bd"
+      "sha256": "2726caa795139c941ba6173ea18b974c0e969df671580e6e314f5459e1a6a996"
     },
     {
       "bytes": 159006,
@@ -307,24 +307,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32067,
+      "bytes": 31596,
       "path": "100k-2-2-base-plain.environment-after.json",
-      "sha256": "33a5c858ed5ec1ed9b5f21750cf092fad751579f60d18c47e885a60b10633b7c"
+      "sha256": "b7f835d58e77958f5c91ec4129653d525dbee834b710ac08244743ab5855087a"
     },
     {
-      "bytes": 31956,
+      "bytes": 31644,
       "path": "100k-2-2-base-plain.environment-before.json",
-      "sha256": "b68891e6c051eefa351aeb6a7dc43eec7804ec52e996d9c8fab6e5a9cd4cb98f"
+      "sha256": "9420f10f2ffdd714715171e8ee7361a7a53bbe23ebf0f02f1d2725c7746ce41f"
     },
     {
       "bytes": 972,
       "path": "100k-2-2-base-plain.process.json",
-      "sha256": "252f0f1154df7e0a184548d2d6ede3c644a2579037b1ac88ac1c10fcdf24f49c"
+      "sha256": "9e02fc1f7f99610de94013e192bb7bbdb5475acc574b96ab1f269f1886e21cd7"
     },
     {
       "bytes": 33684,
       "path": "100k-2-2-base-plain.stderr",
-      "sha256": "d3d0f36324cf8e9b61e474cf59c1e7978123ee5b78678739c21dceb504299f57"
+      "sha256": "fce061e5832e8b98b46e310cb60e6d99812d4d254c683fad88fb4c46e167b8fe"
     },
     {
       "bytes": 30,
@@ -337,9 +337,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1196,
+      "bytes": 1188,
       "path": "100k-2-3-base-plain/diagnostics.json",
-      "sha256": "87a5d2da7da5c788b6c4530d3b7f6fd0065b1a612e92976b78f7b40842ebb258"
+      "sha256": "7213557f3357bbdfd85619a073b717f47e3bf844d89e74bbb05fc53a5d66b049"
     },
     {
       "bytes": 2513992,
@@ -354,7 +354,7 @@
     {
       "bytes": 225787,
       "path": "100k-2-3-base-plain/result.json",
-      "sha256": "b606bdae559c010cf812ac0409d0b0d3846a6eedc677484811077ca7f85004fc"
+      "sha256": "ec20260bdc1b3ddfb7551fa9e65859f38e5445ccdcb2ebd65ad7648f2b2516f4"
     },
     {
       "bytes": 159006,
@@ -362,24 +362,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32071,
+      "bytes": 31649,
       "path": "100k-2-3-base-plain.environment-after.json",
-      "sha256": "bbeaf3237ae410635cb3d883a874d6fe3a766ac3859d1afc47bcf2cfc9154d41"
+      "sha256": "9ee27f11f8e94b7cbb67d62d393d47019cf3d7e0f8053f2adab70329716f352b"
     },
     {
-      "bytes": 32294,
+      "bytes": 31658,
       "path": "100k-2-3-base-plain.environment-before.json",
-      "sha256": "a14b5832a7c28d22aa0d0062d20aabbbf417ac027ca927f15531042a056b2b1d"
+      "sha256": "72fbb1506b13191ce3229ac572cfefc60c26733a039ac742c98d09d0b1c18ee4"
     },
     {
       "bytes": 972,
       "path": "100k-2-3-base-plain.process.json",
-      "sha256": "bbd3761b98d7c0e1b80a37f38cc082a99dafae81b24b4964d9f4719d300ffe48"
+      "sha256": "e7a3bec03e1f209094195c3d3040c43cfd57bb1582e634c350716a3ae1c5e65a"
     },
     {
       "bytes": 33684,
       "path": "100k-2-3-base-plain.stderr",
-      "sha256": "e6164631b92d7f2d55b4827959eca23ea8f6602ad709ebf4b3891006c3ccdb4a"
+      "sha256": "c40f8b914829f510e4f5c066f45a91684b02a42cf93bc4b27ee45a696b4e6228"
     },
     {
       "bytes": 30,
@@ -394,7 +394,7 @@
     {
       "bytes": 1198,
       "path": "100k-2-4-candidate-plain/diagnostics.json",
-      "sha256": "f8cf69d9f427ea1bd29ade3ed7517ee62e433d4eee3d4f7171553242952aefc0"
+      "sha256": "3e56f33de554e487af003d377149647121f0b7ae3ab4d37482ff9e8d3ac89e44"
     },
     {
       "bytes": 2513992,
@@ -409,7 +409,7 @@
     {
       "bytes": 225787,
       "path": "100k-2-4-candidate-plain/result.json",
-      "sha256": "37ec3955e66bc193bc9d3815be384bc7424d059a82b7acc40e3805069036137d"
+      "sha256": "5b30b290b690c3e477b84c5cda9fe17469ce1532dc83f65fb3700b71e10d9f54"
     },
     {
       "bytes": 159006,
@@ -417,24 +417,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32135,
+      "bytes": 31654,
       "path": "100k-2-4-candidate-plain.environment-after.json",
-      "sha256": "b88130f5af984b195dce7f7c33d50e86a8545e1a16aae63abbbb22a77ad6d9a0"
+      "sha256": "e5d9c7ee50540bba2197c7a0bb7bab42e8b92306c6d56c82bc97d30212cd8106"
     },
     {
-      "bytes": 32077,
+      "bytes": 31655,
       "path": "100k-2-4-candidate-plain.environment-before.json",
-      "sha256": "38941faa92c767ebfc638233d51d7c5aa107f101ef36a9c82aeb74fa1d9e609d"
+      "sha256": "6a6ac8eb1e7c65d9efc2d5897c56e40046fa580f5b8a3970411a6332ea32914c"
     },
     {
       "bytes": 992,
       "path": "100k-2-4-candidate-plain.process.json",
-      "sha256": "c351fe1bbb6b034801b32c7eda087c07ec8710a5bc823cf18548ac4c0b2b2dab"
+      "sha256": "b73a6654c6f5f0631da3f3178e20cb2890cfba7340fc9e487e027960f6a25812"
     },
     {
       "bytes": 33684,
       "path": "100k-2-4-candidate-plain.stderr",
-      "sha256": "54af72e2defc6c1a0a42b055e488d9c9f8fdbcd1acaa4cbb9096a773b044fb4b"
+      "sha256": "5b02d47a392c55f87cec15cd0453123346045124678d6bd42d363bb95bf73e67"
     },
     {
       "bytes": 30,
@@ -447,9 +447,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1187,
+      "bytes": 1188,
       "path": "100k-3-1-base-plain/diagnostics.json",
-      "sha256": "90a231b289b69dcc9e2998082b1f3f34c1e0693baad7d62b741220d905201817"
+      "sha256": "43f11bd60a9aba55370597f9b8fe71514b4d14e22b5f0fe54277e43739a80c46"
     },
     {
       "bytes": 2513992,
@@ -464,7 +464,7 @@
     {
       "bytes": 225787,
       "path": "100k-3-1-base-plain/result.json",
-      "sha256": "563db812051b50ea80b2f2da29cf8d6c47cdbf11c6d5e9a20a534b39d88c2e2f"
+      "sha256": "b696a18d905fe9fb8466d7a10a8ffba6f30ad23a2c2b76169d9986a0bf6f2457"
     },
     {
       "bytes": 159006,
@@ -472,24 +472,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32073,
+      "bytes": 31533,
       "path": "100k-3-1-base-plain.environment-after.json",
-      "sha256": "52ab8f7ddca142bb3b59ef95ec90dfaa166e3c13a746af4cc6663546395d776f"
+      "sha256": "888977a19799e89a9939f9656a1773ae0b54070f3dacb37f3429e73088d22136"
     },
     {
-      "bytes": 32131,
+      "bytes": 31764,
       "path": "100k-3-1-base-plain.environment-before.json",
-      "sha256": "e6f107cd033b7ca4ce27c7239bda595031a144cd3801649ba2752988da0afb5e"
+      "sha256": "84f5ac049ac2632b4b8c77dae0f157d6f55f36b2688cca5e28c38c67b2fe1822"
     },
     {
       "bytes": 972,
       "path": "100k-3-1-base-plain.process.json",
-      "sha256": "2bde369899142b8aafdd434feba9db8ad4fed72ac99b2c47b123982fef06b976"
+      "sha256": "eaa57178ea11c01a780d0a813dff748d072880bb9e718b477ac87ed7980964a3"
     },
     {
       "bytes": 33684,
       "path": "100k-3-1-base-plain.stderr",
-      "sha256": "5f34d318693a928bafff5d32f3a34380ce47e2a09b19d05306d43225eea87a15"
+      "sha256": "f706fc460f6feb51c3476b29454de026c9127e118c642262b377c1c4008d3350"
     },
     {
       "bytes": 30,
@@ -504,7 +504,7 @@
     {
       "bytes": 1198,
       "path": "100k-3-2-candidate-plain/diagnostics.json",
-      "sha256": "b3a1710245892961f10580604c782190058d85e959c032a4902e07a14dcec53a"
+      "sha256": "26dfaa8bf89f6d6f2ce27453bfe46db29c0116719f027c81f0ce587073b9201f"
     },
     {
       "bytes": 2513992,
@@ -519,7 +519,7 @@
     {
       "bytes": 225787,
       "path": "100k-3-2-candidate-plain/result.json",
-      "sha256": "f43c02244bbd6a02a063b29e5da27f4372378e648c08c250781dd77128f86361"
+      "sha256": "8217fd74df67acb2850330e237e29dd106e46d4674a95f4e3bb43aab9a47e49f"
     },
     {
       "bytes": 159006,
@@ -527,24 +527,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32330,
+      "bytes": 31536,
       "path": "100k-3-2-candidate-plain.environment-after.json",
-      "sha256": "da8b97a3a3efd7bb0996080b6ec0cd4ca45ad2ee44ee94d524ad646e6848046a"
+      "sha256": "03b3b8dc4447093a28ef6c0d4ee819b55a18dc8554f9a4970b96159bef80d552"
     },
     {
-      "bytes": 32079,
+      "bytes": 31539,
       "path": "100k-3-2-candidate-plain.environment-before.json",
-      "sha256": "2ae84fd25f9c692384eda70f3b2add02f61c79291e2e7b40992b760681c0ff5a"
+      "sha256": "849f8e9851d76548f54f1bb3a1a9ffc75048df75c488630cfcbbb46dd9d78161"
     },
     {
       "bytes": 992,
       "path": "100k-3-2-candidate-plain.process.json",
-      "sha256": "20278d187940dd148b91859d2a723a3ed3967f5ec16c5efa2d15b7f9bc803c94"
+      "sha256": "b46fce4e0390983f286fb4bbf6448d73fe12a7c14f86afc17847e285c1404758"
     },
     {
       "bytes": 33684,
       "path": "100k-3-2-candidate-plain.stderr",
-      "sha256": "8c490886ee3985647cc4b1411e6a22ef2aed447ef85f7568cf443a4be0dfb10f"
+      "sha256": "4b0a836feb9fbdc5359e085fefb803c18785158974530d6d129ea23ffa43c34b"
     },
     {
       "bytes": 30,
@@ -559,7 +559,7 @@
     {
       "bytes": 1198,
       "path": "100k-3-3-candidate-plain/diagnostics.json",
-      "sha256": "2f0019c14df36c57e1f6f9097950e2180ef8e050f8c413dae1a7649215ea7552"
+      "sha256": "92f4c4889899f7124faacb8461560ec007aa6bede1e005cf890e6f017e579e27"
     },
     {
       "bytes": 2513992,
@@ -574,7 +574,7 @@
     {
       "bytes": 225787,
       "path": "100k-3-3-candidate-plain/result.json",
-      "sha256": "74393e3905bab262e2a88dc570dff8dc1cc7c3277abce1669c2b68317b986570"
+      "sha256": "8a81af7400a2159232d4acf93bae4004d872db0096500fdf36a71835f89654e9"
     },
     {
       "bytes": 159006,
@@ -582,24 +582,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32445,
+      "bytes": 31595,
       "path": "100k-3-3-candidate-plain.environment-after.json",
-      "sha256": "63fc09417ba264172eebf8fed16af7aaae4832d0d6fee37338b6503344527202"
+      "sha256": "9b1da282306cca5391b46d8a657dde8cdbc7a216cbb9e322a31d66bc8425693c"
     },
     {
-      "bytes": 32445,
+      "bytes": 31537,
       "path": "100k-3-3-candidate-plain.environment-before.json",
-      "sha256": "a339f922b9b9be949db9e5fd3babb9841ad46ece6572b153ed7d83922d965e3b"
+      "sha256": "826dfb69cb7fbb943d49c3e139ca1303f0f061b0dff4f6abae7f2b62eb5add87"
     },
     {
       "bytes": 992,
       "path": "100k-3-3-candidate-plain.process.json",
-      "sha256": "60c4b5036779f9ccc0eae0d726d224e900562b0f4a58d2db057893976b4676f2"
+      "sha256": "bc255f52d4f6120ba85c47f1c418e32719e9a46e51aad107de53f37f275da30e"
     },
     {
       "bytes": 33684,
       "path": "100k-3-3-candidate-plain.stderr",
-      "sha256": "eb4fe38ae05bdd355d2db5aad2d5062bf0e86830cda219864ffebd2fd2d87c8c"
+      "sha256": "4a931fe25f8b81e2bebff9573ced11829084140169f7f9d68e1df9c7e56dc3e6"
     },
     {
       "bytes": 30,
@@ -612,9 +612,9 @@
       "sha256": "9ec466648485cdf80a61850937890d2df564cce795ae24268dfab51c6baac918"
     },
     {
-      "bytes": 1187,
+      "bytes": 1188,
       "path": "100k-3-4-base-plain/diagnostics.json",
-      "sha256": "13143d13ee6715e6163cb982dac4b5e8a83d77fd1d3c3711390752208e62eb26"
+      "sha256": "986fbf5644dcbc4a0ed81309992472d7d46ad225b8180b1ee2ef924d1908bba7"
     },
     {
       "bytes": 2513992,
@@ -629,7 +629,7 @@
     {
       "bytes": 225787,
       "path": "100k-3-4-base-plain/result.json",
-      "sha256": "ab351f5eb5bdbfcbaf29a8a5eebb74928be352f1bb31f7cb5725b1ca94839526"
+      "sha256": "0b70e68cad6db43a63ac1cb9d8eb1eb05e14089259b77600e493689e7431aaba"
     },
     {
       "bytes": 159006,
@@ -637,24 +637,24 @@
       "sha256": "c07522a3edcabf40dfea1b4441597b29399a79622b2da712d61b1e7a23f1c5f4"
     },
     {
-      "bytes": 32160,
+      "bytes": 31600,
       "path": "100k-3-4-base-plain.environment-after.json",
-      "sha256": "a70f03aa91738777dea26358d397975e70630f033522752a8a5f94f43e4fd1fb"
+      "sha256": "1b911af0532ff568bde1575c48742e2245c0cff0d1702ecac2ad931ecff8026e"
     },
     {
-      "bytes": 32440,
+      "bytes": 31591,
       "path": "100k-3-4-base-plain.environment-before.json",
-      "sha256": "0888bbc863cdf0ff183f1b424128fdf392a6f6a6bbc8a8a6e40a998413fa0e1c"
+      "sha256": "f0153a35335f82d4ee0cf60d37a5ddc3f73d8e4acfe048b96119573e2d887f98"
     },
     {
       "bytes": 972,
       "path": "100k-3-4-base-plain.process.json",
-      "sha256": "bfec429d6e6100d410a40807f5bd5036d2baba6a41e4f855aa07fa8d0e1a4436"
+      "sha256": "ff9458986978caf5ad059b7e4388b360f5a72ed8f45e9351576009b96dc348c4"
     },
     {
       "bytes": 33684,
       "path": "100k-3-4-base-plain.stderr",
-      "sha256": "597973ab5ef80a48f933d7b663ab5b23067be504a7cb3edc156949cee4f70eb7"
+      "sha256": "d20e11dff98e18dacaad40cdc530b44f133cc88a07903d5c8c44ca7fd7431711"
     },
     {
       "bytes": 30,
@@ -669,7 +669,7 @@
     {
       "bytes": 1181,
       "path": "10k-1-1-base-plain/diagnostics.json",
-      "sha256": "110179ee933fcdf458e5324973b6e4386cc17ae2340f85346775c806cc8f76a7"
+      "sha256": "4d8f98007220b343b7cb2c18d91f483b4fee94c9c9616e42fd969598b731e4f3"
     },
     {
       "bytes": 168331,
@@ -684,7 +684,7 @@
     {
       "bytes": 24374,
       "path": "10k-1-1-base-plain/result.json",
-      "sha256": "5fb64333a9fbea5ea0632f85ea6c1f87eefb7325fb385f145dd67e11d0a59424"
+      "sha256": "826124d887ad38b798f2deb1d4497ad3c46262a3aeb181d2227974f9d34db348"
     },
     {
       "bytes": 156617,
@@ -692,24 +692,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31830,
+      "bytes": 31531,
       "path": "10k-1-1-base-plain.environment-after.json",
-      "sha256": "741bac67f255f758db9ddb9d0934fd41b1a6541767cae5695dc412d4b7be1b8c"
+      "sha256": "e50d8dcf72f5574caf13e2c4934af8da15c1f54cdd4384e2696ad5254282e9ef"
     },
     {
-      "bytes": 31890,
+      "bytes": 31589,
       "path": "10k-1-1-base-plain.environment-before.json",
-      "sha256": "112f855fb6f2d00b7303791708717d30ad22723c63ca58bee3738ea35ff8aea5"
+      "sha256": "bd7770750cb3598bad5979d8ee7cc962df12f4273a944f0f2f94097b51242ad9"
     },
     {
       "bytes": 967,
       "path": "10k-1-1-base-plain.process.json",
-      "sha256": "cfd4a9d5118b1c98a2dbf4b1e0c311b14a4efb4153dfe23fa1fd9e3d84839811"
+      "sha256": "8154319175c3093371f12c26cf418f48adc2d37686f7e9a05684000888be1f6e"
     },
     {
       "bytes": 33394,
       "path": "10k-1-1-base-plain.stderr",
-      "sha256": "cf2e3df013e11b29e6c08847a0cbf8bb738776dc9fcd40c666960f5f4d069fd0"
+      "sha256": "62f06df86dbcf675dec01c2959e3a8c19700130820191b430a404f2af97cbb0f"
     },
     {
       "bytes": 30,
@@ -724,7 +724,7 @@
     {
       "bytes": 1191,
       "path": "10k-1-2-candidate-plain/diagnostics.json",
-      "sha256": "afe9ec36948ec201fa294565c850c2b65df54cf673d619ef53d6b70f214a3a16"
+      "sha256": "aefc9b5a9f629b91ae38fcaa0fe61816b75b39dbbbee9a5280a9a837c77bf3d9"
     },
     {
       "bytes": 168331,
@@ -739,7 +739,7 @@
     {
       "bytes": 24374,
       "path": "10k-1-2-candidate-plain/result.json",
-      "sha256": "f7304be41bd60c205b5271052d45f7f46413dde7962d6ef8d8b04e09b7162230"
+      "sha256": "6bb312fce0a97e85ab9c16cceb5812818c8ec89635a25083f67448dcd1699679"
     },
     {
       "bytes": 156617,
@@ -747,24 +747,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31835,
+      "bytes": 31603,
       "path": "10k-1-2-candidate-plain.environment-after.json",
-      "sha256": "0d69fe455b6369d135dda839fc097439010e93b888ce3527abdfef140344bee3"
+      "sha256": "03d6a6c0be50582b14551947e7b0979649f98bb70b280dce63807a04b86b6bbb"
     },
     {
-      "bytes": 31836,
+      "bytes": 31537,
       "path": "10k-1-2-candidate-plain.environment-before.json",
-      "sha256": "94019304b28035cdefd5655ecedc339aec52d2efc3c23a1dce7c48d221111183"
+      "sha256": "8a88f991090e7a819c689518b2056cd57b285a6a1a4be61db23b08faebd75a2e"
     },
     {
       "bytes": 987,
       "path": "10k-1-2-candidate-plain.process.json",
-      "sha256": "f0b54f1cc3836b59ae96aad865aa0101ed022d1cf5c1a7a94bc6ad49e24780d8"
+      "sha256": "e3e51724f4f648a35b09e3f977dc18e212c48a47fb7e0c5d1638d56a98918947"
     },
     {
-      "bytes": 33388,
+      "bytes": 33391,
       "path": "10k-1-2-candidate-plain.stderr",
-      "sha256": "4bcd5511a056a75d57e38d7c52cb8362e9fb2e37749430af842f0f92291e42b8"
+      "sha256": "c346bb4ca9187cbe510827438e9301e385605bf9072569ec326bea702ae045ab"
     },
     {
       "bytes": 30,
@@ -779,7 +779,7 @@
     {
       "bytes": 1191,
       "path": "10k-1-3-candidate-plain/diagnostics.json",
-      "sha256": "15aef59dcf891a178e0d908a6ba2309d397a1f837fc49126f286e7d64f1add23"
+      "sha256": "e7fa237dc038d2f28672dfa53146c57f5b4140ea2e355705d344502f920fca40"
     },
     {
       "bytes": 168331,
@@ -794,7 +794,7 @@
     {
       "bytes": 24374,
       "path": "10k-1-3-candidate-plain/result.json",
-      "sha256": "cd991943b7d2bfc8dbe86f5ca5247e1aed0e14dfc77dec29777c8ec30e1fb3f7"
+      "sha256": "187b4f0b11e45b9a0aa1ed2028992499a09ce9fdde596bcc3387642c5e3d00bd"
     },
     {
       "bytes": 156617,
@@ -802,24 +802,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31835,
+      "bytes": 31605,
       "path": "10k-1-3-candidate-plain.environment-after.json",
-      "sha256": "31807db534a8fd90944f97ed78b729751bb2a782ed3db838dcdd801fa9e7ac30"
+      "sha256": "3e4a77721276af15f6b96edfc7eeccab9fbf85cae27e99fd9335c8b4d646f823"
     },
     {
-      "bytes": 31836,
+      "bytes": 31606,
       "path": "10k-1-3-candidate-plain.environment-before.json",
-      "sha256": "311484790125ff72248365332bbe9fe6ecd1e561cf1adba2970954527a897c4e"
+      "sha256": "c997267fce4104a2656200856d4c2e7fd91480b1b2649e37e55b905562ed2865"
     },
     {
       "bytes": 987,
       "path": "10k-1-3-candidate-plain.process.json",
-      "sha256": "fd3ad1174a3183e70750222e89880c247e2a89e95a7127d8d70e5333a1957dfb"
+      "sha256": "6c7daab4965b2b71934ac5319a2e9c9b3a89c9fd60a80e8a117e956c14753693"
     },
     {
-      "bytes": 33389,
+      "bytes": 33394,
       "path": "10k-1-3-candidate-plain.stderr",
-      "sha256": "3c74671a0ac0ba425a6e7a1d1f4b86c3f712b224967bb534b4e289176178dba9"
+      "sha256": "5a8d048887493dc9c1fe966de5de1a7578c26494f566b0dea1efe4dc969cccbc"
     },
     {
       "bytes": 30,
@@ -834,7 +834,7 @@
     {
       "bytes": 1181,
       "path": "10k-1-4-base-plain/diagnostics.json",
-      "sha256": "bbab6a4da702645ccd35ac3ac7fc4fb529ac01bb2c11727c9b95d2cdcbc0043a"
+      "sha256": "5fcb5b14cb3c9856846a46e9f9ad19a37769bf020b37f80866a7e38a82d933d9"
     },
     {
       "bytes": 168331,
@@ -849,7 +849,7 @@
     {
       "bytes": 24374,
       "path": "10k-1-4-base-plain/result.json",
-      "sha256": "79533a67d0acc595ce37ec15c6c5b7982fe7f968060e438e21ef35d353dc5cc7"
+      "sha256": "7c2178a48d7856311f77391216d7fa884d0f33b55e9055af76643aecdfd5fad0"
     },
     {
       "bytes": 156617,
@@ -857,24 +857,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31942,
+      "bytes": 31600,
       "path": "10k-1-4-base-plain.environment-after.json",
-      "sha256": "8453b49c924ee2047484e2a18e44fc3dd348de01aded0c406e4bbabc0372a009"
+      "sha256": "8afdf9fda5008b92e9ed4f0c2c05611b1803b68e58d755712ba276bd89d38a31"
     },
     {
-      "bytes": 31831,
+      "bytes": 31601,
       "path": "10k-1-4-base-plain.environment-before.json",
-      "sha256": "7c4189b31200703751e177ec8a5269c5026ca09c5ecf2a3f4f0f62abe8a5e55e"
+      "sha256": "cc0b8e426fec9389c9ec41d67c83edb08cde76fbc1189917c20ba66c6c7fa113"
     },
     {
       "bytes": 967,
       "path": "10k-1-4-base-plain.process.json",
-      "sha256": "4ea33c4e58282ca7b0962288a7a7ee01f0749dfffbf1c8e5b68d18bc0489afb9"
+      "sha256": "63abd16cc1dde4fe53627d81247fb4fa863cc76f88737bcb8ffdf6cea1817b84"
     },
     {
-      "bytes": 33415,
+      "bytes": 33398,
       "path": "10k-1-4-base-plain.stderr",
-      "sha256": "04f9e7ef1d8ab7aa137f024e5be1cc88f2f3cec8eb922f0e3c754e6395818910"
+      "sha256": "0882d287d0b381babcdae3cea674368e4c2f4d4f1cb02dd5f04a9d71b1caf133"
     },
     {
       "bytes": 30,
@@ -889,7 +889,7 @@
     {
       "bytes": 1191,
       "path": "10k-2-1-candidate-plain/diagnostics.json",
-      "sha256": "4d593dfbfc9465bd34f825d4092c25ca570d384ca64cec4fd7fa2bee0cc5b77b"
+      "sha256": "19aee9bc55fd2fcb281fbbe78e6bbd2cefc6fb713c84c6a46ed32b888d6a8f68"
     },
     {
       "bytes": 168331,
@@ -904,7 +904,7 @@
     {
       "bytes": 24374,
       "path": "10k-2-1-candidate-plain/result.json",
-      "sha256": "02d8eaa754ff115c43561de02498a0ef0283420e976f7cc80c38730b879b24c3"
+      "sha256": "3b2f66e14d37e6f40cfeca2f63918941c2f1e0b36ae1c419e92f0e77f1d4fd05"
     },
     {
       "bytes": 156617,
@@ -912,24 +912,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31911,
+      "bytes": 31605,
       "path": "10k-2-1-candidate-plain.environment-after.json",
-      "sha256": "4bc7ca900d824e7c89b9e76854329e131cd78cb5477dc26f558a085bb09333b2"
+      "sha256": "ea41345e95829d8d0b878a197e987c8712ba9fbdf308489c6b8ccf4e2bce0dc2"
     },
     {
-      "bytes": 31834,
+      "bytes": 31606,
       "path": "10k-2-1-candidate-plain.environment-before.json",
-      "sha256": "982b4317f92b7a2809b1109e3cc92ea0baf8f740f4f71d3593767139036226bd"
+      "sha256": "2e8cb95676083d83ca876c2a8107fb073b562b125431344920f4b6ff002f9547"
     },
     {
       "bytes": 987,
       "path": "10k-2-1-candidate-plain.process.json",
-      "sha256": "5ae9927b485fb2a25dcbfff2770ffe1976eebd345522156dba1e09bfcf447751"
+      "sha256": "b8b7fb146c4fa86adb414e58c9c6ef40d2d02826a8295eeb2f621f650048cc6c"
     },
     {
-      "bytes": 33397,
+      "bytes": 33388,
       "path": "10k-2-1-candidate-plain.stderr",
-      "sha256": "514180a1fb909791268f0738bc92e8dab1d280b6b190a2a1dc102bc9714a8ab3"
+      "sha256": "514a411769f94a148e9c4ff70c9455a7d7ae6a584aa13abe0c40daf1919b1a27"
     },
     {
       "bytes": 30,
@@ -944,7 +944,7 @@
     {
       "bytes": 1181,
       "path": "10k-2-2-base-plain/diagnostics.json",
-      "sha256": "6c280057fdfdf3dfffa81a08329a782456a0579ba839cc9522c942b012b5e87d"
+      "sha256": "3bc1b305aa38e907cfee3528e4ad48ab580e7d6c05c96a086632c4a7ca656076"
     },
     {
       "bytes": 168331,
@@ -959,7 +959,7 @@
     {
       "bytes": 24374,
       "path": "10k-2-2-base-plain/result.json",
-      "sha256": "c6bc42118eebf56a514b7a543db6185b7c61986aaa3f864aaaededd3e05804e1"
+      "sha256": "8d5ea8e29188fca0e9509bc4d687b3120b20069f629925f399e4a3fb89e661b9"
     },
     {
       "bytes": 156617,
@@ -967,24 +967,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31966,
+      "bytes": 31600,
       "path": "10k-2-2-base-plain.environment-after.json",
-      "sha256": "98d2b62d3411f1d8994c876097df3251c560b09a27628dfebf484250e65a39fd"
+      "sha256": "16c30ffc9687ecb363267f45da90816c5abe8403d1d4e9a67adb8f1d3a546bbc"
     },
     {
-      "bytes": 31907,
+      "bytes": 31601,
       "path": "10k-2-2-base-plain.environment-before.json",
-      "sha256": "7f8f4d5b07de6f5eec4d13093b83be5cc861caf6d4fe6203326dbbd7b98337e0"
+      "sha256": "70ccef4259216be1ca869ff6a0dfa5f7821d1c6d6051ab778ed5f9317210d5f4"
     },
     {
       "bytes": 967,
       "path": "10k-2-2-base-plain.process.json",
-      "sha256": "af1fdc38ec65769be35c2c8f112e2f8bde82c400f922c0fbc6f50d9f969d0c11"
+      "sha256": "6d63f225fb8608d66d5177d6e735f2608b4d9089c7843a30be465a6024aa6f08"
     },
     {
-      "bytes": 33380,
+      "bytes": 33385,
       "path": "10k-2-2-base-plain.stderr",
-      "sha256": "a4dabd2e005f58a908a5c820ac58d3ee7683a3311d2545f3c5871825dbf82e18"
+      "sha256": "b652408bb74f4e0d51641748160b59b8cb6a08bdb256c56105684a04b57b82eb"
     },
     {
       "bytes": 30,
@@ -999,7 +999,7 @@
     {
       "bytes": 1181,
       "path": "10k-2-3-base-plain/diagnostics.json",
-      "sha256": "efdf3b0311ebebd16b3de3482529c8a6d94ecd51248a269f2079cc5aa49c3d7c"
+      "sha256": "0cfc66d4187a5123a8d9d8531fe4f996706765fe96910f0f59b764b4143782f8"
     },
     {
       "bytes": 168331,
@@ -1014,7 +1014,7 @@
     {
       "bytes": 24374,
       "path": "10k-2-3-base-plain/result.json",
-      "sha256": "d8a4f9fb55f07fbdd4f2aab4330c11d66f0227b1518faf048e6a52f279042ccd"
+      "sha256": "b5c72c6b1226150a3cefa7ea13e9d4b3c25ef48d7207b5668de065d726151774"
     },
     {
       "bytes": 156617,
@@ -1022,24 +1022,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 32420,
+      "bytes": 31529,
       "path": "10k-2-3-base-plain.environment-after.json",
-      "sha256": "c22fa989f114ca593034a95d074efb5dfcd3d82942f3b8cede3590d0aa01d475"
+      "sha256": "9f3de26773c16845b3f20ac21664de68c702eec5695489349c5706ef648ead41"
     },
     {
-      "bytes": 31965,
+      "bytes": 31601,
       "path": "10k-2-3-base-plain.environment-before.json",
-      "sha256": "5897dfa2a38c332aef92e7a93f39b8872e07e2e41449cdd87d37b644cd8ee5f0"
+      "sha256": "c8442652780f9e744e4dbea7aca8f65a257fbfefe875d1e8e587d1346c0ab87e"
     },
     {
       "bytes": 967,
       "path": "10k-2-3-base-plain.process.json",
-      "sha256": "aa7e6b3d031993b375b89d4a9ccc29b2e94d5c2b9c7b924423803cdfaa38ab22"
+      "sha256": "0cd97b2f53d19d7f6520c8bf9a35f50204e2f3e801768bc1db7d06c0db49128c"
     },
     {
-      "bytes": 33396,
+      "bytes": 33387,
       "path": "10k-2-3-base-plain.stderr",
-      "sha256": "b6b72e621fa87557ed9f8c9a4042048be49dc5b6693f28710771b54abfb08f14"
+      "sha256": "2784f38d7f3c4be13d03940d5aa1f2bfd1cdc889e96eb285e1a8946f7ba72f1a"
     },
     {
       "bytes": 30,
@@ -1052,9 +1052,9 @@
       "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
     },
     {
-      "bytes": 1191,
+      "bytes": 1189,
       "path": "10k-2-4-candidate-plain/diagnostics.json",
-      "sha256": "7d45a49087f5be09574f3910fb16ea94d742a4effb6ccce4a4e6badbc476a562"
+      "sha256": "72a4c2bf99ba0bfad115911b0bf2fefc19f1df7be9322e294c1f4d288bacd377"
     },
     {
       "bytes": 168331,
@@ -1069,7 +1069,7 @@
     {
       "bytes": 24374,
       "path": "10k-2-4-candidate-plain/result.json",
-      "sha256": "d6154033cb59e0c86446242c8925a10d64892d527e954410fdad3591899b03ec"
+      "sha256": "6103b3abf05d99a580d3d95a234d9b88fa1305c47efb262486f7a20624f4f088"
     },
     {
       "bytes": 156617,
@@ -1077,24 +1077,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 31971,
+      "bytes": 31534,
       "path": "10k-2-4-candidate-plain.environment-after.json",
-      "sha256": "6a2e5362e221ec596a335f67d43ce8086a5dbeaf472742b229e905cdcd87cb96"
+      "sha256": "c5ab046d67c3d23b8f75657fc5721ffd10723bfbceabdf5a7e7823a726ae232c"
     },
     {
-      "bytes": 32314,
+      "bytes": 31535,
       "path": "10k-2-4-candidate-plain.environment-before.json",
-      "sha256": "42057c8dcda1744212c224aa4f48efddbf3beb6a568473d88c6a0efda8595b8e"
+      "sha256": "3d204a6bfd7cebce7665f9e29d0ed72e1a57c521e8a1ec90ed015e1689f3b22e"
     },
     {
       "bytes": 987,
       "path": "10k-2-4-candidate-plain.process.json",
-      "sha256": "1815337d633fae760f74d3cb53f6cf27bedec22b9259ed88c29b30540e7f05e9"
+      "sha256": "061dcbd4d862b7ae72a78a625fe443b4dadaa6f965e2a4a2e802f488d234112b"
     },
     {
-      "bytes": 33388,
+      "bytes": 33392,
       "path": "10k-2-4-candidate-plain.stderr",
-      "sha256": "7145717262cbfbb55d120d06e999653231305bacafd405554ecbc5353ec87260"
+      "sha256": "0a6d29ee11c95681fcb0f9d9bc4be2789a11190ad262cb1431754c164d6b1ae1"
     },
     {
       "bytes": 30,
@@ -1109,7 +1109,7 @@
     {
       "bytes": 1181,
       "path": "10k-3-1-base-plain/diagnostics.json",
-      "sha256": "8cbb8b70532085e804049e46add5a11a0e47d5ef29211bc634a5090682325d8c"
+      "sha256": "9db24e2852ee3d791ecb61f05d09ccb1cafff93ace226b05e410a95091cb7df0"
     },
     {
       "bytes": 168331,
@@ -1124,7 +1124,7 @@
     {
       "bytes": 24374,
       "path": "10k-3-1-base-plain/result.json",
-      "sha256": "04ec5470e87ed89de2123dfa864e15352dcc34f7b010f77a82b3b0f6e17371e4"
+      "sha256": "ae06a3342253d0bd7a7805a6a14eeed8ee3451b1766ee2c0829f3508eb9e2e56"
     },
     {
       "bytes": 156617,
@@ -1132,24 +1132,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 32024,
+      "bytes": 31529,
       "path": "10k-3-1-base-plain.environment-after.json",
-      "sha256": "b2d665d5588bee9c3f30dc86e5daa83e968fe7f1941b02f53f1f373a2af6f769"
+      "sha256": "cd531b8f2c7fe705f4a076677217d85f1b1d1c07f89aecbef13aea0070f699ea"
     },
     {
-      "bytes": 31967,
+      "bytes": 31530,
       "path": "10k-3-1-base-plain.environment-before.json",
-      "sha256": "bffc13ab6db98515d23b657f35f1cce9bb407fbaea71c74708796eb0c91a00f6"
+      "sha256": "0cfcec15422cc0530d34601b37c51f4494055349cecccab57135f6e319f77c5b"
     },
     {
       "bytes": 967,
       "path": "10k-3-1-base-plain.process.json",
-      "sha256": "9a7d2f96a27814d3099764e5909c92f99d2f621518fcb0ab3646adcdb8d1b04c"
+      "sha256": "e57208f7fd5781ede20e34fe57e9736d7e1aa054ae78561c294cab595fb54559"
     },
     {
-      "bytes": 33408,
+      "bytes": 33382,
       "path": "10k-3-1-base-plain.stderr",
-      "sha256": "9edc59543a16590034cb1b143f81aeb3bb47620587d7c3f4ba36a7172b67c697"
+      "sha256": "a3ecdb66efbe6a564ba6846571486a1aa233d7a976c1b9c91c4eb49646ea531e"
     },
     {
       "bytes": 30,
@@ -1164,7 +1164,7 @@
     {
       "bytes": 1191,
       "path": "10k-3-2-candidate-plain/diagnostics.json",
-      "sha256": "1bc83f39f732446b5af67d096decf9c01d84322fade9fb341b77ade9ce94cdda"
+      "sha256": "6fcf237633fa425eebdd899013b64ea50d8271a77b0ed145fb901ac236c198cf"
     },
     {
       "bytes": 168331,
@@ -1179,7 +1179,7 @@
     {
       "bytes": 24374,
       "path": "10k-3-2-candidate-plain/result.json",
-      "sha256": "8f877f74654f8ab27a317a5f4bd3fa21935efdce145dd7549879069948143edf"
+      "sha256": "bf4743f21d8fc6cf97f692888093f3c47443c891a3e064607b48a0996bff4cc1"
     },
     {
       "bytes": 156617,
@@ -1187,24 +1187,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 32262,
+      "bytes": 31648,
       "path": "10k-3-2-candidate-plain.environment-after.json",
-      "sha256": "9511c0e9095f0a1bfc783fba5b292585af0948dcd8b4af4d13aa4263691a983c"
+      "sha256": "c792cd83b91c583f2241e5dcb46849289cd42b3fe7d3f30c5932f7f2499de0eb"
     },
     {
-      "bytes": 32031,
+      "bytes": 31535,
       "path": "10k-3-2-candidate-plain.environment-before.json",
-      "sha256": "f71141fd76dd04d74976a933056bcf00df5689575741be53295cb30f5e79dc9b"
+      "sha256": "741979edbeaf52e3a741302805ac63fa1c2c309537d2a78fa43f24cfec3b5186"
     },
     {
       "bytes": 987,
       "path": "10k-3-2-candidate-plain.process.json",
-      "sha256": "ed9e3bf2a067ee13cb5745806f4551d1512479900ab7b8da79f72ae13daa2105"
+      "sha256": "232b60cba04d732c8a6b832b6dbf843a1171ed287b767487ec2568e7acdb8447"
     },
     {
-      "bytes": 33400,
+      "bytes": 33381,
       "path": "10k-3-2-candidate-plain.stderr",
-      "sha256": "ecb7bc8e234a32078c4327409ae6f4c18d3b9f64895d946f6ccc98fd2ce68c57"
+      "sha256": "9a8f02008c050ba470e8ddbd5f35a6dd7249b774ab5178381518afb74cc75826"
     },
     {
       "bytes": 30,
@@ -1219,7 +1219,7 @@
     {
       "bytes": 1191,
       "path": "10k-3-3-candidate-plain/diagnostics.json",
-      "sha256": "b9dd9907f7444cdabc95711484402abe7c637725de6a44736a2b90c3e63f74b7"
+      "sha256": "82ac98c67063fc1a660f67a2cc779a4903fabd854100b433490757c5bb4b5b3b"
     },
     {
       "bytes": 168331,
@@ -1234,7 +1234,7 @@
     {
       "bytes": 24374,
       "path": "10k-3-3-candidate-plain/result.json",
-      "sha256": "4b0f61861a41983b2caede9e2db3cd0db3fd60bc1fff95b9a3b89c6d4237c661"
+      "sha256": "80f5efded71abc838329191547ca056fd471cfb94ab22047d11845dc16543011"
     },
     {
       "bytes": 156617,
@@ -1242,24 +1242,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 32148,
+      "bytes": 31534,
       "path": "10k-3-3-candidate-plain.environment-after.json",
-      "sha256": "5c9e922cb0ff8db29fe0dd068cdff8b2dd39d2311e75c768ca4b29360c5310d3"
+      "sha256": "1caad92083409ada2444efdc15afbd8baf7a86f98f508e21d8a7621b5ca4d3db"
     },
     {
-      "bytes": 32262,
+      "bytes": 31649,
       "path": "10k-3-3-candidate-plain.environment-before.json",
-      "sha256": "05f6e4b5692898e1195983d17ff28086918e669255f543a6f97dde029709ba34"
+      "sha256": "f193fca7b103c34dc20fd9052d08141aa7b7b32ebcb2cd4dc73016b0b79c992d"
     },
     {
       "bytes": 987,
       "path": "10k-3-3-candidate-plain.process.json",
-      "sha256": "e63eb8660a78bd53f4de51d1c7a770e2d79bfcf2d37fdf349eee97832425630b"
+      "sha256": "3bb13d7d0d11beda1847661348fd8850d16d32a787b10fcf1e62a08878e58e37"
     },
     {
       "bytes": 33390,
       "path": "10k-3-3-candidate-plain.stderr",
-      "sha256": "10680f4e1f6326b3c8fc35803864c37748e29e3a2e605ba60b7c8fb8fd52b885"
+      "sha256": "d46a4a199ce90ae3c88c1f818690de9c171b625152c6e83bd5867b1c32e92d33"
     },
     {
       "bytes": 30,
@@ -1272,9 +1272,9 @@
       "sha256": "b3f12bad8350d10e34b7bb250e331ef37e855fdd0fa9b56253db72f1a41c646e"
     },
     {
-      "bytes": 1180,
+      "bytes": 1181,
       "path": "10k-3-4-base-plain/diagnostics.json",
-      "sha256": "1b26f8a1d106918aad10e39390eb16a58c2345254f3a374566adc067a24176a0"
+      "sha256": "dd8209fab7058c4c4897c3026b68cc1c76961781cbd5333a69fb5aaa45e6e882"
     },
     {
       "bytes": 168331,
@@ -1289,7 +1289,7 @@
     {
       "bytes": 24374,
       "path": "10k-3-4-base-plain/result.json",
-      "sha256": "015d2b6e27819d003a00aba5f07e6c3cce105d1492ebffae0a009459c45d99cd"
+      "sha256": "0b5dbef56a65cd995313a7b7d8ad4da07122e2c4c82dffe607ee799759125e5b"
     },
     {
       "bytes": 156617,
@@ -1297,24 +1297,24 @@
       "sha256": "4c0c673c31fb36ad35e669c49e6384b39615fcca35338a9bfa6288932b22b29e"
     },
     {
-      "bytes": 32202,
+      "bytes": 31529,
       "path": "10k-3-4-base-plain.environment-after.json",
-      "sha256": "1db8b754d9b30acfbbbb3362c1c5a8611c6836971c51d2d387ba5b6806cfa3dd"
+      "sha256": "30eb7a480fc88bf5079a858c222775d78b572c27e7989fcb26e320963ffda1df"
     },
     {
-      "bytes": 32203,
+      "bytes": 31530,
       "path": "10k-3-4-base-plain.environment-before.json",
-      "sha256": "63743c508347a0c49dbff9368d0abba4c36ef3be4efc3f0296cd6ce8c3146d3b"
+      "sha256": "562d7bcaad57552ab7f95f74f371072a0c6c12b0e3a116a799fafcab402e0efb"
     },
     {
       "bytes": 967,
       "path": "10k-3-4-base-plain.process.json",
-      "sha256": "c3d578043edc2eccf9bae08c3afdc081887d79e9eada5a42e8f43480340bf76a"
+      "sha256": "b5067053705b04e9f3e2386b1302a95584dbe1b1eda68fe8f3795844a53f372e"
     },
     {
-      "bytes": 33393,
+      "bytes": 33395,
       "path": "10k-3-4-base-plain.stderr",
-      "sha256": "d8fd52b8b2c939c7aa0c0c61dc68f656bbdde4caa801c6a43ed9b1dc063687cd"
+      "sha256": "a331942abb58c817d75b40fa50339cc403bba3afa14638733d8e0a3a01b051dd"
     },
     {
       "bytes": 30,
@@ -1324,7 +1324,7 @@
     {
       "bytes": 3432,
       "path": "base-plain.build.stderr",
-      "sha256": "4477463888dfbde542209b62010ac14feefc6ff0b92d15eb338587dcf193b207"
+      "sha256": "249e4c01ffc9cb84be540983668920bc63908961230f50b65185658a48166987"
     },
     {
       "bytes": 0,
@@ -1334,7 +1334,7 @@
     {
       "bytes": 3487,
       "path": "candidate-plain.build.stderr",
-      "sha256": "113c130ebce2f5f792e7bc859133666797a47074a6c06b96db80ede9423b400e"
+      "sha256": "3621a54b6cfa64940ea8afddaac8cbdcb6241b477dfb09ce9692aeac2499d34d"
     },
     {
       "bytes": 0,
@@ -1342,25 +1342,25 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "bytes": 531487,
+      "bytes": 618012,
       "path": "identity.json",
-      "sha256": "416e0ed9b67c31d49bcf7e776d1061ec1292256e75157b8e9c9ac08fd972382b"
+      "sha256": "ccd3d9044ee4214801cdb1fc35290f3b948322f41d73e9bc46ca2d900d055ae6"
     }
   ],
   "identity": {
     "binaries": {
       "base": {
-        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\base-plain.exe",
-        "sha256": "17bfa62cdcdd9e28cbc90e3549103e39db69c0a4f7dad2edb98b3d12c8f03bc0"
+        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-build\\base-plain.exe",
+        "sha256": "e5759293bd79037921e3db23077a642eefcf55d11957f19e69986950ac097df5"
       },
       "candidate": {
-        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\candidate-plain.exe",
-        "sha256": "6e8d03b7de54659c192d81a8eb01814a1aa0a7612e3153ffee0314a4de30331e"
+        "path": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-build\\candidate-plain.exe",
+        "sha256": "b63bfe5c6e7564935ff29ad802bd10c89512436a3e259795a1d5f1adef720ccf"
       }
     },
     "completed": true,
-    "ended": "1790754319930820900",
-    "head": "af1f7d04a4b7ea2455e9567bffbf058c4ac30ce0",
+    "ended": "1790761220292919000",
+    "head": "4a648dfb673c5e66577c89da3018734739019859",
     "inputs": {
       "inputs/urban-100k/common.lfre": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a",
       "inputs/urban-100k/config.toml": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8",
@@ -1382,7 +1382,7 @@
       "scale": null
     },
     "mode": "plain",
-    "protocol": "p5-chunk-grain-v2",
+    "protocol": "p5-chunk-grain-v3",
     "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
     "sources": {
       "base": {
@@ -1390,9 +1390,10 @@
         "base": "cb562bde948b6f96484581b650422f149f6c5787",
         "build": {
           "binary_bytes": 3972096,
-          "binary_sha256": "17bfa62cdcdd9e28cbc90e3549103e39db69c0a4f7dad2edb98b3d12c8f03bc0",
+          "binary_sha256": "e5759293bd79037921e3db23077a642eefcf55d11957f19e69986950ac097df5",
           "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
-          "collector_head": "7d9c9b5d9325bcfbcb797807238db6778cda7972",
+          "cleared_native_overrides": [],
+          "collector_head": "4a648dfb673c5e66577c89da3018734739019859",
           "command": {
             "args": [
               "+1.98.0",
@@ -1405,22 +1406,49 @@
               "--bin",
               "laneflow-urban-harness",
               "--target-dir",
-              "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\base-plain-target"
+              "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-build\\base-plain-target"
             ],
             "environment": {
+              "AR": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\lib.exe",
               "CARGO_ENCODED_RUSTFLAGS": "",
+              "CARGO_HOME": "E:\\.cargo",
               "CARGO_INCREMENTAL": "0",
+              "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\link.exe",
+              "CC": "cl.exe",
+              "COMSPEC": "C:\\WINDOWS\\system32\\cmd.exe",
+              "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+              "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+              "PATH": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+              "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
               "RUSTC_WORKSPACE_WRAPPER": "",
               "RUSTC_WRAPPER": "",
-              "RUSTFLAGS": ""
+              "RUSTFLAGS": "",
+              "RUST_LOG": "warn",
+              "SYSTEMDRIVE": "C:",
+              "SYSTEMROOT": "C:\\WINDOWS",
+              "TEMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+              "TMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+              "USERPROFILE": "C:\\Users\\ynh2",
+              "VSLANG": "1033",
+              "WINDIR": "C:\\WINDOWS"
             },
+            "environment_cleared": true,
             "program": "cargo",
-            "working_directory": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\base-plain-source"
+            "working_directory": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-build\\base-plain-source"
           },
           "exit_code": 0,
           "inherited_environment": {
             "CARGO_HOME": "E:\\.cargo",
-            "RUST_LOG": "warn"
+            "COMSPEC": "C:\\WINDOWS\\system32\\cmd.exe",
+            "PATH": "C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
+            "RUST_LOG": "warn",
+            "SYSTEMDRIVE": "C:",
+            "SYSTEMROOT": "C:\\WINDOWS",
+            "TEMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+            "TMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+            "USERPROFILE": "C:\\Users\\ynh2",
+            "WINDIR": "C:\\WINDOWS"
           },
           "logs": [
             {
@@ -1429,17 +1457,92 @@
             },
             {
               "path": "base-plain.build.stderr",
-              "sha256": "4477463888dfbde542209b62010ac14feefc6ff0b92d15eb338587dcf193b207"
+              "sha256": "249e4c01ffc9cb84be540983668920bc63908961230f50b65185658a48166987"
             }
           ],
-          "protocol": "p5-chunk-grain-v2",
+          "native_toolchain": {
+            "controlled_environment": {
+              "AR": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\lib.exe",
+              "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\link.exe",
+              "CC": "cl.exe",
+              "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+              "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+              "PATH": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+              "VSLANG": "1033"
+            },
+            "resolver": "cc 1.2.66",
+            "schema": "p5-chunk-native-msvc-v1",
+            "target": "x86_64-pc-windows-msvc",
+            "tools": [
+              {
+                "arguments": [
+                  "-nologo",
+                  "-MD",
+                  "-O2",
+                  "-Brepro",
+                  "-W4"
+                ],
+                "bytes": 893288,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+                  "VSLANG": "1033"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe",
+                "role": "compiler",
+                "sha256": "315a654ea116864516a1674858e587e535e3bc3045ff32ed2f2739a2c1ec5640",
+                "version_banner": "                         C/C++ COMPILER OPTIONS\n                              -OPTIMIZATION-\n/O1 maximum optimizations (favor space) /O2 maximum optimizations (favor speed)"
+              },
+              {
+                "arguments": [],
+                "bytes": 23416,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\lib.exe",
+                "role": "archiver",
+                "sha256": "782b0f66bc46159e008d2e9f2efa0e9212c8d0a468d0c610630d5c724a44adc6",
+                "version_banner": "Microsoft (R) Library Manager Version 14.51.36257.0\nCopyright (C) Microsoft Corporation.  All rights reserved.\nusage: LIB [options] [files]"
+              },
+              {
+                "arguments": [],
+                "bytes": 751976,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\ml64.exe",
+                "role": "assembler",
+                "sha256": "2bca6092a750bd69023ab9047619a98672837fd22b154892aca3877beac9abe9",
+                "version_banner": "        ML64 [ /options ] filelist [ /link linkoptions ]\n/Bl<linker> Use alternate linker          /Sf Generate first pass listing\n/c Assemble without linking               /Sl<width> Set line width"
+              },
+              {
+                "arguments": [],
+                "bytes": 3701128,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\link.exe",
+                "role": "linker",
+                "sha256": "610aae3d74a66fa5ef54cac5df8ea8bcbb1fdd2a3db9087eb92088bd395eaf34",
+                "version_banner": "Microsoft (R) Incremental Linker Version 14.51.36257.0\nCopyright (C) Microsoft Corporation.  All rights reserved.\n usage: LINK [options] [files] [@commandfile]"
+              }
+            ]
+          },
+          "protocol": "p5-chunk-grain-v3",
           "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
-          "schema": "p5-chunk-controlled-build-v1",
+          "schema": "p5-chunk-controlled-build-v2",
           "source_files_sha256": "93af2183e3754f6f2e3b5f340185af2bdd804f134c5deecf00a12fd90187fc01"
         },
         "chunks_per_worker": 2,
         "mode": "plain",
-        "protocol": "p5-chunk-grain-v2",
+        "protocol": "p5-chunk-grain-v3",
         "source_files": {
           ".agents/README.md": "53337480d946bbce4294d695da407c6086ac529c5ad4ddf2c7689f7a51d023d1",
           ".agents/skills/laneflow-adapter/SKILL.md": "642c8ba817e35ecc6d85f0d30e5a2e92760353b195698f7909fd1475f7148e0c",
@@ -3159,9 +3262,16 @@
         "base": "cb562bde948b6f96484581b650422f149f6c5787",
         "build": {
           "binary_bytes": 3972096,
-          "binary_sha256": "6e8d03b7de54659c192d81a8eb01814a1aa0a7612e3153ffee0314a4de30331e",
+          "binary_sha256": "b63bfe5c6e7564935ff29ad802bd10c89512436a3e259795a1d5f1adef720ccf",
           "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
-          "collector_head": "7d9c9b5d9325bcfbcb797807238db6778cda7972",
+          "cleared_native_overrides": [
+            "BLAKE3_CI",
+            "CC",
+            "CC_X86_64_PC_WINDOWS_MSVC",
+            "CFLAGS",
+            "HOST_CFLAGS"
+          ],
+          "collector_head": "4a648dfb673c5e66577c89da3018734739019859",
           "command": {
             "args": [
               "+1.98.0",
@@ -3174,22 +3284,49 @@
               "--bin",
               "laneflow-urban-harness",
               "--target-dir",
-              "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\candidate-plain-target"
+              "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-build\\candidate-plain-target"
             ],
             "environment": {
+              "AR": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\lib.exe",
               "CARGO_ENCODED_RUSTFLAGS": "",
+              "CARGO_HOME": "E:\\.cargo",
               "CARGO_INCREMENTAL": "0",
+              "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\link.exe",
+              "CC": "cl.exe",
+              "COMSPEC": "C:\\WINDOWS\\system32\\cmd.exe",
+              "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+              "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+              "PATH": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+              "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
               "RUSTC_WORKSPACE_WRAPPER": "",
               "RUSTC_WRAPPER": "",
-              "RUSTFLAGS": ""
+              "RUSTFLAGS": "",
+              "RUST_LOG": "warn",
+              "SYSTEMDRIVE": "C:",
+              "SYSTEMROOT": "C:\\WINDOWS",
+              "TEMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+              "TMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+              "USERPROFILE": "C:\\Users\\ynh2",
+              "VSLANG": "1033",
+              "WINDIR": "C:\\WINDOWS"
             },
+            "environment_cleared": true,
             "program": "cargo",
-            "working_directory": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-build\\candidate-plain-source"
+            "working_directory": "\\\\?\\E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-build\\candidate-plain-source"
           },
           "exit_code": 0,
           "inherited_environment": {
             "CARGO_HOME": "E:\\.cargo",
-            "RUST_LOG": "warn"
+            "COMSPEC": "C:\\WINDOWS\\system32\\cmd.exe",
+            "PATH": "C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
+            "RUST_LOG": "warn",
+            "SYSTEMDRIVE": "C:",
+            "SYSTEMROOT": "C:\\WINDOWS",
+            "TEMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+            "TMP": "C:\\Users\\ynh2\\AppData\\Local\\Temp",
+            "USERPROFILE": "C:\\Users\\ynh2",
+            "WINDIR": "C:\\WINDOWS"
           },
           "logs": [
             {
@@ -3198,17 +3335,92 @@
             },
             {
               "path": "candidate-plain.build.stderr",
-              "sha256": "113c130ebce2f5f792e7bc859133666797a47074a6c06b96db80ede9423b400e"
+              "sha256": "3621a54b6cfa64940ea8afddaac8cbdcb6241b477dfb09ce9692aeac2499d34d"
             }
           ],
-          "protocol": "p5-chunk-grain-v2",
+          "native_toolchain": {
+            "controlled_environment": {
+              "AR": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\lib.exe",
+              "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\link.exe",
+              "CC": "cl.exe",
+              "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+              "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+              "PATH": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+              "VSLANG": "1033"
+            },
+            "resolver": "cc 1.2.66",
+            "schema": "p5-chunk-native-msvc-v1",
+            "target": "x86_64-pc-windows-msvc",
+            "tools": [
+              {
+                "arguments": [
+                  "-nologo",
+                  "-MD",
+                  "-O2",
+                  "-Brepro",
+                  "-W4"
+                ],
+                "bytes": 893288,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692",
+                  "VSLANG": "1033"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe",
+                "role": "compiler",
+                "sha256": "315a654ea116864516a1674858e587e535e3bc3045ff32ed2f2739a2c1ec5640",
+                "version_banner": "                         C/C++ COMPILER OPTIONS\n                              -OPTIMIZATION-\n/O1 maximum optimizations (favor space) /O2 maximum optimizations (favor speed)"
+              },
+              {
+                "arguments": [],
+                "bytes": 23416,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\lib.exe",
+                "role": "archiver",
+                "sha256": "782b0f66bc46159e008d2e9f2efa0e9212c8d0a468d0c610630d5c724a44adc6",
+                "version_banner": "Microsoft (R) Library Manager Version 14.51.36257.0\nCopyright (C) Microsoft Corporation.  All rights reserved.\nusage: LIB [options] [files]"
+              },
+              {
+                "arguments": [],
+                "bytes": 751976,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\ml64.exe",
+                "role": "assembler",
+                "sha256": "2bca6092a750bd69023ab9047619a98672837fd22b154892aca3877beac9abe9",
+                "version_banner": "        ML64 [ /options ] filelist [ /link linkoptions ]\n/Bl<linker> Use alternate linker          /Sf Generate first pass listing\n/c Assemble without linking               /Sl<width> Set line width"
+              },
+              {
+                "arguments": [],
+                "bytes": 3701128,
+                "environment": {
+                  "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\include;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\cppwinrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\winrt;C:\\Program Files (x86)\\Windows Kits\\10\\include\\10.0.26100.0\\shared;",
+                  "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\lib\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\atlmfc\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\x64;",
+                  "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\71064_1790760432693;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\.codex\\tmp\\arg0\\codex-arg0I20qwC;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\libheif\\libheif\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\jxrlib\\jxrlib\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override;C:\\Users\\ynh2\\AppData\\Local\\fnm_multishells\\66216_1790718993259;C:\\Program Files\\Microsoft\\jdk-11.0.31.11-hotspot\\bin;C:\\Program Files\\Zulu\\zulu-24\\bin\\;D:\\SIMULIA\\Commands;C:\\Program Files\\Common Files\\Oracle\\Java\\javapath;C:\\Program Files\\AdoptOpenJDK\\jdk-17.0.0.18-openj9\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\libnvvp;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\bin;C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1\\libnvvp;C:\\Program Files\\Microsoft\\jdk-11.0.25.9-hotspot\\bin;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\税务证书应用客户端;C:\\Progr;m Files\\;ocker\\Docker\\resources\\bin;C:\\Program Files (x86)\\EasyShare\\x86\\;C:\\Program Files (x86)\\EasyShare\\x64\\;C:\\Program Files (x86)\\pcsuite\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR;C:\\Program Files\\NVIDIA Corporation\\Nsight Compute 2024.3.2\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Program Files\\Bandizip\\;C:\\Program Files\\nodejs\\;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\Program Files\\starship\\bin\\;C:\\Program Files\\GnuPG\\bin;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Sniffnet\\;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\WSL\\;C:\\Users\\ynh2\\.grok\\bin;C:\\Users\\ynh2\\.kimi-code\\bin;E:\\pnpm-global\\bin;E:\\.cargo\\bin;C:\\Users\\ynh2\\AppData\\Local\\pnpm;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\ynh2\\AppData\\Local\\JetBrains\\Toolbox\\scripts;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Helix.Helix_Microsoft.Winget.Source_8wekyb3d8bbwe\\helix-23.03-x86_64-windows;E:\\vcpkg;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Airshipper;C:\\Program Files\\cpolar\\;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Kiro\\bin;C:\\Users\\ynh2\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\ynh2\\AppData\\Roaming\\npm;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WinGet\\Packages\\EasyTier.EasyTier_Microsoft.Winget.Source_8wekyb3d8bbwe\\easytier-windows-x86_64;E:\\tools\\bin;C:\\Users\\ynh2\\.local\\bin;C:\\Users\\ynh2\\.dotnet\\tools;C:\\Users\\ynh2\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\ynh2\\AppData\\Local\\Zellij\\;C:\\Program Files (x86)\\pcsuite\\VClaw\\resources\\cli;C:\\Users\\ynh2\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin;C:\\Users\\ynh2\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\438f63242d1bcf85;C:\\Users\\ynh2\\AppData\\Local\\OpenAI\\Codex\\bin\\ca9abb0b4d8ac692"
+                },
+                "path": "\\\\?\\C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\link.exe",
+                "role": "linker",
+                "sha256": "610aae3d74a66fa5ef54cac5df8ea8bcbb1fdd2a3db9087eb92088bd395eaf34",
+                "version_banner": "Microsoft (R) Incremental Linker Version 14.51.36257.0\nCopyright (C) Microsoft Corporation.  All rights reserved.\n usage: LINK [options] [files] [@commandfile]"
+              }
+            ]
+          },
+          "protocol": "p5-chunk-grain-v3",
           "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
-          "schema": "p5-chunk-controlled-build-v1",
+          "schema": "p5-chunk-controlled-build-v2",
           "source_files_sha256": "bbbdc07b69faa223d54536311e53724fc8cf20fd7c4bc0841a50aff3134744df"
         },
         "chunks_per_worker": 4,
         "mode": "plain",
-        "protocol": "p5-chunk-grain-v2",
+        "protocol": "p5-chunk-grain-v3",
         "source_files": {
           ".agents/README.md": "53337480d946bbce4294d695da407c6086ac529c5ad4ddf2c7689f7a51d023d1",
           ".agents/skills/laneflow-adapter/SKILL.md": "642c8ba817e35ecc6d85f0d30e5a2e92760353b195698f7909fd1475f7148e0c",
@@ -4924,577 +5136,577 @@
         }
       }
     },
-    "started": "1790754069982910100",
+    "started": "1790760975681364000",
     "ticks": 256,
-    "tree": "25fe4f2b2f1f337672d158d9860d4a5f57edf455",
+    "tree": "e3c0bf3665c0548256bc4c43e6759e96ae5b1562",
     "workers": 4
   },
   "plain_comparison": {
     "100k": {
       "all": {
-        "base_mean_ms": 20.539025585937498,
+        "base_mean_ms": 20.72090078125,
         "base_run_means_ms": [
-          20.524279296875,
-          20.568227734375,
-          20.334187109375,
-          20.753074609375,
-          20.535446484375,
-          20.51893828125
+          20.2136046875,
+          20.151916796875,
+          22.23783828125,
+          20.966681640625,
+          20.24162734375,
+          20.5137359375
         ],
         "base_run_p95s_ms": [
-          24.4882,
-          25.3687,
-          24.7255,
-          25.5042,
-          25.0463,
-          25.6952
+          24.4897,
+          24.2306,
+          28.299,
+          25.4575,
+          24.4438,
+          25.3933
         ],
-        "candidate_mean_ms": 20.50266555989583,
+        "candidate_mean_ms": 20.408808138020834,
         "candidate_run_means_ms": [
-          21.010603125,
-          20.1441625,
-          20.41927734375,
-          20.52741171875,
-          20.28836953125,
-          20.626169140625
+          20.194893359375,
+          20.007057421875,
+          20.350548828125,
+          20.4615609375,
+          20.5451078125,
+          20.89368046875
         ],
         "candidate_run_p95s_ms": [
-          24.9785,
-          24.449,
-          25.062,
-          25.4239,
-          24.5969,
-          25.2764
+          24.8747,
+          24.2828,
+          24.6114,
+          25.0566,
+          24.6598,
+          25.7372
         ],
         "groups": [
           {
-            "base_mean_ms": 20.546253515625,
-            "base_p95_ms": 24.928449999999998,
-            "base_within_arm_span_pct": 0.21390000598686928,
-            "candidate_mean_ms": 20.577382812499998,
-            "candidate_p95_ms": 24.71375,
-            "candidate_within_arm_span_pct": 4.210645410521637,
+            "base_mean_ms": 20.182760742187497,
+            "base_p95_ms": 24.360149999999997,
+            "base_within_arm_span_pct": 0.3056464445721447,
+            "candidate_mean_ms": 20.100975390625003,
+            "candidate_p95_ms": 24.57875,
+            "candidate_within_arm_span_pct": 0.9344618052097446,
             "group": 1,
-            "mean_delta_pct": 0.15150838497794972,
+            "mean_delta_pct": -0.4052238076208359,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": -0.86126494025901
+            "p95_delta_pct": 0.8973672165401458
           },
           {
-            "base_mean_ms": 20.543630859375,
-            "base_p95_ms": 25.11485,
-            "base_within_arm_span_pct": 2.039013954579695,
-            "candidate_mean_ms": 20.47334453125,
-            "candidate_p95_ms": 25.24295,
-            "candidate_within_arm_span_pct": 0.5281715199729345,
+            "base_mean_ms": 21.602259960937502,
+            "base_p95_ms": 26.87825,
+            "base_within_arm_span_pct": 5.884368778653619,
+            "candidate_mean_ms": 20.406054882812498,
+            "candidate_p95_ms": 24.834,
+            "candidate_within_arm_span_pct": 0.5440155385865543,
             "group": 2,
-            "mean_delta_pct": -0.3421319658930999,
+            "mean_delta_pct": -5.537407105960456,
             "order": [
               "candidate",
               "base",
               "base",
               "candidate"
             ],
-            "p95_delta_pct": 0.5100567990650839
+            "p95_delta_pct": -7.605591881911966
           },
           {
-            "base_mean_ms": 20.5271923828125,
-            "base_p95_ms": 25.37075,
-            "base_within_arm_span_pct": 0.0804211448752331,
-            "candidate_mean_ms": 20.4572693359375,
-            "candidate_p95_ms": 24.93665,
-            "candidate_within_arm_span_pct": 1.6512448647365705,
+            "base_mean_ms": 20.377681640625,
+            "base_p95_ms": 24.91855,
+            "base_within_arm_span_pct": 1.335326552592347,
+            "candidate_mean_ms": 20.719394140625,
+            "candidate_p95_ms": 25.198500000000003,
+            "candidate_within_arm_span_pct": 1.682349656964846,
             "group": 3,
-            "mean_delta_pct": -0.340636194034738,
+            "mean_delta_pct": 1.6768958610029472,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": -1.711025491954321
+            "p95_delta_pct": 1.1234602334405652
           }
         ],
         "improving_quartets": 2,
-        "max_within_quartet_arm_span_pct": 4.210645410521637,
-        "mean_delta_pct": -0.17702897291564934,
-        "p95_delta_pct": -0.6904548953411194,
+        "max_within_quartet_arm_span_pct": 5.884368778653619,
+        "mean_delta_pct": -1.5061731462541972,
+        "p95_delta_pct": -2.0296243481389142,
         "passes_screening_rule": false
       },
       "entry": {
-        "base_mean_ms": 16.223851302083332,
+        "base_mean_ms": 16.34228203125,
         "base_run_means_ms": [
-          16.7582140625,
-          16.172909375,
-          16.1139390625,
-          16.3611359375,
-          16.0311265625,
-          15.9057828125
+          15.9915734375,
+          16.076021875,
+          17.1724703125,
+          16.6391171875,
+          16.27604375,
+          15.898465625
         ],
         "base_run_p95s_ms": [
-          21.9,
-          19.8291,
-          18.7707,
-          20.6057,
-          19.0731,
-          19.0247
+          18.4274,
+          19.2785,
+          22.6479,
+          21.0947,
+          20.6104,
+          19.4907
         ],
-        "candidate_mean_ms": 16.23230104166667,
+        "candidate_mean_ms": 15.929108333333334,
         "candidate_run_means_ms": [
-          16.4791625,
-          15.976271875,
-          16.1109890625,
-          16.3015125,
-          15.9925578125,
-          16.5333125
+          15.6203140625,
+          15.67993125,
+          15.9948578125,
+          16.0147640625,
+          16.102446875,
+          16.1623359375
         ],
         "candidate_run_p95s_ms": [
-          19.0508,
-          19.1315,
-          19.8686,
-          19.3097,
-          19.154,
-          22.1755
+          18.9331,
+          19.0059,
+          18.2348,
+          20.2442,
+          19.4971,
+          19.5916
         ],
         "groups": [
           {
-            "base_mean_ms": 16.46556171875,
-            "base_p95_ms": 20.86455,
-            "base_within_arm_span_pct": 3.554720437101693,
-            "candidate_mean_ms": 16.2277171875,
-            "candidate_p95_ms": 19.09115,
-            "candidate_within_arm_span_pct": 3.0989609887173226,
+            "base_mean_ms": 16.033797656249998,
+            "base_p95_ms": 18.85295,
+            "base_within_arm_span_pct": 0.5266901785247418,
+            "candidate_mean_ms": 15.65012265625,
+            "candidate_p95_ms": 18.9695,
+            "candidate_within_arm_span_pct": 0.3809375096251421,
             "group": 1,
-            "mean_delta_pct": -1.444496916124971,
+            "mean_delta_pct": -2.3929140695525875,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": -8.499584223000268
+            "p95_delta_pct": 0.6182056389053114
           },
           {
-            "base_mean_ms": 16.2375375,
-            "base_p95_ms": 19.688200000000002,
-            "base_within_arm_span_pct": 1.5223790861145061,
-            "candidate_mean_ms": 16.20625078125,
-            "candidate_p95_ms": 19.58915,
-            "candidate_within_arm_span_pct": 1.1756169892201689,
+            "base_mean_ms": 16.90579375,
+            "base_p95_ms": 21.871299999999998,
+            "base_within_arm_span_pct": 3.154854086635248,
+            "candidate_mean_ms": 16.0048109375,
+            "candidate_p95_ms": 19.2395,
+            "candidate_within_arm_span_pct": 0.12437666447754633,
             "group": 2,
-            "mean_delta_pct": -0.1926814256779985,
+            "mean_delta_pct": -5.329432180609683,
             "order": [
               "candidate",
               "base",
               "base",
               "candidate"
             ],
-            "p95_delta_pct": -0.5030932233520691
+            "p95_delta_pct": -12.033121030757199
           },
           {
-            "base_mean_ms": 15.9684546875,
-            "base_p95_ms": 19.0489,
-            "base_within_arm_span_pct": 0.7849460229743911,
-            "candidate_mean_ms": 16.262935156250002,
-            "candidate_p95_ms": 20.664749999999998,
-            "candidate_within_arm_span_pct": 3.3250743626815993,
+            "base_mean_ms": 16.0872546875,
+            "base_p95_ms": 20.05055,
+            "base_within_arm_span_pct": 2.347063761558909,
+            "candidate_mean_ms": 16.13239140625,
+            "candidate_p95_ms": 19.54435,
+            "candidate_within_arm_span_pct": 0.37123487145743017,
             "group": 3,
-            "mean_delta_pct": 1.844138800609918,
+            "mean_delta_pct": 0.2805744026982637,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": 8.482642042322652
+            "p95_delta_pct": -2.524619025413266
           }
         ],
         "improving_quartets": 2,
-        "max_within_quartet_arm_span_pct": 3.554720437101693,
-        "mean_delta_pct": 0.05208220555037446,
-        "p95_delta_pct": -0.4305249938550415,
+        "max_within_quartet_arm_span_pct": 3.154854086635248,
+        "mean_delta_pct": -2.528249709107877,
+        "p95_delta_pct": -4.971550708517347,
         "passes_screening_rule": false
       },
       "screen": {
-        "base_mean_ms": 21.977417013888893,
+        "base_mean_ms": 22.180440364583333,
         "base_run_means_ms": [
-          21.779634375,
-          22.033333854166667,
-          21.740936458333334,
-          22.217054166666667,
-          22.03688645833333,
-          22.05665677083333
+          21.6209484375,
+          21.5105484375,
+          23.92629427083333,
+          22.409203125,
+          21.56348854166667,
+          22.052159375
         ],
         "base_run_p95s_ms": [
-          24.5829,
-          25.6441,
-          24.9958,
-          25.6252,
-          25.1445,
-          25.8162
+          24.5398,
+          24.2815,
+          28.5242,
+          25.6079,
+          24.7227,
+          25.4128
         ],
-        "candidate_mean_ms": 21.926120399305557,
+        "candidate_mean_ms": 21.902041406250003,
         "candidate_run_means_ms": [
-          22.521083333333333,
-          21.533459375,
-          21.8553734375,
-          21.936044791666667,
-          21.720306770833332,
-          21.9904546875
+          21.719753125,
+          21.4494328125,
+          21.802445833333334,
+          21.9438265625,
+          22.02599479166667,
+          22.4707953125
         ],
         "candidate_run_p95s_ms": [
-          25.0896,
-          24.5511,
-          25.2555,
-          25.7371,
-          24.8035,
-          26.021
+          25.0826,
+          24.6698,
+          24.909,
+          25.1639,
+          24.7295,
+          26.4705
         ],
         "groups": [
           {
-            "base_mean_ms": 21.906484114583336,
-            "base_p95_ms": 25.113500000000002,
-            "base_within_arm_span_pct": 1.158102221423001,
-            "candidate_mean_ms": 22.027271354166665,
-            "candidate_p95_ms": 24.82035,
-            "candidate_within_arm_span_pct": 4.483641856740986,
+            "base_mean_ms": 21.565748437499998,
+            "base_p95_ms": 24.41065,
+            "base_within_arm_span_pct": 0.5119228777056074,
+            "candidate_mean_ms": 21.58459296875,
+            "candidate_p95_ms": 24.876199999999997,
+            "candidate_within_arm_span_pct": 1.2523762337856843,
             "group": 1,
-            "mean_delta_pct": 0.5513766561148881,
+            "mean_delta_pct": 0.08738176328364489,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": -1.167300455930076
+            "p95_delta_pct": 1.9071593751087912
           },
           {
-            "base_mean_ms": 21.9789953125,
-            "base_p95_ms": 25.310499999999998,
-            "base_within_arm_span_pct": 2.166239637271107,
-            "candidate_mean_ms": 21.895709114583333,
-            "candidate_p95_ms": 25.4963,
-            "candidate_within_arm_span_pct": 0.36843453548137484,
+            "base_mean_ms": 23.167748697916664,
+            "base_p95_ms": 27.06605,
+            "base_within_arm_span_pct": 6.548289027193017,
+            "candidate_mean_ms": 21.873136197916665,
+            "candidate_p95_ms": 25.036450000000002,
+            "candidate_within_arm_span_pct": 0.6463669767672933,
             "group": 2,
-            "mean_delta_pct": -0.3789354187145211,
+            "mean_delta_pct": -5.587994400666196,
             "order": [
               "candidate",
               "base",
               "base",
               "candidate"
             ],
-            "p95_delta_pct": 0.7340826929535416
+            "p95_delta_pct": -7.498693012094481
           },
           {
-            "base_mean_ms": 22.04677161458333,
-            "base_p95_ms": 25.48035,
-            "base_within_arm_span_pct": 0.08967441059226498,
-            "candidate_mean_ms": 21.85538072916667,
-            "candidate_p95_ms": 25.41225,
-            "candidate_within_arm_span_pct": 1.2360705128607015,
+            "base_mean_ms": 21.807823958333334,
+            "base_p95_ms": 25.06775,
+            "base_within_arm_span_pct": 2.2408051086023026,
+            "candidate_mean_ms": 22.248395052083335,
+            "candidate_p95_ms": 25.6,
+            "candidate_within_arm_span_pct": 1.99924767513368,
             "group": 3,
-            "mean_delta_pct": -0.8681129770948592,
+            "mean_delta_pct": 2.020243260362742,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": -0.26726477462044596
+            "p95_delta_pct": 2.123246003330981
           }
         ],
-        "improving_quartets": 2,
-        "max_within_quartet_arm_span_pct": 4.483641856740986,
-        "mean_delta_pct": -0.23340602105751396,
-        "p95_delta_pct": -0.2311461727819264,
+        "improving_quartets": 1,
+        "max_within_quartet_arm_span_pct": 6.548289027193017,
+        "mean_delta_pct": -1.2551552347800254,
+        "p95_delta_pct": -1.3479749348254466,
         "passes_screening_rule": false
       }
     },
     "10k": {
       "all": {
-        "base_mean_ms": 1.3339709635416668,
+        "base_mean_ms": 1.3183889322916666,
         "base_run_means_ms": [
-          1.353007421875,
-          1.356690234375,
-          1.28634921875,
-          1.390671875,
-          1.309273046875,
-          1.307833984375
+          1.328016015625,
+          1.328561328125,
+          1.310755859375,
+          1.306240625,
+          1.290537890625,
+          1.346221875
         ],
         "base_run_p95s_ms": [
-          1.9373,
-          1.8495,
-          1.8381,
-          1.999,
-          1.796,
-          1.8418
+          1.9661,
+          1.9769,
+          1.8607,
+          1.9225,
+          2.0165,
+          1.913
         ],
-        "candidate_mean_ms": 1.3200242838541667,
+        "candidate_mean_ms": 1.2909787760416667,
         "candidate_run_means_ms": [
-          1.32014453125,
-          1.3979703125,
-          1.31399453125,
-          1.294359375,
-          1.317850390625,
-          1.2758265625
+          1.296680078125,
+          1.290834375,
+          1.29661015625,
+          1.306253125,
+          1.26840234375,
+          1.287092578125
         ],
         "candidate_run_p95s_ms": [
-          1.9564,
-          2.2876,
-          1.9347,
-          1.8638,
-          1.9589,
-          1.8827
+          1.784,
+          1.8565,
+          1.9664,
+          1.8358,
+          1.8495,
+          1.9092
         ],
         "groups": [
           {
-            "base_mean_ms": 1.354848828125,
-            "base_p95_ms": 1.8934,
-            "base_within_arm_span_pct": 0.27182460681586473,
-            "candidate_mean_ms": 1.359057421875,
-            "candidate_p95_ms": 2.122,
-            "candidate_within_arm_span_pct": 5.726452760371896,
+            "base_mean_ms": 1.328288671875,
+            "base_p95_ms": 1.9715,
+            "base_within_arm_span_pct": 0.041053764256691036,
+            "candidate_mean_ms": 1.2937572265625001,
+            "candidate_p95_ms": 1.8202500000000001,
+            "candidate_within_arm_span_pct": 0.45183926357900045,
             "group": 1,
-            "mean_delta_pct": 0.31063198067819986,
+            "mean_delta_pct": -2.5996943317867505,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": 12.07351853807963
+            "p95_delta_pct": -7.671823484656349
           },
           {
-            "base_mean_ms": 1.338510546875,
-            "base_p95_ms": 1.9185500000000002,
-            "base_within_arm_span_pct": 7.7939360652450915,
-            "candidate_mean_ms": 1.304176953125,
-            "candidate_p95_ms": 1.8992499999999999,
-            "candidate_within_arm_span_pct": 1.505559211344089,
+            "base_mean_ms": 1.3084982421875,
+            "base_p95_ms": 1.8916,
+            "base_within_arm_span_pct": 0.3450699610762559,
+            "candidate_mean_ms": 1.3014316406250002,
+            "candidate_p95_ms": 1.9011,
+            "candidate_within_arm_span_pct": 0.7409508458983664,
             "group": 2,
-            "mean_delta_pct": -2.56505963514132,
+            "mean_delta_pct": -0.5400543412795167,
             "order": [
               "candidate",
               "base",
               "base",
               "candidate"
             ],
-            "p95_delta_pct": -1.005968048786865
+            "p95_delta_pct": 0.5022203425671501
           },
           {
-            "base_mean_ms": 1.3085535156249999,
-            "base_p95_ms": 1.8189000000000002,
-            "base_within_arm_span_pct": 0.1099735305294486,
-            "candidate_mean_ms": 1.2968384765625,
-            "candidate_p95_ms": 1.9208,
-            "candidate_within_arm_span_pct": 3.2404828268507,
+            "base_mean_ms": 1.3183798828125,
+            "base_p95_ms": 1.96475,
+            "base_within_arm_span_pct": 4.22366763183683,
+            "candidate_mean_ms": 1.2777474609375,
+            "candidate_p95_ms": 1.87935,
+            "candidate_within_arm_span_pct": 1.4627487000668098,
             "group": 3,
-            "mean_delta_pct": -0.8952663320693,
+            "mean_delta_pct": -3.0819965022766294,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": 5.602287096596847
+            "p95_delta_pct": -4.346608983331213
           }
         ],
-        "improving_quartets": 2,
-        "max_within_quartet_arm_span_pct": 7.7939360652450915,
-        "mean_delta_pct": -1.0455009942998972,
-        "p95_delta_pct": 5.526696679897336,
+        "improving_quartets": 3,
+        "max_within_quartet_arm_span_pct": 4.22366763183683,
+        "mean_delta_pct": -2.0790644989983953,
+        "p95_delta_pct": -3.897663803975737,
         "passes_screening_rule": false
       },
       "entry": {
-        "base_mean_ms": 1.2074856770833335,
+        "base_mean_ms": 1.2032643229166669,
         "base_run_means_ms": [
-          1.21563125,
-          1.3836453125,
-          1.1349828125,
-          1.1521171875,
-          1.184625,
-          1.1739125
+          1.2614484375,
+          1.1961015625,
+          1.213678125,
+          1.12825,
+          1.1466921875,
+          1.273415625
         ],
         "base_run_p95s_ms": [
-          1.838,
-          1.9769,
-          1.6296,
-          1.602,
-          1.6958,
-          1.6292
+          1.9426,
+          1.7556,
+          1.7608,
+          1.4257,
+          1.5351,
+          1.8709
         ],
-        "candidate_mean_ms": 1.18158359375,
+        "candidate_mean_ms": 1.16226640625,
         "candidate_run_means_ms": [
-          1.2100515625,
-          1.2056765625,
-          1.2235703125,
-          1.1488734375,
-          1.1781078125,
-          1.123221875
+          1.1530515625,
+          1.14635625,
+          1.145984375,
+          1.191409375,
+          1.164528125,
+          1.17226875
         ],
         "candidate_run_p95s_ms": [
-          2.0235,
-          1.8594,
-          1.7242,
-          1.5343,
-          1.668,
-          1.5694
+          1.6539,
+          1.4842,
+          1.4635,
+          1.8304,
+          1.6174,
+          1.5693
         ],
         "groups": [
           {
-            "base_mean_ms": 1.29963828125,
-            "base_p95_ms": 1.90745,
-            "base_within_arm_span_pct": 12.927755739728058,
-            "candidate_mean_ms": 1.2078640625000001,
-            "candidate_p95_ms": 1.94145,
-            "candidate_within_arm_span_pct": 0.36220963400008394,
+            "base_mean_ms": 1.228775,
+            "base_p95_ms": 1.8491,
+            "base_within_arm_span_pct": 5.318050497446637,
+            "candidate_mean_ms": 1.14970390625,
+            "candidate_p95_ms": 1.5690499999999998,
+            "candidate_within_arm_span_pct": 0.5823510265210943,
             "group": 1,
-            "mean_delta_pct": -7.061520122485998,
+            "mean_delta_pct": -6.434953001973498,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": 1.7824844687934105
+            "p95_delta_pct": -15.145205775782822
           },
           {
-            "base_mean_ms": 1.14355,
-            "base_p95_ms": 1.6158000000000001,
-            "base_within_arm_span_pct": 1.498349438153113,
-            "candidate_mean_ms": 1.186221875,
-            "candidate_p95_ms": 1.6292499999999999,
-            "candidate_within_arm_span_pct": 6.297040762294144,
+            "base_mean_ms": 1.1709640625,
+            "base_p95_ms": 1.5932499999999998,
+            "base_within_arm_span_pct": 7.295537731329818,
+            "candidate_mean_ms": 1.1686968750000002,
+            "candidate_p95_ms": 1.64695,
+            "candidate_within_arm_span_pct": 3.8868076891195624,
             "group": 2,
-            "mean_delta_pct": 3.7315268243627298,
+            "mean_delta_pct": -0.19361717174815052,
             "order": [
               "candidate",
               "base",
               "base",
               "candidate"
             ],
-            "p95_delta_pct": 0.8324050006188743
+            "p95_delta_pct": 3.3704691667974407
           },
           {
-            "base_mean_ms": 1.1792687499999999,
-            "base_p95_ms": 1.6625,
-            "base_within_arm_span_pct": 0.908401922801747,
-            "candidate_mean_ms": 1.15066484375,
-            "candidate_p95_ms": 1.6187,
-            "candidate_within_arm_span_pct": 4.769932600106861,
+            "base_mean_ms": 1.21005390625,
+            "base_p95_ms": 1.7029999999999998,
+            "base_within_arm_span_pct": 10.472544805274035,
+            "candidate_mean_ms": 1.1683984375,
+            "candidate_p95_ms": 1.59335,
+            "candidate_within_arm_span_pct": 0.6624987462806373,
             "group": 3,
-            "mean_delta_pct": -2.4255629812966584,
+            "mean_delta_pct": -3.4424473599768524,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": -2.6345864661654117
+            "p95_delta_pct": -6.438637698179672
           }
         ],
-        "improving_quartets": 2,
-        "max_within_quartet_arm_span_pct": 12.927755739728058,
-        "mean_delta_pct": -2.1451255136955005,
-        "p95_delta_pct": 0.07038519018462974,
+        "improving_quartets": 3,
+        "max_within_quartet_arm_span_pct": 10.472544805274035,
+        "mean_delta_pct": -3.407224488073357,
+        "p95_delta_pct": -6.530168015781246,
         "passes_screening_rule": false
       },
       "screen": {
-        "base_mean_ms": 1.3761327256944444,
+        "base_mean_ms": 1.3567638020833332,
         "base_run_means_ms": [
-          1.3987994791666667,
-          1.3477052083333332,
-          1.3368046875,
-          1.4701901041666667,
-          1.3508223958333332,
-          1.3524744791666667
+          1.3502052083333334,
+          1.3727145833333332,
+          1.3431151041666667,
+          1.3655708333333332,
+          1.3384864583333334,
+          1.370490625
         ],
         "base_run_p95s_ms": [
-          2.0861,
-          1.8007,
-          1.8517,
-          2.0677,
-          1.8271,
-          1.8824
+          1.9661,
+          2.0166,
+          1.8656,
+          1.9306,
+          2.1141,
+          1.913
         ],
-        "candidate_mean_ms": 1.3661711805555556,
+        "candidate_mean_ms": 1.3338828993055556,
         "candidate_run_means_ms": [
-          1.3568421875,
-          1.4620682291666667,
-          1.3441359375,
-          1.3428546875,
-          1.36443125,
-          1.3266947916666667
+          1.34455625,
+          1.33899375,
+          1.34681875,
+          1.344534375,
+          1.3030270833333333,
+          1.3253671875
         ],
         "candidate_run_p95s_ms": [
-          1.9305,
-          2.3399,
-          1.9347,
-          1.9109,
-          1.9613,
-          1.9497
+          1.8596,
+          1.9279,
+          1.9893,
+          1.8358,
+          1.9022,
+          1.924
         ],
         "groups": [
           {
-            "base_mean_ms": 1.37325234375,
-            "base_p95_ms": 1.9434,
-            "base_within_arm_span_pct": 3.7206760334963755,
-            "candidate_mean_ms": 1.4094552083333334,
-            "candidate_p95_ms": 2.1352,
-            "candidate_within_arm_span_pct": 7.465724419231126,
+            "base_mean_ms": 1.3614598958333333,
+            "base_p95_ms": 1.99135,
+            "base_within_arm_span_pct": 1.6533263351266116,
+            "candidate_mean_ms": 1.341775,
+            "candidate_p95_ms": 1.8937499999999998,
+            "candidate_within_arm_span_pct": 0.4145627992770707,
             "group": 1,
-            "mean_delta_pct": 2.6362863859727748,
+            "mean_delta_pct": -1.445866741545443,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": 9.869301224657834
+            "p95_delta_pct": -4.901197679965863
           },
           {
-            "base_mean_ms": 1.4034973958333334,
-            "base_p95_ms": 1.9596999999999998,
-            "base_within_arm_span_pct": 9.50378797015641,
-            "candidate_mean_ms": 1.3434953125,
-            "candidate_p95_ms": 1.9228,
-            "candidate_within_arm_span_pct": 0.09536691256597894,
+            "base_mean_ms": 1.35434296875,
+            "base_p95_ms": 1.8981,
+            "base_within_arm_span_pct": 1.658053364975355,
+            "candidate_mean_ms": 1.3456765625,
+            "candidate_p95_ms": 1.91255,
+            "candidate_within_arm_span_pct": 0.169756616386034,
             "group": 2,
-            "mean_delta_pct": -4.275183089862944,
+            "mean_delta_pct": -0.6398974595038243,
             "order": [
               "candidate",
               "base",
               "base",
               "candidate"
             ],
-            "p95_delta_pct": -1.882941266520366
+            "p95_delta_pct": 0.7612876033928684
           },
           {
-            "base_mean_ms": 1.3516484375,
-            "base_p95_ms": 1.8547500000000001,
-            "base_within_arm_span_pct": 0.12222729575963084,
-            "candidate_mean_ms": 1.3455630208333333,
-            "candidate_p95_ms": 1.9555,
-            "candidate_within_arm_span_pct": 2.80451065829398,
+            "base_mean_ms": 1.3544885416666665,
+            "base_p95_ms": 2.01355,
+            "base_within_arm_span_pct": 2.3628229905353226,
+            "candidate_mean_ms": 1.3141971354166666,
+            "candidate_p95_ms": 1.9131,
+            "candidate_within_arm_span_pct": 1.6999051028659955,
             "group": 3,
-            "mean_delta_pct": -0.4502218548724235,
+            "mean_delta_pct": -2.9746583312120434,
             "order": [
               "base",
               "candidate",
               "candidate",
               "base"
             ],
-            "p95_delta_pct": 5.431998921687553
+            "p95_delta_pct": -4.988701547018948
           }
         ],
-        "improving_quartets": 2,
-        "max_within_quartet_arm_span_pct": 9.50378797015641,
-        "mean_delta_pct": -0.7238796776569578,
-        "p95_delta_pct": 4.44002535668695,
+        "improving_quartets": 3,
+        "max_within_quartet_arm_span_pct": 2.3628229905353226,
+        "mean_delta_pct": -1.6864322841340318,
+        "p95_delta_pct": -3.1102829069964644,
         "passes_screening_rule": false
       }
     },
@@ -5533,24 +5745,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.353007421875,
-            "p95_ms": 1.9373
+            "mean_ms": 1.328016015625,
+            "p95_ms": 1.9661
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.21563125,
-            "p95_ms": 1.838
+            "mean_ms": 1.2614484375,
+            "p95_ms": 1.9426
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3987994791666667,
-            "p95_ms": 2.0861
+            "mean_ms": 1.3502052083333334,
+            "p95_ms": 1.9661
           }
         }
       }
@@ -5587,24 +5799,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.32014453125,
-            "p95_ms": 1.9564
+            "mean_ms": 1.296680078125,
+            "p95_ms": 1.784
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.2100515625,
-            "p95_ms": 2.0235
+            "mean_ms": 1.1530515625,
+            "p95_ms": 1.6539
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3568421875,
-            "p95_ms": 1.9305
+            "mean_ms": 1.34455625,
+            "p95_ms": 1.8596
           }
         }
       }
@@ -5641,24 +5853,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3979703125,
-            "p95_ms": 2.2876
+            "mean_ms": 1.290834375,
+            "p95_ms": 1.8565
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.2056765625,
-            "p95_ms": 1.8594
+            "mean_ms": 1.14635625,
+            "p95_ms": 1.4842
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.4620682291666667,
-            "p95_ms": 2.3399
+            "mean_ms": 1.33899375,
+            "p95_ms": 1.9279
           }
         }
       }
@@ -5695,24 +5907,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.356690234375,
-            "p95_ms": 1.8495
+            "mean_ms": 1.328561328125,
+            "p95_ms": 1.9769
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.3836453125,
-            "p95_ms": 1.9769
+            "mean_ms": 1.1961015625,
+            "p95_ms": 1.7556
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3477052083333332,
-            "p95_ms": 1.8007
+            "mean_ms": 1.3727145833333332,
+            "p95_ms": 2.0166
           }
         }
       }
@@ -5749,24 +5961,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.31399453125,
-            "p95_ms": 1.9347
+            "mean_ms": 1.29661015625,
+            "p95_ms": 1.9664
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.2235703125,
-            "p95_ms": 1.7242
+            "mean_ms": 1.145984375,
+            "p95_ms": 1.4635
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3441359375,
-            "p95_ms": 1.9347
+            "mean_ms": 1.34681875,
+            "p95_ms": 1.9893
           }
         }
       }
@@ -5803,24 +6015,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.28634921875,
-            "p95_ms": 1.8381
+            "mean_ms": 1.310755859375,
+            "p95_ms": 1.8607
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.1349828125,
-            "p95_ms": 1.6296
+            "mean_ms": 1.213678125,
+            "p95_ms": 1.7608
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3368046875,
-            "p95_ms": 1.8517
+            "mean_ms": 1.3431151041666667,
+            "p95_ms": 1.8656
           }
         }
       }
@@ -5857,24 +6069,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.390671875,
-            "p95_ms": 1.999
+            "mean_ms": 1.306240625,
+            "p95_ms": 1.9225
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.1521171875,
-            "p95_ms": 1.602
+            "mean_ms": 1.12825,
+            "p95_ms": 1.4257
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.4701901041666667,
-            "p95_ms": 2.0677
+            "mean_ms": 1.3655708333333332,
+            "p95_ms": 1.9306
           }
         }
       }
@@ -5911,24 +6123,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.294359375,
-            "p95_ms": 1.8638
+            "mean_ms": 1.306253125,
+            "p95_ms": 1.8358
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.1488734375,
-            "p95_ms": 1.5343
+            "mean_ms": 1.191409375,
+            "p95_ms": 1.8304
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3428546875,
-            "p95_ms": 1.9109
+            "mean_ms": 1.344534375,
+            "p95_ms": 1.8358
           }
         }
       }
@@ -5965,24 +6177,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.309273046875,
-            "p95_ms": 1.796
+            "mean_ms": 1.290537890625,
+            "p95_ms": 2.0165
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.184625,
-            "p95_ms": 1.6958
+            "mean_ms": 1.1466921875,
+            "p95_ms": 1.5351
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3508223958333332,
-            "p95_ms": 1.8271
+            "mean_ms": 1.3384864583333334,
+            "p95_ms": 2.1141
           }
         }
       }
@@ -6019,24 +6231,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.317850390625,
-            "p95_ms": 1.9589
+            "mean_ms": 1.26840234375,
+            "p95_ms": 1.8495
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.1781078125,
-            "p95_ms": 1.668
+            "mean_ms": 1.164528125,
+            "p95_ms": 1.6174
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.36443125,
-            "p95_ms": 1.9613
+            "mean_ms": 1.3030270833333333,
+            "p95_ms": 1.9022
           }
         }
       }
@@ -6073,24 +6285,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.2758265625,
-            "p95_ms": 1.8827
+            "mean_ms": 1.287092578125,
+            "p95_ms": 1.9092
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.123221875,
-            "p95_ms": 1.5694
+            "mean_ms": 1.17226875,
+            "p95_ms": 1.5693
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3266947916666667,
-            "p95_ms": 1.9497
+            "mean_ms": 1.3253671875,
+            "p95_ms": 1.924
           }
         }
       }
@@ -6127,24 +6339,24 @@
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.307833984375,
-            "p95_ms": 1.8418
+            "mean_ms": 1.346221875,
+            "p95_ms": 1.913
           }
         },
         "entry": {
           "active_max": 7500,
           "active_min": 7500,
           "step": {
-            "mean_ms": 1.1739125,
-            "p95_ms": 1.6292
+            "mean_ms": 1.273415625,
+            "p95_ms": 1.8709
           }
         },
         "screen": {
           "active_max": 7500,
           "active_min": 7310,
           "step": {
-            "mean_ms": 1.3524744791666667,
-            "p95_ms": 1.8824
+            "mean_ms": 1.370490625,
+            "p95_ms": 1.913
           }
         }
       }
@@ -6181,24 +6393,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.524279296875,
-            "p95_ms": 24.4882
+            "mean_ms": 20.2136046875,
+            "p95_ms": 24.4897
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.7582140625,
-            "p95_ms": 21.9
+            "mean_ms": 15.9915734375,
+            "p95_ms": 18.4274
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.779634375,
-            "p95_ms": 24.5829
+            "mean_ms": 21.6209484375,
+            "p95_ms": 24.5398
           }
         }
       }
@@ -6235,24 +6447,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.010603125,
-            "p95_ms": 24.9785
+            "mean_ms": 20.194893359375,
+            "p95_ms": 24.8747
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.4791625,
-            "p95_ms": 19.0508
+            "mean_ms": 15.6203140625,
+            "p95_ms": 18.9331
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 22.521083333333333,
-            "p95_ms": 25.0896
+            "mean_ms": 21.719753125,
+            "p95_ms": 25.0826
           }
         }
       }
@@ -6289,24 +6501,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.1441625,
-            "p95_ms": 24.449
+            "mean_ms": 20.007057421875,
+            "p95_ms": 24.2828
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 15.976271875,
-            "p95_ms": 19.1315
+            "mean_ms": 15.67993125,
+            "p95_ms": 19.0059
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.533459375,
-            "p95_ms": 24.5511
+            "mean_ms": 21.4494328125,
+            "p95_ms": 24.6698
           }
         }
       }
@@ -6343,24 +6555,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.568227734375,
-            "p95_ms": 25.3687
+            "mean_ms": 20.151916796875,
+            "p95_ms": 24.2306
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.172909375,
-            "p95_ms": 19.8291
+            "mean_ms": 16.076021875,
+            "p95_ms": 19.2785
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 22.033333854166667,
-            "p95_ms": 25.6441
+            "mean_ms": 21.5105484375,
+            "p95_ms": 24.2815
           }
         }
       }
@@ -6397,24 +6609,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.41927734375,
-            "p95_ms": 25.062
+            "mean_ms": 20.350548828125,
+            "p95_ms": 24.6114
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.1109890625,
-            "p95_ms": 19.8686
+            "mean_ms": 15.9948578125,
+            "p95_ms": 18.2348
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.8553734375,
-            "p95_ms": 25.2555
+            "mean_ms": 21.802445833333334,
+            "p95_ms": 24.909
           }
         }
       }
@@ -6451,24 +6663,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.334187109375,
-            "p95_ms": 24.7255
+            "mean_ms": 22.23783828125,
+            "p95_ms": 28.299
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.1139390625,
-            "p95_ms": 18.7707
+            "mean_ms": 17.1724703125,
+            "p95_ms": 22.6479
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.740936458333334,
-            "p95_ms": 24.9958
+            "mean_ms": 23.92629427083333,
+            "p95_ms": 28.5242
           }
         }
       }
@@ -6505,24 +6717,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.753074609375,
-            "p95_ms": 25.5042
+            "mean_ms": 20.966681640625,
+            "p95_ms": 25.4575
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.3611359375,
-            "p95_ms": 20.6057
+            "mean_ms": 16.6391171875,
+            "p95_ms": 21.0947
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 22.217054166666667,
-            "p95_ms": 25.6252
+            "mean_ms": 22.409203125,
+            "p95_ms": 25.6079
           }
         }
       }
@@ -6559,24 +6771,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.52741171875,
-            "p95_ms": 25.4239
+            "mean_ms": 20.4615609375,
+            "p95_ms": 25.0566
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.3015125,
-            "p95_ms": 19.3097
+            "mean_ms": 16.0147640625,
+            "p95_ms": 20.2442
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.936044791666667,
-            "p95_ms": 25.7371
+            "mean_ms": 21.9438265625,
+            "p95_ms": 25.1639
           }
         }
       }
@@ -6613,24 +6825,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.535446484375,
-            "p95_ms": 25.0463
+            "mean_ms": 20.24162734375,
+            "p95_ms": 24.4438
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.0311265625,
-            "p95_ms": 19.0731
+            "mean_ms": 16.27604375,
+            "p95_ms": 20.6104
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 22.03688645833333,
-            "p95_ms": 25.1445
+            "mean_ms": 21.56348854166667,
+            "p95_ms": 24.7227
           }
         }
       }
@@ -6667,24 +6879,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.28836953125,
-            "p95_ms": 24.5969
+            "mean_ms": 20.5451078125,
+            "p95_ms": 24.6598
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 15.9925578125,
-            "p95_ms": 19.154
+            "mean_ms": 16.102446875,
+            "p95_ms": 19.4971
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.720306770833332,
-            "p95_ms": 24.8035
+            "mean_ms": 22.02599479166667,
+            "p95_ms": 24.7295
           }
         }
       }
@@ -6721,24 +6933,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.626169140625,
-            "p95_ms": 25.2764
+            "mean_ms": 20.89368046875,
+            "p95_ms": 25.7372
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 16.5333125,
-            "p95_ms": 22.1755
+            "mean_ms": 16.1623359375,
+            "p95_ms": 19.5916
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 21.9904546875,
-            "p95_ms": 26.021
+            "mean_ms": 22.4707953125,
+            "p95_ms": 26.4705
           }
         }
       }
@@ -6775,24 +6987,24 @@
           "active_max": 75000,
           "active_min": 70752,
           "step": {
-            "mean_ms": 20.51893828125,
-            "p95_ms": 25.6952
+            "mean_ms": 20.5137359375,
+            "p95_ms": 25.3933
           }
         },
         "entry": {
           "active_max": 75000,
           "active_min": 74392,
           "step": {
-            "mean_ms": 15.9057828125,
-            "p95_ms": 19.0247
+            "mean_ms": 15.898465625,
+            "p95_ms": 19.4907
           }
         },
         "screen": {
           "active_max": 74392,
           "active_min": 70752,
           "step": {
-            "mean_ms": 22.05665677083333,
-            "p95_ms": 25.8162
+            "mean_ms": 22.052159375,
+            "p95_ms": 25.4128
           }
         }
       }

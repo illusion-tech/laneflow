@@ -11,6 +11,7 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 - [24 次普通测试及逐组比较](evidence/plain.json)
 - [6 次独立块级诊断](evidence/detail.json)
 - [负向校验记录](evidence/negative-checks.json)
+- [实际原生编译覆盖隔离验证](evidence/native-env-isolation.json)
 
 ## 冻结方案
 

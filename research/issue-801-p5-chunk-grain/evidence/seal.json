@@ -1,12 +1,13 @@
 {
-  "archive_sha256": "3b7845c156b7880b82ebb74bd468633880b5b4380e53f1ee9b31ca6a2e8ee529",
-  "manifest_sha256": "b161ba7b74b9a6942ea8eb2fe9ae05420254fa787b2ae2b87748e0d198f5bc47",
-  "verified_files": 19801,
+  "archive_sha256": "9f4d1e521b95f2697ac68edad9a858cf967700a81aa1ee230a0c0f6453960b6b",
+  "manifest_sha256": "dfa49de9cab35575fd8035a2f00ee4f34a77d30950177d05d6c4d11f4173c291",
+  "verified_files": 30603,
   "plain": "verified 24 runs",
   "detail": "verified 6 runs",
   "actual_source_exe_bindings": 4,
   "frozen_input_digests": "matched",
-  "build_settings_and_toolchains": "matched across both arms and modes",
-  "negative_cases": 13,
+  "build_settings_and_toolchains": "matched across both arms and modes, including pinned MSVC tools",
+  "native_environment_isolation_proved": true,
+  "negative_cases": 18,
   "all_negative_cases_rejected": true
 }

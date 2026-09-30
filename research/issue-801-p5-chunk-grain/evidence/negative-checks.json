@@ -1,15 +1,15 @@
 {
   "schema": "p5-chunk-guard-negative-v1",
-  "collector_head": "75385f9df608b63bb2397e8608c25f1c18fe3bfc",
+  "collector_head": "4a648dfb673c5e66577c89da3018734739019859",
   "cases": [
     {
       "name": "prepare-existing-old-exe",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "prepare",
         "base",
         "plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\existing-old-exe"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\existing-old-exe"
       ],
       "exit_code": 1,
       "expected": "output already exists",
@@ -19,12 +19,12 @@
     {
       "name": "run-swapped-exe",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "run",
         "plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\swapped-build",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\swapped-build",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-inputs\\issue-707\\4de40e04",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\swapped-raw"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\swapped-raw"
       ],
       "exit_code": 1,
       "expected": "build attestation/source/binary mismatch",
@@ -34,10 +34,10 @@
     {
       "name": "detail-without-plain",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\missing-reference-results.json"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\missing-reference-results.json"
       ],
       "exit_code": 1,
       "expected": "detail requires plain raw evidence",
@@ -47,11 +47,11 @@
     {
       "name": "cross-mode-both-arms-traffic",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-traffic",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\traffic-results.json",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\both-arms-traffic",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\traffic-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
       ],
       "exit_code": 1,
       "expected": "plain/detail traffic mismatch",
@@ -61,11 +61,11 @@
     {
       "name": "verify-both-arms-traffic",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-traffic",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\both-arms-traffic",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
       ],
       "exit_code": 1,
       "expected": "plain/detail traffic mismatch",
@@ -75,11 +75,11 @@
     {
       "name": "cross-mode-both-arms-final-counts",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-final-counts",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\final-counts-results.json",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\both-arms-final-counts",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\final-counts-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
       ],
       "exit_code": 1,
       "expected": "plain/detail final_counts mismatch",
@@ -89,11 +89,11 @@
     {
       "name": "verify-both-arms-final-counts",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\both-arms-final-counts",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\both-arms-final-counts",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
       ],
       "exit_code": 1,
       "expected": "plain/detail final_counts mismatch",
@@ -103,10 +103,10 @@
     {
       "name": "published-value-change",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\bad-published.json"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\bad-published.json"
       ],
       "exit_code": 1,
       "expected": "published mismatch",
@@ -116,12 +116,12 @@
     {
       "name": "run-different-build-environment",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "run",
         "plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-build-environment",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-build-environment",
         "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-inputs\\issue-707\\4de40e04",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-raw"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-environment-raw"
       ],
       "exit_code": 1,
       "expected": "paired build environment/toolchain mismatch",
@@ -131,10 +131,10 @@
     {
       "name": "analyze-different-environment-plain",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\plain-env-results.json"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-environment-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\plain-env-results.json"
       ],
       "exit_code": 1,
       "expected": "paired build environment/toolchain mismatch",
@@ -144,10 +144,10 @@
     {
       "name": "verify-different-environment-plain",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-plain",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain-results.json"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-environment-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain-results.json"
       ],
       "exit_code": 1,
       "expected": "paired build environment/toolchain mismatch",
@@ -157,11 +157,11 @@
     {
       "name": "analyze-different-environment-detail",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "analyze",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-detail",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\detail-env-results.json",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-environment-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\detail-env-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
       ],
       "exit_code": 1,
       "expected": "paired build environment/toolchain mismatch",
@@ -171,18 +171,87 @@
     {
       "name": "verify-different-environment-detail",
       "command": [
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-verifier.exe",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
         "verify",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-negative-consistent\\different-environment-detail",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-detail-results.json",
-        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-review-plain"
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-environment-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
       ],
       "exit_code": 1,
       "expected": "paired build environment/toolchain mismatch",
       "actual": "paired build environment/toolchain mismatch",
       "log": "verify-different-environment-detail.log"
+    },
+    {
+      "name": "run-different-native-toolchain",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
+        "run",
+        "plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-native-build",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-inputs\\issue-707\\4de40e04",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-native-build-raw"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "run-different-native-toolchain.log"
+    },
+    {
+      "name": "analyze-different-native-plain",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-native-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\plain-native-results.json"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "analyze-different-native-plain.log"
+    },
+    {
+      "name": "verify-different-native-plain",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-native-plain",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain-results.json"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "verify-different-native-plain.log"
+    },
+    {
+      "name": "analyze-different-native-detail",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
+        "analyze",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-native-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\detail-native-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "analyze-different-native-detail.log"
+    },
+    {
+      "name": "verify-different-native-detail",
+      "command": [
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-tool.exe",
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-negative-complete\\different-native-detail",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-detail-results.json",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\801-native-plain"
+      ],
+      "exit_code": 1,
+      "expected": "paired build environment/toolchain mismatch",
+      "actual": "paired build environment/toolchain mismatch",
+      "log": "verify-different-native-detail.log"
     }
   ],
   "all_rejected": true,
-  "mutations": "complete cloned batches; identical diagnostic event addition or final Active/Completed transfer; native event digest refreshed; separate build-setting changes in one plain arm or both detail arms; timing records unchanged"
+  "mutations": "complete cloned batches; identical diagnostic event addition or final Active/Completed transfer; native event digest refreshed; separate build-setting changes in one plain arm or both detail arms; native compiler digest differs across arms or both detail arms against plain; timing records unchanged"
 }
