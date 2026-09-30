@@ -1,11 +1,11 @@
 {
   "manifestVersion": 1,
-  "ruleVersion": "stub-weld/g1-six-cond@1",
+  "ruleVersion": "stub-weld/g1-six-cond@2",
   "pinnedCommit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
   "netDigest": "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341",
   "generator": "laneflow-lust-converter",
   "thresholds": {
-    "maxDisplacementM": 0.06,
+    "maxDisplacementM": 0.5,
     "maxLocalityM": 0.05,
     "joinGapM": 0.005,
     "pointStubSpanM": 0.5,
@@ -13,7 +13,7 @@
   },
   "candidates": [
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-11256_0_0",
       "entryLaneId": "-30574#0_0",
@@ -33,10 +33,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-11556_0_0",
       "entryLaneId": "-31690_0",
@@ -56,10 +57,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-11556_0_1",
       "entryLaneId": "-31690_1",
@@ -79,11 +81,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-11556_0_2",
       "entryLaneId": "-31690_2",
       "exitLaneId": "-32858#0_2",
@@ -102,11 +105,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-12400_1_0",
       "entryLaneId": "-31622#10-AddedOffRampEdge_1",
       "exitLaneId": "-31622#11_0",
@@ -125,11 +129,12 @@
       "localityM": 0.01,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-12400_1_1",
       "entryLaneId": "-31622#10-AddedOffRampEdge_2",
       "exitLaneId": "-31622#11_1",
@@ -148,11 +153,12 @@
       "localityM": 0.007485394338621664,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-12400_1_2",
       "entryLaneId": "-31622#10-AddedOffRampEdge_3",
       "exitLaneId": "-31622#11_2",
@@ -171,11 +177,12 @@
       "localityM": 0.007134772412317411,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-14502_0_0",
       "entryLaneId": "-32400#0-AddedOffRampEdge_0",
       "exitLaneId": "-32310_0",
@@ -194,10 +201,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-14844_0_0",
       "entryLaneId": "--32122#0_0",
@@ -217,10 +225,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-14844_0_1",
       "entryLaneId": "--32122#0_1",
@@ -240,10 +249,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-14844_2_0",
       "entryLaneId": "-32792#1_0",
@@ -263,10 +273,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-14844_2_1",
       "entryLaneId": "-32792#1_1",
@@ -286,11 +297,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-15490_0_0",
       "entryLaneId": "--31202_0",
       "exitLaneId": "-32772_0",
@@ -309,11 +321,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
       "stubLaneId": ":-15490_1_0",
       "entryLaneId": "-32156_0",
       "exitLaneId": "-31202_0",
@@ -331,12 +344,19 @@
       "shapeLenM": 0.41868842830916647,
       "localityM": 0.0,
       "controlled": false,
-      "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-32772_0",
+          ":-15490_2_0",
+          0.41868842830916647
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-32156_0\" end onto exit lane \"-31202_0\" start, breaking shared traversal \"-32156_0->-32772_0\": first-internal join gap 0.4187 m (> 0.005 m)"
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-15606_0_0",
       "entryLaneId": "-32454#2_0",
       "exitLaneId": "-32706_0",
@@ -355,10 +375,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-15606_0_1",
       "entryLaneId": "-32454#2_1",
@@ -378,10 +399,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-15606_0_2",
       "entryLaneId": "-32454#2_2",
@@ -401,11 +423,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-16224_0_0",
       "entryLaneId": "--31444#1_0",
       "exitLaneId": "--31444#0_0",
@@ -424,11 +447,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-16224_1_0",
       "entryLaneId": "-31444#0_0",
       "exitLaneId": "-31444#1_0",
@@ -447,11 +471,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-1974_0_0",
       "entryLaneId": "-31272#8_0",
       "exitLaneId": "-31690_0",
@@ -470,11 +495,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-1974_0_1",
       "entryLaneId": "-31272#8_1",
       "exitLaneId": "-31690_1",
@@ -493,11 +519,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-1974_0_2",
       "entryLaneId": "-31272#8_2",
       "exitLaneId": "-31690_2",
@@ -516,11 +543,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-20604_0_0",
       "entryLaneId": "--30872#8_0",
       "exitLaneId": "--30872#7_0",
@@ -539,10 +567,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-20604_0_1",
       "entryLaneId": "--30872#8_1",
@@ -562,11 +591,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-20604_2_0",
       "entryLaneId": "-30872#7_0",
       "exitLaneId": "-30872#8_0",
@@ -585,11 +615,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-20604_2_1",
       "entryLaneId": "-30872#7_1",
       "exitLaneId": "-30872#8_1",
@@ -608,11 +639,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-21778_3_0",
       "entryLaneId": "-30326_0",
       "exitLaneId": "-32858#1-AddedOnRampEdge_0",
@@ -631,11 +663,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-21938_0_0",
       "entryLaneId": "--32320_0",
       "exitLaneId": "-31902_0",
@@ -654,11 +687,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
       "stubLaneId": ":-21938_1_0",
       "entryLaneId": "-31658_0",
       "exitLaneId": "-32320_0",
@@ -676,11 +710,18 @@
       "shapeLenM": 0.2745906043549196,
       "localityM": 0.0,
       "controlled": false,
-      "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-31902_0",
+          ":-21938_2_0",
+          0.2745906043549196
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-31658_0\" end onto exit lane \"-32320_0\" start, breaking shared traversal \"-31658_0->-31902_0\": first-internal join gap 0.2746 m (> 0.005 m)"
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-22774_0_0",
       "entryLaneId": "-32924#2_0",
@@ -700,10 +741,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-22774_0_1",
       "entryLaneId": "-32924#2_1",
@@ -723,10 +765,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-22774_0_2",
       "entryLaneId": "-32924#2_2",
@@ -746,10 +789,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-22774_3_0",
       "entryLaneId": "--32924#3_0",
@@ -769,10 +813,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-22774_3_1",
       "entryLaneId": "--32924#3_1",
@@ -792,10 +837,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-22774_3_2",
       "entryLaneId": "--32924#3_2",
@@ -815,11 +861,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-23560_0_0",
       "entryLaneId": "--30260_0",
       "exitLaneId": "--31938_0",
@@ -838,11 +885,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-23560_0_1",
       "entryLaneId": "--30260_1",
       "exitLaneId": "--31938_1",
@@ -861,11 +909,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-24338_1_0",
       "entryLaneId": "-31622#5-AddedOffRampEdge_1",
       "exitLaneId": "-31622#6_0",
@@ -884,11 +933,12 @@
       "localityM": 0.012351423926780961,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-24338_1_1",
       "entryLaneId": "-31622#5-AddedOffRampEdge_2",
       "exitLaneId": "-31622#6_1",
@@ -907,11 +957,12 @@
       "localityM": 0.013728129459672887,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-24338_1_2",
       "entryLaneId": "-31622#5-AddedOffRampEdge_3",
       "exitLaneId": "-31622#6_2",
@@ -930,11 +981,12 @@
       "localityM": 0.011766968108291045,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-25018_0_0",
       "entryLaneId": "--31980#0_0",
       "exitLaneId": "-30634#0_0",
@@ -953,10 +1005,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-25018_1_0",
       "entryLaneId": "-32104#1_0",
@@ -976,11 +1029,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-25170_1_0",
       "entryLaneId": "-30668#13_0",
       "exitLaneId": "-30668#14-AddedOnRampEdge_1",
@@ -999,11 +1053,12 @@
       "localityM": 0.0032207831320041546,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-25170_1_1",
       "entryLaneId": "-30668#13_1",
       "exitLaneId": "-30668#14-AddedOnRampEdge_2",
@@ -1022,11 +1077,12 @@
       "localityM": 0.009805806756909202,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-25170_1_2",
       "entryLaneId": "-30668#13_2",
       "exitLaneId": "-30668#14-AddedOnRampEdge_3",
@@ -1045,10 +1101,11 @@
       "localityM": 0.007844645405527362,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-25412_0_0",
       "entryLaneId": "-30514#0_0",
@@ -1068,11 +1125,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-25748_0_0",
       "entryLaneId": "-31384#0_0",
       "exitLaneId": "-31384#1_0",
@@ -1091,11 +1149,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-25748_1_0",
       "entryLaneId": "--31384#1_0",
       "exitLaneId": "--31384#0_0",
@@ -1114,10 +1173,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-268_0_0",
       "entryLaneId": "--30378#3_0",
@@ -1137,11 +1197,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-268_1_0",
       "entryLaneId": "-30378#2_0",
       "exitLaneId": "-30378#3_0",
@@ -1160,11 +1221,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-27626_0_0",
       "entryLaneId": "-30576#0_0",
       "exitLaneId": "-30576#1_0",
@@ -1183,11 +1245,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-27626_1_0",
       "entryLaneId": "--30576#1_0",
       "exitLaneId": "--30576#0_0",
@@ -1206,11 +1269,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-28674_0_0",
       "entryLaneId": "-30528#18_0",
       "exitLaneId": "-30528#19_0",
@@ -1229,10 +1293,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-28674_0_1",
       "entryLaneId": "-30528#18_1",
@@ -1252,10 +1317,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-28674_0_2",
       "entryLaneId": "-30528#18_2",
@@ -1275,11 +1341,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-28674_3_0",
       "entryLaneId": "--30528#19_0",
       "exitLaneId": "--30528#18_0",
@@ -1298,11 +1365,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-28674_3_1",
       "entryLaneId": "--30528#19_1",
       "exitLaneId": "--30528#18_1",
@@ -1321,10 +1389,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-28674_3_2",
       "entryLaneId": "--30528#19_2",
@@ -1344,11 +1413,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-29084_1_2",
       "entryLaneId": "-30668#5_2",
       "exitLaneId": "-30668#6-AddedOnRampEdge_3",
@@ -1367,11 +1437,12 @@
       "localityM": 0.01779170419951434,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-29712_1_0",
       "entryLaneId": "-32858#2_0",
       "exitLaneId": "-31366#0-AddedOnRampEdge_1",
@@ -1390,11 +1461,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-29712_1_1",
       "entryLaneId": "-32858#2_1",
       "exitLaneId": "-31366#0-AddedOnRampEdge_2",
@@ -1413,11 +1485,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-29712_1_2",
       "entryLaneId": "-32858#2_2",
       "exitLaneId": "-31366#0-AddedOnRampEdge_3",
@@ -1436,10 +1509,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-346_0_0",
       "entryLaneId": "--30528#27_0",
@@ -1459,10 +1533,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-346_0_1",
       "entryLaneId": "--30528#27_1",
@@ -1482,10 +1557,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-346_0_2",
       "entryLaneId": "--30528#27_2",
@@ -1505,10 +1581,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-346_3_0",
       "entryLaneId": "-30528#26_0",
@@ -1528,10 +1605,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-346_3_1",
       "entryLaneId": "-30528#26_1",
@@ -1551,10 +1629,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-346_3_2",
       "entryLaneId": "-30528#26_2",
@@ -1574,11 +1653,12 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
       "stubLaneId": ":-4410_0_0",
       "entryLaneId": "-31902_0",
       "exitLaneId": "--31202_0",
@@ -1596,12 +1676,19 @@
       "shapeLenM": 0.34768385544597213,
       "localityM": 0.04240477729707679,
       "controlled": false,
-      "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-31658_0",
+          ":-4410_1_0",
+          0.3301514803843836
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-31902_0\" end onto exit lane \"--31202_0\" start, breaking shared traversal \"-31902_0->-31658_0\": first-internal join gap 0.3302 m (> 0.005 m)"
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-4410_2_0",
       "entryLaneId": "-31202_0",
       "exitLaneId": "-31658_0",
@@ -1620,11 +1707,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-4658_0_0",
       "entryLaneId": "-31622#14-AddedOffRampEdge_0",
       "exitLaneId": "-30322_0",
@@ -1643,11 +1731,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
       "stubLaneId": ":-5540_0_0",
       "entryLaneId": "-32772_0",
       "exitLaneId": "--30804_0",
@@ -1665,12 +1754,19 @@
       "shapeLenM": 0.19646882704388502,
       "localityM": 0.0,
       "controlled": false,
-      "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-32156_0",
+          ":-5540_1_0",
+          0.19646882704388502
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-32772_0\" end onto exit lane \"--30804_0\" start, breaking shared traversal \"-32772_0->-32156_0\": first-internal join gap 0.1965 m (> 0.005 m)"
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-5540_2_0",
       "entryLaneId": "-30804_0",
       "exitLaneId": "-32156_0",
@@ -1689,10 +1785,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-78_0_0",
       "entryLaneId": "-31952#5_0",
@@ -1712,10 +1809,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-78_0_1",
       "entryLaneId": "-31952#5_1",
@@ -1735,10 +1833,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-78_0_2",
       "entryLaneId": "-31952#5_2",
@@ -1758,10 +1857,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-78_3_0",
       "entryLaneId": "--31952#6_0",
@@ -1781,10 +1881,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-78_3_1",
       "entryLaneId": "--31952#6_1",
@@ -1804,10 +1905,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-78_3_2",
       "entryLaneId": "--31952#6_2",
@@ -1827,10 +1929,11 @@
       "localityM": 0.0,
       "controlled": true,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-80_0_0",
       "entryLaneId": "-30478#0_0",
@@ -1850,10 +1953,11 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
       "disposition": "welded",
       "stubLaneId": ":-80_1_0",
       "entryLaneId": "--30478#1_0",
@@ -1873,11 +1977,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-8998_1_0",
       "entryLaneId": "-32454#1-AddedOffRampEdge_1",
       "exitLaneId": "-32454#2_0",
@@ -1896,11 +2001,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-8998_1_1",
       "entryLaneId": "-32454#1-AddedOffRampEdge_2",
       "exitLaneId": "-32454#2_1",
@@ -1919,11 +2025,12 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     },
     {
-      "ruleVersion": "stub-weld/g1-six-cond@1",
-      "disposition": "rejected-displacement",
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
       "stubLaneId": ":-8998_1_2",
       "entryLaneId": "-32454#1-AddedOffRampEdge_3",
       "exitLaneId": "-32454#2_2",
@@ -1942,7 +2049,8 @@
       "localityM": 0.0,
       "controlled": false,
       "sharedTraversalCount": 0,
-      "sharedTraversals": []
+      "sharedTraversals": [],
+      "detail": ""
     }
   ]
 }

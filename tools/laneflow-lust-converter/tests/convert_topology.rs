@@ -1,8 +1,8 @@
 use std::{fs, path::PathBuf, process::Command};
 
 use laneflow_lust_converter::{
-    Error, ExactDecimal, InfeasibilityMechanism, LUST_COMMIT, LUST_FRAME_ID, PINNED_SOURCE_FILES,
-    TopologyConvertOptions, convert_static_from_xml_with_due,
+    BudgetOutcome, Error, ExactDecimal, InfeasibilityMechanism, LUST_COMMIT, LUST_FRAME_ID,
+    PINNED_SOURCE_FILES, TopologyConvertOptions, convert_static_from_xml_with_due,
     convert_topology_from_xml_with_tll_and_vtypes,
     convert_topology_from_xml_with_tll_and_vtypes_and_source, parse_due_routes_xml,
     parse_sumo_network_xml, parse_vtypes_xml, prepare_verified_lust_inputs,
@@ -173,13 +173,12 @@ fn simplified_origin_matches_three_step_formula_on_lust_location() {
 /// 总量与机制分布、锚点条目；清单文件落盘 `target/issue253-infeasible-survey.md`
 /// 作为验收交付物。
 ///
-/// 当前状态（#253 R1 焊接门控）：`STUB_WELD_MAX_DISPLACEMENT_M = 0.06` 下
-/// pinned 基线 84 条 stub 中 48 条焊接位移 6–46 cm 越界、fail-closed，诊断转换
-/// 在 normalize 阶段即中止（实测首错 `--30260_0`→`-31938_0` @ 0.1000 m），
-/// 下列锁定数字（R1 前基线）与清单落盘均待 G1 修订阈值后重锁；
-/// fail-fast 锚点断言（sumo::-1000_2_0）同理漂移。
+/// 当前状态（G1 已确认，2026-09-30，issuecomment-5901846033 §5）：位移阈值
+/// 0.5 m 启用 + 拒绝处置改为「不焊接、保留原始连接、记录诊断」——80 条
+/// 焊接、4 条共享入口破坏（join 间隙 0.20–0.42 m > 5 mm）拒绝保留，诊断
+/// 转换全量跑通；下列数字为 @2 规则重锁基线（清单两次运行逐字节一致）。
 #[test]
-#[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3; 待 G1 修订 STUB_WELD_MAX_DISPLACEMENT_M（48 条 6–46 cm 焊接越界 fail-closed，见 target/issue253-stub-weld-evidence.md）后重锁"]
+#[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3; G1 0.5m 重锁基线（rule stub-weld/g1-six-cond@2）"]
 fn full_lust_net_topology_matches_external_lane_anchor() {
     let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
     let root = PathBuf::from(source_dir);
@@ -247,31 +246,40 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
             .contains("来源校验：verify-source 已通过（checkout revision + pinned digest）"),
         "verified 正式入口的清单头必须标注 verify-source 已通过"
     );
-    // 点状 stub 内边被移除并焊接（pinned 数据 shape 端点距 < 0.5 m 的共 84 条，
-    // 实测锁定），其余 lane 全数保留。
-    assert_eq!(first.counts.dropped_point_stub_edges, 84);
+    // 点状 stub 处置（G1 @2 实测锁定）：84 条候选中 80 条焊接移除；4 条共享
+    // 入口破坏拒绝保留，stub 作为正常 lane 保留（入 24,495 条 lane_edges），
+    // 80 + 24,495 = 24,575 = SUMO lane 总数。
+    assert_eq!(first.counts.dropped_point_stub_edges, 80);
     assert_eq!(
         first.counts.lane_edges + first.counts.dropped_point_stub_edges,
         network.lanes.len() as u64
     );
 
-    // 锁定诊断清单（pinned c4bd5bd3 基线；数字随源数据或发射语义变化而更新）。
-    assert_eq!(report.total(), 8_984);
-    assert_eq!(report.internal_count(), 8_236);
-    assert_eq!(report.external_count(), 748);
+    // 锁定诊断清单（pinned c4bd5bd3 基线，G1 @2 重锁；数字随源数据或发射
+    // 语义变化而更新；清单两次运行逐字节一致）。
+    assert_eq!(report.total(), 8_230);
+    assert_eq!(report.internal_count(), 7_533);
+    assert_eq!(report.external_count(), 697);
     assert_eq!(report.junction_count(), 1_854);
     assert_eq!(
         report.internal_mechanism_count(InfeasibilityMechanism::BoundaryClamp),
-        5_102
+        4_253
     );
     assert_eq!(
         report.internal_mechanism_count(InfeasibilityMechanism::InteriorCurvature),
-        2_695
+        2_777
     );
     assert_eq!(
         report.internal_mechanism_count(InfeasibilityMechanism::HardCornerFillet),
-        439
+        503
     );
+    // 发射预算裁决分布（G1 重新验收四类口径；4 条保留 stub 为已证预算冲突）。
+    assert_eq!(report.outcome_count(BudgetOutcome::SamplerExhausted), 5_613);
+    assert_eq!(
+        report.outcome_count(BudgetOutcome::ProvenBudgetConflict),
+        2_599
+    );
+    assert_eq!(report.outcome_count(BudgetOutcome::NotBudget), 18);
     let anchor_first = &report.entries[0].lane_id;
     let anchor_second = &report.entries[1].lane_id;
     assert_eq!(anchor_first, "sumo::-1000_2_0", "first infeasible lane");

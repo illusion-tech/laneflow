@@ -158,28 +158,33 @@ pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> 
                     &reference_counts,
                 )?;
                 if evaluation.disposition != StubWeldDisposition::Welded {
-                    return Err(Error::SumoModel(evaluation.detail));
-                }
-                let target = exit.shape.first().expect("evaluated weld target");
-                match stub_welds.entry(entry.id.clone()) {
-                    std::collections::hash_map::Entry::Occupied(previous) => {
-                        let previous = previous.get();
-                        let dx = previous.0.checked_sub(target.0)?.to_f64()?;
-                        let dy = previous.1.checked_sub(target.1)?.to_f64()?;
-                        if dx * dx + dy * dy > 1e-6 {
-                            return Err(Error::SumoModel(format!(
-                                "entry lane {:?} welded to conflicting targets by point-stub removal",
-                                entry.id
-                            )));
+                    // G1 §5：拒绝处置不中止——不删 stub、不写焊接，原始连接保留
+                    // 走普通 via 穿越（下方 sequence 校验与发射照旧；发射不可行
+                    // 则入诊断清单）。记录（含诊断摘要）同样入附录。
+                    stub_weld_records.push(evaluation.record);
+                    // 继续普通路径：internal_lane_ids 保持 [stub] 不清空。
+                } else {
+                    let target = exit.shape.first().expect("evaluated weld target");
+                    match stub_welds.entry(entry.id.clone()) {
+                        std::collections::hash_map::Entry::Occupied(previous) => {
+                            let previous = previous.get();
+                            let dx = previous.0.checked_sub(target.0)?.to_f64()?;
+                            let dy = previous.1.checked_sub(target.1)?.to_f64()?;
+                            if dx * dx + dy * dy > 1e-6 {
+                                return Err(Error::SumoModel(format!(
+                                    "entry lane {:?} welded to conflicting targets by point-stub removal",
+                                    entry.id
+                                )));
+                            }
+                        }
+                        std::collections::hash_map::Entry::Vacant(slot) => {
+                            slot.insert(*target);
                         }
                     }
-                    std::collections::hash_map::Entry::Vacant(slot) => {
-                        slot.insert(*target);
-                    }
+                    dropped_stub_lane_ids.insert(stub_id.clone());
+                    internal_lane_ids.clear();
+                    stub_weld_records.push(evaluation.record);
                 }
-                dropped_stub_lane_ids.insert(stub_id.clone());
-                internal_lane_ids.clear();
-                stub_weld_records.push(evaluation.record);
             }
         } else {
             for via_id in &internal_lane_ids {
@@ -526,35 +531,34 @@ fn evaluate_stub_candidate(
         controlled,
         shared_traversal_count: 0,
         shared_traversals: Vec::new(),
+        detail: String::new(),
     };
     if displacement > STUB_WELD_MAX_DISPLACEMENT_M {
+        let detail = format!(
+            "point-stub removal would displace entry lane {:?} by \
+             {displacement:.4} m (> {STUB_WELD_MAX_DISPLACEMENT_M} m) \
+             to reach exit lane {:?} start",
+            entry.id, exit.id
+        );
+        let mut record = base.clone();
+        record.disposition = StubWeldDisposition::RejectedDisplacement;
+        record.detail = detail;
         return Ok(StubEvaluation {
             disposition: StubWeldDisposition::RejectedDisplacement,
-            detail: format!(
-                "point-stub removal would displace entry lane {:?} by \
-                 {displacement:.4} m (> {STUB_WELD_MAX_DISPLACEMENT_M} m) \
-                 to reach exit lane {:?} start",
-                entry.id, exit.id
-            ),
-            record: {
-                let mut record = base.clone();
-                record.disposition = StubWeldDisposition::RejectedDisplacement;
-                record
-            },
+            record,
         });
     }
     if locality > STUB_WELD_MAX_LOCALITY_M {
+        let detail = format!(
+            "point-stub internal lane {stub_id:?} shape is not local: max deviation \
+             from its endpoint chord is {locality:.4} m (> {STUB_WELD_MAX_LOCALITY_M} m)"
+        );
+        let mut record = base.clone();
+        record.disposition = StubWeldDisposition::RejectedLocality;
+        record.detail = detail;
         return Ok(StubEvaluation {
             disposition: StubWeldDisposition::RejectedLocality,
-            detail: format!(
-                "point-stub internal lane {stub_id:?} shape is not local: max deviation \
-                 from its endpoint chord is {locality:.4} m (> {STUB_WELD_MAX_LOCALITY_M} m)"
-            ),
-            record: {
-                let mut record = base.clone();
-                record.disposition = StubWeldDisposition::RejectedLocality;
-                record
-            },
+            record,
         });
     }
     let via_refs = reference_counts.via.get(stub_id).copied().unwrap_or(0);
@@ -564,18 +568,17 @@ fn evaluate_stub_candidate(
         .copied()
         .unwrap_or(0);
     if via_refs != 1 || from_refs != 1 {
+        let detail = format!(
+            "point-stub internal lane {stub_id:?} carries internal semantics: \
+             referenced by {via_refs} connection via entries and {from_refs} internal \
+             from-lane entries (expected exactly 1 each)"
+        );
+        let mut record = base.clone();
+        record.disposition = StubWeldDisposition::RejectedTopology;
+        record.detail = detail;
         return Ok(StubEvaluation {
             disposition: StubWeldDisposition::RejectedTopology,
-            detail: format!(
-                "point-stub internal lane {stub_id:?} carries internal semantics: \
-                 referenced by {via_refs} connection via entries and {from_refs} internal \
-                 from-lane entries (expected exactly 1 each)"
-            ),
-            record: {
-                let mut record = base.clone();
-                record.disposition = StubWeldDisposition::RejectedTopology;
-                record
-            },
+            record,
         });
     }
     // 共享入口影响重验：所有以 entry 为入口的其他穿越，焊接后首段 join 间隙
@@ -632,15 +635,14 @@ fn evaluate_stub_candidate(
     record.shared_traversal_count = record.shared_traversals.len();
     if let Some(detail) = broken {
         record.disposition = StubWeldDisposition::RejectedSharedEntry;
+        record.detail = detail;
         return Ok(StubEvaluation {
             disposition: StubWeldDisposition::RejectedSharedEntry,
-            detail,
             record,
         });
     }
     Ok(StubEvaluation {
         disposition: StubWeldDisposition::Welded,
-        detail: String::new(),
         record,
     })
 }
@@ -797,16 +799,18 @@ pub fn stub_weld_manifest_json(network: &SumoNetwork, net_digest: &str) -> Resul
 /// 点状 stub 内边的形状端点距上限（米）：LuST 的 84 条 stub 均 ≤ 0.5 m。
 const POINT_STUB_MAX_METERS: f64 = 0.5;
 
-/// 点状 stub 删焊的入口末点→出口首点位移上限（米）。#253 G1 补充记录按
-/// 「入口边界端点位移 1–6 cm」授权焊接，故取 6 cm；LuST pinned 基线实测
-/// 84 条 stub 中 48 条 6–46 cm（最大 0.4617 m）越界（证据见
-/// target/issue253-stub-weld-evidence.md），越界者 fail-closed，阈值待
-/// G1 修订获批后上调并重锁全网验收数字。
-const STUB_WELD_MAX_DISPLACEMENT_M: f64 = 0.06;
+/// 点状 stub 删焊的入口末点→出口首点位移上限（米）。G1 修订已获项目所有者
+/// 最终确认（2026-09-30，评估文本 issuecomment-5901846033 第 5 节口径）：
+/// 仅位移预算上调至 0.5 m（LuST pinned 基线 84 条候选实测最大 0.4617 m，
+/// 全部纳入）；局部性 0.05 m / join 间隙 0.005 m / 端点距身份 0.5 m 均不动。
+/// G1 §5：超出位移预算或其他合法性条件的对象继续「拒绝处置并记录诊断」
+/// ——不中止转换，保留原始连接走正常穿越（发射不可行则入清单）。
+pub(crate) const STUB_WELD_MAX_DISPLACEMENT_M: f64 = 0.5;
 
-/// 删焊规则版本（G1 issuecomment-5901846033 六条件机制，阈值保持 0.06 m；
-/// G1 确认后提 0.5 m 时 bump 版本）。随焊接记录与候选 manifest 落出，追溯用。
-pub(crate) const STUB_WELD_RULE_VERSION: &str = "stub-weld/g1-six-cond@1";
+/// 删焊规则版本（G1 issuecomment-5901846033 六条件机制；@2 = 位移阈值
+/// 0.06 m → 0.5 m 启用 + 拒绝处置改为保留记录不中止）。随焊接记录与候选
+/// manifest 落出，追溯用。
+pub(crate) const STUB_WELD_RULE_VERSION: &str = "stub-weld/g1-six-cond@2";
 
 /// stub 形状局部性上限（米）：全部 shape 点对端点弦（线段）的最大偏离。
 /// 实测分布（pinned c4bd5bd3 全部 84 条）：max = 0.0424 m（仅 1 条 > 0.02，
@@ -814,13 +818,13 @@ pub(crate) const STUB_WELD_RULE_VERSION: &str = "stub-weld/g1-six-cond@1";
 /// 覆盖全部实测候选，同时把「形状在中段明显游荡、并非点状噪声」的边挡在
 /// 删焊之外（点状 stub 的语义是端点抖动，局部偏离应同量级于位移预算）。
 /// G1 提阈值至 0.5 m 时本界不动（局部性与位移是独立量纲）。
-const STUB_WELD_MAX_LOCALITY_M: f64 = 0.05;
+pub(crate) const STUB_WELD_MAX_LOCALITY_M: f64 = 0.05;
 
 /// 焊接共享影响重验的 join 间隙上限（米），镜像 compiler 的
 /// `MAX_SOURCE_JOIN_GAP_METERS`（0.005 m）：入口 E 被焊接后末点移到目标 T，
 /// 所有以 E 为入口的其他穿越的首段 join 间隙 = |T − 后继首点|，超 5 mm 即
 /// 破坏该穿越的边界连接，fail-closed（G1 六条件之共享影响复核）。
-const STUB_WELD_JOIN_GAP_M: f64 = 0.005;
+pub(crate) const STUB_WELD_JOIN_GAP_M: f64 = 0.005;
 
 /// 焊接处置逐条记录（G1 六条件之可追溯记录）：字段与
 /// `evidence/lust-stub-weld-candidates.json` 候选条目一致，随诊断清单渲染
@@ -849,6 +853,8 @@ pub struct StubWeldRecord {
     pub shared_traversal_count: usize,
     /// 关联穿越明细：(出口 lane, 后继 lane, 重验间隙 m)。
     pub shared_traversals: Vec<(String, String, f64)>,
+    /// 拒绝处置的诊断摘要（welded 为空串；G1 §5 记录诊断）。
+    pub detail: String,
 }
 
 /// 候选处置结果（manifest disposition 与 normalize 报错共用同一推导）。
@@ -883,11 +889,11 @@ impl StubWeldDisposition {
     }
 }
 
-/// 候选评估（度量 + 处置 + 记录骨架），normalize 门控与候选扫描器共用。
+/// 候选评估（度量 + 处置 + 记录），normalize 门控与候选扫描器共用；
+/// 拒绝原因在 record.detail。
 struct StubEvaluation {
     disposition: StubWeldDisposition,
     record: StubWeldRecord,
-    detail: String,
 }
 
 /// 内边形状首末点距离（米）。
@@ -1309,10 +1315,10 @@ mod tests {
     }
 
     #[test]
-    fn sole_stub_weld_beyond_displacement_limit_fails_closed() {
-        // 恰一条 stub（无续接，含 SUMO 伴随的终端 exit-link）但入口末点→出口首点
-        // 位移 10 m，越出 STUB_WELD_MAX_DISPLACEMENT_M（0.06 m，G1 授权 ≤ 6 cm）：
-        // 删焊 fail-closed。
+    fn sole_stub_over_displacement_retained_with_record() {
+        // G1 §5：位移 10 m 越出 STUB_WELD_MAX_DISPLACEMENT_M（0.5 m）→ 拒绝
+        // 处置不中止：不删 stub、不写焊接，原始连接保留走普通 via 穿越，
+        // 诊断记录（rejected-displacement + 摘要）入附录。
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>
   <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
@@ -1324,12 +1330,27 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("over-limit weld must fail");
-        let message = error.to_string();
+        let topology = normalize_junctions(&network).expect("refused weld retains the lane");
         assert!(
-            message.contains("displace") && message.contains("0.06"),
-            "unexpected error: {message}"
+            topology.dropped_stub_lane_ids.is_empty(),
+            "refused stub must not be dropped"
         );
+        assert!(
+            topology.stub_welds.is_empty(),
+            "refused weld must not rewrite the entry endpoint"
+        );
+        assert_eq!(
+            topology.maneuver_paths[0].internal_edge_ids,
+            ["sumo::J_0_0".to_owned()],
+            "原始连接保留：stub 留在路径里"
+        );
+        assert_eq!(topology.stub_weld_records.len(), 1);
+        let record = &topology.stub_weld_records[0];
+        assert_eq!(
+            record.disposition,
+            StubWeldDisposition::RejectedDisplacement
+        );
+        assert!(record.detail.contains("displace"));
     }
 
     #[test]
@@ -1467,7 +1488,7 @@ mod tests {
     }
 
     #[test]
-    fn stub_weld_rejects_nonlocal_shape_fails_closed() {
+    fn stub_weld_nonlocal_shape_retained_with_record() {
         // G1 六条件之独立几何门控：stub 形状对端点弦的最大偏离超 0.05 m
         // （本例中部点偏离约 0.27 m，非点状噪声）→ fail-closed，不进删焊。
         // 位移 0.022 m 过门控，确保触发的是局部性检查。
@@ -1482,15 +1503,20 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("non-local stub must fail");
+        let topology = normalize_junctions(&network).expect("non-local stub retained");
+        assert_eq!(topology.stub_weld_records.len(), 1);
+        let record = &topology.stub_weld_records[0];
+        assert_eq!(record.disposition, StubWeldDisposition::RejectedLocality);
+        assert!(record.detail.contains("not local"));
         assert!(
-            error.to_string().contains("not local"),
-            "unexpected error: {error}"
+            topology.maneuver_paths[0]
+                .internal_edge_ids
+                .contains(&"sumo::J_0_0".to_owned())
         );
     }
 
     #[test]
-    fn stub_weld_rejects_multiply_referenced_stub_fails_closed() {
+    fn stub_weld_multiply_referenced_retained_with_records() {
         // G1 六条件之拓扑形态：stub 被两条 connection 的 via 引用（承载多处
         // 内部语义）→ fail-closed。
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1506,15 +1532,18 @@ mod tests {
   <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("multiply referenced stub must fail");
-        assert!(
-            error.to_string().contains("carries internal semantics"),
-            "unexpected error: {error}"
-        );
+        // 两条 connection 各自评估同一 stub：均被拒（via 引用数 2），均保留。
+        let topology = normalize_junctions(&network).expect("multiply referenced stub retained");
+        assert_eq!(topology.stub_weld_records.len(), 2);
+        for record in &topology.stub_weld_records {
+            assert_eq!(record.disposition, StubWeldDisposition::RejectedTopology);
+            assert!(record.detail.contains("carries internal semantics"));
+        }
+        assert!(topology.dropped_stub_lane_ids.is_empty());
     }
 
     #[test]
-    fn stub_weld_rejects_shared_entry_breaking_other_traversal() {
+    fn stub_weld_shared_entry_breaking_retained_with_record() {
         // G1 六条件之共享影响复核：入口 west_0 还有一条正常穿越
         // west→east_1（后继 :J_2_0 首点距焊接目标 0.20 m > 5 mm join 容差），
         // 焊接会移动 west_0 全局端点、破坏该穿越 → fail-closed。
@@ -1532,11 +1561,14 @@ mod tests {
   <connection from=":J_2" to="east" fromLane="0" toLane="1"/>
 </net>"#;
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let error = normalize_junctions(&network).expect_err("shared-breaking weld must fail");
-        assert!(
-            error.to_string().contains("breaking shared traversal"),
-            "unexpected error: {error}"
-        );
+        let topology = normalize_junctions(&network).expect("shared-breaking weld retained");
+        assert_eq!(topology.stub_weld_records.len(), 1);
+        let record = &topology.stub_weld_records[0];
+        assert_eq!(record.disposition, StubWeldDisposition::RejectedSharedEntry);
+        assert!(record.detail.contains("breaking shared traversal"));
+        // 关联穿越明细：正常穿越 west→east_1 的后继间隙 0.20 m 记录在案。
+        assert_eq!(record.shared_traversals.len(), 1);
+        assert!((record.shared_traversals[0].2 - 0.20).abs() < 1e-6);
     }
 
     #[test]

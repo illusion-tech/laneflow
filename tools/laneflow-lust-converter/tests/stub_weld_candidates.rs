@@ -50,11 +50,25 @@ fn lust_stub_weld_candidates_match_manifest() {
             .filter(|candidate| candidate.disposition == disposition)
             .count()
     };
-    assert_eq!(count(StubWeldDisposition::Welded), 36);
-    assert_eq!(count(StubWeldDisposition::RejectedDisplacement), 48);
+    // G1 确认后阈值 0.5 m：80 welded；4 条共享入口破坏（join 间隙 0.20–0.42 m
+    // > 5 mm）拒绝保留，原始连接走正常穿越。
+    assert_eq!(count(StubWeldDisposition::Welded), 80);
+    assert_eq!(count(StubWeldDisposition::RejectedDisplacement), 0);
     assert_eq!(count(StubWeldDisposition::RejectedLocality), 0);
     assert_eq!(count(StubWeldDisposition::RejectedTopology), 0);
-    assert_eq!(count(StubWeldDisposition::RejectedSharedEntry), 0);
+    assert_eq!(count(StubWeldDisposition::RejectedSharedEntry), 4);
+    let refused_shared = candidates
+        .iter()
+        .filter(|candidate| candidate.disposition == StubWeldDisposition::RejectedSharedEntry)
+        .collect::<Vec<_>>();
+    for candidate in &refused_shared {
+        assert!(
+            !candidate.shared_traversals.is_empty(),
+            "refused-shared-entry {} must carry traversal details",
+            candidate.stub_lane_id
+        );
+        assert!(candidate.detail.contains("breaking shared traversal"));
+    }
 
     let digest = format!("sha256:{}", hex_sha256(net_xml.as_bytes()));
     let generated = stub_weld_manifest_json(&network, &digest).expect("manifest json");

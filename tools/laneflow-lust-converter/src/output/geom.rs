@@ -451,13 +451,25 @@ impl InfeasibilityReport {
                 e.budget_outcome.label(),
             ));
         }
-        out.push_str("\n## 点状 stub 删焊处置记录（已归一化）\n\n");
+        let welded = weld_records
+            .iter()
+            .filter(|record| {
+                record.disposition == crate::convert::junction::StubWeldDisposition::Welded
+            })
+            .count();
+        out.push_str("\n## 点状 stub 删焊处置（已归一化 / 拒绝保留）\n\n");
         out.push_str(&format!(
-            "规则版本 `{}`（G1 issuecomment-5901846033 六条件；阈值：位移 ≤ 0.06 m、\
-             形状局部性 ≤ 0.05 m、共享 join 间隙 ≤ 0.005 m）；焊接为全局入口端点改写，\
-             共享入口关联穿越已逐条重验。共 {} 条。\n\n",
+            "规则版本 `{}`（G1 issuecomment-5901846033 六条件）；阈值（实际常量）：\
+             位移 ≤ {} m、形状局部性 ≤ {} m、共享 join 间隙 ≤ {} m。焊接为全局入口端点改写，\
+             共享入口关联穿越已逐条重验；拒绝保留类不删 stub、原始连接走正常穿越。\
+             共 {} 条（已归一化 {} / 拒绝保留 {}）。\n\n",
             crate::convert::junction::STUB_WELD_RULE_VERSION,
-            weld_records.len()
+            crate::convert::junction::STUB_WELD_MAX_DISPLACEMENT_M,
+            crate::convert::junction::STUB_WELD_MAX_LOCALITY_M,
+            crate::convert::junction::STUB_WELD_JOIN_GAP_M,
+            weld_records.len(),
+            welded,
+            weld_records.len() - welded
         ));
         out.push_str("| stub lane | 入口 | 出口 | junction | 位移(m) | span(m) | shape长(m) | 局部性(m) | 受控 | 共享穿越 | 处置 |\n");
         out.push_str("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | --- |\n");
@@ -2021,6 +2033,7 @@ mod tests {
             controlled: true,
             shared_traversal_count: 0,
             shared_traversals: Vec::new(),
+            detail: String::new(),
         }];
         let report =
             InfeasibilityReport::render(entries, ReportSource::unverified_unknown(), &records);
@@ -2030,7 +2043,7 @@ mod tests {
         assert!(
             report
                 .rendered
-                .contains("## 点状 stub 删焊处置记录（已归一化）")
+                .contains("## 点状 stub 删焊处置（已归一化 / 拒绝保留）")
         );
         assert!(
             report

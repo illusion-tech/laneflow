@@ -14,7 +14,10 @@ pub use emit::{
     TopologyArtifacts, TopologyCounts, compile_network_lfca,
     compile_network_lfca_with_infeasibility_report,
 };
-pub use geom::{InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport, ReportSource};
+pub use geom::{
+    BudgetOutcome, InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport,
+    ReportSource,
+};
 pub use pipeline::{ConvertOutputPaths, convert_with_config};
 pub use provenance::{
     BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls,
