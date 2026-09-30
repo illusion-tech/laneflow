@@ -2,6 +2,10 @@
 
 关联 #793，属于 #707 的下一候选筛选。正式运行时代码不变。
 
+- [实测结果与后续候选](results.md)
+- [首批 12 次完整记录](evidence/results.json)
+- [单独复跑 100k 的 6 次记录](evidence/rerun100k.json)
+
 ## 冻结协议
 
 - Runtime 基线：`fadf6a844d9d22869976089f866c364edc6fc261`。
