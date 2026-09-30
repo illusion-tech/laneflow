@@ -110,10 +110,10 @@ converter 不能因缺少某个固定文件而从完整 tree 中寻找替代输�
 内车道试打 shape 补丁（端点保持与相邻 external lane 精确对齐，maneuver
 边界位置容差 5 mm 不受影响）：
 
-| lane | 原始 shape / length | 实验 shape / length（已回退） |
-| ---- | -------------------- | -------------------- |
-| `:-1000_2_0` | `7325.49,7162.74 7324.51,7165.20 7323.36,7166.12` / 4.11 m | `7325.49,7162.74 7325.35,7163.37 7325.15,7163.97 7324.89,7164.56 7324.58,7165.12 7324.21,7165.65 7323.80,7166.14 7323.34,7166.59 7322.84,7166.99 7322.30,7167.34 7321.73,7167.64 7321.14,7167.88 7320.52,7168.07 7319.89,7168.19 7319.26,7168.26 7318.61,7168.26 7317.98,7168.20 7317.23,7168.09 7316.48,7167.99 7315.74,7167.88 7314.99,7167.78` / 13.28 m |
-| `:-1000_7_0` | `7323.36,7166.12 7322.44,7166.86 7319.26,7167.72 7314.99,7167.78` / 8.75 m | `7323.36,7166.12 7321.40,7166.86 7319.30,7167.42 7314.99,7167.78` / 8.59 m |
+| lane         | 原始 shape / length                                                        | 实验 shape / length（已回退）                                                                                                                                                                                                                                                                                                                               |
+| ------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `:-1000_2_0` | `7325.49,7162.74 7324.51,7165.20 7323.36,7166.12` / 4.11 m                 | `7325.49,7162.74 7325.35,7163.37 7325.15,7163.97 7324.89,7164.56 7324.58,7165.12 7324.21,7165.65 7323.80,7166.14 7323.34,7166.59 7322.84,7166.99 7322.30,7167.34 7321.73,7167.64 7321.14,7167.88 7320.52,7168.07 7319.89,7168.19 7319.26,7168.26 7318.61,7168.26 7317.98,7168.20 7317.23,7168.09 7316.48,7167.99 7315.74,7167.88 7314.99,7167.78` / 13.28 m |
+| `:-1000_7_0` | `7323.36,7166.12 7322.44,7166.86 7319.26,7167.72 7314.99,7167.78` / 8.75 m | `7323.36,7166.12 7321.40,7166.86 7319.30,7167.42 7314.99,7167.78` / 8.59 m                                                                                                                                                                                                                                                                                  |
 
 实验结论一（可修通的情形存在）：SUMO 自动生成的 `:-1000_2_0`（4.11 m
 承载约 85° 转向）与 `:-1000_7_0`（23.7° 软折压在 1.18 m 弦上）在 f32
@@ -164,7 +164,14 @@ fail closed 回到 #224 G1。
 - 每个 SUMO external `<lane>` 与 junction internal / `via` `<lane>` 都映射为一个
   LaneFlow `LaneEdge`；`length` 和 `speedLimit` 分别取 lane 的 `length` 与
   `speed`，单位保持 m 和 m/s。不得丢弃 internal lane 或把路口两侧 external lane
-  直接连接。
+  直接连接。唯一例外是 #253 G1 最终确认（2026-09-30，issuecomment-5902944418）
+  的点状 stub 删焊：pinned 基线内经
+  `tools/laneflow-lust-converter/evidence/lust-stub-weld-candidates.json` 清单
+  确认的单段 stub（完整展开后恰一条、端点距 < 0.5 m 的点状边），在位移
+  ≤ 0.5 m、形状局部性 ≤ 0.05 m、via/from 引用各唯一、共享入口关联穿越重验
+  通过时可移除并把入口末点焊到出口首点（有界源几何归一化，实测 80 条）；
+  不满足任一条件的对象拒绝处置、保留原始连接走正常穿越并记录诊断（实测
+  4 条），集外对象不得仅凭端点距套用。
 - 只有拥有至少一条 normalized external-entry → external-exit traversal 的 SUMO
   road junction 才映射为 current Traffic v0.10 `Junction`。该 identity/owner shape
   由 v0.8 引入并被 v0.9 继承；owner 由 external from-edge 的 `to`、external
@@ -221,7 +228,9 @@ fail closed 回到 #224 G1。
 - Traffic edge length 与 Spatial quantized polyline arc length 必须通过现有
   binding validation；ManeuverPath 中每一对相邻 external/internal edge 也必须通过
   current Spatial endpoint 连续性验证。不能用丢弃 internal geometry 或放宽
-  tolerance 规避验证。
+  tolerance 规避验证。§3.1 的点状 stub 删焊是 G1 授权的有界源几何归一化
+  （有独立门控与逐条记录），不属于本条的「丢弃 internal geometry」；焊接后
+  入口末点与出口首点一致，连续性验证照常执行。
 
 LuST 约 13.6 × 11.5 km 的范围在重定中心后位于现有每轴
 `[-16_384, 16_384] m` canonical frame 边界内。超界不能通过缩放、分片或改变
@@ -607,7 +616,9 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
   ownership/path connectivity、ManeuverGate binding 或 Traffic/Spatial
   length/endpoint binding 失败；
 - SUMO internal / `via` chain unknown、dangling、cyclic、跨 Junction，或任何
-  internal lane 的 Traffic/Spatial geometry 被丢弃；
+  internal lane 的 Traffic/Spatial geometry 被丢弃（§3.1 的 G1 点状 stub 删焊
+  例外除外：该例外仅在 pinned 批准域内经独立门控放行，拒绝或集外对象一律
+  保留原始连接并记录诊断）；
 - source junction owner 不能由 edge endpoint、`junction@intLanes` 和 connection
   chain 唯一闭合，或 emitted Junction / Movement 为空；
 - selected candidate 数不等于 10,592 或精确一万 table digest 不匹配；
@@ -628,15 +639,15 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 #224 G4 后分别创建以下 G0 Issue：
 
-| 切片     | 交付                                                                     | 依赖/边界                                                                                                   |
-| -------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 切片     | 交付                                                                                                          | 依赖/边界                                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`](../../tools/laneflow-lust-converter/)；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
-| B        | TOPO plan、harness 与 evidence                                           | 依赖 A                                                                                                      |
-| C        | DEMAND caller policy、plan、harness 与 evidence                          | 依赖 A                                                                                                      |
-| D        | DUA rerouting                                                            | 独立 G1/ADR 判断                                                                                            |
-| E        | bus/stop semantics                                                       | 独立 G1                                                                                                     |
-| F        | 中国特色手工 authoring 样本和独立 workload ID                            | 独立排期                                                                                                    |
-| G        | BeST 十万来源、裁剪和 workload                                           | 一万获取/转换链路稳定后独立 G1                                                                              |
+| B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                             |
+| C        | DEMAND caller policy、plan、harness 与 evidence                                                               | 依赖 A                                                                                                                                                                             |
+| D        | DUA rerouting                                                                                                 | 独立 G1/ADR 判断                                                                                                                                                                   |
+| E        | bus/stop semantics                                                                                            | 独立 G1                                                                                                                                                                            |
+| F        | 中国特色手工 authoring 样本和独立 workload ID                                                                 | 独立排期                                                                                                                                                                           |
+| G        | BeST 十万来源、裁剪和 workload                                                                                | 一万获取/转换链路稳定后独立 G1                                                                                                                                                     |
 
 产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
 
