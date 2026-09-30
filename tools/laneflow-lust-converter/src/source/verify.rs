@@ -273,3 +273,172 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+/// 读入 verify-source 快照文件并在**消费时**重算 SHA-256 与验证记录比对：
+/// 验证与消费之间字节被换（TOCTOU）即 fail-closed，消费字节由此与
+/// pinned 校验绑定（#253 R2）。pipeline 与 `prepare_verified_lust_inputs`
+/// 共用本实现。
+pub(crate) fn read_verified(verified: &VerifiedSourceSet, relative_path: &str) -> Result<String> {
+    let file = verified
+        .files
+        .iter()
+        .find(|file| file.relative_path == relative_path)
+        .ok_or_else(|| Error::SumoModel(format!("verified set missing {relative_path}")))?;
+    let bytes = std::fs::read(&file.absolute_path).map_err(|source| Error::Io {
+        path: file.absolute_path.clone(),
+        source,
+    })?;
+    let actual = crate::output::digest::hex_sha256(&bytes);
+    if actual != file.sha256_hex {
+        return Err(Error::SourceChangedAfterVerification {
+            relative_path: file.relative_path,
+            expected: file.sha256_hex.clone(),
+            actual,
+        });
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| Error::SumoModel(format!("verified {relative_path} is not UTF-8")))
+}
+
+/// 诊断清单模式的已验证输入（#253 R2 第四轮）：`prepare_verified_lust_inputs`
+/// 的返回——绑定后的三份转换输入与 verified 来源声明。外部调用方无法自行
+/// 构造 `verified = true` 的 [`ReportSource`]（字段私有），已验证声明只能
+/// 经本路径或 crate 内 pipeline 获得。
+pub struct VerifiedLustInputs {
+    /// 消费时重哈希绑定后的 `scenario/lust.net.xml` 文本。
+    pub net_xml: String,
+    /// 消费时重哈希绑定后的 `scenario/tll.static.xml` 文本。
+    pub tll_xml: String,
+    /// 消费时重哈希绑定后的 `scenario/vtypes.add.xml` 文本。
+    pub vtypes_xml: String,
+    /// verified = true、摘要取 net 消费字节的来源声明。
+    pub report_source: crate::output::geom::ReportSource,
+}
+
+impl std::fmt::Debug for VerifiedLustInputs {
+    /// 手动 Debug：字节文本可达 10 MB 级，失败时只报长度与来源声明。
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerifiedLustInputs")
+            .field("net_xml", &format_args!("{} bytes", self.net_xml.len()))
+            .field("tll_xml", &format_args!("{} bytes", self.tll_xml.len()))
+            .field(
+                "vtypes_xml",
+                &format_args!("{} bytes", self.vtypes_xml.len()),
+            )
+            .field("report_source", &self.report_source)
+            .finish()
+    }
+}
+
+/// 正式诊断入口的准备函数：先验证、再绑定、后转换（#253 R2 第四轮）。
+///
+/// 1. `verify_source_dir`：checkout revision 等于 pinned commit + 全部 §2.2
+///    pinned digest 校验（文件失配、HEAD 错误、无仓库在此 fail-closed——
+///    即任何 normalize/转换之前）。
+/// 2. 三份诊断输入逐份 `read_verified`：消费时重哈希与验证记录比对
+///    （TOCTOU 闭合），字节在验证后被换即拒绝。
+/// 3. 构造 `ReportSource::verified`（crate 内受控构造器，摘要为 net 消费字节）。
+pub fn prepare_verified_lust_inputs(source_dir: &Path) -> Result<VerifiedLustInputs> {
+    let verified = verify_source_dir(source_dir)?;
+    let net_xml = read_verified(&verified, "scenario/lust.net.xml")?;
+    let tll_xml = read_verified(&verified, "scenario/tll.static.xml")?;
+    let vtypes_xml = read_verified(&verified, "scenario/vtypes.add.xml")?;
+    let report_source = crate::output::geom::ReportSource::verified(
+        crate::output::digest::sha256_digest(net_xml.as_bytes()),
+    );
+    Ok(VerifiedLustInputs {
+        net_xml,
+        tll_xml,
+        vtypes_xml,
+        report_source,
+    })
+}
+
+#[cfg(test)]
+mod read_verified_tests {
+    use super::{VerifiedSourceFile, VerifiedSourceSet, read_verified};
+    use crate::Error;
+
+    fn snapshot_with(
+        root: &std::path::Path,
+        relative_path: &'static str,
+        bytes: &[u8],
+    ) -> VerifiedSourceSet {
+        let absolute_path = root.join(relative_path);
+        std::fs::create_dir_all(absolute_path.parent().expect("parent dir"))
+            .expect("create parent");
+        std::fs::write(&absolute_path, bytes).expect("write snapshot file");
+        VerifiedSourceSet {
+            source_dir: root.to_path_buf(),
+            files: vec![VerifiedSourceFile {
+                relative_path,
+                absolute_path,
+                bytes: bytes.len() as u64,
+                sha256_hex: crate::output::digest::hex_sha256(bytes),
+            }],
+        }
+    }
+
+    #[test]
+    fn read_verified_accepts_intact_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-lust-verify-intact-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp");
+        let snapshot = snapshot_with(&root, "scenario/lust.net.xml", b"<net/>");
+        let text =
+            read_verified(&snapshot, "scenario/lust.net.xml").expect("intact snapshot reads");
+        assert_eq!(text, "<net/>");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_verified_rejects_bytes_changed_after_verification() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-lust-verify-toctou-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp");
+        let snapshot = snapshot_with(&root, "scenario/lust.net.xml", b"<net/>");
+        // 验证与消费之间文件被换（TOCTOU）：同尺寸换内容必须 fail-closed。
+        std::fs::write(&snapshot.files[0].absolute_path, b"<NET/>").expect("swap bytes");
+        let error = read_verified(&snapshot, "scenario/lust.net.xml")
+            .expect_err("changed bytes must fail closed");
+        match error {
+            Error::SourceChangedAfterVerification {
+                relative_path,
+                expected,
+                actual,
+            } => {
+                assert_eq!(relative_path, "scenario/lust.net.xml");
+                assert_eq!(expected, crate::output::digest::hex_sha256(b"<net/>"));
+                assert_eq!(actual, crate::output::digest::hex_sha256(b"<NET/>"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_verified_reports_snapshot_missing_file() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-lust-verify-missing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp");
+        let snapshot = snapshot_with(&root, "scenario/lust.net.xml", b"<net/>");
+        let error = read_verified(&snapshot, "scenario/tll.static.xml")
+            .expect_err("unverified file must not be consumed");
+        match error {
+            Error::SumoModel(message) => {
+                assert!(message.contains("scenario/tll.static.xml"), "{message}");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

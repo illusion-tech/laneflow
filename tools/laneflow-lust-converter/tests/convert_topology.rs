@@ -2,10 +2,11 @@ use std::{fs, path::PathBuf, process::Command};
 
 use laneflow_lust_converter::{
     Error, ExactDecimal, InfeasibilityMechanism, LUST_COMMIT, LUST_FRAME_ID, PINNED_SOURCE_FILES,
-    ReportSource, TopologyConvertOptions, convert_static_from_xml_with_due,
+    TopologyConvertOptions, convert_static_from_xml_with_due,
     convert_topology_from_xml_with_tll_and_vtypes,
-    convert_topology_from_xml_with_tll_and_vtypes_and_source, hex_sha256, parse_due_routes_xml,
-    parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes, verify_source_dir,
+    convert_topology_from_xml_with_tll_and_vtypes_and_source, parse_due_routes_xml,
+    parse_sumo_network_xml, parse_vtypes_xml, prepare_verified_lust_inputs,
+    select_passenger_vtypes,
 };
 
 #[test]
@@ -182,27 +183,14 @@ fn simplified_origin_matches_three_step_formula_on_lust_location() {
 fn full_lust_net_topology_matches_external_lane_anchor() {
     let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
     let root = PathBuf::from(source_dir);
-    let net_xml = fs::read_to_string(root.join("scenario/lust.net.xml")).expect("read net");
-    let tll_xml = fs::read_to_string(root.join("scenario/tll.static.xml")).expect("read tll");
-    let vtypes_xml = fs::read_to_string(root.join("scenario/vtypes.add.xml")).expect("read vtypes");
-    // R2：验收入口对全部实际消费字节绑定 pinned 基线——net 经下方 report 头
-    // 比对，tll/vtypes 在此直接对消费字节断言 §2.2 pinned digest；注释改动或
-    // 任何非 pinned 字节即测试失败。断言位于转换之前，R1 门控下转换在
-    // normalize 中止也不影响本断言先行执行。
-    for (relative_path, bytes) in [
-        ("scenario/tll.static.xml", tll_xml.as_bytes()),
-        ("scenario/vtypes.add.xml", vtypes_xml.as_bytes()),
-    ] {
-        let pinned = PINNED_SOURCE_FILES
-            .iter()
-            .find(|file| file.relative_path == relative_path)
-            .expect("pinned entry present");
-        assert_eq!(
-            hex_sha256(bytes),
-            pinned.sha256_hex,
-            "{relative_path} bytes must equal the pinned §2.2 baseline"
-        );
-    }
+    // R2 第四轮：正式诊断入口的准备函数——verify_source_dir（revision + 全部
+    // pinned digest）→ 三份输入消费时重哈希绑定（TOCTOU 闭合）→ verified
+    // 来源声明（crate 内受控构造器，调用方无法自行声明已验证）。本测试单跑
+    // 时此准备段照样执行：验证前置内建于主生成路径，不依赖任何其他测试。
+    let prepared = prepare_verified_lust_inputs(&root).expect("prepare verified Lust inputs");
+    let net_xml = prepared.net_xml;
+    let tll_xml = prepared.tll_xml;
+    let vtypes_xml = prepared.vtypes_xml;
     let network = parse_sumo_network_xml(&net_xml).expect("parse lust.net.xml");
     assert!(network.location.matches_lust_anchors());
     assert_eq!(network.external_edge_count(), 5_779);
@@ -215,21 +203,15 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         emit_infeasibility_report: true,
         ..TopologyConvertOptions::default()
     };
-    // R2 第三轮：正式诊断入口——来源验证（前置测试
-    // full_lust_source_verification_precedes_diagnostic_convert）之后，以
-    // verified = true + 消费字节摘要走显式来源声明入口；通用 XML 入口保持
-    // 未验证标注（旁路测试覆盖）。
-    let report_source = ReportSource {
-        net_digest: Some(format!("sha256:{}", hex_sha256(net_xml.as_bytes()))),
-        verified: true,
-    };
+    // 显式来源声明入口（verified=true 实例只能来自准备函数或 crate 内
+    // pipeline）；通用 XML 入口保持未验证标注（旁路测试覆盖）。
     let convert = |options: &TopologyConvertOptions| {
         convert_topology_from_xml_with_tll_and_vtypes_and_source(
             &net_xml,
             &tll_xml,
             &vtypes_xml,
             options,
-            report_source.clone(),
+            prepared.report_source.clone(),
         )
     };
     let first = convert(&options).expect("first diagnostic-report conversion");
@@ -329,33 +311,33 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
 #[test]
 #[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3"]
 fn full_lust_source_verification_precedes_diagnostic_convert() {
+    // R2 第四轮：本测试断言的是主测试调用的**同一个准备函数**
+    // （prepare_verified_lust_inputs）——验证（revision + 全部 pinned digest）、
+    // 消费时绑定（TOCTOU 闭合）与 verified 来源声明都在准备函数内部完成，
+    // 任何拒绝天然发生在 normalize/转换之前。
     let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
     let root = PathBuf::from(&source_dir);
 
-    // 1) 正式验证通过：revision + pinned digest（含 net/tll/vtypes 三份输入）。
-    let verified =
-        verify_source_dir(&root).expect("verify_source_dir must accept the pinned checkout");
+    // 1) pinned checkout：准备函数成功；verified 声明 + net 摘要绑定 pinned。
+    let prepared =
+        prepare_verified_lust_inputs(&root).expect("prepare must accept the pinned checkout");
+    assert!(
+        prepared.report_source.is_verified(),
+        "prepared source must be verified"
+    );
+    let pinned_net = PINNED_SOURCE_FILES
+        .iter()
+        .find(|file| file.relative_path == "scenario/lust.net.xml")
+        .expect("pinned net entry");
+    assert_eq!(
+        prepared.report_source.net_digest(),
+        Some(format!("sha256:{}", pinned_net.sha256_hex).as_str()),
+        "net digest must bind the consumed pinned bytes"
+    );
+    assert!(!prepared.net_xml.is_empty() && !prepared.tll_xml.is_empty());
 
-    // 2) 转换前绑定：三份实际消费字节的消费时重哈希与验证记录一致（TOCTOU 闭合）。
-    for relative_path in [
-        "scenario/lust.net.xml",
-        "scenario/tll.static.xml",
-        "scenario/vtypes.add.xml",
-    ] {
-        let record = verified
-            .files
-            .iter()
-            .find(|file| file.relative_path == relative_path)
-            .expect("verification record present");
-        let bytes = fs::read(&record.absolute_path).expect("read verified file");
-        assert_eq!(
-            hex_sha256(&bytes),
-            record.sha256_hex,
-            "{relative_path} changed after verification"
-        );
-    }
-
-    // 3) 同字节 + 错误 HEAD：tmp git 仓摆 pinned 原字节，revision ≠ LUST_COMMIT 必拒。
+    // 2) 同字节 + 错误 HEAD：tmp git 仓摆 pinned 原字节，revision ≠ LUST_COMMIT
+    //    在准备函数阶段必拒（早于任何 normalize/转换）。
     //    探针放系统临时目录——worktree/target 本身在 git 仓内，git 会向上找到
     //    父仓 HEAD，使「无仓库」用例失效。
     let probe = std::env::temp_dir().join(format!("lust-verify-probe-{}", std::process::id()));
@@ -400,7 +382,7 @@ fn full_lust_source_verification_precedes_diagnostic_convert() {
         .status
         .success()
     );
-    let wrong_head = verify_source_dir(&probe).expect_err("wrong HEAD must be rejected");
+    let wrong_head = prepare_verified_lust_inputs(&probe).expect_err("wrong HEAD must be rejected");
     match wrong_head {
         Error::SourceRevisionMismatch { expected, actual } => {
             assert_eq!(expected, LUST_COMMIT);
@@ -409,12 +391,28 @@ fn full_lust_source_verification_precedes_diagnostic_convert() {
         other => panic!("unexpected error: {other}"),
     }
 
-    // 4) 无仓库：同字节、无 .git，revision 不可知必拒（改名而非删除：.git 内
-    //    对象只读，Windows 的 remove_dir_all 会失败）。
+    // 3) 无仓库：同字节、无 .git，revision 不可知在准备函数阶段必拒（改名而非
+    //    删除：.git 内对象只读，Windows 的 remove_dir_all 会失败）。
     fs::rename(probe.join(".git"), probe.join(".git-disabled")).expect("disable .git");
-    let no_repo = verify_source_dir(&probe).expect_err("missing repository must be rejected");
+    let no_repo = prepare_verified_lust_inputs(&probe).expect_err("missing repository must fail");
     match no_repo {
         Error::SourceRevisionUnknown { .. } => {}
+        other => panic!("unexpected error: {other}"),
+    }
+
+    // 4) 字节改动：同尺寸改写一份文件（digest 关先于 revision 关），准备函数
+    //    以 SourceDigestMismatch 拒绝——早于任何 normalize/转换。
+    let tll_path = probe.join("scenario/tll.static.xml");
+    let mut bytes = fs::read(&tll_path).expect("read probe tll");
+    let midpoint = bytes.len() / 2;
+    bytes[midpoint] = bytes[midpoint].wrapping_add(1);
+    fs::write(&tll_path, &bytes).expect("write modified probe tll");
+    let digest_mismatch =
+        prepare_verified_lust_inputs(&probe).expect_err("modified bytes must fail");
+    match digest_mismatch {
+        Error::SourceDigestMismatch { relative_path, .. } => {
+            assert_eq!(relative_path, "scenario/tll.static.xml");
+        }
         other => panic!("unexpected error: {other}"),
     }
     let _ = fs::remove_dir_all(&probe);

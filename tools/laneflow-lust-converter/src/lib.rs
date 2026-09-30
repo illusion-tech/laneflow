@@ -29,7 +29,8 @@ pub use output::{
 };
 pub use source::{
     LUST_COMMIT, LUST_REPOSITORY, LUST_TAG, PINNED_SOURCE_FILES, PinnedSourceFile,
-    VerifiedSourceFile, VerifiedSourceSet, verify_source_dir,
+    VerifiedLustInputs, VerifiedSourceFile, VerifiedSourceSet, prepare_verified_lust_inputs,
+    verify_source_dir,
 };
 pub use sumo::{
     DueVehicle, ExactDecimal, LUST_CONV_BOUNDARY, LUST_FRAME_ID, LUST_NET_OFFSET, SUMO_ID_PREFIX,
@@ -118,10 +119,7 @@ pub fn convert_topology_from_xml_with_tll_and_vtypes_and_source(
 
 /// xml 入口的诊断来源声明：实际输入字节摘要 + 未执行独立校验。
 fn xml_report_source(net_xml: &str) -> ReportSource {
-    ReportSource {
-        net_digest: Some(output::digest::sha256_digest(net_xml.as_bytes())),
-        verified: false,
-    }
+    ReportSource::xml_unverified(output::digest::sha256_digest(net_xml.as_bytes()))
 }
 
 /// Convert topology + DUE routes + population table from net/tll/vtypes/DUE XML.

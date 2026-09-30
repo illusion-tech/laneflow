@@ -23,7 +23,7 @@ use crate::{
         report::{ConversionReportInput, build_conversion_report},
         tar::{TarMember, write_deterministic_ustar},
     },
-    source::{PINNED_SOURCE_FILES, VerifiedSourceSet, verify_source_dir},
+    source::{PINNED_SOURCE_FILES, VerifiedSourceSet, read_verified, verify_source_dir},
     sumo::parse_sumo_network_xml,
 };
 
@@ -82,12 +82,9 @@ fn convert_verified(
     };
     // verify-source 已校验 revision + pinned digest；read_verified 在消费时
     // 重哈希绑定（TOCTOU 闭合）。诊断清单摘要对**消费字节**求值（此处经
-    // read_verified 绑定后等于 pinned），据此标注「verify-source 已通过」。
-    let net_xml_check = hex_sha256(net_xml.as_bytes());
-    let report_source = ReportSource {
-        net_digest: Some(format!("sha256:{net_xml_check}")),
-        verified: true,
-    };
+    // read_verified 绑定后等于 pinned），verified 声明只能由 crate 内受控
+    // 构造器产生（ReportSource 字段私有）。
+    let report_source = ReportSource::verified(sha256_digest(net_xml.as_bytes()));
     let static_artifacts = convert_static_from_xml_with_due_and_source(
         &net_xml,
         &tll_xml,
@@ -275,31 +272,6 @@ fn build_source_tar(verified: &VerifiedSourceSet, licenses: &LicenseArtifacts) -
     write_deterministic_ustar(&members)
 }
 
-/// 读入 verify-source 快照文件并在**消费时**重算 SHA-256 与验证记录比对：
-/// 验证与消费之间字节被换（TOCTOU）即 fail-closed，消费字节由此与
-/// pinned 校验绑定（#253 R2）。
-fn read_verified(verified: &VerifiedSourceSet, relative_path: &str) -> Result<String> {
-    let file = verified
-        .files
-        .iter()
-        .find(|file| file.relative_path == relative_path)
-        .ok_or_else(|| Error::SumoModel(format!("verified set missing {relative_path}")))?;
-    let bytes = fs::read(&file.absolute_path).map_err(|source| Error::Io {
-        path: file.absolute_path.clone(),
-        source,
-    })?;
-    let actual = hex_sha256(&bytes);
-    if actual != file.sha256_hex {
-        return Err(Error::SourceChangedAfterVerification {
-            relative_path: file.relative_path,
-            expected: file.sha256_hex.clone(),
-            actual,
-        });
-    }
-    String::from_utf8(bytes)
-        .map_err(|_| Error::SumoModel(format!("verified {relative_path} is not UTF-8")))
-}
-
 fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::write(path, bytes).map_err(|source| Error::Io {
         path: path.to_path_buf(),
@@ -368,95 +340,4 @@ fn build_manifest_toml(artifacts: &crate::convert::StaticConversionArtifacts) ->
         source,
     })?;
     Ok(text.into_bytes())
-}
-#[cfg(test)]
-mod tests {
-    use super::{hex_sha256, read_verified};
-    use crate::{
-        Error,
-        source::{VerifiedSourceFile, VerifiedSourceSet},
-    };
-
-    fn snapshot_with(
-        root: &std::path::Path,
-        relative_path: &'static str,
-        bytes: &[u8],
-    ) -> VerifiedSourceSet {
-        let absolute_path = root.join(relative_path);
-        std::fs::create_dir_all(absolute_path.parent().expect("parent dir"))
-            .expect("create parent");
-        std::fs::write(&absolute_path, bytes).expect("write snapshot file");
-        VerifiedSourceSet {
-            source_dir: root.to_path_buf(),
-            files: vec![VerifiedSourceFile {
-                relative_path,
-                absolute_path,
-                bytes: bytes.len() as u64,
-                sha256_hex: hex_sha256(bytes),
-            }],
-        }
-    }
-
-    #[test]
-    fn read_verified_accepts_intact_snapshot() {
-        let root = std::env::temp_dir().join(format!(
-            "laneflow-lust-pipeline-intact-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("create temp");
-        let snapshot = snapshot_with(&root, "scenario/lust.net.xml", b"<net/>");
-        let text =
-            read_verified(&snapshot, "scenario/lust.net.xml").expect("intact snapshot reads");
-        assert_eq!(text, "<net/>");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn read_verified_rejects_bytes_changed_after_verification() {
-        let root = std::env::temp_dir().join(format!(
-            "laneflow-lust-pipeline-toctou-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("create temp");
-        let snapshot = snapshot_with(&root, "scenario/lust.net.xml", b"<net/>");
-        // 验证与消费之间文件被换（TOCTOU）：同尺寸换内容必须 fail-closed。
-        std::fs::write(&snapshot.files[0].absolute_path, b"<NET/>").expect("swap bytes");
-        let error = read_verified(&snapshot, "scenario/lust.net.xml")
-            .expect_err("changed bytes must fail closed");
-        match error {
-            Error::SourceChangedAfterVerification {
-                relative_path,
-                expected,
-                actual,
-            } => {
-                assert_eq!(relative_path, "scenario/lust.net.xml");
-                assert_eq!(expected, hex_sha256(b"<net/>"));
-                assert_eq!(actual, hex_sha256(b"<NET/>"));
-            }
-            other => panic!("unexpected error: {other}"),
-        }
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn read_verified_reports_snapshot_missing_file() {
-        let root = std::env::temp_dir().join(format!(
-            "laneflow-lust-pipeline-missing-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("create temp");
-        let snapshot = snapshot_with(&root, "scenario/lust.net.xml", b"<net/>");
-        let error = read_verified(&snapshot, "scenario/tll.static.xml")
-            .expect_err("unverified file must not be consumed");
-        match error {
-            Error::SumoModel(message) => {
-                assert!(message.contains("scenario/tll.static.xml"), "{message}");
-            }
-            other => panic!("unexpected error: {other}"),
-        }
-        let _ = std::fs::remove_dir_all(&root);
-    }
 }

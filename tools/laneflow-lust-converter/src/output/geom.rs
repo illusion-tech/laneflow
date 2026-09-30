@@ -159,13 +159,18 @@ fn parse_diagnosis_fields(entry: &str) -> (String, String, String, String, Strin
 /// 摘要对**实际转换所依据的字节**求值（构造点即 xml 入口），清单不可能声称
 /// 与输入不符的基线；`verified` 仅当输入经 `verify_source`（checkout revision +
 /// pinned digest）走过时为 true。
+///
+/// 字段私有 + 受控构造器（#253 R2 第四轮）：外部调用方无法自行构造
+/// `verified = true` 的实例——已验证声明只能来自 `prepare_verified_lust_inputs`
+/// 或 crate 内 pipeline 的 verify-source 路径，「调用方自我声明已验证」在
+/// 类型层面不可能。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReportSource {
     /// 实际转换输入的 SHA-256（`sha256:` 前缀十六进制）；入口未持有原始字节
     /// 时为 `None`（渲染标注「未知」）。
-    pub net_digest: Option<String>,
+    net_digest: Option<String>,
     /// 输入是否经 `verify_source` 独立校验。
-    pub verified: bool,
+    verified: bool,
 }
 
 impl ReportSource {
@@ -175,6 +180,33 @@ impl ReportSource {
             net_digest: None,
             verified: false,
         }
+    }
+
+    /// XML 入口的诊断来源声明：实际输入字节摘要 + 未执行独立校验。
+    pub(crate) fn xml_unverified(net_digest: String) -> Self {
+        Self {
+            net_digest: Some(net_digest),
+            verified: false,
+        }
+    }
+
+    /// verify-source 走过的已验证声明（crate 内：pipeline 与
+    /// `prepare_verified_lust_inputs`）。
+    pub(crate) fn verified(net_digest: String) -> Self {
+        Self {
+            net_digest: Some(net_digest),
+            verified: true,
+        }
+    }
+
+    /// 实际转换输入的 SHA-256（`sha256:` 前缀十六进制），未持有时为 `None`。
+    pub fn net_digest(&self) -> Option<&str> {
+        self.net_digest.as_deref()
+    }
+
+    /// 输入是否经 `verify_source`（checkout revision + pinned digest）独立校验。
+    pub fn is_verified(&self) -> bool {
+        self.verified
     }
 }
 
@@ -260,7 +292,7 @@ impl InfeasibilityReport {
               pinned digest `sha256:{pinned_digest}`。
 "
         ));
-        match &source.net_digest {
+        match source.net_digest() {
             Some(digest) => out.push_str(&format!(
                 "- 本次转换输入 net XML 摘要：`{digest}`（对实际参与转换的字节求值）。
 "
@@ -270,10 +302,10 @@ impl InfeasibilityReport {
 ",
             ),
         }
-        match (&source.net_digest, source.verified) {
-            (Some(digest), _) => {
+        match source.net_digest() {
+            Some(digest) => {
                 let pinned = format!("sha256:{pinned_digest}");
-                if *digest == pinned {
+                if digest == pinned {
                     out.push_str(
                         "- 与 pinned 比对：一致（输入为 pinned 基线字节）。
 ",
@@ -285,12 +317,12 @@ impl InfeasibilityReport {
                     );
                 }
             }
-            (None, _) => out.push_str(
+            None => out.push_str(
                 "- 与 pinned 比对：未知（无输入摘要）。
 ",
             ),
         }
-        if source.verified {
+        if source.is_verified() {
             out.push_str(
                 "- 来源校验：verify-source 已通过（checkout revision + pinned digest）。
 ",
