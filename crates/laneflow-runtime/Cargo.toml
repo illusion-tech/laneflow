@@ -16,6 +16,10 @@ path = "src/lib.rs"
 name = "spawn_overlap_allocation"
 harness = false
 
+[[test]]
+name = "waiting_budget_evidence"
+harness = false
+
 # 测量入口与共享夹具放在同一目录，单测和集成测试均无需上级源码引用。
 [[test]]
 name = "parking_command_evidence"
