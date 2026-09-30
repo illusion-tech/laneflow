@@ -9,11 +9,15 @@
 //! 稳态窗口」并弃置其统计，吸收一次性懒初始化（线程局部状态、占用桶、通道缓冲）
 //! 的分配；计量窗口只含逐拍复发的稳态路径，真实稳态分配必然在其中复发并被硬断言
 //! 捕获。测试尾部向计量器注入一次真实分配自检，防止口径收紧把零断言变成永真。
+//!
+//! 栈探针阶段（#754 升级）：#755 弃置暖机后该窗口仍偶发非零，本版以
+//! `dhat` 全局分配器替换 `stats_alloc`（计量语义等价：`HeapStats` 差值），
+//! 每次运行落 `dhat-heap.json`；通过失败/通过运行的（栈,size）多重集差分
+//! 指认噪声分配调用栈。定位完成后本文件恢复 `stats_alloc` 计量并落修复。
 
 #[path = "support/policy.rs"]
 mod test_policy;
 
-use std::alloc::System;
 use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -26,10 +30,9 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
-use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
-static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+static GLOBAL: dhat::Alloc = dhat::Alloc;
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
@@ -37,8 +40,29 @@ const FULL_SPATIAL: &[u8] = include_bytes!(
 const DELTA_MS: u64 = 4;
 const STEADY_TICKS: u32 = 16;
 
+/// dhat 计量差值（`HeapStats.total_*` 前后差）；realloc 计为一次新块事件。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Delta {
+    allocations: u64,
+    bytes_allocated: u64,
+}
+
+fn measure<T>(run: impl FnOnce() -> T) -> (T, Delta) {
+    let before = dhat::HeapStats::get();
+    let out = run();
+    let after = dhat::HeapStats::get();
+    (
+        out,
+        Delta {
+            allocations: after.total_blocks - before.total_blocks,
+            bytes_allocated: after.total_bytes - before.total_bytes,
+        },
+    )
+}
+
 #[test]
 fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
+    let _profiler = dhat::Profiler::new_heap();
     let input =
         check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked fixture");
     let revision = build_shared_network_revision(
@@ -96,7 +120,6 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     // 同形弃置暖机（#754）：一台同入口车辆完整走「入门 → 暖机 → 稳态窗口」，
     // 一次性懒初始化在其中吸收；其统计即弃，不作断言。
     {
-        let _priming = Region::new(GLOBAL);
         let primed = spawn_entry_vehicle(&mut world);
         world
             .step(TickInput::new(DELTA_MS))
@@ -125,15 +148,12 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         .step(TickInput::new(DELTA_MS))
         .expect("settle occupancy");
 
-    let stats = {
-        let region = Region::new(GLOBAL);
+    let (_, stats) = measure(|| {
         for _ in 0..STEADY_TICKS {
             world.step(TickInput::new(DELTA_MS)).expect("steady step");
         }
-        region.change()
-    };
+    });
     assert_eq!(stats.allocations, 0, "steady Waiting ticks allocated");
-    assert_eq!(stats.reallocations, 0, "steady Waiting ticks reallocated");
     assert_eq!(
         stats.bytes_allocated, 0,
         "steady Waiting ticks allocated bytes"
@@ -146,38 +166,23 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         "measurement window must remain in the Waiting steady path"
     );
     println!(
-        "waiting-g2-allocation-evidence steady_ticks={STEADY_TICKS} allocations={} \
-         reallocations={} allocated_bytes={}",
-        stats.allocations, stats.reallocations, stats.bytes_allocated
+        "waiting-g2-allocation-evidence steady_ticks={STEADY_TICKS} allocations={} allocated_bytes={}",
+        stats.allocations, stats.bytes_allocated
     );
 
     // 同一入门工作负载反复重建请求；重置在计时/计数窗外，两个事件缓冲都先暖机。
     let mut current = vehicle;
     for sample in 0..STEADY_TICKS + 4 {
         world.despawn_vehicle(current).unwrap();
-        current = world
-            .place_existing_active_vehicle(
-                VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    entry_length_mm - 1,
-                    8_000,
-                )
-                .with_open_entrance(),
-            )
-            .unwrap();
-        let region = Region::new(GLOBAL);
-        world.step(TickInput::new(DELTA_MS)).unwrap();
-        let stats = region.change();
+        current = spawn_entry_vehicle(&mut world);
+        let (_, stats) = measure(|| {
+            world.step(TickInput::new(DELTA_MS)).unwrap();
+        });
         if sample >= 4 {
             assert_eq!(
-                (
-                    stats.allocations,
-                    stats.reallocations,
-                    stats.bytes_allocated
-                ),
-                (0, 0, 0)
+                (stats.allocations, stats.bytes_allocated),
+                (0, 0),
+                "repeated admission sample {sample} allocated"
             );
         }
         assert!(
@@ -189,16 +194,14 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         );
     }
     println!(
-        "waiting-g2-allocation-evidence repeated_admission_ticks={STEADY_TICKS} allocations=0 reallocations=0 allocated_bytes=0"
+        "waiting-g2-allocation-evidence repeated_admission_ticks={STEADY_TICKS} allocations=0 allocated_bytes=0"
     );
 
     // 计量器自检（#754）：向计量面注入一次真实分配，计数器必须可见——
     // 防止口径收紧把上方零断言变成永真。
-    let injected = {
-        let region = Region::new(GLOBAL);
+    let (_, injected) = measure(|| {
         let _hold = std::hint::black_box(vec![1_u8]);
-        region.change()
-    };
+    });
     assert!(
         injected.allocations > 0,
         "metering must observe an injected allocation"
