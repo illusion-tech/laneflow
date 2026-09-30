@@ -67,6 +67,7 @@ pub(crate) fn patch_tick(text: &mut String, arm: &str) -> Result<()> {
         let PreparedActiveMotion {{ mut state, compiled, lengths, speed_limits, cursor, edge, profile,
             leader_gap, route_end, reach, parking, movement_stop, waiting_stop, conflict_stop,
             delta_s, desired_mm_s, .. }} = prepared;
+        let edges = compiled.edges.as_slice();
         let (mut travel_m, next_speed_m) = si_comfort_travel_precomputed(
             state.speed_mm_s, desired_mm_s, leader_gap, profile, route_end, movement_stop,
             compiled, lengths, speed_limits, cursor, state.progress_mm, delta_s, iidm)?;
