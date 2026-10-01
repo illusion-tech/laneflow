@@ -788,8 +788,14 @@ pub(super) fn prepare(
             resources.dispatch_threads().saturating_mul(2)
         }))
         .max(1);
-    // 列块内保持连续，块大小只影响工作粒度；尾部和孔洞由显式 work mask 排除。
+    // 存储块内保持连续；调度票据可覆盖多个块，尾部和孔洞仍由 work mask 排除。
     let rows = desired_chunk.next_power_of_two().min(BLOCK_ROWS);
+    let works_per_ticket = workload
+        .div_ceil(execution.map_or(1, |resources| {
+            resources.dispatch_threads().saturating_mul(2)
+        }))
+        .div_ceil(rows)
+        .clamp(1, crate::kernel::execution::MAX_WORKS_PER_TICKET);
     #[cfg(test)]
     let chunk_count = extent.div_ceil(rows);
     #[cfg(test)]
@@ -831,7 +837,7 @@ pub(super) fn prepare(
         }
     };
     if let Some(execution) = execution {
-        let stats = execution.for_each_work(read, work, calculate);
+        let stats = execution.for_each_work(read, work, works_per_ticket, calculate);
         #[cfg(test)]
         {
             crate::kernel::execution::note_last_dispatch_stats(stats);
