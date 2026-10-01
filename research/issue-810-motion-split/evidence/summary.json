@@ -3,7 +3,7 @@
   "source_head": "354bd6023561e027defb57aa0f401ed0426e0bb0",
   "source_tree": "58795ff8f684e4aa8e588d4f0cfeb682b43eee7c",
   "archived_results_sha256": "08af4e8856c54dcb0bbcf128e9fbf20e5414ab4d88baa3c798612f3d53d07a83",
-  "archive_index": "archive.json",
+  "archive_index": "archive.toml",
   "process_count": 24,
   "process_count_per_arm_scale": 6,
   "workers": 4,
