@@ -51,6 +51,8 @@
 
 两文配套 ADR 0030（Accepted）；配置分离与 LFRS 6 已实现，worker 1–16 已开放（#705）。
 
+- [`traffic-runtime-columnar-execution.md`](traffic-runtime-columnar-execution.md)：ADR 0031 接受的列式运动权威、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准。
+
 ## 领域规则
 
 这些文档约束 Runtime 仍实现的道路机动车行为，不表示早期运行入口或数据入口仍存在。
