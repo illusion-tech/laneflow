@@ -1,0 +1,12 @@
+{
+  "schema": "motion-split-source-comparison-v1",
+  "source_head": "354bd6023561e027defb57aa0f401ed0426e0bb0",
+  "differences": [
+    "crates/laneflow-runtime/src/kernel/tick.rs"
+  ],
+  "baseline_runtime_harness_equal_to_start_main": true,
+  "difference_sha256": "245db5ba8e9fe43b60943f611d6b27469f753ddcd611e298f023d1864e376c83",
+  "base_tick_sha256": "98e194f167728fe5e7b722c09a01dbb10421afab87787ddcc413f70e8e577676",
+  "candidate_tick_sha256": "5b8bce54d689f9f9e8c24deb5410d4a718e48724d1e242a552ad29189b87aad8",
+  "whole_tick_reconstruction_test": "split_export::tests::changes_only_common_primitive_and_matches_hot_split"
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "motion-split-unpacked-verification-v1",
+  "archive_sha256": "971f63851ceb19850cb5318d8b940dcaf05d294890eeb53c4c0dabccf4e0579c",
+  "seal_sha256": "43af87007d3965ae82344c3054623a3d68ba5edabf39d5095a9b72b1922589cd",
+  "payload_file_count": 6671,
+  "all_payload_hashes_verified": true,
+  "collector_verified": true,
+  "results_verified": true,
+  "commands": [
+    {
+      "program": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-unpacked\\tools\\laneflow-motion-split-research.exe",
+      "args": [
+        "verify-collector",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-unpacked\\tools"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "program": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-unpacked\\tools\\laneflow-motion-split-research.exe",
+      "args": [
+        "verify",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-unpacked\\raw",
+        "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-unpacked\\results.json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "848b8cd6892f6f4c04ad4b097bc89e4f6742862bcf1f1446a88a90a6512f876f",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}
