@@ -1,3 +1,32 @@
+use laneflow_motion_kernel::max_next_speed_for_decel;
+mod columnar_motion;
+
+/// 仅用于独立单进程诊断，不进入普通 Runtime。顺序固定：基础查询、原始标量提案、
+/// P5 基础复用、完整结果复用、原始向量求解/复用、投影、有效向量/槽、整数向量、
+/// 标量尾部、降速 occurrence 读取、实际路线步、数值入口调用、物理行、活动数值行。
+#[cfg(test)]
+static COLUMNAR_WORK: [std::sync::atomic::AtomicU64; 16] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 16];
+#[cfg(test)]
+static COLUMNAR_WORK_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+fn note_columnar_work(index: usize, amount: usize) {
+    use std::sync::atomic::Ordering;
+    if COLUMNAR_WORK_ENABLED.load(Ordering::Relaxed) {
+        COLUMNAR_WORK[index].fetch_add(amount as u64, Ordering::Relaxed);
+    }
+}
+
+/// 只有完整 join 后的单进程诊断入口使用；返回并清空上一拍工作量。
+#[cfg(test)]
+pub(crate) fn take_columnar_work() -> [u64; 16] {
+    use std::sync::atomic::Ordering;
+    COLUMNAR_WORK_ENABLED.store(true, Ordering::Relaxed);
+    std::array::from_fn(|index| COLUMNAR_WORK[index].swap(0, Ordering::Relaxed))
+}
+
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, VehicleProfileOrdinal};
 use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
@@ -202,9 +231,75 @@ pub(crate) struct MotionCacheEntry {
 /// 同一拍初状态上的完整运动预览；在新增停止约束后消费前复核。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionPreview {
-    pub(crate) next: VehicleState,
+    pub(crate) next: super::vehicle_store::MotionValue,
     waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     bounds: MotionBounds,
+    basis: Option<MotionBasis>,
+}
+
+/// 跨 P2/P5 保存实际消费者已经查询的基础数据，不保存第二套车辆权威。
+#[derive(Clone, Copy, Debug)]
+struct MotionBasis {
+    vehicle: crate::VehicleHandle,
+    route: crate::RouteHandle,
+    profile: VehicleProfileOrdinal,
+    cursor: u32,
+    progress_mm: u32,
+    speed_mm_s: u32,
+    delta_bits: u32,
+    parking_binding: Option<ParkingBinding>,
+    desired_mm_s: u32,
+    current_limit_mm_s: u32,
+    speed_drop_first: usize,
+    min_gap_mm: u32,
+    time_headway: f32,
+    max_accel: f32,
+    comfort_decel: f32,
+    emergency_decel: f32,
+    leader_gap: Option<i64>,
+    route_end: BoundedDistance,
+    movement_stop: Option<BoundedDistance>,
+    parking: Option<(ParkingReservation, BoundedDistance)>,
+    edge_length_mm: u32,
+    permitted_for_hard_room: bool,
+    envelope_m: f32,
+    proposal: Option<(f32, f32)>,
+}
+
+impl MotionBasis {
+    fn matches(
+        self,
+        state: VehicleState,
+        delta_s: f32,
+        parking_binding: Option<ParkingBinding>,
+    ) -> bool {
+        self.vehicle == state.handle
+            && self.route == state.route
+            && self.profile == state.profile
+            && self.cursor == state.route_edge_index
+            && self.progress_mm == state.progress_mm
+            && self.speed_mm_s == state.speed_mm_s
+            && self.delta_bits == delta_s.to_bits()
+            && self.parking_binding == parking_binding
+    }
+
+    fn raw_proposal(self, delta_s: f32) -> Option<(f32, f32)> {
+        self.proposal.or_else(|| {
+            #[cfg(test)]
+            note_columnar_work(1, 1);
+            iidm_step(
+                si_speed(self.speed_mm_s),
+                si_speed(self.desired_mm_s),
+                leader_gap_m(self.leader_gap),
+                si_meters(self.min_gap_mm),
+                self.time_headway,
+                self.max_accel,
+                self.comfort_decel,
+                self.emergency_decel,
+                delta_s,
+            )
+        })
+    }
 }
 
 /// 新鲜摆放用来对照求解器本拍硬截断的预测。不是步进结果。
@@ -311,7 +406,7 @@ impl MotionPreview {
         self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-    ) -> Option<VehicleState> {
+    ) -> Option<super::vehicle_store::MotionValue> {
         let preview = self.with_waiting_stop(waiting_stop)?;
         let Some(stop) = conflict_stop else {
             return Some(preview.next);
@@ -858,7 +953,7 @@ pub(crate) mod transaction_tests {
         for world in [&mut cached, &mut partial, &mut uncached] {
             // 槽位复用打乱 handle 次序；中间车辆完成后 live 与 Active 序号不同。
             let middle = world.live_vehicles()[3];
-            let old = *world.state.vehicle_state(middle).unwrap();
+            let old = world.state.vehicle_state(middle).unwrap();
             world.despawn_vehicle(middle).unwrap();
             world
                 .spawn_vehicle(
@@ -867,7 +962,7 @@ pub(crate) mod transaction_tests {
                 )
                 .unwrap();
             let first = world.live_vehicles()[0];
-            let old = *world.state.vehicle_state(first).unwrap();
+            let old = world.state.vehicle_state(first).unwrap();
             world.despawn_vehicle(first).unwrap();
             world
                 .spawn_vehicle(
@@ -951,8 +1046,12 @@ pub(crate) mod transaction_tests {
             preview.next.progress_mm = u32::MAX;
             preview.bounds = MotionBounds::HardStopped;
         }
-        let mut actual = Vec::new();
-        let mut expected = Vec::new();
+        let mut actual = crate::kernel::motion_updates::MotionUpdates::with_capacity(
+            world.state.committed.vehicles.capacity(),
+        );
+        let mut expected = crate::kernel::motion_updates::MotionUpdates::with_capacity(
+            reference.state.committed.vehicles.capacity(),
+        );
         assert_eq!(
             world
                 .state
@@ -966,7 +1065,14 @@ pub(crate) mod transaction_tests {
                 None
             )
         );
-        assert_eq!(actual, expected);
+        assert_eq!(
+            actual
+                .iter(&world.state.committed.vehicles)
+                .collect::<Vec<_>>(),
+            expected
+                .iter(&reference.state.committed.vehicles)
+                .collect::<Vec<_>>()
+        );
         assert!(world.state.workspace.motion_cache.is_empty());
     }
 
@@ -1529,7 +1635,7 @@ impl crate::kernel::state::WorldState {
 /// 完整性证明仅在本模块创建；借用尚未释放便消费，不能跨 step 保存或重用。
 /// 其余已校验的转移、批次和信号留在同一世界的 Workspace，避免复制工作集。
 struct CommitPlan {
-    updates: Vec<(usize, VehicleState)>,
+    updates: super::motion_updates::MotionUpdates,
     parking_arrivals: Vec<ParkingArrivalObservation>,
     tick_index: u64,
     time_ms: u64,
@@ -1552,7 +1658,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         drop(waiting_timer);
         let serial_checkpoint = self.workspace.conflict.serial_checkpoint();
-        let mut updates = std::mem::take(&mut self.workspace.next_states);
+        let mut updates = std::mem::take(&mut self.workspace.motion_next);
         updates.clear();
         let parking_arrivals = match self.stage_vehicle_transitions(
             delta_s,
@@ -1574,7 +1680,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 self.workspace.conflict_passage_transitions.clear();
                 self.workspace.motion_cache.clear();
                 updates.clear();
-                self.workspace.next_states = updates;
+                self.workspace.motion_next = updates;
                 return Err(error);
             }
         };
@@ -1612,18 +1718,16 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         let mut migration_journal = self.journal.take();
         if let Some(journal) = migration_journal.as_mut() {
             journal.begin_tick(tick_index, time_ms);
-        }
-        for (slot, next) in &updates {
-            let previous = self.committed.vehicles[*slot].state.replace(*next);
-            if let Some(journal) = migration_journal.as_mut()
-                && !previous.as_ref().is_some_and(|old| *old == *next)
-            {
-                let delta =
-                    VehicleDelta::from_state(next, self.read_view().compiled_route(next.route));
-                journal.tick_entry(&delta);
+            for (slot, next) in updates.iter(&self.committed.vehicles) {
+                let previous = self.committed.vehicles.slot(slot).state;
+                if !previous.as_ref().is_some_and(|old| *old == next) {
+                    let delta = VehicleDelta::from_state(
+                        &next,
+                        self.read_view().compiled_route(next.route),
+                    );
+                    journal.tick_entry(&delta);
+                }
             }
-        }
-        if let Some(journal) = migration_journal.as_mut() {
             for claims in self
                 .workspace
                 .waiting_claims
@@ -1638,21 +1742,15 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             journal.finish_tick();
         }
         *self.journal = migration_journal;
+        updates.publish(&mut self.committed.vehicles);
         self.commit_waiting_additions(&updates);
         self.commit_conflict_step();
         updates.clear();
-        self.workspace.next_states = updates;
+        self.workspace.motion_next = updates;
         let vehicles = &self.committed.vehicles;
-        self.derived.active_order.retain(|handle| {
-            let index = usize::try_from(handle.index()).expect("vehicle index fits usize");
-            vehicles.get(index).is_some_and(|slot| {
-                slot.generation == handle.generation()
-                    && slot
-                        .state
-                        .as_ref()
-                        .is_some_and(|state| state.status == VehicleStatus::Active)
-            })
-        });
+        self.derived
+            .active_order
+            .retain(|handle| vehicles.active_row(*handle).is_some());
         self.derived.spawn_overlap.mark_stale();
         self.committed.tick_index = tick_index;
         self.committed.time_ms = time_ms;
@@ -1697,7 +1795,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         )
     }
 
-    /// 正式推进复用同一拍初状态的 binding；独立预览仍从自身读取入口取得当前值。
+    /// 冷路径差异验证入口；正式 P5 使用跨阶段基础数据。
+    #[cfg(test)]
     pub(crate) fn advance_active_vehicle_with_parking_binding(
         self,
         state: VehicleState,
@@ -1706,6 +1805,29 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
+    ) -> Option<VehicleState> {
+        self.advance_active_vehicle_with_basis(
+            state,
+            delta_s,
+            waiting_stop,
+            conflict_stop,
+            parking_binding,
+            horizon,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
+    fn advance_active_vehicle_with_basis(
+        self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        parking_binding: Option<ParkingBinding>,
+        horizon: Option<LeaderQueryHorizon>,
+        basis: Option<MotionBasis>,
     ) -> Option<VehicleState> {
         self.calculate_active_vehicle_motion(
             state,
@@ -1717,6 +1839,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             None,
             None,
             false,
+            basis,
+            None,
         )
     }
 
@@ -1728,6 +1852,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         horizon: Option<LeaderQueryHorizon>,
     ) -> Option<MotionPreview> {
         let mut bounds = MotionBounds::Unknown;
+        let mut basis = None;
         let next = self.calculate_active_vehicle_motion(
             state,
             delta_s,
@@ -1738,11 +1863,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             Some(&mut bounds),
             None,
             false,
+            None,
+            Some(&mut basis),
         )?;
         Some(MotionPreview {
-            next,
+            next: next.into(),
             waiting_stop,
             bounds,
+            basis,
         })
     }
 
@@ -1780,7 +1908,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return Err(error);
             }
         }
-        let state = *self
+        let state = self
             .vehicle_state(vehicle)
             .ok_or(StepError::WaitingInvariantViolation)?;
         let compiled = self
@@ -1890,6 +2018,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             Some(&mut bounds),
             Some(leader_gap),
             leader_constraint_only,
+            None,
+            None,
         ) else {
             return Err(PlacementMotionError::Unprovable);
         };
@@ -2218,7 +2348,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         staged: &StagedAcquire,
         overlay: CandidateOverlay<'_>,
     ) -> AdmissionPreview {
-        let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
+        let Some(state) = self.vehicle_state(contender.vehicle) else {
             return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
                 distance: BoundedDistance::Finite(0),
                 hop: contender.hop,
@@ -2649,7 +2779,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             for (group_zone, _) in group {
                 staged.zones.push(*group_zone);
             }
-            let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
+            let Some(state) = self.vehicle_state(contender.vehicle) else {
                 continue;
             };
             if state.status != VehicleStatus::Active {
@@ -2847,7 +2977,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 if found.contains(&contender.vehicle) {
                     continue;
                 }
-                let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
+                let Some(state) = self.vehicle_state(contender.vehicle) else {
                     continue;
                 };
                 if state.status != VehicleStatus::Active {
@@ -3647,20 +3777,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn calculate_active_vehicle_motion(
+    fn prepare_motion_basis(
         self,
-        mut state: VehicleState,
+        state: VehicleState,
         delta_s: f32,
-        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
-        motion_bounds: Option<&mut MotionBounds>,
         leader_gap_override: Option<Option<i64>>,
-        leader_constraint_only: bool,
-    ) -> Option<VehicleState> {
+    ) -> Option<MotionBasis> {
         #[cfg(test)]
-        MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
+        note_columnar_work(0, 1);
         #[cfg(test)]
         let inputs_timer = super::exact_path_research::begin(
             super::exact_path_research::Stage::RouteProfileInputs,
@@ -3724,6 +3850,105 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
         let mut movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))
             .then_some(selected_stop.distance);
+        // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
+        // 不能等 apply_travel 截断后还留着原来的速度。
+        if let Some(gate_stop) = self.restrictive_gate_stop(compiled, &state, cursor, reach) {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
+                Some(_) | None => Some(gate_stop),
+            };
+        }
+        let envelope_m = speed_limit_path_envelope(
+            edges,
+            lengths,
+            speed_limits,
+            cursor,
+            state.progress_mm,
+            delta_s,
+        )?;
+        let edge_length_mm = lengths.get(edge.index()).copied()?;
+        let edge_remaining_mm = edge_length_mm.saturating_sub(state.progress_mm);
+        // 到不了本边尽头时，许可读数不会收紧这一次 hard_room。真正跨边仍在 apply_travel_mm 里检查。
+        let permitted_for_hard_room = reach.is_some_and(|reach| reach.excludes(edge_remaining_mm))
+            || {
+                #[cfg(test)]
+                note_barrier_query(|counts| counts.hard_room_permissions += 1);
+                self.hop_permitted(state.route, edges, cursor, state.profile)
+            };
+        let speed_drop_first = compiled
+            .speed_limit_drop
+            .partition_point(|drop| drop.from_route_edge_index < state.route_edge_index);
+        Some(MotionBasis {
+            vehicle: state.handle,
+            route: state.route,
+            profile: state.profile,
+            cursor: state.route_edge_index,
+            progress_mm: state.progress_mm,
+            speed_mm_s: state.speed_mm_s,
+            delta_bits: delta_s.to_bits(),
+            parking_binding,
+            desired_mm_s,
+            current_limit_mm_s: current_limit,
+            speed_drop_first,
+            min_gap_mm: profile.min_gap_mm(),
+            time_headway: profile.time_headway(),
+            max_accel: profile.max_accel(),
+            comfort_decel: profile.comfort_decel(),
+            emergency_decel: profile.emergency_decel(),
+            leader_gap,
+            route_end,
+            movement_stop,
+            parking,
+            edge_length_mm,
+            permitted_for_hard_room,
+            envelope_m,
+            proposal: None,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn calculate_active_vehicle_motion(
+        self,
+        mut state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        parking_binding: Option<ParkingBinding>,
+        horizon: Option<LeaderQueryHorizon>,
+        motion_bounds: Option<&mut MotionBounds>,
+        leader_gap_override: Option<Option<i64>>,
+        leader_constraint_only: bool,
+        basis_override: Option<MotionBasis>,
+        basis_output: Option<&mut Option<MotionBasis>>,
+    ) -> Option<VehicleState> {
+        #[cfg(test)]
+        MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
+        let mut basis =
+            match basis_override.filter(|basis| basis.matches(state, delta_s, parking_binding)) {
+                Some(basis) => basis,
+                None => self.prepare_motion_basis(
+                    state,
+                    delta_s,
+                    parking_binding,
+                    horizon,
+                    leader_gap_override,
+                )?,
+            };
+        let compiled = self.compiled_route(state.route)?;
+        let edges = compiled.edges.as_slice();
+        let cursor = state.route_edge_index as usize;
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let speed_limits = self
+            .binding
+            .revision
+            .traffic()
+            .lane_speed_limits_millimetres_per_second();
+        let leader_gap = basis.leader_gap;
+        let route_end = basis.route_end;
+        let parking = basis.parking;
+        let edge_length_mm = basis.edge_length_mm;
+        let permitted_for_hard_room = basis.permitted_for_hard_room;
+        let mut movement_stop = basis.movement_stop;
         if let Some(waiting) = waiting_stop {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(waiting.distance, current) => {
@@ -3740,20 +3965,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 Some(_) | None => Some(conflict.distance),
             };
         }
-        // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
-        // 不能等 apply_travel 截断后还留着原来的速度。
-        if let Some(gate_stop) = self.restrictive_gate_stop(compiled, &state, cursor, reach) {
-            movement_stop = match movement_stop {
-                Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
-                Some(_) | None => Some(gate_stop),
-            };
+        let proposal = basis.raw_proposal(delta_s)?;
+        basis.proposal = Some(proposal);
+        if let Some(output) = basis_output {
+            *output = Some(basis);
         }
         let (mut travel_m, next_speed_m) = si_comfort_travel(
-            state.speed_mm_s,
-            desired_mm_s,
-            leader_gap,
-            profile,
-            route_end,
+            basis,
             movement_stop,
             compiled,
             lengths,
@@ -3769,24 +3987,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return None;
         }
 
-        let edge_length_mm = lengths.get(edge.index()).copied()?;
-        let edge_remaining_mm = edge_length_mm.saturating_sub(state.progress_mm);
-        // 到不了本边尽头时，许可读数不会收紧这一次 hard_room。真正跨边仍在 apply_travel_mm 里检查。
-        let permitted_for_hard_room = reach.is_some_and(|reach| reach.excludes(edge_remaining_mm))
-            || {
-                #[cfg(test)]
-                note_barrier_query(|counts| counts.hard_room_permissions += 1);
-                self.hop_permitted(state.route, edges, cursor, state.profile)
-            };
         let hard_room = if leader_constraint_only {
             match leader_gap {
-                Some(gap) => snapshot_leader_room_mm(gap, profile.min_gap_mm()),
+                Some(gap) => snapshot_leader_room_mm(gap, basis.min_gap_mm),
                 None => u32::MAX,
             }
         } else {
             hard_room_mm(
                 leader_gap,
-                profile.min_gap_mm(),
+                basis.min_gap_mm,
                 movement_stop,
                 route_end,
                 edge_length_mm,
@@ -4142,6 +4351,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 /// 观察候选。`arrival` 只表示按原语判定应生成到达观察，不代表已完成输出
 /// 预留或发布；真实 `try_reserve` 与追加由协调器在该车原逻辑位置执行
 ///（首错交错顺序：该车全部可失败计算先于其到达 reserve）。
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct VehicleMotionOutcome {
     pub(crate) next: VehicleState,
@@ -4332,6 +4542,7 @@ impl MotionTaskView<'_> {
     /// §4 #5-14）；读取拍初 C(T)、P2 motion_cache 与已冻结的 P4 裁决暂存，
     /// 不写入任何共享状态。融合与分发路径调用同一原语；到达观察仅为候选，
     /// 真实预留由协调器在该车原逻辑位置执行。
+    #[cfg(test)]
     fn vehicle_motion_outcome(
         self,
         state: &VehicleState,
@@ -4367,18 +4578,22 @@ impl MotionTaskView<'_> {
             .filter(|entry| entry.vehicle == handle);
         let reused = cached
             .and_then(|entry| entry.preview)
-            .and_then(|preview| preview.reuse(waiting_stop, conflict_stop));
+            .and_then(|preview| preview.reuse(waiting_stop, conflict_stop))
+            .map(|motion| motion.apply(*state));
         #[cfg(test)]
         let cache_served = reused.is_some();
         let next = reused
             .or_else(|| {
-                self.read.advance_active_vehicle_with_parking_binding(
+                self.read.advance_active_vehicle_with_basis(
                     *state,
                     delta_s,
                     waiting_stop,
                     conflict_stop,
                     parking_binding,
                     cached.and_then(|entry| entry.horizon),
+                    cached
+                        .and_then(|entry| entry.preview)
+                        .and_then(|preview| preview.basis),
                 )
             })
             .ok_or(StepError::NonFiniteMotion)?;
@@ -4422,205 +4637,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 }
 
-/// P5 融合路径：Active 序上逐车直调原语并就地规范消费，不物化输入表
-///（可选暂存回退时的同领域原语执行形态，checkpoint-map §6.2-4）。
-fn prepare_motion_fused(
-    workspace: &crate::kernel::state::TickWorkspace,
-    read: crate::kernel::phase::StepReadView<'_>,
-    delta_s: f32,
-    parking_arrivals: &mut Vec<ParkingArrivalObservation>,
-    updates: &mut Vec<(usize, VehicleState)>,
-) -> Result<(), StepError> {
-    let view = MotionTaskView {
-        read,
-        waiting_plans: &workspace.waiting_plans,
-        waiting_plan_by_vehicle: &workspace.waiting_plan_by_vehicle,
-        conflict_motion_by_vehicle: &workspace.conflict_motion_by_vehicle,
-        conflict_staged: &workspace.conflict,
-        motion_cache: &workspace.motion_cache,
-    };
-    for (active_index, handle) in view.read.derived.active_order.iter().copied().enumerate() {
-        let Some(state) = view.read.vehicle_state(handle) else {
-            continue;
-        };
-        debug_assert_eq!(state.status, VehicleStatus::Active);
-        let outcome = view.vehicle_motion_outcome(state, active_index, delta_s)?;
-        if let Some(arrival) = outcome.arrival {
-            push_parking_arrival(parking_arrivals, arrival, view.read.binding.world_id)?;
-        }
-        let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-        updates.push((slot, outcome.next));
-    }
-    Ok(())
-}
-
-/// P5 分发路径：任务按 Active 投影位置直接读取完整句柄及拍初状态，独占结果
-/// 槽位、只读冻结视图计算 → 完整 join → 协调器按 Active 序规范消费（该车
-/// 失败在此处返回；到达观察在此处真实预留；然后 updates 接纳）。
-/// 首错来自规范消费，任务侧 first_error 原子仅作更晚块跳过的调度提示。
-#[allow(clippy::too_many_arguments)]
-fn prepare_motion_dispatched(
-    workspace: &mut crate::kernel::state::TickWorkspace,
-    read: crate::kernel::phase::StepReadView<'_>,
-    execution: &crate::kernel::execution::ExecutionResources,
-    delta_s: f32,
-    parking_arrivals: &mut Vec<ParkingArrivalObservation>,
-    updates: &mut Vec<(usize, VehicleState)>,
-) -> Result<(), StepError> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let view = MotionTaskView {
-        read,
-        waiting_plans: &workspace.waiting_plans,
-        waiting_plan_by_vehicle: &workspace.waiting_plan_by_vehicle,
-        conflict_motion_by_vehicle: &workspace.conflict_motion_by_vehicle,
-        conflict_staged: &workspace.conflict,
-        motion_cache: &workspace.motion_cache,
-    };
-    // Active 投影是任务的唯一位置表；任务在对应位置重新读取完整句柄并核对
-    // 代次，不再物化 `(handle, active_index, VehicleState)` 输入副本。
-    let workload = view.read.derived.active_order.len();
-    #[cfg(test)]
-    let forced = motion_dispatch_forced();
-    #[cfg(not(test))]
-    let forced = false;
-    if workload < MOTION_DISPATCH_MIN_ACTIVE && !(forced && workload > 0) {
-        #[cfg(test)]
-        count_motion_path(|counts| counts.fused += 1);
-        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
-    }
-    let slots = &mut workspace.motion_slots;
-    slots.clear();
-    #[cfg(test)]
-    let slot_injected = motion_injection::slot_reserve_injected(view.read.binding.world_id);
-    #[cfg(not(test))]
-    let slot_injected = false;
-    if slots.try_reserve(workload).is_err() || slot_injected {
-        // 可选并行暂存预留失败：退回同一领域原语的融合求值，不新增领域错误。
-        #[cfg(test)]
-        count_motion_path(|counts| counts.slot_fallback += 1);
-        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
-    }
-    // 调度统计在可选槽位预留成功后才登记：回退拍只计 slot_fallback，
-    // 与 dispatched/fused 互斥。
-    #[cfg(test)]
-    count_motion_path(|counts| counts.dispatched += 1);
-    slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
-    // 块数 = 线程数 × 2 与活动数取较小者；语义中立（与 P2 同默认值）。
-    let chunk_count = execution
-        .dispatch_threads()
-        .saturating_mul(2)
-        .clamp(1, workload);
-    let chunk_size = workload.div_ceil(chunk_count).max(1);
-    let first_error = AtomicUsize::new(usize::MAX);
-    // 块级计数诊断按协调器开关分配/记录；任务内以捕获的布尔为准（辅助
-    // 线程读不到协调器线程本地开关，避免漏记）。
-    #[cfg(test)]
-    let diagnostics = MOTION_DIAGNOSTICS.with(std::cell::Cell::get);
-    #[cfg(not(test))]
-    #[allow(unused_variables)]
-    let diagnostics = false;
-    #[cfg(test)]
-    let chunk_records = diagnostics.then(|| {
-        (0..chunk_count)
-            .map(|_| MotionWorkChunkRecord::default())
-            .collect::<Vec<_>>()
-    });
-    #[cfg(test)]
-    let tls_baseline = diagnostics.then(motion_tls_snapshot);
-    #[cfg(test)]
-    let participation = super::motion_participation::current();
-    let compute = |_chunk_view: crate::kernel::phase::StepReadView<'_>,
-                   start: usize,
-                   chunk: &mut [crate::kernel::execution::DispatchSlot<
-        Option<VehicleMotionOutcome>,
-    >]| {
-        #[cfg(test)]
-        if let Some(probe) = &participation {
-            probe.enter(start);
-        }
-        #[cfg(test)]
-        let chunk_baseline = diagnostics.then(motion_tls_snapshot);
-        for (offset, slot) in chunk.iter_mut().enumerate() {
-            let active_index = start + offset;
-            let handle = view.read.derived.active_order[active_index];
-            let Some(state) = view.read.vehicle_state(handle) else {
-                // 与融合路径相同：完整句柄已失效时跳过该 Active 位置。
-                *slot = crate::kernel::execution::DispatchSlot::Done(Ok(None));
-                continue;
-            };
-            match view.vehicle_motion_outcome(state, active_index, delta_s) {
-                Ok(outcome) => {
-                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome)));
-                }
-                Err(error) => {
-                    first_error.fetch_min(active_index, Ordering::Relaxed);
-                    *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
-                    break;
-                }
-            }
-        }
-        #[cfg(test)]
-        if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
-            records[start / chunk_size].store_deltas(baseline);
-        }
-    };
-    let dispatch_stats =
-        execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);
-    #[cfg(test)]
-    {
-        if let (Some(baseline), Some(records)) = (tls_baseline, &chunk_records) {
-            aggregate_motion_tls(baseline, records);
-        }
-        crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
-        LAST_MOTION_DISPATCH_STATS.with(|cell| cell.set(Some(dispatch_stats)));
-        if let Some(position) = MOTION_SLOT_GAP.with(std::cell::Cell::get)
-            && let Some(slot) = slots.get_mut(position)
-        {
-            // 完成前沿不变量注入：首错之前出现未计算槽位，协调器须检出而非成功。
-            *slot = crate::kernel::execution::DispatchSlot::Pending;
-        }
-    }
-    #[cfg(not(test))]
-    let _ = dispatch_stats;
-    for (vehicle, slot) in view
-        .read
-        .derived
-        .active_order
-        .iter()
-        .copied()
-        .zip(slots.iter())
-    {
-        match slot {
-            crate::kernel::execution::DispatchSlot::Done(Ok(Some(outcome))) => {
-                if let Some(arrival) = outcome.arrival {
-                    push_parking_arrival(parking_arrivals, arrival, view.read.binding.world_id)?;
-                }
-                let slot = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
-                updates.push((slot, outcome.next));
-            }
-            crate::kernel::execution::DispatchSlot::Done(Ok(None)) => {}
-            crate::kernel::execution::DispatchSlot::Done(Err(error)) => {
-                // 完整 join 后按 Active 序规范消费首错（不做最小下标预扫描）。
-                return Err(*error);
-            }
-            crate::kernel::execution::DispatchSlot::Pending
-            | crate::kernel::execution::DispatchSlot::Skipped => {
-                // 完成前沿不变量违例：首错之前的槽位缺失/跳过/旧 attempt
-                // 回报不得视为成功或无结果。
-                return Err(StepError::ConflictInvariantViolation);
-            }
-        }
-    }
-    Ok(())
-}
-
 impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn stage_vehicle_transitions(
         &mut self,
         delta_s: f32,
         tick_index: u64,
         time_ms: u64,
-        updates: &mut Vec<(usize, VehicleState)>,
+        updates: &mut super::motion_updates::MotionUpdates,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
         #[cfg(test)]
@@ -4642,31 +4665,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             committed: &self.committed,
             derived: &self.derived,
         };
-        match execution {
-            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_))
-                if !motion_dispatch_fuse_forced() =>
-            {
-                prepare_motion_dispatched(
-                    self.workspace,
-                    read,
-                    resources,
-                    delta_s,
-                    &mut parking_arrivals,
-                    updates,
-                )?;
-            }
-            _ => {
-                #[cfg(test)]
-                count_motion_path(|counts| counts.fused += 1);
-                prepare_motion_fused(
-                    self.workspace,
-                    read,
-                    delta_s,
-                    &mut parking_arrivals,
-                    updates,
-                )?;
-            }
-        }
+        columnar_motion::prepare(
+            self.workspace,
+            read,
+            execution,
+            delta_s,
+            &mut parking_arrivals,
+            updates,
+        )?;
         #[cfg(test)]
         drop(motion_timer);
         #[cfg(test)]
@@ -4702,6 +4708,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         drop(output_timer);
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterTransitions)?;
+        updates.freeze_controls();
+        updates.validate(&self.committed.vehicles)?;
+        self.committed.prepare_vehicle_storage(updates)?;
         Ok(parking_arrivals)
     }
 
@@ -4957,32 +4966,21 @@ fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
 
 #[allow(clippy::too_many_arguments)]
 fn si_comfort_travel(
-    speed_mm_s: u32,
-    desired_mm_s: u32,
-    leader_gap: Option<i64>,
-    profile: VehicleProfileView,
-    route_end: BoundedDistance,
+    basis: MotionBasis,
     signal_stop: Option<BoundedDistance>,
     compiled: &CompiledRoute,
-    lengths: &[u32],
-    speed_limits: &[u32],
+    _lengths: &[u32],
+    _speed_limits: &[u32],
     cursor: usize,
     progress_mm: u32,
     delta_s: f32,
 ) -> Option<(f32, f32)> {
-    let speed = si_speed(speed_mm_s);
-    let desired = si_speed(desired_mm_s);
-    let leader_m = leader_gap_m(leader_gap);
-    let min_gap_m = si_meters(profile.min_gap_mm());
-    let envelope = speed_limit_path_envelope(
-        compiled.edges.as_slice(),
-        lengths,
-        speed_limits,
-        cursor,
-        progress_mm,
-        delta_s,
-    )?;
-    let (mut travel, mut next_speed) = iidm_travel(speed, desired, leader_m, profile, delta_s)?;
+    let speed = si_speed(basis.speed_mm_s);
+    let leader_m = leader_gap_m(basis.leader_gap);
+    let min_gap_m = si_meters(basis.min_gap_mm);
+    let route_end = basis.route_end;
+    let envelope = basis.envelope_m;
+    let (mut travel, mut next_speed) = basis.proposal?;
     travel = clamp_si_travel(
         travel,
         leader_m,
@@ -5001,8 +4999,9 @@ fn si_comfort_travel(
         compiled,
         cursor,
         progress_mm,
-        profile.comfort_decel(),
-        profile.emergency_decel(),
+        basis.comfort_decel,
+        basis.emergency_decel,
+        basis.speed_drop_first,
     )?;
     travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
     travel = clamp_si_travel(
@@ -5021,6 +5020,7 @@ fn si_comfort_travel(
         compiled,
         cursor,
         progress_mm,
+        basis.speed_drop_first,
     )?;
     Some((travel.max(0.0), next_speed.max(0.0)))
 }
@@ -5045,26 +5045,6 @@ fn clamp_si_travel(
     travel.min(envelope).max(0.0)
 }
 
-fn iidm_travel(
-    speed: f32,
-    desired: f32,
-    leader_gap: Option<f32>,
-    profile: VehicleProfileView,
-    delta_s: f32,
-) -> Option<(f32, f32)> {
-    iidm_step(
-        speed,
-        desired,
-        leader_gap,
-        si_meters(profile.min_gap_mm()),
-        profile.time_headway(),
-        profile.max_accel(),
-        profile.comfort_decel(),
-        profile.emergency_decel(),
-        delta_s,
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 fn iidm_step(
     speed: f32,
@@ -5077,30 +5057,17 @@ fn iidm_step(
     emergency: f32,
     delta_s: f32,
 ) -> Option<(f32, f32)> {
-    if !speed.is_finite() || !desired.is_finite() || delta_s <= 0.0 {
-        return None;
-    }
-    if accel_max <= 0.0 || comfort <= 0.0 || emergency <= 0.0 {
-        return None;
-    }
-    if leader_gap.is_some_and(|gap| gap <= 0.0) {
-        return Some((0.0, 0.0));
-    }
-    let speed_term = if desired <= 0.0 {
-        1.0
-    } else {
-        (speed / desired).max(0.0).powi(4)
-    };
-    let gap_term = if let Some(gap) = leader_gap {
-        let s_star = min_gap_m + speed * time_headway;
-        (s_star / gap).max(0.0).powi(2)
-    } else {
-        0.0
-    };
-    let accel = accel_max * (1.0 - speed_term - gap_term);
-    let next_speed = (speed + accel * delta_s).max(0.0).min(desired.max(0.0));
-    let travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
-    (travel.is_finite() && next_speed.is_finite()).then_some((travel, next_speed))
+    laneflow_motion_kernel::raw_proposal(&laneflow_motion_kernel::ProposalInput {
+        speed_m_s: speed,
+        desired_m_s: desired,
+        leader_m: leader_gap,
+        min_gap_m,
+        time_headway,
+        max_accel: accel_max,
+        comfort_decel: comfort,
+        emergency_decel: emergency,
+        delta_s,
+    })
 }
 
 fn speed_limit_path_envelope(
@@ -5151,6 +5118,7 @@ fn constrain_upcoming_speed_limits(
     progress_mm: u32,
     comfort: f32,
     emergency: f32,
+    first: usize,
 ) -> Option<f32> {
     // Twice the candidate's full-stop distance at comfortable deceleration is a
     // conservative window even for a zero-speed target. Keep the original
@@ -5158,12 +5126,6 @@ fn constrain_upcoming_speed_limits(
     // its f32 result by one ULP near a binding limit.
     let constraint_window =
         delta_s * (current_speed + next_speed) + next_speed * next_speed / comfort;
-    let cursor_hop = u32::try_from(cursor).ok()?;
-    let first = compiled.speed_limit_drop.partition_point({
-        #[cfg(test)]
-        super::route_query_research::note_search("tick:5127");
-        |drop| drop.from_route_edge_index < cursor_hop
-    });
     for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
         let limit = si_speed(drop.target_mm_s);
@@ -5231,56 +5193,6 @@ fn cap_next_speed_for_limit(
     .or(Some(0.0))
 }
 
-fn max_next_speed_for_decel(
-    current_speed: f32,
-    next_speed: f32,
-    delta_s: f32,
-    distance: f32,
-    limit: f32,
-    decel: f32,
-) -> Option<f32> {
-    if decel <= 0.0 || delta_s <= 0.0 {
-        return None;
-    }
-    let limit = limit.max(0.0);
-    if 0.5 * current_speed * delta_s > distance {
-        return None;
-    }
-    let linear = ((2.0 * distance / delta_s) - current_speed)
-        .min(limit)
-        .min(next_speed)
-        .max(0.0);
-    let b_dt = decel * delta_s;
-    let constant = decel * current_speed * delta_s - limit * limit - 2.0 * decel * distance;
-    let discriminant = b_dt * b_dt - 4.0 * constant;
-    let quadratic = if discriminant >= 0.0 {
-        ((-b_dt + discriminant.sqrt()) / 2.0).min(next_speed)
-    } else {
-        f32::NEG_INFINITY
-    };
-    let mut best = linear;
-    if quadratic > limit
-        && speed_down_constraint_holds(current_speed, quadratic, delta_s, distance, limit, decel)
-    {
-        best = best.max(quadratic);
-    }
-    speed_down_constraint_holds(current_speed, best, delta_s, distance, limit, decel)
-        .then_some(best.min(next_speed).max(0.0))
-}
-
-fn speed_down_constraint_holds(
-    current_speed: f32,
-    next_speed: f32,
-    delta_s: f32,
-    distance: f32,
-    limit: f32,
-    decel: f32,
-) -> bool {
-    let travel = 0.5 * (current_speed + next_speed) * delta_s;
-    let braking = (next_speed * next_speed - limit * limit).max(0.0) / (2.0 * decel);
-    travel + braking <= distance
-}
-
 #[allow(clippy::too_many_arguments)]
 fn clamp_travel_to_speed_down_boundary(
     mut travel: f32,
@@ -5290,14 +5202,9 @@ fn clamp_travel_to_speed_down_boundary(
     compiled: &CompiledRoute,
     cursor: usize,
     progress_mm: u32,
+    first: usize,
 ) -> Option<f32> {
     let min_travel = 0.5 * current_speed * delta_s;
-    let cursor_hop = u32::try_from(cursor).ok()?;
-    let first = compiled.speed_limit_drop.partition_point({
-        #[cfg(test)]
-        super::route_query_research::note_search("tick:5259");
-        |drop| drop.from_route_edge_index < cursor_hop
-    });
     for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
         let limit = si_speed(drop.target_mm_s);
@@ -5390,15 +5297,19 @@ mod motion_reuse_tests {
         let preview = view
             .preview_active_vehicle_with_waiting_stop(state, 0.016, None, None)
             .unwrap();
-        assert_eq!(preview.next, state);
+        assert_eq!(preview.next.apply(state), state);
         assert!(matches!(preview.bounds, MotionBounds::HardStopped));
         assert!(horizon.bumper_gap_mm > 2);
         assert_eq!(
-            preview.reuse(None, Some(stop)),
+            preview
+                .reuse(None, Some(stop))
+                .map(|motion| motion.apply(state)),
             view.advance_active_vehicle_with_waiting_stop(state, 0.016, None, Some(stop))
         );
         assert_eq!(
-            preview.reuse(Some(stop), None),
+            preview
+                .reuse(Some(stop), None)
+                .map(|motion| motion.apply(state)),
             view.advance_active_vehicle_with_waiting_stop(state, 0.016, Some(stop), None)
         );
 
@@ -5412,7 +5323,7 @@ mod motion_reuse_tests {
         let preview = view
             .preview_active_vehicle_with_waiting_stop(state, 0.001, None, None)
             .unwrap();
-        let next = preview.next;
+        let next = preview.next.apply(state);
         assert_eq!(next.route_edge_index, state.route_edge_index);
         assert_eq!(next.progress_mm, state.progress_mm);
         assert!(next.carry_um > 0);
@@ -5422,7 +5333,12 @@ mod motion_reuse_tests {
             preview.bounds,
             MotionBounds::Travel { proposed_mm: 0, .. }
         ));
-        assert_eq!(preview.reuse(None, Some(stop)), Some(next));
+        assert_eq!(
+            preview
+                .reuse(None, Some(stop))
+                .map(|motion| motion.apply(state)),
+            Some(next)
+        );
         assert_eq!(
             Some(next),
             view.advance_active_vehicle_with_waiting_stop(state, 0.001, None, Some(stop))
@@ -5434,7 +5350,7 @@ mod motion_reuse_tests {
         let stopped = view
             .advance_active_vehicle_with_waiting_stop(state, 0.1, None, Some(stop))
             .unwrap();
-        assert_ne!(crossing.next, stopped);
+        assert_ne!(crossing.next.apply(state), stopped);
         assert!(crossing.reuse(None, Some(stop)).is_none());
     }
 
@@ -5491,7 +5407,7 @@ mod motion_reuse_tests {
                                     None,
                                 )
                                 .unwrap();
-                            let next = preview.next;
+                            let next = preview.next.apply(state);
                             for conflict_stop in
                                 std::iter::once(None).chain(stops.iter().copied().map(Some))
                             {
@@ -5503,7 +5419,10 @@ mod motion_reuse_tests {
                                         conflict_stop,
                                     )
                                     .unwrap();
-                                if let Some(actual) = preview.reuse(waiting_stop, conflict_stop) {
+                                if let Some(actual) = preview
+                                    .reuse(waiting_stop, conflict_stop)
+                                    .map(|motion| motion.apply(state))
+                                {
                                     assert_eq!(
                                         actual, expected,
                                         "state={state:?}, delta_s={delta_s}, stop={conflict_stop:?}"
@@ -5526,7 +5445,9 @@ mod motion_reuse_tests {
                                 for conflict in
                                     std::iter::once(None).chain(stops.iter().copied().map(Some))
                                 {
-                                    let actual = preview.reuse(changed, conflict);
+                                    let actual = preview
+                                        .reuse(changed, conflict)
+                                        .map(|motion| motion.apply(state));
                                     if waiting_stop.is_some() {
                                         assert!(actual.is_none());
                                     } else if let Some(actual) = actual {
@@ -5562,8 +5483,9 @@ mod motion_reuse_tests {
             (si_meters(u32::MAX), u64::from(u32::MAX) + 1, u32::MAX),
         ] {
             let preview = MotionPreview {
-                next,
+                next: next.into(),
                 waiting_stop: None,
+                basis: None,
                 bounds: MotionBounds::Travel {
                     meters,
                     proposed_mm,
@@ -5579,8 +5501,9 @@ mod motion_reuse_tests {
             assert!(preview.reuse(Some(stop), None).is_none());
         }
         let preview = MotionPreview {
-            next,
+            next: next.into(),
             waiting_stop: None,
+            basis: None,
             bounds: MotionBounds::Travel {
                 meters: 0.000_1,
                 proposed_mm: 0,
@@ -5592,12 +5515,12 @@ mod motion_reuse_tests {
             hop: next.route_edge_index,
             distance: BoundedDistance::Finite(1),
         };
-        assert_eq!(preview.reuse(None, Some(stop)), Some(next));
+        assert_eq!(preview.reuse(None, Some(stop)), Some(next.into()));
         assert!(
             MotionPreview {
-                next: VehicleState {
+                next: super::super::vehicle_store::MotionValue {
                     route_edge_index: stop.hop + 1,
-                    ..next
+                    ..next.into()
                 },
                 ..preview
             }
@@ -5711,18 +5634,20 @@ mod preview {
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.
         let candidate = 66.89_f32;
-        let near =
-            constrain_upcoming_speed_limits(65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0)
-                .unwrap();
+        let near = constrain_upcoming_speed_limits(
+            65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0, 0,
+        )
+        .unwrap();
         assert_eq!(near.to_bits(), candidate.to_bits() - 1);
 
         // The same drop beyond twice the full-stop distance cannot bind.
         route.occurrence_offsets[1] = 300_000;
         route.segment_totals[0] = 301_000;
         route.remaining_to_end[0] = BoundedDistance::Finite(301_000);
-        let far =
-            constrain_upcoming_speed_limits(65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0)
-                .unwrap();
+        let far = constrain_upcoming_speed_limits(
+            65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0, 0,
+        )
+        .unwrap();
         assert_eq!(far.to_bits(), candidate.to_bits());
     }
 
@@ -5776,7 +5701,7 @@ mod preview {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         let next = world.state.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert!(
             next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
@@ -6034,7 +5959,7 @@ mod preview {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let mut state = world.state.vehicle_state(follower).copied().unwrap();
+        let mut state = world.state.vehicle_state(follower).unwrap();
         state.carry_um = 777;
         let next = world.state.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert_eq!(next.carry_um, 0);
@@ -6057,7 +5982,7 @@ mod preview {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         let next = world
             .state
             .advance_active_vehicle(state, 0.004_f32)
@@ -6156,7 +6081,7 @@ mod preview {
                     .with_open_entrance(),
             )
             .expect("spawn");
-        let mut state = world.state.vehicle_state(vehicle).copied().expect("state");
+        let mut state = world.state.vehicle_state(vehicle).expect("state");
         state.progress_mm = 0;
         state.speed_mm_s = 0;
         state.carry_um = 0;
@@ -6292,7 +6217,7 @@ mod barrier_query_tests {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         world.state.rebuild_occupancy_index().expect("occupancy");
         let handle = world.state.committed.live_order[0];
-        let base = world.state.vehicle_state(handle).copied().expect("vehicle");
+        let base = world.state.vehicle_state(handle).expect("vehicle");
         let lengths = world.traffic().lane_lengths_millimetres().to_vec();
         let slot = usize::try_from(base.route.index()).expect("slot");
         let (edge_length, first_zone, first_release, conflict_absent) = {
@@ -6538,7 +6463,7 @@ mod barrier_query_tests {
     fn nonempty_conflict_admissions_skip_and_return_independently() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let handle = world.state.committed.live_order[0];
-        let base = world.state.vehicle_state(handle).copied().expect("vehicle");
+        let base = world.state.vehicle_state(handle).expect("vehicle");
         let slot = usize::try_from(base.route.index()).expect("slot");
         let template = world.state.committed.routes[slot]
             .compiled
@@ -6686,14 +6611,16 @@ mod barrier_query_tests {
             )
             .expect("spawn");
         {
-            let state = world.state.committed.vehicles[handle.index() as usize]
+            let mut vehicle_slot = world
                 .state
-                .as_mut()
-                .expect("state");
+                .committed
+                .vehicles
+                .slot_mut(handle.index() as usize);
+            let state = vehicle_slot.state.as_mut().expect("state");
             state.carry_um = 999;
         }
         world.state.rebuild_occupancy_index().expect("occupancy");
-        let before = world.state.vehicle_state(handle).copied().expect("before");
+        let before = world.state.vehicle_state(handle).expect("before");
         assert_eq!(before.carry_um, 999);
         assert!(reach.excludes(edge_length - before.progress_mm));
 
@@ -6704,7 +6631,7 @@ mod barrier_query_tests {
             0,
             "the first tick is still beyond the reach"
         );
-        let mid = world.state.vehicle_state(handle).copied().expect("mid");
+        let mid = world.state.vehicle_state(handle).expect("mid");
         assert_eq!(mid.route_edge_index, admission);
         assert!(mid.progress_mm > before.progress_mm);
         assert!(mid.progress_mm < edge_length);
@@ -6750,7 +6677,7 @@ mod barrier_query_tests {
             barrier_query_counts().conflict_scans >= 1,
             "the next tick queries the admission again"
         );
-        let after = world.state.vehicle_state(handle).copied().expect("after");
+        let after = world.state.vehicle_state(handle).expect("after");
         assert_eq!(after.status, VehicleStatus::Active);
         assert_eq!(
             after.route_edge_index, admission,

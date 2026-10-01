@@ -4,8 +4,8 @@ use laneflow_static_contract::{ManeuverGateOrdinal, WaitingZoneOrdinal};
 
 use crate::{
     ConflictPassageOccurrenceLocator, ConflictPassageRange, DownstreamRoutePoint,
-    ManeuverTraversalPhase, RouteHandle, StepError, VehicleHandle, VehicleState,
-    WaitingProjectionReason, WaitingRouteAnchor,
+    ManeuverTraversalPhase, RouteHandle, StepError, VehicleHandle, WaitingProjectionReason,
+    WaitingRouteAnchor,
 };
 
 /// 事件的语义 Gate/机动出现项和实际触发位置。车尾事件不锚回已驶过的入口。
@@ -186,7 +186,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 把本拍已验证转移暂存为规范排序的事件批次；失败时清空暂存，已发布批次不受影响。
     pub(crate) fn stage_transition_events(
         &mut self,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         tick: u64,
     ) -> Result<(), StepError> {
         let mut count = 0_usize;
@@ -223,7 +223,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 按 live-order 逐车发射本拍转移事件；不负责排序或暂存。
     pub(crate) fn visit_transition_events(
         &self,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         tick: u64,
         mut emit: impl FnMut(TrafficTransitionEvent),
     ) -> Result<(), StepError> {
@@ -236,10 +236,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             else {
                 continue;
             };
-            let old = *self
+            let old = self
                 .vehicle_state(vehicle)
                 .ok_or(StepError::ConflictInvariantViolation)?;
-            let next = updates[update as usize].1;
+            let next = updates.get(update as usize, &self.committed.vehicles).1;
             let sequence =
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
             let compiled = self
@@ -469,17 +469,21 @@ mod tests {
     fn zero_event_fast_path_does_not_skip_first_visit_validation() {
         let mut world = multi_gate_world(2);
         let vehicle = world.live_vehicles()[0];
-        let state = *world.state.vehicle_state(vehicle).unwrap();
+        let state = world.state.vehicle_state(vehicle).unwrap();
         let slot = vehicle.index() as usize;
         world.state.workspace.next_state_by_vehicle.fill(0);
         world.state.workspace.next_state_by_vehicle[slot] = 1;
         world.state.committed.routes[state.route().index() as usize].compiled = None;
         TRANSITION_VISITS.set(0);
+        let updates = crate::kernel::motion_updates::MotionUpdates::from_states(
+            &[(slot, state)],
+            &world.state.committed.vehicles,
+        );
         assert_eq!(
             world
                 .state
                 .step_workspace()
-                .stage_transition_events(&[(slot, state)], 1),
+                .stage_transition_events(&updates, 1),
             Err(StepError::ConflictInvariantViolation)
         );
         assert_eq!(TRANSITION_VISITS.get(), 1);

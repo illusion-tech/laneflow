@@ -400,7 +400,11 @@ fn cutover_overlap_keeps_live_order_and_entity_error_priority() {
     let route = lane_routes(&mut world, 1)[0];
     let first = world.spawn_vehicle(input(route, 0, 0)).unwrap();
     let second = world.spawn_vehicle(input(route, 0, 10_000)).unwrap();
-    world.state.committed.vehicles[second.index() as usize]
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(second.index() as usize)
         .state
         .as_mut()
         .unwrap()
@@ -420,7 +424,11 @@ fn cutover_overlap_keeps_live_order_and_entity_error_priority() {
             vehicle: second.index()
         })
     );
-    world.state.committed.vehicles[second.index() as usize]
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(second.index() as usize)
         .state
         .as_mut()
         .unwrap()

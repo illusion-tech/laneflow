@@ -114,8 +114,24 @@ mod tests {
     }
 
     #[test]
-    fn patches_current_runtime_and_keeps_canonical_consumer() {
+    fn rejects_columnar_runtime_as_an_old_iidm_export_source() {
         let original = include_str!("../../../crates/laneflow-runtime/src/kernel/tick.rs");
+        for arm in ["layout", "candidate"] {
+            assert!(patch_tick(&mut original.replace("\r\n", "\n"), arm).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "manual archive reproduction: requires the original frozen Git object"]
+    fn patches_frozen_runtime_and_keeps_canonical_consumer() {
+        let original = crate::io::git(
+            &std::env::current_dir().unwrap(),
+            &[
+                "show",
+                &format!("{}:crates/laneflow-runtime/src/kernel/tick.rs", crate::BASE),
+            ],
+        )
+        .unwrap();
         for arm in ["layout", "candidate"] {
             let mut text = original.replace("\r\n", "\n");
             patch_tick(&mut text, arm).unwrap();
