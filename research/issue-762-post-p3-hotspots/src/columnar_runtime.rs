@@ -4,7 +4,6 @@ mod cache_research;
 mod chunk_build;
 mod chunk_collector;
 mod chunk_config;
-#[allow(dead_code)]
 mod chunk_native;
 mod environment;
 use cache_research::{Experiment, io, prepare};
@@ -337,6 +336,9 @@ fn run() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|v| v == "build-collector") && args.len() == 2 {
         return chunk_collector::build(Path::new(&args[1]));
+    }
+    if args.first().is_some_and(|v| v == "native-toolchain") && args.len() == 2 {
+        return io::write_new(Path::new(&args[1]), &chunk_native::snapshot()?);
     }
     chunk_collector::verify_running()?;
     match args.first().map(String::as_str) {
