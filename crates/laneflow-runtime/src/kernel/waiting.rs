@@ -5,6 +5,28 @@ use crate::kernel::tables::{CompiledRoute, distance_to_occurrence_start};
 use crate::{RouteHandle, VehicleHandle};
 use laneflow_static_network::BoundedDistance;
 
+/// Waiting 遍历只消费位置、车型和成员关系，不读取速度/车长或其它运动列。
+#[derive(Clone, Copy)]
+pub(crate) struct WaitingTraversalInput {
+    pub(crate) route: RouteHandle,
+    pub(crate) profile: laneflow_static_contract::VehicleProfileOrdinal,
+    pub(crate) position: super::vehicle_store::MotionPosition,
+    pub(crate) status: crate::VehicleStatus,
+    pub(crate) waiting_membership: Option<WaitingMembership>,
+}
+
+impl From<&crate::VehicleState> for WaitingTraversalInput {
+    fn from(state: &crate::VehicleState) -> Self {
+        Self {
+            route: state.route,
+            profile: state.profile,
+            position: state.into(),
+            status: state.status,
+            waiting_membership: state.waiting_membership,
+        }
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     static WAITING_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
@@ -1436,16 +1458,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Ok(())
     }
 
-    pub(crate) fn derive_waiting_traversal(
-        self,
-        state: crate::VehicleState,
-    ) -> Result<Option<ManeuverTraversalState>, crate::StepError> {
-        self.derive_waiting_traversal_with_signals(state, true)
-    }
-
     pub(crate) fn derive_waiting_traversal_with_signals(
         self,
         state: crate::VehicleState,
+        apply_current_signals: bool,
+    ) -> Result<Option<ManeuverTraversalState>, crate::StepError> {
+        self.derive_waiting_traversal_input((&state).into(), apply_current_signals)
+    }
+
+    pub(crate) fn derive_waiting_traversal_input(
+        self,
+        state: WaitingTraversalInput,
         apply_current_signals: bool,
     ) -> Result<Option<ManeuverTraversalState>, crate::StepError> {
         if state.status != crate::VehicleStatus::Active {
@@ -1457,7 +1480,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if compiled.waiting.is_empty() {
             return Ok(None);
         }
-        let cursor = state.route_edge_index;
+        let cursor = state.position.route_edge_index;
         let Some(maneuver_index) = maneuver_index_at_hop(compiled, cursor) else {
             return Ok(None);
         };
@@ -1501,7 +1524,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
             if front_at_hop_boundary(
                 compiled,
-                &state,
+                state.position,
                 membership.release_hop,
                 self.binding.revision.traffic().lane_lengths_millimetres(),
             ) && apply_current_signals
@@ -2467,21 +2490,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 });
         }
         self.workspace.waiting_non_entry_anchors.clear();
-        for (update_index, (slot, next)) in updates.iter(&self.committed.vehicles).enumerate() {
-            let old = self
-                .committed
-                .vehicles
-                .slot(slot)
-                .state
-                .expect("staged live vehicle");
-            let compiled = self.committed.routes[old.route.index() as usize]
+        for update_index in 0..updates.len() {
+            let row = updates.row(update_index, &self.committed.vehicles);
+            let compiled = self.committed.routes[row.source.route().index() as usize]
                 .compiled
                 .as_ref()
                 .expect("live route");
             for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
                 compiled,
-                old.route_edge_index,
-                &next,
+                row.source.position().route_edge_index,
+                row.position(),
                 self.binding.revision.traffic().lane_lengths_millimetres(),
             ) {
                 let anchors = &mut self.workspace.waiting_non_entry_anchors;
@@ -2732,13 +2750,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
     }
 
-    pub(crate) fn derive_waiting_traversal(
-        &self,
-        state: crate::VehicleState,
-    ) -> Result<Option<ManeuverTraversalState>, crate::StepError> {
-        self.read_view().derive_waiting_traversal(state)
-    }
-
     /// 稳态从已有 member batch 定位非空 zone，而非遍历静态表。队列和语义仍交叉
     /// 验证；未涉及的空 zone 保留历史 counter，由 restore/cutover 做全量验证。
     pub(crate) fn waiting_member_rows_valid(&self) -> bool {
@@ -2956,16 +2967,27 @@ fn post_step_physical_rank(
 fn non_entry_gate_anchors<'a>(
     compiled: &'a CompiledRoute,
     old_cursor: u32,
-    next: &'a crate::VehicleState,
+    next: impl Into<super::vehicle_store::MotionPosition>,
     lengths: &'a [u32],
 ) -> impl Iterator<Item = (u32, u32)> + 'a {
+    let next = next.into();
     #[cfg(test)]
     NON_ENTRY_DISCOVERY_VISITS.set(NON_ENTRY_DISCOVERY_VISITS.get() + 1);
-    let start = compiled.gate_hops.partition_point({
-        #[cfg(test)]
-        super::route_query_research::note_search("waiting:2900");
-        |hop| *hop < old_cursor
-    });
+    let same_edge_interior = old_cursor == next.route_edge_index
+        && compiled
+            .edges
+            .get(old_cursor as usize)
+            .and_then(|edge| lengths.get(edge.index()))
+            .is_some_and(|length| next.progress_mm < *length);
+    let start = if same_edge_interior {
+        compiled.gate_hops.len()
+    } else {
+        compiled.gate_hops.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("waiting:2900");
+            |hop| *hop < old_cursor
+        })
+    };
     compiled.gate_hops[start..]
         .iter()
         .copied()
@@ -2975,10 +2997,11 @@ fn non_entry_gate_anchors<'a>(
 
 fn non_entry_gate_anchor(
     compiled: &CompiledRoute,
-    preview: &crate::VehicleState,
+    preview: impl Into<super::vehicle_store::MotionPosition>,
     hop: usize,
     lengths: &[u32],
 ) -> Option<(u32, u32)> {
+    let preview = preview.into();
     let hop_u32 = u32::try_from(hop).ok()?;
     compiled.hop_gate.get(hop).copied().flatten()?;
     if compiled
@@ -3056,10 +3079,11 @@ fn reserve_waiting_exact<T>(
 
 fn front_at_hop_boundary(
     compiled: &CompiledRoute,
-    state: &crate::VehicleState,
+    state: impl Into<super::vehicle_store::MotionPosition>,
     hop: u32,
     lengths: &[u32],
 ) -> bool {
+    let state = state.into();
     if state.route_edge_index != hop {
         return false;
     }

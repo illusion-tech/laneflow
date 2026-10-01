@@ -1920,16 +1920,27 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return Err(error);
             }
         }
-        let state = self
-            .vehicle_state(vehicle)
+        let row = self
+            .committed
+            .vehicles
+            .active_binding(vehicle)
             .ok_or(StepError::WaitingInvariantViolation)?;
         let compiled = self
-            .compiled_route(state.route)
+            .compiled_route(row.route())
             .ok_or(StepError::WaitingInvariantViolation)?;
+        let position = row.position();
         // 同一 C(T) 的保守原语不产生领域错误；仅缓存前缀需要这次计算。
-        let gate_reachable = cache_reachability
-            .then(|| super::conflict_tick::gate_may_be_reached(self, &state, delta_s));
-        let cursor = state.route_edge_index as usize;
+        let gate_reachable = cache_reachability.then(|| {
+            super::conflict_tick::gate_may_be_reached_on_route(
+                self,
+                compiled,
+                position,
+                row.speed_mm_s(),
+                row.profile(),
+                delta_s,
+            )
+        });
+        let cursor = position.route_edge_index as usize;
         let gate_index = compiled.gate_hops.partition_point({
             #[cfg(test)]
             super::route_query_research::note_search("tick:1788");
@@ -1947,16 +1958,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .revision
             .traffic()
             .relations()
-            .vehicle_profile(state.profile)
+            .vehicle_profile(row.profile())
             .ok_or(StepError::WaitingInvariantViolation)?;
-        let horizon = leader_query_horizon(state.speed_mm_s, profile, delta_s)
+        let horizon = leader_query_horizon(row.speed_mm_s(), profile, delta_s)
             .ok_or(StepError::NonFiniteMotion)?;
         let gate_distance = distance_to_occurrence_start(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
             &compiled.segment_totals,
             cursor,
-            state.progress_mm,
+            position.progress_mm,
             (gate_hop as usize)
                 .checked_add(1)
                 .ok_or(StepError::WaitingInvariantViolation)?,
@@ -1977,7 +1988,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
         // 本拍可达性不是运动复用证明；这里只省略没有 membership 的入口
         // 预览。已有 horizon 仍供 P5 使用，最终运动及资源转移不能省略。
-        if gate_reachable == Some(false) && state.waiting_membership.is_none() {
+        if gate_reachable == Some(false) && row.control().waiting.is_none() {
             return Ok(WaitingPreviewEntry {
                 gate_reachable,
                 horizon: Some(horizon),
@@ -1985,7 +1996,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             });
         }
         let preview = self
-            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))
+            .preview_active_vehicle_with_waiting_stop(row.state(), delta_s, None, Some(horizon))
             .ok_or(StepError::NonFiniteMotion)?;
         Ok(WaitingPreviewEntry {
             gate_reachable,

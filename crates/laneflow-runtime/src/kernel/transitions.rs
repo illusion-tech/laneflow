@@ -236,20 +236,54 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             else {
                 continue;
             };
-            let old = self
-                .vehicle_state(vehicle)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let next = updates.get(update as usize, &self.committed.vehicles).1;
+            let row = updates.row(update as usize, &self.committed.vehicles);
+            if row.source.handle() != vehicle {
+                return Err(StepError::ConflictInvariantViolation);
+            }
             let sequence =
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
             let compiled = self
-                .compiled_route(old.route)
+                .compiled_route(row.source.route())
                 .ok_or(StepError::ConflictInvariantViolation)?;
-            self.visit_waiting_events(old, next, tick, sequence, &mut emit);
             let prepared = self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize]
                 .and_then(|plan| plan.grant_index)
                 .and_then(|index| self.workspace.conflict_grants.get(index.get() as usize - 1))
-                .filter(|grant| next.route_edge_index > grant.gate_hop);
+                .filter(|grant| row.position().route_edge_index > grant.gate_hop);
+            let range = prepared.and_then(|grant| grant.passage_range).or_else(|| {
+                self.conflict_read()
+                    .reservation(vehicle)
+                    .map(|value| value.passage_range())
+            });
+            let control = row.source.control();
+            let waiting_plan = self
+                .workspace
+                .waiting_plan_by_vehicle
+                .get(vehicle.index() as usize)
+                .copied()
+                .flatten()
+                .and_then(|index| self.workspace.waiting_plans.get(index.get() as usize - 1))
+                .is_some_and(|plan| plan.vehicle == vehicle);
+            // 同 occurrence 也可能发生投影、成员离开、旧 grant 回看或车尾净空。
+            // 只有这些实际义务和 passage 暂存都不存在，才省略整车组装。
+            if row.source.position().route_edge_index == row.position().route_edge_index
+                && control.waiting.is_none()
+                && !control.maneuver.is_some_and(|traversal| {
+                    matches!(traversal.phase, ManeuverTraversalPhase::Clearing { .. })
+                })
+                && !waiting_plan
+                && prepared.is_none()
+                && range.is_none()
+                && !self
+                    .workspace
+                    .conflict_passage_transitions
+                    .get(passage_cursor)
+                    .is_some_and(|transition| transition.vehicle == vehicle)
+            {
+                continue;
+            }
+            let old = row.source.state();
+            let next = row.state();
+            self.visit_waiting_events(old, next, tick, sequence, &mut emit);
             let mut push = |anchor, kind| {
                 emit(TrafficTransitionEvent {
                     tick,
@@ -293,11 +327,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     TrafficTransitionKind::GateCrossed { gate },
                 );
             }
-            let range = prepared.and_then(|grant| grant.passage_range).or_else(|| {
-                self.conflict_read()
-                    .reservation(vehicle)
-                    .map(|value| value.passage_range())
-            });
             let mut release_anchor = None;
             if let Some(range) = range {
                 let anchor = TrafficTransitionAnchor::at_gate(WaitingRouteAnchor {
