@@ -279,6 +279,8 @@ impl VehicleStore {
         self.capacity
     }
 
+    // 让热查询的调用方只读取实际使用的列，避免跨函数边界物化完整逻辑值。
+    #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> Option<VehicleSlot> {
         let entry = self.directory.get(index)?;
         let state = match entry.location {
@@ -315,10 +317,12 @@ impl VehicleStore {
         })
     }
 
+    #[inline(always)]
     pub(crate) fn slot(&self, index: usize) -> VehicleSlot {
         self.get(index).expect("vehicle slot in range")
     }
 
+    #[inline(always)]
     pub(crate) fn state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         let entry = self.get(handle.index() as usize)?;
         (entry.generation == handle.generation())
@@ -326,6 +330,7 @@ impl VehicleStore {
             .flatten()
     }
 
+    #[inline]
     pub(crate) fn active_row(&self, handle: VehicleHandle) -> Option<usize> {
         let entry = self.directory.get(handle.index() as usize)?;
         if entry.generation != handle.generation() {
@@ -337,6 +342,7 @@ impl VehicleStore {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn active_at(&self, physical: usize) -> Option<VehicleState> {
         let handle = *self
             .context

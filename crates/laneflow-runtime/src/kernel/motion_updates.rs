@@ -159,6 +159,7 @@ impl MotionUpdates {
         Ok(())
     }
 
+    #[inline(always)]
     pub(crate) fn get(&self, index: usize, current: &VehicleStore) -> (usize, VehicleState) {
         let row = self.order[index];
         let mut state = current
@@ -200,6 +201,15 @@ impl MotionUpdates {
         current: &'a VehicleStore,
     ) -> impl Iterator<Item = (usize, VehicleState)> + 'a {
         (0..self.len()).map(|index| self.get(index, current))
+    }
+
+    /// 规范位置映射不读取或物化下一状态列。
+    pub(crate) fn slot_index(&self, index: usize) -> usize {
+        self.order[index].slot
+    }
+
+    pub(crate) fn slot_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.order.iter().map(|row| row.slot)
     }
 
     pub(crate) fn changed_indices(&self) -> impl Iterator<Item = usize> + '_ {
