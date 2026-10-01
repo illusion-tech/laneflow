@@ -1,5 +1,9 @@
 # 列式权威与完整纵向 SIMD 组合验证
 
+本轮 [当前头画像与缓存消融](pipeline-cache-results.md) 记录 47ad01b9 的三轮诊断、
+独立稀疏基础载荷及普通平衡对照。缓存消融有约 5% 的改善方向，候选同期仍比旧
+AoS 慢约 28%；接入验收未满足，后续优先消除常规 P5 的重复准备与中间物化。
+
 对应 #814；设计权威为 ADR 0031 和 `traffic-runtime-columnar-execution.md`。
 正式基线为 `cbfbb14a714d819cd5e608a1b759575d378f3d53`。
 
