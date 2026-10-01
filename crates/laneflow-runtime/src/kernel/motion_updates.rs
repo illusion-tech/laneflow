@@ -1,6 +1,6 @@
 //! P5 直接写下一运动列，P6 按需组装逻辑值，P7 发布同一份列载荷（ADR 0031）。
 
-use super::vehicle_store::{BLOCK_ROWS, MotionBlock, VehicleStore};
+use super::vehicle_store::{ActiveRow, BLOCK_ROWS, MotionBlock, MotionPosition, VehicleStore};
 use crate::{StepError, VehicleState, VehicleStatus};
 
 #[derive(Clone, Copy, Debug)]
@@ -9,12 +9,100 @@ struct UpdateRow {
     physical: usize,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bound_updates_read_next_columns_and_controls_with_a_physical_hole() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(3);
+        let mut current = world.state.committed.vehicles.clone();
+        let first = world.vehicle(world.live_vehicles()[0]).unwrap();
+        let last = world.vehicle(world.live_vehicles()[2]).unwrap();
+        current
+            .slot_mut(world.live_vehicles()[1].index() as usize)
+            .state = None;
+        let mut completed = first;
+        completed.status = VehicleStatus::Completed;
+        completed.maneuver_traversal = None;
+        completed.waiting_membership = None;
+        let mut moved = last;
+        moved.progress_mm += 1;
+        moved.speed_mm_s += 1;
+        moved.carry_um = 999;
+        let mut updates = MotionUpdates::from_states(
+            &[
+                (first.handle.index() as usize, completed),
+                (last.handle.index() as usize, moved),
+            ],
+            &current,
+        );
+        assert_eq!(updates.validate(&current), Ok(()));
+        let row = updates.row(0, &current);
+        assert_eq!(row.source.handle(), first.handle);
+        assert_eq!(row.source.position(), (&first).into());
+        assert_eq!(row.status(), VehicleStatus::Completed);
+        assert_eq!(row.control().waiting, None);
+        assert_eq!(row.control().maneuver, None);
+        assert_eq!(row.state(), completed);
+        let row = updates.row(1, &current);
+        assert_eq!(row.source.position(), (&last).into());
+        assert_eq!(row.position(), (&moved).into());
+        assert_eq!(row.state(), moved);
+        assert_eq!(current.state(first.handle), Some(first));
+        assert_eq!(current.state(last.handle), Some(last));
+        updates.order[0].slot = last.handle.index() as usize;
+        assert_eq!(
+            updates.validate(&current),
+            Err(StepError::ConflictInvariantViolation)
+        );
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ControlUpdate {
     logical_index: usize,
     status: VehicleStatus,
     maneuver: Option<crate::ManeuverTraversalState>,
     waiting: Option<crate::WaitingMembership>,
+}
+
+/// Current 身份绑定与 Next 数值借用；只在稀疏复杂消费者要求时组装完整逻辑值。
+pub(crate) struct UpdateView<'a> {
+    pub(crate) source: ActiveRow<'a>,
+    next: &'a MotionBlock,
+    control: Option<&'a ControlUpdate>,
+}
+
+impl UpdateView<'_> {
+    pub(crate) fn position(&self) -> MotionPosition {
+        self.source.position_in(self.next)
+    }
+
+    pub(crate) fn state(&self) -> VehicleState {
+        let mut state = self.source.state_in(self.next);
+        if let Some(control) = self.control {
+            state.status = control.status;
+            state.maneuver_traversal = control.maneuver;
+            state.waiting_membership = control.waiting;
+        }
+        state
+    }
+
+    pub(crate) fn status(&self) -> VehicleStatus {
+        self.control
+            .map_or(VehicleStatus::Active, |control| control.status)
+    }
+
+    pub(crate) fn control(&self) -> super::vehicle_store::ControlState {
+        self.control.map_or_else(
+            || self.source.control(),
+            |control| super::vehicle_store::ControlState {
+                maneuver: control.maneuver,
+                waiting: control.waiting,
+            },
+        )
+    }
 }
 
 /// P5 回报仅存检查结果和稀疏副作用标志，数值唯一写在 next.motion。
@@ -204,6 +292,26 @@ impl MotionUpdates {
         (index < self.len()).then(|| self.get(index, current))
     }
 
+    pub(crate) fn row<'a>(&'a self, index: usize, current: &'a VehicleStore) -> UpdateView<'a> {
+        assert!(!self.published, "next motion has not been published");
+        let row = self.order[index];
+        let next = &self.motion[row.physical / BLOCK_ROWS];
+        assert_ne!(
+            next.valid[row.physical % BLOCK_ROWS / 64] & (1 << (row.physical % 64)),
+            0,
+            "next row initialized"
+        );
+        UpdateView {
+            source: current
+                .active_binding_at(row.slot, row.physical)
+                .expect("next state has active predecessor"),
+            next,
+            control: self.control_by_row[row.physical]
+                .checked_sub(1)
+                .map(|index| &self.control[index as usize]),
+        }
+    }
+
     pub(crate) fn iter<'a>(
         &'a self,
         current: &'a VehicleStore,
@@ -318,13 +426,10 @@ impl MotionUpdates {
             .map(|word| word.count_ones() as usize)
             .sum();
         if rows != self.order.len()
-            || self.order.iter().any(|row| {
-                current
-                    .slot(row.slot)
-                    .state
-                    .and_then(|state| current.active_row(state.handle))
-                    != Some(row.physical)
-            })
+            || self
+                .order
+                .iter()
+                .any(|row| current.active_binding_at(row.slot, row.physical).is_none())
         {
             return Err(StepError::ConflictInvariantViolation);
         }
@@ -364,8 +469,8 @@ impl MotionUpdates {
             if changed.status != VehicleStatus::Active {
                 inactive += 1;
             } else if changed.maneuver.is_some() || changed.waiting.is_some() {
-                let (_, state) = self.get(changed.logical_index, current);
-                if !current.has_control(state.handle) {
+                let handle = self.row(changed.logical_index, current).source.handle();
+                if !current.has_control(handle) {
                     control += 1;
                 }
             }
