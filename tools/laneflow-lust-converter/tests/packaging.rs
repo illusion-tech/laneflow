@@ -1,9 +1,40 @@
 use laneflow_lust_converter::{
     BuildInvocation, BuildProvenanceInput, ConversionReportInput, LicenseArtifacts,
-    RawOutputDigests, ReleaseAssetUrls, SemanticConfig, SemanticProvenanceInput, TarMember,
+    PINNED_SOURCE_FILES, RawOutputDigests, ReleaseAssetUrls, SemanticConfig,
+    SemanticProvenanceInput, TarMember, VerifiedSourceFile, VerifiedSourceSet, VerifiedSourceTar,
     build_build_provenance, build_conversion_report, build_semantic_provenance,
     embedded_notice_bytes, embedded_odbl_bytes, write_deterministic_ustar,
 };
+
+/// 合成最小 VerifiedSourceSet（七份 pinned 相对路径摆位，字节任意——
+/// build_source_tar 不再重哈希，verified 已背书）并构建类型级绑定的 tar。
+fn synthetic_verified_source_tar() -> VerifiedSourceTar {
+    let root = std::env::temp_dir().join(format!("lust-packaging-src-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for pinned in PINNED_SOURCE_FILES {
+        let path = root.join(pinned.relative_path);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
+        std::fs::write(&path, b"synthetic").expect("write synthetic pinned file");
+    }
+    // read_verified 消费时重哈希：记录必须对合成字节真实（pinned 常量的
+    // digest 是真实 LuST 字节的，不能借）。
+    let synthetic_hex = laneflow_lust_converter::hex_sha256(b"synthetic");
+    let verified = VerifiedSourceSet {
+        source_dir: root.clone(),
+        files: PINNED_SOURCE_FILES
+            .iter()
+            .map(|pinned| VerifiedSourceFile {
+                relative_path: pinned.relative_path,
+                absolute_path: root.join(pinned.relative_path),
+                bytes: pinned.bytes,
+                sha256_hex: synthetic_hex.clone(),
+            })
+            .collect(),
+    };
+    let tar = VerifiedSourceTar::from_verified_set(&verified).expect("verified source tar");
+    let _ = std::fs::remove_dir_all(&root);
+    tar
+}
 
 #[test]
 fn licenses_are_non_empty_and_contain_required_attribution() {
@@ -85,11 +116,7 @@ fn semantic_and_build_provenance_are_byte_deterministic() {
         odbl: embedded_odbl_bytes().to_vec(),
         notice: embedded_notice_bytes().to_vec(),
     };
-    let source_tar = write_deterministic_ustar(&[TarMember {
-        path: "LICENSE.md".to_owned(),
-        contents: licenses.license_md.clone(),
-    }])
-    .expect("source tar");
+    let source_tar = synthetic_verified_source_tar();
     let static_tar = write_deterministic_ustar(&[TarMember {
         path: "network.lfca".to_owned(),
         contents: b"LFCA\n".to_vec(),
@@ -154,11 +181,7 @@ fn semantic_digest_tracks_only_semantic_config_subset() {
         semantic_config,
         licenses: licenses.clone(),
         release_urls: ReleaseAssetUrls::default(),
-        source_tar: write_deterministic_ustar(&[TarMember {
-            path: "LICENSE.md".to_owned(),
-            contents: licenses.license_md.clone(),
-        }])
-        .expect("source tar"),
+        source_tar: synthetic_verified_source_tar(),
         static_tar: Some(
             write_deterministic_ustar(&[TarMember {
                 path: "network.lfca".to_owned(),

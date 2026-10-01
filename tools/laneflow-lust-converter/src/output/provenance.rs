@@ -35,13 +35,32 @@ pub struct SemanticConfig {
     pub static_bundle_url: Option<String>,
 }
 
+/// #253 T3：source tar 的类型级绑定——只能由 verify 路径构造（
+/// `VerifiedSourceSet` 背书）：本 provenance 断言 pinned 仓 / commit / 完整
+/// 文件表，source 链的可信性必须由验证集承担，不接受任意字节。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedSourceTar {
+    pub(crate) bytes: Vec<u8>,
+}
+
+impl VerifiedSourceTar {
+    /// 由已验证 source 集构建确定性 source tar（嵌入 ODbL / NOTICE）。
+    pub fn from_verified_set(verified: &crate::source::VerifiedSourceSet) -> Result<Self> {
+        crate::output::pipeline::build_source_tar(verified)
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 /// Inputs for the versioned semantic provenance manifest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticProvenanceInput {
     pub semantic_config: SemanticConfig,
     pub licenses: LicenseArtifacts,
     pub release_urls: ReleaseAssetUrls,
-    pub source_tar: Vec<u8>,
+    pub source_tar: VerifiedSourceTar,
     /// 诊断模式（G1 重划）不交付 static bundle：`None` 时 releaseAssets /
     /// semanticOutputs 的对应字段序列化不出现（#253 N1）。
     pub static_tar: Option<Vec<u8>>,
@@ -228,7 +247,7 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
             source_bundle: release_asset(
                 "lust-source.tar",
                 input.release_urls.source_bundle_url.clone(),
-                &input.source_tar,
+                input.source_tar.bytes(),
             ),
             static_bundle: input.static_tar.as_ref().map(|tar| {
                 release_asset(

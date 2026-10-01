@@ -21,8 +21,8 @@ pub use geom::{
 pub use pipeline::{ConvertOutputPaths, convert_with_config};
 pub use provenance::{
     BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls,
-    SemanticConfig, SemanticProvenanceInput, build_build_provenance, build_semantic_provenance,
-    embedded_notice_bytes, embedded_odbl_bytes,
+    SemanticConfig, SemanticProvenanceInput, VerifiedSourceTar, build_build_provenance,
+    build_semantic_provenance, embedded_notice_bytes, embedded_odbl_bytes,
 };
 pub use report::{ConversionReportInput, build_conversion_report};
 pub use tar::{TarMember, write_deterministic_ustar};

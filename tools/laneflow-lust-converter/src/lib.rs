@@ -25,9 +25,10 @@ pub use output::{
     BudgetOutcome, BuildInvocation, BuildProvenanceInput, ConversionReportInput,
     ConvertOutputPaths, InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport,
     LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls, ReportSource, SemanticConfig,
-    SemanticProvenanceInput, TarMember, TopologyArtifacts, TopologyCounts, build_build_provenance,
-    build_conversion_report, build_semantic_provenance, convert_with_config, embedded_notice_bytes,
-    embedded_odbl_bytes, hex_sha256, write_deterministic_ustar,
+    SemanticProvenanceInput, TarMember, TopologyArtifacts, TopologyCounts, VerifiedSourceTar,
+    build_build_provenance, build_conversion_report, build_semantic_provenance,
+    convert_with_config, embedded_notice_bytes, embedded_odbl_bytes, hex_sha256,
+    write_deterministic_ustar,
 };
 pub use source::{
     LUST_COMMIT, LUST_REPOSITORY, LUST_TAG, PINNED_SOURCE_FILES, PinnedSourceFile,

@@ -170,7 +170,7 @@ fn convert_verified(
         notice: embedded_notice_bytes().to_vec(),
     };
 
-    let source_tar = build_source_tar(verified, &licenses)?;
+    let source_tar = build_source_tar(verified)?;
     // #253 K1：全部 pinned 文件消费完毕，revision 重校验——检查与消费之间
     // checkout 被切换（即便 pinned 字节保留、digest 全过）也使 provenance
     // 的 revision 声称失真；漂移即 fail-closed。
@@ -261,24 +261,60 @@ fn convert_verified(
                 .map(|bytes| sha256_digest(bytes)),
             manifest_toml: sha256_digest(&manifest),
             conversion_report: sha256_digest(&report),
-            source_tar: sha256_digest(&source_tar),
+            source_tar: sha256_digest(source_tar.bytes()),
             static_tar: static_tar.as_ref().map(|tar| sha256_digest(tar)),
             infeasibility_survey: diagnostic.then(|| sha256_digest(survey.as_bytes())),
         },
     })?;
 
-    if diagnostic {
-        // #253 M2：排除产物不得残留——output_dir 复用时，此前 fail-fast 运行
-        // 留下的 network.lfca / lust-static.tar 不在本次 manifest/provenance
-        // 认证内，残留的陈旧未认证字节可能被当作本次交付；诊断模式显式删除
-        // （不要求空目录，保留增量使用体验；删除失败 fail-closed）。
-        remove_excluded_artifacts(&config.output_dir)?;
-    }
-
-    fs::create_dir_all(&config.output_dir).map_err(|source| Error::Io {
-        path: config.output_dir.clone(),
+    // #253 T2：stage-then-publish——全部产物先写 output_dir 旁的 staging
+    // 目录，全部写成功后再替换进 output_dir。转换中途失败时交付集合不被
+    // 污染（旧文件保持原样）；排除产物清除挪到 publish 阶段先执行。
+    let staging = staging_dir(&config.output_dir);
+    fs::create_dir_all(&staging).map_err(|source| Error::Io {
+        path: staging.clone(),
         source,
     })?;
+
+    let stage_outputs = || -> Result<Vec<(&'static str, &'static str)>> {
+        let staged: Vec<(&'static str, Option<&[u8]>)> = vec![
+            (
+                NETWORK_LFCA_NAME,
+                (!diagnostic).then_some(static_artifacts.topology.network_lfca.as_slice()),
+            ),
+            (ROUTES_NAME, static_artifacts.routes_toml.as_deref()),
+            (MANIFEST_NAME, Some(manifest.as_slice())),
+            (REPORT_NAME, Some(report.as_slice())),
+            (SURVEY_NAME, Some(survey.as_bytes())),
+            (SOURCE_TAR_NAME, Some(source_tar.bytes())),
+            (STATIC_TAR_NAME, static_tar.as_deref()),
+            (SEMANTIC_NAME, Some(semantic.as_slice())),
+            (BUILD_NAME, Some(build.as_slice())),
+            (LICENSE_NAME, Some(licenses.license_md.as_slice())),
+            (ODBL_NAME, Some(licenses.odbl.as_slice())),
+            (NOTICE_NAME, Some(licenses.notice.as_slice())),
+        ];
+        let mut written = Vec::with_capacity(staged.len());
+        for (name, bytes) in staged {
+            if let Some(bytes) = bytes {
+                write_file(&staging.join(name), bytes)?;
+                written.push((name, name));
+            }
+        }
+        Ok(written)
+    };
+    let staged = match stage_outputs() {
+        Ok(staged) => staged,
+        Err(error) => {
+            // 失败：output_dir 原样保留，清理 staging。
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
+
+    let publish = publish_outputs(&staging, &config.output_dir, &staged, diagnostic);
+    let _ = fs::remove_dir_all(&staging);
+    publish?;
 
     let paths = ConvertOutputPaths {
         output_dir: config.output_dir.clone(),
@@ -297,30 +333,60 @@ fn convert_verified(
         semantic_provenance: config.output_dir.join(SEMANTIC_NAME),
         build_provenance: config.output_dir.join(BUILD_NAME),
     };
-
-    if let Some(network_lfca) = &paths.network_lfca {
-        write_file(network_lfca, &static_artifacts.topology.network_lfca)?;
-    }
-    if let (Some(path), Some(routes_toml)) = (&paths.routes, &static_artifacts.routes_toml) {
-        write_file(path, routes_toml)?;
-    }
-    write_file(&paths.manifest, &manifest)?;
-    write_file(&paths.conversion_report, &report)?;
-    write_file(&paths.infeasibility_survey, survey.as_bytes())?;
-    write_file(&paths.source_tar, &source_tar)?;
-    if let (Some(path), Some(tar)) = (&paths.static_tar, &static_tar) {
-        write_file(path, tar)?;
-    }
-    write_file(&paths.semantic_provenance, &semantic)?;
-    write_file(&paths.build_provenance, &build)?;
-    write_file(&config.output_dir.join(LICENSE_NAME), &licenses.license_md)?;
-    write_file(&config.output_dir.join(ODBL_NAME), &licenses.odbl)?;
-    write_file(&config.output_dir.join(NOTICE_NAME), &licenses.notice)?;
-
     Ok(paths)
 }
 
-fn build_source_tar(verified: &VerifiedSourceSet, licenses: &LicenseArtifacts) -> Result<Vec<u8>> {
+/// staging 目录：output_dir 的兄弟目录 `.staging-<pid>-<name>`（同卷，
+/// 保证 publish 的 rename 可用）。
+fn staging_dir(output_dir: &Path) -> PathBuf {
+    let name = output_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "output".to_owned());
+    let parent = output_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    parent.join(format!(".staging-{}-{name}", std::process::id()))
+}
+
+/// publish：先清排除产物（诊断模式），再逐文件把 staging 产物替换进
+/// output_dir（目标已存在先删除再 rename——Windows 不支持覆盖式 rename，
+/// 也不支持非空目录整体替换）。replace 失败即返回 Err（staging 由调用方
+/// 清理；output_dir 中已替换的文件保持新样，未替换的保持旧样）。
+fn publish_outputs(
+    staging: &Path,
+    output_dir: &Path,
+    staged: &[(&'static str, &'static str)],
+    diagnostic: bool,
+) -> Result<()> {
+    fs::create_dir_all(output_dir).map_err(|source| Error::Io {
+        path: output_dir.to_path_buf(),
+        source,
+    })?;
+    if diagnostic {
+        // M2 语义挪至 publish 阶段：排除产物不得残留。
+        remove_excluded_artifacts(output_dir)?;
+    }
+    for (name, _) in staged {
+        let from = staging.join(name);
+        let to = output_dir.join(name);
+        match fs::remove_file(&to) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => return Err(Error::Io { path: to, source }),
+        }
+        fs::rename(&from, &to).map_err(|source| Error::Io {
+            path: from.clone(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+pub(crate) fn build_source_tar(
+    verified: &VerifiedSourceSet,
+) -> Result<crate::output::provenance::VerifiedSourceTar> {
     let mut members = Vec::with_capacity(PINNED_SOURCE_FILES.len() + 2);
     for pinned in PINNED_SOURCE_FILES {
         // read_verified 在消费时重哈希与验证记录比对（TOCTOU 闭合，#253 C2）：
@@ -334,13 +400,14 @@ fn build_source_tar(verified: &VerifiedSourceSet, licenses: &LicenseArtifacts) -
     // LICENSE.md is already in PINNED_SOURCE_FILES; still add ODbL + NOTICE.
     members.push(TarMember {
         path: ODBL_NAME.to_owned(),
-        contents: licenses.odbl.clone(),
+        contents: embedded_odbl_bytes().to_vec(),
     });
     members.push(TarMember {
         path: NOTICE_NAME.to_owned(),
-        contents: licenses.notice.clone(),
+        contents: embedded_notice_bytes().to_vec(),
     });
-    write_deterministic_ustar(&members)
+    let bytes = write_deterministic_ustar(&members)?;
+    Ok(crate::output::provenance::VerifiedSourceTar { bytes })
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -454,8 +521,72 @@ fn build_manifest_toml(
 mod tests {
     use std::path::PathBuf;
 
-    use super::{convert_with_config, remove_excluded_artifacts};
+    use super::{
+        MANIFEST_NAME, SURVEY_NAME, convert_with_config, publish_outputs, remove_excluded_artifacts,
+    };
     use crate::Error;
+
+    #[test]
+    fn publish_outputs_replaces_files_and_clears_excluded() {
+        // #253 T2：publish 先清排除产物，再逐文件替换——staging 内容进
+        // output_dir，stale 排除产物被清除。
+        let root = std::env::temp_dir().join(format!("lust-publish-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
+        std::fs::write(output.join("network.lfca"), b"stale").expect("stale");
+        std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
+        std::fs::write(staging.join("issue253-infeasible-survey.md"), b"survey").expect("sv");
+
+        publish_outputs(
+            &staging,
+            &output,
+            &[(MANIFEST_NAME, MANIFEST_NAME), (SURVEY_NAME, SURVEY_NAME)],
+            true,
+        )
+        .expect("publish");
+
+        assert_eq!(
+            std::fs::read(output.join("manifest.toml")).expect("read"),
+            b"new-manifest"
+        );
+        assert!(output.join("issue253-infeasible-survey.md").exists());
+        assert!(!output.join("network.lfca").exists(), "排除产物已清除");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_failure_keeps_remaining_outputs() {
+        // publish 阶段 replace 失败：未替换的文件保持原样、错误 fail-closed。
+        let root = std::env::temp_dir().join(format!("lust-publish-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
+        std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
+        // 目标位置放一个**目录**占用文件名——remove_file 失败，publish 中止。
+        std::fs::create_dir(output.join(SURVEY_NAME)).expect("dir squat");
+
+        let result = publish_outputs(
+            &staging,
+            &output,
+            &[(MANIFEST_NAME, MANIFEST_NAME), (SURVEY_NAME, SURVEY_NAME)],
+            false,
+        );
+        assert!(result.is_err(), "replace 失败必须 fail-closed");
+        // manifest 已替换（排序在前），survey 未触碰（目录仍在）。
+        assert_eq!(
+            std::fs::read(output.join("manifest.toml")).expect("read"),
+            b"new-manifest"
+        );
+        assert!(output.join(SURVEY_NAME).is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn convert_with_config_rejects_invalid_config() {
