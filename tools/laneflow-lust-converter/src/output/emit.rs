@@ -76,8 +76,9 @@ pub struct TopologyArtifacts {
 pub fn compile_network_lfca(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
+    internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
-    compile_network_lfca_inner(traffic, spatial, None, &[])
+    compile_network_lfca_inner(traffic, spatial, None, &[], internal_lanes)
 }
 
 /// 诊断清单模式：不可行的 lane 记录诊断后以占位程序兜底继续，不产出
@@ -89,8 +90,9 @@ pub fn compile_network_lfca_with_infeasibility_report(
     spatial: &SpatialPackage,
     source: geom::ReportSource,
     weld_records: &[crate::convert::junction::StubWeldRecord],
+    internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
-    compile_network_lfca_inner(traffic, spatial, Some(source), weld_records)
+    compile_network_lfca_inner(traffic, spatial, Some(source), weld_records, internal_lanes)
 }
 
 /// `report` 为 `Some` 时进入诊断清单模式；`None` 为 fail-fast。诊断收集器
@@ -101,6 +103,7 @@ fn compile_network_lfca_inner(
     spatial: &SpatialPackage,
     report: Option<geom::ReportSource>,
     weld_records: &[crate::convert::junction::StubWeldRecord],
+    internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
     let mut diagnostic_entries = report.as_ref().map(|_| Vec::new());
     let limits = CompileLimits::single_network_1m_v2();
@@ -153,6 +156,7 @@ fn compile_network_lfca_inner(
         &approach_edges,
         &clamps,
         diagnostic_entries.as_mut(),
+        internal_lanes,
     )?;
     add_junctions(&mut builder, traffic)?;
     add_signals(&mut builder, traffic)?;
@@ -316,6 +320,7 @@ fn add_edges(
     approach_edges: &HashSet<&str>,
     clamps: &geom::BoundaryClamps,
     mut diagnostics: Option<&mut Vec<geom::InfeasibilityDiagnosis>>,
+    internal_lanes: &HashSet<String>,
 ) -> Result<()> {
     let frame = re::CanonicalFrameReference::local(LUST_FRAME_ID)?;
     for edge in &traffic.lane_graph.edges {
@@ -336,7 +341,11 @@ fn add_edges(
             Err(error) => {
                 let full = format!("lane edge {:?}: {error}", edge.id);
                 if let Some(diagnostics) = diagnostics.as_mut() {
-                    diagnostics.push(geom::classify_infeasible(&edge.id, error.to_string()));
+                    diagnostics.push(geom::classify_infeasible(
+                        &edge.id,
+                        error.to_string(),
+                        internal_lanes.contains(edge.id.as_str()),
+                    ));
                     geom::survey_fallback_program(&spatial.centerline.points)?
                 } else {
                     return Err(Error::SumoModel(full));

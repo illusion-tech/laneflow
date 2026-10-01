@@ -109,7 +109,13 @@ pub struct InfeasibilityDiagnosis {
 
 /// 由 lane id 与发射层规范错误串构造诊断记录（纯函数；收集由调用方持有，
 /// 无跨转换全局状态）。
-pub(crate) fn classify_infeasible(lane_id: &str, entry: String) -> InfeasibilityDiagnosis {
+/// 由调用方按权威元数据（`SumoLane::function_internal`）解析好的
+/// internal 标记（#253 Q6：id 前缀只是 LuST 命名习惯）。
+pub(crate) fn classify_infeasible(
+    lane_id: &str,
+    entry: String,
+    is_internal: bool,
+) -> InfeasibilityDiagnosis {
     let junction = lane_id
         .strip_prefix(SUMO_ID_PREFIX)
         .filter(|rest| rest.starts_with(':'))
@@ -134,7 +140,7 @@ pub(crate) fn classify_infeasible(lane_id: &str, entry: String) -> Infeasibility
     };
     InfeasibilityDiagnosis {
         lane_id: lane_id.to_owned(),
-        is_internal: is_internal_lane(lane_id),
+        is_internal,
         junction,
         mechanism,
         budget_outcome,
@@ -161,12 +167,6 @@ pub(crate) fn survey_fallback_program(points: &[Vec3]) -> Result<re::RoadEditing
 }
 
 /// lane 是否为 SUMO 内车道（`sumo:` 前缀后的原始 id 以 `:` 开头）。
-fn is_internal_lane(lane_id: &str) -> bool {
-    lane_id
-        .strip_prefix(SUMO_ID_PREFIX)
-        .is_some_and(|rest| rest.starts_with(':'))
-}
-
 /// 从发射层规范错误串解析诊断字段。格式由本模块的错误构造唯一产生；
 /// 任何字段缺失时落 `"?"`，不影响清单的确定性。
 fn parse_diagnosis_fields(entry: &str) -> (String, String, String, String, String, String) {
@@ -2018,6 +2018,7 @@ mod tests {
             "sumo::-1000_2_0",
             "span 1/1 (chord 1.0 m) is not emittable: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (1, 0, 2); last error: x; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
                 .to_owned(),
+            true,
         );
         assert_eq!(exhausted.budget_outcome, BudgetOutcome::SamplerExhausted);
         // R9："curvature is infeasible" 只有质量目标预检一个来源 → 预检拒绝，
@@ -2026,6 +2027,7 @@ mod tests {
             "sumo::-1000_2_0",
             "span 1/1 (chord 1.0 m) is not emittable: repaired curve curvature is infeasible under the quantized weld budget: span arc 0.11 m turns 1.93 deg at (1, 0, 2); start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
                 .to_owned(),
+            true,
         );
         assert_eq!(precheck.budget_outcome, BudgetOutcome::PreCheckRejected);
         assert_ne!(precheck.budget_outcome, BudgetOutcome::ProvenBudgetConflict);
@@ -2033,6 +2035,7 @@ mod tests {
             "sumo::-1000_2_0",
             "span 1/1 (chord 1.0 m) is not emittable: fillet arc deviates 5.1 m from the original corner at (1, 0, 2), exceeding the 5.0 m budget; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
                 .to_owned(),
+            true,
         );
         assert_eq!(other.budget_outcome, BudgetOutcome::NotBudget);
     }
@@ -2063,7 +2066,7 @@ mod tests {
             "span 1/1 (chord 0.2065 m) is not emittable: {error}; start tangent: interior \
              Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
         );
-        let diagnosis = classify_infeasible("sumo::counterexample_0", wrapped);
+        let diagnosis = classify_infeasible("sumo::counterexample_0", wrapped, true);
         assert_eq!(
             diagnosis.budget_outcome,
             BudgetOutcome::PreCheckRejected,
@@ -2083,6 +2086,7 @@ mod tests {
             "sumo::lane_0",
             "span 1/1 (chord 1.0 m) is not emittable: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
                 .to_owned(),
+            true,
         )];
         let records = vec![crate::convert::junction::StubWeldRecord {
             rule_version: crate::convert::junction::STUB_WELD_RULE_VERSION,

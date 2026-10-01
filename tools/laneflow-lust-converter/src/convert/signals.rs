@@ -155,10 +155,11 @@ pub fn convert_signals(
         validate_program_states(program, &links)?;
         // K4a：相位向量中无受控 link 认领的位置（声明臂）不 fail，收集为
         // health 事实（link 越界仍由 validate_program_states 严格拒绝）。
+        // Q5：按 char 计数（与相位向量位置语义一致）。
         let state_len = program
             .phases
             .first()
-            .map(|phase| phase.state.len())
+            .map(|phase| phase.state.chars().count())
             .unwrap_or(0);
         let claimed: std::collections::HashSet<u32> =
             links.iter().map(|link| link.link_index).collect();
@@ -346,12 +347,14 @@ fn collect_controlled_links(network: &SumoNetwork) -> Result<Vec<ControlledLink>
 }
 
 fn validate_program_states(program: &SumoTlLogic, links: &[&ControlledLink]) -> Result<()> {
-    // #253 L2：相位状态串等宽先行校验——不等宽的位置语义不可判（unclaimed
-    // arm 收集与 linkIndex 越界检查都以等宽为前提），fail-closed 报各宽度。
+    // #253 L2/Q5：相位状态串按 **char** 计数且等宽先行校验（非 ASCII 的
+    // 字节宽度会产生幻影 index）；逐字符校验 SUMO 信号字母表——未知字符
+    // 不得被 unclaimed-arm 例外静默放过。
+    const SIGNAL_ALPHABET: [char; 7] = ['G', 'g', 'y', 'u', 'r', 'o', 'O'];
     let widths: Vec<usize> = program
         .phases
         .iter()
-        .map(|phase| phase.state.len())
+        .map(|phase| phase.state.chars().count())
         .collect();
     if let Some(&first) = widths.first()
         && widths.iter().any(|&width| width != first)
@@ -361,13 +364,23 @@ fn validate_program_states(program: &SumoTlLogic, links: &[&ControlledLink]) -> 
             program.id
         )));
     }
+    for (phase_index, phase) in program.phases.iter().enumerate() {
+        for (position, ch) in phase.state.chars().enumerate() {
+            if !SIGNAL_ALPHABET.contains(&ch) {
+                return Err(Error::SumoModel(format!(
+                    "tlLogic {:?} phase {phase_index} has unsupported signal state                      character {ch:?} at index {position}",
+                    program.id
+                )));
+            }
+        }
+    }
     let max_index = links
         .iter()
         .map(|link| link.link_index)
         .max()
         .expect("controller has links");
     for phase in &program.phases {
-        if phase.state.len() <= max_index as usize {
+        if phase.state.chars().count() <= max_index as usize {
             return Err(Error::SumoModel(format!(
                 "tlLogic {:?} phase state {:?} is shorter than linkIndex {max_index}",
                 program.id, phase.state
@@ -453,6 +466,41 @@ mod tests {
         assert!(
             error.to_string().contains("\"J\""),
             "error must name the controller: {error}"
+        );
+    }
+
+    #[test]
+    fn unsupported_phase_alphabet_char_fails_closed() {
+        // #253 Q5：未知相位字符不得被 unclaimed-arm 例外静默放过。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GX"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="GX"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let error = super::convert_signals(&network, &tll, &topology.path_by_connection)
+            .expect_err("unsupported phase alphabet char must fail");
+        assert!(
+            error.to_string().contains("unsupported signal state"),
+            "{error}"
         );
     }
 

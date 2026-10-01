@@ -55,19 +55,12 @@ pub fn select_population(
     let passenger: HashSet<&str> = LUST_PASSENGER_VTYPE_IDS.iter().copied().collect();
     let known: HashSet<&str> = KNOWN_SOURCE_VTYPE_IDS.iter().copied().collect();
 
-    let mut seen_ids = HashSet::new();
     let mut candidates = Vec::new();
     for vehicle in vehicles {
         if vehicle.id.is_empty() {
             return Err(Error::SumoModel(
                 "DUE vehicle id must not be empty".to_owned(),
             ));
-        }
-        if !seen_ids.insert(vehicle.id.as_str()) {
-            return Err(Error::SumoModel(format!(
-                "duplicate DUE vehicle id {:?}",
-                vehicle.id
-            )));
         }
         if !known.contains(vehicle.type_id.as_str()) {
             return Err(Error::SumoModel(format!(
@@ -113,7 +106,16 @@ pub fn select_population(
     // 过滤职能，非质量判定（§4 注记）。
     let selected_len = candidates.len().min(POPULATION_SELECTED_COUNT);
     let mut records = Vec::with_capacity(selected_len);
+    // #253 Q2：重复 id 检查在选取集合上进行（K3(a) 契约口径——失败域限于
+    // 入选 10,000；截断尾部的重复不参与判定）。
+    let mut seen_ids = HashSet::new();
     for (rank, vehicle) in candidates.into_iter().take(selected_len).enumerate() {
+        if !seen_ids.insert(vehicle.id.as_str()) {
+            return Err(Error::SumoModel(format!(
+                "duplicate DUE vehicle id {:?} within the selected population",
+                vehicle.id
+            )));
+        }
         records.push(PopulationRecord {
             population_rank: u32::try_from(rank).expect("rank fits u32"),
             vehicle_id: vehicle.id.clone(),
@@ -162,6 +164,24 @@ mod tests {
         let vehicles = vec![vehicle("x", "truck", "28800", &["west"])];
         let error = select_population(&vehicles, false).expect_err("unknown");
         assert!(error.to_string().contains("unknown DUE vtype"));
+    }
+
+    #[test]
+    fn duplicate_id_check_applies_to_selected_set_only() {
+        // #253 Q2：重复 id 检查在选取集合上（K3(a) 契约口径）——截断尾部
+        // 的重复不参与判定；入选集内的重复仍 fail-closed。
+        let mut vehicles = vec![
+            vehicle("keep", "passenger1", "28800", &["west", "east"]),
+            vehicle("keep", "passenger1", "28000", &["west", "east"]), // 窗外尾部重复
+        ];
+        let records = select_population(&vehicles, false).expect("tail duplicate ignored");
+        assert_eq!(records.len(), 1);
+        vehicles.push(vehicle("keep", "passenger1", "28801", &["west", "east"]));
+        let error = select_population(&vehicles, false).expect_err("selected duplicate fails");
+        assert!(
+            error.to_string().contains("duplicate DUE vehicle id"),
+            "{error}"
+        );
     }
 
     #[test]

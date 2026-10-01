@@ -341,15 +341,24 @@ fn convert_network_packages(
         edges: spatial_edges,
     };
 
+    // #253 Q6：诊断条目的 internal/authored 分类按权威 function 元数据
+    // （P4 已证 pinned 两法 0 不一致，survey 字节不变）。
+    let internal_lanes: std::collections::HashSet<String> = network
+        .lanes
+        .iter()
+        .filter(|lane| lane.function_internal)
+        .map(|lane| lane.laneflow_id())
+        .collect();
     let artifacts = if options.emit_infeasibility_report {
         compile_network_lfca_with_infeasibility_report(
             &traffic,
             &spatial,
             report_source,
             &stub_weld_records,
+            &internal_lanes,
         )
     } else {
-        compile_network_lfca(&traffic, &spatial)
+        compile_network_lfca(&traffic, &spatial, &internal_lanes)
     }?;
     Ok((artifacts, signal_health))
 }
