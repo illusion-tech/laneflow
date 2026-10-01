@@ -152,9 +152,16 @@ impl MotionUpdates {
         self.motion[physical / BLOCK_ROWS].valid[physical % BLOCK_ROWS / 64] |=
             1 << (physical % 64);
         if completed {
-            let (_, mut next) = self.get(index, current);
-            next.status = VehicleStatus::Completed;
-            self.set(index, next, current)?;
+            let old = current
+                .active_control(state.handle.index() as usize)
+                .expect("next state has active predecessor");
+            self.set_control(
+                index,
+                VehicleStatus::Completed,
+                old.maneuver,
+                old.waiting,
+                current,
+            )?;
         }
         Ok(())
     }
@@ -212,6 +219,12 @@ impl MotionUpdates {
         self.order.iter().map(|row| row.slot)
     }
 
+    pub(crate) fn staged_route_cursor(&self, index: usize) -> u32 {
+        assert!(!self.published, "next motion has not been published");
+        let row = self.order[index];
+        self.motion[row.physical / BLOCK_ROWS].route_cursor[row.physical % BLOCK_ROWS]
+    }
+
     pub(crate) fn changed_indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.control.iter().map(|changed| changed.logical_index)
     }
@@ -226,6 +239,7 @@ impl MotionUpdates {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn set(
         &mut self,
         index: usize,
@@ -240,18 +254,35 @@ impl MotionUpdates {
         block.speed_mm_s[offset] = state.speed_mm_s;
         block.carry_um[offset] = state.carry_um;
         block.valid[offset / 64] |= 1 << (offset % 64);
+        self.set_control(
+            index,
+            state.status,
+            state.maneuver_traversal,
+            state.waiting_membership,
+            current,
+        )
+    }
+
+    /// 控制收尾只写稀疏变化，不重写 P5 已完成的四列数值结果。
+    pub(crate) fn set_control(
+        &mut self,
+        index: usize,
+        status: VehicleStatus,
+        maneuver: Option<crate::ManeuverTraversalState>,
+        waiting: Option<crate::WaitingMembership>,
+        current: &VehicleStore,
+    ) -> Result<(), StepError> {
+        let row = self.order[index];
         let old = current
-            .slot(row.slot)
-            .state
-            .expect("next state has live predecessor");
-        let changed = state.status != old.status
-            || state.waiting_membership != old.waiting_membership
-            || state.maneuver_traversal != old.maneuver_traversal;
+            .active_control(row.slot)
+            .expect("next state has active predecessor");
+        let changed =
+            status != VehicleStatus::Active || waiting != old.waiting || maneuver != old.maneuver;
         let replacement = ControlUpdate {
             logical_index: index,
-            status: state.status,
-            maneuver: state.maneuver_traversal,
-            waiting: state.waiting_membership,
+            status,
+            maneuver,
+            waiting,
         };
         match self.control_by_row[row.physical].checked_sub(1) {
             Some(index) => self.control[index as usize] = replacement,
