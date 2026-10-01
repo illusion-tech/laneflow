@@ -2313,14 +2313,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return false;
         };
         let binding = self.committed.parking.binding(vehicle);
-        self.parking_state_valid_with_binding(vehicle, state, binding)
+        self.parking_state_valid_with_binding(vehicle, &state, binding)
     }
 
     /// 校验同一拍初视图已读取的车辆与 binding；不缓存或省略资源、路线和可达性检查。
     pub(crate) fn parking_state_valid_with_binding(
         self,
         vehicle: VehicleHandle,
-        state: VehicleState,
+        state: &VehicleState,
         binding: Option<ParkingBinding>,
     ) -> bool {
         if !matches!(
@@ -2367,7 +2367,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         {
             return false;
         }
-        self.validate_forward_reachable(state, reservation.entry_route_occurrence(), progress_mm)
+        self.validate_forward_reachable(*state, reservation.entry_route_occurrence(), progress_mm)
             .is_ok()
     }
 }

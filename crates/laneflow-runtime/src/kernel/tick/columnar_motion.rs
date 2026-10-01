@@ -387,7 +387,7 @@ fn compute(
             let parking_binding = view.read.committed.parking.binding(state.handle);
             if !view
                 .read
-                .parking_state_valid_with_binding(state.handle, state, parking_binding)
+                .parking_state_valid_with_binding(state.handle, &state, parking_binding)
                 || matches!(parking_binding, Some(ParkingBinding::Occupied(_)))
             {
                 return Err(StepError::ParkingInvariantViolation);
