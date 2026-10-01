@@ -168,6 +168,14 @@ impl<'a> MotionTaskView<'a> {{
 }
 
 pub(crate) fn export(root: &Path, arm: &str) -> Result<()> {
+    export_patched(root, arm, patch_tick)
+}
+
+pub(crate) fn export_patched(
+    root: &Path,
+    arm: &str,
+    patch_tick: fn(&mut String, &str) -> Result<()>,
+) -> Result<()> {
     need(["base", "layout", "candidate"].contains(&arm), "SIMD arm")?;
     let repo = std::env::current_dir()?;
     io::git(&repo, &["merge-base", "--is-ancestor", BASE, "HEAD"])?;

@@ -54,3 +54,7 @@ path = "src/p5_chunks.rs"
 [[bin]]
 name = "laneflow-p5-simd-research"
 path = "src/p5_simd.rs"
+
+[[bin]]
+name = "laneflow-p5-hot-simd-research"
+path = "src/p5_hot.rs"
