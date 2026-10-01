@@ -36,13 +36,27 @@ pub(crate) fn patch_tick(text: &mut String, arm: &str) -> Result<()> {
     replace(
         text,
         "    fn prepare_vehicle_motion(self, state: &VehicleState, active_index: usize, delta_s: f32)\n        -> Result<PreparedVehicleMotion<'a>, StepError>",
-        "    fn prepare_vehicle_motion(self, state: &VehicleState, active_index: usize, delta_s: f32,\n        batch: &mut Option<IidmBatch>, lane: usize)\n        -> Result<PreparedVehicleMotion<'a>, StepError>",
+        "    fn prepare_vehicle_motion(self, state: &VehicleState, active_index: usize, delta_s: f32,\n        batch: &mut Option<IidmBatch>, cold: &mut Option<PreparedActiveMotion<'a>>, lane: usize)\n        -> Result<PreparedVehicleMotion, StepError>",
     )?;
     replace(
         text,
-        "            PreparedMotionState::Compute(self.read.prepare_active_motion(*state, delta_s,\n                waiting_stop, conflict_stop, parking_binding,\n                cached.and_then(|entry| entry.horizon), None).ok_or(StepError::NonFiniteMotion)?)",
-        "            let mut input = IidmInput::EMPTY;\n            let prepared = self.read.prepare_active_motion(*state, delta_s,\n                waiting_stop, conflict_stop, parking_binding,\n                cached.and_then(|entry| entry.horizon), None, &mut input)\n                .ok_or(StepError::NonFiniteMotion)?;\n            batch.get_or_insert_with(|| IidmBatch::EMPTY).write(lane, input);\n            PreparedMotionState::Compute(prepared)",
+        "        let motion = if let Some(next) = reused { PreparedMotionState::Reused(next) } else {\n            PreparedMotionState::Compute(self.read.prepare_active_motion(*state, delta_s,\n                waiting_stop, conflict_stop, parking_binding,\n                cached.and_then(|entry| entry.horizon), None).ok_or(StepError::NonFiniteMotion)?)\n        };\n        Ok(PreparedVehicleMotion { motion, reservation, arrived_before, handle })",
+        "        if reused.is_none() {\n            let mut input = IidmInput::EMPTY;\n            let prepared = self.read.prepare_active_motion(*state, delta_s,\n                waiting_stop, conflict_stop, parking_binding,\n                cached.and_then(|entry| entry.horizon), None, &mut input)\n                .ok_or(StepError::NonFiniteMotion)?;\n            batch.get_or_insert_with(|| IidmBatch::EMPTY).write(lane, input);\n            *cold = Some(prepared);\n        }\n        Ok(PreparedVehicleMotion { reused, reservation, arrived_before, handle })",
     )?;
+    let begin = text
+        .find("#[derive(Clone, Copy)]\n// #805：固定四车栈暂存")
+        .ok_or("hot prepared start")?;
+    let end = text[begin..]
+        .find("    fn compute_motion_batch(")
+        .ok_or("hot prepared end")?
+        + begin;
+    text.replace_range(
+        begin..end,
+        &format!(
+            "{}\nimpl<'a> MotionTaskView<'a> {{\n",
+            include_str!("../hot_prepared.rs")
+        ),
+    );
     let begin = text
         .find("#[derive(Clone, Copy)]\nstruct IidmBatch")
         .ok_or("hot kernel start")?;
@@ -60,6 +74,16 @@ pub(crate) fn patch_tick(text: &mut String, arm: &str) -> Result<()> {
         text,
         "std::hint::black_box(packed[i]).simd()",
         "std::hint::black_box(&packed[i]).simd()",
+    )?;
+    replace(
+        text,
+        "std::mem::size_of::<PreparedVehicleMotion<'_>>()",
+        "std::mem::size_of::<PreparedVehicleMotion>()",
+    )?;
+    replace(
+        text,
+        "std::mem::size_of::<PreparedActiveMotion<'_>>(), std::mem::size_of::<PreparedVehicleMotion>());",
+        "std::mem::size_of::<PreparedActiveMotion<'_>>(), std::mem::size_of::<PreparedVehicleMotion>());\n        println!(\"IIDM_STORAGE {{\\\"cold_slots_bytes\\\":{},\\\"outcome_slots_bytes\\\":{},\\\"optional_hot_bytes\\\":{}}}\",\n            std::mem::size_of::<[Option<PreparedActiveMotion<'_>>; 4]>(),\n            std::mem::size_of::<[Option<Result<PreparedVehicleMotion, StepError>>; 4]>(),\n            std::mem::size_of::<Option<IidmBatch>>());",
     )?;
     let begin = text
         .find("    fn compute_motion_batch(")
