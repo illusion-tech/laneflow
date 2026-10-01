@@ -4561,7 +4561,7 @@ impl MotionTaskView<'_> {
         let parking_binding = self.read.committed.parking.binding(handle);
         if !self
             .read
-            .parking_state_valid_with_binding(handle, *state, parking_binding)
+            .parking_state_valid_with_binding(handle, state, parking_binding)
         {
             return Err(StepError::ParkingInvariantViolation);
         }
