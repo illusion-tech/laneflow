@@ -5,7 +5,7 @@
 use crate::kernel::conflict::{ApproachEstimate, ApproachFrontierCell};
 use crate::kernel::occupancy::OccupancyIndex;
 use crate::kernel::parking::ParkingRuntimeState;
-use crate::kernel::tables::{RouteSlot, VehicleSlot};
+use crate::kernel::tables::RouteSlot;
 use crate::kernel::waiting::{
     WaitingAdmissionClaim, WaitingQueueEnds, WaitingQueueLink, WaitingVehiclePlan, WaitingZoneState,
 };
@@ -61,7 +61,7 @@ pub(crate) struct CommittedWorldState {
     pub(crate) live_route_count: u32,
     pub(crate) live_route_edge_occurrence_count: u64,
     pub(crate) live_route_conflict_occurrence_count: u64,
-    pub(crate) vehicles: Vec<VehicleSlot>,
+    pub(crate) vehicles: crate::kernel::vehicle_store::VehicleStore,
     pub(crate) free_vehicles: Vec<usize>,
     pub(crate) live_order: Vec<VehicleHandle>,
     pub(crate) parking: ParkingRuntimeState,
@@ -266,7 +266,9 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
     pub(crate) motion_cache: Vec<crate::kernel::tick::MotionCacheEntry>,
-    pub(crate) next_states: Vec<(usize, VehicleState)>,
+    pub(crate) next_states: Vec<(usize, super::vehicle_store::MotionValue)>,
+    pub(crate) motion_next: super::motion_updates::MotionUpdates,
+    pub(crate) motion_kernel: laneflow_motion_kernel::Kernel,
     /// P2 逐车独立计算的输入配对（Active 紧凑位置 -> 完整句柄 + live 序）；
     /// 协调器构建，任务只读。
     pub(crate) waiting_preview_inputs: Vec<(crate::VehicleHandle, usize)>,
@@ -274,12 +276,6 @@ pub(crate) struct TickWorkspace {
     /// 协调器按序消费。预留失败只退回融合求值，不新增领域错误。
     pub(crate) waiting_preview_slots:
         Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>>,
-    /// P5 逐车运动结果槽位，按 Active 紧凑位置索引；任务独占连续切片写入，
-    /// 协调器按序规范消费（`None` 表示完整句柄核对后已失效；到达真实预留
-    /// 留在消费侧原逻辑位置）。预留失败只退回融合求值，不新增领域错误。
-    pub(crate) motion_slots: Vec<
-        crate::kernel::execution::DispatchSlot<Option<crate::kernel::tick::VehicleMotionOutcome>>,
-    >,
     /// #740 近门名单、冲突距离缓存与生命周期增量。已发布名单只在成功提交时替换。
     pub(crate) frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance,
     /// P3 候选求值输入四元组（live 序 -> 句柄 + live 序 + Active 紧凑位 +
@@ -338,7 +334,7 @@ impl CommittedWorldState {
         crate::kernel::state::vec_bytes(conflict_eligibility)
             + crate::kernel::state::vec_bytes(latest_conflict_decisions)
             + crate::kernel::state::vec_bytes(free_routes)
-            + crate::kernel::state::vec_bytes(vehicles)
+            + vehicles.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(free_vehicles)
             + crate::kernel::state::vec_bytes(live_order)
             + crate::kernel::state::vec_bytes(latest_waiting_decisions)
@@ -415,9 +411,10 @@ impl TickWorkspace {
             occupancy_scratch,
             motion_cache,
             next_states,
+            motion_next,
+            motion_kernel: _,
             waiting_preview_inputs,
             waiting_preview_slots,
-            motion_slots,
             conflict_inputs,
             conflict_slots,
             frontier_maintenance,
@@ -437,10 +434,10 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(waiting_non_entry_anchors)
             + crate::kernel::state::vec_bytes(staged_transition_events)
             + crate::kernel::state::vec_bytes(next_states)
+            + motion_next.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(motion_cache)
             + crate::kernel::state::vec_bytes(waiting_preview_inputs)
             + crate::kernel::state::vec_bytes(waiting_preview_slots)
-            + crate::kernel::state::vec_bytes(motion_slots)
             + crate::kernel::state::vec_bytes(conflict_inputs)
             + crate::kernel::state::vec_bytes(conflict_slots)
             + frontier_maintenance.retained_logical_bytes()

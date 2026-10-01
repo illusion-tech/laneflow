@@ -665,6 +665,10 @@ impl CutoverTransaction {
             &mut candidate.workspace.next_signal_aspects,
         );
         std::mem::swap(
+            &mut world.state.workspace.motion_next,
+            &mut candidate.workspace.motion_next,
+        );
+        std::mem::swap(
             &mut world.state.workspace.next_states,
             &mut candidate.workspace.next_states,
         );
@@ -981,7 +985,7 @@ fn initialize_expected_waiting_pre_gate(
         .committed
         .vehicles
         .iter()
-        .filter_map(|slot| slot.state.as_ref());
+        .filter_map(|slot| slot.state);
     for (state, captured) in source_states.zip(&mut expected.vehicles) {
         if state.status != crate::VehicleStatus::Active
             || state.maneuver_traversal.is_some()
@@ -1141,7 +1145,6 @@ fn apply_conflict_tick_deltas(
     for delta in conflict_eligibility_delta_stream(eligibility_bytes) {
         let state = candidate
             .vehicle_state(delta.owner)
-            .copied()
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         if delta.value.is_some() && state.status != crate::VehicleStatus::Active {
             return Err(CutoverError::ConflictRevalidationFailed);
@@ -1194,7 +1197,6 @@ fn apply_conflict_tick_deltas(
     for delta in conflict_authority_delta_stream(authority_bytes) {
         let state = candidate
             .vehicle_state(delta.owner)
-            .copied()
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         if delta.acquired_tick.is_some() && state.status != crate::VehicleStatus::Active {
             return Err(CutoverError::ConflictRevalidationFailed);
@@ -1394,7 +1396,7 @@ fn apply_record(
                     vehicle_state_from_delta(base_revision, candidate, rebinding, &delta)?;
                 let slot_index =
                     usize::try_from(delta.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
-                let slot = candidate
+                let mut slot = candidate
                     .committed
                     .vehicles
                     .get_mut(slot_index)
@@ -1570,6 +1572,11 @@ fn apply_record(
                 generation: vehicle.generation,
                 state: Some(state),
             };
+            candidate
+                .committed
+                .vehicles
+                .try_prepare_state(slot_index, Some(state))
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
             if slot_index == candidate.committed.vehicles.len() {
                 candidate
                     .committed
@@ -1577,7 +1584,7 @@ fn apply_record(
                     .try_reserve_exact(1)
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
                 candidate.committed.vehicles.push(staged);
-            } else if let Some(existing) = candidate.committed.vehicles.get_mut(slot_index) {
+            } else if let Some(mut existing) = candidate.committed.vehicles.get_mut(slot_index) {
                 if candidate.committed.free_vehicles.last().copied() != Some(slot_index) {
                     return Err(CutoverError::ReplayInconsistent);
                 }
@@ -1625,8 +1632,7 @@ fn apply_record(
                 .committed
                 .vehicles
                 .get(old_index)
-                .and_then(|slot| slot.state.as_ref())
-                .copied()
+                .and_then(|slot| slot.state)
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if old_state.handle != old_handle {
                 return Err(CutoverError::ReplayInconsistent);
@@ -1677,21 +1683,26 @@ fn apply_record(
                 }
             }
 
+            candidate
+                .committed
+                .vehicles
+                .try_prepare_state(slot_index, Some(state))
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
             candidate.unregister_overlap_vehicle(old_state);
             let staged = crate::kernel::tables::VehicleSlot {
                 generation: vehicle.generation,
                 state: Some(state),
             };
             if slot_index == old_index {
-                candidate.committed.vehicles[old_index] = staged;
+                *candidate.committed.vehicles.slot_mut(old_index) = staged;
             } else {
-                candidate.committed.vehicles[old_index].state = None;
+                candidate.committed.vehicles.slot_mut(old_index).state = None;
                 if slot_index == candidate.committed.vehicles.len() {
                     candidate.committed.vehicles.push(staged);
                 } else {
                     let popped = candidate.committed.free_vehicles.pop();
                     debug_assert_eq!(popped, Some(slot_index));
-                    candidate.committed.vehicles[slot_index] = staged;
+                    *candidate.committed.vehicles.slot_mut(slot_index) = staged;
                 }
             }
             if let Some(next_route_ref) = next_route_ref {
@@ -1719,8 +1730,7 @@ fn apply_record(
                 .committed
                 .vehicles
                 .get(slot_index)
-                .and_then(|slot| slot.state.as_ref())
-                .copied()
+                .and_then(|slot| slot.state)
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if current.handle != handle {
                 return Err(CutoverError::ReplayInconsistent);
@@ -1734,6 +1744,11 @@ fn apply_record(
                 .then(|| checked_candidate_route_ref(candidate, next_state.route))
                 .transpose()?;
 
+            candidate
+                .committed
+                .vehicles
+                .try_prepare_state(slot_index, Some(next_state))
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
             candidate.unregister_overlap_vehicle(current);
             remove_candidate_parking_binding(candidate, handle, current_binding);
             insert_candidate_parking_binding(candidate, handle, next_binding)?;
@@ -1741,7 +1756,7 @@ fn apply_record(
                 candidate.release_route_ref(current.route);
                 commit_candidate_route_ref(candidate, next_state.route, next_route_ref);
             }
-            candidate.committed.vehicles[slot_index].state = Some(next_state);
+            candidate.committed.vehicles.slot_mut(slot_index).state = Some(next_state);
             candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, handle)?;
             if overlap_was_current {
@@ -1770,6 +1785,11 @@ fn apply_record(
             };
             candidate
                 .committed
+                .vehicles
+                .try_prepare_state(slot_index, Some(state))
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
+            candidate
+                .committed
                 .live_order
                 .try_reserve_exact(1)
                 .map_err(|_| CutoverError::StagingAllocFailed)?;
@@ -1784,7 +1804,7 @@ fn apply_record(
                 if candidate.committed.free_vehicles.last().copied() != Some(slot_index) {
                     return Err(CutoverError::ReplayInconsistent);
                 }
-                let existing = candidate
+                let mut existing = candidate
                     .committed
                     .vehicles
                     .get_mut(slot_index)
@@ -1816,8 +1836,7 @@ fn apply_record(
                 .committed
                 .vehicles
                 .get(slot_index)
-                .and_then(|slot| slot.state.as_ref())
-                .copied()
+                .and_then(|slot| slot.state)
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if state.handle != handle {
                 return Err(CutoverError::ReplayInconsistent);
@@ -1855,9 +1874,10 @@ fn apply_record(
             candidate.clear_conflict_eligibility(handle);
             candidate.release_route_ref(state.route);
             candidate.committed.live_order.remove(order_index);
-            let slot = &mut candidate.committed.vehicles[slot_index];
+            let mut slot = candidate.committed.vehicles.slot_mut(slot_index);
             slot.state = None;
             slot.generation = *generation_after;
+            drop(slot);
             if *recyclable {
                 candidate.committed.free_vehicles.push(slot_index);
             }
@@ -2497,7 +2517,7 @@ mod tests {
         )
         .expect("baseline Conflict migration");
 
-        let source_state = *source.state.vehicle_state(vehicle).expect("source vehicle");
+        let source_state = source.state.vehicle_state(vehicle).expect("source vehicle");
         let traversal = source_state
             .maneuver_traversal
             .expect("source Clearing traversal");
@@ -2508,15 +2528,13 @@ mod tests {
             .maneuvers[traversal.maneuver_occurrence_index as usize]
             .exit_route_edge_index;
         for world in [&mut source.state, &mut candidate] {
-            let state = world.committed.vehicles[vehicle.index() as usize]
-                .state
-                .as_mut()
-                .expect("Clearing vehicle");
+            let mut vehicle_slot = world.committed.vehicles.slot_mut(vehicle.index() as usize);
+            let state = vehicle_slot.state.as_mut().expect("Clearing vehicle");
             state.route_edge_index = exit_route_edge_index;
             state.progress_mm = 0;
             state.carry_um = 0;
         }
-        let source_state = *source
+        let source_state = source
             .state
             .vehicle_state(vehicle)
             .expect("advanced source vehicle");
@@ -2577,7 +2595,11 @@ mod tests {
     fn production_conflict_ticks_replay_acquire_stage_clear_and_lag_without_remigration() {
         let (mut source, vehicle) =
             crate::admin::format_admission::tests::world_with_conflict_eligibility();
-        source.state.committed.vehicles[vehicle.index() as usize]
+        source
+            .state
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize)
             .state
             .as_mut()
             .expect("source vehicle")
@@ -2745,13 +2767,13 @@ mod tests {
                     .step(TickInput::new(100))
                     .expect("source step before Gate");
             }
-            let source_motion = *world.state.vehicle_state(vehicle).expect("source");
+            let source_motion = world.state.vehicle_state(vehicle).expect("source");
             assert!(source_motion.maneuver_traversal.is_none());
             assert!(tx.pump(&mut world).expect("pump").caught_up);
             let _commit = tx
                 .commit(&mut world)
                 .expect("commit including independent digest");
-            let migrated = *world.state.vehicle_state(vehicle).expect("migrated");
+            let migrated = world.state.vehicle_state(vehicle).expect("migrated");
             assert!(matches!(
                 migrated.maneuver_traversal.expect("PreGate").phase,
                 crate::ManeuverTraversalPhase::PreGate { next_gate_hop: 0 }
@@ -2848,7 +2870,7 @@ mod tests {
             .step(TickInput::new(100))
             .expect("source crosses the admission Gate");
 
-        let state = *world.state.vehicle_state(vehicle).expect("source vehicle");
+        let state = world.state.vehicle_state(vehicle).expect("source vehicle");
         let compiled = world
             .state
             .compiled_route(state.route)
@@ -2977,11 +2999,11 @@ mod tests {
                 .expect("old records retain their route context")
                 .caught_up
         );
-        let before = *world.state.vehicle_state(next_vehicle).unwrap();
+        let before = world.state.vehicle_state(next_vehicle).unwrap();
         let _ = tx
             .commit(&mut world)
             .expect("commit after route and vehicle slot reuse");
-        assert_eq!(*world.state.vehicle_state(next_vehicle).unwrap(), before);
+        assert_eq!(world.state.vehicle_state(next_vehicle).unwrap(), before);
     }
 
     #[test]
@@ -2992,7 +3014,12 @@ mod tests {
         tx.pump(&mut world).expect("pump");
         let before = world.capture_snapshot().expect("source");
         // 该偏移仍满足全部物理/PreGate 不变量，必须由独立期望摘要发现。
-        tx.candidate.as_mut().unwrap().committed.vehicles[vehicle.index() as usize]
+        tx.candidate
+            .as_mut()
+            .unwrap()
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize)
             .state
             .as_mut()
             .unwrap()
@@ -3446,20 +3473,20 @@ mod tests {
         tx.pump(&mut cut).expect("pump");
         let before_revision = *cut.state.binding.revision.canonical_origin();
         let before_generation = cut.world_generation();
-        let before_state = cut.state.vehicle_state(vehicle).copied().expect("vehicle");
+        let before_state = cut.state.vehicle_state(vehicle).expect("vehicle");
 
         // 注入候选侧损坏：进度偏移 1 mm，重验证通过但摘要必不相等。
         let index = usize::try_from(vehicle.index()).expect("index");
-        let state = tx
+        let mut vehicle_slot = tx
             .candidate
             .as_mut()
             .expect("live transaction owns a candidate")
             .committed
-            .vehicles[index]
-            .state
-            .as_mut()
-            .expect("candidate vehicle");
+            .vehicles
+            .slot_mut(index);
+        let state = vehicle_slot.state.as_mut().expect("candidate vehicle");
         state.progress_mm += 1;
+        drop(vehicle_slot);
 
         assert_eq!(
             tx.commit(&mut cut).unwrap_err(),
@@ -3470,10 +3497,7 @@ mod tests {
             before_revision
         );
         assert_eq!(cut.world_generation(), before_generation);
-        assert_eq!(
-            cut.state.vehicle_state(vehicle).copied(),
-            Some(before_state)
-        );
+        assert_eq!(cut.state.vehicle_state(vehicle), Some(before_state));
         cut.step(TickInput::new(100))
             .expect("old world keeps stepping");
     }
@@ -3490,7 +3514,7 @@ mod tests {
             .expect("route");
         let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         cut.step(TickInput::new(100)).expect("step");
-        let before_state = cut.state.vehicle_state(vehicle).copied().expect("vehicle");
+        let before_state = cut.state.vehicle_state(vehicle).expect("vehicle");
         let before_event_cursor = cut.world_binding().baseline_event_cursor();
 
         // 覆盖四个消费点：预期捕获、预期摘要、候选捕获、候选摘要。
@@ -3532,10 +3556,7 @@ mod tests {
             cut.step(TickInput::new(100))
                 .expect("old world keeps stepping");
         }
-        assert_ne!(
-            cut.state.vehicle_state(vehicle).copied(),
-            Some(before_state)
-        );
+        assert_ne!(cut.state.vehicle_state(vehicle), Some(before_state));
 
         // 清点后重开事务：同一世界重试成功，事件恰一次交付。
         let mut tx = prepare(
@@ -3778,7 +3799,7 @@ mod tests {
         let old = spawn_on(&mut cut, route, 4_000, 0);
         cut.despawn_vehicle(old).expect("retire the only slot");
         let old_index = usize::try_from(old.index()).expect("old index");
-        cut.state.committed.vehicles[old_index].generation = u32::MAX;
+        cut.state.committed.vehicles.slot_mut(old_index).generation = u32::MAX;
         cut.state.committed.free_vehicles.clear();
 
         let mut tx = prepare(
@@ -4052,7 +4073,8 @@ mod tests {
             .as_mut()
             .expect("live transaction owns a candidate")
             .committed
-            .vehicles[index]
+            .vehicles
+            .slot_mut(index)
             .state
             .as_mut()
             .expect("candidate vehicle")
@@ -4534,7 +4556,11 @@ mod tests {
         // 窗口内两世界同序列：强制完成 + 原子替换。
         let force_complete = |world: &mut TrafficWorld, handle: crate::VehicleHandle| {
             let index = usize::try_from(handle.index()).expect("index");
-            world.state.committed.vehicles[index]
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(index)
                 .state
                 .as_mut()
                 .expect("vehicle")
@@ -4589,12 +4615,14 @@ mod tests {
 
         let old_index = usize::try_from(old.index()).expect("old slot index");
         let saturated_old = VehicleHandle::new(old.index(), u32::MAX);
-        let old_state = cut.state.committed.vehicles[old_index]
+        let mut vehicle_slot = cut.state.committed.vehicles.slot_mut(old_index);
+        let old_state = vehicle_slot
             .state
             .as_mut()
             .expect("old vehicle remains live");
         old_state.handle = saturated_old;
-        cut.state.committed.vehicles[old_index].generation = u32::MAX;
+        drop(vehicle_slot);
+        cut.state.committed.vehicles.slot_mut(old_index).generation = u32::MAX;
         let order_index = cut
             .state
             .committed
@@ -4612,7 +4640,10 @@ mod tests {
             ORACLE_LFSD,
             &CutoverTransactionLimits::default(),
         );
-        cut.state.committed.vehicles[old_index]
+        cut.state
+            .committed
+            .vehicles
+            .slot_mut(old_index)
             .state
             .as_mut()
             .expect("old vehicle remains live during the journal window")
@@ -4723,7 +4754,10 @@ mod tests {
         assert_eq!(cut.event_cursor(), 0);
         // 清场：完成并替换到允许路线，移除受限路线。
         let index = usize::try_from(vehicle.index()).expect("index");
-        cut.state.committed.vehicles[index]
+        cut.state
+            .committed
+            .vehicles
+            .slot_mut(index)
             .state
             .as_mut()
             .expect("vehicle")

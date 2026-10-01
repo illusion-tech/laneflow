@@ -683,6 +683,7 @@ pub(super) fn restore_lfrs(
     world.committed.command_cursor = root.command_cursor();
     world.committed.event_cursor = root.event_cursor();
     world.workspace.next_states.clear();
+    world.workspace.motion_next.clear();
     world.refresh_signals();
     world
         .rebuild_occupancy_index()
@@ -780,7 +781,7 @@ fn restore_conflict_aggregate(
             });
         }
         if let Some(binding) = vehicle.conflict_eligibility() {
-            let state = *world.vehicle_state(handle).ok_or(
+            let state = world.vehicle_state(handle).ok_or(
                 SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 },
@@ -859,7 +860,7 @@ fn restore_conflict_aggregate(
             continue;
         };
         let state =
-            *world
+            world
                 .vehicle_state(handle)
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
@@ -1194,7 +1195,10 @@ fn restore_conflict_aggregate(
         .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
             snapshot_vehicle_id,
         })?;
-        world.committed.vehicles[handle.index() as usize]
+        world
+            .committed
+            .vehicles
+            .slot_mut(handle.index() as usize)
             .state
             .as_mut()
             .expect("restored vehicle exists")
@@ -2198,7 +2202,6 @@ fn restore_vehicle(
     }
     if !world
         .vehicle_state(handle)
-        .copied()
         .is_some_and(|state| world.restored_waiting_authority_valid(state))
     {
         return Err(SnapshotRestoreError::InvalidWaitingAuthority {

@@ -543,7 +543,13 @@ impl crate::kernel::state::WorldState {
         &mut self,
         updates: &mut [(usize, VehicleState)],
     ) -> Result<(), StepError> {
-        self.step_workspace().finalize_conflict_step(updates)
+        let mut columns =
+            super::motion_updates::MotionUpdates::from_states(updates, &self.committed.vehicles);
+        let result = self.step_workspace().finalize_conflict_step(&mut columns);
+        for (index, update) in updates.iter_mut().enumerate() {
+            *update = columns.get(index, &self.committed.vehicles);
+        }
+        result
     }
 
     /// 测试专用：Conflict 相关 committed 与暂存容量的存续逻辑字节总数。
@@ -805,14 +811,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 if !cached_gate_may_be_reached(
                     self.read_view(),
                     &self.workspace.motion_cache,
-                    state,
+                    &state,
                     sequence,
                     cache_index,
                     delta_s,
                 ) {
                     continue;
                 }
-                let state = *state;
                 #[cfg(test)]
                 {
                     if conflict_injection::nonfinite_injected(self.binding.world_id, workload_index)
@@ -904,7 +909,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if !cached_gate_may_be_reached(
                 view.read,
                 view.motion_cache,
-                state,
+                &state,
                 sequence,
                 cache_index,
                 delta_s,
@@ -913,7 +918,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
             let sequence =
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
-            inputs.push((vehicle, sequence, cache_index, *state));
+            inputs.push((vehicle, sequence, cache_index, state));
         }
         let workload = inputs.len();
         if workload == 0 {
@@ -2165,7 +2170,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 在 mutation boundary 前验证并定稿本拍 Conflict 提交计划。
     pub(crate) fn finalize_conflict_step(
         &mut self,
-        updates: &mut [(usize, VehicleState)],
+        updates: &mut super::motion_updates::MotionUpdates,
     ) -> Result<(), StepError> {
         self.workspace.conflict_passage_transitions.clear();
         self.workspace.conflict_changed_owners.clear();
@@ -2178,7 +2183,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .map(|range| range.passage_count() as usize)
             .chain(
                 updates
-                    .iter()
+                    .iter(&self.committed.vehicles)
                     .filter_map(|(_, next)| self.conflict_reservation(next.handle))
                     .map(|reservation| reservation.passage_range().passage_count() as usize),
             )
@@ -2198,7 +2203,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
         // live_order 同时包含 parked/completed；双游标合并两份有序列表，保留正式更新序号。
         let mut update_sequence = 0;
-        for (_, next) in updates.iter_mut() {
+        for index in 0..updates.len() {
+            let (_, mut next) = updates.get(index, &self.committed.vehicles);
             while self.committed.live_order.get(update_sequence) != Some(&next.handle) {
                 update_sequence += 1;
                 if update_sequence >= self.committed.live_order.len() {
@@ -2206,7 +2212,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 }
             }
             self.stage_resource_free_gate_decisions(
-                next,
+                &next,
                 u32::try_from(update_sequence)
                     .map_err(|_| StepError::ConflictInvariantViolation)?,
             )?;
@@ -2232,11 +2238,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         .map(|reservation| reservation.passage_range())
                 });
             let all_clear = match range {
-                Some(range) => self.stage_passage_transitions(*next, range)?,
+                Some(range) => self.stage_passage_transitions(next, range)?,
                 None => true,
             };
             if all_clear {
-                next.maneuver_traversal = self.derive_waiting_traversal(*next)?;
+                next.maneuver_traversal = self.derive_waiting_traversal(next)?;
             } else {
                 next.maneuver_traversal = Some(ManeuverTraversalState {
                     route: next.route,
@@ -2257,13 +2263,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let slot = next.handle.index() as usize;
             if let Some(eligibility) = self.workspace.conflict_next_eligibility[slot]
                 && !self.conflict_eligibility_valid_with_signals(
-                    next,
+                    &next,
                     eligibility,
                     &self.workspace.next_signal_aspects,
                 )
             {
                 self.workspace.conflict_next_eligibility[slot] = None;
             }
+            updates.set(index, next, &self.committed.vehicles)?;
         }
 
         // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。
@@ -2274,8 +2281,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .checked_sub(1)
                 .ok_or(StepError::ConflictInvariantViolation)? as usize;
             let next = updates
-                .get(index)
-                .map(|(_, next)| *next)
+                .try_get(index, &self.committed.vehicles)
+                .map(|(_, next)| next)
                 .filter(|next| next.handle == prepared.vehicle)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             if next.route_edge_index <= prepared.gate_hop {
@@ -2392,7 +2399,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     /// mutation boundary：提交已验证的 grant 与冲突通行段转移。
     pub(crate) fn commit_conflict_transitions(
         &mut self,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         post_step_time_ms: u64,
     ) {
         let journal_armed = self.journal.is_some();
@@ -2403,7 +2410,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             let index = self.workspace.next_state_by_vehicle[prepared.vehicle.index() as usize]
                 as usize
                 - 1;
-            let next = updates[index].1;
+            let next = updates.get(index, &self.committed.vehicles).1;
             debug_assert_eq!(next.handle, prepared.vehicle);
             if next.route_edge_index <= prepared.gate_hop {
                 continue;
@@ -2526,19 +2533,19 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     pub(crate) fn write_conflict_tick_journal(
         &self,
         journal: &mut MigrationDeltaJournal,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
     ) {
-        for (slot, _) in updates {
+        for (slot, _) in updates.iter(&self.committed.vehicles) {
             let previous = self
                 .committed
                 .conflict_eligibility
-                .get(*slot)
+                .get(slot)
                 .copied()
                 .flatten();
             let next = self
                 .workspace
                 .conflict_next_eligibility
-                .get(*slot)
+                .get(slot)
                 .copied()
                 .flatten();
             if previous == next {
@@ -2547,8 +2554,8 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             let owner = self
                 .committed
                 .vehicles
-                .get(*slot)
-                .and_then(|slot| slot.state.as_ref())
+                .get(slot)
+                .and_then(|slot| slot.state)
                 .map(|state| state.handle)
                 .expect("successful tick update retains its vehicle slot");
             let encoded = next
@@ -2667,14 +2674,14 @@ mod tests {
         let read = world.state.read_view();
         let vehicle = world.live_vehicles()[0];
         let state = read.vehicle_state(vehicle).unwrap();
-        assert!(gate_may_be_reached(read, state, 0.1));
+        assert!(gate_may_be_reached(read, &state, 0.1));
         let mut cache = world.state.workspace.motion_cache.clone();
         let sequence = cache[0].update_sequence;
         assert_eq!(cache[0].gate_reachable, Some(true));
         // 故意毒化为不可达：匹配时消费；任一身份条件失败必须重新保守求值。
         cache[0].gate_reachable = Some(false);
         let query = |entries: &[crate::kernel::tick::MotionCacheEntry], sequence, index| {
-            cached_gate_may_be_reached(read, entries, state, sequence, index, 0.1)
+            cached_gate_may_be_reached(read, entries, &state, sequence, index, 0.1)
         };
         assert!(!query(&cache, sequence, 0));
         assert!(query(&cache, sequence + 1, 0));
@@ -2700,12 +2707,17 @@ mod tests {
     fn gate_cache_keeps_zero_boundary_lookback_and_reads_changed_route() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let old = world.live_vehicles()[0];
-        let mut state = *world.state.vehicle_state(old).unwrap();
+        let mut state = world.state.vehicle_state(old).unwrap();
         let gate = world.state.compiled_route(state.route).unwrap().gate_hops[0];
         state.route_edge_index = gate + 1;
         state.progress_mm = 0;
         state.carry_um = 0;
-        world.state.committed.vehicles[old.index() as usize].state = Some(state);
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(old.index() as usize)
+            .state = Some(state);
         let read = world.state.read_view();
         let entry = read.waiting_preview_entry(old, 0, 0.1, true).unwrap();
         assert_eq!(entry.gate_reachable, Some(true));
@@ -2747,7 +2759,7 @@ mod tests {
         let world = crate::kernel::waiting::tests::multi_gate_world(1);
         let vehicle = world.state.committed.live_order[0];
         let read = world.state.read_view();
-        let mut state = *read.vehicle_state(vehicle).unwrap();
+        let mut state = read.vehicle_state(vehicle).unwrap();
         let route = read.compiled_route(state.route).unwrap();
         let gate = route.gate_hops[0];
         let length = world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
@@ -2773,7 +2785,7 @@ mod tests {
     fn gate_scope_uses_current_vehicle_generation() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let old = world.state.committed.live_order[0];
-        let state = *world.state.vehicle_state(old).unwrap();
+        let state = world.state.vehicle_state(old).unwrap();
         world.despawn_vehicle(old).unwrap();
         let new = world
             .spawn_vehicle(
@@ -2793,7 +2805,7 @@ mod tests {
         assert!(read.vehicle_state(old).is_none());
         assert!(gate_may_be_reached(
             read,
-            read.vehicle_state(new).unwrap(),
+            &read.vehicle_state(new).unwrap(),
             0.1
         ));
         world.step(TickInput::new(100)).unwrap();
@@ -2817,14 +2829,15 @@ mod tests {
                 32,
                 GATE_SCOPE_INJECT_WORLD,
             );
-            for (index, slot) in world.state.committed.vehicles.iter_mut().enumerate() {
+            for index in 0..world.state.committed.vehicles.len() {
+                let mut slot = world.state.committed.vehicles.slot_mut(index);
                 if index % 2 == 0 {
                     slot.state.as_mut().unwrap().progress_mm = 0;
                 }
             }
             world.state.rebuild_occupancy_index().unwrap();
             let old = world.live_vehicles()[3];
-            let state = *world.state.vehicle_state(old).unwrap();
+            let state = world.state.vehicle_state(old).unwrap();
             world.despawn_vehicle(old).unwrap();
             let new = world
                 .spawn_vehicle(
@@ -2907,7 +2920,7 @@ mod tests {
     fn p2_cached_scope_preserves_horizon_and_full_fallback_near_boundaries() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let vehicle = world.live_vehicles()[0];
-        let original = *world.state.vehicle_state(vehicle).unwrap();
+        let original = world.state.vehicle_state(vehicle).unwrap();
         let route = world.state.compiled_route(original.route).unwrap();
         let gate = route.gate_hops[0];
         let length = world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
@@ -2916,14 +2929,18 @@ mod tests {
         for (distance, speed, carry) in
             [(1, 0, 0), (50, 0, 999), (1_000, 0, 0), (1_000, 100_001, 0)]
         {
-            world.state.committed.vehicles[vehicle.index() as usize].state =
-                Some(crate::VehicleState {
-                    route_edge_index: gate,
-                    progress_mm: length - distance,
-                    speed_mm_s: speed,
-                    carry_um: carry,
-                    ..original
-                });
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(crate::VehicleState {
+                route_edge_index: gate,
+                progress_mm: length - distance,
+                speed_mm_s: speed,
+                carry_um: carry,
+                ..original
+            });
             world.state.rebuild_occupancy_index().unwrap();
             let view = world.state.read_view();
             let full = view.waiting_preview_entry(vehicle, 0, 0.1, false).unwrap();
@@ -2955,18 +2972,22 @@ mod tests {
                 P2_EXCLUDED_INJECT_WORLD,
             );
             let owner = world.live_vehicles()[0];
-            let state = *world.state.vehicle_state(owner).unwrap();
+            let state = world.state.vehicle_state(owner).unwrap();
             let route = world.state.compiled_route(state.route).unwrap();
             let gate = route.gate_hops[0];
             let length =
                 world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
-            world.state.committed.vehicles[owner.index() as usize].state =
-                Some(crate::VehicleState {
-                    route_edge_index: gate,
-                    progress_mm: length - 1_000,
-                    speed_mm_s: 0,
-                    ..state
-                });
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(owner.index() as usize)
+                .state = Some(crate::VehicleState {
+                route_edge_index: gate,
+                progress_mm: length - 1_000,
+                speed_mm_s: 0,
+                ..state
+            });
             world.state.rebuild_occupancy_index().unwrap();
             let entry = world
                 .state
@@ -3276,13 +3297,16 @@ mod tests {
                 if multiple_passages { 3 } else { 1 }
             );
             // 仅把 cursor 移至没有 future entry 的出口，隔离 frontier 准备的跳过条件。
-            let state = world.state.committed.vehicles[vehicle.index() as usize]
+            let mut vehicle_slot = world
                 .state
-                .as_mut()
-                .unwrap();
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize);
+            let state = vehicle_slot.state.as_mut().unwrap();
             state.route_edge_index = 2;
             state.progress_mm = 10_000;
             reset_conflict_work_counts();
+            drop(vehicle_slot);
             world
                 .state
                 .step_workspace()
@@ -3649,7 +3673,7 @@ mod tests {
             let mut world =
                 conflict_scale_world_with_identity(Arc::clone(revision), 16, 1, F4_INJECT_WORLD);
             let vehicle = world.state.committed.live_order[0];
-            let state = *world.state.vehicle_state(vehicle).unwrap();
+            let state = world.state.vehicle_state(vehicle).unwrap();
             let report = {
                 let step = world.state.step_workspace();
                 let view = ConflictTaskView {

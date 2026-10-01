@@ -270,10 +270,12 @@ pub(crate) fn install_conflict_reservation(
         (gate_range, first_occurrence)
     };
     {
-        let state = world.state.committed.vehicles[vehicle.index() as usize]
+        let mut vehicle_slot = world
             .state
-            .as_mut()
-            .expect("vehicle state");
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize);
+        let state = vehicle_slot.state.as_mut().expect("vehicle state");
         state.route_edge_index = first_occurrence.entry.route_edge_index;
         state.progress_mm = first_occurrence.entry.progress_mm;
         state.carry_um = 0;
@@ -366,7 +368,11 @@ pub(crate) fn install_conflict_reservation(
         },
     )
     .expect("restore test reservation");
-    world.state.committed.vehicles[vehicle.index() as usize]
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(vehicle.index() as usize)
         .state
         .as_mut()
         .expect("vehicle state")
@@ -456,7 +462,7 @@ fn restored_conflict_authority_continues_through_the_production_tick() {
 #[test]
 fn conflict_eligibility_blocks_route_rebind_without_partial_commit() {
     let (mut world, vehicle) = world_with_conflict_eligibility();
-    let state = *world
+    let state = world
         .state
         .vehicle_state(vehicle)
         .expect("eligible vehicle");
@@ -530,7 +536,7 @@ fn conflict_reservation_and_tick_zero_history_round_trip() {
 #[test]
 fn clearing_marker_is_decoded_before_conflict_aggregate_installation() {
     let (world, vehicle) = world_with_conflict_reservation();
-    let state = *world
+    let state = world
         .state
         .vehicle_state(vehicle)
         .expect("Clearing vehicle");

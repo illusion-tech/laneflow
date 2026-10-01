@@ -54,6 +54,14 @@ impl StepDerived<'_> {
 }
 
 impl StepCommitted<'_> {
+    /// 只允许准备稀疏车辆池容量，不能修改目录、运动或控制记录。
+    pub(crate) fn prepare_vehicle_storage(
+        &mut self,
+        updates: &crate::kernel::motion_updates::MotionUpdates,
+    ) -> Result<(), crate::StepError> {
+        updates.prepare_storage(&mut self.0.vehicles)
+    }
+
     /// 同时借用已验证的只读路线和受限 Conflict 暂存，循环内无须重读路线槽位。
     pub(crate) fn prepare_conflict_for_route<'a>(
         &'a mut self,

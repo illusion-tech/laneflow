@@ -1016,7 +1016,13 @@ impl crate::kernel::state::WorldState {
         &mut self,
         updates: &mut [(usize, crate::VehicleState)],
     ) -> Result<(), crate::StepError> {
-        self.step_workspace().finalize_waiting_step(updates)
+        let mut columns =
+            super::motion_updates::MotionUpdates::from_states(updates, &self.committed.vehicles);
+        let result = self.step_workspace().finalize_waiting_step(&mut columns);
+        for (index, update) in updates.iter_mut().enumerate() {
+            *update = columns.get(index, &self.committed.vehicles);
+        }
+        result
     }
 
     #[cfg(test)]
@@ -1025,8 +1031,10 @@ impl crate::kernel::state::WorldState {
         updates: &[(usize, crate::VehicleState)],
         tick: u64,
     ) -> Result<(), crate::StepError> {
+        let columns =
+            super::motion_updates::MotionUpdates::from_states(updates, &self.committed.vehicles);
         self.step_workspace()
-            .finalize_waiting_outputs(updates, tick)
+            .finalize_waiting_outputs(&columns, tick)
     }
 
     pub(crate) fn derive_waiting_traversal_with_signals(
@@ -1282,7 +1290,7 @@ impl crate::kernel::state::WorldState {
                     return false;
                 };
                 let Some(rank) =
-                    post_step_physical_rank(compiled, vehicle_state, occurrence.release_hop)
+                    post_step_physical_rank(compiled, &vehicle_state, occurrence.release_hop)
                 else {
                     return false;
                 };
@@ -1632,7 +1640,7 @@ const WAITING_PREVIEW_DISPATCH_MIN_ACTIVE: usize = 1_024;
 /// `cache_limit` 容量降级约束）与 `next_states`（仅预览存在时写入）。
 fn stage_waiting_preview(
     motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
-    next_states: &mut Vec<(usize, crate::VehicleState)>,
+    next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     cache_index: usize,
     cache_limit: usize,
     vehicle: crate::VehicleHandle,
@@ -1666,7 +1674,7 @@ fn prepare_waiting_previews_fused(
     let _fused_loop = preview_stage::begin(preview_stage::FUSED_LOOP);
     let mut cache_index = 0;
     for (update_sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
-        let state = *view
+        let state = view
             .vehicle_state(vehicle)
             .ok_or(crate::StepError::WaitingInvariantViolation)?;
         if state.status != crate::VehicleStatus::Active {
@@ -1970,9 +1978,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         for preview_index in 0..self.workspace.next_states.len() {
             let (update_sequence, preview) = self.workspace.next_states[preview_index];
             let vehicle = self.committed.live_order[update_sequence];
-            let state = *self
+            let state = self
                 .vehicle_state(vehicle)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            let preview = preview.apply(state);
             let compiled = self
                 .compiled_route(state.route)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
@@ -2324,26 +2333,31 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
     pub(crate) fn finalize_waiting_step(
         &mut self,
-        updates: &mut [(usize, crate::VehicleState)],
+        updates: &mut super::motion_updates::MotionUpdates,
     ) -> Result<(), crate::StepError> {
         self.workspace.next_state_by_vehicle.fill(0);
-        for (update_index, (slot, _)) in updates.iter().enumerate() {
+        for (update_index, (slot, _)) in updates.iter(&self.committed.vehicles).enumerate() {
             let encoded = u32::try_from(update_index)
                 .ok()
                 .and_then(|value| value.checked_add(1))
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            self.workspace.next_state_by_vehicle[*slot] = encoded;
+            self.workspace.next_state_by_vehicle[slot] = encoded;
         }
 
         // 先 stage tick-start membership 的 successful release。
-        for (slot, next) in updates.iter_mut() {
-            let old = self.committed.vehicles[*slot]
+        for update_index in 0..updates.len() {
+            let (slot, mut next) = updates.get(update_index, &self.committed.vehicles);
+            let old = self
+                .committed
+                .vehicles
+                .slot(slot)
                 .state
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
             if let Some(membership) = old.waiting_membership
                 && next.route_edge_index > membership.release_hop
             {
                 next.waiting_membership = None;
+                updates.set(update_index, next, &self.committed.vehicles)?;
             }
         }
 
@@ -2356,7 +2370,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .checked_sub(1)
                 .map(|value| value as usize)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let next = updates[update_index].1;
+            let next = updates.get(update_index, &self.committed.vehicles).1;
             if next.route_edge_index <= claim.entry_hop {
                 claim.post_step_group = u8::MAX;
                 self.workspace.waiting_claims[claim_index] = claim;
@@ -2393,7 +2407,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .checked_sub(1)
                 .map(|value| value as usize)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let next = &mut updates[update_index].1;
+            let (_, mut next) = updates.get(update_index, &self.committed.vehicles);
             let zone_index = claim.zone.index();
             let sequence = self.workspace.waiting_next_counters[zone_index];
             self.workspace.waiting_next_counters[zone_index] = sequence
@@ -2409,6 +2423,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             } else {
                 next.waiting_membership = None;
             }
+            updates.set(update_index, next, &self.committed.vehicles)?;
             self.workspace.waiting_plans[plan_index] = plan;
         }
 
@@ -2417,7 +2432,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
     pub(crate) fn finalize_waiting_outputs(
         &mut self,
-        updates: &[(usize, crate::VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         tick: u64,
     ) -> Result<(), crate::StepError> {
         for plan in self.workspace.waiting_plans.iter().copied() {
@@ -2439,8 +2454,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 });
         }
         self.workspace.waiting_non_entry_anchors.clear();
-        for (update_index, (slot, next)) in updates.iter().enumerate() {
-            let old = self.committed.vehicles[*slot]
+        for (update_index, (slot, next)) in updates.iter(&self.committed.vehicles).enumerate() {
+            let old = self
+                .committed
+                .vehicles
+                .slot(slot)
                 .state
                 .expect("staged live vehicle");
             let compiled = self.committed.routes[old.route.index() as usize]
@@ -2450,7 +2468,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
                 compiled,
                 old,
-                *next,
+                next,
                 self.binding.revision.traffic().lane_lengths_millimetres(),
             ) {
                 let anchors = &mut self.workspace.waiting_non_entry_anchors;
@@ -2482,7 +2500,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             #[cfg(test)]
             NON_ENTRY_GENERATION_VISITS.set(NON_ENTRY_GENERATION_VISITS.get() + 1);
             let anchor = self.workspace.waiting_non_entry_anchors[index];
-            let old = self.committed.vehicles[updates[anchor.update_index].0]
+            let old = self
+                .committed
+                .vehicles
+                .slot(updates.get(anchor.update_index, &self.committed.vehicles).0)
                 .state
                 .expect("staged live vehicle");
             if previous_update != Some(anchor.update_index) {
@@ -2718,9 +2739,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 }
 
 impl crate::kernel::phase::CommittedStateMut<'_> {
-    pub(crate) fn commit_waiting_removals(&mut self, updates: &[(usize, crate::VehicleState)]) {
-        for (slot, next) in updates {
-            let old = self.committed.vehicles[*slot]
+    pub(crate) fn commit_waiting_removals(
+        &mut self,
+        updates: &super::motion_updates::MotionUpdates,
+    ) {
+        for update_index in updates.changed_indices() {
+            let (slot, next) = updates.get(update_index, &self.committed.vehicles);
+            let old = self
+                .committed
+                .vehicles
+                .slot(slot)
                 .state
                 .expect("staged next state has a live predecessor");
             if let Some(membership) = old.waiting_membership
@@ -2731,7 +2759,10 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
-    pub(crate) fn commit_waiting_additions(&mut self, updates: &[(usize, crate::VehicleState)]) {
+    pub(crate) fn commit_waiting_additions(
+        &mut self,
+        updates: &super::motion_updates::MotionUpdates,
+    ) {
         for plan_index in 0..self.workspace.waiting_plans.len() {
             let plan = self.workspace.waiting_plans[plan_index];
             let Some(sequence) = plan.admission_sequence else {
@@ -2747,7 +2778,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             else {
                 continue;
             };
-            let next = updates[update_index].1;
+            let next = updates.get(update_index, &self.committed.vehicles).1;
             let membership = WaitingMembership {
                 waiting_zone: plan.zone,
                 admission_sequence: sequence,
@@ -3354,13 +3385,16 @@ pub(crate) mod tests {
         let mut world = multi_gate_world(1);
         world.step(TickInput::new(100)).unwrap();
         let vehicle = world.state.committed.live_order[0];
-        let state = world.state.committed.vehicles[vehicle.index() as usize]
+        let mut vehicle_slot = world
             .state
-            .as_mut()
-            .unwrap();
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize);
+        let state = vehicle_slot.state.as_mut().unwrap();
         assert!(state.waiting_membership.is_some());
         state.progress_mm = 0;
         state.carry_um = 0;
+        drop(vehicle_slot);
         // 已持 membership 的合法边界等价游标；下一拍不得重复申请已越过的 entry。
         world.step(TickInput::new(100)).unwrap();
         assert!(world.vehicle(vehicle).unwrap().progress_mm() > 0);
@@ -4330,7 +4364,7 @@ pub(crate) mod tests {
 
                 let (mut world, zone) = waiting_scale_world(Arc::clone(&revision), 1);
                 let vehicle = VehicleHandle::new(0, 0);
-                let initial = *world.state.vehicle_state(vehicle).unwrap();
+                let initial = world.state.vehicle_state(vehicle).unwrap();
                 if armed {
                     world.state.arm_migration_journal(16 * 1_024).unwrap();
                 }
@@ -4852,10 +4886,12 @@ pub(crate) mod tests {
             let release_length = world.traffic().lane_lengths_millimetres()
                 [edges[occurrence.release_hop as usize].index()];
             let (length, profile) = {
-                let member_state = world.state.committed.vehicles[member.index() as usize]
+                let mut vehicle_slot = world
                     .state
-                    .as_mut()
-                    .expect("member");
+                    .committed
+                    .vehicles
+                    .slot_mut(member.index() as usize);
+                let member_state = vehicle_slot.state.as_mut().expect("member");
                 member_state.route_edge_index = occurrence.release_hop;
                 member_state.progress_mm = release_length;
                 member_state.speed_mm_s = 0;
@@ -4977,7 +5013,7 @@ pub(crate) mod tests {
         world
             .step(TickInput::new(1_000))
             .expect("cross original release");
-        let state = *world
+        let state = world
             .state
             .vehicle_state(VehicleHandle::new(0, 0))
             .expect("vehicle");
@@ -5199,11 +5235,7 @@ pub(crate) mod tests {
         world.step(TickInput::new(4)).expect("admit front member");
 
         let front = VehicleHandle::new(0, 0);
-        let front_state = world
-            .state
-            .vehicle_state(front)
-            .copied()
-            .expect("front state");
+        let front_state = world.state.vehicle_state(front).expect("front state");
         let membership = front_state.waiting_membership.expect("front membership");
         let profile = world
             .traffic()
@@ -5284,11 +5316,7 @@ pub(crate) mod tests {
         let (mut world, _) = waiting_scale_world(revision, 1);
         world.step(TickInput::new(4)).expect("admit member");
         let vehicle = VehicleHandle::new(0, 0);
-        let state = world
-            .state
-            .vehicle_state(vehicle)
-            .copied()
-            .expect("member state");
+        let state = world.state.vehicle_state(vehicle).expect("member state");
         let membership = state.waiting_membership.expect("membership");
         let target_cursor = membership
             .release_hop
@@ -5341,10 +5369,8 @@ pub(crate) mod tests {
             world.route_edges(route).expect("route")[occurrence.release_hop as usize];
         let release_length = world.traffic().lane_lengths_millimetres()[release_edge.index()];
         let member_index = member.index() as usize;
-        let member_state = world.state.committed.vehicles[member_index]
-            .state
-            .as_mut()
-            .expect("member");
+        let mut vehicle_slot = world.state.committed.vehicles.slot_mut(member_index);
+        let member_state = vehicle_slot.state.as_mut().expect("member");
         member_state.route_edge_index = occurrence.release_hop;
         member_state.progress_mm = release_length;
         member_state.speed_mm_s = 0;
@@ -5356,6 +5382,7 @@ pub(crate) mod tests {
                 last_crossed_gate_hop: occurrence.entry_hop,
             },
         });
+        drop(vehicle_slot);
 
         let follower = world
             .state
@@ -5447,10 +5474,12 @@ pub(crate) mod tests {
         let release_edge =
             world.route_edges(route).expect("route")[occurrence.release_hop as usize];
         let release_length = world.traffic().lane_lengths_millimetres()[release_edge.index()];
-        let member_state = world.state.committed.vehicles[member.index() as usize]
+        let mut vehicle_slot = world
             .state
-            .as_mut()
-            .expect("member");
+            .committed
+            .vehicles
+            .slot_mut(member.index() as usize);
+        let member_state = vehicle_slot.state.as_mut().expect("member");
         member_state.route_edge_index = occurrence.release_hop;
         member_state.progress_mm = release_length;
         member_state.speed_mm_s = 0;
@@ -5462,6 +5491,7 @@ pub(crate) mod tests {
                 last_crossed_gate_hop: occurrence.entry_hop,
             },
         });
+        drop(vehicle_slot);
         let profile = world
             .traffic()
             .relations()
@@ -5644,12 +5674,20 @@ pub(crate) mod tests {
                 .with_open_entrance(),
             )
             .expect("physical front second in live order");
-        world.state.committed.vehicles[rear.index() as usize]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(rear.index() as usize)
             .state
             .as_mut()
             .expect("rear")
             .speed_mm_s = 100_000;
-        world.state.committed.vehicles[front.index() as usize]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(front.index() as usize)
             .state
             .as_mut()
             .expect("front")
@@ -5702,7 +5740,11 @@ pub(crate) mod tests {
                 .with_open_entrance(),
             )
             .expect("vehicle");
-        world.state.committed.vehicles[vehicle.index() as usize]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize)
             .state
             .as_mut()
             .expect("vehicle")
@@ -5765,7 +5807,7 @@ pub(crate) mod tests {
     fn not_required_uses_final_projected_gate_frontier() {
         let (mut world, _) = waiting_scale_world_at_delta(waiting_scale_revision(), 1, 1_000);
         let vehicle = VehicleHandle::new(0, 0);
-        let mut projected = *world.state.vehicle_state(vehicle).expect("vehicle");
+        let mut projected = world.state.vehicle_state(vehicle).expect("vehicle");
         let occurrence = world
             .state
             .compiled_route(projected.route)
@@ -6035,7 +6077,7 @@ pub(crate) mod tests {
             )
             .expect("tail entry bootstrap");
         world.step(TickInput::new(4)).expect("tail admission");
-        let state = *world.state.vehicle_state(vehicle).expect("vehicle");
+        let state = world.state.vehicle_state(vehicle).expect("vehicle");
         let traversal = state.maneuver_traversal.expect("tail phase");
         assert_eq!(traversal.maneuver_occurrence_index, 127);
         assert_eq!(
@@ -6108,7 +6150,7 @@ pub(crate) mod tests {
         let (mut world, _) = waiting_scale_world(waiting_scale_revision(), 1);
         world.step(TickInput::new(4)).expect("enter old membership");
         let vehicle = VehicleHandle::new(0, 0);
-        let mut old = *world.state.vehicle_state(vehicle).expect("vehicle");
+        let mut old = world.state.vehicle_state(vehicle).expect("vehicle");
         let compiled = world.state.compiled_route(old.route).expect("route");
         let path = compiled.edges[64..].to_vec();
         let repeated = path.repeat(3);
@@ -6154,15 +6196,22 @@ pub(crate) mod tests {
         });
         let events_for =
             |world: &mut TrafficWorld, old: crate::VehicleState, next: crate::VehicleState| {
-                world.state.committed.vehicles[old.handle.index() as usize].state = Some(old);
+                world
+                    .state
+                    .committed
+                    .vehicles
+                    .slot_mut(old.handle.index() as usize)
+                    .state = Some(old);
                 world.state.workspace.next_state_by_vehicle[old.handle.index() as usize] = 1;
                 let mut events = Vec::new();
+                let updates = crate::kernel::motion_updates::MotionUpdates::from_states(
+                    &[(old.handle.index() as usize, next)],
+                    &world.state.committed.vehicles,
+                );
                 world
                     .state
                     .step_workspace()
-                    .visit_transition_events(&[(old.handle.index() as usize, next)], 2, |event| {
-                        events.push(event)
-                    })
+                    .visit_transition_events(&updates, 2, |event| events.push(event))
                     .unwrap();
                 events
             };
@@ -6567,14 +6616,23 @@ pub(crate) mod tests {
         const IDENTITY_POSITION: usize = 12;
         let corrupt_live_identity = |world: &mut TrafficWorld| -> crate::VehicleState {
             let handle = world.state.committed.live_order[IDENTITY_POSITION];
-            world.state.committed.vehicles[handle.index() as usize]
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(handle.index() as usize)
                 .state
                 .take()
                 .expect("vehicle state present")
         };
         let restore_live_identity = |world: &mut TrafficWorld, state: crate::VehicleState| {
             let handle = world.state.committed.live_order[IDENTITY_POSITION];
-            world.state.committed.vehicles[handle.index() as usize].state = Some(state);
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(handle.index() as usize)
+                .state = Some(state);
         };
         let staging = |world: &TrafficWorld| {
             (

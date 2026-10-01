@@ -1,7 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::kernel::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_admission_interval};
+use crate::kernel::tables::{CompiledRoute, RouteSlot, for_each_admission_interval};
 use crate::{
     ObservationStateSequence, RouteHandle, StepError, VehicleHandle, VehicleState, VehicleStatus,
     WorldGeneration,
@@ -966,12 +966,15 @@ impl OccupancyIndex {
     }
 }
 
-fn vehicle_state_in(vehicles: &[VehicleSlot], handle: VehicleHandle) -> Option<&VehicleState> {
+fn vehicle_state_in(
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
+    handle: VehicleHandle,
+) -> Option<VehicleState> {
     let slot = vehicles.get(usize::try_from(handle.index()).ok()?)?;
     if slot.generation != handle.generation() {
         return None;
     }
-    slot.state.as_ref()
+    slot.state
 }
 
 fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdgeOrdinal]> {
@@ -984,7 +987,7 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
 
 fn visit_occupancy_records_with(
     live_order: &[VehicleHandle],
-    vehicles: &[VehicleSlot],
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
     staged_by_slot: &[Option<&CompiledRoute>],
@@ -1034,7 +1037,7 @@ fn visit_occupancy_records_with(
 
 fn visit_occupancy_records(
     live_order: &[VehicleHandle],
-    vehicles: &[VehicleSlot],
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
     mut visit: impl FnMut(OccupancyRecord),
@@ -1579,7 +1582,7 @@ pub(crate) mod tests {
                 continue;
             };
             let cursor = usize::try_from(state.route_edge_index).unwrap();
-            let horizon = world.state.leader_query_horizon_for(state);
+            let horizon = world.state.leader_query_horizon_for(&state);
             let indexed = world.state.derived.occupancy.leader_gap(
                 state.handle,
                 edges,
@@ -1588,8 +1591,8 @@ pub(crate) mod tests {
                 lengths,
                 horizon,
             );
-            let scanned = world.state.leader_bumper_gap_scan(state, edges, lengths);
-            let wrapped = world.state.leader_bumper_gap(state, edges, lengths);
+            let scanned = world.state.leader_bumper_gap_scan(&state, edges, lengths);
+            let wrapped = world.state.leader_bumper_gap(&state, edges, lengths);
             assert_eq!(
                 indexed, scanned,
                 "occupancy index gap must match scan-within-horizon for {handle:?}"
@@ -1698,14 +1701,23 @@ pub(crate) mod tests {
             world.state.binding.world_generation.checked_next().unwrap();
         matches_fresh(&mut world);
         let valid = world.vehicle(new).unwrap();
-        world.state.committed.vehicles[new.index() as usize]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(new.index() as usize)
             .state
             .as_mut()
             .unwrap()
             .route_edge_index = u32::MAX;
         assert!(world.state.rebuild_occupancy_index().is_err());
         assert!(world.state.derived.occupancy.source.is_none());
-        world.state.committed.vehicles[new.index() as usize].state = Some(valid);
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(new.index() as usize)
+            .state = Some(valid);
         matches_fresh(&mut world);
     }
 
@@ -1715,9 +1727,9 @@ pub(crate) mod tests {
         let state = world.state.vehicle_state(follower).unwrap();
         let lengths = world.traffic().lane_lengths_millimetres();
         let edges = world.route_edges(state.route()).unwrap();
-        assert_eq!(index_gap(&world, state), Some(2));
+        assert_eq!(index_gap(&world, &state), Some(2));
         assert_eq!(
-            world.state.leader_bumper_gap_scan(state, edges, lengths),
+            world.state.leader_bumper_gap_scan(&state, edges, lengths),
             Some(2)
         );
     }
@@ -2144,7 +2156,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(solo).copied().unwrap();
+        let state = world.state.vehicle_state(solo).unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
     }
@@ -2188,7 +2200,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
     }
@@ -2246,7 +2258,7 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
         assert_index_matches_scan(&world);
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         let gap = index_gap(&world, &state).expect("next-edge leader inside bumper window");
         assert!(gap > 0, "next-edge rear bumper must be ahead, gap={gap}");
     }
@@ -2278,7 +2290,7 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
         assert_index_matches_scan(&world);
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(
             index_gap(&world, &state),
             None,
@@ -2496,7 +2508,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let follower_state = world.state.vehicle_state(follower).copied().unwrap();
+        let follower_state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
 
@@ -2535,7 +2547,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let follower_state = world.state.vehicle_state(follower).copied().unwrap();
+        let follower_state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
     }
@@ -2625,7 +2637,7 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
         assert_index_matches_scan(&world);
-        let follower_state = world.state.vehicle_state(follower).copied().unwrap();
+        let follower_state = world.state.vehicle_state(follower).unwrap();
         let leader_state = world
             .state
             .committed
@@ -2634,7 +2646,7 @@ pub(crate) mod tests {
             .copied()
             .find_map(|handle| {
                 let state = world.state.vehicle_state(handle)?;
-                (handle != follower).then_some(*state)
+                (handle != follower).then_some(state)
             })
             .expect("leader state");
         let lengths = world
@@ -3385,7 +3397,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
 
@@ -3429,11 +3441,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let phantom_state = phantom_world
-            .state
-            .vehicle_state(phantom_follower)
-            .copied()
-            .unwrap();
+        let phantom_state = phantom_world.state.vehicle_state(phantom_follower).unwrap();
         assert_eq!(index_gap(&phantom_world, &phantom_state), None);
         assert_index_matches_scan(&phantom_world);
 
@@ -3476,11 +3484,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let near_state = near_world
-            .state
-            .vehicle_state(near_follower)
-            .copied()
-            .unwrap();
+        let near_state = near_world.state.vehicle_state(near_follower).unwrap();
         assert_eq!(
             index_gap(&near_world, &near_state),
             Some(i64::from(horizon.bumper_gap_mm))
@@ -3597,7 +3601,11 @@ pub(crate) mod tests {
         let before_len = world.state.derived.occupancy.records_len();
         let before_time = world.state.committed.time_ms;
         let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-        world.state.committed.vehicles[slot]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(slot)
             .state
             .as_mut()
             .expect("spawned vehicle")

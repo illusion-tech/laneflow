@@ -357,6 +357,65 @@ impl ExecutionResources {
         }
     }
 
+    /// 物理列块的互斥切片票据；不把物理位置当作规范首错顺序。
+    /// 所有票据完整 join 后，由调用方按完整句柄对应的逻辑位置消费回报。
+    pub(crate) fn for_each_work<I, T, F>(
+        &self,
+        view: super::phase::StepReadView<'_>,
+        work: I,
+        compute: F,
+    ) -> DispatchStats
+    where
+        I: Iterator<Item = (usize, T)> + Send,
+        T: Send,
+        F: Fn(super::phase::StepReadView<'_>, usize, T) + Sync,
+    {
+        #[cfg(test)]
+        let counters = DispatchCounters::default();
+        let run = |(start, item)| {
+            #[cfg(test)]
+            {
+                counters.note_thread();
+                counters.note_ticket_grab();
+                counters.dispatched.fetch_add(1, Ordering::Relaxed);
+            }
+            compute(view, start, item);
+            #[cfg(test)]
+            counters.completed.fetch_add(1, Ordering::Relaxed);
+        };
+        match self {
+            Self::Caller => {
+                for item in work {
+                    run(item);
+                }
+            }
+            Self::Pool(resources) => {
+                let tickets = std::sync::Mutex::new(work);
+                let drain = || loop {
+                    let ticket = tickets.lock().expect("physical motion tickets").next();
+                    let Some(ticket) = ticket else {
+                        break;
+                    };
+                    run(ticket);
+                };
+                resources.pool.in_place_scope(|scope| {
+                    for _ in 0..resources.pool.current_num_threads() {
+                        scope.spawn(|_| drain());
+                    }
+                    drain();
+                });
+            }
+        }
+        #[cfg(test)]
+        {
+            counters.stats()
+        }
+        #[cfg(not(test))]
+        {
+            DispatchStats::default()
+        }
+    }
+
     /// 可失败的保序分发：与 `for_each_chunk` 相同的互斥输出划分与完整 join，
     /// 但任务逐个槽位回报值或完整领域错误。`first_error` 由调用方以
     /// `usize::MAX` 初始化；任务遇错把该槽逻辑下标 min-store 进该原子；
