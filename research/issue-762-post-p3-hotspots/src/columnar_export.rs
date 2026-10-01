@@ -45,23 +45,7 @@ fn promote_guards(text: &str) -> String {
                         !line.trim().starts_with("///") && !line.trim().starts_with("#[derive")
                     })
                     .map_or("", |line| line.trim());
-                let names = [
-                    "fn retained_logical_bytes",
-                    "fn retained_columns_bytes",
-                    "fn retained_memory",
-                    "fn vec_bytes",
-                    "fn slice_bytes",
-                    "struct WorldMemoryLedger",
-                    "impl WorldMemoryLedger",
-                ];
-                let memory = names.iter().any(|name| next.contains(name))
-                    || next.starts_with("impl ")
-                        && lines[index + 1..]
-                            .iter()
-                            .take(5)
-                            .any(|line| names.iter().any(|name| line.contains(name)));
-                if memory
-                    || next.starts_with("note_columnar_work(")
+                if next.starts_with("note_columnar_work(")
                     || next.starts_with("static COLUMNAR_WORK")
                     || next.starts_with("fn note_columnar_work")
                     || next.starts_with("pub(crate) fn take_columnar_work")
@@ -203,7 +187,7 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
     fs::write(path, text)?;
     let lib = root.join("crates/laneflow-runtime/src/lib.rs");
     let mut text = fs::read_to_string(&lib)?;
-    text.push_str("\n#[doc(hidden)] pub fn research_work() -> [u64; 20] { kernel::tick::take_columnar_work() }\n#[doc(hidden)] pub fn research_memory(world: &World) -> [u64; 6] { let ledger = world.state.retained_memory(); let _ = ledger.world_owned_bytes(); [ledger.shared_network, ledger.partitions[0], ledger.partitions[1], ledger.partitions[2], ledger.partitions[3], ledger.partitions[4]] }\n#[doc(hidden)] pub fn research_layout() -> [usize; 3] { kernel::tick::diagnostic_layout_bytes() }\n");
+    text.push_str("\n#[doc(hidden)] pub fn research_work() -> [u64; 20] { kernel::tick::take_columnar_work() }\n#[doc(hidden)] pub fn research_layout() -> [usize; 3] { kernel::tick::diagnostic_layout_bytes() }\n");
     fs::write(lib, text)?;
     patch(
         root,
@@ -215,7 +199,7 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
         root,
         "tools/laneflow-urban-harness/src/host.rs",
         "                let (stages, calls) = laneflow_runtime::research_take();",
-        "                let (stages, calls) = laneflow_runtime::research_take();\n                eprintln!(\"LF814 {{\\\"tick\\\":{},\\\"work\\\":{:?},\\\"memory\\\":{:?},\\\"layout\\\":{:?}}}\", world.tick_index(), laneflow_runtime::research_work(), laneflow_runtime::research_memory(&world), laneflow_runtime::research_layout());",
+        "                let (stages, calls) = laneflow_runtime::research_take();\n                eprintln!(\"LF814 {{\\\"tick\\\":{},\\\"work\\\":{:?},\\\"layout\\\":{:?}}}\", world.tick_index(), laneflow_runtime::research_work(), laneflow_runtime::research_layout());",
     )?;
     Ok(())
 }
@@ -229,7 +213,7 @@ mod tests {
         let output = promote_guards(text);
         assert!(output.contains("#[cfg(test)]\nmod tests"));
         assert!(output.contains("#[cfg(test)]\nfn unrelated_probe"));
-        assert!(!output.contains("#[cfg(test)]\npub(crate) fn retained_columns"));
+        assert!(output.contains("#[cfg(test)]\npub(crate) fn retained_columns"));
         assert!(!output.contains("#[cfg(test)]\nnote_columnar_work"));
     }
 }
