@@ -2183,8 +2183,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .map(|range| range.passage_count() as usize)
             .chain(
                 updates
-                    .iter(&self.committed.vehicles)
-                    .filter_map(|(_, next)| self.conflict_reservation(next.handle))
+                    .slot_indices()
+                    .filter_map(|slot| self.committed.vehicles.active_handle(slot))
+                    .filter_map(|handle| self.conflict_reservation(handle))
                     .map(|reservation| reservation.passage_range().passage_count() as usize),
             )
             .sum();
@@ -2270,7 +2271,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             {
                 self.workspace.conflict_next_eligibility[slot] = None;
             }
-            updates.set(index, next, &self.committed.vehicles)?;
+            updates.set_control(
+                index,
+                next.status,
+                next.maneuver_traversal,
+                next.waiting_membership,
+                &self.committed.vehicles,
+            )?;
         }
 
         // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。

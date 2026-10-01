@@ -1807,6 +1807,7 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
+    #[inline(always)]
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
@@ -2904,6 +2905,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
+    #[inline(always)]
     pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<VehicleState> {
         self.committed.vehicles.state(handle)
     }
@@ -2975,6 +2977,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
+    #[inline(always)]
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
@@ -3002,6 +3005,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
+    #[inline(always)]
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }

@@ -138,9 +138,9 @@ impl ContextBlock {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct ControlState {
-    maneuver: Option<crate::ManeuverTraversalState>,
-    waiting: Option<crate::WaitingMembership>,
+pub(crate) struct ControlState {
+    pub(crate) maneuver: Option<crate::ManeuverTraversalState>,
+    pub(crate) waiting: Option<crate::WaitingMembership>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -340,6 +340,28 @@ impl VehicleStore {
             Location::Active(row) => Some(row),
             _ => None,
         }
+    }
+
+    #[inline]
+    pub(crate) fn active_handle(&self, slot: usize) -> Option<VehicleHandle> {
+        let Location::Active(physical) = self.directory.get(slot)?.location else {
+            return None;
+        };
+        self.context[physical / BLOCK_ROWS].owner[physical % BLOCK_ROWS]
+    }
+
+    #[inline]
+    pub(crate) fn active_control(&self, slot: usize) -> Option<ControlState> {
+        let entry = self.directory.get(slot)?;
+        if !matches!(entry.location, Location::Active(_)) {
+            return None;
+        }
+        Some(
+            entry
+                .control
+                .checked_sub(1)
+                .map_or_else(ControlState::default, |row| self.control[row as usize]),
+        )
     }
 
     #[inline(always)]
