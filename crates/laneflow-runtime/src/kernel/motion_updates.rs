@@ -169,11 +169,12 @@ impl MotionUpdates {
     #[inline(always)]
     pub(crate) fn get(&self, index: usize, current: &VehicleStore) -> (usize, VehicleState) {
         let row = self.order[index];
-        let mut state = current
-            .slot(row.slot)
-            .state
-            .expect("next state has live predecessor");
-        if !self.published {
+        let state = if self.published {
+            current
+                .slot(row.slot)
+                .state
+                .expect("next state has live predecessor")
+        } else {
             let block = &self.motion[row.physical / BLOCK_ROWS];
             let offset = row.physical % BLOCK_ROWS;
             assert_ne!(
@@ -181,17 +182,17 @@ impl MotionUpdates {
                 0,
                 "next row initialized"
             );
-            state.route_edge_index = block.route_cursor[offset];
-            state.progress_mm = block.progress_mm[offset];
-            state.speed_mm_s = block.speed_mm_s[offset];
-            state.carry_um = block.carry_um[offset];
+            let mut state = current
+                .active_with_motion(row.slot, row.physical, block)
+                .expect("next state has active predecessor");
             if let Some(index) = self.control_by_row[row.physical].checked_sub(1) {
                 let control = self.control[index as usize];
                 state.status = control.status;
                 state.maneuver_traversal = control.maneuver;
                 state.waiting_membership = control.waiting;
             }
-        }
+            state
+        };
         (row.slot, state)
     }
 

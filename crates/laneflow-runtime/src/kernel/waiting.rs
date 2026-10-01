@@ -1674,10 +1674,12 @@ fn prepare_waiting_previews_fused(
     let _fused_loop = preview_stage::begin(preview_stage::FUSED_LOOP);
     let mut cache_index = 0;
     for (update_sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
-        let state = view
-            .vehicle_state(vehicle)
+        let status = view
+            .committed
+            .vehicles
+            .status(vehicle)
             .ok_or(crate::StepError::WaitingInvariantViolation)?;
-        if state.status != crate::VehicleStatus::Active {
+        if status != crate::VehicleStatus::Active {
             continue;
         }
         let entry = view.waiting_preview_entry(
@@ -1736,12 +1738,12 @@ fn prepare_waiting_previews_dispatched(
     let _discover = preview_stage::begin(preview_stage::PREAMBLE);
     let mut pending_identity_error = None;
     for (sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
-        let Some(state) = view.vehicle_state(vehicle) else {
+        let Some(status) = view.committed.vehicles.status(vehicle) else {
             // 身份失败：更晚输入不再收集；先兑现已收集前缀的更早义务。
             pending_identity_error = Some(crate::StepError::WaitingInvariantViolation);
             break;
         };
-        if state.status != crate::VehicleStatus::Active {
+        if status != crate::VehicleStatus::Active {
             continue;
         }
         inputs.push((vehicle, sequence));
