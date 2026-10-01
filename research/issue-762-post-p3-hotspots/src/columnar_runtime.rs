@@ -8,6 +8,7 @@ mod chunk_native;
 mod environment;
 use cache_research::{Experiment, io, prepare};
 use serde_json::{Value, json};
+mod columnar_export;
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -62,6 +63,21 @@ fn matrix() -> Vec<(String, String, String)> {
     }
     out
 }
+fn diagnostic_matrix() -> Vec<(String, String, String)> {
+    [[0, 1, 2, 3], [3, 2, 1, 0], [1, 2, 3, 0]]
+        .into_iter()
+        .enumerate()
+        .flat_map(|(group, order)| {
+            order.into_iter().enumerate().map(move |(position, arm)| {
+                (
+                    format!("100k-d{}-{}-{}", group + 1, position + 1, ARMS[arm]),
+                    "100k".into(),
+                    ARMS[arm].into(),
+                )
+            })
+        })
+        .collect()
+}
 fn inputs(root: &Path) -> Result<Value> {
     let mut index = serde_json::Map::new();
     for scale in ["10k", "100k"] {
@@ -92,7 +108,7 @@ fn inputs(root: &Path) -> Result<Value> {
     }
     Ok(json!(index))
 }
-fn export(root: &Path, arm: &str) -> Result<()> {
+fn export(root: &Path, arm: &str, detail: bool) -> Result<()> {
     need(["base", "candidate"].contains(&arm), "source arm")?;
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
@@ -102,12 +118,21 @@ fn export(root: &Path, arm: &str) -> Result<()> {
     )?;
     let commit = if arm == "base" { BASE } else { &head };
     io::git(&repo, &["merge-base", "--is-ancestor", commit, "HEAD"])?;
-    chunk_build::ensure_outputs(root, arm, "plain")?;
+    let mode = if detail { "detail" } else { "plain" };
+    chunk_build::ensure_outputs(root, arm, mode)?;
     fs::create_dir_all(root)?;
-    let source = root.join(format!("{arm}-plain-source"));
-    let mut index = prepare::export_at(&repo, &source, "plain", commit)?;
+    let source = root.join(format!("{arm}-{mode}-source"));
+    let mut index = prepare::export_at(
+        &repo,
+        &source,
+        if detail { "stages" } else { "plain" },
+        commit,
+    )?;
+    if detail {
+        columnar_export::instrument(&source, arm == "candidate")?;
+    }
     index["arm"] = json!(arm);
-    index["mode"] = json!("plain");
+    index["mode"] = json!(mode);
     index["protocol"] = json!(EXPERIMENT.protocol);
     index["source_git_head"] = json!(commit);
     index["source_git_tree"] = json!(io::git(
@@ -116,27 +141,33 @@ fn export(root: &Path, arm: &str) -> Result<()> {
     )?);
     index["source_files"] = io::source_index(&source)?;
     index["build"] = chunk_build::build(root, &source, &index)?;
-    io::write_new(&root.join(format!("{arm}-plain-source.json")), &index)
+    io::write_new(&root.join(format!("{arm}-{mode}-source.json")), &index)
 }
-fn capture(builds: &Path, input: &Path, raw: &Path) -> Result<()> {
+fn capture(builds: &Path, input: &Path, raw: &Path, detail: bool) -> Result<()> {
     let repo = std::env::current_dir()?;
     let collector = chunk_collector::verify_running()?;
     chunk_collector::verify_worktree(&collector)?;
     io::ensure_new(raw)?;
     fs::create_dir_all(raw)?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
+    let mode = if detail { "detail" } else { "plain" };
+    let order = if detail {
+        diagnostic_matrix()
+    } else {
+        matrix()
+    };
     let mut identity = json!({"protocol":EXPERIMENT.protocol,"head":head,"collector":collector,
-        "matrix":matrix(),"workers":4,"ticks":256,"started":now()?,"inputs":inputs(input)?,
+        "matrix":order,"mode":mode,"workers":4,"ticks":256,"started":now()?,"inputs":inputs(input)?,
         "sources":{},"binaries":{},"completed":false});
     for arm in ["base", "candidate"] {
-        let source = io::read_json(&builds.join(format!("{arm}-plain-source.json")))?;
+        let source = io::read_json(&builds.join(format!("{arm}-{mode}-source.json")))?;
         need(
             source["source_files"]
-                == io::source_index(&builds.join(format!("{arm}-plain-source")))?,
+                == io::source_index(&builds.join(format!("{arm}-{mode}-source")))?,
             "source drift",
         )?;
         let binary = builds
-            .join(format!("{arm}-plain{}", std::env::consts::EXE_SUFFIX))
+            .join(format!("{arm}-{mode}{}", std::env::consts::EXE_SUFFIX))
             .canonicalize()?;
         chunk_build::bind_capture(builds, raw, &source, &binary)?;
         identity["sources"][arm] = source;
@@ -145,7 +176,7 @@ fn capture(builds: &Path, input: &Path, raw: &Path) -> Result<()> {
     chunk_build::validate_pair(&identity)?;
     let identity_path = raw.join("identity.json");
     io::write_new(&identity_path, &identity)?;
-    for (label, scale, arm) in matrix() {
+    for (label, scale, arm) in order {
         environment::observe(raw, &label, "before")?;
         need(
             io::git(&repo, &["rev-parse", "HEAD"])? == head
@@ -225,7 +256,7 @@ fn capture(builds: &Path, input: &Path, raw: &Path) -> Result<()> {
     for arm in ["base", "candidate"] {
         need(
             identity["sources"][arm]["source_files"]
-                == io::source_index(&builds.join(format!("{arm}-plain-source")))?,
+                == io::source_index(&builds.join(format!("{arm}-{mode}-source")))?,
             "source drift after capture",
         )?;
     }
@@ -240,12 +271,19 @@ fn summary(samples: &[u64]) -> Value {
     json!({"samples":samples.len(),"mean_ms":samples.iter().map(|&v|v as f64).sum::<f64>()/samples.len() as f64/1e6,
         "p95_ms":percentile(95) as f64/1e6,"p99_ms":percentile(99) as f64/1e6})
 }
-fn analyze(raw: &Path) -> Result<Value> {
+fn analyze(raw: &Path, detail: bool) -> Result<Value> {
     let identity = io::read_json(&raw.join("identity.json"))?;
+    let mode = if detail { "detail" } else { "plain" };
+    let order = if detail {
+        diagnostic_matrix()
+    } else {
+        matrix()
+    };
     need(
         identity["protocol"] == EXPERIMENT.protocol
             && identity["completed"] == true
-            && identity["matrix"] == json!(matrix())
+            && identity["matrix"] == json!(order)
+            && identity["mode"] == mode
             && identity["workers"] == 4
             && identity["sources"]["base"]["source_git_head"] == BASE
             && identity["sources"]["candidate"]["source_git_head"] == identity["head"],
@@ -261,7 +299,7 @@ fn analyze(raw: &Path) -> Result<Value> {
     }
     let mut runs = Vec::new();
     let mut logical: BTreeMap<String, Value> = BTreeMap::new();
-    for (label, scale, arm) in matrix() {
+    for (label, scale, arm) in order {
         environment::verify(raw, &label)?;
         let process = io::read_json(&raw.join(format!("{label}.process.json")))?;
         need(
@@ -316,20 +354,85 @@ fn analyze(raw: &Path) -> Result<Value> {
             .map(serde_json::from_str)
             .collect::<std::result::Result<_, _>>()?;
         need(
-            rows.len() == 256 && rows.iter().enumerate().all(|(i, row)| row["tick"] == i + 1),
+            rows.len() == 256
+                && rows.iter().enumerate().all(|(i, row)| {
+                    row["tick"] == i + 1
+                        && ["stages_ns", "calls"].iter().all(|key| {
+                            row[key].as_array().is_some_and(|a| {
+                                a.len() == if detail { 16 } else { 12 }
+                                    && a.iter().all(Value::is_u64)
+                            })
+                        })
+                }),
             "tick trace",
         )?;
         let samples: Vec<u64> = rows
             .iter()
             .map(|row| row["step_ns"].as_u64().ok_or("step sample"))
             .collect::<std::result::Result<_, _>>()?;
-        runs.push(json!({"label":label,"scale":scale,"arm":arm,"windows":{
+        let mut run = json!({"label":label,"scale":scale,"arm":arm,"windows":{
             "enter":summary(&samples[..64]),"filtered":summary(&samples[64..]),"all":summary(&samples)},
-            "initial_counts":result["initial_counts"],"final_counts":result["final_counts"]}));
+            "initial_counts":result["initial_counts"],"final_counts":result["final_counts"]});
+        if detail {
+            let work: Vec<Value> = fs::read_to_string(raw.join(format!("{label}.stderr")))?
+                .lines()
+                .filter_map(|line| line.strip_prefix("LF814 "))
+                .map(serde_json::from_str)
+                .collect::<std::result::Result<_, _>>()?;
+            need(
+                work.len() == 256
+                    && work.iter().enumerate().all(|(i, row)| {
+                        row["tick"] == i + 1
+                            && row["work"]
+                                .as_array()
+                                .is_some_and(|a| a.len() == 20 && a.iter().all(Value::is_u64))
+                            && row["memory"]
+                                .as_array()
+                                .is_some_and(|a| a.len() == 6 && a.iter().all(Value::is_u64))
+                            && row["layout"]
+                                .as_array()
+                                .is_some_and(|a| a.len() == 3 && a.iter().all(Value::is_u64))
+                            && row["layout"] == work[0]["layout"]
+                    }),
+                "columnar diagnostic rows",
+            )?;
+            run["work_mean_per_tick"] = json!(
+                (0..20)
+                    .map(|index| work
+                        .iter()
+                        .map(|row| row["work"][index].as_u64().unwrap_or(0) as f64)
+                        .sum::<f64>()
+                        / 256.0)
+                    .collect::<Vec<_>>()
+            );
+            run["stage_means_ms"] = json!(
+                (0..16)
+                    .map(|index| rows
+                        .iter()
+                        .map(|row| row["stages_ns"][index].as_u64().unwrap_or(0) as f64)
+                        .sum::<f64>()
+                        / 256.0
+                        / 1e6)
+                    .collect::<Vec<_>>()
+            );
+            run["initial_memory"] = work[0]["memory"].clone();
+            run["final_memory"] = work[255]["memory"].clone();
+            run["max_memory"] = json!(
+                (0..6)
+                    .map(|index| work
+                        .iter()
+                        .map(|row| row["memory"][index].as_u64().unwrap_or(0))
+                        .max()
+                        .unwrap_or(0))
+                    .collect::<Vec<_>>()
+            );
+            run["layout"] = work[0]["layout"].clone();
+        }
+        runs.push(run);
     }
     Ok(
-        json!({"protocol":EXPERIMENT.protocol,"status":"48-runs-verified","head":identity["head"],
-        "baseline":BASE,"runs":runs,"raw_files":io::file_index(raw)?,"limits":"bounded 256 ticks; not 100k Active or final certification"}),
+        json!({"protocol":EXPERIMENT.protocol,"status":if detail {"12-diagnostic-runs-verified"} else {"48-runs-verified"},"head":identity["head"],
+        "baseline":BASE,"mode":mode,"runs":runs,"semantics":logical,"raw_files":io::file_index(raw)?,"limits":"bounded 256 ticks; not 100k Active or final certification"}),
     )
 }
 fn run() -> Result<()> {
@@ -343,11 +446,19 @@ fn run() -> Result<()> {
     chunk_collector::verify_running()?;
     match args.first().map(String::as_str) {
         Some("verify-collector") if args.len() == 2 => chunk_collector::verify_root(Path::new(&args[1])),
-        Some("prepare") if args.len() == 3 => export(Path::new(&args[2]), &args[1]),
-        Some("run") if args.len() == 4 => capture(Path::new(&args[1]), Path::new(&args[2]), Path::new(&args[3])),
+        Some("prepare" | "prepare-detail") if args.len() == 3 => export(Path::new(&args[2]), &args[1], args[0] == "prepare-detail"),
+        Some("run" | "run-detail") if args.len() == 4 => capture(Path::new(&args[1]), Path::new(&args[2]), Path::new(&args[3]), args[0] == "run-detail"),
         Some("analyze" | "verify") if args.len() == 3 => {
-            let raw = Path::new(&args[1]); let output = Path::new(&args[2]); let value = analyze(raw)?;
+            let raw = Path::new(&args[1]); let output = Path::new(&args[2]); let value = analyze(raw, false)?;
             if args[0] == "verify" { need(value == io::read_json(output)?, "published mismatch") }
+            else { io::outside(raw, output)?; io::write_new(output, &value) }
+        },
+        Some("analyze-detail" | "verify-detail") if args.len() == 4 => {
+            let raw = Path::new(&args[1]); let ordinary = analyze(Path::new(&args[2]), false)?;
+            let value = analyze(raw, true)?;
+            need(value["semantics"]["100k"] == ordinary["semantics"]["100k"], "diagnostic changed ordinary traffic")?;
+            let output = Path::new(&args[3]);
+            if args[0] == "verify-detail" { need(value == io::read_json(output)?, "published diagnostic mismatch") }
             else { io::outside(raw, output)?; io::write_new(output, &value) }
         },
         _ => Err("build-collector <new-root> | prepare <base|candidate> <builds> | run <builds> <inputs> <new-raw> | analyze|verify <raw> <result>".into()),

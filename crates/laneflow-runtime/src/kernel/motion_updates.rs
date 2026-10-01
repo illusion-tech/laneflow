@@ -63,22 +63,41 @@ impl MotionUpdates {
         let blocks = capacity.div_ceil(BLOCK_ROWS);
         let mut updates = Self::default();
         updates.motion.try_reserve_exact(blocks)?;
-        updates.motion.resize_with(blocks, MotionBlock::default);
-        updates.reports.try_reserve_exact(blocks * BLOCK_ROWS)?;
-        updates
-            .reports
-            .resize(blocks * BLOCK_ROWS, MotionRowReport::default());
-        updates.order.try_reserve_exact(capacity)?;
-        updates
-            .control_by_row
-            .try_reserve_exact(blocks * BLOCK_ROWS)?;
-        updates.control_by_row.resize(blocks * BLOCK_ROWS, 0);
+        for block in 0..blocks {
+            updates.motion.push(MotionBlock::try_with_rows(
+                (capacity - block * BLOCK_ROWS).min(BLOCK_ROWS),
+            )?);
+        }
         Ok(updates)
+    }
+
+    /// 回报与规范消费暂存仅为本拍真实物理跨度/活动数准备；空世界不保留整表。
+    /// 分配在任何 P5 行求值前完成，失败不会发布下一列或消费真实资源。
+    pub(crate) fn try_prepare_rows(
+        &mut self,
+        extent: usize,
+        active: usize,
+    ) -> Result<(), StepError> {
+        self.reports
+            .try_reserve(extent.saturating_sub(self.reports.len()))
+            .map_err(|_| StepError::VehicleStorageAllocFailed)?;
+        self.control_by_row
+            .try_reserve(extent.saturating_sub(self.control_by_row.len()))
+            .map_err(|_| StepError::VehicleStorageAllocFailed)?;
+        self.order
+            .try_reserve(active.saturating_sub(self.order.len()))
+            .map_err(|_| StepError::VehicleStorageAllocFailed)?;
+        self.reports.resize(extent, MotionRowReport::default());
+        self.control_by_row.resize(extent, 0);
+        Ok(())
     }
 
     #[cfg(test)]
     pub(crate) fn from_states(states: &[(usize, VehicleState)], current: &VehicleStore) -> Self {
         let mut updates = Self::with_capacity(current.capacity());
+        updates
+            .try_prepare_rows(current.active_extent(), states.len())
+            .unwrap();
         for &(slot, state) in states {
             assert_eq!(slot, state.handle.index() as usize);
             updates.push(state, current);
@@ -322,5 +341,10 @@ impl MotionUpdates {
             + vec_bytes(&self.order)
             + vec_bytes(&self.control)
             + vec_bytes(&self.control_by_row)
+            + self
+                .motion
+                .iter()
+                .map(MotionBlock::retained_columns_bytes)
+                .sum::<u64>()
     }
 }
