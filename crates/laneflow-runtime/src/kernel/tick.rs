@@ -5190,6 +5190,31 @@ fn constrain_upcoming_speed_limits(
     Some(next_speed.max(0.0))
 }
 
+/// IIDM 加速度不超过 max_accel，后续限速投影只降速；使用相同 f32 顺序，
+/// 该窗包含完整制动约束窗与两次积分位移。不能证明时保留分段求值。
+fn speed_drop_window_upper(
+    speed: f32,
+    desired: f32,
+    max_accel: f32,
+    comfort: f32,
+    delta_s: f32,
+) -> Option<f32> {
+    if ![speed, desired, max_accel, comfort, delta_s]
+        .iter()
+        .all(|value| value.is_finite())
+        || speed < 0.0
+        || desired < 0.0
+        || max_accel <= 0.0
+        || comfort <= 0.0
+        || delta_s <= 0.0
+    {
+        return None;
+    }
+    let next = (speed + max_accel * delta_s).max(0.0).min(desired);
+    let window = delta_s * (speed + next) + next * next / comfort;
+    window.is_finite().then_some(window)
+}
+
 fn cap_next_speed_for_limit(
     current_speed: f32,
     next_speed: f32,
@@ -5629,6 +5654,52 @@ mod preview {
     );
 
     #[test]
+    fn speed_drop_window_covers_actual_proposals_and_rejects_unprovable_inputs() {
+        for speed_mm_s in [0, 1, 66_789, 100_000, u32::MAX] {
+            for desired_mm_s in [0, 1, 66_789, 100_000] {
+                for max_accel in [0.5, 2.0, 50.0] {
+                    for comfort in [0.5, 2.0, 20.0] {
+                        for delta_s in [0.004, 0.033, 1.0] {
+                            let speed = si_speed(speed_mm_s);
+                            let desired = si_speed(desired_mm_s);
+                            let upper = speed_drop_window_upper(
+                                speed, desired, max_accel, comfort, delta_s,
+                            )
+                            .unwrap();
+                            for leader_m in [None, Some(0.0), Some(0.001), Some(100.0)] {
+                                let (_, next) = laneflow_motion_kernel::raw_proposal(
+                                    &laneflow_motion_kernel::ProposalInput {
+                                        speed_m_s: speed,
+                                        desired_m_s: desired,
+                                        leader_m,
+                                        min_gap_m: 2.0,
+                                        time_headway: 1.6,
+                                        max_accel,
+                                        comfort_decel: comfort,
+                                        emergency_decel: 50.0,
+                                        delta_s,
+                                    },
+                                )
+                                .unwrap();
+                                let actual = delta_s * (speed + next) + next * next / comfort;
+                                assert!(actual <= upper, "full braking window covered");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (max_accel, comfort, delta_s) in [
+            (f32::NAN, 2.0, 0.033),
+            (2.0, 0.0, 0.033),
+            (2.0, 2.0, f32::INFINITY),
+            (2.0, 2.0, 0.0),
+        ] {
+            assert!(speed_drop_window_upper(1.0, 10.0, max_accel, comfort, delta_s).is_none());
+        }
+    }
+
+    #[test]
     fn distant_speed_drop_preserves_candidate_but_near_drop_keeps_solver_rounding() {
         let mut route = CompiledRoute {
             edges: vec![LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)],
@@ -5656,6 +5727,33 @@ mod preview {
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.
         let candidate = 66.89_f32;
+        let inputs = MotionInputs {
+            speed_mm_s: 65_761,
+            desired_mm_s: 100_000,
+            current_limit_mm_s: 100_000,
+            speed_drop_first: 0,
+            min_gap_mm: 2_000,
+            time_headway: 1.6,
+            max_accel: 35.0,
+            comfort_decel: 18.758,
+            emergency_decel: 20.0,
+            leader_gap: None,
+            route_end: BoundedDistance::Finite(75_266),
+            movement_stop: None,
+            parking: None,
+            edge_length_mm: 74_266,
+            permitted_for_hard_room: true,
+            envelope_m: 100.0,
+            proposal: None,
+        };
+        assert!(columnar_motion::speed_drop_may_constrain(
+            &route, &inputs, 0, 0, 0.033
+        ));
+        let upper_window = speed_drop_window_upper(65.761, 100.0, 35.0, 18.758, 0.033).unwrap();
+        assert!(
+            si_meters(route.occurrence_offsets[1]) <= upper_window,
+            "rounding-sensitive drop keeps full solver"
+        );
         let near = constrain_upcoming_speed_limits(
             65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0, 0,
         )
@@ -5666,11 +5764,23 @@ mod preview {
         route.occurrence_offsets[1] = 300_000;
         route.segment_totals[0] = 301_000;
         route.remaining_to_end[0] = BoundedDistance::Finite(301_000);
+        assert!(!columnar_motion::speed_drop_may_constrain(
+            &route, &inputs, 0, 0, 0.033
+        ));
+        assert!(
+            si_meters(route.occurrence_offsets[1]) > upper_window,
+            "distant drop outside proved window"
+        );
         let far = constrain_upcoming_speed_limits(
             65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0, 0,
         )
         .unwrap();
         assert_eq!(far.to_bits(), candidate.to_bits());
+        route.occurrence_offsets.clear();
+        assert!(
+            columnar_motion::speed_drop_may_constrain(&route, &inputs, 0, 0, 0.033),
+            "missing distance keeps full path"
+        );
     }
 
     #[test]

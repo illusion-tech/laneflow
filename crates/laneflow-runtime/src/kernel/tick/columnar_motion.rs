@@ -6,8 +6,8 @@ use super::{
     BoundedDistance, MOTION_DISPATCH_MIN_ACTIVE, MotionInputs, MotionTaskView,
     ParkingArrivalObservation, ParkingBinding, StepError, VehicleState, VehicleStatus,
     distance_to_occurrence_start, finite_meters, hard_room_mm, leader_gap_m,
-    motion_dispatch_fuse_forced, push_parking_arrival, remaining_to_route_end, si_meters,
-    stop_is_nearer_or_equal,
+    motion_dispatch_fuse_forced, push_parking_arrival, remaining_to_route_end, si_meters, si_speed,
+    speed_drop_window_upper, stop_is_nearer_or_equal,
 };
 #[cfg(test)]
 use super::{
@@ -133,6 +133,46 @@ fn movement_stop(
         }
     }
     stop
+}
+
+pub(super) fn speed_drop_may_constrain(
+    compiled: &CompiledRoute,
+    inputs: &MotionInputs,
+    cursor: usize,
+    progress_mm: u32,
+    delta_s: f32,
+) -> bool {
+    let Some(drop) = compiled.speed_limit_drop.get(inputs.speed_drop_first) else {
+        return false;
+    };
+    #[cfg(test)]
+    note_columnar_work(11, 1);
+    let Some(window) = speed_drop_window_upper(
+        si_speed(inputs.speed_mm_s),
+        si_speed(inputs.desired_mm_s),
+        inputs.max_accel,
+        inputs.comfort_decel,
+        delta_s,
+    ) else {
+        return true;
+    };
+    let distance = (drop.from_route_edge_index as usize)
+        .checked_add(1)
+        .and_then(|to| {
+            distance_to_occurrence_start(
+                &compiled.occurrence_segments,
+                &compiled.occurrence_offsets,
+                &compiled.segment_totals,
+                cursor,
+                progress_mm,
+                to,
+            )
+        });
+    match distance {
+        Some(BoundedDistance::Finite(mm)) => si_meters(mm) <= window,
+        Some(BoundedDistance::BeyondFinite) => false,
+        None => true,
+    }
 }
 
 fn arrival(
@@ -448,10 +488,13 @@ fn compute(
                 })
                 .ok_or(StepError::NonFiniteMotion)?;
             *route = Some(compiled);
-            batch.complex[row] = compiled
-                .speed_limit_drop
-                .last()
-                .is_some_and(|drop| drop.from_route_edge_index >= state.route_edge_index);
+            batch.complex[row] = speed_drop_may_constrain(
+                compiled,
+                &basis,
+                state.route_edge_index as usize,
+                state.progress_mm,
+                delta_s,
+            );
             #[cfg(test)]
             MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
             batch.store(row, &basis);
@@ -815,9 +858,9 @@ pub(super) fn prepare(
     }
     // 规范首错及每辆车的真实到达 reserve 交错保留，物理块和 ISA 都不改变消费顺序。
     for (canonical_rank, handle) in read.derived.active_order.iter().copied().enumerate() {
-        let Some(state) = read.vehicle_state(handle) else {
+        if read.committed.vehicles.status(handle).is_none() {
             continue;
-        };
+        }
         let physical = read
             .committed
             .vehicles
@@ -848,7 +891,7 @@ pub(super) fn prepare(
                 read.binding.world_id,
             )?;
         }
-        updates.adopt(state, report.completed, &read.committed.vehicles)?;
+        updates.adopt(handle, report.completed, &read.committed.vehicles)?;
     }
     Ok(())
 }
