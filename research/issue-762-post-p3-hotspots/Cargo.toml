@@ -66,3 +66,7 @@ path = "src/columnar_runtime.rs"
 [[bin]]
 name = "laneflow-columnar-measurement"
 path = "src/columnar_measurement.rs"
+
+[[bin]]
+name = "laneflow-motion-split-research"
+path = "src/motion_split.rs"
