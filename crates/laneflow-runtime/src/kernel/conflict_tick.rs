@@ -1425,7 +1425,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         cache_index: usize,
         cache: &CacheUpdates,
     ) {
-        if cache.horizon.is_none() && cache.preview.is_none() {
+        if cache.horizon.is_none() && cache.preview.is_none() && cache.basis.is_none() {
             return;
         }
         if let Some(entry) = self
@@ -1439,6 +1439,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
             if let Some(preview) = cache.preview {
                 entry.preview = Some(preview);
+            }
+            if let Some(basis) = cache.basis {
+                entry.basis_index = crate::kernel::tick::store_motion_basis(
+                    &mut self.workspace.motion_bases,
+                    basis,
+                );
             }
         }
     }
@@ -1594,15 +1600,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .copied()
             });
         let waiting_stop = self.waiting_stop_for(&state)?;
+        let mut basis = None;
         let motion = cached
             .and_then(|entry| entry.preview)
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
             .or_else(|| {
-                self.read_view().preview_active_vehicle_with_waiting_stop(
+                self.read_view().preview_active_vehicle_with_basis_output(
                     state,
                     delta_s,
                     waiting_stop,
                     Some(horizon),
+                    Some(&mut basis),
                 )
             })
             .ok_or(StepError::NonFiniteMotion)?;
@@ -1614,6 +1622,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .filter(|entry| entry.vehicle == state.handle)
         {
             entry.preview = Some(motion);
+            if let Some(basis) = basis {
+                entry.basis_index = crate::kernel::tick::store_motion_basis(
+                    &mut self.workspace.motion_bases,
+                    basis,
+                );
+            }
         }
         for gate_index in first_gate..gate_count {
             let gate_hop = compiled.gate_hops[gate_index];
@@ -4736,6 +4750,8 @@ pub(crate) struct CacheUpdates {
     horizon: Option<crate::kernel::occupancy::LeaderQueryHorizon>,
     /// §2 #11：preview 在 Gate 循环之前已算出，须落缓存。
     preview: Option<crate::kernel::tick::MotionPreview>,
+    /// 实际产生的基础输入随近门报告暂存，规范消费后移入独立稀疏载荷。
+    basis: Option<crate::kernel::tick::MotionBasis>,
 }
 
 #[derive(Clone)]
@@ -5180,11 +5196,12 @@ impl ConflictTaskView<'_> {
             .and_then(|entry| entry.preview)
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
             .or_else(|| {
-                self.read.preview_active_vehicle_with_waiting_stop(
+                self.read.preview_active_vehicle_with_basis_output(
                     state,
                     delta_s,
                     waiting_stop,
                     Some(horizon),
+                    Some(&mut cache.basis),
                 )
             }) {
             Some(motion) => motion,

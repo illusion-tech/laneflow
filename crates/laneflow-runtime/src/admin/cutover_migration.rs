@@ -1019,6 +1019,8 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             waiting_staged_storage_mm,
             occupancy_scratch,
             motion_cache: Vec::new(),
+            motion_bases: Vec::new(),
+            waiting_preview_bases: Vec::new(),
             next_states,
             motion_next,
             motion_kernel: world.workspace.motion_kernel,
