@@ -2336,7 +2336,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         updates: &mut super::motion_updates::MotionUpdates,
     ) -> Result<(), crate::StepError> {
         self.workspace.next_state_by_vehicle.fill(0);
-        for (update_index, (slot, _)) in updates.iter(&self.committed.vehicles).enumerate() {
+        for (update_index, slot) in updates.slot_indices().enumerate() {
             let encoded = u32::try_from(update_index)
                 .ok()
                 .and_then(|value| value.checked_add(1))
@@ -2503,7 +2503,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let old = self
                 .committed
                 .vehicles
-                .slot(updates.get(anchor.update_index, &self.committed.vehicles).0)
+                .slot(updates.slot_index(anchor.update_index))
                 .state
                 .expect("staged live vehicle");
             if previous_update != Some(anchor.update_index) {

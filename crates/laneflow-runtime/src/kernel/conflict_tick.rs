@@ -2535,7 +2535,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         journal: &mut MigrationDeltaJournal,
         updates: &super::motion_updates::MotionUpdates,
     ) {
-        for (slot, _) in updates.iter(&self.committed.vehicles) {
+        for slot in updates.slot_indices() {
             let previous = self
                 .committed
                 .conflict_eligibility
