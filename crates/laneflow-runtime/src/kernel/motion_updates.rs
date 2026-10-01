@@ -137,23 +137,23 @@ impl MotionUpdates {
 
     pub(crate) fn adopt(
         &mut self,
-        state: VehicleState,
+        handle: crate::VehicleHandle,
         completed: bool,
         current: &VehicleStore,
     ) -> Result<(), StepError> {
         let physical = current
-            .active_row(state.handle)
+            .active_row(handle)
             .expect("column result has active predecessor");
         let index = self.order.len();
         self.order.push(UpdateRow {
-            slot: state.handle.index() as usize,
+            slot: handle.index() as usize,
             physical,
         });
         self.motion[physical / BLOCK_ROWS].valid[physical % BLOCK_ROWS / 64] |=
             1 << (physical % 64);
         if completed {
             let old = current
-                .active_control(state.handle.index() as usize)
+                .active_control(handle.index() as usize)
                 .expect("next state has active predecessor");
             self.set_control(
                 index,
