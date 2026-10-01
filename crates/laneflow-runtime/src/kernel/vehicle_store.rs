@@ -102,13 +102,19 @@ fn grow_column<T: Clone>(column: &mut Vec<T>, rows: usize, zero: T) -> Result<()
     Ok(())
 }
 
+/// 逐车共同读取的稳定字段相邻存放；与可交换的运动列和稀疏控制记录分离。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct VehicleContext {
+    owner: VehicleHandle,
+    route: RouteHandle,
+    profile: VehicleProfileOrdinal,
+    class: ParticipantClassOrdinal,
+    length_mm: u32,
+}
+
 #[derive(Clone, Debug, Default)]
 struct ContextBlock {
-    owner: Vec<Option<VehicleHandle>>,
-    route: Vec<Option<RouteHandle>>,
-    profile: Vec<Option<VehicleProfileOrdinal>>,
-    class: Vec<Option<ParticipantClassOrdinal>>,
-    length_mm: Vec<u32>,
+    rows: Vec<Option<VehicleContext>>,
 }
 
 impl ContextBlock {
@@ -119,21 +125,13 @@ impl ContextBlock {
     }
 
     fn try_grow_rows(&mut self, rows: usize) -> Result<(), TryReserveError> {
-        grow_column(&mut self.owner, rows, None)?;
-        grow_column(&mut self.route, rows, None)?;
-        grow_column(&mut self.profile, rows, None)?;
-        grow_column(&mut self.class, rows, None)?;
-        grow_column(&mut self.length_mm, rows, 0)
+        grow_column(&mut self.rows, rows, None)
     }
 
     #[cfg(test)]
     fn retained_columns_bytes(&self) -> u64 {
         use crate::kernel::state::vec_bytes;
-        vec_bytes(&self.owner)
-            + vec_bytes(&self.route)
-            + vec_bytes(&self.profile)
-            + vec_bytes(&self.class)
-            + vec_bytes(&self.length_mm)
+        vec_bytes(&self.rows)
     }
 }
 
@@ -305,17 +303,17 @@ impl VehicleStore {
         motion: &MotionBlock,
     ) -> Option<VehicleState> {
         let row = physical % BLOCK_ROWS;
-        let context = &self.context[physical / BLOCK_ROWS];
+        let context = self.context[physical / BLOCK_ROWS].rows[row].as_ref()?;
         let control = entry
             .control
             .checked_sub(1)
             .map_or_else(ControlState::default, |row| self.control[row as usize]);
         Some(VehicleState {
-            handle: context.owner[row]?,
-            route: context.route[row]?,
-            profile: context.profile[row]?,
-            class: context.class[row]?,
-            length_mm: context.length_mm[row],
+            handle: context.owner,
+            route: context.route,
+            profile: context.profile,
+            class: context.class,
+            length_mm: context.length_mm,
             route_edge_index: motion.route_cursor[row],
             progress_mm: motion.progress_mm[row],
             speed_mm_s: motion.speed_mm_s[row],
@@ -352,10 +350,7 @@ impl VehicleStore {
             Location::Active(physical) => {
                 let context = &self.context[physical / BLOCK_ROWS];
                 let row = physical % BLOCK_ROWS;
-                context.owner[row]?;
-                context.route[row]?;
-                context.profile[row]?;
-                context.class[row]?;
+                context.rows[row].as_ref()?;
                 Some(VehicleStatus::Active)
             }
         }
@@ -378,7 +373,9 @@ impl VehicleStore {
         let Location::Active(physical) = self.directory.get(slot)?.location else {
             return None;
         };
-        self.context[physical / BLOCK_ROWS].owner[physical % BLOCK_ROWS]
+        self.context[physical / BLOCK_ROWS].rows[physical % BLOCK_ROWS]
+            .as_ref()
+            .map(|context| context.owner)
     }
 
     #[inline]
@@ -397,12 +394,13 @@ impl VehicleStore {
 
     #[inline(always)]
     pub(crate) fn active_at(&self, physical: usize) -> Option<VehicleState> {
-        let handle = *self
+        let context = self
             .context
             .get(physical / BLOCK_ROWS)?
-            .owner
-            .get(physical % BLOCK_ROWS)?;
-        let handle = handle?;
+            .rows
+            .get(physical % BLOCK_ROWS)?
+            .as_ref()?;
+        let handle = context.owner;
         self.active_with_motion(
             handle.index() as usize,
             physical,
@@ -423,8 +421,7 @@ impl VehicleStore {
             return None;
         }
         let context = self.context.get(physical / BLOCK_ROWS)?;
-        let handle = *context.owner.get(physical % BLOCK_ROWS)?;
-        let handle = handle?;
+        let handle = context.rows.get(physical % BLOCK_ROWS)?.as_ref()?.owner;
         if handle.index() as usize != slot || handle.generation() != entry.generation {
             return None;
         }
@@ -493,7 +490,7 @@ impl VehicleStore {
                     Location::Active(position) => {
                         self.motion[position / BLOCK_ROWS].valid[position % BLOCK_ROWS / 64] &=
                             !(1 << (position % 64));
-                        self.context[position / BLOCK_ROWS].owner[position % BLOCK_ROWS] = None;
+                        self.context[position / BLOCK_ROWS].rows[position % BLOCK_ROWS] = None;
                         self.free_active.push(
                             u32::try_from(position).expect("physical row fits vehicle capacity"),
                         );
@@ -534,17 +531,15 @@ impl VehicleStore {
                 let row = position % BLOCK_ROWS;
                 let context = &mut self.context[block];
                 // 稳定上下文只在发生变化时写入，不随普通运动发布重抄。
-                if context.owner[row] != Some(state.handle)
-                    || context.route[row] != Some(state.route)
-                    || context.profile[row] != Some(state.profile)
-                    || context.class[row] != Some(state.class)
-                    || context.length_mm[row] != state.length_mm
-                {
-                    context.owner[row] = Some(state.handle);
-                    context.route[row] = Some(state.route);
-                    context.profile[row] = Some(state.profile);
-                    context.class[row] = Some(state.class);
-                    context.length_mm[row] = state.length_mm;
+                let replacement = VehicleContext {
+                    owner: state.handle,
+                    route: state.route,
+                    profile: state.profile,
+                    class: state.class,
+                    length_mm: state.length_mm,
+                };
+                if context.rows[row].as_ref() != Some(&replacement) {
+                    context.rows[row] = Some(replacement);
                 }
                 let motion = &mut self.motion[block];
                 motion.route_cursor[row] = state.route_edge_index;
@@ -654,6 +649,57 @@ impl Iterator for VehicleStoreIter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn physical_and_next_reads_keep_identity_after_row_reuse() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let mut state = world.vehicle(world.live_vehicles()[0]).unwrap();
+        state.maneuver_traversal = Some(crate::ManeuverTraversalState {
+            route: state.route,
+            maneuver_occurrence_index: 0,
+            phase: crate::ManeuverTraversalPhase::PreGate { next_gate_hop: 0 },
+        });
+        let original = state.handle;
+        let mut store = VehicleStore::with_capacity(BLOCK_ROWS + 1);
+        store.push(VehicleSlot {
+            generation: original.generation(),
+            state: Some(state),
+        });
+        let physical = store.active_row(original).unwrap();
+        store.set(
+            0,
+            VehicleSlot {
+                generation: original.generation(),
+                state: None,
+            },
+        );
+        assert!(store.active_at(physical).is_none());
+        state.handle = VehicleHandle::new(original.index(), original.generation() + 1);
+        store.set(
+            0,
+            VehicleSlot {
+                generation: state.handle.generation(),
+                state: Some(state),
+            },
+        );
+        assert_eq!(store.active_row(state.handle), Some(physical));
+        assert_eq!(store.active_at(physical), Some(state));
+        assert!(store.state(original).is_none());
+        assert!(store.status(original).is_none());
+        assert_eq!(store.status(state.handle), Some(VehicleStatus::Active));
+
+        let mut next = store.motion[physical / BLOCK_ROWS].clone();
+        next.progress_mm[physical % BLOCK_ROWS] += 1;
+        next.speed_mm_s[physical % BLOCK_ROWS] += 97;
+        next.carry_um[physical % BLOCK_ROWS] = 999;
+        let mut expected = state;
+        expected.progress_mm += 1;
+        expected.speed_mm_s += 97;
+        expected.carry_um = 999;
+        assert_eq!(store.active_with_motion(0, physical, &next), Some(expected));
+        assert!(store.active_with_motion(1, physical, &next).is_none());
+        assert_eq!(store.state(state.handle), Some(state));
+    }
 
     #[test]
     fn cold_pools_grow_for_actual_records_and_reuse_without_growth() {

@@ -11,6 +11,8 @@
 
 活动运动池（Active Motion Pool）使用分块列式布局（Block SoA）。初始块容量为 128 行；256 行仅作为后续实验参数。每块的热字段是路线游标、毫米进度、毫米每秒速度、微米 carry 和有效位集。身份、路线/profile/class/车长为稳定上下文；Waiting membership 和 maneuver traversal 属于稀疏控制状态。非活动记录保留在独立存储中，不进入活动热块扫描。
 
+稳定上下文按逐车共同消费者组织为紧凑记录，减少组装逻辑值时的分散读取和重复边界检查；它不包含运动数值，不随 Current/Next 交换。只需要状态或身份的消费者直接读取受检目录，不为这些查询物化完整 `VehicleState`。
+
 车辆目录（Vehicle Directory）按完整句柄索引保存 generation、存储类别和物理位置。完整句柄决定身份，规范逻辑位置（Canonical Logical Position）决定消费/事件/首错顺序，物理行（Physical Row）决定连续读写及独占执行。三者不可混用。不按车道或 profile 每拍全局重排权威列。
 
 `VehicleState` 是按值组装的逻辑视图、公开读取、快照及测试类型。内部返回 `&VehicleState` 的接口改为值或受限列视图；不维护完整 AoS 影子。登记/恢复/切换可以一次性拆分逻辑值；步进不得依靠全量 AoS→SoA→AoS 转换维持运行。
