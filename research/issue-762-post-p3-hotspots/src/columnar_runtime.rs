@@ -109,7 +109,7 @@ fn inputs(root: &Path) -> Result<Value> {
     }
     Ok(json!(index))
 }
-fn export(root: &Path, arm: &str, detail: bool) -> Result<()> {
+fn export(root: &Path, arm: &str, detail: bool, revision: Option<&str>) -> Result<()> {
     need(["base", "candidate"].contains(&arm), "source arm")?;
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
@@ -117,7 +117,19 @@ fn export(root: &Path, arm: &str, detail: bool) -> Result<()> {
         io::git(&repo, &["status", "--porcelain"])?.is_empty(),
         "dirty source",
     )?;
-    let commit = if arm == "base" { BASE } else { &head };
+    need(
+        revision.is_none() || arm == "candidate",
+        "explicit candidate source",
+    )?;
+    let commit = if arm == "base" {
+        BASE
+    } else {
+        revision.unwrap_or(&head)
+    };
+    need(
+        commit.len() == 40 && commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "full source commit required",
+    )?;
     io::git(&repo, &["merge-base", "--is-ancestor", commit, "HEAD"])?;
     let mode = if detail { "detail" } else { "plain" };
     chunk_build::ensure_outputs(root, arm, mode)?;
@@ -414,6 +426,44 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                     .collect::<Vec<_>>()
             );
             run["layout"] = work[0]["layout"].clone();
+            let pipeline: Vec<Value> = fs::read_to_string(raw.join(format!("{label}.stderr")))?
+                .lines()
+                .filter_map(|line| line.strip_prefix("LF814_PIPELINE "))
+                .map(serde_json::from_str)
+                .collect::<std::result::Result<_, _>>()?;
+            need(
+                pipeline.len() == 256
+                    && pipeline.iter().enumerate().all(|(i, row)| {
+                        row["tick"] == i + 1
+                            && [
+                                ("elapsed_sum_ns", 28),
+                                ("measured_calls", 28),
+                                ("counts", 40),
+                            ]
+                            .iter()
+                            .all(|&(key, len)| {
+                                row[key].as_array().is_some_and(|values| {
+                                    values.len() == len && values.iter().all(Value::is_u64)
+                                })
+                            })
+                    }),
+                "columnar pipeline timing/count rows",
+            )?;
+            for (key, len) in [
+                ("elapsed_sum_ns", 28),
+                ("measured_calls", 28),
+                ("counts", 40),
+            ] {
+                run["pipeline"][key] = json!(
+                    (0..len)
+                        .map(|index| pipeline
+                            .iter()
+                            .map(|row| row[key][index].as_u64().unwrap_or(0) as f64)
+                            .sum::<f64>()
+                            / 256.0)
+                        .collect::<Vec<_>>()
+                );
+            }
             let block_rows: Vec<Value> = fs::read_to_string(raw.join(format!("{label}.stderr")))?
                 .lines()
                 .filter_map(|line| line.strip_prefix("LF814_BLOCK "))
@@ -458,7 +508,8 @@ fn run() -> Result<()> {
     chunk_collector::verify_running()?;
     match args.first().map(String::as_str) {
         Some("verify-collector") if args.len() == 2 => chunk_collector::verify_root(Path::new(&args[1])),
-        Some("prepare" | "prepare-detail") if args.len() == 3 => export(Path::new(&args[2]), &args[1], args[0] == "prepare-detail"),
+        Some("prepare" | "prepare-detail") if args.len() == 3 => export(Path::new(&args[2]), &args[1], args[0] == "prepare-detail", None),
+        Some("prepare-detail-at") if args.len() == 3 => export(Path::new(&args[2]), "candidate", true, Some(&args[1])),
         Some("run" | "run-detail") if args.len() == 4 => capture(Path::new(&args[1]), Path::new(&args[2]), Path::new(&args[3]), args[0] == "run-detail"),
         Some("analyze" | "verify") if args.len() == 3 => {
             let raw = Path::new(&args[1]); let output = Path::new(&args[2]); let value = analyze(raw, false)?;
@@ -473,7 +524,7 @@ fn run() -> Result<()> {
             if args[0] == "verify-detail" { need(value == io::read_json(output)?, "published diagnostic mismatch") }
             else { io::outside(raw, output)?; io::write_new(output, &value) }
         },
-        _ => Err("build-collector <new-root> | prepare <base|candidate> <builds> | run <builds> <inputs> <new-raw> | analyze|verify <raw> <result>".into()),
+        _ => Err("build-collector <new-root> | prepare <base|candidate> <builds> | prepare-detail-at <full-source-sha> <builds> | run <builds> <inputs> <new-raw> | analyze|verify <raw> <result>".into()),
     }
 }
 fn main() {
