@@ -245,9 +245,15 @@ struct MotionBasis {
     profile: VehicleProfileOrdinal,
     cursor: u32,
     progress_mm: u32,
-    speed_mm_s: u32,
     delta_bits: u32,
     parking_binding: Option<ParkingBinding>,
+    inputs: MotionInputs,
+}
+
+/// 仅为当前消费者准备数值输入；跨阶段复用时才附加完整来源证明。
+#[derive(Clone, Copy, Debug)]
+struct MotionInputs {
+    speed_mm_s: u32,
     desired_mm_s: u32,
     current_limit_mm_s: u32,
     speed_drop_first: usize,
@@ -268,8 +274,8 @@ struct MotionBasis {
 
 impl MotionBasis {
     fn matches(
-        self,
-        state: VehicleState,
+        &self,
+        state: &VehicleState,
         delta_s: f32,
         parking_binding: Option<ParkingBinding>,
     ) -> bool {
@@ -278,12 +284,14 @@ impl MotionBasis {
             && self.profile == state.profile
             && self.cursor == state.route_edge_index
             && self.progress_mm == state.progress_mm
-            && self.speed_mm_s == state.speed_mm_s
+            && self.inputs.speed_mm_s == state.speed_mm_s
             && self.delta_bits == delta_s.to_bits()
             && self.parking_binding == parking_binding
     }
+}
 
-    fn raw_proposal(self, delta_s: f32) -> Option<(f32, f32)> {
+impl MotionInputs {
+    fn raw_proposal(&self, delta_s: f32) -> Option<(f32, f32)> {
         self.proposal.or_else(|| {
             #[cfg(test)]
             note_columnar_work(1, 1);
@@ -387,37 +395,41 @@ impl MotionPreview {
         mut self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     ) -> Option<Self> {
-        if self.waiting_stop == waiting_stop {
-            return Some(self);
-        }
-        // 只能证明新增约束不改变结果；移除或替换已经参与计算的约束必须重算。
-        if self.waiting_stop.is_some() {
-            return None;
-        }
-        let stop = waiting_stop?;
-        if !self.unaffected_by(stop) {
+        if !self.accepts_waiting_stop(waiting_stop) {
             return None;
         }
         self.waiting_stop = waiting_stop;
         Some(self)
     }
 
+    fn accepts_waiting_stop(
+        &self,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    ) -> bool {
+        // 只能证明新增约束不改变结果；移除或替换已经参与计算的约束必须重算。
+        self.waiting_stop == waiting_stop
+            || (self.waiting_stop.is_none()
+                && waiting_stop.is_some_and(|stop| self.unaffected_by(stop)))
+    }
+
     fn reuse(
-        self,
+        &self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     ) -> Option<super::vehicle_store::MotionValue> {
-        let preview = self.with_waiting_stop(waiting_stop)?;
+        if !self.accepts_waiting_stop(waiting_stop) {
+            return None;
+        }
         let Some(stop) = conflict_stop else {
-            return Some(preview.next);
+            return Some(self.next);
         };
         if Some(stop) == waiting_stop {
-            return Some(preview.next);
+            return Some(self.next);
         }
-        preview.unaffected_by(stop).then_some(preview.next)
+        self.unaffected_by(stop).then_some(self.next)
     }
 
-    fn unaffected_by(self, stop: crate::kernel::waiting::WaitingStopConstraint) -> bool {
+    fn unaffected_by(&self, stop: crate::kernel::waiting::WaitingStopConstraint) -> bool {
         let beyond_motion = match self.bounds {
             MotionBounds::Unknown => false,
             // 原 hard_room 已为零；额外停止约束仍走相同的零位移提前返回。
@@ -3777,21 +3789,22 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn prepare_motion_basis(
+    fn prepare_motion_inputs(
         self,
-        state: VehicleState,
+        state: &VehicleState,
+        compiled: &CompiledRoute,
+        profile: VehicleProfileView,
         delta_s: f32,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
         leader_gap_override: Option<Option<i64>>,
-    ) -> Option<MotionBasis> {
+    ) -> Option<MotionInputs> {
         #[cfg(test)]
         note_columnar_work(0, 1);
         #[cfg(test)]
         let inputs_timer = super::exact_path_research::begin(
             super::exact_path_research::Stage::RouteProfileInputs,
         );
-        let compiled = self.compiled_route(state.route)?;
         let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(state.route_edge_index).ok()?;
         let edge = *edges.get(cursor)?;
@@ -3802,12 +3815,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .traffic()
             .lane_speed_limits_millimetres_per_second();
         let current_limit = *speed_limits.get(edge.index())?;
-        let profile = self
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .vehicle_profile(state.profile)?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
         #[cfg(test)]
         drop(inputs_timer);
@@ -3842,8 +3849,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let route_end =
             remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
         let reach = MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s);
-        let signal_stop = self.signal_stop_distance(compiled, &state, cursor, reach);
-        let parking = self.parking_stop_distance(compiled, &state, cursor, parking_binding)?;
+        let signal_stop = self.signal_stop_distance(compiled, state, cursor, reach);
+        let parking = self.parking_stop_distance(compiled, state, cursor, parking_binding)?;
         #[cfg(test)]
         drop(stop_timer);
         let parking_stop = parking.map(|(_, distance)| distance);
@@ -3852,7 +3859,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .then_some(selected_stop.distance);
         // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
         // 不能等 apply_travel 截断后还留着原来的速度。
-        if let Some(gate_stop) = self.restrictive_gate_stop(compiled, &state, cursor, reach) {
+        if let Some(gate_stop) = self.restrictive_gate_stop(compiled, state, cursor, reach) {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
                 Some(_) | None => Some(gate_stop),
@@ -3878,15 +3885,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let speed_drop_first = compiled
             .speed_limit_drop
             .partition_point(|drop| drop.from_route_edge_index < state.route_edge_index);
-        Some(MotionBasis {
-            vehicle: state.handle,
-            route: state.route,
-            profile: state.profile,
-            cursor: state.route_edge_index,
-            progress_mm: state.progress_mm,
+        Some(MotionInputs {
             speed_mm_s: state.speed_mm_s,
-            delta_bits: delta_s.to_bits(),
-            parking_binding,
             desired_mm_s,
             current_limit_mm_s: current_limit,
             speed_drop_first,
@@ -3923,18 +3923,24 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     ) -> Option<VehicleState> {
         #[cfg(test)]
         MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
-        let mut basis =
-            match basis_override.filter(|basis| basis.matches(state, delta_s, parking_binding)) {
-                Some(basis) => basis,
-                None => self.prepare_motion_basis(
-                    state,
+        let compiled = self.compiled_route(state.route)?;
+        let mut inputs =
+            match basis_override.filter(|basis| basis.matches(&state, delta_s, parking_binding)) {
+                Some(basis) => basis.inputs,
+                None => self.prepare_motion_inputs(
+                    &state,
+                    compiled,
+                    self.binding
+                        .revision
+                        .traffic()
+                        .relations()
+                        .vehicle_profile(state.profile)?,
                     delta_s,
                     parking_binding,
                     horizon,
                     leader_gap_override,
                 )?,
             };
-        let compiled = self.compiled_route(state.route)?;
         let edges = compiled.edges.as_slice();
         let cursor = state.route_edge_index as usize;
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
@@ -3943,12 +3949,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second();
-        let leader_gap = basis.leader_gap;
-        let route_end = basis.route_end;
-        let parking = basis.parking;
-        let edge_length_mm = basis.edge_length_mm;
-        let permitted_for_hard_room = basis.permitted_for_hard_room;
-        let mut movement_stop = basis.movement_stop;
+        let leader_gap = inputs.leader_gap;
+        let route_end = inputs.route_end;
+        let parking = inputs.parking;
+        let edge_length_mm = inputs.edge_length_mm;
+        let permitted_for_hard_room = inputs.permitted_for_hard_room;
+        let mut movement_stop = inputs.movement_stop;
         if let Some(waiting) = waiting_stop {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(waiting.distance, current) => {
@@ -3965,13 +3971,22 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 Some(_) | None => Some(conflict.distance),
             };
         }
-        let proposal = basis.raw_proposal(delta_s)?;
-        basis.proposal = Some(proposal);
+        let proposal = inputs.raw_proposal(delta_s)?;
+        inputs.proposal = Some(proposal);
         if let Some(output) = basis_output {
-            *output = Some(basis);
+            *output = Some(MotionBasis {
+                vehicle: state.handle,
+                route: state.route,
+                profile: state.profile,
+                cursor: state.route_edge_index,
+                progress_mm: state.progress_mm,
+                delta_bits: delta_s.to_bits(),
+                parking_binding,
+                inputs,
+            });
         }
         let (mut travel_m, next_speed_m) = si_comfort_travel(
-            basis,
+            &inputs,
             movement_stop,
             compiled,
             lengths,
@@ -3989,13 +4004,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
         let hard_room = if leader_constraint_only {
             match leader_gap {
-                Some(gap) => snapshot_leader_room_mm(gap, basis.min_gap_mm),
+                Some(gap) => snapshot_leader_room_mm(gap, inputs.min_gap_mm),
                 None => u32::MAX,
             }
         } else {
             hard_room_mm(
                 leader_gap,
-                basis.min_gap_mm,
+                inputs.min_gap_mm,
                 movement_stop,
                 route_end,
                 edge_length_mm,
@@ -4377,6 +4392,7 @@ impl MotionTaskView<'_> {
     fn waiting_stop_for(
         self,
         state: &VehicleState,
+        compiled: Option<&CompiledRoute>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
         let Some(plan) = self
             .waiting_plan_by_vehicle
@@ -4391,10 +4407,7 @@ impl MotionTaskView<'_> {
         let Some(stop_hop) = plan.stop_hop else {
             return Ok(None);
         };
-        let compiled = self
-            .read
-            .compiled_route(state.route)
-            .ok_or(StepError::WaitingInvariantViolation)?;
+        let compiled = compiled.ok_or(StepError::WaitingInvariantViolation)?;
         let stop_index = usize::try_from(stop_hop)
             .ok()
             .and_then(|value| value.checked_add(1))
@@ -4423,21 +4436,12 @@ impl MotionTaskView<'_> {
         self,
         state: &VehicleState,
         delta_s: f32,
+        compiled: &CompiledRoute,
+        profile: Option<VehicleProfileView>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
-        let compiled = self
-            .read
-            .compiled_route(state.route)
-            .ok_or(StepError::ConflictInvariantViolation)?;
-        let reach = self
-            .read
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .vehicle_profile(state.profile)
-            .and_then(|profile| {
-                MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s)
-            });
+        let reach = profile.and_then(|profile| {
+            MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s)
+        });
         let (skip_conflict, skip_waiting) = unreachable_barrier_classes(compiled, state, reach);
         if skip_conflict && skip_waiting {
             return Ok(None);
@@ -4570,8 +4574,17 @@ impl MotionTaskView<'_> {
         };
         let arrived_before = reservation
             .is_some_and(|reservation| self.read.parking_arrived_for(*state, reservation));
-        let waiting_stop = self.waiting_stop_for(state)?;
-        let conflict_stop = self.conflict_stop_for(state, delta_s)?;
+        let compiled = self.read.compiled_route(state.route);
+        let waiting_stop = self.waiting_stop_for(state, compiled)?;
+        let compiled = compiled.ok_or(StepError::ConflictInvariantViolation)?;
+        let profile = self
+            .read
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile);
+        let conflict_stop = self.conflict_stop_for(state, delta_s, compiled, profile)?;
         let cached = self
             .motion_cache
             .get(active_index)
@@ -4625,6 +4638,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         state: &VehicleState,
         delta_s: f32,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        let compiled = self
+            .compiled_route(state.route)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let profile = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile);
         MotionTaskView {
             read: self.read_view(),
             waiting_plans: &self.workspace.waiting_plans,
@@ -4633,7 +4655,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             conflict_staged: &self.workspace.conflict,
             motion_cache: &self.workspace.motion_cache,
         }
-        .conflict_stop_for(state, delta_s)
+        .conflict_stop_for(state, delta_s, compiled, profile)
     }
 }
 
@@ -4966,7 +4988,7 @@ fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
 
 #[allow(clippy::too_many_arguments)]
 fn si_comfort_travel(
-    basis: MotionBasis,
+    basis: &MotionInputs,
     signal_stop: Option<BoundedDistance>,
     compiled: &CompiledRoute,
     _lengths: &[u32],

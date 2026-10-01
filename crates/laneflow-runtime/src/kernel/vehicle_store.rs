@@ -288,32 +288,41 @@ impl VehicleStore {
             Location::Inactive(row) => self.inactive[row],
             Location::Active(position) => {
                 let block = position / BLOCK_ROWS;
-                let row = position % BLOCK_ROWS;
-                let context = &self.context[block];
-                let motion = &self.motion[block];
-                let control = entry
-                    .control
-                    .checked_sub(1)
-                    .map_or_else(ControlState::default, |row| self.control[row as usize]);
-                Some(VehicleState {
-                    handle: context.owner[row]?,
-                    route: context.route[row]?,
-                    profile: context.profile[row]?,
-                    class: context.class[row]?,
-                    length_mm: context.length_mm[row],
-                    route_edge_index: motion.route_cursor[row],
-                    progress_mm: motion.progress_mm[row],
-                    speed_mm_s: motion.speed_mm_s[row],
-                    carry_um: motion.carry_um[row],
-                    status: VehicleStatus::Active,
-                    maneuver_traversal: control.maneuver,
-                    waiting_membership: control.waiting,
-                })
+                Some(self.assemble_active(position, entry, &self.motion[block])?)
             }
         };
         Some(VehicleSlot {
             generation: entry.generation,
             state,
+        })
+    }
+
+    #[inline(always)]
+    fn assemble_active(
+        &self,
+        physical: usize,
+        entry: &DirectoryEntry,
+        motion: &MotionBlock,
+    ) -> Option<VehicleState> {
+        let row = physical % BLOCK_ROWS;
+        let context = &self.context[physical / BLOCK_ROWS];
+        let control = entry
+            .control
+            .checked_sub(1)
+            .map_or_else(ControlState::default, |row| self.control[row as usize]);
+        Some(VehicleState {
+            handle: context.owner[row]?,
+            route: context.route[row]?,
+            profile: context.profile[row]?,
+            class: context.class[row]?,
+            length_mm: context.length_mm[row],
+            route_edge_index: motion.route_cursor[row],
+            progress_mm: motion.progress_mm[row],
+            speed_mm_s: motion.speed_mm_s[row],
+            carry_um: motion.carry_um[row],
+            status: VehicleStatus::Active,
+            maneuver_traversal: control.maneuver,
+            waiting_membership: control.waiting,
         })
     }
 
@@ -328,6 +337,28 @@ impl VehicleStore {
         (entry.generation == handle.generation())
             .then_some(entry.state)
             .flatten()
+    }
+
+    /// 身份发现只消费状态，不读取运动列或物化稀疏控制记录。
+    #[inline(always)]
+    pub(crate) fn status(&self, handle: VehicleHandle) -> Option<VehicleStatus> {
+        let entry = self.directory.get(handle.index() as usize)?;
+        if entry.generation != handle.generation() {
+            return None;
+        }
+        match entry.location {
+            Location::Vacant => None,
+            Location::Inactive(row) => self.inactive[row].map(|state| state.status),
+            Location::Active(physical) => {
+                let context = &self.context[physical / BLOCK_ROWS];
+                let row = physical % BLOCK_ROWS;
+                context.owner[row]?;
+                context.route[row]?;
+                context.profile[row]?;
+                context.class[row]?;
+                Some(VehicleStatus::Active)
+            }
+        }
     }
 
     #[inline]
@@ -372,9 +403,32 @@ impl VehicleStore {
             .owner
             .get(physical % BLOCK_ROWS)?;
         let handle = handle?;
-        (self.active_row(handle) == Some(physical))
-            .then(|| self.state(handle))
-            .flatten()
+        self.active_with_motion(
+            handle.index() as usize,
+            physical,
+            &self.motion[physical / BLOCK_ROWS],
+        )
+    }
+
+    /// 已冻结的物理行直接组装指定运动列；Next 消费者不先读取 Current 数值。
+    #[inline(always)]
+    pub(crate) fn active_with_motion(
+        &self,
+        slot: usize,
+        physical: usize,
+        motion: &MotionBlock,
+    ) -> Option<VehicleState> {
+        let entry = self.directory.get(slot)?;
+        if !matches!(entry.location, Location::Active(row) if row == physical) {
+            return None;
+        }
+        let context = self.context.get(physical / BLOCK_ROWS)?;
+        let handle = *context.owner.get(physical % BLOCK_ROWS)?;
+        let handle = handle?;
+        if handle.index() as usize != slot || handle.generation() != entry.generation {
+            return None;
+        }
+        self.assemble_active(physical, entry, motion)
     }
 
     pub(crate) fn active_extent(&self) -> usize {

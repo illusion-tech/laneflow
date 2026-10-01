@@ -1,7 +1,9 @@
 //! 物理列批量求值；完整 join 后按规范逻辑与检查位置消费错误和真实资源预留。
 
+#[cfg(test)]
+use super::MotionBasis;
 use super::{
-    BoundedDistance, MOTION_DISPATCH_MIN_ACTIVE, MotionBasis, MotionTaskView,
+    BoundedDistance, MOTION_DISPATCH_MIN_ACTIVE, MotionInputs, MotionTaskView,
     ParkingArrivalObservation, ParkingBinding, StepError, VehicleState, VehicleStatus,
     distance_to_occurrence_start, finite_meters, hard_room_mm, leader_gap_m,
     motion_dispatch_fuse_forced, push_parking_arrival, remaining_to_route_end, si_meters,
@@ -97,7 +99,7 @@ batch_columns! {
 }
 
 impl Batch {
-    fn store(&mut self, row: usize, basis: MotionBasis) {
+    fn store(&mut self, row: usize, basis: &MotionInputs) {
         self.enabled[row] = true;
         self.desired[row] = basis.desired_mm_s;
         self.min_gap[row] = si_meters(basis.min_gap_mm);
@@ -393,16 +395,25 @@ fn compute(
             batch.reserved_parking[row] =
                 matches!(parking_binding, Some(ParkingBinding::Reserved(_)));
             chunk.reports[row].checkpoint = MotionCheckpoint::Waiting;
-            let waiting = view.waiting_stop_for(&state)?;
+            let compiled = view.read.compiled_route(state.route);
+            let waiting = view.waiting_stop_for(&state, compiled)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Conflict;
-            let conflict = view.conflict_stop_for(&state, delta_s)?;
+            let compiled = compiled.ok_or(StepError::ConflictInvariantViolation)?;
+            let profile = view
+                .read
+                .binding
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile);
+            let conflict = view.conflict_stop_for(&state, delta_s, compiled, profile)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Calculation;
             let cached = view
                 .motion_cache
                 .get(active_index)
                 .filter(|entry| entry.vehicle == state.handle);
             if let Some(next) = cached
-                .and_then(|entry| entry.preview)
+                .and_then(|entry| entry.preview.as_ref())
                 .and_then(|preview| preview.reuse(waiting, conflict))
             {
                 let next = next.apply(state);
@@ -417,25 +428,24 @@ fn compute(
                 return Ok(());
             }
             let reused_basis = cached
-                .and_then(|entry| entry.preview)
-                .and_then(|preview| preview.basis)
-                .filter(|basis| basis.matches(state, delta_s, parking_binding));
+                .and_then(|entry| entry.preview.as_ref())
+                .and_then(|preview| preview.basis.as_ref())
+                .filter(|basis| basis.matches(&state, delta_s, parking_binding));
             #[cfg(test)]
             note_columnar_work(2, usize::from(reused_basis.is_some()));
             let basis = reused_basis
+                .map(|basis| basis.inputs)
                 .or_else(|| {
-                    view.read.prepare_motion_basis(
-                        state,
+                    view.read.prepare_motion_inputs(
+                        &state,
+                        compiled,
+                        profile?,
                         delta_s,
                         parking_binding,
                         cached.and_then(|entry| entry.horizon),
                         None,
                     )
                 })
-                .ok_or(StepError::NonFiniteMotion)?;
-            let compiled = view
-                .read
-                .compiled_route(state.route)
                 .ok_or(StepError::NonFiniteMotion)?;
             *route = Some(compiled);
             batch.complex[row] = compiled
@@ -444,7 +454,7 @@ fn compute(
                 .is_some_and(|drop| drop.from_route_edge_index >= state.route_edge_index);
             #[cfg(test)]
             MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
-            batch.store(row, basis);
+            batch.store(row, &basis);
             batch.waiting_hop[row] = waiting.map(|stop| stop.hop);
             batch.conflict_hop[row] = conflict.map(|stop| stop.hop);
             let stop = movement_stop(basis.movement_stop, waiting, conflict);
