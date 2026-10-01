@@ -8,6 +8,7 @@ mod chunk_native;
 mod environment;
 use cache_research::{Experiment, io, prepare};
 use serde_json::{Value, json};
+mod columnar_cpu_export;
 mod columnar_export;
 use std::{
     collections::BTreeMap,
@@ -413,6 +414,31 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                     .collect::<Vec<_>>()
             );
             run["layout"] = work[0]["layout"].clone();
+            let block_rows: Vec<Value> = fs::read_to_string(raw.join(format!("{label}.stderr")))?
+                .lines()
+                .filter_map(|line| line.strip_prefix("LF814_BLOCK "))
+                .map(serde_json::from_str)
+                .collect::<std::result::Result<_, _>>()?;
+            need(
+                block_rows.len() == 256
+                    && block_rows.iter().enumerate().all(|(i, row)| {
+                        row["tick"] == i + 1
+                            && row["elapsed_sum_ns"]
+                                .as_array()
+                                .is_some_and(|a| a.len() == 5 && a.iter().all(Value::is_u64))
+                    }),
+                "columnar block timing rows",
+            )?;
+            run["block_elapsed_sum_means_ms"] = json!(
+                (0..5)
+                    .map(|index| block_rows
+                        .iter()
+                        .map(|row| row["elapsed_sum_ns"][index].as_u64().unwrap_or(0) as f64)
+                        .sum::<f64>()
+                        / 256.0
+                        / 1e6)
+                    .collect::<Vec<_>>()
+            );
         }
         runs.push(run);
     }

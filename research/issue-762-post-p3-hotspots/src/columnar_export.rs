@@ -4,7 +4,7 @@ use std::{fs, path::Path};
 
 const K: &str = "crates/laneflow-runtime/src/kernel/";
 
-fn patch(root: &Path, file: &str, old: &str, new: &str) -> Result<()> {
+pub(super) fn patch(root: &Path, file: &str, old: &str, new: &str) -> Result<()> {
     let path = root.join(file);
     let text = fs::read_to_string(&path)?.replace("\r\n", "\n");
     need(
@@ -201,6 +201,7 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
         "                let (stages, calls) = laneflow_runtime::research_take();",
         "                let (stages, calls) = laneflow_runtime::research_take();\n                eprintln!(\"LF814 {{\\\"tick\\\":{},\\\"work\\\":{:?},\\\"layout\\\":{:?}}}\", world.tick_index(), laneflow_runtime::research_work(), laneflow_runtime::research_layout());",
     )?;
+    crate::columnar_cpu_export::instrument(root, candidate)?;
     Ok(())
 }
 
