@@ -1,0 +1,62 @@
+{
+  "schema": "motion-split-validation-summary-v1",
+  "source_head": "354bd6023561e027defb57aa0f401ed0426e0bb0",
+  "full_receipts": "archive.json",
+  "checks": [
+    {
+      "label": "candidate-unit",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 544 filtered out; finished in 0.71s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 544 filtered out; finished in 0.71s",
+        "test result: ok. 526 passed; 0 failed; 19 ignored; 0 measured; 0 filtered out; finished in 6.96s"
+      ],
+      "stdout_sha256": "f600e0c1530e1d56ecd40a8a8124694696a0d778c4dea5701435d2a3dada6364",
+      "stderr_sha256": "87ecf1c9db870efdd3dd3f88ee3031b9ac8051723a40b860b1df25e867d01d1b"
+    },
+    {
+      "label": "candidate-public",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s"
+      ],
+      "stdout_sha256": "cd92d15fd9ee8faf7c02378417b21f871ea11ea94253333b595c901924723748",
+      "stderr_sha256": "ad37979053c2c1673ba4c8c7ee4fe87c31ada506b0729ec2b4506457619c13b1"
+    },
+    {
+      "label": "candidate-clippy",
+      "exit_code": 0,
+      "test_results": [],
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "f93b4347f3e92b479838ac82c1a644dc788b1abf541ddfd811324986f535449f"
+    },
+    {
+      "label": "research-tests",
+      "exit_code": 0,
+      "test_results": [
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s"
+      ],
+      "stdout_sha256": "f5e05310bd59bee20345c7b18365b715c9141caff6b9bb111ddd01b62dd18689",
+      "stderr_sha256": "43c4bd49c8567ab8b3bd5d79711e38b18d6eabb3c6d420618be95966d40afd66"
+    },
+    {
+      "label": "research-clippy",
+      "exit_code": 0,
+      "test_results": [],
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "dd7e5fe1c6cc28268dda4c7b6f8934b72891e30fb74d1bbe182e47c45be9d225"
+    }
+  ]
+}

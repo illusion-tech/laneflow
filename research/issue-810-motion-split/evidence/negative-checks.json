@@ -1,0 +1,68 @@
+[
+  {
+    "name": "unknown-arm",
+    "args": [
+      "prepare",
+      "unknown",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\unknown-build"
+    ],
+    "exit_code": 1,
+    "reason": "split arm",
+    "stderr_sha256": "902621fae6915c39e6287267f250a2b7dc51a9f4526fd26106c9e689fe72dba4"
+  },
+  {
+    "name": "missing-member",
+    "args": [
+      "analyze",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\missing-member",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\missing-member-results.json"
+    ],
+    "exit_code": 1,
+    "reason": "系统找不到指定的文件。 (os error 2)",
+    "stderr_sha256": "694ddde2fad716b04f5fc0fb441629858c67a199b48e67504a6b654b379b6c3c"
+  },
+  {
+    "name": "traffic-corruption",
+    "args": [
+      "analyze",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\traffic-corruption",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\traffic-corruption-results.json"
+    ],
+    "exit_code": 1,
+    "reason": "native hash",
+    "stderr_sha256": "257329fb6a4f80c946d0b8ade4a3e6cd4109f4c885a0aafa05346317b40a9e8d"
+  },
+  {
+    "name": "candidate-build-drift",
+    "args": [
+      "analyze",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\candidate-build-drift",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\candidate-build-drift-results.json"
+    ],
+    "exit_code": 1,
+    "reason": "build attestation/source/binary mismatch",
+    "stderr_sha256": "884103f26e48caf800c63a83b707d63cff74bc2bd006158675bb734b573edfb0"
+  },
+  {
+    "name": "candidate-collector-drift",
+    "args": [
+      "analyze",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\candidate-collector-drift",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\candidate-collector-drift-results.json"
+    ],
+    "exit_code": 1,
+    "reason": "split source/collector",
+    "stderr_sha256": "ef187e449cbed501dfa6817aea477baa94dad2024aab2ce93b362696c9b52abc"
+  },
+  {
+    "name": "published-mismatch",
+    "args": [
+      "verify",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-plain",
+      "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\810-negative\\changed-published.json"
+    ],
+    "exit_code": 1,
+    "reason": "published mismatch",
+    "stderr_sha256": "9e65e95bd4055ac46f91a9d6f366523bdc2e4374be1c1aed422aa19dbab0955b"
+  }
+]
