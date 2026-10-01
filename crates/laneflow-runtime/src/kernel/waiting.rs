@@ -2478,8 +2478,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .expect("live route");
             for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
                 compiled,
-                old,
-                next,
+                old.route_edge_index,
+                &next,
                 self.binding.revision.traffic().lane_lengths_millimetres(),
             ) {
                 let anchors = &mut self.workspace.waiting_non_entry_anchors;
@@ -2953,8 +2953,8 @@ fn post_step_physical_rank(
 
 fn non_entry_gate_anchors<'a>(
     compiled: &'a CompiledRoute,
-    old: crate::VehicleState,
-    next: crate::VehicleState,
+    old_cursor: u32,
+    next: &'a crate::VehicleState,
     lengths: &'a [u32],
 ) -> impl Iterator<Item = (u32, u32)> + 'a {
     #[cfg(test)]
@@ -2962,13 +2962,13 @@ fn non_entry_gate_anchors<'a>(
     let start = compiled.gate_hops.partition_point({
         #[cfg(test)]
         super::route_query_research::note_search("waiting:2900");
-        |hop| *hop < old.route_edge_index
+        |hop| *hop < old_cursor
     });
     compiled.gate_hops[start..]
         .iter()
         .copied()
         .take_while(move |hop| *hop <= next.route_edge_index)
-        .filter_map(move |hop| non_entry_gate_anchor(compiled, &next, hop as usize, lengths))
+        .filter_map(move |hop| non_entry_gate_anchor(compiled, next, hop as usize, lengths))
 }
 
 fn non_entry_gate_anchor(
@@ -6110,8 +6110,8 @@ pub(crate) mod tests {
         assert_eq!(
             non_entry_gate_anchors(
                 world.state.compiled_route(route).expect("route"),
-                state,
-                boundary,
+                state.route_edge_index,
+                &boundary,
                 world.traffic().lane_lengths_millimetres()
             )
             .collect::<Vec<_>>(),
@@ -6266,8 +6266,8 @@ pub(crate) mod tests {
         assert_eq!(
             non_entry_gate_anchors(
                 world.state.compiled_route(route).expect("route"),
-                old,
-                next,
+                old.route_edge_index,
+                &next,
                 world.traffic().lane_lengths_millimetres()
             )
             .map(|(_, hop)| hop)
