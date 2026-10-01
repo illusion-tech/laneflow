@@ -1,0 +1,16 @@
+schema = "lf814-local-pipeline-cache-evidence-v1"
+archive = "pipeline-cache-20261002.tar.gz"
+sha256 = "1175c83b4b7eabe50536cca01e52a7a7b2c94d3fcfb8de62ea121457cc8ac97a"
+archive_bytes = 235495904
+manifest_sha256 = "c66e2c89439d880056ef0ac90ea188c103dc676a8e02a1f029be39c3cad3e557"
+verified_members = 22501
+local_restore_verified = true
+local_directory = "E:/projects/laneflow-evidence/issue-814/deliveries/20261002-pipeline-cache"
+public_download_available = false
+plain_source = "8fa2ad0fa275c0715dde0247beb76959e01cd059"
+pipeline_source = "47ad01b9328d577e3a6acfb683fafa5f3e75fe7b"
+pipeline_tool_source = "b709b1462880d78dbf51a27d175b73f3c6479107"
+post_layout_diagnostic_source = "6ab08b9500e9daabd6242b8b98dbf885367e673b"
+normal_processes = 12
+successful_diagnostic_processes = 7
+formal_matrix = false
