@@ -58,3 +58,7 @@ path = "src/p5_simd.rs"
 [[bin]]
 name = "laneflow-p5-hot-simd-research"
 path = "src/p5_hot.rs"
+
+[[bin]]
+name = "laneflow-motion-split-research"
+path = "src/motion_split.rs"
