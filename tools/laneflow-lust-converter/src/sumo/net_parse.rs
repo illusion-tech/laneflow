@@ -29,14 +29,26 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
     let location = parse_location(root)?;
     let mut edges = Vec::new();
     let mut lanes = Vec::new();
-    let mut junctions = Vec::new();
+    let mut junctions: Vec<SumoJunction> = Vec::new();
     let mut connections = Vec::new();
     let mut tl_logics = Vec::new();
 
     for child in root.children().filter(Node::is_element) {
         match child.tag_name().name() {
             "edge" => parse_edge(child, &mut edges, &mut lanes)?,
-            "junction" => junctions.push(parse_junction(child)?),
+            "junction" => {
+                let junction = parse_junction(child)?;
+                // #253 P3：重复 junction id fail-closed——id 是全局寻址键，
+                // 后者静默覆盖前者会让归属按 XML 序绑定歧义拓扑。
+                if let Some(previous) = junctions.iter().find(|existing| existing.id == junction.id)
+                {
+                    return Err(Error::SumoModel(format!(
+                        "duplicate junction id {:?}: earlier declaration type={:?}                          conflicts with this one",
+                        junction.id, previous.junction_type
+                    )));
+                }
+                junctions.push(junction);
+            }
             "connection" => connections.push(parse_connection(child)?),
             "tlLogic" => tl_logics.push(parse_tl_logic(child)?),
             _ => {}
@@ -252,6 +264,24 @@ fn parse_u32(raw: String, field: &str) -> Result<u32> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duplicate_junction_id_fails_closed() {
+        // #253 P3：重复 junction id 的歧义归属 fail-closed（带冲突声明细节）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="a" from="J" to="E"><lane id="a_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <junction id="dup" type="priority" intLanes=""/>
+  <junction id="dup" type="traffic_light" intLanes=""/>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate junction id");
+        assert!(
+            error.to_string().contains("duplicate junction id"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("dup"), "{error}");
+    }
+
     #[test]
     fn duplicate_edge_id_fails_closed() {
         // #253 L4：重复 edge id 的歧义拓扑 fail-closed（带冲突声明细节）。

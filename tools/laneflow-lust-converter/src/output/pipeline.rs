@@ -341,11 +341,12 @@ fn workspace_cargo_lock() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock")
 }
 
-/// 诊断模式下删除本次不交付的排除产物（#253 M2）：output_dir 复用时残留的
-/// network.lfca / lust-static.tar 不被新 manifest/provenance 认证，必须清除，
-/// 避免陈旧未认证字节被当作本次交付。不存在视为成功；其他删除错误 fail-closed。
+/// 诊断模式下删除本次不交付的排除产物（#253 M2/L1）：output_dir 复用时残留的
+/// network.lfca / lust-static.tar / routes.toml（L1 后诊断模式不产出）不被新
+/// manifest/provenance 认证，必须清除，避免陈旧未认证字节被当作本次交付。
+/// 不存在视为成功；其他删除错误 fail-closed。
 fn remove_excluded_artifacts(output_dir: &Path) -> Result<()> {
-    for name in [NETWORK_LFCA_NAME, STATIC_TAR_NAME] {
+    for name in [NETWORK_LFCA_NAME, STATIC_TAR_NAME, ROUTES_NAME] {
         let path = output_dir.join(name);
         match fs::remove_file(&path) {
             Ok(()) => {}
@@ -452,13 +453,18 @@ mod tests {
         std::fs::create_dir_all(&root).expect("create temp");
         std::fs::write(root.join("network.lfca"), b"stale-lfca").expect("write stale lfca");
         std::fs::write(root.join("lust-static.tar"), b"stale-tar").expect("write stale tar");
-        std::fs::write(root.join("routes.toml"), b"keep-me").expect("write kept artifact");
+        std::fs::write(root.join("routes.toml"), b"stale-routes").expect("write stale routes");
+        std::fs::write(root.join("manifest.toml"), b"keep-me").expect("write kept artifact");
 
         remove_excluded_artifacts(&root).expect("stale artifacts removed");
 
         assert!(!root.join("network.lfca").exists());
         assert!(!root.join("lust-static.tar").exists());
-        assert!(root.join("routes.toml").exists(), "交付产物不得误删");
+        assert!(
+            !root.join("routes.toml").exists(),
+            "诊断模式不产 routes.toml"
+        );
+        assert!(root.join("manifest.toml").exists(), "交付产物不得误删");
         // 幂等：再次调用（产物已不存在）必须成功。
         remove_excluded_artifacts(&root).expect("idempotent removal");
         let _ = std::fs::remove_dir_all(&root);

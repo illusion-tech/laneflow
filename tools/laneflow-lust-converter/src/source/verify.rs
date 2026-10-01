@@ -386,6 +386,10 @@ pub fn prepare_verified_lust_inputs(source_dir: &Path) -> Result<VerifiedLustInp
     let report_source = crate::output::geom::ReportSource::verified(
         crate::output::digest::sha256_digest(net_xml.as_bytes()),
     );
+    // #253 P2：公开准备路径的消费时 revision 重校验——verify_source_dir 只在
+    // 入口查 HEAD，全部读取之间 checkout 被切换（pinned 字节保留、digest 全过）
+    // 会使 verified 声明失真；与 convert_verified 末尾的 K1 重校验同一语义。
+    recheck_source_revision(source_dir)?;
     Ok(VerifiedLustInputs {
         net_xml,
         tll_xml,

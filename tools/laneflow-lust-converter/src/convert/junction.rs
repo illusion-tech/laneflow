@@ -49,7 +49,7 @@ pub fn normalize_junctions(
         for via in &connection.via_lane_ids {
             *via_ref_count.entry(via.as_str()).or_default() += 1;
         }
-        if connection.from_edge_id.starts_with(':') {
+        if is_internal_edge(network, &connection.from_edge_id) {
             *internal_from_count
                 .entry(format!(
                     "{}_{}",
@@ -383,7 +383,7 @@ type ContinuationCandidates = Vec<(String, u32, Vec<String>)>;
 fn internal_continuations(network: &SumoNetwork) -> HashMap<String, ContinuationCandidates> {
     let mut map: HashMap<String, ContinuationCandidates> = HashMap::new();
     for connection in &network.connections {
-        if !connection.from_edge_id.starts_with(':') {
+        if !is_internal_edge(network, &connection.from_edge_id) {
             continue;
         }
         let from_lane = format!("{}_{}", connection.from_edge_id, connection.from_lane);
@@ -403,7 +403,8 @@ fn internal_terminals(network: &SumoNetwork) -> HashSet<(String, String, u32)> {
         .connections
         .iter()
         .filter(|connection| {
-            connection.from_edge_id.starts_with(':') && connection.via_lane_ids.is_empty()
+            is_internal_edge(network, &connection.from_edge_id)
+                && connection.via_lane_ids.is_empty()
         })
         .map(|connection| {
             (
@@ -669,7 +670,7 @@ fn evaluate_stub_candidate(
     let mut record = base;
     let mut broken: Option<String> = None;
     for other in &network.connections {
-        if std::ptr::eq(other, connection) || other.from_edge_id.starts_with(':') {
+        if std::ptr::eq(other, connection) || is_internal_edge(network, &other.from_edge_id) {
             continue;
         }
         if other.from_edge_id != connection.from_edge_id || other.from_lane != connection.from_lane
@@ -743,7 +744,7 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
         for via in &connection.via_lane_ids {
             *via_ref_count.entry(via.as_str()).or_default() += 1;
         }
-        if connection.from_edge_id.starts_with(':') {
+        if is_internal_edge(network, &connection.from_edge_id) {
             *internal_from_count
                 .entry(format!(
                     "{}_{}",
@@ -757,7 +758,7 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
     let terminals = internal_terminals(network);
     let mut candidates = Vec::new();
     for connection in &network.connections {
-        if connection.from_edge_id.starts_with(':') {
+        if is_internal_edge(network, &connection.from_edge_id) {
             continue;
         }
         let (Some(from_edge), Some(to_edge)) = (
@@ -1257,9 +1258,24 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
                 continue;
             };
             for lane_id in &junction.int_lane_ids {
-                if is_internal(lane_id) && !cluster_parent.contains_key(lane_id.as_str()) {
-                    cluster_parent.insert(lane_id.as_str(), parent);
-                    changed = true;
+                if !is_internal(lane_id) {
+                    continue;
+                }
+                match cluster_parent.get(lane_id.as_str()) {
+                    Some(&existing) if existing != parent => {
+                        // #253 P5：两个已归属 cluster 节点列出同一嵌套节点且父
+                        // 不同——此前按 XML 序静默跳过（归属取决于文件顺序），
+                        // fail-closed 报节点与两个父。
+                        return Err(Error::SumoModel(format!(
+                            "nested internal junction {lane_id:?} has conflicting cluster                              parents {existing:?} and {parent:?} (via internal junction {:?})",
+                            junction.id
+                        )));
+                    }
+                    Some(_) => {}
+                    None => {
+                        cluster_parent.insert(lane_id.as_str(), parent);
+                        changed = true;
+                    }
                 }
             }
         }
@@ -1376,6 +1392,15 @@ fn validate_no_cycle(sequence: &[String]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// #253 P4：internal 判定以 parser 记录的 `SumoEdge::function_internal` 为准——
+/// id 的 ':' 前缀只是 LuST 的习惯命名，不是规范保证；未知 edge 按非 internal
+/// （与此前前缀法对无前缀 id 的语义一致）。
+fn is_internal_edge(network: &SumoNetwork, edge_id: &str) -> bool {
+    network
+        .edge(edge_id)
+        .is_some_and(|edge| edge.function_internal)
 }
 
 /// 按 (edge_id, index) 收集 lane 地址索引（#253 M3：同地址声明不同 lane id
@@ -1949,6 +1974,78 @@ mod tests {
         );
         assert!(
             message.contains("a-to-b") && message.contains("b-to-c"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn internal_classification_uses_function_metadata() {
+        // #253 P4：internal 判定用 function 元数据而非 ':' 前缀。
+        // (a) 无前缀但 function="internal" 的边：其 connection 按 internal
+        // 跳过（旧前缀法误当外部 connection，报 internal lane endpoint）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id="weird" function="internal"><lane id="weird_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=""/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via="weird_0"/>
+  <connection from="weird" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("unprefixed internal edge is skipped as internal");
+        assert_eq!(topology.maneuver_paths.len(), 1);
+        assert_eq!(
+            topology.maneuver_paths[0].internal_edge_ids,
+            ["sumo:weird_0".to_owned()]
+        );
+    }
+
+    #[test]
+    fn colon_prefixed_non_internal_edge_is_external() {
+        // (b) ':' 前缀但无 function="internal" 的边按外部处理——其 connection
+        // 生成穿越（旧前缀法会把它当 internal 跳过）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id=":fake" from="W" to="J"><lane id=":fake_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from=":fake" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("colon-prefixed non-internal edge treated as external");
+        assert_eq!(topology.maneuver_paths.len(), 1);
+        assert_eq!(topology.maneuver_paths[0].entry_edge_id, "sumo::fake_0");
+    }
+
+    #[test]
+    fn nested_internal_junction_parent_conflict_fails_closed() {
+        // #253 P5：两个已归属 cluster 节点列出同一嵌套内部节点且父不同——
+        // 旧实现按 XML 序静默跳过，fail-closed 报节点与两个父。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="R1"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="R2" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <junction id="R1" type="priority" intLanes="A"/>
+  <junction id="R2" type="priority" intLanes="B"/>
+  <junction id="A" type="internal" intLanes="N"/>
+  <junction id="B" type="internal" intLanes="N"/>
+  <junction id="N" type="internal" intLanes=""/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("conflicting nested parents must fail closed");
+        let message = error.to_string();
+        assert!(message.contains("conflicting cluster"), "{message}");
+        assert!(
+            message.contains("\"N\"") && message.contains("R1") && message.contains("R2"),
             "{message}"
         );
     }
