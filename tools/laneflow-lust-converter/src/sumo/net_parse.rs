@@ -61,6 +61,20 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
         ));
     }
 
+    // #253 Q1：lane id 全局查重——id 跨 (edge,index) 唯一是 `SumoNetwork::lane`
+    // 按 id 寻址与几何索引一致性的前提，重复时 XML 序决定语义，fail-closed。
+    {
+        let mut seen = std::collections::HashSet::with_capacity(lanes.len());
+        for lane in &lanes {
+            if !seen.insert(lane.id.as_str()) {
+                return Err(Error::SumoModel(format!(
+                    "duplicate lane id {:?} declared on multiple (edge, index) addresses",
+                    lane.id
+                )));
+            }
+        }
+    }
+
     Ok(SumoNetwork {
         location,
         edges,
@@ -72,10 +86,21 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
 }
 
 fn parse_location(root: Node<'_, '_>) -> Result<SumoLocation> {
-    let node = root
+    // #253 Q4：恰好一个 <location>——多元素时取首个会让其余声明静默失效，
+    // fail-closed 要求唯一权威。
+    let mut location_nodes = root
         .children()
-        .find(|child| child.is_element() && child.tag_name().name() == "location")
-        .ok_or_else(|| Error::SumoModel("SUMO network missing <location>".to_owned()))?;
+        .filter(|child| child.is_element() && child.tag_name().name() == "location");
+    let Some(node) = location_nodes.next() else {
+        return Err(Error::SumoModel(
+            "SUMO network missing <location>".to_owned(),
+        ));
+    };
+    if location_nodes.next().is_some() {
+        return Err(Error::SumoModel(
+            "SUMO network declares multiple <location> elements".to_owned(),
+        ));
+    }
     let net_offset_raw = required_attr(node, "netOffset")?;
     let conv_boundary_raw = required_attr(node, "convBoundary")?;
     let net_offset = parse_pair(&net_offset_raw)?;
@@ -264,6 +289,32 @@ fn parse_u32(raw: String, field: &str) -> Result<u32> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duplicate_lane_id_across_addresses_fails_closed() {
+        // #253 Q1：同 lane id 出现在不同 (edge,index)——XML 序决定语义的歧义
+        // fail-closed。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="a" from="A" to="B"><lane id="shared_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <edge id="b" from="B" to="C"><lane id="shared_0" index="0" speed="13.89" length="10.00" shape="0,5 10,5"/></edge>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate lane id");
+        assert!(error.to_string().contains("duplicate lane id"), "{error}");
+    }
+
+    #[test]
+    fn multiple_location_elements_fail_closed() {
+        // #253 Q4：多个 <location> 不再取首个——fail-closed 要求唯一权威。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <location netOffset="1,1" convBoundary="0,0,50,50"/>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("multiple locations");
+        assert!(error.to_string().contains("multiple <location>"), "{error}");
+    }
+
     #[test]
     fn duplicate_junction_id_fails_closed() {
         // #253 P3：重复 junction id 的歧义归属 fail-closed（带冲突声明细节）。

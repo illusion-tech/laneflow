@@ -60,10 +60,20 @@ fn parse_vehicle(
     }
     let type_id = required_attr(node, "type")?;
     let depart = ExactDecimal::from_str(&required_attr(node, "depart")?)?;
-    let route = node
+    // #253 Q9：恰好一个内联 <route>——取首个会静默忽略其余声明。
+    let mut routes = node
         .children()
-        .find(|child| child.is_element() && child.tag_name().name() == "route")
-        .ok_or_else(|| Error::SumoModel(format!("DUE vehicle {id:?} missing inline <route>")))?;
+        .filter(|child| child.is_element() && child.tag_name().name() == "route");
+    let Some(route) = routes.next() else {
+        return Err(Error::SumoModel(format!(
+            "DUE vehicle {id:?} missing inline <route>"
+        )));
+    };
+    if routes.next().is_some() {
+        return Err(Error::SumoModel(format!(
+            "DUE vehicle {id:?} declares multiple inline <route> elements"
+        )));
+    }
     let edges_raw = required_attr(route, "edges")?;
     let road_edge_ids = edges_raw
         .split_whitespace()
@@ -91,4 +101,24 @@ fn required_attr(node: Node<'_, '_>, name: &str) -> Result<String> {
             node.tag_name().name()
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn multiple_inline_routes_fail_closed() {
+        // #253 Q9：一个 vehicle 多个内联 <route> 不再静默取首个。
+        let xml = r#"<routes>
+  <vehicle id="v0" type="passenger1" depart="28800">
+    <route edges="a b"/>
+    <route edges="c d"/>
+  </vehicle>
+</routes>"#;
+        let error =
+            super::parse_due_routes_xml(xml, 0).expect_err("multiple inline routes must fail");
+        assert!(
+            error.to_string().contains("multiple inline <route>"),
+            "{error}"
+        );
+    }
 }
