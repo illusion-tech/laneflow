@@ -39,13 +39,11 @@ laneflow-motion-split-research build-collector <new-tools>
 
 仓库保留源码、采集前方案、结果报告、小型统计摘要与验封索引。完整源码清单、
 构建环境、逐进程结果和原始日志放在仓库外归档，不随每个研究切片重复入库。
-归档位置、长度和 SHA-256 见 [archive.json](evidence/archive.json)；全部六个
+归档下载地址、长度和 SHA-256 见 [archive.toml](evidence/archive.toml)；全部六个
 窗口的统计摘要见 [summary.json](evidence/summary.json)。摘要不替代原始证据，
 也不能作为采集器 `verify` 的输入。
 
-完整归档目前保存于本机 `E:/projects/laneflow-evidence/issue-810/354bd602/`，
-尚无团队可下载地址。归档字节与原封存一致；此前发布的完整 JSON 另保留在该目录的
-`published-receipts/`。获取归档并解压到全新目录后，使用以下入口复核：
+完整原始证据与发布凭据已保存为 [Research Evidence Release](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-810-motion-split-354bd602)。原始归档字节与封存一致；发布凭据 ZIP 同时保留完整 JSON 原件及本次迁移前的报告与索引。下载后核对 `archive.toml` 的摘要，再把原始归档解压到全新目录，使用以下入口复核：
 
 ```text
 <unpacked>/tools/laneflow-motion-split-research verify-collector <unpacked>/tools
@@ -53,4 +51,4 @@ laneflow-motion-split-research build-collector <new-tools>
 ```
 
 验封仍需按归档 `seal.json` 核对全部文件的路径、长度、SHA-256 与数量；
-已有全新解压复核结果见 [unpacked-verification.json](evidence/unpacked-verification.json)。
+公开下载的两份资产均已核对长度和 SHA-256；全新解压核对了全部 6671 个载荷，采集器及 24 轮结果重派生通过。详细验封和负向验证凭据从 ZIP 的 `current-pr/evidence/` 查阅。

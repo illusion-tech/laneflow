@@ -1,0 +1,20 @@
+source_head = "354bd6023561e027defb57aa0f401ed0426e0bb0"
+source_ref = "codex/810-motion-split-source-freeze"
+publication_head = "c49141420d46b7bdd338421a4f0a99104f917e11"
+release_url = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-810-motion-split-354bd602"
+payload_files_verified = 6671
+download_verified = true
+recovery_verified = true
+
+[[assets]]
+name = "issue-810-motion-split.tar.zst"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-810-motion-split-354bd602/issue-810-motion-split.tar.zst"
+bytes = 116944188
+sha256 = "971f63851ceb19850cb5318d8b940dcaf05d294890eeb53c4c0dabccf4e0579c"
+seal_sha256 = "43af87007d3965ae82344c3054623a3d68ba5edabf39d5095a9b72b1922589cd"
+
+[[assets]]
+name = "issue-810-published-receipts-c4914142.zip"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-810-motion-split-354bd602/issue-810-published-receipts-c4914142.zip"
+bytes = 198421
+sha256 = "ac0ff2a0a345cfa403d407873ddbbc6846954d5ca591d2220a9e0b561b556106"
