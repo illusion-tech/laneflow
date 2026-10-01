@@ -123,6 +123,21 @@ pub fn convert_signals(
             .or_default()
             .push(link);
     }
+    // #253 W4：逐 controller 声明-绑定闭环——links_by_tl 只迭代有受控 link 的
+    // 键，「net+tll 都声明了、connection 却没绑定」的 controller 此前被静默
+    // 漏掉（M4 的空 controlled 全局检查覆盖不到）；不一致的信号源 fail-closed
+    // 报未绑定 controller id。
+    let bound: std::collections::BTreeSet<&str> = links_by_tl.keys().copied().collect();
+    let unbound = net_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !bound.contains(id))
+        .collect::<Vec<_>>();
+    if !unbound.is_empty() {
+        return Err(Error::SumoModel(format!(
+            "tlLogic controllers {unbound:?} declared but with no controlled tl/linkIndex connections"
+        )));
+    }
     for (tl_id, links) in &links_by_tl {
         if !program_by_id.contains_key(tl_id) {
             return Err(Error::SumoModel(format!(
@@ -791,5 +806,51 @@ mod k7_count_tests {
         )
         .expect("fixture compiles");
         assert_eq!(artifacts.counts.signal_phases, 2);
+    }
+}
+
+#[cfg(test)]
+mod w4_binding_tests {
+    use crate::sumo::{parse_sumo_network_xml, parse_tll_static_xml};
+
+    // net+tll 均声明 controller A/B，但只有 A 绑定了受控 connection。
+    const NET: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="0,0 20,0"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="30,0 50,0"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="20,0 30,0"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="A" linkIndex="0"/>
+  <tlLogic id="A" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+  <tlLogic id="B" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+</net>"#;
+
+    const TLL: &str = r#"<additional>
+  <tlLogic id="A" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+  <tlLogic id="B" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+</additional>"#;
+
+    #[test]
+    fn declared_controller_without_links_fails_closed() {
+        // #253 W4：links_by_tl 只迭代有受控 link 的键——声明了 B 却无人绑定
+        // 此前被静默漏掉；逐 controller 闭环 fail-closed 报未绑定者，已绑定
+        // 的 A 不得被误报。
+        let network = parse_sumo_network_xml(NET).expect("parse net");
+        let tll = parse_tll_static_xml(TLL).expect("parse tll");
+        let error = super::convert_signals(&network, &tll, &std::collections::HashMap::new())
+            .expect_err("unbound declared controller must fail closed");
+        let message = error.to_string();
+        assert!(message.contains("no controlled tl/linkIndex"), "{message}");
+        assert!(message.contains("\"B\""), "{message}");
+        assert!(!message.contains("\"A\""), "{message}");
     }
 }
