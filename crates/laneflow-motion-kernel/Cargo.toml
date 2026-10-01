@@ -1,0 +1,15 @@
+[package]
+name = "laneflow-motion-kernel"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "受检列切片上的纯纵向运动内核与局部 ISA 分发。"
+publish = false
+
+# ADR 0031：只在本 crate 隔离 ISA 调用及切片边界已证明的 load/store。
+# 不继承工作区 forbid；Runtime 和其它普通 crate 继续继承。
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"

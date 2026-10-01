@@ -27,6 +27,23 @@ use crate::{
     WorldConfig,
 };
 
+/// 只在世界安装边界选择一次整组数值入口；普通构建不读取诊断环境变量。
+fn install_motion_kernel() -> laneflow_motion_kernel::Kernel {
+    #[cfg(feature = "motion-kernel-evidence")]
+    if let Ok(requested) = std::env::var("LANEFLOW_MOTION_BACKEND") {
+        use laneflow_motion_kernel::{Backend, Kernel};
+        let backend = match requested.as_str() {
+            "auto" => return Kernel::detect(),
+            "scalar" => Backend::Scalar,
+            "avx2" => Backend::Avx2,
+            "avx512" => Backend::Avx512,
+            _ => panic!("invalid LANEFLOW_MOTION_BACKEND: {requested}"),
+        };
+        return Kernel::for_backend(backend).expect("requested motion backend is unsupported");
+    }
+    laneflow_motion_kernel::Kernel::detect()
+}
+
 #[cfg(test)]
 thread_local! {
     static OVERLAP_BLOCKER_INSPECTIONS: Cell<usize> = const { Cell::new(0) };
@@ -280,7 +297,7 @@ impl crate::kernel::state::WorldState {
         let live_route_count = 0;
         let live_route_edge_occurrence_count = 0;
         let live_route_conflict_occurrence_count = 0;
-        let vehicles = Vec::with_capacity(vehicle_capacity);
+        let vehicles = crate::kernel::vehicle_store::VehicleStore::with_capacity(vehicle_capacity);
         let free_vehicles = Vec::with_capacity(vehicle_capacity);
         let live_order = Vec::with_capacity(vehicle_capacity);
         let active_order = Vec::with_capacity(vehicle_capacity);
@@ -304,6 +321,7 @@ impl crate::kernel::state::WorldState {
         let latest_waiting_decisions = Vec::new();
         let latest_transition_events = Vec::new();
         let next_states = Vec::with_capacity(vehicle_capacity);
+        let motion_next = super::motion_updates::MotionUpdates::with_capacity(vehicle_capacity);
         let (occupancy, occupancy_scratch) = OccupancyIndex::with_capacity(0, 0);
         let migration_journal = None;
         let migration_epoch = 0;
@@ -379,9 +397,10 @@ impl crate::kernel::state::WorldState {
                 occupancy_scratch,
                 motion_cache: Vec::new(),
                 next_states,
+                motion_next,
+                motion_kernel: install_motion_kernel(),
                 waiting_preview_inputs: Vec::new(),
                 waiting_preview_slots: Vec::new(),
-                motion_slots: Vec::new(),
                 conflict_inputs: Vec::new(),
                 conflict_slots: Vec::new(),
                 frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance::default(),
@@ -1057,6 +1076,10 @@ impl crate::kernel::state::WorldState {
             maneuver_traversal: traversal,
             waiting_membership: None,
         };
+        self.committed
+            .vehicles
+            .try_prepare_pools(0, usize::from(traversal.is_some()))
+            .map_err(|_| SpawnError::VehicleStorageAllocFailed)?;
         let (handle, state) =
             self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, authority);
         self.committed.observation_state_sequence = next_observation_state_sequence;
@@ -1102,6 +1125,16 @@ impl crate::kernel::state::WorldState {
             maneuver_traversal: traversal,
             waiting_membership,
         };
+        self.committed
+            .vehicles
+            .try_prepare_pools(
+                usize::from(status != VehicleStatus::Active),
+                usize::from(
+                    status == VehicleStatus::Active
+                        && (traversal.is_some() || waiting_membership.is_some()),
+                ),
+            )
+            .map_err(|_| SpawnError::VehicleStorageAllocFailed)?;
         let (handle, _) = self.commit_unparked_vehicle(input, carry_um, status, authority);
         Ok(handle)
     }
@@ -1268,7 +1301,7 @@ impl crate::kernel::state::WorldState {
         if slot_index == self.committed.vehicles.len() {
             self.committed.vehicles.push(slot);
         } else {
-            self.committed.vehicles[slot_index] = slot;
+            *self.committed.vehicles.slot_mut(slot_index) = slot;
         }
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.committed.routes[route_index].live_vehicles += 1;
@@ -1322,10 +1355,7 @@ impl crate::kernel::state::WorldState {
         input: VehicleSpawnInput,
         admit_motion: bool,
     ) -> Result<VehicleReplaceRecord, ReplaceError> {
-        let old_state = self
-            .vehicle_state(old)
-            .copied()
-            .ok_or(ReplaceError::StaleHandle)?;
+        let old_state = self.vehicle_state(old).ok_or(ReplaceError::StaleHandle)?;
         if old_state.status != VehicleStatus::Completed {
             return Err(ReplaceError::NotCompleted);
         }
@@ -1450,7 +1480,16 @@ impl crate::kernel::state::WorldState {
 
         let old_route = old_state.route;
         let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
-        let reusable_generation = self.committed.vehicles[old_index].generation.checked_add(1);
+        let reusable_generation = self
+            .committed
+            .vehicles
+            .slot(old_index)
+            .generation
+            .checked_add(1);
+        self.committed
+            .vehicles
+            .try_prepare_pools(0, usize::from(traversal.is_some()))
+            .map_err(|_| ReplaceError::VehicleStorageAllocFailed)?;
         let slot_index = reusable_generation.map_or_else(
             || {
                 self.committed
@@ -1489,12 +1528,12 @@ impl crate::kernel::state::WorldState {
         }
 
         if reusable_generation.is_some() {
-            self.committed.vehicles[old_index] = VehicleSlot {
+            *self.committed.vehicles.slot_mut(old_index) = VehicleSlot {
                 generation,
                 state: Some(state),
             };
         } else {
-            self.committed.vehicles[old_index].state = None;
+            self.committed.vehicles.slot_mut(old_index).state = None;
             let slot = VehicleSlot {
                 generation,
                 state: Some(state),
@@ -1502,7 +1541,7 @@ impl crate::kernel::state::WorldState {
             if slot_index == self.committed.vehicles.len() {
                 self.committed.vehicles.push(slot);
             } else {
-                self.committed.vehicles[slot_index] = slot;
+                *self.committed.vehicles.slot_mut(slot_index) = slot;
             }
         }
         self.release_route_ref(old_route);
@@ -1523,7 +1562,6 @@ impl crate::kernel::state::WorldState {
         self.note_inserted_vehicle(new, previous_sequence, update_sequence);
         let new_state = self
             .vehicle_state(new)
-            .copied()
             .expect("freshly committed replacement vehicle");
         let new_delta = VehicleDelta::from_state(&new_state, self.compiled_route(new_state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
@@ -1571,7 +1609,7 @@ impl crate::kernel::state::WorldState {
             .copied()
             .filter_map(|handle| {
                 let state = self.vehicle_state(handle)?;
-                let source = self.pose_source_for_state(handle, state)?;
+                let source = self.pose_source_for_state(handle, &state)?;
                 Some((handle, source))
             })
     }
@@ -1618,7 +1656,7 @@ impl crate::kernel::state::WorldState {
         let state = self
             .vehicle_state(vehicle)
             .ok_or(CommittedPoseSourceError::UnknownVehicle { handle: vehicle })?;
-        Ok(self.pose_source_for_state(vehicle, state))
+        Ok(self.pose_source_for_state(vehicle, &state))
     }
 
     /// 按停车位序号读占用者。
@@ -1715,7 +1753,7 @@ impl crate::kernel::state::WorldState {
     /// 已提交车辆快照。`Completed` 仍可读；stale 句柄返回 `None`。
     #[must_use]
     pub fn vehicle(&self, handle: VehicleHandle) -> Option<VehicleState> {
-        self.vehicle_state(handle).copied()
+        self.vehicle_state(handle)
     }
 
     /// WaitingZone 的已提交计数；未知 zone 返回 `None`。
@@ -1769,7 +1807,7 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
@@ -2866,15 +2904,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<&'a VehicleState> {
-        let slot = self
-            .committed
-            .vehicles
-            .get(usize::try_from(handle.index()).ok()?)?;
-        if slot.generation != handle.generation() {
-            return None;
-        }
-        slot.state.as_ref()
+    pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<VehicleState> {
+        self.committed.vehicles.state(handle)
     }
 
     /// 本世界已注册路线的边序列。句柄无效时返回 `None`。
@@ -2944,7 +2975,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
@@ -2971,7 +3002,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
@@ -3199,10 +3230,8 @@ mod overflow_tests {
                 .expect("non-overlapping vehicle");
             if occurrence == 1 {
                 let index = usize::try_from(vehicle.index()).expect("vehicle index");
-                let state = world.state.committed.vehicles[index]
-                    .state
-                    .as_mut()
-                    .expect("vehicle");
+                let mut vehicle_slot = world.state.committed.vehicles.slot_mut(index);
+                let state = vehicle_slot.state.as_mut().expect("vehicle");
                 state.route_edge_index = occurrence;
                 state.progress_mm = progress;
             }
@@ -3210,7 +3239,11 @@ mod overflow_tests {
         });
         for vehicle in vehicles.iter().take(3).copied() {
             let index = usize::try_from(vehicle.index()).expect("vehicle index");
-            world.state.committed.vehicles[index]
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(index)
                 .state
                 .as_mut()
                 .expect("live vehicle")

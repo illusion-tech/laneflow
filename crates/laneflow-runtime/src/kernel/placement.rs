@@ -762,7 +762,7 @@ impl crate::kernel::state::WorldState {
         handle: VehicleHandle,
         update_sequence: u32,
     ) -> Result<(), FreshAdmissionFailure> {
-        let Some(state) = self.vehicle_state(handle).copied() else {
+        let Some(state) = self.vehicle_state(handle) else {
             return Ok(());
         };
         if state.status != VehicleStatus::Active || !self.route_needs_contender(state.route) {
@@ -787,7 +787,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next,
+            preview.next.apply(state),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -1337,7 +1337,7 @@ impl crate::kernel::state::WorldState {
         &mut self,
         handle: VehicleHandle,
     ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
-        let Some(state) = self.vehicle_state(handle).copied() else {
+        let Some(state) = self.vehicle_state(handle) else {
             return Ok(Vec::new());
         };
         let input = VehicleSpawnInput::new(
@@ -1356,7 +1356,7 @@ impl crate::kernel::state::WorldState {
         handle: VehicleHandle,
         update_sequence: u32,
     ) -> Result<ContenderNotes, FreshAdmissionFailure> {
-        let Some(state) = self.vehicle_state(handle).copied() else {
+        let Some(state) = self.vehicle_state(handle) else {
             return Ok(ContenderNotes {
                 cells: Vec::new(),
                 ranks: Vec::new(),
@@ -1389,7 +1389,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next,
+            preview.next.apply(state),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -1512,7 +1512,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next,
+            preview.next.apply(state),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -1584,7 +1584,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next,
+            preview.next.apply(state),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -1636,7 +1636,7 @@ impl crate::kernel::state::WorldState {
             count.set(count.get().saturating_add(candidates.len() as u64));
         });
         for handle in candidates {
-            let Some(follower) = self.vehicle_state(handle).copied() else {
+            let Some(follower) = self.vehicle_state(handle) else {
                 continue;
             };
             if follower.status != VehicleStatus::Active || follower.speed_mm_s == 0 {
@@ -1916,7 +1916,7 @@ impl crate::kernel::state::WorldState {
         if let Some(sequence) = self.owner_sequence(handle) {
             return Some(sequence);
         }
-        let state = self.vehicle_state(handle).copied()?;
+        let state = self.vehicle_state(handle)?;
         let edges = self.route_edges(state.route)?;
         let index = usize::try_from(state.route_edge_index).ok()?;
         let edge = *edges.get(index)?;
@@ -2158,7 +2158,7 @@ impl crate::kernel::state::WorldState {
             if handle == candidate.handle {
                 continue;
             }
-            let Some(state) = self.vehicle_state(handle).copied() else {
+            let Some(state) = self.vehicle_state(handle) else {
                 continue;
             };
             if state.status != VehicleStatus::Active {
@@ -2459,7 +2459,7 @@ fn reject_existing_hard_stop(
             let notes = world.contender_notes(
                 &candidate,
                 update_sequence,
-                preview.next,
+                preview.next.apply(candidate),
                 profile.max_accel(),
                 profile.emergency_decel(),
                 profile.min_gap_mm(),
@@ -2499,7 +2499,7 @@ fn reject_existing_hard_stop(
     let targets =
         world.recheck_targets(&candidate, &notes, &candidate_claims, profile.min_gap_mm())?;
     for (existing_sequence, handle) in targets {
-        let Some(existing) = world.vehicle_state(handle).copied() else {
+        let Some(existing) = world.vehicle_state(handle) else {
             continue;
         };
         if existing.status != VehicleStatus::Active {

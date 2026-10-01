@@ -328,12 +328,13 @@ impl FrontierMaintenance {
         &mut self,
         delta_s: f32,
         horizon_ms: Option<u64>,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
+        current: &super::vehicle_store::VehicleStore,
     ) -> Result<(), StepError> {
         self.pending_near.clear();
         self.pending_invalid.clear();
         let active = updates
-            .iter()
+            .iter(current)
             .filter(|(_, state)| state.status == VehicleStatus::Active)
             .count();
         // 两侧一起备好。只扩 pending 时，publish 交换后另一侧会在下一拍首次增长。
@@ -341,12 +342,12 @@ impl FrontierMaintenance {
         reserve_capacity(&mut self.pending_invalid, active)?;
         reserve_capacity(&mut self.ready_near, active)?;
         reserve_capacity(&mut self.ready_invalid, active)?;
-        for (_, state) in updates {
+        for (_, state) in updates.iter(current) {
             if state.status != VehicleStatus::Active {
                 continue;
             }
             let vehicle = state.handle;
-            let Some(remembered) = self.remembered(vehicle, state) else {
+            let Some(remembered) = self.remembered(vehicle, &state) else {
                 self.pending_near.push(vehicle);
                 self.pending_invalid.push(vehicle);
                 continue;
@@ -974,7 +975,7 @@ pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
 pub(crate) fn classify_pending(
     step: &mut StepWorkspace<'_>,
     delta_s: f32,
-    updates: &[(usize, VehicleState)],
+    updates: &super::motion_updates::MotionUpdates,
 ) -> Result<(), StepError> {
     let Some(horizon_ms) = step.frontier_proof_horizon_ms() else {
         let maintenance = &mut step.workspace.frontier_maintenance;
@@ -982,9 +983,12 @@ pub(crate) fn classify_pending(
         maintenance.pending_invalid.clear();
         return Ok(());
     };
-    step.workspace
-        .frontier_maintenance
-        .classify(delta_s, Some(horizon_ms), updates)
+    step.workspace.frontier_maintenance.classify(
+        delta_s,
+        Some(horizon_ms),
+        updates,
+        &step.committed.vehicles,
+    )
 }
 
 fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepError> {
@@ -994,7 +998,7 @@ fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepEr
         let vehicle = step.committed.live_order[sequence];
         let sequence =
             u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
-        let Some(state) = step.vehicle_state(vehicle).copied() else {
+        let Some(state) = step.vehicle_state(vehicle) else {
             continue;
         };
         if state.status != VehicleStatus::Active {
@@ -1157,7 +1161,7 @@ fn accepted_source(
 }
 
 fn active_state(step: &StepWorkspace<'_>, vehicle: VehicleHandle) -> Option<VehicleState> {
-    let state = step.vehicle_state(vehicle).copied()?;
+    let state = step.vehicle_state(vehicle)?;
     (state.status == VehicleStatus::Active).then_some(state)
 }
 
@@ -1818,7 +1822,8 @@ mod tests {
         let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
         let mut world =
             crate::admin::cutover_migration::tests::conflict_scale_world(revision, vehicles);
-        for slot in &mut world.state.committed.vehicles {
+        for index in 0..world.state.committed.vehicles.len() {
+            let mut slot = world.state.committed.vehicles.slot_mut(index);
             if let Some(state) = slot.state.as_mut() {
                 state.speed_mm_s = 0;
                 state.carry_um = 0;
@@ -1874,11 +1879,7 @@ mod tests {
         let mut world = stationary_scale_world(2);
         step(&mut world);
         let old = world.state.committed.live_order[1];
-        let state = world
-            .state
-            .vehicle_state(old)
-            .copied()
-            .expect("rear vehicle");
+        let state = world.state.vehicle_state(old).expect("rear vehicle");
         world.despawn_vehicle(old).expect("despawn rear vehicle");
         let spawned = world
             .spawn_vehicle(
@@ -1938,10 +1939,12 @@ mod tests {
         progress_mm: u32,
         speed_mm_s: u32,
     ) {
-        let state = world.state.committed.vehicles[vehicle.index() as usize]
+        let mut vehicle_slot = world
             .state
-            .as_mut()
-            .expect("pose vehicle");
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize);
+        let state = vehicle_slot.state.as_mut().expect("pose vehicle");
         state.route_edge_index = route_edge_index;
         state.progress_mm = progress_mm;
         state.carry_um = 0;
@@ -2144,11 +2147,7 @@ mod tests {
             .frontier_maintenance
             .ready_invalid
             .push(old);
-        let state = world
-            .state
-            .vehicle_state(old)
-            .copied()
-            .expect("source state");
+        let state = world.state.vehicle_state(old).expect("source state");
         world.despawn_vehicle(old).expect("despawn source");
         let spawned = world
             .spawn_vehicle(

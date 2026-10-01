@@ -2,9 +2,7 @@
 
 use laneflow_static_contract::LaneEdgeOrdinal;
 
-use crate::kernel::tables::{
-    RouteSlot, VehicleSlot, admission_intervals_overlap, for_each_admission_interval,
-};
+use crate::kernel::tables::{RouteSlot, admission_intervals_overlap, for_each_admission_interval};
 use crate::{RouteHandle, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
@@ -82,7 +80,7 @@ impl SpawnOverlapIndex {
         &mut self,
         lengths: &[u32],
         routes: &[RouteSlot],
-        vehicles: &[VehicleSlot],
+        vehicles: &crate::kernel::vehicle_store::VehicleStore,
         active_order: &[VehicleHandle],
     ) {
         if !self.stale {
@@ -94,7 +92,8 @@ impl SpawnOverlapIndex {
         }
         self.stale = false;
         for &handle in active_order {
-            let state = vehicles[handle.index() as usize]
+            let state = vehicles
+                .slot(handle.index() as usize)
                 .state
                 .expect("active order has a live vehicle");
             self.insert(lengths, routes, state);
@@ -107,7 +106,7 @@ impl SpawnOverlapIndex {
         &mut self,
         lengths: &[u32],
         routes: &[RouteSlot],
-        vehicles: &[VehicleSlot],
+        vehicles: &crate::kernel::vehicle_store::VehicleStore,
         active_order: &[VehicleHandle],
     ) -> Result<(), ()> {
         if !self.stale {

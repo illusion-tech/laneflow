@@ -23,6 +23,7 @@ pub(crate) mod execution;
 pub(crate) mod handle;
 /// 宿主输入命令的规范化记录（路线注册、车辆生成等）。
 pub(crate) mod input;
+pub(crate) mod motion_updates;
 /// 固定步进跟车求解使用的车道边占用索引。
 pub(crate) mod occupancy;
 /// 停车预约、绑定与虚拟容量的运行时状态。
@@ -49,6 +50,8 @@ pub(crate) mod transitions;
 pub(crate) mod units;
 /// 已提交车辆生命周期状态与替换记录。
 pub(crate) mod vehicle;
+/// 分块列式车辆权威与完整句柄目录。
+pub(crate) mod vehicle_store;
 /// 等待区运行时状态与准入裁决。
 pub(crate) mod waiting;
 /// Waiting 容量视图、反向依赖阈值与候选图事务。

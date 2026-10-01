@@ -1185,7 +1185,7 @@ impl crate::kernel::state::WorldState {
     }
 
     fn record_parking_update(&mut self, vehicle: VehicleHandle, command_cursor: u64) {
-        let state = *self
+        let state = self
             .vehicle_state(vehicle)
             .expect("committed parking update keeps vehicle live");
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
@@ -1207,7 +1207,7 @@ impl crate::kernel::state::WorldState {
     /// 是否已按 exact occurrence/progress/zero-motion 提交 arrival。
     #[must_use]
     pub fn parking_arrived(&self, vehicle: VehicleHandle, target: ParkingTarget) -> bool {
-        let Some(state) = self.vehicle_state(vehicle).copied() else {
+        let Some(state) = self.vehicle_state(vehicle) else {
             return false;
         };
         let Some(ParkingBinding::Reserved(reservation)) = self.committed.parking.binding(vehicle)
@@ -1278,7 +1278,6 @@ impl crate::kernel::state::WorldState {
     ) -> Result<ParkingCommandOutcome<ParkingReserveRecord>, ParkingError> {
         let state = self
             .vehicle_state(vehicle)
-            .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::InvalidVehicleStatus);
@@ -1350,7 +1349,6 @@ impl crate::kernel::state::WorldState {
         self.validate_target_exists(target)?;
         let state = self
             .vehicle_state(vehicle)
-            .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::InvalidVehicleStatus);
@@ -1392,7 +1390,6 @@ impl crate::kernel::state::WorldState {
         self.validate_target_exists(target)?;
         let state = self
             .vehicle_state(vehicle)
-            .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         let record = ParkingParkRecord { vehicle, target };
         match self.committed.parking.binding(vehicle) {
@@ -1428,16 +1425,19 @@ impl crate::kernel::state::WorldState {
             Some(_) | None => return Err(ParkingError::NotReserved),
         }
         let (command_cursor, sequence) = self.checked_parking_observation_commit()?;
+        self.committed
+            .vehicles
+            .try_prepare_pools(1, 0)
+            .map_err(|_| ParkingError::AllocationFailed)?;
         self.unregister_overlap_vehicle(state);
         self.committed.parking.occupy_reserved(vehicle);
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        let state = self.committed.vehicles[index]
-            .state
-            .as_mut()
-            .expect("validated live vehicle");
+        let mut vehicle_slot = self.committed.vehicles.slot_mut(index);
+        let state = vehicle_slot.state.as_mut().expect("validated live vehicle");
         state.status = VehicleStatus::Parked;
         state.speed_mm_s = 0;
         state.carry_um = 0;
+        drop(vehicle_slot);
         self.remove_active_vehicle(vehicle);
         self.committed.command_cursor = command_cursor;
         self.committed.observation_state_sequence = sequence;
@@ -1464,7 +1464,7 @@ impl crate::kernel::state::WorldState {
             if handle == candidate.handle {
                 continue;
             }
-            let Some(follower) = self.vehicle_state(handle).copied() else {
+            let Some(follower) = self.vehicle_state(handle) else {
                 continue;
             };
             if follower.status != VehicleStatus::Active || follower.speed_mm_s == 0 {
@@ -1542,7 +1542,6 @@ impl crate::kernel::state::WorldState {
         super::parking_command_research::note(|counts| counts.calls += 1);
         let state = self
             .vehicle_state(vehicle)
-            .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         if state.status != VehicleStatus::Parked {
             return Err(ParkingError::InvalidVehicleStatus);
@@ -1614,13 +1613,17 @@ impl crate::kernel::state::WorldState {
         let (command_cursor, sequence) = self.checked_parking_observation_commit()?;
 
         let active_index = self.prepare_active_insertion(vehicle);
+        self.committed
+            .vehicles
+            .try_prepare_state(vehicle.index() as usize, Some(candidate))
+            .map_err(|_| ParkingError::AllocationFailed)?;
         self.committed.parking.release_occupied(vehicle);
         if let Some(new_route_ref) = new_route_ref {
             self.release_route_ref(state.route);
             self.commit_route_ref_increment(route, new_route_ref);
         }
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        self.committed.vehicles[index].state = Some(candidate);
+        self.committed.vehicles.slot_mut(index).state = Some(candidate);
         self.insert_active_vehicle(vehicle, active_index);
         self.register_overlap_vehicle(candidate);
         self.committed.command_cursor = command_cursor;
@@ -1654,7 +1657,6 @@ impl crate::kernel::state::WorldState {
     ) -> Result<ParkingCommandOutcome<ParkingRebindRecord>, ParkingError> {
         let state = self
             .vehicle_state(vehicle)
-            .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::InvalidVehicleStatus);
@@ -1777,12 +1779,16 @@ impl crate::kernel::state::WorldState {
             .transpose()?;
         let command_cursor = self.checked_parking_command()?;
 
+        self.committed
+            .vehicles
+            .try_prepare_state(vehicle.index() as usize, Some(candidate))
+            .map_err(|_| ParkingError::AllocationFailed)?;
         if let Some(new_route_ref) = new_route_ref {
             self.release_route_ref(state.route);
             self.commit_route_ref_increment(new_route, new_route_ref);
         }
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        self.committed.vehicles[index].state = Some(candidate);
+        self.committed.vehicles.slot_mut(index).state = Some(candidate);
         self.committed
             .parking
             .replace_reservation(vehicle, reservation);
@@ -1854,6 +1860,10 @@ impl crate::kernel::state::WorldState {
             .parking
             .try_reserve_binding_slot(slot_index)
             .map_err(|()| ParkingError::AllocationFailed)?;
+        self.committed
+            .vehicles
+            .try_prepare_pools(1, 0)
+            .map_err(|_| ParkingError::AllocationFailed)?;
         let slot_index = self
             .committed
             .free_vehicles
@@ -1889,7 +1899,7 @@ impl crate::kernel::state::WorldState {
         if slot_index == self.committed.vehicles.len() {
             self.committed.vehicles.push(slot);
         } else {
-            self.committed.vehicles[slot_index] = slot;
+            *self.committed.vehicles.slot_mut(slot_index) = slot;
         }
         self.committed.live_order.push(vehicle);
         self.commit_route_ref_increment(input.route(), route_ref);
@@ -1916,7 +1926,6 @@ impl crate::kernel::state::WorldState {
     ) -> Result<VehicleDespawnRecord, ParkingError> {
         let state = self
             .vehicle_state(vehicle)
-            .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         let binding = self.committed.parking.binding(vehicle);
         if !self.waiting_state_valid() || !self.conflict_state_valid() {
@@ -1998,7 +2007,7 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.invalidate();
         self.invalidate_occupancy_source();
         let slot_index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        let slot = &mut self.committed.vehicles[slot_index];
+        let mut slot = self.committed.vehicles.slot_mut(slot_index);
         slot.state = None;
         let mut recyclable = false;
         if let Some(next_generation) = slot.generation.checked_add(1) {
@@ -2007,6 +2016,7 @@ impl crate::kernel::state::WorldState {
             recyclable = true;
         }
         let generation_after = slot.generation;
+        drop(slot);
         self.rebuild_waiting_member_rows();
         self.committed.command_cursor = command_cursor;
         if let Some(sequence) = sequence {
@@ -2299,7 +2309,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
     /// snapshot/cutover 共用的闭合状态矩阵与 reservation 语义复核。
     pub(crate) fn parking_state_valid(self, vehicle: VehicleHandle) -> bool {
-        let Some(state) = self.vehicle_state(vehicle).copied() else {
+        let Some(state) = self.vehicle_state(vehicle) else {
             return false;
         };
         let binding = self.committed.parking.binding(vehicle);
@@ -2688,7 +2698,7 @@ mod tests {
             .expect("first vehicle");
         world.despawn_vehicle(first).expect("clear the only slot");
         let index = usize::try_from(first.index()).expect("index");
-        world.state.committed.vehicles[index].generation = u32::MAX;
+        world.state.committed.vehicles.slot_mut(index).generation = u32::MAX;
         world.state.committed.free_vehicles.clear();
 
         let active = world
