@@ -681,6 +681,7 @@ pub(super) fn prepare(
 ) -> Result<(), StepError> {
     let workload = read.derived.active_order.len();
     let extent = read.committed.vehicles.active_extent();
+    updates.try_prepare_rows(extent, workload)?;
     workspace.next_state_by_vehicle.fill(0);
     for (rank, handle) in read.derived.active_order.iter().enumerate() {
         workspace.next_state_by_vehicle[handle.index() as usize] =

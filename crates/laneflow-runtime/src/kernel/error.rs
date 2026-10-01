@@ -145,8 +145,8 @@ pub enum StepError {
     /// 占用索引缓冲 `try_reserve` 失败。
     #[error("占用索引分配失败")]
     OccupancyAllocFailed,
-    /// P6 为实际非活动/稀疏控制转移准备存储失败；已提交世界保持不变。
-    #[error("车辆稀疏存储分配失败")]
+    /// P5 实际活动回报暂存或 P6 非活动/稀疏控制转移准备存储失败；世界保持不变。
+    #[error("车辆运动或稀疏存储分配失败")]
     VehicleStorageAllocFailed,
     /// Active 车辆占用区间遍历失败（路线下标或边长越界）。
     #[error("占用区间遍历失败")]
