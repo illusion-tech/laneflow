@@ -29,16 +29,18 @@ fn run() -> Result<(), String> {
             let verified = verify_source(&path).map_err(|error| error.to_string())?;
             println!(
                 "verify-source ok: {} pinned files under {} (LuST {} @ {})",
-                verified.files.len(),
-                verified.source_dir.display(),
+                verified.files().len(),
+                verified.source_dir().display(),
                 LUST_TAG,
                 &LUST_COMMIT[..12]
             );
             println!("repository: {LUST_REPOSITORY}");
-            for file in &verified.files {
+            for file in verified.files() {
                 println!(
                     "  {}  {}  sha256:{}",
-                    file.bytes, file.relative_path, file.sha256_hex
+                    file.bytes(),
+                    file.relative_path(),
+                    file.sha256_hex()
                 );
             }
             Ok(())

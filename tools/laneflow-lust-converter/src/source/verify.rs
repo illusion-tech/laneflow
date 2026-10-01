@@ -18,22 +18,73 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedSourceFile {
     /// Relative path under the LuST checkout.
-    pub relative_path: &'static str,
+    relative_path: &'static str,
     /// Absolute path that was verified.
-    pub absolute_path: PathBuf,
+    absolute_path: PathBuf,
     /// Exact byte length.
-    pub bytes: u64,
+    bytes: u64,
     /// Lowercase hex SHA-256.
-    pub sha256_hex: String,
+    sha256_hex: String,
+}
+
+impl VerifiedSourceFile {
+    /// crate 内单测专用构造（#253 U1：生产路径只能由 verify_source_dir 背书）。
+    #[cfg(test)]
+    pub(crate) fn synthetic_for_tests(
+        relative_path: &'static str,
+        absolute_path: PathBuf,
+        bytes: u64,
+        sha256_hex: String,
+    ) -> Self {
+        Self {
+            relative_path,
+            absolute_path,
+            bytes,
+            sha256_hex,
+        }
+    }
+
+    pub fn relative_path(&self) -> &'static str {
+        self.relative_path
+    }
+
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    pub fn sha256_hex(&self) -> &str {
+        &self.sha256_hex
+    }
 }
 
 /// Successful verification of the full pinned consumption set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedSourceSet {
     /// LuST checkout root that was verified.
-    pub source_dir: PathBuf,
+    source_dir: PathBuf,
     /// Per-file verification records in pin-table order.
-    pub files: Vec<VerifiedSourceFile>,
+    files: Vec<VerifiedSourceFile>,
+}
+
+impl VerifiedSourceSet {
+    pub fn source_dir(&self) -> &Path {
+        &self.source_dir
+    }
+
+    /// crate 内单测专用构造（#253 U1：外部调用方无法自行拼出"已验证"集合——
+    /// 类型级保证与 ReportSource 的 verified 构造器同一思路）。
+    #[cfg(test)]
+    pub(crate) fn synthetic_for_tests(files: Vec<VerifiedSourceFile>) -> Self {
+        Self {
+            source_dir: std::env::temp_dir(),
+            files,
+        }
+    }
+
+    /// crate 内访问器（pipeline 的 read/build 路径）。
+    pub fn files(&self) -> &[VerifiedSourceFile] {
+        &self.files
+    }
 }
 
 /// Verify every §2.2 pinned file under `source_dir` (fail-closed).
@@ -300,7 +351,7 @@ pub(crate) fn read_verified(verified: &VerifiedSourceSet, relative_path: &str) -
         .map_err(|_| Error::SumoModel(format!("verified {relative_path} is not UTF-8")))
 }
 
-/// 诊断清单模式的已验证输入（#253 R2 第四轮）：`prepare_verified_lust_inputs`
+/// 诊断清单模式的已验证输入（#253 R2）：`prepare_verified_lust_inputs`
 /// 的返回——绑定后的三份转换输入与 verified 来源声明。外部调用方无法自行
 /// 构造 `verified = true` 的 [`ReportSource`]（字段私有），已验证声明只能
 /// 经本路径或 crate 内 pipeline 获得。字段私有 + 只读 getter（#253 R8
@@ -370,7 +421,7 @@ pub fn recheck_source_revision(source_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 正式诊断入口的准备函数：先验证、再绑定、后转换（#253 R2 第四轮）。
+/// 正式诊断入口的准备函数：先验证、再绑定、后转换（#253 R2）。
 ///
 /// 1. `verify_source_dir`：checkout revision 等于 pinned commit + 全部 §2.2
 ///    pinned digest 校验（文件失配、HEAD 错误、无仓库在此 fail-closed——

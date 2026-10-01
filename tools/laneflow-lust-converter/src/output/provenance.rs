@@ -312,3 +312,149 @@ fn release_asset(artifact_ref: &'static str, url: Option<String>, bytes: &[u8]) 
         digest: sha256_digest(bytes),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests,
+        ReleaseAssetUrls, SemanticConfig, SemanticProvenanceInput, VerifiedSourceTar,
+        build_build_provenance, build_semantic_provenance, embedded_notice_bytes,
+        embedded_odbl_bytes,
+    };
+    use crate::{
+        output::tar::{TarMember, write_deterministic_ustar},
+        source::{PINNED_SOURCE_FILES, VerifiedSourceFile, VerifiedSourceSet},
+    };
+
+    /// 合成最小 VerifiedSourceSet（七份 pinned 相对路径摆位；字段私有化后
+    /// 走 crate 内 `synthetic_for_tests` 构造——#253 U1 的类型级保证）。
+    fn synthetic_verified_source_tar() -> VerifiedSourceTar {
+        let root = std::env::temp_dir().join(format!("lust-provenance-src-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for pinned in PINNED_SOURCE_FILES {
+            let path = root.join(pinned.relative_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
+            std::fs::write(&path, b"synthetic").expect("write synthetic pinned file");
+        }
+        // read_verified 消费时重哈希：记录必须对合成字节真实。
+        let synthetic_hex = crate::output::digest::hex_sha256(b"synthetic");
+        let verified = VerifiedSourceSet::synthetic_for_tests(
+            PINNED_SOURCE_FILES
+                .iter()
+                .map(|pinned| {
+                    VerifiedSourceFile::synthetic_for_tests(
+                        pinned.relative_path,
+                        root.join(pinned.relative_path),
+                        pinned.bytes,
+                        synthetic_hex.clone(),
+                    )
+                })
+                .collect(),
+        );
+        let tar = VerifiedSourceTar::from_verified_set(&verified).expect("verified source tar");
+        let _ = std::fs::remove_dir_all(&root);
+        tar
+    }
+
+    #[test]
+    fn semantic_and_build_provenance_are_byte_deterministic() {
+        let licenses = LicenseArtifacts {
+            license_md: b"MIT\\n".to_vec(),
+            odbl: embedded_odbl_bytes().to_vec(),
+            notice: embedded_notice_bytes().to_vec(),
+        };
+        let source_tar = synthetic_verified_source_tar();
+        let semantic_input = SemanticProvenanceInput {
+            semantic_config: SemanticConfig::default(),
+            licenses,
+            release_urls: ReleaseAssetUrls::default(),
+            source_tar: source_tar.clone(),
+            static_tar: None,
+            network_lfca_bytes: Some(b"LFCA\\n".to_vec()),
+            infeasibility_survey_bytes: None,
+            routes_toml_bytes: Some(b"format_version = \"0.1\"\n".to_vec()),
+            manifest_bytes: b"manifest_version = 1\\n".to_vec(),
+            conversion_report_bytes: b"{}\\n".to_vec(),
+        };
+        let first = build_semantic_provenance(&semantic_input).expect("semantic");
+        let second = build_semantic_provenance(&semantic_input).expect("semantic again");
+        assert_eq!(first, second);
+        assert!(String::from_utf8_lossy(&first).contains("lust-source.tar"));
+        assert!(!String::from_utf8_lossy(&first).contains("converterCommit"));
+
+        let build_input = BuildProvenanceInput {
+            converter_commit: "abc123".to_owned(),
+            rust_version: "1.98.0",
+            cargo_lock_sha256: "deadbeef".to_owned(),
+            config_digest: "sha256:00".to_owned(),
+            semantic_provenance_digest: "sha256:11".to_owned(),
+            invocation: BuildInvocation {
+                command: "convert",
+                require_lust_location_anchors: true,
+                require_lust_population_count: true,
+            },
+            raw_output_digests: RawOutputDigests {
+                network_lfca: Some("sha256:a".to_owned()),
+                routes_toml: Some("sha256:b".to_owned()),
+                manifest_toml: "sha256:c".to_owned(),
+                conversion_report: "sha256:d".to_owned(),
+                source_tar: "sha256:f".to_owned(),
+                static_tar: None,
+                infeasibility_survey: None,
+            },
+        };
+        let build_a = build_build_provenance(&build_input).expect("build");
+        let build_b = build_build_provenance(&build_input).expect("build again");
+        assert_eq!(build_a, build_b);
+        assert!(String::from_utf8_lossy(&build_a).contains("converterCommit"));
+    }
+
+    #[test]
+    fn semantic_digest_tracks_only_semantic_config_subset() {
+        let licenses = || LicenseArtifacts {
+            license_md: b"MIT\\n".to_vec(),
+            odbl: embedded_odbl_bytes().to_vec(),
+            notice: embedded_notice_bytes().to_vec(),
+        };
+        let make_input = |semantic_config: SemanticConfig| SemanticProvenanceInput {
+            semantic_config,
+            licenses: licenses(),
+            release_urls: ReleaseAssetUrls::default(),
+            source_tar: synthetic_verified_source_tar(),
+            static_tar: Some(
+                write_deterministic_ustar(&[TarMember {
+                    path: "network.lfca".to_owned(),
+                    contents: b"LFCA\\n".to_vec(),
+                }])
+                .expect("static tar"),
+            ),
+            network_lfca_bytes: Some(b"LFCA\\n".to_vec()),
+            infeasibility_survey_bytes: None,
+            routes_toml_bytes: Some(b"format_version = \"0.1\"\n".to_vec()),
+            manifest_bytes: b"manifest_version = 1\\n".to_vec(),
+            conversion_report_bytes: b"{}\\n".to_vec(),
+        };
+        let base = make_input(SemanticConfig::default());
+        let base_bytes = build_semantic_provenance(&base).expect("base semantic");
+        let base_text = String::from_utf8_lossy(&base_bytes);
+        assert!(
+            !base_text.contains("sourceDir") && !base_text.contains("outputDir"),
+            "执行侧字段不得进入语义 manifest"
+        );
+        // 语义配置子集变化 → digest 变。
+        let other_urls = make_input(SemanticConfig {
+            source_bundle_url: Some("https://example.invalid/a.tar".to_owned()),
+            static_bundle_url: None,
+        });
+        let other_bytes = build_semantic_provenance(&other_urls).expect("other semantic");
+        assert_ne!(
+            base_bytes, other_bytes,
+            "语义配置变化必须改变 semantic provenance"
+        );
+        // 同语义配置、不同执行侧产物字节 → digest 不变。
+        let same_config_different_outputs = make_input(SemanticConfig::default());
+        let same_bytes =
+            build_semantic_provenance(&same_config_different_outputs).expect("same semantic");
+        assert_eq!(base_bytes, same_bytes, "语义 digest 只随语义配置子集变化");
+    }
+}
