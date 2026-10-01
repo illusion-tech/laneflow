@@ -361,7 +361,7 @@ fn diagnostic_mode_skips_route_expansion_but_keeps_population() {
     let due = |id: &str| {
         format!(
             r#"<routes>
-  <vehicle id="{id}" type="passenger1" depart="28800">
+  <vehicle id="{id}" type="passenger1" depart="28800" departPos="random">
     <route edges="x y z"/>
   </vehicle>
 </routes>"#

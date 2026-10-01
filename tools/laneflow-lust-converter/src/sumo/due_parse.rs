@@ -52,14 +52,12 @@ fn parse_vehicle(
     source_file_ordinal: u8,
     source_vehicle_ordinal: u64,
 ) -> Result<DueVehicle> {
+    // #253 U3：空 id 失败域限在入选集——解析期保留原始 id（空也收），
+    // selection 在选取集合内 fail-closed。
     let id = required_attr(node, "id")?;
-    if id.is_empty() {
-        return Err(Error::SumoModel(
-            "DUE vehicle id must not be empty".to_owned(),
-        ));
-    }
     let type_id = required_attr(node, "type")?;
     let depart = ExactDecimal::from_str(&required_attr(node, "depart")?)?;
+    let depart_pos = node.attribute("departPos").map(str::to_owned);
     // #253 Q9：恰好一个内联 <route>——取首个会静默忽略其余声明。
     let mut routes = node
         .children()
@@ -89,6 +87,7 @@ fn parse_vehicle(
         type_id,
         depart,
         road_edge_ids,
+        depart_pos,
         source_file_ordinal,
         source_vehicle_ordinal,
     })

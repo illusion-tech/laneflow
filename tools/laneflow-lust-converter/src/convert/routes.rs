@@ -312,6 +312,7 @@ mod tests {
             type_id: "passenger1".to_owned(),
             depart: "28800".parse().unwrap(),
             road_edge_ids: vec!["west".to_owned(), "east".to_owned()],
+            depart_pos: Some("random".to_owned()),
             source_file_ordinal: 0,
             source_vehicle_ordinal: 0,
         }];

@@ -57,11 +57,6 @@ pub fn select_population(
 
     let mut candidates = Vec::new();
     for vehicle in vehicles {
-        if vehicle.id.is_empty() {
-            return Err(Error::SumoModel(
-                "DUE vehicle id must not be empty".to_owned(),
-            ));
-        }
         if !vehicle.depart.is_greater_or_equal(start) || !vehicle.depart.is_less_than(end) {
             continue;
         }
@@ -110,13 +105,25 @@ pub fn select_population(
                 vehicle.id
             )));
         }
-        // #253 T1：unknown vtype 与重复 id 同属入选集失败域（K3(a) 契约
-        // 口径），截断尾部的未知 vtype 不参与判定。passenger 过滤保证入选
-        // 者必在 known 集内，本检查为防御性（两集若未来分叉即在此拦截）。
+        // #253 T1/U3：空 id、unknown vtype 与重复 id 同属入选集失败域
+        // （K3(a) 契约口径），截断尾部不参与判定。passenger 过滤保证入选
+        // 者必在 known 集内，vtype 检查为防御性（两集若未来分叉即在此拦截）。
+        if vehicle.id.is_empty() {
+            return Err(Error::SumoModel(
+                "DUE vehicle id must not be empty within the selected population".to_owned(),
+            ));
+        }
         if !known.contains(vehicle.type_id.as_str()) {
             return Err(Error::SumoModel(format!(
                 "unknown DUE vtype {:?} for selected vehicle {:?}",
                 vehicle.type_id, vehicle.id
+            )));
+        }
+        // #253 U5：departPos 必须存在且为 `random`（契约），失败域在入选集。
+        if vehicle.depart_pos.as_deref() != Some("random") {
+            return Err(Error::SumoModel(format!(
+                "selected vehicle {:?} has departPos {:?}, expected \"random\"",
+                vehicle.id, vehicle.depart_pos
             )));
         }
         records.push(PopulationRecord {
@@ -143,6 +150,7 @@ mod tests {
             type_id: type_id.to_owned(),
             depart: depart.parse().unwrap(),
             road_edge_ids: edges.iter().map(|edge| (*edge).to_owned()).collect(),
+            depart_pos: Some("random".to_owned()),
             source_file_ordinal: 0,
             source_vehicle_ordinal: 0,
         }
@@ -169,6 +177,39 @@ mod tests {
         let vehicles = vec![vehicle("x", "truck", "28800", &["west"])];
         let records = select_population(&vehicles, false).expect("unknown vtype filtered");
         assert!(records.is_empty());
+    }
+
+    #[test]
+    fn empty_id_and_depart_pos_checked_on_selected_set_only() {
+        // #253 U3/U5：空 id 与 departPos（缺失/非 random）的失败域限在入选集
+        // ——截断尾部的违规不参与判定，入选集内的违规 fail-closed。
+        let selected = vehicle("keep", "passenger1", "28800", &["west", "east"]);
+        let mut tail_empty = vehicle("", "passenger1", "28000", &["west", "east"]);
+        tail_empty.depart_pos = None;
+        let tail_only = vec![selected, tail_empty];
+        assert_eq!(
+            select_population(&tail_only, false)
+                .expect("tail violations ignored")
+                .len(),
+            1
+        );
+
+        let mut bad_id = vehicle("", "passenger1", "28800", &["west", "east"]);
+        bad_id.depart_pos = Some("random".to_owned());
+        let error = select_population(&[bad_id], false).expect_err("selected empty id fails");
+        assert!(error.to_string().contains("must not be empty"), "{error}");
+
+        let mut bad_pos = vehicle("v", "passenger1", "28800", &["west", "east"]);
+        bad_pos.depart_pos = Some("free".to_owned());
+        let error =
+            select_population(&[bad_pos], false).expect_err("selected non-random departPos fails");
+        assert!(error.to_string().contains("departPos"), "{error}");
+
+        let mut missing_pos = vehicle("v2", "passenger1", "28800", &["west", "east"]);
+        missing_pos.depart_pos = None;
+        let error =
+            select_population(&[missing_pos], false).expect_err("selected missing departPos fails");
+        assert!(error.to_string().contains("departPos"), "{error}");
     }
 
     #[test]
