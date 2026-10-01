@@ -479,42 +479,56 @@ fn compute(
 ) {
     let mut batch = Batch::new();
     let n = chunk.cursor.len();
+    let current = view
+        .read
+        .committed
+        .vehicles
+        .active_block(start, n)
+        .expect("physical motion chunk stays within one validated storage block");
+    let source = current.motion;
+    let offset = start % BLOCK_ROWS;
     // 只在本块计算的借用期保留已验证路线，两个约束扫描共用；不跨拍保存引用。
     let mut routes = [None; BLOCK_ROWS];
+    let mut profiles = [None; BLOCK_ROWS];
     #[cfg(test)]
     note_columnar_work(14, n);
     for (row, route) in routes.iter_mut().enumerate().take(n) {
         chunk.reports[row] = MotionRowReport::default();
-        let Some(state) = view.read.committed.vehicles.active_at(start + row) else {
+        let Some(state) = current.row(row) else {
             continue;
         };
-        let Some(active_index) = rank[state.handle.index() as usize]
+        let handle = state.handle();
+        let position = state.position_in(source);
+        let Some(active_index) = rank[handle.index() as usize]
             .checked_sub(1)
             .map(|index| index as usize)
         else {
             continue;
         };
         chunk.reports[row].done = true;
-        chunk.reports[row].canonical_rank = rank[state.handle.index() as usize];
+        chunk.reports[row].canonical_rank = rank[handle.index() as usize];
         let prepared = (|| {
             #[cfg(test)]
             if motion_injection::nonfinite_injected(view.read.binding.world_id, active_index) {
                 return Err(StepError::NonFiniteMotion);
             }
             chunk.reports[row].checkpoint = MotionCheckpoint::Parking;
-            let parking_binding = view.read.committed.parking.binding(state.handle);
-            if !view
-                .read
-                .parking_state_valid_with_binding(state.handle, &state, parking_binding)
-                || matches!(parking_binding, Some(ParkingBinding::Occupied(_)))
+            let parking_binding = view.read.committed.parking.binding(handle);
+            // 行借用已证明 Active；无 binding 时原语只检查该状态，不读取其它字段。
+            if parking_binding.is_some()
+                && (!view.read.parking_state_valid_with_binding(
+                    handle,
+                    &state.state(),
+                    parking_binding,
+                ) || matches!(parking_binding, Some(ParkingBinding::Occupied(_))))
             {
                 return Err(StepError::ParkingInvariantViolation);
             }
             batch.reserved_parking[row] =
                 matches!(parking_binding, Some(ParkingBinding::Reserved(_)));
             chunk.reports[row].checkpoint = MotionCheckpoint::Waiting;
-            let compiled = view.read.compiled_route(state.route);
-            let waiting = view.waiting_stop_for(&state, compiled)?;
+            let compiled = view.read.compiled_route(state.route());
+            let waiting = view.waiting_stop_for(state, compiled)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Conflict;
             let compiled = compiled.ok_or(StepError::ConflictInvariantViolation)?;
             let profile = view
@@ -523,24 +537,25 @@ fn compute(
                 .revision
                 .traffic()
                 .relations()
-                .vehicle_profile(state.profile);
-            let conflict = view.conflict_stop_for(&state, delta_s, compiled, profile)?;
+                .vehicle_profile(state.profile());
+            let conflict = view.conflict_stop_for(state, delta_s, compiled, profile)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Calculation;
             let cached = view
                 .motion_cache
                 .get(active_index)
-                .filter(|entry| entry.vehicle == state.handle);
+                .filter(|entry| entry.vehicle == handle);
             if let Some(next) = cached
                 .and_then(|entry| entry.preview.as_ref())
                 .and_then(|preview| preview.reuse(waiting, conflict))
             {
-                let next = next.apply(state);
+                let old = state.state();
+                let next = next.apply(old);
                 #[cfg(test)]
                 note_motion_cache_use(true);
                 #[cfg(test)]
                 note_columnar_work(3, 1);
                 chunk.reports[row].checkpoint = MotionCheckpoint::Arrival;
-                chunk.reports[row].arrival = arrival(view, state, next)?;
+                chunk.reports[row].arrival = arrival(view, old, next)?;
                 write_value(&mut chunk, row, next);
                 chunk.reports[row].checkpoint = MotionCheckpoint::Complete;
                 return Ok(());
@@ -548,14 +563,14 @@ fn compute(
             let reused_basis = cached
                 .and_then(|entry| entry.basis_index)
                 .and_then(|index| view.motion_bases.get(index.get() as usize - 1))
-                .filter(|basis| basis.matches(&state, delta_s, parking_binding));
+                .filter(|basis| basis.matches(state, delta_s, parking_binding));
             #[cfg(test)]
             note_columnar_work(2, usize::from(reused_basis.is_some()));
             let basis = reused_basis
                 .map(|basis| basis.inputs)
                 .or_else(|| {
                     view.read.prepare_motion_inputs(
-                        &state,
+                        state,
                         compiled,
                         profile?,
                         delta_s,
@@ -566,11 +581,12 @@ fn compute(
                 })
                 .ok_or(StepError::NonFiniteMotion)?;
             *route = Some(compiled);
+            profiles[row] = Some(state.profile());
             batch.complex[row] = speed_drop_may_constrain(
                 compiled,
                 &basis,
-                state.route_edge_index as usize,
-                state.progress_mm,
+                position.route_edge_index as usize,
+                position.progress_mm,
                 delta_s,
             );
             #[cfg(test)]
@@ -586,10 +602,10 @@ fn compute(
                 stop,
                 basis.route_end,
                 basis.edge_length_mm,
-                state.progress_mm,
+                position.progress_mm,
                 basis.permitted_for_hard_room,
             );
-            chunk.cursor[row] = state.route_edge_index;
+            chunk.cursor[row] = position.route_edge_index;
             Ok(())
         })();
         if let Err(error) = prepared {
@@ -600,8 +616,6 @@ fn compute(
     if !batch.enabled[..n].iter().any(|&enabled| enabled) {
         return;
     }
-    let source = &view.read.committed.vehicles.motion[start / BLOCK_ROWS];
-    let offset = start % BLOCK_ROWS;
     for (range, complex) in NumericSpans::new(&batch.complex[..n]) {
         if !batch.enabled[range.clone()].iter().any(|&enabled| enabled) {
             continue;
@@ -695,14 +709,9 @@ fn compute(
             if !batch.walk_active[row] {
                 continue;
             }
-            let state = view
-                .read
-                .committed
-                .vehicles
-                .active_at(start + row)
-                .expect("frozen physical route context");
             let gathered = (|| {
-                let compiled = view.read.compiled_route(state.route)?;
+                let compiled = routes[row]?;
+                let profile = profiles[row]?;
                 let index = chunk.cursor[row] as usize;
                 let edge = *compiled.edges.get(index)?;
                 let length = *view
@@ -714,12 +723,8 @@ fn compute(
                     .get(edge.index())?;
                 let boundary = batch.travel_mm[row] >= length.saturating_sub(chunk.progress[row]);
                 batch.can_hop[row] = !boundary
-                    || (view.read.hop_permitted(
-                        state.route,
-                        &compiled.edges,
-                        index,
-                        state.profile,
-                    ) && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
+                    || (view.read.hop_permitted_compiled(compiled, index, profile)
+                        && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index));
                 batch.has_next[row] = index + 1 < compiled.edges.len();
                 batch.walk_length[row] = length;

@@ -20,6 +20,11 @@ P2 筛选不组装整车，实际预览才取得完整逻辑值。资源收尾�
 非入口 Gate 筛选保留同 occurrence 的边尾情况；事件减量必须同时排除 Waiting 计划、
 旧成员、Clearing、grant 回看、reservation 及 passage 暂存，不能仅凭游标未变跳过。
 
+P5 在块内借用稳定上下文和 Current 运动列，按完整目录身份取得行绑定；约束准备、
+基础来源证明与标量预览共用字段原语。常规行不为准备输入组装完整逻辑值，完整预览
+复用和实际停车义务仍可按需组装。真实多 hop 在同一借用内复用已解析路线与车型，
+每轮仍检查实际 occurrence、Gate、Waiting/Conflict stop、边界和余量。
+
 车辆目录（Vehicle Directory）按完整句柄索引保存 generation、存储类别和物理位置。完整句柄决定身份，规范逻辑位置（Canonical Logical Position）决定消费/事件/首错顺序，物理行（Physical Row）决定连续读写及独占执行。三者不可混用。不按车道或 profile 每拍全局重排权威列。
 
 `VehicleState` 是按值组装的逻辑视图、公开读取、快照及测试类型。内部返回 `&VehicleState` 的接口改为值或受限列视图；不维护完整 AoS 影子。登记/恢复/切换可以一次性拆分逻辑值；步进不得依靠全量 AoS→SoA→AoS 转换维持运行。
