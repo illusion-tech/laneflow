@@ -169,9 +169,11 @@ pub(crate) struct DispatchStats {
     pub(crate) extra_work_chunks: usize,
     /// 实际参与本调用的不同线程数（非同时运行峰值）。
     pub(crate) participating_threads: usize,
-    /// 票据式认领下成功取到块票据的总次数（cfg(test) 登记）。
+    /// 成功领取票据的次数；物理列分发的一张票据可以覆盖多个块（cfg(test)）。
     pub(crate) ticket_grabs: usize,
 }
+
+pub(crate) const MAX_WORKS_PER_TICKET: usize = 16;
 
 // 测试专用：最近一次 `try_for_each_chunk` 的调度统计；机制测量探针读取，
 // 不改变语义。
@@ -363,6 +365,7 @@ impl ExecutionResources {
         &self,
         view: super::phase::StepReadView<'_>,
         work: I,
+        works_per_ticket: usize,
         compute: F,
     ) -> DispatchStats
     where
@@ -370,13 +373,16 @@ impl ExecutionResources {
         T: Send,
         F: Fn(super::phase::StepReadView<'_>, usize, T) + Sync,
     {
+        assert!(
+            (1..=MAX_WORKS_PER_TICKET).contains(&works_per_ticket),
+            "bounded work ticket"
+        );
         #[cfg(test)]
         let counters = DispatchCounters::default();
         let run = |(start, item)| {
             #[cfg(test)]
             {
                 counters.note_thread();
-                counters.note_ticket_grab();
                 counters.dispatched.fetch_add(1, Ordering::Relaxed);
             }
             compute(view, start, item);
@@ -386,17 +392,29 @@ impl ExecutionResources {
         match self {
             Self::Caller => {
                 for item in work {
+                    #[cfg(test)]
+                    counters.note_ticket_grab();
                     run(item);
                 }
             }
             Self::Pool(resources) => {
-                let tickets = std::sync::Mutex::new(work);
+                let tickets = std::sync::Mutex::new(work.fuse());
                 let drain = || loop {
-                    let ticket = tickets.lock().expect("physical motion tickets").next();
-                    let Some(ticket) = ticket else {
-                        break;
+                    // 一次领取多个互不重叠的存储块，离开锁后逐块求值；固定数组不分配。
+                    let batch: [Option<(usize, T)>; MAX_WORKS_PER_TICKET] = {
+                        let mut work = tickets.lock().expect("physical motion tickets");
+                        std::array::from_fn(|index| {
+                            (index < works_per_ticket).then(|| work.next()).flatten()
+                        })
                     };
-                    run(ticket);
+                    if batch[0].is_none() {
+                        break;
+                    }
+                    #[cfg(test)]
+                    counters.note_ticket_grab();
+                    for ticket in batch.into_iter().flatten() {
+                        run(ticket);
+                    }
                 };
                 resources.pool.in_place_scope(|scope| {
                     for _ in 0..resources.pool.current_num_threads() {
@@ -747,6 +765,49 @@ mod tests {
                 *slot = DispatchSlot::Done(Ok(progress + index as u64));
             }
             finished.lock().unwrap().push(start);
+        }
+    }
+
+    #[test]
+    fn physical_work_tickets_cover_disjoint_tail_chunks_without_duplicate_execution() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        for workers in [1, 4] {
+            let (mut world, _, _) = world_with_vehicle(true);
+            world.execution = WorldExecution::start_private(config(workers), &world.state);
+            for per_ticket in [1, 4, MAX_WORKS_PER_TICKET] {
+                for count in [0, 1, 16, 17, 33] {
+                    let mut output = vec![0_u32; count];
+                    let visits: Vec<_> = (0..count).map(|_| AtomicUsize::new(0)).collect();
+                    let stats = world.execution.run(&mut world.state, |state, resources| {
+                        resources.for_each_work(
+                            state.read_view(),
+                            output.chunks_mut(1).enumerate(),
+                            per_ticket,
+                            |view, start, row| {
+                                assert!(view.vehicle_state(view.derived.active_order[0]).is_some());
+                                visits[start].fetch_add(1, Ordering::Relaxed);
+                                row[0] = start as u32 + 1;
+                            },
+                        )
+                    });
+                    assert_eq!(output, (1..=count as u32).collect::<Vec<_>>());
+                    assert!(
+                        visits
+                            .iter()
+                            .all(|visits| visits.load(Ordering::Relaxed) == 1)
+                    );
+                    assert_eq!(stats.dispatched_chunks, count);
+                    assert_eq!(stats.completed_chunks, count);
+                    assert_eq!(
+                        stats.ticket_grabs,
+                        if workers == 1 {
+                            count
+                        } else {
+                            count.div_ceil(per_ticket)
+                        }
+                    );
+                }
+            }
         }
     }
 
