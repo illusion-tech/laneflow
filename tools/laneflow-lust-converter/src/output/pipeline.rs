@@ -312,7 +312,7 @@ fn convert_verified(
         }
     };
 
-    let publish = publish_outputs(&staging, &config.output_dir, &staged, diagnostic);
+    let publish = publish_outputs(&staging, &config.output_dir, &staged);
     let _ = fs::remove_dir_all(&staging);
     publish?;
 
@@ -350,32 +350,71 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
     parent.join(format!(".staging-{}-{name}", std::process::id()))
 }
 
-/// publish：先清排除产物（诊断模式），再逐文件把 staging 产物替换进
-/// output_dir（目标已存在先删除再 rename——Windows 不支持覆盖式 rename，
-/// 也不支持非空目录整体替换）。replace 失败即返回 Err（staging 由调用方
-/// 清理；output_dir 中已替换的文件保持新样，未替换的保持旧样）。
+/// publish（#253 U2 事务式）：先把 output_dir 现有交付文件与排除产物移入
+/// 备份区（staging 旁的 `.backup-<pid>-<name>`，同卷），再逐个移入新文件；
+/// 任一步失败从备份区恢复旧集合并 fail-closed，成功后清备份（排除产物随
+/// 备份丢弃——M2 语义；诊断模式 on success 不恢复它们，on failure 恢复）。
+/// Windows：rename 不覆盖、目录不可整体替换，全部逐文件进行。
 fn publish_outputs(
     staging: &Path,
     output_dir: &Path,
     staged: &[(&'static str, &'static str)],
-    diagnostic: bool,
 ) -> Result<()> {
     fs::create_dir_all(output_dir).map_err(|source| Error::Io {
         path: output_dir.to_path_buf(),
         source,
     })?;
-    if diagnostic {
-        // M2 语义挪至 publish 阶段：排除产物不得残留。
-        remove_excluded_artifacts(output_dir)?;
+    let backup = backup_dir(output_dir);
+    fs::create_dir_all(&backup).map_err(|source| Error::Io {
+        path: backup.clone(),
+        source,
+    })?;
+    let result = swap_outputs(staging, output_dir, &backup, staged);
+    if result.is_err() {
+        restore_backup(output_dir, &backup, staged);
     }
+    let _ = fs::remove_dir_all(&backup);
+    result
+}
+
+fn backup_dir(output_dir: &Path) -> PathBuf {
+    let name = output_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "output".to_owned());
+    let parent = output_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    parent.join(format!(".backup-{}-{name}", std::process::id()))
+}
+
+fn swap_outputs(
+    staging: &Path,
+    output_dir: &Path,
+    backup: &Path,
+    staged: &[(&'static str, &'static str)],
+) -> Result<()> {
+    // 备份现存：交付名 ∪ 排除名。
+    let mut names: Vec<&'static str> = staged.iter().map(|(name, _)| *name).collect();
+    for excluded in [NETWORK_LFCA_NAME, STATIC_TAR_NAME, ROUTES_NAME] {
+        if !names.contains(&excluded) {
+            names.push(excluded);
+        }
+    }
+    for name in &names {
+        let dest = output_dir.join(name);
+        if dest.symlink_metadata().is_ok() {
+            fs::rename(&dest, backup.join(name)).map_err(|source| Error::Io {
+                path: dest.clone(),
+                source,
+            })?;
+        }
+    }
+    // 移入新文件。
     for (name, _) in staged {
         let from = staging.join(name);
         let to = output_dir.join(name);
-        match fs::remove_file(&to) {
-            Ok(()) => {}
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
-            Err(source) => return Err(Error::Io { path: to, source }),
-        }
         fs::rename(&from, &to).map_err(|source| Error::Io {
             path: from.clone(),
             source,
@@ -384,6 +423,28 @@ fn publish_outputs(
     Ok(())
 }
 
+/// 失败恢复：备份区有的文件逐个移回 output_dir（新文件若已落位先删）。
+/// 尽力而为——恢复本身的残余失败由清理与错误信息暴露。
+fn restore_backup(output_dir: &Path, backup: &Path, staged: &[(&'static str, &'static str)]) {
+    let mut names: Vec<&'static str> = staged.iter().map(|(name, _)| *name).collect();
+    for excluded in [NETWORK_LFCA_NAME, STATIC_TAR_NAME, ROUTES_NAME] {
+        if !names.contains(&excluded) {
+            names.push(excluded);
+        }
+    }
+    for name in names {
+        let from = backup.join(name);
+        if from.symlink_metadata().is_err() {
+            continue;
+        }
+        let to = output_dir.join(name);
+        let _ = fs::remove_file(&to);
+        let _ = fs::rename(&from, &to);
+    }
+}
+
+/// 由已验证 source 集构建确定性 source tar（#253 T3：返回类型级绑定的
+/// `VerifiedSourceTar`——provenance 的 pinned source 断言只接受验证路径产物）。
 pub(crate) fn build_source_tar(
     verified: &VerifiedSourceSet,
 ) -> Result<crate::output::provenance::VerifiedSourceTar> {
@@ -419,22 +480,6 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn workspace_cargo_lock() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock")
-}
-
-/// 诊断模式下删除本次不交付的排除产物（#253 M2/L1）：output_dir 复用时残留的
-/// network.lfca / lust-static.tar / routes.toml（L1 后诊断模式不产出）不被新
-/// manifest/provenance 认证，必须清除，避免陈旧未认证字节被当作本次交付。
-/// 不存在视为成功；其他删除错误 fail-closed。
-fn remove_excluded_artifacts(output_dir: &Path) -> Result<()> {
-    for name in [NETWORK_LFCA_NAME, STATIC_TAR_NAME, ROUTES_NAME] {
-        let path = output_dir.join(name);
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
-            Err(source) => return Err(Error::Io { path, source }),
-        }
-    }
-    Ok(())
 }
 
 fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
@@ -521,9 +566,7 @@ fn build_manifest_toml(
 mod tests {
     use std::path::PathBuf;
 
-    use super::{
-        MANIFEST_NAME, SURVEY_NAME, convert_with_config, publish_outputs, remove_excluded_artifacts,
-    };
+    use super::{MANIFEST_NAME, SURVEY_NAME, convert_with_config, publish_outputs};
     use crate::Error;
 
     #[test]
@@ -545,7 +588,6 @@ mod tests {
             &staging,
             &output,
             &[(MANIFEST_NAME, MANIFEST_NAME), (SURVEY_NAME, SURVEY_NAME)],
-            true,
         )
         .expect("publish");
 
@@ -559,8 +601,9 @@ mod tests {
     }
 
     #[test]
-    fn publish_outputs_failure_keeps_remaining_outputs() {
-        // publish 阶段 replace 失败：未替换的文件保持原样、错误 fail-closed。
+    fn publish_outputs_failure_restores_original_set() {
+        // #253 U2 事务式：中途失败从备份区恢复旧集合——manifest 回到旧内容，
+        // survey 目录未被新文件替换，排除产物（network.lfca）原样恢复。
         let root = std::env::temp_dir().join(format!("lust-publish-fail-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let output = root.join("out");
@@ -568,21 +611,26 @@ mod tests {
         std::fs::create_dir_all(&output).expect("output");
         std::fs::create_dir_all(&staging).expect("staging");
         std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
+        std::fs::write(output.join("network.lfca"), b"stale-lfca").expect("stale");
         std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
-        // 目标位置放一个**目录**占用文件名——remove_file 失败，publish 中止。
+        // 目标位置放一个**目录**占用 survey 文件名——移入失败，触发恢复。
         std::fs::create_dir(output.join(SURVEY_NAME)).expect("dir squat");
 
         let result = publish_outputs(
             &staging,
             &output,
             &[(MANIFEST_NAME, MANIFEST_NAME), (SURVEY_NAME, SURVEY_NAME)],
-            false,
         );
         assert!(result.is_err(), "replace 失败必须 fail-closed");
-        // manifest 已替换（排序在前），survey 未触碰（目录仍在）。
         assert_eq!(
             std::fs::read(output.join("manifest.toml")).expect("read"),
-            b"new-manifest"
+            b"old-manifest",
+            "已移入的新文件必须被恢复为旧内容"
+        );
+        assert_eq!(
+            std::fs::read(output.join("network.lfca")).expect("read"),
+            b"stale-lfca",
+            "排除产物在失败路径也必须恢复"
         );
         assert!(output.join(SURVEY_NAME).is_dir());
         let _ = std::fs::remove_dir_all(&root);
@@ -627,34 +675,5 @@ output_dir = 'E:/nonexistent-out'
             }
             other => panic!("unexpected error: {other}"),
         }
-    }
-
-    #[test]
-    fn remove_excluded_artifacts_clears_stale_static_outputs() {
-        // #253 M2：output_dir 复用时，残留的 network.lfca / lust-static.tar
-        // 必须被清除；不存在视为成功。
-        let root = std::env::temp_dir().join(format!(
-            "laneflow-lust-pipeline-stale-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("create temp");
-        std::fs::write(root.join("network.lfca"), b"stale-lfca").expect("write stale lfca");
-        std::fs::write(root.join("lust-static.tar"), b"stale-tar").expect("write stale tar");
-        std::fs::write(root.join("routes.toml"), b"stale-routes").expect("write stale routes");
-        std::fs::write(root.join("manifest.toml"), b"keep-me").expect("write kept artifact");
-
-        remove_excluded_artifacts(&root).expect("stale artifacts removed");
-
-        assert!(!root.join("network.lfca").exists());
-        assert!(!root.join("lust-static.tar").exists());
-        assert!(
-            !root.join("routes.toml").exists(),
-            "诊断模式不产 routes.toml"
-        );
-        assert!(root.join("manifest.toml").exists(), "交付产物不得误删");
-        // 幂等：再次调用（产物已不存在）必须成功。
-        remove_excluded_artifacts(&root).expect("idempotent removal");
-        let _ = std::fs::remove_dir_all(&root);
     }
 }
