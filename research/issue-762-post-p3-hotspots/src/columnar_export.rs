@@ -233,6 +233,7 @@ mod tests {
         let host =
             fs::read_to_string(root.join("tools/laneflow-urban-harness/src/host.rs")).unwrap();
         assert_eq!(host.matches("LF814_PIPELINE").count(), 1);
+        assert!(!host.contains("let (elapsed,"));
     }
     #[test]
     fn promotion_excludes_test_modules_and_unrelated_probes() {

@@ -33,7 +33,7 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
         root,
         "tools/laneflow-urban-harness/src/host.rs",
         "                let (stages, calls) = laneflow_runtime::research_take();",
-        "                let (stages, calls) = laneflow_runtime::research_take();\n                let (elapsed, measured_calls, counts) = laneflow_runtime::research_pipeline();\n                eprintln!(\"LF814_PIPELINE {{\\\"tick\\\":{},\\\"elapsed_sum_ns\\\":{:?},\\\"measured_calls\\\":{:?},\\\"counts\\\":{:?}}}\", world.tick_index(), elapsed, measured_calls, counts);\n                eprintln!(\"LF814_BLOCK {{\\\"tick\\\":{},\\\"elapsed_sum_ns\\\":{:?}}}\", world.tick_index(), [elapsed[6], elapsed[11..15].iter().sum::<u64>(), elapsed[15]+elapsed[16], elapsed[17], elapsed[18]]);",
+        "                let (stages, calls) = laneflow_runtime::research_take();\n                let (pipeline_elapsed, measured_calls, counts) = laneflow_runtime::research_pipeline();\n                eprintln!(\"LF814_PIPELINE {{\\\"tick\\\":{},\\\"elapsed_sum_ns\\\":{:?},\\\"measured_calls\\\":{:?},\\\"counts\\\":{:?}}}\", world.tick_index(), pipeline_elapsed, measured_calls, counts);\n                eprintln!(\"LF814_BLOCK {{\\\"tick\\\":{},\\\"elapsed_sum_ns\\\":{:?}}}\", world.tick_index(), [pipeline_elapsed[6], pipeline_elapsed[11..15].iter().sum::<u64>(), pipeline_elapsed[15]+pipeline_elapsed[16], pipeline_elapsed[17], pipeline_elapsed[18]]);",
     )
 }
 
