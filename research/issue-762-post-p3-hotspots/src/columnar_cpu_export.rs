@@ -191,8 +191,13 @@ fn instrument_finalize(root: &Path) -> Result<()> {
         ),
         (
             "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
+            "            self.stage_resource_free_gate_fields(\n                fields,",
+            "            super::tick::note_pipeline(32, usize::from(fields.previous.route_edge_index != position.route_edge_index));\n            self.stage_resource_free_gate_fields(\n                fields,",
+        ),
+        (
+            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
             "            let all_clear = match range {",
-            "            super::tick::note_pipeline(27, usize::from(control_obligation || range.is_some() || grant_index.is_some() || self.workspace.conflict_next_eligibility[handle.index() as usize].is_some()));\n            super::tick::note_pipeline(32, usize::from(fields.previous.route_edge_index != position.route_edge_index));\n            let all_clear = match range {",
+            "            super::tick::note_pipeline(27, usize::from(control_obligation || range.is_some() || grant_index.is_some() || self.workspace.conflict_next_eligibility[handle.index() as usize].is_some()));\n            let all_clear = match range {",
         ),
         (
             WAITING,
