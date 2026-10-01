@@ -204,7 +204,7 @@ fn parse_diagnosis_fields(entry: &str) -> (String, String, String, String, Strin
 /// 与输入不符的基线；`verified` 仅当输入经 `verify_source`（checkout revision +
 /// pinned digest）走过时为 true。
 ///
-/// 字段私有 + 受控构造器（#253 R2 第四轮）：外部调用方无法自行构造
+/// 字段私有 + 受控构造器（#253 R2）：外部调用方无法自行构造
 /// `verified = true` 的实例——已验证声明只能来自 `prepare_verified_lust_inputs`
 /// 或 crate 内 pipeline 的 verify-source 路径，「调用方自我声明已验证」在
 /// 类型层面不可能。
@@ -1045,7 +1045,7 @@ const WELD_MAX_TURN_RAD: f64 = 1.95_f64 * std::f64::consts::PI / 180.0;
 const WELD_SAFE_TURN_RAD: f64 = 1.9_f64 * std::f64::consts::PI / 180.0;
 /// 单段等分片数上限（防御病态输入）。
 const SAMPLE_MAX_PIECES: u32 = 2048;
-/// 等 t 初始候选失败后的等切向角回溯轮数（R6 第三轮；0 = 禁用回溯的归因
+/// 等 t 初始候选失败后的等切向角回溯轮数（R6 复审；0 = 禁用回溯的归因
 /// 对照，正常路径为 1：一轮等角重划分，与初始候选合计 ≤2 轮有界回溯）。
 const SAMPLE_BACKTRACK_ROUNDS: u32 = 1;
 /// HIR 冻结的退化段下限（米）：`SPATIAL_MIN_SEGMENT_LENGTH_METERS`，
@@ -1417,7 +1417,7 @@ fn sample_cubic(
             b[2]
         )));
     }
-    // 候选划分序列（R6 第三轮）：round 0 等 t 初始候选（R6 第二轮路径，既有
+    // 候选划分序列（R6 复审）：round 0 等 t 初始候选（R6 初修路径，既有
     // 行为字节级不变）；round 1..=SAMPLE_BACKTRACK_ROUNDS 等切向角重划分——
     // 等 t 划分与非均匀曲率错配会让个别片切向超 1.9°（r=3.26 m 90° 倒圆
     // 48 片局部 1.9349°），而等切向角 48 片每片恰 1.875° 全预算内。轮数取尽
@@ -1494,7 +1494,7 @@ fn emit_uniform_pieces(span: &BezierSpan, n: u32, sink: &mut EmissionSink) -> Re
     sample_cubic(rem.0, rem.1, rem.2, span.b, rem.3, span.dir_b, sink)
 }
 
-/// 等切向角重划分（R6 第三轮回溯轮）：对 cubic 切向做密集累计角扫描，
+/// 等切向角重划分回溯轮：对 cubic 切向做密集累计角扫描，
 /// 按累计切向角等分选切分参数（确定性），de Casteljau 切 n 片后逐片走
 /// 常规采样。片数与初始候选相同（受 n_floor 约束），只重排参数分布。
 fn emit_angle_pieces(span: &BezierSpan, n: u32, sink: &mut EmissionSink) -> Result<()> {
@@ -1774,7 +1774,7 @@ mod tests {
 
     #[test]
     fn tangent_angle_partition_rescues_r326_counterexample() {
-        // #253 R6 第三轮反例：r=3.26 m 90° 倒圆 cubic（a=(20−r,0,0)、b=(20,0,r)）。
+        // #253 R6 复审反例：r=3.26 m 90° 倒圆 cubic（a=(20−r,0,0)、b=(20,0,r)）。
         // 16 段弧长估计 5.1195 m → 48 片；等 t 48 片的局部片切向 1.9349° > 1.9°
         // 被误拒（递归落到 n_floor<2 单弦回退）；等切向角 48 片每片恰 1.875°，
         // 量化最短弦 0.10583 m > 0.105 m、最大 weld 角 1.8766° < 1.95°，全预算内。

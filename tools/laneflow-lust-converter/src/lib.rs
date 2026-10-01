@@ -104,7 +104,7 @@ pub fn convert_topology_from_xml_with_tll_and_vtypes(
 /// [`convert_topology_from_xml_with_tll_and_vtypes`] 的显式来源声明变体：
 /// 诊断清单模式的正式验收入口——来源已经 verify-source 走过（checkout
 /// revision + pinned digest）的调用方传入 `verified = true` 与 pinned 校验
-/// 得到的摘要（#253 R2 第三轮：先验证、再绑定、后转换）。
+/// 得到的摘要（#253 R2：先验证、再绑定、后转换）。
 ///
 /// R8 残留缺口闭合：本入口分别接收 XML 与 ReportSource，调用方可能错配
 /// 「旧记录 + 改动后字节」套取 0.5 m 删焊例外——verified 时对**本次实际
