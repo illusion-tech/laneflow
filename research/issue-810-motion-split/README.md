@@ -2,6 +2,9 @@
 
 对应 #810；只隔离 #808 公共 prepare/finish 拆分的整拍成本。正式 Runtime、公开 API、格式、Adapter 与资源合同不变。
 
+已完成结果见 [results.md](results.md)。本轮方向筛选未通过，不能量化归因，
+`continue_candidate=false`；保留全部波动与正确性/封存证据。
+
 ## 采集前方案
 
 - 正式基线 `fcd803f2cb28ba7a94f3f0ff589e7e9b7bdbd7d3`；与开工主线 `bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567` 的 Runtime/harness 代码无差异。
@@ -27,3 +30,27 @@ laneflow-motion-split-research build-collector <new-tools>
 ```
 
 两臂从同一清空后环境构建，绑定 Git 归档、逐文件源码、实际工具链/命令/EXE。分析重派生矩阵、来源、交通与逐拍状态，检查已知争用及统计身份；原始载荷完整封存后全新解压逐文件验封。
+
+实际采集提交为 `354bd6023561e027defb57aa0f401ed0426e0bb0`，保留在
+`codex/810-motion-split-source-freeze`。prepare/run 使用该干净提交；报告 PR 和
+合并提交不替代它。解压归档的 verify 无需当前工作树匹配。
+
+## 证据保存
+
+仓库保留源码、采集前方案、结果报告、小型统计摘要与验封索引。完整源码清单、
+构建环境、逐进程结果和原始日志放在仓库外归档，不随每个研究切片重复入库。
+归档位置、长度和 SHA-256 见 [archive.json](evidence/archive.json)；全部六个
+窗口的统计摘要见 [summary.json](evidence/summary.json)。摘要不替代原始证据，
+也不能作为采集器 `verify` 的输入。
+
+完整归档目前保存于本机 `E:/projects/laneflow-evidence/issue-810/354bd602/`，
+尚无团队可下载地址。归档字节与原封存一致；此前发布的完整 JSON 另保留在该目录的
+`published-receipts/`。获取归档并解压到全新目录后，使用以下入口复核：
+
+```text
+<unpacked>/tools/laneflow-motion-split-research verify-collector <unpacked>/tools
+<unpacked>/tools/laneflow-motion-split-research verify <unpacked>/raw <unpacked>/results.json
+```
+
+验封仍需按归档 `seal.json` 核对全部文件的路径、长度、SHA-256 与数量；
+已有全新解压复核结果见 [unpacked-verification.json](evidence/unpacked-verification.json)。
