@@ -62,12 +62,6 @@ pub fn select_population(
                 "DUE vehicle id must not be empty".to_owned(),
             ));
         }
-        if !known.contains(vehicle.type_id.as_str()) {
-            return Err(Error::SumoModel(format!(
-                "unknown DUE vtype {:?} for vehicle {:?}",
-                vehicle.type_id, vehicle.id
-            )));
-        }
         if !vehicle.depart.is_greater_or_equal(start) || !vehicle.depart.is_less_than(end) {
             continue;
         }
@@ -116,6 +110,15 @@ pub fn select_population(
                 vehicle.id
             )));
         }
+        // #253 T1：unknown vtype 与重复 id 同属入选集失败域（K3(a) 契约
+        // 口径），截断尾部的未知 vtype 不参与判定。passenger 过滤保证入选
+        // 者必在 known 集内，本检查为防御性（两集若未来分叉即在此拦截）。
+        if !known.contains(vehicle.type_id.as_str()) {
+            return Err(Error::SumoModel(format!(
+                "unknown DUE vtype {:?} for selected vehicle {:?}",
+                vehicle.type_id, vehicle.id
+            )));
+        }
         records.push(PopulationRecord {
             population_rank: u32::try_from(rank).expect("rank fits u32"),
             vehicle_id: vehicle.id.clone(),
@@ -160,10 +163,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_vtype_fails_closed() {
+    fn unknown_vtype_is_filtered_before_selection() {
+        // #253 T1：unknown vtype 失败域限于入选集——非 passenger 类型在候选
+        // 过滤即被排除，不参与判定（pinned 全局/入选集均 0 实例，行为不变）。
         let vehicles = vec![vehicle("x", "truck", "28800", &["west"])];
-        let error = select_population(&vehicles, false).expect_err("unknown");
-        assert!(error.to_string().contains("unknown DUE vtype"));
+        let records = select_population(&vehicles, false).expect("unknown vtype filtered");
+        assert!(records.is_empty());
     }
 
     #[test]

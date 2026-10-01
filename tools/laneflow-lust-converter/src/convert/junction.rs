@@ -418,7 +418,7 @@ fn internal_terminals(network: &SumoNetwork) -> HashSet<(String, String, u32)> {
 
 /// 沿 internal <connection> 续全 via 链并验证终止语义（#253 R5）：
 /// - 仅接受 (to_edge, to_lane) 与外部目的完全一致、贡献新 lane 的续接；
-///   不相关目的 lane 的 connection 不参与本穿越（第三轮：中间跳 toLane
+///   不相关目的 lane 的 connection 不参与本穿越（#253 R5：中间跳 toLane
 ///   不匹配不得被吞、也不得拐跑本可终止的链）；多条歧义即 fail-closed；
 /// - 匹配目的的带 via 候选全部因已访问被滤 → 回环 error；
 /// - 无匹配续接时必须存在匹配 (末段 lane, to_edge, to_lane) 的无 via 终端
@@ -441,7 +441,7 @@ fn extend_internal_chain(
             .iter()
             .filter(|(_, _, via)| !via.is_empty())
             .collect();
-        // 统一先匹配完整目的 (to_edge, to_lane) 再检查 visited（R5 第三轮）。
+        // 统一先匹配完整目的 (to_edge, to_lane) 再检查 visited（#253 R5）。
         let matching: Vec<&(String, u32, Vec<String>)> = with_via
             .iter()
             .copied()
@@ -1227,6 +1227,20 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
             .is_some_and(|junction| junction.junction_type == "internal")
     };
 
+    // #253 T4：intLanes 成员存在性——拼错的 id（既非 lane 也非 internal
+    // helper junction）此前被无检查记为 owner 并在无人提及时静默忽略，
+    // fail-closed 报 junction id 与 dangling 成员。
+    for junction in &network.junctions {
+        for member in &junction.int_lane_ids {
+            if network.lane(member).is_none() && network.junction(member).is_none() {
+                return Err(Error::SumoModel(format!(
+                    "junction {:?} intLanes references dangling member {member:?}                      (neither a lane nor an internal junction)",
+                    junction.id
+                )));
+            }
+        }
+    }
+
     // 第一遍：road junction 直接列出的内边 + 内部节点 → 簇的父映射种子。
     let mut owners: HashMap<&str, &str> = HashMap::new();
     let mut cluster_parent: HashMap<&str, &str> = HashMap::new();
@@ -1622,7 +1636,7 @@ mod tests {
 
     #[test]
     fn internal_chain_middle_hop_to_lane_mismatch_fails_closed() {
-        // R5 第三轮反例 (i)：中间续接 A→east toLane=1 via B 指向 out_1，而穿越
+        // #253 R5 反例 (i)：中间续接 A→east toLane=1 via B 指向 out_1，而穿越
         // 出口是 out_0（终端 B→east toLane=0 正确）。只匹配 to_edge 的旧逻辑会
         // 错误接受 [A, B]；严格化后 A 处无匹配 (east,0) 的续接 → 终端检查
         // （A 无 out_0 终端）→ fail-closed。
@@ -1642,7 +1656,7 @@ mod tests {
 
     #[test]
     fn internal_chain_ignores_unrelated_destination_lane_continuation() {
-        // R5 第三轮反例 (ii)：A 有正确的 out_0 终端，同时存在不相关的
+        // #253 R5 反例 (ii)：A 有正确的 out_0 终端，同时存在不相关的
         // A→east toLane=1 via B 续接。旧逻辑优先跟随不相关续接，B 缺 out_0
         // 终端 → 误拒。严格化后不相关目的 lane 的 connection 不参与本穿越，
         // 链在 A 处经终端正确结束。
@@ -2048,6 +2062,25 @@ mod tests {
             message.contains("\"N\"") && message.contains("R1") && message.contains("R2"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn int_lanes_dangling_member_fails_closed() {
+        // #253 T4：intLanes 拼错成员（既非 lane 也非 internal junction）此前
+        // 被无检查记为 owner 并可能静默忽略——fail-closed 报 junction 与成员。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes="typo_lane_0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("dangling intLanes member must fail");
+        let message = error.to_string();
+        assert!(message.contains("dangling member"), "{message}");
+        assert!(message.contains("typo_lane_0"), "{message}");
     }
 
     #[test]
