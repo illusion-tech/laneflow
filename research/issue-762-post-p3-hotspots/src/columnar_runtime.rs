@@ -386,9 +386,6 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                             && row["work"]
                                 .as_array()
                                 .is_some_and(|a| a.len() == 20 && a.iter().all(Value::is_u64))
-                            && row["memory"]
-                                .as_array()
-                                .is_some_and(|a| a.len() == 6 && a.iter().all(Value::is_u64))
                             && row["layout"]
                                 .as_array()
                                 .is_some_and(|a| a.len() == 3 && a.iter().all(Value::is_u64))
@@ -413,17 +410,6 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                         .sum::<f64>()
                         / 256.0
                         / 1e6)
-                    .collect::<Vec<_>>()
-            );
-            run["initial_memory"] = work[0]["memory"].clone();
-            run["final_memory"] = work[255]["memory"].clone();
-            run["max_memory"] = json!(
-                (0..6)
-                    .map(|index| work
-                        .iter()
-                        .map(|row| row["memory"][index].as_u64().unwrap_or(0))
-                        .max()
-                        .unwrap_or(0))
                     .collect::<Vec<_>>()
             );
             run["layout"] = work[0]["layout"].clone();
