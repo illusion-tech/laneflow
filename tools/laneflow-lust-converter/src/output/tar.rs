@@ -12,11 +12,33 @@ pub struct TarMember {
     pub contents: Vec<u8>,
 }
 
+/// #253 Q3：tar member 路径必须是规范相对路径——拒绝绝对路径与 `..` /
+/// `.` / 空组件（防写出解压目录逃逸）。
+fn validate_member_path(path: &str) -> Result<()> {
+    if path.is_empty() || path.starts_with('/') || path.starts_with('\\') {
+        return Err(Error::SumoModel(format!(
+            "tar member path {path:?} is not a relative path"
+        )));
+    }
+    if path
+        .split('/')
+        .any(|component| component.is_empty() || component == "." || component == "..")
+    {
+        return Err(Error::SumoModel(format!(
+            "tar member path {path:?} contains a non-canonical component"
+        )));
+    }
+    Ok(())
+}
+
 /// Build an uncompressed ustar archive.
 ///
 /// Contract: path ordered by raw UTF-8 bytes; `mtime=0`; `uid=gid=0`; empty
 /// owner/group names; regular-file mode `0644`; trailing two zero blocks.
 pub fn write_deterministic_ustar(members: &[TarMember]) -> Result<Vec<u8>> {
+    for member in members {
+        validate_member_path(&member.path)?;
+    }
     let mut ordered = members.to_vec();
     ordered.sort_by(|left, right| left.path.as_bytes().cmp(right.path.as_bytes()));
     for window in ordered.windows(2) {
@@ -139,6 +161,25 @@ mod tests {
         let b_pos = find_name(&first, "b.txt");
         assert!(a_pos < b_pos);
         assert_eq!(first.len() % BLOCK, 0);
+    }
+
+    #[test]
+    fn non_canonical_member_paths_fail_closed() {
+        // #253 Q3：.. / . / 空组件 / 绝对路径全部拒绝（防写出解压目录逃逸）。
+        for bad in ["../evil", "a/../../evil", "./x", "a//b", "/abs", "a/./b"] {
+            let result = write_deterministic_ustar(&[TarMember {
+                path: bad.to_owned(),
+                contents: b"x".to_vec(),
+            }]);
+            assert!(result.is_err(), "path {bad:?} must be rejected");
+        }
+        assert!(
+            write_deterministic_ustar(&[TarMember {
+                path: "a/b.txt".to_owned(),
+                contents: b"x".to_vec(),
+            }])
+            .is_ok()
+        );
     }
 
     fn find_name(archive: &[u8], name: &str) -> usize {

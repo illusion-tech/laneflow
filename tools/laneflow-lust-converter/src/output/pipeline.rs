@@ -65,6 +65,19 @@ pub fn convert_with_config(
     config: &LustConverterConfig,
     config_toml_bytes: &[u8],
 ) -> Result<ConvertOutputPaths> {
+    // #253 Q7：公开入口校验 config——空 output_dir 会让 join 落进 CWD，M2
+    // 的排除产物清除可能误删无关文件（load_config 路径已校验，构造式入口
+    // 在此补齐）。
+    config.validate()?;
+    // #253 Q8：provenance 的 config digest 对**生效**配置求值——重解析
+    // bytes 并与传入 config 比对，不一致 fail-closed（调用方须走
+    // bytes→config 单一路径构造）。
+    let reparsed: LustConverterConfig = toml::from_slice(config_toml_bytes).map_err(Error::Toml)?;
+    if reparsed != *config {
+        return Err(Error::Config(
+            "config_toml_bytes does not match the LustConverterConfig passed to convert".to_owned(),
+        ));
+    }
     let verified = verify_source_dir(&config.source_dir)?;
     convert_verified(config, config_toml_bytes, &verified)
 }
@@ -439,7 +452,51 @@ fn build_manifest_toml(
 
 #[cfg(test)]
 mod tests {
-    use super::remove_excluded_artifacts;
+    use std::path::PathBuf;
+
+    use super::{convert_with_config, remove_excluded_artifacts};
+    use crate::Error;
+
+    #[test]
+    fn convert_with_config_rejects_invalid_config() {
+        // #253 Q7：公开入口先 validate config——空 output_dir 会让 join 落进
+        // CWD，M2 的排除产物清除可能误删无关文件。
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("E:/nonexistent-lust"),
+            output_dir: PathBuf::new(),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let error = convert_with_config(&config, b"").expect_err("empty output_dir");
+        match error {
+            Error::Config(message) => assert!(message.contains("output_dir"), "{message}"),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn convert_with_config_rejects_mismatched_toml_bytes() {
+        // #253 Q8：config_toml_bytes 必须与生效 config 一致——provenance 的
+        // config digest 对实际生效的配置求值。
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("E:/nonexistent-lust"),
+            output_dir: PathBuf::from("E:/nonexistent-out"),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let mismatched = b"source_dir = 'E:/other'
+output_dir = 'E:/nonexistent-out'
+";
+        let error = convert_with_config(&config, mismatched).expect_err("mismatched config bytes");
+        match error {
+            Error::Config(message) => {
+                assert!(message.contains("does not match"), "{message}")
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
 
     #[test]
     fn remove_excluded_artifacts_clears_stale_static_outputs() {
