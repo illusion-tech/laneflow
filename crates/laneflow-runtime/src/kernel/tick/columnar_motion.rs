@@ -14,6 +14,7 @@ use super::{
     motion_injection, motion_tls_snapshot, note_columnar_work, note_motion_cache_use,
 };
 use crate::kernel::motion_updates::{MotionCheckpoint, MotionRowReport, MotionUpdates};
+use crate::kernel::tables::CompiledRoute;
 use crate::kernel::vehicle_store::BLOCK_ROWS;
 
 pub(super) struct Chunk<'a> {
@@ -257,12 +258,11 @@ fn numerical(
 
 #[allow(clippy::too_many_arguments)]
 fn apply_speed_limits(
-    view: MotionTaskView<'_>,
+    routes: &[Option<&CompiledRoute>],
     batch: &mut Batch,
     chunk: &mut Chunk<'_>,
     source: &crate::kernel::vehicle_store::MotionBlock,
     offset: usize,
-    start: usize,
     kernel: laneflow_motion_kernel::Kernel,
     delta_s: f32,
     boundary: bool,
@@ -273,18 +273,12 @@ fn apply_speed_limits(
         batch.drop_active[row] = batch.enabled[row] && batch.valid[row] && batch.complex[row];
     }
     while batch.drop_active[..n].iter().any(|&active| active) {
-        for row in 0..n {
+        for (row, &compiled) in routes.iter().enumerate().take(n) {
             if !batch.drop_active[row] {
                 continue;
             }
-            let state = view
-                .read
-                .committed
-                .vehicles
-                .active_at(start + row)
-                .expect("frozen speed-limit route context");
             let gathered = (|| {
-                let compiled = view.read.compiled_route(state.route)?;
+                let compiled = compiled?;
                 let Some(drop) = compiled.speed_limit_drop.get(batch.drop_index[row]) else {
                     return Some(None);
                 };
@@ -295,8 +289,8 @@ fn apply_speed_limits(
                     &compiled.occurrence_segments,
                     &compiled.occurrence_offsets,
                     &compiled.segment_totals,
-                    state.route_edge_index as usize,
-                    state.progress_mm,
+                    source.route_cursor[offset + row] as usize,
+                    source.progress_mm[offset + row],
                     (drop.from_route_edge_index as usize).checked_add(1)?,
                 )?;
                 let BoundedDistance::Finite(distance) = distance else {
@@ -365,9 +359,11 @@ fn compute(
 ) {
     let mut batch = Batch::new();
     let n = chunk.cursor.len();
+    // 只在本块计算的借用期保留已验证路线，两个约束扫描共用；不跨拍保存引用。
+    let mut routes = [None; BLOCK_ROWS];
     #[cfg(test)]
     note_columnar_work(14, n);
-    for row in 0..n {
+    for (row, route) in routes.iter_mut().enumerate().take(n) {
         chunk.reports[row] = MotionRowReport::default();
         let Some(state) = view.read.committed.vehicles.active_at(start + row) else {
             continue;
@@ -439,6 +435,7 @@ fn compute(
                 .read
                 .compiled_route(state.route)
                 .ok_or(StepError::NonFiniteMotion)?;
+            *route = Some(compiled);
             batch.complex[row] = compiled
                 .speed_limit_drop
                 .last()
@@ -489,7 +486,14 @@ fn compute(
             }
         }
         apply_speed_limits(
-            view, &mut batch, &mut chunk, source, offset, start, kernel, delta_s, false,
+            &routes[..n],
+            &mut batch,
+            &mut chunk,
+            source,
+            offset,
+            kernel,
+            delta_s,
+            false,
         );
         numerical(
             &mut batch,
@@ -501,7 +505,14 @@ fn compute(
             NumericPhase::Project,
         );
         apply_speed_limits(
-            view, &mut batch, &mut chunk, source, offset, start, kernel, delta_s, true,
+            &routes[..n],
+            &mut batch,
+            &mut chunk,
+            source,
+            offset,
+            kernel,
+            delta_s,
+            true,
         );
         numerical(
             &mut batch,
