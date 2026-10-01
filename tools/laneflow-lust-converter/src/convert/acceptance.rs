@@ -1,12 +1,26 @@
+//! 全网验收与入口契约测试（#253；由 tests/convert_topology.rs 迁入 crate 内——
+//! 公开面收敛为 CLI 最小闭包后，这些测试经 crate 路径访问实现细节）。
+#![cfg(test)]
+
 use std::{fs, path::PathBuf, process::Command};
 
-use laneflow_lust_converter::{
-    BudgetOutcome, Error, ExactDecimal, InfeasibilityMechanism, LUST_COMMIT, LUST_FRAME_ID,
-    PINNED_SOURCE_FILES, TopologyConvertOptions, convert_static_from_xml_with_due,
-    convert_topology_from_verified_lust_inputs, convert_topology_from_xml_with_tll_and_vtypes,
-    convert_topology_from_xml_with_tll_and_vtypes_and_source, parse_due_routes_xml,
-    parse_sumo_network_xml, parse_vtypes_xml, prepare_verified_lust_inputs,
-    select_passenger_vtypes,
+use crate::source::verify::prepare_verified_lust_inputs;
+use crate::{
+    Error, LUST_COMMIT,
+    convert::{
+        profiles::{convert_vehicle_profiles, select_passenger_vtypes},
+        topology::{
+            StaticConversionArtifacts, TopologyConvertOptions,
+            convert_network_topology_with_tll_and_profiles,
+        },
+    },
+    output::emit::TopologyArtifacts,
+    output::geom::{BudgetOutcome, InfeasibilityMechanism, ReportSource},
+    source::{PINNED_SOURCE_FILES, verify::VerifiedLustInputs},
+    sumo::{
+        ExactDecimal, LUST_FRAME_ID, parse_due_routes_xml, parse_sumo_network_xml,
+        parse_tll_static_xml, parse_vtypes_xml,
+    },
 };
 
 #[test]
@@ -466,7 +480,7 @@ converter_commit = \"e7004fe7000000000000000000000000000000000\"
         ),
     )
     .expect("write config");
-    let paths = laneflow_lust_converter::convert(&config_path).expect("CLI convert");
+    let paths = crate::convert(&config_path).expect("CLI convert");
     let read =
         |path: &std::path::Path| -> String { fs::read_to_string(path).expect("read output") };
     // 诊断交付物：survey 字节 = evidence。
@@ -570,6 +584,57 @@ fn verified_record_with_tampered_bytes_fails_closed() {
     match error {
         Error::SourceChangedAfterVerification { relative_path, .. } => {
             assert_eq!(relative_path, "scenario/vtypes.add.xml");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+}
+
+/// R8 残留缺口回归（合成字节）：组合入口分别接收 XML 与 ReportSource——「旧
+/// verified 记录 + 改动后 net 字节」必须 fail-closed（消费时重算绑定，解析/
+/// 转换之前）。
+#[test]
+fn verified_record_with_mismatched_net_bytes_fails_closed() {
+    let source = ReportSource::verified(format!(
+        "sha256:{}",
+        crate::output::digest::hex_sha256(b"<pinned-net/>")
+    ));
+    let error = convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        "<tampered-net/>",
+        "<tll/>",
+        "<vtypes/>",
+        &TopologyConvertOptions::default(),
+        source,
+    )
+    .expect_err("stale verified record with mismatched bytes must fail closed");
+    match error {
+        Error::SourceChangedAfterVerification { relative_path, .. } => {
+            assert_eq!(relative_path, "scenario/lust.net.xml");
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+}
+
+/// R8 残留缺口回归（合成字节）：记录与消费字节一致、但字节非 pinned 基线——
+/// pinned 命中检查必须拒绝（唯一 verified 域即 pinned 基线；不得用任意字节
+/// 伪造摘要）。
+#[test]
+fn verified_record_matching_nonpinned_bytes_fails_closed() {
+    let bytes = b"<arbitrary-but-self-consistent/>";
+    let source = ReportSource::verified(format!(
+        "sha256:{}",
+        crate::output::digest::hex_sha256(bytes)
+    ));
+    let error = convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        std::str::from_utf8(bytes).expect("utf8"),
+        "<tll/>",
+        "<vtypes/>",
+        &TopologyConvertOptions::default(),
+        source,
+    )
+    .expect_err("non-pinned bytes must not enter the verified domain");
+    match error {
+        Error::SourceChangedAfterVerification { relative_path, .. } => {
+            assert_eq!(relative_path, "scenario/lust.net.xml");
         }
         other => panic!("unexpected error: {other}"),
     }
@@ -791,6 +856,141 @@ fn diagnostic_report_tracks_actual_input_bytes() {
         "输入字节变化必须反映为摘要变化"
     );
     assert_eq!(first.entries, second.entries);
+}
+
+/// Convert topology + signals + passenger profiles from net/tll/vtypes XML.
+///
+/// 诊断清单模式的来源声明：摘要对 `net_xml` 实际字节求值；本入口不执行
+/// verify-source，报告按未验证输入如实标注（verify-source 见 crate 根的
+/// `verify_source`）。
+fn convert_topology_from_xml_with_tll_and_vtypes(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    options: &TopologyConvertOptions,
+) -> crate::Result<TopologyArtifacts> {
+    convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        net_xml,
+        tll_xml,
+        vtypes_xml,
+        options,
+        xml_report_source(net_xml),
+    )
+}
+
+/// `convert_topology_from_xml_with_tll_and_vtypes` 的显式来源声明变体：
+/// 诊断清单模式的正式验收入口——来源已经 verify-source 走过（checkout
+/// revision + pinned digest）的调用方传入 `verified = true` 与 pinned 校验
+/// 得到的摘要（#253 R2：先验证、再绑定、后转换）。
+///
+/// R8 残留缺口闭合：本入口分别接收 XML 与 ReportSource，调用方可能错配
+/// 「旧记录 + 改动后字节」套取 0.5 m 删焊例外——verified 时对**本次实际
+/// 消费字节**重算 SHA-256（解析/转换之前）：net 摘要须等于记录摘要，三份
+/// 均须命中 pinned 条目；任一失配 fail-closed（不降级、不静默继续）。
+fn convert_topology_from_xml_with_tll_and_vtypes_and_source(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    options: &TopologyConvertOptions,
+    source: ReportSource,
+) -> crate::Result<TopologyArtifacts> {
+    rebind_verified_source(net_xml, tll_xml, vtypes_xml, &source)?;
+    let network = parse_sumo_network_xml(net_xml)?;
+    let tll = parse_tll_static_xml(tll_xml)?;
+    let vtypes = parse_vtypes_xml(vtypes_xml)?;
+    let passengers = select_passenger_vtypes(&vtypes)?;
+    let profiles = convert_vehicle_profiles(&passengers)?;
+    convert_network_topology_with_tll_and_profiles(&network, &tll, &profiles, options, source)
+}
+
+/// `prepare_verified_lust_inputs` 的配套转换入口：字节与验证记录同源
+/// （结构内聚，无法错配），内部委托组合入口——消费时重算绑定仍会执行，
+/// 双保险。
+fn convert_topology_from_verified_lust_inputs(
+    prepared: &VerifiedLustInputs,
+    options: &TopologyConvertOptions,
+) -> crate::Result<TopologyArtifacts> {
+    convert_topology_from_xml_with_tll_and_vtypes_and_source(
+        prepared.net_xml(),
+        prepared.tll_xml(),
+        prepared.vtypes_xml(),
+        options,
+        prepared.report_source().clone(),
+    )
+}
+
+/// Convert topology + DUE routes + population table from net/tll/vtypes/DUE XML.
+///
+/// `due_xmls` must be the three `local.static.{0,1,2}.rou.xml` texts in order.
+fn convert_static_from_xml_with_due(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    due_xmls: [&str; 3],
+    options: &TopologyConvertOptions,
+) -> crate::Result<StaticConversionArtifacts> {
+    crate::convert::topology::convert_static_from_xml_with_due_and_source(
+        net_xml,
+        tll_xml,
+        vtypes_xml,
+        due_xmls,
+        options,
+        xml_report_source(net_xml),
+    )
+}
+
+/// verified 来源的消费时重算绑定（#253 R8 残留缺口）：在解析/转换之前对
+/// 本次实际消费字节重算 SHA-256。未 verified 的通用输入不受影响（其
+/// BlockedDomain 门控在 normalize 阶段拒绝焊接）。
+fn rebind_verified_source(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    source: &ReportSource,
+) -> crate::Result<()> {
+    if !source.is_verified() {
+        return Ok(());
+    }
+    let pinned_sha256 = |relative_path: &'static str| -> crate::Result<&'static str> {
+        PINNED_SOURCE_FILES
+            .iter()
+            .find(|pinned| pinned.relative_path == relative_path)
+            .map(|pinned| pinned.sha256_hex)
+            .ok_or_else(|| Error::SumoModel(format!("pinned entry missing {relative_path}")))
+    };
+    // ① net 摘要与记录一致性（None 视为失配）：记录必须描述本次消费字节。
+    let net_hex = crate::output::digest::hex_sha256(net_xml.as_bytes());
+    let record_hex = source.net_digest().map(str::to_owned).unwrap_or_default();
+    let record_hex = record_hex.strip_prefix("sha256:").unwrap_or(&record_hex);
+    if record_hex != net_hex {
+        return Err(Error::SourceChangedAfterVerification {
+            relative_path: "scenario/lust.net.xml",
+            expected: format!("sha256:{record_hex}"),
+            actual: format!("sha256:{net_hex}"),
+        });
+    }
+    // ② 三份均须命中 pinned 条目（唯一 verified 域即 pinned 基线）。
+    for (relative_path, bytes) in [
+        ("scenario/lust.net.xml", net_xml.as_bytes()),
+        ("scenario/tll.static.xml", tll_xml.as_bytes()),
+        ("scenario/vtypes.add.xml", vtypes_xml.as_bytes()),
+    ] {
+        let actual = crate::output::digest::hex_sha256(bytes);
+        let expected = pinned_sha256(relative_path)?;
+        if actual != expected {
+            return Err(Error::SourceChangedAfterVerification {
+                relative_path,
+                expected: format!("sha256:{expected}"),
+                actual: format!("sha256:{actual}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// xml 入口的诊断来源声明：实际输入字节摘要 + 未执行独立校验。
+fn xml_report_source(net_xml: &str) -> ReportSource {
+    ReportSource::xml_unverified(crate::output::digest::sha256_digest(net_xml.as_bytes()))
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

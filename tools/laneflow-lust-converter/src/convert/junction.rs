@@ -599,6 +599,7 @@ fn evaluate_stub_candidate(
     // R8 授权域门控先于几何门控：0.5 m 例外只对 pinned 批准域生效；不满足
     // 一律 BlockedOutOfDomain（保留原始连接走正常穿越），不评估几何豁免。
     match context.gate {
+        #[cfg(test)]
         StubWeldGate::Unrestricted => {}
         StubWeldGate::BlockedDomain => {
             let detail = "stub weld blocked: source is not verify-source verified; \
@@ -762,6 +763,10 @@ fn evaluate_stub_candidate(
 /// 一条且首段 shape 端点距 < 0.5 m。扫描以 Unrestricted 门控评估几何
 /// 处置——R8 的授权域检查（BlockedOutOfDomain）是 runtime-only，manifest
 /// 逐字节稳定。
+///
+/// 仅验收/证据再生成测试消费（生产 normalize 不扫候选，只逐 connection
+/// 评估门控处置）。
+#[cfg(test)]
 pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRecord>> {
     let lane_by_edge_index = build_lane_index(network)?;
     let mut via_ref_count: HashMap<&str, usize> = HashMap::new();
@@ -861,6 +866,7 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
     Ok(candidates)
 }
 
+#[cfg(test)]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StubWeldManifestThresholds {
@@ -875,6 +881,7 @@ struct StubWeldManifestThresholds {
 /// 候选 manifest（evidence/lust-stub-weld-candidates.json 的内容）：头部为
 /// 规则版本、pinned commit、net digest 与生成器；条目为全部候选（含 rejected
 /// 的处置与度量），身份由 `scan_stub_weld_candidates` 可复现固定。
+#[cfg(test)]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StubWeldManifest {
@@ -888,6 +895,7 @@ struct StubWeldManifest {
 }
 
 /// 生成候选 manifest JSON（生成测试落盘；防漂移测试对 pinned 源重扫比对）。
+#[cfg(test)]
 pub fn stub_weld_manifest_json(network: &SumoNetwork, net_digest: &str) -> Result<String> {
     let candidates = scan_stub_weld_candidates(network)?;
     let manifest = StubWeldManifest {
@@ -1050,6 +1058,7 @@ pub(crate) enum StubWeldGate {
     /// 须 ∈ 批准集。
     VerifiedDomain { net_digest: Option<String> },
     /// 显式测试策略：不做授权域检查（仅 fixture）。
+    #[cfg(test)]
     Unrestricted,
 }
 
@@ -1254,11 +1263,13 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
             .is_some_and(|junction| junction.junction_type == "internal")
     };
 
-    // #253 V2（T4 升级）：intLanes 成员限 internal——拼错的 id、外部 lane、
-    // 非 internal junction 混入都会让归属静默错位；fail-closed 报 junction
-    // id 与成员。
+    // #253 T4：intLanes 成员存在性——拼错的 id（既非 lane 也非 internal
+    // helper junction）此前被无检查记为 owner 并在无人提及时静默忽略，
+    // fail-closed 报 junction id 与 dangling 成员。
     for junction in &network.junctions {
         for member in &junction.int_lane_ids {
+            // #253 V2：成员限 internal——lane 须 function_internal，junction
+            // 须 type="internal"；外部对象混入 intLanes 会让归属静默错位。
             match (network.lane(member), network.junction(member)) {
                 (Some(lane), _) if lane.function_internal => {}
                 (_, Some(nested)) if nested.junction_type == "internal" => {}
@@ -2161,9 +2172,8 @@ mod tests {
 
     #[test]
     fn int_lanes_dangling_member_fails_closed() {
-        // #253 V2（T4 升级）：intLanes 拼错成员（既非 lane 也非 internal
-        // junction）被无检查记为 owner 并可能静默忽略——fail-closed 报
-        // junction 与成员。
+        // #253 T4：intLanes 拼错成员（既非 lane 也非 internal junction）此前
+        // 被无检查记为 owner 并可能静默忽略——fail-closed 报 junction 与成员。
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>
   <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
@@ -2193,5 +2203,91 @@ mod tests {
         let error =
             normalize_junctions(&network, &StubWeldGate::Unrestricted).expect_err("dangling via");
         assert!(error.to_string().contains("unknown lane"));
+    }
+}
+
+#[cfg(test)]
+mod stub_weld_manifest_tests {
+    use std::fs;
+
+    use crate::{
+        convert::junction::{
+            StubWeldDisposition, scan_stub_weld_candidates, stub_weld_manifest_json,
+        },
+        output::digest::hex_sha256,
+        sumo::parse_sumo_network_xml,
+    };
+
+    fn manifest_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("evidence/lust-stub-weld-candidates.json")
+    }
+
+    fn pinned_network() -> (String, crate::sumo::SumoNetwork) {
+        let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
+        let net_xml = std::fs::read_to_string(
+            std::path::PathBuf::from(source_dir).join("scenario/lust.net.xml"),
+        )
+        .expect("read pinned net");
+        let network = parse_sumo_network_xml(&net_xml).expect("parse pinned net");
+        (net_xml, network)
+    }
+    /// 重新生成 manifest（候选身份、度量或门控阈值变化后手动跑：
+    /// `LUST_SOURCE_DIR=... cargo test -- --ignored regenerate`）。
+    #[test]
+    #[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3; manual regeneration of the manifest"]
+    fn regenerate_lust_stub_weld_candidates_manifest() {
+        let (net_xml, network) = pinned_network();
+        let digest = format!("sha256:{}", hex_sha256(net_xml.as_bytes()));
+        let json = stub_weld_manifest_json(&network, &digest).expect("manifest json");
+        fs::write(manifest_path(), format!("{json}\n")).expect("write manifest");
+    }
+
+    /// 防漂移：对 pinned 源重扫，候选身份与处置同 manifest 一致（归一化换行后
+    /// 逐字节相等）；并锁定阈值 0.06 m 下的处置分布（36 welded / 48 rejected）。
+    #[test]
+    #[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3"]
+    fn lust_stub_weld_candidates_match_manifest() {
+        let (net_xml, network) = pinned_network();
+        let candidates = scan_stub_weld_candidates(&network).expect("rescan");
+        assert_eq!(
+            candidates.len(),
+            84,
+            "pinned baseline has 84 stub candidates"
+        );
+        let count = |disposition: StubWeldDisposition| {
+            candidates
+                .iter()
+                .filter(|candidate| candidate.disposition == disposition)
+                .count()
+        };
+        // G1 确认后阈值 0.5 m：80 welded；4 条共享入口破坏（join 间隙 0.20–0.42 m
+        // > 5 mm）拒绝保留，原始连接走正常穿越。
+        assert_eq!(count(StubWeldDisposition::Welded), 80);
+        assert_eq!(count(StubWeldDisposition::RejectedDisplacement), 0);
+        assert_eq!(count(StubWeldDisposition::RejectedLocality), 0);
+        assert_eq!(count(StubWeldDisposition::RejectedTopology), 0);
+        assert_eq!(count(StubWeldDisposition::RejectedSharedEntry), 4);
+        let refused_shared = candidates
+            .iter()
+            .filter(|candidate| candidate.disposition == StubWeldDisposition::RejectedSharedEntry)
+            .collect::<Vec<_>>();
+        for candidate in &refused_shared {
+            assert!(
+                !candidate.shared_traversals.is_empty(),
+                "refused-shared-entry {} must carry traversal details",
+                candidate.stub_lane_id
+            );
+            assert!(candidate.detail.contains("breaking shared traversal"));
+        }
+
+        let digest = format!("sha256:{}", hex_sha256(net_xml.as_bytes()));
+        let generated = stub_weld_manifest_json(&network, &digest).expect("manifest json");
+        let on_disk = fs::read_to_string(manifest_path()).expect("read manifest");
+        assert_eq!(
+            on_disk.replace("\r\n", "\n").trim_end(),
+            generated.trim_end(),
+            "manifest drifted: rescan the pinned source and regenerate"
+        );
     }
 }

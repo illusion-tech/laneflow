@@ -43,7 +43,7 @@ pub struct ConversionReportInput {
     /// §3.3 信号相位计数（与其他信号对象计数并列；pinned 基线 1,298，#253 K7）。
     pub signal_phase_count: u64,
     /// 「声明臂无受控 link」health 事实（#253 K4a；通常为 empty）。
-    pub unclaimed_signal_arms: Vec<crate::UnclaimedSignalArm>,
+    pub unclaimed_signal_arms: Vec<crate::convert::signals::UnclaimedSignalArm>,
     pub major_minor_green_collapsed: bool,
     /// 诊断模式无 network.lfca（`None` → digest 字段序列化不出现，由
     /// infeasibility_survey_bytes 接任交付物认证，#253 N1）。
@@ -207,4 +207,72 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
         },
     };
     json_bytes("ConversionReport", &report)
+}
+#[cfg(test)]
+mod tests {
+    use crate::output::report::{ConversionReportInput, build_conversion_report};
+
+    #[test]
+    fn conversion_report_records_payload_digests_not_self() {
+        let lfca = b"LFCA-fake\n".to_vec();
+        let routes = b"format_version = \"0.1\"\n".to_vec();
+        let manifest = b"manifest_version = 1\n".to_vec();
+        let report = build_conversion_report(&ConversionReportInput {
+            external_edge_count: 3,
+            external_lane_count: 3,
+            connection_count: 4,
+            junction_count: 1,
+            movement_count: 2,
+            maneuver_path_count: 2,
+            route_catalog_count: 2,
+            vehicle_profile_count: 6,
+            signal_controller_count: 1,
+            signal_group_count: 2,
+            stop_line_count: 1,
+            maneuver_gate_count: 2,
+            population_record_count: 3,
+            require_lust_population_count: false,
+            parking_registry_empty: true,
+            parking_polygon_count: 0,
+            signal_phase_count: 0,
+            unclaimed_signal_arms: Vec::new(),
+            major_minor_green_collapsed: true,
+            network_lfca_bytes: Some(lfca.clone()),
+            infeasibility_survey_bytes: None,
+            routes_toml_bytes: Some(routes.clone()),
+            manifest_bytes: manifest.clone(),
+        })
+        .expect("report");
+        let text = String::from_utf8(report.clone()).expect("utf8");
+        assert!(text.contains("sha256:"));
+        assert!(text.contains("majorMinorGreenCollapsedToGreen"));
+        assert!(!text.contains("conversionReport"));
+        let again = build_conversion_report(&ConversionReportInput {
+            external_edge_count: 3,
+            external_lane_count: 3,
+            connection_count: 4,
+            junction_count: 1,
+            movement_count: 2,
+            maneuver_path_count: 2,
+            route_catalog_count: 2,
+            vehicle_profile_count: 6,
+            signal_controller_count: 1,
+            signal_group_count: 2,
+            stop_line_count: 1,
+            maneuver_gate_count: 2,
+            population_record_count: 3,
+            require_lust_population_count: false,
+            parking_registry_empty: true,
+            parking_polygon_count: 0,
+            signal_phase_count: 0,
+            unclaimed_signal_arms: Vec::new(),
+            major_minor_green_collapsed: true,
+            network_lfca_bytes: Some(lfca),
+            infeasibility_survey_bytes: None,
+            routes_toml_bytes: Some(routes),
+            manifest_bytes: manifest,
+        })
+        .expect("report again");
+        assert_eq!(report, again);
+    }
 }

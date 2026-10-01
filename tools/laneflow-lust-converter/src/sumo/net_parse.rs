@@ -214,7 +214,8 @@ fn parse_connection(node: Node<'_, '_>) -> Result<SumoConnection> {
 pub(crate) fn parse_tl_logic(node: Node<'_, '_>) -> Result<SumoTlLogic> {
     let id = required_attr(node, "id")?;
     let logic_type = required_attr(node, "type")?;
-    let program_id = required_attr(node, "programID")?;
+    // programID 为 SUMO schema 必填（缺失即拒绝），但转换按 id 匹配程序，值不携带。
+    let _program_id = required_attr(node, "programID")?;
     let offset = ExactDecimal::from_str(&required_attr(node, "offset")?)?;
     let mut phases = Vec::new();
     for child in node
@@ -234,7 +235,6 @@ pub(crate) fn parse_tl_logic(node: Node<'_, '_>) -> Result<SumoTlLogic> {
     Ok(SumoTlLogic {
         id,
         logic_type,
-        program_id,
         offset,
         phases,
     })

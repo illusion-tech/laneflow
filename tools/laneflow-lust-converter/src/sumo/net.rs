@@ -109,11 +109,11 @@ pub struct SumoConnection {
 }
 
 /// One SUMO `<tlLogic>` program (from net stub or `tll.static.xml`).
+// programID 仅作 parser 必填校验（SUMO schema），转换按 `id` 匹配程序，值不携带。
 #[derive(Clone, Debug)]
 pub struct SumoTlLogic {
     pub id: String,
     pub logic_type: String,
-    pub program_id: String,
     pub offset: ExactDecimal,
     pub phases: Vec<SumoTlPhase>,
 }

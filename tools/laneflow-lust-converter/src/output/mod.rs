@@ -9,23 +9,9 @@ pub mod provenance;
 pub mod report;
 pub mod tar;
 
-pub use digest::hex_sha256;
 pub use emit::{
-    TopologyArtifacts, TopologyCounts, compile_network_lfca,
-    compile_network_lfca_with_infeasibility_report,
+    TopologyArtifacts, compile_network_lfca, compile_network_lfca_with_infeasibility_report,
 };
-pub use geom::{
-    BudgetOutcome, InfeasibilityDiagnosis, InfeasibilityMechanism, InfeasibilityReport,
-    ReportSource,
-};
-pub use pipeline::{ConvertOutputPaths, convert_with_config};
-pub use provenance::{
-    BuildInvocation, BuildProvenanceInput, LicenseArtifacts, RawOutputDigests, ReleaseAssetUrls,
-    SemanticConfig, SemanticProvenanceInput, VerifiedSourceTar, build_build_provenance,
-    build_semantic_provenance, embedded_notice_bytes, embedded_odbl_bytes,
-};
-pub use report::{ConversionReportInput, build_conversion_report};
-pub use tar::{TarMember, write_deterministic_ustar};
 
 /// Serialize `value` as pretty JSON with a trailing newline.
 pub(crate) fn json_bytes<T: serde::Serialize>(

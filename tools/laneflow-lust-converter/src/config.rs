@@ -39,6 +39,10 @@ impl LustConverterConfig {
 }
 
 /// Load and validate converter TOML from `path`.
+///
+/// 当前仅验收测试消费（生产入口 `convert` 走 `load_config_with_bytes` 以
+/// 同时取得 config digest 字节）；新增生产调用方时去掉 `cfg(test)` 即可。
+#[cfg(test)]
 pub fn load_config(path: &Path) -> Result<LustConverterConfig> {
     let text = fs::read_to_string(path).map_err(|source| Error::Io {
         path: path.to_path_buf(),

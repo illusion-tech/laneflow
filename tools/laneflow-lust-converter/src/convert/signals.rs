@@ -782,10 +782,12 @@ mod k7_count_tests {
 </additional>"#,
         )
         .expect("parse tll");
-        let artifacts = crate::convert_network_topology_with_tll(
+        let artifacts = crate::convert::topology::convert_network_topology_with_tll_and_profiles(
             &network,
             &tll,
-            &crate::TopologyConvertOptions::default(),
+            &[],
+            &crate::convert::topology::TopologyConvertOptions::default(),
+            crate::output::geom::ReportSource::unverified_unknown(),
         )
         .expect("fixture compiles");
         assert_eq!(artifacts.counts.signal_phases, 2);

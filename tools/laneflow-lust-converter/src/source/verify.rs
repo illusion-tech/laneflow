@@ -357,6 +357,10 @@ pub(crate) fn read_verified(verified: &VerifiedSourceSet, relative_path: &str) -
 /// 经本路径或 crate 内 pipeline 获得。字段私有 + 只读 getter（#253 R8
 /// 残留缺口）：防止「合法记录 + 改动后字节」错配后经组合入口套取 0.5 m
 /// 例外——组合入口在消费时重算摘要，错配即 fail-closed。
+///
+/// 当前仅验收套件消费（生产 pipeline 经 `read_verified` 自行组装输入）；
+/// 新增生产调用方时去掉 `cfg(test)` 即可。
+#[cfg(test)]
 pub struct VerifiedLustInputs {
     /// 消费时重哈希绑定后的 `scenario/lust.net.xml` 文本。
     net_xml: String,
@@ -368,6 +372,7 @@ pub struct VerifiedLustInputs {
     report_source: crate::output::geom::ReportSource,
 }
 
+#[cfg(test)]
 impl VerifiedLustInputs {
     /// 绑定后的 `scenario/lust.net.xml` 文本（只读）。
     pub fn net_xml(&self) -> &str {
@@ -391,6 +396,7 @@ impl VerifiedLustInputs {
     }
 }
 
+#[cfg(test)]
 impl std::fmt::Debug for VerifiedLustInputs {
     /// 手动 Debug：字节文本可达 10 MB 级，失败时只报长度与来源声明。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -429,6 +435,9 @@ pub fn recheck_source_revision(source_dir: &Path) -> Result<()> {
 /// 2. 三份诊断输入逐份 `read_verified`：消费时重哈希与验证记录比对
 ///    （TOCTOU 闭合），字节在验证后被换即拒绝。
 /// 3. 构造 `ReportSource::verified`（crate 内受控构造器，摘要为 net 消费字节）。
+///
+/// 当前仅验收套件消费（生产 pipeline 经 `read_verified` 自行组装输入）。
+#[cfg(test)]
 pub fn prepare_verified_lust_inputs(source_dir: &Path) -> Result<VerifiedLustInputs> {
     let verified = verify_source_dir(source_dir)?;
     let net_xml = read_verified(&verified, "scenario/lust.net.xml")?;
@@ -587,5 +596,155 @@ mod read_verified_tests {
             other => panic!("unexpected error: {other}"),
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+#[cfg(test)]
+mod source_table_tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    use crate::{
+        Error,
+        config::{LustConverterConfig, load_config},
+        source::PINNED_SOURCE_FILES,
+        verify_source,
+    };
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn pinned_table_matches_contract_shape() {
+        assert_eq!(PINNED_SOURCE_FILES.len(), 8);
+        for file in PINNED_SOURCE_FILES {
+            assert!(!file.relative_path.is_empty());
+            assert!(file.bytes > 0);
+            assert_eq!(file.sha256_hex.len(), 64);
+            assert!(
+                file.sha256_hex
+                    .chars()
+                    .all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+            );
+        }
+    }
+
+    #[test]
+    fn verify_source_rejects_missing_file() {
+        let root = temp_dir("missing");
+        let error = verify_source(&root).expect_err("missing file must fail");
+        match error {
+            Error::MissingSourceFile { relative_path, .. } => {
+                assert_eq!(relative_path, "scenario/lust.net.xml");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn verify_source_rejects_size_mismatch() {
+        let root = temp_dir("size");
+        write_stub_tree(&root, b"too-small");
+        let error = verify_source(&root).expect_err("size mismatch must fail");
+        match error {
+            Error::SourceSizeMismatch {
+                relative_path,
+                expected,
+                actual,
+            } => {
+                assert_eq!(relative_path, "scenario/lust.net.xml");
+                assert_eq!(expected, 10_940_662);
+                assert_eq!(actual, 9);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn verify_source_rejects_digest_mismatch_when_size_matches() {
+        let root = temp_dir("digest");
+        let first = &PINNED_SOURCE_FILES[0];
+        let mut bytes = vec![0_u8; first.bytes as usize];
+        bytes[0] = 1;
+        write_sized_first_file(&root, &bytes);
+        // Later pinned files intentionally omitted: verification fails on the first digest.
+        let error = verify_source(&root).expect_err("digest mismatch must fail");
+        match error {
+            Error::SourceDigestMismatch {
+                relative_path,
+                expected,
+                actual,
+            } => {
+                assert_eq!(relative_path, first.relative_path);
+                assert_eq!(expected, first.sha256_hex);
+                assert_ne!(actual, expected);
+                assert_eq!(actual.len(), 64);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn load_config_reads_toml() {
+        let root = temp_dir("config");
+        let path = root.join("lust.toml");
+        fs::write(
+            &path,
+            "source_dir = \"C:/tmp/lust\"\noutput_dir = \"C:/tmp/out\"\n",
+        )
+        .expect("write config");
+        let config = load_config(&path).expect("load config");
+        assert_eq!(
+            config,
+            LustConverterConfig {
+                source_dir: PathBuf::from("C:/tmp/lust"),
+                output_dir: PathBuf::from("C:/tmp/out"),
+                converter_commit: None,
+                source_bundle_url: None,
+                static_bundle_url: None,
+            }
+        );
+    }
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "laneflow-lust-converter-{label}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("create temp");
+        path
+    }
+
+    fn write_stub_tree(root: &Path, first_contents: &[u8]) {
+        write_bytes(
+            &root.join(PINNED_SOURCE_FILES[0].relative_path),
+            first_contents,
+        );
+    }
+
+    fn write_sized_first_file(root: &Path, contents: &[u8]) {
+        write_bytes(&root.join(PINNED_SOURCE_FILES[0].relative_path), contents);
+    }
+
+    fn write_bytes(path: &Path, contents: &[u8]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent");
+        }
+        fs::write(path, contents).expect("write file");
+    }
+
+    #[test]
+    fn sha256_of_known_vector() {
+        let digest: [u8; 32] = Sha256::digest(b"abc").into();
+        let mut encoded = String::new();
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        for byte in digest {
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        assert_eq!(
+            encoded,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

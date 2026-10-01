@@ -9,8 +9,10 @@ use std::{
 use crate::{
     Error, Result,
     config::LustConverterConfig,
-    convert::{DEFAULT_FIXED_DELTA_MS, TopologyConvertOptions},
-    convert_static_from_xml_with_due_and_source,
+    convert::{
+        DEFAULT_FIXED_DELTA_MS, TopologyConvertOptions,
+        topology::convert_static_from_xml_with_due_and_source,
+    },
     output::{
         digest::{hex_sha256, sha256_digest},
         geom::ReportSource,
@@ -510,7 +512,7 @@ fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
 /// `issue253-infeasible-survey.md` / `routes.toml`（不索引不存在的
 /// network.lfca）；fail-fast 路径配对 `network.lfca` / `routes.toml`。
 fn build_manifest_toml(
-    artifacts: &crate::convert::StaticConversionArtifacts,
+    artifacts: &crate::convert::topology::StaticConversionArtifacts,
     diagnostic: bool,
 ) -> Result<Vec<u8>> {
     let counts = &artifacts.topology.counts;

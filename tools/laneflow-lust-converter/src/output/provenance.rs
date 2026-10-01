@@ -45,6 +45,8 @@ pub struct VerifiedSourceTar {
 
 impl VerifiedSourceTar {
     /// 由已验证 source 集构建确定性 source tar（嵌入 ODbL / NOTICE）。
+    /// 当前仅 provenance 单测消费；生产 source tar 由 pipeline 直接构建。
+    #[cfg(test)]
     pub fn from_verified_set(verified: &crate::source::VerifiedSourceSet) -> Result<Self> {
         crate::output::pipeline::build_source_tar(verified)
     }
@@ -323,13 +325,19 @@ mod tests {
     };
     use crate::{
         output::tar::{TarMember, write_deterministic_ustar},
-        source::{PINNED_SOURCE_FILES, VerifiedSourceFile, VerifiedSourceSet},
+        source::verify::VerifiedSourceFile,
+        source::{PINNED_SOURCE_FILES, VerifiedSourceSet},
     };
 
     /// 合成最小 VerifiedSourceSet（七份 pinned 相对路径摆位；字段私有化后
     /// 走 crate 内 `synthetic_for_tests` 构造——#253 U1 的类型级保证）。
     fn synthetic_verified_source_tar() -> VerifiedSourceTar {
-        let root = std::env::temp_dir().join(format!("lust-provenance-src-{}", std::process::id()));
+        static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "lust-provenance-src-{}-{}",
+            std::process::id(),
+            CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_dir_all(&root);
         for pinned in PINNED_SOURCE_FILES {
             let path = root.join(pinned.relative_path);
@@ -456,5 +464,13 @@ mod tests {
         let same_bytes =
             build_semantic_provenance(&same_config_different_outputs).expect("same semantic");
         assert_eq!(base_bytes, same_bytes, "语义 digest 只随语义配置子集变化");
+    }
+    #[test]
+    fn licenses_are_non_empty_and_contain_required_attribution() {
+        let notice = std::str::from_utf8(embedded_notice_bytes()).expect("utf8");
+        assert!(notice.contains("Road network data © OpenStreetMap contributors"));
+        assert!(notice.contains("opendatacommons.org/licenses/odbl/1-0"));
+        assert!(notice.contains("Codeca"));
+        assert!(!embedded_odbl_bytes().is_empty());
     }
 }

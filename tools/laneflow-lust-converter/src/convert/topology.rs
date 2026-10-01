@@ -11,6 +11,7 @@ use crate::{
             POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS,
             POPULATION_DEPART_START_SECONDS, select_population,
         },
+        profiles::{convert_vehicle_profiles, select_passenger_vtypes},
         routes::build_routes_and_bind_population,
         signals::convert_signals,
     },
@@ -22,7 +23,10 @@ use crate::{
             Route, RoutesToml, SpatialEdge, SpatialPackage, TrafficPackage, Units, VehicleProfile,
         },
     },
-    sumo::{DueVehicle, LUST_FRAME_ID, SumoNetwork, SumoTlLogic},
+    sumo::{
+        DueVehicle, LUST_FRAME_ID, SumoNetwork, SumoTlLogic, parse_due_routes_xml,
+        parse_sumo_network_xml, parse_tll_static_xml, parse_vtypes_xml,
+    },
 };
 
 pub(crate) const DEFAULT_FIXED_DELTA_MS: u64 = 16;
@@ -76,35 +80,12 @@ pub struct StaticConversionArtifacts {
     pub signal_health: Vec<crate::convert::signals::UnclaimedSignalArm>,
 }
 
-/// Build validated Traffic/Spatial/Manifest bytes from a SUMO network.
-pub fn convert_network_topology(
-    network: &SumoNetwork,
-    options: &TopologyConvertOptions,
-) -> Result<TopologyArtifacts> {
-    convert_network_topology_with_tll(network, &[], options)
-}
-
-/// ReportSource 缺省：结构化入口不持有原始字节，清单标注「未知」且不声称已校验。
-fn unknown_report_source() -> ReportSource {
-    ReportSource::unverified_unknown()
-}
-
-/// Build validated packages using static programs from `tll.static.xml`.
-pub fn convert_network_topology_with_tll(
-    network: &SumoNetwork,
-    tll_programs: &[SumoTlLogic],
-    options: &TopologyConvertOptions,
-) -> Result<TopologyArtifacts> {
-    convert_network_topology_with_tll_and_profiles(
-        network,
-        tll_programs,
-        &[],
-        options,
-        unknown_report_source(),
-    )
-}
-
 /// Build validated packages with static signals and vehicle profiles.
+///
+/// 当前仅验收套件消费（无 tll/profiles 的 topology-only 组合在公开面收敛后
+/// 没有生产调用方）；生产路径是 [`convert_static_with_due`]。新增生产调用方
+/// 时去掉 `cfg(test)` 即可。
+#[cfg(test)]
 pub(crate) fn convert_network_topology_with_tll_and_profiles(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
@@ -202,6 +183,38 @@ pub(crate) fn convert_static_with_due(
         routes_toml,
         signal_health,
     })
+}
+
+/// Convert topology + DUE routes + population table from net/tll/vtypes/DUE XML.
+///
+/// `due_xmls` must be the three `local.static.{0,1,2}.rou.xml` texts in order.
+/// 生产组合入口：crate 内 pipeline（`output::pipeline::convert_verified`）调用。
+pub(crate) fn convert_static_from_xml_with_due_and_source(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    due_xmls: [&str; 3],
+    options: &TopologyConvertOptions,
+    report_source: ReportSource,
+) -> Result<StaticConversionArtifacts> {
+    let network = parse_sumo_network_xml(net_xml)?;
+    let tll = parse_tll_static_xml(tll_xml)?;
+    let vtypes = parse_vtypes_xml(vtypes_xml)?;
+    let passengers = select_passenger_vtypes(&vtypes)?;
+    let profiles = convert_vehicle_profiles(&passengers)?;
+    let mut due_vehicles = Vec::new();
+    for (ordinal, xml) in due_xmls.into_iter().enumerate() {
+        let file_ordinal = u8::try_from(ordinal).expect("0..2 fits u8");
+        due_vehicles.extend(parse_due_routes_xml(xml, file_ordinal)?);
+    }
+    convert_static_with_due(
+        &network,
+        &tll,
+        &profiles,
+        &due_vehicles,
+        options,
+        report_source,
+    )
 }
 
 /// R8 授权域门控推导：Auto 按 ReportSource 判定（verified 的类型级保证来自
@@ -361,4 +374,40 @@ fn convert_network_packages(
         compile_network_lfca(&traffic, &spatial, &internal_lanes)
     }?;
     Ok((artifacts, signal_health))
+}
+
+#[cfg(test)]
+mod policy_gate_tests {
+    use super::*;
+    use crate::convert::junction::{StubWeldGate, StubWeldPolicy};
+
+    /// R8 测试策略的显式逃生口：`AllowUnrestricted`（仅限 crate 内单测）经
+    /// 门控推导必须得到 `Unrestricted`——否则该变体沦为不可达的摆设，且
+    /// fixture 只能绕过策略直接伪造 gate，丧失「策略→门控」链路的覆盖。
+    #[test]
+    fn allow_unrestricted_policy_derives_unrestricted_gate() {
+        let options = TopologyConvertOptions {
+            stub_weld_policy: StubWeldPolicy::AllowUnrestricted,
+            ..TopologyConvertOptions::default()
+        };
+        let gate = stub_weld_gate(&options, &ReportSource::unverified_unknown());
+        assert!(
+            matches!(gate, StubWeldGate::Unrestricted),
+            "AllowUnrestricted must derive the Unrestricted gate"
+        );
+    }
+
+    /// 对称锚点：默认 Auto + 未 verified 来源必须保持 BlockedDomain（R8
+    /// 授权域三条件缺一即拒）。
+    #[test]
+    fn auto_policy_with_unverified_source_stays_blocked() {
+        let gate = stub_weld_gate(
+            &TopologyConvertOptions::default(),
+            &ReportSource::unverified_unknown(),
+        );
+        assert!(
+            matches!(gate, StubWeldGate::BlockedDomain),
+            "Auto + unverified must stay BlockedDomain"
+        );
+    }
 }

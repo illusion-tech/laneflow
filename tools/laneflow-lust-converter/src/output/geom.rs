@@ -219,6 +219,8 @@ pub struct ReportSource {
 
 impl ReportSource {
     /// 未持有原始字节的入口（SumoNetwork 结构化入口）的诚实缺省：不声称已校验。
+    /// 当前仅单测/fixture 消费；生产 pipeline 的来源声明走 `verified`。
+    #[cfg(test)]
     pub fn unverified_unknown() -> Self {
         Self {
             net_digest: None,
@@ -227,6 +229,8 @@ impl ReportSource {
     }
 
     /// XML 入口的诊断来源声明：实际输入字节摘要 + 未执行独立校验。
+    /// 当前仅验收套件（迁入 crate 内的组合入口 helper）消费。
+    #[cfg(test)]
     pub(crate) fn xml_unverified(net_digest: String) -> Self {
         Self {
             net_digest: Some(net_digest),
@@ -274,25 +278,26 @@ pub struct InfeasibilityReport {
 }
 
 impl InfeasibilityReport {
+    /// 普查锁定计数口径（#253 验收锚点）：当前仅验收套件消费。
+    #[cfg(test)]
     pub fn total(&self) -> usize {
         self.entries.len()
     }
 
+    /// 普查锁定计数口径：当前仅验收套件消费。
+    #[cfg(test)]
     pub fn internal_count(&self) -> usize {
         self.entries.iter().filter(|e| e.is_internal).count()
     }
 
+    /// 普查锁定计数口径：当前仅验收套件消费。
+    #[cfg(test)]
     pub fn external_count(&self) -> usize {
         self.entries.iter().filter(|e| !e.is_internal).count()
     }
 
-    pub fn mechanism_count(&self, mechanism: InfeasibilityMechanism) -> usize {
-        self.entries
-            .iter()
-            .filter(|e| e.mechanism == mechanism)
-            .count()
-    }
-
+    /// 普查锁定计数口径：当前仅验收套件消费。
+    #[cfg(test)]
     pub fn outcome_count(&self, outcome: BudgetOutcome) -> usize {
         self.entries
             .iter()
@@ -301,6 +306,8 @@ impl InfeasibilityReport {
     }
 
     /// 内车道子集的机制计数（普查锁定的口径；authored 边不计入）。
+    /// 当前仅验收套件消费。
+    #[cfg(test)]
     pub fn internal_mechanism_count(&self, mechanism: InfeasibilityMechanism) -> usize {
         self.entries
             .iter()
@@ -308,6 +315,8 @@ impl InfeasibilityReport {
             .count()
     }
 
+    /// 普查锁定计数口径：当前仅验收套件消费。
+    #[cfg(test)]
     pub fn junction_count(&self) -> usize {
         self.entries
             .iter()
