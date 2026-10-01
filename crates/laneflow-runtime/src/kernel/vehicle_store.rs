@@ -167,6 +167,79 @@ pub(crate) struct ActiveRow<'a> {
     physical: usize,
 }
 
+/// 数值与约束原语共用字段读取；活动行直接读 Current，预览只读传入的逻辑值。
+pub(crate) trait MotionRead: Copy {
+    fn handle(self) -> VehicleHandle;
+    fn route(self) -> RouteHandle;
+    fn profile(self) -> VehicleProfileOrdinal;
+    fn position(self) -> MotionPosition;
+    fn speed_mm_s(self) -> u32;
+    fn waiting_membership(self) -> Option<crate::WaitingMembership>;
+}
+
+impl MotionRead for &VehicleState {
+    fn handle(self) -> VehicleHandle {
+        self.handle
+    }
+    fn route(self) -> RouteHandle {
+        self.route
+    }
+    fn profile(self) -> VehicleProfileOrdinal {
+        self.profile
+    }
+    fn position(self) -> MotionPosition {
+        self.into()
+    }
+    fn speed_mm_s(self) -> u32 {
+        self.speed_mm_s
+    }
+    fn waiting_membership(self) -> Option<crate::WaitingMembership> {
+        self.waiting_membership
+    }
+}
+
+impl MotionRead for ActiveRow<'_> {
+    fn handle(self) -> VehicleHandle {
+        self.handle()
+    }
+    fn route(self) -> RouteHandle {
+        self.route()
+    }
+    fn profile(self) -> VehicleProfileOrdinal {
+        self.profile()
+    }
+    fn position(self) -> MotionPosition {
+        self.position()
+    }
+    fn speed_mm_s(self) -> u32 {
+        self.speed_mm_s()
+    }
+    fn waiting_membership(self) -> Option<crate::WaitingMembership> {
+        self.control().waiting
+    }
+}
+
+/// 只在当前不可变借用内成立的物理范围；逐行绑定复用已经取得的上下文列。
+pub(crate) struct ActiveBlock<'a> {
+    store: &'a VehicleStore,
+    contexts: &'a [Option<VehicleContext>],
+    pub(crate) motion: &'a MotionBlock,
+    start: usize,
+}
+
+impl<'a> ActiveBlock<'a> {
+    pub(crate) fn row(&self, row: usize) -> Option<ActiveRow<'a>> {
+        let context = self.contexts.get(row)?.as_ref()?;
+        let slot = context.owner.index() as usize;
+        self.store.bind_active_context(
+            slot,
+            self.start + row,
+            self.store.directory.get(slot)?,
+            context,
+        )
+    }
+}
+
 impl ActiveRow<'_> {
     pub(crate) fn handle(self) -> VehicleHandle {
         self.context.owner
@@ -470,21 +543,52 @@ impl VehicleStore {
         self.bind_active(slot, physical, self.directory.get(slot)?)
     }
 
+    pub(crate) fn active_block(&self, start: usize, rows: usize) -> Option<ActiveBlock<'_>> {
+        let offset = start % BLOCK_ROWS;
+        let end = offset.checked_add(rows)?;
+        if end > BLOCK_ROWS {
+            return None;
+        }
+        let block = start / BLOCK_ROWS;
+        let contexts = self.context.get(block)?.rows.get(offset..end)?;
+        let motion = self.motion.get(block)?;
+        motion.route_cursor.get(offset..end)?;
+        motion.progress_mm.get(offset..end)?;
+        motion.speed_mm_s.get(offset..end)?;
+        motion.carry_um.get(offset..end)?;
+        Some(ActiveBlock {
+            store: self,
+            contexts,
+            motion,
+            start,
+        })
+    }
+
     fn bind_active<'a>(
         &'a self,
         slot: usize,
         physical: usize,
         entry: &'a DirectoryEntry,
     ) -> Option<ActiveRow<'a>> {
-        if !matches!(entry.location, Location::Active(row) if row == physical) {
-            return None;
-        }
         let context = self
             .context
             .get(physical / BLOCK_ROWS)?
             .rows
             .get(physical % BLOCK_ROWS)?
             .as_ref()?;
+        self.bind_active_context(slot, physical, entry, context)
+    }
+
+    fn bind_active_context<'a>(
+        &'a self,
+        slot: usize,
+        physical: usize,
+        entry: &'a DirectoryEntry,
+        context: &'a VehicleContext,
+    ) -> Option<ActiveRow<'a>> {
+        if !matches!(entry.location, Location::Active(row) if row == physical) {
+            return None;
+        }
         if context.owner.index() as usize != slot || context.owner.generation() != entry.generation
         {
             return None;
@@ -793,6 +897,7 @@ mod tests {
             },
         );
         assert!(store.active_at(physical).is_none());
+        assert!(store.active_block(physical, 1).unwrap().row(0).is_none());
         state.handle = VehicleHandle::new(original.index(), original.generation() + 1);
         store.set(
             0,
@@ -814,6 +919,16 @@ mod tests {
         assert_eq!(bound.position(), (&state).into());
         assert_eq!(bound.control().maneuver, state.maneuver_traversal);
         assert!(store.active_binding_at(1, physical).is_none());
+        let block = store.active_block(physical, 1).unwrap();
+        let row = block.row(0).unwrap();
+        assert_eq!(row.handle(), state.handle);
+        assert_eq!(row.position_in(block.motion), (&state).into());
+        assert!(block.row(1).is_none());
+        assert!(store.active_block(BLOCK_ROWS - 1, 2).is_none());
+        // 模拟旧上下文留下的新目录 generation；块证明也不能仅按物理行放行。
+        let mut stale = store.clone();
+        stale.directory[state.handle.index() as usize].generation += 1;
+        assert!(stale.active_block(physical, 1).unwrap().row(0).is_none());
 
         let mut next = store.motion[physical / BLOCK_ROWS].clone();
         next.progress_mm[physical % BLOCK_ROWS] += 1;

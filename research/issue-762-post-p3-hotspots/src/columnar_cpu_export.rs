@@ -49,14 +49,44 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
 }
 
 fn instrument_motion(root: &Path) -> Result<()> {
+    let direct_rows = fs::read_to_string(root.join(MOTION))?.contains("current.row(row)");
+    let row_read = if direct_rows {
+        "        let Some(state) = current.row(row) else {"
+    } else {
+        "        let Some(state) = view.read.committed.vehicles.active_at(start + row) else {"
+    };
+    let preview_apply = if direct_rows {
+        "                let next = next.apply(old);"
+    } else {
+        "                let next = next.apply(state);"
+    };
+    patch(
+        root,
+        MOTION,
+        row_read,
+        &format!(
+            "        super::note_pipeline(8, 1);\n        let _row_timer = super::PipelineTimer::sampled(7);\n{row_read}"
+        ),
+    )?;
+    patch(
+        root,
+        MOTION,
+        preview_apply,
+        &format!("                super::note_pipeline(10, 1);\n{preview_apply}"),
+    )?;
+    if !direct_rows {
+        let walk_read = "            let state = view\n                .read\n                .committed\n                .vehicles\n                .active_at(start + row)";
+        patch(
+            root,
+            MOTION,
+            walk_read,
+            &format!("            super::note_pipeline(21, 1);\n{walk_read}"),
+        )?;
+    }
     for (old, new) in [
         (
             "    let mut batch = Batch::new();\n    let n = chunk.cursor.len();",
             "    let _pipeline_flush = super::PipelineFlush;\n    let _sample = super::PipelineSample::begin(start % 4_096 == 0);\n    let _prepare_timer = super::PipelineTimer::begin(6);\n    let mut batch = Batch::new();\n    let n = chunk.cursor.len();",
-        ),
-        (
-            "        let Some(state) = view.read.committed.vehicles.active_at(start + row) else {",
-            "        super::note_pipeline(8, 1);\n        let _row_timer = super::PipelineTimer::sampled(7);\n        let Some(state) = view.read.committed.vehicles.active_at(start + row) else {",
         ),
         (
             "        let prepared = (|| {",
@@ -65,10 +95,6 @@ fn instrument_motion(root: &Path) -> Result<()> {
         (
             "            chunk.reports[row].checkpoint = MotionCheckpoint::Calculation;",
             "            drop(_constraint_timer);\n            chunk.reports[row].checkpoint = MotionCheckpoint::Calculation;",
-        ),
-        (
-            "                let next = next.apply(state);",
-            "                super::note_pipeline(10, 1);\n                let next = next.apply(state);",
         ),
         (
             "            let reused_basis = cached",
@@ -105,10 +131,6 @@ fn instrument_motion(root: &Path) -> Result<()> {
         (
             "    while batch.walk_active[..n].iter().any(|&active| active) {",
             "    while batch.walk_active[..n].iter().any(|&active| active) {\n        super::note_pipeline(20, 1);\n        super::note_pipeline(22, batch.walk_active[..n].iter().filter(|&&v| v).count());",
-        ),
-        (
-            "            let state = view\n                .read\n                .committed\n                .vehicles\n                .active_at(start + row)",
-            "            super::note_pipeline(21, 1);\n            let state = view\n                .read\n                .committed\n                .vehicles\n                .active_at(start + row)",
         ),
         (
             "    for (row, route) in routes.iter().enumerate().take(n) {\n        if !batch.enabled[row] || chunk.reports[row].error.is_some() {",
@@ -170,6 +192,11 @@ fn instrument_preview(root: &Path) -> Result<()> {
 
 fn instrument_finalize(root: &Path) -> Result<()> {
     for (file, old, new) in [
+        (
+            "crates/laneflow-runtime/src/kernel/vehicle_store.rs",
+            "    pub(crate) fn state(self) -> VehicleState {",
+            "    pub(crate) fn state(self) -> VehicleState {\n        super::tick::note_pipeline(36, 1);",
+        ),
         (
             "crates/laneflow-runtime/src/kernel/vehicle_store.rs",
             "    ) -> Option<ActiveRow<'a>> {\n        if !matches!(entry.location, Location::Active(row) if row == physical) {",
