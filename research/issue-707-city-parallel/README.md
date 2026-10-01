@@ -1,9 +1,12 @@
 # #707 城市并行性能对照（第二切片：harness 入口验证与带暖机 pilot）
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 后续诊断设计见[源码成本分析与短窗口诊断草案](short-profile-plan.md)。
 正式 r1 后续状态见 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)，四轮
 身份、完整摘要和观察窗统计见版本化的
-[`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)；
+[`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)；
 下文“未执行 D/E”专指原 pilot 切片，不表示截至今日未进行任何正式运行。
 2026-09-21 双窗口采集完成后的分析见 [L3 离线诊断](l3-findings.md)，包含采集
 边界、线程活动、函数热点及替换命令的新候选；精确时间窗热点另有隐私最小化
@@ -172,5 +175,5 @@ laneflow-urban-harness.exe compare <pilot>/<scale>-w1-r1 <pilot>/<scale>-w4-r1 <
   `10795510…` / `792d8d11…`。重放计划与重建计划逐行比较，都只有
   `manifest_digest` 不同。分档 blob 身份、全部摘要与重放二进制见
   [输入差异与冻结计划重放](input-diff.md)及
-  [`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。据此接受重建
+  [`frozen-plan-replay.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frozen-plan-replay.json)。据此接受重建
   制品用于本 PR 的 pilot/阶段研究范围；#707 完整认证义务保持开放。

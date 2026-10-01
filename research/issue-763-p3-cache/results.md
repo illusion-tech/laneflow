@@ -1,5 +1,8 @@
 # 同拍 P3 可达性缓存的采用证据
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #763。采用此内部优化：正确性覆盖通过，两个尺度的三组平衡整拍 mean 均为
 正收益，暂存布局和已观测缓冲峰值不增长。100k 的首组基线波动较大、尾延迟尚未
 证明稳定改善；本结论不构成 #707 最终预算、信号周期、长等待或长期交通质量认证。
@@ -18,7 +21,7 @@ Refs #763。采用此内部优化：正确性覆盖通过，两个尺度的三�
 - 两尺度各自的全部运行具有相同交通日志摘要和原生语义结果。源码、manifest/lock、
   二进制、输入、UUID、前后 HEAD/clean、原生计时及文件摘要均经过工具校验。
 
-机器证据：[无插桩 24 轮](evidence/plain.json)、[独立诊断 12 轮](evidence/detail.json)。
+机器证据：[无插桩 24 轮](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-763-p3-cache/evidence/plain.json)、[独立诊断 12 轮](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-763-p3-cache/evidence/detail.json)。
 原始包与导出树保留在本工作树 `target/763-plain-runs`、`763-detail-runs`、
 `763-trial`、`763-diagnostic-v2`；JSON 内含完整文件清单和 SHA-256，不表示外部包
 已随 Git 发布。初次失败的诊断导出也保留，未混入采集结果。

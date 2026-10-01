@@ -1,5 +1,8 @@
 # #707：在已持有的车辆状态上更新近门集合
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。状态：**作者本地插桩诊断曾支持继续筛查；当前保留依据见后续无
 计时封套。** 本页历史记录中，同一二进制的 frontier 均值从 5.329 ms 降到
 3.310 ms，Core 均值从 38.198 ms 降到 37.036 ms。四臂短窗交通输出与 M3
@@ -9,7 +12,7 @@
 只存在于作者本地 `target/`，没有作为项目证据保留。全新克隆不能独立复算本页
 的 5.329 → 3.310ms 或 38.198 → 37.036ms；这些数字不得作为可移植的保留证明。
 M16 held 当前保留依据是已提交的
-[`retained-best-evidence-manifest.json`](evidence/retained-best-evidence-manifest.json)、
+[`retained-best-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-evidence-manifest.json)、
 源码补丁、Research Evidence 制品及[无计时结果](untimed-best-results.md)，其机器
 记录为 30.517096 → 28.461283ms。
 

@@ -1,5 +1,8 @@
 # P5 分块粒度短窗筛选
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 本目录对应 #801，父任务 #707。冻结基线为
 `cb562bde948b6f96484581b650422f149f6c5787`。候选只在导出研究树中将
 P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 16 块及 4 步长
@@ -8,12 +11,12 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
 资源生命周期、Runtime API、数据格式或 Adapter API，无需新增 ADR。
 
 - [结果与停止决定](results.md)
-- [24 次普通测试及逐组比较](evidence/plain.json)
-- [6 次独立块级诊断](evidence/detail.json)
-- [负向校验记录](evidence/negative-checks.json)
-- [此前 v3 的实际原生编译覆盖隔离验证](evidence/native-env-isolation.json)
-- [v4 受控采集器构建凭据](evidence/collector.json)
-- [性能采集期间的 CPU 协调记录](evidence/cpu-coordination.json)
+- [24 次普通测试及逐组比较](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/plain.json)
+- [6 次独立块级诊断](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/detail.json)
+- [负向校验记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/negative-checks.json)
+- [此前 v3 的实际原生编译覆盖隔离验证](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/native-env-isolation.json)
+- [v4 受控采集器构建凭据](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/collector.json)
+- [性能采集期间的 CPU 协调记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/cpu-coordination.json)
 
 ## 冻结方案
 

@@ -1,16 +1,19 @@
 # 当前 TrafficWorld 性能画像
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 本报告交付 [#583](https://github.com/illusion-tech/laneflow/issues/583) 的有限研究切片。
 生产基线为 `298da8a80a5c2edf6a1bbe521f59db77d1d8b76e`，已包含正式 Conflict/Policy、
 #528 准入索引、#531 切换优化和 #580/#581 串行阶段/状态分区。
 测试补丁以本目录同一提交为准，实际测量源文件的 Git blob 记录在
-[`source-blobs.json`](evidence/source-blobs.json)。生产 API、行为、依赖和 wire 均未改变。
+[`source-blobs.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-583-runtime-profile/evidence/source-blobs.json)。生产 API、行为、依赖和 wire 均未改变。
 
 ## 1. 测量边界与复现
 
 2026-09-06，Windows 11 x64 build 29648，AMD Ryzen 9 9955HX（16 核 / 32 逻辑处理器），
 Rust 1.98.0，release 默认配置，增量编译关闭，Windows 平衡电源计划。
-完整机器信息见 [`environment.json`](evidence/environment.json)。本次未绑定 CPU 亲和性，
+完整机器信息见 [`environment.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-583-runtime-profile/evidence/environment.json)。本次未绑定 CPU 亲和性，
 未锁定频率；进程顺序执行，正式测量前检查没有 Cargo/rustc/link 编译进程。
 这是一台开发机上的研究窗口，不是产品硬件认证。
 
@@ -42,7 +45,7 @@ python research/issue-583-runtime-profile/analyze.py
 本次实际直接运行 `--no-run` 生成的四个 exe，过滤参数与上述命令相同。
 [`evidence/`](evidence/) 保存完整测试输出；[`analyze.py`](analyze.py) 只读取这些固定记录，
 校验数量、各轮次/入口的最终摘要和日志字节、owner 总账、阶段调用次数及耗时包含关系，
-输出 [`summary.json`](summary.json)。脚本不运行基准、不引入依赖或 CI 耗时阈值。
+输出 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-583-runtime-profile/summary.json)。脚本不运行基准、不引入依赖或 CI 耗时阈值。
 
 共享夹具和四个集成测试位于
 [`src/kernel/tests/performance_profile`](../../crates/laneflow-runtime/src/kernel/tests/performance_profile/)，

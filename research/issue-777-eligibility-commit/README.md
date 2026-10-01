@@ -1,5 +1,8 @@
 # Conflict 资格表提交成本
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #777。起点为 `72102fabb2cda5ebadde52dc1260c8402762efda`。先细分复制、
 全空扫描和准备清空，再验证全空时避免复制的最小候选。沿用阶段协议的 P7 原子
 提交、完整资格谓词和正式 `conflict_state_valid`；不引入触及列表、独立尝试代次、
@@ -7,7 +10,7 @@ Refs #777。起点为 `72102fabb2cda5ebadde52dc1260c8402762efda`。先细分复�
 
 已完成 72 次正常库整拍和 36 次独立诊断，保留空表跳过复制的最小实现。
 见 [结论与边界](results.md)、[完整数表](measurements.md) 和
-[封存核验结果](evidence/results.json)。原始记录包含全部告警和拒绝数据。
+[封存核验结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-777-eligibility-commit/evidence/results.json)。原始记录包含全部告警和拒绝数据。
 
 ## 输入和观测
 

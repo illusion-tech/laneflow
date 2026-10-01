@@ -1,5 +1,8 @@
 # #216 补充：真实 step 的 CPU 采样归因
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 ## 1. 结论
 
 2026-09-08 使用 Windows Performance Recorder（WPR）录制优化构建，WPA 导出
@@ -20,7 +23,7 @@ CPU 采样权重的 18.52%（10k / 256）和 21.43%（10k / 16）。**
 - 生产基线为 `6fefd582364685c07ed83af79b2bec80f5223fc5`；研究 HEAD 为
   `2806ce4ab83c4084a1b610854d7b31d6ae50e2fd` 加 CPU integration-test 入口。
   精确工作树 blob、EXE/PDB SHA-256、PDB GUID/age 见
-  [`provenance.json`](evidence-cpu/provenance.json)。不能把该 HEAD 单独当作采样源码标识。
+  [`provenance.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence-cpu/provenance.json)。不能把该 HEAD 单独当作采样源码标识。
 - Rust 1.98.0，MSVC release，`CARGO_PROFILE_RELEASE_DEBUG=2`、
   `CARGO_PROFILE_RELEASE_STRIP=none`，独立 `target/issue-216-cpu-symbols`。
   PDB GUID/age 与 EXE RSDS 匹配，没有改变生产函数的内联设置。
@@ -81,7 +84,7 @@ CPU 权重是统计采样，不是每次调用的精确墙钟；不可与原探�
 
 以下为 10k / 256 的主要**非内联符号 self**：包含编译进该符号的内联体，
 排除单独的被调函数。因此 `stage_vehicle_transitions` 不等于运动算法自身。
-完整 self/inclusive 排名见 [`summary.json`](evidence-cpu/summary.json)。
+完整 self/inclusive 排名见 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence-cpu/summary.json)。
 
 | 非内联函数                                               | self 权重 |
 | -------------------------------------------------------- | --------: |
@@ -127,9 +130,9 @@ RVA `0x3fef00`、`0x3fef96`、`0x3ff45d` 分别对应内存 `movups`/`movq` 指�
 
 ## 6. 证据与复现
 
-- [`provenance.json`](evidence-cpu/provenance.json)：构建、源码、哈希、PID、采集时间。
-- [`summary.json`](evidence-cpu/summary.json)：样本数、权重、self/inclusive 全排名。
-- [`source-summary.json`](evidence-cpu/source-summary.json)：内联源码行与函数归因。
+- [`provenance.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence-cpu/provenance.json)：构建、源码、哈希、PID、采集时间。
+- [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence-cpu/summary.json)：样本数、权重、self/inclusive 全排名。
+- [`source-summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence-cpu/source-summary.json)：内联源码行与函数归因。
 - 三个 `*-stacks.folded`：仅从 `TrafficWorld::step` 起的栈聚合，末列为纳秒权重。
   权重和均校验为对应 `step` 总权重，毫秒权重转换使用十进制整数运算。
 - 原始 ETL、逐样本 CSV、所有 RVA 的 PDB 内联记录保留在 provenance 标识的本地

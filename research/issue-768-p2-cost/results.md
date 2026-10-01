@@ -1,5 +1,8 @@
 # P2 成本诊断与下一实现候选
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #768、#707。**优先验证复用同拍可达性结果来收窄 P2 运动预览的候选。**
 P2 的分发计算/join 是当前主要子段，输入发现与槽位准备较小；不优先重做扫描或
 调整分发阈值。本项交付诊断工具与证据，没有实现或证明下一候选的净收益。
@@ -16,7 +19,7 @@ P2 的分发计算/join 是当前主要子段，输入发现与槽位准备较�
 - 真实 Active：10k 为 7310–7500、100k 为 70752–75000；总数 100k 不表示持续十万 Active。
 - 每个尺度的六次交通文件摘要及原生结果语义完全相同。step 原生 p95 与逐拍记录复算一致。
 
-冻结结果：[results.json](evidence/results.json)。它包含完整导出文件 SHA-256（含
+冻结结果：[results.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-768-p2-cost/evidence/results.json)。它包含完整导出文件 SHA-256（含
 manifest/lock）、二进制及输入摘要、执行 UUID、前后 HEAD/clean、原生文件摘要和
 全部原始包文件清单；索引不表示原始包已随 Git 发布。原始包保留在本工作树
 `target/768-runs-v2`，导出及二进制在 `target/768-build-v2`，两臂构建缓存分别在

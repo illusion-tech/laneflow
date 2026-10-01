@@ -1,12 +1,15 @@
 # 同拍可达性收窄 P2 预览
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #770。复用 #763 已计算的同拍可达性，在原检查和距离过滤之后，仅对
 `Some(false)` 且没有 Waiting membership 的车辆省略 P2 运动预览。保留 horizon，
 未知、缺失和持有资源的路径继续完整计算，P5 完整求值最终运动。
 
 - [采用证据与局限](results.md)
-- [无插桩 24 轮](evidence/plain.json)
-- [独立诊断 12 轮](evidence/detail.json)
+- [无插桩 24 轮](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-770-p2-scope/evidence/plain.json)
+- [独立诊断 12 轮](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-770-p2-scope/evidence/detail.json)
 - Rust 工具：`research/issue-762-post-p3-hotspots/src/p2_scope_research.rs`；共享
   `cache_research.rs`，保留 #763 的固定基线、协议与历史运行顺序。
 

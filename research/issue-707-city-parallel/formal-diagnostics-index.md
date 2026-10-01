@@ -1,22 +1,25 @@
 # #707 D1/D2 与诊断证据索引
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-21。本文件补充原 WP A/B/C pilot 交付；不关闭 #707，不调整正式预算。
 来源根目录：`E:/projects/laneflow-evidence/issue-707/4de40e04/`。
 源码身份：`4de40e045398e4b010b2aa36522afc02a4094c4d`。
 
-仓库内的 [`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)把四轮
+仓库内的 [`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)把四轮
 execution ID、完整 plan/result/measurements/diagnostics 摘要、观察窗统计和
 `result.json` 内全部大文件身份绑定为一条机器可读证据链；两份现场核查原始副本、
 四份 diagnostics、两份跨 worker comparison 与 D1/D2 四轮电源边界原始记录也
 提交在 `evidence/`。两份现场核查保持与外部来源逐字节一致，后验计划重放和电源
 边界分析不回写原始副本。冻结 performance 计划的直接重放见
-[`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。WPR trace、外部完整导出、
+[`frozen-plan-replay.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frozen-plan-replay.json)。WPR trace、外部完整导出、
 提交的隐私筛选紧凑报告与 `tar.zst` 容量实测见
-[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)；M21 校准审计的可重建
+[`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json)；M21 校准审计的可重建
 源码、构建、输入、运行配置和四份结果见
-[`calibration-audit-manifest.json`](evidence/calibration-audit-manifest.json)。M2 屏障跳过
+[`calibration-audit-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-audit-manifest.json)。M2 屏障跳过
 的源码补丁、十次运行树身份与逐拍紧凑报告见
-[`motion-barrier-evidence-manifest.json`](evidence/motion-barrier-evidence-manifest.json)。
+[`motion-barrier-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/motion-barrier-evidence-manifest.json)。
 原始逐拍文件和 ETL 当前只在作者机器的证据根现存，没有项目控制的持久链接，按未
 长期留存处理；仓库不复制多 GB 日志。
 
@@ -71,7 +74,7 @@ D2 现场核查时间为 03:05:00，晚于 w1 起点 03:01:13 共 227 秒，只�
 
 使用 bsdtar 3.8.8 与 libzstd 1.5.7 默认压缩，每份 ETL 单独生成压缩流并通过标准输出
 计数；没有落盘或修改制品文件。精确机器记录见
-[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+[`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json)。
 
 | ETL      | 原始大小                        | `tar.zst` 大小                  | 节省       |
 | -------- | ------------------------------- | ------------------------------- | ---------- |

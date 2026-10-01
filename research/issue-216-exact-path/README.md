@@ -1,5 +1,8 @@
 # TrafficWorld occupancy / leader 有限精确路径研究
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 本报告交付 [#216](https://github.com/illusion-tech/laneflow/issues/216) 当前重启范围，
 不是历史 CoreWorld 候选的恢复，也不是城市级性能认证。
 生产基线冻结为 `6fefd582364685c07ed83af79b2bec80f5223fc5`；
@@ -7,9 +10,9 @@
 限定测试专用归因和一个有依据的精确候选。生产算法、公开 API、数据格式、线程模型、
 车辆更新频率均不改变。批次 / 配对 / 等价数据的研究补丁冻结在
 `406813daaaf0703ab08019432bb4c349253215a0`，逐文件 Git blob 与二进制 SHA-256 位于
-[`environment.json`](evidence/environment.json)。后续只补充同输入的批量查询回放，
+[`environment.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence/environment.json)。后续只补充同输入的批量查询回放，
 其独立源码与二进制记录见
-[`查询回放环境`](evidence-query-replay/environment.json)；没有重新选择既有配对轮次。
+[`查询回放环境`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/evidence-query-replay/environment.json)；没有重新选择既有配对轮次。
 
 ## 1. 结论
 
@@ -130,7 +133,7 @@ occupancy、预收集输入，再分别批量执行路线 / 配置定位、前�
 
 10k / 16 边的逐轮 p95 变化范围为约 -30.4%～+96.6%，说明尾部样本不足以证明稳定收益。
 64 拍的 nearest-rank p99 就是当轮最大值。完整各轮数据、p99、max、五分区账本及
-分配字段见 [`pairs.txt`](evidence/pairs.txt) 和 [`summary.json`](summary.json)。
+分配字段见 [`pairs.txt`](evidence/pairs.txt) 和 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/summary.json)。
 
 内存沿用 `WorldMemoryLedger` 的逻辑 backing 口径：capacity × 元素大小；
 共享根单列，不计容器固定字段、分配器 / HashMap 桶开销，不是进程 RSS 或峰值。

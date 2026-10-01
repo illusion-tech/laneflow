@@ -1,5 +1,8 @@
 # #707 H1 完整观测去重结果
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。Refs #707。承接 [H1 计划](harness-dedup-plan.md)与
 [B1 WPR 诊断](b1-wpr-findings.md)。**H1 保留为后续研究候选：完整观测不降频，
 100k 短 ABBA 中 observation 均值下降 13.61%，iteration 下降 9.29%。Core 没有
@@ -133,10 +136,10 @@ paged-memory 高水位约 524.5–525.2MiB。没有明显的新增大缓存成�
 
 仓库内长期复核入口：
 
-- [`harness-dedup-evidence-manifest.json`](evidence/harness-dedup-evidence-manifest.json)
+- [`harness-dedup-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/harness-dedup-evidence-manifest.json)
   保存四臂 H0/H1 ABBA 的环境和进程包络、完整输出树身份、原 provenance 的全部
   309 个历史证据文件身份，以及从未舍入逐拍样本复算的 observation 13.61% 和 iteration
-  9.29% 降幅。[`harness-dedup-summary.json`](evidence/harness-dedup-summary.json)
+  9.29% 降幅。[`harness-dedup-summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/harness-dedup-summary.json)
   完整保留原 JSON 数据，并按仓库规则将 CRLF 规范化为 LF；manifest 另保留原文件
   长度与 SHA-256。
 - [`harness-dedup-public-step.csv`](evidence/harness-dedup-public-step.csv) 保存

@@ -1,5 +1,8 @@
 # 直接热输入与稀疏 SIMD：未获可重复整拍收益
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 对应 #808。全部 36 个进程完成且重验证通过，三臂交通记录和逐拍状态摘要一致。
 十万筛选窗 SIMD 的整步均值比基线高 **6.821%**，只有 **1/3 组**改善；
 一万平均进程 p95 回退 **5.462%**。十万最大组内同臂均值跨度达 **19.408%**，
@@ -17,7 +20,7 @@
   三臂均使用普通 release、Rust 1.98.0、locked/offline、workers=4，默认目标特性；
   没有全局 AVX2、FMA、fast-math 或近似倒数。研究 SIMD 依赖为 `wide = 1.5.0`。
 - 当前主机观察为 AMD Ryzen 9 9955HX，16 核 / 32 逻辑处理器，Windows x64 MSVC。
-  [host.json](evidence/host.json) 记录采集后的主机观察；没有连续测量功耗或温度。
+  [host.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/host.json) 记录采集后的主机观察；没有连续测量功耗或温度。
 - 直接按 Compute 通道写七个热字段数组，移除 `[IidmInput; 4]` 中间数组和冷准备值内的
   IIDM 副本。内核借用数组；全复用批次不初始化/调用 IIDM，不足两个可向量化通道时
   用标量。复用结果与计算冷字段分开，尾批和异常输入保留原语义。
@@ -111,24 +114,24 @@ plain 输出的 `peak_storage` 零值是关闭诊断后的占位，不作为内�
   停车真实预留与失败原子性。没有降低既有并发或零提交断言。
 - 36 个进程、72 份边界快照、来源/二进制/工具链/环境和发布统计重派生通过。
   六项命令级负向验证均拒绝：未知臂、缺矩阵成员、交通文件损坏、布局构建漂移、
-  布局采集器漂移、发布统计变更。见 [validation.json](evidence/validation.json)、
-  [negative-checks.json](evidence/negative-checks.json)。
+  布局采集器漂移、发布统计变更。见 [validation.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/validation.json)、
+  [negative-checks.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/negative-checks.json)。
 - 首次构建 `808-build-v2` 来自三个独立 PowerShell 会话，临时 `fnm_multishells`
   PATH 不同；完整性校验在任何仿真进程启动前拒绝，产生 **0 个计时进程**。
   `808-build-v3` 共用采集器凭据中的固定环境重新构建全部三臂；源码哈希不变，
   未修改、归一化或复用旧凭据。旧构建、拒绝记录、预先冻结但未计时的 v1 工具保留。
-  [build-rejection.json](evidence/build-rejection.json) 说明这一真实失败。
+  [build-rejection.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/build-rejection.json) 说明这一真实失败。
 - Runtime stderr 包含 9216 条整步时钟行，其他非空 stderr 行数为 `0`。
   全部原始 stderr、stdout、环境快照与拒绝副本保留，未把诊断时钟行当作警告。
 
 ## 封存与复核
 
-最终结果见 [plain.json](evidence/plain.json)，内核见 [kernel.json](evidence/kernel.json)。
+最终结果见 [plain.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/plain.json)，内核见 [kernel.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/kernel.json)。
 归档 `target/issue-808-p5-hot-input-simd.tar.zst` 包含采集器源码/实际 EXE、三臂导出源码和
 EXE、工具链与构建日志、输入/计划/manifest、36 轮原始输出、回归日志、汇编、
 负向拒绝副本和预采集拒绝记录。每个载荷按长度与 SHA-256 封存。
 
 全新目录解压后逐文件验封，并用解压的实际采集器重新校验自身与全部 36 轮结果；
-记录见 [archive.json](evidence/archive.json)、
-[unpacked-verification.json](evidence/unpacked-verification.json)。本报告保持研究结论，
+记录见 [archive.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/archive.json)、
+[unpacked-verification.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-808-hot-input-simd/evidence/unpacked-verification.json)。本报告保持研究结论，
 不替代正式 Runtime 接入评审或 #707 最终验收。
