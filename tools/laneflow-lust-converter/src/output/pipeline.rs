@@ -434,12 +434,18 @@ fn restore_backup(output_dir: &Path, backup: &Path, staged: &[(&'static str, &'s
     }
     for name in names {
         let from = backup.join(name);
-        if from.symlink_metadata().is_err() {
-            continue;
-        }
         let to = output_dir.join(name);
-        let _ = fs::remove_file(&to);
-        let _ = fs::rename(&from, &to);
+        if from.symlink_metadata().is_ok() {
+            // 旧文件：新文件若已落位先删，再从备份恢复。
+            let _ = fs::remove_file(&to);
+            let _ = fs::rename(&from, &to);
+        } else if staged.iter().any(|(staged_name, _)| staged_name == &name)
+            && to.symlink_metadata().is_ok()
+        {
+            // #253 V1：本次新装入、运行前不存在的文件——失败路径必须删除，
+            // 保证错误返回时 output_dir 完全回到运行前状态。
+            let _ = fs::remove_file(&to);
+        }
     }
 }
 
@@ -566,7 +572,7 @@ fn build_manifest_toml(
 mod tests {
     use std::path::PathBuf;
 
-    use super::{MANIFEST_NAME, SURVEY_NAME, convert_with_config, publish_outputs};
+    use super::{MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, convert_with_config, publish_outputs};
     use crate::Error;
 
     #[test]
@@ -597,6 +603,45 @@ mod tests {
         );
         assert!(output.join("issue253-infeasible-survey.md").exists());
         assert!(!output.join("network.lfca").exists(), "排除产物已清除");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_failure_removes_newly_installed_files() {
+        // #253 V1：失败路径须删除「本次新装入、运行前不存在」的文件——
+        // output_dir 完全回到运行前状态。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-newfile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
+        // report.json 是**新交付**（运行前不存在）；staging 缺 survey 文件——
+        // 失败确定发生在移入阶段（manifest 与 report.json 已装入），不依赖
+        // Windows 目录 rename 语义。
+        std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
+        std::fs::write(staging.join("report.json"), b"new-report").expect("new report");
+
+        let result = publish_outputs(
+            &staging,
+            &output,
+            &[
+                (MANIFEST_NAME, MANIFEST_NAME),
+                (REPORT_NAME, REPORT_NAME),
+                (SURVEY_NAME, SURVEY_NAME),
+            ],
+        );
+        assert!(result.is_err());
+        assert!(
+            !output.join("report.json").exists(),
+            "新装入的文件在失败路径必须被删除"
+        );
+        assert_eq!(
+            std::fs::read(output.join("manifest.toml")).expect("read"),
+            b"old-manifest"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

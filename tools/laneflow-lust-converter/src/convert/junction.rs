@@ -112,6 +112,7 @@ pub fn normalize_junctions(
         // 再进 stub 处置。点状 stub 若为首段且续链后带真续接段，删焊会吞掉有真实
         // 几何的续接段，fail-closed（R1 焊接门控只授权恰一条 stub 的删焊）。
         internal_lane_ids = extend_internal_chain(
+            network,
             &continuations,
             &terminals,
             internal_lane_ids,
@@ -298,6 +299,9 @@ pub fn normalize_junctions(
     }
     movements.sort_by(|left, right| left.id.cmp(&right.id));
 
+    // #253 V7：path id 字符串撞名（`-to-` / `.` 分隔符歧义）fail-closed，
+    // 记录首见路径的身份用于报错。
+    let mut path_sources: HashMap<String, (String, String, String)> = HashMap::new();
     let mut path_by_connection = HashMap::new();
     let maneuver_paths = traversals
         .iter()
@@ -318,6 +322,17 @@ pub fn normalize_junctions(
                     .collect(),
                 exit_edge_id: format!("{SUMO_ID_PREFIX}{}", traversal.exit_lane_id),
             };
+            let source = (
+                path.entry_edge_id.clone(),
+                path.exit_edge_id.clone(),
+                path.internal_edge_ids.join("."),
+            );
+            if let Some(previous) = path_sources.insert(path.id.clone(), source.clone()) {
+                return Err(Error::SumoModel(format!(
+                    "maneuver path id {:?} collides between {:?} and {:?}; delimiter-ambiguous SUMO ids",
+                    path.id, previous, source
+                )));
+            }
             // #253 C7：同 (from,fromLane,to,toLane) 不同内链的重复穿越此前被
             // 静默替换（路由/信号绑定只能发现后者）；重复键 fail-closed。
             if path_by_connection
@@ -425,6 +440,7 @@ fn internal_terminals(network: &SumoNetwork) -> HashSet<(String, String, u32)> {
 ///   connection（SUMO 官方要求），缺失或 toLane 不符分别报错；
 /// - 深度越界 fail-closed。
 fn extend_internal_chain(
+    network: &SumoNetwork,
     continuations: &HashMap<String, ContinuationCandidates>,
     terminals: &HashSet<(String, String, u32)>,
     mut chain: Vec<String>,
@@ -455,6 +471,16 @@ fn extend_internal_chain(
         match usable.len() {
             1 => {
                 for lane in &usable[0].2 {
+                    // #253 V8：续接 via lane 与原始 via 同标准——非 internal
+                    // 即 fail-closed（外部对象混入 internal 链是歧义拓扑）。
+                    match network.lane(lane) {
+                        Some(via_lane) if via_lane.function_internal => {}
+                        _ => {
+                            return Err(Error::SumoModel(format!(
+                                "internal connection chain references non-internal lane {lane:?} (to {to_edge_id:?})"
+                            )));
+                        }
+                    }
                     if visited.contains(lane) {
                         return Err(Error::SumoModel(format!(
                             "internal connection chain cycles at {lane:?} (to {to_edge_id:?})"
@@ -786,6 +812,7 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
         // 候选；扫描只认「完整展开后恰一条 stub」的形态（检查其无贡献新 lane
         // 的续接伴随项）。
         let chain = extend_internal_chain(
+            network,
             &continuations,
             &terminals,
             vec![stub_id.clone()],
@@ -1227,16 +1254,20 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
             .is_some_and(|junction| junction.junction_type == "internal")
     };
 
-    // #253 T4：intLanes 成员存在性——拼错的 id（既非 lane 也非 internal
-    // helper junction）此前被无检查记为 owner 并在无人提及时静默忽略，
-    // fail-closed 报 junction id 与 dangling 成员。
+    // #253 V2（T4 升级）：intLanes 成员限 internal——拼错的 id、外部 lane、
+    // 非 internal junction 混入都会让归属静默错位；fail-closed 报 junction
+    // id 与成员。
     for junction in &network.junctions {
         for member in &junction.int_lane_ids {
-            if network.lane(member).is_none() && network.junction(member).is_none() {
-                return Err(Error::SumoModel(format!(
-                    "junction {:?} intLanes references dangling member {member:?}                      (neither a lane nor an internal junction)",
-                    junction.id
-                )));
+            match (network.lane(member), network.junction(member)) {
+                (Some(lane), _) if lane.function_internal => {}
+                (_, Some(nested)) if nested.junction_type == "internal" => {}
+                _ => {
+                    return Err(Error::SumoModel(format!(
+                        "junction {:?} intLanes member {member:?} is not internal (no function=internal / non-internal junction id)",
+                        junction.id
+                    )));
+                }
             }
         }
     }
@@ -2065,9 +2096,74 @@ mod tests {
     }
 
     #[test]
+    fn int_lanes_rejects_non_internal_lane_member() {
+        // #253 V2：成员存在但非 internal（lane 无 function=internal）同样
+        // fail-closed——存在性升级后为 internal 限定。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes="west_0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("non-internal lane member must fail");
+        assert!(error.to_string().contains("is not internal"), "{error}");
+    }
+
+    #[test]
+    fn maneuver_path_id_delimiter_collision_fails_closed() {
+        // #253 V7：内边 join(".") 分隔符歧义——单 lane "a_0.b_0"（edge "a_0.b"）
+        // 与链 ["a_0","b_0"] 拼出同一 path id，fail-closed 报撞名双方。
+        // lane id 全部遵循 {edge}_{index} 约定（terminal 键依赖该约定）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id="a_0.b" function="internal"><lane id="a_0.b_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <edge id="a" function="internal"><lane id="a_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <edge id="b" function="internal"><lane id="b_0" index="0" speed="13.89" length="5.00" shape="6811.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes="a_0.b_0 a_0 b_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via="a_0.b_0"/>
+  <connection from="a_0.b" to="east" fromLane="0" toLane="0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via="a_0"/>
+  <connection from="a" to="east" fromLane="0" toLane="0" via="b_0"/>
+  <connection from="b" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("path id collision must fail");
+        let message = error.to_string();
+        assert!(message.contains("collides between"), "{message}");
+    }
+
+    #[test]
+    fn chain_continuation_rejects_non_internal_lane() {
+        // #253 V8：续接段 via lane 非 internal 即 fail-closed。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="6806.88,5727.52 6811.88,5727.52"/></edge>
+  <edge id="fake" from="X" to="Y"><lane id="fake_0" index="0" speed="13.89" length="5.00" shape="6811.88,5727.52 6816.88,5727.52"/></edge>
+  <junction id="J" type="priority" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0" via="fake_0"/>
+  <connection from="fake" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("non-internal continuation lane must fail");
+        assert!(error.to_string().contains("non-internal"), "{error}");
+    }
+
+    #[test]
     fn int_lanes_dangling_member_fails_closed() {
-        // #253 T4：intLanes 拼错成员（既非 lane 也非 internal junction）此前
-        // 被无检查记为 owner 并可能静默忽略——fail-closed 报 junction 与成员。
+        // #253 V2（T4 升级）：intLanes 拼错成员（既非 lane 也非 internal
+        // junction）被无检查记为 owner 并可能静默忽略——fail-closed 报
+        // junction 与成员。
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>
   <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
@@ -2079,7 +2175,7 @@ mod tests {
         let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
             .expect_err("dangling intLanes member must fail");
         let message = error.to_string();
-        assert!(message.contains("dangling member"), "{message}");
+        assert!(message.contains("is not internal"), "{message}");
         assert!(message.contains("typo_lane_0"), "{message}");
     }
 
