@@ -34,14 +34,17 @@ pub fn normalize_junctions(
 ) -> Result<NormalizedTopology> {
     let lane_by_edge_index = build_lane_index(network)?;
     let adjacency = build_lane_adjacency(network, &lane_by_edge_index)?;
-    let owners_by_int_lane = build_int_lane_owners(network)?;
+    let IntLaneOwnership {
+        owners: owners_by_int_lane,
+        orphan_members,
+    } = build_int_lane_owners(network)?;
 
     let mut dropped_stub_lane_ids = HashSet::new();
     let mut stub_welds: HashMap<String, (ExactDecimal, ExactDecimal)> = HashMap::new();
     let mut stub_weld_records = Vec::new();
     let mut traversals = Vec::new();
-    let continuations = internal_continuations(network);
-    let terminals = internal_terminals(network);
+    let continuations = internal_continuations(network, &lane_by_edge_index)?;
+    let terminals = internal_terminals(network, &lane_by_edge_index)?;
     // G1 六条件之拓扑形态：stub 的多重引用计数（via 引用 + internal from 引用）。
     let mut via_ref_count: HashMap<&str, usize> = HashMap::new();
     let mut internal_from_count: HashMap<String, usize> = HashMap::new();
@@ -149,6 +152,7 @@ pub fn normalize_junctions(
                     &connection.to_edge_id,
                     &[],
                     &owners_by_int_lane,
+                    &orphan_members,
                 )?;
                 let context = StubEvaluationContext {
                     reference_counts: StubReferenceCounts {
@@ -219,6 +223,7 @@ pub fn normalize_junctions(
             &connection.to_edge_id,
             &internal_lane_ids,
             &owners_by_int_lane,
+            &orphan_members,
         )?;
 
         traversals.push(NormalizedTraversal {
@@ -394,41 +399,58 @@ pub fn normalize_junctions(
 type ContinuationCandidates = Vec<(String, u32, Vec<String>)>;
 
 /// internal junction 续接（#253 R1/R5）：from-lane → 候选 (to_edge, to_lane, via)。
-/// internal <connection> 的 from 为 internal 边。
-fn internal_continuations(network: &SumoNetwork) -> HashMap<String, ContinuationCandidates> {
+/// internal <connection> 的 from 为 internal 边。键为经 (from_edge, from_lane)
+/// 解析到的**声明 lane id**（#253 W5 归因修正）——此前按 `{edge}_{index}` 约定
+/// 重构，声明 id 不符约定的内 lane 会查不到续接/终端而误报 missing terminal。
+fn internal_continuations(
+    network: &SumoNetwork,
+    lane_by_edge_index: &HashMap<(String, u32), &SumoLane>,
+) -> Result<HashMap<String, ContinuationCandidates>> {
     let mut map: HashMap<String, ContinuationCandidates> = HashMap::new();
     for connection in &network.connections {
         if !is_internal_edge(network, &connection.from_edge_id) {
             continue;
         }
-        let from_lane = format!("{}_{}", connection.from_edge_id, connection.from_lane);
-        map.entry(from_lane).or_default().push((
+        let from_lane = resolve_lane(
+            lane_by_edge_index,
+            &connection.from_edge_id,
+            connection.from_lane,
+        )?;
+        map.entry(from_lane.id.clone()).or_default().push((
             connection.to_edge_id.clone(),
             connection.to_lane,
             connection.via_lane_ids.clone(),
         ));
     }
-    map
+    Ok(map)
 }
 
 /// 无 via 的终端 exit-link（SUMO 要求的 `[from=:v to=:t]` 伴随 connection），
-/// 以完整目的 lane 身份 (from_lane, to_edge, to_lane) 索引。
-fn internal_terminals(network: &SumoNetwork) -> HashSet<(String, String, u32)> {
-    network
-        .connections
-        .iter()
-        .filter(|connection| {
-            is_internal_edge(network, &connection.from_edge_id)
-                && connection.via_lane_ids.is_empty()
-        })
-        .map(|connection| {
-            (
-                format!("{}_{}", connection.from_edge_id, connection.from_lane),
-                connection.to_edge_id.clone(),
-                connection.to_lane,
-            )
-        })
-        .collect()
+/// 以完整目的 lane 身份 (from_lane, to_edge, to_lane) 索引；from_lane 同为
+/// 解析到的声明 lane id（#253 W5，与续接键同口径）。
+fn internal_terminals(
+    network: &SumoNetwork,
+    lane_by_edge_index: &HashMap<(String, u32), &SumoLane>,
+) -> Result<HashSet<(String, String, u32)>> {
+    let mut terminals = HashSet::new();
+    for connection in &network.connections {
+        if !(is_internal_edge(network, &connection.from_edge_id)
+            && connection.via_lane_ids.is_empty())
+        {
+            continue;
+        }
+        let from_lane = resolve_lane(
+            lane_by_edge_index,
+            &connection.from_edge_id,
+            connection.from_lane,
+        )?;
+        terminals.insert((
+            from_lane.id.clone(),
+            connection.to_edge_id.clone(),
+            connection.to_lane,
+        ));
+    }
+    Ok(terminals)
 }
 
 /// 沿 internal <connection> 续全 via 链并验证终止语义（#253 R5）：
@@ -784,9 +806,12 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
                 .or_default() += 1;
         }
     }
-    let owners = build_int_lane_owners(network)?;
-    let continuations = internal_continuations(network);
-    let terminals = internal_terminals(network);
+    let IntLaneOwnership {
+        owners: owners_by_int_lane,
+        orphan_members,
+    } = build_int_lane_owners(network)?;
+    let continuations = internal_continuations(network, &lane_by_edge_index)?;
+    let terminals = internal_terminals(network, &lane_by_edge_index)?;
     let mut candidates = Vec::new();
     for connection in &network.connections {
         if is_internal_edge(network, &connection.from_edge_id) {
@@ -842,7 +867,8 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
             &connection.from_edge_id,
             &connection.to_edge_id,
             &[],
-            &owners,
+            &owners_by_int_lane,
+            &orphan_members,
         )?;
         let context = StubEvaluationContext {
             reference_counts: StubReferenceCounts {
@@ -1193,6 +1219,7 @@ fn resolve_owner(
     to_road_edge_id: &str,
     internal_lane_ids: &[String],
     owners_by_int_lane: &HashMap<&str, &str>,
+    orphan_members: &HashMap<&str, &str>,
 ) -> Result<String> {
     let from_edge = network
         .edge(from_road_edge_id)
@@ -1221,6 +1248,15 @@ fn resolve_owner(
         // 内部节点 @incLanes 的内边（如 :-24112_2_0），归属以穿越端点为准。
         if let Some(owner) = owners_by_int_lane.get(lane_id.as_str()) {
             int_owners.insert(*owner);
+        } else if let Some(helper) = orphan_members.get(lane_id.as_str()) {
+            // #253 W6：孤儿成员资格实际参与规范化拓扑即 fail-closed——该
+            // lane 只被无 road-junction 簇的 internal helper junction 声明，
+            // 端点派生 owner 会把 helper 归属的不一致静默放行。
+            return Err(Error::SumoModel(format!(
+                "internal lane {lane_id:?} is claimed only by orphan internal junction \
+                 {helper:?} outside any road-junction cluster (traversal \
+                 {from_road_edge_id:?} -> {to_road_edge_id:?})"
+            )));
         }
     }
     if !int_owners.is_empty() {
@@ -1250,7 +1286,16 @@ fn resolve_owner(
     Ok(from_to.to_owned())
 }
 
-fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
+/// 内边归属解析结果（`build_int_lane_owners`）：lane → road junction owner，
+/// 及孤儿成员——只被无 road-junction 簇的 internal helper junction 列出、
+/// 不在任何簇可达域内的 lane（#253 W6：实际参与规范化拓扑时 fail-closed，
+/// 见 `resolve_owner`）。
+struct IntLaneOwnership<'a> {
+    owners: HashMap<&'a str, &'a str>,
+    orphan_members: HashMap<&'a str, &'a str>,
+}
+
+fn build_int_lane_owners(network: &SumoNetwork) -> Result<IntLaneOwnership<'_>> {
     // SUMO 路口簇模型（LuST 有 1855 个 type="internal" 内部节点）：
     // - road junction 的 @intLanes 直接列出部分内边，同时把内部节点 id
     //   以"lane 同名"的形式一并列出；
@@ -1364,7 +1409,31 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<HashMap<&str, &str>> {
             }
         }
     }
-    Ok(owners)
+
+    // 第四遍（#253 W6）：无簇 internal helper junction 的非 internal 成员 =
+    // 孤儿成员——只被 helper 声明、不在任何 road-junction 簇可达域内。未被
+    // 任何穿越使用时静默忽略（与「不被任何 @intLanes 认领的内边」同口径）；
+    // 实际参与规范化拓扑时由 resolve_owner fail-closed（端点派生 owner 会把
+    // helper 归属的不一致静默放行）。
+    let mut orphan_members: HashMap<&str, &str> = HashMap::new();
+    for junction in &network.junctions {
+        if junction.junction_type != "internal" {
+            continue;
+        }
+        if cluster_parent.contains_key(junction.id.as_str()) {
+            continue;
+        }
+        for lane_id in &junction.int_lane_ids {
+            if is_internal(lane_id) {
+                continue;
+            }
+            orphan_members.insert(lane_id.as_str(), junction.id.as_str());
+        }
+    }
+    Ok(IntLaneOwnership {
+        owners,
+        orphan_members,
+    })
 }
 
 fn build_lane_adjacency(
@@ -2203,6 +2272,59 @@ mod tests {
         let error =
             normalize_junctions(&network, &StubWeldGate::Unrestricted).expect_err("dangling via");
         assert!(error.to_string().contains("unknown lane"));
+    }
+
+    #[test]
+    fn non_conventional_internal_lane_ids_still_chain_and_terminate() {
+        // #253 W5：续接/终端键按解析到的声明 lane id 索引——声明 id 不符
+        // `{edge}_{index}` 约定的内 lane 必须能正常续链与终止，而不是因查不到
+        // 键而误报 missing terminal（pinned 内 lane 全合约定，属归因修正）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="0,0 20,0"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="40,0 60,0"/></edge>
+  <edge id=":s" function="internal"><lane id="SEGU1" index="0" speed="13.89" length="10.00" shape="20,0 30,0"/></edge>
+  <edge id=":t" function="internal"><lane id="SEGU2" index="0" speed="13.89" length="10.00" shape="30,0 40,0"/></edge>
+  <junction id="J" type="priority" intLanes="SEGU1 SEGU2"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via="SEGU1"/>
+  <connection from=":s" to="east" fromLane="0" toLane="0" via="SEGU2"/>
+  <connection from=":t" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        assert_eq!(topology.maneuver_paths.len(), 1);
+        assert_eq!(
+            topology.maneuver_paths[0].internal_edge_ids,
+            ["sumo:SEGU1".to_owned(), "sumo:SEGU2".to_owned()]
+        );
+    }
+
+    #[test]
+    fn orphan_internal_junction_member_in_traversal_fails_closed() {
+        // #253 W6：内 lane 只被无 road-junction 簇的 internal helper junction
+        // 声明、且实际参与穿越——端点派生 owner 不得静默放行，fail-closed 报
+        // helper junction 与成员。未被任何穿越使用的孤儿成员保持静默（同
+        // 「不被任何 @intLanes 认领」口径）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="0,0 20,0"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="30,0 50,0"/></edge>
+  <edge id=":h" function="internal"><lane id=":h_0" index="0" speed="13.89" length="10.00" shape="20,0 30,0"/></edge>
+  <junction id="J" type="priority" intLanes=""/>
+  <junction id=":h" type="internal" intLanes=":h_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":h_0"/>
+  <connection from=":h" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let error = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect_err("orphan member in traversal must fail");
+        let message = error.to_string();
+        assert!(message.contains("orphan internal junction"), "{message}");
+        assert!(message.contains("\":h\""), "{message}");
+        assert!(message.contains("\":h_0\""), "{message}");
     }
 }
 
