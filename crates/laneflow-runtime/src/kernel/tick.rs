@@ -226,6 +226,7 @@ pub(crate) struct MotionCacheEntry {
     pub(crate) gate_reachable: Option<bool>,
     pub(crate) horizon: Option<LeaderQueryHorizon>,
     pub(crate) preview: Option<MotionPreview>,
+    pub(crate) basis_index: Option<std::num::NonZeroU32>,
 }
 
 /// 同一拍初状态上的完整运动预览；在新增停止约束后消费前复核。
@@ -234,12 +235,11 @@ pub(crate) struct MotionPreview {
     pub(crate) next: super::vehicle_store::MotionValue,
     waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     bounds: MotionBounds,
-    basis: Option<MotionBasis>,
 }
 
 /// 跨 P2/P5 保存实际消费者已经查询的基础数据，不保存第二套车辆权威。
 #[derive(Clone, Copy, Debug)]
-struct MotionBasis {
+pub(crate) struct MotionBasis {
     vehicle: crate::VehicleHandle,
     route: crate::RouteHandle,
     profile: VehicleProfileOrdinal,
@@ -248,6 +248,19 @@ struct MotionBasis {
     delta_bits: u32,
     parking_binding: Option<ParkingBinding>,
     inputs: MotionInputs,
+}
+
+/// 载荷只为实际消费者增长；可选复用分配失败时保留预览并让 P5 重算基础输入。
+pub(crate) fn store_motion_basis(
+    bases: &mut Vec<MotionBasis>,
+    basis: MotionBasis,
+) -> Option<std::num::NonZeroU32> {
+    let index = std::num::NonZeroU32::new(u32::try_from(bases.len().checked_add(1)?).ok()?)?;
+    if bases.try_reserve(1).is_err() {
+        return None;
+    }
+    bases.push(basis);
+    Some(index)
 }
 
 /// 仅为当前消费者准备数值输入；跨阶段复用时才附加完整来源证明。
@@ -388,6 +401,7 @@ pub(crate) struct WaitingPreviewEntry {
     pub(crate) gate_reachable: Option<bool>,
     pub(crate) horizon: Option<LeaderQueryHorizon>,
     pub(crate) preview: Option<MotionPreview>,
+    pub(crate) basis_index: Option<std::num::NonZeroU32>,
 }
 
 impl MotionPreview {
@@ -1531,7 +1545,7 @@ impl crate::kernel::state::WorldState {
         input: TickInput,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<StepOutcome, StepError> {
-        self.workspace.motion_cache.clear();
+        self.workspace.clear_motion_cache();
         #[cfg(test)]
         let preflight_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Preflight);
@@ -1577,7 +1591,7 @@ impl crate::kernel::state::WorldState {
             execution,
         );
         // prepare 的任一首错（包括 Waiting 预选失败）都丢弃本拍输入与证明。
-        self.workspace.motion_cache.clear();
+        self.workspace.clear_motion_cache();
         Ok(self.committed_mut().commit(plan?))
     }
 
@@ -1690,7 +1704,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 self.workspace.conflict.restore_serial(serial_checkpoint);
                 self.workspace.conflict_staged_decisions.clear();
                 self.workspace.conflict_passage_transitions.clear();
-                self.workspace.motion_cache.clear();
+                self.workspace.clear_motion_cache();
                 updates.clear();
                 self.workspace.motion_next = updates;
                 return Err(error);
@@ -1863,8 +1877,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         horizon: Option<LeaderQueryHorizon>,
     ) -> Option<MotionPreview> {
+        self.preview_active_vehicle_with_basis_output(state, delta_s, waiting_stop, horizon, None)
+    }
+
+    pub(crate) fn preview_active_vehicle_with_basis_output(
+        self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        horizon: Option<LeaderQueryHorizon>,
+        basis_output: Option<&mut Option<MotionBasis>>,
+    ) -> Option<MotionPreview> {
         let mut bounds = MotionBounds::Unknown;
-        let mut basis = None;
         let next = self.calculate_active_vehicle_motion(
             state,
             delta_s,
@@ -1876,13 +1900,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             None,
             false,
             None,
-            Some(&mut basis),
+            basis_output,
         )?;
         Some(MotionPreview {
             next: next.into(),
             waiting_stop,
             bounds,
-            basis,
         })
     }
 
@@ -1893,12 +1916,30 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 按原语义返回 `None` 字段；明确不可达且无 membership 时保留 horizon，
     /// 省略运动预览，运动内核内部错误随完整求值后移 P5。调用方负责 Active 过滤（`vehicle` 必须来自
     /// `update_sequence` 处的 live 配对）与 `update_sequence` 暂存。
+    #[cfg(test)]
     pub(crate) fn waiting_preview_entry(
         self,
         vehicle: crate::VehicleHandle,
         update_sequence: usize,
         delta_s: f32,
         cache_reachability: bool,
+    ) -> Result<WaitingPreviewEntry, StepError> {
+        self.waiting_preview_entry_with_basis(
+            vehicle,
+            update_sequence,
+            delta_s,
+            cache_reachability,
+            None,
+        )
+    }
+
+    pub(crate) fn waiting_preview_entry_with_basis(
+        self,
+        vehicle: crate::VehicleHandle,
+        update_sequence: usize,
+        delta_s: f32,
+        cache_reachability: bool,
+        basis_cache: Option<&mut Vec<MotionBasis>>,
     ) -> Result<WaitingPreviewEntry, StepError> {
         debug_assert_eq!(
             self.committed.live_order.get(update_sequence),
@@ -1951,6 +1992,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 gate_reachable,
                 horizon: None,
                 preview: None,
+                basis_index: None,
             });
         };
         let profile = self
@@ -1977,6 +2019,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 gate_reachable,
                 horizon: Some(horizon),
                 preview: None,
+                basis_index: None,
             });
         };
         if gate_distance_mm > horizon.front_query_mm {
@@ -1984,6 +2027,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 gate_reachable,
                 horizon: Some(horizon),
                 preview: None,
+                basis_index: None,
             });
         }
         // 本拍可达性不是运动复用证明；这里只省略没有 membership 的入口
@@ -1993,15 +2037,26 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 gate_reachable,
                 horizon: Some(horizon),
                 preview: None,
+                basis_index: None,
             });
         }
+        let mut basis = None;
         let preview = self
-            .preview_active_vehicle_with_waiting_stop(row.state(), delta_s, None, Some(horizon))
+            .preview_active_vehicle_with_basis_output(
+                row.state(),
+                delta_s,
+                None,
+                Some(horizon),
+                (cache_reachability && basis_cache.is_some()).then_some(&mut basis),
+            )
             .ok_or(StepError::NonFiniteMotion)?;
+        let basis_index =
+            basis_cache.and_then(|bases| basis.and_then(|basis| store_motion_basis(bases, basis)));
         Ok(WaitingPreviewEntry {
             gate_reachable,
             horizon: Some(horizon),
             preview: Some(preview),
+            basis_index,
         })
     }
 
@@ -4395,6 +4450,7 @@ struct MotionTaskView<'a> {
     conflict_motion_by_vehicle: &'a [Option<crate::kernel::conflict_tick::ConflictMotionPlan>],
     conflict_staged: &'a crate::kernel::conflict::ConflictWorkspace,
     motion_cache: &'a [MotionCacheEntry],
+    motion_bases: &'a [MotionBasis],
 }
 
 impl MotionTaskView<'_> {
@@ -4616,8 +4672,9 @@ impl MotionTaskView<'_> {
                     parking_binding,
                     cached.and_then(|entry| entry.horizon),
                     cached
-                        .and_then(|entry| entry.preview)
-                        .and_then(|preview| preview.basis),
+                        .and_then(|entry| entry.basis_index)
+                        .and_then(|index| self.motion_bases.get(index.get() as usize - 1))
+                        .copied(),
                 )
             })
             .ok_or(StepError::NonFiniteMotion)?;
@@ -4665,6 +4722,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             conflict_motion_by_vehicle: &self.workspace.conflict_motion_by_vehicle,
             conflict_staged: &self.workspace.conflict,
             motion_cache: &self.workspace.motion_cache,
+            motion_bases: &self.workspace.motion_bases,
         }
         .conflict_stop_for(state, delta_s, compiled, profile)
     }
@@ -4735,7 +4793,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let output_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
-        self.workspace.motion_cache.clear();
+        self.workspace.clear_motion_cache();
         crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;
         #[cfg(test)]
         drop(output_timer);
@@ -5543,7 +5601,6 @@ mod motion_reuse_tests {
             let preview = MotionPreview {
                 next: next.into(),
                 waiting_stop: None,
-                basis: None,
                 bounds: MotionBounds::Travel {
                     meters,
                     proposed_mm,
@@ -5561,7 +5618,6 @@ mod motion_reuse_tests {
         let preview = MotionPreview {
             next: next.into(),
             waiting_stop: None,
-            basis: None,
             bounds: MotionBounds::Travel {
                 meters: 0.000_1,
                 proposed_mm: 0,

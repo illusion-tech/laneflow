@@ -266,6 +266,8 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
     pub(crate) motion_cache: Vec<crate::kernel::tick::MotionCacheEntry>,
+    pub(crate) motion_bases: Vec<crate::kernel::tick::MotionBasis>,
+    pub(crate) waiting_preview_bases: Vec<Vec<crate::kernel::tick::MotionBasis>>,
     pub(crate) next_states: Vec<(usize, super::vehicle_store::MotionValue)>,
     pub(crate) motion_next: super::motion_updates::MotionUpdates,
     pub(crate) motion_kernel: laneflow_motion_kernel::Kernel,
@@ -286,6 +288,16 @@ pub(crate) struct TickWorkspace {
     /// 领域错误。
     pub(crate) conflict_slots:
         Vec<crate::kernel::execution::DispatchSlot<crate::kernel::conflict_tick::CandidateReport>>,
+}
+
+impl TickWorkspace {
+    pub(crate) fn clear_motion_cache(&mut self) {
+        self.motion_cache.clear();
+        self.motion_bases.clear();
+        for bases in &mut self.waiting_preview_bases {
+            bases.clear();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -410,6 +422,8 @@ impl TickWorkspace {
             waiting_staged_storage_mm,
             occupancy_scratch,
             motion_cache,
+            motion_bases,
+            waiting_preview_bases,
             next_states,
             motion_next,
             motion_kernel: _,
@@ -436,6 +450,9 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(next_states)
             + motion_next.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(motion_cache)
+            + crate::kernel::state::vec_bytes(motion_bases)
+            + crate::kernel::state::vec_bytes(waiting_preview_bases)
+            + waiting_preview_bases.iter().map(crate::kernel::state::vec_bytes).sum::<u64>()
             + crate::kernel::state::vec_bytes(waiting_preview_inputs)
             + crate::kernel::state::vec_bytes(waiting_preview_slots)
             + crate::kernel::state::vec_bytes(conflict_inputs)

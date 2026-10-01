@@ -236,15 +236,16 @@ impl DispatchCounters {
 /// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
 /// `compute` 遇错时须把该槽逻辑下标 min-store 进共享原子并提前返回，
 /// 已完成前缀槽位保持 `Done(Ok(_))`，同块后缀保持 `Pending`。
-fn run_dispatch_chunk<T, F>(
+fn run_dispatch_chunk<T, S, F>(
     compute: &F,
     view: super::phase::StepReadView<'_>,
     first_error: &AtomicUsize,
     #[cfg(test)] counters: &DispatchCounters,
     start: usize,
     chunk: &mut [DispatchSlot<T>],
+    scratch: S,
 ) where
-    F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
+    F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>], S) + Sync,
 {
     #[cfg(test)]
     counters.note_thread();
@@ -264,7 +265,7 @@ fn run_dispatch_chunk<T, F>(
         }
         counters.dispatched.fetch_add(1, Ordering::Relaxed);
     }
-    compute(view, start, chunk);
+    compute(view, start, chunk, scratch);
     #[cfg(test)]
     if chunk
         .iter()
@@ -455,19 +456,45 @@ impl ExecutionResources {
         F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
     {
         assert!(chunk_size > 0, "nonzero chunk size");
+        self.try_for_each_work(
+            view,
+            output
+                .chunks_mut(chunk_size)
+                .enumerate()
+                .map(|(index, chunk)| (index * chunk_size, (chunk, ()))),
+            first_error,
+            |view, start, chunk, ()| compute(view, start, chunk),
+        )
+    }
+
+    /// 把独占结果块与独占暂存配对分发；暂存不参与首错选择，全部借用在 join 后归还。
+    pub(crate) fn try_for_each_work<'output, I, T, S, F>(
+        &self,
+        view: super::phase::StepReadView<'_>,
+        work: I,
+        first_error: &AtomicUsize,
+        compute: F,
+    ) -> DispatchStats
+    where
+        I: Iterator<Item = (usize, (&'output mut [DispatchSlot<T>], S))> + Send,
+        T: Send + 'output,
+        S: Send,
+        F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>], S) + Sync,
+    {
         #[cfg(test)]
         let counters = DispatchCounters::default();
         match self {
             Self::Caller => {
-                for (chunk_index, chunk) in output.chunks_mut(chunk_size).enumerate() {
+                for (start, (chunk, scratch)) in work {
                     run_dispatch_chunk(
                         &compute,
                         view,
                         first_error,
                         #[cfg(test)]
                         &counters,
-                        chunk_index * chunk_size,
+                        start,
                         chunk,
+                        scratch,
                     );
                 }
             }
@@ -477,7 +504,7 @@ impl ExecutionResources {
                 // 末尾空等（机制测量：同场景整步 w2 −18%、w4 −8%、w8 −7%）。
                 // 取到票据后仍先查已错位置，跳过语义与完整 join 不变。
                 // 锁直接保护切片迭代器：不物化票据容器，热态分发无堆分配。
-                let chunks = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
+                let chunks = std::sync::Mutex::new(work.fuse());
                 let auxiliaries = resources.pool.current_num_threads();
                 resources.pool.in_place_scope(|scope| {
                     let compute = &compute;
@@ -486,17 +513,13 @@ impl ExecutionResources {
                     let chunks = &chunks;
                     macro_rules! claim_chunk {
                         () => {
-                            chunks
-                                .lock()
-                                .expect("dispatch ticket chunks")
-                                .next()
-                                .map(|(chunk_index, chunk)| (chunk_index * chunk_size, chunk))
+                            chunks.lock().expect("dispatch ticket chunks").next()
                         };
                     }
                     for _ in 0..auxiliaries {
                         scope.spawn(move |_| {
                             loop {
-                                let Some((start, chunk)) = claim_chunk!() else {
+                                let Some((start, (chunk, scratch))) = claim_chunk!() else {
                                     break;
                                 };
                                 #[cfg(test)]
@@ -509,12 +532,13 @@ impl ExecutionResources {
                                     counters,
                                     start,
                                     chunk,
+                                    scratch,
                                 );
                             }
                         });
                     }
                     loop {
-                        let Some((start, chunk)) = claim_chunk!() else {
+                        let Some((start, (chunk, scratch))) = claim_chunk!() else {
                             break;
                         };
                         #[cfg(test)]
@@ -527,6 +551,7 @@ impl ExecutionResources {
                             counters,
                             start,
                             chunk,
+                            scratch,
                         );
                     }
                 });
