@@ -11,14 +11,18 @@ use crate::{
     sumo::{SUMO_ID_PREFIX, SumoNetwork, SumoTlLogic},
 };
 
+/// 受控 link。字段声明序即 Ord 序（#253 U6：契约要求 group id 按成员
+/// connection 词法序派生，linkIndex 仅作兜底——pinned 探针 87/201
+/// controller 的 group 编号因此改变；group id 只进入 fail-fast 产物
+/// network.lfca，诊断/计数产物不含其字节，锁定数字零漂移）。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct ControlledLink {
     tl_id: String,
-    link_index: u32,
     from_road_edge_id: String,
     from_lane_index: u32,
     to_road_edge_id: String,
     to_lane_index: u32,
+    link_index: u32,
 }
 
 /// G1 六条件之控制语义守卫：被 stub 删焊移除的内边不得出现在任何信号绑定中
@@ -324,8 +328,17 @@ fn collect_controlled_links(network: &SumoNetwork) -> Result<Vec<ControlledLink>
                 connection.to_edge_id
             ))
         })?;
+        // #253 U4：带 tl/linkIndex 的 connection 端点为 internal edge 此前
+        // 被静默跳过——其相位位置会被误报为 unclaimed arm（pinned 探针 0
+        // 实例），fail-closed 报 controller 与 connection。
         if from_edge.function_internal || to_edge.function_internal {
-            continue;
+            return Err(Error::SumoModel(format!(
+                "signalized connection {:?}/{} -> {:?}/{} under controller {tl_id:?} resolves to internal edges",
+                connection.from_edge_id,
+                connection.from_lane,
+                connection.to_edge_id,
+                connection.to_lane
+            )));
         }
         let link_index = connection.link_index.ok_or_else(|| {
             Error::SumoModel(format!(
@@ -368,7 +381,7 @@ fn validate_program_states(program: &SumoTlLogic, links: &[&ControlledLink]) -> 
         for (position, ch) in phase.state.chars().enumerate() {
             if !SIGNAL_ALPHABET.contains(&ch) {
                 return Err(Error::SumoModel(format!(
-                    "tlLogic {:?} phase {phase_index} has unsupported signal state                      character {ch:?} at index {position}",
+                    "tlLogic {:?} phase {phase_index} has unsupported signal state character {ch:?} at index {position}",
                     program.id
                 )));
             }
@@ -502,6 +515,64 @@ mod tests {
             error.to_string().contains("unsupported signal state"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn group_ids_follow_connection_lexicographic_order() {
+        // #253 U6：group id 按成员 connection 词法序派生（linkIndex 兜底）。
+        // aaa(linkIndex 5, G) 与 bbb(linkIndex 2, R) 两个 group：旧
+        // linkIndex 优先序会让 bbb 拿 group-0，新词法序让 aaa 拿 group-0。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="aaa" from="W1" to="J"><lane id="aaa_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="bbb" from="W2" to="J"><lane id="bbb_0" index="0" speed="13.89" length="20.00" shape="6786.88,5737.52 6806.88,5737.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <edge id=":J_1" function="internal"><lane id=":J_1_0" index="0" speed="13.89" length="10.00" shape="6806.88,5737.52 6816.88,5737.52"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0 :J_1_0"/>
+  <connection from="aaa" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="5"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <connection from="bbb" to="east" fromLane="0" toLane="0" via=":J_1_0" tl="J" linkIndex="2"/>
+  <connection from=":J_1" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="rrrrrG"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="rrrrrG"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let (signals, unclaimed) =
+            super::convert_signals(&network, &tll, &topology.path_by_connection)
+                .expect("convert signals");
+        assert_eq!(
+            unclaimed,
+            vec![super::UnclaimedSignalArm {
+                controller_id: "J".to_owned(),
+                missing_link_indices: vec![0, 1, 3, 4],
+            }],
+            "state len 6 只认领 index 2/5"
+        );
+        let gate_aaa = signals
+            .maneuver_gates
+            .iter()
+            .find(|gate| gate.id.ends_with(":5"))
+            .expect("gate for aaa");
+        let gate_bbb = signals
+            .maneuver_gates
+            .iter()
+            .find(|gate| gate.id.ends_with(":2"))
+            .expect("gate for bbb");
+        assert_eq!(gate_aaa.signal_control.group_id, "sumo:J:group-0");
+        assert_eq!(gate_bbb.signal_control.group_id, "sumo:J:group-1");
     }
 
     #[test]
