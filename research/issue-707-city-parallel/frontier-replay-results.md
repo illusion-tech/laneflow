@@ -1,5 +1,8 @@
 # #707 第 1 刀：frontier 按 hop 记住
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。状态：**保留。** 同一二进制上 frontier 均值从 5.468 ms 降到
 4.304 ms，少 1.165 ms。Core 均值从 31.876 ms 降到 30.431 ms，少 1.445 ms。
 四臂短窗交通输出与 M3 逐字节一致，重叠对数为 0。16 ms 目标未达到。
@@ -50,7 +53,7 @@ Git 补丁和 M3→M8 两文件增量。测量时加 `LF707_COAST=on`，并保�
 ## 5. 证据
 
 - 机器可读封套见
-  [`frontier-replay-evidence-manifest.json`](evidence/frontier-replay-evidence-manifest.json)：
+  [`frontier-replay-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frontier-replay-evidence-manifest.json)：
   它绑定四次运行各 15 个文件的完整输出树身份、同一精确二进制与计划身份、每臂
   `LF707_COAST` 有效模式、完整 `prefix-result`、交通文件哈希、未舍入统计和最终计数。
   逐拍紧凑报告见

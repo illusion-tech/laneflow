@@ -1,5 +1,8 @@
 # #707 L3 同进程早晚窗口离线诊断
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-21。Refs #707。本文件是诊断摘要，不是正式性能认证，不改预算。
 未新增仿真运行、编译或 Rust 测试；原 ETL、冻结源码、二进制和计划未修改。
 
@@ -17,7 +20,7 @@
   与 `l3-w4-late.etl`（3,331,325,952 字节，SHA-256
   `279df9d9e222f838b3d86eb64b7cca0bb9b18901b45dcb5b705d377601d6ae89`）。
   匹配的早/晚窗口符号与活动报告身份见
-  [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+  [`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json)。
 - 两份 ETL 均由 xperf 报告同一 CodeView 记录：RSDS、PDB
   `laneflow_urban_harness.pdb`、GUID
   `701cbf77-794f-4a2a-96b3-333c68f7790e`、age 1。原登记记录说明同批 PDB 为
@@ -88,7 +91,7 @@ ETL 头部 CPU Speed 字段不是窗口内实测频率。本次没有完整 Read
 `early-top-symbols.csv` / `late-top-symbols.csv` 是整段 trace 摘要，分母不同，
 不用于复核本表。原始精确时间窗导出仍因包含全系统进程而留在外部；派生方法、
 源文件身份与紧凑报告身份见
-[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+[`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json)。
 
 | 符号                                       | 早窗占比 | 晚窗占比 | 归因边界                                   |
 | ------------------------------------------ | -------- | -------- | ------------------------------------------ |
@@ -144,7 +147,7 @@ L3 只有 w4，早晚车辆状态和命令组合不同。
 - 已提交：早/晚窗 `*-stats.txt`、`*-rundown.txt`、`*-frequency.txt`、
   `*-harness-timeline.csv`、整段 trace 的 `*-top-symbols.csv`，以及复核本页热点表的
   `*-range-top-symbols.csv`。提交副本只统一文本换行；来源与提交副本身份见
-  [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+  [`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json)。
 - 作者机器当前仍有：`export.ps1`、`export-ranges.ps1`、`*-activity.txt`、
   `*-range-symbols.txt`、完整 `*-symbols.txt` 和 `*-util.txt`。这些文件及两份 ETL
   没有项目控制的持久链接，按**未长期留存**处理；不承诺可在该机器之外取回。

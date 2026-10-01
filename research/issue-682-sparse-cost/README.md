@@ -1,11 +1,14 @@
 # 低活动率、容量与占用索引成本
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 本研究对应 #682。正式基线为 `03da6f57d40dceef59c86e86d3532a28751e5b15`，
 包含 #713。只新增研究工具、夹具和测试构建诊断，不改变正式 Runtime API、交通规则、
 数据格式或资源权威。不运行候选优化；本项用归因证据选择后续研究或实施方向。
 
 已完成三轮测量，见 [结论与候选决策](results.md)、[完整数表](measurements.md) 和
-[封存核验结果](evidence/results.json)。原始日志随 Git 保存并禁用行尾转换。
+[封存核验结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/results.json)。原始日志随 Git 保存并禁用行尾转换。
 
 资格表提交的后续最小优化及独立 A/B 证据见
 [#777 资格表提交成本](../issue-777-eligibility-commit/README.md)。下述 #682 原始结论

@@ -1,5 +1,8 @@
 # 资格表提交成本结论
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 ## 决策
 
 保留最小优化：P7 清除上一拍已提交资格后，先检查本拍下一资格表是否全空。
@@ -65,7 +68,7 @@ Some 时短路，不能把它当成实际元素访问数。首位、末位、密
 ## 环境与拒绝记录
 
 主机 AMD Ryzen 9 9955HX，16 核/32 逻辑处理器，Windows 11 build 29671。
-配置见 [主机记录](evidence/host.json)。串行 TrafficWorld 使用 workers=1。
+配置见 [主机记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-777-eligibility-commit/evidence/host.json)。串行 TrafficWorld 使用 workers=1。
 CPU 基线采集 30 个样本，p95+10 个百分点为 31.782889%，只作告警。
 
 有效记录中共有四次 CPU 告警，均保留在主结果：
@@ -96,7 +99,7 @@ CPU 基线采集 30 个样本，p95+10 个百分点为 31.782889%，只作告警
   日志字节哈希、108 个唯一配对身份、逐拍/逐窗完整性、资源和内存账本及结束摘要。
 - 9 个真实证据副本负向检查全部被拒绝：日志篡改、缺轮、重复、错误臂、竞争进程、
   非法 CPU 基线、伪空资源窗口、内存失衡、结束状态不一致。后面三项重绑日志哈希，
-  以确认语义校验确实运行；见 [负向结果](evidence/negative-checks.json)。
+  以确认语义校验确实运行；见 [负向结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-777-eligibility-commit/evidence/negative-checks.json)。
 
 原始文件按字节封存，禁用 Git 行尾转换。最终测试入口整理只修复加载路径，
 生产逻辑与上述 B 提交相同。离线命令见 README；二进制原件保留于本地 target，

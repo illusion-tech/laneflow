@@ -1,5 +1,8 @@
 # P5 成本归因与下一候选
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #772、#707。优先验证 **P5 按同拍 Active 投影直接分发，减少输入三元组暂存和
 车辆状态复制**。这是待实现与 A/B 验证的候选，不是已获得的性能收益。本项只合入
 Rust 研究工具及证据，未修改正式 Runtime。
@@ -11,7 +14,7 @@ Rust 研究工具及证据，未修改正式 Runtime。
 冻结 #707 `4de40e04` 输入，MIXED-PEAK、seed 544、workers 4，10k dt16、100k
 dt33，0 暖机、256 拍观察。每规模 plain/detail/detail/plain/plain/detail，各三次。
 全部 12 次成功，身份、输入/二进制/源文件摘要、UUID、前后 HEAD/clean、完整原始
-文件索引见 [复算 JSON](evidence/results.json)。同尺度所有进程的原生结果、
+文件索引见 [复算 JSON](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-772-p5-cost/evidence/results.json)。同尺度所有进程的原生结果、
 ticks/commands/events 摘要一致，说明本批诊断未改变交通输出。
 
 源树及原始包在 `target/772-build-v2`、`target/772-runs-v2`；README 给出导出、

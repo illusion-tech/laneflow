@@ -1,6 +1,9 @@
 # #682 完整数表
 
-数据来自 [封存核验结果](evidence/results.json)。解释和决策见 [结论](results.md)。
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
+数据来自 [封存核验结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/results.json)。解释和决策见 [结论](results.md)。
 阶段时间均为三轮批次时间除以 128 拍后的等权平均，不能与正常库相减；父子段不可相加。
 内存每组各轮相同，world 不含 shared；未列出的 binding=21 B、admin=0 B。工作量为每轮 128 拍累计。
 

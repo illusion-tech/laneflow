@@ -1,5 +1,8 @@
 # 四车批量布局与 IIDM SIMD：停止本轮接入
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 对应 #805。本轮完成了采集前冻结的全部 36 个进程；三臂交通结果及逐拍状态摘要一致，
 但批量布局和 SIMD 候选都使整步变慢。十万规模筛选窗 SIMD 相对基线均值增加
 **3.897%**，三组均回退；一万规模均值增加 **10.313%**、平均进程 p95 增加
@@ -111,15 +114,15 @@ SIMD 相对批量标量的筛选窗平均变化：一万 **+0.052%**，十万 **
   `wide = 1.5.0` 仅用于研究，`wide` / `safe_arch` 的许可表达式为
   `Zlib OR Apache-2.0 OR MIT`，均有策略允许的分支。正式 Runtime 不新增该依赖。
 
-完整派生结果见 [plain.json](evidence/plain.json)，内核诊断见
-[kernel.json](evidence/kernel.json)，原始档案身份见 [archive.json](evidence/archive.json)。
+完整派生结果见 [plain.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-805-p5-iidm-simd/evidence/plain.json)，内核诊断见
+[kernel.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-805-p5-iidm-simd/evidence/kernel.json)，原始档案身份见 [archive.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-805-p5-iidm-simd/evidence/archive.json)。
 封存包包含实际采集器及其 Git 源码归档、三臂源码/构建日志/EXE、输入、36 个进程的
 stdout/stderr/环境观测/交通文件、验证日志和完整汇编。
 初期 v1 锁文件失败、v2 路线视图编译失败、v3 Clippy 大枚举失败也保留为 discarded，
 没有作为有效计时记录混入 v4 矩阵。
 
 封存包解压到全新目录后，逐文件 SHA-256 校验、采集器校验及全部 36 个进程结果校验
-均须通过；验证回执见 [unpacked-verification.json](evidence/unpacked-verification.json)。
+均须通过；验证回执见 [unpacked-verification.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-805-p5-iidm-simd/evidence/unpacked-verification.json)。
 完整包留在研究 worktree 的 `target/issue-805-p5-iidm-simd.tar.zst`，不将二进制放入 Git。
 档案共 21365 个文件、159122098 字节，SHA-256：
 `0c5d8ef49a54f091e9463452d2181ce175bb90d88ca80f0154f828f1ad223ba2`。

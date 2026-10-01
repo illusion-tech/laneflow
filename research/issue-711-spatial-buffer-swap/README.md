@@ -1,5 +1,12 @@
 # Spatial 缓冲所有权交换 A/B 测量
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
+原分析与拒绝测试仍可接收外部证据；当前树不再提供完整的默认 `evidence/` 输入。
+复核旧批次时，按下文命令将 `-Evidence` 指向归档中的完整目录，汇总输出放到
+仓库外目录；不能使用删除 JSON 后的残余本地记录代替完整证据。
+
 关联 [#711](https://github.com/illusion-tech/laneflow/issues/711)。本目录是独立
 workspace 的研究程序，用于对照同一测量程序在两份真实生产源码上的完整
 `SpatialSession::extract_pose_batch` 路径表现：
@@ -141,8 +148,8 @@ cargo run --locked --offline --release --manifest-path research/issue-711-spatia
 pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/run.ps1 -Output research/issue-711-spatial-buffer-swap/evidence/before/run1 -AllowUntracked 'research/issue-711-spatial-buffer-swap/'
 pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/run.ps1 -Output research/issue-711-spatial-buffer-swap/evidence/after/run1 -AllowUntracked 'research/issue-711-spatial-buffer-swap/evidence'
 pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/run.ps1 -Output research/issue-711-spatial-buffer-swap/evidence/after/fresh/run1 -AllowUntracked 'research/issue-711-spatial-buffer-swap/evidence' -CaseFilter fresh_output
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/analyze.ps1
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/test-analyze.ps1
+pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/analyze.ps1 -Evidence <归档解包根>/source/research/issue-711-spatial-buffer-swap/evidence -Results <仓库外输出>/results.csv -SummaryTable <仓库外输出>/summary-table.md
+pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/test-analyze.ps1 -Evidence <归档解包根>/source/research/issue-711-spatial-buffer-swap/evidence
 cargo test --locked -p laneflow-spatial -p laneflow-bevy --tests
 ```
 

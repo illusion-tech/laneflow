@@ -1,10 +1,13 @@
 # 当前主干热点短窗复测
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 关联 #793，属于 #707 的下一候选筛选。正式运行时代码不变。
 
 - [实测结果与后续候选](results.md)
-- [首批 12 次完整记录](evidence/results.json)
-- [单独复跑 100k 的 6 次记录](evidence/rerun100k.json)
+- [首批 12 次完整记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-793-current-hotspots/evidence/results.json)
+- [单独复跑 100k 的 6 次记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-793-current-hotspots/evidence/rerun100k.json)
 
 ## 冻结协议
 
@@ -59,7 +62,7 @@ P5Setup 极短，不用于细粒度优化推断。所有子阶段必须嵌套于
   字节一致性、整拍 p95，输出全量文件索引。结果必须位于 raw 之外。
 - `verify <raw> <results.json>`：重新派生并逐值比较，不覆盖现有证据。
 
-首批 12 次记录见 [results.json](evidence/results.json)。其结束快照发现
+首批 12 次记录见 [results.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-793-current-hotspots/evidence/results.json)。其结束快照发现
 `cargo.exe` 与 `rustc.exe`，全部样本保留，明确不接受为稳定性能基线。
 维护者随后要求单独重跑 100k；复跑沿用相同 Runtime EXE 与输入，另存证据。
 

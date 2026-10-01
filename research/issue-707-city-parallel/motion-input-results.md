@@ -1,5 +1,8 @@
 # #707 M3：停车 binding 稠密下标
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。状态：**保留。** 同一二进制上 dense 的 Core 均值比 hash 少 0.629 ms，
 observation 少约 2.8 ms。短窗交通输出与 H1 / 屏障跳过逐字节一致。
 p95 仍约 32.5–33.0 ms，16 ms 目标未达到。
@@ -56,7 +59,7 @@ profile。0.629 ms 的 Core 节省说明哈希查询只是那一块里的一部�
 ## 5. 证据
 
 - 机器可读封套见
-  [`motion-input-evidence-manifest.json`](evidence/motion-input-evidence-manifest.json)：
+  [`motion-input-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/motion-input-evidence-manifest.json)：
   它绑定四次运行各 17 个文件的完整树身份、同一精确二进制与计划身份、每臂
   `LF707_BINDING` 处理模式、完整 `prefix-result`、进程资源包络、交通文件哈希、
   未舍入统计和最终计数。逐拍紧凑报告见

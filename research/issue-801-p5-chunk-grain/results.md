@@ -1,5 +1,8 @@
 # P5 分块粒度筛选结果
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 **本轮不单独采纳 `workers × 4`，正式 Runtime 保持 `workers × 2`。**
 审阅修复后以 `p5-chunk-grain-v4` 重新采集 24 次普通测试和 6 次独立诊断；
 两档均未通过采集前冻结的门槛。更短的最长块仍未形成重复的整拍收益。
@@ -103,14 +106,14 @@ A=8 块、B=16 块。筛选窗逐组结果如下；同臂跨度为两次进程�
   固定 cl.exe 与首位 PATH、归档器和 Rust 链接器；记录 cl/lib/ml64/link 的绝对路径、版本、大小、SHA-256、参数和 SDK 路径。
   构建前后重新解析，四臂原生工具链与受控环境必须相同；采集前和离线分析均自动验证，build_settings_equal=true。
   此前 v3 的候选真实 release 构建注入无效 CC、目标 CC、SDK/VC 路径及 CFLAGS/HOST_CFLAGS=/Od、BLAKE3_CI，
-  构建成功且实际环境/工具摘要与其余三臂相同。完整记录见 [隔离验证](evidence/native-env-isolation.json)。
+  构建成功且实际环境/工具摘要与其余三臂相同。完整记录见 [隔离验证](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/native-env-isolation.json)。
 - 使用 #707 `4de40e04` 冻结 MIXED-PEAK 输入与 smoke 计划，seed 544；20 个恢复输入文件全部入包。
 - 主机为 AMD Ryzen 9 9955HX、16 核/32 逻辑线程，Windows 11 build 29671，平衡电源方案；
   采集前电池接电/98%。四个构建及候选测试全部完成后串行测量。边界快照未发现已知争用，
   未连续锁定频率、温度或未知负载，全部波动保留。
 - 按用户授权与 Romance 聊天协调：对方确认编译/打包/批量测试及本轮生成已结束，
   报告相关常驻进程采样为 0% CPU；30 次性能采集及后快照完成后通知恢复，对方确认恢复。
-  [协调记录](evidence/cpu-coordination.json) 是对方报告的快照，仍以本地进程边界检查约束采集；没有声称连续无负载。
+  [协调记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/cpu-coordination.json) 是对方报告的快照，仍以本地进程边界检查约束采集；没有声称连续无负载。
 - `analyze`/`verify` 都要求诊断提供 plain 原始批次，先完整验证其矩阵、来源与原生日志，再跨模式比较。
 - 31 个实际命令级负向检查全部拒绝：已有旧 EXE、交换 EXE、缺少 plain 引用、两臂同时改变交通、
   两臂同时改变末尾计数、发布值篡改，以及跨臂/模式 Rust 编译设置或原生编译器摘要差异（覆盖 run/analyze/verify）。
@@ -132,7 +135,7 @@ A=8 块、B=16 块。筛选窗逐组结果如下；同臂跨度为两次进程�
 此前三轮与本轮全部保留，不混合耗时。首个 v4 采集器构建遇到 Windows Git 不支持的 verbatim 路径，
 保留该失败目录，修复路径表示后从新目录受控构建；该次失败未生成任何性能样本。
 新 zstd 包包含旧包原件、新成功及拒绝记录、四个 Runtime EXE/PDB、实际源码、输入、工具与验证日志。
-归档摘要及旧包摘要见 [archive.json](evidence/archive.json)。新目录解包逐文件 SHA-256 验证，
+归档摘要及旧包摘要见 [archive.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-801-p5-chunk-grain/evidence/archive.json)。新目录解包逐文件 SHA-256 验证，
 再从解包后的 raw 重派生两批及 plain 引用，并核验实际源索引、EXE 与输入摘要；不发布 Release。
 
 保留 16 块作为组合候选。下一切片应先定位 P5 逐车求值成本，再有针对性地比较基线、

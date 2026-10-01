@@ -1,10 +1,13 @@
 # #713 按需表现完整链路取证
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 生产入口是城市 harness 的 `Presentation` 和 Bevy 封闭提取 API。本目录只编排独立
 进程、验证不可变输入与比较证据，不复制交通、选择、采样或实体生命周期实现。
 
 已完成的 10k 完整 performance 窗口结果见 [测量与验收报告](results.md) 和
-[机器可读证据汇总](results.json)。共 23 个独立进程，正常墙钟、分配与内部阶段
+[机器可读证据汇总](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-713-selected-presentation/results.json)。共 23 个独立进程，正常墙钟、分配与内部阶段
 诊断分别取证；范围与限制以报告为准。
 
 ## 复现

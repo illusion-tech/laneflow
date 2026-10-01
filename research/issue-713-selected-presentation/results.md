@@ -1,5 +1,8 @@
 # #713 按需表现完整链路结果
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-26，23 个独立进程均完成完整 performance 窗口，最新严格分析器通过全部原始文件和逐帧配对核验。在相同最终表现集合下，稳定/动态 10% 选择的完整表现链路 p50 分别下降 71.07% / 40.68%。本结果验证 #713 的按需表现链路，不作为 #220 产品性能认证。
 
 ## 测量对象与复现边界
@@ -14,7 +17,7 @@
 
 宿主选择基于当前 live 个体的稳定 `IndividualId` 排序，比例 10%，offset 53、reverse true，稳定 stride 0，动态 stride 137。分母为 live 个体，非 presentable；全量匹配对照仍提取全部来源，但最终应用与 Selected 相同的集合。Selected 不在测量路径中额外执行全量 pose oracle。
 
-复现入口与严格分析命令见 [README](README.md)。原始逐 tick 文件保留在本次运行目录，[机器可读结果](results.json) 保留来源、配置、执行 ID、文件大小与 SHA-256；仓库不提交约 20 GB 的逐帧日志。
+复现入口与严格分析命令见 [README](README.md)。原始逐 tick 文件保留在本次运行目录，[机器可读结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-713-selected-presentation/results.json) 保留来源、配置、执行 ID、文件大小与 SHA-256；仓库不提交约 20 GB 的逐帧日志。
 
 从固定源码的干净 checkout 重建输入时，使用以下命令；所有输出路径均须尚不存在。`MIXED-PEAK` 的计划展开固定 seed 544，命令不提供另一个 seed 覆盖入口。
 

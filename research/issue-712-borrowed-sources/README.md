@@ -1,5 +1,12 @@
 # 借用来源与 Adapter 缓冲复用 A/B 测量
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
+原分析与拒绝测试仍可接收外部证据；当前树不再提供完整的默认 `evidence/` 输入。
+新批次继续显式传入重放树，复核旧批次的拒绝测试则按下文命令传入归档中的
+完整目录。原始环境身份及拒绝条件不改写。
+
 关联 [#712](https://github.com/illusion-tech/laneflow/issues/712)。独立 workspace
 研究程序，对照同一测量程序在两份生产源码上的来源读取与完整 Adapter 提取：
 
@@ -134,7 +141,7 @@ foreach ($step in $seq) {
 pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1 `
     -Evidence $replay -Results (Join-Path $replay 'results.csv') `
     -SummaryTable (Join-Path $replay 'summary-table.md')
-pwsh -NoProfile -File research/issue-712-borrowed-sources/test-analyze.ps1
+pwsh -NoProfile -File research/issue-712-borrowed-sources/test-analyze.ps1 -Evidence <归档解包根>/source/research/issue-712-borrowed-sources/evidence
 pwsh -NoProfile -File research/issue-712-borrowed-sources/run-combination.ps1
 cargo test --locked -p laneflow-runtime -p laneflow-bevy --tests
 ```

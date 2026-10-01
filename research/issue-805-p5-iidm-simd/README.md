@@ -1,5 +1,8 @@
 # 四车批量布局与 IIDM SIMD 短窗研究
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 对应 #805，冻结正式基线为 `fcd803f2cb28ba7a94f3f0ff589e7e9b7bdbd7d3`。
 比较当前 P5（base）、四车批量标量（layout）与相同布局 SIMD（candidate）。
 36 个进程已经完成；候选整步回退，停止本轮接入。实测结论与全部轮次见

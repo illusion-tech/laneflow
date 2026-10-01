@@ -1,5 +1,8 @@
 # P5 按 Active 投影直接分发
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #775、#707。
 
 本切片删除 P5 的 `(VehicleHandle, active_index, VehicleState)` 输入表。Pool 路径
@@ -9,7 +12,7 @@ Refs #775、#707。
 `Pending` / `Skipped` 混用。
 
 - [采用证据与局限](results.md)
-- [无插桩平衡 A/B](evidence/plain.json)
+- [无插桩平衡 A/B](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-775-p5-direct-active/evidence/plain.json)
 - Rust 采集器：
   `research/issue-762-post-p3-hotspots/src/p5_direct_research.rs`
 

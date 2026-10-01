@@ -1,5 +1,8 @@
 # #707 WP C.1 输入差异与冻结计划重放
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 > 结论：10k/100k 重建制品的七个内容文件与版本化冻结 manifest 逐字节一致；
 > 重建 manifest 只改变两个共享构建保留内存统计字段。使用 `4de40e04` 的
 > 导出源码、版本化冻结 manifest 和这些内容文件重新生成 correctness 与
@@ -9,7 +12,7 @@
 > 因此计划差异已经由实际重放闭合，不再依赖“旧计划本体不可得”时的推断。
 
 完整的小型机器可读记录见
-[`evidence/frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。文件身份使用
+[`evidence/frozen-plan-replay.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frozen-plan-replay.json)。文件身份使用
 SHA-256；Git 对象身份使用 `git rev-parse <commit>:<path>`，两种口径不混写。
 
 ## 1. 冻结 manifest 身份

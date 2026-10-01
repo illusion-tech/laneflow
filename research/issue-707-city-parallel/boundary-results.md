@@ -1,5 +1,8 @@
 # #707 边界变化与四拍控制复用结果
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。Refs #707。承接 [Motion 边界计划](motion-boundary-next-plan.md)。
 已完成研究原型、针对性回归、短窗交错复测及完整信号周期诊断。**保留 B1 为后续
 研究基线；不采纳本版 B2。** 没有合入正式 Runtime，也没有启动数小时认证。
@@ -166,10 +169,10 @@ Conflict room=0。`findings.json` 对这些关联逐项断言，`dependencies.js
 
 ## 可移植证据
 
-- [`boundary-evidence-manifest.json`](evidence/boundary-evidence-manifest.json) 保存
+- [`boundary-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/boundary-evidence-manifest.json) 保存
   四臂 100k ABBA 的进程包络、六个保留运行的完整输出树身份、8192 拍长窗摘要、
   原 provenance 的全部 376 个结果身份，以及从未舍入逐拍样本复算的 5.44% Core
-  降幅。[`boundary-summary.json`](evidence/boundary-summary.json) 完整保留原 JSON 数据，
+  降幅。[`boundary-summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/boundary-summary.json) 完整保留原 JSON 数据，
   并按仓库规则将 CRLF 规范化为 LF；manifest 另保留原文件长度与 SHA-256。
 - [`boundary-public-step.csv`](evidence/boundary-public-step.csv) 保存 off/on/on/off
   四臂各 448 个暖机后整数纳秒样本，共 1,792 行，可独立重算 mean、p95、p99 和
