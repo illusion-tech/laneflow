@@ -1677,6 +1677,7 @@ fn stage_waiting_preview(
             gate_reachable: entry.gate_reachable,
             horizon: entry.horizon,
             preview: entry.preview,
+            basis_index: entry.basis_index,
         });
     }
     if let Some(next) = entry.preview.map(|preview| preview.next) {
@@ -1705,11 +1706,12 @@ fn prepare_waiting_previews_fused(
         if status != crate::VehicleStatus::Active {
             continue;
         }
-        let entry = view.waiting_preview_entry(
+        let entry = view.waiting_preview_entry_with_basis(
             vehicle,
             update_sequence,
             delta_s,
             cache_index < cache_limit,
+            Some(&mut workspace.motion_bases),
         )?;
         stage_waiting_preview(
             &mut workspace.motion_cache,
@@ -1809,6 +1811,21 @@ fn prepare_waiting_previews_dispatched(
         .saturating_mul(multiplier)
         .clamp(1, workload);
     let chunk_size = workload.div_ceil(chunk_count).max(1);
+    let bases = &mut workspace.waiting_preview_bases;
+    if bases
+        .try_reserve(chunk_count.saturating_sub(bases.len()))
+        .is_err()
+    {
+        #[cfg(test)]
+        count_preview_path(|counts| counts.slot_fallback += 1);
+        return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
+    }
+    if bases.len() < chunk_count {
+        bases.resize_with(chunk_count, Vec::new);
+    }
+    for bases in bases.iter_mut() {
+        bases.clear();
+    }
     let first_error = AtomicUsize::new(usize::MAX);
     // 块级诊断记录槽：与输出块对齐，每块一个 u64 nanos，任务独占写入
     // （无竞争、无共享锁）；仅在诊断启用时分配，热态非诊断构建零成本。
@@ -1818,11 +1835,13 @@ fn prepare_waiting_previews_dispatched(
             .map(|_| std::sync::atomic::AtomicU64::new(0))
             .collect::<Vec<_>>()
     });
+    let input_pairs = &workspace.waiting_preview_inputs;
     let compute = |chunk_view: crate::kernel::phase::StepReadView<'_>,
                    start: usize,
                    chunk: &mut [crate::kernel::execution::DispatchSlot<
         crate::kernel::tick::WaitingPreviewEntry,
-    >]| {
+    >],
+                   bases: &mut Vec<crate::kernel::tick::MotionBasis>| {
         // 计时无条件开启；是否记录由协调器创建的 chunk_records 决定（普通
         // Option 捕获，跨线程一致）。不能用线程本地 ENABLE 作门——辅助
         // 线程读不到协调器的开关，会漏记（审阅阻断二的同类陷阱）。
@@ -1830,12 +1849,13 @@ fn prepare_waiting_previews_dispatched(
         let chunk_started = std::time::Instant::now();
         for (offset, slot) in chunk.iter_mut().enumerate() {
             let index = start + offset;
-            let (vehicle, update_sequence) = workspace.waiting_preview_inputs[index];
-            match chunk_view.waiting_preview_entry(
+            let (vehicle, update_sequence) = input_pairs[index];
+            match chunk_view.waiting_preview_entry_with_basis(
                 vehicle,
                 update_sequence,
                 delta_s,
                 index < cache_limit,
+                Some(&mut *bases),
             ) {
                 Ok(entry) => *slot = crate::kernel::execution::DispatchSlot::Done(Ok(entry)),
                 Err(error) => {
@@ -1856,8 +1876,12 @@ fn prepare_waiting_previews_dispatched(
     };
     #[cfg(test)]
     let _dispatch_scope = preview_stage::begin(preview_stage::DISPATCH_SCOPE);
-    let dispatch_stats =
-        execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
+    let work = slots
+        .chunks_mut(chunk_size)
+        .zip(bases[..chunk_count].iter_mut())
+        .enumerate()
+        .map(|(index, item)| (index * chunk_size, item));
+    let dispatch_stats = execution.try_for_each_work(view, work, &first_error, compute);
     #[cfg(test)]
     drop(_dispatch_scope);
     #[cfg(test)]
@@ -1900,6 +1924,15 @@ fn prepare_waiting_previews_dispatched(
     {
         match slot {
             crate::kernel::execution::DispatchSlot::Done(Ok(entry)) => {
+                let mut entry = *entry;
+                entry.basis_index = entry
+                    .basis_index
+                    .and_then(|index| bases[cache_index / chunk_size].get(index.get() as usize - 1))
+                    .copied()
+                    .filter(|_| cache_index < cache_limit)
+                    .and_then(|basis| {
+                        crate::kernel::tick::store_motion_basis(&mut workspace.motion_bases, basis)
+                    });
                 stage_waiting_preview(
                     &mut workspace.motion_cache,
                     &mut workspace.next_states,
@@ -1907,7 +1940,7 @@ fn prepare_waiting_previews_dispatched(
                     cache_limit,
                     *vehicle,
                     *update_sequence,
-                    entry,
+                    &entry,
                 );
             }
             crate::kernel::execution::DispatchSlot::Done(Err(error)) => return Err(*error),
@@ -1920,6 +1953,9 @@ fn prepare_waiting_previews_dispatched(
     // 前缀全部成功才公开发现阶段记录的身份终止错误；更早预览错误已在上文返回。
     if let Some(error) = pending_identity_error {
         return Err(error);
+    }
+    for bases in bases.iter_mut() {
+        bases.clear();
     }
     Ok(())
 }
@@ -1953,7 +1989,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
         // 同拍缓存按活动车辆顺序保留；非入口 Gate 决策仍使用正式 staged motion。
         // 扩容失败只缩短可复用的前缀，不新增错误，也不改变领域检查的首错。
-        self.workspace.motion_cache.clear();
+        self.workspace.clear_motion_cache();
         let _ = self
             .workspace
             .motion_cache
@@ -6311,6 +6347,97 @@ pub(crate) mod tests {
             exec_config(workers),
             &world.state,
         );
+    }
+
+    #[test]
+    fn sparse_basis_payloads_merge_canonically_and_reuse_attempt_buffers() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::state::vec_bytes;
+
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
+        let mut reference = None;
+        for workers in [1, 4] {
+            let mut world = multi_gate_world(17);
+            install_execution(&mut world, workers);
+            world.state.rebuild_occupancy_index().unwrap();
+            world
+                .state
+                .step_workspace()
+                .prepare_waiting_step(0.1, Some(world.execution.resources()))
+                .unwrap();
+            let signature = format!(
+                "{:?}/{:?}/{:?}",
+                world.state.workspace.motion_cache,
+                world.state.workspace.motion_bases,
+                world.state.workspace.next_states
+            );
+            if let Some(reference) = &reference {
+                assert_eq!(&signature, reference, "canonical sparse basis indices");
+            } else {
+                reference = Some(signature.clone());
+            }
+
+            let workspace = &mut world.state.workspace;
+            assert!(!workspace.motion_bases.is_empty());
+            let retained = workspace.retained_logical_bytes();
+            let bases = std::mem::take(&mut workspace.motion_bases);
+            assert_eq!(
+                retained - workspace.retained_logical_bytes(),
+                vec_bytes(&bases)
+            );
+            workspace.motion_bases = bases;
+            let retained = workspace.retained_logical_bytes();
+            let chunks = std::mem::take(&mut workspace.waiting_preview_bases);
+            assert_eq!(
+                retained - workspace.retained_logical_bytes(),
+                vec_bytes(&chunks) + chunks.iter().map(vec_bytes).sum::<u64>()
+            );
+            if workers > 1 {
+                assert!(chunks.iter().any(|chunk| chunk.capacity() > 0));
+            }
+            workspace.waiting_preview_bases = chunks;
+            let basis_capacity = workspace.motion_bases.capacity();
+            let chunk_capacities: Vec<_> = workspace
+                .waiting_preview_bases
+                .iter()
+                .map(Vec::capacity)
+                .collect();
+            workspace.clear_motion_cache();
+            assert!(workspace.motion_cache.is_empty());
+            assert!(workspace.motion_bases.is_empty());
+            assert!(workspace.waiting_preview_bases.iter().all(Vec::is_empty));
+
+            world
+                .state
+                .step_workspace()
+                .prepare_waiting_step(0.1, Some(world.execution.resources()))
+                .unwrap();
+            assert_eq!(
+                format!(
+                    "{:?}/{:?}/{:?}",
+                    world.state.workspace.motion_cache,
+                    world.state.workspace.motion_bases,
+                    world.state.workspace.next_states
+                ),
+                signature,
+                "new attempt rebuilds all indices"
+            );
+            assert_eq!(
+                world.state.workspace.motion_bases.capacity(),
+                basis_capacity
+            );
+            assert_eq!(
+                world
+                    .state
+                    .workspace
+                    .waiting_preview_bases
+                    .iter()
+                    .map(Vec::capacity)
+                    .collect::<Vec<_>>(),
+                chunk_capacities
+            );
+        }
     }
 
     /// 公开输出等价：已提交快照与其确定性摘要逐字节一致，最新决策/事件一致。

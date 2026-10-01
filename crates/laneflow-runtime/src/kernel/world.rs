@@ -396,6 +396,8 @@ impl crate::kernel::state::WorldState {
                 waiting_staged_storage_mm,
                 occupancy_scratch,
                 motion_cache: Vec::new(),
+                motion_bases: Vec::new(),
+                waiting_preview_bases: Vec::new(),
                 next_states,
                 motion_next,
                 motion_kernel: install_motion_kernel(),

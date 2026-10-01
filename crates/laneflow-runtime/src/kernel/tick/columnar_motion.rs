@@ -546,8 +546,8 @@ fn compute(
                 return Ok(());
             }
             let reused_basis = cached
-                .and_then(|entry| entry.preview.as_ref())
-                .and_then(|preview| preview.basis.as_ref())
+                .and_then(|entry| entry.basis_index)
+                .and_then(|index| view.motion_bases.get(index.get() as usize - 1))
                 .filter(|basis| basis.matches(&state, delta_s, parking_binding));
             #[cfg(test)]
             note_columnar_work(2, usize::from(reused_basis.is_some()));
@@ -906,6 +906,7 @@ pub(super) fn prepare(
         conflict_motion_by_vehicle: &workspace.conflict_motion_by_vehicle,
         conflict_staged: &workspace.conflict,
         motion_cache: &workspace.motion_cache,
+        motion_bases: &workspace.motion_bases,
     };
     let kernel = workspace.motion_kernel;
     let rank = &workspace.next_state_by_vehicle;
@@ -1018,7 +1019,10 @@ mod tests {
     fn physical_columns_match_exact_vehicle_primitive_with_holes_permuted_rows_and_cache_prefixes()
     {
         for count in [1, 7, 8, 9, 15, 16, 17, 127, 128, 129] {
-            for cache_prefix in [0, 5, usize::MAX] {
+            for (cache_prefix, basis_mode) in [0, 5, usize::MAX]
+                .into_iter()
+                .flat_map(|prefix| (0..4).map(move |mode| (prefix, mode)))
+            {
                 for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
                     let Some(kernel) = Kernel::for_backend(backend) else {
                         continue;
@@ -1080,6 +1084,28 @@ mod tests {
                             }
                         }
                     }
+                    match basis_mode {
+                        0 => {}
+                        1 => {
+                            // 同槽旧 generation 即使带有可用索引也不得消费。
+                            for basis in &mut world.state.workspace.motion_bases {
+                                basis.vehicle = crate::VehicleHandle::new(
+                                    basis.vehicle.index(),
+                                    basis.vehicle.generation() + 1,
+                                );
+                                basis.inputs.proposal = Some((0.0, 0.0));
+                            }
+                        }
+                        2 => {
+                            for entry in &mut world.state.workspace.motion_cache {
+                                if entry.basis_index.is_some() {
+                                    entry.basis_index = std::num::NonZeroU32::new(u32::MAX);
+                                }
+                            }
+                        }
+                        3 => world.state.workspace.motion_bases.clear(),
+                        _ => unreachable!(),
+                    }
                     world.state.workspace.motion_kernel = kernel;
                     let before: Vec<_> = world
                         .live_vehicles()
@@ -1101,6 +1127,7 @@ mod tests {
                             .conflict_motion_by_vehicle,
                         conflict_staged: &world.state.workspace.conflict,
                         motion_cache: &world.state.workspace.motion_cache,
+                        motion_bases: &world.state.workspace.motion_bases,
                     };
                     if let Some(handle) = complex_vehicle {
                         let state = read.vehicle_state(handle).unwrap();

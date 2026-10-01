@@ -7,11 +7,22 @@ const TICK: &str = "crates/laneflow-runtime/src/kernel/tick.rs";
 const WAITING: &str = "crates/laneflow-runtime/src/kernel/waiting.rs";
 
 pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
+    let execution = "crates/laneflow-runtime/src/kernel/execution.rs";
+    let has_scratch = fs::read_to_string(root.join(execution))?
+        .contains("    compute(view, start, chunk, scratch);");
     patch(
         root,
-        "crates/laneflow-runtime/src/kernel/execution.rs",
-        "    compute(view, start, chunk);",
-        "    let _pipeline_flush = super::tick::PipelineFlush;\n    compute(view, start, chunk);",
+        execution,
+        if has_scratch {
+            "    compute(view, start, chunk, scratch);"
+        } else {
+            "    compute(view, start, chunk);"
+        },
+        if has_scratch {
+            "    let _pipeline_flush = super::tick::PipelineFlush;\n    compute(view, start, chunk, scratch);"
+        } else {
+            "    let _pipeline_flush = super::tick::PipelineFlush;\n    compute(view, start, chunk);"
+        },
     )?;
     if candidate {
         instrument_motion(root)?;
@@ -118,8 +129,8 @@ fn instrument_preview(root: &Path) -> Result<()> {
         ),
         (
             TICK,
-            "        let preview = self\n            .preview_active_vehicle_with_waiting_stop(row.state(), delta_s, None, Some(horizon))",
-            "        drop(_entry_timer);\n        let _preview_timer = PipelineTimer::sampled(5);\n        note_pipeline(4, 1);\n        let preview = self\n            .preview_active_vehicle_with_waiting_stop(row.state(), delta_s, None, Some(horizon))",
+            "        let preview = self\n",
+            "        drop(_entry_timer);\n        let _preview_timer = PipelineTimer::sampled(5);\n        note_pipeline(4, 1);\n        let preview = self\n",
         ),
         (
             WAITING,
