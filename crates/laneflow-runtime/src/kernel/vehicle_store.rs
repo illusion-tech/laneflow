@@ -8,6 +8,23 @@ use std::ops::{Deref, DerefMut};
 
 pub(crate) const BLOCK_ROWS: usize = 128;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MotionPosition {
+    pub(crate) route_edge_index: u32,
+    pub(crate) progress_mm: u32,
+    pub(crate) carry_um: u16,
+}
+
+impl From<&VehicleState> for MotionPosition {
+    fn from(state: &VehicleState) -> Self {
+        Self {
+            route_edge_index: state.route_edge_index,
+            progress_mm: state.progress_mm,
+            carry_um: state.carry_um,
+        }
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     pub(crate) static FORCE_COLD_ALLOCATION_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -139,6 +156,66 @@ impl ContextBlock {
 pub(crate) struct ControlState {
     pub(crate) maneuver: Option<crate::ManeuverTraversalState>,
     pub(crate) waiting: Option<crate::WaitingMembership>,
+}
+
+/// 借用覆盖同一 attempt 的已验证身份与物理行；字段读取不再走完整逻辑值组装。
+#[derive(Clone, Copy)]
+pub(crate) struct ActiveRow<'a> {
+    store: &'a VehicleStore,
+    context: &'a VehicleContext,
+    entry: &'a DirectoryEntry,
+    physical: usize,
+}
+
+impl ActiveRow<'_> {
+    pub(crate) fn handle(self) -> VehicleHandle {
+        self.context.owner
+    }
+
+    pub(crate) fn route(self) -> RouteHandle {
+        self.context.route
+    }
+
+    pub(crate) fn profile(self) -> VehicleProfileOrdinal {
+        self.context.profile
+    }
+
+    pub(crate) fn position(self) -> MotionPosition {
+        let block = &self.store.motion[self.physical / BLOCK_ROWS];
+        self.position_in(block)
+    }
+
+    pub(crate) fn position_in(self, block: &MotionBlock) -> MotionPosition {
+        let row = self.physical % BLOCK_ROWS;
+        MotionPosition {
+            route_edge_index: block.route_cursor[row],
+            progress_mm: block.progress_mm[row],
+            carry_um: block.carry_um[row],
+        }
+    }
+
+    pub(crate) fn speed_mm_s(self) -> u32 {
+        self.store.motion[self.physical / BLOCK_ROWS].speed_mm_s[self.physical % BLOCK_ROWS]
+    }
+
+    pub(crate) fn control(self) -> ControlState {
+        self.entry
+            .control
+            .checked_sub(1)
+            .map_or_else(ControlState::default, |row| {
+                self.store.control[row as usize]
+            })
+    }
+
+    pub(crate) fn state(self) -> VehicleState {
+        self.state_in(&self.store.motion[self.physical / BLOCK_ROWS])
+    }
+
+    pub(crate) fn state_in(self, block: &MotionBlock) -> VehicleState {
+        self.store
+            .assemble_active(self.physical, self.entry, block)
+            .expect("bound active context")
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -376,6 +453,48 @@ impl VehicleStore {
         self.context[physical / BLOCK_ROWS].rows[physical % BLOCK_ROWS]
             .as_ref()
             .map(|context| context.owner)
+    }
+
+    pub(crate) fn active_binding(&self, handle: VehicleHandle) -> Option<ActiveRow<'_>> {
+        let entry = self.directory.get(handle.index() as usize)?;
+        if entry.generation != handle.generation() {
+            return None;
+        }
+        let Location::Active(physical) = entry.location else {
+            return None;
+        };
+        self.bind_active(handle.index() as usize, physical, entry)
+    }
+
+    pub(crate) fn active_binding_at(&self, slot: usize, physical: usize) -> Option<ActiveRow<'_>> {
+        self.bind_active(slot, physical, self.directory.get(slot)?)
+    }
+
+    fn bind_active<'a>(
+        &'a self,
+        slot: usize,
+        physical: usize,
+        entry: &'a DirectoryEntry,
+    ) -> Option<ActiveRow<'a>> {
+        if !matches!(entry.location, Location::Active(row) if row == physical) {
+            return None;
+        }
+        let context = self
+            .context
+            .get(physical / BLOCK_ROWS)?
+            .rows
+            .get(physical % BLOCK_ROWS)?
+            .as_ref()?;
+        if context.owner.index() as usize != slot || context.owner.generation() != entry.generation
+        {
+            return None;
+        }
+        Some(ActiveRow {
+            store: self,
+            context,
+            entry,
+            physical,
+        })
     }
 
     #[inline]
@@ -686,7 +805,15 @@ mod tests {
         assert_eq!(store.active_at(physical), Some(state));
         assert!(store.state(original).is_none());
         assert!(store.status(original).is_none());
+        assert!(store.active_binding(original).is_none());
         assert_eq!(store.status(state.handle), Some(VehicleStatus::Active));
+        let bound = store.active_binding(state.handle).unwrap();
+        assert_eq!(bound.handle(), state.handle);
+        assert_eq!(bound.route(), state.route);
+        assert_eq!(bound.profile(), state.profile);
+        assert_eq!(bound.position(), (&state).into());
+        assert_eq!(bound.control().maneuver, state.maneuver_traversal);
+        assert!(store.active_binding_at(1, physical).is_none());
 
         let mut next = store.motion[physical / BLOCK_ROWS].clone();
         next.progress_mm[physical % BLOCK_ROWS] += 1;
@@ -697,6 +824,7 @@ mod tests {
         expected.speed_mm_s += 97;
         expected.carry_um = 999;
         assert_eq!(store.active_with_motion(0, physical, &next), Some(expected));
+        assert_eq!(bound.position_in(&next), (&expected).into());
         assert!(store.active_with_motion(1, physical, &next).is_none());
         assert_eq!(store.state(state.handle), Some(state));
     }

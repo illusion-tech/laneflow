@@ -13,6 +13,13 @@
 
 稳定上下文按逐车共同消费者组织为紧凑记录，减少组装逻辑值时的分散读取和重复边界检查；它不包含运动数值，不随 Current/Next 交换。只需要状态或身份的消费者直接读取受检目录，不为这些查询物化完整 `VehicleState`。
 
+热消费者使用同一 attempt 内的只读行绑定，先验证完整句柄、generation 和物理位置，
+再按需读取 Current/Next 的位置及控制字段；借用存续期间不能迁移目录或发布运动列。
+P2 筛选不组装整车，实际预览才取得完整逻辑值。资源收尾的 Gate/Waiting 遍历直接消费
+位置、车型和成员字段；完整 passage/eligibility 检查仍可以按需组装复杂行。
+非入口 Gate 筛选保留同 occurrence 的边尾情况；事件减量必须同时排除 Waiting 计划、
+旧成员、Clearing、grant 回看、reservation 及 passage 暂存，不能仅凭游标未变跳过。
+
 车辆目录（Vehicle Directory）按完整句柄索引保存 generation、存储类别和物理位置。完整句柄决定身份，规范逻辑位置（Canonical Logical Position）决定消费/事件/首错顺序，物理行（Physical Row）决定连续读写及独占执行。三者不可混用。不按车道或 profile 每拍全局重排权威列。
 
 `VehicleState` 是按值组装的逻辑视图、公开读取、快照及测试类型。内部返回 `&VehicleState` 的接口改为值或受限列视图；不维护完整 AoS 影子。登记/恢复/切换可以一次性拆分逻辑值；步进不得依靠全量 AoS→SoA→AoS 转换维持运行。
