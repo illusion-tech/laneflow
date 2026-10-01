@@ -1,0 +1,15 @@
+{
+  "schema": "p5-hot-input-rebased-code-verification-v1",
+  "source_head": "70bfbffbdbb35aafede89fdc63f738b62d918da8",
+  "rebased_implementation_head": "7de86e32eb07ad9cfbf4eb921a2cc011537e49e2",
+  "all_implementation_hashes_match": true,
+  "files": {
+    "research/issue-762-post-p3-hotspots/Cargo.toml": "ea28e6111d0f91e7b9bf28de7b9cd76e1c82151431fbabe4f662c05a8f4b9a97",
+    "research/issue-762-post-p3-hotspots/hot_kernel.rs": "cf6905de4472deb691a577a7a85aeaaddc84de52972e43b7af5c9f58cf5d5bad",
+    "research/issue-762-post-p3-hotspots/hot_motion.rs": "efa48d39d162a391ec161ab8392e6fad06b3d5314ae195ec47c2bc10d7bc0c2e",
+    "research/issue-762-post-p3-hotspots/hot_prepared.rs": "fd2f8794fc949d98c0bb6cab3bfda334d436a31904619b55e9127b98328d5672",
+    "research/issue-762-post-p3-hotspots/src/hot_export.rs": "f55cb044738ed31fb9324f480b1c0618f4b4f358031780e47b0dddceb216d160",
+    "research/issue-762-post-p3-hotspots/src/p5_hot.rs": "8db818265e675916058fe8c4e572d3a21ba55c0d3a84a7e8acef6de8601a038f",
+    "research/issue-762-post-p3-hotspots/src/simd_export.rs": "d580d7a4c9d06230750e524facd4cd0416e12be25fc7561d8400b79da2ddcd9d"
+  }
+}

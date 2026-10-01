@@ -1,0 +1,18 @@
+{
+  "schema": "p5-hot-input-host-observation-v1",
+  "observed_utc": "2026-10-01T01:09:53.1965229Z",
+  "cpu": [
+    {
+      "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+      "NumberOfCores": 16,
+      "NumberOfLogicalProcessors": 32
+    }
+  ],
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29671",
+    "BuildNumber": "29671",
+    "OSArchitecture": "64 位"
+  },
+  "power_and_thermal_not_measured": true
+}
