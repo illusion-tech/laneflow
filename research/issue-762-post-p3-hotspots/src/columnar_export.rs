@@ -99,12 +99,15 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
     let tick = format!("{K}tick.rs");
     if candidate {
         let path = root.join(&tick);
-        let text = fs::read_to_string(&path)?
-            .replace("; 16]", "; 20]")
-            .replace(
-                "fn note_columnar_work(",
-                "pub(crate) fn note_columnar_work(",
-            );
+        let mut text = fs::read_to_string(&path)?;
+        let start = text
+            .find("static COLUMNAR_WORK:")
+            .ok_or("work counter start")?;
+        let end = text
+            .find("use laneflow_static_contract::")
+            .ok_or("work counter end")?;
+        need(start < end, "work counter range")?;
+        text.replace_range(start..end, include_str!("columnar_pipeline_probe.rs"));
         fs::write(path, text)?;
         let motion = format!("{K}tick/columnar_motion.rs");
         patch(
@@ -134,7 +137,8 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
     } else {
         let path = root.join(&tick);
         let mut text = fs::read_to_string(&path)?;
-        text.push_str("\nstatic COLUMNAR_WORK: [std::sync::atomic::AtomicU64; 20] = [const { std::sync::atomic::AtomicU64::new(0) }; 20];\npub(crate) fn note_columnar_work(index: usize, n: usize) { COLUMNAR_WORK[index].fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed); }\npub(crate) fn take_columnar_work() -> [u64; 20] { std::array::from_fn(|i| COLUMNAR_WORK[i].swap(0, std::sync::atomic::Ordering::Relaxed)) }\n");
+        text.push('\n');
+        text.push_str(include_str!("columnar_pipeline_probe.rs"));
         fs::write(path, text)?;
         function_counter(root, &tick, "fn iidm_step(", 1)?;
         patch(
@@ -208,6 +212,28 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn current_candidate_export_checks_every_pipeline_anchor() {
+        let repo = std::path::PathBuf::from(
+            io::git(
+                &std::env::current_dir().unwrap(),
+                &["rev-parse", "--show-toplevel"],
+            )
+            .unwrap(),
+        );
+        let head = io::git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let root = repo
+            .join("target")
+            .join(format!("814-anchor-test-{}", uuid::Uuid::new_v4()));
+        crate::prepare::export_at(&repo, &root, "stages", &head).unwrap();
+        instrument(&root, true).unwrap();
+        let tick = fs::read_to_string(root.join(format!("{K}tick.rs"))).unwrap();
+        assert!(tick.contains("PIPELINE_LOCAL"));
+        assert!(!tick.contains("COLUMNAR_WORK_ENABLED"));
+        let host =
+            fs::read_to_string(root.join("tools/laneflow-urban-harness/src/host.rs")).unwrap();
+        assert_eq!(host.matches("LF814_PIPELINE").count(), 1);
+    }
     #[test]
     fn promotion_excludes_test_modules_and_unrelated_probes() {
         let text = "#[cfg(test)]\nmod tests {\n fn retained_memory() {}\n}\n#[cfg(test)]\nfn unrelated_probe() {}\n#[cfg(test)]\npub(crate) fn retained_columns_bytes() {}\n#[cfg(test)]\nnote_columnar_work(1, 1);\n";
