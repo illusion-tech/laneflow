@@ -1081,6 +1081,17 @@ mod tests {
                         for entry in &mut world.state.workspace.motion_cache {
                             if entry.vehicle == handle {
                                 entry.preview = None;
+                                let basis = world
+                                    .state
+                                    .workspace
+                                    .motion_bases
+                                    .get(
+                                        entry.basis_index.expect("fixture basis").get() as usize
+                                            - 1,
+                                    )
+                                    .unwrap();
+                                let state = world.state.committed.vehicles.state(handle).unwrap();
+                                assert!(basis.matches(&state, 0.1, None));
                             }
                         }
                     }
@@ -1093,7 +1104,7 @@ mod tests {
                                     basis.vehicle.index(),
                                     basis.vehicle.generation() + 1,
                                 );
-                                basis.inputs.proposal = Some((0.0, 0.0));
+                                basis.inputs.proposal = Some((f32::NAN, f32::NAN));
                             }
                         }
                         2 => {
