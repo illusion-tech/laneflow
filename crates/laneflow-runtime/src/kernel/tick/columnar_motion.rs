@@ -208,6 +208,78 @@ enum NumericPhase {
     Quantize,
 }
 
+const NUMERIC_ROWS: usize = 16;
+
+/// 只把复杂行所在的数值子批分段；相邻同路径子批合并，不重复准备物理块。
+struct NumericSpans {
+    complex: [bool; BLOCK_ROWS / NUMERIC_ROWS],
+    cursor: usize,
+    rows: usize,
+}
+
+impl NumericSpans {
+    fn new(complex: &[bool]) -> Self {
+        assert!(complex.len() <= BLOCK_ROWS, "numeric storage block");
+        Self {
+            complex: std::array::from_fn(|group| {
+                let start = group * NUMERIC_ROWS;
+                start < complex.len()
+                    && complex[start..(start + NUMERIC_ROWS).min(complex.len())]
+                        .iter()
+                        .any(|&complex| complex)
+            }),
+            cursor: 0,
+            rows: complex.len(),
+        }
+    }
+}
+
+impl Iterator for NumericSpans {
+    type Item = (std::ops::Range<usize>, bool);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cursor == self.rows {
+            return None;
+        }
+        let start = self.cursor;
+        let complex = self.complex[start / NUMERIC_ROWS];
+        let mut end = (start + NUMERIC_ROWS).min(self.rows);
+        while end < self.rows && self.complex[end / NUMERIC_ROWS] == complex {
+            end = (end + NUMERIC_ROWS).min(self.rows);
+        }
+        self.cursor = end;
+        Some((start..end, complex))
+    }
+}
+
+#[cfg(test)]
+mod span_tests {
+    use super::*;
+
+    #[test]
+    fn a_single_complex_row_does_not_promote_the_whole_storage_block() {
+        for (row, expected) in [
+            (0, vec![(0..16, true), (16..128, false)]),
+            (63, vec![(0..48, false), (48..64, true), (64..128, false)]),
+            (127, vec![(0..112, false), (112..128, true)]),
+        ] {
+            let mut complex = [false; BLOCK_ROWS];
+            complex[row] = true;
+            assert_eq!(NumericSpans::new(&complex).collect::<Vec<_>>(), expected);
+        }
+        assert_eq!(
+            NumericSpans::new(&[true; BLOCK_ROWS]).collect::<Vec<_>>(),
+            vec![(0..128, true)]
+        );
+        assert_eq!(
+            NumericSpans::new(&[false; 17]).collect::<Vec<_>>(),
+            vec![(0..17, false)]
+        );
+        assert!(NumericSpans::new(&[]).next().is_none());
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn numerical(
     batch: &mut Batch,
     chunk: &mut Chunk<'_>,
@@ -216,55 +288,58 @@ fn numerical(
     kernel: laneflow_motion_kernel::Kernel,
     delta_s: f32,
     phase: NumericPhase,
+    range: std::ops::Range<usize>,
 ) -> laneflow_motion_kernel::Stats {
-    let n = chunk.cursor.len();
+    let n = range.len();
+    let offset = offset + range.start;
     let (proposal_speed, proposal_travel, out_speed, out_travel) = match phase {
         NumericPhase::Fused | NumericPhase::Proposal => (
-            &batch.proposal_speed[..n],
-            &batch.proposal_travel[..n],
-            &mut batch.out_proposal_speed[..n],
-            &mut batch.out_proposal_travel[..n],
+            &batch.proposal_speed[range.clone()],
+            &batch.proposal_travel[range.clone()],
+            &mut batch.out_proposal_speed[range.clone()],
+            &mut batch.out_proposal_travel[range.clone()],
         ),
         NumericPhase::Project | NumericPhase::Quantize => (
-            &batch.out_proposal_speed[..n],
-            &batch.out_proposal_travel[..n],
-            &mut batch.proposal_speed[..n],
-            &mut batch.proposal_travel[..n],
+            &batch.out_proposal_speed[range.clone()],
+            &batch.out_proposal_travel[range.clone()],
+            &mut batch.proposal_speed[range.clone()],
+            &mut batch.proposal_travel[range.clone()],
         ),
     };
     let input = laneflow_motion_kernel::Input {
-        enabled: &batch.enabled[..n],
+        enabled: &batch.enabled[range.clone()],
         speed_mm_s: &source.speed_mm_s[offset..offset + n],
-        desired_mm_s: &batch.desired[..n],
+        desired_mm_s: &batch.desired[range.clone()],
         progress_mm: &source.progress_mm[offset..offset + n],
         carry_um: &source.carry_um[offset..offset + n],
-        hard_room_mm: &batch.hard_room[..n],
-        committed_limit_mm_s: &[u32::MAX; BLOCK_ROWS][..n],
-        leader_m: &batch.leader[..n],
-        has_leader: &batch.has_leader[..n],
-        min_gap_m: &batch.min_gap[..n],
-        time_headway: &batch.headway[..n],
-        max_accel: &batch.accel[..n],
-        comfort_decel: &batch.comfort[..n],
-        emergency_decel: &batch.emergency[..n],
-        stop_m: &batch.stop[..n],
-        route_end_m: &batch.route_end[..n],
-        envelope_m: &batch.envelope[..n],
-        has_proposal: &batch.has_proposal[..n],
+        hard_room_mm: &batch.hard_room[range.clone()],
+        committed_limit_mm_s: &[u32::MAX; BLOCK_ROWS][range.clone()],
+        leader_m: &batch.leader[range.clone()],
+        has_leader: &batch.has_leader[range.clone()],
+        min_gap_m: &batch.min_gap[range.clone()],
+        time_headway: &batch.headway[range.clone()],
+        max_accel: &batch.accel[range.clone()],
+        comfort_decel: &batch.comfort[range.clone()],
+        emergency_decel: &batch.emergency[range.clone()],
+        stop_m: &batch.stop[range.clone()],
+        route_end_m: &batch.route_end[range.clone()],
+        envelope_m: &batch.envelope[range.clone()],
+        has_proposal: &batch.has_proposal[range.clone()],
         proposal_speed_m_s: proposal_speed,
         proposal_travel_m: proposal_travel,
     };
     let mut output = laneflow_motion_kernel::Output {
-        speed_mm_s: chunk.speed,
-        progress_mm: chunk.progress,
-        carry_um: chunk.carry,
-        travel_mm: &mut batch.travel_mm[..n],
-        travel_m: &mut batch.travel_m[..n],
+        speed_mm_s: &mut chunk.speed[range.clone()],
+        progress_mm: &mut chunk.progress[range.clone()],
+        carry_um: &mut chunk.carry[range.clone()],
+        travel_mm: &mut batch.travel_mm[range.clone()],
+        travel_m: &mut batch.travel_m[range.clone()],
         proposal_speed_m_s: out_speed,
         proposal_travel_m: out_travel,
-        exhausted: &mut batch.exhausted[..n],
-        valid: &mut batch.valid[..n],
-        window_m: matches!(phase, NumericPhase::Proposal).then_some(&mut batch.window[..n]),
+        exhausted: &mut batch.exhausted[range.clone()],
+        valid: &mut batch.valid[range.clone()],
+        window_m: matches!(phase, NumericPhase::Proposal)
+            .then_some(&mut batch.window[range.clone()]),
     };
     let stats = match phase {
         NumericPhase::Fused => kernel.run(&input, &mut output, delta_s),
@@ -308,14 +383,17 @@ fn apply_speed_limits(
     kernel: laneflow_motion_kernel::Kernel,
     delta_s: f32,
     boundary: bool,
+    range: std::ops::Range<usize>,
 ) {
-    let n = chunk.cursor.len();
-    for row in 0..n {
+    for row in range.clone() {
         batch.drop_index[row] = batch.drop_first[row];
         batch.drop_active[row] = batch.enabled[row] && batch.valid[row] && batch.complex[row];
     }
-    while batch.drop_active[..n].iter().any(|&active| active) {
-        for (row, &compiled) in routes.iter().enumerate().take(n) {
+    while batch.drop_active[range.clone()]
+        .iter()
+        .any(|&active| active)
+    {
+        for (row, &compiled) in routes.iter().enumerate().take(range.end).skip(range.start) {
             if !batch.drop_active[row] {
                 continue;
             }
@@ -357,14 +435,14 @@ fn apply_speed_limits(
             kernel
                 .boundary(
                     &laneflow_motion_kernel::BoundaryInput {
-                        speed_mm_s: &source.speed_mm_s[offset..offset + n],
-                        distance_mm: &batch.drop_distance[..n],
-                        limit_mm_s: &batch.drop_limit[..n],
-                        next_speed_m_s: &batch.proposal_speed[..n],
+                        speed_mm_s: &source.speed_mm_s[offset + range.start..offset + range.end],
+                        distance_mm: &batch.drop_distance[range.clone()],
+                        limit_mm_s: &batch.drop_limit[range.clone()],
+                        next_speed_m_s: &batch.proposal_speed[range.clone()],
                     },
                     &mut laneflow_motion_kernel::BoundaryOutput {
-                        travel_m: &mut batch.travel_m[..n],
-                        active: &mut batch.drop_active[..n],
+                        travel_m: &mut batch.travel_m[range.clone()],
+                        active: &mut batch.drop_active[range.clone()],
                     },
                     delta_s,
                 )
@@ -373,16 +451,16 @@ fn apply_speed_limits(
             kernel
                 .limit(
                     &laneflow_motion_kernel::LimitInput {
-                        speed_mm_s: &source.speed_mm_s[offset..offset + n],
-                        distance_mm: &batch.drop_distance[..n],
-                        limit_mm_s: &batch.drop_limit[..n],
-                        window_m: &batch.window[..n],
-                        comfort_decel: &batch.comfort[..n],
-                        emergency_decel: &batch.emergency[..n],
+                        speed_mm_s: &source.speed_mm_s[offset + range.start..offset + range.end],
+                        distance_mm: &batch.drop_distance[range.clone()],
+                        limit_mm_s: &batch.drop_limit[range.clone()],
+                        window_m: &batch.window[range.clone()],
+                        comfort_decel: &batch.comfort[range.clone()],
+                        emergency_decel: &batch.emergency[range.clone()],
                     },
                     &mut laneflow_motion_kernel::LimitOutput {
-                        next_speed_m_s: &mut batch.out_proposal_speed[..n],
-                        active: &mut batch.drop_active[..n],
+                        next_speed_m_s: &mut batch.out_proposal_speed[range.clone()],
+                        active: &mut batch.drop_active[range.clone()],
                     },
                     delta_s,
                 )
@@ -524,70 +602,81 @@ fn compute(
     }
     let source = &view.read.committed.vehicles.motion[start / BLOCK_ROWS];
     let offset = start % BLOCK_ROWS;
-    if batch.complex[..n].iter().any(|&complex| complex) {
-        numerical(
-            &mut batch,
-            &mut chunk,
-            source,
-            offset,
-            kernel,
-            delta_s,
-            NumericPhase::Proposal,
-        );
-        for row in 0..n {
-            if batch.enabled[row] && !batch.valid[row] {
-                chunk.reports[row].error = Some(StepError::NonFiniteMotion);
-                batch.enabled[row] = false;
-            }
+    for (range, complex) in NumericSpans::new(&batch.complex[..n]) {
+        if !batch.enabled[range.clone()].iter().any(|&enabled| enabled) {
+            continue;
         }
-        apply_speed_limits(
-            &routes[..n],
-            &mut batch,
-            &mut chunk,
-            source,
-            offset,
-            kernel,
-            delta_s,
-            false,
-        );
-        numerical(
-            &mut batch,
-            &mut chunk,
-            source,
-            offset,
-            kernel,
-            delta_s,
-            NumericPhase::Project,
-        );
-        apply_speed_limits(
-            &routes[..n],
-            &mut batch,
-            &mut chunk,
-            source,
-            offset,
-            kernel,
-            delta_s,
-            true,
-        );
-        numerical(
-            &mut batch,
-            &mut chunk,
-            source,
-            offset,
-            kernel,
-            delta_s,
-            NumericPhase::Quantize,
-        );
-    } else {
-        numerical(
-            &mut batch,
-            &mut chunk,
-            source,
-            offset,
-            kernel,
-            delta_s,
-            NumericPhase::Fused,
-        );
+        if complex {
+            numerical(
+                &mut batch,
+                &mut chunk,
+                source,
+                offset,
+                kernel,
+                delta_s,
+                NumericPhase::Proposal,
+                range.clone(),
+            );
+            for row in range.clone() {
+                if batch.enabled[row] && !batch.valid[row] {
+                    chunk.reports[row].error = Some(StepError::NonFiniteMotion);
+                    batch.enabled[row] = false;
+                }
+            }
+            apply_speed_limits(
+                &routes[..n],
+                &mut batch,
+                &mut chunk,
+                source,
+                offset,
+                kernel,
+                delta_s,
+                false,
+                range.clone(),
+            );
+            numerical(
+                &mut batch,
+                &mut chunk,
+                source,
+                offset,
+                kernel,
+                delta_s,
+                NumericPhase::Project,
+                range.clone(),
+            );
+            apply_speed_limits(
+                &routes[..n],
+                &mut batch,
+                &mut chunk,
+                source,
+                offset,
+                kernel,
+                delta_s,
+                true,
+                range.clone(),
+            );
+            numerical(
+                &mut batch,
+                &mut chunk,
+                source,
+                offset,
+                kernel,
+                delta_s,
+                NumericPhase::Quantize,
+                range.clone(),
+            );
+        } else {
+            numerical(
+                &mut batch,
+                &mut chunk,
+                source,
+                offset,
+                kernel,
+                delta_s,
+                NumericPhase::Fused,
+                range.clone(),
+            );
+        }
     }
     // 工作掩码驱动真实多跳行走；静态 occurrence/过门读取仅发生在仍行走的行。
     // 非跨边的 next.progress 已由数值内核写好，不再重放或回拷整个世界。
@@ -964,10 +1053,33 @@ mod tests {
                             Some(a.handle.index() as usize)
                         );
                     }
+                    let complex_vehicle = (count >= 16).then(|| handles[count / 2]);
+                    if let Some(handle) = complex_vehicle {
+                        let state = world.vehicle(handle).unwrap();
+                        let route = world.state.committed.routes[state.route.index() as usize]
+                            .compiled
+                            .as_mut()
+                            .unwrap();
+                        // 在既有几何上只增加一行近处下降约束，隔离混合子批的范围与偏移。
+                        route
+                            .speed_limit_drop
+                            .push(crate::kernel::tables::SpeedLimitDrop {
+                                from_route_edge_index: 0,
+                                to_edge: route.edges[1],
+                                target_mm_s: 4_000,
+                            });
+                    }
                     world.state.rebuild_occupancy_index().unwrap();
                     world.state.prepare_waiting_step(0.1).unwrap();
                     world.state.prepare_conflict_step(0.1, 1, None).unwrap();
                     world.state.workspace.motion_cache.truncate(cache_prefix);
+                    if let Some(handle) = complex_vehicle {
+                        for entry in &mut world.state.workspace.motion_cache {
+                            if entry.vehicle == handle {
+                                entry.preview = None;
+                            }
+                        }
+                    }
                     world.state.workspace.motion_kernel = kernel;
                     let before: Vec<_> = world
                         .live_vehicles()
@@ -990,6 +1102,58 @@ mod tests {
                         conflict_staged: &world.state.workspace.conflict,
                         motion_cache: &world.state.workspace.motion_cache,
                     };
+                    if let Some(handle) = complex_vehicle {
+                        let state = read.vehicle_state(handle).unwrap();
+                        let compiled = read.compiled_route(state.route).unwrap();
+                        let profile = read
+                            .binding
+                            .revision
+                            .traffic()
+                            .relations()
+                            .vehicle_profile(state.profile)
+                            .unwrap();
+                        let inputs = read
+                            .prepare_motion_inputs(&state, compiled, profile, 0.1, None, None, None)
+                            .unwrap();
+                        assert!(speed_drop_may_constrain(
+                            compiled,
+                            &inputs,
+                            state.route_edge_index as usize,
+                            state.progress_mm,
+                            0.1
+                        ));
+                    }
+                    if complex_vehicle.is_some() && cache_prefix == usize::MAX {
+                        let mut computed_rows = 0;
+                        for (rank, handle) in read.derived.active_order.iter().copied().enumerate()
+                        {
+                            let state = read.vehicle_state(handle).unwrap();
+                            let compiled = read.compiled_route(state.route).unwrap();
+                            let profile = read
+                                .binding
+                                .revision
+                                .traffic()
+                                .relations()
+                                .vehicle_profile(state.profile);
+                            let waiting = view.waiting_stop_for(&state, Some(compiled)).unwrap();
+                            let conflict = view
+                                .conflict_stop_for(&state, 0.1, compiled, profile)
+                                .unwrap();
+                            if view.motion_cache[rank]
+                                .preview
+                                .as_ref()
+                                .and_then(|preview| preview.reuse(waiting, conflict))
+                                .is_none()
+                            {
+                                computed_rows += 1;
+                            }
+                        }
+                        assert_eq!(computed_rows, 1, "one Compute row among fully reused rows");
+                    }
+                    let reference = MotionTaskView {
+                        motion_cache: &[],
+                        ..view
+                    };
                     let expected: Vec<_> = read
                         .derived
                         .active_order
@@ -998,7 +1162,8 @@ mod tests {
                         .enumerate()
                         .map(|(rank, handle)| {
                             let state = read.vehicle_state(handle).unwrap();
-                            let outcome = view.vehicle_motion_outcome(&state, rank, 0.1).unwrap();
+                            let outcome =
+                                reference.vehicle_motion_outcome(&state, rank, 0.1).unwrap();
                             (handle.index() as usize, outcome.next, outcome.arrival)
                         })
                         .collect();
