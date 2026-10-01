@@ -78,7 +78,7 @@ macro_rules! batch_columns {
     };
 }
 batch_columns! {
-    enabled: bool = false, complex: bool = false,
+    enabled: bool = false, complex: bool = false, reserved_parking: bool = false,
     desired: u32 = 0, min_gap: f32 = 0.0,
     headway: f32 = 0.0, accel: f32 = 1.0, comfort: f32 = 1.0, emergency: f32 = 1.0,
     leader: f32 = f32::INFINITY, has_leader: bool = false,
@@ -390,6 +390,8 @@ fn compute(
             {
                 return Err(StepError::ParkingInvariantViolation);
             }
+            batch.reserved_parking[row] =
+                matches!(parking_binding, Some(ParkingBinding::Reserved(_)));
             chunk.reports[row].checkpoint = MotionCheckpoint::Waiting;
             let waiting = view.waiting_stop_for(&state)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Conflict;
@@ -607,36 +609,23 @@ fn compute(
         #[cfg(not(test))]
         let _ = stats;
     }
-    for row in 0..n {
+    for (row, route) in routes.iter().enumerate().take(n) {
         if !batch.enabled[row] || chunk.reports[row].error.is_some() {
             continue;
         }
-        let state = view
-            .read
-            .committed
-            .vehicles
-            .active_at(start + row)
-            .expect("frozen active physical row");
         let completed = (|| {
-            let parking_binding = view.read.committed.parking.binding(state.handle);
             if !batch.valid[row] {
                 return Err(StepError::NonFiniteMotion);
             }
-            let mut next = state;
-            next.speed_mm_s = chunk.speed[row];
-            next.carry_um = chunk.carry[row];
-            let compiled = view
-                .read
-                .compiled_route(state.route)
-                .ok_or(StepError::NonFiniteMotion)?;
-            next.route_edge_index = chunk.cursor[row];
-            next.progress_mm = chunk.progress[row];
-            let limit = if next.route_edge_index == state.route_edge_index {
+            let compiled = route.ok_or(StepError::NonFiniteMotion)?;
+            let cursor = chunk.cursor[row];
+            let progress = chunk.progress[row];
+            let limit = if cursor == source.route_cursor[offset + row] {
                 batch.limit[row]
             } else {
                 let edge = compiled
                     .edges
-                    .get(next.route_edge_index as usize)
+                    .get(cursor as usize)
                     .ok_or(StepError::NonFiniteMotion)?;
                 *view
                     .read
@@ -647,32 +636,49 @@ fn compute(
                     .get(edge.index())
                     .ok_or(StepError::NonFiniteMotion)?
             };
-            next.speed_mm_s = next.speed_mm_s.min(limit);
+            chunk.speed[row] = chunk.speed[row].min(limit);
             let remaining = remaining_to_route_end(
                 *compiled
                     .remaining_to_end
-                    .get(next.route_edge_index as usize)
+                    .get(cursor as usize)
                     .ok_or(StepError::NonFiniteMotion)?,
-                next.progress_mm,
+                progress,
             );
+            let mut route_completed = matches!(remaining, BoundedDistance::Finite(0));
             if batch.exhausted[row] || matches!(remaining, BoundedDistance::Finite(0)) {
-                next.speed_mm_s = 0;
-                next.carry_um = 0;
-                let parked_arrival = match parking_binding {
-                    Some(ParkingBinding::Reserved(value)) => {
-                        view.read.parking_arrived_for(next, value)
-                    }
-                    _ => false,
-                };
-                if matches!(remaining, BoundedDistance::Finite(0)) && !parked_arrival {
-                    next.status = VehicleStatus::Completed;
-                }
+                chunk.speed[row] = 0;
+                chunk.carry[row] = 0;
             }
             #[cfg(test)]
             note_motion_cache_use(false);
             chunk.reports[row].checkpoint = MotionCheckpoint::Arrival;
-            chunk.reports[row].arrival = arrival(view, state, next)?;
-            write_value(&mut chunk, row, next);
+            // 普通行的数值已在 Next 列中；仅真实停车义务需要逻辑值做到达检查。
+            if batch.reserved_parking[row] {
+                let state = view
+                    .read
+                    .committed
+                    .vehicles
+                    .active_at(start + row)
+                    .expect("frozen active physical row");
+                let mut next = state;
+                next.route_edge_index = cursor;
+                next.progress_mm = progress;
+                next.speed_mm_s = chunk.speed[row];
+                next.carry_um = chunk.carry[row];
+                let parking_binding = view.read.committed.parking.binding(state.handle);
+                let parked_arrival = match parking_binding {
+                    Some(ParkingBinding::Reserved(value)) if route_completed => {
+                        view.read.parking_arrived_for(next, value)
+                    }
+                    _ => false,
+                };
+                route_completed &= !parked_arrival;
+                if route_completed {
+                    next.status = VehicleStatus::Completed;
+                }
+                chunk.reports[row].arrival = arrival(view, state, next)?;
+            }
+            chunk.reports[row].completed = route_completed;
             chunk.reports[row].checkpoint = MotionCheckpoint::Complete;
             Ok(())
         })();
