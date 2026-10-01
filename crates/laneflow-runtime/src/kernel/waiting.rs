@@ -2346,18 +2346,23 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
         // 先 stage tick-start membership 的 successful release。
         for update_index in 0..updates.len() {
-            let (slot, mut next) = updates.get(update_index, &self.committed.vehicles);
+            let slot = updates.slot_index(update_index);
             let old = self
                 .committed
                 .vehicles
-                .slot(slot)
-                .state
+                .active_control(slot)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            if let Some(membership) = old.waiting_membership
-                && next.route_edge_index > membership.release_hop
+            if let Some(membership) = old.waiting
+                && updates.staged_route_cursor(update_index) > membership.release_hop
             {
-                next.waiting_membership = None;
-                updates.set(update_index, next, &self.committed.vehicles)?;
+                let (_, next) = updates.get(update_index, &self.committed.vehicles);
+                updates.set_control(
+                    update_index,
+                    next.status,
+                    next.maneuver_traversal,
+                    None,
+                    &self.committed.vehicles,
+                )?;
             }
         }
 
@@ -2423,7 +2428,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             } else {
                 next.waiting_membership = None;
             }
-            updates.set(update_index, next, &self.committed.vehicles)?;
+            updates.set_control(
+                update_index,
+                next.status,
+                next.maneuver_traversal,
+                next.waiting_membership,
+                &self.committed.vehicles,
+            )?;
             self.workspace.waiting_plans[plan_index] = plan;
         }
 

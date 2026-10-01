@@ -966,6 +966,7 @@ impl OccupancyIndex {
     }
 }
 
+#[inline(always)]
 fn vehicle_state_in(
     vehicles: &crate::kernel::vehicle_store::VehicleStore,
     handle: VehicleHandle,
