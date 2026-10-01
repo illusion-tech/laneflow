@@ -276,6 +276,20 @@ fn validate_known_edges(
     Ok(())
 }
 
+/// 诊断模式的入选集 route 边引用校验（#253 W2）：只校验存在性与非 internal，
+/// 不展开 lane 级路径（#806 实现语义缺口的既定立场不变）——K3(a) 失败域
+/// 不因转换模式而豁免，诊断清单不得静默收录引用不存在/internal 边的入选
+/// 车辆。
+pub(crate) fn validate_population_route_edges(
+    network: &SumoNetwork,
+    population: &[PopulationRecord],
+) -> Result<()> {
+    for record in population {
+        validate_known_edges(network, &record.road_edge_ids, &record.vehicle_id)?;
+    }
+    Ok(())
+}
+
 fn lane_laneflow_id(network: &SumoNetwork, edge_id: &str, lane_index: u32) -> Result<String> {
     network
         .lanes
@@ -365,5 +379,32 @@ mod tests {
             build_routes_and_bind_population(&network, &topology, &population).expect("routes");
         assert_eq!(bundle.routes.len(), 1);
         assert_eq!(bundle.records[0].route_id, bundle.records[1].route_id);
+    }
+
+    #[test]
+    fn validate_population_route_edges_rejects_unknown_and_internal() {
+        // #253 W2：诊断模式复用的边引用校验——存在性与非 internal 分别
+        // fail-closed，合法引用原样通过。
+        let xml = include_str!("../../tests/fixtures/minimal/t-junction.net.xml");
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let record = |vehicle_id: &str, edges: &[&str]| PopulationRecord {
+            population_rank: 0,
+            vehicle_id: vehicle_id.to_owned(),
+            type_id: "passenger1".to_owned(),
+            depart: "28800".parse().unwrap(),
+            road_edge_ids: edges.iter().map(|edge| (*edge).to_owned()).collect(),
+            source_file_ordinal: 0,
+            source_vehicle_ordinal: 0,
+        };
+        super::validate_population_route_edges(&network, &[record("ok", &["west", "east"])])
+            .expect("valid edges accepted");
+        let error =
+            super::validate_population_route_edges(&network, &[record("v", &["west", "ghost"])])
+                .expect_err("unknown edge rejected");
+        assert!(error.to_string().contains("unknown road edge"), "{error}");
+        let error =
+            super::validate_population_route_edges(&network, &[record("v", &["west", ":J_0"])])
+                .expect_err("internal edge rejected");
+        assert!(error.to_string().contains("internal edge"), "{error}");
     }
 }

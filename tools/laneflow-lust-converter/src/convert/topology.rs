@@ -12,7 +12,7 @@ use crate::{
             POPULATION_DEPART_START_SECONDS, select_population,
         },
         profiles::{convert_vehicle_profiles, select_passenger_vtypes},
-        routes::build_routes_and_bind_population,
+        routes::{build_routes_and_bind_population, validate_population_route_edges},
         signals::convert_signals,
     },
     output::{
@@ -123,7 +123,10 @@ pub(crate) fn convert_static_with_due(
     // 禁止边内换道，pinned 入选 10,000 中 9,350 条不可展开——实现语义缺口，
     // 另立 issue 修复；§4/§3.6 文档已标「routes.toml 实现中」）。不展开即不产
     // routes.toml（None）；fail-fast 路径保持原语义（展开失败仍 fail-closed）。
+    // #253 W2：跳过的是展开，不是入选集校验——诊断模式仍执行 route 边引用
+    // 存在性/非 internal 校验（K3(a) 失败域不因模式而豁免）。
     let (routes, routes_toml, population_record_count) = if options.emit_infeasibility_report {
+        validate_population_route_edges(network, &population)?;
         (Vec::new(), None, population.len())
     } else {
         let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
@@ -409,5 +412,50 @@ mod policy_gate_tests {
             matches!(gate, StubWeldGate::BlockedDomain),
             "Auto + unverified must stay BlockedDomain"
         );
+    }
+
+    /// #253 W2：诊断模式跳过 lane 级展开，但不跳过入选集 route 边引用校验——
+    /// unknown/internal 边引用在诊断模式下同样 fail-closed（K3(a) 失败域不
+    /// 因模式而豁免）。
+    #[test]
+    fn diagnostic_mode_rejects_bad_population_edge_references() {
+        let net = include_str!("../../tests/fixtures/minimal/t-junction.net.xml");
+        let tll = include_str!("../../tests/fixtures/minimal/t-junction.tll.xml");
+        let vtypes = include_str!("../../tests/fixtures/minimal/vtypes.add.xml");
+        let options = TopologyConvertOptions {
+            emit_infeasibility_report: true,
+            ..TopologyConvertOptions::default()
+        };
+        let due_unknown = r#"<routes>
+  <vehicle id="v0" type="passenger1" depart="28800" departPos="random">
+    <route edges="west ghost"/>
+  </vehicle>
+</routes>"#;
+        let error = super::convert_static_from_xml_with_due_and_source(
+            net,
+            tll,
+            vtypes,
+            [due_unknown, "<routes/>", "<routes/>"],
+            &options,
+            ReportSource::unverified_unknown(),
+        )
+        .expect_err("diagnostic mode must reject unknown route edges");
+        assert!(error.to_string().contains("unknown road edge"), "{error}");
+
+        let due_internal = r#"<routes>
+  <vehicle id="v1" type="passenger1" depart="28800" departPos="random">
+    <route edges="west :J_0"/>
+  </vehicle>
+</routes>"#;
+        let error = super::convert_static_from_xml_with_due_and_source(
+            net,
+            tll,
+            vtypes,
+            [due_internal, "<routes/>", "<routes/>"],
+            &options,
+            ReportSource::unverified_unknown(),
+        )
+        .expect_err("diagnostic mode must reject internal route edges");
+        assert!(error.to_string().contains("internal edge"), "{error}");
     }
 }
