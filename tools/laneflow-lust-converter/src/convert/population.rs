@@ -126,6 +126,15 @@ pub fn select_population(
                 vehicle.id, vehicle.depart_pos
             )));
         }
+        // #253 W1：缺内联 <route> 的失败域限在入选集（K3(a) 契约口径，与空
+        // id、departPos 一致）——解析期原样保留（缺失也收），入选者缺失即
+        // fail-closed；Q9 的多个 route 仍由解析期拒绝（结构形态问题）。
+        if vehicle.road_edge_ids.is_empty() {
+            return Err(Error::SumoModel(format!(
+                "selected vehicle {:?} missing inline <route>",
+                vehicle.id
+            )));
+        }
         records.push(PopulationRecord {
             population_rank: u32::try_from(rank).expect("rank fits u32"),
             vehicle_id: vehicle.id.clone(),
@@ -210,6 +219,30 @@ mod tests {
         let error =
             select_population(&[missing_pos], false).expect_err("selected missing departPos fails");
         assert!(error.to_string().contains("departPos"), "{error}");
+    }
+
+    #[test]
+    fn missing_inline_route_checked_on_selected_set_only() {
+        // #253 W1：缺内联 <route> 的失败域限在入选集——截断尾部的缺失不参与
+        // 判定；入选集内的缺失 fail-closed。
+        let selected = vehicle("keep", "passenger1", "28800", &["west", "east"]);
+        let mut tail_missing = vehicle("tail", "passenger1", "28000", &["west", "east"]);
+        tail_missing.road_edge_ids = Vec::new();
+        let tail_only = vec![selected, tail_missing];
+        assert_eq!(
+            select_population(&tail_only, false)
+                .expect("tail missing route ignored")
+                .len(),
+            1
+        );
+
+        let mut missing = vehicle("v", "passenger1", "28800", &["west"]);
+        missing.road_edge_ids = Vec::new();
+        let error = select_population(&[missing], false).expect_err("selected missing route fails");
+        assert!(
+            error.to_string().contains("missing inline <route>"),
+            "{error}"
+        );
     }
 
     #[test]

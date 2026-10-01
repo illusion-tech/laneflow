@@ -58,14 +58,22 @@ fn parse_vehicle(
     let type_id = required_attr(node, "type")?;
     let depart = ExactDecimal::from_str(&required_attr(node, "depart")?)?;
     let depart_pos = node.attribute("departPos").map(str::to_owned);
-    // #253 Q9：恰好一个内联 <route>——取首个会静默忽略其余声明。
+    // #253 Q9：恰好一个内联 <route>——取首个会静默忽略其余声明。多个 route
+    // 是结构形态问题，解析期即拒（失败域口径不变）；缺失 route 按 K3(a) 契约
+    // 失败域口径推迟到入选集（select_population），解析期原样保留（缺失也收）。
     let mut routes = node
         .children()
         .filter(|child| child.is_element() && child.tag_name().name() == "route");
     let Some(route) = routes.next() else {
-        return Err(Error::SumoModel(format!(
-            "DUE vehicle {id:?} missing inline <route>"
-        )));
+        return Ok(DueVehicle {
+            id,
+            type_id,
+            depart,
+            road_edge_ids: Vec::new(),
+            depart_pos,
+            source_file_ordinal,
+            source_vehicle_ordinal,
+        });
     };
     if routes.next().is_some() {
         return Err(Error::SumoModel(format!(
@@ -119,5 +127,33 @@ mod tests {
             error.to_string().contains("multiple inline <route>"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn missing_inline_route_keeps_record_at_parse_time() {
+        // #253 W1：缺失 route 按 K3(a) 失败域口径推迟到入选集——解析期原样
+        // 保留（缺失也收），不整文件失败；present 但 edges 为空的结构形态问题
+        // 仍在解析期拒绝（口径不变）。
+        let xml = r#"<routes>
+  <vehicle id="v0" type="passenger1" depart="28800">
+    <route edges="a b"/>
+  </vehicle>
+  <vehicle id="v1" type="bus" depart="28800"/>
+</routes>"#;
+        let vehicles = super::parse_due_routes_xml(xml, 0).expect("missing route tolerated");
+        assert_eq!(vehicles.len(), 2);
+        assert_eq!(vehicles[0].road_edge_ids, ["a", "b"]);
+        assert!(
+            vehicles[1].road_edge_ids.is_empty(),
+            "missing route kept as empty edge list"
+        );
+
+        let empty_edges = r#"<routes>
+  <vehicle id="v2" type="passenger1" depart="28800">
+    <route edges=""/>
+  </vehicle>
+</routes>"#;
+        let error = super::parse_due_routes_xml(empty_edges, 0).expect_err("empty edges fail");
+        assert!(error.to_string().contains("no edges"), "{error}");
     }
 }
