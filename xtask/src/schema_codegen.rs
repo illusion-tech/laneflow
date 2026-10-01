@@ -19,6 +19,9 @@ const AUDITED_MMAP_MANIFEST_PATH: &str = "crates/laneflow-format-mmap/Cargo.toml
 const AUDITED_MMAP_PACKAGE_ROOT: &str = "crates/laneflow-format-mmap";
 const AUDITED_MMAP_SOURCE_PATH: &str = "crates/laneflow-format-mmap/src/lib.rs";
 const AUDITED_MMAP_EXPRESSION: &str = "unsafe { MmapOptions::new().len(expected).map(&self.file) }";
+pub(crate) const AUDITED_MOTION_PACKAGE_NAME: &str = "laneflow-motion-kernel";
+const AUDITED_MOTION_PACKAGE_ROOT: &str = "crates/laneflow-motion-kernel";
+const AUDITED_MOTION_MANIFEST_PATH: &str = "crates/laneflow-motion-kernel/Cargo.toml";
 
 /// 一个私有 wire 家族的固定路径与命令面。
 pub(crate) struct WireFamily {
@@ -372,6 +375,10 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         .map_err(|error| {
             format!("无法解析 `{AUDITED_MMAP_MANIFEST_PATH}` 的受审计 mmap 边界: {error}")
         })?;
+    let audited_motion_manifest = repository_root
+        .join(AUDITED_MOTION_MANIFEST_PATH)
+        .canonicalize()
+        .map_err(|error| format!("无法解析 SIMD 数值边界 manifest: {error}"))?;
 
     let manifests = workspace_manifest_paths(repository_root)?;
     for manifest in manifests {
@@ -383,6 +390,10 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         }
         let text = fs::read_to_string(&manifest)
             .map_err(|error| format!("无法读取 `{}`: {error}", manifest.display()))?;
+        if manifest == audited_motion_manifest {
+            check_audited_motion_manifest(&text)?;
+            continue;
+        }
         if manifest == audited_mmap_manifest {
             if !toml_has_value(&text, "lints.rust", "unsafe_code", "allow") {
                 return Err(format!(
@@ -414,6 +425,100 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         )?;
     }
     check_audited_mmap_sources(repository_root)?;
+    check_audited_motion_sources(repository_root)?;
+    Ok(())
+}
+
+/// ADR 0031 登记的数值边界没有 build 脚本、外部依赖、过程宏或额外 target。
+/// 与精确文件名单叠加，保证 compiler 可达源码落在四个受检文件内。
+fn check_audited_motion_manifest(text: &str) -> Result<(), String> {
+    let manifest: toml::Table = text
+        .parse()
+        .map_err(|error| format!("SIMD manifest: {error}"))?;
+    let package = manifest
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .ok_or("SIMD 数值边界缺少 package")?;
+    if package.get("name").and_then(toml::Value::as_str) != Some(AUDITED_MOTION_PACKAGE_NAME)
+        || package.contains_key("build")
+        || manifest
+            .keys()
+            .any(|key| !["package", "lints"].contains(&key.as_str()))
+        || !toml_has_value(text, "lints.rust", "unsafe_code", "allow")
+        || !toml_has_value(text, "lints.rust", "unsafe_op_in_unsafe_fn", "deny")
+        || toml_has_value(text, "lints", "workspace", "true")
+    {
+        return Err("SIMD 例外仅限登记的无依赖数值 crate，必须保留 unsafe_op_in_unsafe_fn deny；不得添加构建脚本或编译入口".into());
+    }
+    Ok(())
+}
+
+fn check_audited_motion_source(relative: &str, text: &str) -> Result<(), String> {
+    if ![
+        "src/lib.rs",
+        "src/x86.rs",
+        "src/projection.rs",
+        "src/tests.rs",
+    ]
+    .contains(&relative)
+    {
+        return Err(format!("未登记的 SIMD 数值源：{relative}"));
+    }
+    let code = strip_non_code(text);
+    // 禁止真实 token，也禁止作为 macro_rules 参数传入加载指令/属性名的间接形态。
+    for token in [
+        "include",
+        "path",
+        "cfg_attr",
+        "unsafe_code",
+        "unsafe_op_in_unsafe_fn",
+        "asm",
+        "global_asm",
+        "llvm_asm",
+    ] {
+        if contains_bare_token(&code, token) {
+            return Err(format!("SIMD 数值边界禁止 `{token}`：{relative}"));
+        }
+    }
+    check_path_attribute_values(text, relative, PathAttributePolicy::RejectAll)?;
+    if !["src/lib.rs", "src/x86.rs"].contains(&relative) && contains_unsafe_token(&code) {
+        return Err(format!("数值接口/ISA 文件外不得包含 unsafe：{relative}"));
+    }
+    if relative != "src/x86.rs" && contains_bare_token(&code, "target_feature") {
+        return Err(format!("ISA 属性仅允许登记的 x86 数值源：{relative}"));
+    }
+    Ok(())
+}
+
+pub(crate) fn check_audited_motion_sources(repository_root: &Path) -> Result<(), String> {
+    let package_root = repository_root
+        .join(AUDITED_MOTION_PACKAGE_ROOT)
+        .canonicalize()
+        .map_err(|error| format!("SIMD 数值边界目录：{error}"))?;
+    check_audited_motion_manifest(
+        &fs::read_to_string(package_root.join("Cargo.toml"))
+            .map_err(|error| format!("SIMD 数值 manifest：{error}"))?,
+    )?;
+    if package_root.join("build.rs").exists() {
+        return Err("SIMD 数值边界禁止自动发现的 build.rs".into());
+    }
+    let mut sources = Vec::new();
+    collect_extension_files(&package_root, OsStr::new("rs"), &mut sources)?;
+    for source in sources {
+        let resolved = source
+            .canonicalize()
+            .map_err(|error| format!("SIMD source：{error}"))?;
+        if !resolved.starts_with(&package_root) {
+            return Err("SIMD 数值源不得越过登记目录".into());
+        }
+        let relative = source
+            .strip_prefix(&package_root)
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let text = fs::read_to_string(&source).map_err(|error| error.to_string())?;
+        check_audited_motion_source(&relative, &text)?;
+    }
     Ok(())
 }
 
@@ -1154,6 +1259,47 @@ mod tests {
             "unsafe_code",
             "forbid"
         ));
+    }
+
+    #[test]
+    fn audited_motion_boundary_rejects_lint_loading_and_target_escapes() {
+        let manifest = "[package]\nname = \"laneflow-motion-kernel\"\n[lints.rust]\nunsafe_code = \"allow\"\nunsafe_op_in_unsafe_fn = \"deny\"\n";
+        check_audited_motion_manifest(manifest).unwrap();
+        for bad in [
+            manifest.replace("laneflow-motion-kernel", "laneflow-runtime"),
+            manifest.replace(
+                "unsafe_op_in_unsafe_fn = \"deny\"",
+                "unsafe_op_in_unsafe_fn = \"allow\"",
+            ),
+            format!("{manifest}\n[dependencies]\nexternal = \"1\"\n"),
+            format!("{manifest}\n[lib]\npath = \"../payload.txt\"\n"),
+            manifest.replace("[lints.rust]", "build = \"payload.txt\"\n[lints.rust]"),
+        ] {
+            assert!(check_audited_motion_manifest(&bad).is_err(), "{bad}");
+        }
+        check_audited_motion_source("src/x86.rs", "unsafe fn numeric() { unsafe { load() }; }")
+            .unwrap();
+        for bad in [
+            "#[path = \"../payload.txt\"] mod escape;",
+            "# [path = \"escape.rs\"] mod escape;",
+            "#[cfg_attr(windows, path = \"escape.rs\")] mod escape;",
+            "include!(\"payload.txt\");",
+            "macro_rules! m { ($x:ident) => { $x!(\"payload.txt\") } } m!(include);",
+            "#![allow(unsafe_op_in_unsafe_fn)]",
+            "asm!(\"nop\");",
+        ] {
+            assert!(
+                check_audited_motion_source("src/x86.rs", bad).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(check_audited_motion_source("src/projection.rs", "unsafe { load() }").is_err());
+        assert!(check_audited_motion_source("src/other.rs", "unsafe { load() }").is_err());
+        check_audited_motion_source(
+            "src/tests.rs",
+            "// unsafe, include!, path\nlet s = \"unsafe\";",
+        )
+        .unwrap();
     }
 
     #[test]

@@ -63,7 +63,7 @@ fn recipe(source: &Path, target: &Path, inherited: &Value, native: &Value) -> Re
     if EXPERIMENT.protocol == "columnar-motion-runtime-v1"
         && source
             .file_name()
-            .is_some_and(|name| name == "candidate-plain-source")
+            .is_some_and(|name| name.to_string_lossy().starts_with("candidate-"))
     {
         args.extend(["--features".to_owned(), "motion-kernel-evidence".to_owned()]);
     }

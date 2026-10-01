@@ -62,45 +62,78 @@ struct DirectoryEntry {
     control: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct MotionBlock {
-    pub(crate) route_cursor: [u32; BLOCK_ROWS],
-    pub(crate) progress_mm: [u32; BLOCK_ROWS],
-    pub(crate) speed_mm_s: [u32; BLOCK_ROWS],
-    pub(crate) carry_um: [u16; BLOCK_ROWS],
+    pub(crate) route_cursor: Vec<u32>,
+    pub(crate) progress_mm: Vec<u32>,
+    pub(crate) speed_mm_s: Vec<u32>,
+    pub(crate) carry_um: Vec<u16>,
     pub(crate) valid: [u64; BLOCK_ROWS / 64],
 }
 
-impl Default for MotionBlock {
-    fn default() -> Self {
-        Self {
-            route_cursor: [0; BLOCK_ROWS],
-            progress_mm: [0; BLOCK_ROWS],
-            speed_mm_s: [0; BLOCK_ROWS],
-            carry_um: [0; BLOCK_ROWS],
-            valid: [0; BLOCK_ROWS / 64],
-        }
+impl MotionBlock {
+    pub(crate) fn try_with_rows(rows: usize) -> Result<Self, TryReserveError> {
+        let mut block = Self::default();
+        block.try_grow_rows(rows)?;
+        Ok(block)
+    }
+
+    fn try_grow_rows(&mut self, rows: usize) -> Result<(), TryReserveError> {
+        debug_assert!(rows <= BLOCK_ROWS);
+        grow_column(&mut self.route_cursor, rows, 0)?;
+        grow_column(&mut self.progress_mm, rows, 0)?;
+        grow_column(&mut self.speed_mm_s, rows, 0)?;
+        grow_column(&mut self.carry_um, rows, 0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_columns_bytes(&self) -> u64 {
+        use crate::kernel::state::vec_bytes;
+        vec_bytes(&self.route_cursor)
+            + vec_bytes(&self.progress_mm)
+            + vec_bytes(&self.speed_mm_s)
+            + vec_bytes(&self.carry_um)
     }
 }
 
-#[derive(Clone, Debug)]
-struct ContextBlock {
-    owner: [Option<VehicleHandle>; BLOCK_ROWS],
-    route: [Option<RouteHandle>; BLOCK_ROWS],
-    profile: [Option<VehicleProfileOrdinal>; BLOCK_ROWS],
-    class: [Option<ParticipantClassOrdinal>; BLOCK_ROWS],
-    length_mm: [u32; BLOCK_ROWS],
+fn grow_column<T: Clone>(column: &mut Vec<T>, rows: usize, zero: T) -> Result<(), TryReserveError> {
+    column.try_reserve_exact(rows.saturating_sub(column.len()))?;
+    column.resize(rows, zero);
+    Ok(())
 }
 
-impl Default for ContextBlock {
-    fn default() -> Self {
-        Self {
-            owner: [None; BLOCK_ROWS],
-            route: [None; BLOCK_ROWS],
-            profile: [None; BLOCK_ROWS],
-            class: [None; BLOCK_ROWS],
-            length_mm: [0; BLOCK_ROWS],
-        }
+#[derive(Clone, Debug, Default)]
+struct ContextBlock {
+    owner: Vec<Option<VehicleHandle>>,
+    route: Vec<Option<RouteHandle>>,
+    profile: Vec<Option<VehicleProfileOrdinal>>,
+    class: Vec<Option<ParticipantClassOrdinal>>,
+    length_mm: Vec<u32>,
+}
+
+impl ContextBlock {
+    fn try_with_rows(rows: usize) -> Result<Self, TryReserveError> {
+        let mut block = Self::default();
+        block.try_grow_rows(rows)?;
+        Ok(block)
+    }
+
+    fn try_grow_rows(&mut self, rows: usize) -> Result<(), TryReserveError> {
+        grow_column(&mut self.owner, rows, None)?;
+        grow_column(&mut self.route, rows, None)?;
+        grow_column(&mut self.profile, rows, None)?;
+        grow_column(&mut self.class, rows, None)?;
+        grow_column(&mut self.length_mm, rows, 0)
+    }
+
+    #[cfg(test)]
+    fn retained_columns_bytes(&self) -> u64 {
+        use crate::kernel::state::vec_bytes;
+        vec_bytes(&self.owner)
+            + vec_bytes(&self.route)
+            + vec_bytes(&self.profile)
+            + vec_bytes(&self.class)
+            + vec_bytes(&self.length_mm)
     }
 }
 
@@ -117,7 +150,7 @@ pub(crate) struct VehicleStore {
     context: Vec<ContextBlock>,
     control: Vec<ControlState>,
     inactive: Vec<Option<VehicleState>>,
-    free_active: Vec<usize>,
+    free_active: Vec<u32>,
     free_inactive: Vec<usize>,
     free_control: Vec<usize>,
     capacity: usize,
@@ -144,9 +177,22 @@ impl VehicleStore {
         self.motion.try_reserve_exact(blocks - self.motion.len())?;
         self.context
             .try_reserve_exact(blocks - self.context.len())?;
-        self.motion.resize_with(blocks, MotionBlock::default);
-        self.context.resize_with(blocks, ContextBlock::default);
-        self.free_active.extend((self.capacity..capacity).rev());
+        for block in 0..blocks {
+            let rows = (capacity - block * BLOCK_ROWS).min(BLOCK_ROWS);
+            if block < self.motion.len() {
+                self.motion[block].try_grow_rows(rows)?;
+                self.context[block].try_grow_rows(rows)?;
+            } else {
+                let motion = MotionBlock::try_with_rows(rows)?;
+                let context = ContextBlock::try_with_rows(rows)?;
+                self.motion.push(motion);
+                self.context.push(context);
+            }
+        }
+        self.free_active
+            .extend((self.capacity..capacity).rev().map(|row| {
+                u32::try_from(row).expect("physical row fits validated u32 vehicle capacity")
+            }));
         self.capacity = capacity;
         Ok(())
     }
@@ -366,7 +412,9 @@ impl VehicleStore {
                         self.motion[position / BLOCK_ROWS].valid[position % BLOCK_ROWS / 64] &=
                             !(1 << (position % 64));
                         self.context[position / BLOCK_ROWS].owner[position % BLOCK_ROWS] = None;
-                        self.free_active.push(position);
+                        self.free_active.push(
+                            u32::try_from(position).expect("physical row fits vehicle capacity"),
+                        );
                     }
                     Location::Inactive(row) => {
                         self.inactive[row] = None;
@@ -375,7 +423,9 @@ impl VehicleStore {
                     Location::Vacant => {}
                 }
                 if active {
-                    Location::Active(self.free_active.pop().expect("active row preallocated"))
+                    Location::Active(
+                        self.free_active.pop().expect("active row preallocated") as usize
+                    )
                 } else if slot.state.is_some() {
                     let row = self.free_inactive.pop().unwrap_or_else(|| {
                         let row = self.inactive.len();
@@ -458,6 +508,16 @@ impl VehicleStore {
             + vec_bytes(&self.free_active)
             + vec_bytes(&self.free_inactive)
             + vec_bytes(&self.free_control)
+            + self
+                .motion
+                .iter()
+                .map(MotionBlock::retained_columns_bytes)
+                .sum::<u64>()
+            + self
+                .context
+                .iter()
+                .map(ContextBlock::retained_columns_bytes)
+                .sum::<u64>()
     }
 }
 
