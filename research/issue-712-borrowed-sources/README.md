@@ -1,11 +1,8 @@
 # 借用来源与 Adapter 缓冲复用 A/B 测量
 
-> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> **旧工具退役**：本目录的原始证据和分析／拒绝测试脚本已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
 
-原分析与拒绝测试仍可接收外部证据；当前树不再提供完整的默认 `evidence/` 输入。
-新批次继续显式传入重放树，复核旧批次的拒绝测试则按下文命令传入归档中的
-完整目录。原始环境身份及拒绝条件不改写。
 
 关联 [#712](https://github.com/illusion-tech/laneflow/issues/712)。独立 workspace
 研究程序，对照同一测量程序在两份生产源码上的来源读取与完整 Adapter 提取：
@@ -48,7 +45,7 @@ A/B 都不包含 #718（基线两侧一致，不做跨成分相减）。
 - 正确性：每数据集输出完整提取结果的 SHA-256 oracle（车辆句柄 + 位模式级
   记录 + 上下文）；汇总器逐日志强制完整 15 键 oracle 集合、样本编号唯一、
   A/B 程序身份与 feature 方向（A=legacy-source，B=默认）；拒绝测试
-  `test-analyze.ps1` 6/6 通过。
+  当时归档内的 `test-analyze.ps1` 6/6 通过。
 
 ## 结果（2026-09-19 第四轮取证；完整数值见 results.csv，环境见 summary-table.md）
 
@@ -76,12 +73,13 @@ retained 口径（Adapter 可观测范围）：输入候选 capacity×16 B + 车
 
 #718 在取证时未合并。组合验证基于 **#718 head `6bc440e8268f8d5f74ec7db07290fe4ac826a443`**
 与本栈 `63fbcd5a` 的临时预集成提交 `e619371e`（throwaway，不入栈）。
-`run-combination.ps1` 完整重现（失败即终止：每条 Git/Cargo 命令检查退出码；
+当时的 `run-combination.ps1` 完整重现（失败即终止：每条 Git/Cargo 命令检查退出码；
 过滤执行的测试断言实际通过数 ≥ 预期；`-SelfCheck` 验证损坏补丁被拒绝且失败
 传播为非零退出；测试过滤器按目标拆分，不跨目标误过滤）：建 worktree → 固定
 双 head 合并 → 应用 `combination-observation.patch` → 运行下列测试。最近一次
-复现头 `b84f388f`（栈 `e3ae83a6` 前身 + 6bc440e8 + 补丁）。#718 再前进时按
-增量影响重跑适用测试（不重跑不含 #718 的基础 A/B）。
+复现头 `b84f388f`（栈 `e3ae83a6` 前身 + 6bc440e8 + 补丁）。此处保留当时的组合
+观察和按增量影响复核的方法边界；后续争议按需恢复冻结源码，不安排例行复核，
+也不重跑不含 #718 的基础 A/B。
 
 补丁新增 Runtime 库内直接观察（`pose_source_observation_tests`，用 #718 的
 `cfg(test)` 钩子，不经外部集成测试冒用私有入口）：
@@ -102,49 +100,15 @@ retained 口径（Adapter 可观测范围）：输入候选 capacity×16 B + 车
 
 以上即组合四项的直接见证；早期"叠加其上"式表述作废。
 
-## 复现
+## 旧工具退役与按需追溯
 
-```powershell
-cargo clippy --locked --offline --manifest-path research/issue-712-borrowed-sources/Cargo.toml --all-targets -- -D warnings
-cargo clippy --locked --offline --manifest-path research/issue-712-borrowed-sources/Cargo.toml --all-targets --features allocation -- -D warnings
-cargo fmt --manifest-path research/issue-712-borrowed-sources/Cargo.toml -- --check
-cargo run --locked --offline --release --manifest-path research/issue-712-borrowed-sources/Cargo.toml -- --smoke
-# A 侧在基线工作树复制本目录后（features 必须 legacy-source）：
-# 重放输出到全新的临时证据树（已入库的 evidence/ 目录不可复用——run.ps1
-# 要求输出目录必须新），并按方法节声明的 A₁B₁B₂A₂A₃B₃ 交错顺序在两个
-# 工作树之间交替执行（$beforeTree = 基线工作树 b52f9ec4 + 未跟踪本目录；
-# $afterTree = 本栈工作树）：
-# 工作树准备：B 侧即当前仓库检出（本栈）；A 侧另建基线 worktree 并复制本目录。
-$afterTree = (Get-Location).Path
-$beforeTree = '../issue-712-baseline-worktree'
-git worktree add --detach $beforeTree b52f9ec4b792a158aed45f0ca4f536379073684f
-Copy-Item -Recurse (Join-Path $afterTree 'research/issue-712-borrowed-sources') `
-    (Join-Path $beforeTree 'research/issue-712-borrowed-sources')
-$replay = (Join-Path (Get-Location) 'target/issue-712-replay/evidence')
-$seq = @(
-    @('before', 1), @('after', 1), @('after', 2),
-    @('before', 2), @('before', 3), @('after', 3)
-)
-foreach ($step in $seq) {
-    $side = $step[0]; $round = $step[1]
-    $tree = if ($side -eq 'before') { $beforeTree } else { $afterTree }
-    $features = if ($side -eq 'before') { @('-Features', 'legacy-source') } else { @() }
-    $allow = if ($side -eq 'before') { 'research/issue-712-borrowed-sources/' } else { 'research/issue-712-borrowed-sources/evidence' }
-    Push-Location $tree
-    pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 `
-        -Output "$replay/$side/run$round" -AllowUntracked $allow @features
-    $code = $LASTEXITCODE
-    Pop-Location
-    if ($code -ne 0) { throw "capture $side/run$round failed with exit $code" }
-}
-# 汇总（-Evidence/-Results/-SummaryTable 全部指向重放树，不覆盖归档结果）：
-pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1 `
-    -Evidence $replay -Results (Join-Path $replay 'results.csv') `
-    -SummaryTable (Join-Path $replay 'summary-table.md')
-pwsh -NoProfile -File research/issue-712-borrowed-sources/test-analyze.ps1 -Evidence <归档解包根>/source/research/issue-712-borrowed-sources/evidence
-pwsh -NoProfile -File research/issue-712-borrowed-sources/run-combination.ps1
-cargo test --locked -p laneflow-runtime -p laneflow-bevy --tests
-```
+`analyze.ps1` 与 `test-analyze.ps1` 已从当前树移除，原始证据目录一并迁入
+[冻结归档](../archives/2026-10-01-json-migration.md)。简短结果表、研究源码、
+历史结论与上述观察边界保留；生产回归测试及其夹具不受本次退役影响。
 
-run.ps1 要求 HEAD 稳定、跟踪文件干净、evidence 目录为新目录；binary 不入库
-（SHA-256 记录于 environment.json）。测量源码提交后再取证；证据另行提交。
+旧复现方法查阅[冻结版本 README](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-712-borrowed-sources/README.md)。脚本与原始证据位于归档的
+`source/research/issue-712-borrowed-sources/`；完整源码、Git 历史、下载地址及 SHA-256
+均由归档索引绑定。当前目录不再提供旧分析命令，也不将这些入口重写为 Rust。
+
+不安排例行复核。出现相关回归或结论争议时，由调查该问题的人按需恢复归档，
+按当时的源码身份、输入和观察口径复核；新的调查结果单独报告，不改写旧结论。
