@@ -1,6 +1,6 @@
 // #814：仅追加到受检诊断导出树；逐行记录在线程内累加，任务结束才归约。
 const PIPELINE_TIMES: usize = 28;
-const PIPELINE_COUNTS: usize = 40;
+const PIPELINE_COUNTS: usize = 48;
 struct PipelineLocal {
     work: [u64; 20],
     nanos: [u64; PIPELINE_TIMES],
@@ -96,7 +96,7 @@ pub(crate) fn take_columnar_work() -> [u64; 20] {
     flush_pipeline();
     std::array::from_fn(|index| COLUMNAR_WORK[index].swap(0, std::sync::atomic::Ordering::Relaxed))
 }
-pub(crate) fn take_pipeline() -> ([u64; 28], [u64; 28], [u64; 40]) {
+pub(crate) fn take_pipeline() -> ([u64; 28], [u64; 28], [u64; 48]) {
     flush_pipeline();
     (
         std::array::from_fn(|index| {

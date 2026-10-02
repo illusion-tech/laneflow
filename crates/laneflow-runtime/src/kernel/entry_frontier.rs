@@ -333,21 +333,18 @@ impl FrontierMaintenance {
     ) -> Result<(), StepError> {
         self.pending_near.clear();
         self.pending_invalid.clear();
-        let active = updates
-            .iter(current)
-            .filter(|(_, state)| state.status == VehicleStatus::Active)
-            .count();
+        let active = updates.active_len();
         // 两侧一起备好。只扩 pending 时，publish 交换后另一侧会在下一拍首次增长。
         reserve_capacity(&mut self.pending_near, active)?;
         reserve_capacity(&mut self.pending_invalid, active)?;
         reserve_capacity(&mut self.ready_near, active)?;
         reserve_capacity(&mut self.ready_invalid, active)?;
-        for (_, state) in updates.iter(current) {
+        for state in updates.frontier_inputs(current) {
             if state.status != VehicleStatus::Active {
                 continue;
             }
-            let vehicle = state.handle;
-            let Some(remembered) = self.remembered(vehicle, &state) else {
+            let vehicle = state.vehicle;
+            let Some(remembered) = self.remembered(state) else {
                 self.pending_near.push(vehicle);
                 self.pending_invalid.push(vehicle);
                 continue;
@@ -372,13 +369,17 @@ impl FrontierMaintenance {
         Ok(())
     }
 
-    fn remembered(&self, vehicle: VehicleHandle, state: &VehicleState) -> Option<RememberedSlot> {
+    fn remembered(
+        &self,
+        state: super::motion_updates::FrontierMotionInput,
+    ) -> Option<RememberedSlot> {
+        let vehicle = state.vehicle;
         let slot = self.slots.get(usize::try_from(vehicle.index()).ok()?)?;
         if !slot.valid
             || slot.generation != vehicle.generation()
             || slot.route_index != state.route.index()
             || slot.route_generation != state.route.generation()
-            || slot.edge != state.route_edge_index
+            || slot.edge != state.cursor
             || state.progress_mm < slot.progress
         {
             return None;
@@ -397,7 +398,8 @@ impl FrontierMaintenance {
         state: &VehicleState,
         horizon_ms: u64,
     ) -> Option<u32> {
-        let remembered = self.remembered(vehicle, state)?;
+        debug_assert_eq!(vehicle, state.handle);
+        let remembered = self.remembered(state.into())?;
         let traveled = state.progress_mm.saturating_sub(remembered.progress);
         if remembered.first_excluded_mm != NO_DISTANCE_MM {
             let remaining = remembered.first_excluded_mm.saturating_sub(traveled);
@@ -2002,6 +2004,42 @@ mod tests {
             )
         });
         rows
+    }
+
+    #[test]
+    fn ordinary_motion_outside_resource_rows_publishes_near_and_invalid_frontier() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let old = world.vehicle(world.live_vehicles()[0]).unwrap();
+        let mut next = old;
+        next.progress_mm += 100;
+        next.speed_mm_s = 10_000;
+        let mut updates = super::super::motion_updates::MotionUpdates::from_states(
+            &[(old.handle.index() as usize, next)],
+            &world.state.committed.vehicles,
+        );
+        updates.select_resource_rows(&world.state.committed.vehicles, |_| false);
+        let mut maintenance = super::FrontierMaintenance::default();
+        maintenance.slots.resize_with(
+            old.handle.index() as usize + 1,
+            super::FrontierSlot::default,
+        );
+        let slot = &mut maintenance.slots[old.handle.index() as usize];
+        slot.valid = true;
+        slot.generation = old.handle.generation();
+        slot.route_index = old.route.index();
+        slot.route_generation = old.route.generation();
+        slot.edge = old.route_edge_index;
+        slot.progress = old.progress_mm;
+        slot.gate_distance_mm = 150;
+        slot.first_excluded_mm = 150;
+        slot.max_accel = 0.0;
+        maintenance
+            .classify(0.1, Some(100), &updates, &world.state.committed.vehicles)
+            .unwrap();
+        assert!(updates.resource_rows().is_empty());
+        maintenance.publish();
+        assert_eq!(maintenance.ready_near, [old.handle]);
+        assert_eq!(maintenance.ready_invalid, [old.handle]);
     }
 
     #[test]
