@@ -1557,7 +1557,7 @@ impl crate::kernel::state::WorldState {
                 actual_delta_time_ms: input.delta_time_ms,
             });
         }
-        if !self.conflict_state_valid() {
+        if !self.conflict_state_valid_with(execution) {
             return Err(StepError::ConflictInvariantViolation);
         }
         let tick_index = self
@@ -1581,7 +1581,7 @@ impl crate::kernel::state::WorldState {
         #[cfg(test)]
         let occupancy_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Occupancy);
-        self.rebuild_occupancy_index()?;
+        self.rebuild_occupancy_index_with(execution)?;
         #[cfg(test)]
         drop(occupancy_timer);
         let plan = self.step_workspace().prepare_commit(
@@ -4826,7 +4826,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
         self.workspace.clear_motion_cache();
-        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;
+        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates, execution)?;
         #[cfg(test)]
         drop(output_timer);
         #[cfg(test)]

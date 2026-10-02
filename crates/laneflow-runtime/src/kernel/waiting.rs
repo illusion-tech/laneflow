@@ -1659,6 +1659,230 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 /// 用 `force_preview_dispatch` 覆盖（cfg(test)）。
 const WAITING_PREVIEW_DISPATCH_MIN_ACTIVE: usize = 1_024;
 
+/// 少于此行数时 P2 发现与消费保持串行；两遍分发的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const PREVIEW_PARALLEL_CONSUME_ROWS: usize = 4_096;
+#[cfg(test)]
+const PREVIEW_PARALLEL_CONSUME_ROWS: usize = 1;
+
+/// P2 并行发现与消费的段数上限；段统计与输出切片都放在栈上。
+const PREVIEW_MAX_PARTS: usize = 128;
+
+/// 按 live 顺序并行收集 Active 输入：先分段计数，再写进前缀和切开的互斥区间。
+/// 遇到身份失败时与串行相同地截断，并把错误留给调用方在兑现前缀后返回。
+fn discover_preview_inputs_parallel(
+    view: crate::kernel::phase::StepReadView<'_>,
+    execution: &crate::kernel::execution::ExecutionResources,
+    inputs: &mut Vec<(crate::VehicleHandle, usize)>,
+) -> Option<crate::StepError> {
+    let live = &view.committed.live_order;
+    let vehicles = &view.committed.vehicles;
+    let count = live.len();
+    let parts = execution
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(PREVIEW_MAX_PARTS)
+        .min(count)
+        .max(1);
+    let span = count.div_ceil(parts).max(1);
+    // (Active 数, 是否遇到身份失败)
+    let mut stats = [(0_usize, false); PREVIEW_MAX_PARTS];
+    execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        for vehicle in &live[start..end] {
+            match vehicles.status(*vehicle) {
+                None => {
+                    stat[0].1 = true;
+                    return;
+                }
+                Some(crate::VehicleStatus::Active) => stat[0].0 += 1,
+                Some(_) => {}
+            }
+        }
+    });
+    let used = stats[..parts]
+        .iter()
+        .position(|stat| stat.1)
+        .map_or(parts, |part| part + 1);
+    let total: usize = stats[..used].iter().map(|stat| stat.0).sum();
+    // 预留在调用方完成（上界为 Active 数），这里不会再分配。
+    inputs.resize(total, (crate::VehicleHandle::new(0, 0), 0));
+    let mut rest: &mut [(crate::VehicleHandle, usize)] = inputs;
+    let mut work: [Option<&mut [(crate::VehicleHandle, usize)]>; PREVIEW_MAX_PARTS] =
+        std::array::from_fn(|_| None);
+    for (slot, stat) in work.iter_mut().zip(&stats[..used]) {
+        let (part, tail) = std::mem::take(&mut rest).split_at_mut(stat.0);
+        *slot = Some(part);
+        rest = tail;
+    }
+    execution.for_each_part(&mut work[..used], 1, |part, output| {
+        let Some(output) = output[0].as_mut() else {
+            return;
+        };
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        let mut at = 0;
+        for (sequence, vehicle) in live[start..end].iter().copied().enumerate() {
+            match vehicles.status(vehicle) {
+                None => return,
+                Some(crate::VehicleStatus::Active) => {
+                    output[at] = (vehicle, start + sequence);
+                    at += 1;
+                }
+                Some(_) => {}
+            }
+        }
+    });
+    stats[..parts]
+        .iter()
+        .any(|stat| stat.1)
+        .then_some(crate::StepError::WaitingInvariantViolation)
+}
+
+/// P2 并行规范消费：分段找首个未完成或出错的槽，并行写稠密的同拍缓存行，
+/// 只把需要基础复用或带完整预览的稀疏行留给协调器按序处理。
+/// 结果与串行逐槽 `stage_waiting_preview` 完全相同；稀疏缓冲预留失败返回 `None`。
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+fn consume_waiting_previews_parallel(
+    execution: &crate::kernel::execution::ExecutionResources,
+    inputs: &[(crate::VehicleHandle, usize)],
+    slots: &[crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>],
+    bases: &[Vec<crate::kernel::tick::MotionBasis>],
+    chunk_size: usize,
+    cache_limit: usize,
+    motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
+    next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
+    motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
+    sparse: &mut Vec<u32>,
+) -> Option<Result<(), crate::StepError>> {
+    use crate::kernel::execution::DispatchSlot;
+    let count = inputs.len().min(slots.len());
+    let parts = execution
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(PREVIEW_MAX_PARTS)
+        .min(count)
+        .max(1);
+    let span = count.div_ceil(parts).max(1);
+    let is_sparse = |index: usize, entry: &crate::kernel::tick::WaitingPreviewEntry| {
+        entry.preview.is_some() || (entry.basis_index.is_some() && index < cache_limit)
+    };
+    // (首个不合格槽及其错误, 之前的稀疏行数)
+    let mut stats = [(None::<(usize, crate::StepError)>, 0_usize); PREVIEW_MAX_PARTS];
+    execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        for (index, slot) in slots[start..end].iter().enumerate() {
+            let index = start + index;
+            match slot {
+                DispatchSlot::Done(Ok(entry)) => stat[0].1 += usize::from(is_sparse(index, entry)),
+                DispatchSlot::Done(Err(error)) => {
+                    stat[0].0 = Some((index, *error));
+                    return;
+                }
+                DispatchSlot::Pending | DispatchSlot::Skipped => {
+                    stat[0].0 = Some((index, crate::StepError::WaitingInvariantViolation));
+                    return;
+                }
+            }
+        }
+    });
+    let bad_part = stats[..parts].iter().position(|stat| stat.0.is_some());
+    let first_bad = bad_part.and_then(|part| stats[part].0);
+    let used = bad_part.map_or(parts, |part| part + 1);
+    let limit = first_bad.map_or(count, |(index, _)| index);
+    let dense = limit.min(cache_limit);
+    let total: usize = stats[..used].iter().map(|stat| stat.1).sum();
+    // 稀疏缓冲是可选暂存：预留失败交回串行消费，不新增领域错误。
+    sparse.clear();
+    if sparse.try_reserve(total).is_err() {
+        return None;
+    }
+    // 缓存容量即 `cache_limit`，稠密行不会超过它，不再分配。
+    motion_cache.clear();
+    motion_cache.resize(
+        dense,
+        crate::kernel::tick::MotionCacheEntry {
+            vehicle: crate::VehicleHandle::new(0, 0),
+            update_sequence: 0,
+            gate_reachable: None,
+            horizon: None,
+            preview: None,
+            basis_index: None,
+        },
+    );
+    sparse.resize(total, 0);
+    {
+        let mut cache_rest: &mut [crate::kernel::tick::MotionCacheEntry] = motion_cache;
+        let mut sparse_rest: &mut [u32] = sparse;
+        let mut work: [Option<(&mut [crate::kernel::tick::MotionCacheEntry], &mut [u32])>;
+            PREVIEW_MAX_PARTS] = std::array::from_fn(|_| None);
+        for (slot, stat) in work.iter_mut().zip(&stats[..used]) {
+            let take = span.min(cache_rest.len());
+            let (cache, cache_tail) = std::mem::take(&mut cache_rest).split_at_mut(take);
+            let (sparse_part, sparse_tail) = std::mem::take(&mut sparse_rest).split_at_mut(stat.1);
+            *slot = Some((cache, sparse_part));
+            cache_rest = cache_tail;
+            sparse_rest = sparse_tail;
+        }
+        execution.for_each_part(&mut work[..used], 1, |part, output| {
+            let Some((cache, sparse)) = output[0].as_mut() else {
+                return;
+            };
+            let start = (part * span).min(limit);
+            let end = (start + span).min(limit);
+            let mut at = 0;
+            for index in start..end {
+                let DispatchSlot::Done(Ok(entry)) = &slots[index] else {
+                    return;
+                };
+                let (vehicle, update_sequence) = inputs[index];
+                if let Some(row) = cache.get_mut(index - part * span) {
+                    *row = crate::kernel::tick::MotionCacheEntry {
+                        vehicle,
+                        update_sequence,
+                        gate_reachable: entry.gate_reachable,
+                        horizon: entry.horizon,
+                        preview: entry.preview,
+                        basis_index: None,
+                    };
+                }
+                if is_sparse(index, entry) {
+                    sparse[at] = u32::try_from(index).expect("preview index fits u32");
+                    at += 1;
+                }
+            }
+        });
+    }
+    for &index in sparse.iter() {
+        let index = index as usize;
+        let DispatchSlot::Done(Ok(entry)) = &slots[index] else {
+            continue;
+        };
+        if index < cache_limit
+            && let Some(position) = entry.basis_index
+        {
+            let stored = bases[index / chunk_size]
+                .get(position.get() as usize - 1)
+                .copied()
+                .and_then(|basis| crate::kernel::tick::store_motion_basis(motion_bases, basis));
+            if let Some(row) = motion_cache.get_mut(index) {
+                row.basis_index = stored;
+            }
+        }
+        if let Some(next) = entry.preview.map(|preview| preview.next) {
+            next_states.push((inputs[index].1, next));
+        }
+    }
+    Some(match first_bad {
+        Some((_, error)) => Err(error),
+        None => Ok(()),
+    })
+}
+
 /// 规范消费一个已完成预览：按现行 staging 规则写 `motion_cache`（受
 /// `cache_limit` 容量降级约束）与 `next_states`（仅预览存在时写入）。
 fn stage_waiting_preview(
@@ -1762,16 +1986,23 @@ fn prepare_waiting_previews_dispatched(
     #[cfg(test)]
     let _discover = preview_stage::begin(preview_stage::PREAMBLE);
     let mut pending_identity_error = None;
-    for (sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
-        let Some(status) = view.committed.vehicles.status(vehicle) else {
-            // 身份失败：更晚输入不再收集；先兑现已收集前缀的更早义务。
-            pending_identity_error = Some(crate::StepError::WaitingInvariantViolation);
-            break;
-        };
-        if status != crate::VehicleStatus::Active {
-            continue;
+    if execution.coordinator_parallel()
+        && view.committed.live_order.len() >= PREVIEW_PARALLEL_CONSUME_ROWS
+    {
+        pending_identity_error =
+            execution.install(|| discover_preview_inputs_parallel(view, execution, inputs));
+    } else {
+        for (sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
+            let Some(status) = view.committed.vehicles.status(vehicle) else {
+                // 身份失败：更晚输入不再收集；先兑现已收集前缀的更早义务。
+                pending_identity_error = Some(crate::StepError::WaitingInvariantViolation);
+                break;
+            };
+            if status != crate::VehicleStatus::Active {
+                continue;
+            }
+            inputs.push((vehicle, sequence));
         }
-        inputs.push((vehicle, sequence));
     }
     #[cfg(test)]
     drop(_discover);
@@ -1916,11 +2147,72 @@ fn prepare_waiting_previews_dispatched(
     }
     #[cfg(test)]
     let _consume = preview_stage::begin(preview_stage::CONSUME);
-    for (cache_index, ((vehicle, update_sequence), slot)) in workspace
-        .waiting_preview_inputs
-        .iter()
-        .zip(slots.iter())
-        .enumerate()
+    let parallel = if workload >= PREVIEW_PARALLEL_CONSUME_ROWS
+        && execution.coordinator_parallel()
+        && let Some(mut sparse) = execution.sparse_indices()
+    {
+        let inputs = &workspace.waiting_preview_inputs;
+        let slots = &*slots;
+        let bases = &bases[..chunk_count];
+        let motion_cache = &mut workspace.motion_cache;
+        let next_states = &mut workspace.next_states;
+        let motion_bases = &mut workspace.motion_bases;
+        let sparse = &mut *sparse;
+        execution.install(|| {
+            consume_waiting_previews_parallel(
+                execution,
+                inputs,
+                slots,
+                bases,
+                chunk_size,
+                cache_limit,
+                motion_cache,
+                next_states,
+                motion_bases,
+                sparse,
+            )
+        })
+    } else {
+        None
+    };
+    if let Some(result) = parallel {
+        result?;
+    } else {
+        consume_waiting_previews_serial(
+            &workspace.waiting_preview_inputs,
+            slots,
+            bases,
+            chunk_size,
+            cache_limit,
+            &mut workspace.motion_cache,
+            &mut workspace.next_states,
+            &mut workspace.motion_bases,
+        )?;
+    }
+    // 前缀全部成功才公开发现阶段记录的身份终止错误；更早预览错误已在上文返回。
+    if let Some(error) = pending_identity_error {
+        return Err(error);
+    }
+    for bases in bases.iter_mut() {
+        bases.clear();
+    }
+    Ok(())
+}
+
+/// 串行规范消费：逐槽按序暂存，首个未完成或出错的槽返回。
+#[allow(clippy::too_many_arguments)]
+fn consume_waiting_previews_serial(
+    inputs: &[(crate::VehicleHandle, usize)],
+    slots: &[crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>],
+    bases: &[Vec<crate::kernel::tick::MotionBasis>],
+    chunk_size: usize,
+    cache_limit: usize,
+    motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
+    next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
+    motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
+) -> Result<(), crate::StepError> {
+    for (cache_index, ((vehicle, update_sequence), slot)) in
+        inputs.iter().zip(slots.iter()).enumerate()
     {
         match slot {
             crate::kernel::execution::DispatchSlot::Done(Ok(entry)) => {
@@ -1930,12 +2222,10 @@ fn prepare_waiting_previews_dispatched(
                     .and_then(|index| bases[cache_index / chunk_size].get(index.get() as usize - 1))
                     .copied()
                     .filter(|_| cache_index < cache_limit)
-                    .and_then(|basis| {
-                        crate::kernel::tick::store_motion_basis(&mut workspace.motion_bases, basis)
-                    });
+                    .and_then(|basis| crate::kernel::tick::store_motion_basis(motion_bases, basis));
                 stage_waiting_preview(
-                    &mut workspace.motion_cache,
-                    &mut workspace.next_states,
+                    motion_cache,
+                    next_states,
                     cache_index,
                     cache_limit,
                     *vehicle,
@@ -1949,13 +2239,6 @@ fn prepare_waiting_previews_dispatched(
                 return Err(crate::StepError::WaitingInvariantViolation);
             }
         }
-    }
-    // 前缀全部成功才公开发现阶段记录的身份终止错误；更早预览错误已在上文返回。
-    if let Some(error) = pending_identity_error {
-        return Err(error);
-    }
-    for bases in bases.iter_mut() {
-        bases.clear();
     }
     Ok(())
 }

@@ -899,6 +899,74 @@ fn compute(
     }
 }
 
+/// 并行规范消费；规范顺序里有已离开存储的句柄时返回 `None`，交回串行消费。
+/// 单独成函数且不内联，串行路径的代码生成不受影响。
+#[inline(never)]
+fn consume_parallel(
+    resources: &crate::kernel::execution::ExecutionResources,
+    read: crate::kernel::phase::StepReadView<'_>,
+    arrivals: &mut Vec<ParkingArrivalObservation>,
+    updates: &mut MotionUpdates,
+) -> Option<Result<(), StepError>> {
+    let mut specials = resources.sparse_indices()?;
+    let specials_buffer = &mut *specials;
+    let adopted = resources.install(|| {
+        updates.adopt_parallel(
+            resources,
+            &read.derived.active_order,
+            &read.committed.vehicles,
+            specials_buffer,
+        )
+    });
+    let first_bad = match adopted {
+        Err(error) => return Some(Err(error)),
+        Ok(crate::kernel::motion_updates::ParallelAdopt::Fallback) => return None,
+        Ok(crate::kernel::motion_updates::ParallelAdopt::Adopted { first_bad }) => first_bad,
+    };
+    let mut consume = || -> Result<(), StepError> {
+        for &rank in specials.iter() {
+            let rank = rank as usize;
+            let handle = read.derived.active_order[rank];
+            let physical = read
+                .committed
+                .vehicles
+                .active_row(handle)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let report = updates.reports[physical];
+            if report.arrival {
+                let Some(ParkingBinding::Reserved(reservation)) =
+                    read.committed.parking.binding(handle)
+                else {
+                    return Err(StepError::ParkingInvariantViolation);
+                };
+                push_parking_arrival(
+                    arrivals,
+                    ParkingArrivalObservation {
+                        vehicle: handle,
+                        target: reservation.target(),
+                    },
+                    read.binding.world_id,
+                )?;
+            }
+            if report.completed {
+                updates.adopt_completed(rank, &read.committed.vehicles)?;
+            }
+        }
+        match first_bad {
+            Some((_, error)) => Err(error),
+            None => Ok(()),
+        }
+    };
+    Some(consume())
+}
+
+/// 少于此 Active 数时串行消费；两遍分发的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const ADOPT_PARALLEL_ROWS: usize = 4_096;
+#[cfg(test)]
+const ADOPT_PARALLEL_ROWS: usize = 1;
+
 pub(super) fn prepare(
     workspace: &mut crate::kernel::state::TickWorkspace,
     read: crate::kernel::phase::StepReadView<'_>,
@@ -980,6 +1048,22 @@ pub(super) fn prepare(
     };
     let kernel = workspace.motion_kernel;
     let rank = &workspace.next_state_by_vehicle;
+    // 递减票据需要估计剩余块数：只数有活动行的存储块，与 `chunks` 的过滤一致。
+    let total_works = read
+        .committed
+        .vehicles
+        .motion
+        .iter()
+        .take(extent.div_ceil(BLOCK_ROWS))
+        .enumerate()
+        .filter(|(_, block)| block.valid.iter().any(|&bits| bits != 0))
+        .map(|(block, _)| {
+            extent
+                .saturating_sub(block * BLOCK_ROWS)
+                .min(BLOCK_ROWS)
+                .div_ceil(rows)
+        })
+        .sum::<usize>();
     let work = chunks(updates, &read.committed.vehicles, extent, rows);
     let calculate = |_: crate::kernel::phase::StepReadView<'_>, start, chunk| {
         #[cfg(test)]
@@ -997,7 +1081,7 @@ pub(super) fn prepare(
         }
     };
     if let Some(execution) = execution {
-        let stats = execution.for_each_work(read, work, works_per_ticket, calculate);
+        let stats = execution.for_each_work(read, work, works_per_ticket, total_works, calculate);
         #[cfg(test)]
         {
             crate::kernel::execution::note_last_dispatch_stats(stats);
@@ -1023,6 +1107,14 @@ pub(super) fn prepare(
         }
     }
     // 规范首错及每辆车的真实到达 reserve 交错保留，物理块和 ISA 都不改变消费顺序。
+    // 多线程时并行归约：worker 写 order、校验回报并收集稀疏行，协调器只按 rank
+    // 串行处理早于最小出错 rank 的到达与完成行，再返回首错。
+    if let Some(resources) = execution
+        .filter(|resources| resources.coordinator_parallel() && workload >= ADOPT_PARALLEL_ROWS)
+        && let Some(done) = consume_parallel(resources, read, arrivals, updates)
+    {
+        return done;
+    }
     for (canonical_rank, handle) in read.derived.active_order.iter().copied().enumerate() {
         if read.committed.vehicles.status(handle).is_none() {
             continue;

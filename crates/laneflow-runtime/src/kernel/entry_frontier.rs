@@ -330,6 +330,7 @@ impl FrontierMaintenance {
         horizon_ms: Option<u64>,
         updates: &super::motion_updates::MotionUpdates,
         current: &super::vehicle_store::VehicleStore,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         self.pending_near.clear();
         self.pending_invalid.clear();
@@ -339,34 +340,150 @@ impl FrontierMaintenance {
         reserve_capacity(&mut self.pending_invalid, active)?;
         reserve_capacity(&mut self.ready_near, active)?;
         reserve_capacity(&mut self.ready_invalid, active)?;
-        for state in updates.frontier_inputs(current) {
-            if state.status != VehicleStatus::Active {
-                continue;
+        let rows = updates.len();
+        let parallel = execution
+            .filter(|resources| resources.coordinator_parallel() && rows >= CLASSIFY_PARALLEL_ROWS);
+        let Some(resources) = parallel else {
+            for index in 0..rows {
+                let Some((vehicle, near, dirty)) =
+                    self.classify_row(delta_s, horizon_ms, updates.frontier_input(index, current))
+                else {
+                    continue;
+                };
+                if near {
+                    self.pending_near.push(vehicle);
+                }
+                if dirty {
+                    self.pending_invalid.push(vehicle);
+                }
             }
-            let vehicle = state.vehicle;
-            let Some(remembered) = self.remembered(state) else {
-                self.pending_near.push(vehicle);
-                self.pending_invalid.push(vehicle);
-                continue;
-            };
-            let traveled = state.progress_mm.saturating_sub(remembered.progress);
-            let reach = one_tick_reach_mm(state.speed_mm_s, remembered.max_accel, delta_s);
-            let gate_remaining = remembered.gate_distance_mm.saturating_sub(traveled);
-            let near = remembered.gate_distance_mm != NO_DISTANCE_MM
-                && (!reach.is_finite() || f64::from(gate_remaining) <= reach);
-            let dirty = horizon_ms.is_some_and(|horizon| {
-                remembered.first_excluded_mm != NO_DISTANCE_MM
-                    && f64::from(remembered.first_excluded_mm.saturating_sub(traveled))
-                        <= horizon_reach_mm(state.speed_mm_s, remembered.max_accel, horizon)
-            });
-            if near {
-                self.pending_near.push(vehicle);
-            }
-            if dirty {
-                self.pending_invalid.push(vehicle);
-            }
-        }
+            return Ok(());
+        };
+        // 两遍并行：先按连续更新段计数，再把各段写进按前缀和切开的互斥区间。
+        // 段序即更新序，结果与串行逐行 push 完全相同；计数与切片都在栈上。
+        let mut near = std::mem::take(&mut self.pending_near);
+        let mut invalid = std::mem::take(&mut self.pending_invalid);
+        let this = &*self;
+        resources.install(|| {
+            this.classify_parallel(
+                resources,
+                delta_s,
+                horizon_ms,
+                updates,
+                current,
+                &mut near,
+                &mut invalid,
+            )
+        });
+        self.pending_near = near;
+        self.pending_invalid = invalid;
         Ok(())
+    }
+
+    /// 两遍并行分类，输出写进调用方交来的两张名单。
+    #[allow(clippy::too_many_arguments)]
+    fn classify_parallel(
+        &self,
+        resources: &crate::kernel::execution::ExecutionResources,
+        delta_s: f32,
+        horizon_ms: Option<u64>,
+        updates: &super::motion_updates::MotionUpdates,
+        current: &super::vehicle_store::VehicleStore,
+        near: &mut Vec<VehicleHandle>,
+        invalid: &mut Vec<VehicleHandle>,
+    ) {
+        let rows = updates.len();
+        let parts = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(CLASSIFY_MAX_PARTS)
+            .min(rows)
+            .max(1);
+        let span = rows.div_ceil(parts).max(1);
+        let mut counts = [(0_usize, 0_usize); CLASSIFY_MAX_PARTS];
+        resources.for_each_part(&mut counts[..parts], 1, |part, count| {
+            let start = (part * span).min(rows);
+            let end = (start + span).min(rows);
+            for index in start..end {
+                if let Some((_, near, dirty)) =
+                    self.classify_row(delta_s, horizon_ms, updates.frontier_input(index, current))
+                {
+                    count[0].0 += usize::from(near);
+                    count[0].1 += usize::from(dirty);
+                }
+            }
+        });
+        let near_total: usize = counts[..parts].iter().map(|count| count.0).sum();
+        let invalid_total: usize = counts[..parts].iter().map(|count| count.1).sum();
+        near.resize(near_total, VehicleHandle::new(0, 0));
+        invalid.resize(invalid_total, VehicleHandle::new(0, 0));
+        {
+            let mut near_rest: &mut [VehicleHandle] = near;
+            let mut invalid_rest: &mut [VehicleHandle] = invalid;
+            let mut outputs: [Option<(&mut [VehicleHandle], &mut [VehicleHandle])>;
+                CLASSIFY_MAX_PARTS] = std::array::from_fn(|_| None);
+            for (output, count) in outputs.iter_mut().zip(&counts[..parts]) {
+                let (near_part, near_tail) = std::mem::take(&mut near_rest).split_at_mut(count.0);
+                let (invalid_part, invalid_tail) =
+                    std::mem::take(&mut invalid_rest).split_at_mut(count.1);
+                *output = Some((near_part, invalid_part));
+                near_rest = near_tail;
+                invalid_rest = invalid_tail;
+            }
+            resources.for_each_part(&mut outputs[..parts], 1, |part, output| {
+                let Some((near_out, invalid_out)) = output[0].as_mut() else {
+                    return;
+                };
+                let (mut near_at, mut invalid_at) = (0, 0);
+                let start = (part * span).min(rows);
+                let end = (start + span).min(rows);
+                for index in start..end {
+                    let Some((vehicle, near, dirty)) = self.classify_row(
+                        delta_s,
+                        horizon_ms,
+                        updates.frontier_input(index, current),
+                    ) else {
+                        continue;
+                    };
+                    if near {
+                        near_out[near_at] = vehicle;
+                        near_at += 1;
+                    }
+                    if dirty {
+                        invalid_out[invalid_at] = vehicle;
+                        invalid_at += 1;
+                    }
+                }
+                debug_assert_eq!((near_at, invalid_at), (near_out.len(), invalid_out.len()));
+            });
+        }
+    }
+
+    /// 一行的近门与失效判定；非 Active 返回 `None`。只读，可并行调用。
+    fn classify_row(
+        &self,
+        delta_s: f32,
+        horizon_ms: Option<u64>,
+        state: super::motion_updates::FrontierMotionInput,
+    ) -> Option<(VehicleHandle, bool, bool)> {
+        if state.status != VehicleStatus::Active {
+            return None;
+        }
+        let vehicle = state.vehicle;
+        let Some(remembered) = self.remembered(state) else {
+            return Some((vehicle, true, true));
+        };
+        let traveled = state.progress_mm.saturating_sub(remembered.progress);
+        let reach = one_tick_reach_mm(state.speed_mm_s, remembered.max_accel, delta_s);
+        let gate_remaining = remembered.gate_distance_mm.saturating_sub(traveled);
+        let near = remembered.gate_distance_mm != NO_DISTANCE_MM
+            && (!reach.is_finite() || f64::from(gate_remaining) <= reach);
+        let dirty = horizon_ms.is_some_and(|horizon| {
+            remembered.first_excluded_mm != NO_DISTANCE_MM
+                && f64::from(remembered.first_excluded_mm.saturating_sub(traveled))
+                    <= horizon_reach_mm(state.speed_mm_s, remembered.max_accel, horizon)
+        });
+        Some((vehicle, near, dirty))
     }
 
     fn remembered(
@@ -656,6 +773,15 @@ struct RememberedSlot {
     gate_distance_mm: u32,
     max_accel: f32,
 }
+
+/// 少于此行数时串行分类；分发两遍的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const CLASSIFY_PARALLEL_ROWS: usize = 4_096;
+#[cfg(test)]
+const CLASSIFY_PARALLEL_ROWS: usize = 1;
+/// 并行分类段数上限；计数与输出切片都放在栈上。
+const CLASSIFY_MAX_PARTS: usize = 128;
 
 fn reserve_capacity(list: &mut Vec<VehicleHandle>, needed: usize) -> Result<(), StepError> {
     if list.capacity() >= needed {
@@ -978,6 +1104,7 @@ pub(crate) fn classify_pending(
     step: &mut StepWorkspace<'_>,
     delta_s: f32,
     updates: &super::motion_updates::MotionUpdates,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
 ) -> Result<(), StepError> {
     let Some(horizon_ms) = step.frontier_proof_horizon_ms() else {
         let maintenance = &mut step.workspace.frontier_maintenance;
@@ -990,6 +1117,7 @@ pub(crate) fn classify_pending(
         Some(horizon_ms),
         updates,
         &step.committed.vehicles,
+        execution,
     )
 }
 
@@ -2034,7 +2162,13 @@ mod tests {
         slot.first_excluded_mm = 150;
         slot.max_accel = 0.0;
         maintenance
-            .classify(0.1, Some(100), &updates, &world.state.committed.vehicles)
+            .classify(
+                0.1,
+                Some(100),
+                &updates,
+                &world.state.committed.vehicles,
+                None,
+            )
             .unwrap();
         assert!(updates.resource_rows().is_empty());
         maintenance.publish();
