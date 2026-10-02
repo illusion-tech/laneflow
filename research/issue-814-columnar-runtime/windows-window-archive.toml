@@ -1,0 +1,52 @@
+schema = "lf814-windows-window-envelope-index-v1"
+source_commit = "988db1a052c4ae9574cfe68d4a1fa6216c2ad5eb"
+source_tree = "fd7451942608575dc85f7e691b552f5e1e7c4180"
+performance_acceptance = false
+pmu_per_tick_verified = false
+formal_scaling_runs = 0
+
+[archive]
+path = "E:/projects/laneflow-evidence/issue-814/deliveries/20261002-windows-window/windows-window-20261002.tar.zst"
+bytes = 585888271
+sha256 = "eed7e277b9c05906d2b074975c346e585450472ffdf2e021feb24df0fe3319cc"
+manifest_sha256 = "090990030004630c4f6ce45c129be57633e4afdd8c2680de76eed9bad7e410d9"
+members = 4384
+public_download_available = false
+public_download_url = ""
+
+[capture]
+workers = 4
+ticks_per_process = 256
+ordinary_validation_processes = 4
+independent_diagnostic_processes = 1
+wpr_pilot_processes = 2
+initial_total_vehicles = 100000
+initial_active_vehicles = 75000
+initial_parked_vehicles = 25000
+traffic_verified = true
+marker_windows_verified = true
+pmc_status_events = 32
+pmc_status_entries = 64
+pmc_status_overlaps_all_step_windows = true
+
+[controls]
+affinity_mask = 85
+physical_cpu_indices = [0, 2, 4, 6]
+boost_before = 2
+boost_during = 0
+boost_after = 2
+power_restored = true
+own_wpr_session_closed = true
+elevated_helper_exited = true
+
+[restore]
+fresh_outer_restore_verified = true
+source_files = 1408
+source_git_blobs_verified = true
+functional_executable_restore_verified = true
+previous_archive_verified = true
+previous_restore_reused = true
+
+[previous]
+sha256 = "f526afa1c82422f36dd5263ef6607f7a46cc973a6ac0d51b2d17fb6ec98c5dcb"
+note = "内嵌完整前轮归档；复用已有恢复证明，不声称重新恢复历史所有内层"
