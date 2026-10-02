@@ -179,14 +179,23 @@ fn instrument_preview(root: &Path) -> Result<()> {
             "    slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);",
             "    slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);\n    drop(_slot_timer);\n    super::tick::note_pipeline(2, workload);",
         ),
-        (
-            WAITING,
-            "    for (cache_index, ((vehicle, update_sequence), slot)) in workspace",
-            "    let _consume_timer = super::tick::PipelineTimer::begin(2);\n    for (cache_index, ((vehicle, update_sequence), slot)) in workspace",
-        ),
     ] {
         patch(root, file, old, new)?;
     }
+    // P2 规范消费：早期源码是协调器内联循环，并行消费后改为按工作量分派的两条路径。
+    let consume = if fs::read_to_string(root.join(WAITING))?
+        .contains("    let parallel = if workload >= PREVIEW_PARALLEL_CONSUME_ROWS")
+    {
+        "    let parallel = if workload >= PREVIEW_PARALLEL_CONSUME_ROWS"
+    } else {
+        "    for (cache_index, ((vehicle, update_sequence), slot)) in workspace"
+    };
+    patch(
+        root,
+        WAITING,
+        consume,
+        &format!("    let _consume_timer = super::tick::PipelineTimer::begin(2);\n{consume}"),
+    )?;
     Ok(())
 }
 
@@ -194,11 +203,20 @@ fn instrument_finalize(root: &Path) -> Result<()> {
     let frontier_file = "crates/laneflow-runtime/src/kernel/entry_frontier.rs";
     let narrow_frontier = fs::read_to_string(root.join(frontier_file))?
         .contains("        let active = updates.active_len();");
+    let classify_call = if fs::read_to_string(root.join(TICK))?
+        .contains("        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates, execution)?;")
+    {
+        "        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates, execution)?;"
+    } else {
+        "        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;"
+    };
     patch(
         root,
         TICK,
-        "        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;",
-        "        let _frontier_timer = PipelineTimer::begin(27);\n        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;\n        drop(_frontier_timer);",
+        classify_call,
+        &format!(
+            "        let _frontier_timer = PipelineTimer::begin(27);\n{classify_call}\n        drop(_frontier_timer);"
+        ),
     )?;
     let active_count = if narrow_frontier {
         "        let active = updates.active_len();"
@@ -218,7 +236,11 @@ fn instrument_finalize(root: &Path) -> Result<()> {
             }
         ),
     )?;
-    let classify_loop = if narrow_frontier {
+    let indexed_frontier = fs::read_to_string(root.join(frontier_file))?
+        .contains("        let rows = updates.len();\n        let parallel = execution");
+    let classify_loop = if indexed_frontier {
+        "        let rows = updates.len();\n        let parallel = execution"
+    } else if narrow_frontier {
         "        for state in updates.frontier_inputs(current) {"
     } else {
         "        for (_, state) in updates.iter(current) {"
