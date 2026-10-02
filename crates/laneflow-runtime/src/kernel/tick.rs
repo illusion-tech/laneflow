@@ -5823,7 +5823,7 @@ mod preview {
             conflict_gate_ranges: Vec::new(),
             final_conflict_clearance: None,
             nearest_motion_barriers: Vec::new(),
-            waiting_maneuver_bits: Vec::new(),
+            waiting_maneuver_bits: Box::default(),
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.
         let candidate = 66.89_f32;
