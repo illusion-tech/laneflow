@@ -57,23 +57,27 @@ impl VerifiedSourceTar {
 }
 
 /// Inputs for the versioned semantic provenance manifest.
+///
+/// 全部字节字段借用而非持有——source tar 约 143 MB，克隆它只为哈希会
+/// 在打包原件与输出缓冲之外再造一份完整副本（受资源限制的 runner 有
+/// OOM 风险）。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SemanticProvenanceInput {
+pub struct SemanticProvenanceInput<'a> {
     pub semantic_config: SemanticConfig,
     pub licenses: LicenseArtifacts,
     pub release_urls: ReleaseAssetUrls,
-    pub source_tar: VerifiedSourceTar,
+    pub source_tar: &'a VerifiedSourceTar,
     /// 诊断模式（G1 重划）不交付 static bundle：`None` 时 releaseAssets /
     /// semanticOutputs 的对应字段序列化不出现（#253 N1）。
-    pub static_tar: Option<Vec<u8>>,
+    pub static_tar: Option<&'a [u8]>,
     /// 同上：诊断模式无 network.lfca（编译另立 G1），认证对象为诊断清单。
-    pub network_lfca_bytes: Option<Vec<u8>>,
+    pub network_lfca_bytes: Option<&'a [u8]>,
     /// 诊断交付物（`issue253-infeasible-survey.md`）；fail-fast 路径为 None。
-    pub infeasibility_survey_bytes: Option<Vec<u8>>,
+    pub infeasibility_survey_bytes: Option<&'a [u8]>,
     /// 诊断模式为 None（#253 L1：routes.toml 不产出）。
-    pub routes_toml_bytes: Option<Vec<u8>>,
-    pub manifest_bytes: Vec<u8>,
-    pub conversion_report_bytes: Vec<u8>,
+    pub routes_toml_bytes: Option<&'a [u8]>,
+    pub manifest_bytes: &'a [u8],
+    pub conversion_report_bytes: &'a [u8],
 }
 
 /// Inputs for the per-build provenance record.
@@ -251,7 +255,7 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
                 input.release_urls.source_bundle_url.clone(),
                 input.source_tar.bytes(),
             ),
-            static_bundle: input.static_tar.as_ref().map(|tar| {
+            static_bundle: input.static_tar.map(|tar| {
                 release_asset(
                     "lust-static.tar",
                     input.release_urls.static_bundle_url.clone(),
@@ -262,20 +266,17 @@ pub fn build_semantic_provenance(input: &SemanticProvenanceInput) -> Result<Vec<
         semantic_outputs: SemanticOutputs {
             network_lfca: input
                 .network_lfca_bytes
-                .as_ref()
                 .map(|bytes| artifact("network.lfca", bytes)),
             routes_toml: input
                 .routes_toml_bytes
-                .as_ref()
                 .map(|bytes| artifact("routes.toml", bytes)),
-            manifest_toml: artifact("manifest.toml", &input.manifest_bytes),
+            manifest_toml: artifact("manifest.toml", input.manifest_bytes),
             conversion_report: artifact(
                 "lust-conversion-report.json",
-                &input.conversion_report_bytes,
+                input.conversion_report_bytes,
             ),
             infeasibility_survey: input
                 .infeasibility_survey_bytes
-                .as_ref()
                 .map(|bytes| artifact("issue253-infeasible-survey.md", bytes)),
         },
     };
@@ -376,13 +377,13 @@ mod tests {
             semantic_config: SemanticConfig::default(),
             licenses,
             release_urls: ReleaseAssetUrls::default(),
-            source_tar: source_tar.clone(),
+            source_tar: &source_tar,
             static_tar: None,
-            network_lfca_bytes: Some(b"LFCA\\n".to_vec()),
+            network_lfca_bytes: Some(b"LFCA\\n"),
             infeasibility_survey_bytes: None,
-            routes_toml_bytes: Some(b"format_version = \"0.1\"\n".to_vec()),
-            manifest_bytes: b"manifest_version = 1\\n".to_vec(),
-            conversion_report_bytes: b"{}\\n".to_vec(),
+            routes_toml_bytes: Some(b"format_version = \"0.1\"\n"),
+            manifest_bytes: b"manifest_version = 1\\n",
+            conversion_report_bytes: b"{}\\n",
         };
         let first = build_semantic_provenance(&semantic_input).expect("semantic");
         let second = build_semantic_provenance(&semantic_input).expect("semantic again");
@@ -419,30 +420,35 @@ mod tests {
 
     #[test]
     fn semantic_digest_tracks_only_semantic_config_subset() {
-        let licenses = || LicenseArtifacts {
-            license_md: b"MIT\\n".to_vec(),
-            odbl: embedded_odbl_bytes().to_vec(),
-            notice: embedded_notice_bytes().to_vec(),
-        };
-        let make_input = |semantic_config: SemanticConfig| SemanticProvenanceInput {
-            semantic_config,
-            licenses: licenses(),
-            release_urls: ReleaseAssetUrls::default(),
-            source_tar: synthetic_verified_source_tar(),
-            static_tar: Some(
-                write_deterministic_ustar(&[TarMember {
-                    path: "network.lfca".to_owned(),
-                    contents: b"LFCA\\n".to_vec(),
-                }])
-                .expect("static tar"),
-            ),
-            network_lfca_bytes: Some(b"LFCA\\n".to_vec()),
-            infeasibility_survey_bytes: None,
-            routes_toml_bytes: Some(b"format_version = \"0.1\"\n".to_vec()),
-            manifest_bytes: b"manifest_version = 1\\n".to_vec(),
-            conversion_report_bytes: b"{}\\n".to_vec(),
-        };
-        let base = make_input(SemanticConfig::default());
+        fn make_input<'a>(
+            semantic_config: SemanticConfig,
+            source_tar: &'a VerifiedSourceTar,
+            static_tar: &'a [u8],
+        ) -> SemanticProvenanceInput<'a> {
+            SemanticProvenanceInput {
+                semantic_config,
+                licenses: LicenseArtifacts {
+                    license_md: b"MIT\\n".to_vec(),
+                    odbl: embedded_odbl_bytes().to_vec(),
+                    notice: embedded_notice_bytes().to_vec(),
+                },
+                release_urls: ReleaseAssetUrls::default(),
+                source_tar,
+                static_tar: Some(static_tar),
+                network_lfca_bytes: Some(b"LFCA\\n"),
+                infeasibility_survey_bytes: None,
+                routes_toml_bytes: Some(b"format_version = \"0.1\"\n"),
+                manifest_bytes: b"manifest_version = 1\\n",
+                conversion_report_bytes: b"{}\\n",
+            }
+        }
+        let source_tar = synthetic_verified_source_tar();
+        let static_tar = write_deterministic_ustar(&[TarMember {
+            path: "network.lfca".to_owned(),
+            contents: b"LFCA\\n".to_vec(),
+        }])
+        .expect("static tar");
+        let base = make_input(SemanticConfig::default(), &source_tar, &static_tar);
         let base_bytes = build_semantic_provenance(&base).expect("base semantic");
         let base_text = String::from_utf8_lossy(&base_bytes);
         assert!(
@@ -450,17 +456,22 @@ mod tests {
             "执行侧字段不得进入语义 manifest"
         );
         // 语义配置子集变化 → digest 变。
-        let other_urls = make_input(SemanticConfig {
-            source_bundle_url: Some("https://example.invalid/a.tar".to_owned()),
-            static_bundle_url: None,
-        });
+        let other_urls = make_input(
+            SemanticConfig {
+                source_bundle_url: Some("https://example.invalid/a.tar".to_owned()),
+                static_bundle_url: None,
+            },
+            &source_tar,
+            &static_tar,
+        );
         let other_bytes = build_semantic_provenance(&other_urls).expect("other semantic");
         assert_ne!(
             base_bytes, other_bytes,
             "语义配置变化必须改变 semantic provenance"
         );
         // 同语义配置、不同执行侧产物字节 → digest 不变。
-        let same_config_different_outputs = make_input(SemanticConfig::default());
+        let same_config_different_outputs =
+            make_input(SemanticConfig::default(), &source_tar, &static_tar);
         let same_bytes =
             build_semantic_provenance(&same_config_different_outputs).expect("same semantic");
         assert_eq!(base_bytes, same_bytes, "语义 digest 只随语义配置子集变化");

@@ -244,13 +244,14 @@ fn convert_verified(
         },
         licenses: licenses.clone(),
         release_urls,
-        source_tar: source_tar.clone(),
-        static_tar: static_tar.clone(),
-        network_lfca_bytes: (!diagnostic).then(|| static_artifacts.topology.network_lfca.clone()),
-        infeasibility_survey_bytes: diagnostic.then(|| survey.clone().into_bytes()),
-        routes_toml_bytes: static_artifacts.routes_toml.clone(),
-        manifest_bytes: manifest.clone(),
-        conversion_report_bytes: report.clone(),
+        source_tar: &source_tar,
+        static_tar: static_tar.as_deref(),
+        network_lfca_bytes: (!diagnostic)
+            .then_some(static_artifacts.topology.network_lfca.as_slice()),
+        infeasibility_survey_bytes: diagnostic.then_some(survey.as_bytes()),
+        routes_toml_bytes: static_artifacts.routes_toml.as_deref(),
+        manifest_bytes: manifest.as_slice(),
+        conversion_report_bytes: report.as_slice(),
     })?;
 
     let converter_commit = resolve_converter_commit(config)?;
