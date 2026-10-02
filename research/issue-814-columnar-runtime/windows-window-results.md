@@ -52,4 +52,68 @@
 开销仍须实际验证，之后才启动 40 进程矩阵。
 
 本轮测量工具和既有研究工具的 30 项测试、Clippy（`-D warnings`）通过；原生读取
-和 WMI 定义保存在仓库外。后续实际构建、运行与归档验封结果在完成后追加到本页。
+和 WMI 定义保存在仓库外。工具源码冻结于
+`988db1a052c4ae9574cfe68d4a1fa6216c2ad5eb`；生产 Runtime / motion-kernel 仍与
+`abd0a253` 一致。两臂和新诊断均按既有受控配方、Rust 1.98.0 构建。
+
+## 普通验证与新阶段表
+
+五个普通权限进程完成：两臂分别开关 Windows 标记，另有一个独立诊断。每进程
+256 拍，绑到四个已核实物理核，全部载荷、checkpoint、状态/决定/事件/交通匹配
+冻结 AoS 参照。该组没有关闭 boost，也没有完整平衡的探针开销矩阵；不报告探针
+净开销或性能收益。两个有标记进程的最大边界宽度分别为 2300、2200 ns，时钟偏差为 0。
+
+独立诊断每拍整数 ns 闭合，以下是**一个进程**的阶段均值，整拍 **21.032949 ms**：
+
+| 互斥段 | ms/拍 |
+| --- | --- |
+| Preflight | 2.438606 |
+| Occupancy | 2.767763 |
+| WaitingPrepare 自身 | 0.373809 |
+| ConflictPrepare 自身 | 2.814575 |
+| MotionLoop 自身 | 0.047318 |
+| WaitingFinalize | 0.129649 |
+| Signals | 0.112823 |
+| ConflictFinalize | 1.097196 |
+| WaitingOutputs | 1.271423 |
+| Commit | 0.649841 |
+| Frontier | 1.804052 |
+| P4 | 0.217951 |
+| P5Dispatch，含完整 join | 4.001705 |
+| P5Consume | 0.460559 |
+| WaitingPreview | 2.686904 |
+| P6 Validation | 0.152457 |
+| 未归属框架与 probe 余量 | 0.006317 |
+
+表中显示值已四舍五入；逐拍闭合使用原始整数。P6 不再混入未知余量，最终余量约占
+整拍 0.030%。这不是同比性能结论，也不从单进程推导串行时间或扩展曲线。
+
+## 绑核、临时关闭 boost 的 WPR 复测
+
+维护者另行授权一次新的短试跑及临时 boost 调整。两个独立进程各 256 拍，
+workers=4、进程亲和性 `85`（CPU 0/2/4/6，四个不同物理核）。入口读回一致，
+亲和性设置早于全部 step。AC/DC boost 指数由 2 改为 0，结束后均恢复为 2；
+电源方案和物理拓扑保持，自己的 WPR 会话已关闭，临时提权进程已退出。
+
+两臂的窗口和完整交通结果通过。ETL 247463936 B，SHA-256
+`fbfe37092c3f96c306773e95a7a4dc6e8fae20d22c927a6c1e2044ff38f8add5`，
+3363197 条事件、事件和缓冲丢失均为 0。新调查器从 `TRACE_LOGFILE_HEADER` 读取
+丢失数；不使用文档标为未使用的 `EVENT_TRACE_LOGFILE.EventsLost` 字段。
+
+同一 ETL 分别读取原始 QPC 和系统转换的 FILETIME。32 个 CPU 首尾事件的转换
+偏移完全一致，展开到同一时间域后，两臂所有 step 都在所属进程区间内；边界宽度
+最大分别为 4100、4200 ns，时钟偏差为 0。Rust 1.98.0 的 `SystemTime` 使用精确
+FILETIME，[ProcessTrace 默认转换]也使用这个纪元；没有猜测 `Instant` 内部布局。
+
+**新采集仍有 32 条状态记录、64 项计数器失效范围。四个允许 CPU 上，两臂全部
+256 拍都处于最后有效到检测之间的未认证范围，PMC 再次被拒绝。** 没有按比例
+插值、择优重跑或把整段进程计数除以 256。计数器根因、完整线程区间归约及 WPR
+开销校准仍未完成，正式矩阵为 0/40；`S_effective` 未拟合，第 0 步仍未通过。
+
+原件见 [冻结索引](windows-window-archive.toml)。新外层 4384 件、冻结源码 1408 个
+Git blob 均恢复验封；恢复实际 EXE 后重算窗口、交通、阶段、状态拒绝和原生 ETL
+结果一致。完整旧归档内嵌并验封，复用其既有恢复证明。首次找不到 PowerShell 路径
+及 `tracerpt` 拒绝 NUL 输出的失败原件保留；这两次都不构成测量结果。暂无公开下载，
+Git 只保存 Rust、短结论和索引，旧提交历史保持。
+
+[ProcessTrace 默认转换]: https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_logfilew
