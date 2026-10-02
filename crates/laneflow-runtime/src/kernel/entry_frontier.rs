@@ -1079,7 +1079,10 @@ fn gate_distance_mm(compiled: &super::tables::CompiledRoute, state: &VehicleStat
 }
 
 /// 重建本拍入口 frontier。名单未发布或世界身份变化时全量重走。
-pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
+pub(crate) fn rebuild(
+    step: &mut StepWorkspace<'_>,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
+) -> Result<(), StepError> {
     let Some(horizon_ms) = step.frontier_proof_horizon_ms() else {
         return Ok(());
     };
@@ -1095,7 +1098,7 @@ pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
     if !seeded || step.read_view().policy().is_none() {
         return full_walk(step, horizon_ms);
     }
-    held_walk(step, horizon_ms)
+    held_walk(step, horizon_ms, execution)
 }
 
 /// 用本拍运动结果写下一批近门集合和失效名单。
@@ -1139,13 +1142,17 @@ fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepEr
     Ok(())
 }
 
-fn held_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepError> {
+fn held_walk(
+    step: &mut StepWorkspace<'_>,
+    horizon_ms: u64,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
+) -> Result<(), StepError> {
     step.workspace
         .frontier_maintenance
         .snapshot_published_lists()?;
     let delta_s = step.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
     step.workspace.frontier_maintenance.begin_seen()?;
-    collect_targets(step, delta_s)?;
+    collect_targets(step, delta_s, execution)?;
     let demanded = std::mem::take(&mut step.workspace.frontier_maintenance.scratch_demanded);
 
     step.workspace.frontier_maintenance.begin_seen()?;
@@ -1321,41 +1328,167 @@ fn vehicle_from_slot(
     Ok(Some(VehicleHandle::new(index, slot.generation)))
 }
 
-fn collect_targets(step: &mut StepWorkspace<'_>, delta_s: f32) -> Result<(), StepError> {
+/// 少于此车数时串行收集；两遍分发的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const TARGETS_PARALLEL_ROWS: usize = 1_024;
+#[cfg(test)]
+const TARGETS_PARALLEL_ROWS: usize = 1;
+/// 并行收集的段数上限；段统计与输出切片都放在栈上。
+const TARGETS_MAX_PARTS: usize = 128;
+
+fn collect_targets(
+    step: &mut StepWorkspace<'_>,
+    delta_s: f32,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
+) -> Result<(), StepError> {
     step.workspace.frontier_maintenance.scratch_demanded.clear();
     if step.read_view().policy().is_none() {
         return Ok(());
     }
-    let near_len = step.workspace.frontier_maintenance.scratch_near.len();
-    let increment_len = step.workspace.frontier_maintenance.scratch_increments.len();
-    for index in 0..near_len + increment_len {
-        let vehicle = if index < near_len {
-            step.workspace.frontier_maintenance.scratch_near[index]
+    let read = crate::kernel::phase::StepReadView {
+        binding: step.binding,
+        committed: &step.committed,
+        derived: &step.derived,
+    };
+    let maintenance = &mut step.workspace.frontier_maintenance;
+    let mut demanded = std::mem::take(&mut maintenance.scratch_demanded);
+    let near = &maintenance.scratch_near;
+    let increments = &maintenance.scratch_increments;
+    let total = near.len() + increments.len();
+    let vehicle_at = |index: usize| {
+        if index < near.len() {
+            near[index]
         } else {
-            step.workspace.frontier_maintenance.scratch_increments[index - near_len]
-        };
-        let Some(state) = active_state(step, vehicle) else {
-            continue;
-        };
-        if step.conflict_reservation(vehicle).is_some() {
-            continue;
+            increments[index - near.len()]
         }
-        collect_vehicle_targets(step, state, delta_s)?;
+    };
+    // 只读：Active 状态与已持有 reservation 的车辆不收集。
+    let source = |index: usize| {
+        let vehicle = vehicle_at(index);
+        let state = read
+            .vehicle_state(vehicle)
+            .filter(|state| state.status == VehicleStatus::Active)?;
+        read.conflict_reservation(vehicle)
+            .is_none()
+            .then_some(state)
+    };
+    let result = match execution
+        .filter(|resources| resources.coordinator_parallel() && total >= TARGETS_PARALLEL_ROWS)
+    {
+        Some(resources) => resources.install(|| {
+            collect_targets_parallel(resources, read, total, &source, delta_s, &mut demanded)
+        }),
+        None => (0..total).try_for_each(|index| {
+            let Some(state) = source(index) else {
+                return Ok(());
+            };
+            collect_vehicle_targets(read, state, delta_s, &mut |address| {
+                demanded
+                    .try_reserve(1)
+                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+                demanded.push(address);
+                Ok(())
+            })
+        }),
+    };
+    if result.is_ok() {
+        demanded.sort_unstable();
+        demanded.dedup();
     }
-    step.workspace
-        .frontier_maintenance
-        .scratch_demanded
-        .sort_unstable();
-    step.workspace.frontier_maintenance.scratch_demanded.dedup();
+    step.workspace.frontier_maintenance.scratch_demanded = demanded;
+    result
+}
+
+/// 两遍并行收集：先按连续段数出每段的目标地址数（段内遇错即停），再按前缀和
+/// 切开输出并行写入。目标随后排序去重，段序与段内顺序都不影响结果；首错仍取
+/// 下标最小的一段。
+fn collect_targets_parallel(
+    resources: &crate::kernel::execution::ExecutionResources,
+    read: crate::kernel::phase::StepReadView<'_>,
+    total: usize,
+    source: &(impl Fn(usize) -> Option<VehicleState> + Sync),
+    delta_s: f32,
+    demanded: &mut Vec<ConflictPassageAddress>,
+) -> Result<(), StepError> {
+    let parts = resources
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(TARGETS_MAX_PARTS)
+        .min(total)
+        .max(1);
+    let span = total.div_ceil(parts).max(1);
+    let mut counts = [(0_usize, None::<StepError>); TARGETS_MAX_PARTS];
+    resources.for_each_part(&mut counts[..parts], 1, |part, out| {
+        let start = (part * span).min(total);
+        let end = (start + span).min(total);
+        for index in start..end {
+            let Some(state) = source(index) else {
+                continue;
+            };
+            let counted = collect_vehicle_targets(read, state, delta_s, &mut |_| {
+                out[0].0 += 1;
+                Ok(())
+            });
+            if let Err(error) = counted {
+                out[0].1 = Some(error);
+                return;
+            }
+        }
+    });
+    if let Some(error) = counts[..parts].iter().find_map(|count| count.1) {
+        return Err(error);
+    }
+    let sum: usize = counts[..parts].iter().map(|count| count.0).sum();
+    demanded.clear();
+    demanded
+        .try_reserve(sum)
+        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+    demanded.resize(
+        sum,
+        ConflictPassageAddress::new(
+            laneflow_static_contract::ConflictZoneOrdinal::from_raw(0),
+            laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
+            0,
+        ),
+    );
+    let mut rest: &mut [ConflictPassageAddress] = demanded;
+    let mut work: [Option<&mut [ConflictPassageAddress]>; TARGETS_MAX_PARTS] =
+        std::array::from_fn(|_| None);
+    for (slot, count) in work.iter_mut().zip(&counts[..parts]) {
+        let (part, tail) = std::mem::take(&mut rest).split_at_mut(count.0);
+        *slot = Some(part);
+        rest = tail;
+    }
+    resources.for_each_part(&mut work[..parts], 1, |part, output| {
+        let Some(output) = output[0].as_mut() else {
+            return;
+        };
+        let start = (part * span).min(total);
+        let end = (start + span).min(total);
+        let mut at = 0;
+        for index in start..end {
+            let Some(state) = source(index) else {
+                continue;
+            };
+            // 第一遍已证明本段无错，这里只按同一顺序写入。
+            let _ = collect_vehicle_targets(read, state, delta_s, &mut |address| {
+                output[at] = address;
+                at += 1;
+                Ok(())
+            });
+        }
+    });
     Ok(())
 }
 
 fn collect_vehicle_targets(
-    step: &mut StepWorkspace<'_>,
+    read: crate::kernel::phase::StepReadView<'_>,
     state: VehicleState,
     delta_s: f32,
+    emit: &mut impl FnMut(ConflictPassageAddress) -> Result<(), StepError>,
 ) -> Result<(), StepError> {
-    let profile = step
+    let profile = read
         .binding
         .revision
         .traffic()
@@ -1370,7 +1503,7 @@ fn collect_vehicle_targets(
         let mut hop_count = 0usize;
         let mut finished = true;
         {
-            let Some(compiled) = step.compiled_route(state.route) else {
+            let Some(compiled) = read.compiled_route(state.route) else {
                 return Err(StepError::ConflictInvariantViolation);
             };
             let cursor = if state.progress_mm == 0 && state.carry_um == 0 {
@@ -1432,7 +1565,7 @@ fn collect_vehicle_targets(
                     return Err(StepError::ConflictInvariantViolation);
                 };
                 let GatePolicyDecision::Candidate(kind) =
-                    step.read_view().gate_policy_decision(gate, state.profile)
+                    read.gate_policy_decision(gate, state.profile)
                 else {
                     continue;
                 };
@@ -1444,7 +1577,7 @@ fn collect_vehicle_targets(
             }
         }
         for gate_hop in hops[..hop_count].iter().copied() {
-            append_gate_targets(step, state, gate_hop, class)?;
+            append_gate_targets(read, state, gate_hop, class, emit)?;
         }
         if finished {
             break;
@@ -1454,10 +1587,11 @@ fn collect_vehicle_targets(
 }
 
 fn append_gate_targets(
-    step: &mut StepWorkspace<'_>,
+    read: crate::kernel::phase::StepReadView<'_>,
     state: VehicleState,
     gate_hop: u32,
     class: laneflow_static_contract::ParticipantClassOrdinal,
+    emit: &mut impl FnMut(ConflictPassageAddress) -> Result<(), StepError>,
 ) -> Result<(), StepError> {
     let mut occurrences = [ConflictPassageAddress::new(
         laneflow_static_contract::ConflictZoneOrdinal::from_raw(0),
@@ -1469,7 +1603,7 @@ fn append_gate_targets(
     loop {
         let mut batch = 0usize;
         {
-            let Some(compiled) = step.compiled_route(state.route) else {
+            let Some(compiled) = read.compiled_route(state.route) else {
                 return Err(StepError::ConflictInvariantViolation);
             };
             let range = *compiled
@@ -1499,7 +1633,7 @@ fn append_gate_targets(
         }
         for occurrence in occurrences[..batch].iter().copied() {
             let target_len = {
-                let Some(policy) = step.read_view().policy() else {
+                let Some(policy) = read.policy() else {
                     return Err(StepError::ConflictInvariantViolation);
                 };
                 let Some((zone, targets)) = policy.yield_targets(
@@ -1516,7 +1650,7 @@ fn append_gate_targets(
             };
             for target_index in 0..target_len {
                 let address = {
-                    let Some(policy) = step.read_view().policy() else {
+                    let Some(policy) = read.policy() else {
                         return Err(StepError::ConflictInvariantViolation);
                     };
                     let Some((_, targets)) = policy.yield_targets(
@@ -1535,15 +1669,7 @@ fn append_gate_targets(
                         target.passage_local_index(),
                     )
                 };
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_demanded
-                    .try_reserve(1)
-                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_demanded
-                    .push(address);
+                emit(address)?;
             }
         }
         occurrence_cursor += batch;
