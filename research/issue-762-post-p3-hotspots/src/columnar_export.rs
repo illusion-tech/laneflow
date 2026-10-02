@@ -199,7 +199,13 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
         root,
         &format!("{K}performance_profile.rs"),
         "    P4,",
-        "    P4,\n    P5Dispatch,\n    P5Consume,\n    WaitingPreview,\n    Reserved,",
+        "    P4,\n    P5Dispatch,\n    P5Consume,\n    WaitingPreview,\n    Validation,",
+    )?;
+    patch(
+        root,
+        &tick,
+        "        drop(output_timer);",
+        "        drop(output_timer);\n        let _validation_timer = super::performance_profile::begin(super::performance_profile::Stage::Validation);",
     )?;
     let path = root.join(&tick);
     let mut text = fs::read_to_string(&path)?;
