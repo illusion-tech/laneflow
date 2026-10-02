@@ -195,6 +195,9 @@ struct UnparkedVehicleAuthority {
     waiting_membership: Option<crate::WaitingMembership>,
 }
 
+/// 预检并行段数上限；栈上布尔数组，不分配。
+const PREFLIGHT_MAX_PARTS: usize = 256;
+
 impl crate::kernel::state::WorldState {
     /// 构造覆盖 committed、derived 与 workspace 三段的 Conflict 只读视图。
     pub(crate) fn conflict_read(&self) -> crate::kernel::conflict::ConflictRead<'_> {
@@ -486,108 +489,42 @@ impl crate::kernel::state::WorldState {
 
     /// 校验已提交 Conflict 状态（资格、reservation 与权威持有者）内部一致。
     pub(crate) fn conflict_state_valid(&self) -> bool {
+        self.conflict_state_valid_with(None)
+    }
+
+    /// 固定步进预检：逐车校验互不依赖，多线程时按连续车位段并行，结果只取全部为真。
+    pub(crate) fn conflict_state_valid_with(
+        &self,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> bool {
         if !self.committed.conflict_eligibility.is_empty()
             && self.committed.conflict_eligibility.len()
                 != usize::try_from(self.binding.config.vehicle_capacity()).unwrap_or(usize::MAX)
         {
             return false;
         }
-        for (index, slot) in self.committed.vehicles.iter().enumerate() {
-            let state = slot.state.as_ref();
-            let eligibility = self
-                .committed
-                .conflict_eligibility
-                .get(index)
-                .copied()
-                .flatten();
-            match (state, eligibility) {
-                (None, None) => {}
-                (None, Some(_)) => return false,
-                (Some(state), eligibility) => {
-                    if !self.conflict_read().state_valid(state) {
-                        return false;
-                    }
-                    if let Some(eligibility) = eligibility
-                        && !self.conflict_eligibility_authority_valid(state, eligibility)
-                    {
-                        return false;
-                    }
-                    if let Some(reservation) = self.conflict_reservation(state.handle) {
-                        let range = reservation.passage_range();
-                        let Some(compiled) = self.compiled_route(state.route) else {
-                            return false;
-                        };
-                        let Some(gate_range) = compiled
-                            .conflict_gate_ranges
-                            .get(range.admission_gate_hop() as usize)
-                        else {
-                            return false;
-                        };
-                        if gate_range.start != range.first_conflict_occurrence_index()
-                            || gate_range.len != range.passage_count()
-                            || reservation.acquired_tick() > self.committed.tick_index
-                        {
-                            return false;
-                        }
-                        let Some(gate_edge) = compiled
-                            .edges
-                            .get(range.admission_gate_hop() as usize)
-                            .copied()
-                        else {
-                            return false;
-                        };
-                        let Some(gate_progress_mm) = self
-                            .binding
-                            .revision
-                            .traffic()
-                            .lane_lengths_millimetres()
-                            .get(gate_edge.index())
-                            .copied()
-                        else {
-                            return false;
-                        };
-                        let Some(gate_crossed_side) = crate::DownstreamRoutePoint::new(
-                            range.admission_gate_hop(),
-                            gate_progress_mm,
-                            0,
-                        ) else {
-                            return false;
-                        };
-                        let Some(front) = crate::DownstreamRoutePoint::new(
-                            state.route_edge_index,
-                            state.progress_mm,
-                            state.carry_um,
-                        ) else {
-                            return false;
-                        };
-                        if front < gate_crossed_side {
-                            return false;
-                        }
-                        let Some(end) = range
-                            .first_conflict_occurrence_index()
-                            .checked_add(range.passage_count())
-                        else {
-                            return false;
-                        };
-                        for occurrence_index in range.first_conflict_occurrence_index()..end {
-                            let Some(locator) = self
-                                .conflict_passage_occurrence_locator(state.route, occurrence_index)
-                            else {
-                                return false;
-                            };
-                            if locator.maneuver_occurrence_index()
-                                != range.maneuver_occurrence_index()
-                                || locator.admission_gate_hop() != range.admission_gate_hop()
-                                || !self
-                                    .conflict_read()
-                                    .reservation_has_cell(state.handle, locator.address())
-                            {
-                                return false;
-                            }
-                        }
-                    }
-                }
+        let count = self.committed.vehicles.len();
+        let slots_valid = match execution.filter(|resources| resources.coordinator_parallel()) {
+            Some(resources) => {
+                let mut parts = [true; PREFLIGHT_MAX_PARTS];
+                let wanted = resources
+                    .dispatch_threads()
+                    .saturating_mul(4)
+                    .min(PREFLIGHT_MAX_PARTS)
+                    .min(count)
+                    .max(1);
+                let span = count.div_ceil(wanted).max(1);
+                resources.for_each_part(&mut parts[..wanted], 1, |part, valid| {
+                    let start = (part * span).min(count);
+                    let end = (start + span).min(count);
+                    valid[0] = (start..end).all(|index| self.conflict_slot_valid(index));
+                });
+                parts[..wanted].iter().all(|valid| *valid)
             }
+            None => (0..count).all(|index| self.conflict_slot_valid(index)),
+        };
+        if !slots_valid {
+            return false;
         }
         if self
             .committed
@@ -601,6 +538,106 @@ impl crate::kernel::state::WorldState {
             |owner| self.vehicle_state(owner).is_some(),
             self.binding.config.fixed_delta_time_ms(),
         )
+    }
+
+    /// 单个车位的 Conflict 资格、reservation 与通行区间一致性；只读，可并行调用。
+    fn conflict_slot_valid(&self, index: usize) -> bool {
+        let slot = self.committed.vehicles.slot(index);
+        let state = slot.state.as_ref();
+        let eligibility = self
+            .committed
+            .conflict_eligibility
+            .get(index)
+            .copied()
+            .flatten();
+        match (state, eligibility) {
+            (None, None) => {}
+            (None, Some(_)) => return false,
+            (Some(state), eligibility) => {
+                if !self.conflict_read().state_valid(state) {
+                    return false;
+                }
+                if let Some(eligibility) = eligibility
+                    && !self.conflict_eligibility_authority_valid(state, eligibility)
+                {
+                    return false;
+                }
+                if let Some(reservation) = self.conflict_reservation(state.handle) {
+                    let range = reservation.passage_range();
+                    let Some(compiled) = self.compiled_route(state.route) else {
+                        return false;
+                    };
+                    let Some(gate_range) = compiled
+                        .conflict_gate_ranges
+                        .get(range.admission_gate_hop() as usize)
+                    else {
+                        return false;
+                    };
+                    if gate_range.start != range.first_conflict_occurrence_index()
+                        || gate_range.len != range.passage_count()
+                        || reservation.acquired_tick() > self.committed.tick_index
+                    {
+                        return false;
+                    }
+                    let Some(gate_edge) = compiled
+                        .edges
+                        .get(range.admission_gate_hop() as usize)
+                        .copied()
+                    else {
+                        return false;
+                    };
+                    let Some(gate_progress_mm) = self
+                        .binding
+                        .revision
+                        .traffic()
+                        .lane_lengths_millimetres()
+                        .get(gate_edge.index())
+                        .copied()
+                    else {
+                        return false;
+                    };
+                    let Some(gate_crossed_side) = crate::DownstreamRoutePoint::new(
+                        range.admission_gate_hop(),
+                        gate_progress_mm,
+                        0,
+                    ) else {
+                        return false;
+                    };
+                    let Some(front) = crate::DownstreamRoutePoint::new(
+                        state.route_edge_index,
+                        state.progress_mm,
+                        state.carry_um,
+                    ) else {
+                        return false;
+                    };
+                    if front < gate_crossed_side {
+                        return false;
+                    }
+                    let Some(end) = range
+                        .first_conflict_occurrence_index()
+                        .checked_add(range.passage_count())
+                    else {
+                        return false;
+                    };
+                    for occurrence_index in range.first_conflict_occurrence_index()..end {
+                        let Some(locator) =
+                            self.conflict_passage_occurrence_locator(state.route, occurrence_index)
+                        else {
+                            return false;
+                        };
+                        if locator.maneuver_occurrence_index() != range.maneuver_occurrence_index()
+                            || locator.admission_gate_hop() != range.admission_gate_hop()
+                            || !self
+                                .conflict_read()
+                                .reservation_has_cell(state.handle, locator.address())
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// 全空时清空 Conflict 资格表，恢复紧凑表示。

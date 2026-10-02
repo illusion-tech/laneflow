@@ -128,6 +128,11 @@ impl std::ops::DerefMut for PreparedWorldState {
 pub(crate) struct PoolResources {
     pool: rayon_core::ThreadPool,
     _workers: WorkerJoins,
+    /// 占用索引分段收集缓冲：只在多线程分发时需要，随池存活跨拍保留容量。
+    occupancy_parts: std::sync::Mutex<Vec<super::occupancy::OccupancyPart>>,
+    /// 协调器并行归约后的稀疏下标（P2 预览消费、P5 到达/完成行）；
+    /// 两处不重叠使用，随池存活跨拍保留容量。
+    sparse_indices: std::sync::Mutex<Vec<u32>>,
 }
 
 #[derive(Default)]
@@ -143,7 +148,8 @@ impl Drop for WorkerJoins {
 
 pub(crate) enum ExecutionResources {
     Caller,
-    Pool(PoolResources),
+    /// 装箱：单线程世界只保留一个指针宽度，池和协调器缓冲只在多线程时分配。
+    Pool(Box<PoolResources>),
 }
 
 /// 可失败保序分发的输出槽位：`Pending` 尚未计算；`Done` 已完成（含完整领域
@@ -233,6 +239,37 @@ impl DispatchCounters {
     }
 }
 
+/// 递减票据：剩余越少每次领得越少，尾部由多个线程分摊。只依赖已领数量，
+/// 与线程时序无关。
+pub(crate) fn guided_ticket(total: usize, claimed: usize, threads: usize, cap: usize) -> usize {
+    total
+        .saturating_sub(claimed)
+        .div_ceil(threads.saturating_mul(2).max(1))
+        .clamp(1, cap.max(1))
+}
+
+/// 二分互斥输出并用 `join` 交给池窃取；`first_chunk` 是该段首块的全局块序号。
+fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
+    output: &mut [T],
+    first_chunk: usize,
+    chunk_size: usize,
+    compute: &F,
+) {
+    let chunks = output.len().div_ceil(chunk_size);
+    if chunks <= 1 {
+        if !output.is_empty() {
+            compute(first_chunk, output);
+        }
+        return;
+    }
+    let half = chunks / 2;
+    let (left, right) = output.split_at_mut(half * chunk_size);
+    rayon_core::join(
+        || split_parts(left, first_chunk, chunk_size, compute),
+        || split_parts(right, first_chunk + half, chunk_size, compute),
+    );
+}
+
 /// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
 /// `compute` 遇错时须把该槽逻辑下标 min-store 进共享原子并提前返回，
 /// 已完成前缀槽位保持 `Done(Ok(_))`，同块后缀保持 `Pending`。
@@ -309,10 +346,12 @@ impl ExecutionResources {
             })
             .build()
             .map_err(|_| ExecutionInitError::WorkerStartFailed)?;
-        Ok(Self::Pool(PoolResources {
+        Ok(Self::Pool(Box::new(PoolResources {
             pool,
             _workers: workers,
-        }))
+            occupancy_parts: std::sync::Mutex::new(Vec::new()),
+            sparse_indices: std::sync::Mutex::new(Vec::new()),
+        })))
     }
 
     /// 协调调用线程计算首块，至多 N−1 个私有线程计算其余互斥输出。
@@ -352,6 +391,72 @@ impl ExecutionResources {
         }
     }
 
+    /// 协调器并行段是否值得启用。`for_each_part` 在池内执行、调用线程只等待，
+    /// 两遍算法又会重算一遍：池内辅助线程少于 3 个时反而比串行慢（实测 2 线程
+    /// 整拍 +8%），因此至少 4 个参与线程才并行。
+    pub(crate) fn coordinator_parallel(&self) -> bool {
+        self.dispatch_threads() >= 4
+    }
+
+    /// 在池内一次运行一个多遍并行段：段内各遍的 `for_each_part` 已在池线程上，
+    /// 直接内联执行，不再经全局注入队列；每段只向池提交一次。
+    pub(crate) fn install<R: Send>(&self, run: impl FnOnce() -> R + Send) -> R {
+        match self {
+            Self::Caller => run(),
+            Self::Pool(resources) => resources.pool.install(run),
+        }
+    }
+
+    /// 不读取交通视图的互斥分块：每块独占一段输出，完整 join 后返回。
+    /// 在池内按二分 `join` 窃取执行：作业放在栈上，稳态不产生堆分配；
+    /// 调用线程只等待池完成，不参与计算。供派生索引重建这类协调器工作使用。
+    pub(crate) fn for_each_part<T: Send, F: Fn(usize, &mut [T]) + Sync>(
+        &self,
+        output: &mut [T],
+        chunk_size: usize,
+        compute: F,
+    ) {
+        assert!(chunk_size > 0, "nonzero chunk size");
+        match self {
+            Self::Caller => {
+                for (index, chunk) in output.chunks_mut(chunk_size).enumerate() {
+                    compute(index, chunk);
+                }
+            }
+            Self::Pool(resources) => resources
+                .pool
+                .install(|| split_parts(output, 0, chunk_size, &compute)),
+        }
+    }
+
+    /// 协调器独占的占用收集缓冲；`Caller` 不分段收集，返回空。
+    pub(crate) fn occupancy_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::occupancy::OccupancyPart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .occupancy_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的稀疏下标缓冲；`Caller` 串行消费，返回空。
+    pub(crate) fn sparse_indices(&self) -> Option<std::sync::MutexGuard<'_, Vec<u32>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .sparse_indices
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
     /// 本次分发最多参与的线程数：调用线程加计池内辅助线程；`Caller` 为 1。
     pub(crate) fn dispatch_threads(&self) -> usize {
         match self {
@@ -362,11 +467,16 @@ impl ExecutionResources {
 
     /// 物理列块的互斥切片票据；不把物理位置当作规范首错顺序。
     /// 所有票据完整 join 后，由调用方按完整句柄对应的逻辑位置消费回报。
+    ///
+    /// 票据大小逐步递减（guided）：每次领取 `ceil(剩余 / (2 × 线程数))` 块，
+    /// 上限 `works_per_ticket`、下限 1。`total_works` 只用于估计剩余量，
+    /// 偏差只影响票据粒度，不影响覆盖与互斥。
     pub(crate) fn for_each_work<I, T, F>(
         &self,
         view: super::phase::StepReadView<'_>,
         work: I,
         works_per_ticket: usize,
+        total_works: usize,
         compute: F,
     ) -> DispatchStats
     where
@@ -399,14 +509,19 @@ impl ExecutionResources {
                 }
             }
             Self::Pool(resources) => {
-                let tickets = std::sync::Mutex::new(work.fuse());
+                let threads = resources.pool.current_num_threads().saturating_add(1);
+                let tickets = std::sync::Mutex::new((work.fuse(), 0_usize));
                 let drain = || loop {
                     // 一次领取多个互不重叠的存储块，离开锁后逐块求值；固定数组不分配。
                     let batch: [Option<(usize, T)>; MAX_WORKS_PER_TICKET] = {
-                        let mut work = tickets.lock().expect("physical motion tickets");
-                        std::array::from_fn(|index| {
-                            (index < works_per_ticket).then(|| work.next()).flatten()
-                        })
+                        let mut guard = tickets.lock().expect("physical motion tickets");
+                        let (work, claimed) = &mut *guard;
+                        let take = guided_ticket(total_works, *claimed, threads, works_per_ticket);
+                        let batch = std::array::from_fn(|index| {
+                            (index < take).then(|| work.next()).flatten()
+                        });
+                        *claimed = claimed.saturating_add(take);
+                        batch
                     };
                     if batch[0].is_none() {
                         break;
@@ -808,6 +923,7 @@ mod tests {
                             state.read_view(),
                             output.chunks_mut(1).enumerate(),
                             per_ticket,
+                            count,
                             |view, start, row| {
                                 assert!(view.vehicle_state(view.derived.active_order[0]).is_some());
                                 visits[start].fetch_add(1, Ordering::Relaxed);
@@ -823,13 +939,16 @@ mod tests {
                     );
                     assert_eq!(stats.dispatched_chunks, count);
                     assert_eq!(stats.completed_chunks, count);
+                    // 递减票据的领取次数只由已领数量决定，可确定性复算。
+                    let mut guided = 0;
+                    let mut claimed = 0;
+                    while claimed < count {
+                        claimed += guided_ticket(count, claimed, workers as usize, per_ticket);
+                        guided += 1;
+                    }
                     assert_eq!(
                         stats.ticket_grabs,
-                        if workers == 1 {
-                            count
-                        } else {
-                            count.div_ceil(per_ticket)
-                        }
+                        if workers == 1 { count } else { guided }
                     );
                 }
             }
