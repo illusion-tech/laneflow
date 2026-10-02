@@ -772,21 +772,36 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.workspace.conflict_motion_by_vehicle.len()
                 + self.workspace.conflict_next_eligibility.len(),
         );
-        {
-            #[cfg(test)]
-            let _clear = super::eligibility_commit_research::begin(
-                0,
-                self.workspace.conflict_motion_by_vehicle.len(),
-            );
-            self.workspace.conflict_motion_by_vehicle.fill(None);
-        }
-        {
-            #[cfg(test)]
-            let _clear = super::eligibility_commit_research::begin(
-                1,
-                self.workspace.conflict_next_eligibility.len(),
-            );
-            self.workspace.conflict_next_eligibility.fill(None);
+        if let Some(resources) = execution.filter(|resources| resources.coordinator_parallel()) {
+            // 两张逐车位表各 vehicle_capacity 项，按连续段并行清空，一次池提交。
+            let motion = &mut self.workspace.conflict_motion_by_vehicle;
+            let eligibility = &mut self.workspace.conflict_next_eligibility;
+            let chunk = motion
+                .len()
+                .max(eligibility.len())
+                .div_ceil(resources.dispatch_threads().saturating_mul(4))
+                .max(1);
+            resources.install(|| {
+                resources.for_each_part(motion, chunk, |_, part| part.fill(None));
+                resources.for_each_part(eligibility, chunk, |_, part| part.fill(None));
+            });
+        } else {
+            {
+                #[cfg(test)]
+                let _clear = super::eligibility_commit_research::begin(
+                    0,
+                    self.workspace.conflict_motion_by_vehicle.len(),
+                );
+                self.workspace.conflict_motion_by_vehicle.fill(None);
+            }
+            {
+                #[cfg(test)]
+                let _clear = super::eligibility_commit_research::begin(
+                    1,
+                    self.workspace.conflict_next_eligibility.len(),
+                );
+                self.workspace.conflict_next_eligibility.fill(None);
+            }
         }
         #[cfg(test)]
         drop(sparse_clear);
@@ -917,34 +932,42 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             count_conflict_path(|counts| counts.slot_fallback += 1);
             return Ok(false);
         }
-        let mut active_index = 0_usize;
-        for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
-            let Some(state) = view.read.vehicle_state(vehicle) else {
-                continue;
-            };
-            if state.status != VehicleStatus::Active {
-                continue;
+        if execution.coordinator_parallel()
+            && view.read.committed.live_order.len() >= CONFLICT_PARALLEL_DISCOVERY_ROWS
+        {
+            let view = &view;
+            execution
+                .install(|| discover_conflict_inputs_parallel(view, execution, delta_s, inputs))?;
+        } else {
+            let mut active_index = 0_usize;
+            for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
+                let Some(state) = view.read.vehicle_state(vehicle) else {
+                    continue;
+                };
+                if state.status != VehicleStatus::Active {
+                    continue;
+                }
+                // cache_index 在 reservation 和可达性筛选之前递增：Active
+                // 紧凑位与融合循环保持一致，跳过车辆不占候选但占缓存位。
+                let cache_index = active_index;
+                active_index += 1;
+                if view.conflict.reservation(vehicle).is_some() {
+                    continue;
+                }
+                if !cached_gate_may_be_reached(
+                    view.read,
+                    view.motion_cache,
+                    &state,
+                    sequence,
+                    cache_index,
+                    delta_s,
+                ) {
+                    continue;
+                }
+                let sequence =
+                    u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
+                inputs.push((vehicle, sequence, cache_index, state));
             }
-            // cache_index 在 reservation 和可达性筛选之前递增：Active
-            // 紧凑位与融合循环保持一致，跳过车辆不占候选但占缓存位。
-            let cache_index = active_index;
-            active_index += 1;
-            if view.conflict.reservation(vehicle).is_some() {
-                continue;
-            }
-            if !cached_gate_may_be_reached(
-                view.read,
-                view.motion_cache,
-                &state,
-                sequence,
-                cache_index,
-                delta_s,
-            ) {
-                continue;
-            }
-            let sequence =
-                u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
-            inputs.push((vehicle, sequence, cache_index, state));
         }
         let workload = inputs.len();
         if workload == 0 {
@@ -4213,6 +4236,133 @@ mod tests {
 /// P3 分发阈值：候选eligible 工作集低于该值时融合执行；初版保守选择
 ///（与 P2/P5 同值、独立常量），待增量 E 证据登记后校准。
 const CONFLICT_DISPATCH_MIN_ACTIVE: usize = 1_024;
+
+/// 少于此 live 数时 P3 输入发现保持串行；两遍分发的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const CONFLICT_PARALLEL_DISCOVERY_ROWS: usize = 4_096;
+#[cfg(test)]
+const CONFLICT_PARALLEL_DISCOVERY_ROWS: usize = 1;
+/// 并行发现的段数上限；段统计与输出切片都放在栈上。
+const CONFLICT_DISCOVERY_MAX_PARTS: usize = 128;
+
+/// P3 发现输入：车辆、live 序号、缓存位与拍初状态。
+type ConflictInput = (VehicleHandle, u32, usize, VehicleState);
+
+/// P3 输入发现的两遍并行版本：先按连续 live 段数 Active 数与入选数，再按前缀和
+/// 切开输出并行写入。`cache_index` 等于该段之前的 Active 总数加段内序号，与串行
+/// 循环（先递增 Active 位、再做 reservation 与可达性筛选）完全一致；段序即 live 序。
+fn discover_conflict_inputs_parallel(
+    view: &ConflictTaskView<'_>,
+    execution: &crate::kernel::execution::ExecutionResources,
+    delta_s: f32,
+    inputs: &mut Vec<ConflictInput>,
+) -> Result<(), StepError> {
+    let live = &view.read.committed.live_order;
+    let count = live.len();
+    u32::try_from(count).map_err(|_| StepError::ConflictInvariantViolation)?;
+    let parts = execution
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(CONFLICT_DISCOVERY_MAX_PARTS)
+        .min(count)
+        .max(1);
+    let span = count.div_ceil(parts).max(1);
+    let select = |sequence: usize, cache_index: usize| -> Option<(VehicleHandle, VehicleState)> {
+        let vehicle = live[sequence];
+        let state = view.read.vehicle_state(vehicle)?;
+        if state.status != VehicleStatus::Active {
+            return None;
+        }
+        if view.conflict.reservation(vehicle).is_some()
+            || !cached_gate_may_be_reached(
+                view.read,
+                view.motion_cache,
+                &state,
+                sequence,
+                cache_index,
+                delta_s,
+            )
+        {
+            return None;
+        }
+        Some((vehicle, state))
+    };
+    // 只读目录状态，不组装整车；与 `vehicle_state` 的身份与 Active 判断一致。
+    let is_active = |sequence: usize| {
+        view.read.committed.vehicles.status(live[sequence]) == Some(VehicleStatus::Active)
+    };
+    // 入选需要 cache_index：第一遍只数 Active，第二遍按前缀和数入选，第三遍写入。
+    let mut active = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    execution.for_each_part(&mut active[..parts], 1, |part, out| {
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        out[0] = (start..end).filter(|&sequence| is_active(sequence)).count();
+    });
+    let mut active_before = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    let mut running = 0;
+    for part in 0..parts {
+        active_before[part] = running;
+        running += active[part];
+    }
+    let mut selected = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    execution.for_each_part(&mut selected[..parts], 1, |part, out| {
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        let mut cache_index = active_before[part];
+        let mut chosen = 0;
+        for sequence in start..end {
+            if !is_active(sequence) {
+                continue;
+            }
+            if select(sequence, cache_index).is_some() {
+                chosen += 1;
+            }
+            cache_index += 1;
+        }
+        out[0] = chosen;
+    });
+    let total: usize = selected[..parts].iter().sum();
+    let placeholder = inputs.first().copied();
+    inputs.clear();
+    let Some(fill) = placeholder.or_else(|| {
+        let first = (0..count).find(|&sequence| is_active(sequence))?;
+        let state = view.read.vehicle_state(live[first])?;
+        Some((live[first], 0, 0, state))
+    }) else {
+        return Ok(());
+    };
+    // 预留由调用方按 Active 数完成；入选数不超过它，这里不会再分配。
+    inputs.resize(total, fill);
+    let mut rest: &mut [ConflictInput] = inputs;
+    let mut work: [Option<&mut [ConflictInput]>; CONFLICT_DISCOVERY_MAX_PARTS] =
+        std::array::from_fn(|_| None);
+    for (slot, chosen) in work.iter_mut().zip(&selected[..parts]) {
+        let (part, tail) = std::mem::take(&mut rest).split_at_mut(*chosen);
+        *slot = Some(part);
+        rest = tail;
+    }
+    execution.for_each_part(&mut work[..parts], 1, |part, output| {
+        let Some(output) = output[0].as_mut() else {
+            return;
+        };
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        let mut cache_index = active_before[part];
+        let mut at = 0;
+        for sequence in start..end {
+            if !is_active(sequence) {
+                continue;
+            }
+            if let Some((vehicle, state)) = select(sequence, cache_index) {
+                output[at] = (vehicle, sequence as u32, cache_index, state);
+                at += 1;
+            }
+            cache_index += 1;
+        }
+    });
+    Ok(())
+}
 
 /// P3 本阶段谁执行的计数证据（融合/分发/回退互斥）。
 #[cfg(test)]
