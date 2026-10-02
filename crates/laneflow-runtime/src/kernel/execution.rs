@@ -133,6 +133,8 @@ pub(crate) struct PoolResources {
     /// 协调器并行归约后的稀疏下标（P2 预览消费、P5 到达/完成行）；
     /// 两处不重叠使用，随池存活跨拍保留容量。
     sparse_indices: std::sync::Mutex<Vec<u32>>,
+    /// Frontier 复用计算的输入与互斥输出；完整 join 后才规范插入。
+    frontier_replay: std::sync::Mutex<super::entry_frontier::ReplayScratch>,
 }
 
 #[derive(Default)]
@@ -351,6 +353,7 @@ impl ExecutionResources {
             _workers: workers,
             occupancy_parts: std::sync::Mutex::new(Vec::new()),
             sparse_indices: std::sync::Mutex::new(Vec::new()),
+            frontier_replay: std::sync::Mutex::new(Default::default()),
         })))
     }
 
@@ -451,6 +454,20 @@ impl ExecutionResources {
             Self::Pool(resources) => Some(
                 resources
                     .sparse_indices
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    pub(crate) fn frontier_replay(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, super::entry_frontier::ReplayScratch>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .frontier_replay
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             ),
