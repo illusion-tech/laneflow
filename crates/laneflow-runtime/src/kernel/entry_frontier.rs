@@ -38,6 +38,8 @@ thread_local! {
     static ADDRESS_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// 拆掉旧关联时实际比较过的成员次数。追加新关联不扫描成员。
     static MEMBER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// 可选分类标记缓冲准备失败；融合回退不改变领域错误。
+    static CLASSIFY_SCRATCH_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
@@ -345,120 +347,64 @@ impl FrontierMaintenance {
         let rows = updates.len();
         let parallel = execution
             .filter(|resources| resources.coordinator_parallel() && rows >= CLASSIFY_PARALLEL_ROWS);
-        let Some(resources) = parallel else {
-            for index in 0..rows {
-                let Some((vehicle, near, dirty)) =
-                    self.classify_row(delta_s, horizon_ms, updates.frontier_input(index, current))
-                else {
-                    continue;
-                };
-                if near {
-                    self.pending_near.push(vehicle);
-                }
-                if dirty {
-                    self.pending_invalid.push(vehicle);
-                }
-            }
-            return Ok(());
-        };
-        // 两遍并行：先按连续更新段计数，再把各段写进按前缀和切开的互斥区间。
-        // 段序即更新序，结果与串行逐行 push 完全相同；计数与切片都在栈上。
-        let mut near = std::mem::take(&mut self.pending_near);
-        let mut invalid = std::mem::take(&mut self.pending_invalid);
-        let this = &*self;
-        resources.install(|| {
-            this.classify_parallel(
-                resources,
-                delta_s,
-                horizon_ms,
-                updates,
-                current,
-                &mut near,
-                &mut invalid,
-            )
-        });
-        self.pending_near = near;
-        self.pending_invalid = invalid;
-        Ok(())
-    }
-
-    /// 两遍并行分类，输出写进调用方交来的两张名单。
-    #[allow(clippy::too_many_arguments)]
-    fn classify_parallel(
-        &self,
-        resources: &crate::kernel::execution::ExecutionResources,
-        delta_s: f32,
-        horizon_ms: Option<u64>,
-        updates: &super::motion_updates::MotionUpdates,
-        current: &super::vehicle_store::VehicleStore,
-        near: &mut Vec<VehicleHandle>,
-        invalid: &mut Vec<VehicleHandle>,
-    ) {
-        let rows = updates.len();
-        let parts = resources
-            .dispatch_threads()
-            .saturating_mul(4)
-            .min(CLASSIFY_MAX_PARTS)
-            .min(rows)
-            .max(1);
-        let span = rows.div_ceil(parts).max(1);
-        let mut counts = [(0_usize, 0_usize); CLASSIFY_MAX_PARTS];
-        resources.for_each_part(&mut counts[..parts], 1, |part, count| {
-            let start = (part * span).min(rows);
-            let end = (start + span).min(rows);
-            for index in start..end {
-                if let Some((_, near, dirty)) =
-                    self.classify_row(delta_s, horizon_ms, updates.frontier_input(index, current))
-                {
-                    count[0].0 += usize::from(near);
-                    count[0].1 += usize::from(dirty);
-                }
-            }
-        });
-        let near_total: usize = counts[..parts].iter().map(|count| count.0).sum();
-        let invalid_total: usize = counts[..parts].iter().map(|count| count.1).sum();
-        near.resize(near_total, VehicleHandle::new(0, 0));
-        invalid.resize(invalid_total, VehicleHandle::new(0, 0));
-        {
-            let mut near_rest: &mut [VehicleHandle] = near;
-            let mut invalid_rest: &mut [VehicleHandle] = invalid;
-            let mut outputs: [Option<(&mut [VehicleHandle], &mut [VehicleHandle])>;
-                CLASSIFY_MAX_PARTS] = std::array::from_fn(|_| None);
-            for (output, count) in outputs.iter_mut().zip(&counts[..parts]) {
-                let (near_part, near_tail) = std::mem::take(&mut near_rest).split_at_mut(count.0);
-                let (invalid_part, invalid_tail) =
-                    std::mem::take(&mut invalid_rest).split_at_mut(count.1);
-                *output = Some((near_part, invalid_part));
-                near_rest = near_tail;
-                invalid_rest = invalid_tail;
-            }
-            resources.for_each_part(&mut outputs[..parts], 1, |part, output| {
-                let Some((near_out, invalid_out)) = output[0].as_mut() else {
-                    return;
-                };
-                let (mut near_at, mut invalid_at) = (0, 0);
-                let start = (part * span).min(rows);
-                let end = (start + span).min(rows);
-                for index in start..end {
-                    let Some((vehicle, near, dirty)) = self.classify_row(
-                        delta_s,
-                        horizon_ms,
-                        updates.frontier_input(index, current),
-                    ) else {
+        if let Some(resources) = parallel {
+            let mut marks = resources
+                .sparse_indices()
+                .expect("private coordinator buffer");
+            marks.clear();
+            if reserve_classify_marks(&mut marks, rows) {
+                marks.resize(rows, 0);
+                let span = rows
+                    .div_ceil(
+                        resources
+                            .dispatch_threads()
+                            .saturating_mul(4)
+                            .min(CLASSIFY_MAX_PARTS),
+                    )
+                    .max(1);
+                resources.for_each_part(&mut marks, span, |part, output| {
+                    for (offset, flags) in output.iter_mut().enumerate() {
+                        *flags = self
+                            .classify_row(
+                                delta_s,
+                                horizon_ms,
+                                updates.frontier_input(part * span + offset, current),
+                            )
+                            .map_or(0, |(_, near, dirty)| {
+                                u32::from(near) | (u32::from(dirty) << 1)
+                            });
+                    }
+                });
+                // 每行只求值一次。join 后按更新顺序收集稀疏名单，只为命中行重读句柄。
+                for (index, flags) in marks.iter().copied().enumerate() {
+                    if flags == 0 {
                         continue;
-                    };
-                    if near {
-                        near_out[near_at] = vehicle;
-                        near_at += 1;
                     }
-                    if dirty {
-                        invalid_out[invalid_at] = vehicle;
-                        invalid_at += 1;
+                    let vehicle = updates.frontier_input(index, current).vehicle;
+                    if flags & 1 != 0 {
+                        self.pending_near.push(vehicle);
+                    }
+                    if flags & 2 != 0 {
+                        self.pending_invalid.push(vehicle);
                     }
                 }
-                debug_assert_eq!((near_at, invalid_at), (near_out.len(), invalid_out.len()));
-            });
+                return Ok(());
+            }
         }
+        for index in 0..rows {
+            let Some((vehicle, near, dirty)) =
+                self.classify_row(delta_s, horizon_ms, updates.frontier_input(index, current))
+            else {
+                continue;
+            };
+            if near {
+                self.pending_near.push(vehicle);
+            }
+            if dirty {
+                self.pending_invalid.push(vehicle);
+            }
+        }
+        Ok(())
     }
 
     /// 一行的近门与失效判定；非 Active 返回 `None`。只读，可并行调用。
@@ -780,8 +726,16 @@ struct RememberedSlot {
 const CLASSIFY_PARALLEL_ROWS: usize = 4_096;
 #[cfg(test)]
 const CLASSIFY_PARALLEL_ROWS: usize = 1;
-/// 并行分类段数上限；计数与输出切片都放在栈上。
+/// 并行分类段数上限；连续行标记按段交给 worker。
 const CLASSIFY_MAX_PARTS: usize = 128;
+
+fn reserve_classify_marks(marks: &mut Vec<u32>, rows: usize) -> bool {
+    #[cfg(test)]
+    if CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.replace(false)) {
+        return false;
+    }
+    marks.try_reserve(rows).is_ok()
+}
 
 fn reserve_capacity(list: &mut Vec<VehicleHandle>, needed: usize) -> Result<(), StepError> {
     if list.capacity() >= needed {
@@ -2094,6 +2048,7 @@ mod tests {
         fn drop(&mut self) {
             super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
             super::LINK_COMMIT_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
+            super::CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.set(false));
         }
     }
 
@@ -2123,6 +2078,97 @@ mod tests {
             )
         });
         rows
+    }
+
+    #[test]
+    fn sparse_classification_matches_serial_with_dirty_scratch_and_fallback() {
+        use crate::kernel::execution::WorldExecution;
+        use std::num::NonZeroU32;
+        for (workers, fail_scratch) in [(1, false), (4, false), (16, false), (4, true)] {
+            let _reset = FailpointReset;
+            let mut world = crate::kernel::waiting::tests::multi_gate_world(6);
+            world.execution = WorldExecution::start_private(
+                crate::ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            let handles = world.live_vehicles().to_vec();
+            let mut maintenance = super::FrontierMaintenance::default();
+            maintenance
+                .slots
+                .resize_with(6, super::FrontierSlot::default);
+            let mut states = Vec::new();
+            for (index, vehicle) in handles.iter().copied().enumerate() {
+                let old = world.vehicle(vehicle).unwrap();
+                let slot = &mut maintenance.slots[vehicle.index() as usize];
+                slot.valid = true;
+                slot.generation = vehicle.generation() + u32::from(index == 4);
+                slot.route_index = old.route.index();
+                slot.route_generation = old.route.generation();
+                slot.edge = old.route_edge_index;
+                slot.progress = old.progress_mm;
+                slot.gate_distance_mm = if index & 1 != 0 {
+                    150
+                } else {
+                    super::NO_DISTANCE_MM
+                };
+                slot.first_excluded_mm = if index & 2 != 0 {
+                    150
+                } else {
+                    super::NO_DISTANCE_MM
+                };
+                let mut next = old;
+                next.progress_mm += 100;
+                next.speed_mm_s = 10_000;
+                if index == 5 {
+                    next.status = crate::VehicleStatus::Completed;
+                }
+                states.push((vehicle.index() as usize, next));
+            }
+            let mut updates = super::super::motion_updates::MotionUpdates::from_states(
+                &states,
+                &world.state.committed.vehicles,
+            );
+            updates.select_resource_rows(&world.state.committed.vehicles, |_| false);
+            if let Some(mut scratch) = world.execution.resources().sparse_indices() {
+                scratch.resize(updates.len() + 8, u32::MAX);
+            }
+            super::CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.set(fail_scratch));
+            maintenance
+                .classify(
+                    0.1,
+                    Some(100),
+                    &updates,
+                    &world.state.committed.vehicles,
+                    Some(world.execution.resources()),
+                )
+                .unwrap();
+            assert!(updates.resource_rows().is_empty());
+            assert_eq!(
+                maintenance.pending_near,
+                [handles[1], handles[3], handles[4]]
+            );
+            assert_eq!(
+                maintenance.pending_invalid,
+                [handles[2], handles[3], handles[4]]
+            );
+            for vehicle in &handles {
+                let slot = &mut maintenance.slots[vehicle.index() as usize];
+                slot.generation = vehicle.generation();
+                slot.gate_distance_mm = super::NO_DISTANCE_MM;
+                slot.first_excluded_mm = super::NO_DISTANCE_MM;
+            }
+            maintenance
+                .classify(
+                    0.1,
+                    Some(100),
+                    &updates,
+                    &world.state.committed.vehicles,
+                    Some(world.execution.resources()),
+                )
+                .unwrap();
+            assert!(maintenance.pending_near.is_empty());
+            assert!(maintenance.pending_invalid.is_empty());
+        }
     }
 
     #[test]
