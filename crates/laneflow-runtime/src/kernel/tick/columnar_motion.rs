@@ -328,26 +328,49 @@ fn numerical(
         proposal_speed_m_s: proposal_speed,
         proposal_travel_m: proposal_travel,
     };
-    let mut output = laneflow_motion_kernel::Output {
-        speed_mm_s: &mut chunk.speed[range.clone()],
-        progress_mm: &mut chunk.progress[range.clone()],
-        carry_um: &mut chunk.carry[range.clone()],
-        travel_mm: &mut batch.travel_mm[range.clone()],
-        travel_m: &mut batch.travel_m[range.clone()],
-        proposal_speed_m_s: out_speed,
-        proposal_travel_m: out_travel,
-        exhausted: &mut batch.exhausted[range.clone()],
-        valid: &mut batch.valid[range.clone()],
-        window_m: matches!(phase, NumericPhase::Proposal)
-            .then_some(&mut batch.window[range.clone()]),
+    let stats = if matches!(phase, NumericPhase::Fused) {
+        let mut output = laneflow_motion_kernel::DirectOutput {
+            speed_mm_s: &mut chunk.speed[range.clone()],
+            progress_mm: &mut chunk.progress[range.clone()],
+            carry_um: &mut chunk.carry[range.clone()],
+            travel_mm: &mut batch.travel_mm[range.clone()],
+            exhausted: &mut batch.exhausted[range.clone()],
+            valid: &mut batch.valid[range.clone()],
+        };
+        #[cfg(test)]
+        let stats = kernel
+            .run_direct_with_stats(&input, &mut output, delta_s)
+            .expect("physical motion columns have identical ranges");
+        #[cfg(not(test))]
+        let stats = {
+            kernel
+                .run_direct(&input, &mut output, delta_s)
+                .expect("physical motion columns have identical ranges");
+            laneflow_motion_kernel::Stats::default()
+        };
+        stats
+    } else {
+        let mut output = laneflow_motion_kernel::Output {
+            speed_mm_s: &mut chunk.speed[range.clone()],
+            progress_mm: &mut chunk.progress[range.clone()],
+            carry_um: &mut chunk.carry[range.clone()],
+            travel_mm: &mut batch.travel_mm[range.clone()],
+            travel_m: &mut batch.travel_m[range.clone()],
+            proposal_speed_m_s: out_speed,
+            proposal_travel_m: out_travel,
+            exhausted: &mut batch.exhausted[range.clone()],
+            valid: &mut batch.valid[range.clone()],
+            window_m: matches!(phase, NumericPhase::Proposal)
+                .then_some(&mut batch.window[range.clone()]),
+        };
+        match phase {
+            NumericPhase::Fused => unreachable!("direct output handled above"),
+            NumericPhase::Proposal => kernel.proposal(&input, &mut output, delta_s),
+            NumericPhase::Project => kernel.float_projection(&input, &mut output, delta_s),
+            NumericPhase::Quantize => kernel.quantize(&input, &mut output, delta_s),
+        }
+        .expect("physical motion columns have identical ranges")
     };
-    let stats = match phase {
-        NumericPhase::Fused => kernel.run(&input, &mut output, delta_s),
-        NumericPhase::Proposal => kernel.proposal(&input, &mut output, delta_s),
-        NumericPhase::Project => kernel.float_projection(&input, &mut output, delta_s),
-        NumericPhase::Quantize => kernel.quantize(&input, &mut output, delta_s),
-    }
-    .expect("physical motion columns have identical ranges");
     #[cfg(test)]
     {
         if matches!(phase, NumericPhase::Fused | NumericPhase::Proposal) {

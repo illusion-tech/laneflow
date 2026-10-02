@@ -64,6 +64,7 @@ pub enum Backend {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Phase {
     Full,
+    Direct,
     Proposal,
     Project,
     FloatProject,
@@ -75,16 +76,17 @@ enum Phase {
 pub struct Kernel {
     backend: Backend,
     motion: MotionEntry,
+    motion_untracked: MotionEntry,
     edge: EdgeEntry,
     limit: LimitEntry,
     boundary: BoundaryEntry,
 }
 
-type MotionEntry = unsafe fn(&Input<'_>, &mut Output<'_>, f32, Phase, &mut Stats) -> usize;
+type MotionEntry = unsafe fn(&Input<'_>, &mut Columns<'_>, f32, Phase, &mut Stats) -> usize;
 type EdgeEntry = unsafe fn(&EdgeInput<'_>, &mut EdgeOutput<'_>, &mut EdgeStats) -> usize;
 type LimitEntry = unsafe fn(&LimitInput<'_>, &mut LimitOutput<'_>, f32) -> usize;
 type BoundaryEntry = unsafe fn(&BoundaryInput<'_>, &mut BoundaryOutput<'_>, f32) -> usize;
-fn scalar_motion(_: &Input<'_>, _: &mut Output<'_>, _: f32, _: Phase, _: &mut Stats) -> usize {
+fn scalar_motion(_: &Input<'_>, _: &mut Columns<'_>, _: f32, _: Phase, _: &mut Stats) -> usize {
     0
 }
 fn scalar_edge(_: &EdgeInput<'_>, _: &mut EdgeOutput<'_>, _: &mut EdgeStats) -> usize {
@@ -134,6 +136,67 @@ pub struct Output<'a> {
     pub valid: &'a mut [bool],
     /// 只在实际有降速消费者的提案屏障物化制动查询窗。
     pub window_m: Option<&'a mut [f32]>,
+}
+
+/// 无后续浮点屏障的常规路径只发布这些列，不要求分配或写入中间提案列。
+pub struct DirectOutput<'a> {
+    pub speed_mm_s: &'a mut [u32],
+    pub progress_mm: &'a mut [u32],
+    pub carry_um: &'a mut [u16],
+    pub travel_mm: &'a mut [u32],
+    pub exhausted: &'a mut [bool],
+    pub valid: &'a mut [bool],
+}
+
+struct Floats<'a> {
+    travel_m: &'a mut [f32],
+    proposal_speed_m_s: &'a mut [f32],
+    proposal_travel_m: &'a mut [f32],
+    window_m: Option<&'a mut [f32]>,
+}
+
+/// 后端只借用调用者实际要求的输出；Direct 没有浮点列消费者。
+struct Columns<'a> {
+    speed_mm_s: &'a mut [u32],
+    progress_mm: &'a mut [u32],
+    carry_um: &'a mut [u16],
+    travel_mm: &'a mut [u32],
+    exhausted: &'a mut [bool],
+    valid: &'a mut [bool],
+    floats: Option<Floats<'a>>,
+}
+
+impl Output<'_> {
+    fn columns(&mut self) -> Columns<'_> {
+        Columns {
+            speed_mm_s: self.speed_mm_s,
+            progress_mm: self.progress_mm,
+            carry_um: self.carry_um,
+            travel_mm: self.travel_mm,
+            exhausted: self.exhausted,
+            valid: self.valid,
+            floats: Some(Floats {
+                travel_m: self.travel_m,
+                proposal_speed_m_s: self.proposal_speed_m_s,
+                proposal_travel_m: self.proposal_travel_m,
+                window_m: self.window_m.as_deref_mut(),
+            }),
+        }
+    }
+}
+
+impl DirectOutput<'_> {
+    fn columns(&mut self) -> Columns<'_> {
+        Columns {
+            speed_mm_s: self.speed_mm_s,
+            progress_mm: self.progress_mm,
+            carry_um: self.carry_um,
+            travel_mm: self.travel_mm,
+            exhausted: self.exhausted,
+            valid: self.valid,
+            floats: None,
+        }
+    }
 }
 
 /// 路线行走的一轮静态查询结果；调用方只为仍在行走的通道读取当前实际 occurrence。
@@ -215,10 +278,15 @@ impl Kernel {
             match backend {
                 Backend::Scalar => (scalar_motion, scalar_edge, scalar_limit, scalar_boundary),
                 #[cfg(target_arch = "x86_64")]
-                Backend::Avx2 => (x86::avx2, x86::advance2, x86::limit2, x86::boundary2),
+                Backend::Avx2 => (
+                    x86::avx2::<true>,
+                    x86::advance2,
+                    x86::limit2,
+                    x86::boundary2,
+                ),
                 #[cfg(target_arch = "x86_64")]
                 Backend::Avx512 => (
-                    x86::avx512,
+                    x86::avx512::<true>,
                     x86::advance512,
                     x86::limit512,
                     x86::boundary512,
@@ -231,6 +299,15 @@ impl Kernel {
         Some(Self {
             backend,
             motion,
+            motion_untracked: match backend {
+                Backend::Scalar => scalar_motion,
+                #[cfg(target_arch = "x86_64")]
+                Backend::Avx2 => x86::avx2::<false>,
+                #[cfg(target_arch = "x86_64")]
+                Backend::Avx512 => x86::avx512::<false>,
+                #[cfg(not(target_arch = "x86_64"))]
+                Backend::Avx2 | Backend::Avx512 => unreachable!("unsupported backend"),
+            },
             edge,
             limit,
             boundary,
@@ -253,6 +330,34 @@ impl Kernel {
         delta_s: f32,
     ) -> Result<Stats, LengthMismatch> {
         self.calculate(input, output, delta_s, Phase::Full)
+    }
+
+    /// 提案、安全投影和量化在同一数值子批内完成，直接发布整数运动列。
+    /// 普通入口使用编译期无统计后端；不生成逐行诊断计数。
+    ///
+    /// # Errors
+    /// 任一列长度不同则返回 `LengthMismatch`，全部输出保持原值。
+    pub fn run_direct(
+        self,
+        input: &Input<'_>,
+        output: &mut DirectOutput<'_>,
+        delta_s: f32,
+    ) -> Result<(), LengthMismatch> {
+        self.calculate_columns::<false>(input, &mut output.columns(), delta_s, Phase::Direct)
+            .map(|_| ())
+    }
+
+    /// 与常规直接路径共用运算，诊断和差异测试才收集实际通道统计。
+    ///
+    /// # Errors
+    /// 任一列长度不同则返回 `LengthMismatch`，全部输出保持原值。
+    pub fn run_direct_with_stats(
+        self,
+        input: &Input<'_>,
+        output: &mut DirectOutput<'_>,
+        delta_s: f32,
+    ) -> Result<Stats, LengthMismatch> {
+        self.calculate_columns::<true>(input, &mut output.columns(), delta_s, Phase::Direct)
     }
 
     /// 仅输出未量化 IIDM 提案，供实际降速 occurrence 工作集消费。
@@ -314,6 +419,16 @@ impl Kernel {
         delta_s: f32,
         phase: Phase,
     ) -> Result<Stats, LengthMismatch> {
+        self.calculate_columns::<true>(input, &mut output.columns(), delta_s, phase)
+    }
+
+    fn calculate_columns<const TRACK: bool>(
+        self,
+        input: &Input<'_>,
+        output: &mut Columns<'_>,
+        delta_s: f32,
+        phase: Phase,
+    ) -> Result<Stats, LengthMismatch> {
         let n = input.enabled.len();
         let lengths = [
             input.speed_mm_s.len(),
@@ -339,33 +454,46 @@ impl Kernel {
             output.progress_mm.len(),
             output.carry_um.len(),
             output.travel_mm.len(),
-            output.travel_m.len(),
-            output.proposal_speed_m_s.len(),
-            output.proposal_travel_m.len(),
             output.exhausted.len(),
             output.valid.len(),
         ];
         if lengths.iter().any(|&len| len != n)
-            || output
-                .window_m
-                .as_ref()
-                .is_some_and(|column| column.len() != n)
+            || output.floats.as_ref().is_some_and(|floats| {
+                floats.travel_m.len() != n
+                    || floats.proposal_speed_m_s.len() != n
+                    || floats.proposal_travel_m.len() != n
+                    || floats
+                        .window_m
+                        .as_ref()
+                        .is_some_and(|column| column.len() != n)
+            })
         {
             return Err(LengthMismatch);
         }
         let mut stats = Stats {
-            active_lanes: input.enabled.iter().filter(|&&x| x).count(),
+            active_lanes: if TRACK {
+                input.enabled.iter().filter(|&&x| x).count()
+            } else {
+                0
+            },
             ..Stats::default()
         };
         // SAFETY: 唯一构造入口已经验证 CPU/OS 并绑定整个后端函数表；
         // 上方验证所有列等长，输出由互斥 &mut 借用提供。标量表返回 0，
         // 下方同布局尾部循环完成全部工作。不在热循环重查 ISA 或分派四车批次。
-        let vector_end = unsafe { (self.motion)(input, output, delta_s, phase, &mut stats) };
+        let motion = if TRACK {
+            self.motion
+        } else {
+            self.motion_untracked
+        };
+        let vector_end = unsafe { motion(input, output, delta_s, phase, &mut stats) };
 
-        stats.vector_lanes = vector_end;
-        stats.scalar_tail_lanes = n - vector_end;
+        if TRACK {
+            stats.vector_lanes = vector_end;
+            stats.scalar_tail_lanes = n - vector_end;
+        }
         for row in vector_end..n {
-            scalar_row(input, output, row, delta_s, phase, &mut stats);
+            scalar_row::<TRACK>(input, output, row, delta_s, phase, &mut stats);
         }
         Ok(stats)
     }
@@ -518,33 +646,49 @@ impl Kernel {
     }
 }
 
-fn scalar_row(
+fn scalar_row<const TRACK: bool>(
     input: &Input<'_>,
-    output: &mut Output<'_>,
+    output: &mut Columns<'_>,
     row: usize,
     delta_s: f32,
     phase: Phase,
     stats: &mut Stats,
 ) {
+    if phase == Phase::Direct && !input.enabled[row] {
+        output.valid[row] = false;
+        return;
+    }
     if phase == Phase::Quantize {
-        finish_row(
+        let floats = output
+            .floats
+            .as_ref()
+            .expect("quantization follows a float barrier");
+        let rounded_um = (f64::from(floats.travel_m[row]) * 1_000_000.0).round_ties_even();
+        let rounded_speed =
+            (f64::from(floats.proposal_speed_m_s[row].max(0.0)) * 1_000.0).round_ties_even();
+        let valid = motion_values_valid(
             input,
-            output,
             row,
             delta_s,
-            (f64::from(output.travel_m[row]) * 1_000_000.0).round_ties_even(),
-            (f64::from(output.proposal_speed_m_s[row].max(0.0)) * 1_000.0).round_ties_even(),
+            floats.proposal_travel_m[row],
+            floats.proposal_speed_m_s[row],
+            floats.travel_m[row],
         );
+        finish_values(input, output, row, valid, rounded_um, rounded_speed);
         return;
     }
     let speed = input.speed_mm_s[row] as f32 / 1_000.0;
     let desired = input.desired_mm_s[row] as f32 / 1_000.0;
     let project = matches!(phase, Phase::Project | Phase::FloatProject);
     let (raw_travel, raw_speed) = if input.has_proposal[row] || project {
-        stats.proposal_lanes_reused += usize::from(input.enabled[row]);
+        if TRACK {
+            stats.proposal_lanes_reused += usize::from(input.enabled[row]);
+        }
         (input.proposal_travel_m[row], input.proposal_speed_m_s[row])
     } else {
-        stats.proposal_lanes_computed += usize::from(input.enabled[row]);
+        if TRACK {
+            stats.proposal_lanes_computed += usize::from(input.enabled[row]);
+        }
         raw_proposal(&ProposalInput {
             speed_m_s: speed,
             desired_m_s: desired,
@@ -558,14 +702,22 @@ fn scalar_row(
         })
         .unwrap_or((f32::NAN, f32::NAN))
     };
-    output.proposal_speed_m_s[row] = raw_speed;
-    output.proposal_travel_m[row] = raw_travel;
+    if let Some(floats) = output.floats.as_mut() {
+        floats.proposal_speed_m_s[row] = raw_speed;
+        floats.proposal_travel_m[row] = raw_travel;
+    }
     if phase == Phase::Proposal {
-        if let Some(window) = output.window_m.as_mut() {
+        if let Some(window) = output
+            .floats
+            .as_mut()
+            .expect("proposal barrier")
+            .window_m
+            .as_mut()
+        {
             window[row] =
                 delta_s * (speed + raw_speed) + raw_speed * raw_speed / input.comfort_decel[row];
         }
-        output.valid[row] = raw_valid(input, output, row, delta_s);
+        output.valid[row] = raw_valid(input, row, delta_s, raw_travel, raw_speed);
         return;
     }
     let mut travel = if project {
@@ -581,32 +733,55 @@ fn scalar_row(
         .min(input.route_end_m[row].max(0.0))
         .min(input.envelope_m[row])
         .max(0.0);
-    output.travel_m[row] = travel;
+    if let Some(floats) = output.floats.as_mut() {
+        floats.travel_m[row] = travel;
+    }
     if phase == Phase::FloatProject {
-        output.valid[row] = raw_valid(input, output, row, delta_s) && travel.is_finite();
+        output.valid[row] =
+            raw_valid(input, row, delta_s, raw_travel, raw_speed) && travel.is_finite();
         return;
     }
     let rounded_um = (f64::from(travel) * 1_000_000.0).round_ties_even();
     let rounded_speed = (f64::from(raw_speed.max(0.0)) * 1_000.0).round_ties_even();
-    finish_row(input, output, row, delta_s, rounded_um, rounded_speed);
+    let valid = motion_values_valid(input, row, delta_s, raw_travel, raw_speed, travel);
+    finish_values(input, output, row, valid, rounded_um, rounded_speed);
 }
 
-fn raw_valid(input: &Input<'_>, output: &Output<'_>, row: usize, delta_s: f32) -> bool {
+fn raw_valid(input: &Input<'_>, row: usize, delta_s: f32, travel: f32, speed: f32) -> bool {
     input.enabled[row]
         && delta_s > 0.0
         && delta_s.is_finite()
         && input.max_accel[row] > 0.0
         && input.comfort_decel[row] > 0.0
         && input.emergency_decel[row] > 0.0
-        && output.proposal_travel_m[row].is_finite()
-        && output.proposal_speed_m_s[row].is_finite()
+        && travel.is_finite()
+        && speed.is_finite()
 }
 
-fn finish_row(
+fn motion_values_valid(
     input: &Input<'_>,
-    output: &mut Output<'_>,
     row: usize,
     delta_s: f32,
+    raw_travel: f32,
+    raw_speed: f32,
+    travel: f32,
+) -> bool {
+    // 保留原完成原语的比较顺序与非有限边界；不通过改写 <= 为 > 收紧外部输入。
+    !(delta_s <= 0.0
+        || !delta_s.is_finite()
+        || input.max_accel[row] <= 0.0
+        || input.comfort_decel[row] <= 0.0
+        || input.emergency_decel[row] <= 0.0
+        || !raw_travel.is_finite()
+        || !raw_speed.is_finite()
+        || !travel.is_finite())
+}
+
+fn finish_values(
+    input: &Input<'_>,
+    output: &mut Columns<'_>,
+    row: usize,
+    numeric_valid: bool,
     rounded_um: f64,
     rounded_speed: f64,
 ) {
@@ -614,15 +789,7 @@ fn finish_row(
     if !input.enabled[row] {
         return;
     }
-    if delta_s <= 0.0
-        || !delta_s.is_finite()
-        || input.max_accel[row] <= 0.0
-        || input.comfort_decel[row] <= 0.0
-        || input.emergency_decel[row] <= 0.0
-        || !output.proposal_travel_m[row].is_finite()
-        || !output.proposal_speed_m_s[row].is_finite()
-        || !output.travel_m[row].is_finite()
-    {
+    if !numeric_valid {
         return;
     }
     let room = input.hard_room_mm[row];

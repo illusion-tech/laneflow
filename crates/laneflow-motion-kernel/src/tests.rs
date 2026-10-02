@@ -158,6 +158,29 @@ impl Results {
             window_m: None,
         }
     }
+
+    fn direct_output(&mut self, n: usize) -> DirectOutput<'_> {
+        DirectOutput {
+            speed_mm_s: &mut self.speed[..n],
+            progress_mm: &mut self.progress[..n],
+            carry_um: &mut self.carry[..n],
+            travel_mm: &mut self.travel[..n],
+            exhausted: &mut self.exhausted[..n],
+            valid: &mut self.valid[..n],
+        }
+    }
+
+    fn assert_motion_eq(&self, reference: &Self) {
+        assert_eq!(self.speed, reference.speed);
+        assert_eq!(self.progress, reference.progress);
+        assert_eq!(self.carry, reference.carry);
+        assert_eq!(self.travel, reference.travel);
+        assert_eq!(self.exhausted, reference.exhausted);
+        assert_eq!(self.valid, reference.valid);
+        assert_eq!(self.meters, [42.0; N], "Direct has no float consumer");
+        assert_eq!(self.proposal_speed, [42.0; N]);
+        assert_eq!(self.proposal_travel, [42.0; N]);
+    }
 }
 
 fn compare(fixture: &Fixture, n: usize, delta_s: f32) {
@@ -167,6 +190,27 @@ fn compare(fixture: &Fixture, n: usize, delta_s: f32) {
         .unwrap()
         .run(&input, &mut reference.output(n), delta_s)
         .unwrap();
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut plain = Results::new();
+        kernel
+            .run_direct(&input, &mut plain.direct_output(n), delta_s)
+            .unwrap();
+        plain.assert_motion_eq(&reference);
+        let mut tracked = Results::new();
+        let stats = kernel
+            .run_direct_with_stats(&input, &mut tracked.direct_output(n), delta_s)
+            .unwrap();
+        tracked.assert_motion_eq(&reference);
+        assert_eq!(plain, tracked);
+        assert_eq!(
+            stats.active_lanes,
+            input.enabled.iter().filter(|&&v| v).count()
+        );
+        assert_eq!(stats.vector_lanes + stats.scalar_tail_lanes, n);
+    }
     for backend in [Backend::Avx2, Backend::Avx512] {
         let Some(kernel) = Kernel::for_backend(backend) else {
             continue;
@@ -179,6 +223,51 @@ fn compare(fixture: &Fixture, n: usize, delta_s: f32) {
             "backend {backend:?}, n {n}, dt {delta_s}"
         );
     }
+}
+
+#[test]
+fn direct_output_rejects_short_columns_before_any_write() {
+    let fixture = Fixture::new(17);
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut result = Results::new();
+        let before = Results::new();
+        let mut output = result.direct_output(N);
+        output.valid = &mut output.valid[..N - 1];
+        assert_eq!(
+            kernel.run_direct(&fixture.input(N), &mut output, 0.033),
+            Err(LengthMismatch)
+        );
+        assert_eq!(result, before);
+    }
+}
+
+#[test]
+fn direct_skips_closed_groups_and_reuses_only_enabled_proposals() {
+    let mut fixture = Fixture::new(18);
+    fixture.enabled.fill(false);
+    fixture.enabled[17] = true;
+    fixture.has_proposal.fill(false);
+    fixture.has_proposal[17] = true;
+    fixture.accel[17] = 2.0;
+    fixture.proposal_speed[17] = 3.0;
+    fixture.proposal_travel[17] = 0.015;
+    for backend in [Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut result = Results::new();
+        result.valid.fill(true);
+        let stats = kernel
+            .run_direct_with_stats(&fixture.input(N), &mut result.direct_output(N), 0.033)
+            .unwrap();
+        assert_eq!(stats.proposal_lanes_computed, 0);
+        assert_eq!(stats.proposal_lanes_reused, 1);
+        assert_eq!(result.valid, std::array::from_fn(|row| row == 17));
+    }
+    compare(&fixture, N, 0.033);
 }
 
 #[test]
@@ -415,5 +504,45 @@ fn nonfinite_proposals_and_quantization_overflow_are_rejected() {
             .run(&fixture.input(N), &mut result.output(N), 0.016)
             .unwrap();
         assert!(result.valid.iter().all(|&x| !x));
+        let mut direct = Results::new();
+        direct.valid.fill(true);
+        kernel
+            .run_direct(&fixture.input(N), &mut direct.direct_output(N), 0.016)
+            .unwrap();
+        direct.assert_motion_eq(&result);
+    }
+}
+
+#[test]
+fn direct_preserves_invalid_delta_and_existing_parameter_comparisons() {
+    let mut fixture = Fixture::new(19);
+    fixture.enabled.fill(true);
+    fixture.has_proposal.fill(true);
+    fixture.proposal_travel.fill(0.01);
+    fixture.proposal_speed.fill(10.0);
+    fixture.has_leader.fill(false);
+    for row in 0..N {
+        match row % 4 {
+            0 => fixture.accel[row] = f32::NAN,
+            1 => fixture.comfort[row] = f32::NAN,
+            2 => fixture.emergency[row] = f32::NAN,
+            _ => fixture.accel[row] = 0.0,
+        }
+    }
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        for delta in [0.033, 0.0, -0.033, f32::NAN, f32::INFINITY] {
+            let mut reference = Results::new();
+            kernel
+                .run(&fixture.input(N), &mut reference.output(N), delta)
+                .unwrap();
+            let mut direct = Results::new();
+            kernel
+                .run_direct(&fixture.input(N), &mut direct.direct_output(N), delta)
+                .unwrap();
+            direct.assert_motion_eq(&reference);
+        }
     }
 }
