@@ -190,6 +190,17 @@ fn convert_verified(
         notice: embedded_notice_bytes().to_vec(),
     };
 
+    // 打包前释放已消费完毕的源输入缓冲（合计约 143 MB）：net/tll/vtypes/
+    // DUE/poly 此后不再使用。不释放则与 build_source_tar 重读出的
+    // TarMember 缓冲及 tar 输出并存，峰值约三份源体量，受限 runner 有
+    // OOM 风险。
+    drop(net_xml);
+    drop(tll_xml);
+    drop(vtypes_xml);
+    drop(due0);
+    drop(due1);
+    drop(due2);
+    drop(poly_xml);
     let source_tar = build_source_tar(verified)?;
     // #253 K1：全部 pinned 文件消费完毕，revision 重校验——检查与消费之间
     // checkout 被切换（即便 pinned 字节保留、digest 全过）也使 provenance
