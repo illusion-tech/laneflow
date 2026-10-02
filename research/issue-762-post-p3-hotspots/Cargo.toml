@@ -62,3 +62,7 @@ path = "src/p5_hot.rs"
 [[bin]]
 name = "laneflow-columnar-runtime-research"
 path = "src/columnar_runtime.rs"
+
+[[bin]]
+name = "laneflow-columnar-measurement"
+path = "src/columnar_measurement.rs"
