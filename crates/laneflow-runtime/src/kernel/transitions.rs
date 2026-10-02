@@ -230,15 +230,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         TRANSITION_VISITS.set(TRANSITION_VISITS.get() + 1);
         let mut passage_cursor = 0;
-        for (sequence, vehicle) in self.committed.live_order.iter().copied().enumerate() {
-            let Some(update) =
-                self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
-            else {
-                continue;
-            };
-            let row = updates.row(update as usize, &self.committed.vehicles);
-            if row.source.handle() != vehicle {
+        let mut sequence = 0;
+        for &update in updates.resource_rows() {
+            let row = updates.row(update, &self.committed.vehicles);
+            let vehicle = row.source.handle();
+            if self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
+                != u32::try_from(update).ok()
+            {
                 return Err(StepError::ConflictInvariantViolation);
+            }
+            while self.committed.live_order.get(sequence) != Some(&vehicle) {
+                sequence += 1;
+                if sequence >= self.committed.live_order.len() {
+                    return Err(StepError::ConflictInvariantViolation);
+                }
             }
             let sequence =
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
