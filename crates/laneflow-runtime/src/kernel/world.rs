@@ -492,7 +492,7 @@ impl crate::kernel::state::WorldState {
         self.conflict_state_valid_with(None)
     }
 
-    /// 固定步进预检：逐车校验互不依赖，多线程时按连续车位段并行，结果只取全部为真。
+    /// 固定步进预检：车位与资源权威均只读，多线程时在同一次完整 join 中校验。
     pub(crate) fn conflict_state_valid_with(
         &self,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
@@ -504,9 +504,22 @@ impl crate::kernel::state::WorldState {
             return false;
         }
         let count = self.committed.vehicles.len();
-        let slots_valid = match execution.filter(|resources| resources.coordinator_parallel()) {
+        let authority_valid = || {
+            !self
+                .committed
+                .conflict_eligibility
+                .get(self.committed.vehicles.len()..)
+                .is_some_and(|tail| tail.iter().any(Option::is_some))
+                && self.conflict_read().authority_owners_valid(
+                    |owner| self.vehicle_state(owner).is_some(),
+                    self.binding.config.fixed_delta_time_ms(),
+                )
+        };
+        match execution.filter(|resources| resources.coordinator_parallel()) {
             Some(resources) => {
-                let mut parts = [true; PREFLIGHT_MAX_PARTS];
+                // 资源权威检查不等待全部车位段结束，也不再单独唤醒一次私有池。
+                // 第一块保留给 owner/cell 检查，其余块独占逐车校验的结果。
+                let mut parts = [true; PREFLIGHT_MAX_PARTS + 1];
                 let wanted = resources
                     .dispatch_threads()
                     .saturating_mul(4)
@@ -514,30 +527,19 @@ impl crate::kernel::state::WorldState {
                     .min(count)
                     .max(1);
                 let span = count.div_ceil(wanted).max(1);
-                resources.for_each_part(&mut parts[..wanted], 1, |part, valid| {
-                    let start = (part * span).min(count);
+                resources.for_each_part(&mut parts[..=wanted], 1, |part, valid| {
+                    if part == 0 {
+                        valid[0] = authority_valid();
+                        return;
+                    }
+                    let start = ((part - 1) * span).min(count);
                     let end = (start + span).min(count);
                     valid[0] = (start..end).all(|index| self.conflict_slot_valid(index));
                 });
-                parts[..wanted].iter().all(|valid| *valid)
+                parts[..=wanted].iter().all(|valid| *valid)
             }
-            None => (0..count).all(|index| self.conflict_slot_valid(index)),
-        };
-        if !slots_valid {
-            return false;
+            None => (0..count).all(|index| self.conflict_slot_valid(index)) && authority_valid(),
         }
-        if self
-            .committed
-            .conflict_eligibility
-            .get(self.committed.vehicles.len()..)
-            .is_some_and(|tail| tail.iter().any(Option::is_some))
-        {
-            return false;
-        }
-        self.conflict_read().authority_owners_valid(
-            |owner| self.vehicle_state(owner).is_some(),
-            self.binding.config.fixed_delta_time_ms(),
-        )
     }
 
     /// 单个车位的 Conflict 资格、reservation 与通行区间一致性；只读，可并行调用。
@@ -3067,6 +3069,71 @@ fn map_conflict_install_error(
         }
         crate::kernel::conflict::ConflictInstallError::AllocationFailed => {
             InstallError::ConflictArbiterAllocationFailed
+        }
+    }
+}
+
+#[cfg(test)]
+mod conflict_preflight_tests {
+    use super::*;
+    use crate::kernel::execution::WorldExecution;
+    use std::num::NonZeroU32;
+
+    fn assert_preflight(world: &TrafficWorld, expected: bool) {
+        assert_eq!(
+            world.state.conflict_state_valid(),
+            expected,
+            "serial reference"
+        );
+        assert_eq!(
+            world
+                .state
+                .conflict_state_valid_with(Some(world.execution.resources())),
+            expected,
+            "pooled slots and authority checks",
+        );
+    }
+
+    #[test]
+    fn pooled_preflight_checks_slots_and_orphaned_resource_owners() {
+        for workers in [4, 16] {
+            let (mut world, vehicle) =
+                crate::admin::format_admission::tests::world_with_conflict_reservation();
+            world.execution = WorldExecution::start_private(
+                crate::ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            assert!(world.conflict_reservation(vehicle).is_some());
+            assert_preflight(&world, true);
+            let original = world.vehicle(vehicle).unwrap();
+            // 空车位自身合法；孤立 reservation 必须由同一次 join 中的权威检查拒绝。
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = None;
+            assert_preflight(&world, false);
+            // owner 仍存在但车辆字段不合法，车位检查不能被权威检查通过所掩盖。
+            let mut invalid = original;
+            invalid.route = RouteHandle::new(u32::MAX, 0);
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(invalid);
+            assert_preflight(&world, false);
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(original);
+            assert_preflight(&world, true);
+            world
+                .step(TickInput::new(100))
+                .expect("read-only failed preflight leaves world usable");
         }
     }
 }
