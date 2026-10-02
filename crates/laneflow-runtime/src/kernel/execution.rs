@@ -131,7 +131,7 @@ pub(crate) struct PoolResources {
     /// 占用索引分段收集缓冲：只在多线程分发时需要，随池存活跨拍保留容量。
     occupancy_parts: std::sync::Mutex<Vec<super::occupancy::OccupancyPart>>,
     /// 协调器并行归约后的稀疏下标（P2 预览消费、P5 到达/完成行）；
-    /// 两处不重叠使用，随池存活跨拍保留容量。
+    /// Frontier 分类暂借作逐行位标记。各阶段不重叠使用，随池跨拍保留容量。
     sparse_indices: std::sync::Mutex<Vec<u32>>,
     /// Frontier 复用计算的输入与互斥输出；完整 join 后才规范插入。
     frontier_replay: std::sync::Mutex<super::entry_frontier::ReplayScratch>,
