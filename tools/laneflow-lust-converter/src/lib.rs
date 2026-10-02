@@ -24,11 +24,41 @@ use crate::{
 };
 
 /// Verify the pinned LuST source set under `source_dir`.
+///
+/// # Errors
+///
+/// - `Error::MissingSourceFile` / `Error::SourceSizeMismatch` /
+///   `Error::SourceDigestMismatch`：pinned 文件缺失、大小或 SHA-256 与
+///   钉死值不符。
+/// - `Error::SourceRevisionUnknown` / `Error::SourceRevisionMismatch`：
+///   source checkout 的 revision 无法确定或与钉死值不符。
+/// - `Error::Io`：读取 source 文件失败。
 pub fn verify_source(source_dir: &Path) -> Result<VerifiedSourceSet> {
     crate::source::verify_source_dir(source_dir)
 }
 
-/// Verify pinned source and write static/source bundles plus provenance.
+/// Verify pinned source and write the deterministic artifact set plus
+/// provenance under the configured `output_dir`.
+///
+/// CLI `convert` 固定走诊断模式（`emit_infeasibility_report: true`）：交付
+/// 不可行诊断清单、conversion report、manifest、source tar 与 provenance——
+/// **不**产出 `network.lfca` / `routes.toml` / `lust-static.tar`
+/// （`ConvertOutputPaths` 对应字段为 `None`）。
+///
+/// # Errors
+///
+/// - `Error::Toml` / `Error::Config`：config 解析或校验失败（含 config
+///   bytes 与生效配置不一致）。
+/// - `Error::MissingSourceFile` / `Error::SourceSizeMismatch` /
+///   `Error::SourceDigestMismatch` / `Error::SourceChangedAfterVerification`
+///   / `Error::SourceRevisionUnknown` / `Error::SourceRevisionMismatch`：
+///   pinned LuST source 集验证或消费期 TOCTOU 重校验失败。
+/// - `Error::XmlParse` / `Error::SumoModel`：SUMO 网络解析失败。
+/// - `Error::Validation`：拓扑转换验收失败，或 publish 事务失败（含中断
+///   恢复 fail-closed 与回滚不完整）。
+/// - `Error::Json` / `Error::TomlSerialize`：report / manifest /
+///   provenance 序列化失败。
+/// - `Error::Io`：staging、publish 或备份恢复等文件系统操作失败。
 pub fn convert(config_path: &Path) -> Result<ConvertOutputPaths> {
     let (config, config_bytes) = load_config_with_bytes(config_path)?;
     run_convert(&config, &config_bytes)

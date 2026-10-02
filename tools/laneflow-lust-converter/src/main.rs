@@ -55,10 +55,17 @@ fn run() -> Result<(), String> {
                 return Err(usage());
             }
             let outputs = convert(&path).map_err(|error| error.to_string())?;
-            println!(
-                "convert ok: wrote static/source bundles under {}",
-                outputs.output_dir.display()
-            );
+            if outputs.static_tar.is_some() {
+                println!(
+                    "convert ok: wrote static/source bundles under {}",
+                    outputs.output_dir.display()
+                );
+            } else {
+                println!(
+                    "convert ok: wrote diagnostic artifacts (survey + source tar; no static bundle) under {}",
+                    outputs.output_dir.display()
+                );
+            }
             if let Some(network_lfca) = &outputs.network_lfca {
                 println!("  {}", network_lfca.display());
             }

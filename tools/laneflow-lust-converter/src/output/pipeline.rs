@@ -65,7 +65,9 @@ pub struct ConvertOutputPaths {
     pub build_provenance: PathBuf,
 }
 
-/// Verify pinned source and emit static bundle + provenance under `output_dir`.
+/// Verify pinned source and emit the deterministic artifact set + provenance
+/// under `output_dir`（诊断模式交付 survey/source tar 等，不产出 static
+/// bundle；`ConvertOutputPaths` 的 Option 字段按模式为 None）。
 pub fn convert_with_config(
     config: &LustConverterConfig,
     config_toml_bytes: &[u8],
