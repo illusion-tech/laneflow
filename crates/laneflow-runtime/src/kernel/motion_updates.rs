@@ -195,6 +195,7 @@ pub(crate) struct MotionRowReport {
     pub(crate) error: Option<StepError>,
     pub(crate) completed: bool,
     pub(crate) arrival: bool,
+    pub(crate) finalize_hints: super::resource_rows::FinalizeHints,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -315,6 +316,7 @@ impl MotionUpdates {
     }
 
     /// 容量已在 P5 求值前准备；筛选不分配，也不改变首错或资源消费顺序。
+    #[cfg(test)]
     pub(crate) fn select_resource_rows(
         &mut self,
         current: &VehicleStore,
@@ -325,6 +327,26 @@ impl MotionUpdates {
             if select(self.row(index, current)) {
                 self.resource_rows.push(index);
             }
+        }
+    }
+
+    /// 只补充 Waiting 暂存实际新增的控制义务；旧成员及 P5 完成行已由 hints 保留。
+    /// 原候选已规范有序，控制覆盖唯一；追加前查原前缀避免超过已预留的 Active 容量。
+    pub(crate) fn supplement_resource_rows(&mut self) {
+        let original = self.resource_rows.len();
+        for changed in &self.control {
+            if (changed.status != VehicleStatus::Active
+                || changed.waiting.is_some()
+                || changed.maneuver.is_some())
+                && self.resource_rows[..original]
+                    .binary_search(&changed.logical_index)
+                    .is_err()
+            {
+                self.resource_rows.push(changed.logical_index);
+            }
+        }
+        if self.resource_rows.len() != original {
+            self.resource_rows.sort_unstable();
         }
     }
 
@@ -348,6 +370,7 @@ impl MotionUpdates {
         &mut self,
         handle: crate::VehicleHandle,
         completed: bool,
+        hints: super::resource_rows::FinalizeHints,
         current: &VehicleStore,
     ) -> Result<(), StepError> {
         let physical = current
@@ -371,6 +394,9 @@ impl MotionUpdates {
                 old.waiting,
                 current,
             )?;
+        }
+        if hints.retain() {
+            self.resource_rows.push(index);
         }
         Ok(())
     }
