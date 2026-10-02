@@ -71,7 +71,7 @@ fn empty_ranges_match_linear_projection_at_every_edge_boundary() {
                             })
                             .collect();
                         let mut actual = Vec::new();
-                        let updates = crate::kernel::motion_updates::MotionUpdates::from_states(
+                        let mut updates = crate::kernel::motion_updates::MotionUpdates::from_states(
                             &[(slot, next)],
                             &world.state.committed.vehicles,
                         );
@@ -80,6 +80,20 @@ fn empty_ranges_match_linear_projection_at_every_edge_boundary() {
                             .step_workspace()
                             .visit_transition_events(&updates, 1, |event| actual.push(event))
                             .unwrap();
+                        world
+                            .state
+                            .step_workspace()
+                            .select_resource_rows(&mut updates);
+                        let mut selected = Vec::new();
+                        world
+                            .state
+                            .step_workspace()
+                            .visit_transition_events(&updates, 1, |event| selected.push(event))
+                            .unwrap();
+                        assert_eq!(selected, actual, "selected events match the complete visit");
+                        if !expected_decisions.is_empty() {
+                            assert_eq!(updates.resource_rows(), [0], "Gate decision obligation");
+                        }
                         assert_eq!(
                             actual
                                 .iter()

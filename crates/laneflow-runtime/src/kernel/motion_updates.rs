@@ -14,6 +14,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn resource_rows_are_scratch_owned_and_keep_capacity_after_discard() {
+        let mut updates = MotionUpdates::default();
+        updates.try_prepare_rows(0, 0).unwrap();
+        assert_eq!(updates.retained_logical_bytes(), 0);
+        updates.try_prepare_rows(0, 17).unwrap();
+        assert_eq!(
+            updates.retained_logical_bytes(),
+            super::super::state::vec_bytes(&updates.order)
+                + super::super::state::vec_bytes(&updates.resource_rows)
+        );
+        assert!(updates.resource_rows.capacity() >= 17);
+        let reserved = updates.retained_logical_bytes();
+        updates.resource_rows.extend([0, 2, 4]);
+        updates.clear();
+        assert!(updates.resource_rows.is_empty());
+        assert_eq!(updates.retained_logical_bytes(), reserved);
+    }
+
+    #[test]
     fn bound_updates_read_next_columns_and_controls_with_a_physical_hole() {
         let world = crate::kernel::waiting::tests::multi_gate_world(3);
         let mut current = world.state.committed.vehicles.clone();
@@ -137,6 +156,8 @@ pub(crate) struct MotionUpdates {
     order: Vec<UpdateRow>,
     control: Vec<ControlUpdate>,
     control_by_row: Vec<u32>,
+    /// P6 三个消费者共用的规范有序行号；每拍重建，不持有资源权威。
+    resource_rows: Vec<usize>,
     published: bool,
 }
 
@@ -175,6 +196,9 @@ impl MotionUpdates {
         self.order
             .try_reserve(active.saturating_sub(self.order.len()))
             .map_err(|_| StepError::VehicleStorageAllocFailed)?;
+        self.resource_rows
+            .try_reserve(active.saturating_sub(self.resource_rows.len()))
+            .map_err(|_| StepError::VehicleStorageAllocFailed)?;
         self.reports.resize(extent, MotionRowReport::default());
         self.control_by_row.resize(extent, 0);
         Ok(())
@@ -199,6 +223,7 @@ impl MotionUpdates {
         }
         self.order.clear();
         self.control.clear();
+        self.resource_rows.clear();
         for block in &mut self.motion {
             block.valid.fill(0);
         }
@@ -207,6 +232,24 @@ impl MotionUpdates {
 
     pub(crate) fn len(&self) -> usize {
         self.order.len()
+    }
+
+    pub(crate) fn resource_rows(&self) -> &[usize] {
+        &self.resource_rows
+    }
+
+    /// 容量已在 P5 求值前准备；筛选不分配，也不改变首错或资源消费顺序。
+    pub(crate) fn select_resource_rows(
+        &mut self,
+        current: &VehicleStore,
+        mut select: impl FnMut(UpdateView<'_>) -> bool,
+    ) {
+        self.resource_rows.clear();
+        for index in 0..self.order.len() {
+            if select(self.row(index, current)) {
+                self.resource_rows.push(index);
+            }
+        }
     }
 
     #[cfg(test)]
@@ -219,6 +262,8 @@ impl MotionUpdates {
             slot: state.handle.index() as usize,
             physical,
         });
+        // 手工逻辑值夹具默认保留完整遍历，独立于生产筛选谓词。
+        self.resource_rows.push(index);
         self.set(index, state, current)
             .expect("test next control allocation");
     }
@@ -483,13 +528,22 @@ impl MotionUpdates {
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         use super::state::vec_bytes;
-        vec_bytes(&self.motion)
-            + vec_bytes(&self.reports)
-            + vec_bytes(&self.order)
-            + vec_bytes(&self.control)
-            + vec_bytes(&self.control_by_row)
-            + self
-                .motion
+        let Self {
+            motion,
+            reports,
+            order,
+            control,
+            control_by_row,
+            resource_rows,
+            published: _,
+        } = self;
+        vec_bytes(motion)
+            + vec_bytes(reports)
+            + vec_bytes(order)
+            + vec_bytes(control)
+            + vec_bytes(control_by_row)
+            + vec_bytes(resource_rows)
+            + motion
                 .iter()
                 .map(MotionBlock::retained_columns_bytes)
                 .sum::<u64>()

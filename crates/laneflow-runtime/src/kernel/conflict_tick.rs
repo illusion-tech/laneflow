@@ -2243,7 +2243,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .map(|range| range.passage_count() as usize)
             .chain(
                 updates
-                    .slot_indices()
+                    .resource_rows()
+                    .iter()
+                    .map(|index| updates.slot_index(*index))
                     .filter_map(|slot| self.committed.vehicles.active_handle(slot))
                     .filter_map(|handle| self.conflict_reservation(handle))
                     .map(|reservation| reservation.passage_range().passage_count() as usize),
@@ -2264,7 +2266,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
         // live_order 同时包含 parked/completed；双游标合并两份有序列表，保留正式更新序号。
         let mut update_sequence = 0;
-        for index in 0..updates.len() {
+        for resource_index in 0..updates.resource_rows().len() {
+            let index = updates.resource_rows()[resource_index];
             let row = updates.row(index, &self.committed.vehicles);
             let handle = row.source.handle();
             let position = row.position();

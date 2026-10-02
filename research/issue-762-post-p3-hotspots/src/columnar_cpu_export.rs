@@ -191,6 +191,52 @@ fn instrument_preview(root: &Path) -> Result<()> {
 }
 
 fn instrument_finalize(root: &Path) -> Result<()> {
+    let conflict_file = "crates/laneflow-runtime/src/kernel/conflict_tick.rs";
+    let resource_rows = fs::read_to_string(root.join(conflict_file))?
+        .contains("        for resource_index in 0..updates.resource_rows().len() {");
+    let conflict_loop = if resource_rows {
+        "        for resource_index in 0..updates.resource_rows().len() {\n            let index = updates.resource_rows()[resource_index];\n            let row = updates.row(index, &self.committed.vehicles);"
+    } else {
+        "        for index in 0..updates.len() {\n            let row = updates.row(index, &self.committed.vehicles);"
+    };
+    patch(
+        root,
+        conflict_file,
+        conflict_loop,
+        &format!(
+            "{conflict_loop}\n            super::tick::note_pipeline(26, 1);\n            let control_obligation = row.control().waiting.is_some() || row.control().maneuver.is_some();"
+        ),
+    )?;
+    let waiting_loop = if resource_rows {
+        "        for &update_index in updates.resource_rows() {\n            let row = updates.row(update_index, &self.committed.vehicles);"
+    } else {
+        "        for update_index in 0..updates.len() {\n            let row = updates.row(update_index, &self.committed.vehicles);"
+    };
+    patch(
+        root,
+        WAITING,
+        waiting_loop,
+        &format!("{waiting_loop}\n            super::tick::note_pipeline(31, 1);"),
+    )?;
+    let transition_row = if resource_rows {
+        "            let row = updates.row(update, &self.committed.vehicles);"
+    } else {
+        "            let row = updates.row(update as usize, &self.committed.vehicles);"
+    };
+    patch(
+        root,
+        "crates/laneflow-runtime/src/kernel/transitions.rs",
+        transition_row,
+        &format!("            super::tick::note_pipeline(39, 1);\n{transition_row}"),
+    )?;
+    if resource_rows {
+        patch(
+            root,
+            TICK,
+            "        self.select_resource_rows(updates);",
+            "        let _selection_timer = PipelineTimer::begin(26);\n        self.select_resource_rows(updates);\n        drop(_selection_timer);\n        note_pipeline(37, updates.resource_rows().len());\n        note_pipeline(38, updates.len());",
+        )?;
+    }
     for (file, old, new) in [
         (
             "crates/laneflow-runtime/src/kernel/vehicle_store.rs",
@@ -224,11 +270,6 @@ fn instrument_finalize(root: &Path) -> Result<()> {
         ),
         (
             "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
-            "        for index in 0..updates.len() {\n            let row = updates.row(index, &self.committed.vehicles);",
-            "        for index in 0..updates.len() {\n            super::tick::note_pipeline(26, 1);\n            let row = updates.row(index, &self.committed.vehicles);\n            let control_obligation = row.control().waiting.is_some() || row.control().maneuver.is_some();",
-        ),
-        (
-            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
             "            self.stage_resource_free_gate_fields(\n                fields,",
             "            super::tick::note_pipeline(32, usize::from(fields.previous.route_edge_index != position.route_edge_index));\n            self.stage_resource_free_gate_fields(\n                fields,",
         ),
@@ -236,11 +277,6 @@ fn instrument_finalize(root: &Path) -> Result<()> {
             "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
             "            let all_clear = match range {",
             "            super::tick::note_pipeline(27, usize::from(control_obligation || range.is_some() || grant_index.is_some() || self.workspace.conflict_next_eligibility[handle.index() as usize].is_some()));\n            let all_clear = match range {",
-        ),
-        (
-            WAITING,
-            "        for update_index in 0..updates.len() {\n            let row = updates.row(update_index, &self.committed.vehicles);",
-            "        for update_index in 0..updates.len() {\n            super::tick::note_pipeline(31, 1);\n            let row = updates.row(update_index, &self.committed.vehicles);",
         ),
         (
             WAITING,

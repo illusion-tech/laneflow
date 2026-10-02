@@ -4815,6 +4815,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let conflict_timer =
             super::performance_profile::begin(super::performance_profile::Stage::ConflictFinalize);
+        self.select_resource_rows(updates);
         self.finalize_conflict_step(updates)?;
         #[cfg(test)]
         drop(conflict_timer);
