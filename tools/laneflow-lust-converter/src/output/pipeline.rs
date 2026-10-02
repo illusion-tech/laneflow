@@ -93,7 +93,11 @@ pub fn convert_with_config(
         .into_iter()
         .map(|name| (name, name))
         .collect();
-    recover_interrupted_publish(&output_anchor(&config.output_dir), &deliverables)?;
+    let anchor = output_anchor(&config.output_dir);
+    recover_interrupted_publish(&anchor, &deliverables)?;
+    // 崩溃遗留的 staging 目录随恢复一并清理——内容是纯新产物副本，
+    // 不是任何事物的唯一副本；删除失败不阻塞本次转换。
+    remove_stale_staging(&anchor);
     let verified = verify_source_dir(&config.source_dir)?;
     convert_verified(config, config_toml_bytes, &verified)
 }
@@ -649,15 +653,41 @@ fn find_stale_backups(output_dir: &Path) -> Result<Vec<PathBuf>> {
             continue;
         }
         let file_name = entry.file_name().to_string_lossy().into_owned();
-        let is_backup = file_name
-            .strip_prefix(".backup-")
-            .and_then(|rest| rest.strip_suffix(&suffix))
-            .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()));
-        if is_backup {
+        if stale_dir_name_matches(&file_name, ".backup-", &suffix) {
             found.push(entry.path());
         }
     }
     Ok(found)
+}
+
+/// 匹配 `.<前缀>-<纯数字 pid>-<name>` 形态的残留目录名。
+fn stale_dir_name_matches(file_name: &str, prefix: &str, suffix: &str) -> bool {
+    file_name
+        .strip_prefix(prefix)
+        .and_then(|rest| rest.strip_suffix(suffix))
+        .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// 清理残留 staging 目录（`.staging-<pid>-<name>`）：进程在 staging 创建
+/// 后、publish 完成前被杀就会留下——内容是纯新产物副本（旧交付集的唯一
+/// 副本在备份区，不在此处），删除安全。尽力而为：删除失败留待下次运行
+/// 重试，不阻塞本次转换。
+fn remove_stale_staging(anchor: &Path) {
+    let name = anchor
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "output".to_owned());
+    let parent = anchor.parent().map(Path::to_path_buf).unwrap_or_default();
+    let suffix = format!("-{name}");
+    let Ok(entries) = fs::read_dir(&parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if stale_dir_name_matches(&file_name, ".staging-", &suffix) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 /// 失败恢复：备份区有的文件逐个移回 output_dir（新文件若已落位先删）；
@@ -827,7 +857,7 @@ mod tests {
 
     use super::{
         BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, backup_dir,
-        convert_with_config, publish_outputs, restore_backup, swap_outputs,
+        convert_with_config, publish_outputs, remove_stale_staging, restore_backup, swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1214,6 +1244,30 @@ mod tests {
             "装入一半的新文件已被恢复删除"
         );
         assert!(!stale.exists(), "残留备份目录已清理");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stale_staging_dirs_are_removed() {
+        // 崩溃遗留的 staging 目录（纯新产物副本）被清理；非数字 pid 段
+        // 与无关目录不动。
+        let root = std::env::temp_dir().join(format!("lust-stale-staging-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        std::fs::create_dir_all(&output).expect("output");
+        let stale = root.join(".staging-99999993-out");
+        std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join("manifest.toml"), b"staged").expect("write");
+        let non_numeric = root.join(".staging-abc-out");
+        std::fs::create_dir_all(&non_numeric).expect("non-numeric");
+        let unrelated = root.join("other");
+        std::fs::create_dir_all(&unrelated).expect("unrelated");
+
+        remove_stale_staging(&output);
+
+        assert!(!stale.exists(), "残留 staging 已清理");
+        assert!(non_numeric.exists(), "非数字 pid 段不匹配，不动");
+        assert!(unrelated.exists(), "无关目录不动");
         let _ = std::fs::remove_dir_all(&root);
     }
 
