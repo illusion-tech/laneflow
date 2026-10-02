@@ -32,7 +32,7 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
     }
     let lib = root.join("crates/laneflow-runtime/src/lib.rs");
     let mut text = fs::read_to_string(&lib)?;
-    text.push_str("\n#[doc(hidden)] pub fn research_pipeline() -> ([u64; 28], [u64; 28], [u64; 40]) { kernel::tick::take_pipeline() }\n");
+    text.push_str("\n#[doc(hidden)] pub fn research_pipeline() -> ([u64; 28], [u64; 28], [u64; 48]) { kernel::tick::take_pipeline() }\n");
     fs::write(lib, text)?;
     patch(
         root,
@@ -191,6 +191,51 @@ fn instrument_preview(root: &Path) -> Result<()> {
 }
 
 fn instrument_finalize(root: &Path) -> Result<()> {
+    let frontier_file = "crates/laneflow-runtime/src/kernel/entry_frontier.rs";
+    let narrow_frontier = fs::read_to_string(root.join(frontier_file))?
+        .contains("        let active = updates.active_len();");
+    patch(
+        root,
+        TICK,
+        "        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;",
+        "        let _frontier_timer = PipelineTimer::begin(27);\n        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;\n        drop(_frontier_timer);",
+    )?;
+    let active_count = if narrow_frontier {
+        "        let active = updates.active_len();"
+    } else {
+        "        let active = updates\n            .iter(current)\n            .filter(|(_, state)| state.status == VehicleStatus::Active)\n            .count();"
+    };
+    patch(
+        root,
+        frontier_file,
+        active_count,
+        &format!(
+            "        super::tick::note_pipeline(40, {});\n{active_count}",
+            if narrow_frontier {
+                "updates.changed_indices().count()"
+            } else {
+                "updates.len()"
+            }
+        ),
+    )?;
+    let classify_loop = if narrow_frontier {
+        "        for state in updates.frontier_inputs(current) {"
+    } else {
+        "        for (_, state) in updates.iter(current) {"
+    };
+    patch(
+        root,
+        frontier_file,
+        classify_loop,
+        &format!(
+            "        super::tick::note_pipeline(41, updates.len());\n        super::tick::note_pipeline(42, {});\n{classify_loop}",
+            if narrow_frontier {
+                "updates.len()"
+            } else {
+                "0"
+            }
+        ),
+    )?;
     let conflict_file = "crates/laneflow-runtime/src/kernel/conflict_tick.rs";
     let resource_rows = fs::read_to_string(root.join(conflict_file))?
         .contains("        for resource_index in 0..updates.resource_rows().len() {");
@@ -368,6 +413,6 @@ mod tests {
         assert_eq!(calls[7], 4);
         assert!(nanos[7] > 0);
         assert_eq!(probe::take_columnar_work(), [0; 20]);
-        assert_eq!(probe::take_pipeline(), ([0; 28], [0; 28], [0; 40]));
+        assert_eq!(probe::take_pipeline(), ([0; 28], [0; 28], [0; 48]));
     }
 }

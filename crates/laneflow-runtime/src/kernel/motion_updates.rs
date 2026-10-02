@@ -1,12 +1,36 @@
 //! P5 直接写下一运动列，P6 按需组装逻辑值，P7 发布同一份列载荷（ADR 0031）。
 
 use super::vehicle_store::{ActiveRow, BLOCK_ROWS, MotionBlock, MotionPosition, VehicleStore};
-use crate::{StepError, VehicleState, VehicleStatus};
+use crate::{RouteHandle, StepError, VehicleHandle, VehicleState, VehicleStatus};
 
 #[derive(Clone, Copy, Debug)]
 struct UpdateRow {
     slot: usize,
     physical: usize,
+}
+
+/// 下一拍 frontier 只需身份、游标与可达性字段，不读取控制成员或组装整车。
+#[derive(Clone, Copy)]
+pub(crate) struct FrontierMotionInput {
+    pub(crate) vehicle: VehicleHandle,
+    pub(crate) route: RouteHandle,
+    pub(crate) cursor: u32,
+    pub(crate) progress_mm: u32,
+    pub(crate) speed_mm_s: u32,
+    pub(crate) status: VehicleStatus,
+}
+
+impl From<&VehicleState> for FrontierMotionInput {
+    fn from(state: &VehicleState) -> Self {
+        Self {
+            vehicle: state.handle,
+            route: state.route,
+            cursor: state.route_edge_index,
+            progress_mm: state.progress_mm,
+            speed_mm_s: state.speed_mm_s,
+            status: state.status,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -70,6 +94,30 @@ mod tests {
         assert_eq!(row.state(), moved);
         assert_eq!(current.state(first.handle), Some(first));
         assert_eq!(current.state(last.handle), Some(last));
+        assert_eq!(updates.active_len(), 1);
+        let inputs: Vec<_> = updates.frontier_inputs(&current).collect();
+        assert_eq!(inputs[0].vehicle, completed.handle);
+        assert_eq!(inputs[0].status, VehicleStatus::Completed);
+        assert_eq!(inputs[1].route, moved.route);
+        assert_eq!(inputs[1].cursor, moved.route_edge_index);
+        assert_eq!(inputs[1].progress_mm, moved.progress_mm);
+        assert_eq!(inputs[1].speed_mm_s, moved.speed_mm_s);
+        // 同一行多次变化仍仅保留一个覆盖；恢复 Active 不重复扣数。
+        for status in [VehicleStatus::Parked, VehicleStatus::Active] {
+            updates
+                .set_control(0, status, None, None, &current)
+                .unwrap();
+            assert_eq!(updates.control.len(), 1);
+            assert_eq!(
+                updates.active_len(),
+                updates
+                    .iter(&current)
+                    .filter(|(_, state)| state.status == VehicleStatus::Active)
+                    .count()
+            );
+        }
+        updates.freeze_controls();
+        assert_eq!(updates.active_len(), 2);
         updates.order[0].slot = last.handle.index() as usize;
         assert_eq!(
             updates.validate(&current),
@@ -232,6 +280,34 @@ impl MotionUpdates {
 
     pub(crate) fn len(&self) -> usize {
         self.order.len()
+    }
+
+    /// 每个更新行至多一个控制覆盖；重复写回替换原项，恢复 Active 也保留该项。
+    pub(crate) fn active_len(&self) -> usize {
+        self.order.len()
+            - self
+                .control
+                .iter()
+                .filter(|change| change.status != VehicleStatus::Active)
+                .count()
+    }
+
+    pub(crate) fn frontier_inputs<'a>(
+        &'a self,
+        current: &'a VehicleStore,
+    ) -> impl Iterator<Item = FrontierMotionInput> + 'a {
+        self.order.iter().enumerate().map(|(index, binding)| {
+            let row = self.row(index, current);
+            let offset = binding.physical % BLOCK_ROWS;
+            FrontierMotionInput {
+                vehicle: row.source.handle(),
+                route: row.source.route(),
+                cursor: row.next.route_cursor[offset],
+                progress_mm: row.next.progress_mm[offset],
+                speed_mm_s: row.next.speed_mm_s[offset],
+                status: row.status(),
+            }
+        })
     }
 
     pub(crate) fn resource_rows(&self) -> &[usize] {

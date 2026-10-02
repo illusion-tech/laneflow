@@ -438,7 +438,7 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                             && [
                                 ("elapsed_sum_ns", 28),
                                 ("measured_calls", 28),
-                                ("counts", 40),
+                                ("counts", 48),
                             ]
                             .iter()
                             .all(|&(key, len)| {
@@ -452,7 +452,7 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
             for (key, len) in [
                 ("elapsed_sum_ns", 28),
                 ("measured_calls", 28),
-                ("counts", 40),
+                ("counts", 48),
             ] {
                 run["pipeline"][key] = json!(
                     (0..len)
