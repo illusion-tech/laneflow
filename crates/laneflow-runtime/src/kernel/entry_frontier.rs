@@ -5,6 +5,10 @@
 
 use std::collections::BTreeMap;
 
+#[path = "entry_frontier_replay.rs"]
+mod replay;
+pub(crate) use replay::ReplayScratch;
+
 use laneflow_static_contract::{ManeuverGateOrdinal, SignalAspect, SignalGroupOrdinal};
 use laneflow_static_network::BoundedDistance;
 
@@ -176,7 +180,6 @@ pub(crate) struct FrontierMaintenance {
     scratch_invalid: Vec<VehicleHandle>,
     scratch_increments: Vec<VehicleHandle>,
     scratch_demanded: Vec<ConflictPassageAddress>,
-    scratch_cells: Vec<CachedCell>,
     /// 本车出现项的唯一地址投影。容量跨拍保留，与按路线距离排列的缓存分开。
     scratch_addresses: Vec<ConflictPassageAddress>,
     seen: Vec<u32>,
@@ -274,7 +277,6 @@ impl FrontierMaintenance {
         self.scratch_invalid.clear();
         self.scratch_increments.clear();
         self.scratch_demanded.clear();
-        self.scratch_cells.clear();
         self.scratch_addresses.clear();
         self.seen.clear();
         self.seen_gen = 0;
@@ -729,7 +731,6 @@ impl FrontierMaintenance {
             scratch_invalid,
             scratch_increments,
             scratch_demanded,
-            scratch_cells,
             scratch_addresses,
             seen,
             seen_gen: _,
@@ -758,7 +759,6 @@ impl FrontierMaintenance {
             + crate::kernel::state::vec_bytes(scratch_invalid)
             + crate::kernel::state::vec_bytes(scratch_increments)
             + crate::kernel::state::vec_bytes(scratch_demanded)
-            + crate::kernel::state::vec_bytes(scratch_cells)
             + crate::kernel::state::vec_bytes(scratch_addresses)
             + crate::kernel::state::vec_bytes(seen)
             + crate::kernel::state::vec_bytes(full_walked)
@@ -1182,62 +1182,13 @@ fn held_walk(
         }
     }
 
-    let demanded_len = demanded.len();
     step.workspace
         .frontier_maintenance
         .scratch_increments
         .clear();
-    for index in 0..demanded_len {
-        let address = demanded[index];
-        let count = step
-            .workspace
-            .frontier_maintenance
-            .by_cell
-            .get(&address)
-            .map(|indexes| indexes.len())
-            .unwrap_or(0);
-        for position in 0..count {
-            let Some(vehicle_index) = step
-                .workspace
-                .frontier_maintenance
-                .by_cell
-                .get(&address)
-                .and_then(|indexes| indexes.get(position))
-                .copied()
-            else {
-                continue;
-            };
-            if step.workspace.frontier_maintenance.is_marked(vehicle_index) {
-                continue;
-            }
-            let Some(vehicle) = vehicle_from_slot(step, vehicle_index)? else {
-                continue;
-            };
-            let Some((state, sequence)) = accepted_source(step, vehicle)? else {
-                continue;
-            };
-            let reusable = step
-                .workspace
-                .frontier_maintenance
-                .replay_hit(vehicle, &state, horizon_ms)
-                .is_some();
-            if !step.workspace.frontier_maintenance.mark(vehicle.index())? {
-                continue;
-            }
-            if reusable {
-                replay_walk(step, vehicle, state, sequence, horizon_ms, Some(&demanded))?;
-            } else {
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_increments
-                    .try_reserve(1)
-                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_increments
-                    .push(vehicle);
-            }
-        }
+    if let Err(error) = replay::demanded(step, horizon_ms, &demanded, execution) {
+        step.workspace.frontier_maintenance.scratch_demanded = demanded;
+        return Err(error);
     }
     let deferred = step.workspace.frontier_maintenance.scratch_increments.len();
     for index in 0..deferred {
@@ -1831,93 +1782,7 @@ fn replay_walk(
     else {
         return record_walk(step, vehicle, state, sequence, horizon_ms, wanted);
     };
-    let cell_count = usize::try_from(vehicle.index())
-        .ok()
-        .and_then(|index| {
-            step.workspace
-                .frontier_maintenance
-                .slots
-                .get(index)
-                .map(|slot| slot.cells.len())
-        })
-        .unwrap_or(0);
-    step.workspace.frontier_maintenance.scratch_cells.clear();
-    step.workspace
-        .frontier_maintenance
-        .scratch_cells
-        .try_reserve(cell_count)
-        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-    for index in 0..cell_count {
-        let Some(cell) = usize::try_from(vehicle.index())
-            .ok()
-            .and_then(|slot_index| {
-                step.workspace
-                    .frontier_maintenance
-                    .slots
-                    .get(slot_index)
-                    .and_then(|slot| slot.cells.get(index))
-                    .copied()
-            })
-        else {
-            break;
-        };
-        step.workspace.frontier_maintenance.scratch_cells.push(cell);
-    }
-    let cells = std::mem::take(&mut step.workspace.frontier_maintenance.scratch_cells);
-    let profile = step
-        .binding
-        .revision
-        .traffic()
-        .relations()
-        .vehicle_profile(state.profile)
-        .ok_or(StepError::ConflictInvariantViolation)?;
-    let hold = signal_hold(step.read_view(), vehicle, &state);
-    let prepared = PreparedApproachEta::new(
-        state.carry_um,
-        state.speed_mm_s,
-        profile.max_accel(),
-        horizon_ms,
-    );
-    let traveled = state.progress_mm.saturating_sub(stored_progress);
-    {
-        let mut conflict = step
-            .committed
-            .prepare_conflict(&mut step.derived, &mut step.workspace.conflict);
-        for cell in &cells {
-            if traveled > cell.distance_mm {
-                continue;
-            }
-            let remaining = cell.distance_mm - traveled;
-            let kinematic = prepared.map_or(ApproachEstimate::Unprovable, |prepared| {
-                prepared.lower_bound(u64::from(remaining))
-            });
-            if kinematic == ApproachEstimate::OutsideHorizon {
-                break;
-            }
-            let estimate = raise_signal_bound(
-                kinematic,
-                hold,
-                remaining,
-                horizon_ms,
-                state.speed_mm_s,
-                profile.emergency_decel(),
-            );
-            if estimate == ApproachEstimate::OutsideHorizon {
-                continue;
-            }
-            if wanted.is_some_and(|wanted| !address_wanted(wanted, cell.address)) {
-                continue;
-            }
-            #[cfg(test)]
-            step.workspace
-                .frontier_maintenance
-                .insertions
-                .push((cell.address, vehicle, estimate));
-            insert_owner(&mut conflict, cell.address, vehicle, sequence, estimate)?;
-        }
-    }
-    step.workspace.frontier_maintenance.scratch_cells = cells;
-    Ok(())
+    replay::cached(step, state, sequence, stored_progress, horizon_ms, wanted)
 }
 
 pub(crate) fn finite_entry_distance(
