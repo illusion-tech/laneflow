@@ -116,7 +116,7 @@ pub(crate) struct CompiledRoute {
     /// 与 `edges` 等长。同一条边在循环路线中的两次出现各有一行。
     pub nearest_motion_barriers: Vec<NearestMotionBarriers>,
     /// 静态 Waiting maneuver 覆盖位，按路线出现项索引；空 Waiting 路线不分配。
-    pub waiting_maneuver_bits: Vec<u64>,
+    pub waiting_maneuver_bits: Box<[u64]>,
 }
 
 #[cfg(test)]
@@ -155,7 +155,7 @@ impl CompiledRoute {
             + crate::kernel::state::vec_bytes(conflicts)
             + crate::kernel::state::vec_bytes(conflict_gate_ranges)
             + crate::kernel::state::vec_bytes(nearest_motion_barriers)
-            + crate::kernel::state::vec_bytes(waiting_maneuver_bits)
+            + crate::kernel::state::slice_bytes(waiting_maneuver_bits)
     }
 }
 
@@ -569,9 +569,9 @@ fn compile_waiting_maneuver_bits(
     hops: usize,
     maneuvers: &[ManeuverOccurrence],
     waiting: &[WaitingOccurrence],
-) -> Result<Vec<u64>, RouteError> {
+) -> Result<Box<[u64]>, RouteError> {
     if waiting.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Box::default());
     }
     let mut bits = try_route_vec_filled(hops.div_ceil(64), 0_u64)?;
     for occurrence in waiting {
@@ -584,7 +584,7 @@ fn compile_waiting_maneuver_bits(
             *word |= 1 << (hop % 64);
         }
     }
-    Ok(bits)
+    Ok(bits.into_boxed_slice())
 }
 
 /// 分段 `u32` 前缀。下一条边长会让当前段溢出时封段、开新段。不上 `u64`（ADR 0028）。
@@ -1935,15 +1935,14 @@ mod compile_route_tests {
         ];
         compiled.edges = vec![compiled.edges[0]; 67];
         compiled.waiting = vec![waiting];
-        compiled.waiting_maneuver_bits.clear();
-        compiled.waiting_maneuver_bits.shrink_to_fit();
+        compiled.waiting_maneuver_bits = Box::default();
         let empty_bytes = compiled.retained_logical_bytes();
         compiled.waiting_maneuver_bits =
             compile_waiting_maneuver_bits(67, &maneuvers, &[waiting]).unwrap();
         assert_eq!(compiled.waiting_maneuver_bits.len(), 2);
         assert_eq!(
             compiled.retained_logical_bytes() - empty_bytes,
-            crate::kernel::state::vec_bytes(&compiled.waiting_maneuver_bits)
+            crate::kernel::state::slice_bytes(&compiled.waiting_maneuver_bits)
         );
         for hop in 0..67 {
             assert_eq!(
@@ -2261,7 +2260,7 @@ mod compile_route_tests {
             conflict_gate_ranges: vec![ConflictGateRange { start: 0, len: 1 }],
             final_conflict_clearance: Some((final_clearance, 0)),
             nearest_motion_barriers: Vec::new(),
-            waiting_maneuver_bits: Vec::new(),
+            waiting_maneuver_bits: Box::default(),
         };
         assert_eq!(
             compiled.retained_logical_bytes(),

@@ -341,7 +341,7 @@ mod tests {
                 .retain()
         );
         let mut incomplete = compiled.clone();
-        incomplete.waiting_maneuver_bits.clear();
+        incomplete.waiting_maneuver_bits = Box::default();
         assert!(!incomplete.waiting.is_empty());
         assert!(
             FinalizeHints::default()
