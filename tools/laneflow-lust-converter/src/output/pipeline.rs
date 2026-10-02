@@ -43,6 +43,9 @@ const BUILD_NAME: &str = "lust-build-provenance.json";
 const LICENSE_NAME: &str = "LICENSE.md";
 const ODBL_NAME: &str = "ODbL-1.0.txt";
 const NOTICE_NAME: &str = "NOTICE";
+/// 备份阶段完成标记（写在备份目录内）：装入开始前写入，中断恢复据此
+/// 区分崩溃形态（见 `recover_interrupted_publish`）。
+const BACKUP_COMPLETE_MARKER: &str = ".backup-complete";
 
 /// Paths written by a successful convert.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,6 +360,10 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
 /// 任一步失败从备份区恢复旧集合并 fail-closed，成功后清备份（排除产物随
 /// 备份丢弃——M2 语义；诊断模式 on success 不恢复它们，on failure 恢复）。
 /// Windows：rename 不覆盖、目录不可整体替换，全部逐文件进行。
+///
+/// 中断恢复：进程在 swap 中途被杀时残留的 `.backup-*` 目录由
+/// `recover_interrupted_publish` 在本函数开头处理。回滚不完整时保留备份
+/// 目录（旧交付集的唯一副本可能在其中）并在错误信息中指明。
 fn publish_outputs(
     staging: &Path,
     output_dir: &Path,
@@ -366,18 +373,48 @@ fn publish_outputs(
         path: output_dir.to_path_buf(),
         source,
     })?;
+    recover_interrupted_publish(output_dir, staged)?;
     let backup = backup_dir(output_dir);
     fs::create_dir_all(&backup).map_err(|source| Error::Io {
         path: backup.clone(),
         source,
     })?;
     let mut installed = Vec::new();
-    let result = swap_outputs(staging, output_dir, &backup, staged, &mut installed);
-    if result.is_err() {
-        restore_backup(output_dir, &backup, staged, &installed);
+    let publish_error = match swap_outputs(staging, output_dir, &backup, staged, &mut installed) {
+        Ok(()) => {
+            // 成功清理：先逐个删除备份内受管文件，全部删成才删标记与目录。
+            // 中途失败的残留呈「有标记且可能含旧文件」形态，下次运行
+            // fail-closed 报歧义，而不会把成功交付静默回滚。
+            let mut cleanup_ok = true;
+            for name in managed_names(staged) {
+                let path = backup.join(name);
+                if path.symlink_metadata().is_ok() && fs::remove_file(&path).is_err() {
+                    cleanup_ok = false;
+                }
+            }
+            if cleanup_ok {
+                let _ = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER));
+                let _ = fs::remove_dir_all(&backup);
+            }
+            return Ok(());
+        }
+        Err(error) => error,
+    };
+    match restore_backup(output_dir, &backup, staged, &installed) {
+        Ok(()) => {
+            // 恢复完成后才允许清备份：回滚不完整时备份是旧交付集的唯一副本。
+            let _ = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER));
+            let _ = fs::remove_dir_all(&backup);
+            Err(publish_error)
+        }
+        Err(failures) => Err(Error::Validation {
+            stage: "publish",
+            message: format!(
+                "publication failed: {publish_error}; rollback incomplete ({failures}); backup preserved at {} (next run retries recovery)",
+                backup.display()
+            ),
+        }),
     }
-    let _ = fs::remove_dir_all(&backup);
-    result
 }
 
 fn backup_dir(output_dir: &Path) -> PathBuf {
@@ -400,13 +437,7 @@ fn swap_outputs(
     installed: &mut Vec<&'static str>,
 ) -> Result<()> {
     // 备份现存：交付名 ∪ 排除名。
-    let mut names: Vec<&'static str> = staged.iter().map(|(name, _)| *name).collect();
-    for excluded in [NETWORK_LFCA_NAME, STATIC_TAR_NAME, ROUTES_NAME] {
-        if !names.contains(&excluded) {
-            names.push(excluded);
-        }
-    }
-    for name in &names {
+    for name in managed_names(staged) {
         let dest = output_dir.join(name);
         if dest.symlink_metadata().is_ok() {
             fs::rename(&dest, backup.join(name)).map_err(|source| Error::Io {
@@ -415,6 +446,11 @@ fn swap_outputs(
             })?;
         }
     }
+    // 备份阶段完成标记——装入开始前写入；崩溃恢复据此区分中断形态。
+    fs::write(backup.join(BACKUP_COMPLETE_MARKER), b"").map_err(|source| Error::Io {
+        path: backup.join(BACKUP_COMPLETE_MARKER),
+        source,
+    })?;
     // 移入新文件，记录实际装入成功的名字——回滚只删这些，不动未触及的旧文件。
     for (name, _) in staged {
         let from = staging.join(name);
@@ -428,34 +464,176 @@ fn swap_outputs(
     Ok(())
 }
 
-/// 失败恢复：备份区有的文件逐个移回 output_dir（新文件若已落位先删）。
-/// 尽力而为——恢复本身的残余失败由清理与错误信息暴露。
-fn restore_backup(
-    output_dir: &Path,
-    backup: &Path,
-    staged: &[(&'static str, &'static str)],
-    installed: &[&'static str],
-) {
+/// 受管文件名：交付名 ∪ 排除产物名（M2）。
+fn managed_names(staged: &[(&'static str, &'static str)]) -> Vec<&'static str> {
     let mut names: Vec<&'static str> = staged.iter().map(|(name, _)| *name).collect();
     for excluded in [NETWORK_LFCA_NAME, STATIC_TAR_NAME, ROUTES_NAME] {
         if !names.contains(&excluded) {
             names.push(excluded);
         }
     }
-    for name in names {
+    names
+}
+
+/// 中断恢复：上次运行在 swap 中途被杀会留下 `.backup-<pid>-<name>` 残留。
+/// 不变量：备份阶段逐文件先于一切装入，备份完成后才写标记——据此区分
+/// 两种崩溃形态并确定性恢复。恢复失败或存在多个残留时 fail-closed
+/// （备份保留，人工处理）。
+fn recover_interrupted_publish(
+    output_dir: &Path,
+    staged: &[(&'static str, &'static str)],
+) -> Result<()> {
+    let stale = find_stale_backups(output_dir)?;
+    if stale.is_empty() {
+        return Ok(());
+    }
+    if stale.len() > 1 {
+        return Err(Error::Validation {
+            stage: "publish",
+            message: format!(
+                "multiple stale backup directories next to {}: {} — resolve manually before re-running",
+                output_dir.display(),
+                stale
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+    let backup = &stale[0];
+    let marker = backup.join(BACKUP_COMPLETE_MARKER);
+    if marker.symlink_metadata().is_ok() {
+        // 中断于装入阶段：备份是全量旧集。但 output_dir 已含全部 staged
+        // 文件时无法区分「装入末尾崩溃」与「成功后清理失败」——fail-closed
+        // 交人工，绝不把可能成功的交付静默回滚。
+        let output_complete = staged
+            .iter()
+            .all(|(name, _)| output_dir.join(name).symlink_metadata().is_ok());
+        if output_complete {
+            return Err(Error::Validation {
+                stage: "publish",
+                message: format!(
+                    "stale backup {} coexists with a complete output set; cannot tell an interrupted publish from a failed cleanup — inspect and remove the backup manually",
+                    backup.display()
+                ),
+            });
+        }
+        // 装入阶段中断时，无备份对应物的 staged 名字必是新装入文件。
+        let installed: Vec<&'static str> = staged
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| !backup.join(name).symlink_metadata().is_ok())
+            .collect();
+        restore_backup(output_dir, backup, staged, &installed).map_err(|failures| {
+            Error::Validation {
+                stage: "publish",
+                message: format!(
+                    "recovery from interrupted publish incomplete ({failures}); backup preserved at {}",
+                    backup.display()
+                ),
+            }
+        })?;
+    } else {
+        // 中断于备份阶段：装入从未发生，只恢复备份内容，output_dir 里
+        // 尚未备份的旧文件原样保留。
+        restore_backup(output_dir, backup, staged, &[]).map_err(|failures| Error::Validation {
+            stage: "publish",
+            message: format!(
+                "recovery from interrupted backup incomplete ({failures}); backup preserved at {}",
+                backup.display()
+            ),
+        })?;
+    }
+    let _ = fs::remove_file(&marker);
+    fs::remove_dir_all(backup).map_err(|source| Error::Io {
+        path: backup.clone(),
+        source,
+    })?;
+    Ok(())
+}
+
+/// 找 output_dir 旁的残留备份目录：`.backup-<纯数字 pid>-<name>`。
+fn find_stale_backups(output_dir: &Path) -> Result<Vec<PathBuf>> {
+    let name = output_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "output".to_owned());
+    let parent = output_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let suffix = format!("-{name}");
+    let mut found = Vec::new();
+    let entries = match fs::read_dir(&parent) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(found),
+        Err(source) => {
+            return Err(Error::Io {
+                path: parent.clone(),
+                source,
+            });
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|source| Error::Io {
+            path: parent.clone(),
+            source,
+        })?;
+        if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        let is_backup = file_name
+            .strip_prefix(".backup-")
+            .and_then(|rest| rest.strip_suffix(&suffix))
+            .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()));
+        if is_backup {
+            found.push(entry.path());
+        }
+    }
+    Ok(found)
+}
+
+/// 失败恢复：备份区有的文件逐个移回 output_dir（新文件若已落位先删）；
+/// installed 名单（实际装入成功）里无备份对应物的文件删除。任一文件
+/// 恢复失败即收集进 Err——调用方据此保留备份目录（旧交付集唯一副本
+/// 可能在其中），不再无条件清理。
+fn restore_backup(
+    output_dir: &Path,
+    backup: &Path,
+    staged: &[(&'static str, &'static str)],
+    installed: &[&'static str],
+) -> std::result::Result<(), String> {
+    let mut failures: Vec<String> = Vec::new();
+    for name in managed_names(staged) {
         let from = backup.join(name);
         let to = output_dir.join(name);
         if from.symlink_metadata().is_ok() {
             // 旧文件：新文件若已落位先删，再从备份恢复。
-            let _ = fs::remove_file(&to);
-            let _ = fs::rename(&from, &to);
+            if let Err(source) = fs::remove_file(&to)
+                && source.kind() != std::io::ErrorKind::NotFound
+            {
+                failures.push(format!("remove {}: {source}", to.display()));
+                continue;
+            }
+            if let Err(source) = fs::rename(&from, &to) {
+                failures.push(format!("restore {}: {source}", to.display()));
+            }
         } else if installed.contains(&name) && to.symlink_metadata().is_ok() {
             // #253 V1：本次新装入、运行前不存在的文件——失败路径必须删除，
             // 保证错误返回时 output_dir 完全回到运行前状态。判据是实际装入
             // 名单而非 staged 名单：备份阶段中途失败时，尚未轮到的文件无
             // 备份条目却还带着运行前的旧文件，误删会丢掉旧交付集。
-            let _ = fs::remove_file(&to);
+            if let Err(source) = fs::remove_file(&to) {
+                failures.push(format!("remove installed {}: {source}", to.display()));
+            }
         }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
     }
 }
 
@@ -583,7 +761,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, backup_dir, convert_with_config, publish_outputs,
+        BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, backup_dir,
+        convert_with_config, publish_outputs, restore_backup, swap_outputs,
     };
     use crate::Error;
 
@@ -694,42 +873,232 @@ mod tests {
     }
 
     #[test]
-    fn publish_outputs_backup_failure_keeps_untouched_files() {
+    fn swap_failure_mid_backup_keeps_untouched_files() {
         // 备份阶段中途失败：尚未轮到的文件无备份条目却仍带着运行前的旧
         // 文件——回滚不得把它当新装入文件删除（判据是实际装入名单，而非
-        // staged 名单）。
+        // staged 名单）。publish 层的同类注入现在会先经过中断恢复，因此
+        // 本测试直接驱动 swap_outputs/restore_backup。
+        //
+        // manifest 的备份目标放**目录**占位：rename 文件到已存在目录在
+        // 所有平台确定性失败，备份循环在第一个名字就中断。（占位目录随后
+        // 会被 restore 当作备份条目移回 output——真实失败不会留下这种
+        // 条目，属注入产物；本测试的断言只针对未触及的 report。）
         let root =
-            std::env::temp_dir().join(format!("lust-publish-backup-fail-{}", std::process::id()));
+            std::env::temp_dir().join(format!("lust-swap-backup-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        let backup = root.join("backup");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::create_dir_all(&backup).expect("backup");
+        std::fs::write(output.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(output.join(REPORT_NAME), b"old-report").expect("old report");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        std::fs::write(staging.join(REPORT_NAME), b"new-report").expect("new report");
+        std::fs::create_dir_all(backup.join(MANIFEST_NAME)).expect("squat");
+
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME), (REPORT_NAME, REPORT_NAME)];
+        let mut installed = Vec::new();
+        let result = swap_outputs(&staging, &output, &backup, &staged, &mut installed);
+        assert!(result.is_err(), "备份阶段失败必须 fail-closed");
+        assert!(installed.is_empty(), "移入阶段未发生");
+        restore_backup(&output, &backup, &staged, &installed).expect("restore");
+
+        assert_eq!(
+            std::fs::read(output.join(REPORT_NAME)).expect("read"),
+            b"old-report",
+            "备份阶段未触及的旧文件不得被回滚删除"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_recovers_crash_during_install() {
+        // 装入阶段中断（残留备份有标记）：恢复旧集并删除新装入文件，
+        // 随后本次 publish 正常完成、残留备份被清理。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-crash-install-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let output = root.join("out");
         let staging = root.join("staging");
         std::fs::create_dir_all(&output).expect("output");
         std::fs::create_dir_all(&staging).expect("staging");
-        std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
-        std::fs::write(output.join("report.json"), b"old-report").expect("old report");
-        std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
-        std::fs::write(staging.join("report.json"), b"new-report").expect("new report");
-        // 预建备份目录，并在 report.json 的备份目标位置放一个**目录**——
-        // rename 文件到已存在目录在所有平台确定性失败。备份循环在 manifest
-        // 之后、report 处中断，移入阶段根本不会发生。
-        let backup = backup_dir(&output);
-        std::fs::create_dir_all(backup.join(REPORT_NAME)).expect("squat");
+        // 上次运行崩溃现场：旧 manifest 与排除产物在备份区（带标记），
+        // output 里只有装入一半的新 report。
+        let stale = backup_dir(&output);
+        std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(stale.join("network.lfca"), b"stale-lfca").expect("lfca");
+        std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
+        std::fs::write(output.join(REPORT_NAME), b"crashed-report").expect("crashed");
+        // 本次运行的新交付。
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        std::fs::write(staging.join(REPORT_NAME), b"new-report").expect("new report");
+
+        publish_outputs(
+            &staging,
+            &output,
+            &[(MANIFEST_NAME, MANIFEST_NAME), (REPORT_NAME, REPORT_NAME)],
+        )
+        .expect("publish");
+
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"new-manifest"
+        );
+        assert_eq!(
+            std::fs::read(output.join(REPORT_NAME)).expect("read"),
+            b"new-report"
+        );
+        assert!(!output.join("network.lfca").exists(), "排除产物已清除");
+        assert!(!stale.exists(), "残留备份目录已清理");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_recovers_crash_during_backup_without_touching_old_files() {
+        // 备份阶段中断（残留备份无标记）：只恢复备份内容，output_dir 里
+        // 未备份的旧文件原样保留——即便本次 publish 随后失败回滚，旧
+        // 文件也不丢。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-crash-backup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        // 崩溃现场：旧 manifest 已进备份区（无标记），旧 report
+        // 还没轮到备份、留在 output。
+        let stale = backup_dir(&output);
+        std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(output.join(REPORT_NAME), b"old-report").expect("old report");
+        // 本次运行只 stage manifest——装入 report 时失败，走回滚。
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
 
         let result = publish_outputs(
             &staging,
             &output,
             &[(MANIFEST_NAME, MANIFEST_NAME), (REPORT_NAME, REPORT_NAME)],
         );
-        assert!(result.is_err(), "备份阶段失败必须 fail-closed");
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "恢复 + 回滚后 manifest 必须回到旧内容"
+        );
+        assert_eq!(
+            std::fs::read(output.join(REPORT_NAME)).expect("read"),
+            b"old-report",
+            "备份阶段中断时未备份的旧文件不得被动到"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_fails_closed_on_multiple_stale_backups() {
+        // 多个残留备份目录：状态歧义，fail-closed 交人工，output 不动。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-multistale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
+        std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
+        let first = root.join(".backup-99999991-out");
+        let second = root.join(".backup-99999992-out");
+        std::fs::create_dir_all(&first).expect("first");
+        std::fs::create_dir_all(&second).expect("second");
+        std::fs::write(first.join("manifest.toml"), b"older").expect("older");
+
+        let result = publish_outputs(&staging, &output, &[(MANIFEST_NAME, MANIFEST_NAME)]);
+        let message = match result {
+            Err(Error::Validation { message, .. }) => message,
+            other => panic!("expected validation error, got {other:?}"),
+        };
+        assert!(message.contains(".backup-99999991-out"), "{message}");
+        assert!(message.contains(".backup-99999992-out"), "{message}");
         assert_eq!(
             std::fs::read(output.join("manifest.toml")).expect("read"),
             b"old-manifest",
-            "已备份的文件必须恢复为旧内容"
+            "歧义状态下 output 必须原样保留"
         );
+        assert!(first.exists() && second.exists(), "残留目录保留待人工处理");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_fails_closed_on_ambiguous_stale_backup() {
+        // 残留备份有标记但 output 交付集完整：无法区分「装入末尾崩溃」
+        // 与「成功后清理失败」——fail-closed，绝不静默回滚可能成功的交付。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-ambiguous-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join("manifest.toml"), b"current-manifest").expect("current");
+        std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
+        let stale = backup_dir(&output);
+        std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join("manifest.toml"), b"previous-manifest").expect("prev");
+        std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
+
+        let result = publish_outputs(&staging, &output, &[(MANIFEST_NAME, MANIFEST_NAME)]);
+        let message = match result {
+            Err(Error::Validation { message, .. }) => message,
+            other => panic!("expected validation error, got {other:?}"),
+        };
+        assert!(message.contains("complete output set"), "{message}");
         assert_eq!(
-            std::fs::read(output.join("report.json")).expect("read"),
-            b"old-report",
-            "备份阶段未触及的旧文件不得被回滚删除"
+            std::fs::read(output.join("manifest.toml")).expect("read"),
+            b"current-manifest",
+            "歧义状态下 output 必须原样保留，不得回滚"
+        );
+        assert!(stale.join("manifest.toml").exists(), "备份保留待人工检查");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_outputs_preserves_backup_when_rollback_fails() {
+        // 回滚自身失败（新装入文件被占用等）：备份必须保留——它是旧交付
+        // 集的唯一副本；错误信息指明备份位置。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-rollback-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
+        // staging 里 manifest.toml 是**目录**：装入成功（rename 目录），
+        // 但回滚时 remove_file 对目录失败 → 恢复不完整。survey 缺 staging
+        // 文件 → 装入阶段在 manifest 之后失败。
+        std::fs::create_dir(staging.join("manifest.toml")).expect("dir");
+
+        let result = publish_outputs(
+            &staging,
+            &output,
+            &[(MANIFEST_NAME, MANIFEST_NAME), (SURVEY_NAME, SURVEY_NAME)],
+        );
+        let message = match result {
+            Err(Error::Validation { message, .. }) => message,
+            other => panic!("expected validation error, got {other:?}"),
+        };
+        assert!(message.contains("backup preserved"), "{message}");
+        let backup = backup_dir(&output);
+        assert_eq!(
+            std::fs::read(backup.join("manifest.toml")).expect("read"),
+            b"old-manifest",
+            "旧交付集的唯一副本必须保留在备份区"
+        );
+        assert!(
+            output.join("manifest.toml").is_dir(),
+            "回滚失败的现场不被破坏"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
