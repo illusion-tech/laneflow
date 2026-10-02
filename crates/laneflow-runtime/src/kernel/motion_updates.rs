@@ -408,9 +408,9 @@ impl MotionUpdates {
         rank: usize,
         current: &VehicleStore,
     ) -> Result<(), StepError> {
-        let row = self.order[rank];
+        let slot = self.order[rank].slot;
         let old = current
-            .active_control(row.slot)
+            .active_control(slot)
             .expect("next state has active predecessor");
         self.set_control(
             rank,
