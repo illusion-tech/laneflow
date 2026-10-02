@@ -4475,6 +4475,7 @@ struct MotionTaskView<'a> {
     waiting_plans: &'a [crate::kernel::waiting::WaitingVehiclePlan],
     waiting_plan_by_vehicle: &'a [Option<std::num::NonZeroU32>],
     conflict_motion_by_vehicle: &'a [Option<crate::kernel::conflict_tick::ConflictMotionPlan>],
+    conflict_next_eligibility: &'a [Option<crate::ConflictEligibilityState>],
     conflict_staged: &'a crate::kernel::conflict::ConflictWorkspace,
     motion_cache: &'a [MotionCacheEntry],
     motion_bases: &'a [MotionBasis],
@@ -4750,6 +4751,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
             conflict_motion_by_vehicle: &self.workspace.conflict_motion_by_vehicle,
             conflict_staged: &self.workspace.conflict,
+            conflict_next_eligibility: &self.workspace.conflict_next_eligibility,
             motion_cache: &self.workspace.motion_cache,
             motion_bases: &self.workspace.motion_bases,
         }
@@ -4815,7 +4817,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let conflict_timer =
             super::performance_profile::begin(super::performance_profile::Stage::ConflictFinalize);
-        self.select_resource_rows(updates);
+        self.complete_resource_rows(updates);
         self.finalize_conflict_step(updates)?;
         #[cfg(test)]
         drop(conflict_timer);
@@ -5821,6 +5823,7 @@ mod preview {
             conflict_gate_ranges: Vec::new(),
             final_conflict_clearance: None,
             nearest_motion_barriers: Vec::new(),
+            waiting_maneuver_bits: Vec::new(),
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.
         let candidate = 66.89_f32;

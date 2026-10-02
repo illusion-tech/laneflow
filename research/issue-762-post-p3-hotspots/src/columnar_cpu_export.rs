@@ -32,7 +32,7 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
     }
     let lib = root.join("crates/laneflow-runtime/src/lib.rs");
     let mut text = fs::read_to_string(&lib)?;
-    text.push_str("\n#[doc(hidden)] pub fn research_pipeline() -> ([u64; 28], [u64; 28], [u64; 48]) { kernel::tick::take_pipeline() }\n");
+    text.push_str("\n#[doc(hidden)] pub fn research_pipeline() -> ([u64; 29], [u64; 29], [u64; 48]) { kernel::tick::take_pipeline() }\n");
     fs::write(lib, text)?;
     patch(
         root,
@@ -275,12 +275,50 @@ fn instrument_finalize(root: &Path) -> Result<()> {
         &format!("            super::tick::note_pipeline(39, 1);\n{transition_row}"),
     )?;
     if resource_rows {
+        let hints = fs::read_to_string(root.join(TICK))?
+            .contains("        self.complete_resource_rows(updates);");
+        let selection = if hints {
+            "        self.complete_resource_rows(updates);"
+        } else {
+            "        self.select_resource_rows(updates);"
+        };
         patch(
             root,
             TICK,
-            "        self.select_resource_rows(updates);",
-            "        let _selection_timer = PipelineTimer::begin(26);\n        self.select_resource_rows(updates);\n        drop(_selection_timer);\n        note_pipeline(37, updates.resource_rows().len());\n        note_pipeline(38, updates.len());",
+            selection,
+            &format!(
+                "        let _selection_timer = PipelineTimer::begin(26);\n{selection}\n        drop(_selection_timer);\n        note_pipeline(37, updates.resource_rows().len());\n        note_pipeline(38, {});",
+                if hints { "0" } else { "updates.len()" }
+            ),
         )?;
+        if hints {
+            let file = "crates/laneflow-runtime/src/kernel/resource_rows.rs";
+            patch(
+                root,
+                file,
+                "    pub(crate) fn frozen(obligation: bool) -> Self {",
+                "    pub(crate) fn frozen(obligation: bool) -> Self {\n        super::tick::note_pipeline(43, 1);\n        let _hint_timer = super::tick::PipelineTimer::sampled(28);",
+            )?;
+            patch(
+                root,
+                file,
+                "        if completed || previous.route_edge_index != next.route_edge_index {",
+                "        super::tick::note_pipeline(44, 1);\n        let _hint_timer = super::tick::PipelineTimer::sampled(28);\n        if completed || previous.route_edge_index != next.route_edge_index {",
+            )?;
+            let updates = "crates/laneflow-runtime/src/kernel/motion_updates.rs";
+            patch(
+                root,
+                updates,
+                "        let original = self.resource_rows.len();",
+                "        let original = self.resource_rows.len();\n        super::tick::note_pipeline(47, original);\n        super::tick::note_pipeline(45, self.control.len());",
+            )?;
+            patch(
+                root,
+                updates,
+                "                self.resource_rows.push(changed.logical_index);",
+                "                super::tick::note_pipeline(46, 1);\n                self.resource_rows.push(changed.logical_index);",
+            )?;
+        }
     }
     for (file, old, new) in [
         (
@@ -413,6 +451,6 @@ mod tests {
         assert_eq!(calls[7], 4);
         assert!(nanos[7] > 0);
         assert_eq!(probe::take_columnar_work(), [0; 20]);
-        assert_eq!(probe::take_pipeline(), ([0; 28], [0; 28], [0; 48]));
+        assert_eq!(probe::take_pipeline(), ([0; 29], [0; 29], [0; 48]));
     }
 }

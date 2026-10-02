@@ -436,8 +436,8 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                     && pipeline.iter().enumerate().all(|(i, row)| {
                         row["tick"] == i + 1
                             && [
-                                ("elapsed_sum_ns", 28),
-                                ("measured_calls", 28),
+                                ("elapsed_sum_ns", 29),
+                                ("measured_calls", 29),
                                 ("counts", 48),
                             ]
                             .iter()
@@ -450,8 +450,8 @@ fn analyze(raw: &Path, detail: bool) -> Result<Value> {
                 "columnar pipeline timing/count rows",
             )?;
             for (key, len) in [
-                ("elapsed_sum_ns", 28),
-                ("measured_calls", 28),
+                ("elapsed_sum_ns", 29),
+                ("measured_calls", 29),
                 ("counts", 48),
             ] {
                 run["pipeline"][key] = json!(
