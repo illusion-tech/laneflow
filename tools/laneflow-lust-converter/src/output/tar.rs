@@ -39,7 +39,9 @@ pub fn write_deterministic_ustar(members: &[TarMember]) -> Result<Vec<u8>> {
     for member in members {
         validate_member_path(&member.path)?;
     }
-    let mut ordered = members.to_vec();
+    // 排序引用而非克隆成员——pinned source 载荷约 143 MB，深拷贝会在
+    // 原件与输出缓冲之外再造一份完整副本。
+    let mut ordered: Vec<&TarMember> = members.iter().collect();
     ordered.sort_by(|left, right| left.path.as_bytes().cmp(right.path.as_bytes()));
     for window in ordered.windows(2) {
         if window[0].path == window[1].path {

@@ -115,7 +115,6 @@ pub(crate) fn convert_static_with_due(
     options: &TopologyConvertOptions,
     report_source: ReportSource,
 ) -> Result<StaticConversionArtifacts> {
-    let topology_norm = normalize_junctions(network, &stub_weld_gate(options, &report_source))?;
     // population 选取与健康事实（精确 10,000 计数）两模式都保留。
     let population = select_population(due_vehicles, options.require_lust_population_count)?;
 
@@ -129,6 +128,9 @@ pub(crate) fn convert_static_with_due(
         validate_population_route_edges(network, &population)?;
         (Vec::new(), None, population.len())
     } else {
+        // 归一化只在 fail-fast 的 route 展开分支需要——诊断模式的结果由
+        // convert_network_packages 内部归一化产出，此处不再重复计算。
+        let topology_norm = normalize_junctions(network, &stub_weld_gate(options, &report_source))?;
         let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
         let table = RoutesToml {
             format_version: "0.1",
