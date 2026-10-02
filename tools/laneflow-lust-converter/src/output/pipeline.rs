@@ -85,6 +85,15 @@ pub fn convert_with_config(
             "config_toml_bytes does not match the LustConverterConfig passed to convert".to_owned(),
         ));
     }
+    // 中断恢复先于一切可失败操作：source 验证、转换、provenance、staging
+    // 任一失败都到不了 publish——上次运行在 swap 中途被杀时，在此恢复
+    // output_dir 的旧交付集。公开入口固定诊断模式（convert_verified 的
+    // options 硬编码 emit_infeasibility_report），交付名列表同源。
+    let deliverables: Vec<(&'static str, &'static str)> = deliverable_names(true)
+        .into_iter()
+        .map(|name| (name, name))
+        .collect();
+    recover_interrupted_publish(&output_anchor(&config.output_dir), &deliverables)?;
     let verified = verify_source_dir(&config.source_dir)?;
     convert_verified(config, config_toml_bytes, &verified)
 }
@@ -277,14 +286,16 @@ fn convert_verified(
     // #253 T2：stage-then-publish——全部产物先写 output_dir 旁的 staging
     // 目录，全部写成功后再替换进 output_dir。转换中途失败时交付集合不被
     // 污染（旧文件保持原样）；排除产物清除挪到 publish 阶段先执行。
-    let staging = staging_dir(&config.output_dir);
+    // 锚定解析后的 output_dir：符号链接跨盘时词法 parent 会让 rename
+    // 跨设备失败（EXDEV）。
+    let staging = staging_dir(&output_anchor(&config.output_dir));
     fs::create_dir_all(&staging).map_err(|source| Error::Io {
         path: staging.clone(),
         source,
     })?;
 
     let stage_outputs = || -> Result<Vec<(&'static str, &'static str)>> {
-        let staged: Vec<(&'static str, Option<&[u8]>)> = vec![
+        let bytes_by_name: [(&'static str, Option<&[u8]>); 12] = [
             (
                 NETWORK_LFCA_NAME,
                 (!diagnostic).then_some(static_artifacts.topology.network_lfca.as_slice()),
@@ -301,12 +312,17 @@ fn convert_verified(
             (ODBL_NAME, Some(licenses.odbl.as_slice())),
             (NOTICE_NAME, Some(licenses.notice.as_slice())),
         ];
-        let mut written = Vec::with_capacity(staged.len());
-        for (name, bytes) in staged {
-            if let Some(bytes) = bytes {
-                write_file(&staging.join(name), bytes)?;
-                written.push((name, name));
-            }
+        let mut written = Vec::with_capacity(bytes_by_name.len());
+        // 交付名列表的唯一事实源是 deliverable_names——中断恢复的早期
+        // 调用与 staged 名单由此保持一致。
+        for name in deliverable_names(diagnostic) {
+            let bytes = bytes_by_name
+                .iter()
+                .find(|(entry, _)| *entry == name)
+                .and_then(|(_, bytes)| *bytes)
+                .expect("deliverable must have staged bytes");
+            write_file(&staging.join(name), bytes)?;
+            written.push((name, name));
         }
         Ok(written)
     };
@@ -357,6 +373,45 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
     parent.join(format!(".staging-{}-{name}", std::process::id()))
 }
 
+/// staging/backup 的锚定路径：output_dir 若是（跨盘）符号链接，词法
+/// parent 会把 staging/backup 放在链接侧，publish 的 rename 跨设备失败
+/// （EXDEV）。存在则解析到真实路径；尚不存在则解析 parent 再拼回名字；
+/// 都失败回退词法路径。
+fn output_anchor(output_dir: &Path) -> PathBuf {
+    if let Ok(resolved) = fs::canonicalize(output_dir) {
+        return resolved;
+    }
+    if let Some(parent) = output_dir.parent()
+        && let Ok(resolved_parent) = fs::canonicalize(parent)
+        && let Some(name) = output_dir.file_name()
+    {
+        return resolved_parent.join(name);
+    }
+    output_dir.to_path_buf()
+}
+
+/// 交付文件名（staged 名单的唯一事实源；诊断模式不交付 network.lfca /
+/// routes.toml / static tar）。中断恢复的早期调用与 stage_outputs 共用。
+fn deliverable_names(diagnostic: bool) -> Vec<&'static str> {
+    let mut names = Vec::with_capacity(12);
+    if !diagnostic {
+        names.push(NETWORK_LFCA_NAME);
+        names.push(ROUTES_NAME);
+    }
+    names.extend([MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, SOURCE_TAR_NAME]);
+    if !diagnostic {
+        names.push(STATIC_TAR_NAME);
+    }
+    names.extend([
+        SEMANTIC_NAME,
+        BUILD_NAME,
+        LICENSE_NAME,
+        ODBL_NAME,
+        NOTICE_NAME,
+    ]);
+    names
+}
+
 /// publish（#253 U2 事务式）：先把 output_dir 现有交付文件与排除产物移入
 /// 备份区（staging 旁的 `.backup-<pid>-<name>`，同卷），再逐个移入新文件；
 /// 任一步失败从备份区恢复旧集合并 fail-closed，成功后清备份（排除产物随
@@ -375,8 +430,11 @@ fn publish_outputs(
         path: output_dir.to_path_buf(),
         source,
     })?;
-    recover_interrupted_publish(output_dir, staged)?;
-    let backup = backup_dir(output_dir);
+    // 锚定真实路径：staging/backup/恢复都以此为准（符号链接跨盘时
+    // 词法 parent 会让 rename 跨设备失败）。
+    let anchor = output_anchor(output_dir);
+    recover_interrupted_publish(&anchor, staged)?;
+    let backup = backup_dir(&anchor);
     fs::create_dir_all(&backup).map_err(|source| Error::Io {
         path: backup.clone(),
         source,
@@ -489,6 +547,11 @@ fn recover_interrupted_publish(
     if stale.is_empty() {
         return Ok(());
     }
+    // 恢复目标目录可能尚不存在（上次运行在创建 output_dir 前就被杀）。
+    fs::create_dir_all(output_dir).map_err(|source| Error::Io {
+        path: output_dir.to_path_buf(),
+        source,
+    })?;
     if stale.len() > 1 {
         return Err(Error::Validation {
             stage: "publish",
@@ -766,6 +829,8 @@ mod tests {
         BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, backup_dir,
         convert_with_config, publish_outputs, restore_backup, swap_outputs,
     };
+    #[cfg(unix)]
+    use super::{output_anchor, staging_dir};
     use crate::Error;
 
     #[test]
@@ -1101,6 +1166,79 @@ mod tests {
         assert!(
             output.join("manifest.toml").is_dir(),
             "回滚失败的现场不被破坏"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn convert_recovers_interrupted_publish_before_source_verification() {
+        // 中断恢复先于一切可失败操作：上次运行在 swap 中途被杀（残留带
+        // 标记的备份），本次即便 source 验证就失败、根本到不了 publish，
+        // output_dir 的旧交付集也已先恢复。
+        let root =
+            std::env::temp_dir().join(format!("lust-convert-recover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        std::fs::create_dir_all(&output).expect("output");
+        // 崩溃现场：旧 manifest 在备份区（带标记），output 里只有装入
+        // 一半的新 report。
+        let stale = backup_dir(&output);
+        std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
+        std::fs::write(output.join(REPORT_NAME), b"crashed-report").expect("crashed");
+
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("E:/nonexistent-lust"),
+            output_dir: output.clone(),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let toml = format!(
+            "source_dir = 'E:/nonexistent-lust'\noutput_dir = '{}'\n",
+            output.display()
+        );
+        let result = convert_with_config(&config, toml.as_bytes());
+        assert!(
+            matches!(result, Err(Error::MissingSourceFile { .. })),
+            "source 验证失败: {result:?}"
+        );
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "恢复必须发生在 source 验证之前"
+        );
+        assert!(
+            !output.join(REPORT_NAME).exists(),
+            "装入一半的新文件已被恢复删除"
+        );
+        assert!(!stale.exists(), "残留备份目录已清理");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publish_outputs_resolves_symlinked_output_dir() {
+        // output_dir 是符号链接：staging/backup 锚定到真实目录旁，publish
+        // 的 rename 不跨设备（词法 parent 方案在链接与目标跨盘时必 EXDEV）。
+        let root =
+            std::env::temp_dir().join(format!("lust-publish-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir_all(&real).expect("real");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        let staging = staging_dir(&output_anchor(&link));
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+
+        publish_outputs(&staging, &link, &[(MANIFEST_NAME, MANIFEST_NAME)]).expect("publish");
+
+        assert_eq!(
+            std::fs::read(real.join(MANIFEST_NAME)).expect("read"),
+            b"new-manifest",
+            "交付必须落到符号链接的真实目标"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
