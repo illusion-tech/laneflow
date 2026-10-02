@@ -95,7 +95,9 @@ mod tests {
         assert_eq!(current.state(first.handle), Some(first));
         assert_eq!(current.state(last.handle), Some(last));
         assert_eq!(updates.active_len(), 1);
-        let inputs: Vec<_> = updates.frontier_inputs(&current).collect();
+        let inputs: Vec<_> = (0..updates.len())
+            .map(|index| updates.frontier_input(index, &current))
+            .collect();
         assert_eq!(inputs[0].vehicle, completed.handle);
         assert_eq!(inputs[0].status, VehicleStatus::Completed);
         assert_eq!(inputs[1].route, moved.route);
@@ -210,6 +212,216 @@ pub(crate) struct MotionUpdates {
     published: bool,
 }
 
+/// 并行规范消费的段数上限；每段的统计与输出切片都放在栈上。
+const ADOPT_MAX_PARTS: usize = 128;
+
+/// 并行规范消费的结果。
+pub(crate) enum ParallelAdopt {
+    /// 规范顺序中有已不在存储里的句柄，或稀疏缓冲预留失败，交回串行消费。
+    Fallback,
+    /// `first_bad` 是首个不合格行的 rank 与错误；`specials` 已按 rank 升序写入
+    /// 早于它的到达或完成行，`order`、有效位与资源行也只覆盖早于它的前缀。
+    Adopted {
+        first_bad: Option<(usize, StepError)>,
+    },
+}
+
+#[derive(Clone, Copy, Default)]
+struct AdoptStats {
+    first_bad: Option<(usize, StepError)>,
+    skipped: bool,
+    retain: usize,
+    special: usize,
+}
+
+impl MotionUpdates {
+    /// 按规范 rank 分段并行消费 P5 回报：worker 写本段的 `order` 行、校验回报并数出
+    /// 资源保留行和稀疏的到达/完成行；协调器只求最小出错 rank，并按前缀和切开
+    /// 互斥输出让第二遍并行写入。结果与串行逐行 `adopt` 完全相同；稀疏行留给
+    /// 调用方按 rank 串行处理（到达观测和完成控制），再返回首错。
+    pub(crate) fn adopt_parallel(
+        &mut self,
+        resources: &crate::kernel::execution::ExecutionResources,
+        active_order: &[VehicleHandle],
+        current: &VehicleStore,
+        specials: &mut Vec<u32>,
+    ) -> Result<ParallelAdopt, StepError> {
+        let count = active_order.len();
+        self.order.clear();
+        self.order
+            .try_reserve(count)
+            .map_err(|_| StepError::VehicleStorageAllocFailed)?;
+        self.order.resize(
+            count,
+            UpdateRow {
+                slot: 0,
+                physical: 0,
+            },
+        );
+        let parts = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(ADOPT_MAX_PARTS)
+            .min(count)
+            .max(1);
+        let span = count.div_ceil(parts).max(1);
+        let reports = &self.reports;
+        let mut stats = [AdoptStats::default(); ADOPT_MAX_PARTS];
+        {
+            let mut rest: &mut [UpdateRow] = &mut self.order;
+            let mut work: [Option<(&mut [UpdateRow], &mut AdoptStats)>; ADOPT_MAX_PARTS] =
+                std::array::from_fn(|_| None);
+            for (slot, stat) in work.iter_mut().zip(stats.iter_mut()).take(parts) {
+                let take = span.min(rest.len());
+                let (rows, tail) = std::mem::take(&mut rest).split_at_mut(take);
+                *slot = Some((rows, stat));
+                rest = tail;
+            }
+            resources.for_each_part(&mut work[..parts], 1, |part, work| {
+                let Some((rows, stat)) = work[0].as_mut() else {
+                    return;
+                };
+                let start = part * span;
+                for (offset, row) in rows.iter_mut().enumerate() {
+                    let rank = start + offset;
+                    let handle = active_order[rank];
+                    if current.status(handle).is_none() {
+                        stat.skipped = true;
+                        return;
+                    }
+                    let Some(physical) = current.active_row(handle) else {
+                        stat.first_bad = Some((rank, StepError::ConflictInvariantViolation));
+                        return;
+                    };
+                    let report = reports[physical];
+                    if !report.done || report.canonical_rank as usize != rank + 1 {
+                        stat.first_bad = Some((rank, StepError::ConflictInvariantViolation));
+                        return;
+                    }
+                    if let Some(error) = report.error {
+                        stat.first_bad = Some((rank, error));
+                        return;
+                    }
+                    if report.checkpoint != MotionCheckpoint::Complete {
+                        stat.first_bad = Some((rank, StepError::ConflictInvariantViolation));
+                        return;
+                    }
+                    *row = UpdateRow {
+                        slot: handle.index() as usize,
+                        physical,
+                    };
+                    stat.retain += usize::from(report.finalize_hints.retain());
+                    stat.special += usize::from(report.arrival || report.completed);
+                }
+            });
+        }
+        if stats[..parts].iter().any(|stat| stat.skipped) {
+            self.order.clear();
+            return Ok(ParallelAdopt::Fallback);
+        }
+        // 段内遇错即停，段号即 rank 先后：第一个有错的段给出全局最小出错 rank。
+        let bad_part = stats[..parts]
+            .iter()
+            .position(|stat| stat.first_bad.is_some());
+        let first_bad = bad_part.and_then(|part| stats[part].first_bad);
+        let used = bad_part.map_or(parts, |part| part + 1);
+        let limit = first_bad.map_or(count, |(rank, _)| rank);
+        let retain_total: usize = stats[..used].iter().map(|stat| stat.retain).sum();
+        let special_total: usize = stats[..used].iter().map(|stat| stat.special).sum();
+        // 稀疏缓冲是可选暂存：预留失败交回串行消费，不新增领域错误。
+        specials.clear();
+        if specials.try_reserve(special_total).is_err() {
+            self.order.clear();
+            return Ok(ParallelAdopt::Fallback);
+        }
+        specials.resize(special_total, 0);
+        // 资源行容量已按 Active 数在 P5 前预留，这里不会再分配。
+        self.resource_rows.clear();
+        self.resource_rows
+            .try_reserve(retain_total)
+            .map_err(|_| StepError::VehicleStorageAllocFailed)?;
+        self.resource_rows.resize(retain_total, 0);
+        {
+            let order = &self.order[..limit];
+            let mut retain_rest: &mut [usize] = &mut self.resource_rows;
+            let mut special_rest: &mut [u32] = specials;
+            let mut work: [Option<(&mut [usize], &mut [u32])>; ADOPT_MAX_PARTS] =
+                std::array::from_fn(|_| None);
+            for (slot, stat) in work.iter_mut().zip(&stats[..used]) {
+                let (retain, retain_tail) =
+                    std::mem::take(&mut retain_rest).split_at_mut(stat.retain);
+                let (special, special_tail) =
+                    std::mem::take(&mut special_rest).split_at_mut(stat.special);
+                *slot = Some((retain, special));
+                retain_rest = retain_tail;
+                special_rest = special_tail;
+            }
+            resources.for_each_part(&mut work[..used], 1, |part, work| {
+                let Some((retain, special)) = work[0].as_mut() else {
+                    return;
+                };
+                let start = (part * span).min(limit);
+                let end = (start + span).min(limit);
+                let (mut retain_at, mut special_at) = (0, 0);
+                for (rank, row) in order[start..end].iter().enumerate() {
+                    let rank = start + rank;
+                    let report = reports[row.physical];
+                    if report.finalize_hints.retain() {
+                        retain[retain_at] = rank;
+                        retain_at += 1;
+                    }
+                    if report.arrival || report.completed {
+                        special[special_at] = u32::try_from(rank).expect("rank fits u32");
+                        special_at += 1;
+                    }
+                }
+                debug_assert_eq!((retain_at, special_at), (retain.len(), special.len()));
+            });
+        }
+        // 有效位按物理块并行置位：已消费行正是 rank 落在前缀内且已完成的行。
+        let reports = &self.reports;
+        let blocks = self.motion.len();
+        let block_chunk = blocks.div_ceil(parts).max(1);
+        resources.for_each_part(&mut self.motion[..blocks], block_chunk, |chunk, blocks| {
+            let first = chunk * block_chunk;
+            for (offset, block) in blocks.iter_mut().enumerate() {
+                let base = (first + offset) * BLOCK_ROWS;
+                for row in 0..BLOCK_ROWS {
+                    let Some(report) = reports.get(base + row) else {
+                        break;
+                    };
+                    if report.done
+                        && report.canonical_rank != 0
+                        && report.canonical_rank as usize <= limit
+                    {
+                        block.valid[row / 64] |= 1 << (row % 64);
+                    }
+                }
+            }
+        });
+        Ok(ParallelAdopt::Adopted { first_bad })
+    }
+
+    /// 并行消费后处理一个稀疏完成行：与 `adopt` 中完成分支相同的控制覆盖。
+    pub(crate) fn adopt_completed(
+        &mut self,
+        rank: usize,
+        current: &VehicleStore,
+    ) -> Result<(), StepError> {
+        let row = self.order[rank];
+        let old = current
+            .active_control(row.slot)
+            .expect("next state has active predecessor");
+        self.set_control(
+            rank,
+            VehicleStatus::Completed,
+            old.maneuver,
+            old.waiting,
+            current,
+        )
+    }
+}
+
 impl MotionUpdates {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self::try_with_capacity(capacity).expect("next motion storage allocation")
@@ -293,22 +505,22 @@ impl MotionUpdates {
                 .count()
     }
 
-    pub(crate) fn frontier_inputs<'a>(
-        &'a self,
-        current: &'a VehicleStore,
-    ) -> impl Iterator<Item = FrontierMotionInput> + 'a {
-        self.order.iter().enumerate().map(|(index, binding)| {
-            let row = self.row(index, current);
-            let offset = binding.physical % BLOCK_ROWS;
-            FrontierMotionInput {
-                vehicle: row.source.handle(),
-                route: row.source.route(),
-                cursor: row.next.route_cursor[offset],
-                progress_mm: row.next.progress_mm[offset],
-                speed_mm_s: row.next.speed_mm_s[offset],
-                status: row.status(),
-            }
-        })
+    /// 按更新序号读取一行 Frontier 分类输入；供分段并行分类使用。
+    pub(crate) fn frontier_input(
+        &self,
+        index: usize,
+        current: &VehicleStore,
+    ) -> FrontierMotionInput {
+        let row = self.row(index, current);
+        let offset = self.order[index].physical % BLOCK_ROWS;
+        FrontierMotionInput {
+            vehicle: row.source.handle(),
+            route: row.source.route(),
+            cursor: row.next.route_cursor[offset],
+            progress_mm: row.next.progress_mm[offset],
+            speed_mm_s: row.next.speed_mm_s[offset],
+            status: row.status(),
+        }
     }
 
     pub(crate) fn resource_rows(&self) -> &[usize] {
