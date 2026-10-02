@@ -238,10 +238,7 @@ fn convert_verified(
         static_bundle_url: config.static_bundle_url.clone(),
     };
     let semantic = build_semantic_provenance(&SemanticProvenanceInput {
-        semantic_config: SemanticConfig {
-            source_bundle_url: config.source_bundle_url.clone(),
-            static_bundle_url: config.static_bundle_url.clone(),
-        },
+        semantic_config: semantic_config(config, diagnostic),
         licenses: licenses.clone(),
         release_urls,
         source_tar: &source_tar,
@@ -362,6 +359,21 @@ fn convert_verified(
         build_provenance: config.output_dir.join(BUILD_NAME),
     };
     Ok(paths)
+}
+
+/// 语义配置子集（configDigest 输入）：诊断模式不交付 static bundle
+/// （static_tar 为 None），未发射资产的 URL 不得进入语义摘要——否则仅
+/// 改动该闲置 URL 就会改变逐字节相同诊断交付的 configDigest（跨构建
+/// 比对身份）。
+fn semantic_config(config: &LustConverterConfig, diagnostic: bool) -> SemanticConfig {
+    SemanticConfig {
+        source_bundle_url: config.source_bundle_url.clone(),
+        static_bundle_url: if diagnostic {
+            None
+        } else {
+            config.static_bundle_url.clone()
+        },
+    }
 }
 
 /// staging 目录：output_dir 的兄弟目录 `.staging-<pid>-<name>`（同卷，
@@ -858,7 +870,8 @@ mod tests {
 
     use super::{
         BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, backup_dir,
-        convert_with_config, publish_outputs, remove_stale_staging, restore_backup, swap_outputs,
+        convert_with_config, publish_outputs, remove_stale_staging, restore_backup,
+        semantic_config, swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1246,6 +1259,30 @@ mod tests {
         );
         assert!(!stale.exists(), "残留备份目录已清理");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn diagnostic_semantic_config_omits_static_bundle_url() {
+        // 诊断模式不交付 static bundle：即便配置了 URL 也须排除在语义摘要
+        // 之外（未发射资产的 URL 不得参与 configDigest）；fail-fast 模式保留。
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("unused"),
+            output_dir: PathBuf::from("unused"),
+            converter_commit: None,
+            source_bundle_url: Some("https://example.invalid/source.tar".to_owned()),
+            static_bundle_url: Some("https://example.invalid/static.tar".to_owned()),
+        };
+        let diagnostic = semantic_config(&config, true);
+        assert_eq!(diagnostic.static_bundle_url, None);
+        assert_eq!(
+            diagnostic.source_bundle_url.as_deref(),
+            Some("https://example.invalid/source.tar")
+        );
+        let fail_fast = semantic_config(&config, false);
+        assert_eq!(
+            fail_fast.static_bundle_url.as_deref(),
+            Some("https://example.invalid/static.tar")
+        );
     }
 
     #[test]

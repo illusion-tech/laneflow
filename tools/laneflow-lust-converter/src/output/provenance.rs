@@ -28,6 +28,8 @@ pub struct ReleaseAssetUrls {
 /// 只含影响语义产物的 Release asset URL；执行侧字段（converter_commit、
 /// source_dir、output_dir 等）属 build provenance，不得进入语义摘要
 /// （§3.6：语义 digest 不含 converter commit / toolchain / host）。
+/// 诊断模式不交付 static bundle：调用方须将 `static_bundle_url` 置
+/// None，未发射资产的 URL 不参与语义摘要。
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticConfig {
