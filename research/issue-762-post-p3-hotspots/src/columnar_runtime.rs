@@ -10,6 +10,7 @@ use cache_research::{Experiment, io, prepare};
 use serde_json::{Value, json};
 mod columnar_cpu_export;
 mod columnar_export;
+mod columnar_wpr_export;
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -109,7 +110,7 @@ fn inputs(root: &Path) -> Result<Value> {
     }
     Ok(json!(index))
 }
-fn export(root: &Path, arm: &str, detail: bool, revision: Option<&str>) -> Result<()> {
+fn export(root: &Path, arm: &str, detail: bool, revision: Option<&str>, wpr: bool) -> Result<()> {
     need(["base", "candidate"].contains(&arm), "source arm")?;
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
@@ -143,6 +144,12 @@ fn export(root: &Path, arm: &str, detail: bool, revision: Option<&str>) -> Resul
     )?;
     if detail {
         columnar_export::instrument(&source, arm == "candidate")?;
+    }
+    if wpr {
+        columnar_wpr_export::instrument(&source)?;
+        index["windows_step_markers"] = json!(
+            "LF814_WPR_WINDOWS=0|1; production source unchanged; ETL alignment and PMU require independent acceptance"
+        );
     }
     index["arm"] = json!(arm);
     index["mode"] = json!(mode);
@@ -508,8 +515,8 @@ fn run() -> Result<()> {
     chunk_collector::verify_running()?;
     match args.first().map(String::as_str) {
         Some("verify-collector") if args.len() == 2 => chunk_collector::verify_root(Path::new(&args[1])),
-        Some("prepare" | "prepare-detail") if args.len() == 3 => export(Path::new(&args[2]), &args[1], args[0] == "prepare-detail", None),
-        Some("prepare-detail-at") if args.len() == 3 => export(Path::new(&args[2]), "candidate", true, Some(&args[1])),
+        Some("prepare" | "prepare-detail" | "prepare-wpr") if args.len() == 3 => export(Path::new(&args[2]), &args[1], args[0] == "prepare-detail", None, args[0] == "prepare-wpr"),
+        Some("prepare-detail-at" | "prepare-wpr-at" | "prepare-wpr-detail-at") if args.len() == 3 => export(Path::new(&args[2]), "candidate", args[0] != "prepare-wpr-at", Some(&args[1]), args[0] != "prepare-detail-at"),
         Some("run" | "run-detail") if args.len() == 4 => capture(Path::new(&args[1]), Path::new(&args[2]), Path::new(&args[3]), args[0] == "run-detail"),
         Some("analyze" | "verify") if args.len() == 3 => {
             let raw = Path::new(&args[1]); let output = Path::new(&args[2]); let value = analyze(raw, false)?;
