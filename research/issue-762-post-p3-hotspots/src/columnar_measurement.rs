@@ -1,4 +1,9 @@
 //! #814 测量前置工具；独占阶段闭合、同窗计划和硬件计数校验不改变生产 Runtime。
+mod columnar_wpr_analysis;
+mod columnar_wpr_export;
+#[cfg(test)]
+#[allow(dead_code)]
+mod columnar_wpr_window;
 #[allow(dead_code)]
 mod io;
 
@@ -264,11 +269,13 @@ fn wpr_plan(candidate: &str) -> Result<Value> {
         "lost ETW events or buffers",
         "missing thread ownership or measurement boundaries",
         "counter allocation conflict",
+        "last known good counter timestamp precedes measurement on a participating CPU",
         "frequency or affinity drift",
         "traffic disagreement",
         "missing same-window AoS"
     ]);
-    value["wpr_window_capture_implemented"] = json!(false);
+    value["wpr_window_capture_implemented"] = json!(true);
+    value["wpr_window_capture_verified"] = json!(false);
     value["wpr_decoder_implemented"] = json!(false);
     Ok(value)
 }
@@ -386,7 +393,7 @@ fn preflight() -> Value {
         "ready":false,"reason":"inventory only; must prove positive grouped hardware counts, physical affinity and power state on the capture host"})
 }
 
-fn export_window(commit: &str, root: &Path) -> Result<()> {
+fn export_window(commit: &str, root: &Path, windows: bool) -> Result<()> {
     need(
         commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()),
         "full source commit required",
@@ -417,6 +424,19 @@ fn export_window(commit: &str, root: &Path) -> Result<()> {
             .success(),
         "source extraction failed",
     )?;
+    if windows {
+        columnar_wpr_export::instrument(&source)?;
+        return io::write_new(
+            &root.join("source-index.json"),
+            &json!({
+                "schema":"lf814-wpr-window-export-v1","source_git_head":commit,
+                "source_git_tree":io::git(&repo,&["rev-parse",&format!("{commit}^{{tree}}")])?,
+                "original_archive_sha256":io::sha(&archive)?,"source_files":io::source_index(&source)?,
+                "exporter_sha256":io::sha(&std::env::current_exe()?)?,"production_source_changed":false,
+                "limits":"export only; use controlled Windows MSVC builder; ETL alignment and counter validity unverified"
+            }),
+        );
+    }
     let host = source.join("tools/laneflow-urban-harness/src/host.rs");
     let text = fs::read_to_string(&host)?.replace("\r\n", "\n");
     let clock = "                let started = Instant::now();\n                let result = world.step(input);\n                let elapsed = nanos(started.elapsed());";
@@ -455,11 +475,23 @@ fn run() -> Result<()> {
         .first()
         .map(String::as_str)
         .ok_or("missing measurement command")?;
-    if command == "export-perf" && args.len() == 3 {
-        return export_window(&args[1], Path::new(&args[2]));
+    if ["export-perf", "export-wpr"].contains(&command) && args.len() == 3 {
+        return export_window(&args[1], Path::new(&args[2]), command == "export-wpr");
     }
     let (output, value) = match (command,args.len()) {
         ("stages",3) => (Path::new(&args[2]),stage_table(Path::new(&args[1]))?),
+        ("windows",3) => {
+            let path = Path::new(&args[1]);
+            let mut value = columnar_wpr_analysis::windows(&fs::read_to_string(path)?)?;
+            value["trace_sha256"] = json!(io::sha(path)?);
+            (Path::new(&args[2]),value)
+        },
+        ("wpr-status",3) => {
+            let path = Path::new(&args[1]);
+            let mut value = columnar_wpr_analysis::status(&io::read_json(path)?)?;
+            value["native_status_sha256"] = json!(io::sha(path)?);
+            (Path::new(&args[2]),value)
+        },
         ("plan" | "plan-wpr",3) => {
             let repo = repository_root()?;
             need(io::git(&repo,&["cat-file","-t",&args[1]])? == "commit", "candidate commit missing")?;
@@ -480,7 +512,7 @@ fn run() -> Result<()> {
         ("fit",3) => (Path::new(&args[2]),fit(&io::read_json(Path::new(&args[1]))?)?),
         ("traffic",4) => (Path::new(&args[3]),traffic(Path::new(&args[1]),Path::new(&args[2]))?),
         ("preflight",2) => (Path::new(&args[1]),preflight()),
-        _ => return Err("stages <trace.stderr> <new-json> | plan|plan-wpr <full-candidate-sha> <new-json> | perf <perf-json> 256 <new-json> | fit <worker-means-json> <new-json> | traffic <reference-dir> <run-dir> <new-json> | preflight <new-json> | export-perf <full-source-sha> <new-root>".into()),
+        _ => return Err("stages|windows <trace.stderr> <new-json> | wpr-status <native-status-json> <new-json> | plan|plan-wpr <full-candidate-sha> <new-json> | perf <perf-json> 256 <new-json> | fit <worker-means-json> <new-json> | traffic <reference-dir> <run-dir> <new-json> | preflight <new-json> | export-perf|export-wpr <full-source-sha> <new-root>".into()),
     };
     io::outside(&repository_root()?, output)?;
     io::write_new(output, &value)
@@ -551,7 +583,8 @@ mod tests {
         let wpr = wpr_plan("0123456789012345678901234567890123456789").unwrap();
         assert_eq!(wpr["runs"], p["runs"]);
         assert!(wpr.get("perf_events").is_none());
-        assert_eq!(wpr["wpr_window_capture_implemented"], false);
+        assert_eq!(wpr["wpr_window_capture_implemented"], true);
+        assert_eq!(wpr["wpr_window_capture_verified"], false);
         assert_eq!(wpr["wpr_decoder_implemented"], false);
     }
     fn counters() -> String {
