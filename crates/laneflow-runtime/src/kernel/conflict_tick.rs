@@ -806,7 +806,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         drop(sparse_clear);
 
-        self.rebuild_conflict_frontier()?;
+        self.rebuild_conflict_frontier(execution)?;
         reserve(
             &mut self.workspace.conflict_candidates,
             self.derived.active_order.len(),
@@ -1538,10 +1538,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按证明时长重建 approach frontier。已发布近门名单时只重走失效车辆。
-    pub(crate) fn rebuild_conflict_frontier(&mut self) -> Result<(), StepError> {
+    pub(crate) fn rebuild_conflict_frontier(
+        &mut self,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), StepError> {
         // 没有任何 gap profile 时不存在 lead frontier 查询；静态 Conflict cell
         // 仍可能被 protected/uncontrolled 或空 yield coverage 使用。
-        crate::kernel::entry_frontier::rebuild(self)
+        crate::kernel::entry_frontier::rebuild(self, execution)
     }
 
     /// 求值单车在前视窗内到达的各 Gate，生成候选或记录无资源决定。
@@ -3402,7 +3405,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             let counts = conflict_work_counts();
             assert_eq!(counts.eta_preparations, 1);
@@ -3424,7 +3427,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
@@ -3439,7 +3442,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             let counts = conflict_work_counts();
             assert_eq!(counts.eta_preparations, vehicles as usize, "{counts:?}");
@@ -3454,7 +3457,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
