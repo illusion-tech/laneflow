@@ -118,6 +118,24 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
         )?;
         let path = root.join(&motion);
         let mut text = fs::read_to_string(&path)?;
+        if text.contains(".run_direct_with_stats(") {
+            // 正常 release 没有逐行统计；只有冻结诊断导出启用同公式的统计实例。
+            let guarded = "        #[cfg(test)]\n        let stats = kernel\n            .run_direct_with_stats";
+            need(
+                text.matches(guarded).count() == 1,
+                "direct diagnostic stats anchor",
+            )?;
+            text = text.replace(
+                guarded,
+                "        let stats = kernel\n            .run_direct_with_stats",
+            );
+            let plain = "        #[cfg(not(test))]\n        let stats = {\n            kernel\n                .run_direct(&input, &mut output, delta_s)\n                .expect(\"physical motion columns have identical ranges\");\n            laneflow_motion_kernel::Stats::default()\n        };\n";
+            need(
+                text.matches(plain).count() == 1,
+                "direct ordinary stats anchor",
+            )?;
+            text = text.replace(plain, "");
+        }
         text = text.replace("    #[cfg(test)]\n    {\n        if matches!(phase, NumericPhase::Fused | NumericPhase::Proposal)",
             "    {\n        if matches!(phase, NumericPhase::Fused | NumericPhase::Proposal)");
         text.push_str("\nuse super::note_columnar_work;\npub(super) fn diagnostic_batch_bytes() -> usize { std::mem::size_of::<Batch>() }\n");
