@@ -4157,7 +4157,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         cursor: usize,
         parking_binding: Option<ParkingBinding>,
     ) -> Option<Option<(ParkingReservation, BoundedDistance)>> {
-        let position = state.position();
         let Some(ParkingBinding::Reserved(reservation)) = parking_binding else {
             return Some(None);
         };
@@ -4169,6 +4168,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if compiled.edges.get(entry_index).copied()? != edge {
             return None;
         }
+        let position = state.position();
         let distance = distance_to_occurrence_progress(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
@@ -4488,7 +4488,6 @@ impl MotionTaskView<'_> {
         state: impl crate::kernel::vehicle_store::MotionRead,
         compiled: Option<&CompiledRoute>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
-        let position = state.position();
         let Some(plan) = self
             .waiting_plan_by_vehicle
             .get(state.handle().index() as usize)
@@ -4503,6 +4502,7 @@ impl MotionTaskView<'_> {
             return Ok(None);
         };
         let compiled = compiled.ok_or(StepError::WaitingInvariantViolation)?;
+        let position = state.position();
         let stop_index = usize::try_from(stop_hop)
             .ok()
             .and_then(|value| value.checked_add(1))
@@ -4538,7 +4538,7 @@ impl MotionTaskView<'_> {
         let reach = profile.and_then(|profile| {
             MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
         });
-        let (skip_conflict, skip_waiting) = unreachable_barrier_classes(compiled, state, reach);
+        let (skip_conflict, skip_waiting) = unreachable_barrier_classes(compiled, position, reach);
         if skip_conflict && skip_waiting {
             return Ok(None);
         }
@@ -4960,10 +4960,9 @@ impl MotionReach {
 /// 进度和余量都为 0、上界无效或索引缺行时，两类都不跳过。
 fn unreachable_barrier_classes(
     compiled: &CompiledRoute,
-    state: impl crate::kernel::vehicle_store::MotionRead,
+    position: crate::kernel::vehicle_store::MotionPosition,
     reach: Option<MotionReach>,
 ) -> (bool, bool) {
-    let position = state.position();
     if position.progress_mm == 0 && position.carry_um == 0 {
         return (false, false);
     }

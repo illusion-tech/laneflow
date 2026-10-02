@@ -1,6 +1,6 @@
 use super::{
-    BoundaryInput, BoundaryOutput, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
-    LimitOutput, Output, Phase, Stats, finish_row, raw_valid,
+    BoundaryInput, BoundaryOutput, Columns, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
+    LimitOutput, Phase, Stats, finish_values, motion_values_valid, raw_valid,
 };
 use std::arch::x86_64::*;
 
@@ -25,13 +25,15 @@ unsafe fn unsigned4(values: &[f64]) -> __m128i {
 }
 
 #[target_feature(enable = "avx2")]
-unsafe fn finish4(
+#[allow(clippy::too_many_arguments)]
+unsafe fn finish4<const TRACK: bool>(
     input: &Input<'_>,
-    output: &mut Output<'_>,
+    output: &mut Columns<'_>,
     start: usize,
     delta_s: f32,
     um: &[f64],
     speed: &[f64],
+    valid: &[bool],
     stats: &mut Stats,
 ) {
     // SAFETY: 后端只遍历完整四行；所有列已在 safe run 验证，所有载入/写入范围
@@ -78,9 +80,7 @@ unsafe fn finish4(
                 && input.max_accel[row] > 0.0
                 && input.comfort_decel[row] > 0.0
                 && input.emergency_decel[row] > 0.0
-                && output.proposal_travel_m[row].is_finite()
-                && output.proposal_speed_m_s[row].is_finite()
-                && output.travel_m[row].is_finite();
+                && valid[lane];
             let convertible = input.hard_room_mm[row] == 0
                 || (um[lane] >= 0.0
                     && um[lane] <= f64::from(u32::MAX - u32::from(input.carry_um[row]))
@@ -120,9 +120,11 @@ unsafe fn finish4(
             if fast[lane] != 0 {
                 output.valid[row] = true;
                 output.exhausted[row] = exhausted_bits & (1 << lane) != 0;
-                stats.integer_vector_lanes += 1;
+                if TRACK {
+                    stats.integer_vector_lanes += 1;
+                }
             } else {
-                finish_row(input, output, row, delta_s, um[lane], speed[lane]);
+                finish_values(input, output, row, valid[lane], um[lane], speed[lane]);
             }
         }
     }
@@ -553,13 +555,17 @@ fn mask512(values: &[bool], start: usize) -> __mmask16 {
 }
 
 macro_rules! arithmetic {
-    ($input:ident, $output:ident, $delta:ident, $phase:ident, $stats:ident, $width:literal,
+    ($input:ident, $output:ident, $delta:ident, $phase:ident, $stats:ident, $track:ident, $quantize:ident, $width:literal,
      $set:ident, $load:ident, $store:ident, $uint:ident, $mask:ident,
      $add:ident, $sub:ident, $mul:ident, $div:ident, $max:ident, $min:ident,
      $cmp:ident, $select:ident) => {{
         let end = $input.enabled.len() / $width * $width;
         let zero = $set(0.0); let one = $set(1.0); let dt = $set($delta);
         for start in (0..end).step_by($width) {
+            if $phase == Phase::Direct && !$input.enabled[start..start + $width].iter().any(|&v| v) {
+                $output.valid[start..start + $width].fill(false);
+                continue;
+            }
             // SAFETY: run 验证全部长度；每轮 start+width <= end <= len。所有 load/store
             // 只访问这些切片；输出是独占 &mut，不能与输入或其它输出产生 Rust 别名。
             unsafe {
@@ -570,7 +576,8 @@ macro_rules! arithmetic {
                 let min_gap = $load($input.min_gap_m.as_ptr().add(start));
                 let reused = $mask($input.has_proposal, start);
                 let project = matches!($phase, Phase::Project | Phase::FloatProject);
-                let all_reused = project || $input.has_proposal[start..start + $width].iter().all(|&x| x);
+                let all_reused = project || (start..start + $width).all(|row|
+                    $input.has_proposal[row] || $phase == Phase::Direct && !$input.enabled[row]);
                 let (raw_travel, raw_speed) = if all_reused {
                     ($load($input.proposal_travel_m.as_ptr().add(start)), $load($input.proposal_speed_m_s.as_ptr().add(start)))
                 } else {
@@ -588,25 +595,42 @@ macro_rules! arithmetic {
                     ($select(reused, $load($input.proposal_travel_m.as_ptr().add(start)), raw_travel),
                      $select(reused, $load($input.proposal_speed_m_s.as_ptr().add(start)), raw_speed))
                 };
-                if $phase != Phase::Proposal {
+                let travel = if $phase != Phase::Proposal {
                     let leader_room = $max($sub(leader, min_gap), zero);
                     let reintegrated = if project { $max($mul($mul($add(speed, raw_speed), $set(0.5)), dt), zero) } else { raw_travel };
                     let mut travel = $select(present, $min(reintegrated, leader_room), reintegrated);
                     travel = $min(travel, $max($load($input.stop_m.as_ptr().add(start)), zero));
                     travel = $min(travel, $max($load($input.route_end_m.as_ptr().add(start)), zero));
                     travel = $max($min(travel, $load($input.envelope_m.as_ptr().add(start))), zero);
-                    $store($output.travel_m.as_mut_ptr().add(start), travel);
+                    travel
+                } else { zero };
+                if let Some(floats) = $output.floats.as_mut() {
+                    if $phase != Phase::Proposal { $store(floats.travel_m.as_mut_ptr().add(start), travel); }
+                    $store(floats.proposal_speed_m_s.as_mut_ptr().add(start), raw_speed);
+                    $store(floats.proposal_travel_m.as_mut_ptr().add(start), raw_travel);
+                    if $phase == Phase::Proposal && let Some(window) = floats.window_m.as_mut() {
+                        let value = $add($mul(dt, $add(speed, raw_speed)), $div($mul(raw_speed, raw_speed), $load($input.comfort_decel.as_ptr().add(start))));
+                        $store(window.as_mut_ptr().add(start), value);
+                    }
+                } else {
+                    // 仅本子批的有效性检查/受检回退需要栈值；量化继续消费同一向量寄存器，
+                    // 不写回再读取世界范围的浮点列，不生成跨屏障中间提案。
+                    let mut travels = [0.0; $width];
+                    let mut speeds = [0.0; $width];
+                    let mut proposals = [0.0; $width];
+                    $store(travels.as_mut_ptr(), travel);
+                    $store(speeds.as_mut_ptr(), raw_speed);
+                    $store(proposals.as_mut_ptr(), raw_travel);
+                    let valid: [bool; $width] = std::array::from_fn(|lane|
+                        motion_values_valid($input, start + lane, $delta, proposals[lane], speeds[lane], travels[lane]));
+                    $quantize::<$track>($input, $output, start, $delta, raw_speed, travel, &valid, $stats);
                 }
-                $store($output.proposal_speed_m_s.as_mut_ptr().add(start), raw_speed);
-                $store($output.proposal_travel_m.as_mut_ptr().add(start), raw_travel);
-                if $phase == Phase::Proposal && let Some(window) = $output.window_m.as_mut() {
-                    let value = $add($mul(dt, $add(speed, raw_speed)), $div($mul(raw_speed, raw_speed), $load($input.comfort_decel.as_ptr().add(start))));
-                    $store(window.as_mut_ptr().add(start), value);
-                }
-                for row in start..start + $width {
-                    if $input.enabled[row] {
-                        $stats.proposal_lanes_computed += usize::from(!all_reused);
-                        $stats.proposal_lanes_reused += usize::from($input.has_proposal[row] || project);
+                if $track {
+                    for row in start..start + $width {
+                        if $input.enabled[row] {
+                            $stats.proposal_lanes_computed += usize::from(!all_reused);
+                            $stats.proposal_lanes_reused += usize::from($input.has_proposal[row] || project);
+                        }
                     }
                 }
             }
@@ -616,9 +640,116 @@ macro_rules! arithmetic {
 }
 
 #[target_feature(enable = "avx2")]
-pub(super) unsafe fn avx2(
+#[allow(clippy::too_many_arguments)]
+unsafe fn quantize_direct2<const TRACK: bool>(
     input: &Input<'_>,
-    output: &mut Output<'_>,
+    output: &mut Columns<'_>,
+    start: usize,
+    delta_s: f32,
+    raw_speed: __m256,
+    travel: __m256,
+    valid: &[bool],
+    stats: &mut Stats,
+) {
+    // SAFETY: arithmetic 只在长度证明后的完整八行调用。拆为两个四行向量，
+    // 不重读浮点列；栈上仅保留 f64 受检量化值，finish4 保留全 u64 回退。
+    unsafe {
+        let speeds = [
+            _mm256_castps256_ps128(raw_speed),
+            _mm256_extractf128_ps::<1>(raw_speed),
+        ];
+        let travels = [
+            _mm256_castps256_ps128(travel),
+            _mm256_extractf128_ps::<1>(travel),
+        ];
+        for group in 0..2 {
+            let mut um = [0.0; 4];
+            let mut speed = [0.0; 4];
+            _mm256_storeu_pd(
+                um.as_mut_ptr(),
+                _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
+                    _mm256_mul_pd(_mm256_cvtps_pd(travels[group]), _mm256_set1_pd(1_000_000.0)),
+                ),
+            );
+            _mm256_storeu_pd(
+                speed.as_mut_ptr(),
+                _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
+                    _mm256_mul_pd(_mm256_cvtps_pd(speeds[group]), _mm256_set1_pd(1_000.0)),
+                ),
+            );
+            finish4::<TRACK>(
+                input,
+                output,
+                start + group * 4,
+                delta_s,
+                &um,
+                &speed,
+                &valid[group * 4..group * 4 + 4],
+                stats,
+            );
+        }
+    }
+}
+
+#[target_feature(enable = "avx512f,avx2")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn quantize_direct512<const TRACK: bool>(
+    input: &Input<'_>,
+    output: &mut Columns<'_>,
+    start: usize,
+    delta_s: f32,
+    raw_speed: __m512,
+    travel: __m512,
+    valid: &[bool],
+    stats: &mut Stats,
+) {
+    // SAFETY: arithmetic 证明完整十六行；extractf64x4 仅要求 AVX512F，
+    // 按位转换拆两个八行，不引入 AVX512DQ 的额外后端前置条件。
+    unsafe {
+        let speeds = [
+            _mm512_castps512_ps256(raw_speed),
+            _mm256_castpd_ps(_mm512_extractf64x4_pd::<1>(_mm512_castps_pd(raw_speed))),
+        ];
+        let travels = [
+            _mm512_castps512_ps256(travel),
+            _mm256_castpd_ps(_mm512_extractf64x4_pd::<1>(_mm512_castps_pd(travel))),
+        ];
+        for group in 0..2 {
+            let mut um = [0.0; 8];
+            let mut speed = [0.0; 8];
+            _mm512_storeu_pd(
+                um.as_mut_ptr(),
+                _mm512_roundscale_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
+                    _mm512_mul_pd(_mm512_cvtps_pd(travels[group]), _mm512_set1_pd(1_000_000.0)),
+                ),
+            );
+            _mm512_storeu_pd(
+                speed.as_mut_ptr(),
+                _mm512_roundscale_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
+                    _mm512_mul_pd(_mm512_cvtps_pd(speeds[group]), _mm512_set1_pd(1_000.0)),
+                ),
+            );
+            for half in 0..2 {
+                let lane = half * 4;
+                finish4::<TRACK>(
+                    input,
+                    output,
+                    start + group * 8 + lane,
+                    delta_s,
+                    &um[lane..lane + 4],
+                    &speed[lane..lane + 4],
+                    &valid[group * 8 + lane..group * 8 + lane + 4],
+                    stats,
+                );
+            }
+        }
+    }
+}
+
+#[target_feature(enable = "avx2")]
+pub(super) unsafe fn avx2<const TRACK: bool>(
+    input: &Input<'_>,
+    output: &mut Columns<'_>,
     delta_s: f32,
     phase: Phase,
     stats: &mut Stats,
@@ -632,6 +763,8 @@ pub(super) unsafe fn avx2(
             delta_s,
             phase,
             stats,
+            TRACK,
+            quantize_direct2,
             8,
             _mm256_set1_ps,
             _mm256_loadu_ps,
@@ -648,22 +781,45 @@ pub(super) unsafe fn avx2(
             select256
         )
     };
+    if phase == Phase::Direct {
+        return end;
+    }
     if matches!(phase, Phase::Proposal | Phase::FloatProject) {
+        let floats = output.floats.as_ref().expect("float barrier columns");
         for row in 0..end {
-            output.valid[row] = raw_valid(input, output, row, delta_s)
-                && (phase == Phase::Proposal || output.travel_m[row].is_finite());
+            output.valid[row] = raw_valid(
+                input,
+                row,
+                delta_s,
+                floats.proposal_travel_m[row],
+                floats.proposal_speed_m_s[row],
+            ) && (phase == Phase::Proposal || floats.travel_m[row].is_finite());
         }
         return end;
     }
     for start in (0..end).step_by(4) {
+        let floats = output
+            .floats
+            .as_ref()
+            .expect("quantization barrier columns");
+        let valid: [bool; 4] = std::array::from_fn(|lane| {
+            motion_values_valid(
+                input,
+                start + lane,
+                delta_s,
+                floats.proposal_travel_m[start + lane],
+                floats.proposal_speed_m_s[start + lane],
+                floats.travel_m[start + lane],
+            )
+        });
         let mut um = [0.0; 4];
         let mut speed = [0.0; 4];
         // SAFETY: start+4 <= end；栈输出恰 4 个 f64。量化指令固定 ties-even，
-        // 不修改 MXCSR。范围检查和 u64/u32 受检转换由 finish_row 统一完成。
+        // 不修改 MXCSR。范围检查和 u64/u32 受检转换由 finish_values 统一完成。
         unsafe {
-            let travel = _mm256_cvtps_pd(_mm_loadu_ps(output.travel_m.as_ptr().add(start)));
+            let travel = _mm256_cvtps_pd(_mm_loadu_ps(floats.travel_m.as_ptr().add(start)));
             let raw_speed =
-                _mm256_cvtps_pd(_mm_loadu_ps(output.proposal_speed_m_s.as_ptr().add(start)));
+                _mm256_cvtps_pd(_mm_loadu_ps(floats.proposal_speed_m_s.as_ptr().add(start)));
             _mm256_storeu_pd(
                 um.as_mut_ptr(),
                 _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
@@ -679,16 +835,16 @@ pub(super) unsafe fn avx2(
         }
         // SAFETY: 上面的量化块和 finish4 都使用同一完整四行范围。
         unsafe {
-            finish4(input, output, start, delta_s, &um, &speed, stats);
+            finish4::<TRACK>(input, output, start, delta_s, &um, &speed, &valid, stats);
         }
     }
     end
 }
 
 #[target_feature(enable = "avx512f,avx2")]
-pub(super) unsafe fn avx512(
+pub(super) unsafe fn avx512<const TRACK: bool>(
     input: &Input<'_>,
-    output: &mut Output<'_>,
+    output: &mut Columns<'_>,
     delta_s: f32,
     phase: Phase,
     stats: &mut Stats,
@@ -702,6 +858,8 @@ pub(super) unsafe fn avx512(
             delta_s,
             phase,
             stats,
+            TRACK,
+            quantize_direct512,
             16,
             _mm512_set1_ps,
             _mm512_loadu_ps,
@@ -718,21 +876,44 @@ pub(super) unsafe fn avx512(
             select512
         )
     };
+    if phase == Phase::Direct {
+        return end;
+    }
     if matches!(phase, Phase::Proposal | Phase::FloatProject) {
+        let floats = output.floats.as_ref().expect("float barrier columns");
         for row in 0..end {
-            output.valid[row] = raw_valid(input, output, row, delta_s)
-                && (phase == Phase::Proposal || output.travel_m[row].is_finite());
+            output.valid[row] = raw_valid(
+                input,
+                row,
+                delta_s,
+                floats.proposal_travel_m[row],
+                floats.proposal_speed_m_s[row],
+            ) && (phase == Phase::Proposal || floats.travel_m[row].is_finite());
         }
         return end;
     }
     for start in (0..end).step_by(8) {
+        let floats = output
+            .floats
+            .as_ref()
+            .expect("quantization barrier columns");
+        let valid: [bool; 8] = std::array::from_fn(|lane| {
+            motion_values_valid(
+                input,
+                start + lane,
+                delta_s,
+                floats.proposal_travel_m[start + lane],
+                floats.proposal_speed_m_s[start + lane],
+                floats.travel_m[start + lane],
+            )
+        });
         let mut um = [0.0; 8];
         let mut speed = [0.0; 8];
         // SAFETY: start+8 <= end；栈输出恰 8 个 f64，其它边界与 AVX2 相同。
         unsafe {
-            let travel = _mm512_cvtps_pd(_mm256_loadu_ps(output.travel_m.as_ptr().add(start)));
+            let travel = _mm512_cvtps_pd(_mm256_loadu_ps(floats.travel_m.as_ptr().add(start)));
             let raw_speed = _mm512_cvtps_pd(_mm256_loadu_ps(
-                output.proposal_speed_m_s.as_ptr().add(start),
+                floats.proposal_speed_m_s.as_ptr().add(start),
             ));
             _mm512_storeu_pd(
                 um.as_mut_ptr(),
@@ -749,14 +930,24 @@ pub(super) unsafe fn avx512(
         }
         // SAFETY: 八行量化拆为两个完整四行整数发布范围，没有跨切片写入。
         unsafe {
-            finish4(input, output, start, delta_s, &um[..4], &speed[..4], stats);
-            finish4(
+            finish4::<TRACK>(
+                input,
+                output,
+                start,
+                delta_s,
+                &um[..4],
+                &speed[..4],
+                &valid[..4],
+                stats,
+            );
+            finish4::<TRACK>(
                 input,
                 output,
                 start + 4,
                 delta_s,
                 &um[4..],
                 &speed[4..],
+                &valid[4..],
                 stats,
             );
         }
