@@ -36,6 +36,7 @@ pub(crate) mod placement;
 pub(crate) mod policy;
 /// 已提交 pose 与信号批次的权威来源。
 pub(crate) mod pose;
+mod resource_rows;
 /// 道路准入（生成）的物理边重叠候选索引。
 pub(crate) mod spawn_overlap;
 /// 固定步进与管理操作共享的五类私有状态所有者。

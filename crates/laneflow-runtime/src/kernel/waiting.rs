@@ -2526,7 +2526,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 });
         }
         self.workspace.waiting_non_entry_anchors.clear();
-        for update_index in 0..updates.len() {
+        for &update_index in updates.resource_rows() {
             let row = updates.row(update_index, &self.committed.vehicles);
             let compiled = self.committed.routes[row.source.route().index() as usize]
                 .compiled
@@ -3190,7 +3190,11 @@ pub(crate) mod tests {
                     .filter(|decision| decision.zone().is_none())
                     .count()
             );
-            assert_eq!(NON_ENTRY_DISCOVERY_VISITS.get(), active);
+            assert_eq!(
+                NON_ENTRY_DISCOVERY_VISITS.get(),
+                super::super::resource_rows::LAST_RESOURCE_ROW_COUNT.get()
+            );
+            assert!(NON_ENTRY_DISCOVERY_VISITS.get() <= active);
             assert_eq!(NON_ENTRY_SEQUENCE_VISITS.get(), 0);
             assert!(world.state.workspace.waiting_non_entry_anchors.is_empty());
             assert!(decisions.windows(2).all(|pair| {

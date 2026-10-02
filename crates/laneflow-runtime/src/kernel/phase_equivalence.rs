@@ -406,6 +406,30 @@ fn input_and_preparation_errors_precede_staged_failure() {
 }
 
 #[test]
+fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
+    let workers = NonZeroU32::new(4).unwrap();
+    for scenario in ["waiting", "conflict", "signals"] {
+        let build = || match scenario {
+            "waiting" => crate::kernel::waiting::tests::multi_gate_world(16),
+            "conflict" => crate::admin::cutover_migration::tests::conflict_scale_world(
+                crate::admin::cutover_migration::tests::conflict_scale_revision(),
+                16,
+            ),
+            "signals" => signals_world(workers),
+            _ => unreachable!(),
+        };
+        let selected = trace_with_workers(build(), 640, true, Some(1_024 * 1_024), workers);
+        let full = crate::kernel::resource_rows::with_full_scan_oracle(|| {
+            trace_with_workers(build(), 640, true, Some(1_024 * 1_024), workers)
+        });
+        assert_eq!(
+            selected, full,
+            "{scenario}: full resource and journal trace"
+        );
+    }
+}
+
+#[test]
 fn occupancy_candidate_preserves_exact_trace_and_first_error_priority() {
     crate::kernel::exact_path_research::with_candidate(true, || {
         exact_baseline_trace_and_retry_match();
