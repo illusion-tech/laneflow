@@ -18,6 +18,7 @@ use super::{
 use crate::kernel::motion_updates::{MotionCheckpoint, MotionRowReport, MotionUpdates};
 use crate::kernel::tables::CompiledRoute;
 use crate::kernel::vehicle_store::BLOCK_ROWS;
+use crate::kernel::vehicle_store::MotionPosition;
 
 pub(super) struct Chunk<'a> {
     cursor: &'a mut [u32],
@@ -563,6 +564,16 @@ fn compute(
                 .vehicle_profile(state.profile());
             let conflict = view.conflict_stop_for(state, delta_s, compiled, profile)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Calculation;
+            let old_control = state.control();
+            let slot = handle.index() as usize;
+            chunk.reports[row].finalize_hints = crate::kernel::resource_rows::FinalizeHints::frozen(
+                old_control.waiting.is_some()
+                    || old_control.maneuver.is_some()
+                    || view.waiting_plan_by_vehicle[slot].is_some()
+                    || view.conflict_motion_by_vehicle[slot].is_some()
+                    || view.conflict_next_eligibility[slot].is_some()
+                    || view.read.conflict_read().reservation(handle).is_some(),
+            );
             let cached = view
                 .motion_cache
                 .get(active_index)
@@ -580,6 +591,17 @@ fn compute(
                 chunk.reports[row].checkpoint = MotionCheckpoint::Arrival;
                 chunk.reports[row].arrival = arrival(view, old, next)?;
                 write_value(&mut chunk, row, next);
+                chunk.reports[row].finalize_hints = chunk.reports[row].finalize_hints.with_motion(
+                    Some(compiled),
+                    view.read
+                        .binding
+                        .revision
+                        .traffic()
+                        .lane_lengths_millimetres(),
+                    position,
+                    (&next).into(),
+                    chunk.reports[row].completed,
+                );
                 chunk.reports[row].checkpoint = MotionCheckpoint::Complete;
                 return Ok(());
             }
@@ -849,6 +871,25 @@ fn compute(
                 chunk.reports[row].arrival = arrival(view, state, next)?;
             }
             chunk.reports[row].completed = route_completed;
+            chunk.reports[row].finalize_hints = chunk.reports[row].finalize_hints.with_motion(
+                Some(compiled),
+                view.read
+                    .binding
+                    .revision
+                    .traffic()
+                    .lane_lengths_millimetres(),
+                MotionPosition {
+                    route_edge_index: source.route_cursor[offset + row],
+                    progress_mm: source.progress_mm[offset + row],
+                    carry_um: source.carry_um[offset + row],
+                },
+                MotionPosition {
+                    route_edge_index: cursor,
+                    progress_mm: progress,
+                    carry_um: chunk.carry[row],
+                },
+                route_completed,
+            );
             chunk.reports[row].checkpoint = MotionCheckpoint::Complete;
             Ok(())
         })();
@@ -932,6 +973,7 @@ pub(super) fn prepare(
         waiting_plans: &workspace.waiting_plans,
         waiting_plan_by_vehicle: &workspace.waiting_plan_by_vehicle,
         conflict_motion_by_vehicle: &workspace.conflict_motion_by_vehicle,
+        conflict_next_eligibility: &workspace.conflict_next_eligibility,
         conflict_staged: &workspace.conflict,
         motion_cache: &workspace.motion_cache,
         motion_bases: &workspace.motion_bases,
@@ -1015,7 +1057,12 @@ pub(super) fn prepare(
                 read.binding.world_id,
             )?;
         }
-        updates.adopt(handle, report.completed, &read.committed.vehicles)?;
+        updates.adopt(
+            handle,
+            report.completed,
+            report.finalize_hints,
+            &read.committed.vehicles,
+        )?;
     }
     Ok(())
 }
@@ -1165,6 +1212,7 @@ mod tests {
                             .workspace
                             .conflict_motion_by_vehicle,
                         conflict_staged: &world.state.workspace.conflict,
+                        conflict_next_eligibility: &world.state.workspace.conflict_next_eligibility,
                         motion_cache: &world.state.workspace.motion_cache,
                         motion_bases: &world.state.workspace.motion_bases,
                     };
