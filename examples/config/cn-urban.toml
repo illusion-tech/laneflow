@@ -1,11 +1,11 @@
 config_version = 1
-topology_template = "connected-cn-urban-v1"
+topology_template = "connected-cn-urban-v2"
 template_slots = [
-    "protected_waiting", "permissive", "staggered_south_t", "staggered_north_t",
+    "protected_waiting", "protected", "staggered_south_t", "staggered_north_t",
     "priority_t", "protected", "protected", "protected", "protected", "protected",
 ]
-connection_rule = "reciprocal-cardinal-ports-v1"
-boundary_rule = "unmatched-ports-open-v1"
+connection_rule = "reciprocal-cardinal-ports-v2"
+boundary_rule = "unmatched-ports-open-v2"
 arterial_speed_mps = 14.0
 secondary_speed_mps = 10.0
 turn_speed_mps = 6.0

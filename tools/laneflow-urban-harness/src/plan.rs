@@ -315,10 +315,12 @@ impl ResolvedPlan {
             let arms: Vec<_> = catalog
                 .edge_ids
                 .keys()
-                .filter(|e| e.starts_with(&prefix) && (e.ends_with(".in") || e.ends_with(".out")))
+                .filter(|e| {
+                    e.starts_with(&prefix) && matches!(external_lane(e), Some((_, "in" | "out")))
+                })
                 .collect();
-            if arms.len() != 74 {
-                return Err(invalid(format!("tile {tile}: expected 74 arms")));
+            if arms.len() != 188 {
+                return Err(invalid(format!("tile {tile}: expected 188 lanes")));
             }
             let mut roles = BTreeMap::new();
             let mut arrival_fronts = BTreeMap::new();
@@ -495,7 +497,7 @@ impl ResolvedPlan {
                         / artifacts.dt,
                 )
             };
-            let waiting_left_start = phase_delta("c00", "p1.green")?;
+            let waiting_left_start = phase_delta("c00", "p2.green")?;
             let c00 = catalog
                 .signals
                 .iter()
@@ -504,14 +506,14 @@ impl ResolvedPlan {
             let waiting_left_duration = c00
                 .phases
                 .iter()
-                .find(|phase| phase.key == "p1.green")
+                .find(|phase| phase.key == "p2.green")
                 .ok_or_else(|| invalid("missing waiting release phase"))?
                 .duration_ms
                 / artifacts.dt;
             let waiting_phase_start = c00
                 .phases
                 .iter()
-                .take_while(|phase| phase.key != "p1.green")
+                .take_while(|phase| phase.key != "p2.green")
                 .map(|phase| phase.duration_ms)
                 .sum::<u64>()
                 / artifacts.dt;
@@ -547,7 +549,7 @@ impl ResolvedPlan {
                 UrbanCase::WaitingRelease => vec![
                     (
                         740,
-                        "c00.w-n",
+                        "c00.w0-n0",
                         0,
                         92_000,
                         92_000,
@@ -556,7 +558,7 @@ impl ResolvedPlan {
                     ),
                     (
                         741,
-                        "c00.w-n",
+                        "c00.w0-n0",
                         0,
                         83_500,
                         83_500,
@@ -565,7 +567,7 @@ impl ResolvedPlan {
                     ),
                     (
                         742,
-                        "c00.w-n",
+                        "c00.w0-n0",
                         0,
                         75_000,
                         75_000,
@@ -574,7 +576,7 @@ impl ResolvedPlan {
                     ),
                     (
                         743,
-                        "c00.w-n",
+                        "c00.w0-n0",
                         4,
                         7_000,
                         66_500,
@@ -583,23 +585,23 @@ impl ResolvedPlan {
                     ),
                 ],
                 UrbanCase::PermissiveLeft => {
-                    let due = phase_delta("c01", "p0.green")?;
+                    let due = phase_delta("c01", "p3.green")?;
                     vec![
-                        (740, "c01.w-n", 0, 92_000, 92_000, "permissive-left", due),
-                        (741, "c01.e-w", 0, 92_000, 92_000, "opposing-pulse-0", due),
-                        (742, "c01.e-w", 0, 83_500, 83_500, "opposing-pulse-1", due),
-                        (743, "c01.e-w", 0, 75_000, 75_000, "opposing-pulse-2", due),
+                        (740, "c01.s0-w0", 0, 92_000, 92_000, "permissive-left", due),
+                        (741, "c01.n0-s0", 0, 92_000, 92_000, "opposing-pulse-0", due),
+                        (742, "c01.n0-s0", 0, 83_500, 83_500, "opposing-pulse-1", due),
+                        (743, "c01.n0-s0", 0, 75_000, 75_000, "opposing-pulse-2", due),
                     ]
                 }
                 UrbanCase::UncontrolledYield => vec![
-                    (740, "c04.w-e", 0, 92_000, 92_000, "mainline-pulse-0", 0),
-                    (741, "c04.w-e", 0, 83_500, 83_500, "mainline-pulse-1", 0),
-                    (742, "c04.n-e", 0, 92_000, 75_000, "yield-role", 0),
+                    (740, "c04.w1-e1", 0, 92_000, 92_000, "mainline-pulse-0", 0),
+                    (741, "c04.w1-e1", 0, 83_500, 83_500, "mainline-pulse-1", 0),
+                    (742, "c04.n0-e0", 0, 92_000, 75_000, "yield-role", 0),
                 ],
                 UrbanCase::BoundaryBurst => vec![
                     (
                         740,
-                        "c04.w-e",
+                        "c04.w1-e1",
                         2,
                         92_000,
                         92_000,
@@ -608,7 +610,7 @@ impl ResolvedPlan {
                     ),
                     (
                         742,
-                        "c04.w-e",
+                        "c04.w1-e1",
                         2,
                         83_500,
                         83_500,
@@ -629,7 +631,10 @@ impl ResolvedPlan {
                 let cell_prefix = format!("{prefix}{cell}.");
                 traffic_role_edges.extend(
                     arms.iter()
-                        .filter(|edge| edge.starts_with(&cell_prefix) && edge.ends_with(".in"))
+                        .filter(|edge| {
+                            edge.starts_with(&cell_prefix)
+                                && matches!(external_lane(edge), Some((_, "in")))
+                        })
                         .map(|edge| edge.as_str()),
                 );
             }
@@ -649,6 +654,12 @@ impl ResolvedPlan {
                     .iter()
                     .find(|route| route.key == route_key)
                     .ok_or_else(|| invalid("missing traffic role route"))?;
+                let departure_occurrence = if role == "waiting-storage-pulse" {
+                    u32::try_from(route.edge_keys.len() - 1)
+                        .map_err(|_| invalid("waiting pulse route is empty"))?
+                } else {
+                    departure_occurrence
+                };
                 let initial_occurrence =
                     if window.warm_up_ticks == 0 && case != UrbanCase::BoundaryBurst {
                         departure_occurrence
@@ -763,7 +774,7 @@ impl ResolvedPlan {
                     catalog
                         .routes
                         .iter()
-                        .find(|route| route.key == format!("{prefix}c04.w-e"))
+                        .find(|route| route.key == format!("{prefix}c04.w1-e1"))
                         .ok_or_else(|| invalid("missing boundary blocker staging route"))?
                 } else {
                     departure_route
@@ -883,7 +894,7 @@ impl ResolvedPlan {
                 }
             }
             // Roles own their initial slot and the finite forward space on their entry arm.
-            // Fill all remaining individuals from the same ordered 814-position table.
+            // Fill all remaining individuals from the same ordered 2068-position table.
             let mut positions = (0..11).flat_map(|layer| {
                 let fronts = &arrival_fronts;
                 let blocked = &traffic_role_edges;
@@ -1001,7 +1012,7 @@ impl ResolvedPlan {
                 .iter()
                 .filter(|r| {
                     r.key.starts_with(&prefix)
-                        && r.key.ends_with(".cross.e")
+                        && r.key.contains(".cross.e.l")
                         && r.edge_keys
                             .iter()
                             .all(|edge| !background_route_exclusions.contains(edge.as_str()))
@@ -1016,7 +1027,7 @@ impl ResolvedPlan {
                 .iter()
                 .filter(|r| {
                     r.key.starts_with(&prefix)
-                        && r.key.ends_with(".cross.w")
+                        && r.key.contains(".cross.w.l")
                         && r.edge_keys
                             .iter()
                             .all(|edge| !background_route_exclusions.contains(edge.as_str()))
@@ -1079,7 +1090,12 @@ impl ResolvedPlan {
                 let exit = garage
                     .exits
                     .iter()
-                    .position(|a| a.edge.ends_with(if eastbound { ".w.in" } else { ".e.in" }))
+                    .position(|a| {
+                        matches!(
+                            external_lane(&a.edge),
+                            Some((direction, "in")) if direction == if eastbound { "w" } else { "e" }
+                        )
+                    })
                     .ok_or_else(|| invalid("garage lacks a directional exit"))?;
                 let due = if case == UrbanCase::BoundaryBurst {
                     if i < 10 {
@@ -1225,4 +1241,18 @@ fn profile(slot: u32) -> &'static str {
         3..=8 => "car",
         _ => "van",
     }
+}
+
+/// 外部进口或出口车道。键形如 `t000.c00.w.in.l0`。待转释放短边的角色是 `release`，不计入臂。
+fn external_lane(edge: &str) -> Option<(&str, &str)> {
+    let mut parts = edge.split('.');
+    let _tile = parts.next()?;
+    let _cell = parts.next()?;
+    let direction = parts.next()?;
+    let role = parts.next()?;
+    let _lane = parts.next()?;
+    if parts.next().is_some() || !matches!(role, "in" | "out") {
+        return None;
+    }
+    Some((direction, role))
 }
