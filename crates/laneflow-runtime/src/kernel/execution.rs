@@ -192,6 +192,24 @@ thread_local! {
     static LAST_DISPATCH_STATS: std::cell::Cell<Option<DispatchStats>> = const { std::cell::Cell::new(None) };
 }
 
+/// 测试专用：从池外提交到 Rayon 全局注入队列的任务数（`install`、池外分段并行与
+/// scope 派生各占一格）。注入队列按固定容量分块分配，分配证据据此计入块数。
+#[cfg(test)]
+static COORDINATOR_INJECTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(test)]
+fn note_injections(count: usize) {
+    if rayon_core::current_thread_index().is_none() {
+        COORDINATOR_INJECTIONS.fetch_add(count as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// 测试专用：累计的池外注入任务数。
+#[cfg(test)]
+pub(crate) fn coordinator_injections() -> u64 {
+    COORDINATOR_INJECTIONS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// 测试专用：记录最近一次分发统计（协调器线程）。
 #[cfg(test)]
 pub(crate) fn note_last_dispatch_stats(stats: DispatchStats) {
@@ -388,6 +406,8 @@ impl ExecutionResources {
                 let first = chunks.next();
                 for (index, chunk) in chunks {
                     let compute = &compute;
+                    #[cfg(test)]
+                    note_injections(1);
                     scope.spawn(move |_| compute(view, index, chunk));
                 }
                 if let Some((index, chunk)) = first {
@@ -409,7 +429,11 @@ impl ExecutionResources {
     pub(crate) fn install<R: Send>(&self, run: impl FnOnce() -> R + Send) -> R {
         match self {
             Self::Caller => run(),
-            Self::Pool(resources) => resources.pool.install(run),
+            Self::Pool(resources) => {
+                #[cfg(test)]
+                note_injections(1);
+                resources.pool.install(run)
+            }
         }
     }
 
@@ -429,9 +453,13 @@ impl ExecutionResources {
                     compute(index, chunk);
                 }
             }
-            Self::Pool(resources) => resources
-                .pool
-                .install(|| split_parts(output, 0, chunk_size, &compute)),
+            Self::Pool(resources) => {
+                #[cfg(test)]
+                note_injections(1);
+                resources
+                    .pool
+                    .install(|| split_parts(output, 0, chunk_size, &compute))
+            }
         }
     }
 
@@ -567,6 +595,8 @@ impl ExecutionResources {
                         run(ticket);
                     }
                 };
+                #[cfg(test)]
+                note_injections(resources.pool.current_num_threads());
                 resources.pool.in_place_scope(|scope| {
                     for _ in 0..resources.pool.current_num_threads() {
                         scope.spawn(|_| drain());
@@ -656,6 +686,8 @@ impl ExecutionResources {
                 // 锁直接保护切片迭代器：不物化票据容器，热态分发无堆分配。
                 let chunks = std::sync::Mutex::new(work.fuse());
                 let auxiliaries = resources.pool.current_num_threads();
+                #[cfg(test)]
+                note_injections(auxiliaries);
                 resources.pool.in_place_scope(|scope| {
                     let compute = &compute;
                     #[cfg(test)]
