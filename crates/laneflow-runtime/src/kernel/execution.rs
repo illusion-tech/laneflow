@@ -137,6 +137,8 @@ pub(crate) struct PoolResources {
     sparse_indices: std::sync::Mutex<Vec<u32>>,
     /// Frontier 复用计算的输入与互斥输出；完整 join 后才规范插入。
     frontier_replay: std::sync::Mutex<super::entry_frontier::ReplayScratch>,
+    /// 非入口 Gate 决定的分段输出；join 后按段序拼接，随池跨拍保留容量。
+    non_entry_parts: std::sync::Mutex<Vec<super::waiting::NonEntryPart>>,
 }
 
 #[derive(Default)]
@@ -375,6 +377,7 @@ impl ExecutionResources {
             finalize_parts: std::sync::Mutex::new(Vec::new()),
             sparse_indices: std::sync::Mutex::new(Vec::new()),
             frontier_replay: std::sync::Mutex::new(Default::default()),
+            non_entry_parts: std::sync::Mutex::new(Vec::new()),
         })))
     }
 
@@ -500,6 +503,21 @@ impl ExecutionResources {
             Self::Pool(resources) => Some(
                 resources
                     .sparse_indices
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的非入口决定分段缓冲；`Caller` 不分段，返回空。
+    pub(crate) fn non_entry_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::waiting::NonEntryPart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .non_entry_parts
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             ),

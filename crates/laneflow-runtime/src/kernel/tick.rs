@@ -4830,7 +4830,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let output_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
-        self.finalize_waiting_outputs(updates, tick_index)?;
+        self.finalize_waiting_outputs(updates, tick_index, execution)?;
         self.workspace.clear_motion_cache();
         #[cfg(test)]
         drop(output_timer);
