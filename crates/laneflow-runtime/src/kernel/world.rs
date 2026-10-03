@@ -504,39 +504,71 @@ impl crate::kernel::state::WorldState {
             return false;
         }
         let count = self.committed.vehicles.len();
-        let authority_valid = || {
+        let owner_valid = |owner: VehicleHandle| self.vehicle_state(owner).is_some();
+        let delta_ms = self.binding.config.fixed_delta_time_ms();
+        let tail_valid = || {
             !self
                 .committed
                 .conflict_eligibility
                 .get(self.committed.vehicles.len()..)
                 .is_some_and(|tail| tail.iter().any(Option::is_some))
-                && self.conflict_read().authority_owners_valid(
-                    |owner| self.vehicle_state(owner).is_some(),
-                    self.binding.config.fixed_delta_time_ms(),
-                )
+        };
+        let authority_valid = || {
+            tail_valid()
+                && self
+                    .conflict_read()
+                    .authority_owners_valid(owner_valid, delta_ms)
         };
         match execution.filter(|resources| resources.coordinator_parallel()) {
             Some(resources) => {
                 // 资源权威检查不等待全部车位段结束，也不再单独唤醒一次私有池。
-                // 第一块保留给 owner/cell 检查，其余块独占逐车校验的结果。
-                let mut parts = [true; PREFLIGHT_MAX_PARTS + 1];
+                // 第一块校验汇总计数与 staged 行，其余按种类切段：逐车、committed
+                // owner、committed cell 行、cell 表。cell 表段返回段内 reservation
+                // 数，合计须等于 committed cell 行数。
+                let read = self.conflict_read();
+                let (cells, owners, committed_cells) = read.authority_row_counts();
                 let wanted = resources
                     .dispatch_threads()
                     .saturating_mul(4)
-                    .min(PREFLIGHT_MAX_PARTS)
-                    .min(count)
-                    .max(1);
-                let span = count.div_ceil(wanted).max(1);
-                resources.for_each_part(&mut parts[..=wanted], 1, |part, valid| {
+                    .min(PREFLIGHT_MAX_PARTS);
+                let lengths = [count, owners, committed_cells, cells];
+                let kind_parts = lengths.map(|length| wanted.min(length));
+                let spans =
+                    [0, 1, 2, 3].map(|kind| lengths[kind].div_ceil(kind_parts[kind].max(1)).max(1));
+                let total = 1 + kind_parts.iter().sum::<usize>();
+                let mut parts = [Some(0_usize); 4 * PREFLIGHT_MAX_PARTS + 1];
+                resources.for_each_part(&mut parts[..total], 1, |part, valid| {
                     if part == 0 {
-                        valid[0] = authority_valid();
+                        valid[0] =
+                            (tail_valid() && read.authority_head_valid(owner_valid)).then_some(0);
                         return;
                     }
-                    let start = ((part - 1) * span).min(count);
-                    let end = (start + span).min(count);
-                    valid[0] = (start..end).all(|index| self.conflict_slot_valid(index));
+                    let mut index = part - 1;
+                    let mut kind = 0;
+                    while index >= kind_parts[kind] {
+                        index -= kind_parts[kind];
+                        kind += 1;
+                    }
+                    let start = (index * spans[kind]).min(lengths[kind]);
+                    let range = start..(start + spans[kind]).min(lengths[kind]);
+                    valid[0] = match kind {
+                        0 => range
+                            .into_iter()
+                            .all(|index| self.conflict_slot_valid(index))
+                            .then_some(0),
+                        1 => read
+                            .authority_owner_rows_valid(range, owner_valid)
+                            .then_some(0),
+                        2 => read
+                            .authority_committed_cell_rows_valid(range, delta_ms)
+                            .then_some(0),
+                        _ => read.authority_cells_valid(range, owner_valid),
+                    };
                 });
-                parts[..=wanted].iter().all(|valid| *valid)
+                parts[..total]
+                    .iter()
+                    .try_fold(0_usize, |sum, part| part.map(|reserved| sum + reserved))
+                    == Some(committed_cells)
             }
             None => (0..count).all(|index| self.conflict_slot_valid(index)) && authority_valid(),
         }
