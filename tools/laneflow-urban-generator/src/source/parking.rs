@@ -25,8 +25,9 @@ pub(super) fn add(
             Direction::West
         };
         let key = format!("{}.mixed", cell.key());
-        let entry = anchor(cell.edge_key(arm, false), 40_000);
-        let exit = anchor(cell.edge_key(arm, true), 40_000);
+        let outer = arm.lane_count() - 1;
+        let entry = anchor(cell.edge_key(arm, false, outer), 40_000);
+        let exit = anchor(cell.edge_key(arm, true, outer), 40_000);
         builder.add_declaration(re::RoadEditingDeclaration::ParkingFacility(
             re::ParkingFacilityInput::try_new(&key)?.with_virtual_capacity(
                 config.cell_virtual_capacity,
@@ -82,8 +83,9 @@ pub(super) fn add(
         let mut exits = Vec::new();
         for (slot, arm) in [(8, Direction::East), (9, Direction::West)] {
             let cell = &layout.cells[(tile * 10 + slot) as usize];
-            entries.push(anchor(cell.edge_key(arm, false), 40_000));
-            exits.push(anchor(cell.edge_key(arm, true), 40_000));
+            let outer = arm.lane_count() - 1;
+            entries.push(anchor(cell.edge_key(arm, false, outer), 40_000));
+            exits.push(anchor(cell.edge_key(arm, true, outer), 40_000));
         }
         builder.add_declaration(re::RoadEditingDeclaration::ParkingFacility(
             re::ParkingFacilityInput::try_new(&key)?.with_virtual_capacity(

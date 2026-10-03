@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let spec = catalog
         .routes
         .iter()
-        .find(|r| r.key == "t000.c01.cross.w")
+        .find(|r| r.key == "t000.c01.cross.w.l1")
         .ok_or("missing route")?;
     let origin = revision.canonical_origin();
     let policy: RightOfWayPolicySetId = format!(
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .parse::<RightOfWayPolicySetId>()
     .map_err(|e| e.to_string())?;
     let source = PublishedLfcaReference::new(
-        "fixture://lf-cn-urban-v1",
+        "fixture://lf-cn-urban-v2",
         origin.canonical_artifact_digest(),
         origin.canonical_artifact_byte_length(),
         origin.network_revision(),

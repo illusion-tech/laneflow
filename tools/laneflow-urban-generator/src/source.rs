@@ -1,4 +1,4 @@
-//! Version 1 authoring templates. All geometry is emitted through RoadEditing.
+//! Urban authoring templates. All geometry is emitted through RoadEditing.
 mod junction;
 mod parking;
 
@@ -11,11 +11,11 @@ use sha2::{Digest, Sha256};
 
 use crate::{Cell, Direction, Layout, Result, Scale, UrbanConfig};
 
-pub const NAMESPACE: &str = "workload/lf-cn-urban/v1";
-pub const COMMON_NAMESPACE: &str = "workload/lf-cn-urban/common/v1";
+pub const NAMESPACE: &str = "workload/lf-cn-urban/v2";
+pub const COMMON_NAMESPACE: &str = "workload/lf-cn-urban/common/v2";
 pub const POLICY_KEY: &str = "urban-policy";
 pub const FRAME_KEY: &str = "city-frame";
-pub const BUILD_ID: &str = "laneflow-urban-generator-v1";
+pub const BUILD_ID: &str = "laneflow-urban-generator-v2";
 pub const DOCUMENT_KEY: &str = "cn-urban.document";
 pub const COMMON_DOCUMENT_KEY: &str = "cn-urban-common.document";
 
@@ -38,12 +38,32 @@ pub struct Movement {
     pub cell: u32,
     pub entry: Direction,
     pub exit: Direction,
+    pub entry_lane: u32,
+    pub exit_lane: u32,
     pub turn: String,
     pub waiting: bool,
     pub control: String,
+    /// Maneuver path edges. A waiting fan stores only the post-release path.
     pub edges: Vec<String>,
+    /// Shared waiting prefix, ending at the same edge `edges` starts on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route_prefix: Vec<String>,
     #[serde(skip)]
     pub(crate) conflict_geometry: Vec<Point>,
+}
+
+impl Movement {
+    pub(crate) fn route_edges(&self) -> Vec<String> {
+        if self.route_prefix.is_empty() {
+            self.edges.clone()
+        } else {
+            self.route_prefix
+                .iter()
+                .cloned()
+                .chain(self.edges.iter().skip(1).cloned())
+                .collect()
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -185,6 +205,7 @@ fn generate_source_inner(
         policy_references += junction::add(
             &mut source,
             config,
+            &layout,
             cell,
             &mut edges,
             &mut movements,
@@ -329,15 +350,113 @@ fn bezier(start: Point, c1: Point, c2: Point, end: Point) -> Result<re::RoadEdit
     )?)
 }
 
-fn port(cell: &Cell, arm: Direction, entering: bool, radius: f64) -> Point {
+/// 内侧车道中心距道路轴线的距离。向左平移 4 m 后，待转区落在轴线上，且不进入对向内侧车道。
+const INNER_LATERAL_METERS: f64 = 4.0;
+const LANE_WIDTH_METERS: f64 = 3.5;
+
+/// 车道中心。0 号在参考线上，序号增大则靠右。
+fn lane_port(cell: &Cell, arm: Direction, entering: bool, lane: u32, radius: f64) -> Point {
     let (cx, cz) = cell.center_meters();
     let (dx, dz) = arm.delta();
-    let sign = if entering { -1.0 } else { 1.0 };
-    // Right-hand traffic, with a central gap for the left-turn waiting pockets.
+    let (tx, tz) = if entering {
+        (-f64::from(dx), -f64::from(dz))
+    } else {
+        (f64::from(dx), f64::from(dz))
+    };
+    let lateral = INNER_LATERAL_METERS + f64::from(lane) * LANE_WIDTH_METERS;
     [
-        cx + f64::from(dx) * radius - f64::from(dz) * sign * 6.0,
-        cz + f64::from(dz) * radius + f64::from(dx) * sign * 6.0,
+        cx + f64::from(dx) * radius + (-tz) * lateral,
+        cz + f64::from(dz) * radius + tx * lateral,
     ]
+}
+
+struct CorridorLane {
+    key: String,
+    start: Point,
+    end: Point,
+    successors: Vec<String>,
+}
+
+/// 一条行驶方向的走廊。参考线是 0 号车道中心，参考车道是 `l0`。
+fn add_corridor(
+    builder: &mut Builder<'_>,
+    alignment_key: &str,
+    lanes: &[CorridorLane],
+    speed: f64,
+    edges: &mut BTreeMap<String, Edge>,
+    tile: u32,
+    cell_index: u32,
+) -> Result<()> {
+    let corridor_key = format!("{alignment_key}.road");
+    let section = re::RoadSectionReference::owner_scoped(vec![corridor_key.clone()], "section")?;
+    let lane_refs = (0..lanes.len())
+        .map(|index| {
+            re::AuthoringLaneReference::owner_scoped(
+                vec![corridor_key.clone(), "section".into()],
+                format!("l{index}"),
+            )
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let reference = lanes.first().expect("corridor has a reference lane");
+    builder.add_alignment(re::RoadAlignmentInput::try_new(
+        alignment_key,
+        re::CanonicalFrameReference::local(FRAME_KEY)?,
+        line(reference.start, reference.end)?,
+    )?)?;
+    builder.add_declaration(re::RoadEditingDeclaration::RoadCorridor(
+        re::RoadCorridorInput::try_new(
+            &corridor_key,
+            re::RoadAlignmentReference::try_new(alignment_key)?,
+            0.0,
+            re::RoadEditingStationEnd::AlignmentEnd,
+            section.clone(),
+            lane_refs[0].clone(),
+            vec![re::RoadEditingCorridorElement::RoadSection(section.clone())],
+        )?,
+    ))?;
+    builder.add_declaration(re::RoadEditingDeclaration::RoadSection(
+        re::RoadSectionInput::try_new(
+            "section",
+            "motorLane",
+            lane_refs.clone(),
+            re::RoadCorridorReference::local(&corridor_key)?,
+        )?,
+    ))?;
+    for (index, lane) in lanes.iter().enumerate() {
+        builder.add_declaration(re::RoadEditingDeclaration::AuthoringLane(
+            re::AuthoringLaneInput::try_new(
+                format!("l{index}"),
+                edge_ref(&lane.key)?,
+                re::RoadEditingLaneDirection::Forward,
+                re::LinearWidthProfile::try_new(LANE_WIDTH_METERS, LANE_WIDTH_METERS)?,
+                None,
+                section.clone(),
+            )?,
+        ))?;
+        builder.add_declaration(re::RoadEditingDeclaration::LaneEdge(
+            re::LaneEdgeInput::try_new(
+                &lane.key,
+                speed,
+                lane.successors
+                    .iter()
+                    .map(|key| edge_ref(key))
+                    .collect::<Result<_>>()?,
+                None,
+            )?,
+        ))?;
+        edges.insert(
+            lane.key.clone(),
+            Edge {
+                key: lane.key.clone(),
+                tile,
+                cell: cell_index,
+                start: lane.start,
+                end: lane.end,
+                successors: lane.successors.clone(),
+            },
+        );
+    }
+    Ok(())
 }
 
 fn edge_ref(key: &str) -> Result<re::LaneEdgeReference> {
@@ -354,90 +473,40 @@ fn add_road(
     entering: bool,
     edges: &mut BTreeMap<String, Edge>,
 ) -> Result<()> {
-    let key = cell.edge_key(arm, entering);
-    let inner = port(cell, arm, entering, 30.0);
-    let outer = port(cell, arm, entering, 125.0);
-    let (start, end) = if entering {
-        (outer, inner)
-    } else {
-        (inner, outer)
-    };
-    let successors = if entering {
-        Vec::new()
-    } else {
-        layout
-            .neighbour(cell, arm)
-            .map(|next| vec![next.edge_key(arm.opposite(), true)])
-            .unwrap_or_default()
-    };
-    let corridor_key = format!("{key}.road");
-    let section = re::RoadSectionReference::owner_scoped(vec![corridor_key.clone()], "section")?;
-    let lane = re::AuthoringLaneReference::owner_scoped(
-        vec![corridor_key.clone(), "section".into()],
-        "lane",
-    )?;
-    builder.add_alignment(re::RoadAlignmentInput::try_new(
-        &key,
-        re::CanonicalFrameReference::local(FRAME_KEY)?,
-        line(start, end)?,
-    )?)?;
-    builder.add_declaration(re::RoadEditingDeclaration::RoadCorridor(
-        re::RoadCorridorInput::try_new(
-            &corridor_key,
-            re::RoadAlignmentReference::try_new(&key)?,
-            0.0,
-            re::RoadEditingStationEnd::AlignmentEnd,
-            section.clone(),
-            lane.clone(),
-            vec![re::RoadEditingCorridorElement::RoadSection(section.clone())],
-        )?,
-    ))?;
-    builder.add_declaration(re::RoadEditingDeclaration::RoadSection(
-        re::RoadSectionInput::try_new(
-            "section",
-            "motorLane",
-            vec![lane],
-            re::RoadCorridorReference::local(&corridor_key)?,
-        )?,
-    ))?;
-    builder.add_declaration(re::RoadEditingDeclaration::AuthoringLane(
-        re::AuthoringLaneInput::try_new(
-            "lane",
-            edge_ref(&key)?,
-            re::RoadEditingLaneDirection::Forward,
-            re::LinearWidthProfile::try_new(3.5, 3.5)?,
-            None,
-            section,
-        )?,
-    ))?;
+    let entering_radius = if entering { 125.0 } else { 30.0 };
+    let leaving_radius = if entering { 30.0 } else { 125.0 };
+    let lanes = (0..arm.lane_count())
+        .map(|lane| {
+            let successors = if entering {
+                Vec::new()
+            } else {
+                layout
+                    .neighbour(cell, arm)
+                    .map(|next| vec![next.edge_key(arm.opposite(), true, lane)])
+                    .unwrap_or_default()
+            };
+            CorridorLane {
+                key: cell.edge_key(arm, entering, lane),
+                start: lane_port(cell, arm, entering, lane, entering_radius),
+                end: lane_port(cell, arm, entering, lane, leaving_radius),
+                successors,
+            }
+        })
+        .collect::<Vec<_>>();
     let speed = if matches!(arm, Direction::West | Direction::East) {
         config.arterial_speed_mps
     } else {
         config.secondary_speed_mps
     };
-    builder.add_declaration(re::RoadEditingDeclaration::LaneEdge(
-        re::LaneEdgeInput::try_new(
-            &key,
-            speed,
-            successors
-                .iter()
-                .map(|key| edge_ref(key))
-                .collect::<Result<_>>()?,
-            None,
-        )?,
-    ))?;
-    edges.insert(
-        key.clone(),
-        Edge {
-            key,
-            tile: cell.tile,
-            cell: cell.index,
-            start,
-            end,
-            successors,
-        },
+    let alignment = format!(
+        "{}.{}.{}",
+        cell.key(),
+        arm.key(),
+        if entering { "in" } else { "out" }
     );
-    Ok(())
+    add_corridor(
+        builder, &alignment, &lanes, speed, edges, cell.tile, cell.index,
+    )
 }
 
 pub(crate) fn digest(bytes: &[u8]) -> String {

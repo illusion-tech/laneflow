@@ -108,18 +108,17 @@ impl UrbanConfig {
         if self.config_version != 1 {
             return Err(Error::Config("config_version must be 1".into()));
         }
-        if self.topology_template != "connected-cn-urban-v1" {
+        if self.topology_template != "connected-cn-urban-v2" {
             return Err(Error::Config(
-                "topology_template must be connected-cn-urban-v1".into(),
+                "topology_template must be connected-cn-urban-v2".into(),
             ));
         }
         if self.template_slots != crate::layout::TEMPLATE_ORDER
-            || self.connection_rule != "reciprocal-cardinal-ports-v1"
-            || self.boundary_rule != "unmatched-ports-open-v1"
+            || self.connection_rule != "reciprocal-cardinal-ports-v2"
+            || self.boundary_rule != "unmatched-ports-open-v2"
         {
             return Err(Error::Config(
-                "template slots and connection/boundary rules must match the fixed v1 topology"
-                    .into(),
+                "template slots and connection/boundary rules must match the fixed topology".into(),
             ));
         }
         if self.profiles.is_empty() {

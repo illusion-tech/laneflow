@@ -390,15 +390,12 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             .unwrap()
             .phases
             .iter()
-            .find(|phase| phase.key == "p1.green")
+            .find(|phase| phase.key == "p2.green")
             .unwrap()
             .duration_ms
             / waiting_plan.dt;
-        assert_eq!(
-            pulses.len(),
-            if tile == 0 { 3 } else { 2 },
-            "tile {tile} waiting pulse count"
-        );
+        // 西进口左转在东进口左转之后。三周期探针里，两个 tile 的偏移都还能放进三次释放。
+        assert_eq!(pulses.len(), 3, "tile {tile} waiting pulse count");
         assert!(
             pulses
                 .iter()

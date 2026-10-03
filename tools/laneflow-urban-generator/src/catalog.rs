@@ -73,7 +73,7 @@ pub(crate) fn build(
         routes.push(Route {
             key: movement.key.clone(),
             category: "junction".into(),
-            edge_keys: movement.edges.clone(),
+            edge_keys: movement.route_edges(),
         });
     }
     for cell in &source.layout.cells {
@@ -81,26 +81,34 @@ pub(crate) fn build(
             let Some(next) = source.layout.neighbour(cell, arm) else {
                 continue;
             };
-            let from = source
-                .movements
-                .iter()
-                .find(|m| m.cell == cell.index && m.exit == arm)
-                .expect("exit movement");
-            let to = source
-                .movements
-                .iter()
-                .find(|m| m.cell == next.index && m.entry == arm.opposite())
-                .expect("entry movement");
-            routes.push(Route {
-                key: format!("{}.cross.{}", cell.key(), arm.key()),
-                category: if cell.tile == next.tile {
-                    "cross-cell"
-                } else {
-                    "cross-tile"
-                }
-                .into(),
-                edge_keys: from.edges.iter().chain(&to.edges).cloned().collect(),
-            });
+            for lane in 0..arm.lane_count() {
+                let from = source
+                    .movements
+                    .iter()
+                    .find(|m| m.cell == cell.index && m.exit == arm && m.exit_lane == lane)
+                    .expect("exit movement");
+                let to = source
+                    .movements
+                    .iter()
+                    .find(|m| {
+                        m.cell == next.index && m.entry == arm.opposite() && m.entry_lane == lane
+                    })
+                    .expect("entry movement");
+                routes.push(Route {
+                    key: format!("{}.cross.{}.l{lane}", cell.key(), arm.key()),
+                    category: if cell.tile == next.tile {
+                        "cross-cell"
+                    } else {
+                        "cross-tile"
+                    }
+                    .into(),
+                    edge_keys: from
+                        .route_edges()
+                        .into_iter()
+                        .chain(to.route_edges())
+                        .collect(),
+                });
+            }
         }
     }
     let mut parking = Vec::new();
@@ -382,7 +390,7 @@ pub(crate) fn install(
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
-                "fixture://lf-cn-urban-v1",
+                "fixture://lf-cn-urban-v2",
                 origin.canonical_artifact_digest(),
                 origin.canonical_artifact_byte_length(),
                 origin.network_revision(),
