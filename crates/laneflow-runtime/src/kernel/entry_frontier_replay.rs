@@ -150,59 +150,59 @@ fn select(
     wanted: &[ConflictPassageAddress],
     mut emit: impl FnMut(&mut StepWorkspace<'_>, Input) -> Result<(), StepError>,
 ) -> Result<(), StepError> {
-    for address in wanted {
-        let count = step
-            .workspace
-            .frontier_maintenance
-            .by_cell
-            .get(address)
-            .map_or(0, Vec::len);
-        for position in 0..count {
-            let Some(index) = step
-                .workspace
-                .frontier_maintenance
-                .by_cell
-                .get(address)
-                .and_then(|indexes| indexes.get(position))
-                .copied()
-            else {
-                continue;
-            };
-            if step.workspace.frontier_maintenance.is_marked(index) {
-                continue;
-            }
-            let Some(vehicle) = vehicle_from_slot(step, index)? else {
-                continue;
-            };
-            let Some((state, sequence)) = accepted_source(step, vehicle)? else {
-                continue;
-            };
-            let stored_progress = step
-                .workspace
-                .frontier_maintenance
-                .replay_hit(vehicle, &state, horizon_ms);
-            if !step.workspace.frontier_maintenance.mark(vehicle.index())? {
-                continue;
-            }
-            if let Some(stored_progress) = stored_progress {
-                emit(
-                    step,
-                    Input {
-                        state,
-                        sequence,
-                        stored_progress,
-                    },
-                )?;
-            } else {
-                let deferred = &mut step.workspace.frontier_maintenance.scratch_increments;
-                deferred
-                    .try_reserve(1)
-                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-                deferred.push(vehicle);
-            }
-        }
+    // 选择与回调都不读地址成员表；暂时移出，使每个地址只查一次有序表。
+    let by_cell = std::mem::take(&mut step.workspace.frontier_maintenance.by_cell);
+    let result = wanted.iter().try_for_each(|address| {
+        let Some(indexes) = by_cell.get(address) else {
+            return Ok(());
+        };
+        indexes
+            .iter()
+            .try_for_each(|index| select_member(step, horizon_ms, *index, &mut emit))
+    });
+    step.workspace.frontier_maintenance.by_cell = by_cell;
+    result
+}
+
+fn select_member(
+    step: &mut StepWorkspace<'_>,
+    horizon_ms: u64,
+    index: u32,
+    emit: &mut impl FnMut(&mut StepWorkspace<'_>, Input) -> Result<(), StepError>,
+) -> Result<(), StepError> {
+    if step.workspace.frontier_maintenance.is_marked(index) {
+        return Ok(());
     }
-    Ok(())
+    let Some(vehicle) = vehicle_from_slot(step, index)? else {
+        return Ok(());
+    };
+    let Some((state, sequence)) = accepted_source(step, vehicle)? else {
+        return Ok(());
+    };
+    let stored_progress = step
+        .workspace
+        .frontier_maintenance
+        .replay_hit(vehicle, &state, horizon_ms);
+    if !step.workspace.frontier_maintenance.mark(vehicle.index())? {
+        return Ok(());
+    }
+    if let Some(stored_progress) = stored_progress {
+        emit(
+            step,
+            Input {
+                state,
+                sequence,
+                stored_progress,
+            },
+        )
+    } else {
+        let deferred = &mut step.workspace.frontier_maintenance.scratch_increments;
+        deferred
+            .try_reserve(1)
+            .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        deferred.push(vehicle);
+        Ok(())
+    }
 }
 
 fn compute(
