@@ -3245,7 +3245,10 @@ impl<'a> ConflictRead<'a> {
             .and_then(|slot| self.owner_at(slot))
     }
 
-    fn cell_index(self, address: ConflictPassageAddress) -> Result<usize, ConflictAcquireError> {
+    pub(crate) fn cell_index(
+        self,
+        address: ConflictPassageAddress,
+    ) -> Result<usize, ConflictAcquireError> {
         self.derived
             .cell_lookup
             .get(&self.derived.addresses, address)
@@ -3329,6 +3332,15 @@ impl<'a> ConflictRead<'a> {
         self.workspace
             .map_or(&[], |workspace| workspace.staged_grants.as_slice())
     }
+    /// 测试专用：全部 cell 的接近 frontier 快照。
+    #[cfg(test)]
+    pub(crate) fn approach_frontier_cells(self) -> Vec<ApproachFrontierCell> {
+        self.cell_workspace()
+            .iter()
+            .map(|cell| cell.frontier)
+            .collect()
+    }
+
     fn cell_workspace(self) -> &'a [ConflictCellWorkspace] {
         self.workspace
             .map_or(&[], |workspace| workspace.cell_workspace.as_slice())
@@ -4243,6 +4255,52 @@ impl<'a> ConflictResolution<'a> {
     ) -> Result<(), ConflictAcquireError> {
         self.0
             .insert_approach_owner_reduced(address, vehicle, vehicle_update_sequence, estimate)
+    }
+
+    /// 按 cell 下标分段并行插入接近 owner。`entries(range, insert)` 在每段内
+    /// 只对落在 `range` 的 cell 调用 `insert`（cell 下标、车辆、序号、估计）。
+    /// 每个 cell 的两项归约与插入顺序无关，结果与逐项串行插入相同。
+    pub(crate) fn insert_approach_owners_partitioned(
+        &mut self,
+        resources: &crate::kernel::execution::ExecutionResources,
+        entries: impl Fn(
+            core::ops::Range<usize>,
+            &mut dyn FnMut(usize, VehicleHandle, u32, ApproachEstimate),
+        ) + Sync,
+    ) -> Result<(), ConflictAcquireError> {
+        const MAX_PARTS: usize = 128;
+        self.0.ensure_cells()?;
+        let cells = self.0.workspace.cell_workspace.as_mut_slice();
+        let len = cells.len();
+        let count = resources
+            .dispatch_threads()
+            .saturating_mul(2)
+            .min(MAX_PARTS)
+            .min(len)
+            .max(1);
+        let span = len.div_ceil(count).max(1);
+        let mut parts: [Option<(usize, &mut [ConflictCellWorkspace])>; MAX_PARTS] =
+            std::array::from_fn(|_| None);
+        let mut rest = cells;
+        for (part, slot) in parts[..count].iter_mut().enumerate() {
+            let start = (part * span).min(len);
+            let (head, tail) = std::mem::take(&mut rest).split_at_mut(span.min(len - start));
+            *slot = Some((start, head));
+            rest = tail;
+        }
+        resources.for_each_part(&mut parts[..count], 1, |_, part| {
+            let Some((start, cells)) = part[0].as_mut() else {
+                return;
+            };
+            let start = *start;
+            let end = start + cells.len();
+            entries(start..end, &mut |index, vehicle, sequence, estimate| {
+                cells[index - start]
+                    .frontier
+                    .insert_owner_reduced(vehicle, sequence, estimate);
+            });
+        });
+        Ok(())
     }
 
     /// 校验并暂存候选组合资源，成功时签发本拍 grant。
