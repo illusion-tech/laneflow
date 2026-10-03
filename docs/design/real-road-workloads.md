@@ -1,7 +1,7 @@
 # 真实路网 Workload
 
-**文档状态**: Accepted（#224 G1）<br>
-**最后更新**: 2026-07-29<br>
+**文档状态**: Accepted（#224 G1；#253 验收重划见 §3.6 注记）<br>
+**最后更新**: 2026-09-28<br>
 **适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万
 真实路网性能补充 workload 与需求代表性 observation
 
@@ -97,6 +97,51 @@ commit，不得解析默认分支、浮动 tag 或 latest release。
 `buslines.rou.xml`、DUA routes、公交、检测器和其他 upstream tree 内容不进入 v1。
 converter 不能因缺少某个固定文件而从完整 tree 中寻找替代输入。
 
+#### 2.2.1 诊断实验记录：junction -1000 内车道修源实证（#253，已回退）
+
+基线保持 v2.0 @ `c4bd5bd3751d426d42a9a1749c815e47ea188549` 原样，
+`scenario/lust.net.xml` 的 SHA-256 复核验讫，精确等于上表 pinned digest
+`6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341`
+（补丁已回退，源数据无任何本地改动）。本节保留「逐点修源数据」路线的
+诊断实验记录——该路线已实证证伪，详见全网普查（§2.2.1 末）与 #253。
+
+实验（2026-06 执行、同月回退）：为通过 Balanced2Deg 全角 2° + 0.1 m
+退化段下限的 compiler 验收（#253 G1 修订），曾对 junction `-1000` 两条
+内车道试打 shape 补丁（端点保持与相邻 external lane 精确对齐，maneuver
+边界位置容差 5 mm 不受影响）：
+
+| lane         | 原始 shape / length                                                        | 实验 shape / length（已回退）                                                                                                                                                                                                                                                                                                                               |
+| ------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `:-1000_2_0` | `7325.49,7162.74 7324.51,7165.20 7323.36,7166.12` / 4.11 m                 | `7325.49,7162.74 7325.35,7163.37 7325.15,7163.97 7324.89,7164.56 7324.58,7165.12 7324.21,7165.65 7323.80,7166.14 7323.34,7166.59 7322.84,7166.99 7322.30,7167.34 7321.73,7167.64 7321.14,7167.88 7320.52,7168.07 7319.89,7168.19 7319.26,7168.26 7318.61,7168.26 7317.98,7168.20 7317.23,7168.09 7316.48,7167.99 7315.74,7167.88 7314.99,7167.78` / 13.28 m |
+| `:-1000_7_0` | `7323.36,7166.12 7322.44,7166.86 7319.26,7167.72 7314.99,7167.78` / 8.75 m | `7323.36,7166.12 7321.40,7166.86 7319.30,7167.42 7314.99,7167.78` / 8.59 m                                                                                                                                                                                                                                                                                  |
+
+实验结论一（可修通的情形存在）：SUMO 自动生成的 `:-1000_2_0`（4.11 m
+承载约 85° 转向）与 `:-1000_7_0`（23.7° 软折压在 1.18 m 弦上）在 f32
+量化 + 2° weld + 0.105 m 发射弦长下限的预算下原样不可发射。`:-1000_2_0`
+重设计为 r≈6.7 m 圆弧 + 3 m 收束直线（起点随 fan-out 钳制共识方向、
+终点对齐 `-32592#0` 首弦），量化后单片最大转角 1.53°，**实测通过
+compiler 验收**；`:-1000_7_0` 平滑为 159°/165°/175° 三折线。
+
+实验结论二（同路口的反面证据）：`:-1000_3_0`、`:-1000_5_0` 同属 SUMO
+自动生成产物，端点由 5 mm 边界容差固定，可达路径被路口边界与其余内
+车道夹限，闭合几何的曲率半径上限分别为 3.404 m 与 3.06 m（对应弦长
+下限处单片几何转角 1.77° / 1.97°，预检门限 1.9° 之上），shape 重设计
+无法使其达标；如需修复须扩大路口口袋（移动 `-32592#0` 起点或路口
+角点），属于超出内车道 shape 范围的源几何修改。
+
+普查结论（逐点修源路线证伪）：对 pinned 基线原样的全网不可行点普查
+（converter 诊断清单模式，已正式化为
+`TopologyConvertOptions::emit_infeasibility_report`）显示不可行点不是
+少数紧路口——G1 修订（0.5 m stub 焊接例外，rule
+`stub-weld/g1-six-cond@2`）落地后重锁：内车道不可行 7,533 条、覆盖
+1,854 个 junction（XML 有内车道的 junction 共 1,942 个，覆盖率 95.4%），
+另有 off-ramp 节点簇内车道，以及 authored 边 697 条。以 47.2% 的内车道
+失败率计，修通全网等价于重画全部路口内车道并扩容相当比例的口袋，工程上
+不可行；逐点修复路线就此终结，出路只剩治理层选项（发射架构/预算口径
+调整、真实路网验收标准重议、或大规模源数据重授权）。全量清单为随仓库
+提交的 `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`
+（`target/` 不进库）。
+
 已复核的 source health anchors 为：
 
 - 5,779 个 external edges、8,622 条 external lanes、30,051 条 connections；
@@ -120,7 +165,14 @@ fail closed 回到 #224 G1。
 - 每个 SUMO external `<lane>` 与 junction internal / `via` `<lane>` 都映射为一个
   LaneFlow `LaneEdge`；`length` 和 `speedLimit` 分别取 lane 的 `length` 与
   `speed`，单位保持 m 和 m/s。不得丢弃 internal lane 或把路口两侧 external lane
-  直接连接。
+  直接连接。唯一例外是 #253 G1 最终确认（2026-09-30，issuecomment-5902944418）
+  的点状 stub 删焊：pinned 基线内经
+  `tools/laneflow-lust-converter/evidence/lust-stub-weld-candidates.json` 清单
+  确认的单段 stub（完整展开后恰一条、端点距 < 0.5 m 的点状边），在位移
+  ≤ 0.5 m、形状局部性 ≤ 0.05 m、via/from 引用各唯一、共享入口关联穿越重验
+  通过时可移除并把入口末点焊到出口首点（有界源几何归一化，实测 80 条）；
+  不满足任一条件的对象拒绝处置、保留原始连接走正常穿越并记录诊断（实测
+  4 条），集外对象不得仅凭端点距套用。
 - 只有拥有至少一条 normalized external-entry → external-exit traversal 的 SUMO
   road junction 才映射为 current Traffic v0.10 `Junction`。该 identity/owner shape
   由 v0.8 引入并被 v0.9 继承；owner 由 external from-edge 的 `to`、external
@@ -177,7 +229,9 @@ fail closed 回到 #224 G1。
 - Traffic edge length 与 Spatial quantized polyline arc length 必须通过现有
   binding validation；ManeuverPath 中每一对相邻 external/internal edge 也必须通过
   current Spatial endpoint 连续性验证。不能用丢弃 internal geometry 或放宽
-  tolerance 规避验证。
+  tolerance 规避验证。§3.1 的点状 stub 删焊是 G1 授权的有界源几何归一化
+  （有独立门控与逐条记录），不属于本条的「丢弃 internal geometry」；焊接后
+  入口末点与出口首点一致，连续性验证照常执行。
 
 LuST 约 13.6 × 11.5 km 的范围在重定中心后位于现有每轴
 `[-16_384, 16_384] m` canonical frame 边界内。超界不能通过缩放、分片或改变
@@ -193,7 +247,11 @@ v1 只接受已复核的 201 个 static controllers：
   让行差异不能由 current LaneFlow static indication 表达，必须在转换报告中记录；
 - group 由“全部 phases 中状态向量相同的受控 connection 等价类”确定，成员
   connection 的字典序决定稳定 group ID；
-- 同一 from edge 只生成一个 edge-end StopLine，相关 gates 共用该 StopLine；
+- 每个受控 (from_edge, from_lane) 各生成一条 edge-end StopLine（`edge_id =
+  sumo:{from_edge}_{from_lane}`），该车道的 gates 绑本车道线——compiler 的
+  `ManeuverGateStopLineMismatch` 校验是 LaneEdge 粒度（gate 的 StopLine 必须
+  位于 `pathEdges[transitionIndex]` 同一边），from-edge 级共享会让多车道
+  进口道的车道 ≥1 gate 绑错线（#253 C4 修正，pinned 536 个多车道受控进口道）；
 - 每个受控 lane-level connection 必须解析到唯一 `ManeuverPath`，并生成
   `ManeuverGate(maneuverPathId, transitionIndex=0)`；Gate crossing 是
   `entryEdge -> first internalEdge`，无 internal edge 时才是
@@ -204,6 +262,10 @@ v1 只接受已复核的 201 个 static controllers：
 
 不得固化 actuated program，也不存在“缺失 controller 时降级为 unsignalized”的
 路径。任一 controller 缺失、损坏、需要丢 phase 或需要降级时，转换立即失败。
+**例外（#253 K4a 契约修订）**：「声明臂无受控 link」——相位状态向量中无任何
+connection 认领的位置——不判失败，作为 source-health 事实记入 conversion
+report（明列 controller id 与缺失 index；pinned 实例：controller `-13968`
+缺 index 9，相位状态串长 14）。受控 link 的 index 仍必须在相位向量范围内。
 
 ### 3.4 Vehicle Profile
 
@@ -233,33 +295,54 @@ artifact digest，必须使用新 workload ID。
 
 ### 3.6 共享输出
 
-converter 分别生成：
+> **#253 验收重划（2026-09-28 G1 补充记录，已获确认）**：当前交付与验收为
+> 「converter 交付 + 确定性 fail-closed 诊断清单（含全网普查）」；真实 LuST 网
+> 完整编译产出 `network.lfca` 与 Release assets 依赖未来的「路口级 maneuver
+> 几何合成」新设计（另立 G1），落地前 `network.lfca` 静态 bundle 不交付。本节
+> 描述的产物轴与验收语义对该未来状态仍然有效。诊断清单的语义与锁定数字见
+> §2.2.1 与随仓库提交的
+> `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`。
 
-- Traffic v0.10 package，包含 `junctions[]`、`movements[]`、
-  `maneuverPaths[]`、`signals.maneuverGates[]`、上述 ParticipantClass/profile
-  binding，以及显式空 `facilityBands[]`、`roadSections[]`、`laneGroups[]`、
-  `roadCorridors[]`、`accessRules[]`；LuST v1 不伪造尚未设计的横断面或准入语义；
-- SpatialPackage v0.1；
-- ScenarioManifest v0.1，用 size 和 SHA-256 配对 Traffic/Spatial；
+converter 分别生成（G1 修订，2026-09-27：产物轴从旧 JSON 三件套 retarget 至
+compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON schema 与 Core 装载
+入口后，旧产物轴在仓库内已无可装载的生产路径）：
+
+- `network.lfca`（Road Editing v4，经 `laneflow-compiler` 受检编译发射）：junctions、
+  movements、maneuverPaths、signals（stopLines / maneuverGates / groups /
+  controllers / phases）、上述 ParticipantClass/profile binding、CanonicalFrame 与
+  全部车道几何；`facilityBands`、`laneGroups`、`accessRules` 等以空表承载（路口
+  approach 派生链所需的 corridor/section/lane 声明除外），LuST v1 不伪造尚未设计的
+  横断面或准入语义。compiler 受检编译（preflight / lowering fail-closed）即产物
+  验收，不再存在独立的 JSON Schema 校验或 Core admission 环节。路口穿越由
+  ManeuverPath 独占权威：路径链不写 LaneEdge 后继，approach 边界边由
+  alignment → corridor → section → lane 链派生；
+- `routes.toml`：DUE 展开后的 route catalog 与精确一万 population record（含
+  selection config），替代旧 Traffic package 内嵌 routes 与独立 population JSON；
+  **实现中**（§3.1 边内换道语义修订前不产出，见 §4 实现状态注记）；
+- `manifest.toml`：以 size 和 SHA-256 配对 `network.lfca` / `routes.toml`，并记录
+  normalization object counts 与 fixed step（16 ms）；
 - conversion report，记录 source health、normalization object counts、
-  warning/loss boundaries，以及 Traffic/Spatial/ScenarioManifest 三个 direct payload
-  的 raw digests；report 不记录自身、shared static archive 或外部 manifest 的
-  digest；
+  warning/loss boundaries，以及 `network.lfca` / `routes.toml` / `manifest.toml`
+  三个 direct payload 的 raw digests；report 不记录自身、shared static archive 或
+  外部 manifest 的 digest；
 - semantic provenance manifest，记录第 2 节 source chain、config digest、licenses、
   Release assets 和 normalized semantic output digests；其内容和 digest 不包含
-  converter commit、toolchain、build timestamp 或 host；
+  converter commit、toolchain、build timestamp 或 host；config digest 只对语义
+  配置子集（Release asset URL）的规范化序列化求值，converter_commit、
+  source_dir、output_dir 等执行侧配置字段留在 build provenance 的全量配置
+  摘要中；
 - build provenance record，记录 converter commit、锁定 toolchain/依赖、调用参数、
   semantic provenance digest 和本次生成的 raw output digests；它使用 canonical
   serialization，且不得写入 wall-clock timestamp、host name、绝对路径或未冻结的
   environment value，也不记录自身 digest。
 
-Traffic/Spatial/ScenarioManifest 与 conversion report 组成 shared static bundle。
-semantic provenance manifest 是 bundle 外的 versioned index，记录该 bundle 和其他
-Release assets 的 URL/size/digest；它不得嵌入任何由自己索引的 asset，否则会形成
-self-digest cycle。build provenance record 同样位于 bundle 外，作为逐次生成审计
-证据，不进入 semantic bundle 或 cross-build comparison digest。初始车辆、release
-schedule、runtime handles、Parking binding、lifecycle call log 和 presentation
-selection 不写入 Traffic/Spatial/ScenarioManifest。
+`network.lfca`、`routes.toml`、`manifest.toml` 与 conversion report 组成 shared
+static bundle。semantic provenance manifest 是 bundle 外的 versioned index，记录该
+bundle 和其他 Release assets 的 URL/size/digest；它不得嵌入任何由自己索引的
+asset，否则会形成 self-digest cycle。build provenance record 同样位于 bundle 外，
+作为逐次生成审计证据，不进入 semantic bundle 或 cross-build comparison digest。
+初始车辆、release schedule、runtime handles、Parking binding、lifecycle call log
+和 presentation selection 不写入 `network.lfca` / `routes.toml` / `manifest.toml`。
 
 ## 4. 共享精确一万 source population
 
@@ -276,6 +359,18 @@ selection 不写入 Traffic/Spatial/ScenarioManifest。
 
 source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯一 vehicle ID 的
 排序。不得扩窗、换 seed、跳过无法转换的已选 record 或用第 10,001 个候选补位。
+
+> **#253 K3(a) 注记**：上述失败契约（空 ID / 重复 ID / 未知 vtype / unknown
+> route / dangling edge）针对**入选的** 10,000 候选——截断先行，route /
+> dangling-edge 验证在选取集合上进行。截断尾部候选不参与验证：pinned 实测
+> 尾部 592 个候选中 558 个不可车道级展开（语义见下），截断实质承担过滤职能，
+> 非质量判定。
+>
+> **实现状态（边内换道，另立 issue 跟踪）**：当前 pinned 基线上 routes 阶段
+> 整体受阻——§3.1 车道级展开（`can_complete`）禁止边内换道，而 SUMO DUE
+> route 为道路级、真实走法依赖边内换道，入选 10,000 中 9,350 条不可展开
+> （含 rank 0，实测 100/100 分块污染）。这是**实现语义缺口而非契约否定**：
+> §4 契约语义不变；修复落地前 CLI 不产出 `routes.toml`。
 
 完整一万 record table、selection config 和各自 digest 是 TOPO/DEMAND 的共享输入。
 
@@ -544,7 +639,9 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
   ownership/path connectivity、ManeuverGate binding 或 Traffic/Spatial
   length/endpoint binding 失败；
 - SUMO internal / `via` chain unknown、dangling、cyclic、跨 Junction，或任何
-  internal lane 的 Traffic/Spatial geometry 被丢弃；
+  internal lane 的 Traffic/Spatial geometry 被丢弃（§3.1 的 G1 点状 stub 删焊
+  例外除外：该例外仅在 pinned 批准域内经独立门控放行，拒绝或集外对象一律
+  保留原始连接并记录诊断）；
 - source junction owner 不能由 edge endpoint、`junction@intLanes` 和 connection
   chain 唯一闭合，或 emitted Junction / Movement 为空；
 - selected candidate 数不等于 10,592 或精确一万 table digest 不匹配；
@@ -565,15 +662,15 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 #224 G4 后分别创建以下 G0 Issue：
 
-| 切片 | 交付                                                                     | 依赖/边界                      |
-| ---- | ------------------------------------------------------------------------ | ------------------------------ |
-| A    | source/static converter、Release assets、provenance 与 conversion report | 其他 workload 实施的共同前置   |
-| B    | TOPO plan、harness 与 evidence                                           | 依赖 A                         |
-| C    | DEMAND caller policy、plan、harness 与 evidence                          | 依赖 A                         |
-| D    | DUA rerouting                                                            | 独立 G1/ADR 判断               |
-| E    | bus/stop semantics                                                       | 独立 G1                        |
-| F    | 中国特色手工 authoring 样本和独立 workload ID                            | 独立排期                       |
-| G    | BeST 十万来源、裁剪和 workload                                           | 一万获取/转换链路稳定后独立 G1 |
+| 切片     | 交付                                                                                                          | 依赖/边界                                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`](../../tools/laneflow-lust-converter/)；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
+| B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                             |
+| C        | DEMAND caller policy、plan、harness 与 evidence                                                               | 依赖 A                                                                                                                                                                             |
+| D        | DUA rerouting                                                                                                 | 独立 G1/ADR 判断                                                                                                                                                                   |
+| E        | bus/stop semantics                                                                                            | 独立 G1                                                                                                                                                                            |
+| F        | 中国特色手工 authoring 样本和独立 workload ID                                                                 | 独立排期                                                                                                                                                                           |
+| G        | BeST 十万来源、裁剪和 workload                                                                                | 一万获取/转换链路稳定后独立 G1                                                                                                                                                     |
 
 产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
 
