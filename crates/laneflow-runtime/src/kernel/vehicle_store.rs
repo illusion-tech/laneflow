@@ -619,6 +619,32 @@ impl VehicleStore {
         })
     }
 
+    /// 车辆的等待区成员关系，与 `state(handle).map(|state| state.waiting_membership)`
+    /// 一致；只读目录与稀疏控制记录（非活动车辆读其冷状态），不组装运动列。
+    #[inline]
+    pub(crate) fn waiting_membership(
+        &self,
+        handle: VehicleHandle,
+    ) -> Option<Option<crate::WaitingMembership>> {
+        let entry = self.directory.get(handle.index() as usize)?;
+        if entry.generation != handle.generation() {
+            return None;
+        }
+        match entry.location {
+            Location::Vacant => None,
+            Location::Inactive(row) => self.inactive[row].map(|state| state.waiting_membership),
+            Location::Active(physical) => {
+                self.context[physical / BLOCK_ROWS].rows[physical % BLOCK_ROWS].as_ref()?;
+                Some(
+                    entry
+                        .control
+                        .checked_sub(1)
+                        .and_then(|row| self.control[row as usize].waiting),
+                )
+            }
+        }
+    }
+
     #[inline]
     pub(crate) fn active_control(&self, slot: usize) -> Option<ControlState> {
         let entry = self.directory.get(slot)?;

@@ -3160,9 +3160,12 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         for vehicle in self.committed.live_order.iter().copied() {
             #[cfg(test)]
             count_waiting_work(|counts| counts.member_vehicles += 1);
+            // 只读目录与控制记录，不为十万辆车组装整车状态。
             if let Some(membership) = self
-                .vehicle_state(vehicle)
-                .and_then(|state| state.waiting_membership)
+                .committed
+                .vehicles
+                .waiting_membership(vehicle)
+                .flatten()
             {
                 self.derived.waiting_member_rows.push(WaitingZoneMember {
                     zone: membership.waiting_zone,

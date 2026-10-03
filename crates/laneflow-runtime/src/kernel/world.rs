@@ -3058,12 +3058,6 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
-    /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    #[inline(always)]
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
-        self.read_view().vehicle_state(handle)
-    }
-
     /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         self.read_view().compiled_route(route)
