@@ -1241,8 +1241,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             && view.read.committed.live_order.len() >= CONFLICT_PARALLEL_DISCOVERY_ROWS
         {
             let view = &view;
-            execution
-                .install(|| discover_conflict_inputs_parallel(view, execution, delta_s, inputs))?;
+            // 测试构建的完整扫描 oracle 是协调器线程局部开关；池线程读不到，先在这里取出。
+            #[cfg(test)]
+            let full_scan = CONFLICT_FULL_SCAN.with(std::cell::Cell::get);
+            #[cfg(not(test))]
+            let full_scan = false;
+            execution.install(|| {
+                discover_conflict_inputs_parallel(view, execution, delta_s, full_scan, inputs)
+            })?;
         } else {
             let mut active_index = 0_usize;
             for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
@@ -3871,7 +3877,10 @@ mod tests {
         let counts_before = crate::kernel::conflict::conflict_work_counts();
 
         // 三个稳态窗（8/8/24 拍）。实测形态：每拍 12 次分配 = 3 相位 × 4
-        // worker 的 Rayon scope 任务节点（执行配置 §3 豁免），稳态零
+        // worker 的 Rayon scope 任务节点（执行配置 §3 豁免），另加 Rayon 全局
+        // 注入队列的块分配：池外每次 install、分段并行或 scope 派生各占一格，
+        // 队列按 INJECTOR_BLOCK_SLOTS 格一块分配；块数只随进池次数线性增长、
+        // 与候选数无关，窗口边界可能多跨一块。稳态零
         // LaneFlow 自有分配；领头车 reservation 周期使发现位 0 在
         // None ↔ Computed 间交替，该槽位每周期一次性首物化段 Vec
         // （+1/窗，交替时上拍 None 报告无容量可回收）。证据口径：
@@ -3883,6 +3892,11 @@ mod tests {
         // （W1 前后同值，已定位为非暂存链来源——段暂存复用由
         // conflict_scratch_reuse_* 测试直接见证容量），归因留待 #707
         // （dhat 剖析），此处如实登记为有界非泄漏形态。
+        // crossbeam Injector 的每块格数（BLOCK_CAP）；跨窗口最多多出一块。
+        const INJECTOR_BLOCK_SLOTS: u64 = 63;
+        let injector_blocks =
+            |injections: u64| (injections.div_ceil(INJECTOR_BLOCK_SLOTS) + 1) as usize;
+        let injections_before = crate::kernel::execution::coordinator_injections();
         let region = Region::new(&INSTRUMENTED_SYSTEM);
         let mut ticks = 0_u32;
         for _ in 0..8 {
@@ -3890,37 +3904,41 @@ mod tests {
             ticks += 1;
         }
         let stats = region.change();
+        let injections_a = crate::kernel::execution::coordinator_injections() - injections_before;
         let region_b = Region::new(&INSTRUMENTED_SYSTEM);
         for _ in 0..8 {
             world.step(TickInput::new(4)).expect("steady window B step");
         }
         let stats_b = region_b.change();
         let region_c = Region::new(&INSTRUMENTED_SYSTEM);
+        let injections_before_c = crate::kernel::execution::coordinator_injections();
         for _ in 0..24 {
             world.step(TickInput::new(4)).expect("steady window C step");
         }
         let stats_c = region_c.change();
+        let injections_c = crate::kernel::execution::coordinator_injections() - injections_before_c;
         let visited = crate::kernel::conflict::conflict_work_counts().visited_passages
             - counts_before.visited_passages;
         assert!(
             world.state.derived.active_order.len() > 100,
             "分配证据必须跑在仍有活动车辆的冲突规模上，visited_passages={visited}"
         );
-        let node_budget = (ticks * 3 * WORKERS) as usize;
+        let node_budget = (ticks * 3 * WORKERS) as usize + injector_blocks(injections_a);
         assert!(
             stats.allocations <= node_budget + 8,
             "窗 A LaneFlow 分配超出节点预算+首触松弛: allocations={} budget={node_budget}",
             stats.allocations,
         );
         assert_eq!(stats.reallocations, 0, "窗 A 不得再分配: {stats:?}");
+        // 两窗进池次数相同；注入队列块边界可能让窗 B 多跨一块。
         assert!(
-            stats_b.allocations <= stats.allocations,
+            stats_b.allocations <= stats.allocations + 1,
             "窗 B 不得增长（无每候选每拍增长/无泄漏）: A={} B={}",
             stats.allocations,
             stats_b.allocations,
         );
         assert_eq!(stats_b.reallocations, 0, "窗 B 不得再分配");
-        let node_budget_c = (24 * 3 * WORKERS) as usize;
+        let node_budget_c = (24 * 3 * WORKERS) as usize + injector_blocks(injections_c);
         assert!(
             stats_c.allocations <= node_budget_c + 8,
             "长窗 C 必须亚线性（非逐拍/逐候选）: allocations={} budget={node_budget_c}",
@@ -4615,6 +4633,7 @@ fn discover_conflict_inputs_parallel(
     view: &ConflictTaskView<'_>,
     execution: &crate::kernel::execution::ExecutionResources,
     delta_s: f32,
+    full_scan: bool,
     inputs: &mut Vec<ConflictInput>,
 ) -> Result<(), StepError> {
     let live = &view.read.committed.live_order;
@@ -4634,14 +4653,15 @@ fn discover_conflict_inputs_parallel(
             return None;
         }
         if view.conflict.reservation(vehicle).is_some()
-            || !cached_gate_may_be_reached(
-                view.read,
-                view.motion_cache,
-                &state,
-                sequence,
-                cache_index,
-                delta_s,
-            )
+            || !(full_scan
+                || cached_gate_may_be_reached(
+                    view.read,
+                    view.motion_cache,
+                    &state,
+                    sequence,
+                    cache_index,
+                    delta_s,
+                ))
         {
             return None;
         }
