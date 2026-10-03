@@ -1888,6 +1888,10 @@ impl ConflictDerivedIndexes {
 /// 单写者事务的暂存工作区：本拍 staged 资源、grant 与 scratch 缓冲。
 pub(crate) struct ConflictWorkspace {
     cell_workspace: Vec<ConflictCellWorkspace>,
+    /// 本拍写过接近 frontier 的 cell 下标；下一拍只清这些 cell。记录扩容失败时
+    /// 置 `frontier_dirty_overflow`，下一拍退回全表清空。
+    frontier_dirty: Vec<u32>,
+    frontier_dirty_overflow: bool,
     staged_cells: Vec<(usize, VehicleHandle, u64)>,
     scratch_cell_indices: Vec<usize>,
     staged_downstream: Vec<OwnedDownstreamClaim>,
@@ -1931,6 +1935,8 @@ impl ConflictWorkspace {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             cell_workspace,
+            frontier_dirty,
+            frontier_dirty_overflow: _,
             staged_cells,
             scratch_cell_indices,
             staged_downstream,
@@ -1942,6 +1948,7 @@ impl ConflictWorkspace {
             next_serial: _,
         } = self;
         retained_vec_bytes(cell_workspace)
+            + retained_vec_bytes(frontier_dirty)
             + retained_vec_bytes(staged_cells)
             + retained_vec_bytes(scratch_cell_indices)
             + retained_vec_bytes(staged_downstream)
@@ -2087,6 +2094,8 @@ impl ConflictArbiter {
             },
             workspace: ConflictWorkspace {
                 cell_workspace: Vec::new(),
+                frontier_dirty: Vec::new(),
+                frontier_dirty_overflow: false,
                 staged_cells,
                 scratch_cell_indices,
                 staged_downstream,
@@ -3501,8 +3510,40 @@ impl<'world> ConflictWrite<'world> {
 
     /// 清空全部 cell 的接近 frontier。
     pub(crate) fn clear_approach_frontier(&mut self) {
-        for cell in &mut self.workspace.cell_workspace {
-            cell.frontier = ApproachFrontierCell::default();
+        let workspace = &mut *self.workspace;
+        if workspace.frontier_dirty_overflow {
+            for cell in &mut workspace.cell_workspace {
+                cell.frontier = ApproachFrontierCell::default();
+            }
+            workspace.frontier_dirty_overflow = false;
+        } else {
+            // 只有登记过的 cell 可能非空；其余 cell 自铺开起一直是默认值。
+            for index in &workspace.frontier_dirty {
+                workspace.cell_workspace[*index as usize].frontier =
+                    ApproachFrontierCell::default();
+            }
+        }
+        workspace.frontier_dirty.clear();
+    }
+
+    /// 登记写过接近 frontier 的 cell；登记表扩容失败时改为下一拍全表清空。
+    fn note_frontier_dirty(&mut self, cells: impl ExactSizeIterator<Item = usize>) {
+        let workspace = &mut *self.workspace;
+        if workspace.frontier_dirty_overflow {
+            return;
+        }
+        if workspace.frontier_dirty.try_reserve(cells.len()).is_err() {
+            workspace.frontier_dirty_overflow = true;
+            return;
+        }
+        for cell in cells {
+            match u32::try_from(cell) {
+                Ok(cell) => workspace.frontier_dirty.push(cell),
+                Err(_) => {
+                    workspace.frontier_dirty_overflow = true;
+                    return;
+                }
+            }
         }
     }
 
@@ -3519,6 +3560,7 @@ impl<'world> ConflictWrite<'world> {
         self.workspace.cell_workspace[index]
             .frontier
             .insert_owner_reduced(vehicle, vehicle_update_sequence, estimate);
+        self.note_frontier_dirty(core::iter::once(index));
         Ok(())
     }
 
@@ -4258,11 +4300,13 @@ impl<'a> ConflictResolution<'a> {
     }
 
     /// 按 cell 下标分段并行插入接近 owner。`entries(range, insert)` 在每段内
-    /// 只对落在 `range` 的 cell 调用 `insert`（cell 下标、车辆、序号、估计）。
+    /// 只对落在 `range` 的 cell 调用 `insert`（cell 下标、车辆、序号、估计）；
+    /// `touched` 列出全部插入的 cell 下标，供下一拍稀疏清空。
     /// 每个 cell 的两项归约与插入顺序无关，结果与逐项串行插入相同。
     pub(crate) fn insert_approach_owners_partitioned(
         &mut self,
         resources: &crate::kernel::execution::ExecutionResources,
+        touched: impl ExactSizeIterator<Item = usize>,
         entries: impl Fn(
             core::ops::Range<usize>,
             &mut dyn FnMut(usize, VehicleHandle, u32, ApproachEstimate),
@@ -4300,6 +4344,7 @@ impl<'a> ConflictResolution<'a> {
                     .insert_owner_reduced(vehicle, sequence, estimate);
             });
         });
+        self.0.note_frontier_dirty(touched);
         Ok(())
     }
 
@@ -4759,6 +4804,35 @@ mod tests {
             &mut claims,
         )?;
         Ok(claims)
+    }
+
+    #[test]
+    fn sparse_frontier_clear_resets_every_written_cell() {
+        let addresses: Vec<_> = (0..64).map(|index| address(index, index, 0)).collect();
+        let mut arbiter = ConflictArbiter::new(addresses.clone(), 8).unwrap();
+        let cleared = || vec![ApproachFrontierCell::default(); addresses.len()];
+        for overflow in [false, true] {
+            for (round, cell) in [3_usize, 17, 17, 40, 63].into_iter().enumerate() {
+                arbiter
+                    .insert_approach_owner_reduced(
+                        addresses[cell],
+                        vehicle(round as u32),
+                        round as u32,
+                        ApproachEstimate::Finite(round as u64),
+                    )
+                    .unwrap();
+            }
+            // 溢出时登记表不再可信，须退回全表清空。
+            arbiter.workspace.frontier_dirty_overflow = overflow;
+            if overflow {
+                arbiter.workspace.frontier_dirty.clear();
+            }
+            assert_ne!(arbiter.read().approach_frontier_cells(), cleared());
+            arbiter.clear_approach_frontier();
+            assert_eq!(arbiter.read().approach_frontier_cells(), cleared());
+            assert!(arbiter.workspace.frontier_dirty.is_empty());
+            assert!(!arbiter.workspace.frontier_dirty_overflow);
+        }
     }
 
     #[test]
