@@ -13,7 +13,7 @@ seed。共同模块在所有规模具有相同字节，topology 仅导入该共�
 
 ## 当前夹具实测
 
-2026-10-03，debug 工具链，`LF-COMP-SINGLE-NETWORK-1M-v2`，`FormatLimits::HARD`。
+2026-10-04，debug 工具链，`LF-COMP-SINGLE-NETWORK-1M-v2`，`FormatLimits::HARD`。路线目录 `catalog_version = 2`。
 完整链路通过编译、后发射检查、共享根、空世界安装和路线注册。
 
 | 实测指标 | fixture（20 cells / 2 tiles） |
@@ -27,8 +27,8 @@ seed。共同模块在所有规模具有相同字节，topology 仅导入该共�
 | 参考线长度 / 含内部的车道总长（mm） | 14,060,000 / 61,145,182 |
 | 停车设施 / 显式泊位 | 22 / 40 |
 | 每 tile 可分配位置 | 2,020 |
-| NetworkRevisionId | `5e04822a09639c10c168cea8c1a9732a946a9860829c709a4879f053622709e0` |
-| manifest SHA-256 | `13ad5727adc27dd6f0c67ec072acfa25b3846e5cf78b879238fb78ebbf29b975` |
+| NetworkRevisionId | `1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd8819` |
+| manifest SHA-256 | `4ec17200ec09c682124ec08d85e59e3fcaeccbd4611899998021fdbf0211b3ee` |
 
 待转区 4 个：两个 tile 的槽位 0 上，西、东各一条干路左转共用段。520 条机动路径里，
 4 条只覆盖待转共用段，不进入流；其余 516 条进入目录和路权流。参考线只计外部走廊

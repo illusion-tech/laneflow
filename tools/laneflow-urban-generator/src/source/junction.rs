@@ -323,6 +323,7 @@ fn add_path(
     curve: re::RoadEditingCurveProgram,
     signal: Option<&str>,
     interpretation: GateInterpretation,
+    hold: bool,
 ) -> Result<(Vec<String>, Vec<Point>)> {
     let mut conflict_geometry = Vec::new();
     sample_curve(&curve, &mut conflict_geometry);
@@ -363,6 +364,12 @@ fn add_path(
             edge_ref(exit_edge)?,
         )?,
     ))?;
+    // 冲突通道必须从这道门起算。待转释放后的分流不绑定信号，否则同一盏灯会在一米短边上再停一次。
+    let (signal, interpretation) = if hold {
+        (signal, interpretation)
+    } else {
+        (None, GateInterpretation::Uncontrolled)
+    };
     add_gate(
         builder,
         cell,
@@ -636,6 +643,7 @@ pub(super) fn add(
                         curve,
                         signal.as_deref(),
                         control,
+                        route_prefix.is_empty(),
                     )?;
                     movements.push(Movement {
                         key: format!("{}.{}", cell.key(), local),

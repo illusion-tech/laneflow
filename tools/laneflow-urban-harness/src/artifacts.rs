@@ -117,7 +117,7 @@ impl Artifacts {
                 ),
             ),
         )?;
-        if catalog.catalog_version != 1
+        if catalog.catalog_version != 2
             || catalog.scale != manifest.scale
             || catalog.network_revision != manifest.network_revision
             || format!(
