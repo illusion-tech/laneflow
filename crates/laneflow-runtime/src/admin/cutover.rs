@@ -969,6 +969,8 @@ impl TrafficWorld {
         self.state.committed.live_route_conflict_occurrence_count =
             staged_conflict_occurrence_count;
         self.state.refresh_signals();
+        let mut staged_occupancy = staged_occupancy;
+        staged_occupancy.adopt_ahead_buffer(&mut self.state.derived.occupancy);
         self.state.derived.occupancy = staged_occupancy;
         self.state.workspace.occupancy_scratch = staged_occupancy_scratch;
         self.state.binding.world_generation = next_world_generation;

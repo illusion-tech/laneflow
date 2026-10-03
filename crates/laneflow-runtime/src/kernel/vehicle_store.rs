@@ -422,7 +422,7 @@ impl VehicleStore {
     pub(crate) fn len(&self) -> usize {
         self.directory.len()
     }
-    #[cfg(test)]
+    /// 已预留的物理行数，也是槽位上界；按容量预分配的派生表据此定长。
     pub(crate) fn capacity(&self) -> usize {
         self.capacity
     }
