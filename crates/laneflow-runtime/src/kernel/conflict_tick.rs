@@ -2962,7 +2962,6 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             4,
             self.workspace.conflict_next_eligibility.len(),
         );
-        self.committed.conflict_eligibility.clear();
         // P6 已完成本拍资格计算。全空表直接保留紧凑表示，避免先复制再清空；
         // 非空表仍逐槽提交，沿用预留容量及 P7 不新增可恢复失败的约束。
         let all_empty = {
@@ -2976,12 +2975,23 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                 .iter()
                 .all(Option::is_none)
         };
-        if !all_empty {
+        let slots = self.workspace.conflict_next_eligibility.len();
+        let committed = &self.committed.conflict_eligibility;
+        if all_empty {
+            self.committed.conflict_eligibility.clear();
+        } else if committed.len() == slots && committed.capacity() == slots {
+            // 上拍已发布的是同长整表：直接交换两张表，不再整表复制。暂存侧拿回的
+            // 旧表在下一拍 Conflict 准备时整表清空，期间无人读取。
+            let next = core::mem::take(&mut self.workspace.conflict_next_eligibility).into_vec();
+            let previous = core::mem::replace(&mut self.committed.conflict_eligibility, next);
+            self.workspace.conflict_next_eligibility = previous.into_boxed_slice();
+        } else {
             #[cfg(test)]
             let _copy = super::eligibility_commit_research::begin(
                 2,
                 self.workspace.conflict_next_eligibility.len(),
             );
+            self.committed.conflict_eligibility.clear();
             self.committed
                 .conflict_eligibility
                 .extend_from_slice(&self.workspace.conflict_next_eligibility);
