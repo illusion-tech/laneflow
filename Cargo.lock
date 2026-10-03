@@ -3090,6 +3090,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-motion-kernel"
+version = "0.0.0"
+
+[[package]]
 name = "laneflow-post-p3-research"
 version = "0.0.0"
 dependencies = [
@@ -3117,6 +3121,7 @@ dependencies = [
  "laneflow-compiler",
  "laneflow-corridor-generator",
  "laneflow-format",
+ "laneflow-motion-kernel",
  "laneflow-runtime-snapshot-wire",
  "laneflow-scenario",
  "laneflow-spatial",

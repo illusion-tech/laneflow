@@ -601,7 +601,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     }
 
     // 车辆：profile / 类别重绑，整值运动状态原样保留。停车由下方唯一 aggregate 重建。
-    let mut vehicles = Vec::new();
+    let mut vehicles = crate::kernel::vehicle_store::VehicleStore::default();
     vehicles
         .try_reserve_exact(world.committed.vehicles.len())
         .map_err(|_| CutoverError::StagingAllocFailed)?;
@@ -626,6 +626,9 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         )?;
         migrated.maneuver_traversal = None;
         migrated.waiting_membership = None;
+        vehicles
+            .try_prepare_state(vehicles.len(), Some(migrated))
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
         vehicles.push(VehicleSlot {
             generation: slot.generation,
             state: Some(migrated),
@@ -866,6 +869,9 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     next_states
         .try_reserve_exact(world.workspace.next_states.capacity())
         .map_err(|_| CutoverError::StagingAllocFailed)?;
+    let motion_next =
+        crate::kernel::motion_updates::MotionUpdates::try_with_capacity(vehicle_capacity)
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
     let mut signal_aspects = Vec::new();
     try_reserve_staging_exact(&mut signal_aspects, group_count)?;
     signal_aspects.resize(group_count, SignalAspect::Red);
@@ -1013,10 +1019,13 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             waiting_staged_storage_mm,
             occupancy_scratch,
             motion_cache: Vec::new(),
+            motion_bases: Vec::new(),
+            waiting_preview_bases: Vec::new(),
             next_states,
+            motion_next,
+            motion_kernel: world.workspace.motion_kernel,
             waiting_preview_inputs: Vec::new(),
             waiting_preview_slots: Vec::new(),
-            motion_slots: Vec::new(),
             conflict_inputs: Vec::new(),
             conflict_slots: Vec::new(),
             frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance::default(),
@@ -1052,10 +1061,14 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         let base_state = world
             .vehicle_state(handle)
             .ok_or(CutoverError::WaitingRevalidationFailed)?;
-        let delta = VehicleDelta::from_state(base_state, world.compiled_route(base_state.route));
+        let delta = VehicleDelta::from_state(&base_state, world.compiled_route(base_state.route));
         let migrated =
             vehicle_state_from_delta(&world.binding.revision, &candidate, rebinding, &delta)?;
-        candidate.committed.vehicles[handle.index() as usize].state = Some(migrated);
+        candidate
+            .committed
+            .vehicles
+            .slot_mut(handle.index() as usize)
+            .state = Some(migrated);
     }
     if !candidate.rebuild_waiting_aggregate_from_semantics() {
         return Err(CutoverError::WaitingRevalidationFailed);
@@ -1423,7 +1436,7 @@ pub(crate) fn migrate_conflict_state(
         let source_state = source
             .vehicle_state(handle)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        let target_state = *target
+        let target_state = target
             .vehicle_state(handle)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         if let Some(source_eligibility) = source
@@ -1754,7 +1767,10 @@ pub(crate) fn migrate_conflict_state(
     target.committed.conflict_eligibility = eligibility.into_vec();
     target.normalize_conflict_eligibility();
     for (handle, traversal) in restored_traversals {
-        target.committed.vehicles[handle.index() as usize]
+        target
+            .committed
+            .vehicles
+            .slot_mut(handle.index() as usize)
             .state
             .as_mut()
             .ok_or(CutoverError::ConflictRevalidationFailed)?
@@ -1866,7 +1882,7 @@ pub(crate) fn project_expected_conflict(
                             eligibility.first_eligible_tick(),
                         )
                         .expect("true predicate creates eligibility");
-                        if !target.conflict_eligibility_authority_valid(target_state, migrated) {
+                        if !target.conflict_eligibility_authority_valid(&target_state, migrated) {
                             None
                         } else {
                             let compiled = target
@@ -2124,11 +2140,11 @@ pub(crate) fn revalidate_vehicle_on(
     let traffic = candidate.binding.revision.traffic();
     let lengths = traffic.lane_lengths_millimetres();
     let speed_limits = traffic.lane_speed_limits_millimetres_per_second();
-    let state = candidate.vehicle_state(handle).copied().ok_or(
-        CutoverError::VehicleRevalidationFailed {
+    let state = candidate
+        .vehicle_state(handle)
+        .ok_or(CutoverError::VehicleRevalidationFailed {
             vehicle: handle.index(),
-        },
-    )?;
+        })?;
     if !candidate.restored_waiting_authority_valid(state) {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
@@ -3919,7 +3935,10 @@ pub(crate) mod tests {
             &rebinding,
         )
         .expect("baseline eligibility migration");
-        target.committed.vehicles[vehicle.index() as usize]
+        target
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize)
             .state
             .as_mut()
             .expect("vehicle")
@@ -4836,7 +4855,10 @@ pub(crate) mod tests {
         )
         .expect("active vehicle migration succeeds");
         let index = usize::try_from(handle.index()).expect("index");
-        candidate.committed.vehicles[index]
+        candidate
+            .committed
+            .vehicles
+            .slot_mut(index)
             .state
             .as_mut()
             .expect("vehicle")
@@ -4848,7 +4870,10 @@ pub(crate) mod tests {
             })
         );
         // 恰在末端（目标 entry 60 m = 60_000 mm）即恢复兼容。
-        candidate.committed.vehicles[index]
+        candidate
+            .committed
+            .vehicles
+            .slot_mut(index)
             .state
             .as_mut()
             .expect("vehicle")
@@ -4884,7 +4909,11 @@ pub(crate) mod tests {
             .expect("parking")
             .vehicle;
         let completed_index = usize::try_from(completed.index()).expect("index");
-        world.state.committed.vehicles[completed_index]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(completed_index)
             .state
             .as_mut()
             .expect("completed")
@@ -5107,7 +5136,11 @@ pub(crate) mod tests {
                 .expect("fixture exposes a second class")
         };
         let index = usize::try_from(vehicle.index()).expect("index");
-        world.state.committed.vehicles[index]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(index)
             .state
             .as_mut()
             .expect("vehicle")

@@ -237,8 +237,24 @@ mod tests {
     }
 
     #[test]
-    fn both_variants_patch_current_tick_and_preserve_commit() {
+    fn rejects_columnar_authority_as_an_old_iidm_patch_source() {
         let original = include_str!("../../../crates/laneflow-runtime/src/kernel/tick.rs");
+        for arm in ["layout", "candidate"] {
+            assert!(patch_tick(&mut original.replace("\r\n", "\n"), arm).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "manual archive reproduction: requires the original frozen Git object"]
+    fn both_variants_patch_frozen_tick_and_preserve_commit() {
+        let original = crate::io::git(
+            &std::env::current_dir().unwrap(),
+            &[
+                "show",
+                &format!("{BASE}:crates/laneflow-runtime/src/kernel/tick.rs"),
+            ],
+        )
+        .unwrap();
         for arm in ["layout", "candidate"] {
             let mut text = original.replace("\r\n", "\n");
             patch_tick(&mut text, arm).unwrap();

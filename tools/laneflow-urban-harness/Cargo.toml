@@ -8,6 +8,7 @@ license.workspace = true
 publish = false
 
 [features]
+motion-kernel-evidence = ["laneflow-runtime/motion-kernel-evidence"]
 adapter = ["dep:bevy_app", "dep:bevy_ecs", "dep:bevy_math", "dep:bevy_time", "dep:bevy_transform", "dep:laneflow-bevy", "dep:laneflow-spatial"]
 allocation = ["adapter", "dep:stats_alloc"]
 pose-profiling = ["adapter", "laneflow-bevy/pose-profiling"]

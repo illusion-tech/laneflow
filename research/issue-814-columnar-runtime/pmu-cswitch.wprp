@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="LaneFlow issue 814">
+  <Profiles>
+    <SystemCollector Id="LF814System" Name="LaneFlow814PmuSystem">
+      <BufferSize Value="1024" />
+      <Buffers Value="64" />
+    </SystemCollector>
+    <SystemProvider Id="LF814Provider">
+      <Keywords>
+        <Keyword Value="ProcessThread" />
+        <Keyword Value="Loader" />
+        <Keyword Value="CSwitch" />
+        <Keyword Value="CpuConfig" />
+        <Keyword Value="Power" />
+      </Keywords>
+    </SystemProvider>
+    <HardwareCounter Id="LF814Counters" Strict="true">
+      <Counters>
+        <Counter Value="TotalCycles" />
+        <Counter Value="InstructionsRetired" />
+      </Counters>
+      <Events>
+        <Event Value="CSwitch" />
+      </Events>
+    </HardwareCounter>
+    <Profile Id="LF814PMC.Verbose.File" Name="LF814PMC"
+             Description="LaneFlow 814 PMU values on context switches"
+             DetailLevel="Verbose" LoggingMode="File">
+      <Collectors>
+        <SystemCollectorId Value="LF814System">
+          <SystemProviderId Value="LF814Provider" />
+          <HardwareCounterId Value="LF814Counters" />
+        </SystemCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

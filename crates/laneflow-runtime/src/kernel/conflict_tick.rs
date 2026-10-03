@@ -21,6 +21,14 @@ use crate::{
     VehicleState, VehicleStatus,
 };
 
+struct GateMotion {
+    handle: VehicleHandle,
+    route: RouteHandle,
+    profile: VehicleProfileOrdinal,
+    previous: super::vehicle_store::MotionPosition,
+    next: super::vehicle_store::MotionPosition,
+}
+
 /// 只排除本拍可证明到不了下一 Gate 的车辆；未知距离或运动域交还完整求值。
 /// 与 Gate 求值保持相同的跨边零点回看；MotionReach 的余量覆盖亚毫米 carry。
 pub(super) fn gate_may_be_reached(
@@ -28,13 +36,31 @@ pub(super) fn gate_may_be_reached(
     state: &VehicleState,
     delta_s: f32,
 ) -> bool {
+    let Some(route) = read.compiled_route(state.route) else {
+        return true;
+    };
+    gate_may_be_reached_on_route(
+        read,
+        route,
+        state.into(),
+        state.speed_mm_s,
+        state.profile,
+        delta_s,
+    )
+}
+
+pub(super) fn gate_may_be_reached_on_route(
+    read: crate::kernel::phase::StepReadView<'_>,
+    route: &crate::kernel::tables::CompiledRoute,
+    state: super::vehicle_store::MotionPosition,
+    speed_mm_s: u32,
+    profile: VehicleProfileOrdinal,
+    delta_s: f32,
+) -> bool {
     #[cfg(test)]
     if CONFLICT_FULL_SCAN.with(std::cell::Cell::get) {
         return true;
     }
-    let Some(route) = read.compiled_route(state.route) else {
-        return true;
-    };
     let cursor = if state.progress_mm == 0 && state.carry_um == 0 {
         state.route_edge_index.saturating_sub(1)
     } else {
@@ -59,12 +85,12 @@ pub(super) fn gate_may_be_reached(
         .revision
         .traffic()
         .relations()
-        .vehicle_profile(state.profile)
+        .vehicle_profile(profile)
     else {
         return true;
     };
     let Some(reach) =
-        crate::kernel::tick::MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s)
+        crate::kernel::tick::MotionReach::from_tick(speed_mm_s, profile.max_accel(), delta_s)
     else {
         return true;
     };
@@ -438,6 +464,311 @@ pub(crate) struct ConflictPassageTransition {
     pub(crate) clear: bool,
 }
 
+/// 少于此资源行数时串行收尾；分段规划的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const FINALIZE_PARALLEL_ROWS: usize = 512;
+#[cfg(test)]
+const FINALIZE_PARALLEL_ROWS: usize = 1;
+/// 并行收尾的段数上限。
+const FINALIZE_MAX_PARTS: usize = 128;
+
+/// 一段连续资源行的收尾规划与其按行序排列的暂存决定、通行区间转移。
+/// 由执行池持有（只在多线程分发时存在），跨拍保留容量。
+#[derive(Debug, Default)]
+pub(crate) struct FinalizePart {
+    rows: Vec<FinalizeRowPlan>,
+    decisions: Vec<ConflictDecision>,
+    transitions: Vec<ConflictPassageTransition>,
+}
+
+/// 单条资源行的只读收尾结果；`*_end` 是本行在段内决定/转移中的结束下标。
+#[derive(Clone, Copy, Debug)]
+struct FinalizeRowPlan {
+    index: usize,
+    handle: VehicleHandle,
+    status: VehicleStatus,
+    waiting_membership: Option<crate::WaitingMembership>,
+    maneuver: Option<ManeuverTraversalState>,
+    clear_eligibility: bool,
+    decisions_end: usize,
+    transitions_end: usize,
+    error: Option<StepError>,
+}
+
+/// 资源行规划只读的拍初状态与本拍暂存。
+struct FinalizeView<'a> {
+    read: crate::kernel::phase::StepReadView<'a>,
+    conflict: crate::kernel::conflict::ConflictRead<'a>,
+    grants: &'a [PreparedConflictGrant],
+    motion_by_vehicle: &'a [Option<ConflictMotionPlan>],
+    next_eligibility: &'a [Option<crate::ConflictEligibilityState>],
+    signals: &'a [laneflow_static_contract::SignalAspect],
+    updates: &'a super::motion_updates::MotionUpdates,
+}
+
+/// 与串行收尾循环逐项相同的只读规划；更新序号由落账阶段补写。
+fn plan_resource_row(
+    view: &FinalizeView<'_>,
+    index: usize,
+    decisions: &mut Vec<ConflictDecision>,
+    transitions: &mut Vec<ConflictPassageTransition>,
+) -> FinalizeRowPlan {
+    let vehicles = &view.read.committed.vehicles;
+    let row = view.updates.row(index, vehicles);
+    let handle = row.source.handle();
+    let position = row.position();
+    let waiting = super::waiting::WaitingTraversalInput {
+        route: row.source.route(),
+        profile: row.source.profile(),
+        position,
+        status: row.status(),
+        waiting_membership: row.control().waiting,
+    };
+    let fields = GateMotion {
+        handle,
+        route: waiting.route,
+        profile: waiting.profile,
+        previous: row.source.position(),
+        next: position,
+    };
+    let mut plan = FinalizeRowPlan {
+        index,
+        handle,
+        status: waiting.status,
+        waiting_membership: waiting.waiting_membership,
+        maneuver: None,
+        clear_eligibility: false,
+        decisions_end: 0,
+        transitions_end: 0,
+        error: None,
+    };
+    let result = (|| -> Result<(), StepError> {
+        free_gate_decisions(view.read, fields, 0, |decision| {
+            decisions
+                .try_reserve(1)
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+            decisions.push(decision);
+            Ok(())
+        })?;
+        let slot = handle.index() as usize;
+        let grant_index = view.motion_by_vehicle[slot]
+            .and_then(|plan| plan.grant_index)
+            .map(|index| index.get() as usize - 1);
+        let crossed = grant_index
+            .is_some_and(|index| position.route_edge_index > view.grants[index].gate_hop);
+        let range = grant_index
+            .filter(|_| crossed)
+            .and_then(|index| view.grants[index].passage_range)
+            .or_else(|| {
+                view.read
+                    .conflict_reservation(handle)
+                    .map(|reservation| reservation.passage_range())
+            });
+        let all_clear = match range {
+            Some(range) => {
+                let next = view.updates.row(index, vehicles).state();
+                passage_transitions(view.read, view.conflict, next, range, |transition| {
+                    transitions
+                        .try_reserve(1)
+                        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+                    transitions.push(transition);
+                    Ok(())
+                })?
+            }
+            None => true,
+        };
+        let maneuver = if all_clear {
+            view.read.derive_waiting_traversal_input(waiting, true)?
+        } else {
+            Some(ManeuverTraversalState {
+                route: waiting.route,
+                maneuver_occurrence_index: range
+                    .expect("uncleared coverage")
+                    .maneuver_occurrence_index(),
+                phase: ManeuverTraversalPhase::Clearing {
+                    admission_gate_hop: range.expect("uncleared coverage").admission_gate_hop(),
+                },
+            })
+        };
+        if (!all_clear && waiting.waiting_membership.is_some())
+            || (waiting.status != VehicleStatus::Active
+                && (maneuver.is_some() || waiting.waiting_membership.is_some()))
+        {
+            return Err(StepError::ConflictInvariantViolation);
+        }
+        // 越过 Gate 的资格先失效；其余资格按拍后状态与下一时刻信号复核。
+        let mut clear = crossed;
+        if !crossed && let Some(eligibility) = view.next_eligibility[slot] {
+            let mut next = view.updates.row(index, vehicles).state();
+            next.maneuver_traversal = maneuver;
+            clear = !view.read.conflict_eligibility_valid_with_signals(
+                &next,
+                eligibility,
+                view.signals,
+            );
+        }
+        plan.maneuver = maneuver;
+        plan.clear_eligibility = clear;
+        Ok(())
+    })();
+    plan.error = result.err();
+    plan.decisions_end = decisions.len();
+    plan.transitions_end = transitions.len();
+    plan
+}
+
+/// 一条已授权通行区间在本拍后的进入/清空转移；只读，转移按出现项顺序交给 `push`。
+/// 返回区间是否已全部清空。
+fn passage_transitions(
+    read: crate::kernel::phase::StepReadView<'_>,
+    conflict: crate::kernel::conflict::ConflictRead<'_>,
+    next: VehicleState,
+    range: ConflictPassageRange,
+    mut push: impl FnMut(ConflictPassageTransition) -> Result<(), StepError>,
+) -> Result<bool, StepError> {
+    let end = range
+        .first_conflict_occurrence_index()
+        .checked_add(range.passage_count())
+        .ok_or(StepError::ConflictInvariantViolation)?;
+    let mut all_clear = true;
+    for index in range.first_conflict_occurrence_index()..end {
+        let occurrence = *read
+            .compiled_route(range.route())
+            .and_then(|compiled| compiled.conflicts.get(index as usize))
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let stage = conflict.passage_stage(next.handle, occurrence.address());
+        let front_reached = route_front_at_or_beyond(
+            next,
+            occurrence.entry.route_edge_index,
+            occurrence.entry.progress_mm,
+        );
+        let rear_cleared = crate::kernel::tables::vehicle_rear_at_or_beyond(
+            read.binding.revision.traffic().lane_lengths_millimetres(),
+            &read
+                .compiled_route(range.route())
+                .ok_or(StepError::ConflictInvariantViolation)?
+                .edges,
+            next.route_edge_index as usize,
+            next.progress_mm,
+            next.carry_um,
+            next.length_mm,
+            occurrence.clearance,
+        )
+        .ok_or(StepError::ConflictInvariantViolation)?;
+        let already_cleared = matches!(
+            stage,
+            Some(crate::kernel::conflict::ConflictPassageStage::Cleared)
+        );
+        let occupied = matches!(
+            stage,
+            Some(crate::kernel::conflict::ConflictPassageStage::Occupied)
+        );
+        let enter = front_reached && !already_cleared && !occupied;
+        let clear = rear_cleared && !already_cleared;
+        if enter || clear {
+            push(ConflictPassageTransition {
+                vehicle: next.handle,
+                occurrence_index: index,
+                address: occurrence.address(),
+                enter,
+                clear,
+            })?;
+        }
+        all_clear &= already_cleared || rear_cleared;
+    }
+    Ok(all_clear)
+}
+
+/// 车辆本拍越过的、无需资源的普通 Gate 的定稿决定；只读，决定按 hop 顺序交给 `push`。
+fn free_gate_decisions(
+    read: crate::kernel::phase::StepReadView<'_>,
+    fields: GateMotion,
+    update_sequence: u32,
+    mut push: impl FnMut(ConflictDecision) -> Result<(), StepError>,
+) -> Result<(), StepError> {
+    let previous = fields.previous;
+    let next = fields.next;
+    let first_hop = if previous.progress_mm == 0 && previous.carry_um == 0 {
+        previous.route_edge_index.saturating_sub(1)
+    } else {
+        previous.route_edge_index
+    };
+    let compiled =
+        crate::kernel::tables::compiled_route_for_handle(&read.committed.routes, fields.route)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+    // 零进度回看已计入 first_hop；同一 hop 内尚未到边尾时没有可定稿 Gate。
+    if first_hop == next.route_edge_index
+        && compiled.edges.get(first_hop as usize).is_some_and(|edge| {
+            next.progress_mm
+                < read.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+        })
+    {
+        return Ok(());
+    }
+    let first = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("conflict_tick:2059");
+        |hop| *hop < first_hop
+    });
+    let last = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("conflict_tick:2062");
+        |hop| *hop <= next.route_edge_index
+    });
+    for index in first..last {
+        let hop = compiled.gate_hops[index];
+        let edge = compiled.edges[hop as usize];
+        if next.route_edge_index == hop
+            && next.progress_mm
+                < read.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+        {
+            break;
+        }
+        let waiting = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:2074");
+            |entry| entry.entry_hop < hop
+        });
+        if compiled.conflict_gate_ranges[hop as usize].len != 0
+            || compiled
+                .waiting
+                .get(waiting)
+                .is_some_and(|entry| entry.entry_hop == hop)
+        {
+            continue;
+        }
+        let maneuver = compiled.maneuvers.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:2085");
+            |entry| entry.exit_route_edge_index <= hop
+        });
+        compiled
+            .maneuvers
+            .get(maneuver)
+            .filter(|entry| entry.entry_route_edge_index <= hop)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let gate = compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
+        let outcome = match read.gate_policy_decision(gate, fields.profile) {
+            GatePolicyDecision::DenyAndStop => ConflictDecisionOutcome::NotEvaluated,
+            GatePolicyDecision::Candidate(_) => ConflictDecisionOutcome::NotRequired,
+        };
+        push(ConflictDecision {
+            vehicle: fields.handle,
+            vehicle_update_sequence: update_sequence,
+            anchor: ConflictRouteAnchor {
+                route: fields.route,
+                maneuver_occurrence_index: u32::try_from(maneuver)
+                    .map_err(|_| StepError::ConflictInvariantViolation)?,
+                hop,
+            },
+            passage: None,
+            outcome,
+        })?;
+    }
+    Ok(())
+}
+
 /// 以 `try_reserve` 扩容暂存向量；失败映射为 `StepError::ConflictScratchAllocFailed`。
 pub(crate) fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), StepError> {
     #[cfg(test)]
@@ -543,7 +874,13 @@ impl crate::kernel::state::WorldState {
         &mut self,
         updates: &mut [(usize, VehicleState)],
     ) -> Result<(), StepError> {
-        self.step_workspace().finalize_conflict_step(updates)
+        let mut columns =
+            super::motion_updates::MotionUpdates::from_states(updates, &self.committed.vehicles);
+        let result = self.step_workspace().finalize_conflict_step(&mut columns);
+        for (index, update) in updates.iter_mut().enumerate() {
+            *update = columns.get(index, &self.committed.vehicles);
+        }
+        result
     }
 
     /// 测试专用：Conflict 相关 committed 与暂存容量的存续逻辑字节总数。
@@ -740,26 +1077,41 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.workspace.conflict_motion_by_vehicle.len()
                 + self.workspace.conflict_next_eligibility.len(),
         );
-        {
-            #[cfg(test)]
-            let _clear = super::eligibility_commit_research::begin(
-                0,
-                self.workspace.conflict_motion_by_vehicle.len(),
-            );
-            self.workspace.conflict_motion_by_vehicle.fill(None);
-        }
-        {
-            #[cfg(test)]
-            let _clear = super::eligibility_commit_research::begin(
-                1,
-                self.workspace.conflict_next_eligibility.len(),
-            );
-            self.workspace.conflict_next_eligibility.fill(None);
+        if let Some(resources) = execution.filter(|resources| resources.coordinator_parallel()) {
+            // 两张逐车位表各 vehicle_capacity 项，按连续段并行清空，一次池提交。
+            let motion = &mut self.workspace.conflict_motion_by_vehicle;
+            let eligibility = &mut self.workspace.conflict_next_eligibility;
+            let chunk = motion
+                .len()
+                .max(eligibility.len())
+                .div_ceil(resources.dispatch_threads().saturating_mul(4))
+                .max(1);
+            resources.install(|| {
+                resources.for_each_part(motion, chunk, |_, part| part.fill(None));
+                resources.for_each_part(eligibility, chunk, |_, part| part.fill(None));
+            });
+        } else {
+            {
+                #[cfg(test)]
+                let _clear = super::eligibility_commit_research::begin(
+                    0,
+                    self.workspace.conflict_motion_by_vehicle.len(),
+                );
+                self.workspace.conflict_motion_by_vehicle.fill(None);
+            }
+            {
+                #[cfg(test)]
+                let _clear = super::eligibility_commit_research::begin(
+                    1,
+                    self.workspace.conflict_next_eligibility.len(),
+                );
+                self.workspace.conflict_next_eligibility.fill(None);
+            }
         }
         #[cfg(test)]
         drop(sparse_clear);
 
-        self.rebuild_conflict_frontier()?;
+        self.rebuild_conflict_frontier(execution)?;
         reserve(
             &mut self.workspace.conflict_candidates,
             self.derived.active_order.len(),
@@ -805,14 +1157,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 if !cached_gate_may_be_reached(
                     self.read_view(),
                     &self.workspace.motion_cache,
-                    state,
+                    &state,
                     sequence,
                     cache_index,
                     delta_s,
                 ) {
                     continue;
                 }
-                let state = *state;
                 #[cfg(test)]
                 {
                     if conflict_injection::nonfinite_injected(self.binding.world_id, workload_index)
@@ -886,34 +1237,48 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             count_conflict_path(|counts| counts.slot_fallback += 1);
             return Ok(false);
         }
-        let mut active_index = 0_usize;
-        for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
-            let Some(state) = view.read.vehicle_state(vehicle) else {
-                continue;
-            };
-            if state.status != VehicleStatus::Active {
-                continue;
+        if execution.coordinator_parallel()
+            && view.read.committed.live_order.len() >= CONFLICT_PARALLEL_DISCOVERY_ROWS
+        {
+            let view = &view;
+            // 测试构建的完整扫描 oracle 是协调器线程局部开关；池线程读不到，先在这里取出。
+            #[cfg(test)]
+            let full_scan = CONFLICT_FULL_SCAN.with(std::cell::Cell::get);
+            #[cfg(not(test))]
+            let full_scan = false;
+            execution.install(|| {
+                discover_conflict_inputs_parallel(view, execution, delta_s, full_scan, inputs)
+            })?;
+        } else {
+            let mut active_index = 0_usize;
+            for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
+                let Some(state) = view.read.vehicle_state(vehicle) else {
+                    continue;
+                };
+                if state.status != VehicleStatus::Active {
+                    continue;
+                }
+                // cache_index 在 reservation 和可达性筛选之前递增：Active
+                // 紧凑位与融合循环保持一致，跳过车辆不占候选但占缓存位。
+                let cache_index = active_index;
+                active_index += 1;
+                if view.conflict.reservation(vehicle).is_some() {
+                    continue;
+                }
+                if !cached_gate_may_be_reached(
+                    view.read,
+                    view.motion_cache,
+                    &state,
+                    sequence,
+                    cache_index,
+                    delta_s,
+                ) {
+                    continue;
+                }
+                let sequence =
+                    u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
+                inputs.push((vehicle, sequence, cache_index, state));
             }
-            // cache_index 在 reservation 和可达性筛选之前递增：Active
-            // 紧凑位与融合循环保持一致，跳过车辆不占候选但占缓存位。
-            let cache_index = active_index;
-            active_index += 1;
-            if view.conflict.reservation(vehicle).is_some() {
-                continue;
-            }
-            if !cached_gate_may_be_reached(
-                view.read,
-                view.motion_cache,
-                state,
-                sequence,
-                cache_index,
-                delta_s,
-            ) {
-                continue;
-            }
-            let sequence =
-                u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
-            inputs.push((vehicle, sequence, cache_index, *state));
         }
         let workload = inputs.len();
         if workload == 0 {
@@ -1394,7 +1759,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         cache_index: usize,
         cache: &CacheUpdates,
     ) {
-        if cache.horizon.is_none() && cache.preview.is_none() {
+        if cache.horizon.is_none() && cache.preview.is_none() && cache.basis.is_none() {
             return;
         }
         if let Some(entry) = self
@@ -1408,6 +1773,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
             if let Some(preview) = cache.preview {
                 entry.preview = Some(preview);
+            }
+            if let Some(basis) = cache.basis {
+                entry.basis_index = crate::kernel::tick::store_motion_basis(
+                    &mut self.workspace.motion_bases,
+                    basis,
+                );
             }
         }
     }
@@ -1478,10 +1849,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按证明时长重建 approach frontier。已发布近门名单时只重走失效车辆。
-    pub(crate) fn rebuild_conflict_frontier(&mut self) -> Result<(), StepError> {
+    pub(crate) fn rebuild_conflict_frontier(
+        &mut self,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), StepError> {
         // 没有任何 gap profile 时不存在 lead frontier 查询；静态 Conflict cell
         // 仍可能被 protected/uncontrolled 或空 yield coverage 使用。
-        crate::kernel::entry_frontier::rebuild(self)
+        crate::kernel::entry_frontier::rebuild(self, execution)
     }
 
     /// 求值单车在前视窗内到达的各 Gate，生成候选或记录无资源决定。
@@ -1563,15 +1937,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .copied()
             });
         let waiting_stop = self.waiting_stop_for(&state)?;
+        let mut basis = None;
         let motion = cached
             .and_then(|entry| entry.preview)
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
             .or_else(|| {
-                self.read_view().preview_active_vehicle_with_waiting_stop(
+                self.read_view().preview_active_vehicle_with_basis_output(
                     state,
                     delta_s,
                     waiting_stop,
                     Some(horizon),
+                    Some(&mut basis),
                 )
             })
             .ok_or(StepError::NonFiniteMotion)?;
@@ -1583,6 +1959,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .filter(|entry| entry.vehicle == state.handle)
         {
             entry.preview = Some(motion);
+            if let Some(basis) = basis {
+                entry.basis_index = crate::kernel::tick::store_motion_basis(
+                    &mut self.workspace.motion_bases,
+                    basis,
+                );
+            }
         }
         for gate_index in first_gate..gate_count {
             let gate_hop = compiled.gate_hops[gate_index];
@@ -2070,6 +2452,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 资源仲裁完成后，以最终可达范围输出无资源 Gate 决定；同样覆盖本拍已有 reservation 的车辆。
+    #[cfg(test)]
     pub(crate) fn stage_resource_free_gate_decisions(
         &mut self,
         next: &VehicleState,
@@ -2078,94 +2461,50 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let previous = self
             .vehicle_state(next.handle)
             .ok_or(StepError::ConflictInvariantViolation)?;
-        let first_hop = if previous.progress_mm == 0 && previous.carry_um == 0 {
-            previous.route_edge_index.saturating_sub(1)
-        } else {
-            previous.route_edge_index
+        self.stage_resource_free_gate_fields(
+            GateMotion {
+                handle: next.handle,
+                route: next.route,
+                profile: next.profile,
+                previous: (&previous).into(),
+                next: next.into(),
+            },
+            update_sequence,
+        )
+    }
+
+    fn stage_resource_free_gate_fields(
+        &mut self,
+        fields: GateMotion,
+        update_sequence: u32,
+    ) -> Result<(), StepError> {
+        let read = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
         };
-        let compiled =
-            crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, next.route)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-        // 零进度回看已计入 first_hop；同一 hop 内尚未到边尾时没有可定稿 Gate。
-        if first_hop == next.route_edge_index
-            && compiled.edges.get(first_hop as usize).is_some_and(|edge| {
-                next.progress_mm
-                    < self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
-            })
-        {
-            return Ok(());
-        }
-        let first = compiled.gate_hops.partition_point({
-            #[cfg(test)]
-            super::route_query_research::note_search("conflict_tick:2059");
-            |hop| *hop < first_hop
-        });
-        let last = compiled.gate_hops.partition_point({
-            #[cfg(test)]
-            super::route_query_research::note_search("conflict_tick:2062");
-            |hop| *hop <= next.route_edge_index
-        });
-        for index in first..last {
-            let hop = compiled.gate_hops[index];
-            let edge = compiled.edges[hop as usize];
-            if next.route_edge_index == hop
-                && next.progress_mm
-                    < self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
-            {
-                break;
-            }
-            let waiting = compiled.waiting.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("conflict_tick:2074");
-                |entry| entry.entry_hop < hop
-            });
-            if compiled.conflict_gate_ranges[hop as usize].len != 0
-                || compiled
-                    .waiting
-                    .get(waiting)
-                    .is_some_and(|entry| entry.entry_hop == hop)
-            {
-                continue;
-            }
-            let maneuver = compiled.maneuvers.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("conflict_tick:2085");
-                |entry| entry.exit_route_edge_index <= hop
-            });
-            compiled
-                .maneuvers
-                .get(maneuver)
-                .filter(|entry| entry.entry_route_edge_index <= hop)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let gate =
-                compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
-            let outcome = match self.gate_policy_decision(gate, next.profile) {
-                GatePolicyDecision::DenyAndStop => ConflictDecisionOutcome::NotEvaluated,
-                GatePolicyDecision::Candidate(_) => ConflictDecisionOutcome::NotRequired,
-            };
-            reserve(&mut self.workspace.conflict_staged_decisions, 1)?;
-            self.workspace
-                .conflict_staged_decisions
-                .push(ConflictDecision {
-                    vehicle: next.handle,
-                    vehicle_update_sequence: update_sequence,
-                    anchor: ConflictRouteAnchor {
-                        route: next.route,
-                        maneuver_occurrence_index: u32::try_from(maneuver)
-                            .map_err(|_| StepError::ConflictInvariantViolation)?,
-                        hop,
-                    },
-                    passage: None,
-                    outcome,
-                });
-        }
-        Ok(())
+        let decisions = &mut self.workspace.conflict_staged_decisions;
+        free_gate_decisions(read, fields, update_sequence, |decision| {
+            reserve(decisions, 1)?;
+            decisions.push(decision);
+            Ok(())
+        })
     }
 
     /// 在 mutation boundary 前验证并定稿本拍 Conflict 提交计划。
+    #[cfg(test)]
     pub(crate) fn finalize_conflict_step(
         &mut self,
-        updates: &mut [(usize, VehicleState)],
+        updates: &mut super::motion_updates::MotionUpdates,
+    ) -> Result<(), StepError> {
+        self.finalize_conflict_step_with(updates, None)
+    }
+
+    /// 同 [`Self::finalize_conflict_step`]；多线程时资源行先并行只读规划，再按行序落账。
+    pub(crate) fn finalize_conflict_step_with(
+        &mut self,
+        updates: &mut super::motion_updates::MotionUpdates,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         self.workspace.conflict_passage_transitions.clear();
         self.workspace.conflict_changed_owners.clear();
@@ -2178,8 +2517,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .map(|range| range.passage_count() as usize)
             .chain(
                 updates
+                    .resource_rows()
                     .iter()
-                    .filter_map(|(_, next)| self.conflict_reservation(next.handle))
+                    .map(|index| updates.slot_index(*index))
+                    .filter_map(|slot| self.committed.vehicles.active_handle(slot))
+                    .filter_map(|handle| self.conflict_reservation(handle))
                     .map(|reservation| reservation.passage_range().passage_count() as usize),
             )
             .sum();
@@ -2197,76 +2539,118 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
 
         // live_order 同时包含 parked/completed；双游标合并两份有序列表，保留正式更新序号。
-        let mut update_sequence = 0;
-        for (_, next) in updates.iter_mut() {
-            while self.committed.live_order.get(update_sequence) != Some(&next.handle) {
-                update_sequence += 1;
-                if update_sequence >= self.committed.live_order.len() {
-                    return Err(StepError::ConflictInvariantViolation);
+        match execution.filter(|resources| {
+            resources.coordinator_parallel()
+                && updates.resource_rows().len() >= FINALIZE_PARALLEL_ROWS
+        }) {
+            Some(resources) => self.finalize_resource_rows_parallel(updates, resources)?,
+            None => {
+                let mut update_sequence = 0;
+                for resource_index in 0..updates.resource_rows().len() {
+                    let index = updates.resource_rows()[resource_index];
+                    let row = updates.row(index, &self.committed.vehicles);
+                    let handle = row.source.handle();
+                    let position = row.position();
+                    let waiting = super::waiting::WaitingTraversalInput {
+                        route: row.source.route(),
+                        profile: row.source.profile(),
+                        position,
+                        status: row.status(),
+                        waiting_membership: row.control().waiting,
+                    };
+                    let fields = GateMotion {
+                        handle,
+                        route: waiting.route,
+                        profile: waiting.profile,
+                        previous: row.source.position(),
+                        next: position,
+                    };
+                    while self.committed.live_order.get(update_sequence) != Some(&handle) {
+                        update_sequence += 1;
+                        if update_sequence >= self.committed.live_order.len() {
+                            return Err(StepError::ConflictInvariantViolation);
+                        }
+                    }
+                    self.stage_resource_free_gate_fields(
+                        fields,
+                        u32::try_from(update_sequence)
+                            .map_err(|_| StepError::ConflictInvariantViolation)?,
+                    )?;
+                    #[cfg(test)]
+                    crate::kernel::conflict::count_conflict_work(|counts| {
+                        counts.vehicle_grant_lookups += 1
+                    });
+                    let grant_index = self.workspace.conflict_motion_by_vehicle
+                        [handle.index() as usize]
+                        .and_then(|plan| plan.grant_index)
+                        .map(|index| index.get() as usize - 1);
+                    let crossed = grant_index.is_some_and(|index| {
+                        position.route_edge_index > self.workspace.conflict_grants[index].gate_hop
+                    });
+                    if crossed {
+                        self.workspace.conflict_next_eligibility[handle.index() as usize] = None;
+                    }
+                    let range = grant_index
+                        .filter(|_| crossed)
+                        .and_then(|index| self.workspace.conflict_grants[index].passage_range)
+                        .or_else(|| {
+                            self.conflict_reservation(handle)
+                                .map(|reservation| reservation.passage_range())
+                        });
+                    let all_clear = match range {
+                        Some(range) => {
+                            let next = updates.row(index, &self.committed.vehicles).state();
+                            self.stage_passage_transitions(next, range)?
+                        }
+                        None => true,
+                    };
+                    let maneuver = if all_clear {
+                        self.read_view()
+                            .derive_waiting_traversal_input(waiting, true)?
+                    } else {
+                        Some(ManeuverTraversalState {
+                            route: waiting.route,
+                            maneuver_occurrence_index: range
+                                .expect("uncleared coverage")
+                                .maneuver_occurrence_index(),
+                            phase: ManeuverTraversalPhase::Clearing {
+                                admission_gate_hop: range
+                                    .expect("uncleared coverage")
+                                    .admission_gate_hop(),
+                            },
+                        })
+                    };
+                    if (!all_clear && waiting.waiting_membership.is_some())
+                        || (waiting.status != VehicleStatus::Active
+                            && (maneuver.is_some() || waiting.waiting_membership.is_some()))
+                    {
+                        return Err(StepError::ConflictInvariantViolation);
+                    }
+                    let slot = handle.index() as usize;
+                    if let Some(eligibility) = self.workspace.conflict_next_eligibility[slot] {
+                        let mut next = updates.row(index, &self.committed.vehicles).state();
+                        next.maneuver_traversal = maneuver;
+                        if !self.conflict_eligibility_valid_with_signals(
+                            &next,
+                            eligibility,
+                            &self.workspace.next_signal_aspects,
+                        ) {
+                            self.workspace.conflict_next_eligibility[slot] = None;
+                        }
+                    }
+                    updates.set_control(
+                        index,
+                        waiting.status,
+                        maneuver,
+                        waiting.waiting_membership,
+                        &self.committed.vehicles,
+                    )?;
                 }
-            }
-            self.stage_resource_free_gate_decisions(
-                next,
-                u32::try_from(update_sequence)
-                    .map_err(|_| StepError::ConflictInvariantViolation)?,
-            )?;
-            #[cfg(test)]
-            crate::kernel::conflict::count_conflict_work(|counts| {
-                counts.vehicle_grant_lookups += 1
-            });
-            let grant_index = self.workspace.conflict_motion_by_vehicle
-                [next.handle.index() as usize]
-                .and_then(|plan| plan.grant_index)
-                .map(|index| index.get() as usize - 1);
-            let crossed = grant_index.is_some_and(|index| {
-                next.route_edge_index > self.workspace.conflict_grants[index].gate_hop
-            });
-            if crossed {
-                self.workspace.conflict_next_eligibility[next.handle.index() as usize] = None;
-            }
-            let range = grant_index
-                .filter(|_| crossed)
-                .and_then(|index| self.workspace.conflict_grants[index].passage_range)
-                .or_else(|| {
-                    self.conflict_reservation(next.handle)
-                        .map(|reservation| reservation.passage_range())
-                });
-            let all_clear = match range {
-                Some(range) => self.stage_passage_transitions(*next, range)?,
-                None => true,
-            };
-            if all_clear {
-                next.maneuver_traversal = self.derive_waiting_traversal(*next)?;
-            } else {
-                next.maneuver_traversal = Some(ManeuverTraversalState {
-                    route: next.route,
-                    maneuver_occurrence_index: range
-                        .expect("uncleared coverage")
-                        .maneuver_occurrence_index(),
-                    phase: ManeuverTraversalPhase::Clearing {
-                        admission_gate_hop: range.expect("uncleared coverage").admission_gate_hop(),
-                    },
-                });
-            }
-            if (!all_clear && next.waiting_membership.is_some())
-                || (next.status != VehicleStatus::Active
-                    && (next.maneuver_traversal.is_some() || next.waiting_membership.is_some()))
-            {
-                return Err(StepError::ConflictInvariantViolation);
-            }
-            let slot = next.handle.index() as usize;
-            if let Some(eligibility) = self.workspace.conflict_next_eligibility[slot]
-                && !self.conflict_eligibility_valid_with_signals(
-                    next,
-                    eligibility,
-                    &self.workspace.next_signal_aspects,
-                )
-            {
-                self.workspace.conflict_next_eligibility[slot] = None;
+
+                // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。
             }
         }
 
-        // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。
         for prepared in &self.workspace.conflict_grants {
             #[cfg(test)]
             crate::kernel::conflict::count_conflict_work(|counts| counts.grant_update_lookups += 1);
@@ -2274,8 +2658,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .checked_sub(1)
                 .ok_or(StepError::ConflictInvariantViolation)? as usize;
             let next = updates
-                .get(index)
-                .map(|(_, next)| *next)
+                .try_get(index, &self.committed.vehicles)
+                .map(|(_, next)| next)
                 .filter(|next| next.handle == prepared.vehicle)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             if next.route_edge_index <= prepared.gate_hop {
@@ -2325,66 +2709,158 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按车辆新位置暂存冲突通行段的进入/清空转移；返回是否全部清空。
+    /// 资源行收尾的并行版本：各段只读规划连续资源行（Gate 定稿决定、通行区间转移、
+    /// 机动穿越状态与资格是否失效），协调器再按资源行顺序落账：推进 live 序号、
+    /// 补写决定的更新序号、追加转移、清除失效资格并写控制记录。规划只读拍初
+    /// 已提交状态与本拍暂存，彼此不依赖；落账顺序与串行循环一致，首错取最早的行。
+    fn finalize_resource_rows_parallel(
+        &mut self,
+        updates: &mut super::motion_updates::MotionUpdates,
+        resources: &crate::kernel::execution::ExecutionResources,
+    ) -> Result<(), StepError> {
+        let rows = updates.resource_rows().len();
+        let mut guard = resources
+            .finalize_parts()
+            .expect("private coordinator buffer");
+        let wanted = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(FINALIZE_MAX_PARTS)
+            .min(rows)
+            .max(1);
+        let present = guard.len();
+        if present < wanted {
+            guard
+                .try_reserve(wanted - present)
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+            guard.resize_with(wanted, FinalizePart::default);
+        }
+        let span = rows.div_ceil(wanted).max(1);
+        // 段内决定与转移通常每行至多一两条；按段长预留，稳态各拍不再增长。
+        for part in guard.iter_mut().take(wanted) {
+            part.rows.clear();
+            part.decisions.clear();
+            part.transitions.clear();
+            part.rows
+                .try_reserve(span)
+                .and_then(|()| part.decisions.try_reserve(span))
+                .and_then(|()| part.transitions.try_reserve(span))
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        }
+        {
+            let view = FinalizeView {
+                read: crate::kernel::phase::StepReadView {
+                    binding: self.binding,
+                    committed: &self.committed,
+                    derived: &self.derived,
+                },
+                conflict: crate::kernel::conflict::ConflictRead::new(
+                    &self.committed.conflict,
+                    &self.derived.conflict,
+                    &self.workspace.conflict,
+                ),
+                grants: &self.workspace.conflict_grants,
+                motion_by_vehicle: &self.workspace.conflict_motion_by_vehicle,
+                next_eligibility: &self.workspace.conflict_next_eligibility,
+                signals: &self.workspace.next_signal_aspects,
+                updates: &*updates,
+            };
+            let view = &view;
+            resources.for_each_part(&mut guard[..wanted], 1, |part, output| {
+                let part_output = &mut output[0];
+                let start = (part * span).min(rows);
+                let end = (start + span).min(rows);
+                for resource_index in start..end {
+                    let index = view.updates.resource_rows()[resource_index];
+                    let plan = plan_resource_row(
+                        view,
+                        index,
+                        &mut part_output.decisions,
+                        &mut part_output.transitions,
+                    );
+                    let failed = plan.error.is_some();
+                    part_output.rows.push(plan);
+                    if failed {
+                        break;
+                    }
+                }
+            });
+        }
+        let mut update_sequence = 0;
+        for part in guard.iter().take(wanted) {
+            let mut decisions_start = 0;
+            let mut transitions_start = 0;
+            for plan in &part.rows {
+                while self.committed.live_order.get(update_sequence) != Some(&plan.handle) {
+                    update_sequence += 1;
+                    if update_sequence >= self.committed.live_order.len() {
+                        return Err(StepError::ConflictInvariantViolation);
+                    }
+                }
+                let sequence = u32::try_from(update_sequence)
+                    .map_err(|_| StepError::ConflictInvariantViolation)?;
+                if let Some(error) = plan.error {
+                    return Err(error);
+                }
+                #[cfg(test)]
+                crate::kernel::conflict::count_conflict_work(|counts| {
+                    counts.vehicle_grant_lookups += 1
+                });
+                let decisions = &part.decisions[decisions_start..plan.decisions_end];
+                reserve(
+                    &mut self.workspace.conflict_staged_decisions,
+                    decisions.len(),
+                )?;
+                for decision in decisions {
+                    let mut decision = *decision;
+                    decision.vehicle_update_sequence = sequence;
+                    self.workspace.conflict_staged_decisions.push(decision);
+                }
+                let transitions = &part.transitions[transitions_start..plan.transitions_end];
+                reserve(
+                    &mut self.workspace.conflict_passage_transitions,
+                    transitions.len(),
+                )?;
+                self.workspace
+                    .conflict_passage_transitions
+                    .extend_from_slice(transitions);
+                decisions_start = plan.decisions_end;
+                transitions_start = plan.transitions_end;
+                if plan.clear_eligibility {
+                    self.workspace.conflict_next_eligibility[plan.handle.index() as usize] = None;
+                }
+                updates.set_control(
+                    plan.index,
+                    plan.status,
+                    plan.maneuver,
+                    plan.waiting_membership,
+                    &self.committed.vehicles,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn stage_passage_transitions(
         &mut self,
         next: VehicleState,
         range: ConflictPassageRange,
     ) -> Result<bool, StepError> {
-        let end = range
-            .first_conflict_occurrence_index()
-            .checked_add(range.passage_count())
-            .ok_or(StepError::ConflictInvariantViolation)?;
-        let mut all_clear = true;
-        for index in range.first_conflict_occurrence_index()..end {
-            let occurrence = *self
-                .compiled_route(range.route())
-                .and_then(|compiled| compiled.conflicts.get(index as usize))
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let stage = self
-                .conflict_read()
-                .passage_stage(next.handle, occurrence.address());
-            let front_reached = route_front_at_or_beyond(
-                next,
-                occurrence.entry.route_edge_index,
-                occurrence.entry.progress_mm,
-            );
-            let rear_cleared = crate::kernel::tables::vehicle_rear_at_or_beyond(
-                self.binding.revision.traffic().lane_lengths_millimetres(),
-                &self
-                    .compiled_route(range.route())
-                    .ok_or(StepError::ConflictInvariantViolation)?
-                    .edges,
-                next.route_edge_index as usize,
-                next.progress_mm,
-                next.carry_um,
-                next.length_mm,
-                occurrence.clearance,
-            )
-            .ok_or(StepError::ConflictInvariantViolation)?;
-            let already_cleared = matches!(
-                stage,
-                Some(crate::kernel::conflict::ConflictPassageStage::Cleared)
-            );
-            let occupied = matches!(
-                stage,
-                Some(crate::kernel::conflict::ConflictPassageStage::Occupied)
-            );
-            let enter = front_reached && !already_cleared && !occupied;
-            let clear = rear_cleared && !already_cleared;
-            if enter || clear {
-                self.workspace
-                    .conflict_passage_transitions
-                    .push(ConflictPassageTransition {
-                        vehicle: next.handle,
-                        occurrence_index: index,
-                        address: occurrence.address(),
-                        enter,
-                        clear,
-                    });
-            }
-            all_clear &= already_cleared || rear_cleared;
-        }
-        Ok(all_clear)
+        let read = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
+        };
+        let conflict = crate::kernel::conflict::ConflictRead::new(
+            &self.committed.conflict,
+            &self.derived.conflict,
+            &self.workspace.conflict,
+        );
+        let transitions = &mut self.workspace.conflict_passage_transitions;
+        passage_transitions(read, conflict, next, range, |transition| {
+            transitions.push(transition);
+            Ok(())
+        })
     }
 }
 
@@ -2392,7 +2868,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     /// mutation boundary：提交已验证的 grant 与冲突通行段转移。
     pub(crate) fn commit_conflict_transitions(
         &mut self,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         post_step_time_ms: u64,
     ) {
         let journal_armed = self.journal.is_some();
@@ -2403,7 +2879,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             let index = self.workspace.next_state_by_vehicle[prepared.vehicle.index() as usize]
                 as usize
                 - 1;
-            let next = updates[index].1;
+            let next = updates.get(index, &self.committed.vehicles).1;
             debug_assert_eq!(next.handle, prepared.vehicle);
             if next.route_edge_index <= prepared.gate_hop {
                 continue;
@@ -2492,7 +2968,6 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             4,
             self.workspace.conflict_next_eligibility.len(),
         );
-        self.committed.conflict_eligibility.clear();
         // P6 已完成本拍资格计算。全空表直接保留紧凑表示，避免先复制再清空；
         // 非空表仍逐槽提交，沿用预留容量及 P7 不新增可恢复失败的约束。
         let all_empty = {
@@ -2506,12 +2981,23 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                 .iter()
                 .all(Option::is_none)
         };
-        if !all_empty {
+        let slots = self.workspace.conflict_next_eligibility.len();
+        let committed = &self.committed.conflict_eligibility;
+        if all_empty {
+            self.committed.conflict_eligibility.clear();
+        } else if committed.len() == slots && committed.capacity() == slots {
+            // 上拍已发布的是同长整表：直接交换两张表，不再整表复制。暂存侧拿回的
+            // 旧表在下一拍 Conflict 准备时整表清空，期间无人读取。
+            let next = core::mem::take(&mut self.workspace.conflict_next_eligibility).into_vec();
+            let previous = core::mem::replace(&mut self.committed.conflict_eligibility, next);
+            self.workspace.conflict_next_eligibility = previous.into_boxed_slice();
+        } else {
             #[cfg(test)]
             let _copy = super::eligibility_commit_research::begin(
                 2,
                 self.workspace.conflict_next_eligibility.len(),
             );
+            self.committed.conflict_eligibility.clear();
             self.committed
                 .conflict_eligibility
                 .extend_from_slice(&self.workspace.conflict_next_eligibility);
@@ -2526,19 +3012,19 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     pub(crate) fn write_conflict_tick_journal(
         &self,
         journal: &mut MigrationDeltaJournal,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
     ) {
-        for (slot, _) in updates {
+        for slot in updates.slot_indices() {
             let previous = self
                 .committed
                 .conflict_eligibility
-                .get(*slot)
+                .get(slot)
                 .copied()
                 .flatten();
             let next = self
                 .workspace
                 .conflict_next_eligibility
-                .get(*slot)
+                .get(slot)
                 .copied()
                 .flatten();
             if previous == next {
@@ -2547,8 +3033,8 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             let owner = self
                 .committed
                 .vehicles
-                .get(*slot)
-                .and_then(|slot| slot.state.as_ref())
+                .get(slot)
+                .and_then(|slot| slot.state)
                 .map(|state| state.handle)
                 .expect("successful tick update retains its vehicle slot");
             let encoded = next
@@ -2667,14 +3153,14 @@ mod tests {
         let read = world.state.read_view();
         let vehicle = world.live_vehicles()[0];
         let state = read.vehicle_state(vehicle).unwrap();
-        assert!(gate_may_be_reached(read, state, 0.1));
+        assert!(gate_may_be_reached(read, &state, 0.1));
         let mut cache = world.state.workspace.motion_cache.clone();
         let sequence = cache[0].update_sequence;
         assert_eq!(cache[0].gate_reachable, Some(true));
         // 故意毒化为不可达：匹配时消费；任一身份条件失败必须重新保守求值。
         cache[0].gate_reachable = Some(false);
         let query = |entries: &[crate::kernel::tick::MotionCacheEntry], sequence, index| {
-            cached_gate_may_be_reached(read, entries, state, sequence, index, 0.1)
+            cached_gate_may_be_reached(read, entries, &state, sequence, index, 0.1)
         };
         assert!(!query(&cache, sequence, 0));
         assert!(query(&cache, sequence + 1, 0));
@@ -2700,12 +3186,17 @@ mod tests {
     fn gate_cache_keeps_zero_boundary_lookback_and_reads_changed_route() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let old = world.live_vehicles()[0];
-        let mut state = *world.state.vehicle_state(old).unwrap();
+        let mut state = world.state.vehicle_state(old).unwrap();
         let gate = world.state.compiled_route(state.route).unwrap().gate_hops[0];
         state.route_edge_index = gate + 1;
         state.progress_mm = 0;
         state.carry_um = 0;
-        world.state.committed.vehicles[old.index() as usize].state = Some(state);
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(old.index() as usize)
+            .state = Some(state);
         let read = world.state.read_view();
         let entry = read.waiting_preview_entry(old, 0, 0.1, true).unwrap();
         assert_eq!(entry.gate_reachable, Some(true));
@@ -2747,7 +3238,7 @@ mod tests {
         let world = crate::kernel::waiting::tests::multi_gate_world(1);
         let vehicle = world.state.committed.live_order[0];
         let read = world.state.read_view();
-        let mut state = *read.vehicle_state(vehicle).unwrap();
+        let mut state = read.vehicle_state(vehicle).unwrap();
         let route = read.compiled_route(state.route).unwrap();
         let gate = route.gate_hops[0];
         let length = world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
@@ -2773,7 +3264,7 @@ mod tests {
     fn gate_scope_uses_current_vehicle_generation() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let old = world.state.committed.live_order[0];
-        let state = *world.state.vehicle_state(old).unwrap();
+        let state = world.state.vehicle_state(old).unwrap();
         world.despawn_vehicle(old).unwrap();
         let new = world
             .spawn_vehicle(
@@ -2793,7 +3284,7 @@ mod tests {
         assert!(read.vehicle_state(old).is_none());
         assert!(gate_may_be_reached(
             read,
-            read.vehicle_state(new).unwrap(),
+            &read.vehicle_state(new).unwrap(),
             0.1
         ));
         world.step(TickInput::new(100)).unwrap();
@@ -2817,14 +3308,15 @@ mod tests {
                 32,
                 GATE_SCOPE_INJECT_WORLD,
             );
-            for (index, slot) in world.state.committed.vehicles.iter_mut().enumerate() {
+            for index in 0..world.state.committed.vehicles.len() {
+                let mut slot = world.state.committed.vehicles.slot_mut(index);
                 if index % 2 == 0 {
                     slot.state.as_mut().unwrap().progress_mm = 0;
                 }
             }
             world.state.rebuild_occupancy_index().unwrap();
             let old = world.live_vehicles()[3];
-            let state = *world.state.vehicle_state(old).unwrap();
+            let state = world.state.vehicle_state(old).unwrap();
             world.despawn_vehicle(old).unwrap();
             let new = world
                 .spawn_vehicle(
@@ -2907,7 +3399,7 @@ mod tests {
     fn p2_cached_scope_preserves_horizon_and_full_fallback_near_boundaries() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         let vehicle = world.live_vehicles()[0];
-        let original = *world.state.vehicle_state(vehicle).unwrap();
+        let original = world.state.vehicle_state(vehicle).unwrap();
         let route = world.state.compiled_route(original.route).unwrap();
         let gate = route.gate_hops[0];
         let length = world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
@@ -2916,14 +3408,18 @@ mod tests {
         for (distance, speed, carry) in
             [(1, 0, 0), (50, 0, 999), (1_000, 0, 0), (1_000, 100_001, 0)]
         {
-            world.state.committed.vehicles[vehicle.index() as usize].state =
-                Some(crate::VehicleState {
-                    route_edge_index: gate,
-                    progress_mm: length - distance,
-                    speed_mm_s: speed,
-                    carry_um: carry,
-                    ..original
-                });
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(crate::VehicleState {
+                route_edge_index: gate,
+                progress_mm: length - distance,
+                speed_mm_s: speed,
+                carry_um: carry,
+                ..original
+            });
             world.state.rebuild_occupancy_index().unwrap();
             let view = world.state.read_view();
             let full = view.waiting_preview_entry(vehicle, 0, 0.1, false).unwrap();
@@ -2955,18 +3451,22 @@ mod tests {
                 P2_EXCLUDED_INJECT_WORLD,
             );
             let owner = world.live_vehicles()[0];
-            let state = *world.state.vehicle_state(owner).unwrap();
+            let state = world.state.vehicle_state(owner).unwrap();
             let route = world.state.compiled_route(state.route).unwrap();
             let gate = route.gate_hops[0];
             let length =
                 world.traffic().lane_lengths_millimetres()[route.edges[gate as usize].index()];
-            world.state.committed.vehicles[owner.index() as usize].state =
-                Some(crate::VehicleState {
-                    route_edge_index: gate,
-                    progress_mm: length - 1_000,
-                    speed_mm_s: 0,
-                    ..state
-                });
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(owner.index() as usize)
+                .state = Some(crate::VehicleState {
+                route_edge_index: gate,
+                progress_mm: length - 1_000,
+                speed_mm_s: 0,
+                ..state
+            });
             world.state.rebuild_occupancy_index().unwrap();
             let entry = world
                 .state
@@ -3267,7 +3767,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             let counts = conflict_work_counts();
             assert_eq!(counts.eta_preparations, 1);
@@ -3276,17 +3776,20 @@ mod tests {
                 if multiple_passages { 3 } else { 1 }
             );
             // 仅把 cursor 移至没有 future entry 的出口，隔离 frontier 准备的跳过条件。
-            let state = world.state.committed.vehicles[vehicle.index() as usize]
+            let mut vehicle_slot = world
                 .state
-                .as_mut()
-                .unwrap();
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize);
+            let state = vehicle_slot.state.as_mut().unwrap();
             state.route_edge_index = 2;
             state.progress_mm = 10_000;
             reset_conflict_work_counts();
+            drop(vehicle_slot);
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
@@ -3301,7 +3804,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             let counts = conflict_work_counts();
             assert_eq!(counts.eta_preparations, vehicles as usize, "{counts:?}");
@@ -3316,7 +3819,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .rebuild_conflict_frontier()
+                .rebuild_conflict_frontier(None)
                 .unwrap();
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
@@ -3374,7 +3877,10 @@ mod tests {
         let counts_before = crate::kernel::conflict::conflict_work_counts();
 
         // 三个稳态窗（8/8/24 拍）。实测形态：每拍 12 次分配 = 3 相位 × 4
-        // worker 的 Rayon scope 任务节点（执行配置 §3 豁免），稳态零
+        // worker 的 Rayon scope 任务节点（执行配置 §3 豁免），另加 Rayon 全局
+        // 注入队列的块分配：池外每次 install、分段并行或 scope 派生各占一格，
+        // 队列按 INJECTOR_BLOCK_SLOTS 格一块分配；块数只随进池次数线性增长、
+        // 与候选数无关，窗口边界可能多跨一块。稳态零
         // LaneFlow 自有分配；领头车 reservation 周期使发现位 0 在
         // None ↔ Computed 间交替，该槽位每周期一次性首物化段 Vec
         // （+1/窗，交替时上拍 None 报告无容量可回收）。证据口径：
@@ -3386,6 +3892,11 @@ mod tests {
         // （W1 前后同值，已定位为非暂存链来源——段暂存复用由
         // conflict_scratch_reuse_* 测试直接见证容量），归因留待 #707
         // （dhat 剖析），此处如实登记为有界非泄漏形态。
+        // crossbeam Injector 的每块格数（BLOCK_CAP）；跨窗口最多多出一块。
+        const INJECTOR_BLOCK_SLOTS: u64 = 63;
+        let injector_blocks =
+            |injections: u64| (injections.div_ceil(INJECTOR_BLOCK_SLOTS) + 1) as usize;
+        let injections_before = crate::kernel::execution::coordinator_injections();
         let region = Region::new(&INSTRUMENTED_SYSTEM);
         let mut ticks = 0_u32;
         for _ in 0..8 {
@@ -3393,37 +3904,41 @@ mod tests {
             ticks += 1;
         }
         let stats = region.change();
+        let injections_a = crate::kernel::execution::coordinator_injections() - injections_before;
         let region_b = Region::new(&INSTRUMENTED_SYSTEM);
         for _ in 0..8 {
             world.step(TickInput::new(4)).expect("steady window B step");
         }
         let stats_b = region_b.change();
         let region_c = Region::new(&INSTRUMENTED_SYSTEM);
+        let injections_before_c = crate::kernel::execution::coordinator_injections();
         for _ in 0..24 {
             world.step(TickInput::new(4)).expect("steady window C step");
         }
         let stats_c = region_c.change();
+        let injections_c = crate::kernel::execution::coordinator_injections() - injections_before_c;
         let visited = crate::kernel::conflict::conflict_work_counts().visited_passages
             - counts_before.visited_passages;
         assert!(
             world.state.derived.active_order.len() > 100,
             "分配证据必须跑在仍有活动车辆的冲突规模上，visited_passages={visited}"
         );
-        let node_budget = (ticks * 3 * WORKERS) as usize;
+        let node_budget = (ticks * 3 * WORKERS) as usize + injector_blocks(injections_a);
         assert!(
             stats.allocations <= node_budget + 8,
             "窗 A LaneFlow 分配超出节点预算+首触松弛: allocations={} budget={node_budget}",
             stats.allocations,
         );
         assert_eq!(stats.reallocations, 0, "窗 A 不得再分配: {stats:?}");
+        // 两窗进池次数相同；注入队列块边界可能让窗 B 多跨一块。
         assert!(
-            stats_b.allocations <= stats.allocations,
+            stats_b.allocations <= stats.allocations + 1,
             "窗 B 不得增长（无每候选每拍增长/无泄漏）: A={} B={}",
             stats.allocations,
             stats_b.allocations,
         );
         assert_eq!(stats_b.reallocations, 0, "窗 B 不得再分配");
-        let node_budget_c = (24 * 3 * WORKERS) as usize;
+        let node_budget_c = (24 * 3 * WORKERS) as usize + injector_blocks(injections_c);
         assert!(
             stats_c.allocations <= node_budget_c + 8,
             "长窗 C 必须亚线性（非逐拍/逐候选）: allocations={} budget={node_budget_c}",
@@ -3649,7 +4164,7 @@ mod tests {
             let mut world =
                 conflict_scale_world_with_identity(Arc::clone(revision), 16, 1, F4_INJECT_WORLD);
             let vehicle = world.state.committed.live_order[0];
-            let state = *world.state.vehicle_state(vehicle).unwrap();
+            let state = world.state.vehicle_state(vehicle).unwrap();
             let report = {
                 let step = world.state.step_workspace();
                 let view = ConflictTaskView {
@@ -4098,6 +4613,135 @@ mod tests {
 /// P3 分发阈值：候选eligible 工作集低于该值时融合执行；初版保守选择
 ///（与 P2/P5 同值、独立常量），待增量 E 证据登记后校准。
 const CONFLICT_DISPATCH_MIN_ACTIVE: usize = 1_024;
+
+/// 少于此 live 数时 P3 输入发现保持串行；两遍分发的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const CONFLICT_PARALLEL_DISCOVERY_ROWS: usize = 4_096;
+#[cfg(test)]
+const CONFLICT_PARALLEL_DISCOVERY_ROWS: usize = 1;
+/// 并行发现的段数上限；段统计与输出切片都放在栈上。
+const CONFLICT_DISCOVERY_MAX_PARTS: usize = 128;
+
+/// P3 发现输入：车辆、live 序号、缓存位与拍初状态。
+type ConflictInput = (VehicleHandle, u32, usize, VehicleState);
+
+/// P3 输入发现的两遍并行版本：先按连续 live 段数 Active 数与入选数，再按前缀和
+/// 切开输出并行写入。`cache_index` 等于该段之前的 Active 总数加段内序号，与串行
+/// 循环（先递增 Active 位、再做 reservation 与可达性筛选）完全一致；段序即 live 序。
+fn discover_conflict_inputs_parallel(
+    view: &ConflictTaskView<'_>,
+    execution: &crate::kernel::execution::ExecutionResources,
+    delta_s: f32,
+    full_scan: bool,
+    inputs: &mut Vec<ConflictInput>,
+) -> Result<(), StepError> {
+    let live = &view.read.committed.live_order;
+    let count = live.len();
+    u32::try_from(count).map_err(|_| StepError::ConflictInvariantViolation)?;
+    let parts = execution
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(CONFLICT_DISCOVERY_MAX_PARTS)
+        .min(count)
+        .max(1);
+    let span = count.div_ceil(parts).max(1);
+    let select = |sequence: usize, cache_index: usize| -> Option<(VehicleHandle, VehicleState)> {
+        let vehicle = live[sequence];
+        let state = view.read.vehicle_state(vehicle)?;
+        if state.status != VehicleStatus::Active {
+            return None;
+        }
+        if view.conflict.reservation(vehicle).is_some()
+            || !(full_scan
+                || cached_gate_may_be_reached(
+                    view.read,
+                    view.motion_cache,
+                    &state,
+                    sequence,
+                    cache_index,
+                    delta_s,
+                ))
+        {
+            return None;
+        }
+        Some((vehicle, state))
+    };
+    // 只读目录状态，不组装整车；与 `vehicle_state` 的身份与 Active 判断一致。
+    let is_active = |sequence: usize| {
+        view.read.committed.vehicles.status(live[sequence]) == Some(VehicleStatus::Active)
+    };
+    // 入选需要 cache_index：第一遍只数 Active，第二遍按前缀和数入选，第三遍写入。
+    let mut active = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    execution.for_each_part(&mut active[..parts], 1, |part, out| {
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        out[0] = (start..end).filter(|&sequence| is_active(sequence)).count();
+    });
+    let mut active_before = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    let mut running = 0;
+    for part in 0..parts {
+        active_before[part] = running;
+        running += active[part];
+    }
+    let mut selected = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    execution.for_each_part(&mut selected[..parts], 1, |part, out| {
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        let mut cache_index = active_before[part];
+        let mut chosen = 0;
+        for sequence in start..end {
+            if !is_active(sequence) {
+                continue;
+            }
+            if select(sequence, cache_index).is_some() {
+                chosen += 1;
+            }
+            cache_index += 1;
+        }
+        out[0] = chosen;
+    });
+    let total: usize = selected[..parts].iter().sum();
+    let placeholder = inputs.first().copied();
+    inputs.clear();
+    let Some(fill) = placeholder.or_else(|| {
+        let first = (0..count).find(|&sequence| is_active(sequence))?;
+        let state = view.read.vehicle_state(live[first])?;
+        Some((live[first], 0, 0, state))
+    }) else {
+        return Ok(());
+    };
+    // 预留由调用方按 Active 数完成；入选数不超过它，这里不会再分配。
+    inputs.resize(total, fill);
+    let mut rest: &mut [ConflictInput] = inputs;
+    let mut work: [Option<&mut [ConflictInput]>; CONFLICT_DISCOVERY_MAX_PARTS] =
+        std::array::from_fn(|_| None);
+    for (slot, chosen) in work.iter_mut().zip(&selected[..parts]) {
+        let (part, tail) = std::mem::take(&mut rest).split_at_mut(*chosen);
+        *slot = Some(part);
+        rest = tail;
+    }
+    execution.for_each_part(&mut work[..parts], 1, |part, output| {
+        let Some(output) = output[0].as_mut() else {
+            return;
+        };
+        let start = (part * span).min(count);
+        let end = (start + span).min(count);
+        let mut cache_index = active_before[part];
+        let mut at = 0;
+        for sequence in start..end {
+            if !is_active(sequence) {
+                continue;
+            }
+            if let Some((vehicle, state)) = select(sequence, cache_index) {
+                output[at] = (vehicle, sequence as u32, cache_index, state);
+                at += 1;
+            }
+            cache_index += 1;
+        }
+    });
+    Ok(())
+}
 
 /// P3 本阶段谁执行的计数证据（融合/分发/回退互斥）。
 #[cfg(test)]
@@ -4638,6 +5282,8 @@ pub(crate) struct CacheUpdates {
     horizon: Option<crate::kernel::occupancy::LeaderQueryHorizon>,
     /// §2 #11：preview 在 Gate 循环之前已算出，须落缓存。
     preview: Option<crate::kernel::tick::MotionPreview>,
+    /// 实际产生的基础输入随近门报告暂存，规范消费后移入独立稀疏载荷。
+    basis: Option<crate::kernel::tick::MotionBasis>,
 }
 
 #[derive(Clone)]
@@ -5082,11 +5728,12 @@ impl ConflictTaskView<'_> {
             .and_then(|entry| entry.preview)
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
             .or_else(|| {
-                self.read.preview_active_vehicle_with_waiting_stop(
+                self.read.preview_active_vehicle_with_basis_output(
                     state,
                     delta_s,
                     waiting_stop,
                     Some(horizon),
+                    Some(&mut cache.basis),
                 )
             }) {
             Some(motion) => motion,

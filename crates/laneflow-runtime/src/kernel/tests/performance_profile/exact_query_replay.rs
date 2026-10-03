@@ -31,7 +31,7 @@ fn occupancy_exact_query_replay() {
                             .live_vehicles()
                             .iter()
                             .map(|handle| {
-                                let state = *world.state.vehicle_state(*handle).unwrap();
+                                let state = world.state.vehicle_state(*handle).unwrap();
                                 let compiled = world.state.compiled_route(state.route).unwrap();
                                 let profile = world
                                     .traffic()

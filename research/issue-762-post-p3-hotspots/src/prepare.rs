@@ -107,11 +107,21 @@ pub(crate) fn export_at(
         let mut text = fs::read_to_string(&lib)?;
         text.push_str("\n/// 研究专用；在公共 step 计时外重置协调器时钟。\n#[doc(hidden)]\npub fn research_reset() { kernel::performance_profile::reset(); }\n/// 研究专用；读取协调器批次墙钟，不累加 worker CPU。\n#[doc(hidden)]\npub fn research_take() -> ([u128; 12], [u64; 12]) { kernel::performance_profile::take() }\n");
         fs::write(lib, text)?;
+        // Frontier 重建：并行收集需求地址后调用带上 execution。
+        let rebuild = if fs::read_to_string(destination.join(format!("{K}conflict_tick.rs")))?
+            .contains("        self.rebuild_conflict_frontier(execution)?;")
+        {
+            "        self.rebuild_conflict_frontier(execution)?;"
+        } else {
+            "        self.rebuild_conflict_frontier()?;"
+        };
         edit(
             destination,
             &format!("{K}conflict_tick.rs"),
-            "        self.rebuild_conflict_frontier()?;",
-            "        let frontier_timer = super::performance_profile::begin(super::performance_profile::Stage::Frontier);\n        self.rebuild_conflict_frontier()?;\n        drop(frontier_timer);",
+            rebuild,
+            &format!(
+                "        let frontier_timer = super::performance_profile::begin(super::performance_profile::Stage::Frontier);\n{rebuild}\n        drop(frontier_timer);"
+            ),
         )?;
         edit(
             destination,

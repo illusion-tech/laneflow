@@ -4,8 +4,8 @@ use laneflow_static_contract::{ManeuverGateOrdinal, WaitingZoneOrdinal};
 
 use crate::{
     ConflictPassageOccurrenceLocator, ConflictPassageRange, DownstreamRoutePoint,
-    ManeuverTraversalPhase, RouteHandle, StepError, VehicleHandle, VehicleState,
-    WaitingProjectionReason, WaitingRouteAnchor,
+    ManeuverTraversalPhase, RouteHandle, StepError, VehicleHandle, WaitingProjectionReason,
+    WaitingRouteAnchor,
 };
 
 /// 事件的语义 Gate/机动出现项和实际触发位置。车尾事件不锚回已驶过的入口。
@@ -186,7 +186,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 把本拍已验证转移暂存为规范排序的事件批次；失败时清空暂存，已发布批次不受影响。
     pub(crate) fn stage_transition_events(
         &mut self,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         tick: u64,
     ) -> Result<(), StepError> {
         let mut count = 0_usize;
@@ -223,33 +223,72 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 按 live-order 逐车发射本拍转移事件；不负责排序或暂存。
     pub(crate) fn visit_transition_events(
         &self,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
         tick: u64,
         mut emit: impl FnMut(TrafficTransitionEvent),
     ) -> Result<(), StepError> {
         #[cfg(test)]
         TRANSITION_VISITS.set(TRANSITION_VISITS.get() + 1);
         let mut passage_cursor = 0;
-        for (sequence, vehicle) in self.committed.live_order.iter().copied().enumerate() {
-            let Some(update) =
-                self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
-            else {
-                continue;
-            };
-            let old = *self
-                .vehicle_state(vehicle)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let next = updates[update as usize].1;
+        let mut sequence = 0;
+        for &update in updates.resource_rows() {
+            let row = updates.row(update, &self.committed.vehicles);
+            let vehicle = row.source.handle();
+            if self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
+                != u32::try_from(update).ok()
+            {
+                return Err(StepError::ConflictInvariantViolation);
+            }
+            while self.committed.live_order.get(sequence) != Some(&vehicle) {
+                sequence += 1;
+                if sequence >= self.committed.live_order.len() {
+                    return Err(StepError::ConflictInvariantViolation);
+                }
+            }
             let sequence =
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
             let compiled = self
-                .compiled_route(old.route)
+                .compiled_route(row.source.route())
                 .ok_or(StepError::ConflictInvariantViolation)?;
-            self.visit_waiting_events(old, next, tick, sequence, &mut emit);
             let prepared = self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize]
                 .and_then(|plan| plan.grant_index)
                 .and_then(|index| self.workspace.conflict_grants.get(index.get() as usize - 1))
-                .filter(|grant| next.route_edge_index > grant.gate_hop);
+                .filter(|grant| row.position().route_edge_index > grant.gate_hop);
+            let range = prepared.and_then(|grant| grant.passage_range).or_else(|| {
+                self.conflict_read()
+                    .reservation(vehicle)
+                    .map(|value| value.passage_range())
+            });
+            let control = row.source.control();
+            let waiting_plan = self
+                .workspace
+                .waiting_plan_by_vehicle
+                .get(vehicle.index() as usize)
+                .copied()
+                .flatten()
+                .and_then(|index| self.workspace.waiting_plans.get(index.get() as usize - 1))
+                .is_some_and(|plan| plan.vehicle == vehicle);
+            // 同 occurrence 也可能发生投影、成员离开、旧 grant 回看或车尾净空。
+            // 只有这些实际义务和 passage 暂存都不存在，才省略整车组装。
+            if row.source.position().route_edge_index == row.position().route_edge_index
+                && control.waiting.is_none()
+                && !control.maneuver.is_some_and(|traversal| {
+                    matches!(traversal.phase, ManeuverTraversalPhase::Clearing { .. })
+                })
+                && !waiting_plan
+                && prepared.is_none()
+                && range.is_none()
+                && !self
+                    .workspace
+                    .conflict_passage_transitions
+                    .get(passage_cursor)
+                    .is_some_and(|transition| transition.vehicle == vehicle)
+            {
+                continue;
+            }
+            let old = row.source.state();
+            let next = row.state();
+            self.visit_waiting_events(old, next, tick, sequence, &mut emit);
             let mut push = |anchor, kind| {
                 emit(TrafficTransitionEvent {
                     tick,
@@ -293,11 +332,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     TrafficTransitionKind::GateCrossed { gate },
                 );
             }
-            let range = prepared.and_then(|grant| grant.passage_range).or_else(|| {
-                self.conflict_read()
-                    .reservation(vehicle)
-                    .map(|value| value.passage_range())
-            });
             let mut release_anchor = None;
             if let Some(range) = range {
                 let anchor = TrafficTransitionAnchor::at_gate(WaitingRouteAnchor {
@@ -469,17 +503,21 @@ mod tests {
     fn zero_event_fast_path_does_not_skip_first_visit_validation() {
         let mut world = multi_gate_world(2);
         let vehicle = world.live_vehicles()[0];
-        let state = *world.state.vehicle_state(vehicle).unwrap();
+        let state = world.state.vehicle_state(vehicle).unwrap();
         let slot = vehicle.index() as usize;
         world.state.workspace.next_state_by_vehicle.fill(0);
         world.state.workspace.next_state_by_vehicle[slot] = 1;
         world.state.committed.routes[state.route().index() as usize].compiled = None;
         TRANSITION_VISITS.set(0);
+        let updates = crate::kernel::motion_updates::MotionUpdates::from_states(
+            &[(slot, state)],
+            &world.state.committed.vehicles,
+        );
         assert_eq!(
             world
                 .state
                 .step_workspace()
-                .stage_transition_events(&[(slot, state)], 1),
+                .stage_transition_events(&updates, 1),
             Err(StepError::ConflictInvariantViolation)
         );
         assert_eq!(TRANSITION_VISITS.get(), 1);

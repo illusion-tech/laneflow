@@ -1,7 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::kernel::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_admission_interval};
+use crate::kernel::tables::{CompiledRoute, RouteSlot, for_each_admission_interval};
 use crate::{
     ObservationStateSequence, RouteHandle, StepError, VehicleHandle, VehicleState, VehicleStatus,
     WorldGeneration,
@@ -193,6 +193,50 @@ struct OccupancyBucket {
 }
 
 impl OccupancyBucket {
+    /// 按本拍条数预留；不缩小已有容量，放不下时多留一段，
+    /// 车身跨到下一条边时这一拍不再重新分配。
+    fn reserve(&mut self, needed: usize) -> Result<(), StepError> {
+        let target = if needed <= self.records.capacity()
+            && needed <= self.suffix_min_lo.capacity()
+            && needed <= self.suffix_second_lo.capacity()
+        {
+            needed
+        } else {
+            needed
+                .saturating_add(needed / 2)
+                .max(needed.saturating_add(1))
+        };
+        try_reserve_len(&mut self.records, target)?;
+        try_reserve_len(&mut self.suffix_min_lo, target)?;
+        try_reserve_len(&mut self.suffix_second_lo, target)?;
+        Ok(())
+    }
+
+    /// 已预留后把三列铺成 `count` 个占位，等待按写入头填入。
+    fn layout(&mut self, count: usize) {
+        debug_assert!(self.records.capacity() >= count);
+        debug_assert!(self.suffix_min_lo.capacity() >= count);
+        debug_assert!(self.suffix_second_lo.capacity() >= count);
+        self.records.clear();
+        self.records.resize(count, OccupancyRecord::PLACEHOLDER);
+        self.suffix_min_lo.clear();
+        self.suffix_min_lo.resize(count, 0);
+        self.suffix_second_lo.clear();
+        self.suffix_second_lo.resize(count, SUFFIX_NONE);
+    }
+
+    fn sort(&mut self) {
+        self.records.sort_unstable_by_key(|record| {
+            (
+                record.hi_mm,
+                record.lo_mm,
+                record.update_sequence,
+                record.vehicle.index(),
+            )
+        });
+        self.fill_suffix();
+    }
+
     fn empty() -> Self {
         Self {
             records: Vec::new(),
@@ -249,6 +293,18 @@ pub(crate) struct OccupancyScratch {
     upstream_distance: Vec<u32>,
     #[cfg(test)]
     exact_pending: Vec<OccupancyRecord>,
+}
+
+/// 一段连续 live 序号的占用记录与该段首错；段间按序号先后合并。
+/// 由执行池持有（只在多线程分发时存在），跨拍保留容量。
+#[derive(Debug, Default)]
+pub(crate) struct OccupancyPart {
+    records: Vec<OccupancyRecord>,
+    /// 本段记录按桶组分组（组内保持 live 序）后的副本，供各组并行放入自己的桶。
+    grouped: Vec<OccupancyRecord>,
+    /// `grouped` 中每组的结束下标；第 g 组从第 g−1 组的结束处开始。
+    group_ends: Vec<u32>,
+    error: Option<StepError>,
 }
 
 #[cfg(test)]
@@ -652,20 +708,7 @@ impl OccupancyIndex {
                 .buckets
                 .get_mut(index)
                 .ok_or(StepError::OccupancyIntervalIncomplete)?;
-            let target = if needed <= bucket.records.capacity()
-                && needed <= bucket.suffix_min_lo.capacity()
-                && needed <= bucket.suffix_second_lo.capacity()
-            {
-                needed
-            } else {
-                // 多留一段，车身跨到下一条边时这一拍不再重新分配。
-                needed
-                    .saturating_add(needed / 2)
-                    .max(needed.saturating_add(1))
-            };
-            try_reserve_len(&mut bucket.records, target)?;
-            try_reserve_len(&mut bucket.suffix_min_lo, target)?;
-            try_reserve_len(&mut bucket.suffix_second_lo, target)?;
+            bucket.reserve(needed)?;
         }
         Ok(())
     }
@@ -675,16 +718,7 @@ impl OccupancyIndex {
         for index in 0..bucket_count {
             let count = scratch.positions.get(index).copied().unwrap_or(0);
             total = total.saturating_add(count);
-            let bucket = &mut self.buckets[index];
-            debug_assert!(bucket.records.capacity() >= count);
-            debug_assert!(bucket.suffix_min_lo.capacity() >= count);
-            debug_assert!(bucket.suffix_second_lo.capacity() >= count);
-            bucket.records.clear();
-            bucket.records.resize(count, OccupancyRecord::PLACEHOLDER);
-            bucket.suffix_min_lo.clear();
-            bucket.suffix_min_lo.resize(count, 0);
-            bucket.suffix_second_lo.clear();
-            bucket.suffix_second_lo.resize(count, SUFFIX_NONE);
+            self.buckets[index].layout(count);
         }
         self.record_len = total;
         scratch.positions.clear();
@@ -708,16 +742,33 @@ impl OccupancyIndex {
     }
 
     fn sort_buckets(&mut self, bucket_count: usize) {
-        for bucket in self.buckets.iter_mut().take(bucket_count) {
-            bucket.records.sort_unstable_by_key(|record| {
-                (
-                    record.hi_mm,
-                    record.lo_mm,
-                    record.update_sequence,
-                    record.vehicle.index(),
-                )
-            });
-            bucket.fill_suffix();
+        self.sort_buckets_with(bucket_count, None);
+    }
+
+    /// 完整键排序与写入顺序无关，可按桶分块并行；结果与串行逐桶排序一致。
+    fn sort_buckets_with(
+        &mut self,
+        bucket_count: usize,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) {
+        let count = bucket_count.min(self.buckets.len());
+        let buckets = &mut self.buckets[..count];
+        match execution {
+            Some(resources) if resources.coordinator_parallel() && count > 0 => {
+                let chunk = count
+                    .div_ceil(resources.dispatch_threads().saturating_mul(8))
+                    .max(1);
+                resources.for_each_part(buckets, chunk, |_, buckets| {
+                    Self::sort_bucket_slice(buckets);
+                });
+            }
+            _ => Self::sort_bucket_slice(buckets),
+        }
+    }
+
+    fn sort_bucket_slice(buckets: &mut [OccupancyBucket]) {
+        for bucket in buckets {
+            bucket.sort();
         }
     }
 
@@ -966,12 +1017,16 @@ impl OccupancyIndex {
     }
 }
 
-fn vehicle_state_in(vehicles: &[VehicleSlot], handle: VehicleHandle) -> Option<&VehicleState> {
+#[inline(always)]
+fn vehicle_state_in(
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
+    handle: VehicleHandle,
+) -> Option<VehicleState> {
     let slot = vehicles.get(usize::try_from(handle.index()).ok()?)?;
     if slot.generation != handle.generation() {
         return None;
     }
-    slot.state.as_ref()
+    slot.state
 }
 
 fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdgeOrdinal]> {
@@ -984,7 +1039,7 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
 
 fn visit_occupancy_records_with(
     live_order: &[VehicleHandle],
-    vehicles: &[VehicleSlot],
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
     staged_by_slot: &[Option<&CompiledRoute>],
@@ -1034,13 +1089,26 @@ fn visit_occupancy_records_with(
 
 fn visit_occupancy_records(
     live_order: &[VehicleHandle],
-    vehicles: &[VehicleSlot],
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
+    revision: &SharedNetworkRevision,
+    routes: &[RouteSlot],
+    visit: impl FnMut(OccupancyRecord),
+) -> Result<(), StepError> {
+    visit_occupancy_range(live_order, 0, vehicles, revision, routes, visit)
+}
+
+/// 遍历 `live_order` 的一段；`base` 是该段首项在完整 live 顺序中的序号。
+#[inline(always)]
+fn visit_occupancy_range(
+    live_order: &[VehicleHandle],
+    base: usize,
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
     mut visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();
-    for (sequence, handle) in live_order.iter().copied().enumerate() {
+    for (offset, handle) in live_order.iter().copied().enumerate() {
         let Some(state) = vehicle_state_in(vehicles, handle) else {
             continue;
         };
@@ -1053,7 +1121,7 @@ fn visit_occupancy_records(
         let Ok(index) = usize::try_from(state.route_edge_index) else {
             return Err(StepError::OccupancyIntervalIncomplete);
         };
-        let Ok(update_sequence) = u32::try_from(sequence) else {
+        let Ok(update_sequence) = u32::try_from(base + offset) else {
             return Err(StepError::OccupancyIntervalIncomplete);
         };
         for_each_admission_interval(
@@ -1077,12 +1145,241 @@ fn visit_occupancy_records(
     Ok(())
 }
 
+/// 每个分发线程的收集段数；段越多尾部越均衡，但段间合并是串行的。
+const OCCUPANCY_PARTS_PER_THREAD: usize = 4;
+
+/// 把 live 顺序切成连续段，各段只遍历一次并保存记录。段内与段间都保持 live 顺序，
+/// 首错按段顺序取第一个，与串行遍历遇到的第一个错误相同。
+/// 返回本拍实际使用的段数；更靠后的段已清空。
+fn collect_occupancy_parts(
+    live_order: &[VehicleHandle],
+    vehicles: &crate::kernel::vehicle_store::VehicleStore,
+    revision: &SharedNetworkRevision,
+    routes: &[RouteSlot],
+    all_parts: &mut Vec<OccupancyPart>,
+    resources: &crate::kernel::execution::ExecutionResources,
+    groups: OccupancyGroups,
+) -> Result<usize, StepError> {
+    let wanted = resources
+        .dispatch_threads()
+        .saturating_mul(OCCUPANCY_PARTS_PER_THREAD)
+        .min(live_order.len())
+        .max(1);
+    if all_parts.len() < wanted {
+        all_parts
+            .try_reserve(wanted - all_parts.len())
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        all_parts.resize_with(wanted, OccupancyPart::default);
+    }
+    // 上一拍更多的段不得留下旧记录；合并方按全部段顺序读取。
+    for stale in &mut all_parts[wanted..] {
+        stale.records.clear();
+        stale.grouped.clear();
+        stale.group_ends.clear();
+        stale.error = None;
+    }
+    let parts = &mut all_parts[..wanted];
+    let span = live_order.len().div_ceil(wanted).max(1);
+    let collect = |index: usize, part: &mut [OccupancyPart]| {
+        let part = &mut part[0];
+        part.records.clear();
+        part.error = None;
+        let start = (index * span).min(live_order.len());
+        let end = (start + span).min(live_order.len());
+        let mut alloc_failed = false;
+        let visited = visit_occupancy_range(
+            &live_order[start..end],
+            start,
+            vehicles,
+            revision,
+            routes,
+            |record| {
+                if alloc_failed {
+                    return;
+                }
+                if part.records.len() == part.records.capacity()
+                    && part
+                        .records
+                        .try_reserve(part.records.len().max(64))
+                        .is_err()
+                {
+                    alloc_failed = true;
+                    return;
+                }
+                part.records.push(record);
+            },
+        );
+        part.error = match visited {
+            Err(error) => Some(error),
+            Ok(()) if alloc_failed => Some(StepError::OccupancyAllocFailed),
+            Ok(()) => group_part(part, groups).err(),
+        };
+    };
+    resources.for_each_part(parts, 1, collect);
+    match all_parts[..wanted].iter().find_map(|part| part.error) {
+        Some(error) => Err(error),
+        None => Ok(wanted),
+    }
+}
+
+/// 并行放置时的桶分组：第 g 组拥有 `[g × span, (g + 1) × span)` 的桶。
+#[derive(Clone, Copy)]
+struct OccupancyGroups {
+    count: usize,
+    span: usize,
+    bucket_count: usize,
+}
+
+/// 并行放置的组数上限；组工作描述放在栈上。
+const OCCUPANCY_MAX_GROUPS: usize = 128;
+
+impl OccupancyGroups {
+    fn new(bucket_count: usize, threads: usize) -> Self {
+        let count = threads
+            .saturating_mul(OCCUPANCY_PARTS_PER_THREAD)
+            .min(OCCUPANCY_MAX_GROUPS)
+            .min(bucket_count)
+            .max(1);
+        Self {
+            count,
+            span: bucket_count.div_ceil(count).max(1),
+            bucket_count,
+        }
+    }
+
+    /// 越界的桶不属于任何组，与串行计数时忽略越界桶一致。
+    fn of(self, record: &OccupancyRecord) -> Option<usize> {
+        let bucket = record.bucket.index();
+        (bucket < self.bucket_count).then_some(bucket / self.span)
+    }
+}
+
+/// 段内稳定分组：先数各组条数，再按组前缀和写入 `grouped`，组内保持 live 序。
+fn group_part(part: &mut OccupancyPart, groups: OccupancyGroups) -> Result<(), StepError> {
+    part.group_ends.clear();
+    try_reserve_len(&mut part.group_ends, groups.count)?;
+    part.group_ends.resize(groups.count, 0);
+    for record in &part.records {
+        if let Some(group) = groups.of(record) {
+            part.group_ends[group] += 1;
+        }
+    }
+    let mut running = 0_u32;
+    for end in &mut part.group_ends {
+        let count = *end;
+        *end = running;
+        running += count;
+    }
+    part.grouped.clear();
+    try_reserve_len(&mut part.grouped, running as usize)?;
+    part.grouped
+        .resize(running as usize, OccupancyRecord::PLACEHOLDER);
+    // 此时 group_ends 暂存各组写入头；写完后恰好等于各组结束下标。
+    for record in &part.records {
+        if let Some(group) = groups.of(record) {
+            let head = &mut part.group_ends[group];
+            part.grouped[*head as usize] = *record;
+            *head += 1;
+        }
+    }
+    Ok(())
+}
+
+/// 一组桶的并行放置工作：互斥的桶与写入头切片。
+struct OccupancyGroupWork<'a> {
+    first_bucket: usize,
+    buckets: &'a mut [OccupancyBucket],
+    positions: &'a mut [usize],
+    error: Option<StepError>,
+}
+
+/// 多线程放置：各组只读所有段中属于自己的记录（按段序，即 live 序），
+/// 依次计数、预留、铺位、写入并排序自己的桶。每个桶的记录序列与串行
+/// 逐段合并完全相同，排序用完整键，结果与串行重建一致。
+fn place_occupancy_parallel(
+    occupancy: &mut OccupancyIndex,
+    scratch: &mut OccupancyScratch,
+    parts: &[OccupancyPart],
+    groups: OccupancyGroups,
+    ceiling: usize,
+    resources: &crate::kernel::execution::ExecutionResources,
+) -> Result<(), StepError> {
+    let total: usize = parts.iter().map(|part| part.grouped.len()).sum();
+    if total > ceiling {
+        return Err(StepError::OccupancyCapacityExceeded);
+    }
+    let bucket_count = groups.bucket_count;
+    let mut buckets = &mut occupancy.buckets[..bucket_count];
+    let mut positions = &mut scratch.positions[..bucket_count];
+    let mut work: [Option<OccupancyGroupWork<'_>>; OCCUPANCY_MAX_GROUPS] =
+        std::array::from_fn(|_| None);
+    for (group, slot) in work.iter_mut().enumerate().take(groups.count) {
+        let first_bucket = group * groups.span;
+        let len = groups.span.min(buckets.len());
+        let (group_buckets, rest_buckets) = std::mem::take(&mut buckets).split_at_mut(len);
+        let (group_positions, rest_positions) = std::mem::take(&mut positions).split_at_mut(len);
+        buckets = rest_buckets;
+        positions = rest_positions;
+        *slot = Some(OccupancyGroupWork {
+            first_bucket,
+            buckets: group_buckets,
+            positions: group_positions,
+            error: None,
+        });
+    }
+    let records_of = |group: usize| {
+        parts.iter().flat_map(move |part| {
+            let start = match group {
+                0 => 0,
+                _ => part.group_ends.get(group - 1).copied().unwrap_or(0) as usize,
+            };
+            let end = part.group_ends.get(group).copied().unwrap_or(0) as usize;
+            part.grouped.get(start..end).unwrap_or(&[]).iter()
+        })
+    };
+    resources.for_each_part(&mut work[..groups.count], 1, |group, work| {
+        let Some(work) = work[0].as_mut() else {
+            return;
+        };
+        work.positions.fill(0);
+        for record in records_of(group) {
+            work.positions[record.bucket.index() - work.first_bucket] += 1;
+        }
+        for (bucket, count) in work.buckets.iter_mut().zip(work.positions.iter_mut()) {
+            if let Err(error) = bucket.reserve(*count) {
+                work.error = Some(error);
+                return;
+            }
+            bucket.layout(*count);
+            *count = 0;
+        }
+        for record in records_of(group) {
+            let local = record.bucket.index() - work.first_bucket;
+            let head = &mut work.positions[local];
+            work.buckets[local].records[*head] = *record;
+            *head += 1;
+        }
+        for bucket in work.buckets.iter_mut() {
+            bucket.sort();
+        }
+    });
+    if let Some(error) = work[..groups.count]
+        .iter()
+        .find_map(|work| work.as_ref().and_then(|work| work.error))
+    {
+        return Err(error);
+    }
+    occupancy.record_len = total;
+    Ok(())
+}
+
 fn rebuild_occupancy_index(
     binding: &crate::kernel::state::WorldBindingState,
     committed: &crate::kernel::state::CommittedWorldState,
     active_order: &[VehicleHandle],
     occupancy: &mut OccupancyIndex,
     scratch: &mut OccupancyScratch,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
 ) -> Result<(), StepError> {
     #[cfg(test)]
     if super::exact_path_research::candidate_enabled() {
@@ -1097,6 +1394,27 @@ fn rebuild_occupancy_index(
     #[cfg(test)]
     occupancy.reset_inspections();
     occupancy.try_prepare_scratch(scratch, bucket_count)?;
+    // 多线程时每辆车只遍历一次：分段并行收集记录，随后按段顺序计数、布局与写入。
+    // 单线程保留两遍遍历，不为收集段额外保留内存。
+    let execution = execution.filter(|resources| resources.coordinator_parallel());
+    let mut guard = execution.and_then(|resources| resources.occupancy_parts());
+    if let (Some(resources), Some(parts)) = (execution, guard.as_deref_mut()) {
+        // 多线程：每辆车只遍历一次；各段分组后，各桶组并行完成计数到排序。
+        let groups = OccupancyGroups::new(bucket_count, resources.dispatch_threads());
+        let used = collect_occupancy_parts(
+            active_order,
+            &committed.vehicles,
+            &binding.revision,
+            &committed.routes,
+            parts,
+            resources,
+            groups,
+        )?;
+        let parts = &parts[..used];
+        return resources.install(|| {
+            place_occupancy_parallel(occupancy, scratch, parts, groups, ceiling, resources)
+        });
+    }
     visit_occupancy_records(
         active_order,
         &committed.vehicles,
@@ -1109,15 +1427,17 @@ fn rebuild_occupancy_index(
         },
     )?;
     let total = scratch.record_total(bucket_count);
-    if total > ceiling {
-        return Err(StepError::OccupancyCapacityExceeded);
-    }
+    let reserved = if total > ceiling {
+        Err(StepError::OccupancyCapacityExceeded)
+    } else {
+        occupancy.try_reserve_records(scratch, bucket_count)
+    };
+    reserved?;
     #[cfg(test)]
     drop(count_timer);
     #[cfg(test)]
     let layout_timer =
         super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyLayout);
-    occupancy.try_reserve_records(scratch, bucket_count)?;
     occupancy.finish_layout(scratch, bucket_count);
     #[cfg(test)]
     drop(layout_timer);
@@ -1136,7 +1456,7 @@ fn rebuild_occupancy_index(
     #[cfg(test)]
     let _sort_timer =
         super::exact_path_research::begin(super::exact_path_research::Stage::OccupancySortSuffix);
-    occupancy.sort_buckets(bucket_count);
+    occupancy.sort_buckets_with(bucket_count, execution);
     Ok(())
 }
 
@@ -1202,6 +1522,14 @@ impl crate::kernel::state::WorldState {
     }
 
     pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
+        self.rebuild_occupancy_index_with(None)
+    }
+
+    /// 固定步进用：可借执行资源并行收集与排序，结果与串行重建一致。
+    pub(crate) fn rebuild_occupancy_index_with(
+        &mut self,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), StepError> {
         #[cfg(test)]
         super::parking_command_research::note(|counts| {
             counts.occupancy_builds += 1;
@@ -1214,6 +1542,7 @@ impl crate::kernel::state::WorldState {
             &self.committed.live_order,
             &mut self.derived.occupancy,
             &mut self.workspace.occupancy_scratch,
+            execution,
         )?;
         self.derived.occupancy.source = Some((
             self.binding.world_generation,
@@ -1579,7 +1908,7 @@ pub(crate) mod tests {
                 continue;
             };
             let cursor = usize::try_from(state.route_edge_index).unwrap();
-            let horizon = world.state.leader_query_horizon_for(state);
+            let horizon = world.state.leader_query_horizon_for(&state);
             let indexed = world.state.derived.occupancy.leader_gap(
                 state.handle,
                 edges,
@@ -1588,8 +1917,8 @@ pub(crate) mod tests {
                 lengths,
                 horizon,
             );
-            let scanned = world.state.leader_bumper_gap_scan(state, edges, lengths);
-            let wrapped = world.state.leader_bumper_gap(state, edges, lengths);
+            let scanned = world.state.leader_bumper_gap_scan(&state, edges, lengths);
+            let wrapped = world.state.leader_bumper_gap(&state, edges, lengths);
             assert_eq!(
                 indexed, scanned,
                 "occupancy index gap must match scan-within-horizon for {handle:?}"
@@ -1698,14 +2027,23 @@ pub(crate) mod tests {
             world.state.binding.world_generation.checked_next().unwrap();
         matches_fresh(&mut world);
         let valid = world.vehicle(new).unwrap();
-        world.state.committed.vehicles[new.index() as usize]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(new.index() as usize)
             .state
             .as_mut()
             .unwrap()
             .route_edge_index = u32::MAX;
         assert!(world.state.rebuild_occupancy_index().is_err());
         assert!(world.state.derived.occupancy.source.is_none());
-        world.state.committed.vehicles[new.index() as usize].state = Some(valid);
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(new.index() as usize)
+            .state = Some(valid);
         matches_fresh(&mut world);
     }
 
@@ -1715,9 +2053,9 @@ pub(crate) mod tests {
         let state = world.state.vehicle_state(follower).unwrap();
         let lengths = world.traffic().lane_lengths_millimetres();
         let edges = world.route_edges(state.route()).unwrap();
-        assert_eq!(index_gap(&world, state), Some(2));
+        assert_eq!(index_gap(&world, &state), Some(2));
         assert_eq!(
-            world.state.leader_bumper_gap_scan(state, edges, lengths),
+            world.state.leader_bumper_gap_scan(&state, edges, lengths),
             Some(2)
         );
     }
@@ -2144,7 +2482,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(solo).copied().unwrap();
+        let state = world.state.vehicle_state(solo).unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
     }
@@ -2188,7 +2526,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
     }
@@ -2246,7 +2584,7 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
         assert_index_matches_scan(&world);
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         let gap = index_gap(&world, &state).expect("next-edge leader inside bumper window");
         assert!(gap > 0, "next-edge rear bumper must be ahead, gap={gap}");
     }
@@ -2278,7 +2616,7 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
         assert_index_matches_scan(&world);
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(
             index_gap(&world, &state),
             None,
@@ -2496,7 +2834,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let follower_state = world.state.vehicle_state(follower).copied().unwrap();
+        let follower_state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
 
@@ -2535,7 +2873,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let follower_state = world.state.vehicle_state(follower).copied().unwrap();
+        let follower_state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
     }
@@ -2625,7 +2963,7 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
         assert_index_matches_scan(&world);
-        let follower_state = world.state.vehicle_state(follower).copied().unwrap();
+        let follower_state = world.state.vehicle_state(follower).unwrap();
         let leader_state = world
             .state
             .committed
@@ -2634,7 +2972,7 @@ pub(crate) mod tests {
             .copied()
             .find_map(|handle| {
                 let state = world.state.vehicle_state(handle)?;
-                (handle != follower).then_some(*state)
+                (handle != follower).then_some(state)
             })
             .expect("leader state");
         let lengths = world
@@ -3385,7 +3723,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let state = world.state.vehicle_state(follower).unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
 
@@ -3429,11 +3767,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let phantom_state = phantom_world
-            .state
-            .vehicle_state(phantom_follower)
-            .copied()
-            .unwrap();
+        let phantom_state = phantom_world.state.vehicle_state(phantom_follower).unwrap();
         assert_eq!(index_gap(&phantom_world, &phantom_state), None);
         assert_index_matches_scan(&phantom_world);
 
@@ -3476,11 +3810,7 @@ pub(crate) mod tests {
             .state
             .rebuild_occupancy_index()
             .expect("occupancy rebuild");
-        let near_state = near_world
-            .state
-            .vehicle_state(near_follower)
-            .copied()
-            .unwrap();
+        let near_state = near_world.state.vehicle_state(near_follower).unwrap();
         assert_eq!(
             index_gap(&near_world, &near_state),
             Some(i64::from(horizon.bumper_gap_mm))
@@ -3597,7 +3927,11 @@ pub(crate) mod tests {
         let before_len = world.state.derived.occupancy.records_len();
         let before_time = world.state.committed.time_ms;
         let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-        world.state.committed.vehicles[slot]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(slot)
             .state
             .as_mut()
             .expect("spawned vehicle")

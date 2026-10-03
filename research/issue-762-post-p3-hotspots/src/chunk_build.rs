@@ -54,11 +54,19 @@ pub(crate) fn controlled_environment(
     Ok(values)
 }
 fn recipe(source: &Path, target: &Path, inherited: &Value, native: &Value) -> Result<Value> {
-    let args: Vec<_> = ARGS
+    let mut args: Vec<_> = ARGS
         .iter()
         .map(|s| (*s).to_owned())
         .chain(std::iter::once(target.to_string_lossy().into_owned()))
         .collect();
+    // #814 的同布局 ISA 对照仅在安装时选择后端，不向普通 step 加入诊断代码。
+    if EXPERIMENT.protocol == "columnar-motion-runtime-v1"
+        && source
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("candidate-"))
+    {
+        args.extend(["--features".to_owned(), "motion-kernel-evidence".to_owned()]);
+    }
     Ok(
         json!({"program":"cargo","args":args,"working_directory":source,"environment_cleared":true,
         "environment":controlled_environment(inherited,native)?}),
@@ -161,9 +169,9 @@ pub(crate) fn build(root: &Path, source: &Path, index: &Value) -> Result<Value> 
         &json!(controlled_environment(&inherited, &native)?),
     )?;
     let command = recipe(&source, &target, &inherited, &native)?;
+    let args: Vec<String> = serde_json::from_value(command["args"].clone())?;
     let status = Command::new("cargo")
-        .args(ARGS)
-        .arg(&target)
+        .args(&args)
         .current_dir(&source)
         .env_clear()
         .envs(controlled_environment(&inherited, &native)?)

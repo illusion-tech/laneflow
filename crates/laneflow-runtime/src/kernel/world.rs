@@ -27,6 +27,23 @@ use crate::{
     WorldConfig,
 };
 
+/// 只在世界安装边界选择一次整组数值入口；普通构建不读取诊断环境变量。
+fn install_motion_kernel() -> laneflow_motion_kernel::Kernel {
+    #[cfg(feature = "motion-kernel-evidence")]
+    if let Ok(requested) = std::env::var("LANEFLOW_MOTION_BACKEND") {
+        use laneflow_motion_kernel::{Backend, Kernel};
+        let backend = match requested.as_str() {
+            "auto" => return Kernel::detect(),
+            "scalar" => Backend::Scalar,
+            "avx2" => Backend::Avx2,
+            "avx512" => Backend::Avx512,
+            _ => panic!("invalid LANEFLOW_MOTION_BACKEND: {requested}"),
+        };
+        return Kernel::for_backend(backend).expect("requested motion backend is unsupported");
+    }
+    laneflow_motion_kernel::Kernel::detect()
+}
+
 #[cfg(test)]
 thread_local! {
     static OVERLAP_BLOCKER_INSPECTIONS: Cell<usize> = const { Cell::new(0) };
@@ -178,6 +195,9 @@ struct UnparkedVehicleAuthority {
     waiting_membership: Option<crate::WaitingMembership>,
 }
 
+/// 预检并行段数上限；栈上布尔数组，不分配。
+const PREFLIGHT_MAX_PARTS: usize = 256;
+
 impl crate::kernel::state::WorldState {
     /// 构造覆盖 committed、derived 与 workspace 三段的 Conflict 只读视图。
     pub(crate) fn conflict_read(&self) -> crate::kernel::conflict::ConflictRead<'_> {
@@ -280,7 +300,7 @@ impl crate::kernel::state::WorldState {
         let live_route_count = 0;
         let live_route_edge_occurrence_count = 0;
         let live_route_conflict_occurrence_count = 0;
-        let vehicles = Vec::with_capacity(vehicle_capacity);
+        let vehicles = crate::kernel::vehicle_store::VehicleStore::with_capacity(vehicle_capacity);
         let free_vehicles = Vec::with_capacity(vehicle_capacity);
         let live_order = Vec::with_capacity(vehicle_capacity);
         let active_order = Vec::with_capacity(vehicle_capacity);
@@ -304,6 +324,7 @@ impl crate::kernel::state::WorldState {
         let latest_waiting_decisions = Vec::new();
         let latest_transition_events = Vec::new();
         let next_states = Vec::with_capacity(vehicle_capacity);
+        let motion_next = super::motion_updates::MotionUpdates::with_capacity(vehicle_capacity);
         let (occupancy, occupancy_scratch) = OccupancyIndex::with_capacity(0, 0);
         let migration_journal = None;
         let migration_epoch = 0;
@@ -378,10 +399,13 @@ impl crate::kernel::state::WorldState {
                 waiting_staged_storage_mm,
                 occupancy_scratch,
                 motion_cache: Vec::new(),
+                motion_bases: Vec::new(),
+                waiting_preview_bases: Vec::new(),
                 next_states,
+                motion_next,
+                motion_kernel: install_motion_kernel(),
                 waiting_preview_inputs: Vec::new(),
                 waiting_preview_slots: Vec::new(),
-                motion_slots: Vec::new(),
                 conflict_inputs: Vec::new(),
                 conflict_slots: Vec::new(),
                 frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance::default(),
@@ -465,121 +489,170 @@ impl crate::kernel::state::WorldState {
 
     /// 校验已提交 Conflict 状态（资格、reservation 与权威持有者）内部一致。
     pub(crate) fn conflict_state_valid(&self) -> bool {
+        self.conflict_state_valid_with(None)
+    }
+
+    /// 固定步进预检：车位与资源权威均只读，多线程时在同一次完整 join 中校验。
+    pub(crate) fn conflict_state_valid_with(
+        &self,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> bool {
         if !self.committed.conflict_eligibility.is_empty()
             && self.committed.conflict_eligibility.len()
                 != usize::try_from(self.binding.config.vehicle_capacity()).unwrap_or(usize::MAX)
         {
             return false;
         }
-        for (index, slot) in self.committed.vehicles.iter().enumerate() {
-            let state = slot.state.as_ref();
-            let eligibility = self
+        let count = self.committed.vehicles.len();
+        let authority_valid = || {
+            !self
                 .committed
                 .conflict_eligibility
-                .get(index)
-                .copied()
-                .flatten();
-            match (state, eligibility) {
-                (None, None) => {}
-                (None, Some(_)) => return false,
-                (Some(state), eligibility) => {
-                    if !self.conflict_read().state_valid(state) {
-                        return false;
+                .get(self.committed.vehicles.len()..)
+                .is_some_and(|tail| tail.iter().any(Option::is_some))
+                && self.conflict_read().authority_owners_valid(
+                    |owner| self.vehicle_state(owner).is_some(),
+                    self.binding.config.fixed_delta_time_ms(),
+                )
+        };
+        match execution.filter(|resources| resources.coordinator_parallel()) {
+            Some(resources) => {
+                // 资源权威检查不等待全部车位段结束，也不再单独唤醒一次私有池。
+                // 第一块保留给 owner/cell 检查，其余块独占逐车校验的结果。
+                let mut parts = [true; PREFLIGHT_MAX_PARTS + 1];
+                let wanted = resources
+                    .dispatch_threads()
+                    .saturating_mul(4)
+                    .min(PREFLIGHT_MAX_PARTS)
+                    .min(count)
+                    .max(1);
+                let span = count.div_ceil(wanted).max(1);
+                resources.for_each_part(&mut parts[..=wanted], 1, |part, valid| {
+                    if part == 0 {
+                        valid[0] = authority_valid();
+                        return;
                     }
-                    if let Some(eligibility) = eligibility
-                        && !self.conflict_eligibility_authority_valid(state, eligibility)
+                    let start = ((part - 1) * span).min(count);
+                    let end = (start + span).min(count);
+                    valid[0] = (start..end).all(|index| self.conflict_slot_valid(index));
+                });
+                parts[..=wanted].iter().all(|valid| *valid)
+            }
+            None => (0..count).all(|index| self.conflict_slot_valid(index)) && authority_valid(),
+        }
+    }
+
+    /// 单个车位的 Conflict 资格、reservation 与通行区间一致性；只读，可并行调用。
+    fn conflict_slot_valid(&self, index: usize) -> bool {
+        let eligibility = self
+            .committed
+            .conflict_eligibility
+            .get(index)
+            .copied()
+            .flatten();
+        // 常见情形：活动车辆既无资格也不在 Clearing 相位。此时完整校验只剩
+        // “不持有任何权威”（持有 reservation 必然持有权威），无需组装运动列。
+        if eligibility.is_none()
+            && let Some((handle, maneuver)) = self.committed.vehicles.active_owner_maneuver(index)
+            && !maneuver.is_some_and(|traversal| {
+                matches!(
+                    traversal.phase,
+                    crate::ManeuverTraversalPhase::Clearing { .. }
+                )
+            })
+        {
+            return !self.conflict_read().has_authority(handle);
+        }
+        let slot = self.committed.vehicles.slot(index);
+        let state = slot.state.as_ref();
+        match (state, eligibility) {
+            (None, None) => {}
+            (None, Some(_)) => return false,
+            (Some(state), eligibility) => {
+                if !self.conflict_read().state_valid(state) {
+                    return false;
+                }
+                if let Some(eligibility) = eligibility
+                    && !self.conflict_eligibility_authority_valid(state, eligibility)
+                {
+                    return false;
+                }
+                if let Some(reservation) = self.conflict_reservation(state.handle) {
+                    let range = reservation.passage_range();
+                    let Some(compiled) = self.compiled_route(state.route) else {
+                        return false;
+                    };
+                    let Some(gate_range) = compiled
+                        .conflict_gate_ranges
+                        .get(range.admission_gate_hop() as usize)
+                    else {
+                        return false;
+                    };
+                    if gate_range.start != range.first_conflict_occurrence_index()
+                        || gate_range.len != range.passage_count()
+                        || reservation.acquired_tick() > self.committed.tick_index
                     {
                         return false;
                     }
-                    if let Some(reservation) = self.conflict_reservation(state.handle) {
-                        let range = reservation.passage_range();
-                        let Some(compiled) = self.compiled_route(state.route) else {
-                            return false;
-                        };
-                        let Some(gate_range) = compiled
-                            .conflict_gate_ranges
-                            .get(range.admission_gate_hop() as usize)
+                    let Some(gate_edge) = compiled
+                        .edges
+                        .get(range.admission_gate_hop() as usize)
+                        .copied()
+                    else {
+                        return false;
+                    };
+                    let Some(gate_progress_mm) = self
+                        .binding
+                        .revision
+                        .traffic()
+                        .lane_lengths_millimetres()
+                        .get(gate_edge.index())
+                        .copied()
+                    else {
+                        return false;
+                    };
+                    let Some(gate_crossed_side) = crate::DownstreamRoutePoint::new(
+                        range.admission_gate_hop(),
+                        gate_progress_mm,
+                        0,
+                    ) else {
+                        return false;
+                    };
+                    let Some(front) = crate::DownstreamRoutePoint::new(
+                        state.route_edge_index,
+                        state.progress_mm,
+                        state.carry_um,
+                    ) else {
+                        return false;
+                    };
+                    if front < gate_crossed_side {
+                        return false;
+                    }
+                    let Some(end) = range
+                        .first_conflict_occurrence_index()
+                        .checked_add(range.passage_count())
+                    else {
+                        return false;
+                    };
+                    for occurrence_index in range.first_conflict_occurrence_index()..end {
+                        let Some(locator) =
+                            self.conflict_passage_occurrence_locator(state.route, occurrence_index)
                         else {
                             return false;
                         };
-                        if gate_range.start != range.first_conflict_occurrence_index()
-                            || gate_range.len != range.passage_count()
-                            || reservation.acquired_tick() > self.committed.tick_index
+                        if locator.maneuver_occurrence_index() != range.maneuver_occurrence_index()
+                            || locator.admission_gate_hop() != range.admission_gate_hop()
+                            || !self
+                                .conflict_read()
+                                .reservation_has_cell(state.handle, locator.address())
                         {
                             return false;
-                        }
-                        let Some(gate_edge) = compiled
-                            .edges
-                            .get(range.admission_gate_hop() as usize)
-                            .copied()
-                        else {
-                            return false;
-                        };
-                        let Some(gate_progress_mm) = self
-                            .binding
-                            .revision
-                            .traffic()
-                            .lane_lengths_millimetres()
-                            .get(gate_edge.index())
-                            .copied()
-                        else {
-                            return false;
-                        };
-                        let Some(gate_crossed_side) = crate::DownstreamRoutePoint::new(
-                            range.admission_gate_hop(),
-                            gate_progress_mm,
-                            0,
-                        ) else {
-                            return false;
-                        };
-                        let Some(front) = crate::DownstreamRoutePoint::new(
-                            state.route_edge_index,
-                            state.progress_mm,
-                            state.carry_um,
-                        ) else {
-                            return false;
-                        };
-                        if front < gate_crossed_side {
-                            return false;
-                        }
-                        let Some(end) = range
-                            .first_conflict_occurrence_index()
-                            .checked_add(range.passage_count())
-                        else {
-                            return false;
-                        };
-                        for occurrence_index in range.first_conflict_occurrence_index()..end {
-                            let Some(locator) = self
-                                .conflict_passage_occurrence_locator(state.route, occurrence_index)
-                            else {
-                                return false;
-                            };
-                            if locator.maneuver_occurrence_index()
-                                != range.maneuver_occurrence_index()
-                                || locator.admission_gate_hop() != range.admission_gate_hop()
-                                || !self
-                                    .conflict_read()
-                                    .reservation_has_cell(state.handle, locator.address())
-                            {
-                                return false;
-                            }
                         }
                     }
                 }
             }
         }
-        if self
-            .committed
-            .conflict_eligibility
-            .get(self.committed.vehicles.len()..)
-            .is_some_and(|tail| tail.iter().any(Option::is_some))
-        {
-            return false;
-        }
-        self.conflict_read().authority_owners_valid(
-            |owner| self.vehicle_state(owner).is_some(),
-            self.binding.config.fixed_delta_time_ms(),
-        )
+        true
     }
 
     /// 全空时清空 Conflict 资格表，恢复紧凑表示。
@@ -1057,6 +1130,10 @@ impl crate::kernel::state::WorldState {
             maneuver_traversal: traversal,
             waiting_membership: None,
         };
+        self.committed
+            .vehicles
+            .try_prepare_pools(0, usize::from(traversal.is_some()))
+            .map_err(|_| SpawnError::VehicleStorageAllocFailed)?;
         let (handle, state) =
             self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, authority);
         self.committed.observation_state_sequence = next_observation_state_sequence;
@@ -1102,6 +1179,16 @@ impl crate::kernel::state::WorldState {
             maneuver_traversal: traversal,
             waiting_membership,
         };
+        self.committed
+            .vehicles
+            .try_prepare_pools(
+                usize::from(status != VehicleStatus::Active),
+                usize::from(
+                    status == VehicleStatus::Active
+                        && (traversal.is_some() || waiting_membership.is_some()),
+                ),
+            )
+            .map_err(|_| SpawnError::VehicleStorageAllocFailed)?;
         let (handle, _) = self.commit_unparked_vehicle(input, carry_um, status, authority);
         Ok(handle)
     }
@@ -1268,7 +1355,7 @@ impl crate::kernel::state::WorldState {
         if slot_index == self.committed.vehicles.len() {
             self.committed.vehicles.push(slot);
         } else {
-            self.committed.vehicles[slot_index] = slot;
+            *self.committed.vehicles.slot_mut(slot_index) = slot;
         }
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.committed.routes[route_index].live_vehicles += 1;
@@ -1322,10 +1409,7 @@ impl crate::kernel::state::WorldState {
         input: VehicleSpawnInput,
         admit_motion: bool,
     ) -> Result<VehicleReplaceRecord, ReplaceError> {
-        let old_state = self
-            .vehicle_state(old)
-            .copied()
-            .ok_or(ReplaceError::StaleHandle)?;
+        let old_state = self.vehicle_state(old).ok_or(ReplaceError::StaleHandle)?;
         if old_state.status != VehicleStatus::Completed {
             return Err(ReplaceError::NotCompleted);
         }
@@ -1450,7 +1534,16 @@ impl crate::kernel::state::WorldState {
 
         let old_route = old_state.route;
         let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
-        let reusable_generation = self.committed.vehicles[old_index].generation.checked_add(1);
+        let reusable_generation = self
+            .committed
+            .vehicles
+            .slot(old_index)
+            .generation
+            .checked_add(1);
+        self.committed
+            .vehicles
+            .try_prepare_pools(0, usize::from(traversal.is_some()))
+            .map_err(|_| ReplaceError::VehicleStorageAllocFailed)?;
         let slot_index = reusable_generation.map_or_else(
             || {
                 self.committed
@@ -1489,12 +1582,12 @@ impl crate::kernel::state::WorldState {
         }
 
         if reusable_generation.is_some() {
-            self.committed.vehicles[old_index] = VehicleSlot {
+            *self.committed.vehicles.slot_mut(old_index) = VehicleSlot {
                 generation,
                 state: Some(state),
             };
         } else {
-            self.committed.vehicles[old_index].state = None;
+            self.committed.vehicles.slot_mut(old_index).state = None;
             let slot = VehicleSlot {
                 generation,
                 state: Some(state),
@@ -1502,7 +1595,7 @@ impl crate::kernel::state::WorldState {
             if slot_index == self.committed.vehicles.len() {
                 self.committed.vehicles.push(slot);
             } else {
-                self.committed.vehicles[slot_index] = slot;
+                *self.committed.vehicles.slot_mut(slot_index) = slot;
             }
         }
         self.release_route_ref(old_route);
@@ -1523,7 +1616,6 @@ impl crate::kernel::state::WorldState {
         self.note_inserted_vehicle(new, previous_sequence, update_sequence);
         let new_state = self
             .vehicle_state(new)
-            .copied()
             .expect("freshly committed replacement vehicle");
         let new_delta = VehicleDelta::from_state(&new_state, self.compiled_route(new_state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
@@ -1571,7 +1663,7 @@ impl crate::kernel::state::WorldState {
             .copied()
             .filter_map(|handle| {
                 let state = self.vehicle_state(handle)?;
-                let source = self.pose_source_for_state(handle, state)?;
+                let source = self.pose_source_for_state(handle, &state)?;
                 Some((handle, source))
             })
     }
@@ -1618,7 +1710,7 @@ impl crate::kernel::state::WorldState {
         let state = self
             .vehicle_state(vehicle)
             .ok_or(CommittedPoseSourceError::UnknownVehicle { handle: vehicle })?;
-        Ok(self.pose_source_for_state(vehicle, state))
+        Ok(self.pose_source_for_state(vehicle, &state))
     }
 
     /// 按停车位序号读占用者。
@@ -1715,7 +1807,7 @@ impl crate::kernel::state::WorldState {
     /// 已提交车辆快照。`Completed` 仍可读；stale 句柄返回 `None`。
     #[must_use]
     pub fn vehicle(&self, handle: VehicleHandle) -> Option<VehicleState> {
-        self.vehicle_state(handle).copied()
+        self.vehicle_state(handle)
     }
 
     /// WaitingZone 的已提交计数；未知 zone 返回 `None`。
@@ -1769,7 +1861,8 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    #[inline(always)]
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
@@ -2866,15 +2959,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<&'a VehicleState> {
-        let slot = self
-            .committed
-            .vehicles
-            .get(usize::try_from(handle.index()).ok()?)?;
-        if slot.generation != handle.generation() {
-            return None;
-        }
-        slot.state.as_ref()
+    #[inline(always)]
+    pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<VehicleState> {
+        self.committed.vehicles.state(handle)
     }
 
     /// 本世界已注册路线的边序列。句柄无效时返回 `None`。
@@ -2944,7 +3031,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    #[inline(always)]
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
@@ -2970,11 +3058,6 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
-    /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
-    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
-        self.read_view().vehicle_state(handle)
-    }
-
     /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         self.read_view().compiled_route(route)
@@ -2993,6 +3076,71 @@ fn map_conflict_install_error(
         }
         crate::kernel::conflict::ConflictInstallError::AllocationFailed => {
             InstallError::ConflictArbiterAllocationFailed
+        }
+    }
+}
+
+#[cfg(test)]
+mod conflict_preflight_tests {
+    use super::*;
+    use crate::kernel::execution::WorldExecution;
+    use std::num::NonZeroU32;
+
+    fn assert_preflight(world: &TrafficWorld, expected: bool) {
+        assert_eq!(
+            world.state.conflict_state_valid(),
+            expected,
+            "serial reference"
+        );
+        assert_eq!(
+            world
+                .state
+                .conflict_state_valid_with(Some(world.execution.resources())),
+            expected,
+            "pooled slots and authority checks",
+        );
+    }
+
+    #[test]
+    fn pooled_preflight_checks_slots_and_orphaned_resource_owners() {
+        for workers in [4, 16] {
+            let (mut world, vehicle) =
+                crate::admin::format_admission::tests::world_with_conflict_reservation();
+            world.execution = WorldExecution::start_private(
+                crate::ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            assert!(world.conflict_reservation(vehicle).is_some());
+            assert_preflight(&world, true);
+            let original = world.vehicle(vehicle).unwrap();
+            // 空车位自身合法；孤立 reservation 必须由同一次 join 中的权威检查拒绝。
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = None;
+            assert_preflight(&world, false);
+            // owner 仍存在但车辆字段不合法，车位检查不能被权威检查通过所掩盖。
+            let mut invalid = original;
+            invalid.route = RouteHandle::new(u32::MAX, 0);
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(invalid);
+            assert_preflight(&world, false);
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(original);
+            assert_preflight(&world, true);
+            world
+                .step(TickInput::new(100))
+                .expect("read-only failed preflight leaves world usable");
         }
     }
 }
@@ -3199,10 +3347,8 @@ mod overflow_tests {
                 .expect("non-overlapping vehicle");
             if occurrence == 1 {
                 let index = usize::try_from(vehicle.index()).expect("vehicle index");
-                let state = world.state.committed.vehicles[index]
-                    .state
-                    .as_mut()
-                    .expect("vehicle");
+                let mut vehicle_slot = world.state.committed.vehicles.slot_mut(index);
+                let state = vehicle_slot.state.as_mut().expect("vehicle");
                 state.route_edge_index = occurrence;
                 state.progress_mm = progress;
             }
@@ -3210,7 +3356,11 @@ mod overflow_tests {
         });
         for vehicle in vehicles.iter().take(3).copied() {
             let index = usize::try_from(vehicle.index()).expect("vehicle index");
-            world.state.committed.vehicles[index]
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(index)
                 .state
                 .as_mut()
                 .expect("live vehicle")
