@@ -321,6 +321,33 @@ fn compute(
         })
 }
 
+/// 按序列出发出项的 cell 下标（跳过未发出的 `u32::MAX`）。
+struct EmittedCells<'a> {
+    indices: &'a [u32],
+    remaining: usize,
+}
+
+impl Iterator for EmittedCells<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        while let Some((first, rest)) = self.indices.split_first() {
+            self.indices = rest;
+            if *first != u32::MAX {
+                self.remaining -= 1;
+                return Some(*first as usize);
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for EmittedCells<'_> {}
+
 /// 规范插入。`emitted` 为发出项总数，仅在各行无错且全部发出项都有 cell 下标
 /// 时给出；此时按 cell 分段并行插入（归约与顺序无关），否则逐项串行插入，
 /// 保留原首错位置。
@@ -359,26 +386,33 @@ fn consume(
     let _ = emitted;
     step.committed
         .prepare_conflict(&mut step.derived, &mut step.workspace.conflict)
-        .insert_approach_owners_partitioned(resources, |range, insert| {
-            let mut offset = 0;
-            for row in &scratch.rows {
-                let vehicle = row.input.state.handle;
-                let end = offset + row.cells;
-                // 未发出项的下标为 u32::MAX，不落在任何段内。
-                for (position, cell) in scratch.cell_indices[offset..end].iter().enumerate() {
-                    let cell = *cell as usize;
-                    if range.contains(&cell) {
-                        insert(
-                            cell,
-                            vehicle,
-                            row.input.sequence,
-                            scratch.estimates[offset + position],
-                        );
+        .insert_approach_owners_partitioned(
+            resources,
+            EmittedCells {
+                indices: &scratch.cell_indices,
+                remaining: emitted,
+            },
+            |range, insert| {
+                let mut offset = 0;
+                for row in &scratch.rows {
+                    let vehicle = row.input.state.handle;
+                    let end = offset + row.cells;
+                    // 未发出项的下标为 u32::MAX，不落在任何段内。
+                    for (position, cell) in scratch.cell_indices[offset..end].iter().enumerate() {
+                        let cell = *cell as usize;
+                        if range.contains(&cell) {
+                            insert(
+                                cell,
+                                vehicle,
+                                row.input.sequence,
+                                scratch.estimates[offset + position],
+                            );
+                        }
                     }
+                    offset = end;
                 }
-                offset = end;
-            }
-        })
+            },
+        )
         .map_err(|error| match error {
             crate::kernel::conflict::ConflictAcquireError::ScratchAllocFailed => {
                 StepError::ConflictScratchAllocFailed
