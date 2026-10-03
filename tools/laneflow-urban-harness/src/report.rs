@@ -350,6 +350,7 @@ pub fn run_to_directory(
     let mut commands = BufWriter::new(File::create(output.join("commands.jsonl"))?);
     let mut events = BufWriter::new(File::create(output.join("events.jsonl"))?);
     let mut times = Vec::new();
+    let mut window_step_times = Vec::new();
     let mut command_times = Vec::new();
     let mut observation_times = Vec::new();
     let mut active_samples = Vec::new();
@@ -366,6 +367,7 @@ pub fn run_to_directory(
             }
             times.push(harness.last_step_ns);
             if record.tick > plan.window.warm_up_ticks {
+                window_step_times.push(harness.last_step_ns);
                 command_times.push(harness.last_command_ns);
                 observation_times.push(harness.last_observation_ns);
                 active_samples.push(record.active as u64);
@@ -497,9 +499,20 @@ pub fn run_to_directory(
     // diagnostics.json 的摘要纳入 result.files 完整性封套（worker 计数
     // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
     times.sort_unstable();
+    window_step_times.sort_unstable();
     let percentile = |n: usize| {
         times
             .get((times.len() * n).div_ceil(100).saturating_sub(1))
+            .copied()
+    };
+    // 预热之后的观察窗口单独给出，避免预热段稀释持续负载的耗时。
+    let window_percentile = |n: usize| {
+        window_step_times
+            .get(
+                (window_step_times.len() * n)
+                    .div_ceil(100)
+                    .saturating_sub(1),
+            )
             .copied()
     };
     let diagnostics_path = output.join("diagnostics.json");
@@ -507,6 +520,7 @@ pub fn run_to_directory(
         &diagnostics_path,
         &json!({"purpose":if plan.window.purpose == "performance" {"execution-metadata; formal timings are in measurements.toml"} else {"diagnostic-only-not-performance-certification"}, "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
+        "window_steps":window_step_times.len(), "window_step_ns_p50":window_percentile(50), "window_step_ns_p95":window_percentile(95), "window_step_ns_p99":window_percentile(99),
         "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":execution.worker_count().get(),
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),
@@ -554,8 +568,12 @@ pub(crate) fn validate_case(harness: &Harness<'_>) -> Result<()> {
     let plan = harness.plan;
     harness.validate_required_role_evidence()?;
     let case: UrbanCase = plan.case.parse()?;
+    if case == UrbanCase::SustainedActive {
+        return Err(invalid("SUSTAINED-ACTIVE has no correctness witnesses"));
+    }
     for (tile, e) in harness.evidence.iter().enumerate() {
         let missing = match case {
+            UrbanCase::SustainedActive => unreachable!("rejected above"),
             UrbanCase::MixedPeak => {
                 e.crossed_tile_completed < plan.required_per_tile["crossed_tile_completed"]
                     || e.red_wait_then_crossed < plan.required_per_tile["red_wait_then_crossed"]

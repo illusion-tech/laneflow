@@ -23,6 +23,10 @@ pub enum UrbanCase {
     UncontrolledYield,
     #[serde(rename = "BOUNDARY-BURST")]
     BoundaryBurst,
+    /// 仅供性能测量：MIXED-PEAK 的角色与路线，每 tile 1,000 辆全部在路上，跑完的车持续回收。
+    /// 不属于七套正式计划，不参与正确性窗口。
+    #[serde(rename = "SUSTAINED-ACTIVE")]
+    SustainedActive,
 }
 
 impl UrbanCase {
@@ -45,6 +49,7 @@ impl UrbanCase {
             Self::PermissiveLeft => "PERMISSIVE-LEFT",
             Self::UncontrolledYield => "UNCONTROLLED-YIELD",
             Self::BoundaryBurst => "BOUNDARY-BURST",
+            Self::SustainedActive => "SUSTAINED-ACTIVE",
         }
     }
 }
@@ -55,6 +60,7 @@ impl std::str::FromStr for UrbanCase {
     fn from_str(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
+            .chain([Self::SustainedActive])
             .find(|case| case.as_str() == value)
             .ok_or_else(|| invalid(format!("unknown urban case: {value}")))
     }
@@ -279,7 +285,22 @@ impl ResolvedPlan {
                     && window.end() > 0 => {}
             _ => return Err(invalid("unsupported run window")),
         }
+        let sustained = case == UrbanCase::SustainedActive;
+        if sustained && window.purpose != "probe" {
+            return Err(invalid("SUSTAINED-ACTIVE only runs probe windows"));
+        }
+        let case = if sustained {
+            UrbanCase::MixedPeak
+        } else {
+            case
+        };
         let quantum = 528 / artifacts.dt;
+        // 持续计划每 32 个量子补发一轮回收，每 8 tick 重试一次，覆盖到下一轮。
+        let (departure_period, retry_ticks, max_attempts) = if sustained {
+            (32, 8, 64)
+        } else {
+            (64, 4 * quantum, 8)
+        };
         let mut initial = Vec::new();
         let mut departures = Vec::new();
         let mut leaves = Vec::new();
@@ -288,7 +309,9 @@ impl ResolvedPlan {
         let mut role_departures = Vec::new();
         let mut boundary_windows = Vec::new();
         let mut lifecycle_bursts = Vec::new();
-        let active_per_tile = if case == UrbanCase::GarageEgress {
+        let active_per_tile = if sustained {
+            1_000
+        } else if case == UrbanCase::GarageEgress {
             250
         } else {
             750
@@ -967,7 +990,9 @@ impl ResolvedPlan {
             });
             let mut next_slot = active_per_tile;
             for target in &targets {
-                let count = if target.kind == "explicit" {
+                let count = if sustained {
+                    0
+                } else if target.kind == "explicit" {
                     u32::from(target.key.ends_with(".bay0"))
                 } else if target.capacity == 100 {
                     if case == UrbanCase::GarageIngress && target.key.ends_with(".c09.mixed") {
@@ -1044,17 +1069,26 @@ impl ResolvedPlan {
             let mut west = west;
             east.sort_by_key(|r| &r.key);
             west.sort_by_key(|r| &r.key);
+            // 持续计划把回收分散到本 tile 全部行驶路线的进口车道，避免挤在少数横穿路线的起点。
+            let mut spread: Vec<_> = catalog
+                .routes
+                .iter()
+                .filter(|r| r.key.starts_with(&prefix) && rank(&r.category) < 3)
+                .collect();
+            spread.sort_by_key(|r| &r.key);
             for group in 0..active_per_tile / 10 {
-                let mut due = u64::from((tile * 75 + group + 544) % 64) * quantum;
+                let mut due = u64::from((tile * 75 + group + 544) % departure_period) * quantum;
                 let mut period = 0;
                 while due < window.end() {
                     let mut routes = Vec::new();
                     for i in 0..10 {
-                        let list = if i < 7 { &east } else { &west };
-                        let route = list[(group as usize * 10 + i + period) % list.len()]
-                            .key
-                            .clone();
-                        routes.push(route);
+                        let route = if sustained {
+                            spread[(group as usize * 10 + i + period * 37) % spread.len()]
+                        } else {
+                            let list = if i < 7 { &east } else { &west };
+                            list[(group as usize * 10 + i + period) % list.len()]
+                        };
+                        routes.push(route.key.clone());
                     }
                     departures.push(DepartureBatch {
                         due_tick: due,
@@ -1062,7 +1096,7 @@ impl ResolvedPlan {
                         sequence: (period as u32 * artifacts.tiles * 75 + tile * 75 + group) * 10,
                         routes,
                     });
-                    due += 64 * quantum;
+                    due += u64::from(departure_period) * quantum;
                     period += 1;
                 }
             }
@@ -1075,7 +1109,9 @@ impl ResolvedPlan {
                 } else {
                     120
                 };
-            let leave_count = if case == UrbanCase::UncontrolledYield {
+            let leave_count = if sustained {
+                0
+            } else if case == UrbanCase::UncontrolledYield {
                 1
             } else if matches!(
                 case,
@@ -1124,60 +1160,71 @@ impl ResolvedPlan {
         role_departures.sort_by_key(|r| (r.due_tick, r.slot, r.sequence));
         boundary_windows.sort_by_key(|b| (b.before_tick, b.tile));
         lifecycle_bursts.sort_by_key(|b| (b.despawn_tick, b.tile, b.sequence));
-        let required_per_tile = match case {
-            UrbanCase::MixedPeak => [
-                ("crossed_tile_completed".into(), 1),
-                ("red_wait_then_crossed".into(), 1),
-                ("park_or_leave".into(), 1),
-            ]
-            .into(),
-            UrbanCase::GarageEgress => [
-                ("garage_exit_0".into(), 1),
-                ("garage_exit_1".into(), 1),
-                ("safe_leave_rejection".into(), 1),
-                ("retried_leave_success".into(), 1),
-            ]
-            .into(),
-            UrbanCase::GarageIngress => [
-                ("explicit_park".into(), 1),
-                ("virtual_park".into(), 1),
-                ("exclusive_rejection".into(), 1),
-                ("full_rejection".into(), 1),
-            ]
-            .into(),
-            UrbanCase::WaitingRelease => [
-                ("waiting_entry".into(), 1),
-                ("waiting_capacity_rejection".into(), 1),
-                ("waiting_storage_rejection".into(), 1),
-                ("waiting_release".into(), 1),
-            ]
-            .into(),
-            UrbanCase::PermissiveLeft => [
-                ("permissive_no_grant".into(), 1),
-                ("permissive_grant".into(), 1),
-                ("permissive_pass".into(), 1),
-            ]
-            .into(),
-            UrbanCase::UncontrolledYield => [
-                ("mainline_pass".into(), 1),
-                ("yield_wait".into(), 1),
-                ("yield_pass".into(), 1),
-                ("garage_leave".into(), 1),
-            ]
-            .into(),
-            UrbanCase::BoundaryBurst => [
-                ("phase_change".into(), 1),
-                ("lifecycle_success".into(), 1),
-                ("safe_rejection".into(), 1),
-                ("retry_success".into(), 1),
-                ("before_boundary_command".into(), 1),
-                ("after_boundary_command".into(), 1),
-            ]
-            .into(),
+        let required_per_tile = if sustained {
+            BTreeMap::new()
+        } else {
+            match case {
+                UrbanCase::MixedPeak => [
+                    ("crossed_tile_completed".into(), 1),
+                    ("red_wait_then_crossed".into(), 1),
+                    ("park_or_leave".into(), 1),
+                ]
+                .into(),
+                UrbanCase::GarageEgress => [
+                    ("garage_exit_0".into(), 1),
+                    ("garage_exit_1".into(), 1),
+                    ("safe_leave_rejection".into(), 1),
+                    ("retried_leave_success".into(), 1),
+                ]
+                .into(),
+                UrbanCase::GarageIngress => [
+                    ("explicit_park".into(), 1),
+                    ("virtual_park".into(), 1),
+                    ("exclusive_rejection".into(), 1),
+                    ("full_rejection".into(), 1),
+                ]
+                .into(),
+                UrbanCase::WaitingRelease => [
+                    ("waiting_entry".into(), 1),
+                    ("waiting_capacity_rejection".into(), 1),
+                    ("waiting_storage_rejection".into(), 1),
+                    ("waiting_release".into(), 1),
+                ]
+                .into(),
+                UrbanCase::PermissiveLeft => [
+                    ("permissive_no_grant".into(), 1),
+                    ("permissive_grant".into(), 1),
+                    ("permissive_pass".into(), 1),
+                ]
+                .into(),
+                UrbanCase::UncontrolledYield => [
+                    ("mainline_pass".into(), 1),
+                    ("yield_wait".into(), 1),
+                    ("yield_pass".into(), 1),
+                    ("garage_leave".into(), 1),
+                ]
+                .into(),
+                UrbanCase::BoundaryBurst => [
+                    ("phase_change".into(), 1),
+                    ("lifecycle_success".into(), 1),
+                    ("safe_rejection".into(), 1),
+                    ("retry_success".into(), 1),
+                    ("before_boundary_command".into(), 1),
+                    ("after_boundary_command".into(), 1),
+                ]
+                .into(),
+                UrbanCase::SustainedActive => unreachable!("mapped to MIXED-PEAK above"),
+            }
         };
         Ok(Self {
             version: "urban-demand-v3".into(),
-            case: case.as_str().into(),
+            case: if sustained {
+                UrbanCase::SustainedActive
+            } else {
+                case
+            }
+            .as_str()
+            .into(),
             seed: 544,
             scale: catalog.scale.clone(),
             dt: artifacts.dt,
@@ -1193,8 +1240,8 @@ impl ResolvedPlan {
                 parked: (1_000 - active_per_tile) * artifacts.tiles,
                 completed: 0,
             },
-            max_attempts: 8,
-            retry_ticks: 4 * quantum,
+            max_attempts,
+            retry_ticks,
             route_edges: catalog
                 .routes
                 .iter()
