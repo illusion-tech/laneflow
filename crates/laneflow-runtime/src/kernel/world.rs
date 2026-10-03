@@ -544,14 +544,27 @@ impl crate::kernel::state::WorldState {
 
     /// 单个车位的 Conflict 资格、reservation 与通行区间一致性；只读，可并行调用。
     fn conflict_slot_valid(&self, index: usize) -> bool {
-        let slot = self.committed.vehicles.slot(index);
-        let state = slot.state.as_ref();
         let eligibility = self
             .committed
             .conflict_eligibility
             .get(index)
             .copied()
             .flatten();
+        // 常见情形：活动车辆既无资格也不在 Clearing 相位。此时完整校验只剩
+        // “不持有任何权威”（持有 reservation 必然持有权威），无需组装运动列。
+        if eligibility.is_none()
+            && let Some((handle, maneuver)) = self.committed.vehicles.active_owner_maneuver(index)
+            && !maneuver.is_some_and(|traversal| {
+                matches!(
+                    traversal.phase,
+                    crate::ManeuverTraversalPhase::Clearing { .. }
+                )
+            })
+        {
+            return !self.conflict_read().has_authority(handle);
+        }
+        let slot = self.committed.vehicles.slot(index);
+        let state = slot.state.as_ref();
         match (state, eligibility) {
             (None, None) => {}
             (None, Some(_)) => return false,
