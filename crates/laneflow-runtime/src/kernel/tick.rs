@@ -3875,14 +3875,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         );
         let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(position.route_edge_index).ok()?;
-        let edge = *edges.get(cursor)?;
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let speed_limits = self
             .binding
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second();
-        let current_limit = *speed_limits.get(edge.index())?;
+        let hop = crate::kernel::tables::route_hop(compiled, cursor, lengths, speed_limits)?;
+        let current_limit = hop.limit_mm_s?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
         #[cfg(test)]
         drop(inputs_timer);
@@ -3914,12 +3914,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         #[cfg(test)]
         let stop_timer =
             super::exact_path_research::begin(super::exact_path_research::Stage::RouteStopQueries);
-        let route_end = remaining_to_route_end(
-            *compiled.remaining_to_end.get(cursor)?,
-            position.progress_mm,
-        );
+        let route_end = remaining_to_route_end(hop.remaining_to_end?, position.progress_mm);
         let reach = MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s);
-        let signal_stop = self.signal_stop_distance(compiled, state, cursor, reach);
+        // 下一受控门本拍够不着时与逐门解释同为 None，不再读受控链。
+        let signal_stop = if reach.is_some_and(|reach| {
+            hop.signal_from_start.is_none_or(|distance| {
+                reach.class_is_unreachable(Some(distance), position.progress_mm)
+            })
+        }) {
+            None
+        } else {
+            self.signal_stop_distance(compiled, state, cursor, reach)
+        };
         let parking = self.parking_stop_distance(compiled, state, cursor, parking_binding)?;
         #[cfg(test)]
         drop(stop_timer);
@@ -3929,13 +3935,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .then_some(selected_stop.distance);
         // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
         // 不能等 apply_travel 截断后还留着原来的速度。
-        if let Some(gate_stop) = self.restrictive_gate_stop(compiled, state, cursor, reach) {
+        if let Some(gate_stop) =
+            self.restrictive_gate_stop_from(compiled, state, cursor, reach, hop.gate_first as usize)
+        {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
                 Some(_) | None => Some(gate_stop),
             };
         }
-        let envelope_m = speed_limit_path_envelope(
+        let edge_length_mm = hop.length_mm?;
+        let envelope_m = speed_limit_path_envelope_from(
+            (edge_length_mm, current_limit),
             edges,
             lengths,
             speed_limits,
@@ -3943,7 +3953,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             position.progress_mm,
             delta_s,
         )?;
-        let edge_length_mm = lengths.get(edge.index()).copied()?;
         let edge_remaining_mm = edge_length_mm.saturating_sub(position.progress_mm);
         // 到不了本边尽头时，许可读数不会收紧这一次 hard_room。真正跨边仍在 apply_travel_mm 里检查。
         let permitted_for_hard_room = reach.is_some_and(|reach| reach.excludes(edge_remaining_mm))
@@ -3952,9 +3961,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 note_barrier_query(|counts| counts.hard_room_permissions += 1);
                 self.hop_permitted(state.route(), edges, cursor, state.profile())
             };
-        let speed_drop_first = compiled
-            .speed_limit_drop
-            .partition_point(|drop| drop.from_route_edge_index < position.route_edge_index);
+        let speed_drop_first = hop.speed_drop_first as usize;
         Some(MotionInputs {
             speed_mm_s: state.speed_mm_s(),
             desired_mm_s,
@@ -4314,22 +4321,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 沿实际有门的 hop 找这一拍够得到的最近拒绝门，含没有信号组的门。
     ///
     /// 距离算到该 hop 的边末，与 `apply_travel_mm` 停住的位置相同。超出本拍上界就停，
-    /// 更远的门留到后面的拍。
-    fn restrictive_gate_stop(
+    /// 更远的门留到后面的拍。`start` 为第一个不早于游标的 `gate_hops` 下标，
+    /// 由编译行给出。
+    fn restrictive_gate_stop_from(
         self,
         compiled: &CompiledRoute,
         state: impl crate::kernel::vehicle_store::MotionRead,
         cursor: usize,
         reach: Option<MotionReach>,
+        start: usize,
     ) -> Option<BoundedDistance> {
         let position = state.position();
-        let cursor_hop = u32::try_from(cursor).ok()?;
-        let start = compiled.gate_hops.partition_point({
-            #[cfg(test)]
-            super::route_query_research::note_search("tick:4009");
-            |hop| *hop < cursor_hop
-        });
-        for hop in compiled.gate_hops[start..].iter().copied() {
+        for hop in compiled.gate_hops.get(start..)?.iter().copied() {
             let stop_index = usize::try_from(hop).ok()?.checked_add(1)?;
             let BoundedDistance::Finite(distance) = distance_to_occurrence_start(
                 &compiled.occurrence_segments,
@@ -4965,9 +4968,12 @@ fn unreachable_barrier_classes(
     let Some(reach) = reach else {
         return (false, false);
     };
+    let cursor = position.route_edge_index as usize;
     let Some(row) = compiled
-        .nearest_motion_barriers
-        .get(position.route_edge_index as usize)
+        .hops
+        .get(cursor)
+        .map(|hop| hop.barriers)
+        .unwrap_or_else(|| compiled.nearest_motion_barriers.get(cursor).copied())
     else {
         return (false, false);
     };
@@ -5186,7 +5192,9 @@ fn iidm_step(
     })
 }
 
-fn speed_limit_path_envelope(
+/// `first` 为游标所在边的（边长, 限速），已由编译行取得；后续边仍按边表读取。
+fn speed_limit_path_envelope_from(
+    first: (u32, u32),
     edges: &[LaneEdgeOrdinal],
     lengths: &[u32],
     speed_limits: &[u32],
@@ -5199,10 +5207,20 @@ fn speed_limit_path_envelope(
     }
     let mut remaining_t = delta_s;
     let mut total = 0.0;
+    let mut current = Some(first);
     loop {
-        let edge = *edges.get(index)?;
-        let length = si_meters(*lengths.get(edge.index())?);
-        let limit = si_speed(*speed_limits.get(edge.index())?);
+        let (length, limit) = match current.take() {
+            Some(first) => first,
+            None => {
+                let edge = *edges.get(index)?;
+                (
+                    *lengths.get(edge.index())?,
+                    *speed_limits.get(edge.index())?,
+                )
+            }
+        };
+        let length = si_meters(length);
+        let limit = si_speed(limit);
         let leftover = (length - si_meters(progress_mm)).max(0.0);
         if limit <= 0.0 {
             break;
@@ -5817,6 +5835,7 @@ mod preview {
             final_conflict_clearance: None,
             nearest_motion_barriers: Vec::new(),
             waiting_maneuver_bits: Box::default(),
+            hops: Vec::new(),
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.
         let candidate = 66.89_f32;
@@ -6444,6 +6463,10 @@ mod barrier_query_tests {
         let handle = world.state.committed.live_order[0];
         let base = world.state.vehicle_state(handle).expect("vehicle");
         let lengths = world.traffic().lane_lengths_millimetres().to_vec();
+        let speeds = world
+            .traffic()
+            .lane_speed_limits_millimetres_per_second()
+            .to_vec();
         let slot = usize::try_from(base.route.index()).expect("slot");
         let (edge_length, first_zone, first_release, conflict_absent) = {
             let compiled = world.state.committed.routes[slot]
@@ -6470,6 +6493,9 @@ mod barrier_query_tests {
                 &compiled.waiting,
             )
             .expect("rebuild barriers");
+            compiled
+                .refresh_hops(&lengths, &speeds)
+                .expect("rebuild hop rows");
             let absent = compiled.nearest_motion_barriers[0]
                 .conflict_from_occurrence_start
                 .is_none();
@@ -6579,12 +6605,13 @@ mod barrier_query_tests {
             "an authorized near gate must not hide the next gate inside the reach"
         );
 
-        world.state.committed.routes[slot]
+        let compiled = world.state.committed.routes[slot]
             .compiled
             .as_mut()
-            .expect("compiled")
-            .nearest_motion_barriers
-            .clear();
+            .expect("compiled");
+        compiled.nearest_motion_barriers.clear();
+        // 编译行也随源表一起缺失，查询回到逐项读取。
+        compiled.hops.clear();
         let (pruned, exact, counts) = production(&mut world, &far, 0.033);
         assert_eq!(pruned, exact);
         assert!(exact.is_some());
@@ -6645,6 +6672,10 @@ mod barrier_query_tests {
         waiting: Vec<WaitingOccurrence>,
     ) -> u32 {
         let lengths = world.traffic().lane_lengths_millimetres().to_vec();
+        let speeds = world
+            .traffic()
+            .lane_speed_limits_millimetres_per_second()
+            .to_vec();
         let compiled = world.state.committed.routes[route_slot]
             .compiled
             .as_mut()
@@ -6659,6 +6690,7 @@ mod barrier_query_tests {
         compiled.nearest_motion_barriers =
             compile_nearest_motion_barriers(&edge_lengths, &compiled.conflicts, &compiled.waiting)
                 .expect("barrier table");
+        compiled.refresh_hops(&lengths, &speeds).expect("hop rows");
         assert!(
             !compiled.conflicts.is_empty(),
             "the production search must see a real admission list"
