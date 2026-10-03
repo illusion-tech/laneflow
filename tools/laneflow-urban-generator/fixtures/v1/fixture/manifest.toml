@@ -8,13 +8,13 @@ nominal_individuals = 2000
 fixed_step_ms = 16
 compile_limits = "LF-COMP-SINGLE-NETWORK-1M-v2"
 format_limits = "FormatLimits::HARD"
-network_revision = "5e04822a09639c10c168cea8c1a9732a946a9860829c709a4879f053622709e0"
+network_revision = "1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd8819"
 source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
-lir_logical_records = 82022
-compiler_output_logical_bytes = 2220686
-compiler_controlled_peak_bytes = 78617856
-shared_headless_retained_bytes = 801444
-shared_spatial_retained_bytes = 2011540
+lir_logical_records = 82014
+compiler_output_logical_bytes = 2220654
+compiler_controlled_peak_bytes = 78611712
+shared_headless_retained_bytes = 801412
+shared_spatial_retained_bytes = 2011508
 resolved_policy_gate_rows = 528
 resolved_policy_stream_rows = 516
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
@@ -31,7 +31,7 @@ bounds_max_meters = [
     1250.0,
 ]
 route_edge_occurrences = 2785
-route_conflict_occurrences = 8562
+route_conflict_occurrences = 8780
 appearance_catalog = "host-owned; no appearance definitions emitted"
 
 [shared_build_limits]
@@ -48,24 +48,24 @@ bytes = 1300
 sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
 
 [files."genesis.lfsd"]
-bytes = 9640034
-sha256 = "8250eac3a1c12fcdef1730d3a52d6dd8cadc5e63c032be76d7f8fe0312c16f75"
+bytes = 9638850
+sha256 = "83be58da7dad4e4fdc3478a1edc17bfadf4566fe8d76d52109a28fcc750bffb6"
 
 [files."network.lfca"]
-bytes = 8868459
-sha256 = "377abd74233a3759e983186d27855aca30b4915dfa5abff3aea50a426b8b4dbc"
+bytes = 8868299
+sha256 = "910d0ce5598f213d652f37b786615530981b99fcc482f9712ce49afad12edb4c"
 
 [files."routes.toml"]
 bytes = 377136
-sha256 = "29ac673aa6c41e8bcf5eef4fef65f38b9d8c15e9a7d8b8aaa96b79d19e18df36"
+sha256 = "e9e6a6b260d633bcbb04923cb3922c673dfc214cd77bd6e32d4a1ec279ef70de"
 
 [files."source-map.lfsm"]
-bytes = 12492419
-sha256 = "0a8e82a711968b3205ba266d52ca00d74f69c47edfbaa61628aaea47c64cec58"
+bytes = 12489179
+sha256 = "0cc1d92a739e4c4a71d4b588f73c43d8eab766d394b04dcc7d74222f4aedde06"
 
 [files."topology.lfre"]
-bytes = 1669408
-sha256 = "834f07a4d8378dc16121ae9d8a4c739046163110f0d75ca4e690e6735e2c3567"
+bytes = 1669184
+sha256 = "e64fe0958b6d558abc04af993e7ffd98e5ed97012c936370dcc8bb9e8873f2eb"
 
 [source_declarations]
 canonical-frame = 1
@@ -97,7 +97,7 @@ canonical-frame = 0
 conflict-zone = 2312
 conflict-zone-region = 4624
 corridor = 456
-gate = 1488
+gate = 1480
 junction = 904
 lane = 760
 lane-edge = 130
@@ -241,7 +241,7 @@ table = "ManeuverGate"
 rows = 528
 chunks = 1
 max_chunk_rows = 528
-max_chunk_bytes = 70816
+max_chunk_bytes = 70688
 
 [lfca_tables.nested_rows]
 
@@ -271,7 +271,7 @@ table = "SignalGroup"
 rows = 56
 chunks = 1
 max_chunk_rows = 56
-max_chunk_bytes = 6896
+max_chunk_bytes = 6864
 
 [lfca_tables.nested_rows]
 
@@ -570,13 +570,13 @@ max_chunk_bytes = 297
 [[lfsm_tables]]
 section = "SourceModules"
 table = "SourceLocation"
-rows = 32630
+rows = 32622
 chunks = 1
-max_chunk_rows = 32630
-max_chunk_bytes = 8950441
+max_chunk_rows = 32622
+max_chunk_bytes = 8948153
 
 [lfsm_tables.nested_rows]
-propertySteps = 37144
+propertySteps = 37136
 
 [[lfsm_tables]]
 section = "StableEntitySources"
@@ -591,10 +591,10 @@ max_chunk_bytes = 692592
 [[lfsm_tables]]
 section = "OwnerLocalSources"
 table = "OwnerLocalSource"
-rows = 18959
+rows = 18951
 chunks = 1
-max_chunk_rows = 18959
-max_chunk_bytes = 2290809
+max_chunk_rows = 18951
+max_chunk_bytes = 2289857
 
 [lfsm_tables.nested_rows]
 
