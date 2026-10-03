@@ -88,6 +88,29 @@ pub(crate) struct NonEntryGateAnchor {
     hop: u32,
 }
 
+/// 少于此行数时串行生成非入口决定；测试构建取 1，让多线程夹具走并行路径。
+#[cfg(not(test))]
+const NON_ENTRY_PARALLEL_ROWS: usize = 1_024;
+#[cfg(test)]
+const NON_ENTRY_PARALLEL_ROWS: usize = 1;
+/// 并行生成的段数上限。
+const NON_ENTRY_MAX_PARTS: usize = 128;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum NonEntryStatus {
+    #[default]
+    Complete,
+    CacheMiss,
+    AllocFailed,
+}
+
+/// 一段行的非入口决定；缓冲随池保留，段内顺序即行序。
+#[derive(Default)]
+pub(crate) struct NonEntryPart {
+    decisions: Vec<WaitingDecision>,
+    status: NonEntryStatus,
+}
+
 #[cfg(test)]
 pub(crate) fn count_waiting_work(update: impl FnOnce(&mut WaitingWorkCounts)) {
     WAITING_WORK_COUNTS.with(|counts| {
@@ -1056,7 +1079,7 @@ impl crate::kernel::state::WorldState {
         let columns =
             super::motion_updates::MotionUpdates::from_states(updates, &self.committed.vehicles);
         self.step_workspace()
-            .finalize_waiting_outputs(&columns, tick)
+            .finalize_waiting_outputs(&columns, tick, None)
     }
 
     pub(crate) fn derive_waiting_traversal_with_signals(
@@ -2318,7 +2341,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
         #[cfg(test)]
         let _assembly = preview_stage::begin(preview_stage::ASSEMBLY);
-
         for preview_index in 0..self.workspace.next_states.len() {
             let (update_sequence, preview) = self.workspace.next_states[preview_index];
             let vehicle = self.committed.live_order[update_sequence];
@@ -2789,6 +2811,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &mut self,
         updates: &super::motion_updates::MotionUpdates,
         tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), crate::StepError> {
         for plan in self.workspace.waiting_plans.iter().copied() {
             self.workspace
@@ -2808,6 +2831,36 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     outcome: self.final_waiting_decision(plan),
                 });
         }
+        let parallel = execution.filter(|resources| {
+            resources.coordinator_parallel()
+                && updates.resource_rows().len() >= NON_ENTRY_PARALLEL_ROWS
+        });
+        let staged = match parallel
+            .and_then(|resources| resources.non_entry_parts().map(|parts| (resources, parts)))
+        {
+            Some((resources, mut parts)) => {
+                self.stage_non_entry_parallel(updates, resources, &mut parts)?
+            }
+            None => false,
+        };
+        if !staged {
+            self.stage_non_entry_serial(updates)?;
+        }
+        self.workspace.waiting_non_entry_anchors.clear();
+        self.workspace
+            .waiting_staged_decisions
+            .sort_unstable_by_key(|decision| {
+                (decision.vehicle_update_sequence, decision.anchor.hop)
+            });
+        self.stage_transition_events(updates, tick)?;
+        Ok(())
+    }
+
+    /// 逐行发现非入口 Gate 锚点，再按 live 序号生成决定。
+    fn stage_non_entry_serial(
+        &mut self,
+        updates: &super::motion_updates::MotionUpdates,
+    ) -> Result<(), crate::StepError> {
         self.workspace.waiting_non_entry_anchors.clear();
         for &update_index in updates.resource_rows() {
             let row = updates.row(update_index, &self.committed.vehicles);
@@ -2907,14 +2960,129 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     outcome,
                 });
         }
-        self.workspace.waiting_non_entry_anchors.clear();
-        self.workspace
-            .waiting_staged_decisions
-            .sort_unstable_by_key(|decision| {
-                (decision.vehicle_update_sequence, decision.anchor.hop)
-            });
-        self.stage_transition_events(updates, tick)?;
         Ok(())
+    }
+
+    /// 按行分段并行生成非入口决定，join 后按段序拼接；段序即行序，拼接结果
+    /// 与串行生成相同。序号只取本拍运动缓存，任一行缺缓存时不写任何输出并
+    /// 返回 `false`，由串行路径从 live 顺序线性合并。
+    fn stage_non_entry_parallel(
+        &mut self,
+        updates: &super::motion_updates::MotionUpdates,
+        resources: &crate::kernel::execution::ExecutionResources,
+        parts: &mut Vec<NonEntryPart>,
+    ) -> Result<bool, crate::StepError> {
+        let rows = updates.resource_rows();
+        let count = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(NON_ENTRY_MAX_PARTS)
+            .min(rows.len())
+            .max(1);
+        let span = rows.len().div_ceil(count).max(1);
+        if parts.len() < count {
+            parts
+                .try_reserve(count - parts.len())
+                .map_err(|_| crate::StepError::WaitingScratchAllocFailed)?;
+            parts.resize_with(count, NonEntryPart::default);
+        }
+        let read = self.read_view();
+        let motion_cache = &self.workspace.motion_cache;
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        resources.for_each_part(&mut parts[..count], 1, |part, out| {
+            let out = &mut out[0];
+            out.decisions.clear();
+            out.status = NonEntryStatus::Complete;
+            let start = (part * span).min(rows.len());
+            let end = (start + span).min(rows.len());
+            for &update_index in &rows[start..end] {
+                let row = updates.row(update_index, &read.committed.vehicles);
+                let compiled = read.committed.routes[row.source.route().index() as usize]
+                    .compiled
+                    .as_ref()
+                    .expect("live route");
+                let mut sequence = None;
+                for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
+                    compiled,
+                    row.source.position().route_edge_index,
+                    row.position(),
+                    lengths,
+                ) {
+                    let old = read
+                        .committed
+                        .vehicles
+                        .slot(updates.slot_index(update_index))
+                        .state
+                        .expect("staged live vehicle");
+                    let vehicle_update_sequence = match sequence {
+                        Some(sequence) => sequence,
+                        None => {
+                            let Some(cached) = motion_cache
+                                .get(update_index)
+                                .filter(|entry| entry.vehicle == old.handle)
+                                .and_then(|entry| u32::try_from(entry.update_sequence).ok())
+                            else {
+                                out.status = NonEntryStatus::CacheMiss;
+                                return;
+                            };
+                            *sequence.insert(cached)
+                        }
+                    };
+                    let compiled = read.committed.routes[old.route.index() as usize]
+                        .compiled
+                        .as_ref()
+                        .expect("live route");
+                    let gate = compiled.hop_gate[hop as usize].expect("indexed Gate");
+                    // finalize 使用本 tick 起始灯色；发布后的信号刷新不改写历史决定。
+                    let outcome = if read.gate_is_restrictive(gate, old.profile) {
+                        WaitingDecisionOutcome::NotEvaluated
+                    } else {
+                        WaitingDecisionOutcome::NotRequired
+                    };
+                    if out.decisions.try_reserve(1).is_err() {
+                        out.status = NonEntryStatus::AllocFailed;
+                        return;
+                    }
+                    out.decisions.push(WaitingDecision {
+                        vehicle: old.handle,
+                        vehicle_update_sequence,
+                        zone: None,
+                        anchor: WaitingRouteAnchor {
+                            route: old.route,
+                            maneuver_occurrence_index,
+                            hop,
+                        },
+                        outcome,
+                    });
+                }
+            }
+        });
+        let parts = &parts[..count];
+        if parts
+            .iter()
+            .any(|part| part.status == NonEntryStatus::CacheMiss)
+        {
+            return Ok(false);
+        }
+        if parts
+            .iter()
+            .any(|part| part.status == NonEntryStatus::AllocFailed)
+        {
+            return Err(crate::StepError::WaitingScratchAllocFailed);
+        }
+        let total = parts.iter().map(|part| part.decisions.len()).sum();
+        reserve_waiting_exact(&mut self.workspace.waiting_staged_decisions, total)?;
+        for part in parts {
+            self.workspace
+                .waiting_staged_decisions
+                .extend_from_slice(&part.decisions);
+        }
+        #[cfg(test)]
+        {
+            NON_ENTRY_DISCOVERY_VISITS.set(NON_ENTRY_DISCOVERY_VISITS.get() + rows.len());
+            NON_ENTRY_GENERATION_VISITS.set(NON_ENTRY_GENERATION_VISITS.get() + total);
+        }
+        Ok(true)
     }
 
     pub(crate) fn final_waiting_decision(
@@ -6637,6 +6805,43 @@ pub(crate) mod tests {
             exec_config(workers),
             &world.state,
         );
+    }
+
+    #[test]
+    fn parallel_non_entry_decisions_match_serial_and_fall_back_on_cache_miss() {
+        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        // 4 线程走分段生成；缓存上限 0 时每行缺序号，整段退回串行线性合并。
+        let run = |workers: u32, cache_limit: Option<usize>| {
+            let _cache =
+                cache_limit.map(crate::kernel::tick::transaction_tests::CacheLimitGuard::set);
+            let mut world = multi_gate_world(17);
+            install_execution(&mut world, workers);
+            let mut outputs = Vec::new();
+            let mut non_entry = 0;
+            for _ in 0..64 {
+                NON_ENTRY_GENERATION_VISITS.set(0);
+                NON_ENTRY_SEQUENCE_VISITS.set(0);
+                world.step(TickInput::new(100)).unwrap();
+                let decisions = world.latest_waiting_decisions().to_vec();
+                let generated = decisions
+                    .iter()
+                    .filter(|decision| decision.zone().is_none())
+                    .count();
+                assert_eq!(NON_ENTRY_GENERATION_VISITS.get(), generated);
+                if cache_limit.is_none() {
+                    assert_eq!(NON_ENTRY_SEQUENCE_VISITS.get(), 0);
+                } else if generated > 0 {
+                    assert!(NON_ENTRY_SEQUENCE_VISITS.get() > 0, "serial fallback ran");
+                }
+                non_entry += generated;
+                outputs.push((decisions, world.latest_transition_events().to_vec()));
+            }
+            (outputs, non_entry)
+        };
+        let (reference, non_entry) = run(1, None);
+        assert!(non_entry > 0, "fixture produces non-entry decisions");
+        assert_eq!(run(4, None).0, reference);
+        assert_eq!(run(4, Some(0)).0, reference);
     }
 
     #[test]
