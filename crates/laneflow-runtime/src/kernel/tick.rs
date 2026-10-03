@@ -4797,6 +4797,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )?;
         #[cfg(test)]
         drop(motion_timer);
+        // Frontier 分类只读本拍运动结果（路线、游标、进度、速度、状态），后续收尾步骤
+        // 只改控制记录且保持状态不变；紧接 P5 执行，池线程仍在空转窗口内，不必冷唤醒。
+        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates, execution)?;
         #[cfg(test)]
         let waiting_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingFinalize);
@@ -4826,7 +4829,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
         self.workspace.clear_motion_cache();
-        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates, execution)?;
         #[cfg(test)]
         drop(output_timer);
         #[cfg(test)]
