@@ -464,6 +464,311 @@ pub(crate) struct ConflictPassageTransition {
     pub(crate) clear: bool,
 }
 
+/// 少于此资源行数时串行收尾；分段规划的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const FINALIZE_PARALLEL_ROWS: usize = 512;
+#[cfg(test)]
+const FINALIZE_PARALLEL_ROWS: usize = 1;
+/// 并行收尾的段数上限。
+const FINALIZE_MAX_PARTS: usize = 128;
+
+/// 一段连续资源行的收尾规划与其按行序排列的暂存决定、通行区间转移。
+/// 由执行池持有（只在多线程分发时存在），跨拍保留容量。
+#[derive(Debug, Default)]
+pub(crate) struct FinalizePart {
+    rows: Vec<FinalizeRowPlan>,
+    decisions: Vec<ConflictDecision>,
+    transitions: Vec<ConflictPassageTransition>,
+}
+
+/// 单条资源行的只读收尾结果；`*_end` 是本行在段内决定/转移中的结束下标。
+#[derive(Clone, Copy, Debug)]
+struct FinalizeRowPlan {
+    index: usize,
+    handle: VehicleHandle,
+    status: VehicleStatus,
+    waiting_membership: Option<crate::WaitingMembership>,
+    maneuver: Option<ManeuverTraversalState>,
+    clear_eligibility: bool,
+    decisions_end: usize,
+    transitions_end: usize,
+    error: Option<StepError>,
+}
+
+/// 资源行规划只读的拍初状态与本拍暂存。
+struct FinalizeView<'a> {
+    read: crate::kernel::phase::StepReadView<'a>,
+    conflict: crate::kernel::conflict::ConflictRead<'a>,
+    grants: &'a [PreparedConflictGrant],
+    motion_by_vehicle: &'a [Option<ConflictMotionPlan>],
+    next_eligibility: &'a [Option<crate::ConflictEligibilityState>],
+    signals: &'a [laneflow_static_contract::SignalAspect],
+    updates: &'a super::motion_updates::MotionUpdates,
+}
+
+/// 与串行收尾循环逐项相同的只读规划；更新序号由落账阶段补写。
+fn plan_resource_row(
+    view: &FinalizeView<'_>,
+    index: usize,
+    decisions: &mut Vec<ConflictDecision>,
+    transitions: &mut Vec<ConflictPassageTransition>,
+) -> FinalizeRowPlan {
+    let vehicles = &view.read.committed.vehicles;
+    let row = view.updates.row(index, vehicles);
+    let handle = row.source.handle();
+    let position = row.position();
+    let waiting = super::waiting::WaitingTraversalInput {
+        route: row.source.route(),
+        profile: row.source.profile(),
+        position,
+        status: row.status(),
+        waiting_membership: row.control().waiting,
+    };
+    let fields = GateMotion {
+        handle,
+        route: waiting.route,
+        profile: waiting.profile,
+        previous: row.source.position(),
+        next: position,
+    };
+    let mut plan = FinalizeRowPlan {
+        index,
+        handle,
+        status: waiting.status,
+        waiting_membership: waiting.waiting_membership,
+        maneuver: None,
+        clear_eligibility: false,
+        decisions_end: 0,
+        transitions_end: 0,
+        error: None,
+    };
+    let result = (|| -> Result<(), StepError> {
+        free_gate_decisions(view.read, fields, 0, |decision| {
+            decisions
+                .try_reserve(1)
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+            decisions.push(decision);
+            Ok(())
+        })?;
+        let slot = handle.index() as usize;
+        let grant_index = view.motion_by_vehicle[slot]
+            .and_then(|plan| plan.grant_index)
+            .map(|index| index.get() as usize - 1);
+        let crossed = grant_index
+            .is_some_and(|index| position.route_edge_index > view.grants[index].gate_hop);
+        let range = grant_index
+            .filter(|_| crossed)
+            .and_then(|index| view.grants[index].passage_range)
+            .or_else(|| {
+                view.read
+                    .conflict_reservation(handle)
+                    .map(|reservation| reservation.passage_range())
+            });
+        let all_clear = match range {
+            Some(range) => {
+                let next = view.updates.row(index, vehicles).state();
+                passage_transitions(view.read, view.conflict, next, range, |transition| {
+                    transitions
+                        .try_reserve(1)
+                        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+                    transitions.push(transition);
+                    Ok(())
+                })?
+            }
+            None => true,
+        };
+        let maneuver = if all_clear {
+            view.read.derive_waiting_traversal_input(waiting, true)?
+        } else {
+            Some(ManeuverTraversalState {
+                route: waiting.route,
+                maneuver_occurrence_index: range
+                    .expect("uncleared coverage")
+                    .maneuver_occurrence_index(),
+                phase: ManeuverTraversalPhase::Clearing {
+                    admission_gate_hop: range.expect("uncleared coverage").admission_gate_hop(),
+                },
+            })
+        };
+        if (!all_clear && waiting.waiting_membership.is_some())
+            || (waiting.status != VehicleStatus::Active
+                && (maneuver.is_some() || waiting.waiting_membership.is_some()))
+        {
+            return Err(StepError::ConflictInvariantViolation);
+        }
+        // 越过 Gate 的资格先失效；其余资格按拍后状态与下一时刻信号复核。
+        let mut clear = crossed;
+        if !crossed && let Some(eligibility) = view.next_eligibility[slot] {
+            let mut next = view.updates.row(index, vehicles).state();
+            next.maneuver_traversal = maneuver;
+            clear = !view.read.conflict_eligibility_valid_with_signals(
+                &next,
+                eligibility,
+                view.signals,
+            );
+        }
+        plan.maneuver = maneuver;
+        plan.clear_eligibility = clear;
+        Ok(())
+    })();
+    plan.error = result.err();
+    plan.decisions_end = decisions.len();
+    plan.transitions_end = transitions.len();
+    plan
+}
+
+/// 一条已授权通行区间在本拍后的进入/清空转移；只读，转移按出现项顺序交给 `push`。
+/// 返回区间是否已全部清空。
+fn passage_transitions(
+    read: crate::kernel::phase::StepReadView<'_>,
+    conflict: crate::kernel::conflict::ConflictRead<'_>,
+    next: VehicleState,
+    range: ConflictPassageRange,
+    mut push: impl FnMut(ConflictPassageTransition) -> Result<(), StepError>,
+) -> Result<bool, StepError> {
+    let end = range
+        .first_conflict_occurrence_index()
+        .checked_add(range.passage_count())
+        .ok_or(StepError::ConflictInvariantViolation)?;
+    let mut all_clear = true;
+    for index in range.first_conflict_occurrence_index()..end {
+        let occurrence = *read
+            .compiled_route(range.route())
+            .and_then(|compiled| compiled.conflicts.get(index as usize))
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let stage = conflict.passage_stage(next.handle, occurrence.address());
+        let front_reached = route_front_at_or_beyond(
+            next,
+            occurrence.entry.route_edge_index,
+            occurrence.entry.progress_mm,
+        );
+        let rear_cleared = crate::kernel::tables::vehicle_rear_at_or_beyond(
+            read.binding.revision.traffic().lane_lengths_millimetres(),
+            &read
+                .compiled_route(range.route())
+                .ok_or(StepError::ConflictInvariantViolation)?
+                .edges,
+            next.route_edge_index as usize,
+            next.progress_mm,
+            next.carry_um,
+            next.length_mm,
+            occurrence.clearance,
+        )
+        .ok_or(StepError::ConflictInvariantViolation)?;
+        let already_cleared = matches!(
+            stage,
+            Some(crate::kernel::conflict::ConflictPassageStage::Cleared)
+        );
+        let occupied = matches!(
+            stage,
+            Some(crate::kernel::conflict::ConflictPassageStage::Occupied)
+        );
+        let enter = front_reached && !already_cleared && !occupied;
+        let clear = rear_cleared && !already_cleared;
+        if enter || clear {
+            push(ConflictPassageTransition {
+                vehicle: next.handle,
+                occurrence_index: index,
+                address: occurrence.address(),
+                enter,
+                clear,
+            })?;
+        }
+        all_clear &= already_cleared || rear_cleared;
+    }
+    Ok(all_clear)
+}
+
+/// 车辆本拍越过的、无需资源的普通 Gate 的定稿决定；只读，决定按 hop 顺序交给 `push`。
+fn free_gate_decisions(
+    read: crate::kernel::phase::StepReadView<'_>,
+    fields: GateMotion,
+    update_sequence: u32,
+    mut push: impl FnMut(ConflictDecision) -> Result<(), StepError>,
+) -> Result<(), StepError> {
+    let previous = fields.previous;
+    let next = fields.next;
+    let first_hop = if previous.progress_mm == 0 && previous.carry_um == 0 {
+        previous.route_edge_index.saturating_sub(1)
+    } else {
+        previous.route_edge_index
+    };
+    let compiled =
+        crate::kernel::tables::compiled_route_for_handle(&read.committed.routes, fields.route)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+    // 零进度回看已计入 first_hop；同一 hop 内尚未到边尾时没有可定稿 Gate。
+    if first_hop == next.route_edge_index
+        && compiled.edges.get(first_hop as usize).is_some_and(|edge| {
+            next.progress_mm
+                < read.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+        })
+    {
+        return Ok(());
+    }
+    let first = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("conflict_tick:2059");
+        |hop| *hop < first_hop
+    });
+    let last = compiled.gate_hops.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("conflict_tick:2062");
+        |hop| *hop <= next.route_edge_index
+    });
+    for index in first..last {
+        let hop = compiled.gate_hops[index];
+        let edge = compiled.edges[hop as usize];
+        if next.route_edge_index == hop
+            && next.progress_mm
+                < read.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+        {
+            break;
+        }
+        let waiting = compiled.waiting.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:2074");
+            |entry| entry.entry_hop < hop
+        });
+        if compiled.conflict_gate_ranges[hop as usize].len != 0
+            || compiled
+                .waiting
+                .get(waiting)
+                .is_some_and(|entry| entry.entry_hop == hop)
+        {
+            continue;
+        }
+        let maneuver = compiled.maneuvers.partition_point({
+            #[cfg(test)]
+            super::route_query_research::note_search("conflict_tick:2085");
+            |entry| entry.exit_route_edge_index <= hop
+        });
+        compiled
+            .maneuvers
+            .get(maneuver)
+            .filter(|entry| entry.entry_route_edge_index <= hop)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let gate = compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
+        let outcome = match read.gate_policy_decision(gate, fields.profile) {
+            GatePolicyDecision::DenyAndStop => ConflictDecisionOutcome::NotEvaluated,
+            GatePolicyDecision::Candidate(_) => ConflictDecisionOutcome::NotRequired,
+        };
+        push(ConflictDecision {
+            vehicle: fields.handle,
+            vehicle_update_sequence: update_sequence,
+            anchor: ConflictRouteAnchor {
+                route: fields.route,
+                maneuver_occurrence_index: u32::try_from(maneuver)
+                    .map_err(|_| StepError::ConflictInvariantViolation)?,
+                hop,
+            },
+            passage: None,
+            outcome,
+        })?;
+    }
+    Ok(())
+}
+
 /// 以 `try_reserve` 扩容暂存向量；失败映射为 `StepError::ConflictScratchAllocFailed`。
 pub(crate) fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), StepError> {
     #[cfg(test)]
@@ -2167,96 +2472,33 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         fields: GateMotion,
         update_sequence: u32,
     ) -> Result<(), StepError> {
-        let previous = fields.previous;
-        let next = fields.next;
-        let first_hop = if previous.progress_mm == 0 && previous.carry_um == 0 {
-            previous.route_edge_index.saturating_sub(1)
-        } else {
-            previous.route_edge_index
+        let read = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
         };
-        let compiled =
-            crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, fields.route)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-        // 零进度回看已计入 first_hop；同一 hop 内尚未到边尾时没有可定稿 Gate。
-        if first_hop == next.route_edge_index
-            && compiled.edges.get(first_hop as usize).is_some_and(|edge| {
-                next.progress_mm
-                    < self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
-            })
-        {
-            return Ok(());
-        }
-        let first = compiled.gate_hops.partition_point({
-            #[cfg(test)]
-            super::route_query_research::note_search("conflict_tick:2059");
-            |hop| *hop < first_hop
-        });
-        let last = compiled.gate_hops.partition_point({
-            #[cfg(test)]
-            super::route_query_research::note_search("conflict_tick:2062");
-            |hop| *hop <= next.route_edge_index
-        });
-        for index in first..last {
-            let hop = compiled.gate_hops[index];
-            let edge = compiled.edges[hop as usize];
-            if next.route_edge_index == hop
-                && next.progress_mm
-                    < self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
-            {
-                break;
-            }
-            let waiting = compiled.waiting.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("conflict_tick:2074");
-                |entry| entry.entry_hop < hop
-            });
-            if compiled.conflict_gate_ranges[hop as usize].len != 0
-                || compiled
-                    .waiting
-                    .get(waiting)
-                    .is_some_and(|entry| entry.entry_hop == hop)
-            {
-                continue;
-            }
-            let maneuver = compiled.maneuvers.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("conflict_tick:2085");
-                |entry| entry.exit_route_edge_index <= hop
-            });
-            compiled
-                .maneuvers
-                .get(maneuver)
-                .filter(|entry| entry.entry_route_edge_index <= hop)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let gate =
-                compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
-            let outcome = match self.gate_policy_decision(gate, fields.profile) {
-                GatePolicyDecision::DenyAndStop => ConflictDecisionOutcome::NotEvaluated,
-                GatePolicyDecision::Candidate(_) => ConflictDecisionOutcome::NotRequired,
-            };
-            reserve(&mut self.workspace.conflict_staged_decisions, 1)?;
-            self.workspace
-                .conflict_staged_decisions
-                .push(ConflictDecision {
-                    vehicle: fields.handle,
-                    vehicle_update_sequence: update_sequence,
-                    anchor: ConflictRouteAnchor {
-                        route: fields.route,
-                        maneuver_occurrence_index: u32::try_from(maneuver)
-                            .map_err(|_| StepError::ConflictInvariantViolation)?,
-                        hop,
-                    },
-                    passage: None,
-                    outcome,
-                });
-        }
-        Ok(())
+        let decisions = &mut self.workspace.conflict_staged_decisions;
+        free_gate_decisions(read, fields, update_sequence, |decision| {
+            reserve(decisions, 1)?;
+            decisions.push(decision);
+            Ok(())
+        })
     }
 
     /// 在 mutation boundary 前验证并定稿本拍 Conflict 提交计划。
+    #[cfg(test)]
     pub(crate) fn finalize_conflict_step(
         &mut self,
         updates: &mut super::motion_updates::MotionUpdates,
+    ) -> Result<(), StepError> {
+        self.finalize_conflict_step_with(updates, None)
+    }
+
+    /// 同 [`Self::finalize_conflict_step`]；多线程时资源行先并行只读规划，再按行序落账。
+    pub(crate) fn finalize_conflict_step_with(
+        &mut self,
+        updates: &mut super::motion_updates::MotionUpdates,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         self.workspace.conflict_passage_transitions.clear();
         self.workspace.conflict_changed_owners.clear();
@@ -2291,106 +2533,118 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
 
         // live_order 同时包含 parked/completed；双游标合并两份有序列表，保留正式更新序号。
-        let mut update_sequence = 0;
-        for resource_index in 0..updates.resource_rows().len() {
-            let index = updates.resource_rows()[resource_index];
-            let row = updates.row(index, &self.committed.vehicles);
-            let handle = row.source.handle();
-            let position = row.position();
-            let waiting = super::waiting::WaitingTraversalInput {
-                route: row.source.route(),
-                profile: row.source.profile(),
-                position,
-                status: row.status(),
-                waiting_membership: row.control().waiting,
-            };
-            let fields = GateMotion {
-                handle,
-                route: waiting.route,
-                profile: waiting.profile,
-                previous: row.source.position(),
-                next: position,
-            };
-            while self.committed.live_order.get(update_sequence) != Some(&handle) {
-                update_sequence += 1;
-                if update_sequence >= self.committed.live_order.len() {
-                    return Err(StepError::ConflictInvariantViolation);
+        match execution.filter(|resources| {
+            resources.coordinator_parallel()
+                && updates.resource_rows().len() >= FINALIZE_PARALLEL_ROWS
+        }) {
+            Some(resources) => self.finalize_resource_rows_parallel(updates, resources)?,
+            None => {
+                let mut update_sequence = 0;
+                for resource_index in 0..updates.resource_rows().len() {
+                    let index = updates.resource_rows()[resource_index];
+                    let row = updates.row(index, &self.committed.vehicles);
+                    let handle = row.source.handle();
+                    let position = row.position();
+                    let waiting = super::waiting::WaitingTraversalInput {
+                        route: row.source.route(),
+                        profile: row.source.profile(),
+                        position,
+                        status: row.status(),
+                        waiting_membership: row.control().waiting,
+                    };
+                    let fields = GateMotion {
+                        handle,
+                        route: waiting.route,
+                        profile: waiting.profile,
+                        previous: row.source.position(),
+                        next: position,
+                    };
+                    while self.committed.live_order.get(update_sequence) != Some(&handle) {
+                        update_sequence += 1;
+                        if update_sequence >= self.committed.live_order.len() {
+                            return Err(StepError::ConflictInvariantViolation);
+                        }
+                    }
+                    self.stage_resource_free_gate_fields(
+                        fields,
+                        u32::try_from(update_sequence)
+                            .map_err(|_| StepError::ConflictInvariantViolation)?,
+                    )?;
+                    #[cfg(test)]
+                    crate::kernel::conflict::count_conflict_work(|counts| {
+                        counts.vehicle_grant_lookups += 1
+                    });
+                    let grant_index = self.workspace.conflict_motion_by_vehicle
+                        [handle.index() as usize]
+                        .and_then(|plan| plan.grant_index)
+                        .map(|index| index.get() as usize - 1);
+                    let crossed = grant_index.is_some_and(|index| {
+                        position.route_edge_index > self.workspace.conflict_grants[index].gate_hop
+                    });
+                    if crossed {
+                        self.workspace.conflict_next_eligibility[handle.index() as usize] = None;
+                    }
+                    let range = grant_index
+                        .filter(|_| crossed)
+                        .and_then(|index| self.workspace.conflict_grants[index].passage_range)
+                        .or_else(|| {
+                            self.conflict_reservation(handle)
+                                .map(|reservation| reservation.passage_range())
+                        });
+                    let all_clear = match range {
+                        Some(range) => {
+                            let next = updates.row(index, &self.committed.vehicles).state();
+                            self.stage_passage_transitions(next, range)?
+                        }
+                        None => true,
+                    };
+                    let maneuver = if all_clear {
+                        self.read_view()
+                            .derive_waiting_traversal_input(waiting, true)?
+                    } else {
+                        Some(ManeuverTraversalState {
+                            route: waiting.route,
+                            maneuver_occurrence_index: range
+                                .expect("uncleared coverage")
+                                .maneuver_occurrence_index(),
+                            phase: ManeuverTraversalPhase::Clearing {
+                                admission_gate_hop: range
+                                    .expect("uncleared coverage")
+                                    .admission_gate_hop(),
+                            },
+                        })
+                    };
+                    if (!all_clear && waiting.waiting_membership.is_some())
+                        || (waiting.status != VehicleStatus::Active
+                            && (maneuver.is_some() || waiting.waiting_membership.is_some()))
+                    {
+                        return Err(StepError::ConflictInvariantViolation);
+                    }
+                    let slot = handle.index() as usize;
+                    if let Some(eligibility) = self.workspace.conflict_next_eligibility[slot] {
+                        let mut next = updates.row(index, &self.committed.vehicles).state();
+                        next.maneuver_traversal = maneuver;
+                        if !self.conflict_eligibility_valid_with_signals(
+                            &next,
+                            eligibility,
+                            &self.workspace.next_signal_aspects,
+                        ) {
+                            self.workspace.conflict_next_eligibility[slot] = None;
+                        }
+                    }
+                    updates.set_control(
+                        index,
+                        waiting.status,
+                        maneuver,
+                        waiting.waiting_membership,
+                        &self.committed.vehicles,
+                    )?;
                 }
+
+                // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。
             }
-            self.stage_resource_free_gate_fields(
-                fields,
-                u32::try_from(update_sequence)
-                    .map_err(|_| StepError::ConflictInvariantViolation)?,
-            )?;
-            #[cfg(test)]
-            crate::kernel::conflict::count_conflict_work(|counts| {
-                counts.vehicle_grant_lookups += 1
-            });
-            let grant_index = self.workspace.conflict_motion_by_vehicle[handle.index() as usize]
-                .and_then(|plan| plan.grant_index)
-                .map(|index| index.get() as usize - 1);
-            let crossed = grant_index.is_some_and(|index| {
-                position.route_edge_index > self.workspace.conflict_grants[index].gate_hop
-            });
-            if crossed {
-                self.workspace.conflict_next_eligibility[handle.index() as usize] = None;
-            }
-            let range = grant_index
-                .filter(|_| crossed)
-                .and_then(|index| self.workspace.conflict_grants[index].passage_range)
-                .or_else(|| {
-                    self.conflict_reservation(handle)
-                        .map(|reservation| reservation.passage_range())
-                });
-            let all_clear = match range {
-                Some(range) => {
-                    let next = updates.row(index, &self.committed.vehicles).state();
-                    self.stage_passage_transitions(next, range)?
-                }
-                None => true,
-            };
-            let maneuver = if all_clear {
-                self.read_view()
-                    .derive_waiting_traversal_input(waiting, true)?
-            } else {
-                Some(ManeuverTraversalState {
-                    route: waiting.route,
-                    maneuver_occurrence_index: range
-                        .expect("uncleared coverage")
-                        .maneuver_occurrence_index(),
-                    phase: ManeuverTraversalPhase::Clearing {
-                        admission_gate_hop: range.expect("uncleared coverage").admission_gate_hop(),
-                    },
-                })
-            };
-            if (!all_clear && waiting.waiting_membership.is_some())
-                || (waiting.status != VehicleStatus::Active
-                    && (maneuver.is_some() || waiting.waiting_membership.is_some()))
-            {
-                return Err(StepError::ConflictInvariantViolation);
-            }
-            let slot = handle.index() as usize;
-            if let Some(eligibility) = self.workspace.conflict_next_eligibility[slot] {
-                let mut next = updates.row(index, &self.committed.vehicles).state();
-                next.maneuver_traversal = maneuver;
-                if !self.conflict_eligibility_valid_with_signals(
-                    &next,
-                    eligibility,
-                    &self.workspace.next_signal_aspects,
-                ) {
-                    self.workspace.conflict_next_eligibility[slot] = None;
-                }
-            }
-            updates.set_control(
-                index,
-                waiting.status,
-                maneuver,
-                waiting.waiting_membership,
-                &self.committed.vehicles,
-            )?;
         }
 
-        // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。
         for prepared in &self.workspace.conflict_grants {
             #[cfg(test)]
             crate::kernel::conflict::count_conflict_work(|counts| counts.grant_update_lookups += 1);
@@ -2449,66 +2703,158 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按车辆新位置暂存冲突通行段的进入/清空转移；返回是否全部清空。
+    /// 资源行收尾的并行版本：各段只读规划连续资源行（Gate 定稿决定、通行区间转移、
+    /// 机动穿越状态与资格是否失效），协调器再按资源行顺序落账：推进 live 序号、
+    /// 补写决定的更新序号、追加转移、清除失效资格并写控制记录。规划只读拍初
+    /// 已提交状态与本拍暂存，彼此不依赖；落账顺序与串行循环一致，首错取最早的行。
+    fn finalize_resource_rows_parallel(
+        &mut self,
+        updates: &mut super::motion_updates::MotionUpdates,
+        resources: &crate::kernel::execution::ExecutionResources,
+    ) -> Result<(), StepError> {
+        let rows = updates.resource_rows().len();
+        let mut guard = resources
+            .finalize_parts()
+            .expect("private coordinator buffer");
+        let wanted = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(FINALIZE_MAX_PARTS)
+            .min(rows)
+            .max(1);
+        let present = guard.len();
+        if present < wanted {
+            guard
+                .try_reserve(wanted - present)
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+            guard.resize_with(wanted, FinalizePart::default);
+        }
+        let span = rows.div_ceil(wanted).max(1);
+        // 段内决定与转移通常每行至多一两条；按段长预留，稳态各拍不再增长。
+        for part in guard.iter_mut().take(wanted) {
+            part.rows.clear();
+            part.decisions.clear();
+            part.transitions.clear();
+            part.rows
+                .try_reserve(span)
+                .and_then(|()| part.decisions.try_reserve(span))
+                .and_then(|()| part.transitions.try_reserve(span))
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        }
+        {
+            let view = FinalizeView {
+                read: crate::kernel::phase::StepReadView {
+                    binding: self.binding,
+                    committed: &self.committed,
+                    derived: &self.derived,
+                },
+                conflict: crate::kernel::conflict::ConflictRead::new(
+                    &self.committed.conflict,
+                    &self.derived.conflict,
+                    &self.workspace.conflict,
+                ),
+                grants: &self.workspace.conflict_grants,
+                motion_by_vehicle: &self.workspace.conflict_motion_by_vehicle,
+                next_eligibility: &self.workspace.conflict_next_eligibility,
+                signals: &self.workspace.next_signal_aspects,
+                updates: &*updates,
+            };
+            let view = &view;
+            resources.for_each_part(&mut guard[..wanted], 1, |part, output| {
+                let part_output = &mut output[0];
+                let start = (part * span).min(rows);
+                let end = (start + span).min(rows);
+                for resource_index in start..end {
+                    let index = view.updates.resource_rows()[resource_index];
+                    let plan = plan_resource_row(
+                        view,
+                        index,
+                        &mut part_output.decisions,
+                        &mut part_output.transitions,
+                    );
+                    let failed = plan.error.is_some();
+                    part_output.rows.push(plan);
+                    if failed {
+                        break;
+                    }
+                }
+            });
+        }
+        let mut update_sequence = 0;
+        for part in guard.iter().take(wanted) {
+            let mut decisions_start = 0;
+            let mut transitions_start = 0;
+            for plan in &part.rows {
+                while self.committed.live_order.get(update_sequence) != Some(&plan.handle) {
+                    update_sequence += 1;
+                    if update_sequence >= self.committed.live_order.len() {
+                        return Err(StepError::ConflictInvariantViolation);
+                    }
+                }
+                let sequence = u32::try_from(update_sequence)
+                    .map_err(|_| StepError::ConflictInvariantViolation)?;
+                if let Some(error) = plan.error {
+                    return Err(error);
+                }
+                #[cfg(test)]
+                crate::kernel::conflict::count_conflict_work(|counts| {
+                    counts.vehicle_grant_lookups += 1
+                });
+                let decisions = &part.decisions[decisions_start..plan.decisions_end];
+                reserve(
+                    &mut self.workspace.conflict_staged_decisions,
+                    decisions.len(),
+                )?;
+                for decision in decisions {
+                    let mut decision = *decision;
+                    decision.vehicle_update_sequence = sequence;
+                    self.workspace.conflict_staged_decisions.push(decision);
+                }
+                let transitions = &part.transitions[transitions_start..plan.transitions_end];
+                reserve(
+                    &mut self.workspace.conflict_passage_transitions,
+                    transitions.len(),
+                )?;
+                self.workspace
+                    .conflict_passage_transitions
+                    .extend_from_slice(transitions);
+                decisions_start = plan.decisions_end;
+                transitions_start = plan.transitions_end;
+                if plan.clear_eligibility {
+                    self.workspace.conflict_next_eligibility[plan.handle.index() as usize] = None;
+                }
+                updates.set_control(
+                    plan.index,
+                    plan.status,
+                    plan.maneuver,
+                    plan.waiting_membership,
+                    &self.committed.vehicles,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn stage_passage_transitions(
         &mut self,
         next: VehicleState,
         range: ConflictPassageRange,
     ) -> Result<bool, StepError> {
-        let end = range
-            .first_conflict_occurrence_index()
-            .checked_add(range.passage_count())
-            .ok_or(StepError::ConflictInvariantViolation)?;
-        let mut all_clear = true;
-        for index in range.first_conflict_occurrence_index()..end {
-            let occurrence = *self
-                .compiled_route(range.route())
-                .and_then(|compiled| compiled.conflicts.get(index as usize))
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let stage = self
-                .conflict_read()
-                .passage_stage(next.handle, occurrence.address());
-            let front_reached = route_front_at_or_beyond(
-                next,
-                occurrence.entry.route_edge_index,
-                occurrence.entry.progress_mm,
-            );
-            let rear_cleared = crate::kernel::tables::vehicle_rear_at_or_beyond(
-                self.binding.revision.traffic().lane_lengths_millimetres(),
-                &self
-                    .compiled_route(range.route())
-                    .ok_or(StepError::ConflictInvariantViolation)?
-                    .edges,
-                next.route_edge_index as usize,
-                next.progress_mm,
-                next.carry_um,
-                next.length_mm,
-                occurrence.clearance,
-            )
-            .ok_or(StepError::ConflictInvariantViolation)?;
-            let already_cleared = matches!(
-                stage,
-                Some(crate::kernel::conflict::ConflictPassageStage::Cleared)
-            );
-            let occupied = matches!(
-                stage,
-                Some(crate::kernel::conflict::ConflictPassageStage::Occupied)
-            );
-            let enter = front_reached && !already_cleared && !occupied;
-            let clear = rear_cleared && !already_cleared;
-            if enter || clear {
-                self.workspace
-                    .conflict_passage_transitions
-                    .push(ConflictPassageTransition {
-                        vehicle: next.handle,
-                        occurrence_index: index,
-                        address: occurrence.address(),
-                        enter,
-                        clear,
-                    });
-            }
-            all_clear &= already_cleared || rear_cleared;
-        }
-        Ok(all_clear)
+        let read = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
+        };
+        let conflict = crate::kernel::conflict::ConflictRead::new(
+            &self.committed.conflict,
+            &self.derived.conflict,
+            &self.workspace.conflict,
+        );
+        let transitions = &mut self.workspace.conflict_passage_transitions;
+        passage_transitions(read, conflict, next, range, |transition| {
+            transitions.push(transition);
+            Ok(())
+        })
     }
 }
 

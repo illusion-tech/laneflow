@@ -130,6 +130,8 @@ pub(crate) struct PoolResources {
     _workers: WorkerJoins,
     /// 占用索引分段收集缓冲：只在多线程分发时需要，随池存活跨拍保留容量。
     occupancy_parts: std::sync::Mutex<Vec<super::occupancy::OccupancyPart>>,
+    /// 协调器独占的 Conflict 收尾分段规划缓冲，随池存活跨拍保留容量。
+    finalize_parts: std::sync::Mutex<Vec<super::conflict_tick::FinalizePart>>,
     /// 协调器并行归约后的稀疏下标（P2 预览消费、P5 到达/完成行）；
     /// Frontier 分类暂借作逐行位标记。各阶段不重叠使用，随池跨拍保留容量。
     sparse_indices: std::sync::Mutex<Vec<u32>>,
@@ -352,6 +354,7 @@ impl ExecutionResources {
             pool,
             _workers: workers,
             occupancy_parts: std::sync::Mutex::new(Vec::new()),
+            finalize_parts: std::sync::Mutex::new(Vec::new()),
             sparse_indices: std::sync::Mutex::new(Vec::new()),
             frontier_replay: std::sync::Mutex::new(Default::default()),
         })))
@@ -429,6 +432,21 @@ impl ExecutionResources {
             Self::Pool(resources) => resources
                 .pool
                 .install(|| split_parts(output, 0, chunk_size, &compute)),
+        }
+    }
+
+    /// 协调器独占的 Conflict 收尾规划缓冲；`Caller` 不分段，返回空。
+    pub(crate) fn finalize_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::conflict_tick::FinalizePart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .finalize_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
         }
     }
 

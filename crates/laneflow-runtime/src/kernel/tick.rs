@@ -4821,7 +4821,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let conflict_timer =
             super::performance_profile::begin(super::performance_profile::Stage::ConflictFinalize);
         self.complete_resource_rows(updates);
-        self.finalize_conflict_step(updates)?;
+        self.finalize_conflict_step_with(updates, execution)?;
         #[cfg(test)]
         drop(conflict_timer);
         #[cfg(test)]
@@ -4846,15 +4846,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         profile: VehicleProfileOrdinal,
     ) -> bool {
         self.read_view().gate_is_restrictive(gate, profile)
-    }
-
-    /// 按当前已提交信号求值机动门的策略决定。
-    pub(crate) fn gate_policy_decision(
-        &self,
-        gate: laneflow_static_contract::ManeuverGateOrdinal,
-        profile: VehicleProfileOrdinal,
-    ) -> crate::GatePolicyDecision {
-        self.read_view().gate_policy_decision(gate, profile)
     }
 }
 
