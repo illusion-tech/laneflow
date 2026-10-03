@@ -487,6 +487,24 @@ impl VehicleStore {
             .flatten()
     }
 
+    /// 活动车位的身份与机动穿越状态；不读运动列。非活动或空位返回 `None`。
+    #[inline(always)]
+    pub(crate) fn active_owner_maneuver(
+        &self,
+        index: usize,
+    ) -> Option<(VehicleHandle, Option<crate::ManeuverTraversalState>)> {
+        let entry = self.directory.get(index)?;
+        let Location::Active(physical) = entry.location else {
+            return None;
+        };
+        let context = self.context[physical / BLOCK_ROWS].rows[physical % BLOCK_ROWS].as_ref()?;
+        let maneuver = entry
+            .control
+            .checked_sub(1)
+            .and_then(|row| self.control[row as usize].maneuver);
+        Some((context.owner, maneuver))
+    }
+
     /// 身份发现只消费状态，不读取运动列或物化稀疏控制记录。
     #[inline(always)]
     pub(crate) fn status(&self, handle: VehicleHandle) -> Option<VehicleStatus> {
