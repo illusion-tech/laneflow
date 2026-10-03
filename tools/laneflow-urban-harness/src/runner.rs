@@ -573,6 +573,23 @@ impl<'a> Harness<'a> {
         let cursor_before = self.world.command_cursor();
         let event_before = self.world.event_cursor();
         let name = request.command.name();
+        // 持续计划的回收轮询：车还没跑完时静默顺延，不写命令日志，也不计证据。
+        if self.plan.case == "SUSTAINED-ACTIVE"
+            && matches!(request.command, Command::Replace { .. })
+            && before.status() != VehicleStatus::Completed
+        {
+            let next_tick = tick + self.plan.retry_ticks;
+            if request.attempt < self.plan.max_attempts && next_tick < self.plan.window.end() {
+                self.enqueue(Request {
+                    due: next_tick,
+                    attempt: request.attempt + 1,
+                    ..request.clone()
+                });
+            } else {
+                self.exhausted.insert(request.sequence);
+            }
+            return Ok(());
+        }
         if request.command.retryable() && request.attempt == 1 {
             self.pending.insert(request.sequence);
         }
