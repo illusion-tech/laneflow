@@ -812,28 +812,22 @@ fn compute(
             let compiled = route.ok_or(StepError::NonFiniteMotion)?;
             let cursor = chunk.cursor[row];
             let progress = chunk.progress[row];
+            let traffic = view.read.binding.revision.traffic();
+            let hop = crate::kernel::tables::route_hop(
+                compiled,
+                cursor as usize,
+                traffic.lane_lengths_millimetres(),
+                traffic.lane_speed_limits_millimetres_per_second(),
+            )
+            .ok_or(StepError::NonFiniteMotion)?;
             let limit = if cursor == source.route_cursor[offset + row] {
                 batch.limit[row]
             } else {
-                let edge = compiled
-                    .edges
-                    .get(cursor as usize)
-                    .ok_or(StepError::NonFiniteMotion)?;
-                *view
-                    .read
-                    .binding
-                    .revision
-                    .traffic()
-                    .lane_speed_limits_millimetres_per_second()
-                    .get(edge.index())
-                    .ok_or(StepError::NonFiniteMotion)?
+                hop.limit_mm_s.ok_or(StepError::NonFiniteMotion)?
             };
             chunk.speed[row] = chunk.speed[row].min(limit);
             let remaining = remaining_to_route_end(
-                *compiled
-                    .remaining_to_end
-                    .get(cursor as usize)
-                    .ok_or(StepError::NonFiniteMotion)?,
+                hop.remaining_to_end.ok_or(StepError::NonFiniteMotion)?,
                 progress,
             );
             let mut route_completed = matches!(remaining, BoundedDistance::Finite(0));
@@ -1227,6 +1221,9 @@ mod tests {
                     let complex_vehicle = (count >= 16).then(|| handles[count / 2]);
                     if let Some(handle) = complex_vehicle {
                         let state = world.vehicle(handle).unwrap();
+                        let traffic = world.traffic();
+                        let lengths = traffic.lane_lengths_millimetres().to_vec();
+                        let speeds = traffic.lane_speed_limits_millimetres_per_second().to_vec();
                         let route = world.state.committed.routes[state.route.index() as usize]
                             .compiled
                             .as_mut()
@@ -1239,6 +1236,7 @@ mod tests {
                                 to_edge: route.edges[1],
                                 target_mm_s: 4_000,
                             });
+                        route.refresh_hops(&lengths, &speeds).unwrap();
                     }
                     world.state.rebuild_occupancy_index().unwrap();
                     world.state.prepare_waiting_step(0.1).unwrap();
