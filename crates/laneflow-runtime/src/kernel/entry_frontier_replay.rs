@@ -28,9 +28,27 @@ struct Row {
     error: Option<StepError>,
 }
 
+/// 并行收集的一个地址成员：拍初已标记的成员不收集；未通过身份或 live 序检查
+/// 的成员记为 `Rejected`，与串行选择一样不标记、不发出。
+#[derive(Clone, Copy)]
+enum Candidate {
+    Rejected,
+    Replay(Input),
+    Deferred(crate::VehicleHandle),
+}
+
+/// 一段需求地址的收集结果；缓冲随池保留。
+#[derive(Default)]
+struct SelectPart {
+    candidates: Vec<(u32, Candidate)>,
+    members: usize,
+    failed: bool,
+}
+
 /// 只存本次选中的车辆和缓存出现项，不复制逐车缓存，也不按 worker 复制世界。
 #[derive(Default)]
 pub(crate) struct ReplayScratch {
+    select_parts: Vec<SelectPart>,
     rows: Vec<Row>,
     estimates: Vec<ApproachEstimate>,
     /// 与 `estimates` 对齐的 cell 下标；未发出或下标无效时为 `u32::MAX`。
@@ -43,12 +61,18 @@ impl ReplayScratch {
     #[cfg(test)]
     fn retained_bytes(&self) -> u64 {
         let Self {
+            select_parts,
             rows,
             estimates,
             cell_indices,
             fail_reserve: _,
         } = self;
-        crate::kernel::state::vec_bytes(rows)
+        crate::kernel::state::vec_bytes(select_parts)
+            + select_parts
+                .iter()
+                .map(|part| crate::kernel::state::vec_bytes(&part.candidates))
+                .sum::<u64>()
+            + crate::kernel::state::vec_bytes(rows)
             + crate::kernel::state::vec_bytes(estimates)
             + crate::kernel::state::vec_bytes(cell_indices)
     }
@@ -81,38 +105,36 @@ pub(super) fn demanded(
             serial(step, input, horizon_ms, Some(wanted))
         });
     };
-    // 地址成员数是去重前的上界。容量准备在改动 seen 之前，失败直接融合求值。
-    let upper = wanted.iter().try_fold(0_usize, |sum, address| {
-        sum.checked_add(
-            step.workspace
-                .frontier_maintenance
-                .by_cell
-                .get(address)
-                .map_or(0, Vec::len),
-        )
-    });
-    let Some(upper) = upper
-        .map(|upper| upper.min(step.committed.live_order.len()))
-        .filter(|upper| *upper >= PARALLEL_ROWS)
-    else {
+    let mut scratch = resources.frontier_replay().expect("private pool scratch");
+    let scratch = &mut *scratch;
+    scratch.rows.clear();
+    scratch.estimates.clear();
+    scratch.cell_indices.clear();
+    // 只读并行收集各地址成员的身份、live 序与缓存命中；不可用时原地串行选择。
+    let Some(upper) = gather(
+        step,
+        horizon_ms,
+        wanted,
+        resources,
+        &mut scratch.select_parts,
+    ) else {
         return select(step, horizon_ms, wanted, |step, input| {
             serial(step, input, horizon_ms, Some(wanted))
         });
     };
-    let mut scratch = resources.frontier_replay().expect("private pool scratch");
-    scratch.rows.clear();
-    scratch.estimates.clear();
-    scratch.cell_indices.clear();
-    if !scratch.reserve_rows(upper) {
-        return select(step, horizon_ms, wanted, |step, input| {
+    // 地址成员数是去重前的上界。容量准备在改动 seen 之前，失败直接融合求值。
+    let upper = upper.min(step.committed.live_order.len());
+    if upper < PARALLEL_ROWS || !scratch.reserve_rows(upper) {
+        return apply_selection(step, &scratch.select_parts, |step, input| {
             serial(step, input, horizon_ms, Some(wanted))
         });
     }
-    let selected = select(step, horizon_ms, wanted, |step, input| {
+    let rows = &mut scratch.rows;
+    let selected = apply_selection(step, &scratch.select_parts, |step, input| {
         let cells = step.workspace.frontier_maintenance.slots[input.state.handle.index() as usize]
             .cells
             .len();
-        scratch.rows.push(Row {
+        rows.push(Row {
             input,
             cells,
             error: None,
@@ -147,9 +169,9 @@ pub(super) fn demanded(
         horizon_ms,
         wanted,
         resources,
-        &mut scratch,
+        scratch,
     );
-    consume(step, &scratch, emitted, resources)?;
+    consume(step, scratch, emitted, resources)?;
     selected
 }
 
@@ -171,6 +193,139 @@ fn select(
     });
     step.workspace.frontier_maintenance.by_cell = by_cell;
     result
+}
+
+/// 按需求地址分段并行收集成员，返回去重前的成员总数。序号表无法铺好、
+/// 暂存扩容失败时返回 `None`，调用方改走串行选择以保留原首错。
+fn gather(
+    step: &mut StepWorkspace<'_>,
+    horizon_ms: u64,
+    wanted: &[ConflictPassageAddress],
+    resources: &ExecutionResources,
+    parts: &mut Vec<SelectPart>,
+) -> Option<usize> {
+    let slots = step.committed.vehicles.len();
+    if !step
+        .derived
+        .prepare_live_rank(&step.committed.live_order, slots)
+    {
+        return None;
+    }
+    let count = resources
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(MAX_PARTS)
+        .min(wanted.len())
+        .max(1);
+    let span = wanted.len().div_ceil(count).max(1);
+    if parts.len() < count {
+        parts.try_reserve(count - parts.len()).ok()?;
+        parts.resize_with(count, SelectPart::default);
+    }
+    let read = step.read_view();
+    let maintenance = &step.workspace.frontier_maintenance;
+    resources.for_each_part(&mut parts[..count], 1, |part, out| {
+        let out = &mut out[0];
+        out.candidates.clear();
+        out.members = 0;
+        out.failed = false;
+        let start = (part * span).min(wanted.len());
+        let end = (start + span).min(wanted.len());
+        for address in &wanted[start..end] {
+            let Some(indexes) = maintenance.by_cell.get(address) else {
+                continue;
+            };
+            out.members += indexes.len();
+            for index in indexes.iter().copied() {
+                if maintenance.is_marked(index) {
+                    continue;
+                }
+                let Some(candidate) = gather_member(read, maintenance, horizon_ms, index) else {
+                    out.failed = true;
+                    return;
+                };
+                if out.candidates.try_reserve(1).is_err() {
+                    out.failed = true;
+                    return;
+                }
+                out.candidates.push((index, candidate));
+            }
+        }
+    });
+    let parts = &parts[..count];
+    if parts.iter().any(|part| part.failed) {
+        return None;
+    }
+    parts
+        .iter()
+        .try_fold(0_usize, |sum, part| sum.checked_add(part.members))
+}
+
+/// 只读求一个成员的选择结果；序号表未铺好时返回 `None`。
+fn gather_member(
+    read: StepReadView<'_>,
+    maintenance: &FrontierMaintenance,
+    horizon_ms: u64,
+    index: u32,
+) -> Option<Candidate> {
+    let Some(vehicle) = usize::try_from(index)
+        .ok()
+        .and_then(|slot| maintenance.slots.get(slot))
+        .filter(|slot| slot.valid)
+        .map(|slot| crate::VehicleHandle::new(index, slot.generation))
+    else {
+        return Some(Candidate::Rejected);
+    };
+    let Some(state) = read
+        .vehicle_state(vehicle)
+        .filter(|state| state.status == crate::VehicleStatus::Active)
+    else {
+        return Some(Candidate::Rejected);
+    };
+    let Some(sequence) = read
+        .derived
+        .live_order_index
+        .prepared_rank(&read.committed.live_order, vehicle)?
+    else {
+        return Some(Candidate::Rejected);
+    };
+    Some(match maintenance.replay_hit(vehicle, &state, horizon_ms) {
+        Some(stored_progress) => Candidate::Replay(Input {
+            state,
+            sequence,
+            stored_progress,
+        }),
+        None => Candidate::Deferred(vehicle),
+    })
+}
+
+/// 按收集顺序（即串行选择的地址、成员顺序）去重并发出；与串行选择逐项相同。
+fn apply_selection(
+    step: &mut StepWorkspace<'_>,
+    parts: &[SelectPart],
+    mut emit: impl FnMut(&mut StepWorkspace<'_>, Input) -> Result<(), StepError>,
+) -> Result<(), StepError> {
+    for (index, candidate) in parts.iter().flat_map(|part| &part.candidates) {
+        if step.workspace.frontier_maintenance.is_marked(*index) {
+            continue;
+        }
+        match *candidate {
+            Candidate::Rejected => {}
+            Candidate::Replay(input) => {
+                step.workspace.frontier_maintenance.mark(*index)?;
+                emit(step, input)?;
+            }
+            Candidate::Deferred(vehicle) => {
+                step.workspace.frontier_maintenance.mark(*index)?;
+                let deferred = &mut step.workspace.frontier_maintenance.scratch_increments;
+                deferred
+                    .try_reserve(1)
+                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+                deferred.push(vehicle);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn select_member(
@@ -696,7 +851,13 @@ mod tests {
                 let bytes = scratch.retained_bytes();
                 assert_eq!(
                     bytes,
-                    (scratch.rows.capacity() * size_of::<Row>()
+                    (scratch.select_parts.capacity() * size_of::<SelectPart>()
+                        + scratch
+                            .select_parts
+                            .iter()
+                            .map(|part| part.candidates.capacity() * size_of::<(u32, Candidate)>())
+                            .sum::<usize>()
+                        + scratch.rows.capacity() * size_of::<Row>()
                         + scratch.estimates.capacity() * size_of::<ApproachEstimate>()
                         + scratch.cell_indices.capacity() * size_of::<u32>())
                         as u64
@@ -713,6 +874,70 @@ mod tests {
                 pooled.state.conflict_read().approach_frontier_cells(),
                 expected_frontier
             );
+        }
+    }
+
+    #[test]
+    fn pooled_selection_matches_serial_with_marks_rejections_and_deferrals() {
+        // 拍初已标记、非 Active、缓存需重走三类成员混在地址成员表里；并行收集
+        // 后的去重与发出须与串行选择逐项一致。
+        let prepare = |world: &mut TrafficWorld| {
+            let live = world.state.committed.live_order.clone();
+            let completed = live[3];
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(completed.index() as usize)
+                .state
+                .as_mut()
+                .unwrap()
+                .status = crate::VehicleStatus::Completed;
+            for vehicle in [live[5], live[11]] {
+                let state = world.vehicle(vehicle).unwrap();
+                let maintenance = &mut world.state.workspace.frontier_maintenance;
+                let cells = maintenance.slots[vehicle.index() as usize].cells.clone();
+                let accel = maintenance.slots[vehicle.index() as usize].max_accel;
+                // 首个排除项就在眼前：缓存不能复用，转入增量重走。
+                maintenance
+                    .store(vehicle, &state, 0, cells, NO_DISTANCE_MM, accel)
+                    .unwrap();
+            }
+            live[7]
+        };
+        let run_marked = |world: &mut TrafficWorld,
+                          wanted: &[ConflictPassageAddress],
+                          marked: crate::VehicleHandle| {
+            world.execution.run(&mut world.state, |state, resources| {
+                let mut step = state.step_workspace();
+                let maintenance = &mut step.workspace.frontier_maintenance;
+                maintenance.begin_seen()?;
+                maintenance.insertions.clear();
+                maintenance.scratch_increments.clear();
+                maintenance.mark(marked.index())?;
+                step.committed
+                    .prepare_conflict(&mut step.derived, &mut step.workspace.conflict)
+                    .clear_approach_frontier();
+                demanded(&mut step, 5_000, wanted, Some(resources))
+            })
+        };
+        let mut expected = None;
+        for workers in [1, 4, 16] {
+            let (mut world, wanted) = cached_world(workers);
+            let marked = prepare(&mut world);
+            run_marked(&mut world, &wanted, marked).unwrap();
+            let maintenance = &world.state.workspace.frontier_maintenance;
+            let observed = (
+                maintenance.insertions.clone(),
+                maintenance.scratch_increments.clone(),
+                world.state.conflict_read().approach_frontier_cells(),
+            );
+            assert_eq!(observed.1.len(), 2, "two deferred sources");
+            assert!(observed.0.iter().all(|(_, vehicle, _)| *vehicle != marked));
+            match &expected {
+                Some(expected) => assert_eq!(&observed, expected, "{workers} workers"),
+                None => expected = Some(observed),
+            }
         }
     }
 

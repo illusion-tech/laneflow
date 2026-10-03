@@ -51,6 +51,15 @@ impl StepDerived<'_> {
     ) -> Result<Option<u32>, ()> {
         self.0.live_order_index.rank(live, vehicle_slots, vehicle)
     }
+
+    /// 铺好 live 序号表，之后可经只读视图并行查询；分配失败返回 `false`。
+    pub(crate) fn prepare_live_rank(
+        &mut self,
+        live: &[crate::VehicleHandle],
+        vehicle_slots: usize,
+    ) -> bool {
+        self.0.live_order_index.ensure(live, vehicle_slots)
+    }
 }
 
 impl StepCommitted<'_> {
