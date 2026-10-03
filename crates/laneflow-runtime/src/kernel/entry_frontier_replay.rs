@@ -33,6 +33,8 @@ struct Row {
 pub(crate) struct ReplayScratch {
     rows: Vec<Row>,
     estimates: Vec<ApproachEstimate>,
+    /// 与 `estimates` 对齐的 cell 下标；未发出或下标无效时为 `u32::MAX`。
+    cell_indices: Vec<u32>,
     #[cfg(test)]
     fail_reserve: u8,
 }
@@ -43,9 +45,12 @@ impl ReplayScratch {
         let Self {
             rows,
             estimates,
+            cell_indices,
             fail_reserve: _,
         } = self;
-        crate::kernel::state::vec_bytes(rows) + crate::kernel::state::vec_bytes(estimates)
+        crate::kernel::state::vec_bytes(rows)
+            + crate::kernel::state::vec_bytes(estimates)
+            + crate::kernel::state::vec_bytes(cell_indices)
     }
 
     fn reserve_rows(&mut self, count: usize) -> bool {
@@ -61,7 +66,7 @@ impl ReplayScratch {
         if self.fail_reserve == 2 {
             return false;
         }
-        self.estimates.try_reserve(count).is_ok()
+        self.estimates.try_reserve(count).is_ok() && self.cell_indices.try_reserve(count).is_ok()
     }
 }
 
@@ -97,6 +102,7 @@ pub(super) fn demanded(
     let mut scratch = resources.frontier_replay().expect("private pool scratch");
     scratch.rows.clear();
     scratch.estimates.clear();
+    scratch.cell_indices.clear();
     if !scratch.reserve_rows(upper) {
         return select(step, horizon_ms, wanted, |step, input| {
             serial(step, input, horizon_ms, Some(wanted))
@@ -132,7 +138,10 @@ pub(super) fn demanded(
     );
     // 未写到的项（越过当前位置、提前越出时窗）不得留下上一拍的结果。
     scratch.estimates.fill(ApproachEstimate::OutsideHorizon);
-    compute(
+    scratch
+        .cell_indices
+        .resize(total.expect("checked replay size"), u32::MAX);
+    let emitted = compute(
         step.read_view(),
         &step.workspace.frontier_maintenance,
         horizon_ms,
@@ -140,7 +149,7 @@ pub(super) fn demanded(
         resources,
         &mut scratch,
     );
-    consume(step, &scratch)?;
+    consume(step, &scratch, emitted, resources)?;
     selected
 }
 
@@ -212,7 +221,7 @@ fn compute(
     wanted: &[ConflictPassageAddress],
     resources: &ExecutionResources,
     scratch: &mut ReplayScratch,
-) {
+) -> Option<usize> {
     let span = scratch
         .rows
         .len()
@@ -226,18 +235,27 @@ fn compute(
     struct Part<'a> {
         rows: &'a mut [Row],
         estimates: &'a mut [ApproachEstimate],
+        cell_indices: &'a mut [u32],
+        emitted: usize,
+        valid: bool,
         #[cfg(test)]
         work: crate::kernel::conflict::ConflictWorkCounts,
     }
     let mut parts: [Option<Part<'_>>; MAX_PARTS] = std::array::from_fn(|_| None);
     let mut rest = scratch.estimates.as_mut_slice();
+    let mut rest_indices = scratch.cell_indices.as_mut_slice();
     let count = scratch.rows.len().div_ceil(span);
     for (part, rows) in parts.iter_mut().zip(scratch.rows.chunks_mut(span)) {
         let cells = rows.iter().map(|row| row.cells).sum();
         let (output, tail) = rest.split_at_mut(cells);
+        let (indices, tail_indices) = std::mem::take(&mut rest_indices).split_at_mut(cells);
+        rest_indices = tail_indices;
         *part = Some(Part {
             rows,
             estimates: output,
+            cell_indices: indices,
+            emitted: 0,
+            valid: true,
             #[cfg(test)]
             work: Default::default(),
         });
@@ -252,16 +270,36 @@ fn compute(
         let mut offset = 0;
         for row in part.rows.iter_mut() {
             let output = &mut part.estimates[offset..offset + row.cells];
+            let indices = &mut part.cell_indices[offset..offset + row.cells];
             offset += row.cells;
             let cells = &maintenance.slots[row.input.state.handle.index() as usize].cells;
+            let emitted = &mut part.emitted;
+            let valid = &mut part.valid;
             row.error = PreparedReplay::new(read, row.input.state, horizon_ms)
                 .and_then(|prepared| {
-                    prepared.walk(row.input, cells, Some(wanted), |index, _, estimate| {
-                        output[index] = estimate;
-                        Ok(())
-                    })
+                    prepared.walk(
+                        row.input,
+                        cells,
+                        Some(wanted),
+                        |index, address, estimate| {
+                            output[index] = estimate;
+                            *emitted += 1;
+                            match read
+                                .conflict_read()
+                                .cell_index(address)
+                                .ok()
+                                .and_then(|cell| u32::try_from(cell).ok())
+                                .filter(|cell| *cell != u32::MAX)
+                            {
+                                Some(cell) => indices[index] = cell,
+                                None => *valid = false,
+                            }
+                            Ok(())
+                        },
+                    )
                 })
                 .err();
+            *valid &= row.error.is_none();
         }
         #[cfg(test)]
         {
@@ -275,9 +313,81 @@ fn compute(
             .flatten()
             .fold(baseline, |sum, part| sum.wrapping_add(part.work)),
     );
+    parts[..count]
+        .iter()
+        .flatten()
+        .try_fold(0_usize, |sum, part| {
+            part.valid.then_some(sum + part.emitted)
+        })
 }
 
-fn consume(step: &mut StepWorkspace<'_>, scratch: &ReplayScratch) -> Result<(), StepError> {
+/// 规范插入。`emitted` 为发出项总数，仅在各行无错且全部发出项都有 cell 下标
+/// 时给出；此时按 cell 分段并行插入（归约与顺序无关），否则逐项串行插入，
+/// 保留原首错位置。
+fn consume(
+    step: &mut StepWorkspace<'_>,
+    scratch: &ReplayScratch,
+    emitted: Option<usize>,
+    resources: &ExecutionResources,
+) -> Result<(), StepError> {
+    let Some(emitted) = emitted.filter(|emitted| *emitted > 0) else {
+        return consume_serial(step, scratch);
+    };
+    #[cfg(test)]
+    {
+        let mut offset = 0;
+        for row in &scratch.rows {
+            let vehicle = row.input.state.handle;
+            let cells = &step.workspace.frontier_maintenance.slots[vehicle.index() as usize].cells;
+            for (cell, estimate) in cells
+                .iter()
+                .zip(&scratch.estimates[offset..offset + row.cells])
+            {
+                if *estimate != ApproachEstimate::OutsideHorizon {
+                    step.workspace.frontier_maintenance.insertions.push((
+                        cell.address,
+                        vehicle,
+                        *estimate,
+                    ));
+                }
+            }
+            offset += row.cells;
+        }
+        crate::kernel::conflict::count_conflict_work(|counts| counts.frontier_updates += emitted);
+    }
+    #[cfg(not(test))]
+    let _ = emitted;
+    step.committed
+        .prepare_conflict(&mut step.derived, &mut step.workspace.conflict)
+        .insert_approach_owners_partitioned(resources, |range, insert| {
+            let mut offset = 0;
+            for row in &scratch.rows {
+                let vehicle = row.input.state.handle;
+                let end = offset + row.cells;
+                // 未发出项的下标为 u32::MAX，不落在任何段内。
+                for (position, cell) in scratch.cell_indices[offset..end].iter().enumerate() {
+                    let cell = *cell as usize;
+                    if range.contains(&cell) {
+                        insert(
+                            cell,
+                            vehicle,
+                            row.input.sequence,
+                            scratch.estimates[offset + position],
+                        );
+                    }
+                }
+                offset = end;
+            }
+        })
+        .map_err(|error| match error {
+            crate::kernel::conflict::ConflictAcquireError::ScratchAllocFailed => {
+                StepError::ConflictScratchAllocFailed
+            }
+            _ => StepError::ConflictInvariantViolation,
+        })
+}
+
+fn consume_serial(step: &mut StepWorkspace<'_>, scratch: &ReplayScratch) -> Result<(), StepError> {
     let mut conflict = step
         .committed
         .prepare_conflict(&mut step.derived, &mut step.workspace.conflict);
@@ -517,6 +627,12 @@ mod tests {
             .insertions
             .clone();
         let expected_work = crate::kernel::conflict::conflict_work_counts();
+        let expected_frontier = reference.state.conflict_read().approach_frontier_cells();
+        assert!(
+            expected_frontier
+                .iter()
+                .any(|cell| *cell != Default::default())
+        );
         assert_eq!(expected_work.eta_preparations, 16);
         assert_eq!(expected_work.eta_distance_evaluations, 48);
         assert_eq!(expected.len(), 32, "two surviving occurrences per vehicle");
@@ -531,6 +647,10 @@ mod tests {
                 pooled.state.workspace.frontier_maintenance.insertions,
                 expected
             );
+            assert_eq!(
+                pooled.state.conflict_read().approach_frontier_cells(),
+                expected_frontier
+            );
             {
                 let mut scratch = pooled.execution.resources().frontier_replay().unwrap();
                 assert_eq!(
@@ -543,7 +663,8 @@ mod tests {
                 assert_eq!(
                     bytes,
                     (scratch.rows.capacity() * size_of::<Row>()
-                        + scratch.estimates.capacity() * size_of::<ApproachEstimate>())
+                        + scratch.estimates.capacity() * size_of::<ApproachEstimate>()
+                        + scratch.cell_indices.capacity() * size_of::<u32>())
                         as u64
                 );
                 assert!(bytes > 0);
@@ -553,6 +674,10 @@ mod tests {
             assert_eq!(
                 pooled.state.workspace.frontier_maintenance.insertions,
                 expected
+            );
+            assert_eq!(
+                pooled.state.conflict_read().approach_frontier_cells(),
+                expected_frontier
             );
         }
     }
