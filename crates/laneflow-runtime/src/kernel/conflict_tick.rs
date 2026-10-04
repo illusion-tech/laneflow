@@ -260,6 +260,45 @@ pub(crate) struct ConflictCandidate {
     pub(crate) preflight_no_grant: Option<ConflictNoGrantReason>,
 }
 
+/// 候选规范排序的紧凑键：（完整候选键, 更新序号）编码成两个 `u128`，末位是原下标。
+pub(crate) type CandidateOrderKey = (u128, u128, u32);
+
+/// 候选按（完整候选键, 更新序号）规范排序。候选体较大、键比较字段多，先把键
+/// 编码成两个 `u128` 排序，再沿置换环原地交换，每个候选只搬一次；键相同时保持
+/// 原有先后。键缓冲容量与候选相同，预留失败时直接整体排序，结果相同。
+fn sort_conflict_candidates(
+    candidates: &mut [ConflictCandidate],
+    order: &mut Vec<CandidateOrderKey>,
+) {
+    order.clear();
+    if u32::try_from(candidates.len()).is_err() || order.try_reserve(candidates.len()).is_err() {
+        candidates
+            .sort_unstable_by_key(|candidate| (candidate.key, candidate.vehicle_update_sequence));
+        return;
+    }
+    order.extend(candidates.iter().zip(0_u32..).map(|(candidate, index)| {
+        let (high, low) = candidate.key.packed(candidate.vehicle_update_sequence);
+        (high, low, index)
+    }));
+    order.sort_unstable();
+    // order[i].2 是应落到 i 的原下标；处理过的位置把下标改成自身作标记。
+    for start in 0..order.len() {
+        if order[start].2 as usize == start {
+            continue;
+        }
+        let mut at = start;
+        loop {
+            let from = order[at].2 as usize;
+            order[at].2 = at as u32;
+            if from == start {
+                break;
+            }
+            candidates.swap(at, from);
+            at = from;
+        }
+    }
+}
+
 /// 单 hop Gate 决定求值的共用输出（融合/分发同一实现）。
 struct GateHopEvaluation {
     anchor: ConflictRouteAnchor,
@@ -1318,9 +1357,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let sparse_sort =
             super::sparse_cost_research::begin(2, self.workspace.conflict_candidates.len());
-        self.workspace
-            .conflict_candidates
-            .sort_unstable_by_key(|candidate| (candidate.key, candidate.vehicle_update_sequence));
+        sort_conflict_candidates(
+            &mut self.workspace.conflict_candidates,
+            &mut self.workspace.conflict_candidate_order,
+        );
         #[cfg(test)]
         drop(sparse_sort);
         Ok(())
