@@ -181,6 +181,8 @@ impl TrafficTransitionEvent {
 std::thread_local! {
     static TRANSITION_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: TRANSITION_VISITS);
 
 impl crate::kernel::phase::StepWorkspace<'_> {
     /// 把本拍已验证转移暂存为规范排序的事件批次；失败时清空暂存，已发布批次不受影响。

@@ -43,6 +43,8 @@ thread_local! {
     // 只在单元测试记录 Tick active-order / journal Waiting 重建次数，不进入生产布局。
     static REPLAY_REBUILD_COUNTS: core::cell::Cell<(usize, usize)> = const { core::cell::Cell::new((0, 0)) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: REPLAY_REBUILD_COUNTS);
 
 /// 最大追赶滞后的文档化默认值（tick 距离；切换合同 §9）。
 ///

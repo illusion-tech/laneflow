@@ -33,6 +33,8 @@ pub(crate) fn occupancy_rebuild_events() -> u64 {
 thread_local! {
     static MANEUVER_UPSTREAM_EDGE_VISITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: OCCUPANCY_REBUILD_EVENTS, MANEUVER_UPSTREAM_EDGE_VISITS);
 
 #[cfg(test)]
 pub(crate) fn reset_maneuver_upstream_edge_visits() {

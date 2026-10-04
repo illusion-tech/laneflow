@@ -4946,6 +4946,8 @@ thread_local! {
             fired: 0,
         }) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: CONFLICT_PATH_COUNTS, CONFLICT_FULL_SCAN, CONFLICT_FORCE_DISPATCH, CONFLICT_FORCE_FUSE, CONFLICT_SLOT_GAP, CONFLICT_WORK_DIAGNOSTICS, LAST_CONFLICT_DISPATCH_STATS, CONFLICT_RESERVE_PROBE);
 
 /// 记录一次 F 位检查点访问；当且仅当真实必要增长且注入已武装时返回
 /// true（调用方映射 ConflictScratchAllocFailed）。

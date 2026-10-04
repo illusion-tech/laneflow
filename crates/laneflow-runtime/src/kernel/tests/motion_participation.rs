@@ -7,6 +7,7 @@ use std::time::Duration;
 thread_local! {
     static ACTIVE: RefCell<Option<Arc<Probe>>> = const { RefCell::new(None) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: ACTIVE);
 
 #[derive(Clone, Default)]
 pub(crate) struct Observation {

@@ -68,6 +68,8 @@ thread_local! {
     static FULL_SCAN_ORACLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     pub(crate) static LAST_RESOURCE_ROW_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FULL_SCAN_ORACLE, LAST_RESOURCE_ROW_COUNT);
 
 #[cfg(test)]
 pub(crate) fn with_full_scan_oracle<T>(run: impl FnOnce() -> T) -> T {

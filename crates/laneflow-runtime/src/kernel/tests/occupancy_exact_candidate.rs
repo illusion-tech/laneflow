@@ -8,6 +8,7 @@ use std::cell::Cell;
 thread_local! {
     static FAIL_PENDING_RESERVE: Cell<Option<usize>> = const { Cell::new(None) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FAIL_PENDING_RESERVE);
 
 fn pending_reserve_allowed() -> bool {
     FAIL_PENDING_RESERVE.with(|remaining| match remaining.get() {

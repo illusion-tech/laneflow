@@ -33,6 +33,8 @@ thread_local! {
         const { core::cell::Cell::new(None) };
     static CONFLICT_MIGRATION_CALLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: STAGING_RESERVATIONS_BEFORE_FAILURE, CONFLICT_MIGRATION_CALLS);
 
 #[cfg(test)]
 pub(crate) fn reset_conflict_migration_calls() {

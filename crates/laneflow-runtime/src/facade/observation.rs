@@ -821,6 +821,8 @@ fn observation_session_bytes(
 thread_local! {
     static OBSERVATION_RESERVATIONS_BEFORE_FAILURE: Cell<Option<usize>> = const { Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: OBSERVATION_RESERVATIONS_BEFORE_FAILURE);
 
 #[cfg(test)]
 struct ObservationAllocationFailpointReset(Option<usize>);

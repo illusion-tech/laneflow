@@ -64,6 +64,8 @@ thread_local! {
     static ADMISSION_SCRATCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static BODY_RESERVE_SLOTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+#[cfg(any(test, feature = "placement-fixtures"))]
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: CANDIDATE_ADMISSION_CALLS, EXCLUSION_CALLS, EXCLUSION_WORK, RECHECK_VISITS, FULL_RECHECK, ACQUISITION_REPLAYS, ADMISSION_SCRATCH, BODY_RESERVE_SLOTS);
 
 /// 还没放进世界的那辆车，这一次生成里被问了几次「会不会被拦住」。
 #[cfg(any(test, feature = "placement-fixtures"))]
@@ -645,6 +647,8 @@ thread_local! {
     static MOTION_DIAGNOSTICS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LAST_MOTION_DISPATCH_STATS: std::cell::Cell<Option<crate::kernel::execution::DispatchStats>> = const { std::cell::Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: STEP_FAILPOINT, MOTION_CACHE_LIMIT, HORIZON_CALCULATIONS, MOTION_CALCULATIONS, MOTION_CACHE_HITS, MOTION_CACHE_MISSES, BARRIER_QUERIES, COMMIT_ALLOC_WINDOW, MOTION_PATH_COUNTS, MOTION_FORCE_DISPATCH, MOTION_FORCE_FUSE, MOTION_SLOT_GAP, MOTION_DIAGNOSTICS, LAST_MOTION_DISPATCH_STATS);
 
 #[cfg(test)]
 fn motion_dispatch_forced() -> bool {

@@ -18,6 +18,8 @@ thread_local! {
     static ITEMS: Cell<[usize; 5]> = const { Cell::new([0;5]) };
     static CALLS: Cell<[usize; 5]> = const { Cell::new([0;5]) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: ENABLED, NANOS, ITEMS, CALLS);
+
 pub(crate) struct Span(Option<(usize, Instant)>);
 pub(crate) fn begin(stage: usize, items: usize) -> Span {
     if !ENABLED.get() {

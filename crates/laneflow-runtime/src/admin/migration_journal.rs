@@ -215,6 +215,8 @@ pub(crate) struct VehicleDelta {
 std::thread_local! {
     static VEHICLE_DELTA_MATERIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: VEHICLE_DELTA_MATERIALIZATIONS);
 
 impl VehicleDelta {
     /// 从已提交车辆状态提取增量。
