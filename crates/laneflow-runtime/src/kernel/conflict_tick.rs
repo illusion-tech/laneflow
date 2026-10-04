@@ -4092,6 +4092,7 @@ mod tests {
         let injector_blocks =
             |injections: u64| (injections.div_ceil(INJECTOR_BLOCK_SLOTS) + 1) as usize;
         let injections_before = crate::kernel::execution::coordinator_injections();
+        let broadcasts_before = crate::kernel::execution::coordinator_broadcasts();
         let region = Region::new(&INSTRUMENTED_SYSTEM);
         let mut ticks = 0_u32;
         for _ in 0..8 {
@@ -4100,6 +4101,7 @@ mod tests {
         }
         let stats = region.change();
         let injections_a = crate::kernel::execution::coordinator_injections() - injections_before;
+        let broadcasts_a = crate::kernel::execution::coordinator_broadcasts() - broadcasts_before;
         let region_b = Region::new(&INSTRUMENTED_SYSTEM);
         for _ in 0..8 {
             world.step(TickInput::new(4)).expect("steady window B step");
@@ -4107,18 +4109,22 @@ mod tests {
         let stats_b = region_b.change();
         let region_c = Region::new(&INSTRUMENTED_SYSTEM);
         let injections_before_c = crate::kernel::execution::coordinator_injections();
+        let broadcasts_before_c = crate::kernel::execution::coordinator_broadcasts();
         for _ in 0..24 {
             world.step(TickInput::new(4)).expect("steady window C step");
         }
         let stats_c = region_c.change();
         let injections_c = crate::kernel::execution::coordinator_injections() - injections_before_c;
+        let broadcasts_c = crate::kernel::execution::coordinator_broadcasts() - broadcasts_before_c;
         let visited = crate::kernel::conflict::conflict_work_counts().visited_passages
             - counts_before.visited_passages;
         assert!(
             world.state.derived.active_order.len() > 100,
             "分配证据必须跑在仍有活动车辆的冲突规模上，visited_passages={visited}"
         );
-        let node_budget = (ticks * 3 * WORKERS) as usize + injector_blocks(injections_a);
+        // 协调器分段并行每次 broadcast 由 Rayon 分配一张固定大小的作业表（§3 豁免）。
+        let node_budget =
+            (ticks * 3 * WORKERS) as usize + injector_blocks(injections_a) + broadcasts_a as usize;
         assert!(
             stats.allocations <= node_budget + 8,
             "窗 A LaneFlow 分配超出节点预算+首触松弛: allocations={} budget={node_budget}",
@@ -4133,7 +4139,8 @@ mod tests {
             stats_b.allocations,
         );
         assert_eq!(stats_b.reallocations, 0, "窗 B 不得再分配");
-        let node_budget_c = (24 * 3 * WORKERS) as usize + injector_blocks(injections_c);
+        let node_budget_c =
+            (24 * 3 * WORKERS) as usize + injector_blocks(injections_c) + broadcasts_c as usize;
         assert!(
             stats_c.allocations <= node_budget_c + 8,
             "长窗 C 必须亚线性（非逐拍/逐候选）: allocations={} budget={node_budget_c}",
@@ -4145,6 +4152,7 @@ mod tests {
         // 失败清理窗：注入首错（未消费报告滞留）→ 清注入重试 → 继续稳态；
         // 回收清理路径不得引入泄漏性分配增长。
         let world_id = world.state.binding.world_id;
+        let broadcasts_before_failure = crate::kernel::execution::coordinator_broadcasts();
         let region = Region::new(&INSTRUMENTED_SYSTEM);
         {
             let _guard = super::inject_conflict_nonfinite(world_id, &[0]);
@@ -4158,8 +4166,10 @@ mod tests {
             world.step(TickInput::new(4)).expect("post-failure step");
         }
         let failure_stats = region.change();
+        let broadcasts_failure =
+            crate::kernel::execution::coordinator_broadcasts() - broadcasts_before_failure;
         assert!(
-            failure_stats.allocations <= (6 * 3 * WORKERS) as usize,
+            failure_stats.allocations <= (6 * 3 * WORKERS) as usize + broadcasts_failure as usize,
             "失败清理窗分配超预算: allocations={}",
             failure_stats.allocations
         );

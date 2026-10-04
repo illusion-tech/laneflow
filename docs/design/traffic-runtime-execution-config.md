@@ -136,12 +136,15 @@ PreparedWorldState            私有；不提供公开 step
 
 私有后端使用 Rayon 的 `rayon-core` 独占线程池。N 配置对应至多 N−1 个辅助线程；
 `in_place_scope` 的协调闭包在调用线程执行首块，其余任务使用互斥输出范围。
+协调器分段并行用 `broadcast` 一次唤醒池内全部线程，各线程从共享队列逐块领取
+互斥输出块；`broadcast` 阻塞到全部线程完成，不留下脱离作用域的任务。
 不使用全局池、`use_current_thread` 或脱离操作作用域的任务。LaneFlow 显式保留
 每个 OS 线程的 `JoinHandle`：构建失败和正常析构均先关闭池，再 join 全部已启动
 线程。Rayon 作用域 join 与 OS 线程退出 join 是两层不同的结算义务。
 
 LaneFlow 持有的必需计划、任务范围、输出缓冲和线程登记表使用 checked 长度与
-`try_reserve`。Rayon 内部 registry、工作队列及任务节点、标准库线程启动内部的
+`try_reserve`。Rayon 内部 registry、工作队列及任务节点（含 `broadcast` 每次调用的固定大小
+作业表）、标准库线程启动内部的
 分配沿用进程级 OOM 语义，不能承诺均转换为可恢复错误；进程级失败不承诺世界
 继续可用。可恢复预留错误与平台线程创建错误仍按 §4.3 返回，不能混为交通错误。
 

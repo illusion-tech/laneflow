@@ -365,6 +365,16 @@ crate::kernel::execution::carry_hooks!(carry_test_hooks: LAST_DISPATCH_STATS);
 #[cfg(test)]
 static COORDINATOR_INJECTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// 测试专用：协调器分段并行的 broadcast 次数，每次对应一张 Rayon 内部作业表。
+#[cfg(test)]
+static COORDINATOR_BROADCASTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 测试专用：累计的协调器 broadcast 次数。
+#[cfg(test)]
+pub(crate) fn coordinator_broadcasts() -> u64 {
+    COORDINATOR_BROADCASTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 fn note_injections(count: usize) {
     if rayon_core::current_thread_index().is_none() {
@@ -438,11 +448,12 @@ pub(crate) fn guided_ticket(total: usize, claimed: usize, threads: usize, cap: u
         .clamp(1, cap.max(1))
 }
 
-/// 互斥输出分块，由至多 `threads` 个领取者从共享队列逐块领取并计算。
+/// 互斥输出分块：`broadcast` 一次唤醒池内全部线程，各线程从共享队列逐块领取
+/// 并计算，先醒的线程多做。作业表由 Rayon 内部分配（执行配置 §3 豁免），
+/// 大小只随线程数固定，与块数和车辆数无关。
 fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
     output: &mut [T],
     chunk_size: usize,
-    threads: usize,
     compute: &F,
 ) {
     let chunks = output.len().div_ceil(chunk_size);
@@ -452,7 +463,6 @@ fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
         }
         return;
     }
-    // 各线程从共享队列逐块领取，先醒的线程多做，静态二分的尾部不再等最慢的叶子。
     let queue = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
     let drain = || {
         loop {
@@ -466,20 +476,9 @@ fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
             compute(index, chunk);
         }
     };
-    join_drainers(threads.min(chunks), &drain);
-}
-
-/// 用栈上 `join` 树拉起 `count` 个领取者，不产生堆分配。
-fn join_drainers(count: usize, drain: &(impl Fn() + Sync)) {
-    if count <= 1 {
-        drain();
-        return;
-    }
-    let half = count / 2;
-    rayon_core::join(
-        || join_drainers(half, drain),
-        || join_drainers(count - half, drain),
-    );
+    #[cfg(test)]
+    COORDINATOR_BROADCASTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    rayon_core::broadcast(|_| drain());
 }
 
 /// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
@@ -629,7 +628,7 @@ impl ExecutionResources {
     }
 
     /// 不读取交通视图的互斥分块：每块独占一段输出，完整 join 后返回。
-    /// 在池内由 `join` 拉起的领取者逐块领取：作业放在栈上，稳态不产生堆分配；
+    /// 在池内 `broadcast` 全部线程逐块领取；作业表属 Rayon 内部分配（§3 豁免）；
     /// 拍内协调线程已在池上，直接参与计算。供派生索引重建这类协调器工作使用。
     pub(crate) fn for_each_part<T: Send, F: Fn(usize, &mut [T]) + Sync>(
         &self,
@@ -647,14 +646,9 @@ impl ExecutionResources {
             Self::Pool(resources) => {
                 #[cfg(test)]
                 note_injections(1);
-                resources.pool.install(|| {
-                    split_parts(
-                        output,
-                        chunk_size,
-                        resources.pool.current_num_threads(),
-                        &compute,
-                    )
-                })
+                resources
+                    .pool
+                    .install(|| split_parts(output, chunk_size, &compute))
             }
         }
     }
