@@ -139,6 +139,8 @@ pub(crate) struct PoolResources {
     frontier_replay: std::sync::Mutex<super::entry_frontier::ReplayScratch>,
     /// 非入口 Gate 决定的分段输出；join 后按段序拼接，随池跨拍保留容量。
     non_entry_parts: std::sync::Mutex<Vec<super::waiting::NonEntryPart>>,
+    /// 转移事件的分段输出；join 后按段序拼接，随池跨拍保留容量。
+    transition_parts: std::sync::Mutex<Vec<super::transitions::TransitionPart>>,
 }
 
 #[derive(Default)]
@@ -542,6 +544,7 @@ impl ExecutionResources {
             sparse_indices: std::sync::Mutex::new(Vec::new()),
             frontier_replay: std::sync::Mutex::new(Default::default()),
             non_entry_parts: std::sync::Mutex::new(Vec::new()),
+            transition_parts: std::sync::Mutex::new(Vec::new()),
         })))
     }
 
@@ -681,6 +684,21 @@ impl ExecutionResources {
             Self::Pool(resources) => Some(
                 resources
                     .non_entry_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的转移事件分段缓冲；`Caller` 串行发射，返回空。
+    pub(crate) fn transition_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::transitions::TransitionPart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .transition_parts
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             ),

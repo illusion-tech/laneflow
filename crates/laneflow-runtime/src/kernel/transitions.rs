@@ -190,30 +190,59 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &mut self,
         updates: &super::motion_updates::MotionUpdates,
         tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         // prepare_waiting_step 已清空暂存；一遍验证并生成，容量按已发出的事件摊还增长，
         // 稳态复用上拍容量。增长失败只记下，遍历照常走完：验证错误先于分配错误公开。
         // 提交阶段仍发布空批次，替换上一拍的事件。
         let mut events = std::mem::take(&mut self.workspace.staged_transition_events);
-        let mut alloc_failed = false;
-        let visited = self.visit_transition_events(updates, tick, |event| {
-            if alloc_failed {
-                return;
+        let parallel = execution
+            .filter(|resources| {
+                resources.coordinator_parallel()
+                    && updates.resource_rows().len() >= TRANSITION_PARALLEL_ROWS
+            })
+            .and_then(|resources| {
+                let mut parts = resources.transition_parts()?;
+                #[cfg(test)]
+                TRANSITION_VISITS.set(TRANSITION_VISITS.get() + 1);
+                let buffers: &mut Vec<TransitionPart> = &mut parts;
+                let view = &*self;
+                let result = resources.install(|| {
+                    view.visit_transition_events_parallel(updates, tick, resources, buffers)
+                })?;
+                Some(result.and_then(|total| {
+                    crate::kernel::conflict_tick::reserve(&mut events, total)
+                        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+                    for part in parts.iter() {
+                        events.extend_from_slice(&part.events);
+                    }
+                    Ok(())
+                }))
+            });
+        let result = match parallel {
+            Some(result) => result,
+            None => {
+                let mut alloc_failed = false;
+                let visited = self.visit_transition_events(updates, tick, |event| {
+                    if alloc_failed {
+                        return;
+                    }
+                    let len = events.len();
+                    if len == events.capacity()
+                        && crate::kernel::conflict_tick::reserve(&mut events, len.max(1)).is_err()
+                    {
+                        alloc_failed = true;
+                        return;
+                    }
+                    events.push(event);
+                });
+                visited.and(if alloc_failed {
+                    Err(StepError::ConflictScratchAllocFailed)
+                } else {
+                    Ok(())
+                })
             }
-            let len = events.len();
-            if len == events.capacity()
-                && crate::kernel::conflict_tick::reserve(&mut events, len.max(1)).is_err()
-            {
-                alloc_failed = true;
-                return;
-            }
-            events.push(event);
-        });
-        let result = visited.and(if alloc_failed {
-            Err(StepError::ConflictScratchAllocFailed)
-        } else {
-            Ok(())
-        });
+        };
         if result.is_err() {
             events.clear();
         }
@@ -244,11 +273,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         for &update in updates.resource_rows() {
             let row = updates.row(update, &self.committed.vehicles);
             let vehicle = row.source.handle();
-            if self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
-                != u32::try_from(update).ok()
-            {
-                return Err(StepError::ConflictInvariantViolation);
-            }
+            self.check_transition_row(vehicle, update)?;
             while self.committed.live_order.get(sequence) != Some(&vehicle) {
                 sequence += 1;
                 if sequence >= self.committed.live_order.len() {
@@ -257,6 +282,35 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
             let sequence =
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
+            self.visit_row_transitions(&row, tick, sequence, &mut passage_cursor, &mut emit)?;
+        }
+        if passage_cursor != self.workspace.conflict_passage_transitions.len() {
+            return Err(StepError::ConflictInvariantViolation);
+        }
+        Ok(())
+    }
+
+    /// 资源行必须是本车唯一的下一状态行。
+    fn check_transition_row(&self, vehicle: VehicleHandle, update: usize) -> Result<(), StepError> {
+        if self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
+            != u32::try_from(update).ok()
+        {
+            return Err(StepError::ConflictInvariantViolation);
+        }
+        Ok(())
+    }
+
+    /// 一个资源行的转移事件；`passage_cursor` 是 passage 暂存的线性合并游标。
+    fn visit_row_transitions(
+        &self,
+        row: &super::motion_updates::UpdateView<'_>,
+        tick: u64,
+        sequence: u32,
+        passage_cursor: &mut usize,
+        emit: &mut impl FnMut(TrafficTransitionEvent),
+    ) -> Result<(), StepError> {
+        let vehicle = row.source.handle();
+        {
             let compiled = self
                 .compiled_route(row.source.route())
                 .ok_or(StepError::ConflictInvariantViolation)?;
@@ -291,14 +345,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 && !self
                     .workspace
                     .conflict_passage_transitions
-                    .get(passage_cursor)
+                    .get(*passage_cursor)
                     .is_some_and(|transition| transition.vehicle == vehicle)
             {
-                continue;
+                return Ok(());
             }
             let old = row.source.state();
             let next = row.state();
-            self.visit_waiting_events(old, next, tick, sequence, &mut emit);
+            self.visit_waiting_events(old, next, tick, sequence, &mut *emit);
             let mut push = |anchor, kind| {
                 emit(TrafficTransitionEvent {
                     tick,
@@ -378,10 +432,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             while let Some(transition) = self
                 .workspace
                 .conflict_passage_transitions
-                .get(passage_cursor)
+                .get(*passage_cursor)
                 .filter(|transition| transition.vehicle == vehicle)
             {
-                passage_cursor += 1;
+                *passage_cursor += 1;
                 let occurrence = compiled.conflicts[transition.occurrence_index as usize];
                 let passage = self
                     .conflict_passage_occurrence_locator(old.route, transition.occurrence_index)
@@ -477,11 +531,169 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 }
             }
         }
-        if passage_cursor != self.workspace.conflict_passage_transitions.len() {
-            return Err(StepError::ConflictInvariantViolation);
-        }
         Ok(())
     }
+
+    /// 并行版本：资源行分段，各段从 P2 缓存取 live 序号、二分定位本段 passage
+    /// 游标起点后独立发射事件。协调器按段序核对：上一段游标终点等于下一段起点、
+    /// live 序号跨段不回退，首个验证错误按行序公开，验证错误先于分配错误。缓存
+    /// 取不到序号或游标链对不上时返回 `None`，由调用方走串行。
+    fn visit_transition_events_parallel(
+        &self,
+        updates: &super::motion_updates::MotionUpdates,
+        tick: u64,
+        resources: &crate::kernel::execution::ExecutionResources,
+        parts: &mut Vec<TransitionPart>,
+    ) -> Option<Result<usize, StepError>> {
+        let rows = updates.resource_rows();
+        let count = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(TRANSITION_MAX_PARTS)
+            .min(rows.len())
+            .max(1);
+        let span = rows.len().div_ceil(count).max(1);
+        if parts.len() < count {
+            parts.try_reserve(count - parts.len()).ok()?;
+            parts.resize_with(count, TransitionPart::default);
+        }
+        // 调用方合并全部段；上拍多出的段清空，免得残留事件混入本拍。
+        for stale in &mut parts[count..] {
+            stale.events.clear();
+        }
+        let live = &self.committed.live_order;
+        let motion_cache = &self.workspace.motion_cache;
+        let transitions = &self.workspace.conflict_passage_transitions;
+        let next_state = &self.workspace.next_state_by_vehicle;
+        let view = self;
+        resources.for_each_part(&mut parts[..count], 1, |part, out| {
+            let out = &mut out[0];
+            out.events.clear();
+            out.error = None;
+            out.alloc_failed = false;
+            out.cache_miss = false;
+            out.ranks = None;
+            let start = (part * span).min(rows.len());
+            let end = (start + span).min(rows.len());
+            // 本段起点之前的 passage 暂存都属于更早的资源行；链核对在协调器做。
+            let first_update = rows.get(start).copied().unwrap_or(usize::MAX);
+            let mut cursor = transitions.partition_point(|transition| {
+                next_state[transition.vehicle.index() as usize]
+                    .checked_sub(1)
+                    .is_some_and(|update| (update as usize) < first_update)
+            });
+            out.cursor_start = cursor;
+            let mut emit = |event: TrafficTransitionEvent| {
+                if out.alloc_failed {
+                    return;
+                }
+                let len = out.events.len();
+                if len == out.events.capacity()
+                    && crate::kernel::conflict_tick::reserve(&mut out.events, len.max(1)).is_err()
+                {
+                    out.alloc_failed = true;
+                    return;
+                }
+                out.events.push(event);
+            };
+            let mut ranks = None::<(u32, u32)>;
+            let mut error = None;
+            for (row_index, &update) in rows.iter().enumerate().take(end).skip(start) {
+                let row = updates.row(update, &view.committed.vehicles);
+                let vehicle = row.source.handle();
+                if let Err(found) = view.check_transition_row(vehicle, update) {
+                    error = Some((row_index, found));
+                    break;
+                }
+                let Some(sequence) = motion_cache
+                    .get(update)
+                    .filter(|entry| {
+                        entry.vehicle == vehicle
+                            && live.get(entry.update_sequence) == Some(&vehicle)
+                    })
+                    .and_then(|entry| u32::try_from(entry.update_sequence).ok())
+                else {
+                    out.cache_miss = true;
+                    break;
+                };
+                // 串行逐项前移 live 游标：序号回退即找不到该车。
+                if ranks.is_some_and(|(_, last)| sequence < last) {
+                    error = Some((row_index, StepError::ConflictInvariantViolation));
+                    break;
+                }
+                ranks = Some((ranks.map_or(sequence, |(first, _)| first), sequence));
+                if let Err(found) =
+                    view.visit_row_transitions(&row, tick, sequence, &mut cursor, &mut emit)
+                {
+                    error = Some((row_index, found));
+                    break;
+                }
+            }
+            out.error = error;
+            out.ranks = ranks;
+            out.cursor_end = cursor;
+        });
+        let mut expected_cursor = 0;
+        let mut last_rank = None::<u32>;
+        let mut alloc_failed = false;
+        let mut total = 0_usize;
+        for (part, out) in parts[..count].iter().enumerate() {
+            if out.cache_miss || out.cursor_start != expected_cursor {
+                return None;
+            }
+            let start = (part * span).min(rows.len());
+            // 段首行：资源行检查先于 live 游标前移。
+            if let Some((row, error)) = out.error
+                && row == start
+            {
+                return Some(Err(error));
+            }
+            if let (Some(last), Some((first, _))) = (last_rank, out.ranks)
+                && first < last
+            {
+                return Some(Err(StepError::ConflictInvariantViolation));
+            }
+            if let Some((_, error)) = out.error {
+                return Some(Err(error));
+            }
+            expected_cursor = out.cursor_end;
+            if let Some((_, last)) = out.ranks {
+                last_rank = Some(last);
+            }
+            alloc_failed |= out.alloc_failed;
+            total += out.events.len();
+        }
+        if expected_cursor != transitions.len() {
+            return Some(Err(StepError::ConflictInvariantViolation));
+        }
+        if alloc_failed {
+            return Some(Err(StepError::ConflictScratchAllocFailed));
+        }
+        Some(Ok(total))
+    }
+}
+
+/// 并行转移事件发射的段数上限。
+const TRANSITION_MAX_PARTS: usize = 128;
+/// 资源行少于此数时串行发射。
+#[cfg(not(test))]
+const TRANSITION_PARALLEL_ROWS: usize = 4_096;
+#[cfg(test)]
+const TRANSITION_PARALLEL_ROWS: usize = 1;
+
+/// 并行转移事件发射一段的输出，随池跨拍保留事件容量。
+#[derive(Default)]
+pub(crate) struct TransitionPart {
+    events: Vec<TrafficTransitionEvent>,
+    /// 本段首个验证错误所在的资源行号与错误。
+    error: Option<(usize, StepError)>,
+    alloc_failed: bool,
+    /// P2 缓存取不到本段某行的 live 序号。
+    cache_miss: bool,
+    /// 本段首末行的 live 序号。
+    ranks: Option<(u32, u32)>,
+    cursor_start: usize,
+    cursor_end: usize,
 }
 
 #[cfg(test)]
@@ -527,7 +739,7 @@ mod tests {
             world
                 .state
                 .step_workspace()
-                .stage_transition_events(&updates, 1),
+                .stage_transition_events(&updates, 1, None),
             Err(StepError::ConflictInvariantViolation)
         );
         assert_eq!(TRANSITION_VISITS.get(), 1);

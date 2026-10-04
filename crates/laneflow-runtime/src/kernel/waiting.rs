@@ -2951,7 +2951,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .sort_unstable_by_key(|decision| {
                 (decision.vehicle_update_sequence, decision.anchor.hop)
             });
-        self.stage_transition_events(updates, tick)?;
+        self.stage_transition_events(updates, tick, execution)?;
         Ok(())
     }
 
