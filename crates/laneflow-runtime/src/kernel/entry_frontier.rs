@@ -5,7 +5,6 @@
 
 use std::collections::BTreeMap;
 
-#[path = "entry_frontier_replay.rs"]
 mod replay;
 pub(crate) use replay::ReplayScratch;
 
