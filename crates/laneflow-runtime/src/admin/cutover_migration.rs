@@ -908,6 +908,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let (conflict, conflict_indexes, conflict_workspace) = conflict_arbiter.into_parts();
     let conflict_eligibility = try_staging_vec(vehicle_capacity)?;
     let conflict_candidates = try_staging_vec(vehicle_capacity)?;
+    let conflict_candidate_order = try_staging_vec(vehicle_capacity)?;
     let conflict_schedule = crate::kernel::conflict_tick::ConflictSchedule::default();
     let conflict_candidate_cells = Vec::new();
     let conflict_candidate_downstream = Vec::new();
@@ -996,6 +997,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         workspace: crate::kernel::state::TickWorkspace {
             conflict: conflict_workspace,
             conflict_candidates,
+            conflict_candidate_order,
             conflict_schedule,
             conflict_candidate_cells,
             conflict_candidate_downstream,
@@ -4344,7 +4346,7 @@ pub(crate) mod tests {
         let before = world.capture_snapshot().expect("before");
         // 前两次为 committed/next signal；随后覆盖 Waiting 权威、独立队列首尾及 scratch；
         // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
-        for fail_after in 1..=24 {
+        for fail_after in 1..=25 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
                     &world.state,
@@ -4360,7 +4362,7 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
         }
-        let candidate = with_staging_allocation_failure_after(25, || {
+        let candidate = with_staging_allocation_failure_after(26, || {
             migrate_structural_clone(
                 &world.state,
                 target,

@@ -276,6 +276,7 @@ impl crate::kernel::state::WorldState {
         let (conflict, conflict_indexes, conflict_workspace) = conflict_arbiter.into_parts();
         let conflict_eligibility = Vec::with_capacity(vehicle_capacity);
         let conflict_candidates = Vec::with_capacity(vehicle_capacity);
+        let conflict_candidate_order = Vec::with_capacity(vehicle_capacity);
         let conflict_schedule = crate::kernel::conflict_tick::ConflictSchedule::default();
         let conflict_candidate_cells = Vec::new();
         let conflict_candidate_downstream = Vec::new();
@@ -376,6 +377,7 @@ impl crate::kernel::state::WorldState {
             workspace: crate::kernel::state::TickWorkspace {
                 conflict: conflict_workspace,
                 conflict_candidates,
+                conflict_candidate_order,
                 conflict_schedule,
                 conflict_candidate_cells,
                 conflict_candidate_downstream,

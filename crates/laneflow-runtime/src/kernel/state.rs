@@ -396,6 +396,8 @@ pub(crate) struct TickWorkspace {
     pub(crate) conflict: crate::kernel::conflict::ConflictWorkspace,
     /// 固定步进 scratch；所有增长走 checked reserve，warm-up 后不再分配。
     pub(crate) conflict_candidates: Vec<crate::kernel::conflict_tick::ConflictCandidate>,
+    /// 候选规范排序的紧凑键与原下标，容量与候选相同。
+    pub(crate) conflict_candidate_order: Vec<crate::kernel::conflict_tick::CandidateOrderKey>,
     pub(crate) conflict_schedule: crate::kernel::conflict_tick::ConflictSchedule,
     pub(crate) conflict_candidate_cells: Vec<crate::ConflictPassageAddress>,
     pub(crate) conflict_candidate_downstream: Vec<crate::DownstreamInterval>,
@@ -571,6 +573,7 @@ impl TickWorkspace {
         let Self {
             conflict,
             conflict_candidates,
+            conflict_candidate_order,
             conflict_schedule,
             conflict_candidate_cells,
             conflict_candidate_downstream,
@@ -612,6 +615,7 @@ impl TickWorkspace {
             frontier_maintenance,
         } = self;
         crate::kernel::state::vec_bytes(conflict_candidates)
+            + crate::kernel::state::vec_bytes(conflict_candidate_order)
             + crate::kernel::state::vec_bytes(conflict_candidate_cells)
             + crate::kernel::state::vec_bytes(conflict_candidate_downstream)
             + crate::kernel::state::vec_bytes(conflict_cell_work)

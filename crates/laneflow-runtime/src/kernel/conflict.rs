@@ -485,6 +485,23 @@ impl ConflictCandidateOrderKey {
     }
 }
 
+impl ConflictCandidateOrderKey {
+    /// 把（本键, `tail`）按字典序无损编码为两个 `u128`，整数比较与元组比较一致。
+    pub(crate) fn packed(self, tail: u32) -> (u128, u128) {
+        let (kind, no_priority, priority, first_eligible_tick, no_waiting, waiting, sequence) =
+            self.tuple();
+        // Reverse<i32> 升序即 i32 降序：翻转符号位得到保序的无符号值后再取反。
+        let priority = !((priority.0 as u32) ^ 0x8000_0000);
+        let high = (u128::from(kind) << 98)
+            | (u128::from(no_priority) << 97)
+            | (u128::from(priority) << 65)
+            | (u128::from(first_eligible_tick) << 1)
+            | u128::from(no_waiting);
+        let low = (u128::from(waiting) << 64) | (u128::from(sequence) << 32) | u128::from(tail);
+        (high, low)
+    }
+}
+
 impl Ord for ConflictCandidateOrderKey {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tuple().cmp(&other.tuple())
@@ -4859,6 +4876,54 @@ mod tests {
             assert_eq!(arbiter.read().approach_frontier_cells(), cleared());
             assert!(arbiter.workspace.frontier_dirty.is_empty());
             assert!(!arbiter.workspace.frontier_dirty_overflow);
+        }
+    }
+
+    #[test]
+    fn packed_candidate_keys_order_like_full_keys() {
+        let kinds = [
+            GateCandidateKind::Protected,
+            GateCandidateKind::Permissive,
+            GateCandidateKind::Uncontrolled,
+        ];
+        let priorities = [
+            None,
+            Some(i32::MIN),
+            Some(-1),
+            Some(0),
+            Some(1),
+            Some(i32::MAX),
+        ];
+        let ticks = [0, 1, u64::MAX];
+        let waiting = [None, Some(0), Some(7), Some(u64::MAX)];
+        let sequences = [0, 3, u32::MAX];
+        let mut keys = Vec::new();
+        for kind in kinds {
+            for priority in priorities {
+                for tick in ticks {
+                    for admission in waiting {
+                        for sequence in sequences {
+                            for tail in [0, u32::MAX] {
+                                keys.push((
+                                    ConflictCandidateOrderKey::new(
+                                        kind, priority, tick, admission, sequence,
+                                    ),
+                                    tail,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for left in &keys {
+            for right in &keys {
+                assert_eq!(
+                    left.0.packed(left.1).cmp(&right.0.packed(right.1)),
+                    left.cmp(right),
+                    "{left:?} {right:?}"
+                );
+            }
         }
     }
 
