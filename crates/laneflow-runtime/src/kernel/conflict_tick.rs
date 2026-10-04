@@ -116,15 +116,26 @@ fn cached_gate_may_be_reached(
     cache_index: usize,
     delta_s: f32,
 ) -> bool {
+    cached_gate_reachability(cache, state.handle, update_sequence, cache_index)
+        .unwrap_or_else(|| gate_may_be_reached(read, state, delta_s))
+}
+
+/// 同拍 P2 已算出的门可达性；缓存位不匹配或未算时返回 `None`，由调用方现算。
+/// 不读整车状态，可在组装状态之前排除车辆。
+fn cached_gate_reachability(
+    cache: &[crate::kernel::tick::MotionCacheEntry],
+    vehicle: VehicleHandle,
+    update_sequence: usize,
+    cache_index: usize,
+) -> Option<bool> {
     #[cfg(test)]
     if CONFLICT_FULL_SCAN.with(std::cell::Cell::get) {
-        return true;
+        return Some(true);
     }
     cache
         .get(cache_index)
-        .filter(|entry| entry.vehicle == state.handle && entry.update_sequence == update_sequence)
+        .filter(|entry| entry.vehicle == vehicle && entry.update_sequence == update_sequence)
         .and_then(|entry| entry.gate_reachable)
-        .unwrap_or_else(|| gate_may_be_reached(read, state, delta_s))
 }
 
 /// Conflict 决定的稳定动态路线锚点。
@@ -1350,7 +1361,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             #[cfg(not(test))]
             let full_scan = false;
             let discovered = execution.install(|| {
-                discover_conflict_inputs_parallel(view, execution, delta_s, full_scan, inputs)
+                discover_conflict_inputs_parallel(view, execution, delta_s, full_scan, true, inputs)
             })?;
             if !discovered {
                 #[cfg(test)]
@@ -3449,6 +3460,41 @@ mod tests {
     const UNSUFFIX_RECOVER_INJECT_WORLD: u64 = 708_006;
 
     #[test]
+    fn cache_scan_discovery_falls_back_to_live_order_when_rows_disagree() {
+        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
+        let discover = |swap: bool| {
+            let mut world = crate::kernel::waiting::tests::multi_gate_world(32);
+            install_execution(&mut world, 4);
+            world.state.rebuild_occupancy_index().unwrap();
+            world.state.prepare_waiting_step(0.1).unwrap();
+            assert_eq!(
+                world.state.workspace.motion_cache.len(),
+                world.state.derived.active_order.len(),
+                "cache covers every Active vehicle"
+            );
+            if swap {
+                // 缓存行不再按 live 序递增：按缓存行扫描必须整体改走 live 序。
+                world.state.workspace.motion_cache.swap(1, 2);
+            }
+            world
+                .state
+                .prepare_conflict_step(0.1, 1, Some(world.execution.resources()))
+                .unwrap();
+            world
+                .state
+                .workspace
+                .conflict_inputs
+                .iter()
+                .map(|input| (input.0, input.1, input.2))
+                .collect::<Vec<_>>()
+        };
+        let expected = discover(false);
+        assert!(!expected.is_empty());
+        assert_eq!(discover(true), expected);
+    }
+
+    #[test]
     fn gate_scope_sparse_inputs_match_full_scan_with_retry_and_reuse() {
         let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
@@ -4776,20 +4822,41 @@ const CONFLICT_DISCOVERY_MAX_PARTS: usize = 128;
 /// P3 发现输入：车辆、live 序号、缓存位与拍初状态。
 type ConflictInput = (VehicleHandle, u32, usize, VehicleState);
 
+/// 输入发现一段的输出：入选数、本段拾取区间、按缓存行扫描时段内首末 live
+/// 序号，以及缓存行是否对不上。
+#[derive(Default)]
+struct DiscoveryPart<'a> {
+    chosen: usize,
+    picks: &'a mut [u32],
+    bounds: Option<(usize, usize)>,
+    mismatch: bool,
+}
+
 /// P3 输入发现的并行版本：先按连续 live 段数 Active 数，再逐段筛选一遍记下入选，
 /// 最后按前缀和切开输出并行写入。`cache_index` 等于该段之前的 Active 总数加段内
 /// 序号，与串行循环（先递增 Active 位、再做 reservation 与可达性筛选）完全一致；
-/// 段序即 live 序。拾取缓冲预留失败返回 `false`，由调用方回退融合求值。
+/// 段序即 live 序。`from_cache` 时若 P2 缓存完整覆盖 Active，改按缓存行分段，
+/// 行号即 cache_index，省掉数 Active 的一遍。拾取缓冲预留失败返回 `false`，由
+/// 调用方回退融合求值。
 fn discover_conflict_inputs_parallel(
     view: &ConflictTaskView<'_>,
     execution: &crate::kernel::execution::ExecutionResources,
     delta_s: f32,
     full_scan: bool,
+    from_cache: bool,
     inputs: &mut Vec<ConflictInput>,
 ) -> Result<bool, StepError> {
     let live = &view.read.committed.live_order;
-    let count = live.len();
-    u32::try_from(count).map_err(|_| StepError::ConflictInvariantViolation)?;
+    u32::try_from(live.len()).map_err(|_| StepError::ConflictInvariantViolation)?;
+    // P2 缓存按拍初 Active 顺序覆盖全部 Active 时，直接扫缓存行：行内已有句柄与
+    // live 序号，行号即 cache_index，不再逐个回读 live 序与车辆目录数 Active。
+    // 扫描时核对每行句柄与 live 序号严格递增，对不上就整体改走 live 序扫描。
+    let cache = view.motion_cache;
+    let from_cache = from_cache
+        && !full_scan
+        && !cache.is_empty()
+        && cache.len() == view.read.derived.active_order.len();
+    let count = if from_cache { cache.len() } else { live.len() };
     let parts = execution
         .dispatch_threads()
         .saturating_mul(4)
@@ -4797,43 +4864,50 @@ fn discover_conflict_inputs_parallel(
         .min(count)
         .max(1);
     let span = count.div_ceil(parts).max(1);
-    let select = |sequence: usize, cache_index: usize| -> Option<(VehicleHandle, VehicleState)> {
+    // 先用 reservation 与同拍缓存的可达位排除（绝大多数车辆在此止步），只为
+    // 可能入选的车辆组装整车状态；入选结果与先组装后筛选相同。
+    let select = |sequence: usize, cache_index: usize| -> bool {
         let vehicle = live[sequence];
-        let state = view.read.vehicle_state(vehicle)?;
-        if state.status != VehicleStatus::Active {
-            return None;
+        if view.conflict.reservation(vehicle).is_some() {
+            return false;
         }
-        if view.conflict.reservation(vehicle).is_some()
-            || !(full_scan
-                || cached_gate_may_be_reached(
-                    view.read,
-                    view.motion_cache,
-                    &state,
-                    sequence,
-                    cache_index,
-                    delta_s,
-                ))
-        {
-            return None;
+        let cached = if full_scan {
+            Some(true)
+        } else {
+            cached_gate_reachability(view.motion_cache, vehicle, sequence, cache_index)
+        };
+        if cached == Some(false) {
+            return false;
         }
-        Some((vehicle, state))
+        let Some(state) = view.read.vehicle_state(vehicle) else {
+            return false;
+        };
+        state.status == VehicleStatus::Active
+            && (cached.is_some() || gate_may_be_reached(view.read, &state, delta_s))
     };
     // 只读目录状态，不组装整车；与 `vehicle_state` 的身份与 Active 判断一致。
     let is_active = |sequence: usize| {
         view.read.committed.vehicles.status(live[sequence]) == Some(VehicleStatus::Active)
     };
     // 入选需要 cache_index：第一遍只数 Active，第二遍按前缀和数入选，第三遍写入。
-    let mut active = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
-    execution.for_each_part(&mut active[..parts], 1, |part, out| {
-        let start = (part * span).min(count);
-        let end = (start + span).min(count);
-        out[0] = (start..end).filter(|&sequence| is_active(sequence)).count();
-    });
+    // 按缓存行扫描时行号就是 cache_index，省掉第一遍。
     let mut active_before = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
-    let mut running = 0;
-    for part in 0..parts {
-        active_before[part] = running;
-        running += active[part];
+    if from_cache {
+        for (part, before) in active_before[..parts].iter_mut().enumerate() {
+            *before = (part * span).min(count);
+        }
+    } else {
+        let mut active = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+        execution.for_each_part(&mut active[..parts], 1, |part, out| {
+            let start = (part * span).min(count);
+            let end = (start + span).min(count);
+            out[0] = (start..end).filter(|&sequence| is_active(sequence)).count();
+        });
+        let mut running = 0;
+        for part in 0..parts {
+            active_before[part] = running;
+            running += active[part];
+        }
     }
     // 入选判断只做一遍：各段把入选的 (live 序号, cache_index) 写进本段在拾取
     // 缓冲中的互斥区间（段内入选数不超过段长），协调器再按前缀和切出输出，
@@ -4852,25 +4926,47 @@ fn discover_conflict_inputs_parallel(
     let mut selected = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
     {
         let mut rest: &mut [u32] = &mut picks[..picks_len];
-        let mut work: [(usize, &mut [u32]); CONFLICT_DISCOVERY_MAX_PARTS] =
-            std::array::from_fn(|_| (0, Default::default()));
+        let mut work: [DiscoveryPart<'_>; CONFLICT_DISCOVERY_MAX_PARTS] =
+            std::array::from_fn(|_| DiscoveryPart::default());
         for (part, slot) in work[..parts].iter_mut().enumerate() {
             let start = (part * span).min(count);
             let end = (start + span).min(count);
             let (head, tail) = std::mem::take(&mut rest).split_at_mut((end - start) * 2);
-            slot.1 = head;
+            slot.picks = head;
             rest = tail;
         }
         execution.for_each_part(&mut work[..parts], 1, |part, output| {
-            let (chosen, picks) = &mut output[0];
+            let DiscoveryPart {
+                chosen,
+                picks,
+                bounds,
+                mismatch,
+            } = &mut output[0];
             let start = (part * span).min(count);
             let end = (start + span).min(count);
             let mut cache_index = active_before[part];
-            for sequence in start..end {
-                if !is_active(sequence) {
-                    continue;
-                }
-                if select(sequence, cache_index).is_some() {
+            for row in start..end {
+                let sequence = if from_cache {
+                    let Some(entry) = cache.get(row) else {
+                        *mismatch = true;
+                        return;
+                    };
+                    let sequence = entry.update_sequence;
+                    if live.get(sequence) != Some(&entry.vehicle)
+                        || bounds.is_some_and(|(_, last)| sequence <= last)
+                    {
+                        *mismatch = true;
+                        return;
+                    }
+                    *bounds = Some((bounds.map_or(sequence, |(first, _)| first), sequence));
+                    sequence
+                } else {
+                    if !is_active(row) {
+                        continue;
+                    }
+                    row
+                };
+                if select(sequence, cache_index) {
                     // live 序号已校验可放进 u32；cache_index 不超过它。
                     picks[*chosen * 2] = sequence as u32;
                     picks[*chosen * 2 + 1] = cache_index as u32;
@@ -4879,15 +4975,37 @@ fn discover_conflict_inputs_parallel(
                 cache_index += 1;
             }
         });
-        for (out, (chosen, _)) in selected[..parts].iter_mut().zip(&work[..parts]) {
-            *out = *chosen;
+        if from_cache {
+            let mut last = None::<usize>;
+            for part in &work[..parts] {
+                if part.mismatch {
+                    last = Some(usize::MAX);
+                    break;
+                }
+                if let Some((first, end)) = part.bounds {
+                    if last.is_some_and(|last| first <= last) {
+                        last = Some(usize::MAX);
+                        break;
+                    }
+                    last = Some(end);
+                }
+            }
+            if last == Some(usize::MAX) {
+                drop(picks);
+                return discover_conflict_inputs_parallel(
+                    view, execution, delta_s, full_scan, false, inputs,
+                );
+            }
+        }
+        for (out, part) in selected[..parts].iter_mut().zip(&work[..parts]) {
+            *out = part.chosen;
         }
     }
     let total: usize = selected[..parts].iter().sum();
     let placeholder = inputs.first().copied();
     inputs.clear();
     let Some(fill) = placeholder.or_else(|| {
-        let first = (0..count).find(|&sequence| is_active(sequence))?;
+        let first = (0..live.len()).find(|&sequence| is_active(sequence))?;
         let state = view.read.vehicle_state(live[first])?;
         Some((live[first], 0, 0, state))
     }) else {
