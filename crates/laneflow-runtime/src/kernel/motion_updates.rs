@@ -214,6 +214,13 @@ pub(crate) struct MotionUpdates {
 
 /// 并行规范消费的段数上限；每段的统计与输出切片都放在栈上。
 const ADOPT_MAX_PARTS: usize = 128;
+/// 提交前绑定核对的并行段数上限。
+const VALIDATE_MAX_PARTS: usize = 128;
+/// 更新行少于此数时串行核对。
+#[cfg(not(test))]
+const VALIDATE_PARALLEL_ROWS: usize = 4_096;
+#[cfg(test)]
+const VALIDATE_PARALLEL_ROWS: usize = 1;
 
 /// 并行规范消费的结果。
 pub(crate) enum ParallelAdopt {
@@ -767,7 +774,17 @@ impl MotionUpdates {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn validate(&self, current: &VehicleStore) -> Result<(), StepError> {
+        self.validate_with(current, None)
+    }
+
+    /// 提交前核对更新与当前车辆存储同形；多线程时绑定核对分段并行。
+    pub(crate) fn validate_with(
+        &self,
+        current: &VehicleStore,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), StepError> {
         if self.motion.len() != current.motion.len() {
             return Err(StepError::ConflictInvariantViolation);
         }
@@ -784,15 +801,41 @@ impl MotionUpdates {
             .flat_map(|block| block.valid)
             .map(|word| word.count_ones() as usize)
             .sum();
-        if rows != self.order.len()
-            || self
-                .order
-                .iter()
-                .any(|row| current.active_binding_at(row.slot, row.physical).is_none())
-        {
+        if rows != self.order.len() || !self.rows_bound(current, execution) {
             return Err(StepError::ConflictInvariantViolation);
         }
         Ok(())
+    }
+
+    /// 每个更新行仍绑定到同一活动车位与物理行；多线程时分段并行核对。
+    fn rows_bound(
+        &self,
+        current: &VehicleStore,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> bool {
+        let bound = |rows: &[UpdateRow]| {
+            rows.iter()
+                .all(|row| current.active_binding_at(row.slot, row.physical).is_some())
+        };
+        let Some(resources) = execution.filter(|resources| {
+            resources.coordinator_parallel() && self.order.len() >= VALIDATE_PARALLEL_ROWS
+        }) else {
+            return bound(&self.order);
+        };
+        let parts = resources
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(VALIDATE_MAX_PARTS)
+            .min(self.order.len())
+            .max(1);
+        let span = self.order.len().div_ceil(parts).max(1);
+        let mut results = [true; VALIDATE_MAX_PARTS];
+        resources.for_each_part(&mut results[..parts], 1, |part, out| {
+            let start = (part * span).min(self.order.len());
+            let end = (start + span).min(self.order.len());
+            out[0] = bound(&self.order[start..end]);
+        });
+        results[..parts].iter().all(|bound| *bound)
     }
 
     pub(crate) fn publish(&mut self, current: &mut VehicleStore) {
