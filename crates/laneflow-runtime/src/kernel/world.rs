@@ -385,6 +385,7 @@ impl crate::kernel::state::WorldState {
                 conflict_motion_by_vehicle,
                 conflict_next_eligibility,
                 conflict_table_writes: Default::default(),
+                committed_check: Default::default(),
                 conflict_passage_transitions,
                 conflict_changed_owners,
                 waiting_dependencies,
@@ -574,6 +575,44 @@ impl crate::kernel::state::WorldState {
                     == Some(committed_cells)
             }
             None => (0..count).all(|index| self.conflict_slot_valid(index)) && authority_valid(),
+        }
+    }
+
+    /// 账本预检：只核对记下的车位（越界车位已不再登记，跳过）；多线程时分段并行。
+    pub(crate) fn conflict_slots_valid(
+        &self,
+        slots: &[u32],
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> bool {
+        if !self.committed.conflict_eligibility.is_empty()
+            && self.committed.conflict_eligibility.len()
+                != usize::try_from(self.binding.config.vehicle_capacity()).unwrap_or(usize::MAX)
+        {
+            return false;
+        }
+        let count = self.committed.vehicles.len();
+        let slot_valid = |slot: &u32| {
+            let slot = *slot as usize;
+            slot >= count || self.conflict_slot_valid(slot)
+        };
+        match execution.filter(|resources| resources.coordinator_parallel()) {
+            Some(resources) => {
+                let parts = resources
+                    .dispatch_threads()
+                    .saturating_mul(4)
+                    .min(PREFLIGHT_MAX_PARTS)
+                    .min(slots.len())
+                    .max(1);
+                let span = slots.len().div_ceil(parts).max(1);
+                let mut valid = [true; PREFLIGHT_MAX_PARTS];
+                resources.for_each_part(&mut valid[..parts], 1, |part, out| {
+                    let start = (part * span).min(slots.len());
+                    let end = (start + span).min(slots.len());
+                    out[0] = slots[start..end].iter().all(slot_valid);
+                });
+                valid[..parts].iter().all(|valid| *valid)
+            }
+            None => slots.iter().all(slot_valid),
         }
     }
 
@@ -1173,6 +1212,12 @@ impl crate::kernel::state::WorldState {
             self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, authority);
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
+        self.workspace.committed_check.note_command(
+            self.binding.world_generation,
+            previous_sequence,
+            next_observation_state_sequence,
+            handle.index() as usize,
+        );
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
         self.note_inserted_vehicle(handle, previous_sequence, update_sequence);
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
@@ -1647,6 +1692,20 @@ impl crate::kernel::state::WorldState {
         self.register_overlap_vehicle(state);
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
+        let generation = self.binding.world_generation;
+        let check = &mut self.workspace.committed_check;
+        check.note_command(
+            generation,
+            previous_sequence,
+            next_observation_state_sequence,
+            old.index() as usize,
+        );
+        check.note_command(
+            generation,
+            next_observation_state_sequence,
+            next_observation_state_sequence,
+            new.index() as usize,
+        );
         self.apply_spawn_occupancy(new, previous_sequence, occupancy_patch);
         self.note_inserted_vehicle(new, previous_sequence, update_sequence);
         let new_state = self

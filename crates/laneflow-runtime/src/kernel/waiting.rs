@@ -2277,7 +2277,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     ) -> Result<(), crate::StepError> {
         #[cfg(test)]
         let _preamble = preview_stage::begin(preview_stage::PREAMBLE);
-        if !self.waiting_member_rows_valid() {
+        // 完整校验移到入口：账本对得上时已提交的成员行只经由已校验的提交改变。
+        if !self.workspace.committed_check.trusted() && !self.waiting_member_rows_valid() {
             return Err(crate::StepError::WaitingInvariantViolation);
         }
         self.workspace.waiting_plans.clear();
@@ -4913,10 +4914,11 @@ pub(crate) mod tests {
                     }
                 );
                 assert_eq!(world.waiting_zone_members().len(), 1);
+                // 第二拍的已提交状态只经由上一拍提交改变：成员行完整校验移到入口，
+                // 不再逐 zone 检查。
                 assert_eq!(
                     step_waiting_counts(&mut world),
                     WaitingWorkCounts {
-                        checked_zones: 1,
                         member_vehicles: 1,
                         ..WaitingWorkCounts::default()
                     }
@@ -5656,7 +5658,9 @@ pub(crate) mod tests {
         assert!(world.state.waiting_member_rows_valid());
 
         let before = world.capture_snapshot().unwrap();
+        // 绕过入口直接改写派生行：令下一拍走完整校验。
         world.state.derived.waiting_member_rows.reverse();
+        world.state.workspace.committed_check.invalidate();
         assert_eq!(
             world.step(TickInput::new(4)),
             Err(crate::StepError::WaitingInvariantViolation)
@@ -5664,6 +5668,7 @@ pub(crate) mod tests {
         assert_eq!(world.capture_snapshot().unwrap(), before);
         world.state.derived.waiting_member_rows.reverse();
         world.state.derived.waiting_member_rows[0].release_hop += 1;
+        world.state.workspace.committed_check.invalidate();
         assert_eq!(
             world.step(TickInput::new(4)),
             Err(crate::StepError::WaitingInvariantViolation)

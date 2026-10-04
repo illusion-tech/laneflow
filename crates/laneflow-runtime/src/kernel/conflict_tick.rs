@@ -501,6 +501,13 @@ pub(crate) struct ConflictTableWrites {
 }
 
 impl ConflictTableWrites {
+    /// 已提交资格表（版本 `version`）中本拍写过资格的车位；清单不完整或版本
+    /// 不符时返回 `None`。
+    pub(crate) fn committed_slots(&self, version: u64) -> Option<&[u32]> {
+        (self.committed.complete && self.committed_version == Some(version))
+            .then_some(self.committed.slots.as_slice())
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> u64 {
         crate::kernel::state::vec_bytes(&self.motion.slots)

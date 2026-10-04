@@ -1440,6 +1440,12 @@ impl crate::kernel::state::WorldState {
         drop(vehicle_slot);
         self.remove_active_vehicle(vehicle);
         self.committed.command_cursor = command_cursor;
+        self.workspace.committed_check.note_command(
+            self.binding.world_generation,
+            self.committed.observation_state_sequence,
+            sequence,
+            vehicle.index() as usize,
+        );
         self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
         self.workspace.frontier_maintenance.invalidate(vehicle);
@@ -1627,6 +1633,12 @@ impl crate::kernel::state::WorldState {
         self.insert_active_vehicle(vehicle, active_index);
         self.register_overlap_vehicle(candidate);
         self.committed.command_cursor = command_cursor;
+        self.workspace.committed_check.note_command(
+            self.binding.world_generation,
+            self.committed.observation_state_sequence,
+            sequence,
+            vehicle.index() as usize,
+        );
         self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
         self.workspace
@@ -2019,6 +2031,13 @@ impl crate::kernel::state::WorldState {
         drop(slot);
         self.rebuild_waiting_member_rows();
         self.committed.command_cursor = command_cursor;
+        let previous = self.committed.observation_state_sequence;
+        self.workspace.committed_check.note_command(
+            self.binding.world_generation,
+            previous,
+            sequence.unwrap_or(previous),
+            slot_index,
+        );
         if let Some(sequence) = sequence {
             self.committed.observation_state_sequence = sequence;
         }

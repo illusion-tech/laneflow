@@ -1561,7 +1561,19 @@ impl crate::kernel::state::WorldState {
                 actual_delta_time_ms: input.delta_time_ms,
             });
         }
-        if !self.conflict_state_valid_with(execution) {
+        // 完整校验移到入口：账本对得上时只核对上拍写过资格与命令改过的车位。
+        let generation = self.binding.world_generation;
+        let sequence = self.committed.observation_state_sequence;
+        let valid = if self
+            .workspace
+            .committed_check
+            .begin_step(generation, sequence)
+        {
+            self.conflict_slots_valid(self.workspace.committed_check.slots(), execution)
+        } else {
+            self.conflict_state_valid_with(execution)
+        };
+        if !valid {
             return Err(StepError::ConflictInvariantViolation);
         }
         let tick_index = self
@@ -1596,6 +1608,10 @@ impl crate::kernel::state::WorldState {
             execution,
         );
         // prepare 的任一首错（包括 Waiting 预选失败）都丢弃本拍输入与证明。
+        self.workspace.committed_check.end_step();
+        self.workspace
+            .committed_check
+            .reserve(self.derived.active_order.len());
         self.workspace.clear_motion_cache();
         Ok(self.committed_mut().commit(plan?))
     }
@@ -1791,6 +1807,15 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             &mut self.workspace.next_signal_aspects,
         );
         self.workspace.frontier_maintenance.publish();
+        let slots = self
+            .workspace
+            .conflict_table_writes
+            .committed_slots(self.committed.conflict_eligibility.version());
+        self.workspace.committed_check.after_step(
+            self.binding.world_generation,
+            observation_state_sequence,
+            slots,
+        );
         StepOutcome::new(tick_index, time_ms, parking_arrivals)
     }
 }
