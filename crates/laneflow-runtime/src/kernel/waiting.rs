@@ -3411,7 +3411,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             self.committed.waiting_zones[zone_index].next_admission_sequence =
                 self.workspace.waiting_next_counters[zone_index];
         }
-        self.rebuild_waiting_member_rows();
+        self.rebuild_waiting_member_rows_from_queues();
         std::mem::swap(
             &mut self.committed.latest_waiting_decisions,
             &mut self.workspace.waiting_staged_decisions,
@@ -3420,6 +3420,47 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             &mut self.committed.latest_transition_events,
             &mut self.workspace.staged_transition_events,
         );
+    }
+
+    /// 提交阶段重建成员行：成员行的合同就是各 zone 队列自队首沿链的顺序
+    /// （见 `waiting_member_rows_valid`），本拍移除与追加已落到队列上，因此只沿
+    /// 各 zone 队列收集成员并读其 membership，不扫描全部车辆；再按同一键排序。
+    /// 测试构建同时按全量扫描重建并比对。
+    pub(crate) fn rebuild_waiting_member_rows_from_queues(&mut self) {
+        let rows = &mut self.derived.waiting_member_rows;
+        rows.clear();
+        // 链表损坏成环时不无限循环：成员总数不超过 live 车辆数。
+        let mut budget = self.committed.live_order.len();
+        for queue in &self.derived.waiting_queue_ends {
+            let mut current = queue.head;
+            while let Some(vehicle) = current {
+                let Some(left) = budget.checked_sub(1) else {
+                    break;
+                };
+                budget = left;
+                if let Some(membership) = self
+                    .committed
+                    .vehicles
+                    .waiting_membership(vehicle)
+                    .flatten()
+                {
+                    rows.push(WaitingZoneMember {
+                        zone: membership.waiting_zone,
+                        vehicle,
+                        admission_sequence: membership.admission_sequence,
+                        release_hop: membership.release_hop,
+                    });
+                }
+                current = self.derived.waiting_links[vehicle.index() as usize].next;
+            }
+        }
+        rows.sort_unstable_by_key(|member| (member.zone.raw(), member.admission_sequence));
+        #[cfg(test)]
+        {
+            let from_queues = self.derived.waiting_member_rows.clone();
+            self.rebuild_waiting_member_rows();
+            assert_eq!(from_queues, self.derived.waiting_member_rows);
+        }
     }
 
     pub(crate) fn rebuild_waiting_member_rows(&mut self) {
