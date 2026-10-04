@@ -1853,10 +1853,43 @@ impl ConflictCellLookup {
     }
 }
 
+/// 有序地址上每个 zone 下标的首 cell（zone 无 cell 时为其后首个 cell）。
+/// 长度为最大 zone 下标加一；更大的 zone 首 cell 即地址总数。
+fn build_zone_heads(
+    addresses: &[ConflictPassageAddress],
+) -> Result<Box<[u32]>, ConflictInstallError> {
+    let Some(last) = addresses.last() else {
+        return Ok(Box::default());
+    };
+    let len = last
+        .zone
+        .index()
+        .checked_add(1)
+        .ok_or(ConflictInstallError::CapacityOverflow)?;
+    let mut heads = Vec::new();
+    heads
+        .try_reserve_exact(len)
+        .map_err(|_| ConflictInstallError::AllocationFailed)?;
+    heads.resize(len, 0);
+    let mut cell = 0;
+    for (zone, head) in heads.iter_mut().enumerate() {
+        while addresses
+            .get(cell)
+            .is_some_and(|address| address.zone.index() < zone)
+        {
+            cell += 1;
+        }
+        *head = u32::try_from(cell).map_err(|_| ConflictInstallError::CapacityOverflow)?;
+    }
+    Ok(heads.into_boxed_slice())
+}
+
 /// 由绑定与已提交状态派生的 cell/owner/downstream 索引；downstream 按脏标记懒重建。
 pub(crate) struct ConflictDerivedIndexes {
     addresses: Box<[ConflictPassageAddress]>,
     cell_lookup: ConflictCellLookup,
+    /// 按 zone 下标的首 cell 下标，等于在有序地址上按 zone 二分的结果。
+    zone_heads: Box<[u32]>,
     owner_indexes: Vec<CommittedOwnerIndex>,
     owner_lookup: Vec<Option<std::num::NonZeroU32>>,
     downstream_index: crate::kernel::downstream_index::DownstreamIndex,
@@ -1872,6 +1905,7 @@ impl ConflictDerivedIndexes {
         let Self {
             addresses,
             cell_lookup,
+            zone_heads,
             owner_indexes,
             owner_lookup,
             downstream_index,
@@ -1881,6 +1915,7 @@ impl ConflictDerivedIndexes {
         } = self;
         retained_slice_bytes(addresses)
             + cell_lookup.retained_logical_bytes()
+            + retained_slice_bytes(zone_heads)
             + retained_vec_bytes(owner_indexes)
             + retained_vec_bytes(owner_lookup)
             + downstream_index.retained_logical_bytes()
@@ -2069,6 +2104,7 @@ impl ConflictArbiter {
     ) -> Result<Self, ConflictInstallError> {
         let conflict_capacity = addresses.len();
         let cell_lookup = ConflictCellLookup::build(&addresses, stream_count)?;
+        let zone_heads = build_zone_heads(&addresses)?;
         let addresses = addresses.into_boxed_slice();
         let cells = Vec::new();
         let staged_cells = Vec::new();
@@ -2087,6 +2123,7 @@ impl ConflictArbiter {
             derived: ConflictDerivedIndexes {
                 addresses,
                 cell_lookup,
+                zone_heads,
                 owner_indexes: Vec::new(),
                 owner_lookup: Vec::new(),
                 downstream_index: crate::kernel::downstream_index::DownstreamIndex::default(),
@@ -3268,28 +3305,14 @@ impl<'a> ConflictRead<'a> {
 
     fn zone_index(self, zone: ConflictZoneOrdinal) -> usize {
         self.derived
-            .addresses
-            .partition_point(|address| address.zone < zone)
+            .zone_heads
+            .get(zone.index())
+            .map_or(self.derived.addresses.len(), |head| *head as usize)
     }
 
     /// 与 `zone_index(addresses[cell].zone)` 相同：cell 所在 zone 的首 cell。
-    /// 同 zone 的 cell 连续且很少，从 cell 向前指数回退再二分，不对全表二分。
     fn zone_head(self, cell: usize) -> usize {
-        let addresses = &self.derived.addresses;
-        let zone = addresses[cell].zone;
-        let mut low = cell;
-        let mut step = 1;
-        while low > 0 && addresses[low - 1].zone == zone {
-            let next = low.saturating_sub(step);
-            if addresses[next].zone != zone {
-                return next
-                    + 1
-                    + addresses[next + 1..low].partition_point(|address| address.zone < zone);
-            }
-            low = next;
-            step *= 2;
-        }
-        low
+        self.zone_index(self.derived.addresses[cell].zone)
     }
 
     fn zone_owned_by_other(self, zone: ConflictZoneOrdinal, owner: VehicleHandle) -> bool {
@@ -4679,9 +4702,11 @@ mod tests {
             arbiter.derived.cell_lookup.retained_logical_bytes(),
             lookup_bytes
         );
+        // zone 下标 0..=4 的首 cell 表。
+        assert_eq!(&*arbiter.derived.zone_heads, &[0, 2, 3, 4, 5]);
         assert_eq!(
             arbiter.derived.retained_logical_bytes(),
-            retained_slice_bytes(&arbiter.derived.addresses) + lookup_bytes
+            retained_slice_bytes(&arbiter.derived.addresses) + lookup_bytes + 4 * 5
         );
     }
 
@@ -4838,10 +4863,10 @@ mod tests {
     }
 
     #[test]
-    fn zone_head_matches_full_zone_search() {
-        // zone 的 cell 数取 1..=17，覆盖指数回退越过 zone 起点的各种落点。
+    fn zone_heads_match_full_zone_search() {
+        // zone 的 cell 数取 1..=17；每 5 个 zone 空一个，覆盖无 cell 的 zone 与末尾之后的 zone。
         let mut addresses = Vec::new();
-        for zone in 0..40_u32 {
+        for zone in (0..40_u32).filter(|zone| zone % 5 != 3) {
             for _ in 0..(zone * 7 % 17 + 1) {
                 let stream = addresses.len() as u32;
                 addresses.push(address(zone, stream, 0));
@@ -4849,10 +4874,18 @@ mod tests {
         }
         let arbiter = ConflictArbiter::new(addresses.clone(), 1).unwrap();
         let read = arbiter.read();
+        for zone in 0..45_u32 {
+            let zone = ConflictZoneOrdinal::from_raw(zone);
+            assert_eq!(
+                read.zone_index(zone),
+                addresses.partition_point(|address| address.zone < zone),
+                "{zone:?}"
+            );
+        }
         for (cell, address) in addresses.iter().enumerate() {
             assert_eq!(
                 read.zone_head(cell),
-                read.zone_index(address.zone),
+                addresses.partition_point(|other| other.zone < address.zone),
                 "{cell}"
             );
         }
