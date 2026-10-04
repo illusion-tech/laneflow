@@ -438,25 +438,47 @@ pub(crate) fn guided_ticket(total: usize, claimed: usize, threads: usize, cap: u
         .clamp(1, cap.max(1))
 }
 
-/// 二分互斥输出并用 `join` 交给池窃取；`first_chunk` 是该段首块的全局块序号。
+/// 互斥输出分块，由至多 `threads` 个领取者从共享队列逐块领取并计算。
 fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
     output: &mut [T],
-    first_chunk: usize,
     chunk_size: usize,
+    threads: usize,
     compute: &F,
 ) {
     let chunks = output.len().div_ceil(chunk_size);
     if chunks <= 1 {
         if !output.is_empty() {
-            compute(first_chunk, output);
+            compute(0, output);
         }
         return;
     }
-    let half = chunks / 2;
-    let (left, right) = output.split_at_mut(half * chunk_size);
+    // 各线程从共享队列逐块领取，先醒的线程多做，静态二分的尾部不再等最慢的叶子。
+    let queue = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
+    let drain = || {
+        loop {
+            let next = queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .next();
+            let Some((index, chunk)) = next else {
+                break;
+            };
+            compute(index, chunk);
+        }
+    };
+    join_drainers(threads.min(chunks), &drain);
+}
+
+/// 用栈上 `join` 树拉起 `count` 个领取者，不产生堆分配。
+fn join_drainers(count: usize, drain: &(impl Fn() + Sync)) {
+    if count <= 1 {
+        drain();
+        return;
+    }
+    let half = count / 2;
     rayon_core::join(
-        || split_parts(left, first_chunk, chunk_size, compute),
-        || split_parts(right, first_chunk + half, chunk_size, compute),
+        || join_drainers(half, drain),
+        || join_drainers(count - half, drain),
     );
 }
 
@@ -607,7 +629,7 @@ impl ExecutionResources {
     }
 
     /// 不读取交通视图的互斥分块：每块独占一段输出，完整 join 后返回。
-    /// 在池内按二分 `join` 窃取执行：作业放在栈上，稳态不产生堆分配；
+    /// 在池内由 `join` 拉起的领取者逐块领取：作业放在栈上，稳态不产生堆分配；
     /// 拍内协调线程已在池上，直接参与计算。供派生索引重建这类协调器工作使用。
     pub(crate) fn for_each_part<T: Send, F: Fn(usize, &mut [T]) + Sync>(
         &self,
@@ -625,9 +647,14 @@ impl ExecutionResources {
             Self::Pool(resources) => {
                 #[cfg(test)]
                 note_injections(1);
-                resources
-                    .pool
-                    .install(|| split_parts(output, 0, chunk_size, &compute))
+                resources.pool.install(|| {
+                    split_parts(
+                        output,
+                        chunk_size,
+                        resources.pool.current_num_threads(),
+                        &compute,
+                    )
+                })
             }
         }
     }
