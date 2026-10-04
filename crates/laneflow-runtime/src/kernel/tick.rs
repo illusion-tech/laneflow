@@ -221,14 +221,42 @@ fn sort_ranked_contenders(
 }
 
 /// 按本拍拍初 Active 顺序保存的私有输入与预览；完整句柄防止错配槽位。
+/// 完整预览只有近门少数车辆才有，存在独立稀疏载荷 `motion_previews` 中，
+/// 行内只留下标，稠密行保持紧凑。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionCacheEntry {
     pub(crate) vehicle: crate::VehicleHandle,
     pub(crate) update_sequence: usize,
     pub(crate) gate_reachable: Option<bool>,
     pub(crate) horizon: Option<LeaderQueryHorizon>,
-    pub(crate) preview: Option<MotionPreview>,
+    pub(crate) preview_index: Option<std::num::NonZeroU32>,
     pub(crate) basis_index: Option<std::num::NonZeroU32>,
+}
+
+impl MotionCacheEntry {
+    /// 本行在 `previews` 中的完整预览。
+    pub(crate) fn preview(self, previews: &[MotionPreview]) -> Option<MotionPreview> {
+        self.preview_index
+            .and_then(|index| previews.get(index.get() as usize - 1))
+            .copied()
+    }
+
+    /// 写入本行完整预览：已有下标时原位覆盖，否则追加；追加失败时本行不带
+    /// 预览，消费者照常重算。
+    pub(crate) fn set_preview(
+        &mut self,
+        previews: &mut Vec<MotionPreview>,
+        preview: MotionPreview,
+    ) {
+        if let Some(slot) = self
+            .preview_index
+            .and_then(|index| previews.get_mut(index.get() as usize - 1))
+        {
+            *slot = preview;
+        } else {
+            self.preview_index = store_motion_payload(previews, preview);
+        }
+    }
 }
 
 /// 同一拍初状态上的完整运动预览；在新增停止约束后消费前复核。
@@ -252,16 +280,17 @@ pub(crate) struct MotionBasis {
     inputs: MotionInputs,
 }
 
-/// 载荷只为实际消费者增长；可选复用分配失败时保留预览并让 P5 重算基础输入。
-pub(crate) fn store_motion_basis(
-    bases: &mut Vec<MotionBasis>,
-    basis: MotionBasis,
+/// 稀疏载荷（基础输入、完整预览）只为实际消费者增长；可选复用分配失败时
+/// 不保存，由消费者重算。返回从 1 起的下标。
+pub(crate) fn store_motion_payload<T>(
+    payloads: &mut Vec<T>,
+    payload: T,
 ) -> Option<std::num::NonZeroU32> {
-    let index = std::num::NonZeroU32::new(u32::try_from(bases.len().checked_add(1)?).ok()?)?;
-    if bases.try_reserve(1).is_err() {
+    let index = std::num::NonZeroU32::new(u32::try_from(payloads.len().checked_add(1)?).ok()?)?;
+    if payloads.try_reserve(1).is_err() {
         return None;
     }
-    bases.push(basis);
+    payloads.push(payload);
     Some(index)
 }
 
@@ -395,6 +424,16 @@ enum MotionBounds {
         committed_mm: u32,
         exhausted: bool,
     },
+}
+
+/// P2 分发槽内的紧凑预览结果：完整预览暂存在本块的预览载荷中，槽内只留
+/// 块内下标（与 `basis_index` 同法），协调器规范消费时移入 `motion_previews`。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WaitingPreviewSlot {
+    pub(crate) gate_reachable: Option<bool>,
+    pub(crate) horizon: Option<LeaderQueryHorizon>,
+    pub(crate) preview_index: Option<std::num::NonZeroU32>,
+    pub(crate) basis_index: Option<std::num::NonZeroU32>,
 }
 
 /// P2 第一遍逐车独立预览的暂存输出。协调器按 Active 顺序规范消费；
@@ -1069,11 +1108,15 @@ pub(crate) mod transaction_tests {
             world.state.prepare_waiting_step(0.1).unwrap();
         }
         reference.state.workspace.motion_cache.clear();
-        for entry in &mut world.state.workspace.motion_cache {
+        let workspace = &mut world.state.workspace;
+        for entry in &mut workspace.motion_cache {
             entry.vehicle =
                 crate::VehicleHandle::new(entry.vehicle.index(), entry.vehicle.generation() + 1);
             entry.horizon = Some(LeaderQueryHorizon::new(0, 0));
-            let preview = entry.preview.as_mut().expect("near Gate preview");
+            let preview = entry
+                .preview_index
+                .and_then(|index| workspace.motion_previews.get_mut(index.get() as usize - 1))
+                .expect("near Gate preview");
             preview.next.progress_mm = u32::MAX;
             preview.bounds = MotionBounds::HardStopped;
         }
@@ -2080,8 +2123,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 (cache_reachability && basis_cache.is_some()).then_some(&mut basis),
             )
             .ok_or(StepError::NonFiniteMotion)?;
-        let basis_index =
-            basis_cache.and_then(|bases| basis.and_then(|basis| store_motion_basis(bases, basis)));
+        let basis_index = basis_cache
+            .and_then(|bases| basis.and_then(|basis| store_motion_payload(bases, basis)));
         Ok(WaitingPreviewEntry {
             gate_reachable,
             horizon: Some(horizon),
@@ -4510,6 +4553,7 @@ struct MotionTaskView<'a> {
     conflict_next_eligibility: &'a [Option<crate::ConflictEligibilityState>],
     conflict_staged: &'a crate::kernel::conflict::ConflictWorkspace,
     motion_cache: &'a [MotionCacheEntry],
+    motion_previews: &'a [MotionPreview],
     motion_bases: &'a [MotionBasis],
 }
 
@@ -4719,7 +4763,7 @@ impl MotionTaskView<'_> {
             .get(active_index)
             .filter(|entry| entry.vehicle == handle);
         let reused = cached
-            .and_then(|entry| entry.preview)
+            .and_then(|entry| entry.preview(self.motion_previews))
             .and_then(|preview| preview.reuse(waiting_stop, conflict_stop))
             .map(|motion| motion.apply(*state));
         #[cfg(test)]
@@ -4785,6 +4829,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             conflict_staged: &self.workspace.conflict,
             conflict_next_eligibility: &self.workspace.conflict_next_eligibility,
             motion_cache: &self.workspace.motion_cache,
+            motion_previews: &self.workspace.motion_previews,
             motion_bases: &self.workspace.motion_bases,
         }
         .conflict_stop_for(state, delta_s, compiled, profile)

@@ -432,7 +432,12 @@ pub(crate) struct TickWorkspace {
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
     pub(crate) motion_cache: Vec<crate::kernel::tick::MotionCacheEntry>,
     pub(crate) motion_bases: Vec<crate::kernel::tick::MotionBasis>,
+    /// `motion_cache` 行引用的完整预览（稀疏，只有近门车辆）。
+    pub(crate) motion_previews: Vec<crate::kernel::tick::MotionPreview>,
     pub(crate) waiting_preview_bases: Vec<Vec<crate::kernel::tick::MotionBasis>>,
+    /// P2 分发块内暂存的完整预览；槽位只存块内下标，规范消费时移入
+    /// `motion_previews`。每块按块长预留，预留失败退回融合求值。
+    pub(crate) waiting_preview_payloads: Vec<Vec<crate::kernel::tick::MotionPreview>>,
     pub(crate) next_states: Vec<(usize, super::vehicle_store::MotionValue)>,
     pub(crate) motion_next: super::motion_updates::MotionUpdates,
     pub(crate) motion_kernel: laneflow_motion_kernel::Kernel,
@@ -442,7 +447,7 @@ pub(crate) struct TickWorkspace {
     /// P2 独立预览输出槽位，按 Active 紧凑位置索引；任务独占连续切片写入，
     /// 协调器按序消费。预留失败只退回融合求值，不新增领域错误。
     pub(crate) waiting_preview_slots:
-        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>>,
+        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewSlot>>,
     /// #740 近门名单、冲突距离缓存与生命周期增量。已发布名单只在成功提交时替换。
     pub(crate) frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance,
     /// P3 候选求值输入四元组（live 序 -> 句柄 + live 序 + Active 紧凑位 +
@@ -459,8 +464,12 @@ impl TickWorkspace {
     pub(crate) fn clear_motion_cache(&mut self) {
         self.motion_cache.clear();
         self.motion_bases.clear();
+        self.motion_previews.clear();
         for bases in &mut self.waiting_preview_bases {
             bases.clear();
+        }
+        for previews in &mut self.waiting_preview_payloads {
+            previews.clear();
         }
     }
 }
@@ -590,7 +599,9 @@ impl TickWorkspace {
             occupancy_scratch,
             motion_cache,
             motion_bases,
+            motion_previews,
             waiting_preview_bases,
+            waiting_preview_payloads,
             next_states,
             motion_next,
             motion_kernel: _,
@@ -620,8 +631,11 @@ impl TickWorkspace {
             + motion_next.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(motion_cache)
             + crate::kernel::state::vec_bytes(motion_bases)
+            + crate::kernel::state::vec_bytes(motion_previews)
             + crate::kernel::state::vec_bytes(waiting_preview_bases)
             + waiting_preview_bases.iter().map(crate::kernel::state::vec_bytes).sum::<u64>()
+            + crate::kernel::state::vec_bytes(waiting_preview_payloads)
+            + waiting_preview_payloads.iter().map(crate::kernel::state::vec_bytes).sum::<u64>()
             + crate::kernel::state::vec_bytes(waiting_preview_inputs)
             + crate::kernel::state::vec_bytes(waiting_preview_slots)
             + crate::kernel::state::vec_bytes(conflict_inputs)

@@ -1324,6 +1324,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             waiting_plans: &self.workspace.waiting_plans,
             waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
             motion_cache: &self.workspace.motion_cache,
+            motion_previews: &self.workspace.motion_previews,
         };
         let inputs = &mut self.workspace.conflict_inputs;
         inputs.clear();
@@ -1887,10 +1888,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 entry.horizon = Some(horizon);
             }
             if let Some(preview) = cache.preview {
-                entry.preview = Some(preview);
+                entry.set_preview(&mut self.workspace.motion_previews, preview);
             }
             if let Some(basis) = cache.basis {
-                entry.basis_index = crate::kernel::tick::store_motion_basis(
+                entry.basis_index = crate::kernel::tick::store_motion_payload(
                     &mut self.workspace.motion_bases,
                     basis,
                 );
@@ -2054,7 +2055,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let waiting_stop = self.waiting_stop_for(&state)?;
         let mut basis = None;
         let motion = cached
-            .and_then(|entry| entry.preview)
+            .and_then(|entry| entry.preview(&self.workspace.motion_previews))
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
             .or_else(|| {
                 self.read_view().preview_active_vehicle_with_basis_output(
@@ -2073,9 +2074,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .get_mut(active_index)
             .filter(|entry| entry.vehicle == state.handle)
         {
-            entry.preview = Some(motion);
+            entry.set_preview(&mut self.workspace.motion_previews, motion);
             if let Some(basis) = basis {
-                entry.basis_index = crate::kernel::tick::store_motion_basis(
+                entry.basis_index = crate::kernel::tick::store_motion_payload(
                     &mut self.workspace.motion_bases,
                     basis,
                 );
@@ -2295,6 +2296,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             waiting_plans: &self.workspace.waiting_plans,
             waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
             motion_cache: &self.workspace.motion_cache,
+            motion_previews: &self.workspace.motion_previews,
         };
         for occurrence_index in range.start..passage_end {
             #[cfg(test)]
@@ -2431,6 +2433,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             waiting_plans: &self.workspace.waiting_plans,
             waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
             motion_cache: &self.workspace.motion_cache,
+            motion_previews: &self.workspace.motion_previews,
         };
         let plan = view
             .downstream_plan_prechecks(state, range, gate_hop)
@@ -4327,6 +4330,7 @@ mod tests {
                     waiting_plans: &step.workspace.waiting_plans,
                     waiting_plan_by_vehicle: &step.workspace.waiting_plan_by_vehicle,
                     motion_cache: &step.workspace.motion_cache,
+                    motion_previews: &step.workspace.motion_previews,
                 };
                 let mut scratch = CandidateScratch::default();
                 view.evaluate_candidate(state, 0, 0, 0, 0.004, 1, &mut scratch)
@@ -5401,6 +5405,7 @@ struct ConflictTaskView<'a> {
     waiting_plans: &'a [crate::kernel::waiting::WaitingVehiclePlan],
     waiting_plan_by_vehicle: &'a [Option<std::num::NonZeroU32>],
     motion_cache: &'a [crate::kernel::tick::MotionCacheEntry],
+    motion_previews: &'a [crate::kernel::tick::MotionPreview],
 }
 
 /// P3 任务段暂存：cell 地址与 downstream 区间的可复用缓冲。任务从
@@ -5904,7 +5909,7 @@ impl ConflictTaskView<'_> {
             Err(error) => return failed(cache, error),
         };
         let motion = match cached
-            .and_then(|entry| entry.preview)
+            .and_then(|entry| entry.preview(self.motion_previews))
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
             .or_else(|| {
                 self.read.preview_active_vehicle_with_basis_output(
