@@ -17,6 +17,62 @@ use laneflow_static_contract::SignalAspect;
 use laneflow_static_network::SharedNetworkRevision;
 use std::sync::Arc;
 
+/// 已提交 Conflict 资格表。每次可变借用都换一个进程内唯一的版本号：步进交换
+/// 暂存表时据此判断上拍记下的 Some 位置清单是否仍覆盖这张表（宿主命令、恢复
+/// 与切换都可能改写它），覆盖时只清这些位置，否则整表清空。
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EligibilityTable {
+    slots: Vec<Option<crate::ConflictEligibilityState>>,
+    version: u64,
+}
+
+static ELIGIBILITY_TABLE_VERSION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
+fn next_eligibility_table_version() -> u64 {
+    ELIGIBILITY_TABLE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+impl EligibilityTable {
+    /// 当前内容的版本；内容只在版本号更换后才可能改变。
+    pub(crate) const fn version(&self) -> u64 {
+        self.version
+    }
+
+    pub(crate) fn into_vec(self) -> Vec<Option<crate::ConflictEligibilityState>> {
+        self.slots
+    }
+}
+
+impl From<Vec<Option<crate::ConflictEligibilityState>>> for EligibilityTable {
+    fn from(slots: Vec<Option<crate::ConflictEligibilityState>>) -> Self {
+        Self {
+            slots,
+            version: next_eligibility_table_version(),
+        }
+    }
+}
+
+impl std::ops::Deref for EligibilityTable {
+    type Target = Vec<Option<crate::ConflictEligibilityState>>;
+    fn deref(&self) -> &Self::Target {
+        &self.slots
+    }
+}
+
+impl std::ops::DerefMut for EligibilityTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.version = next_eligibility_table_version();
+        &mut self.slots
+    }
+}
+
+impl PartialEq for EligibilityTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.slots == other.slots
+    }
+}
+
 /// 交通准入与候选迁移共同拥有的数据；不包含执行配置或线程资源。
 pub(crate) struct WorldState {
     pub(crate) binding: WorldBindingState,
@@ -43,7 +99,7 @@ pub(crate) struct CommittedWorldState {
     /// 已提交的冲突/下游资源权威。
     pub(crate) conflict: crate::kernel::conflict::ConflictCommittedState,
     /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟。
-    pub(crate) conflict_eligibility: Vec<Option<crate::ConflictEligibilityState>>,
+    pub(crate) conflict_eligibility: EligibilityTable,
     pub(crate) latest_conflict_decisions: Vec<crate::ConflictDecision>,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
@@ -244,6 +300,8 @@ pub(crate) struct TickWorkspace {
     pub(crate) conflict_motion_by_vehicle:
         Box<[Option<crate::kernel::conflict_tick::ConflictMotionPlan>]>,
     pub(crate) conflict_next_eligibility: Box<[Option<crate::ConflictEligibilityState>]>,
+    /// 两张逐车位暂存表与已提交资格表中可能为 Some 的位置，供下一拍稀疏清空。
+    pub(crate) conflict_table_writes: crate::kernel::conflict_tick::ConflictTableWrites,
     pub(crate) conflict_passage_transitions:
         Vec<crate::kernel::conflict_tick::ConflictPassageTransition>,
     /// 本 tick reservation/stage/release 发生变化的稀疏 owner 集；迁移日志据此
@@ -405,6 +463,7 @@ impl TickWorkspace {
             conflict_grants,
             conflict_motion_by_vehicle,
             conflict_next_eligibility,
+            conflict_table_writes,
             conflict_passage_transitions,
             conflict_changed_owners,
             waiting_dependencies,
@@ -441,6 +500,7 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(conflict_grants)
             + crate::kernel::state::vec_bytes(conflict_passage_transitions)
             + crate::kernel::state::vec_bytes(conflict_changed_owners)
+            + conflict_table_writes.retained_bytes()
             + crate::kernel::state::vec_bytes(conflict_staged_decisions)
             + crate::kernel::state::vec_bytes(waiting_claims)
             + crate::kernel::state::vec_bytes(waiting_plans)
