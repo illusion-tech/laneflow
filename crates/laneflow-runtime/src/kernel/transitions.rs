@@ -189,21 +189,29 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         updates: &super::motion_updates::MotionUpdates,
         tick: u64,
     ) -> Result<(), StepError> {
-        let mut count = 0_usize;
-        self.visit_transition_events(updates, tick, |_| {
-            count = count.saturating_add(1);
-        })?;
-        if count == usize::MAX {
-            return Err(StepError::ConflictInvariantViolation);
-        }
-        crate::kernel::conflict_tick::reserve(&mut self.workspace.staged_transition_events, count)?;
-        // prepare_waiting_step 已清空暂存；首遍完整验证后，零事件无需再次生成。
+        // prepare_waiting_step 已清空暂存；一遍验证并生成，容量按已发出的事件摊还增长，
+        // 稳态复用上拍容量。增长失败只记下，遍历照常走完：验证错误先于分配错误公开。
         // 提交阶段仍发布空批次，替换上一拍的事件。
-        if count == 0 {
-            return Ok(());
-        }
         let mut events = std::mem::take(&mut self.workspace.staged_transition_events);
-        let result = self.visit_transition_events(updates, tick, |event| events.push(event));
+        let mut alloc_failed = false;
+        let visited = self.visit_transition_events(updates, tick, |event| {
+            if alloc_failed {
+                return;
+            }
+            let len = events.len();
+            if len == events.capacity()
+                && crate::kernel::conflict_tick::reserve(&mut events, len.max(1)).is_err()
+            {
+                alloc_failed = true;
+                return;
+            }
+            events.push(event);
+        });
+        let result = visited.and(if alloc_failed {
+            Err(StepError::ConflictScratchAllocFailed)
+        } else {
+            Ok(())
+        });
         if result.is_err() {
             events.clear();
         }
@@ -481,7 +489,7 @@ mod tests {
     use crate::kernel::waiting::tests::multi_gate_world;
 
     #[test]
-    fn empty_transition_batch_skips_only_generation_visit() {
+    fn transition_batch_is_generated_in_one_visit() {
         let mut world = multi_gate_world(2);
         let mut previous_nonempty = false;
         let mut saw_event_to_empty = false;
@@ -489,7 +497,7 @@ mod tests {
             TRANSITION_VISITS.set(0);
             world.step(TickInput::new(100)).unwrap();
             let empty = world.latest_transition_events().is_empty();
-            assert_eq!(TRANSITION_VISITS.get(), if empty { 1 } else { 2 });
+            assert_eq!(TRANSITION_VISITS.get(), 1);
             saw_event_to_empty |= previous_nonempty && empty;
             previous_nonempty = !empty;
         }
