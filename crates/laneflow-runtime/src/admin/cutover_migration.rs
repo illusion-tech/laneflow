@@ -1005,6 +1005,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             conflict_motion_by_vehicle,
             conflict_next_eligibility,
             conflict_table_writes: Default::default(),
+            committed_check: Default::default(),
             conflict_passage_transitions,
             conflict_changed_owners,
             waiting_dependencies,

@@ -73,6 +73,111 @@ impl PartialEq for EligibilityTable {
     }
 }
 
+/// 已提交状态校验账本：完整不变量校验移到入口。记下最近一次已知有效的
+/// (世界世代, 观测序号)；其后已提交状态只经由本 runtime 的步进提交与单车命令
+/// 改变时，下一拍只核对 `slots` 记下的车位（上拍写过资格的车位与命令改过的
+/// 车位）。安装、恢复、切换等其他路径改变世代或序号即令账本对不上，下一拍
+/// 照常完整校验。
+#[derive(Debug, Default)]
+pub(crate) struct CommittedCheck {
+    stamp: Option<(WorldGeneration, ObservationStateSequence)>,
+    slots: Vec<u32>,
+    /// 本拍预检走了账本；P0 的 Waiting 行完整校验随之跳过。
+    trusted: bool,
+}
+
+/// 两拍之间单车命令可追加的待核对车位余量；用尽时账本失效，下一拍完整校验。
+const COMMITTED_CHECK_COMMAND_SLOTS: usize = 4_096;
+
+impl CommittedCheck {
+    /// 步进预检：账本对得上时返回 `true`，只需核对 [`Self::slots`]；否则完整校验。
+    pub(crate) fn begin_step(
+        &mut self,
+        generation: WorldGeneration,
+        sequence: ObservationStateSequence,
+    ) -> bool {
+        self.trusted = self.stamp == Some((generation, sequence));
+        self.trusted
+    }
+
+    /// 账本记下的待核对车位。
+    pub(crate) fn slots(&self) -> &[u32] {
+        &self.slots
+    }
+
+    /// 本拍预检是否走了账本。
+    pub(crate) const fn trusted(&self) -> bool {
+        self.trusted
+    }
+
+    /// 提交前为本拍账本预留容量（上界为 Active 数加命令余量），提交窗口内不再
+    /// 分配；预留失败时提交后账本失效。
+    pub(crate) fn reserve(&mut self, active: usize) {
+        let needed = active.saturating_add(COMMITTED_CHECK_COMMAND_SLOTS);
+        let _ = self
+            .slots
+            .try_reserve(needed.saturating_sub(self.slots.len()));
+    }
+
+    /// 本拍准备结束（无论成败）后调用；失败零提交，账本保持不变。
+    pub(crate) fn end_step(&mut self) {
+        self.trusted = false;
+    }
+
+    /// 步进成功提交后以新序号重建账本；`slots` 为本拍写过资格的车位，未知时
+    /// 账本失效。
+    pub(crate) fn after_step(
+        &mut self,
+        generation: WorldGeneration,
+        sequence: ObservationStateSequence,
+        slots: Option<&[u32]>,
+    ) {
+        self.stamp = None;
+        self.trusted = false;
+        self.slots.clear();
+        let Some(slots) = slots else {
+            return;
+        };
+        // 容量已在提交前预留；不足时不在提交窗口内分配，令账本失效。
+        if slots.len().saturating_add(COMMITTED_CHECK_COMMAND_SLOTS) > self.slots.capacity() {
+            return;
+        }
+        self.slots.extend_from_slice(slots);
+        self.stamp = Some((generation, sequence));
+    }
+
+    /// 单车命令提交：账本仍对得上命令前的序号时追加该车位并跟到新序号。
+    pub(crate) fn note_command(
+        &mut self,
+        generation: WorldGeneration,
+        previous: ObservationStateSequence,
+        next: ObservationStateSequence,
+        slot: usize,
+    ) {
+        if self.stamp != Some((generation, previous)) {
+            return;
+        }
+        match u32::try_from(slot) {
+            Ok(slot) if self.slots.len() < self.slots.capacity() => {
+                self.slots.push(slot);
+                self.stamp = Some((generation, next));
+            }
+            _ => self.stamp = None,
+        }
+    }
+
+    /// 测试用：绕过入口直接改写已提交状态后，令下一拍完整校验。
+    #[cfg(test)]
+    pub(crate) fn invalidate(&mut self) {
+        self.stamp = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        crate::kernel::state::vec_bytes(&self.slots)
+    }
+}
+
 /// 交通准入与候选迁移共同拥有的数据；不包含执行配置或线程资源。
 pub(crate) struct WorldState {
     pub(crate) binding: WorldBindingState,
@@ -302,6 +407,8 @@ pub(crate) struct TickWorkspace {
     pub(crate) conflict_next_eligibility: Box<[Option<crate::ConflictEligibilityState>]>,
     /// 两张逐车位暂存表与已提交资格表中可能为 Some 的位置，供下一拍稀疏清空。
     pub(crate) conflict_table_writes: crate::kernel::conflict_tick::ConflictTableWrites,
+    /// 已提交状态校验账本（见 [`CommittedCheck`]）。
+    pub(crate) committed_check: CommittedCheck,
     pub(crate) conflict_passage_transitions:
         Vec<crate::kernel::conflict_tick::ConflictPassageTransition>,
     /// 本 tick reservation/stage/release 发生变化的稀疏 owner 集；迁移日志据此
@@ -464,6 +571,7 @@ impl TickWorkspace {
             conflict_motion_by_vehicle,
             conflict_next_eligibility,
             conflict_table_writes,
+            committed_check,
             conflict_passage_transitions,
             conflict_changed_owners,
             waiting_dependencies,
@@ -501,6 +609,7 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(conflict_passage_transitions)
             + crate::kernel::state::vec_bytes(conflict_changed_owners)
             + conflict_table_writes.retained_bytes()
+            + committed_check.retained_bytes()
             + crate::kernel::state::vec_bytes(conflict_staged_decisions)
             + crate::kernel::state::vec_bytes(waiting_claims)
             + crate::kernel::state::vec_bytes(waiting_plans)
@@ -606,6 +715,43 @@ impl crate::kernel::state::WorldState {
 #[cfg(test)]
 mod tests {
     use crate::admin::migration_journal::MigrationDeltaJournal;
+
+    #[test]
+    fn committed_check_follows_step_and_single_vehicle_commands_only() {
+        use super::CommittedCheck;
+        use crate::{ObservationStateSequence, WorldGeneration};
+        let generation = WorldGeneration::INITIAL;
+        let s0 = ObservationStateSequence::INITIAL;
+        let s1 = s0.checked_next().unwrap();
+        let s2 = s1.checked_next().unwrap();
+        let mut check = CommittedCheck::default();
+        // 安装后的第一拍没有账本：完整校验。
+        assert!(!check.begin_step(generation, s0));
+        check.end_step();
+        check.reserve(4);
+        check.after_step(generation, s1, Some(&[3, 5]));
+        assert!(check.begin_step(generation, s1));
+        assert_eq!(check.slots(), &[3, 5]);
+        check.end_step();
+        // 单车命令沿用账本并追加车位。
+        check.note_command(generation, s1, s2, 7);
+        assert!(check.begin_step(generation, s2));
+        assert_eq!(check.slots(), &[3, 5, 7]);
+        check.end_step();
+        // 序号对不上（其他路径改写过已提交状态）：命令不再续上，完整校验。
+        check.note_command(generation, s1, s2, 9);
+        assert!(check.begin_step(generation, s2));
+        assert!(!check.begin_step(generation.checked_next().unwrap(), s2));
+        check.end_step();
+        // 写过资格的车位未知时账本失效。
+        check.after_step(generation, s2, None);
+        assert!(!check.begin_step(generation, s2));
+        check.end_step();
+        // 提交前未预留足够容量时不在提交窗口分配，账本失效。
+        let mut fresh = CommittedCheck::default();
+        fresh.after_step(generation, s1, Some(&[1]));
+        assert!(!fresh.begin_step(generation, s1));
+    }
 
     #[test]
     fn complete_retained_memory_covers_warm_partitions_and_armed_journal() {
