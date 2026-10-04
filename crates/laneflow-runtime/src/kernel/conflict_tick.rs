@@ -561,6 +561,22 @@ pub(crate) struct FinalizePart {
     rows: Vec<FinalizeRowPlan>,
     decisions: Vec<ConflictDecision>,
     transitions: Vec<ConflictPassageTransition>,
+    /// 本段资源行上已提交 reservation 的通行段数之和，用于落账前预留。
+    reservation_passages: usize,
+}
+
+/// 资源行上已提交 reservation 的通行段数之和。
+fn reservation_passage_total(
+    read: crate::kernel::phase::StepReadView<'_>,
+    updates: &super::motion_updates::MotionUpdates,
+    rows: &[usize],
+) -> usize {
+    rows.iter()
+        .map(|index| updates.slot_index(*index))
+        .filter_map(|slot| read.committed.vehicles.active_handle(slot))
+        .filter_map(|handle| read.conflict_reservation(handle))
+        .map(|reservation| reservation.passage_range().passage_count() as usize)
+        .sum()
 }
 
 /// 单条资源行的只读收尾结果；`*_end` 是本行在段内决定/转移中的结束下标。
@@ -2649,42 +2665,30 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     ) -> Result<(), StepError> {
         self.workspace.conflict_passage_transitions.clear();
         self.workspace.conflict_changed_owners.clear();
-        let journal_armed = self.journal_armed;
-        let transition_capacity = self
+        let grant_passages: usize = self
             .workspace
             .conflict_grants
             .iter()
             .filter_map(|grant| grant.passage_range)
             .map(|range| range.passage_count() as usize)
-            .chain(
-                updates
-                    .resource_rows()
-                    .iter()
-                    .map(|index| updates.slot_index(*index))
-                    .filter_map(|slot| self.committed.vehicles.active_handle(slot))
-                    .filter_map(|handle| self.conflict_reservation(handle))
-                    .map(|reservation| reservation.passage_range().passage_count() as usize),
-            )
             .sum();
-        reserve(
-            &mut self.workspace.conflict_passage_transitions,
-            transition_capacity,
-        )?;
-        if journal_armed {
-            reserve(
-                &mut self.workspace.conflict_changed_owners,
-                transition_capacity
-                    .checked_add(self.workspace.conflict_grants.len())
-                    .ok_or(StepError::ConflictInvariantViolation)?,
-            )?;
+        let parallel = execution.filter(|resources| {
+            resources.coordinator_parallel()
+                && updates.resource_rows().len() >= FINALIZE_PARALLEL_ROWS
+        });
+        // 多线程时资源行 reservation 区间在规划段内顺带求和，规划只读、无副作用，
+        // 落账前再预留，结果与先预留后规划相同。
+        if parallel.is_none() {
+            let reservation_passages =
+                reservation_passage_total(self.read_view(), updates, updates.resource_rows());
+            self.reserve_finalize_outputs(grant_passages + reservation_passages)?;
         }
 
         // live_order 同时包含 parked/completed；双游标合并两份有序列表，保留正式更新序号。
-        match execution.filter(|resources| {
-            resources.coordinator_parallel()
-                && updates.resource_rows().len() >= FINALIZE_PARALLEL_ROWS
-        }) {
-            Some(resources) => self.finalize_resource_rows_parallel(updates, resources)?,
+        match parallel {
+            Some(resources) => {
+                self.finalize_resource_rows_parallel(updates, resources, grant_passages)?
+            }
             None => {
                 let mut update_sequence = 0;
                 for resource_index in 0..updates.resource_rows().len() {
@@ -2849,6 +2853,23 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    /// 预留本拍通行区间转移（及日志开启时的变更 owner）所需容量。
+    fn reserve_finalize_outputs(&mut self, transition_capacity: usize) -> Result<(), StepError> {
+        reserve(
+            &mut self.workspace.conflict_passage_transitions,
+            transition_capacity,
+        )?;
+        if self.journal_armed {
+            reserve(
+                &mut self.workspace.conflict_changed_owners,
+                transition_capacity
+                    .checked_add(self.workspace.conflict_grants.len())
+                    .ok_or(StepError::ConflictInvariantViolation)?,
+            )?;
+        }
+        Ok(())
+    }
+
     /// 按车辆新位置暂存冲突通行段的进入/清空转移；返回是否全部清空。
     /// 资源行收尾的并行版本：各段只读规划连续资源行（Gate 定稿决定、通行区间转移、
     /// 机动穿越状态与资格是否失效），协调器再按资源行顺序落账：推进 live 序号、
@@ -2858,6 +2879,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &mut self,
         updates: &mut super::motion_updates::MotionUpdates,
         resources: &crate::kernel::execution::ExecutionResources,
+        grant_passages: usize,
     ) -> Result<(), StepError> {
         let rows = updates.resource_rows().len();
         let mut guard = resources
@@ -2882,6 +2904,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             part.rows.clear();
             part.decisions.clear();
             part.transitions.clear();
+            part.reservation_passages = 0;
             part.rows
                 .try_reserve(span)
                 .and_then(|()| part.decisions.try_reserve(span))
@@ -2911,6 +2934,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 let part_output = &mut output[0];
                 let start = (part * span).min(rows);
                 let end = (start + span).min(rows);
+                part_output.reservation_passages = reservation_passage_total(
+                    view.read,
+                    view.updates,
+                    &view.updates.resource_rows()[start..end],
+                );
                 for resource_index in start..end {
                     let index = view.updates.resource_rows()[resource_index];
                     let plan = plan_resource_row(
@@ -2927,6 +2955,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 }
             });
         }
+        let reservation_passages: usize = guard
+            .iter()
+            .take(wanted)
+            .map(|part| part.reservation_passages)
+            .sum();
+        self.reserve_finalize_outputs(grant_passages + reservation_passages)?;
         let mut update_sequence = 0;
         for part in guard.iter().take(wanted) {
             let mut decisions_start = 0;
