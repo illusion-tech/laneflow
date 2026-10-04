@@ -41,6 +41,8 @@ thread_local! {
     static SNAPSHOT_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
         const { core::cell::Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: SNAPSHOT_RESERVATIONS_BEFORE_FAILURE);
 
 #[cfg(test)]
 struct SnapshotAllocationFailpointReset(Option<usize>);

@@ -10,6 +10,8 @@ thread_local! {
     static RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> = const { core::cell::Cell::new(None) };
     static REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: RESERVATIONS_BEFORE_FAILURE, REBUILDS);
 
 /// 测试用：令索引在第 `count` 次成功预留之后注入分配失败。
 #[cfg(test)]

@@ -333,6 +333,7 @@ pub(crate) mod preview_stage {
         static CHUNK_TOTAL_NANOS: Cell<u128> = const { Cell::new(0) };
         static CHUNK_MAX_NANOS: Cell<u128> = const { Cell::new(0) };
     }
+    crate::kernel::execution::carry_hooks!(carry_test_hooks: ENABLED, NANOS, CHUNK_TOTAL_NANOS, CHUNK_MAX_NANOS);
 
     pub(crate) struct Span(Option<(usize, Instant)>);
 
@@ -428,6 +429,8 @@ thread_local! {
     static PREVIEW_FORCE_DISPATCH: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
     static PREVIEW_FORCE_FUSE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: WAITING_RESERVATIONS_BEFORE_FAILURE, NON_ENTRY_GENERATION_VISITS, NON_ENTRY_DISCOVERY_VISITS, NON_ENTRY_SEQUENCE_VISITS, WAITING_LOOKUP_VISITS, WAITING_WORK_COUNTS, PREVIEW_SLOT_RESERVE_FAILURE, PREVIEW_SLOT_GAP, PREVIEW_INPUT_RESERVE_FAILURE, PREVIEW_PATH_COUNTS, PREVIEW_CHUNK_MULTIPLIER, PREVIEW_FORCE_DISPATCH, PREVIEW_FORCE_FUSE);
 
 #[cfg(test)]
 fn preview_dispatch_fuse_forced() -> bool {

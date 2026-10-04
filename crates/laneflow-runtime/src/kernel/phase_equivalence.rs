@@ -335,7 +335,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
             reinstall_execution(&mut world, workers);
             if raw_workers > 1 {
                 assert_eq!(
-                    world.execution.thread_ids().len() + 1,
+                    world.execution.thread_ids().len(),
                     raw_workers as usize,
                     "{name} workers={raw_workers} must run on a real worker pool"
                 );

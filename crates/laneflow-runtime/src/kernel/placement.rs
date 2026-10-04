@@ -47,6 +47,8 @@ struct ContenderNotes {
 thread_local! {
     static FOLLOWER_CANDIDATES: Cell<u64> = const { Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FOLLOWER_CANDIDATES);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 thread_local! {
@@ -55,6 +57,8 @@ thread_local! {
     static INCREMENTAL_VISITS: Cell<u64> = const { Cell::new(0) };
     static REBUILD_SCANS: Cell<u64> = const { Cell::new(0) };
 }
+#[cfg(any(test, feature = "placement-fixtures"))]
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_BEST: u8 = 1;

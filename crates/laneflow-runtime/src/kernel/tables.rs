@@ -333,6 +333,8 @@ pub(crate) struct VehicleSlot {
 thread_local! {
     static ROUTE_RESERVATIONS_BEFORE_FAILURE: Cell<Option<usize>> = const { Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: ROUTE_RESERVATIONS_BEFORE_FAILURE);
 
 #[cfg(test)]
 struct RouteAllocationFailpointReset(Option<usize>);

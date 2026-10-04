@@ -41,6 +41,8 @@ thread_local! {
     /// 可选分类标记缓冲准备失败；融合回退不改变领域错误。
     static CLASSIFY_SCRATCH_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LINK_RESERVE_SUCCESSES, LINK_COMMIT_SUCCESSES, ADDRESS_COMPARISONS, MEMBER_PROBES, CLASSIFY_SCRATCH_FAILURE);
 
 #[cfg(test)]
 fn link_reserve_should_fail() -> bool {

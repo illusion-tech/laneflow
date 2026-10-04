@@ -187,12 +187,176 @@ pub(crate) struct DispatchStats {
 
 pub(crate) const MAX_WORKS_PER_TICKET: usize = 16;
 
+/// 测试与夹具钩子（线程局部的注入开关与计数）随拍跨线程搬运：拍在池线程上
+/// 运行，进池前把调用线程的取值搬到池线程，出池（含 panic）后再搬回调用
+/// 线程，测试照旧在调用线程上设置与读取。生产构建不存在这层搬运。
+#[cfg(any(test, feature = "placement-fixtures"))]
+macro_rules! carry_hooks {
+    ($name:ident: $($key:ident),+ $(,)?) => {
+        /// 取出本模块钩子的当前线程取值，返回在目标线程上写回它们的闭包。
+        pub(crate) fn $name() -> impl FnOnce() + Send {
+            let carry = || {};
+            $(
+                let value = $crate::kernel::execution::HookCell::carry_out(&$key);
+                let carry = move || {
+                    carry();
+                    $crate::kernel::execution::HookCell::carry_in(&$key, value);
+                };
+            )+
+            carry
+        }
+    };
+}
+#[cfg(any(test, feature = "placement-fixtures"))]
+pub(crate) use carry_hooks;
+
+/// 可随拍搬运的线程局部钩子：`Cell` 复制取值，`RefCell` 移走取值。
+#[cfg(any(test, feature = "placement-fixtures"))]
+pub(crate) trait HookCell {
+    type Value: Send;
+    fn carry_out(&'static self) -> Self::Value;
+    fn carry_in(&'static self, value: Self::Value);
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+impl<T: Copy + Send + 'static> HookCell for std::thread::LocalKey<std::cell::Cell<T>> {
+    type Value = T;
+    fn carry_out(&'static self) -> T {
+        self.with(std::cell::Cell::get)
+    }
+    fn carry_in(&'static self, value: T) {
+        self.with(|cell| cell.set(value));
+    }
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+impl<T: Default + Send + 'static> HookCell for std::thread::LocalKey<std::cell::RefCell<T>> {
+    type Value = T;
+    fn carry_out(&'static self) -> T {
+        self.with(std::cell::RefCell::take)
+    }
+    fn carry_in(&'static self, value: T) {
+        self.with(|cell| *cell.borrow_mut() = value);
+    }
+}
+
+/// 全部模块钩子的一次搬运：在源线程取值，返回在目标线程写回的闭包。
+#[cfg(any(test, feature = "placement-fixtures"))]
+fn carry_step_hooks() -> impl FnOnce() + Send {
+    let fixtures = (
+        crate::kernel::placement::carry_fixture_hooks(),
+        crate::kernel::tick::carry_fixture_hooks(),
+    );
+    #[cfg(test)]
+    let tests = (
+        crate::admin::cutover_migration::carry_test_hooks(),
+        crate::admin::cutover_transaction::carry_test_hooks(),
+        crate::admin::migration_journal::carry_test_hooks(),
+        crate::admin::snapshot::carry_test_hooks(),
+        crate::facade::observation::carry_test_hooks(),
+        crate::kernel::active_order::carry_test_hooks(),
+        crate::kernel::conflict::carry_test_hooks(),
+        crate::kernel::conflict_tick::carry_test_hooks(),
+        crate::kernel::entry_frontier::carry_test_hooks(),
+        crate::kernel::execution::carry_test_hooks(),
+        crate::kernel::occupancy::carry_test_hooks(),
+        crate::kernel::placement::carry_test_hooks(),
+        crate::kernel::resource_rows::carry_test_hooks(),
+        crate::kernel::spawn_overlap::carry_test_hooks(),
+        crate::kernel::tables::carry_test_hooks(),
+        crate::kernel::tick::carry_test_hooks(),
+        crate::kernel::transitions::carry_test_hooks(),
+        crate::kernel::vehicle_store::carry_test_hooks(),
+        crate::kernel::waiting::carry_test_hooks(),
+        crate::kernel::waiting::preview_stage::carry_test_hooks(),
+        crate::kernel::world::carry_test_hooks(),
+        crate::kernel::performance_profile::carry_test_hooks(),
+        crate::kernel::exact_path_research::carry_test_hooks(),
+        crate::kernel::motion_participation::carry_test_hooks(),
+        crate::kernel::occupancy::exact_candidate::carry_test_hooks(),
+        crate::kernel::parking_command_research::carry_test_hooks(),
+        crate::kernel::route_query_research::carry_test_hooks(),
+        crate::kernel::sparse_cost_research::carry_test_hooks(),
+        crate::kernel::eligibility_commit_research::carry_test_hooks(),
+    );
+    move || {
+        let (placement, tick) = fixtures;
+        placement();
+        tick();
+        #[cfg(test)]
+        {
+            let (
+                h0,
+                h1,
+                h2,
+                h3,
+                h4,
+                h5,
+                h6,
+                h7,
+                h8,
+                h9,
+                h10,
+                h11,
+                h12,
+                h13,
+                h14,
+                h15,
+                h16,
+                h17,
+                h18,
+                h19,
+                h20,
+                h21,
+                h22,
+                h23,
+                h24,
+                h25,
+                h26,
+                h27,
+                h28,
+            ) = tests;
+            h0();
+            h1();
+            h2();
+            h3();
+            h4();
+            h5();
+            h6();
+            h7();
+            h8();
+            h9();
+            h10();
+            h11();
+            h12();
+            h13();
+            h14();
+            h15();
+            h16();
+            h17();
+            h18();
+            h19();
+            h20();
+            h21();
+            h22();
+            h23();
+            h24();
+            h25();
+            h26();
+            h27();
+            h28();
+        }
+    }
+}
+
 // 测试专用：最近一次 `try_for_each_chunk` 的调度统计；机制测量探针读取，
 // 不改变语义。
 #[cfg(test)]
 thread_local! {
     static LAST_DISPATCH_STATS: std::cell::Cell<Option<DispatchStats>> = const { std::cell::Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LAST_DISPATCH_STATS);
 
 /// 测试专用：从池外提交到 Rayon 全局注入队列的任务数（`install`、池外分段并行与
 /// scope 派生各占一格）。注入队列按固定容量分块分配，分配证据据此计入块数。
@@ -338,19 +502,19 @@ fn run_dispatch_chunk<T, S, F>(
 
 impl ExecutionResources {
     fn start(config: ExecutionConfig) -> Result<Self, ExecutionInitError> {
-        let auxiliaries = usize::try_from(config.worker_count().get() - 1)
+        let threads = usize::try_from(config.worker_count().get())
             .map_err(|_| ExecutionInitError::ResourceReservationFailed)?;
-        if auxiliaries == 0 {
+        if threads == 1 {
             return Ok(Self::Caller);
         }
         let mut workers = WorkerJoins::default();
         workers
             .0
-            .try_reserve_exact(auxiliaries)
+            .try_reserve_exact(threads)
             .map_err(|_| ExecutionInitError::ResourceReservationFailed)?;
         // spawn_handler 的登记持有每个真实 JoinHandle；构建失败也由同一 guard 结算。
         let pool = rayon_core::ThreadPoolBuilder::new()
-            .num_threads(auxiliaries)
+            .num_threads(threads)
             .stack_size(WORKER_STACK_BYTES)
             .spawn_handler(|thread| {
                 #[cfg(test)]
@@ -381,7 +545,7 @@ impl ExecutionResources {
         })))
     }
 
-    /// 协调调用线程计算首块，至多 N−1 个私有线程计算其余互斥输出。
+    /// 协调线程计算首块，池内其他线程计算其余互斥输出。
     /// Rayon scope 会在传播任何 panic 前等待全部已分发任务。
     #[cfg_attr(
         not(test),
@@ -420,9 +584,8 @@ impl ExecutionResources {
         }
     }
 
-    /// 协调器并行段是否值得启用。`for_each_part` 在池内执行、调用线程只等待，
-    /// 两遍算法又会重算一遍：池内辅助线程少于 3 个时反而比串行慢（实测 2 线程
-    /// 整拍 +8%），因此至少 4 个参与线程才并行。
+    /// 协调器并行段是否值得启用。两遍算法会重算一遍：参与线程少于 4 个时
+    /// 反而比串行慢（实测 2 线程整拍 +8%），因此至少 4 个池线程才并行。
     pub(crate) fn coordinator_parallel(&self) -> bool {
         self.dispatch_threads() >= 4
     }
@@ -442,7 +605,7 @@ impl ExecutionResources {
 
     /// 不读取交通视图的互斥分块：每块独占一段输出，完整 join 后返回。
     /// 在池内按二分 `join` 窃取执行：作业放在栈上，稳态不产生堆分配；
-    /// 调用线程只等待池完成，不参与计算。供派生索引重建这类协调器工作使用。
+    /// 拍内协调线程已在池上，直接参与计算。供派生索引重建这类协调器工作使用。
     pub(crate) fn for_each_part<T: Send, F: Fn(usize, &mut [T]) + Sync>(
         &self,
         output: &mut [T],
@@ -538,11 +701,11 @@ impl ExecutionResources {
         }
     }
 
-    /// 本次分发最多参与的线程数：调用线程加计池内辅助线程；`Caller` 为 1。
+    /// 本次分发最多参与的线程数：池线程数（拍内协调线程即其中之一）；`Caller` 为 1。
     pub(crate) fn dispatch_threads(&self) -> usize {
         match self {
             Self::Caller => 1,
-            Self::Pool(resources) => resources.pool.current_num_threads().saturating_add(1),
+            Self::Pool(resources) => resources.pool.current_num_threads(),
         }
     }
 
@@ -590,7 +753,7 @@ impl ExecutionResources {
                 }
             }
             Self::Pool(resources) => {
-                let threads = resources.pool.current_num_threads().saturating_add(1);
+                let threads = resources.pool.current_num_threads();
                 let tickets = std::sync::Mutex::new((work.fuse(), 0_usize));
                 let drain = || loop {
                     // 一次领取多个互不重叠的存储块，离开锁后逐块求值；固定数组不分配。
@@ -614,9 +777,9 @@ impl ExecutionResources {
                     }
                 };
                 #[cfg(test)]
-                note_injections(resources.pool.current_num_threads());
+                note_injections(threads - 1);
                 resources.pool.in_place_scope(|scope| {
-                    for _ in 0..resources.pool.current_num_threads() {
+                    for _ in 1..threads {
                         scope.spawn(|_| drain());
                     }
                     drain();
@@ -639,7 +802,7 @@ impl ExecutionResources {
     /// 更晚任务在开始执行时先查已错位置，整块晚于已错位置的输出整块标记
     /// `Skipped` 跳过计算。错误不取消其他已分发任务：Rayon scope 在传播
     /// panic 前等待全部任务结束，领域错误也等完整 join 后由调用方按逻辑
-    /// 顺序消费首错。调用线程与池任务票据式认领块。统计只在测试构建登记；
+    /// 顺序消费首错。协调线程与池任务票据式认领块。统计只在测试构建登记；
     /// 生产构建返回默认值、无统计锁无统计分配（票据队列是分发本身的设施）。
     pub(crate) fn try_for_each_chunk<T, F>(
         &self,
@@ -697,13 +860,13 @@ impl ExecutionResources {
                 }
             }
             Self::Pool(resources) => {
-                // 票据式认领：spawn `worker−1` 个池任务，调用线程与池任务
-                // 从共享票据取块直到取完——调用线程不再只算首块后在 scope
+                // 票据式认领：spawn `worker−1` 个池任务，协调线程与池任务
+                // 从共享票据取块直到取完——协调线程不再只算首块后在 scope
                 // 末尾空等（机制测量：同场景整步 w2 −18%、w4 −8%、w8 −7%）。
                 // 取到票据后仍先查已错位置，跳过语义与完整 join 不变。
                 // 锁直接保护切片迭代器：不物化票据容器，热态分发无堆分配。
                 let chunks = std::sync::Mutex::new(work.fuse());
-                let auxiliaries = resources.pool.current_num_threads();
+                let auxiliaries = resources.pool.current_num_threads() - 1;
                 #[cfg(test)]
                 note_injections(auxiliaries);
                 resources.pool.in_place_scope(|scope| {
@@ -816,10 +979,12 @@ impl WorldExecution {
         assert!(self.usable, "traffic world invalidated by execution panic");
     }
 
-    pub(crate) fn run<R>(
+    /// 整个作用域在池内运行：每拍只跨池边界一次，拍内各并行段从池线程直接
+    /// 派发，不再各自经全局注入队列往返并阻塞调用线程。调用线程只等待。
+    pub(crate) fn run<R: Send>(
         &mut self,
         state: &mut WorldState,
-        operation: impl FnOnce(&mut WorldState, &ExecutionResources) -> R,
+        operation: impl FnOnce(&mut WorldState, &ExecutionResources) -> R + Send,
     ) -> R {
         self.assert_usable();
         // 先置为失效；只有作用域完整返回才恢复，包括可重试领域错误的返回。
@@ -832,7 +997,28 @@ impl WorldExecution {
             self.active_plan.assert_binding(state);
             self.active_plan
                 .refresh_workset(state.derived.active_order.len());
-            operation(state, &self.resources)
+            let resources = &self.resources;
+            match resources {
+                ExecutionResources::Caller => operation(state, resources),
+                ExecutionResources::Pool(pool) => {
+                    #[cfg(test)]
+                    note_injections(1);
+                    #[cfg(any(test, feature = "placement-fixtures"))]
+                    {
+                        let hooks = carry_step_hooks();
+                        let (result, hooks) = pool.pool.install(|| {
+                            hooks();
+                            let result =
+                                catch_unwind(AssertUnwindSafe(|| operation(state, resources)));
+                            (result, carry_step_hooks())
+                        });
+                        hooks();
+                        result.unwrap_or_else(|payload| resume_unwind(payload))
+                    }
+                    #[cfg(not(any(test, feature = "placement-fixtures")))]
+                    pool.pool.install(|| operation(state, resources))
+                }
+            }
         })) {
             Ok(result) => {
                 self.usable = true;
@@ -1226,8 +1412,8 @@ mod tests {
         let (mut world, _, _) = world_with_vehicle(true);
         world.execution = WorldExecution::start_private(config(4), &world.state);
         let ids = world.execution.thread_ids();
-        // 前 4 块用屏障强制调用线程与 3 个 worker 同拍重叠；后 4 块不加门，
-        // 避免调用线程算完首块后在 scope join 等待、第二波永远凑不齐 4 方而死锁。
+        // 前 4 块用屏障强制池内协调线程与 3 个 worker 同拍重叠；后 4 块不加门，
+        // 避免协调线程算完首块后在 scope join 等待、第二波永远凑不齐 4 方而死锁。
         let overlap = Barrier::new(4);
         let visited = Mutex::new(Vec::new());
         let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 8];
@@ -1254,7 +1440,8 @@ mod tests {
         assert!(stats.participating_threads <= world.execution.resources.dispatch_threads());
         let visited: std::collections::HashSet<_> =
             visited.into_inner().unwrap().into_iter().collect();
-        assert!(visited.contains(&std::thread::current().id()));
+        // 拍在池内运行：调用线程只等待，全部计算落在池线程上。
+        assert!(!visited.contains(&std::thread::current().id()));
         assert!(ids.iter().all(|id| visited.contains(id)));
         drop(world);
         assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
@@ -1408,7 +1595,7 @@ mod tests {
         assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
         let resources = ExecutionResources::start(config(4)).unwrap();
         drop(resources);
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst) - started, 5);
+        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst) - started, 6);
         assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
     }
 
@@ -1439,7 +1626,7 @@ mod tests {
             let visited: std::collections::HashSet<_> =
                 visited.into_inner().unwrap().into_iter().collect();
             assert_eq!(visited.len(), 4);
-            assert!(visited.contains(&std::thread::current().id()));
+            assert!(!visited.contains(&std::thread::current().id()));
             assert!(ids.iter().all(|id| visited.contains(id)));
             assert_eq!(output, [4_500, 4_501, 4_502, 4_503]);
         }

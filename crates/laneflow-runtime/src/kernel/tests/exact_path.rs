@@ -225,6 +225,7 @@ thread_local! {
     static PROFILE: RefCell<Profile> = RefCell::new(Profile::default());
     static CANDIDATE: Cell<bool> = const { Cell::new(false) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: PROFILE, CANDIDATE);
 
 pub(crate) fn candidate_enabled() -> bool {
     CANDIDATE.get()

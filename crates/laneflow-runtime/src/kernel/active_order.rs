@@ -133,6 +133,8 @@ fn reserve_positions(positions: &mut Vec<u32>, slots: usize) -> bool {
 thread_local! {
     static FAIL_RESERVATION: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FAIL_RESERVATION);
 
 #[cfg(test)]
 pub(crate) fn with_position_allocation_failure<T>(run: impl FnOnce() -> T) -> T {

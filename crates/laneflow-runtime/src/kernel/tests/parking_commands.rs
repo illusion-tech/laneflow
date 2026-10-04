@@ -22,6 +22,7 @@ pub(crate) struct Counts {
 }
 
 thread_local! { static COUNTS: Cell<Counts> = Cell::new(Counts::default()); }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: COUNTS);
 
 pub(crate) fn note(update: impl FnOnce(&mut Counts)) {
     COUNTS.with(|cell| {

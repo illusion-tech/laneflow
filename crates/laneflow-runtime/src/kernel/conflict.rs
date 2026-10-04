@@ -19,6 +19,8 @@ thread_local! {
         const { core::cell::Cell::new(ConflictWorkCounts::ZERO) };
     static CONFLICT_ALLOCATION_FAILPOINT: core::cell::Cell<Option<usize>> = const { core::cell::Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: CONFLICT_WORK_COUNTS, CONFLICT_ALLOCATION_FAILPOINT);
 
 /// 测试专用：设置 scratch 分配 failpoint 的剩余放行次数。
 #[cfg(test)]

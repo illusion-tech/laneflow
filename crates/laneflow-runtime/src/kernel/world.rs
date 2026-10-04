@@ -48,6 +48,8 @@ fn install_motion_kernel() -> laneflow_motion_kernel::Kernel {
 thread_local! {
     static OVERLAP_BLOCKER_INSPECTIONS: Cell<usize> = const { Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: OVERLAP_BLOCKER_INSPECTIONS);
 
 /// 测试专用：重置生成重叠阻塞检查计数。
 #[cfg(test)]

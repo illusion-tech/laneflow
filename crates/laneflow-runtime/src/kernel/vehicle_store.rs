@@ -29,6 +29,8 @@ impl From<&VehicleState> for MotionPosition {
 thread_local! {
     pub(crate) static FORCE_COLD_ALLOCATION_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FORCE_COLD_ALLOCATION_FAILURE);
 
 /// 预览和错误回报只携带会改变的运动值；稳定上下文仍来自本拍 Current。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
