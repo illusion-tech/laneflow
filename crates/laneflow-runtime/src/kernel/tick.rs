@@ -4911,7 +4911,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterTransitions)?;
         updates.freeze_controls();
-        updates.validate(&self.committed.vehicles)?;
+        updates.validate_with(&self.committed.vehicles, execution)?;
         self.committed.prepare_vehicle_storage(updates)?;
         Ok(parking_arrivals)
     }
