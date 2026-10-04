@@ -766,7 +766,7 @@ fn restore_conflict_aggregate(
         .try_reserve_exact(capacity)
         .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
     eligibility.resize(capacity, None);
-    world.committed.conflict_eligibility = eligibility;
+    world.committed.conflict_eligibility = eligibility.into();
 
     for vehicle in root.vehicles() {
         let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();

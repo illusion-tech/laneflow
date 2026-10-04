@@ -341,7 +341,7 @@ impl crate::kernel::state::WorldState {
             },
             committed: crate::kernel::state::CommittedWorldState {
                 conflict,
-                conflict_eligibility,
+                conflict_eligibility: conflict_eligibility.into(),
                 latest_conflict_decisions,
                 tick_index,
                 time_ms,
@@ -384,6 +384,7 @@ impl crate::kernel::state::WorldState {
                 conflict_grants,
                 conflict_motion_by_vehicle,
                 conflict_next_eligibility,
+                conflict_table_writes: Default::default(),
                 conflict_passage_transitions,
                 conflict_changed_owners,
                 waiting_dependencies,

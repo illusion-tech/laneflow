@@ -446,6 +446,69 @@ pub(crate) struct PreparedConflictGrant {
     pub(crate) grant: ConflictGrant,
 }
 
+/// 可能为 Some 的车位清单。清单完整时清空表只需清这些位置；容量不足或下标放不进
+/// `u32` 时放弃清单（`complete = false`），下次整表清空，不新增可恢复失败。
+#[derive(Debug, Default)]
+struct SlotList {
+    slots: Vec<u32>,
+    complete: bool,
+}
+
+impl SlotList {
+    fn note(&mut self, slot: usize) {
+        if !self.complete {
+            return;
+        }
+        match u32::try_from(slot) {
+            Ok(slot) if self.slots.len() < self.slots.capacity() => self.slots.push(slot),
+            _ => self.complete = false,
+        }
+    }
+
+    /// 清单完整时只把记下的位置清成 `None` 并返回 `true`；否则返回 `false`，由
+    /// 调用方整表清空。
+    fn clear_noted<T>(&self, table: &mut [Option<T>]) -> bool {
+        if !self.complete {
+            return false;
+        }
+        for &slot in &self.slots {
+            if let Some(entry) = table.get_mut(slot as usize) {
+                *entry = None;
+            }
+        }
+        true
+    }
+
+    /// 表已全空后重新开始记录；预留失败只放弃清单。
+    fn restart(&mut self, capacity: usize) {
+        self.slots.clear();
+        self.complete = self
+            .slots
+            .try_reserve(capacity.min(u32::MAX as usize))
+            .is_ok();
+    }
+}
+
+/// 两张逐车位暂存表与已提交资格表的稀疏清空账本：每拍只有 Conflict 候选车位
+/// 写成 Some，按记下的位置清空，不再整表清零。资格暂存表每拍与已提交表交换，
+/// 换回的旧已提交表只在其版本仍等于上拍交换时记下的版本时沿用清单。
+#[derive(Debug, Default)]
+pub(crate) struct ConflictTableWrites {
+    motion: SlotList,
+    next: SlotList,
+    committed: SlotList,
+    committed_version: Option<u64>,
+}
+
+impl ConflictTableWrites {
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        crate::kernel::state::vec_bytes(&self.motion.slots)
+            + crate::kernel::state::vec_bytes(&self.next.slots)
+            + crate::kernel::state::vec_bytes(&self.committed.slots)
+    }
+}
+
 /// 单车本拍的 Conflict 运动决定：Gate hop、结果与 grant 下标。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictMotionPlan {
@@ -1077,6 +1140,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.workspace.conflict_motion_by_vehicle.len()
                 + self.workspace.conflict_next_eligibility.len(),
         );
+        // 账本完整时只清上拍记下的候选车位；否则整表清空。
+        let writes = &mut self.workspace.conflict_table_writes;
+        let motion_sparse = writes
+            .motion
+            .clear_noted(&mut self.workspace.conflict_motion_by_vehicle);
+        let next_sparse = writes
+            .next
+            .clear_noted(&mut self.workspace.conflict_next_eligibility);
         if let Some(resources) = execution.filter(|resources| resources.coordinator_parallel()) {
             // 两张逐车位表各 vehicle_capacity 项，按连续段并行清空，一次池提交。
             let motion = &mut self.workspace.conflict_motion_by_vehicle;
@@ -1086,12 +1157,18 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .max(eligibility.len())
                 .div_ceil(resources.dispatch_threads().saturating_mul(4))
                 .max(1);
-            resources.install(|| {
-                resources.for_each_part(motion, chunk, |_, part| part.fill(None));
-                resources.for_each_part(eligibility, chunk, |_, part| part.fill(None));
-            });
+            if !(motion_sparse && next_sparse) {
+                resources.install(|| {
+                    if !motion_sparse {
+                        resources.for_each_part(motion, chunk, |_, part| part.fill(None));
+                    }
+                    if !next_sparse {
+                        resources.for_each_part(eligibility, chunk, |_, part| part.fill(None));
+                    }
+                });
+            }
         } else {
-            {
+            if !motion_sparse {
                 #[cfg(test)]
                 let _clear = super::eligibility_commit_research::begin(
                     0,
@@ -1099,7 +1176,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 );
                 self.workspace.conflict_motion_by_vehicle.fill(None);
             }
-            {
+            if !next_sparse {
                 #[cfg(test)]
                 let _clear = super::eligibility_commit_research::begin(
                     1,
@@ -1108,6 +1185,24 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 self.workspace.conflict_next_eligibility.fill(None);
             }
         }
+        // 稀疏清空的正确性由全部测试构建逐拍核对：两张表此时必须全空。
+        #[cfg(test)]
+        assert!(
+            self.workspace
+                .conflict_motion_by_vehicle
+                .iter()
+                .all(Option::is_none)
+                && self
+                    .workspace
+                    .conflict_next_eligibility
+                    .iter()
+                    .all(Option::is_none),
+            "sparse clear left a stale conflict slot"
+        );
+        let active = self.derived.active_order.len();
+        let writes = &mut self.workspace.conflict_table_writes;
+        writes.motion.restart(active);
+        writes.next.restart(active);
         #[cfg(test)]
         drop(sparse_clear);
 
@@ -1246,9 +1341,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let full_scan = CONFLICT_FULL_SCAN.with(std::cell::Cell::get);
             #[cfg(not(test))]
             let full_scan = false;
-            execution.install(|| {
+            let discovered = execution.install(|| {
                 discover_conflict_inputs_parallel(view, execution, delta_s, full_scan, inputs)
             })?;
+            if !discovered {
+                #[cfg(test)]
+                count_conflict_path(|counts| counts.slot_fallback += 1);
+                return Ok(false);
+            }
         } else {
             let mut active_index = 0_usize;
             for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
@@ -1506,9 +1606,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         {
             self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize] =
                 Some(resource.motion_plan);
+            self.workspace
+                .conflict_table_writes
+                .motion
+                .note(vehicle.index() as usize);
             if let Some(eligibility) = resource.next_eligibility {
                 self.workspace.conflict_next_eligibility[vehicle.index() as usize] =
                     Some(eligibility);
+                self.workspace
+                    .conflict_table_writes
+                    .next
+                    .note(vehicle.index() as usize);
             }
             match resource.stage {
                 ResourceStage::PureWaitingEmpty {
@@ -2061,6 +2169,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 outcome: ConflictDecisionOutcome::NotEvaluated,
                 grant_index: None,
             });
+        self.workspace
+            .conflict_table_writes
+            .motion
+            .note(state.handle.index() as usize);
         let stable_passage = if range.len != 0 {
             passage.ok_or(StepError::ConflictInvariantViolation)?
         } else {
@@ -2105,6 +2217,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
         self.workspace.conflict_next_eligibility[state.handle.index() as usize] = Some(eligibility);
+        self.workspace
+            .conflict_table_writes
+            .next
+            .note(state.handle.index() as usize);
 
         let passage_end = range
             .start
@@ -2406,6 +2522,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     );
                 match result {
                     Ok(grant) => {
+                        self.workspace
+                            .conflict_table_writes
+                            .motion
+                            .note(candidate.vehicle.index() as usize);
                         self.workspace.conflict_motion_by_vehicle
                             [candidate.vehicle.index() as usize] = Some(ConflictMotionPlan {
                             gate_hop: candidate.anchor.hop,
@@ -2976,21 +3096,37 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                 3,
                 self.workspace.conflict_next_eligibility.len(),
             );
-            self.workspace
-                .conflict_next_eligibility
-                .iter()
-                .all(Option::is_none)
+            let next = &self.workspace.conflict_next_eligibility;
+            let noted = &self.workspace.conflict_table_writes.next;
+            if noted.complete {
+                noted
+                    .slots
+                    .iter()
+                    .all(|&slot| next.get(slot as usize).is_none_or(Option::is_none))
+            } else {
+                next.iter().all(Option::is_none)
+            }
         };
         let slots = self.workspace.conflict_next_eligibility.len();
         let committed = &self.committed.conflict_eligibility;
+        let writes = &mut self.workspace.conflict_table_writes;
         if all_empty {
             self.committed.conflict_eligibility.clear();
+            writes.committed.slots.clear();
+            writes.committed.complete = true;
+            writes.committed_version = Some(self.committed.conflict_eligibility.version());
         } else if committed.len() == slots && committed.capacity() == slots {
             // 上拍已发布的是同长整表：直接交换两张表，不再整表复制。暂存侧拿回的
-            // 旧表在下一拍 Conflict 准备时整表清空，期间无人读取。
+            // 旧表在下一拍 Conflict 准备时清空，期间无人读取：版本未变时只清上拍
+            // 交换记下的位置，否则整表清空。两份清单随表一起交换。
+            let previous_known = writes.committed_version == Some(committed.version());
             let next = core::mem::take(&mut self.workspace.conflict_next_eligibility).into_vec();
-            let previous = core::mem::replace(&mut self.committed.conflict_eligibility, next);
-            self.workspace.conflict_next_eligibility = previous.into_boxed_slice();
+            let previous =
+                core::mem::replace(&mut self.committed.conflict_eligibility, next.into());
+            self.workspace.conflict_next_eligibility = previous.into_vec().into_boxed_slice();
+            core::mem::swap(&mut writes.next, &mut writes.committed);
+            writes.next.complete &= previous_known;
+            writes.committed_version = Some(self.committed.conflict_eligibility.version());
         } else {
             #[cfg(test)]
             let _copy = super::eligibility_commit_research::begin(
@@ -3001,6 +3137,9 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             self.committed
                 .conflict_eligibility
                 .extend_from_slice(&self.workspace.conflict_next_eligibility);
+            // 复制路径罕见（首拍或容量变化）：不复制清单，下次交换整表清空。
+            writes.committed.complete = false;
+            writes.committed_version = None;
         }
         core::mem::swap(
             &mut self.committed.latest_conflict_decisions,
@@ -4626,16 +4765,17 @@ const CONFLICT_DISCOVERY_MAX_PARTS: usize = 128;
 /// P3 发现输入：车辆、live 序号、缓存位与拍初状态。
 type ConflictInput = (VehicleHandle, u32, usize, VehicleState);
 
-/// P3 输入发现的两遍并行版本：先按连续 live 段数 Active 数与入选数，再按前缀和
-/// 切开输出并行写入。`cache_index` 等于该段之前的 Active 总数加段内序号，与串行
-/// 循环（先递增 Active 位、再做 reservation 与可达性筛选）完全一致；段序即 live 序。
+/// P3 输入发现的并行版本：先按连续 live 段数 Active 数，再逐段筛选一遍记下入选，
+/// 最后按前缀和切开输出并行写入。`cache_index` 等于该段之前的 Active 总数加段内
+/// 序号，与串行循环（先递增 Active 位、再做 reservation 与可达性筛选）完全一致；
+/// 段序即 live 序。拾取缓冲预留失败返回 `false`，由调用方回退融合求值。
 fn discover_conflict_inputs_parallel(
     view: &ConflictTaskView<'_>,
     execution: &crate::kernel::execution::ExecutionResources,
     delta_s: f32,
     full_scan: bool,
     inputs: &mut Vec<ConflictInput>,
-) -> Result<(), StepError> {
+) -> Result<bool, StepError> {
     let live = &view.read.committed.live_order;
     let count = live.len();
     u32::try_from(count).map_err(|_| StepError::ConflictInvariantViolation)?;
@@ -4684,23 +4824,54 @@ fn discover_conflict_inputs_parallel(
         active_before[part] = running;
         running += active[part];
     }
-    let mut selected = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
-    execution.for_each_part(&mut selected[..parts], 1, |part, out| {
-        let start = (part * span).min(count);
-        let end = (start + span).min(count);
-        let mut cache_index = active_before[part];
-        let mut chosen = 0;
-        for sequence in start..end {
-            if !is_active(sequence) {
-                continue;
-            }
-            if select(sequence, cache_index).is_some() {
-                chosen += 1;
-            }
-            cache_index += 1;
+    // 入选判断只做一遍：各段把入选的 (live 序号, cache_index) 写进本段在拾取
+    // 缓冲中的互斥区间（段内入选数不超过段长），协调器再按前缀和切出输出，
+    // 只为入选车辆组装状态。拾取缓冲随池跨拍保留容量；预留失败交回融合求值。
+    let Some(mut picks) = execution.sparse_indices() else {
+        return Ok(false);
+    };
+    let picks_len = count.saturating_mul(2);
+    if picks.len() < picks_len {
+        let additional = picks_len - picks.len();
+        if picks.try_reserve(additional).is_err() {
+            return Ok(false);
         }
-        out[0] = chosen;
-    });
+        picks.resize(picks_len, 0);
+    }
+    let mut selected = [0_usize; CONFLICT_DISCOVERY_MAX_PARTS];
+    {
+        let mut rest: &mut [u32] = &mut picks[..picks_len];
+        let mut work: [(usize, &mut [u32]); CONFLICT_DISCOVERY_MAX_PARTS] =
+            std::array::from_fn(|_| (0, Default::default()));
+        for (part, slot) in work[..parts].iter_mut().enumerate() {
+            let start = (part * span).min(count);
+            let end = (start + span).min(count);
+            let (head, tail) = std::mem::take(&mut rest).split_at_mut((end - start) * 2);
+            slot.1 = head;
+            rest = tail;
+        }
+        execution.for_each_part(&mut work[..parts], 1, |part, output| {
+            let (chosen, picks) = &mut output[0];
+            let start = (part * span).min(count);
+            let end = (start + span).min(count);
+            let mut cache_index = active_before[part];
+            for sequence in start..end {
+                if !is_active(sequence) {
+                    continue;
+                }
+                if select(sequence, cache_index).is_some() {
+                    // live 序号已校验可放进 u32；cache_index 不超过它。
+                    picks[*chosen * 2] = sequence as u32;
+                    picks[*chosen * 2 + 1] = cache_index as u32;
+                    *chosen += 1;
+                }
+                cache_index += 1;
+            }
+        });
+        for (out, (chosen, _)) in selected[..parts].iter_mut().zip(&work[..parts]) {
+            *out = *chosen;
+        }
+    }
     let total: usize = selected[..parts].iter().sum();
     let placeholder = inputs.first().copied();
     inputs.clear();
@@ -4709,10 +4880,11 @@ fn discover_conflict_inputs_parallel(
         let state = view.read.vehicle_state(live[first])?;
         Some((live[first], 0, 0, state))
     }) else {
-        return Ok(());
+        return Ok(true);
     };
     // 预留由调用方按 Active 数完成；入选数不超过它，这里不会再分配。
     inputs.resize(total, fill);
+    let picks = &picks[..picks_len];
     let mut rest: &mut [ConflictInput] = inputs;
     let mut work: [Option<&mut [ConflictInput]>; CONFLICT_DISCOVERY_MAX_PARTS] =
         std::array::from_fn(|_| None);
@@ -4725,22 +4897,20 @@ fn discover_conflict_inputs_parallel(
         let Some(output) = output[0].as_mut() else {
             return;
         };
-        let start = (part * span).min(count);
-        let end = (start + span).min(count);
-        let mut cache_index = active_before[part];
-        let mut at = 0;
-        for sequence in start..end {
-            if !is_active(sequence) {
-                continue;
-            }
-            if let Some((vehicle, state)) = select(sequence, cache_index) {
-                output[at] = (vehicle, sequence as u32, cache_index, state);
-                at += 1;
-            }
-            cache_index += 1;
+        let base = (part * span).min(count) * 2;
+        for (at, row) in output.iter_mut().enumerate() {
+            let sequence = picks[base + at * 2] as usize;
+            let cache_index = picks[base + at * 2 + 1] as usize;
+            let vehicle = live[sequence];
+            // 入选时已组装过同一只读状态，这里必然存在。
+            let state = view
+                .read
+                .vehicle_state(vehicle)
+                .expect("selected conflict input has state");
+            *row = (vehicle, sequence as u32, cache_index, state);
         }
     });
-    Ok(())
+    Ok(true)
 }
 
 /// P3 本阶段谁执行的计数证据（融合/分发/回退互斥）。
