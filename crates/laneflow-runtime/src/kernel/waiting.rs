@@ -1775,13 +1775,15 @@ fn discover_preview_inputs_parallel(
 fn consume_waiting_previews_parallel(
     execution: &crate::kernel::execution::ExecutionResources,
     inputs: &[(crate::VehicleHandle, usize)],
-    slots: &[crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>],
+    slots: &[crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewSlot>],
     bases: &[Vec<crate::kernel::tick::MotionBasis>],
+    payloads: &[Vec<crate::kernel::tick::MotionPreview>],
     chunk_size: usize,
     cache_limit: usize,
     motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
     next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
+    motion_previews: &mut Vec<crate::kernel::tick::MotionPreview>,
     sparse: &mut Vec<u32>,
 ) -> Option<Result<(), crate::StepError>> {
     use crate::kernel::execution::DispatchSlot;
@@ -1793,8 +1795,8 @@ fn consume_waiting_previews_parallel(
         .min(count)
         .max(1);
     let span = count.div_ceil(parts).max(1);
-    let is_sparse = |index: usize, entry: &crate::kernel::tick::WaitingPreviewEntry| {
-        entry.preview.is_some() || (entry.basis_index.is_some() && index < cache_limit)
+    let is_sparse = |index: usize, entry: &crate::kernel::tick::WaitingPreviewSlot| {
+        entry.preview_index.is_some() || (entry.basis_index.is_some() && index < cache_limit)
     };
     // (首个不合格槽及其错误, 之前的稀疏行数)
     let mut stats = [(None::<(usize, crate::StepError)>, 0_usize); PREVIEW_MAX_PARTS];
@@ -1836,7 +1838,7 @@ fn consume_waiting_previews_parallel(
             update_sequence: 0,
             gate_reachable: None,
             horizon: None,
-            preview: None,
+            preview_index: None,
             basis_index: None,
         },
     );
@@ -1872,7 +1874,7 @@ fn consume_waiting_previews_parallel(
                         update_sequence,
                         gate_reachable: entry.gate_reachable,
                         horizon: entry.horizon,
-                        preview: entry.preview,
+                        preview_index: None,
                         basis_index: None,
                     };
                 }
@@ -1888,19 +1890,30 @@ fn consume_waiting_previews_parallel(
         let DispatchSlot::Done(Ok(entry)) = &slots[index] else {
             continue;
         };
+        let chunk = index / chunk_size;
         if index < cache_limit
             && let Some(position) = entry.basis_index
         {
-            let stored = bases[index / chunk_size]
+            let stored = bases[chunk]
                 .get(position.get() as usize - 1)
                 .copied()
-                .and_then(|basis| crate::kernel::tick::store_motion_basis(motion_bases, basis));
+                .and_then(|basis| crate::kernel::tick::store_motion_payload(motion_bases, basis));
             if let Some(row) = motion_cache.get_mut(index) {
                 row.basis_index = stored;
             }
         }
-        if let Some(next) = entry.preview.map(|preview| preview.next) {
-            next_states.push((inputs[index].1, next));
+        if let Some(preview) = entry
+            .preview_index
+            .and_then(|position| payloads[chunk].get(position.get() as usize - 1))
+            .copied()
+        {
+            if index < cache_limit
+                && let Some(row) = motion_cache.get_mut(index)
+            {
+                row.preview_index =
+                    crate::kernel::tick::store_motion_payload(motion_previews, preview);
+            }
+            next_states.push((inputs[index].1, preview.next));
         }
     }
     Some(match first_bad {
@@ -1911,8 +1924,10 @@ fn consume_waiting_previews_parallel(
 
 /// 规范消费一个已完成预览：按现行 staging 规则写 `motion_cache`（受
 /// `cache_limit` 容量降级约束）与 `next_states`（仅预览存在时写入）。
+#[allow(clippy::too_many_arguments)]
 fn stage_waiting_preview(
     motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
+    motion_previews: &mut Vec<crate::kernel::tick::MotionPreview>,
     next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     cache_index: usize,
     cache_limit: usize,
@@ -1926,7 +1941,9 @@ fn stage_waiting_preview(
             update_sequence,
             gate_reachable: entry.gate_reachable,
             horizon: entry.horizon,
-            preview: entry.preview,
+            preview_index: entry.preview.and_then(|preview| {
+                crate::kernel::tick::store_motion_payload(motion_previews, preview)
+            }),
             basis_index: entry.basis_index,
         });
     }
@@ -1965,6 +1982,7 @@ fn prepare_waiting_previews_fused(
         )?;
         stage_waiting_preview(
             &mut workspace.motion_cache,
+            &mut workspace.motion_previews,
             &mut workspace.next_states,
             cache_index,
             cache_limit,
@@ -2083,6 +2101,28 @@ fn prepare_waiting_previews_dispatched(
     for bases in bases.iter_mut() {
         bases.clear();
     }
+    // 完整预览按块暂存，每块预留块长：块内追加不再分配，预留失败退回融合求值。
+    let payloads = &mut workspace.waiting_preview_payloads;
+    if payloads
+        .try_reserve(chunk_count.saturating_sub(payloads.len()))
+        .is_err()
+    {
+        #[cfg(test)]
+        count_preview_path(|counts| counts.slot_fallback += 1);
+        return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
+    }
+    if payloads.len() < chunk_count {
+        payloads.resize_with(chunk_count, Vec::new);
+    }
+    let reserved = payloads.iter_mut().all(|previews| {
+        previews.clear();
+        previews.try_reserve(chunk_size).is_ok()
+    });
+    if !reserved {
+        #[cfg(test)]
+        count_preview_path(|counts| counts.slot_fallback += 1);
+        return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
+    }
     let first_error = AtomicUsize::new(usize::MAX);
     // 块级诊断记录槽：与输出块对齐，每块一个 u64 nanos，任务独占写入
     // （无竞争、无共享锁）；仅在诊断启用时分配，热态非诊断构建零成本。
@@ -2096,9 +2136,12 @@ fn prepare_waiting_previews_dispatched(
     let compute = |chunk_view: crate::kernel::phase::StepReadView<'_>,
                    start: usize,
                    chunk: &mut [crate::kernel::execution::DispatchSlot<
-        crate::kernel::tick::WaitingPreviewEntry,
+        crate::kernel::tick::WaitingPreviewSlot,
     >],
-                   bases: &mut Vec<crate::kernel::tick::MotionBasis>| {
+                   (bases, previews): (
+        &mut Vec<crate::kernel::tick::MotionBasis>,
+        &mut Vec<crate::kernel::tick::MotionPreview>,
+    )| {
         // 计时无条件开启；是否记录由协调器创建的 chunk_records 决定（普通
         // Option 捕获，跨线程一致）。不能用线程本地 ENABLE 作门——辅助
         // 线程读不到协调器的开关，会漏记（审阅阻断二的同类陷阱）。
@@ -2114,7 +2157,33 @@ fn prepare_waiting_previews_dispatched(
                 index < cache_limit,
                 Some(&mut *bases),
             ) {
-                Ok(entry) => *slot = crate::kernel::execution::DispatchSlot::Done(Ok(entry)),
+                Ok(entry) => {
+                    // 块长预留保证追加不分配也不失败；保存失败按不变量违例处理，
+                    // 不静默丢掉下一状态。
+                    let preview_index = match entry.preview {
+                        Some(preview) => {
+                            match crate::kernel::tick::store_motion_payload(previews, preview) {
+                                Some(position) => Some(position),
+                                None => {
+                                    first_error.fetch_min(index, Ordering::Relaxed);
+                                    *slot = crate::kernel::execution::DispatchSlot::Done(Err(
+                                        crate::StepError::WaitingInvariantViolation,
+                                    ));
+                                    break;
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(
+                        crate::kernel::tick::WaitingPreviewSlot {
+                            gate_reachable: entry.gate_reachable,
+                            horizon: entry.horizon,
+                            preview_index,
+                            basis_index: entry.basis_index,
+                        },
+                    ));
+                }
                 Err(error) => {
                     first_error.fetch_min(index, Ordering::Relaxed);
                     *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
@@ -2135,7 +2204,11 @@ fn prepare_waiting_previews_dispatched(
     let _dispatch_scope = preview_stage::begin(preview_stage::DISPATCH_SCOPE);
     let work = slots
         .chunks_mut(chunk_size)
-        .zip(bases[..chunk_count].iter_mut())
+        .zip(
+            bases[..chunk_count]
+                .iter_mut()
+                .zip(workspace.waiting_preview_payloads[..chunk_count].iter_mut()),
+        )
         .enumerate()
         .map(|(index, item)| (index * chunk_size, item));
     let dispatch_stats = execution.try_for_each_work(view, work, &first_error, compute);
@@ -2180,9 +2253,11 @@ fn prepare_waiting_previews_dispatched(
         let inputs = &workspace.waiting_preview_inputs;
         let slots = &*slots;
         let bases = &bases[..chunk_count];
+        let payloads = &workspace.waiting_preview_payloads[..chunk_count];
         let motion_cache = &mut workspace.motion_cache;
         let next_states = &mut workspace.next_states;
         let motion_bases = &mut workspace.motion_bases;
+        let motion_previews = &mut workspace.motion_previews;
         let sparse = &mut *sparse;
         execution.install(|| {
             consume_waiting_previews_parallel(
@@ -2190,11 +2265,13 @@ fn prepare_waiting_previews_dispatched(
                 inputs,
                 slots,
                 bases,
+                payloads,
                 chunk_size,
                 cache_limit,
                 motion_cache,
                 next_states,
                 motion_bases,
+                motion_previews,
                 sparse,
             )
         })
@@ -2208,9 +2285,11 @@ fn prepare_waiting_previews_dispatched(
             &workspace.waiting_preview_inputs,
             slots,
             bases,
+            &workspace.waiting_preview_payloads,
             chunk_size,
             cache_limit,
             &mut workspace.motion_cache,
+            &mut workspace.motion_previews,
             &mut workspace.next_states,
             &mut workspace.motion_bases,
         )?;
@@ -2222,6 +2301,9 @@ fn prepare_waiting_previews_dispatched(
     for bases in bases.iter_mut() {
         bases.clear();
     }
+    for previews in &mut workspace.waiting_preview_payloads {
+        previews.clear();
+    }
     Ok(())
 }
 
@@ -2229,11 +2311,13 @@ fn prepare_waiting_previews_dispatched(
 #[allow(clippy::too_many_arguments)]
 fn consume_waiting_previews_serial(
     inputs: &[(crate::VehicleHandle, usize)],
-    slots: &[crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>],
+    slots: &[crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewSlot>],
     bases: &[Vec<crate::kernel::tick::MotionBasis>],
+    payloads: &[Vec<crate::kernel::tick::MotionPreview>],
     chunk_size: usize,
     cache_limit: usize,
     motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
+    motion_previews: &mut Vec<crate::kernel::tick::MotionPreview>,
     next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
 ) -> Result<(), crate::StepError> {
@@ -2241,16 +2325,27 @@ fn consume_waiting_previews_serial(
         inputs.iter().zip(slots.iter()).enumerate()
     {
         match slot {
-            crate::kernel::execution::DispatchSlot::Done(Ok(entry)) => {
-                let mut entry = *entry;
-                entry.basis_index = entry
-                    .basis_index
-                    .and_then(|index| bases[cache_index / chunk_size].get(index.get() as usize - 1))
-                    .copied()
-                    .filter(|_| cache_index < cache_limit)
-                    .and_then(|basis| crate::kernel::tick::store_motion_basis(motion_bases, basis));
+            crate::kernel::execution::DispatchSlot::Done(Ok(slot)) => {
+                let chunk = cache_index / chunk_size;
+                let entry = crate::kernel::tick::WaitingPreviewEntry {
+                    gate_reachable: slot.gate_reachable,
+                    horizon: slot.horizon,
+                    preview: slot
+                        .preview_index
+                        .and_then(|index| payloads[chunk].get(index.get() as usize - 1))
+                        .copied(),
+                    basis_index: slot
+                        .basis_index
+                        .and_then(|index| bases[chunk].get(index.get() as usize - 1))
+                        .copied()
+                        .filter(|_| cache_index < cache_limit)
+                        .and_then(|basis| {
+                            crate::kernel::tick::store_motion_payload(motion_bases, basis)
+                        }),
+                };
                 stage_waiting_preview(
                     motion_cache,
+                    motion_previews,
                     next_states,
                     cache_index,
                     cache_limit,

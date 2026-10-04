@@ -579,7 +579,7 @@ fn compute(
                 .get(active_index)
                 .filter(|entry| entry.vehicle == handle);
             if let Some(next) = cached
-                .and_then(|entry| entry.preview.as_ref())
+                .and_then(|entry| entry.preview(view.motion_previews))
                 .and_then(|preview| preview.reuse(waiting, conflict))
             {
                 let old = state.state();
@@ -1038,6 +1038,7 @@ pub(super) fn prepare(
         conflict_next_eligibility: &workspace.conflict_next_eligibility,
         conflict_staged: &workspace.conflict,
         motion_cache: &workspace.motion_cache,
+        motion_previews: &workspace.motion_previews,
         motion_bases: &workspace.motion_bases,
     };
     let kernel = workspace.motion_kernel;
@@ -1245,7 +1246,7 @@ mod tests {
                     if let Some(handle) = complex_vehicle {
                         for entry in &mut world.state.workspace.motion_cache {
                             if entry.vehicle == handle {
-                                entry.preview = None;
+                                entry.preview_index = None;
                                 let basis = world
                                     .state
                                     .workspace
@@ -1304,6 +1305,7 @@ mod tests {
                         conflict_staged: &world.state.workspace.conflict,
                         conflict_next_eligibility: &world.state.workspace.conflict_next_eligibility,
                         motion_cache: &world.state.workspace.motion_cache,
+                        motion_previews: &world.state.workspace.motion_previews,
                         motion_bases: &world.state.workspace.motion_bases,
                     };
                     if let Some(handle) = complex_vehicle {
@@ -1344,8 +1346,7 @@ mod tests {
                                 .conflict_stop_for(&state, 0.1, compiled, profile)
                                 .unwrap();
                             if view.motion_cache[rank]
-                                .preview
-                                .as_ref()
+                                .preview(view.motion_previews)
                                 .and_then(|preview| preview.reuse(waiting, conflict))
                                 .is_none()
                             {
