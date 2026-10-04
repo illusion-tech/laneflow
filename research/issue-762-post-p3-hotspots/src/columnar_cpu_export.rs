@@ -259,19 +259,33 @@ fn instrument_finalize(root: &Path) -> Result<()> {
         ),
     )?;
     let conflict_file = "crates/laneflow-runtime/src/kernel/conflict_tick.rs";
-    let resource_rows = fs::read_to_string(root.join(conflict_file))?
-        .contains("        for resource_index in 0..updates.resource_rows().len() {");
-    let conflict_loop = if resource_rows {
-        "        for resource_index in 0..updates.resource_rows().len() {\n            let index = updates.resource_rows()[resource_index];\n            let row = updates.row(index, &self.committed.vehicles);"
+    let conflict_text = fs::read_to_string(root.join(conflict_file))?;
+    let resource_rows =
+        conflict_text.contains("for resource_index in 0..updates.resource_rows().len() {");
+    // 串行收尾循环自并行化后位于 match 分支内，缩进加深一层。
+    let outer = if conflict_text
+        .contains("                for resource_index in 0..updates.resource_rows().len() {")
+    {
+        "                "
     } else {
-        "        for index in 0..updates.len() {\n            let row = updates.row(index, &self.committed.vehicles);"
+        "        "
+    };
+    let inner = format!("{outer}    ");
+    let conflict_loop = if resource_rows {
+        format!(
+            "{outer}for resource_index in 0..updates.resource_rows().len() {{\n{inner}let index = updates.resource_rows()[resource_index];\n{inner}let row = updates.row(index, &self.committed.vehicles);"
+        )
+    } else {
+        format!(
+            "{outer}for index in 0..updates.len() {{\n{inner}let row = updates.row(index, &self.committed.vehicles);"
+        )
     };
     patch(
         root,
         conflict_file,
-        conflict_loop,
+        &conflict_loop,
         &format!(
-            "{conflict_loop}\n            super::tick::note_pipeline(26, 1);\n            let control_obligation = row.control().waiting.is_some() || row.control().maneuver.is_some();"
+            "{conflict_loop}\n{inner}super::tick::note_pipeline(26, 1);\n{inner}let control_obligation = row.control().waiting.is_some() || row.control().maneuver.is_some();"
         ),
     )?;
     let waiting_loop = if resource_rows {
@@ -374,16 +388,6 @@ fn instrument_finalize(root: &Path) -> Result<()> {
             "            None if changed => {\n                super::tick::note_pipeline(29, 1);",
         ),
         (
-            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
-            "            self.stage_resource_free_gate_fields(\n                fields,",
-            "            super::tick::note_pipeline(32, usize::from(fields.previous.route_edge_index != position.route_edge_index));\n            self.stage_resource_free_gate_fields(\n                fields,",
-        ),
-        (
-            "crates/laneflow-runtime/src/kernel/conflict_tick.rs",
-            "            let all_clear = match range {",
-            "            super::tick::note_pipeline(27, usize::from(control_obligation || range.is_some() || grant_index.is_some() || self.workspace.conflict_next_eligibility[handle.index() as usize].is_some()));\n            let all_clear = match range {",
-        ),
-        (
             WAITING,
             "                anchors.push(NonEntryGateAnchor {",
             "                super::tick::note_pipeline(34, 1);\n                anchors.push(NonEntryGateAnchor {",
@@ -391,6 +395,25 @@ fn instrument_finalize(root: &Path) -> Result<()> {
     ] {
         patch(root, file, old, new)?;
     }
+    // 这两处位于串行收尾循环体内，缩进随循环所在层级。
+    let free_gate = format!("{inner}self.stage_resource_free_gate_fields(\n{inner}    fields,");
+    patch(
+        root,
+        conflict_file,
+        &free_gate,
+        &format!(
+            "{inner}super::tick::note_pipeline(32, usize::from(fields.previous.route_edge_index != position.route_edge_index));\n{free_gate}"
+        ),
+    )?;
+    let all_clear = format!("{inner}let all_clear = match range {{");
+    patch(
+        root,
+        conflict_file,
+        &all_clear,
+        &format!(
+            "{inner}super::tick::note_pipeline(27, usize::from(control_obligation || range.is_some() || grant_index.is_some() || self.workspace.conflict_next_eligibility[handle.index() as usize].is_some()));\n{all_clear}"
+        ),
+    )?;
     Ok(())
 }
 
