@@ -203,7 +203,7 @@ fn run_arm(
         "{:x}",
         crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap()
     );
-    set_preview_chunk_multiplier(2);
+    set_preview_chunk_multiplier(8);
     ArmRow {
         whole_p50_ns: percentile(&sorted, 0.50),
         whole_p95_ns: percentile(&sorted, 0.95),
