@@ -842,13 +842,22 @@ struct Span {
 /// `clamp_start` / `clamp_finish` 为首/末点的边界切向钳制（单位方向），
 /// `clamp_start_source` / `clamp_finish_source` 为对应的产生机制（仅 fail-closed
 /// 诊断用，不影响几何）。原始端点位置一律保持不变。
+/// `repair_curve` 的计量返回：修复后的曲线程序 + **量化规范弧长**（发射时
+/// 按 HIR 同一算术逐弦累计的 f32 弦长 f64 总和——即 compiler 验收与弧长
+/// 派生将看到的值）。
+#[derive(Debug)]
+pub(crate) struct RepairedCurve {
+    pub(crate) program: re::RoadEditingCurveProgram,
+    pub(crate) quantized_arc_meters: f64,
+}
+
 pub(crate) fn repair_curve(
     points: &[Vec3],
     clamp_start: Option<Vec3>,
     clamp_finish: Option<Vec3>,
     clamp_start_source: Option<&ClampSource>,
     clamp_finish_source: Option<&ClampSource>,
-) -> Result<re::RoadEditingCurveProgram> {
+) -> Result<RepairedCurve> {
     // 去重相邻重复点（SUMO shape 偶发）。
     let mut pts: Vec<Vec3> = Vec::with_capacity(points.len());
     for &p in points {
@@ -876,10 +885,17 @@ pub(crate) fn repair_curve(
             }
         };
         let end = add(first, scale(dir, DEGENERATE_SEGMENT_METERS));
-        return Ok(re::RoadEditingCurveProgram::try_new(
-            point3(first)?,
-            vec![re::RoadEditingCurveSegment::line(point3(end)?)],
-        )?);
+        let arc = f64::from(quantized_chord_meters(
+            quantize_vec3(first),
+            quantize_vec3(end),
+        ));
+        return Ok(RepairedCurve {
+            program: re::RoadEditingCurveProgram::try_new(
+                point3(first)?,
+                vec![re::RoadEditingCurveSegment::line(point3(end)?)],
+            )?,
+            quantized_arc_meters: arc,
+        });
     }
 
     // 弦与折点角。
@@ -1020,10 +1036,10 @@ pub(crate) fn repair_curve(
             },
         )?;
     }
-    Ok(re::RoadEditingCurveProgram::try_new(
-        point3(first)?,
-        sink.segments,
-    )?)
+    Ok(RepairedCurve {
+        program: re::RoadEditingCurveProgram::try_new(point3(first)?, sink.segments)?,
+        quantized_arc_meters: sink.total_arc_meters,
+    })
 }
 
 /// 采样发射的最大切向转角（弧度/弦）：1.2°。
@@ -1124,6 +1140,9 @@ struct EmissionSink {
     prev_point: [f32; 3],
     /// 上一条已发射弦的量化方向（f64 促升）。
     prev_dir: Option<Vec3>,
+    /// 已发射规范弦的累计弧长（f32 弦长促升 f64 求和）：compiler 看到的
+    /// 规范折线弧长即此值；随 checkpoint/restore 同步快照与回滚。
+    total_arc_meters: f64,
 }
 
 /// 发射回溯检查点：记录已发射段数与链尾状态，O(1) 快照/回滚。
@@ -1132,6 +1151,7 @@ struct SinkCheckpoint {
     segments_len: usize,
     prev_point: [f32; 3],
     prev_dir: Option<Vec3>,
+    total_arc_meters: f64,
 }
 
 impl EmissionSink {
@@ -1140,6 +1160,7 @@ impl EmissionSink {
             segments: Vec::new(),
             prev_point: quantize_vec3(start),
             prev_dir: None,
+            total_arc_meters: 0.0,
         }
     }
 
@@ -1149,6 +1170,7 @@ impl EmissionSink {
             segments_len: self.segments.len(),
             prev_point: self.prev_point,
             prev_dir: self.prev_dir,
+            total_arc_meters: self.total_arc_meters,
         }
     }
 
@@ -1156,6 +1178,7 @@ impl EmissionSink {
         self.segments.truncate(checkpoint.segments_len);
         self.prev_point = checkpoint.prev_point;
         self.prev_dir = checkpoint.prev_dir;
+        self.total_arc_meters = checkpoint.total_arc_meters;
     }
 
     fn push(&mut self, end: Vec3) -> Result<()> {
@@ -1166,9 +1189,7 @@ impl EmissionSink {
             f64::from(quantized[2]) - f64::from(self.prev_point[2]),
         ];
         // 与 HIR 冻结同一算术：f32 差分 + hypot。
-        let length_f32 = (quantized[0] - self.prev_point[0])
-            .hypot(quantized[1] - self.prev_point[1])
-            .hypot(quantized[2] - self.prev_point[2]);
+        let length_f32 = quantized_chord_meters(self.prev_point, quantized);
         if length_f32 <= QUANTIZED_MIN_SEGMENT_METERS {
             return Err(Error::SumoModel(format!(
                 "repaired curve emits a degenerate canonical segment: quantized length \
@@ -1192,6 +1213,8 @@ impl EmissionSink {
                 )));
             }
         }
+        // 弧长计量只随成功发射累计（失败路径在上游 return，不回溯污染）。
+        self.total_arc_meters += f64::from(length_f32);
         self.segments
             .push(re::RoadEditingCurveSegment::line(point3(end)?));
         self.prev_point = quantized;
@@ -1203,6 +1226,13 @@ impl EmissionSink {
 /// 端点量化：与 compiler `quantize_point` 同一语义（`as f32` 收缩）。
 fn quantize_vec3(p: Vec3) -> [f32; 3] {
     [p[0] as f32, p[1] as f32, p[2] as f32]
+}
+
+/// 量化弦长：与 HIR 冻结同一算术（f32 端点差分 + hypot）。
+fn quantized_chord_meters(from: [f32; 3], to: [f32; 3]) -> f32 {
+    (to[0] - from[0])
+        .hypot(to[1] - from[1])
+        .hypot(to[2] - from[2])
 }
 
 /// 将一个逻辑段（直线 / CR 平滑 / 倒圆弧 / 钳制边界）采样发射为 Line 链。
@@ -1602,7 +1632,9 @@ mod tests {
     #[test]
     fn straight_polyline_stays_line_segments() {
         let points = [pt(0.0, 0.0), pt(10.0, 0.0), pt(20.0, 0.0)];
-        let program = repair_curve(&points, None, None, None, None).expect("repair");
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("repair")
+            .program;
         assert_eq!(seg_ends(&program), 2);
         for segment in program.segments() {
             assert!(matches!(
@@ -1620,7 +1652,9 @@ mod tests {
             let a = (k as f64 * 10.0).to_radians();
             points.push(pt(10.0 * a.sin(), 10.0 * (1.0 - a.cos())));
         }
-        let program = repair_curve(&points, None, None, None, None).expect("repair");
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("repair")
+            .program;
         // 90° 总转角按 1.2°/弦采样：段数应远多于原折点链（9），且全部为 Line。
         assert!(seg_ends(&program) > 40, "expected dense sampling");
         let mut prev: Vec3 = {
@@ -1655,7 +1689,9 @@ mod tests {
     fn hard_corner_gets_bounded_fillet() {
         // 90° 硬角，两侧弦足够长：r 取满 5.0 m，回切 d = r·tan(45°) = 5.0。
         let points = [pt(0.0, 0.0), pt(20.0, 0.0), pt(20.0, 20.0)];
-        let program = repair_curve(&points, None, None, None, None).expect("repair");
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("repair")
+            .program;
         // 倒圆弧经采样后为多段 Line；弧段终点 T2 = V + w·d = (20, 5) 必须是
         // 某个采样弦的端点（采样在弧段边界处对齐）。
         let has_t2 = program.segments().iter().any(|segment| {
@@ -1673,7 +1709,9 @@ mod tests {
         // 90° 硬角，引出弦 10 m：d ≤ 0.45·10 = 4.5 < 5.0 上限 → r = 4.5，
         // 仍高于量化 weld 的可行半径阈值（最坏约 4.7m 以下的典型区），采样可通过。
         let points = [pt(0.0, 0.0), pt(20.0, 0.0), pt(20.0, 10.0)];
-        let program = repair_curve(&points, None, None, None, None).expect("repair");
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("repair")
+            .program;
         let has_t2 = program.segments().iter().any(|segment| {
             let re::RoadEditingCurveSegmentGeometry::Line { end } = segment.geometry() else {
                 return false;
@@ -1705,7 +1743,9 @@ mod tests {
         // 钳制与弦共线：单条 Line。
         let points = [pt(0.0, 0.0), pt(10.0, 0.0)];
         let tilt = unit([1.0, 0.1, 0.0]).expect("unit");
-        let program = repair_curve(&points, None, Some(tilt), None, None).expect("repair");
+        let program = repair_curve(&points, None, Some(tilt), None, None)
+            .expect("repair")
+            .program;
         assert!(seg_ends(&program) >= 1);
         let re::RoadEditingCurveSegmentGeometry::Line { end } =
             program.segments().last().expect("last").geometry()
@@ -1714,8 +1754,9 @@ mod tests {
         };
         // 端点位置不变；末弦与钳制的夹角应显著小于原弦与钳制的夹角（5.7°）。
         assert!((end.x() - 10.0).abs() < 1e-9 && end.y().abs() < 1e-9);
-        let program =
-            repair_curve(&points, None, Some([1.0, 0.0, 0.0]), None, None).expect("repair");
+        let program = repair_curve(&points, None, Some([1.0, 0.0, 0.0]), None, None)
+            .expect("repair")
+            .program;
         assert_eq!(seg_ends(&program), 1);
         assert!(matches!(
             program.segments()[0].geometry(),
@@ -1727,8 +1768,9 @@ mod tests {
     fn clamp_guard_rejects_opposite_direction() {
         // 钳制与弦近对径（> 90°）：回退自然弦向，保持 Line。
         let points = [pt(0.0, 0.0), pt(10.0, 0.0)];
-        let program =
-            repair_curve(&points, None, Some([-1.0, 0.0, 0.0]), None, None).expect("repair");
+        let program = repair_curve(&points, None, Some([-1.0, 0.0, 0.0]), None, None)
+            .expect("repair")
+            .program;
         assert!(matches!(
             program.segments()[0].geometry(),
             re::RoadEditingCurveSegmentGeometry::Line { .. }
@@ -1872,7 +1914,8 @@ mod tests {
             pt(25.0 + 25.0 * c100.cos(), 25.0 * c100.sin()),
         ];
         let program = repair_curve(&points, None, None, None, None)
-            .expect("100 deg fillet emits within budget");
+            .expect("100 deg fillet emits within budget")
+            .program;
         // 倒圆几何（原 lane 两个端点除外）到原折点的最近距离：切削深度。
         let corner = [25.0, 0.0, 0.0];
         let start = program.start();
@@ -1908,7 +1951,8 @@ mod tests {
             pt(25.0 + 25.0 * c120.cos(), 25.0 * c120.sin()),
         ];
         let program = repair_curve(&points, None, None, None, None)
-            .expect("120 deg boundary fillet emits at full radius");
+            .expect("120 deg boundary fillet emits at full radius")
+            .program;
         let d = FILLET_RADIUS_MAX_METERS * (c120 * 0.5).tan();
         let has_t2 = program.segments().iter().any(|segment| {
             let re::RoadEditingCurveSegmentGeometry::Line { end } = segment.geometry() else {
@@ -2015,7 +2059,9 @@ mod tests {
     #[test]
     fn duplicate_points_are_deduplicated() {
         let points = [pt(0.0, 0.0), pt(0.0, 0.0), pt(10.0, 0.0)];
-        let program = repair_curve(&points, None, None, None, None).expect("repair");
+        let program = repair_curve(&points, None, None, None, None)
+            .expect("repair")
+            .program;
         assert_eq!(seg_ends(&program), 1);
     }
 
@@ -2136,7 +2182,7 @@ mod tests {
     #[test]
     fn degenerate_centerline_synthesizes_micro_segment_along_clamps() {
         let points = [pt(5.0, 5.0), pt(5.0, 5.0)];
-        let program = repair_curve(
+        let repaired = repair_curve(
             &points,
             Some([1.0, 0.0, 0.0]),
             Some([1.0, 0.0, 0.0]),
@@ -2144,6 +2190,10 @@ mod tests {
             None,
         )
         .expect("repair");
+        // 计量弧长：合成微段的量化弦长即 DEGENERATE_SEGMENT_METERS（两端点
+        // 落在 f32 网格上，量化无损失）。
+        assert!((repaired.quantized_arc_meters - DEGENERATE_SEGMENT_METERS).abs() < 1e-6);
+        let program = repaired.program;
         assert_eq!(seg_ends(&program), 1);
         let re::RoadEditingCurveSegmentGeometry::Line { end } = program.segments()[0].geometry()
         else {

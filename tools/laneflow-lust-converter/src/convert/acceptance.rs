@@ -94,6 +94,29 @@ fn fixture_topology_is_byte_deterministic() {
 }
 
 #[test]
+fn declared_length_beyond_catastrophe_ceiling_fails_closed() {
+    // 声明 @length 与发射几何弧长灾难性错配（20m 车道声明 5000m）
+    // fail-closed 报车道 id。这不是紧一致性校验——pinned 源自身漂移达
+    // 12.19m（推导见 emit.rs DECLARED_ARC_DIVERGENCE_CEILING_METERS），
+    // 天花板只挡单位/截断级错误。
+    let net = fixture_net_xml().replace(
+        "id=\"west_0\" index=\"0\" speed=\"13.89\" length=\"20.00\"",
+        "id=\"west_0\" index=\"0\" speed=\"13.89\" length=\"5000.00\"",
+    );
+    assert_ne!(net, fixture_net_xml(), "fixture lane length replaced");
+    let error = convert_topology_from_xml_with_tll_and_vtypes(
+        &net,
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &TopologyConvertOptions::default(),
+    )
+    .expect_err("catastrophic declared length must fail closed");
+    let message = error.to_string();
+    assert!(message.contains("declared length"), "{message}");
+    assert!(message.contains("west_0"), "{message}");
+}
+
+#[test]
 fn fixture_due_parse_keeps_source_ordinals() {
     let vehicles =
         parse_due_routes_xml_filtered(&fixture_due0_xml(), 0, |_, _| true).expect("parse due0");

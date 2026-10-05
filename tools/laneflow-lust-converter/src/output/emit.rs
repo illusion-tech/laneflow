@@ -38,6 +38,18 @@ const PARTICIPANT_CLASS_KEY: &str = "car";
 /// SUMO default lane width; LuST net.xml does not override @width.
 const SUMO_LANE_WIDTH_METERS: f64 = 3.2;
 
+/// 声明 @length 与发射量化弧长偏差的灾难天花板（米）：25。
+///
+/// 推导（pinned LuST 全网 24,575 车道实测，`LUST_LENGTH_DEBUG` 插桩）：
+/// 源数据自身的 @length 相对 authored shape 弦长和漂移达 12.19m（>1m 的
+/// 1,882 条——LuST 作者在 netconvert 后手工修过 shape，@length 是过时
+/// 元数据，属 G1 基线已含的源属性）；发射侧的曲线重建/量化在最大漂移
+/// 车道上再贡献 0.84m，declared-vs-量化弧长实测最大 13.02m。因此紧一致性
+/// 校验在 pinned 源上不存在，天花板只挡灾难性错配（单位混淆、截断、
+/// 发射管线系统性 bug 级），取实测最大值的约 2 倍。车道级几何一致性由
+/// EmissionSink 的逐弦预算与倒圆/焊接有界记录承担。
+const DECLARED_ARC_DIVERGENCE_CEILING_METERS: f64 = 25.0;
+
 /// Entity counts of the compiled network, used by the conversion report and manifest.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TopologyCounts {
@@ -323,6 +335,9 @@ fn add_edges(
     internal_lanes: &HashSet<String>,
 ) -> Result<()> {
     let frame = re::CanonicalFrameReference::local(LUST_FRAME_ID)?;
+    // 契约比对插桩（LUST_LENGTH_DEBUG）：打印声明 @length 与发射量化弧长
+    // 偏差超 5mm 的车道，用于 pinned 全网实测偏差分布（容差定值依据）。
+    let length_debug = std::env::var_os("LUST_LENGTH_DEBUG").is_some();
     for edge in &traffic.lane_graph.edges {
         let key = edge_key(&edge.id);
         // 编译器规定路口穿越由 ManeuverPath 独占权威：路径链不写 LaneEdge 后继。
@@ -330,14 +345,14 @@ fn add_edges(
         let spatial = curve_by_edge.get(edge.id.as_str()).ok_or_else(|| {
             Error::SumoModel(format!("lane edge {:?} has no spatial centerline", edge.id))
         })?;
-        let geometry = match geom::repair_curve(
+        let (geometry, quantized_arc) = match geom::repair_curve(
             &spatial.centerline.points,
             clamps.at_start(&edge.id),
             clamps.at_finish(&edge.id),
             clamps.source_at_start(&edge.id),
             clamps.source_at_finish(&edge.id),
         ) {
-            Ok(program) => program,
+            Ok(repaired) => (repaired.program, Some(repaired.quantized_arc_meters)),
             Err(error) => {
                 let full = format!("lane edge {:?}: {error}", edge.id);
                 if let Some(diagnostics) = diagnostics.as_mut() {
@@ -346,12 +361,35 @@ fn add_edges(
                         error.to_string(),
                         internal_lanes.contains(edge.id.as_str()),
                     ));
-                    geom::survey_fallback_program(&spatial.centerline.points)?
+                    (
+                        geom::survey_fallback_program(&spatial.centerline.points)?,
+                        None,
+                    )
                 } else {
                     return Err(Error::SumoModel(full));
                 }
             }
         };
+        if let Some(arc) = quantized_arc {
+            // 契约显式比对（§3.1 LaneEdge.length 取 @length）：声明值与编译
+            // 产物几何弧长的偏差超灾难天花板即 fail-closed 报车道 id。容差
+            // 推导见 DECLARED_ARC_DIVERGENCE_CEILING_METERS——pinned 源自身
+            // 漂移使紧校验不存在，本检查只拒灾难级错配。
+            let delta = (edge.length - arc).abs();
+            if delta > DECLARED_ARC_DIVERGENCE_CEILING_METERS {
+                return Err(Error::SumoModel(format!(
+                    "lane {:?} declared length {:.5} m diverges from the emitted canonical \
+                     arc {:.5} m by {:.5} m, beyond the {:.0} m catastrophe ceiling",
+                    edge.id, edge.length, arc, delta, DECLARED_ARC_DIVERGENCE_CEILING_METERS
+                )));
+            }
+            if length_debug && delta > 0.005 {
+                eprintln!(
+                    "LUSTLEN {} declared={:.5} arc={:.5} delta={:.5}",
+                    edge.id, edge.length, arc, delta
+                );
+            }
+        }
         if approach_edges.contains(edge.id.as_str()) {
             let corridor_key = format!("{key}.road");
             let section =
