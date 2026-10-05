@@ -358,6 +358,23 @@ fn convert_verified(
     let _ = fs::remove_dir_all(&staging);
     publish?;
 
+    // 返回路径以词法 output_dir 拼接（保持调用方视角），但交付实际落在
+    // 入口持锁锚点上——output_dir 符号链接若在转换中途被改指，词法路径会
+    // 指向未写入的新目标。返回前校验别名仍解析到同一锚点，漂移即
+    // fail-closed 并指明实际落位。
+    let current_anchor = output_anchor(&config.output_dir);
+    if current_anchor != *anchor {
+        return Err(Error::Validation {
+            stage: "publish",
+            message: format!(
+                "delivery published at locked anchor {}, but output_dir {} now resolves to {} — reconcile the symlink before consuming the outputs",
+                anchor.display(),
+                config.output_dir.display(),
+                current_anchor.display()
+            ),
+        });
+    }
+
     let paths = ConvertOutputPaths {
         output_dir: config.output_dir.clone(),
         network_lfca: (!diagnostic).then(|| config.output_dir.join(NETWORK_LFCA_NAME)),
