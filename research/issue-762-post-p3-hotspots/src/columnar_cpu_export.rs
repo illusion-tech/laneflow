@@ -335,12 +335,20 @@ fn instrument_finalize(root: &Path) -> Result<()> {
                 "    pub(crate) fn frozen(obligation: bool) -> Self {",
                 "    pub(crate) fn frozen(obligation: bool) -> Self {\n        super::tick::note_pipeline(43, 1);\n        let _hint_timer = super::tick::PipelineTimer::sampled(28);",
             )?;
-            patch(
-                root,
-                file,
-                "        if completed || previous.route_edge_index != next.route_edge_index {",
-                "        super::tick::note_pipeline(44, 1);\n        let _hint_timer = super::tick::PipelineTimer::sampled(28);\n        if completed || previous.route_edge_index != next.route_edge_index {",
-            )?;
+            for tail in [
+                "        let Some(compiled) = compiled else {",
+                "        let Some(length) = row.hop().length_mm else {",
+            ] {
+                let early = "        if completed || previous.route_edge_index != next.route_edge_index {\n            self.0 |= 2;\n            return self;\n        }\n";
+                patch(
+                    root,
+                    file,
+                    &format!("{early}{tail}"),
+                    &format!(
+                        "        super::tick::note_pipeline(44, 1);\n        let _hint_timer = super::tick::PipelineTimer::sampled(28);\n{early}{tail}"
+                    ),
+                )?;
+            }
             let updates = "crates/laneflow-runtime/src/kernel/motion_updates.rs";
             patch(
                 root,

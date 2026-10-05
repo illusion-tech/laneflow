@@ -3938,7 +3938,35 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         horizon: Option<LeaderQueryHorizon>,
         leader_gap_override: Option<Option<i64>>,
     ) -> Option<MotionInputs> {
+        self.prepare_motion_inputs_at(
+            state,
+            compiled,
+            profile,
+            delta_s,
+            parking_binding,
+            horizon,
+            leader_gap_override,
+            None,
+        )
+    }
+
+    /// 同 [`Self::prepare_motion_inputs`]；`cursor_row` 是本车所在（路线, 游标）的
+    /// 物理行缓存，键已核对，结果与不给时相同。
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_motion_inputs_at(
+        self,
+        state: impl crate::kernel::vehicle_store::MotionRead,
+        compiled: &CompiledRoute,
+        profile: VehicleProfileView,
+        delta_s: f32,
+        parking_binding: Option<ParkingBinding>,
+        horizon: Option<LeaderQueryHorizon>,
+        leader_gap_override: Option<Option<i64>>,
+        cursor_row: Option<&MotionCursorRow>,
+    ) -> Option<MotionInputs> {
         let position = state.position();
+        let cursor_row =
+            cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index));
         #[cfg(test)]
         note_columnar_work(0, 1);
         #[cfg(test)]
@@ -3953,7 +3981,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second();
-        let hop = crate::kernel::tables::route_hop(compiled, cursor, lengths, speed_limits)?;
+        let hop = match cursor_row {
+            Some(row) => row.hop,
+            None => crate::kernel::tables::route_hop(compiled, cursor, lengths, speed_limits)?,
+        };
         let current_limit = hop.limit_mm_s?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
         #[cfg(test)]
@@ -4007,8 +4038,19 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .then_some(selected_stop.distance);
         // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
         // 不能等 apply_travel 截断后还留着原来的速度。
-        if let Some(gate_stop) =
-            self.restrictive_gate_stop_from(compiled, state, cursor, reach, hop.gate_first as usize)
+        let gate_unreachable =
+            cursor_row.is_some_and(|row| row.gate_stop_unreachable(position.progress_mm, reach));
+        if let Some(gate_stop) = (!gate_unreachable)
+            .then(|| {
+                self.restrictive_gate_stop_from(
+                    compiled,
+                    state,
+                    cursor,
+                    reach,
+                    hop.gate_first as usize,
+                )
+            })
+            .flatten()
         {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
@@ -4599,11 +4641,8 @@ impl MotionTaskView<'_> {
         }))
     }
 
-    /// conflict_stop_for 的冻结暂存视图版：P4 裁决 motion plan + 拍初
-    /// reservation（committed 合并层）+ 静态编译路线；错误变体逐行一致。
-    ///
-    /// 几何上界只决定能否省掉某一类搜索。给不出证明、进度和余量都为 0，或索引缺行时，
-    /// 仍走下面的完整查询。两类都够不着时不读取授权。
+    /// 不带物理行缓存的 [`Self::conflict_stop_at`]。
+    #[cfg(test)]
     fn conflict_stop_for(
         self,
         state: impl crate::kernel::vehicle_store::MotionRead,
@@ -4611,11 +4650,32 @@ impl MotionTaskView<'_> {
         compiled: &CompiledRoute,
         profile: Option<VehicleProfileView>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        self.conflict_stop_at(state, delta_s, compiled, profile, None)
+    }
+
+    /// conflict_stop_for 的冻结暂存视图版：P4 裁决 motion plan + 拍初
+    /// reservation（committed 合并层）+ 静态编译路线；错误变体逐行一致。
+    ///
+    /// 几何上界只决定能否省掉某一类搜索。给不出证明、进度和余量都为 0，或索引缺行时，
+    /// 仍走下面的完整查询。两类都够不着时不读取授权。`cursor_row` 键已核对时从中读
+    /// 游标处最近屏障，与从编译路线读取相同。
+    fn conflict_stop_at(
+        self,
+        state: impl crate::kernel::vehicle_store::MotionRead,
+        delta_s: f32,
+        compiled: &CompiledRoute,
+        profile: Option<VehicleProfileView>,
+        cursor_row: Option<&MotionCursorRow>,
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
         let position = state.position();
         let reach = profile.and_then(|profile| {
             MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
         });
-        let (skip_conflict, skip_waiting) = unreachable_barrier_classes(compiled, position, reach);
+        let (skip_conflict, skip_waiting) =
+            match cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index)) {
+                Some(row) => unreachable_barrier_classes_with(row.hop.barriers, position, reach),
+                None => unreachable_barrier_classes(compiled, position, reach),
+            };
         if skip_conflict && skip_waiting {
             return Ok(None);
         }
@@ -4980,6 +5040,146 @@ fn more_urgent(current: ApproachEstimate, incoming: ApproachEstimate) -> Approac
     }
 }
 
+/// 从游标起点到某个路线目标起点的距离，见 [`MotionCursorRow`]。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CursorDistance {
+    /// 路线在游标之后没有这个目标。
+    Absent,
+    /// 有限距离；进度不超过行的 `progress_limit` 时，实际距离为它减去进度。
+    Finite(u32),
+    /// 给不出有限距离，调用方回到编译路线逐项计算。
+    Unknown,
+}
+
+/// 物理行上一次运动所在（路线, 游标）的派生量，在 P2 按物理行连续存放。
+///
+/// 内容只取决于编译路线与车道表：路线句柄含世代，世界世代变化时整表作废，所以
+/// 键相同时与从编译路线现算的结果相同。逐车准备从这一行读取游标行、最近 Gate
+/// 停止点与限速下降的起点距离、本边入口 Gate 与 Waiting 覆盖位，常见的
+/// 「本拍够不着」判定不再访问编译路线的各个数组。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MotionCursorRow {
+    route: crate::RouteHandle,
+    cursor: u32,
+    hop: crate::kernel::tables::RouteHop,
+    /// 到 `gate_hops[hop.gate_first]` 停止点（下一出现项）起点。
+    gate_stop: CursorDistance,
+    /// 到 `speed_limit_drop[hop.speed_drop_first]` 下降点（下一出现项）起点。
+    speed_drop: CursorDistance,
+    /// 进度不超过它时，上面两个距离恰为起点距离减去进度：起点偏移加进度不溢出，
+    /// 且不越过本段总长。
+    progress_limit: u32,
+    /// 游标前一 hop 没有门行或有 Gate（与 `FinalizeHints::with_motion` 的入口判定相同）。
+    entry_gate: bool,
+    /// `waiting_maneuver_at_hop(cursor)`。
+    waiting_maneuver: Option<bool>,
+}
+
+impl MotionCursorRow {
+    /// 从编译路线现算一行；游标处没有运动输入行时为 `None`。
+    pub(crate) fn derive(
+        route: crate::RouteHandle,
+        compiled: &CompiledRoute,
+        cursor: u32,
+        lengths: &[u32],
+        speeds: &[u32],
+    ) -> Option<Self> {
+        let index = usize::try_from(cursor).ok()?;
+        let hop = crate::kernel::tables::route_hop(compiled, index, lengths, speeds)?;
+        let start = |to: usize| match distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            index,
+            0,
+            to,
+        ) {
+            Some(BoundedDistance::Finite(mm)) => CursorDistance::Finite(mm),
+            _ => CursorDistance::Unknown,
+        };
+        let gate_stop = match compiled.gate_hops.get(hop.gate_first as usize) {
+            None => CursorDistance::Absent,
+            Some(&gate) => (gate as usize)
+                .checked_add(1)
+                .map_or(CursorDistance::Unknown, start),
+        };
+        let speed_drop = match compiled.speed_limit_drop.get(hop.speed_drop_first as usize) {
+            None => CursorDistance::Absent,
+            Some(drop) => (drop.from_route_edge_index as usize)
+                .checked_add(1)
+                .map_or(CursorDistance::Unknown, start),
+        };
+        let progress_limit = compiled
+            .occurrence_offsets
+            .get(index)
+            .zip(compiled.occurrence_segments.get(index))
+            .and_then(|(&offset, &segment)| {
+                let total = *compiled
+                    .segment_totals
+                    .get(usize::try_from(segment).ok()?)?;
+                Some((u32::MAX - offset).min(total.checked_sub(offset)?))
+            })
+            .unwrap_or(0);
+        Some(Self {
+            route,
+            cursor,
+            hop,
+            gate_stop,
+            speed_drop,
+            progress_limit,
+            entry_gate: index.checked_sub(1).is_some_and(|previous| {
+                compiled.hop_gate.get(previous).is_none_or(Option::is_some)
+            }),
+            waiting_maneuver: compiled.waiting_maneuver_at_hop(cursor),
+        })
+    }
+
+    pub(crate) fn matches(&self, route: crate::RouteHandle, cursor: u32) -> bool {
+        self.route == route && self.cursor == cursor
+    }
+
+    pub(crate) fn cursor(&self) -> u32 {
+        self.cursor
+    }
+
+    pub(crate) fn hop(&self) -> crate::kernel::tables::RouteHop {
+        self.hop
+    }
+
+    pub(crate) fn entry_gate(&self) -> bool {
+        self.entry_gate
+    }
+
+    pub(crate) fn waiting_maneuver(&self) -> Option<bool> {
+        self.waiting_maneuver
+    }
+
+    /// 为真时 `restrictive_gate_stop_from` 必然返回 `None`：游标之后没有 Gate，或最近
+    /// Gate 停止点本拍够不着（逐门查询在第一扇门就返回）。
+    fn gate_stop_unreachable(&self, progress_mm: u32, reach: Option<MotionReach>) -> bool {
+        match self.gate_stop {
+            CursorDistance::Absent => true,
+            CursorDistance::Finite(start) => {
+                progress_mm <= self.progress_limit
+                    && reach.is_some_and(|reach| reach.excludes(start.saturating_sub(progress_mm)))
+            }
+            CursorDistance::Unknown => false,
+        }
+    }
+
+    /// 到最近限速下降起点的有限距离；`Some(None)` 为游标之后没有下降，`None` 表示
+    /// 要从编译路线逐项计算。
+    pub(crate) fn speed_drop_distance(&self, progress_mm: u32) -> Option<Option<u32>> {
+        match self.speed_drop {
+            CursorDistance::Absent => Some(None),
+            CursorDistance::Finite(start) if progress_mm <= self.progress_limit => {
+                Some(Some(start.saturating_sub(progress_mm)))
+            }
+            CursorDistance::Finite(_) | CursorDistance::Unknown => None,
+        }
+    }
+}
+
 /// 本拍运动位移的保守上界，单位毫米。只用来决定能否跳过停止查询。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionReach {
@@ -5036,19 +5236,31 @@ fn unreachable_barrier_classes(
     position: crate::kernel::vehicle_store::MotionPosition,
     reach: Option<MotionReach>,
 ) -> (bool, bool) {
+    if position.progress_mm == 0 && position.carry_um == 0 || reach.is_none() {
+        return (false, false);
+    }
+    let cursor = position.route_edge_index as usize;
+    let barriers = compiled
+        .hops
+        .get(cursor)
+        .map(|hop| hop.barriers)
+        .unwrap_or_else(|| compiled.nearest_motion_barriers.get(cursor).copied());
+    unreachable_barrier_classes_with(barriers, position, reach)
+}
+
+/// 同 [`unreachable_barrier_classes`]，游标处最近屏障已经取得。
+fn unreachable_barrier_classes_with(
+    barriers: Option<crate::kernel::tables::NearestMotionBarriers>,
+    position: crate::kernel::vehicle_store::MotionPosition,
+    reach: Option<MotionReach>,
+) -> (bool, bool) {
     if position.progress_mm == 0 && position.carry_um == 0 {
         return (false, false);
     }
     let Some(reach) = reach else {
         return (false, false);
     };
-    let cursor = position.route_edge_index as usize;
-    let Some(row) = compiled
-        .hops
-        .get(cursor)
-        .map(|hop| hop.barriers)
-        .unwrap_or_else(|| compiled.nearest_motion_barriers.get(cursor).copied())
-    else {
+    let Some(row) = barriers else {
         return (false, false);
     };
     (

@@ -43,18 +43,64 @@ impl FinalizeHints {
             self.0 |= 16;
             return self;
         };
-        if next.progress_mm >= *length
+        self.within_edge(
+            *length,
+            || {
+                compiled
+                    .hop_gate
+                    .get(previous.route_edge_index as usize - 1)
+                    .is_none_or(Option::is_some)
+            },
+            compiled.waiting_maneuver_at_hop(next.route_edge_index),
+            previous,
+            next,
+        )
+    }
+
+    /// 同 [`Self::with_motion`]，游标处的边长、入口 Gate 与 Waiting 覆盖位取自物理行
+    /// 缓存（键已核对为 `previous` 的游标）。
+    pub(crate) fn with_cursor_row_motion(
+        mut self,
+        row: &crate::kernel::tick::MotionCursorRow,
+        previous: MotionPosition,
+        next: MotionPosition,
+        completed: bool,
+    ) -> Self {
+        if completed || previous.route_edge_index != next.route_edge_index {
+            self.0 |= 2;
+            return self;
+        }
+        let Some(length) = row.hop().length_mm else {
+            self.0 |= 16;
+            return self;
+        };
+        self.within_edge(
+            length,
+            || row.entry_gate(),
+            row.waiting_maneuver(),
+            previous,
+            next,
+        )
+    }
+
+    /// 游标未变时的边内标志；`entry_gate` 只在拍初停在本边起点时求值。
+    fn within_edge(
+        mut self,
+        length: u32,
+        entry_gate: impl FnOnce() -> bool,
+        waiting_maneuver: Option<bool>,
+        previous: MotionPosition,
+        next: MotionPosition,
+    ) -> Self {
+        if next.progress_mm >= length
             || (previous.progress_mm == 0
                 && previous.carry_um == 0
                 && previous.route_edge_index > 0
-                && compiled
-                    .hop_gate
-                    .get(previous.route_edge_index as usize - 1)
-                    .is_none_or(Option::is_some))
+                && entry_gate())
         {
             self.0 |= 4;
         }
-        match compiled.waiting_maneuver_at_hop(next.route_edge_index) {
+        match waiting_maneuver {
             Some(true) => self.0 |= 8,
             None => self.0 |= 16,
             Some(false) => {}

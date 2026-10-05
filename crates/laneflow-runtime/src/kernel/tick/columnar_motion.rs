@@ -20,12 +20,16 @@ use crate::kernel::tables::CompiledRoute;
 use crate::kernel::vehicle_store::BLOCK_ROWS;
 use crate::kernel::vehicle_store::MotionPosition;
 
+use super::MotionCursorRow;
+
 pub(super) struct Chunk<'a> {
     cursor: &'a mut [u32],
     progress: &'a mut [u32],
     speed: &'a mut [u32],
     carry: &'a mut [u16],
     reports: &'a mut [MotionRowReport],
+    /// 本块物理行的（路线, 游标）派生量缓存；缓存不可用时为 `None`。
+    cursor_rows: Option<&'a mut [Option<MotionCursorRow>]>,
 }
 
 fn chunks<'a>(
@@ -33,22 +37,34 @@ fn chunks<'a>(
     current: &'a crate::kernel::vehicle_store::VehicleStore,
     extent: usize,
     rows: usize,
+    cursor_rows: Option<&'a mut [Option<MotionCursorRow>]>,
 ) -> impl Iterator<Item = (usize, Chunk<'a>)> + Send {
+    let mut cursor_blocks = cursor_rows.map(|cursor_rows| cursor_rows.chunks_mut(BLOCK_ROWS));
     updates
         .motion
         .iter_mut()
         .zip(updates.reports.chunks_mut(BLOCK_ROWS))
         .enumerate()
         .take(extent.div_ceil(BLOCK_ROWS))
-        .filter(|(block, _)| current.motion[*block].valid.iter().any(|&bits| bits != 0))
-        .flat_map(move |(block, (motion, reports))| {
+        .map(move |(block, pair)| {
+            let cursor_block = cursor_blocks.as_mut().and_then(Iterator::next);
+            (block, pair, cursor_block)
+        })
+        .filter(|(block, _, _)| current.motion[*block].valid.iter().any(|&bits| bits != 0))
+        .flat_map(move |(block, (motion, reports), cursor_block)| {
             let len = extent.saturating_sub(block * BLOCK_ROWS).min(BLOCK_ROWS);
+            let cursor_chunks = cursor_block
+                .into_iter()
+                .flat_map(move |cursor_block| cursor_block.chunks_mut(rows))
+                .map(Some)
+                .chain(std::iter::repeat_with(|| None));
             motion.route_cursor[..len]
                 .chunks_mut(rows)
                 .zip(motion.progress_mm[..len].chunks_mut(rows))
                 .zip(motion.speed_mm_s[..len].chunks_mut(rows))
                 .zip(motion.carry_um[..len].chunks_mut(rows))
                 .zip(reports[..len].chunks_mut(rows))
+                .zip(cursor_chunks)
                 .enumerate()
                 .take(
                     extent
@@ -57,7 +73,10 @@ fn chunks<'a>(
                         .div_ceil(rows),
                 )
                 .map(
-                    move |(chunk, ((((cursor, progress), speed), carry), reports))| {
+                    move |(
+                        chunk,
+                        (((((cursor, progress), speed), carry), reports), cursor_rows),
+                    )| {
                         (
                             block * BLOCK_ROWS + chunk * rows,
                             Chunk {
@@ -66,6 +85,7 @@ fn chunks<'a>(
                                 speed,
                                 carry,
                                 reports,
+                                cursor_rows,
                             },
                         )
                     },
@@ -134,6 +154,42 @@ fn movement_stop(
         }
     }
     stop
+}
+
+/// 同 [`speed_drop_may_constrain`]；`cursor_row` 键已核对且与 `inputs` 同一游标行时，
+/// 下降点距离取自物理行缓存，结果相同。
+fn speed_drop_may_constrain_at(
+    cursor_row: Option<&MotionCursorRow>,
+    compiled: &CompiledRoute,
+    inputs: &MotionInputs,
+    cursor: usize,
+    progress_mm: u32,
+    delta_s: f32,
+) -> bool {
+    let Some(distance) = cursor_row
+        .filter(|row| {
+            row.cursor() as usize == cursor
+                && row.hop().speed_drop_first as usize == inputs.speed_drop_first
+        })
+        .and_then(|row| row.speed_drop_distance(progress_mm))
+    else {
+        return speed_drop_may_constrain(compiled, inputs, cursor, progress_mm, delta_s);
+    };
+    let Some(mm) = distance else {
+        return false;
+    };
+    #[cfg(test)]
+    note_columnar_work(11, 1);
+    let Some(window) = speed_drop_window_upper(
+        si_speed(inputs.speed_mm_s),
+        si_speed(inputs.desired_mm_s),
+        inputs.max_accel,
+        inputs.comfort_decel,
+        delta_s,
+    ) else {
+        return true;
+    };
+    si_meters(mm) <= window
 }
 
 pub(super) fn speed_drop_may_constrain(
@@ -555,6 +611,12 @@ fn compute(
             let waiting = view.waiting_stop_for(state, compiled)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Conflict;
             let compiled = compiled.ok_or(StepError::ConflictInvariantViolation)?;
+            let cursor_row = chunk
+                .cursor_rows
+                .as_deref_mut()
+                .and_then(|rows| rows.get_mut(row))
+                .and_then(|slot| cursor_row_for(view, slot, state.route(), compiled, position));
+            let cursor_row = cursor_row.as_ref();
             let profile = view
                 .read
                 .binding
@@ -562,7 +624,7 @@ fn compute(
                 .traffic()
                 .relations()
                 .vehicle_profile(state.profile());
-            let conflict = view.conflict_stop_for(state, delta_s, compiled, profile)?;
+            let conflict = view.conflict_stop_at(state, delta_s, compiled, profile, cursor_row)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Calculation;
             let old_control = state.control();
             let slot = handle.index() as usize;
@@ -591,17 +653,26 @@ fn compute(
                 chunk.reports[row].checkpoint = MotionCheckpoint::Arrival;
                 chunk.reports[row].arrival = arrival(view, old, next)?;
                 write_value(&mut chunk, row, next);
-                chunk.reports[row].finalize_hints = chunk.reports[row].finalize_hints.with_motion(
-                    Some(compiled),
-                    view.read
-                        .binding
-                        .revision
-                        .traffic()
-                        .lane_lengths_millimetres(),
-                    position,
-                    (&next).into(),
-                    chunk.reports[row].completed,
-                );
+                let hints = chunk.reports[row].finalize_hints;
+                chunk.reports[row].finalize_hints = match cursor_row {
+                    Some(cursor_row) => hints.with_cursor_row_motion(
+                        cursor_row,
+                        position,
+                        (&next).into(),
+                        chunk.reports[row].completed,
+                    ),
+                    None => hints.with_motion(
+                        Some(compiled),
+                        view.read
+                            .binding
+                            .revision
+                            .traffic()
+                            .lane_lengths_millimetres(),
+                        position,
+                        (&next).into(),
+                        chunk.reports[row].completed,
+                    ),
+                };
                 chunk.reports[row].checkpoint = MotionCheckpoint::Complete;
                 return Ok(());
             }
@@ -614,7 +685,7 @@ fn compute(
             let basis = reused_basis
                 .map(|basis| basis.inputs)
                 .or_else(|| {
-                    view.read.prepare_motion_inputs(
+                    view.read.prepare_motion_inputs_at(
                         state,
                         compiled,
                         profile?,
@@ -622,12 +693,14 @@ fn compute(
                         parking_binding,
                         cached.and_then(|entry| entry.horizon),
                         None,
+                        cursor_row,
                     )
                 })
                 .ok_or(StepError::NonFiniteMotion)?;
             *route = Some(compiled);
             profiles[row] = Some(state.profile());
-            batch.complex[row] = speed_drop_may_constrain(
+            batch.complex[row] = speed_drop_may_constrain_at(
+                cursor_row,
                 compiled,
                 &basis,
                 position.route_edge_index as usize,
@@ -813,13 +886,24 @@ fn compute(
             let cursor = chunk.cursor[row];
             let progress = chunk.progress[row];
             let traffic = view.read.binding.revision.traffic();
-            let hop = crate::kernel::tables::route_hop(
-                compiled,
-                cursor as usize,
-                traffic.lane_lengths_millimetres(),
-                traffic.lane_speed_limits_millimetres_per_second(),
-            )
-            .ok_or(StepError::NonFiniteMotion)?;
+            // 游标未变时物理行缓存就是本游标的行（本拍准备时已按本车路线核对）。
+            let cursor_row = chunk
+                .cursor_rows
+                .as_deref()
+                .and_then(|rows| rows.get(row).copied().flatten())
+                .filter(|cursor_row| {
+                    cursor_row.cursor() == cursor && cursor == source.route_cursor[offset + row]
+                });
+            let hop = match cursor_row {
+                Some(cursor_row) => cursor_row.hop(),
+                None => crate::kernel::tables::route_hop(
+                    compiled,
+                    cursor as usize,
+                    traffic.lane_lengths_millimetres(),
+                    traffic.lane_speed_limits_millimetres_per_second(),
+                )
+                .ok_or(StepError::NonFiniteMotion)?,
+            };
             let limit = if cursor == source.route_cursor[offset + row] {
                 batch.limit[row]
             } else {
@@ -865,25 +949,33 @@ fn compute(
                 chunk.reports[row].arrival = arrival(view, state, next)?;
             }
             chunk.reports[row].completed = route_completed;
-            chunk.reports[row].finalize_hints = chunk.reports[row].finalize_hints.with_motion(
-                Some(compiled),
-                view.read
-                    .binding
-                    .revision
-                    .traffic()
-                    .lane_lengths_millimetres(),
-                MotionPosition {
-                    route_edge_index: source.route_cursor[offset + row],
-                    progress_mm: source.progress_mm[offset + row],
-                    carry_um: source.carry_um[offset + row],
-                },
-                MotionPosition {
-                    route_edge_index: cursor,
-                    progress_mm: progress,
-                    carry_um: chunk.carry[row],
-                },
-                route_completed,
-            );
+            let previous = MotionPosition {
+                route_edge_index: source.route_cursor[offset + row],
+                progress_mm: source.progress_mm[offset + row],
+                carry_um: source.carry_um[offset + row],
+            };
+            let next = MotionPosition {
+                route_edge_index: cursor,
+                progress_mm: progress,
+                carry_um: chunk.carry[row],
+            };
+            let hints = chunk.reports[row].finalize_hints;
+            chunk.reports[row].finalize_hints = match cursor_row {
+                Some(cursor_row) => {
+                    hints.with_cursor_row_motion(&cursor_row, previous, next, route_completed)
+                }
+                None => hints.with_motion(
+                    Some(compiled),
+                    view.read
+                        .binding
+                        .revision
+                        .traffic()
+                        .lane_lengths_millimetres(),
+                    previous,
+                    next,
+                    route_completed,
+                ),
+            };
             chunk.reports[row].checkpoint = MotionCheckpoint::Complete;
             Ok(())
         })();
@@ -891,6 +983,39 @@ fn compute(
             chunk.reports[row].error = Some(error);
         }
     }
+}
+
+/// 取本物理行的（路线, 游标）缓存：键不符时从编译路线现算并写回。游标处没有运动
+/// 输入行时清空并返回 `None`，调用方照常读编译路线。测试构建每次与现算结果比对。
+fn cursor_row_for(
+    view: MotionTaskView<'_>,
+    slot: &mut Option<MotionCursorRow>,
+    route: crate::RouteHandle,
+    compiled: &CompiledRoute,
+    position: MotionPosition,
+) -> Option<MotionCursorRow> {
+    let traffic = view.read.binding.revision.traffic();
+    let derive = || {
+        MotionCursorRow::derive(
+            route,
+            compiled,
+            position.route_edge_index,
+            traffic.lane_lengths_millimetres(),
+            traffic.lane_speed_limits_millimetres_per_second(),
+        )
+    };
+    match slot {
+        Some(cached) if cached.matches(route, position.route_edge_index) => {
+            #[cfg(test)]
+            assert_eq!(
+                Some(*cached),
+                derive(),
+                "motion cursor row diverged from the compiled route"
+            );
+        }
+        _ => *slot = derive(),
+    }
+    *slot
 }
 
 /// 并行规范消费；规范顺序里有已离开存储的句柄时返回 `None`，交回串行消费。
@@ -1043,6 +1168,21 @@ pub(super) fn prepare(
     };
     let kernel = workspace.motion_kernel;
     let rank = &workspace.next_state_by_vehicle;
+    // 物理行缓存跨拍保留；换了世界世代就整表作废。预留失败时本拍不用缓存。
+    let identity = (read.binding.world_id, read.binding.world_generation);
+    let cursor_rows = &mut workspace.motion_cursor_rows;
+    if workspace.motion_cursor_identity != Some(identity) {
+        cursor_rows.clear();
+        workspace.motion_cursor_identity = Some(identity);
+    }
+    let cursor_rows = (cursor_rows.len() >= extent
+        || cursor_rows.try_reserve(extent - cursor_rows.len()).is_ok())
+    .then(|| {
+        if cursor_rows.len() < extent {
+            cursor_rows.resize(extent, None);
+        }
+        &mut cursor_rows[..extent]
+    });
     // 递减票据需要估计剩余块数：只数有活动行的存储块，与 `chunks` 的过滤一致。
     let total_works = read
         .committed
@@ -1059,7 +1199,7 @@ pub(super) fn prepare(
                 .div_ceil(rows)
         })
         .sum::<usize>();
-    let work = chunks(updates, &read.committed.vehicles, extent, rows);
+    let work = chunks(updates, &read.committed.vehicles, extent, rows, cursor_rows);
     let calculate = |_: crate::kernel::phase::StepReadView<'_>, start, chunk| {
         #[cfg(test)]
         if let Some(probe) = &participation
@@ -1174,6 +1314,64 @@ mod tests {
             "LF814_WORK {work:?}; batch_bytes={}; basis_bytes={}",
             std::mem::size_of::<Batch>(),
             std::mem::size_of::<MotionBasis>()
+        );
+    }
+
+    #[test]
+    fn cursor_rows_persist_across_ticks_and_reset_with_world_generation() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(129);
+        world.step(crate::TickInput::new(100)).unwrap();
+        let identity = Some((
+            world.state.binding.world_id,
+            world.state.binding.world_generation,
+        ));
+        assert_eq!(world.state.workspace.motion_cursor_identity, identity);
+        let filled = world
+            .state
+            .workspace
+            .motion_cursor_rows
+            .iter()
+            .flatten()
+            .count();
+        assert!(
+            filled >= 100,
+            "P2 fills one cursor row per active physical row"
+        );
+        // 键不变时下一拍沿用（测试构建逐行与编译路线现算比对）。
+        world.step(crate::TickInput::new(100)).unwrap();
+        // 缓存记的世界世代与当前不同时整表作废：把每行的游标行改坏，下一拍不得沿用。
+        for row in world
+            .state
+            .workspace
+            .motion_cursor_rows
+            .iter_mut()
+            .flatten()
+        {
+            row.hop.length_mm = Some(1);
+            row.gate_stop = super::super::CursorDistance::Finite(u32::MAX);
+        }
+        world.state.workspace.motion_cursor_identity = Some((
+            world.state.binding.world_id,
+            crate::WorldGeneration::from_raw_for_test(
+                world.state.binding.world_generation.get() + 1,
+            ),
+        ));
+        world.step(crate::TickInput::new(100)).unwrap();
+        assert_eq!(
+            world.state.workspace.motion_cursor_identity,
+            Some((
+                world.state.binding.world_id,
+                world.state.binding.world_generation,
+            ))
+        );
+        assert!(
+            world
+                .state
+                .workspace
+                .motion_cursor_rows
+                .iter()
+                .flatten()
+                .all(|row| row.hop.length_mm != Some(1))
         );
     }
 
