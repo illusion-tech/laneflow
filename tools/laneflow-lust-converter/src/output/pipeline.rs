@@ -522,9 +522,9 @@ fn publish_outputs(
     let mut installed = Vec::new();
     let publish_error = match swap_outputs(staging, anchor, &backup, staged, &mut installed) {
         Ok(()) => {
-            // 成功清理：先逐个删除备份内受管文件，全部删成才删标记与目录。
-            // 删不动（典型如 Windows 临时文件锁）时保留带标记备份并立即
-            // 报错指明位置——残留形态会让下次运行 fail-closed 报歧义，不在
+            // 成功清理：先逐个删除备份内受管文件，再删标记与目录——任一步
+            // 删不动（典型如 Windows 临时文件锁）都保留备份并立即报错指明
+            // 位置：残留带标记备份会让下次运行 fail-closed 报歧义，不在
             // 成功路径静默埋雷。
             let mut cleanup_ok = true;
             for name in managed_names(staged) {
@@ -534,8 +534,10 @@ fn publish_outputs(
                 }
             }
             if cleanup_ok {
-                let _ = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER));
-                let _ = fs::remove_dir_all(&backup);
+                cleanup_ok = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER)).is_ok()
+                    && fs::remove_dir_all(&backup).is_ok();
+            }
+            if cleanup_ok {
                 return Ok(());
             }
             return Err(Error::Validation {
