@@ -1675,7 +1675,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let mut slots = core::mem::take(&mut self.workspace.conflict_slots);
         let parallel = self.consume_conflict_cache_parallel(execution, &mut slots);
         let result = match parallel {
-            Some(mut hits) => self.consume_conflict_serial_hits(&mut slots, &mut hits, tick),
+            Some(mut consumed) => {
+                if self.consume_resource_hits_parallel(execution, &mut slots, &consumed) {
+                    Ok(())
+                } else {
+                    self.consume_conflict_serial_hits(&mut slots, &mut consumed.hits, tick)
+                }
+            }
             None => self.consume_conflict_slots(&mut slots, tick),
         };
         self.workspace.conflict_slots = slots;
@@ -1688,12 +1694,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 异常槽位记入 `hits`，由协调器按发现序处理。缓存下标不严格递增、
     /// 预留失败或下标越界时不做任何改动并返回 `None`，交回逐槽串行消费。
     /// 首个错误之后的缓存与决定也已写入；出错的一拍整体作废，这些暂存
-    /// 在下次尝试开头清空。
+    /// 在下次尝试开头清空。同一遍顺带统计各段资源候选的追加形状，供
+    /// `consume_resource_hits_parallel` 判断能否并行追加。
     fn consume_conflict_cache_parallel<'r>(
         &mut self,
         execution: &'r crate::kernel::execution::ExecutionResources,
         slots: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>],
-    ) -> Option<std::sync::MutexGuard<'r, Vec<u32>>> {
+    ) -> Option<ConsumedHits<'r>> {
         use crate::kernel::execution::DispatchSlot;
         use crate::kernel::tick::{MotionBasis, MotionCacheEntry, MotionPreview};
         #[derive(Clone, Copy)]
@@ -1840,8 +1847,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             decisions: &'a mut [crate::ConflictDecision],
             hits: &'a mut [u32],
             found: usize,
+            resources: ResourcePartStat,
         }
         let inputs = &self.workspace.conflict_inputs;
+        let binding = self.binding;
+        let mut resources = [ResourcePartStat::default(); CONSUME_MAX_PARTS];
         let found: [usize; CONSUME_MAX_PARTS] = {
             let mut work: [Option<PartOutput<'_>>; CONSUME_MAX_PARTS] =
                 std::array::from_fn(|_| None);
@@ -1893,6 +1903,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     decisions,
                     hits: part_hits,
                     found: 0,
+                    resources: ResourcePartStat::default(),
                 });
                 previews_at += stat.previews;
                 bases_at += stat.bases;
@@ -1905,7 +1916,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 let (mut previews_done, mut bases_done, mut decisions_done) = (0, 0, 0);
                 for (offset, slot) in out.slots.iter_mut().enumerate() {
                     let index = start + offset;
-                    let (vehicle, _, cache_index, _) = inputs[index];
+                    let (vehicle, sequence, cache_index, state) = inputs[index];
                     if let Some(cache) = cache_of(slot)
                         && let Some(entry) = cache_index
                             .checked_sub(out.rows_from)
@@ -1943,14 +1954,27 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                             }
                             *report = CandidateReport::Spent(report.take_scratch());
                         }
+                        DispatchSlot::Done(Ok(report)) => {
+                            out.hits[out.found] =
+                                u32::try_from(index).expect("conflict input index fits u32");
+                            out.found += 1;
+                            out.resources
+                                .add(resource_shape(binding, vehicle, sequence, state, report));
+                        }
                         _ => {
                             out.hits[out.found] =
                                 u32::try_from(index).expect("conflict input index fits u32");
                             out.found += 1;
+                            out.resources.add(None);
                         }
                     }
                 }
             });
+            for (stat, output) in resources.iter_mut().zip(&work) {
+                if let Some(out) = output {
+                    *stat = out.resources;
+                }
+            }
             std::array::from_fn(|part| work[part].as_ref().map_or(0, |out| out.found))
         };
         // 记下各段命中数：hits[段首] 起的前 found 项有效，其余清零以免误读。
@@ -1959,7 +1983,185 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let len = span.min(count - start);
             hits[start + found[part]..start + len].fill(u32::MAX);
         }
-        Some(hits)
+        Some(ConsumedHits {
+            hits,
+            parts,
+            span,
+            found,
+            resources,
+        })
+    }
+
+    /// 并行追加并行消费留下的资源候选：各段按前缀和定位候选、cells 与
+    /// downstream 的写入区间，并行写入；逐车运动计划与资格仍按发现序串行写。
+    /// 任一命中不是无错误、无补算段的资源候选，或任一追加需要真实增长时，
+    /// 不做任何改动并返回 `false`，交回逐槽串行处理（保持错误位置、预留
+    /// 检查点与容量增长不变）。cell/downstream 工作区按串行路径的终态写回
+    /// 最后一个 Computed 候选的内容。
+    fn consume_resource_hits_parallel(
+        &mut self,
+        execution: &crate::kernel::execution::ExecutionResources,
+        slots: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>],
+        consumed: &ConsumedHits<'_>,
+    ) -> bool {
+        use crate::kernel::execution::DispatchSlot;
+        let stats = &consumed.resources[..consumed.parts];
+        if stats.iter().any(|stat| !stat.simple) {
+            return false;
+        }
+        let total_candidates: usize = stats.iter().map(|stat| stat.candidates).sum();
+        let total_cells: usize = stats.iter().map(|stat| stat.cells).sum();
+        let total_claims: usize = stats.iter().map(|stat| stat.claims).sum();
+        let cell_work = stats.iter().map(|stat| stat.cell_work).max().unwrap_or(0);
+        let downstream_work = stats
+            .iter()
+            .map(|stat| stat.downstream_work)
+            .max()
+            .unwrap_or(0);
+        let binding = self.binding;
+        let workspace = &mut *self.workspace;
+        fn spare<T>(values: &Vec<T>) -> usize {
+            values.capacity() - values.len()
+        }
+        if spare(&workspace.conflict_candidates) < total_candidates
+            || spare(&workspace.conflict_candidate_cells) < total_cells
+            || spare(&workspace.conflict_candidate_downstream) < total_claims
+            || workspace.conflict_cell_work.capacity() < cell_work
+            || workspace.conflict_downstream_work.capacity() < downstream_work
+        {
+            return false;
+        }
+        let candidates_from = workspace.conflict_candidates.len();
+        let cells_from = workspace.conflict_candidate_cells.len();
+        let claims_from = workspace.conflict_candidate_downstream.len();
+        if let Some(filler) = stats.iter().find_map(|stat| stat.first_candidate) {
+            workspace
+                .conflict_candidates
+                .resize(candidates_from + total_candidates, filler);
+        }
+        if let Some(filler) = stats.iter().find_map(|stat| stat.first_cell) {
+            workspace
+                .conflict_candidate_cells
+                .resize(cells_from + total_cells, filler);
+        }
+        if let Some(filler) = stats.iter().find_map(|stat| stat.first_claim) {
+            workspace
+                .conflict_candidate_downstream
+                .resize(claims_from + total_claims, filler);
+        }
+        struct ResourceOutput<'a> {
+            candidates: &'a mut [ConflictCandidate],
+            cells: &'a mut [crate::ConflictPassageAddress],
+            cells_at: usize,
+            claims: &'a mut [crate::DownstreamInterval],
+            claims_at: usize,
+        }
+        let span = consumed.span;
+        let hits = &consumed.hits;
+        {
+            let inputs = &workspace.conflict_inputs;
+            let mut work: [Option<ResourceOutput<'_>>; CONSUME_MAX_PARTS] =
+                std::array::from_fn(|_| None);
+            let mut candidates_rest: &mut [ConflictCandidate] =
+                &mut workspace.conflict_candidates[candidates_from..];
+            let mut cells_rest: &mut [crate::ConflictPassageAddress] =
+                &mut workspace.conflict_candidate_cells[cells_from..];
+            let mut claims_rest: &mut [crate::DownstreamInterval] =
+                &mut workspace.conflict_candidate_downstream[claims_from..];
+            let (mut cells_at, mut claims_at) = (cells_from, claims_from);
+            for (slot, stat) in work.iter_mut().zip(stats) {
+                let (candidates, candidates_tail) =
+                    std::mem::take(&mut candidates_rest).split_at_mut(stat.candidates);
+                candidates_rest = candidates_tail;
+                let (cells, cells_tail) = std::mem::take(&mut cells_rest).split_at_mut(stat.cells);
+                cells_rest = cells_tail;
+                let (claims, claims_tail) =
+                    std::mem::take(&mut claims_rest).split_at_mut(stat.claims);
+                claims_rest = claims_tail;
+                *slot = Some(ResourceOutput {
+                    candidates,
+                    cells,
+                    cells_at,
+                    claims,
+                    claims_at,
+                });
+                cells_at += stat.cells;
+                claims_at += stat.claims;
+            }
+            let slots = &*slots;
+            execution.for_each_part(&mut work[..consumed.parts], 1, |part, output| {
+                let Some(out) = output[0].as_mut() else {
+                    return;
+                };
+                let start = part * span;
+                let (mut candidates_done, mut cells_done, mut claims_done) = (0, 0, 0);
+                for &index in &hits[start..start + consumed.found[part]] {
+                    let index = index as usize;
+                    let (vehicle, sequence, _, state) = inputs[index];
+                    let DispatchSlot::Done(Ok(report @ CandidateReport::Resource { scratch, .. })) =
+                        &slots[index]
+                    else {
+                        continue;
+                    };
+                    // 形状已在统计遍按同一纯函数验证过。
+                    let Some(shape) = resource_shape(binding, vehicle, sequence, state, report)
+                    else {
+                        continue;
+                    };
+                    let mut candidate = shape.candidate;
+                    out.cells[cells_done..cells_done + shape.cells]
+                        .copy_from_slice(&scratch.cells[..shape.cells]);
+                    candidate.cells_start = out.cells_at + cells_done;
+                    cells_done += shape.cells;
+                    candidate.cells_end = out.cells_at + cells_done;
+                    out.claims[claims_done..claims_done + shape.claims]
+                        .copy_from_slice(&scratch.claims[..shape.claims]);
+                    candidate.downstream_start = out.claims_at + claims_done;
+                    claims_done += shape.claims;
+                    candidate.downstream_end = out.claims_at + claims_done;
+                    out.candidates[candidates_done] = candidate;
+                    candidates_done += 1;
+                }
+            });
+        }
+        for part in 0..consumed.parts {
+            let start = part * span;
+            for &index in &hits[start..start + consumed.found[part]] {
+                let index = index as usize;
+                let vehicle = workspace.conflict_inputs[index].0.index() as usize;
+                let slot = &mut slots[index];
+                let DispatchSlot::Done(Ok(report)) = slot else {
+                    continue;
+                };
+                let spent = report.take_scratch();
+                if let CandidateReport::Resource { resource, .. } = &*report {
+                    workspace.conflict_motion_by_vehicle[vehicle] = Some(resource.motion_plan);
+                    workspace.conflict_table_writes.motion.note(vehicle);
+                    if let Some(eligibility) = resource.next_eligibility {
+                        workspace.conflict_next_eligibility[vehicle] = Some(eligibility);
+                        workspace.conflict_table_writes.next.note(vehicle);
+                    }
+                }
+                *slot = DispatchSlot::Done(Ok(CandidateReport::Spent(spent)));
+            }
+        }
+        // 串行路径每个 Computed 候选先清空再填入两个工作区，终态只属最后一个。
+        if let Some(last) = workspace.conflict_candidates[candidates_from..]
+            .iter()
+            .rev()
+            .find(|candidate| candidate.passage.is_some())
+        {
+            workspace.conflict_cell_work.clear();
+            workspace.conflict_cell_work.extend_from_slice(
+                &workspace.conflict_candidate_cells[last.cells_start..last.cells_end],
+            );
+            workspace.conflict_downstream_work.clear();
+            workspace.conflict_downstream_work.extend_from_slice(
+                &workspace.conflict_candidate_downstream
+                    [last.downstream_start..last.downstream_end],
+            );
+        }
+        true
     }
 
     /// 按发现序处理并行消费留下的资源、失败与异常槽位；首个错误即返回。
@@ -6265,6 +6467,206 @@ enum DownstreamEvalError {
 #[derive(Clone)]
 enum DownstreamFillError {
     Invariant,
+}
+
+/// 并行消费返回给协调器的命中清单与各段资源候选统计。
+pub(crate) struct ConsumedHits<'r> {
+    hits: std::sync::MutexGuard<'r, Vec<u32>>,
+    parts: usize,
+    span: usize,
+    /// 第 `part` 段的命中位于 `hits[part * span..][..found[part]]`。
+    found: [usize; CONSUME_MAX_PARTS],
+    resources: [ResourcePartStat; CONSUME_MAX_PARTS],
+}
+
+/// 一段命中的资源候选追加统计；`simple` 为假表示该段有命中不能并行追加。
+#[derive(Clone, Copy)]
+struct ResourcePartStat {
+    simple: bool,
+    candidates: usize,
+    cells: usize,
+    claims: usize,
+    cell_work: usize,
+    downstream_work: usize,
+    first_candidate: Option<ConflictCandidate>,
+    first_cell: Option<crate::ConflictPassageAddress>,
+    first_claim: Option<crate::DownstreamInterval>,
+}
+
+impl Default for ResourcePartStat {
+    fn default() -> Self {
+        Self {
+            simple: true,
+            candidates: 0,
+            cells: 0,
+            claims: 0,
+            cell_work: 0,
+            downstream_work: 0,
+            first_candidate: None,
+            first_cell: None,
+            first_claim: None,
+        }
+    }
+}
+
+impl ResourcePartStat {
+    fn add(&mut self, shape: Option<ResourceShape>) {
+        let Some(shape) = shape else {
+            self.simple = false;
+            return;
+        };
+        self.candidates += 1;
+        self.cells += shape.cells;
+        self.claims += shape.claims;
+        self.cell_work = self.cell_work.max(shape.cell_work);
+        self.downstream_work = self.downstream_work.max(shape.downstream_work);
+        self.first_candidate.get_or_insert(shape.candidate);
+        if let Some(cell) = shape.first_cell {
+            self.first_cell.get_or_insert(cell);
+        }
+        if let Some(claim) = shape.first_claim {
+            self.first_claim.get_or_insert(claim);
+        }
+    }
+}
+
+/// 可并行追加的资源候选：候选的 cells/downstream 区间从 0 起，写入时
+/// 平移到本段写入位置；`cell_work`/`downstream_work` 是串行路径在两个
+/// 工作区上需要的容量。
+#[derive(Clone, Copy)]
+struct ResourceShape {
+    candidate: ConflictCandidate,
+    cells: usize,
+    claims: usize,
+    cell_work: usize,
+    downstream_work: usize,
+    first_cell: Option<crate::ConflictPassageAddress>,
+    first_claim: Option<crate::DownstreamInterval>,
+}
+
+/// 按 `consume_candidate_resource` 的成功路径算出资源候选的追加形状；
+/// 检查失败、段失败、补算段或会公开错误的报告返回 `None`。
+fn resource_shape(
+    binding: &crate::kernel::state::WorldBindingState,
+    vehicle: VehicleHandle,
+    update_sequence: u32,
+    state: VehicleState,
+    report: &CandidateReport,
+) -> Option<ResourceShape> {
+    let CandidateReport::Resource { resource, scratch } = report else {
+        return None;
+    };
+    match &resource.stage {
+        ResourceStage::PureWaitingEmpty {
+            key,
+            anchor,
+            waiting_zone,
+        } => Some(ResourceShape {
+            candidate: ConflictCandidate {
+                vehicle,
+                vehicle_update_sequence: update_sequence,
+                key: *key,
+                anchor: *anchor,
+                passage: None,
+                passage_range: None,
+                cells_start: 0,
+                cells_end: 0,
+                downstream_start: 0,
+                downstream_end: 0,
+                follower_min_gap_mm: 0,
+                waiting_zone: *waiting_zone,
+                preflight_no_grant: None,
+            },
+            cells: 0,
+            claims: 0,
+            cell_work: 0,
+            downstream_work: 0,
+            first_cell: None,
+            first_claim: None,
+        }),
+        ResourceStage::CheckFailed(_) => None,
+        ResourceStage::Computed {
+            stable_passage,
+            passage_range,
+            gate_kind,
+            waiting_zone,
+            priority,
+            preflight_no_grant,
+            cells,
+            downstream,
+        } => {
+            let eligibility = resource.next_eligibility?;
+            if !matches!(cells, CellsSegment::Materialized) {
+                return None;
+            }
+            let (preflight_no_grant, claims, downstream_work) = match downstream {
+                DownstreamSegment::SkippedPreflight => (*preflight_no_grant, 0, 0),
+                DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant) => (
+                    Some(
+                        map_acquire_error(ConflictAcquireError::NoGrant(
+                            ConflictResourceNoGrant::DownstreamStorageBoundary,
+                        ))
+                        .ok()?,
+                    ),
+                    0,
+                    0,
+                ),
+                DownstreamSegment::Obligated {
+                    raw_capacity,
+                    fill: Ok(()),
+                } => (
+                    *preflight_no_grant,
+                    scratch.claims.len(),
+                    (*raw_capacity).max(scratch.claims.len()),
+                ),
+                DownstreamSegment::PreFailed(DownstreamEvalError::Invariant)
+                | DownstreamSegment::Obligated { fill: Err(_), .. }
+                | DownstreamSegment::Unmaterialized => return None,
+            };
+            let follower_min_gap_mm = binding
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile)?
+                .min_gap_mm();
+            let cells = scratch.cells.len();
+            Some(ResourceShape {
+                candidate: ConflictCandidate {
+                    vehicle,
+                    vehicle_update_sequence: update_sequence,
+                    key: ConflictCandidateOrderKey::new(
+                        *gate_kind,
+                        *priority,
+                        eligibility.first_eligible_tick(),
+                        state
+                            .waiting_membership
+                            .map(|member| member.admission_sequence),
+                        update_sequence,
+                    ),
+                    anchor: ConflictRouteAnchor {
+                        route: passage_range.route(),
+                        maneuver_occurrence_index: passage_range.maneuver_occurrence_index(),
+                        hop: passage_range.admission_gate_hop(),
+                    },
+                    passage: Some(*stable_passage),
+                    passage_range: Some(*passage_range),
+                    cells_start: 0,
+                    cells_end: cells,
+                    downstream_start: 0,
+                    downstream_end: claims,
+                    follower_min_gap_mm,
+                    waiting_zone: *waiting_zone,
+                    preflight_no_grant,
+                },
+                cells,
+                claims,
+                cell_work: (passage_range.passage_count() as usize).max(cells),
+                downstream_work,
+                first_cell: scratch.cells.first().copied(),
+                first_claim: scratch.claims[..claims].first().copied(),
+            })
+        }
+    }
 }
 
 impl ConflictTaskView<'_> {
