@@ -138,6 +138,10 @@ PreparedWorldState            私有；不提供公开 step
 `in_place_scope` 的协调闭包在调用线程执行首块，其余任务使用互斥输出范围。
 协调器分段并行用 `broadcast` 一次唤醒池内全部线程，各线程从共享队列逐块领取
 互斥输出块；`broadcast` 阻塞到全部线程完成，不留下脱离作用域的任务。
+整拍本身也在一次 `broadcast` 内运行：0 号池线程执行拍体，其余线程在拍内自旋并经
+`yield_now` 接手各并行段的任务，省去每段唤醒已睡线程的开销；代价是拍内串行空档
+里辅助线程空转、总 CPU 上升。拍体返回或展开即置位结束标志，`broadcast` 等全部
+线程退出后才返回。
 不使用全局池、`use_current_thread` 或脱离操作作用域的任务。LaneFlow 显式保留
 每个 OS 线程的 `JoinHandle`：构建失败和正常析构均先关闭池，再 join 全部已启动
 线程。Rayon 作用域 join 与 OS 线程退出 join 是两层不同的结算义务。

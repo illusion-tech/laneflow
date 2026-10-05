@@ -478,7 +478,75 @@ fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
     };
     #[cfg(test)]
     COORDINATOR_BROADCASTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    note_work();
     rayon_core::broadcast(|_| drain());
+}
+
+/// 拍内并行段计数：派发方在压入任务前递增，`run_awake` 的清醒线程据此在
+/// 新段开始后密集领取任务，长时间无新段则降低领取频率，少扰动协调线程。
+/// 进程内共享；多个世界并发步进时只多几次空领取。
+static WORK_EPOCH: AtomicUsize = AtomicUsize::new(0);
+
+fn note_work() {
+    WORK_EPOCH.fetch_add(1, Ordering::Release);
+}
+
+/// 整拍在一次 `broadcast` 内运行：0 号池线程执行拍体，其余池线程在拍内保持
+/// 清醒，自旋并经 `yield_now` 接手拍内各并行段派发的任务，省去每段唤醒已睡线程
+/// 的开销（Windows 上约 0.1 ms/段）。代价是拍内串行空档里其余线程空转。拍体
+/// 返回或展开时置位结束标志；`broadcast` 等全部线程退出后才返回，拍体的 panic
+/// 随之传回调用线程。作业表由 Rayon 内部分配（执行配置 §3 豁免）。
+fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + Send) -> R {
+    struct Finish<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for Finish<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let run = std::sync::Mutex::new(Some(run));
+    let result = std::sync::Mutex::new(None);
+    #[cfg(test)]
+    COORDINATOR_BROADCASTS.fetch_add(1, Ordering::Relaxed);
+    pool.broadcast(|context| {
+        if context.index() == 0 {
+            let _finish = Finish(&done);
+            let run = run
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+                .expect("tick body runs once");
+            let value = run();
+            *result
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+        } else {
+            let mut seen = WORK_EPOCH.load(Ordering::Acquire);
+            let mut idle = 0_u32;
+            while !done.load(Ordering::Acquire) {
+                let now = WORK_EPOCH.load(Ordering::Acquire);
+                if now != seen {
+                    seen = now;
+                    idle = 0;
+                }
+                // 新段后连续空领 256 次内每轮都领，此后每 64 轮领一次。
+                if (idle < 256 || idle.is_multiple_of(64))
+                    && matches!(rayon_core::yield_now(), Some(rayon_core::Yield::Executed))
+                {
+                    idle = 0;
+                    continue;
+                }
+                idle = idle.wrapping_add(1);
+                for _ in 0..8 {
+                    std::hint::spin_loop();
+                }
+            }
+        }
+    });
+    result
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .expect("tick body returned")
 }
 
 /// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
@@ -592,19 +660,22 @@ impl ExecutionResources {
                     compute(view, index, chunk);
                 }
             }
-            Self::Pool(resources) => resources.pool.in_place_scope(|scope| {
-                let mut chunks = output.chunks_mut(chunk_size).enumerate();
-                let first = chunks.next();
-                for (index, chunk) in chunks {
-                    let compute = &compute;
-                    #[cfg(test)]
-                    note_injections(1);
-                    scope.spawn(move |_| compute(view, index, chunk));
-                }
-                if let Some((index, chunk)) = first {
-                    compute(view, index, chunk);
-                }
-            }),
+            Self::Pool(resources) => {
+                note_work();
+                resources.pool.in_place_scope(|scope| {
+                    let mut chunks = output.chunks_mut(chunk_size).enumerate();
+                    let first = chunks.next();
+                    for (index, chunk) in chunks {
+                        let compute = &compute;
+                        #[cfg(test)]
+                        note_injections(1);
+                        scope.spawn(move |_| compute(view, index, chunk));
+                    }
+                    if let Some((index, chunk)) = first {
+                        compute(view, index, chunk);
+                    }
+                })
+            }
         }
     }
 
@@ -817,6 +888,7 @@ impl ExecutionResources {
                 };
                 #[cfg(test)]
                 note_injections(threads - 1);
+                note_work();
                 resources.pool.in_place_scope(|scope| {
                     for _ in 1..threads {
                         scope.spawn(|_| drain());
@@ -908,6 +980,7 @@ impl ExecutionResources {
                 let auxiliaries = resources.pool.current_num_threads() - 1;
                 #[cfg(test)]
                 note_injections(auxiliaries);
+                note_work();
                 resources.pool.in_place_scope(|scope| {
                     let compute = &compute;
                     #[cfg(test)]
@@ -1040,12 +1113,10 @@ impl WorldExecution {
             match resources {
                 ExecutionResources::Caller => operation(state, resources),
                 ExecutionResources::Pool(pool) => {
-                    #[cfg(test)]
-                    note_injections(1);
                     #[cfg(any(test, feature = "placement-fixtures"))]
                     {
                         let hooks = carry_step_hooks();
-                        let (result, hooks) = pool.pool.install(|| {
+                        let (result, hooks) = run_awake(&pool.pool, || {
                             hooks();
                             let result =
                                 catch_unwind(AssertUnwindSafe(|| operation(state, resources)));
@@ -1055,7 +1126,7 @@ impl WorldExecution {
                         result.unwrap_or_else(|payload| resume_unwind(payload))
                     }
                     #[cfg(not(any(test, feature = "placement-fixtures")))]
-                    pool.pool.install(|| operation(state, resources))
+                    run_awake(&pool.pool, || operation(state, resources))
                 }
             }
         })) {
