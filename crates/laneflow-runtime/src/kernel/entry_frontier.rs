@@ -1122,7 +1122,45 @@ fn held_walk(
         walk_if_new(step, vehicle, horizon_ms, &demanded, true)?;
     }
     let near_len = step.workspace.frontier_maintenance.scratch_near.len();
+    // 近距车辆的重放命中只读本车状态与本车槽位；本拍只有本车的遍历会改写
+    // 本车槽位，且遍历后已标记、不再遍历。大工作集先分段并行筛出未命中的
+    // 车辆，协调器只对它们按序重查并遍历，结果与逐车串行相同。
+    let screened = execution
+        .filter(|resources| resources.coordinator_parallel() && near_len >= TARGETS_PARALLEL_ROWS)
+        .and_then(|resources| {
+            let mut marks = resources
+                .sparse_indices()
+                .expect("private coordinator buffer");
+            marks.clear();
+            marks.try_reserve(near_len).ok()?;
+            marks.resize(near_len, 0);
+            let span = near_len
+                .div_ceil(
+                    resources
+                        .dispatch_threads()
+                        .saturating_mul(4)
+                        .min(TARGETS_MAX_PARTS),
+                )
+                .max(1);
+            let read = &*step;
+            let near = &read.workspace.frontier_maintenance.scratch_near;
+            resources.for_each_part(&mut marks, span, |part, output| {
+                for (offset, miss) in output.iter_mut().enumerate() {
+                    let vehicle = near[part * span + offset];
+                    *miss = u32::from(active_state(read, vehicle).is_some_and(|state| {
+                        read.workspace
+                            .frontier_maintenance
+                            .replay_hit(vehicle, &state, horizon_ms)
+                            .is_none()
+                    }));
+                }
+            });
+            Some(marks)
+        });
     for index in 0..near_len {
+        if screened.as_ref().is_some_and(|marks| marks[index] == 0) {
+            continue;
+        }
         let vehicle = step.workspace.frontier_maintenance.scratch_near[index];
         let Some(state) = active_state(step, vehicle) else {
             continue;
@@ -1141,7 +1179,8 @@ fn held_walk(
         .frontier_maintenance
         .scratch_increments
         .clear();
-    if let Err(error) = replay::demanded(step, horizon_ms, &demanded, execution) {
+    let replay_result = replay::demanded(step, horizon_ms, &demanded, execution);
+    if let Err(error) = replay_result {
         step.workspace.frontier_maintenance.scratch_demanded = demanded;
         return Err(error);
     }
