@@ -52,7 +52,20 @@ pub fn write_deterministic_ustar(members: &[TarMember]) -> Result<Vec<u8>> {
         }
     }
 
-    let mut out = Vec::new();
+    // 预分配精确容量：成员载荷（约 143 MB）常驻期间，空 Vec 的摊销增长
+    // 会在 realloc 瞬间并存新旧两份归档缓冲。先算 checked 总量一次到位。
+    let mut total = BLOCK * 2;
+    for member in &ordered {
+        total = [
+            BLOCK,
+            member.contents.len(),
+            (BLOCK - member.contents.len() % BLOCK) % BLOCK,
+        ]
+        .into_iter()
+        .try_fold(total, usize::checked_add)
+        .ok_or_else(|| Error::SumoModel("tar archive size overflowed usize".to_owned()))?;
+    }
+    let mut out = Vec::with_capacity(total);
     for member in &ordered {
         validate_path(&member.path)?;
         out.extend_from_slice(&ustar_header(&member.path, member.contents.len())?);
