@@ -37,8 +37,13 @@ cargo +1.98.0 run -p laneflow-lust-converter -- convert --config <toml>
 
 ```text
 set LUST_SOURCE_DIR=<LuSTScenario根目录>
-cargo +1.98.0 test -p laneflow-lust-converter --locked -- --ignored
+cargo +1.98.0 test -p laneflow-lust-converter --locked --lib -- --ignored --skip regenerate
 ```
+
+`--skip regenerate` 不可省略：`--ignored` 会并发跑全部 ignored 测试，其中
+`regenerate_lust_stub_weld_candidates_manifest` 覆写 `evidence/` 的候选 manifest
+基线——与比对测试并行竞争，漂移基线会被覆写后门检失效。regenerate 只在
+更新基线时显式单独运行（见 `evidence/README.md` 更新流程）。
 
 配置示例：
 
