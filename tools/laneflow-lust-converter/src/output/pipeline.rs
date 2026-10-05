@@ -776,10 +776,13 @@ fn remove_stale_staging(anchor: &Path) {
     }
 }
 
-/// 失败恢复：备份区有的文件逐个移回 output_dir（新文件若已落位先删）；
-/// installed 名单（实际装入成功）里无备份对应物的文件删除。任一文件
-/// 恢复失败即收集进 Err——调用方据此保留备份目录（旧交付集唯一副本
-/// 可能在其中），不再无条件清理。
+/// 失败恢复：备份区有的文件逐个**复制**回 output_dir（新文件若已落位先删）；
+/// installed 名单（实际装入成功）里无备份对应物的文件删除。恢复用 copy
+/// 而非 rename：备份条目在恢复提交（调用方删标记与目录）前不被消耗——
+/// 恢复中途被杀/部分失败时备份仍完整，重试幂等，「备份缺条目 ⟺ 运行前
+/// 不存在」的 installed 判据因此恒成立（move 语义下已归还的旧文件会被
+/// 下次恢复误判为新装入而删除）。任一文件恢复失败即收集进 Err——调用方
+/// 据此保留备份目录（旧交付集唯一副本在其中），不再无条件清理。
 fn restore_backup(
     output_dir: &Path,
     backup: &Path,
@@ -798,7 +801,7 @@ fn restore_backup(
                 failures.push(format!("remove {}: {source}", to.display()));
                 continue;
             }
-            if let Err(source) = fs::rename(&from, &to) {
+            if let Err(source) = fs::copy(&from, &to) {
                 failures.push(format!("restore {}: {source}", to.display()));
             }
         } else if installed.contains(&name) && to.symlink_metadata().is_ok() {
@@ -1023,7 +1026,7 @@ mod tests {
     #[test]
     fn publish_outputs_failure_restores_original_set() {
         // #253 U2 事务式：中途失败从备份区恢复旧集合——manifest 回到旧内容，
-        // survey 目录未被新文件替换，排除产物（network.lfca）原样恢复。
+        // survey 旧文件未被新文件替换，排除产物（network.lfca）原样恢复。
         let root = std::env::temp_dir().join(format!("lust-publish-fail-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let output = root.join("out");
@@ -1032,9 +1035,9 @@ mod tests {
         std::fs::create_dir_all(&staging).expect("staging");
         std::fs::write(output.join("manifest.toml"), b"old-manifest").expect("old");
         std::fs::write(output.join("network.lfca"), b"stale-lfca").expect("stale");
+        std::fs::write(output.join(SURVEY_NAME), b"old-survey").expect("old survey");
+        // staging 只写 manifest——装入阶段在 survey 上缺源文件失败，触发恢复。
         std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
-        // 目标位置放一个**目录**占用 survey 文件名——移入失败，触发恢复。
-        std::fs::create_dir(output.join(SURVEY_NAME)).expect("dir squat");
 
         let result = publish_outputs(
             &staging,
@@ -1052,7 +1055,11 @@ mod tests {
             b"stale-lfca",
             "排除产物在失败路径也必须恢复"
         );
-        assert!(output.join(SURVEY_NAME).is_dir());
+        assert_eq!(
+            std::fs::read(output.join(SURVEY_NAME)).expect("read"),
+            b"old-survey",
+            "未轮到的旧文件必须原样恢复"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1064,9 +1071,10 @@ mod tests {
         // 本测试直接驱动 swap_outputs/restore_backup。
         //
         // manifest 的备份目标放**目录**占位：rename 文件到已存在目录在
-        // 所有平台确定性失败，备份循环在第一个名字就中断。（占位目录随后
-        // 会被 restore 当作备份条目移回 output——真实失败不会留下这种
-        // 条目，属注入产物；本测试的断言只针对未触及的 report。）
+        // 所有平台确定性失败，备份循环在第一个名字就中断。占位目录是注入
+        // 产物——真实备份中断不会留下这种条目（交付物均为常规文件），且
+        // copy 语义的恢复无法归还目录——驱动 restore 前清掉它，只留真实
+        // 中断现场（备份区为空）。本测试的断言只针对未触及的 report。
         let root =
             std::env::temp_dir().join(format!("lust-swap-backup-fail-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1087,6 +1095,7 @@ mod tests {
         let result = swap_outputs(&staging, &output, &backup, &staged, &mut installed);
         assert!(result.is_err(), "备份阶段失败必须 fail-closed");
         assert!(installed.is_empty(), "移入阶段未发生");
+        std::fs::remove_dir_all(backup.join(MANIFEST_NAME)).expect("clear squat");
         restore_backup(&output, &backup, &staged, &installed).expect("restore");
 
         assert_eq!(
@@ -1283,6 +1292,58 @@ mod tests {
         assert!(
             output.join("manifest.toml").is_dir(),
             "回滚失败的现场不被破坏"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn failed_rollback_preserves_backup_entries_for_retry() {
+        // 回滚恢复用 copy 而非 rename：备份条目在恢复提交（调用方删标记
+        // 与目录）前不被消耗。场景：回滚中途失败（manifest 无法归还），
+        // 但 report 已先成功归还——move 语义下 report 的备份条目被消耗，
+        // 下次重试恢复时「备份缺条目 ⟺ 运行前不存在」判据失效，会把
+        // output 里已归还的旧 report 误判为新装入文件删除，旧交付集丢
+        // 文件。copy 语义下两条备份条目都完整保留，重试幂等。
+        let root = std::env::temp_dir().join(format!("lust-rollback-retry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(output.join(REPORT_NAME), b"old-report").expect("old report");
+        // staging 里 manifest.toml 是**目录**：装入成功（rename 目录），
+        // 但回滚时 remove_file 对目录失败 → 恢复不完整。report 缺 staging
+        // 文件 → 装入阶段在 manifest 之后失败，触发回滚。staged 顺序
+        // manifest 在前：回滚先撞到失败的 manifest，report 随后成功归还。
+        std::fs::create_dir(staging.join(MANIFEST_NAME)).expect("dir");
+
+        let result = publish_outputs(
+            &staging,
+            &output,
+            &[(MANIFEST_NAME, MANIFEST_NAME), (REPORT_NAME, REPORT_NAME)],
+        );
+        let message = match result {
+            Err(Error::Validation { message, .. }) => message,
+            other => panic!("expected validation error, got {other:?}"),
+        };
+        assert!(message.contains("rollback incomplete"), "{message}");
+
+        let backup = backup_dir(&output);
+        assert_eq!(
+            std::fs::read(backup.join(REPORT_NAME)).expect("read"),
+            b"old-report",
+            "已成功归还的备份条目不得被消耗——重试恢复还要用它"
+        );
+        assert_eq!(
+            std::fs::read(backup.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "未能归还的备份条目必须保留"
+        );
+        assert_eq!(
+            std::fs::read(output.join(REPORT_NAME)).expect("read"),
+            b"old-report",
+            "output 里的旧 report 已归还"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
