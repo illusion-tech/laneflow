@@ -126,8 +126,8 @@ pub(crate) fn export_at(
         edit(
             destination,
             &format!("{K}conflict_tick.rs"),
-            "        self.acquire_conflict_candidates(tick)\n    }",
-            "        let _p4_timer = super::performance_profile::begin(super::performance_profile::Stage::P4);\n        self.acquire_conflict_candidates(tick)\n    }",
+            "        self.acquire_conflict_candidates_with(tick, execution)\n    }",
+            "        let _p4_timer = super::performance_profile::begin(super::performance_profile::Stage::P4);\n        self.acquire_conflict_candidates_with(tick, execution)\n    }",
         )?;
     }
     if mode == "detail" {

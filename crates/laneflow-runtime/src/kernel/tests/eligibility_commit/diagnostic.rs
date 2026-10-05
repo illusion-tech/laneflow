@@ -84,12 +84,18 @@ fn eligibility_table_commit_matches_dense_oracle() {
         for slot in positions {
             world.state.workspace.conflict_next_eligibility[slot] = Some(value);
         }
+        // 直接写表不经准备阶段的写入清单，提交须整表判空。
+        world
+            .state
+            .workspace
+            .conflict_table_writes
+            .forget_next_slots();
         let mut expected = world.state.workspace.conflict_next_eligibility.to_vec();
         if expected.iter().all(Option::is_none) {
             expected.clear();
         }
         world.state.committed_mut().commit_conflict_step();
-        assert_eq!(world.state.committed.conflict_eligibility, expected);
+        assert_eq!(*world.state.committed.conflict_eligibility, expected);
     }
     assert!(
         world.state.committed.conflict_eligibility.is_empty(),

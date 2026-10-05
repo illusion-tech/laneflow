@@ -645,6 +645,12 @@ impl ConflictTableWrites {
             .then_some(self.committed.slots.as_slice())
     }
 
+    /// 测试绕过准备阶段直接改写资格暂存表时调用：放弃清单，提交改为整表判空。
+    #[cfg(test)]
+    pub(crate) fn forget_next_slots(&mut self) {
+        self.next.complete = false;
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> u64 {
         crate::kernel::state::vec_bytes(&self.motion.slots)
