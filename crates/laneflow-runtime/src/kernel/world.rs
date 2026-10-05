@@ -407,6 +407,8 @@ impl crate::kernel::state::WorldState {
                 motion_cache: Vec::new(),
                 motion_cache_spare: Vec::new(),
                 motion_bases: Vec::new(),
+                motion_cursor_rows: Vec::new(),
+                motion_cursor_identity: None,
                 motion_previews: Vec::new(),
                 waiting_preview_bases: Vec::new(),
                 waiting_preview_payloads: Vec::new(),

@@ -143,8 +143,8 @@ pub(crate) fn instrument(root: &Path, candidate: bool) -> Result<()> {
         patch(
             root,
             &motion,
-            "    let work = chunks(updates, &read.committed.vehicles, extent, rows);",
-            "    let _dispatch_timer = super::super::performance_profile::begin(super::super::performance_profile::Stage::P5Dispatch);\n    let work = chunks(updates, &read.committed.vehicles, extent, rows);",
+            "    let work = chunks(updates, &read.committed.vehicles, extent, rows, cursor_rows);",
+            "    let _dispatch_timer = super::super::performance_profile::begin(super::super::performance_profile::Stage::P5Dispatch);\n    let work = chunks(updates, &read.committed.vehicles, extent, rows, cursor_rows);",
         )?;
         patch(
             root,

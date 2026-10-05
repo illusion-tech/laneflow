@@ -437,6 +437,10 @@ pub(crate) struct TickWorkspace {
     /// 任何读取者都不看它。
     pub(crate) motion_cache_spare: Vec<crate::kernel::tick::MotionCacheEntry>,
     pub(crate) motion_bases: Vec<crate::kernel::tick::MotionBasis>,
+    /// P2 按物理行保存的（路线, 游标）派生量，跨拍保留；`None` 行为空。
+    pub(crate) motion_cursor_rows: Vec<Option<crate::kernel::tick::MotionCursorRow>>,
+    /// `motion_cursor_rows` 所属的（世界, 世界世代）；不同时整表作废。
+    pub(crate) motion_cursor_identity: Option<(u64, crate::WorldGeneration)>,
     /// `motion_cache` 行引用的完整预览（稀疏，只有近门车辆）。
     pub(crate) motion_previews: Vec<crate::kernel::tick::MotionPreview>,
     pub(crate) waiting_preview_bases: Vec<Vec<crate::kernel::tick::MotionBasis>>,
@@ -610,6 +614,8 @@ impl TickWorkspace {
             motion_cache,
             motion_cache_spare,
             motion_bases,
+            motion_cursor_rows,
+            motion_cursor_identity: _,
             motion_previews,
             waiting_preview_bases,
             waiting_preview_payloads,
@@ -643,6 +649,7 @@ impl TickWorkspace {
             + motion_next.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(motion_cache)
             + crate::kernel::state::vec_bytes(motion_cache_spare)
+            + crate::kernel::state::vec_bytes(motion_cursor_rows)
             + crate::kernel::state::vec_bytes(motion_bases)
             + crate::kernel::state::vec_bytes(motion_previews)
             + crate::kernel::state::vec_bytes(waiting_preview_bases)
