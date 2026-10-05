@@ -153,6 +153,15 @@ pub fn convert_signals(
         }
     }
 
+    // StopLine 必须绑**声明**车道 id（LaneEdge 用 lane.id，见 SumoLane::
+    // laneflow_id）——按 `{edge}_{index}` 约定拼造会在声明 id 偏离约定时
+    // 制造悬空引用；诊断模式不过 compiler finish，无人能事后察觉。
+    let lane_id_by_edge_index: HashMap<(&str, u32), &str> = network
+        .lanes
+        .iter()
+        .map(|lane| ((lane.edge_id.as_str(), lane.index), lane.id.as_str()))
+        .collect();
+
     let mut unclaimed_arms = Vec::new();
     let mut stop_lines = Vec::new();
     let mut gates = Vec::new();
@@ -219,8 +228,15 @@ pub fn convert_signals(
         from_lane_list.dedup();
         let mut stop_line_by_from_lane = HashMap::new();
         for (from_edge, from_lane) in from_lane_list {
+            let declared_lane_id = lane_id_by_edge_index
+                .get(&(from_edge.as_str(), from_lane))
+                .ok_or_else(|| {
+                    Error::SumoModel(format!(
+                        "controlled link from lane {from_edge}:{from_lane} not found among parsed lanes"
+                    ))
+                })?;
             let stop_line_id = format!("{SUMO_ID_PREFIX}stop:{from_edge}_{from_lane}");
-            let edge_id = format!("{SUMO_ID_PREFIX}{from_edge}_{from_lane}");
+            let edge_id = format!("{SUMO_ID_PREFIX}{declared_lane_id}");
             stop_lines.push(StopLine {
                 id: stop_line_id.clone(),
                 edge_id,
@@ -764,6 +780,44 @@ mod tests {
             .expect("gate for lane 1");
         assert_eq!(gate0.stop_line_id, "sumo:stop:west_0");
         assert_eq!(gate1.stop_line_id, "sumo:stop:west_1");
+    }
+
+    #[test]
+    fn stop_line_binds_declared_lane_id_not_convention() {
+        // 声明车道 id 偏离 `{edge}_{index}` 约定（SUMO 合法）时，StopLine.
+        // edge_id 必须引用声明 id（LaneEdge 的 id 来源）——拼造约定 id 会
+        // 制造悬空引用，而诊断模式不过 compiler finish，无人能察觉。
+        let net = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0.00,0.00,100.00,100.00"/>
+  <edge id="west" from="W" to="J"><lane id="westDeclared" index="0" speed="13.89" length="20.00" shape="0.00,0.00 20.00,0.00"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="30.00,0.00 50.00,0.00"/></edge>
+  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="5.00" shape="20.00,0.00 25.00,0.00"/></edge>
+  <junction id="J" type="traffic_light" intLanes=":J_0_0"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+</net>"#;
+        let network = parse_sumo_network_xml(net).expect("parse net");
+        let topology =
+            normalize_junctions(&network, &StubWeldGate::Unrestricted).expect("normalize");
+        let tll = parse_tll_static_xml(
+            r#"<additional>
+  <tlLogic id="J" type="static" programID="1" offset="0">
+    <phase duration="31" state="G"/>
+  </tlLogic>
+</additional>"#,
+        )
+        .expect("parse tll");
+        let (signals, _) = super::convert_signals(&network, &tll, &topology.path_by_connection)
+            .expect("convert signals");
+        assert_eq!(signals.stop_lines.len(), 1);
+        assert_eq!(
+            signals.stop_lines[0].edge_id, "sumo:westDeclared",
+            "StopLine 必须引用声明车道 id"
+        );
     }
 }
 
