@@ -487,6 +487,9 @@ fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
 /// 进程内共享；多个世界并发步进时只多几次空领取。
 static WORK_EPOCH: AtomicUsize = AtomicUsize::new(0);
 
+/// 清醒线程连续空领这么多轮后改为让出时间片。
+const IDLE_SPINS_BEFORE_YIELD: u32 = 1_024;
+
 fn note_work() {
     WORK_EPOCH.fetch_add(1, Ordering::Release);
 }
@@ -541,8 +544,13 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
                     continue;
                 }
                 idle = idle.wrapping_add(1);
-                for _ in 0..8 {
-                    std::hint::spin_loop();
+                if idle > IDLE_SPINS_BEFORE_YIELD {
+                    // 久无新段时把时间片让给同核其他线程：机器超额订阅时不白占核心。
+                    std::thread::yield_now();
+                } else {
+                    for _ in 0..8 {
+                        std::hint::spin_loop();
+                    }
                 }
             }
         }
