@@ -281,7 +281,12 @@ fn sort_conflict_candidates(
         (high, low, index)
     }));
     order.sort_unstable();
-    // order[i].2 是应落到 i 的原下标；处理过的位置把下标改成自身作标记。
+    permute_by_order(candidates, order);
+}
+
+/// 按已排序的 `order` 原地置换：`order[i].2` 是应落到 i 的原下标；处理过的
+/// 位置把下标改成自身作标记。
+fn permute_by_order<T>(values: &mut [T], order: &mut [CandidateOrderKey]) {
     for start in 0..order.len() {
         if order[start].2 as usize == start {
             continue;
@@ -293,10 +298,50 @@ fn sort_conflict_candidates(
             if from == start {
                 break;
             }
-            candidates.swap(at, from);
+            values.swap(at, from);
             at = from;
         }
     }
+}
+
+/// 暂存决定的规范键：（更新序号, hop, 通行地址）。
+fn staged_decision_key(
+    decision: &ConflictDecision,
+) -> (u32, u32, Option<crate::ConflictPassageAddress>) {
+    (
+        decision.vehicle_update_sequence,
+        decision.anchor.hop,
+        decision.passage.map(|passage| passage.address()),
+    )
+}
+
+/// 暂存决定按规范键排序：键无损编码成两个 `u128`（整数比较与元组比较一致），
+/// 连同原下标排序后原地置换；键缓冲预留失败时直接按键排序。
+fn sort_staged_decisions(decisions: &mut [ConflictDecision], order: &mut Vec<CandidateOrderKey>) {
+    order.clear();
+    if u32::try_from(decisions.len()).is_err() || order.try_reserve(decisions.len()).is_err() {
+        decisions.sort_unstable_by_key(staged_decision_key);
+        return;
+    }
+    order.extend(decisions.iter().zip(0_u32..).map(|(decision, index)| {
+        let (sequence, hop, address) = staged_decision_key(decision);
+        let (present, zone, stream, local) = address.map_or((0, 0, 0, 0), |address| {
+            (
+                1_u128,
+                address.zone().raw(),
+                address.stream().raw(),
+                address.passage_local_index(),
+            )
+        });
+        let high = (u128::from(sequence) << 96)
+            | (u128::from(hop) << 64)
+            | (present << 32)
+            | u128::from(zone);
+        let low = (u128::from(stream) << 32) | u128::from(local);
+        (high, low, index)
+    }));
+    order.sort_unstable();
+    permute_by_order(decisions, order);
 }
 
 /// 单 hop Gate 决定求值的共用输出（融合/分发同一实现）。
@@ -723,6 +768,11 @@ struct FinalizeRowPlan {
     decisions_end: usize,
     transitions_end: usize,
     error: Option<StepError>,
+    /// live 序号表已铺好时在规划段查好的 live 序号；`None` 表示未铺好，
+    /// 由落账按 live 序前移查找。
+    sequence: Option<Option<u32>>,
+    /// 规划成功时按 `set_control` 同一规则预先算出的控制记录是否变化。
+    control_changed: Option<bool>,
 }
 
 /// 资源行规划只读的拍初状态与本拍暂存。
@@ -771,6 +821,12 @@ fn plan_resource_row(
         decisions_end: 0,
         transitions_end: 0,
         error: None,
+        sequence: view
+            .read
+            .derived
+            .live_order_index
+            .prepared_rank(&view.read.committed.live_order, handle),
+        control_changed: None,
     };
     let result = (|| -> Result<(), StepError> {
         free_gate_decisions(view.read, fields, 0, |decision| {
@@ -839,6 +895,13 @@ fn plan_resource_row(
         }
         plan.maneuver = maneuver;
         plan.clear_eligibility = clear;
+        plan.control_changed = view.updates.control_changed(
+            index,
+            plan.status,
+            maneuver,
+            plan.waiting_membership,
+            vehicles,
+        );
         Ok(())
     })();
     plan.error = result.err();
@@ -3541,15 +3604,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let sparse_sort =
             super::sparse_cost_research::begin(4, self.workspace.conflict_staged_decisions.len());
-        self.workspace
-            .conflict_staged_decisions
-            .sort_unstable_by_key(|decision| {
-                (
-                    decision.vehicle_update_sequence,
-                    decision.anchor.hop,
-                    decision.passage.map(|passage| passage.address()),
-                )
-            });
+        sort_staged_decisions(
+            &mut self.workspace.conflict_staged_decisions,
+            &mut self.workspace.conflict_candidate_order,
+        );
         #[cfg(test)]
         drop(sparse_sort);
 
@@ -3669,10 +3727,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let mut decisions_start = 0;
             let mut transitions_start = 0;
             for plan in &part.rows {
-                while self.committed.live_order.get(update_sequence) != Some(&plan.handle) {
-                    update_sequence += 1;
-                    if update_sequence >= self.committed.live_order.len() {
-                        return Err(StepError::ConflictInvariantViolation);
+                // 句柄在 live 序中唯一：查到的序号不早于当前游标时就是前移查找
+                // 会停下的位置，否则前移查找必然走到末尾失败。
+                match plan.sequence {
+                    Some(Some(rank)) if rank as usize >= update_sequence => {
+                        update_sequence = rank as usize;
+                    }
+                    Some(_) => return Err(StepError::ConflictInvariantViolation),
+                    None => {
+                        while self.committed.live_order.get(update_sequence) != Some(&plan.handle) {
+                            update_sequence += 1;
+                            if update_sequence >= self.committed.live_order.len() {
+                                return Err(StepError::ConflictInvariantViolation);
+                            }
+                        }
                     }
                 }
                 let sequence = u32::try_from(update_sequence)
@@ -3707,13 +3775,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 if plan.clear_eligibility {
                     self.workspace.conflict_next_eligibility[plan.handle.index() as usize] = None;
                 }
-                updates.set_control(
-                    plan.index,
-                    plan.status,
-                    plan.maneuver,
-                    plan.waiting_membership,
-                    &self.committed.vehicles,
-                )?;
+                match plan.control_changed {
+                    Some(changed) => updates.set_control_changed(
+                        plan.index,
+                        plan.status,
+                        plan.maneuver,
+                        plan.waiting_membership,
+                        changed,
+                    )?,
+                    None => updates.set_control(
+                        plan.index,
+                        plan.status,
+                        plan.maneuver,
+                        plan.waiting_membership,
+                        &self.committed.vehicles,
+                    )?,
+                }
             }
         }
         Ok(())
