@@ -496,7 +496,9 @@ fn deliverable_names(diagnostic: bool) -> Vec<&'static str> {
 ///
 /// 中断恢复：进程在 swap 中途被杀时残留的 `.backup-*` 目录由
 /// `recover_interrupted_publish` 在本函数开头处理。回滚不完整时保留备份
-/// 目录（旧交付集的唯一副本可能在其中）并在错误信息中指明。
+/// 目录（旧交付集的唯一副本可能在其中）并在错误信息中指明。成功后的备份
+/// 清理失败同样报错（残留带标记备份会让下次运行 fail-closed 报歧义，不在
+/// 成功路径静默埋雷）。
 fn publish_outputs(
     staging: &Path,
     output_dir: &Path,
@@ -519,8 +521,9 @@ fn publish_outputs(
     let publish_error = match swap_outputs(staging, output_dir, &backup, staged, &mut installed) {
         Ok(()) => {
             // 成功清理：先逐个删除备份内受管文件，全部删成才删标记与目录。
-            // 中途失败的残留呈「有标记且可能含旧文件」形态，下次运行
-            // fail-closed 报歧义，而不会把成功交付静默回滚。
+            // 删不动（典型如 Windows 临时文件锁）时保留带标记备份并立即
+            // 报错指明位置——残留形态会让下次运行 fail-closed 报歧义，不在
+            // 成功路径静默埋雷。
             let mut cleanup_ok = true;
             for name in managed_names(staged) {
                 let path = backup.join(name);
@@ -531,8 +534,15 @@ fn publish_outputs(
             if cleanup_ok {
                 let _ = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER));
                 let _ = fs::remove_dir_all(&backup);
+                return Ok(());
             }
-            return Ok(());
+            return Err(Error::Validation {
+                stage: "cleanup",
+                message: format!(
+                    "delivery published, but backup cleanup failed; backup preserved at {} — inspect and remove it manually before the next run",
+                    backup.display()
+                ),
+            });
         }
         Err(error) => error,
     };
@@ -1371,6 +1381,41 @@ mod tests {
             "持锁冲突必须 fail-closed: {result:?}"
         );
         drop(guard);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cleanup_failure_after_successful_swap_errors() {
+        // 交付已落位但备份清理失败（备份内受管名是目录，remove_file 必败）
+        // → 立即报错指明保留的备份；交付文件保持新内容、备份与标记保留。
+        let root = std::env::temp_dir().join(format!("lust-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(output.join(MANIFEST_NAME)).expect("dir as old artifact");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("staged");
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+
+        let error =
+            publish_outputs(&staging, &output, &staged).expect_err("cleanup failure must error");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "cleanup");
+                assert!(message.contains(".backup-"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"new-manifest",
+            "交付已完整落位"
+        );
+        let backup = backup_dir(&output);
+        assert!(
+            backup.join(BACKUP_COMPLETE_MARKER).exists(),
+            "带标记备份保留待人工处置"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
