@@ -1751,8 +1751,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
                 let stat = &mut stat[0];
                 let start = part * span;
-                for index in start..(start + span).min(count) {
-                    let slot = &slots[index];
+                let end = (start + span).min(count);
+                for (index, slot) in slots.iter().enumerate().take(end).skip(start) {
                     if let Some(cache) = cache_of(slot)
                         && row_matches(index)
                     {
