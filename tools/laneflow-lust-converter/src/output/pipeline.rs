@@ -104,13 +104,14 @@ pub fn convert_with_config(
     // 不是任何事物的唯一副本；删除失败不阻塞本次转换。
     remove_stale_staging(&anchor);
     let verified = verify_source_dir(&config.source_dir)?;
-    convert_verified(config, config_toml_bytes, &verified)
+    convert_verified(config, config_toml_bytes, &verified, &anchor)
 }
 
 fn convert_verified(
     config: &LustConverterConfig,
     config_toml_bytes: &[u8],
     verified: &VerifiedSourceSet,
+    anchor: &Path,
 ) -> Result<ConvertOutputPaths> {
     let net_xml = read_verified(verified, "scenario/lust.net.xml")?;
     let tll_xml = read_verified(verified, "scenario/tll.static.xml")?;
@@ -304,9 +305,9 @@ fn convert_verified(
     // #253 T2：stage-then-publish——全部产物先写 output_dir 旁的 staging
     // 目录，全部写成功后再替换进 output_dir。转换中途失败时交付集合不被
     // 污染（旧文件保持原样）；排除产物清除挪到 publish 阶段先执行。
-    // 锚定解析后的 output_dir：符号链接跨盘时词法 parent 会让 rename
-    // 跨设备失败（EXDEV）。
-    let staging = staging_dir(&output_anchor(&config.output_dir));
+    // staging 挂在入口持锁锚点旁（不重解析 output_dir——见 publish_outputs
+    // 的 anchor 契约；符号链接跨盘时词法 parent 会让 rename 跨设备失败）。
+    let staging = staging_dir(anchor);
     fs::create_dir_all(&staging).map_err(|source| Error::Io {
         path: staging.clone(),
         source,
@@ -353,7 +354,7 @@ fn convert_verified(
         }
     };
 
-    let publish = publish_outputs(&staging, &config.output_dir, &staged);
+    let publish = publish_outputs(&staging, anchor, &staged);
     let _ = fs::remove_dir_all(&staging);
     publish?;
 
@@ -499,26 +500,27 @@ fn deliverable_names(diagnostic: bool) -> Vec<&'static str> {
 /// 目录（旧交付集的唯一副本可能在其中）并在错误信息中指明。成功后的备份
 /// 清理失败同样报错（残留带标记备份会让下次运行 fail-closed 报歧义，不在
 /// 成功路径静默埋雷）。
+///
+/// `anchor` 必须是入口已持锁的解析锚点（`output_anchor` 在持锁前解析
+/// 一次）：转换全程不再对可变的 output_dir 重解析——否则 symlink 中途
+/// 改指会让 staging/publish 落到新目标，而排他锁仍护旧目标。
 fn publish_outputs(
     staging: &Path,
-    output_dir: &Path,
+    anchor: &Path,
     staged: &[(&'static str, &'static str)],
 ) -> Result<()> {
-    fs::create_dir_all(output_dir).map_err(|source| Error::Io {
-        path: output_dir.to_path_buf(),
+    fs::create_dir_all(anchor).map_err(|source| Error::Io {
+        path: anchor.to_path_buf(),
         source,
     })?;
-    // 锚定真实路径：staging/backup/恢复都以此为准（符号链接跨盘时
-    // 词法 parent 会让 rename 跨设备失败）。
-    let anchor = output_anchor(output_dir);
-    recover_interrupted_publish(&anchor, staged)?;
-    let backup = backup_dir(&anchor);
+    recover_interrupted_publish(anchor, staged)?;
+    let backup = backup_dir(anchor);
     fs::create_dir_all(&backup).map_err(|source| Error::Io {
         path: backup.clone(),
         source,
     })?;
     let mut installed = Vec::new();
-    let publish_error = match swap_outputs(staging, output_dir, &backup, staged, &mut installed) {
+    let publish_error = match swap_outputs(staging, anchor, &backup, staged, &mut installed) {
         Ok(()) => {
             // 成功清理：先逐个删除备份内受管文件，全部删成才删标记与目录。
             // 删不动（典型如 Windows 临时文件锁）时保留带标记备份并立即
@@ -546,7 +548,7 @@ fn publish_outputs(
         }
         Err(error) => error,
     };
-    match restore_backup(output_dir, &backup, staged, &installed) {
+    match restore_backup(anchor, &backup, staged, &installed) {
         Ok(()) => {
             // 恢复完成后才允许清备份：回滚不完整时备份是旧交付集的唯一副本。
             let _ = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER));
@@ -1446,8 +1448,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn publish_outputs_resolves_symlinked_output_dir() {
-        // output_dir 是符号链接：staging/backup 锚定到真实目录旁，publish
-        // 的 rename 不跨设备（词法 parent 方案在链接与目标跨盘时必 EXDEV）。
+        // output_dir 是符号链接：调用方先锚定（生产路径在持锁前解析一次），
+        // staging/backup 落在真实目录旁，publish 的 rename 不跨设备（词法
+        // parent 方案在链接与目标跨盘时必 EXDEV）。
         let root =
             std::env::temp_dir().join(format!("lust-publish-symlink-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1455,11 +1458,12 @@ mod tests {
         let link = root.join("link");
         std::fs::create_dir_all(&real).expect("real");
         std::os::unix::fs::symlink(&real, &link).expect("symlink");
-        let staging = staging_dir(&output_anchor(&link));
+        let anchor = output_anchor(&link);
+        let staging = staging_dir(&anchor);
         std::fs::create_dir_all(&staging).expect("staging");
         std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
 
-        publish_outputs(&staging, &link, &[(MANIFEST_NAME, MANIFEST_NAME)]).expect("publish");
+        publish_outputs(&staging, &anchor, &[(MANIFEST_NAME, MANIFEST_NAME)]).expect("publish");
 
         assert_eq!(
             std::fs::read(real.join(MANIFEST_NAME)).expect("read"),
