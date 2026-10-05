@@ -93,7 +93,13 @@ pub fn convert_with_config(
         .into_iter()
         .map(|name| (name, name))
         .collect();
-    let anchor = output_anchor(&config.output_dir);
+    // 持锁前把 output_dir 锚定到稳定绝对路径：入口 cwd 是绝对化回退的
+    // 基准，避免相对 output_dir 被进程级 set_current_dir 漂移改指。
+    let entry_cwd = std::env::current_dir().map_err(|source| Error::Validation {
+        stage: "anchor",
+        message: format!("could not determine the process current directory: {source}"),
+    })?;
+    let anchor = output_anchor(&config.output_dir, &entry_cwd);
     // 排他锁覆盖 恢复→发布 全程：两进程并发同 output_dir 时，后者会把
     // 前者的在途备份误判为中断事务并恢复，造成新旧产物混杂。进程退出
     // 由 OS 自动放锁，崩溃不留死锁；锁文件是 output_dir 的兄弟点文件，
@@ -104,7 +110,7 @@ pub fn convert_with_config(
     // 不是任何事物的唯一副本；删除失败不阻塞本次转换。
     remove_stale_staging(&anchor);
     let verified = verify_source_dir(&config.source_dir)?;
-    convert_verified(config, config_toml_bytes, &verified, &anchor)
+    convert_verified(config, config_toml_bytes, &verified, &anchor, &entry_cwd)
 }
 
 fn convert_verified(
@@ -112,6 +118,7 @@ fn convert_verified(
     config_toml_bytes: &[u8],
     verified: &VerifiedSourceSet,
     anchor: &Path,
+    entry_cwd: &Path,
 ) -> Result<ConvertOutputPaths> {
     let net_xml = read_verified(verified, "scenario/lust.net.xml")?;
     let tll_xml = read_verified(verified, "scenario/tll.static.xml")?;
@@ -362,7 +369,7 @@ fn convert_verified(
     // 入口持锁锚点上——output_dir 符号链接若在转换中途被改指，词法路径会
     // 指向未写入的新目标。返回前校验别名仍解析到同一锚点，漂移即
     // fail-closed 并指明实际落位。
-    let current_anchor = output_anchor(&config.output_dir);
+    let current_anchor = output_anchor(&config.output_dir, entry_cwd);
     if current_anchor != *anchor {
         return Err(Error::Validation {
             stage: "publish",
@@ -470,8 +477,11 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
 /// staging/backup 的锚定路径：output_dir 若是（跨盘）符号链接，词法
 /// parent 会把 staging/backup 放在链接侧，publish 的 rename 跨设备失败
 /// （EXDEV）。存在则解析到真实路径；尚不存在则解析 parent 再拼回名字；
-/// 都失败回退词法路径。
-fn output_anchor(output_dir: &Path) -> PathBuf {
+/// 都失败时相对 `base`（入口 cwd）绝对化——锚点必须全程绝对且稳定：
+/// 相对回退会被进程级 set_current_dir 漂移改指，锁在旧 cwd 下持有而
+/// staging/publish 在新 cwd 下解析（可能发布进错误目录并与那边的
+/// converter 竞争）。
+fn output_anchor(output_dir: &Path, base: &Path) -> PathBuf {
     if let Ok(resolved) = fs::canonicalize(output_dir) {
         return resolved;
     }
@@ -481,7 +491,7 @@ fn output_anchor(output_dir: &Path) -> PathBuf {
     {
         return resolved_parent.join(name);
     }
-    output_dir.to_path_buf()
+    base.join(output_dir)
 }
 
 /// 交付文件名（staged 名单的唯一事实源；诊断模式不交付 network.lfca /
@@ -1538,7 +1548,7 @@ mod tests {
         let link = root.join("link");
         std::fs::create_dir_all(&real).expect("real");
         std::os::unix::fs::symlink(&real, &link).expect("symlink");
-        let anchor = output_anchor(&link);
+        let anchor = output_anchor(&link, &root);
         let staging = staging_dir(&anchor);
         std::fs::create_dir_all(&staging).expect("staging");
         std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
