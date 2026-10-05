@@ -439,6 +439,12 @@ fn committed_occupied_marks<'r>(
 }
 
 #[cfg(not(test))]
+const CONSUME_PARALLEL_ROWS: usize = 1_024;
+#[cfg(test)]
+const CONSUME_PARALLEL_ROWS: usize = 1;
+const CONSUME_MAX_PARTS: usize = 128;
+
+#[cfg(not(test))]
 const ACQUIRE_PRECHECK_ROWS: usize = 1_024;
 #[cfg(test)]
 const ACQUIRE_PRECHECK_ROWS: usize = 1;
@@ -1661,9 +1667,341 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 槽位表暂移出工作区，按引用原位消费：只读用得上的字段，不把
         // 整个报告搬出再写回（报告由池线程写成，整块搬运多付跨核缓存行）。
         let mut slots = core::mem::take(&mut self.workspace.conflict_slots);
-        let result = self.consume_conflict_slots(&mut slots, tick);
+        let result = match self.consume_conflict_cache_parallel(execution, &mut slots) {
+            Some(mut hits) => self.consume_conflict_serial_hits(&mut slots, &mut hits, tick),
+            None => self.consume_conflict_slots(&mut slots, tick),
+        };
         self.workspace.conflict_slots = slots;
         result.map(|()| true)
+    }
+
+    /// 并行消费与顺序无关的部分：各报告的缓存更新（缓存行按 cache 下标独占；
+    /// 完整预览与基础载荷按段序前缀和追加，不原位覆盖）与 staged 决定（随后
+    /// 整体排序），已消费的 None/Staged 槽位原地改为 Spent。资源、失败与
+    /// 异常槽位记入 `hits`，由协调器按发现序处理。缓存下标不严格递增、
+    /// 预留失败或下标越界时不做任何改动并返回 `None`，交回逐槽串行消费。
+    /// 首个错误之后的缓存与决定也已写入；出错的一拍整体作废，这些暂存
+    /// 在下次尝试开头清空。
+    fn consume_conflict_cache_parallel<'r>(
+        &mut self,
+        execution: &'r crate::kernel::execution::ExecutionResources,
+        slots: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>],
+    ) -> Option<std::sync::MutexGuard<'r, Vec<u32>>> {
+        use crate::kernel::execution::DispatchSlot;
+        use crate::kernel::tick::{MotionBasis, MotionCacheEntry, MotionPreview};
+        #[derive(Clone, Copy)]
+        struct PartStat {
+            previews: usize,
+            bases: usize,
+            decisions: usize,
+            first_preview: Option<MotionPreview>,
+            first_basis: Option<MotionBasis>,
+            first_decision: Option<crate::ConflictDecision>,
+        }
+        let inputs = &self.workspace.conflict_inputs;
+        let count = inputs.len().min(slots.len());
+        if count < CONSUME_PARALLEL_ROWS || !execution.coordinator_parallel() {
+            return None;
+        }
+        // 缓存下标严格递增时，各段的缓存行是互不重叠的连续区间。
+        if inputs[..count]
+            .windows(2)
+            .any(|pair| pair[0].2 >= pair[1].2)
+        {
+            return None;
+        }
+        let parts = execution
+            .dispatch_threads()
+            .saturating_mul(4)
+            .min(CONSUME_MAX_PARTS)
+            .min(count)
+            .max(1);
+        let span = count.div_ceil(parts).max(1);
+        let parts = count.div_ceil(span);
+        fn cache_of(slot: &DispatchSlot<CandidateReport>) -> Option<&CacheUpdates> {
+            match slot {
+                DispatchSlot::Done(Ok(
+                    CandidateReport::None { cache, .. }
+                    | CandidateReport::Staged { cache, .. }
+                    | CandidateReport::Failed { cache, .. },
+                )) => Some(cache),
+                DispatchSlot::Done(Ok(CandidateReport::Resource { resource, .. })) => {
+                    Some(&resource.cache)
+                }
+                _ => None,
+            }
+        }
+        let motion_cache = &self.workspace.motion_cache;
+        let row_matches = |index: usize| {
+            let (vehicle, _, cache_index, _) = inputs[index];
+            motion_cache
+                .get(cache_index)
+                .is_some_and(|entry| entry.vehicle == vehicle)
+        };
+        let mut stats = [PartStat {
+            previews: 0,
+            bases: 0,
+            decisions: 0,
+            first_preview: None,
+            first_basis: None,
+            first_decision: None,
+        }; CONSUME_MAX_PARTS];
+        {
+            let slots = &*slots;
+            execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
+                let stat = &mut stat[0];
+                let start = part * span;
+                for index in start..(start + span).min(count) {
+                    let slot = &slots[index];
+                    if let Some(cache) = cache_of(slot)
+                        && row_matches(index)
+                    {
+                        if let Some(preview) = cache.preview {
+                            stat.previews += 1;
+                            stat.first_preview.get_or_insert(preview);
+                        }
+                        if let Some(basis) = cache.basis {
+                            stat.bases += 1;
+                            stat.first_basis.get_or_insert(basis);
+                        }
+                    }
+                    if let DispatchSlot::Done(Ok(CandidateReport::Staged { decision, .. })) = slot {
+                        stat.decisions += 1;
+                        stat.first_decision.get_or_insert(*decision);
+                    }
+                }
+            });
+        }
+        let stats = &stats[..parts];
+        let total_previews: usize = stats.iter().map(|stat| stat.previews).sum();
+        let total_bases: usize = stats.iter().map(|stat| stat.bases).sum();
+        let total_decisions: usize = stats.iter().map(|stat| stat.decisions).sum();
+        let previews_from = self.workspace.motion_previews.len();
+        let bases_from = self.workspace.motion_bases.len();
+        let decisions_from = self.workspace.conflict_staged_decisions.len();
+        let fits = |from: usize, total: usize| {
+            from.checked_add(total)
+                .is_some_and(|last| u32::try_from(last).is_ok())
+        };
+        let mut hits = execution.sparse_indices()?;
+        hits.clear();
+        if !fits(previews_from, total_previews)
+            || !fits(bases_from, total_bases)
+            || hits.try_reserve(count).is_err()
+            || self
+                .workspace
+                .motion_previews
+                .try_reserve(total_previews)
+                .is_err()
+            || self
+                .workspace
+                .motion_bases
+                .try_reserve(total_bases)
+                .is_err()
+            || reserve(
+                &mut self.workspace.conflict_staged_decisions,
+                total_decisions,
+            )
+            .is_err()
+        {
+            return None;
+        }
+        hits.resize(count, 0);
+        if let Some(filler) = stats.iter().find_map(|stat| stat.first_preview) {
+            self.workspace
+                .motion_previews
+                .resize(previews_from + total_previews, filler);
+        }
+        if let Some(filler) = stats.iter().find_map(|stat| stat.first_basis) {
+            self.workspace
+                .motion_bases
+                .resize(bases_from + total_bases, filler);
+        }
+        if let Some(filler) = stats.iter().find_map(|stat| stat.first_decision) {
+            self.workspace
+                .conflict_staged_decisions
+                .resize(decisions_from + total_decisions, filler);
+        }
+        struct PartOutput<'a> {
+            slots: &'a mut [DispatchSlot<CandidateReport>],
+            rows: &'a mut [MotionCacheEntry],
+            rows_from: usize,
+            previews: &'a mut [MotionPreview],
+            previews_at: usize,
+            bases: &'a mut [MotionBasis],
+            bases_at: usize,
+            decisions: &'a mut [crate::ConflictDecision],
+            hits: &'a mut [u32],
+            found: usize,
+        }
+        let inputs = &self.workspace.conflict_inputs;
+        let found: [usize; CONSUME_MAX_PARTS] = {
+            let mut work: [Option<PartOutput<'_>>; CONSUME_MAX_PARTS] =
+                std::array::from_fn(|_| None);
+            let mut slots_rest = &mut slots[..count];
+            let mut rows_rest: &mut [MotionCacheEntry] = &mut self.workspace.motion_cache;
+            let mut rows_at = 0;
+            let mut previews_rest: &mut [MotionPreview] =
+                &mut self.workspace.motion_previews[previews_from..];
+            let mut bases_rest: &mut [MotionBasis] = &mut self.workspace.motion_bases[bases_from..];
+            let mut decisions_rest: &mut [crate::ConflictDecision] =
+                &mut self.workspace.conflict_staged_decisions[decisions_from..];
+            let mut hits_rest: &mut [u32] = &mut hits;
+            let (mut previews_at, mut bases_at) = (previews_from, bases_from);
+            for (part, (slot, stat)) in work.iter_mut().zip(stats).enumerate() {
+                let start = part * span;
+                let len = span.min(count - start);
+                // 本段缓存行从首个输入的缓存下标起，到下一段首个输入的缓存下标止。
+                let rows_end = if start + len < count {
+                    inputs[start + len].2
+                } else {
+                    usize::MAX
+                }
+                .min(rows_at + rows_rest.len());
+                let rows_from = rows_at;
+                let (rows, rows_tail) =
+                    std::mem::take(&mut rows_rest).split_at_mut(rows_end.max(rows_at) - rows_at);
+                rows_rest = rows_tail;
+                rows_at = rows_end.max(rows_at);
+                let (part_slots, slots_tail) = std::mem::take(&mut slots_rest).split_at_mut(len);
+                slots_rest = slots_tail;
+                let (previews, previews_tail) =
+                    std::mem::take(&mut previews_rest).split_at_mut(stat.previews);
+                previews_rest = previews_tail;
+                let (bases, bases_tail) = std::mem::take(&mut bases_rest).split_at_mut(stat.bases);
+                bases_rest = bases_tail;
+                let (decisions, decisions_tail) =
+                    std::mem::take(&mut decisions_rest).split_at_mut(stat.decisions);
+                decisions_rest = decisions_tail;
+                let (part_hits, hits_tail) = std::mem::take(&mut hits_rest).split_at_mut(len);
+                hits_rest = hits_tail;
+                *slot = Some(PartOutput {
+                    slots: part_slots,
+                    rows,
+                    rows_from,
+                    previews,
+                    previews_at,
+                    bases,
+                    bases_at,
+                    decisions,
+                    hits: part_hits,
+                    found: 0,
+                });
+                previews_at += stat.previews;
+                bases_at += stat.bases;
+            }
+            execution.for_each_part(&mut work[..parts], 1, |part, output| {
+                let Some(out) = output[0].as_mut() else {
+                    return;
+                };
+                let start = part * span;
+                let (mut previews_done, mut bases_done, mut decisions_done) = (0, 0, 0);
+                for (offset, slot) in out.slots.iter_mut().enumerate() {
+                    let index = start + offset;
+                    let (vehicle, _, cache_index, _) = inputs[index];
+                    if let Some(cache) = cache_of(slot)
+                        && let Some(entry) = cache_index
+                            .checked_sub(out.rows_from)
+                            .and_then(|row| out.rows.get_mut(row))
+                            .filter(|entry| entry.vehicle == vehicle)
+                    {
+                        if let Some(horizon) = cache.horizon {
+                            entry.horizon = Some(horizon);
+                        }
+                        if let Some(preview) = cache.preview {
+                            out.previews[previews_done] = preview;
+                            previews_done += 1;
+                            entry.preview_index = std::num::NonZeroU32::new(
+                                u32::try_from(out.previews_at + previews_done)
+                                    .expect("preview index fits u32"),
+                            );
+                        }
+                        if let Some(basis) = cache.basis {
+                            out.bases[bases_done] = basis;
+                            bases_done += 1;
+                            entry.basis_index = std::num::NonZeroU32::new(
+                                u32::try_from(out.bases_at + bases_done)
+                                    .expect("basis index fits u32"),
+                            );
+                        }
+                    }
+                    match slot {
+                        DispatchSlot::Done(Ok(report @ CandidateReport::None { .. })) => {
+                            *report = CandidateReport::Spent(report.take_scratch());
+                        }
+                        DispatchSlot::Done(Ok(report @ CandidateReport::Staged { .. })) => {
+                            if let CandidateReport::Staged { decision, .. } = report {
+                                out.decisions[decisions_done] = *decision;
+                                decisions_done += 1;
+                            }
+                            *report = CandidateReport::Spent(report.take_scratch());
+                        }
+                        _ => {
+                            out.hits[out.found] =
+                                u32::try_from(index).expect("conflict input index fits u32");
+                            out.found += 1;
+                        }
+                    }
+                }
+            });
+            std::array::from_fn(|part| work[part].as_ref().map_or(0, |out| out.found))
+        };
+        // 记下各段命中数：hits[段首] 起的前 found 项有效，其余清零以免误读。
+        for part in 0..parts {
+            let start = part * span;
+            let len = span.min(count - start);
+            hits[start + found[part]..start + len].fill(u32::MAX);
+        }
+        Some(hits)
+    }
+
+    /// 按发现序处理并行消费留下的资源、失败与异常槽位；首个错误即返回。
+    fn consume_conflict_serial_hits(
+        &mut self,
+        slots: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>],
+        hits: &mut std::sync::MutexGuard<'_, Vec<u32>>,
+        tick: u64,
+    ) -> Result<(), StepError> {
+        use crate::kernel::execution::DispatchSlot;
+        for &index in hits.iter() {
+            if index == u32::MAX {
+                continue;
+            }
+            let index = index as usize;
+            let (vehicle, sequence, _, state) = self.workspace.conflict_inputs[index];
+            let slot = &mut slots[index];
+            let report = match slot {
+                DispatchSlot::Done(Ok(report)) => report,
+                DispatchSlot::Done(Err(error)) => {
+                    let error = *error;
+                    *slot = DispatchSlot::Skipped;
+                    return Err(error);
+                }
+                DispatchSlot::Pending | DispatchSlot::Skipped => {
+                    *slot = DispatchSlot::Skipped;
+                    return Err(StepError::ConflictInvariantViolation);
+                }
+            };
+            let spent = report.take_scratch();
+            let result = match &*report {
+                CandidateReport::Resource { resource, .. } => self.consume_candidate_resource(
+                    vehicle,
+                    sequence,
+                    state,
+                    tick,
+                    resource.clone(),
+                    &spent,
+                ),
+                CandidateReport::Failed { error, .. } => Err(*error),
+                // None/Staged 已在并行段消费；Spent 不得进入消费（每槽每拍一次）。
+                CandidateReport::None { .. }
+                | CandidateReport::Staged { .. }
+                | CandidateReport::Spent(_) => Err(StepError::ConflictInvariantViolation),
+            };
+            *slot = DispatchSlot::Done(Ok(CandidateReport::Spent(spent)));
+            result?;
+        }
+        Ok(())
     }
 
     fn consume_conflict_slots(
@@ -4898,21 +5236,19 @@ mod tests {
             retained, prepared,
             "未消费后缀：槽位 j=3 的失败前后 backing 必须一致（身份+容量）"
         );
-        // 槽位身份断言：j=3 失败后必须是未消费的非 Resource 变体
-        // （None/Staged/Failed）且 capacity 非零。
+        // 槽位身份断言：j=3 失败后必须是非 Resource 变体且 capacity 非零。
+        // 串行消费在首错处停下，j=3 保留未消费的 None/Staged/Failed；并行
+        // 消费已把 None/Staged 槽位原地改为 Spent，backing 同样保留。
         {
             let step = world.state.step_workspace();
             let crate::kernel::execution::DispatchSlot::Done(Ok(report)) =
                 &step.workspace.conflict_slots[J]
             else {
-                panic!("槽位 j=3 失败后必须保留 Done(Ok) 未消费报告");
+                panic!("槽位 j=3 失败后必须保留 Done(Ok) 报告");
             };
             assert!(
-                !matches!(
-                    report,
-                    CandidateReport::Resource { .. } | CandidateReport::Spent(_)
-                ),
-                "槽位 j=3 未消费报告必须是非 Resource 变体（None/Staged/Failed）"
+                !matches!(report, CandidateReport::Resource { .. }),
+                "槽位 j=3 失败后的报告必须是非 Resource 变体"
             );
             let expected = prepared.0 * core::mem::size_of::<crate::ConflictPassageAddress>()
                 + prepared.1 * core::mem::size_of::<crate::DownstreamInterval>();
