@@ -433,6 +433,9 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
     pub(crate) motion_cache: Vec<crate::kernel::tick::MotionCacheEntry>,
+    /// 上一份运动缓存缓冲，保留旧行（内容无效，只供换入后免去整表补占位行）；
+    /// 任何读取者都不看它。
+    pub(crate) motion_cache_spare: Vec<crate::kernel::tick::MotionCacheEntry>,
     pub(crate) motion_bases: Vec<crate::kernel::tick::MotionBasis>,
     /// `motion_cache` 行引用的完整预览（稀疏，只有近门车辆）。
     pub(crate) motion_previews: Vec<crate::kernel::tick::MotionPreview>,
@@ -464,6 +467,10 @@ pub(crate) struct TickWorkspace {
 
 impl TickWorkspace {
     pub(crate) fn clear_motion_cache(&mut self) {
+        // 较长的一份旧行留作备用缓冲，供并行预览消费换入。
+        if self.motion_cache.len() > self.motion_cache_spare.len() {
+            std::mem::swap(&mut self.motion_cache, &mut self.motion_cache_spare);
+        }
         self.motion_cache.clear();
         self.motion_bases.clear();
         self.motion_previews.clear();
@@ -601,6 +608,7 @@ impl TickWorkspace {
             waiting_staged_storage_mm,
             occupancy_scratch,
             motion_cache,
+            motion_cache_spare,
             motion_bases,
             motion_previews,
             waiting_preview_bases,
@@ -634,6 +642,7 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(next_states)
             + motion_next.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(motion_cache)
+            + crate::kernel::state::vec_bytes(motion_cache_spare)
             + crate::kernel::state::vec_bytes(motion_bases)
             + crate::kernel::state::vec_bytes(motion_previews)
             + crate::kernel::state::vec_bytes(waiting_preview_bases)

@@ -405,6 +405,7 @@ impl crate::kernel::state::WorldState {
                 waiting_staged_storage_mm,
                 occupancy_scratch,
                 motion_cache: Vec::new(),
+                motion_cache_spare: Vec::new(),
                 motion_bases: Vec::new(),
                 motion_previews: Vec::new(),
                 waiting_preview_bases: Vec::new(),
