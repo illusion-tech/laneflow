@@ -92,6 +92,6 @@ fn execution_resource_memory_probe() {
         assert_eq!(output, [1; 4]);
     });
     drop(world);
-    assert_eq!(LIVE_WORKERS.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(live_workers(), 0);
     phase(directory, "dropped", &heap_base, 0, 0);
 }
