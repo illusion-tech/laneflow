@@ -31,7 +31,7 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
     let mut lanes = Vec::new();
     let mut junctions: Vec<SumoJunction> = Vec::new();
     let mut connections = Vec::new();
-    let mut tl_logics = Vec::new();
+    let mut tl_logics: Vec<SumoTlLogic> = Vec::new();
 
     for child in root.children().filter(Node::is_element) {
         match child.tag_name().name() {
@@ -50,7 +50,20 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
                 junctions.push(junction);
             }
             "connection" => connections.push(parse_connection(child)?),
-            "tlLogic" => tl_logics.push(parse_tl_logic(child)?),
+            "tlLogic" => {
+                let logic = parse_tl_logic(child)?;
+                // 重复 tlLogic id fail-closed——net_tl_logic_ids 排序去重后才与
+                // tll.static.xml 做 exact-closure 比对，不查重会静默塌缩歧义
+                // controller 声明（外部 TLL 与 junction/edge/lane id 已同策）。
+                if let Some(previous) = tl_logics.iter().find(|existing| existing.id == logic.id) {
+                    return Err(Error::SumoModel(format!(
+                        "duplicate tlLogic id {:?}: earlier declaration type={:?} \
+                         conflicts with this one",
+                        logic.id, previous.logic_type
+                    )));
+                }
+                tl_logics.push(logic);
+            }
             _ => {}
         }
     }
@@ -344,6 +357,26 @@ mod tests {
 </net>"#;
         let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate edge id");
         assert!(error.to_string().contains("duplicate edge id"), "{error}");
+        assert!(error.to_string().contains("dup"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_tl_logic_id_fails_closed() {
+        // 重复内嵌 tlLogic id 的歧义声明 fail-closed（带冲突声明细节）——
+        // net_tl_logic_ids 排序去重后与 tll.static.xml 的 exact-closure 比对
+        // 会静默塌缩重复，必须在解析期拒绝（外部 TLL 已同策）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="a" from="A" to="B"><lane id="a_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <tlLogic id="dup" type="static" programID="0" offset="0"><phase duration="10" state="G"/></tlLogic>
+  <tlLogic id="dup" type="static" programID="1" offset="5"><phase duration="20" state="r"/></tlLogic>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate tlLogic id");
+        assert!(
+            error.to_string().contains("duplicate tlLogic id"),
+            "{error}"
+        );
         assert!(error.to_string().contains("dup"), "{error}");
     }
 }
