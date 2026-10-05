@@ -70,6 +70,11 @@ mod spawn_overlap_tests;
 #[path = "tests/placement_admission.rs"]
 mod placement_admission_tests;
 
+/// #814 三个数值后端 × worker 数的整世界逐拍对拍。
+#[cfg(test)]
+#[path = "tests/motion_backend_equivalence.rs"]
+mod motion_backend_equivalence;
+
 /// 测试构建中的批次阶段墙钟剖析；无生产 feature、API 或状态字段。
 #[cfg(test)]
 pub(crate) mod performance_profile;
