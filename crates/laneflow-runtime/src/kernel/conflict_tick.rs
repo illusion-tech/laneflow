@@ -646,7 +646,7 @@ impl ConflictTableWrites {
     }
 
     /// 测试绕过准备阶段直接改写资格暂存表时调用：放弃清单，提交改为整表判空。
-    #[cfg(test)]
+    #[cfg(all(test, feature = "placement-fixtures"))]
     pub(crate) fn forget_next_slots(&mut self) {
         self.next.complete = false;
     }
@@ -1673,7 +1673,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 槽位表暂移出工作区，按引用原位消费：只读用得上的字段，不把
         // 整个报告搬出再写回（报告由池线程写成，整块搬运多付跨核缓存行）。
         let mut slots = core::mem::take(&mut self.workspace.conflict_slots);
-        let result = match self.consume_conflict_cache_parallel(execution, &mut slots) {
+        let parallel = self.consume_conflict_cache_parallel(execution, &mut slots);
+        let result = match parallel {
             Some(mut hits) => self.consume_conflict_serial_hits(&mut slots, &mut hits, tick),
             None => self.consume_conflict_slots(&mut slots, tick),
         };
