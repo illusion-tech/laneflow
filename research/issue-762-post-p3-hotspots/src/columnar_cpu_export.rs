@@ -379,8 +379,8 @@ fn instrument_finalize(root: &Path) -> Result<()> {
         ),
         (
             "crates/laneflow-runtime/src/kernel/motion_updates.rs",
-            "        let old = current\n            .active_control(row.slot)",
-            "        super::tick::note_pipeline(28, 1);\n        let old = current\n            .active_control(row.slot)",
+            "        let old = current.active_control(self.order.get(index)?.slot)?;",
+            "        super::tick::note_pipeline(28, 1);\n        let old = current.active_control(self.order.get(index)?.slot)?;",
         ),
         (
             "crates/laneflow-runtime/src/kernel/motion_updates.rs",

@@ -747,12 +747,36 @@ impl MotionUpdates {
         waiting: Option<crate::WaitingMembership>,
         current: &VehicleStore,
     ) -> Result<(), StepError> {
-        let row = self.order[index];
-        let old = current
-            .active_control(row.slot)
+        let changed = self
+            .control_changed(index, status, maneuver, waiting, current)
             .expect("next state has active predecessor");
-        let changed =
-            status != VehicleStatus::Active || waiting != old.waiting || maneuver != old.maneuver;
+        self.set_control_changed(index, status, maneuver, waiting, changed)
+    }
+
+    /// 控制记录相对拍初是否变化；行没有 Active 前驱时返回 `None`。只读，可在
+    /// 并行规划里先算好再交给 [`Self::set_control_changed`]。
+    pub(crate) fn control_changed(
+        &self,
+        index: usize,
+        status: VehicleStatus,
+        maneuver: Option<crate::ManeuverTraversalState>,
+        waiting: Option<crate::WaitingMembership>,
+        current: &VehicleStore,
+    ) -> Option<bool> {
+        let old = current.active_control(self.order.get(index)?.slot)?;
+        Some(status != VehicleStatus::Active || waiting != old.waiting || maneuver != old.maneuver)
+    }
+
+    /// 同 [`Self::set_control`]，`changed` 由调用方按 [`Self::control_changed`] 算好。
+    pub(crate) fn set_control_changed(
+        &mut self,
+        index: usize,
+        status: VehicleStatus,
+        maneuver: Option<crate::ManeuverTraversalState>,
+        waiting: Option<crate::WaitingMembership>,
+        changed: bool,
+    ) -> Result<(), StepError> {
+        let row = self.order[index];
         let replacement = ControlUpdate {
             logical_index: index,
             status,
