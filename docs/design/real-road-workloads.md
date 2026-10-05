@@ -248,7 +248,10 @@ v1 只接受已复核的 201 个 static controllers：
 - group 由“全部 phases 中状态向量相同的受控 connection 等价类”确定，成员
   connection 的字典序决定稳定 group ID；
 - 每个受控 (from_edge, from_lane) 各生成一条 edge-end StopLine（`edge_id =
-  sumo:{from_edge}_{from_lane}`），该车道的 gates 绑本车道线——compiler 的
+  sumo:{该 (from_edge, from_lane) 声明的 lane id}`，即 LaneEdge 所用 id
+  `SumoLane::laneflow_id`；pinned LuST 全部 24,575 条车道的声明 id 均符合
+  `{from_edge}_{from_lane}` 约定，但不得按约定拼造——声明 id 偏离约定时拼造
+  会制造悬空 StopLine 引用），该车道的 gates 绑本车道线——compiler 的
   `ManeuverGateStopLineMismatch` 校验是 LaneEdge 粒度（gate 的 StopLine 必须
   位于 `pathEdges[transitionIndex]` 同一边），from-edge 级共享会让多车道
   进口道的车道 ≥1 gate 绑错线（#253 C4 修正，pinned 536 个多车道受控进口道）；
