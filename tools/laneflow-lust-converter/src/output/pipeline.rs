@@ -94,6 +94,11 @@ pub fn convert_with_config(
         .map(|name| (name, name))
         .collect();
     let anchor = output_anchor(&config.output_dir);
+    // 排他锁覆盖 恢复→发布 全程：两进程并发同 output_dir 时，后者会把
+    // 前者的在途备份误判为中断事务并恢复，造成新旧产物混杂。进程退出
+    // 由 OS 自动放锁，崩溃不留死锁；锁文件是 output_dir 的兄弟点文件，
+    // 不进入交付集。
+    let _output_lock = acquire_output_lock(&anchor)?;
     recover_interrupted_publish(&anchor, &deliverables)?;
     // 崩溃遗留的 staging 目录随恢复一并清理——内容是纯新产物副本，
     // 不是任何事物的唯一副本；删除失败不阻塞本次转换。
@@ -385,6 +390,49 @@ fn semantic_config(config: &LustConverterConfig, diagnostic: bool) -> SemanticCo
             config.static_bundle_url.clone()
         },
     }
+}
+
+/// output_dir 的排他转换锁（兄弟文件 `.lock-<name>`，同卷）：覆盖
+/// 恢复→发布 全程，防止并发 convert 把对方的在途备份误判为中断事务。
+/// 锁本体由 OS 管理（进程退出即放），崩溃残留的锁文件不影响下次运行。
+fn acquire_output_lock(anchor: &Path) -> Result<fs::File> {
+    let name = anchor
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "output".to_owned());
+    let parent = anchor.parent().map(Path::to_path_buf).unwrap_or_default();
+    if !parent.as_os_str().is_empty() {
+        fs::create_dir_all(&parent).map_err(|source| Error::Io {
+            path: parent.clone(),
+            source,
+        })?;
+    }
+    let lock_path = parent.join(format!(".lock-{name}"));
+    let file = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|source| Error::Io {
+            path: lock_path.clone(),
+            source,
+        })?;
+    file.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::Error(source) => Error::Io {
+            path: lock_path.clone(),
+            source,
+        },
+        std::fs::TryLockError::WouldBlock => Error::Validation {
+            stage: "lock",
+            message: format!(
+                "another convert process holds the output lock for {} (lock file: {})",
+                anchor.display(),
+                lock_path.display()
+            ),
+        },
+    })?;
+    Ok(file)
 }
 
 /// staging 目录：output_dir 的兄弟目录 `.staging-<pid>-<name>`（同卷，
@@ -880,8 +928,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, backup_dir,
-        convert_with_config, publish_outputs, remove_stale_staging, restore_backup,
+        BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, acquire_output_lock,
+        backup_dir, convert_with_config, publish_outputs, remove_stale_staging, restore_backup,
         semantic_config, swap_outputs,
     };
     #[cfg(unix)]
@@ -1294,6 +1342,36 @@ mod tests {
             fail_fast.static_bundle_url.as_deref(),
             Some("https://example.invalid/static.tar")
         );
+    }
+
+    #[test]
+    fn convert_fail_closed_when_output_lock_held() {
+        // 另一进程（此处以同进程第二个句柄模拟）持有 output 锁时，
+        // convert 在恢复/验证之前 fail-closed。
+        let root = std::env::temp_dir().join(format!("lust-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        std::fs::create_dir_all(&output).expect("output");
+        let guard = acquire_output_lock(&output).expect("first lock");
+
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("E:/nonexistent-lust"),
+            output_dir: output.clone(),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let toml = format!(
+            "source_dir = 'E:/nonexistent-lust'\noutput_dir = '{}'\n",
+            output.display()
+        );
+        let result = convert_with_config(&config, toml.as_bytes());
+        assert!(
+            matches!(&result, Err(Error::Validation { stage: "lock", .. })),
+            "持锁冲突必须 fail-closed: {result:?}"
+        );
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
