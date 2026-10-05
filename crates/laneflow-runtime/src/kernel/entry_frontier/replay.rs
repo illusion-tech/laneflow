@@ -7,7 +7,7 @@ use super::{
 use crate::kernel::conflict::PreparedApproachEta;
 use crate::kernel::execution::ExecutionResources;
 use crate::kernel::phase::{StepReadView, StepWorkspace};
-use crate::{ApproachEstimate, ConflictPassageAddress, StepError, VehicleState};
+use crate::{ApproachEstimate, ConflictPassageAddress, StepError, VehicleHandle, VehicleState};
 
 #[cfg(not(test))]
 const PARALLEL_ROWS: usize = 1_024;
@@ -53,6 +53,9 @@ pub(crate) struct ReplayScratch {
     estimates: Vec<ApproachEstimate>,
     /// 与 `estimates` 对齐的 cell 下标；未发出或下标无效时为 `u32::MAX`。
     cell_indices: Vec<u32>,
+    /// 与 `estimates` 对齐的发出者（车辆, live 序）；只在发出项上有意义。
+    /// 按 cell 分段插入时直接按项取，不再逐段回扫全部行。
+    owners: Vec<(VehicleHandle, u32)>,
     #[cfg(test)]
     fail_reserve: u8,
 }
@@ -65,6 +68,7 @@ impl ReplayScratch {
             rows,
             estimates,
             cell_indices,
+            owners,
             fail_reserve: _,
         } = self;
         crate::kernel::state::vec_bytes(select_parts)
@@ -75,6 +79,7 @@ impl ReplayScratch {
             + crate::kernel::state::vec_bytes(rows)
             + crate::kernel::state::vec_bytes(estimates)
             + crate::kernel::state::vec_bytes(cell_indices)
+            + crate::kernel::state::vec_bytes(owners)
     }
 
     fn reserve_rows(&mut self, count: usize) -> bool {
@@ -90,7 +95,9 @@ impl ReplayScratch {
         if self.fail_reserve == 2 {
             return false;
         }
-        self.estimates.try_reserve(count).is_ok() && self.cell_indices.try_reserve(count).is_ok()
+        self.estimates.try_reserve(count).is_ok()
+            && self.cell_indices.try_reserve(count).is_ok()
+            && self.owners.try_reserve(count).is_ok()
     }
 }
 
@@ -110,6 +117,7 @@ pub(super) fn demanded(
     scratch.rows.clear();
     scratch.estimates.clear();
     scratch.cell_indices.clear();
+    scratch.owners.clear();
     // 只读并行收集各地址成员的身份、live 序与缓存命中；不可用时原地串行选择。
     let Some(upper) = gather(
         step,
@@ -163,6 +171,10 @@ pub(super) fn demanded(
     scratch
         .cell_indices
         .resize(total.expect("checked replay size"), u32::MAX);
+    scratch.owners.resize(
+        total.expect("checked replay size"),
+        (VehicleHandle::new(0, 0), 0),
+    );
     let emitted = compute(
         step.read_view(),
         &step.workspace.frontier_maintenance,
@@ -391,6 +403,7 @@ fn compute(
         rows: &'a mut [Row],
         estimates: &'a mut [ApproachEstimate],
         cell_indices: &'a mut [u32],
+        owners: &'a mut [(VehicleHandle, u32)],
         emitted: usize,
         valid: bool,
         #[cfg(test)]
@@ -399,16 +412,20 @@ fn compute(
     let mut parts: [Option<Part<'_>>; MAX_PARTS] = std::array::from_fn(|_| None);
     let mut rest = scratch.estimates.as_mut_slice();
     let mut rest_indices = scratch.cell_indices.as_mut_slice();
+    let mut rest_owners = scratch.owners.as_mut_slice();
     let count = scratch.rows.len().div_ceil(span);
     for (part, rows) in parts.iter_mut().zip(scratch.rows.chunks_mut(span)) {
         let cells = rows.iter().map(|row| row.cells).sum();
         let (output, tail) = rest.split_at_mut(cells);
         let (indices, tail_indices) = std::mem::take(&mut rest_indices).split_at_mut(cells);
         rest_indices = tail_indices;
+        let (owners, tail_owners) = std::mem::take(&mut rest_owners).split_at_mut(cells);
+        rest_owners = tail_owners;
         *part = Some(Part {
             rows,
             estimates: output,
             cell_indices: indices,
+            owners,
             emitted: 0,
             valid: true,
             #[cfg(test)]
@@ -426,6 +443,8 @@ fn compute(
         for row in part.rows.iter_mut() {
             let output = &mut part.estimates[offset..offset + row.cells];
             let indices = &mut part.cell_indices[offset..offset + row.cells];
+            let owners = &mut part.owners[offset..offset + row.cells];
+            let owner = (row.input.state.handle, row.input.sequence);
             offset += row.cells;
             let cells = &maintenance.slots[row.input.state.handle.index() as usize].cells;
             let emitted = &mut part.emitted;
@@ -438,6 +457,7 @@ fn compute(
                         Some(wanted),
                         |index, address, estimate| {
                             output[index] = estimate;
+                            owners[index] = owner;
                             *emitted += 1;
                             match read
                                 .conflict_read()
@@ -548,23 +568,13 @@ fn consume(
                 remaining: emitted,
             },
             |range, insert| {
-                let mut offset = 0;
-                for row in &scratch.rows {
-                    let vehicle = row.input.state.handle;
-                    let end = offset + row.cells;
-                    // 未发出项的下标为 u32::MAX，不落在任何段内。
-                    for (position, cell) in scratch.cell_indices[offset..end].iter().enumerate() {
-                        let cell = *cell as usize;
-                        if range.contains(&cell) {
-                            insert(
-                                cell,
-                                vehicle,
-                                row.input.sequence,
-                                scratch.estimates[offset + position],
-                            );
-                        }
+                // 未发出项的下标为 u32::MAX，不落在任何段内。
+                for (position, cell) in scratch.cell_indices.iter().enumerate() {
+                    let cell = *cell as usize;
+                    if range.contains(&cell) {
+                        let (vehicle, sequence) = scratch.owners[position];
+                        insert(cell, vehicle, sequence, scratch.estimates[position]);
                     }
-                    offset = end;
                 }
             },
         )
@@ -859,7 +869,8 @@ mod tests {
                             .sum::<usize>()
                         + scratch.rows.capacity() * size_of::<Row>()
                         + scratch.estimates.capacity() * size_of::<ApproachEstimate>()
-                        + scratch.cell_indices.capacity() * size_of::<u32>())
+                        + scratch.cell_indices.capacity() * size_of::<u32>()
+                        + scratch.owners.capacity() * size_of::<(VehicleHandle, u32)>())
                         as u64
                 );
                 assert!(bytes > 0);
