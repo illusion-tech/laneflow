@@ -3333,14 +3333,44 @@ impl<'a> ConflictRead<'a> {
     }
 
     fn zone_owned_by_other(self, zone: ConflictZoneOrdinal, owner: VehicleHandle) -> bool {
+        self.zone_committed_by_other(zone, owner) || self.zone_staged_by_other(zone, owner)
+    }
+
+    fn zone_committed_by_other(self, zone: ConflictZoneOrdinal, owner: VehicleHandle) -> bool {
         let index = self.zone_index(zone);
         self.committed.cells.get(index).is_some_and(|cell| {
             cell.zone_committed_owner
                 .is_some_and(|other| other != owner)
-        }) || self
-            .cell_workspace()
+        })
+    }
+
+    fn zone_staged_by_other(self, zone: ConflictZoneOrdinal, owner: VehicleHandle) -> bool {
+        let index = self.zone_index(zone);
+        self.cell_workspace()
             .get(index)
             .is_some_and(|cell| cell.zone_staged_owner.is_some_and(|other| other != owner))
+    }
+
+    /// 只查已提交 owner：资源获取期间已提交表不变，可在获取循环前并行判定。
+    pub(crate) fn cells_committed_unavailable(
+        self,
+        owner: VehicleHandle,
+        cells: &[ConflictPassageAddress],
+    ) -> bool {
+        cells
+            .iter()
+            .any(|cell| self.zone_committed_by_other(cell.zone, owner))
+    }
+
+    /// 只查本拍暂存 owner；与 `cells_committed_unavailable` 合起来即 `cells_unavailable`。
+    pub(crate) fn cells_staged_unavailable(
+        self,
+        owner: VehicleHandle,
+        cells: &[ConflictPassageAddress],
+    ) -> bool {
+        cells
+            .iter()
+            .any(|cell| self.zone_staged_by_other(cell.zone, owner))
     }
 
     /// 判断候选 cells 中是否存在已被其他 owner 持有的冲突区。

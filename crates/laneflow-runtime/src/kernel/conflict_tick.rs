@@ -402,6 +402,48 @@ struct EvaluatedGate {
     waiting_zone: Option<WaitingZoneOrdinal>,
 }
 
+/// 资源获取期间已提交 owner 不变：候选多时先分段并行判定已提交占用，
+/// 获取循环只对未被已提交 owner 挡住的候选查本拍暂存 owner，判定与逐个
+/// 完整检查相同。
+fn committed_occupied_marks<'r>(
+    read: crate::kernel::conflict::ConflictRead<'_>,
+    candidates: &[ConflictCandidate],
+    cells: &[crate::ConflictPassageAddress],
+    execution: Option<&'r crate::kernel::execution::ExecutionResources>,
+) -> Option<std::sync::MutexGuard<'r, Vec<u32>>> {
+    let count = candidates.len();
+    let resources = execution
+        .filter(|resources| resources.coordinator_parallel() && count >= ACQUIRE_PRECHECK_ROWS)?;
+    let mut marks = resources.sparse_indices()?;
+    marks.clear();
+    marks.try_reserve(count).ok()?;
+    marks.resize(count, 0);
+    let span = count
+        .div_ceil(
+            resources
+                .dispatch_threads()
+                .saturating_mul(4)
+                .min(ACQUIRE_PRECHECK_MAX_PARTS),
+        )
+        .max(1);
+    resources.for_each_part(&mut marks, span, |part, output| {
+        for (offset, mark) in output.iter_mut().enumerate() {
+            let candidate = &candidates[part * span + offset];
+            *mark = u32::from(read.cells_committed_unavailable(
+                candidate.vehicle,
+                &cells[candidate.cells_start..candidate.cells_end],
+            ));
+        }
+    });
+    Some(marks)
+}
+
+#[cfg(not(test))]
+const ACQUIRE_PRECHECK_ROWS: usize = 1_024;
+#[cfg(test)]
+const ACQUIRE_PRECHECK_ROWS: usize = 1;
+const ACQUIRE_PRECHECK_MAX_PARTS: usize = 128;
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct ReadyCandidate {
     key: ConflictCandidateOrderKey,
@@ -409,11 +451,15 @@ struct ReadyCandidate {
 }
 
 /// 全局只比较局部就绪队首。容器位置不改变 Waiting 冻结的前后顺序。
+/// 无 Waiting 区的候选按（键, 下标）有序时（准备阶段已排序）不进堆，
+/// 按下标顺序流出，与堆顶（各 Waiting 区队首）逐个比较；否则全部进堆。
 #[derive(Default)]
 pub(crate) struct ConflictSchedule {
     ready: std::collections::BinaryHeap<std::cmp::Reverse<ReadyCandidate>>,
     successors: Vec<Option<usize>>,
     local: Vec<(WaitingZoneOrdinal, u32, usize)>,
+    /// 有序流的下一个下标；`None` 表示无 Waiting 区候选全部在堆里。
+    stream: Option<usize>,
 }
 
 impl ConflictSchedule {
@@ -425,6 +471,19 @@ impl ConflictSchedule {
         self.ready.clear();
         self.successors.clear();
         self.local.clear();
+        let mut previous: Option<ReadyCandidate> = None;
+        let sorted = candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| candidate.waiting_zone.is_none())
+            .all(|(index, candidate)| {
+                let item = ReadyCandidate {
+                    key: candidate.key,
+                    index,
+                };
+                previous.replace(item).is_none_or(|before| before <= item)
+            });
+        self.stream = sorted.then_some(0);
         #[cfg(test)]
         if candidates.len() > self.ready.capacity() {
             crate::kernel::conflict::check_allocation_failpoint()
@@ -442,7 +501,7 @@ impl ConflictSchedule {
                     .ok_or(StepError::WaitingInvariantViolation)?
                     .get();
                 self.local.push((zone, order, index));
-            } else {
+            } else if !sorted {
                 self.ready.push(std::cmp::Reverse(ReadyCandidate {
                     key: candidate.key,
                     index,
@@ -464,6 +523,27 @@ impl ConflictSchedule {
     }
 
     fn next(&mut self, candidates: &[ConflictCandidate]) -> Option<usize> {
+        if let Some(start) = self.stream {
+            let streamed = candidates[start.min(candidates.len())..]
+                .iter()
+                .position(|candidate| candidate.waiting_zone.is_none())
+                .map(|offset| start + offset);
+            let take_stream = match (streamed, self.ready.peek()) {
+                (None, _) => false,
+                (Some(_), None) => true,
+                (Some(index), Some(std::cmp::Reverse(head))) => {
+                    ReadyCandidate {
+                        key: candidates[index].key,
+                        index,
+                    } < *head
+                }
+            };
+            if let (true, Some(index)) = (take_stream, streamed) {
+                self.stream = Some(index + 1);
+                return Some(index);
+            }
+            self.stream = Some(streamed.unwrap_or(candidates.len()));
+        }
         let std::cmp::Reverse(item) = self.ready.pop()?;
         if let Some(index) = self.successors[item.index] {
             self.ready.push(std::cmp::Reverse(ReadyCandidate {
@@ -481,6 +561,7 @@ impl ConflictSchedule {
             ready,
             successors,
             local,
+            stream: _,
         } = self;
         ready.capacity() * std::mem::size_of::<std::cmp::Reverse<ReadyCandidate>>()
             + successors.capacity() * std::mem::size_of::<Option<usize>>()
@@ -1185,7 +1266,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         self.prepare_conflict_candidates(delta_s, tick, execution)?;
-        self.acquire_conflict_candidates(tick)
+        self.acquire_conflict_candidates_with(tick, execution)
     }
 
     /// 清空暂存、重建求值前沿，并求值全部活动车辆的 Gate 候选。
@@ -2544,12 +2625,27 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     }
 
     /// 按稳定顺序仲裁候选：授予组合资源并暂存本拍决定。
+    #[cfg(test)]
     pub(crate) fn acquire_conflict_candidates(&mut self, tick: u64) -> Result<(), StepError> {
+        self.acquire_conflict_candidates_with(tick, None)
+    }
+
+    fn acquire_conflict_candidates_with(
+        &mut self,
+        tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), StepError> {
         self.workspace.conflict_schedule.prepare(
             &self.workspace.conflict_candidates,
             &self.workspace.waiting_plan_by_vehicle,
         )?;
         self.prepare_waiting_dependencies(true)?;
+        let marks = committed_occupied_marks(
+            self.conflict_read(),
+            &self.workspace.conflict_candidates,
+            &self.workspace.conflict_candidate_cells,
+            execution,
+        );
         #[cfg(test)]
         crate::kernel::conflict::count_conflict_work(|counts| {
             counts.candidates += self.workspace.conflict_candidates.len();
@@ -2575,13 +2671,24 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             };
             // 本拍此前接受的候选也参与最高优先级 Occupied 判定。
             // yield target 与申请 passage 共用 zone，zone 摘要覆盖两者。
+            let occupied = cycle_clear && {
+                let cells = &self.workspace.conflict_candidate_cells
+                    [candidate.cells_start..candidate.cells_end];
+                match &marks {
+                    Some(marks) => {
+                        marks[index] != 0
+                            || self
+                                .conflict_read()
+                                .cells_staged_unavailable(candidate.vehicle, cells)
+                    }
+                    None => self
+                        .conflict_read()
+                        .cells_unavailable(candidate.vehicle, cells),
+                }
+            };
             let reason = if !cycle_clear {
                 Some(ConflictNoGrantReason::WaitingCycle)
-            } else if self.conflict_read().cells_unavailable(
-                candidate.vehicle,
-                &self.workspace.conflict_candidate_cells
-                    [candidate.cells_start..candidate.cells_end],
-            ) {
+            } else if occupied {
                 Some(ConflictNoGrantReason::ConflictOccupied)
             } else {
                 candidate.preflight_no_grant
