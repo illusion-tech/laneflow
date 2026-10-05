@@ -5203,7 +5203,7 @@ pub(crate) fn force_conflict_fuse() -> ForceConflictFuseGuard {
 
 /// 测试 oracle：禁用可达性排除，完整求值以检验筛选等价和底层槽位协议。
 #[cfg(test)]
-struct FullConflictScanGuard(bool);
+pub(crate) struct FullConflictScanGuard(bool);
 #[cfg(test)]
 impl Drop for FullConflictScanGuard {
     fn drop(&mut self) {
@@ -5213,6 +5213,19 @@ impl Drop for FullConflictScanGuard {
 #[cfg(test)]
 fn full_conflict_scan() -> FullConflictScanGuard {
     FullConflictScanGuard(CONFLICT_FULL_SCAN.with(|flag| flag.replace(true)))
+}
+
+/// 当前线程是否开着完整求值 oracle。
+#[cfg(test)]
+pub(crate) fn full_conflict_scan_enabled() -> bool {
+    CONFLICT_FULL_SCAN.with(std::cell::Cell::get)
+}
+
+/// 拍内清醒线程继承协调线程的 oracle 开关，退出时恢复原值；否则同一拍的
+/// 预览可达性会随领到块的线程不同而不同。
+#[cfg(test)]
+pub(crate) fn inherit_full_conflict_scan(enabled: bool) -> FullConflictScanGuard {
+    FullConflictScanGuard(CONFLICT_FULL_SCAN.with(|flag| flag.replace(enabled)))
 }
 
 #[cfg(test)]

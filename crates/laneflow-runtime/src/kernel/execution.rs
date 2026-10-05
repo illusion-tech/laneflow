@@ -508,6 +508,8 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
     let result = std::sync::Mutex::new(None);
     #[cfg(test)]
     COORDINATOR_BROADCASTS.fetch_add(1, Ordering::Relaxed);
+    #[cfg(test)]
+    let full_scan = super::conflict_tick::full_conflict_scan_enabled();
     pool.broadcast(|context| {
         if context.index() == 0 {
             let _finish = Finish(&done);
@@ -521,6 +523,8 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
         } else {
+            #[cfg(test)]
+            let _full_scan = super::conflict_tick::inherit_full_conflict_scan(full_scan);
             let mut seen = WORK_EPOCH.load(Ordering::Acquire);
             let mut idle = 0_u32;
             while !done.load(Ordering::Acquire) {
