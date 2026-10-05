@@ -56,6 +56,44 @@ mod tests {
         assert_eq!(updates.retained_logical_bytes(), reserved);
     }
 
+    /// #814 验收：提交权威只有一份运动列。发布交换 Current/Next 两套列缓冲，
+    /// 不整表复制，也不经过逻辑值数组写回。
+    #[test]
+    fn publish_exchanges_column_buffers_without_copying_committed_motion() {
+        type Columns = Vec<(*const u32, *const u32, *const u32, *const u16)>;
+        fn columns(blocks: &[MotionBlock]) -> Columns {
+            blocks
+                .iter()
+                .map(|block| {
+                    (
+                        block.route_cursor.as_ptr(),
+                        block.progress_mm.as_ptr(),
+                        block.speed_mm_s.as_ptr(),
+                        block.carry_um.as_ptr(),
+                    )
+                })
+                .collect()
+        }
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(300);
+        world.step(crate::TickInput::new(100)).unwrap();
+        for tick in 0..4 {
+            let committed = columns(&world.state.committed.vehicles.motion);
+            let staged = columns(&world.state.workspace.motion_next.motion);
+            assert_eq!(committed.len(), 300_usize.div_ceil(BLOCK_ROWS));
+            world.step(crate::TickInput::new(100)).unwrap();
+            assert_eq!(
+                columns(&world.state.committed.vehicles.motion),
+                staged,
+                "tick {tick}: published columns must be the staged buffers"
+            );
+            assert_eq!(
+                columns(&world.state.workspace.motion_next.motion),
+                committed,
+                "tick {tick}: previous committed buffers become the next staging area"
+            );
+        }
+    }
+
     #[test]
     fn bound_updates_read_next_columns_and_controls_with_a_physical_hole() {
         let world = crate::kernel::waiting::tests::multi_gate_world(3);
