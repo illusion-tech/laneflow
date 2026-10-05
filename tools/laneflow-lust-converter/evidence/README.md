@@ -16,8 +16,13 @@
 
 ```text
 set LUST_SOURCE_DIR=<pinned c4bd5bd3 的 LuSTScenario 根目录>
-cargo +1.98.0 test --locked -p laneflow-lust-converter --lib -- --ignored
+cargo +1.98.0 test --locked -p laneflow-lust-converter --lib -- --ignored --skip regenerate
 ```
+
+- `--skip regenerate` 不可省略：`--ignored` 会并发跑全部 ignored 测试，其中
+  `regenerate_lust_stub_weld_candidates_manifest` 覆写本目录的候选 manifest
+  基线——与 `lust_stub_weld_candidates_match_manifest` 的比对并行竞争，且
+  漂移基线会被覆写后门检失效。regenerate 只在更新流程中显式单独运行。
 
 - 主测试内部即执行**两次独立诊断转换**并断言清单逐字节一致；验收时完整跑
   两次测试进程，两次落盘（`target/issue253-infeasible-survey.md`）逐字节一致。
@@ -39,8 +44,8 @@ cargo +1.98.0 test --locked -p laneflow-lust-converter --lib -- --ignored
 发射语义、验收常数或源数据变化导致清单漂移时：
 
 1. 跑上方命令两次，核对两次落盘逐字节一致并记录新 SHA-256；
-2. 以新生成内容更新本目录对应文件（manifest 用
-   `convert::junction::stub_weld_manifest_tests::regenerate_lust_stub_weld_candidates_manifest`，
+2. 以新生成内容更新本目录对应文件（manifest 显式单独跑
+   `cargo +1.98.0 test --locked -p laneflow-lust-converter --lib regenerate_lust_stub_weld_candidates_manifest -- --ignored`，
    survey 取 `target/issue253-infeasible-survey.md`）；
 3. commit message 记录新 digest 与漂移原因；G1 授权域（manifest 候选集合）
    变化须先回 #253 走 G1。
