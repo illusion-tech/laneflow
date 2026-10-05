@@ -1136,6 +1136,7 @@ impl crate::kernel::state::WorldState {
             + self.workspace.waiting_dependencies.retained_logical_bytes() as usize
             + vec_bytes(&self.workspace.conflict_staged_decisions)
             + vec_bytes(&self.workspace.motion_cache)
+            + vec_bytes(&self.workspace.motion_cache_spare)
             + vec_bytes(&self.committed.latest_conflict_decisions);
         u64::try_from(bytes).expect("Conflict retained bytes fit u64")
     }

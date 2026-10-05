@@ -1782,6 +1782,7 @@ fn consume_waiting_previews_parallel(
     chunk_size: usize,
     cache_limit: usize,
     motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
+    motion_cache_spare: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
     next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
     motion_previews: &mut Vec<crate::kernel::tick::MotionPreview>,
@@ -1885,19 +1886,30 @@ fn consume_waiting_previews_parallel(
     {
         return None;
     }
-    // 缓存容量即 `cache_limit`，稠密行不会超过它，不再分配。
-    motion_cache.clear();
-    motion_cache.resize(
-        dense,
-        MotionCacheEntry {
-            vehicle: crate::VehicleHandle::new(0, 0),
-            update_sequence: 0,
-            gate_reachable: None,
-            horizon: None,
-            preview_index: None,
-            basis_index: None,
-        },
-    );
+    // 缓存容量即 `cache_limit`，稠密行不会超过它，不再分配。稠密行随后全部
+    // 由并行段覆盖：备用缓冲留有足够旧行且容量够时换入，只截短、补齐不足部分，
+    // 不再整表补占位行。
+    let filler = MotionCacheEntry {
+        vehicle: crate::VehicleHandle::new(0, 0),
+        update_sequence: 0,
+        gate_reachable: None,
+        horizon: None,
+        preview_index: None,
+        basis_index: None,
+    };
+    if motion_cache_spare.len() > motion_cache.len() && motion_cache_spare.capacity() >= dense {
+        std::mem::swap(motion_cache, motion_cache_spare);
+    }
+    motion_cache.truncate(dense);
+    motion_cache.resize(dense, filler);
+    // 测试构建先填哨兵行，并行段之后检查每一行都被覆盖。
+    #[cfg(test)]
+    let sentinel = crate::VehicleHandle::new(u32::MAX, u32::MAX);
+    #[cfg(test)]
+    motion_cache.fill(MotionCacheEntry {
+        vehicle: sentinel,
+        ..filler
+    });
     if let Some(filler) = used_stats.iter().find_map(|stat| stat.first_basis) {
         motion_bases.resize(bases_from + total_bases, filler);
     }
@@ -1989,6 +2001,11 @@ fn consume_waiting_previews_parallel(
             }
         });
     }
+    #[cfg(test)]
+    assert!(
+        motion_cache.iter().all(|entry| entry.vehicle != sentinel),
+        "并行预览消费必须覆盖每一行稠密运动缓存"
+    );
     Some(match first_bad {
         Some((_, error)) => Err(error),
         None => Ok(()),
@@ -2327,6 +2344,7 @@ fn prepare_waiting_previews_dispatched(
         let bases = &bases[..chunk_count];
         let payloads = &workspace.waiting_preview_payloads[..chunk_count];
         let motion_cache = &mut workspace.motion_cache;
+        let motion_cache_spare = &mut workspace.motion_cache_spare;
         let next_states = &mut workspace.next_states;
         let motion_bases = &mut workspace.motion_bases;
         let motion_previews = &mut workspace.motion_previews;
@@ -2340,6 +2358,7 @@ fn prepare_waiting_previews_dispatched(
                 chunk_size,
                 cache_limit,
                 motion_cache,
+                motion_cache_spare,
                 next_states,
                 motion_bases,
                 motion_previews,
@@ -2469,6 +2488,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .workspace
             .motion_cache
             .try_reserve(self.derived.active_order.len());
+        // 备用缓冲与缓存同容量，换入时不再分配；预留失败只是不换入。
+        let spare = &mut self.workspace.motion_cache_spare;
+        let _ = spare.try_reserve(self.derived.active_order.len().saturating_sub(spare.len()));
         let cache_limit = self.workspace.motion_cache.capacity();
         #[cfg(test)]
         let cache_limit = cache_limit.min(crate::kernel::tick::motion_cache_limit());
