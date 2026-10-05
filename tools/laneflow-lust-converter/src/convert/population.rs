@@ -41,26 +41,31 @@ pub struct PopulationRecord {
     pub source_vehicle_ordinal: u64,
 }
 
-/// Filter / sort / rank DUE vehicles into the shared population table.
-pub fn select_population(
-    vehicles: &[DueVehicle],
-    require_lust_candidate_count: bool,
-) -> Result<Vec<PopulationRecord>> {
+/// 候选谓词的单一事实源：depart ∈ [28800, 30600) 且为 passenger vtype。
+/// `select_population` 的候选过滤与 DUE 解析期的 edges 惰性物化
+/// （`parse_due_routes_xml_filtered`）共用此判定，两侧不得各自实现。
+pub(crate) fn is_population_candidate(type_id: &str, depart: &ExactDecimal) -> bool {
     let start: ExactDecimal = POPULATION_DEPART_START_SECONDS
         .parse()
         .expect("literal decimal");
     let end: ExactDecimal = POPULATION_DEPART_END_SECONDS
         .parse()
         .expect("literal decimal");
-    let passenger: HashSet<&str> = LUST_PASSENGER_VTYPE_IDS.iter().copied().collect();
+    depart.is_greater_or_equal(start)
+        && depart.is_less_than(end)
+        && LUST_PASSENGER_VTYPE_IDS.contains(&type_id)
+}
+
+/// Filter / sort / rank DUE vehicles into the shared population table.
+pub fn select_population(
+    vehicles: &[DueVehicle],
+    require_lust_candidate_count: bool,
+) -> Result<Vec<PopulationRecord>> {
     let known: HashSet<&str> = KNOWN_SOURCE_VTYPE_IDS.iter().copied().collect();
 
     let mut candidates = Vec::new();
     for vehicle in vehicles {
-        if !vehicle.depart.is_greater_or_equal(start) || !vehicle.depart.is_less_than(end) {
-            continue;
-        }
-        if !passenger.contains(vehicle.type_id.as_str()) {
+        if !is_population_candidate(&vehicle.type_id, &vehicle.depart) {
             continue;
         }
         candidates.push(vehicle);

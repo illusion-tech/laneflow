@@ -24,7 +24,7 @@ use crate::{
         },
     },
     sumo::{
-        DueVehicle, LUST_FRAME_ID, SumoNetwork, SumoTlLogic, parse_due_routes_xml,
+        DueVehicle, LUST_FRAME_ID, SumoNetwork, SumoTlLogic, parse_due_routes_xml_filtered,
         parse_sumo_network_xml, parse_tll_static_xml, parse_vtypes_xml,
     },
 };
@@ -210,7 +210,13 @@ pub(crate) fn convert_static_from_xml_with_due_and_source(
     let mut due_vehicles = Vec::new();
     for (ordinal, xml) in due_xmls.into_iter().enumerate() {
         let file_ordinal = u8::try_from(ordinal).expect("0..2 fits u8");
-        due_vehicles.extend(parse_due_routes_xml(xml, file_ordinal)?);
+        // edges 只为 population 候选物化（谓词与 select_population 单源）——
+        // 全网 8,771,017 条 edge 引用中约 95% 属于非候选，永不消费。
+        due_vehicles.extend(parse_due_routes_xml_filtered(
+            xml,
+            file_ordinal,
+            crate::convert::population::is_population_candidate,
+        )?);
     }
     convert_static_with_due(
         &network,

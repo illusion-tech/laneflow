@@ -18,7 +18,7 @@ use crate::{
     output::geom::{BudgetOutcome, InfeasibilityMechanism, ReportSource},
     source::{PINNED_SOURCE_FILES, verify::VerifiedLustInputs},
     sumo::{
-        ExactDecimal, LUST_FRAME_ID, parse_due_routes_xml, parse_sumo_network_xml,
+        ExactDecimal, LUST_FRAME_ID, parse_due_routes_xml_filtered, parse_sumo_network_xml,
         parse_tll_static_xml, parse_vtypes_xml,
     },
 };
@@ -95,7 +95,8 @@ fn fixture_topology_is_byte_deterministic() {
 
 #[test]
 fn fixture_due_parse_keeps_source_ordinals() {
-    let vehicles = parse_due_routes_xml(&fixture_due0_xml(), 0).expect("parse due0");
+    let vehicles =
+        parse_due_routes_xml_filtered(&fixture_due0_xml(), 0, |_, _| true).expect("parse due0");
     assert_eq!(vehicles.len(), 6);
     assert_eq!(vehicles[0].id, "early");
     assert_eq!(vehicles[0].source_file_ordinal, 0);

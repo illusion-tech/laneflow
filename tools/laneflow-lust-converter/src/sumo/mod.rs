@@ -12,7 +12,7 @@ pub mod vtype_parse;
 
 pub use decimal::ExactDecimal;
 pub use due::DueVehicle;
-pub use due_parse::parse_due_routes_xml;
+pub use due_parse::parse_due_routes_xml_filtered;
 pub use net::{LUST_FRAME_ID, SUMO_ID_PREFIX, SumoConnection, SumoLane, SumoNetwork, SumoTlLogic};
 pub use net_parse::parse_sumo_network_xml;
 pub use poly_parse::parse_parking_polygon_count;
