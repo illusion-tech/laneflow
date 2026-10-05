@@ -1767,6 +1767,48 @@ fn discover_preview_inputs_parallel(
         .then_some(crate::StepError::WaitingInvariantViolation)
 }
 
+/// 并行预览消费一段的统计：首个不合格槽及其错误、要存的基础与预览、全部预览，
+/// 以及首个载荷值（预留后的占位填充，随即被并行段覆盖）。
+#[derive(Clone, Copy)]
+struct PreviewPartStat {
+    bad: Option<(usize, crate::StepError)>,
+    bases: usize,
+    stored_previews: usize,
+    previews: usize,
+    first_basis: Option<crate::kernel::tick::MotionBasis>,
+    first_preview: Option<crate::kernel::tick::MotionPreview>,
+}
+
+impl PreviewPartStat {
+    const EMPTY: Self = Self {
+        bad: None,
+        bases: 0,
+        stored_previews: 0,
+        previews: 0,
+        first_basis: None,
+        first_preview: None,
+    };
+
+    /// 记入一个已完成槽：`basis` 已按 `cache_limit` 过滤，`preview` 是槽引用的预览。
+    fn note(
+        &mut self,
+        index: usize,
+        cache_limit: usize,
+        basis: Option<crate::kernel::tick::MotionBasis>,
+        preview: Option<crate::kernel::tick::MotionPreview>,
+    ) {
+        if let Some(basis) = basis {
+            self.bases += 1;
+            self.first_basis.get_or_insert(basis);
+        }
+        if let Some(preview) = preview {
+            self.previews += 1;
+            self.stored_previews += usize::from(index < cache_limit);
+            self.first_preview.get_or_insert(preview);
+        }
+    }
+}
+
 /// P2 并行规范消费：分段找首个未完成或出错的槽并清点各段的稀疏载荷，
 /// 再并行写稠密的同拍缓存行、基础/预览载荷与 `next_states`；各段载荷按段序
 /// 前缀和定位，下标与串行逐槽按序追加相同。
@@ -1786,29 +1828,31 @@ fn consume_waiting_previews_parallel(
     next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
     motion_previews: &mut Vec<crate::kernel::tick::MotionPreview>,
+    chunk_stats: Option<&[Option<PreviewPartStat>]>,
 ) -> Option<Result<(), crate::StepError>> {
     use super::vehicle_store::MotionValue;
     use crate::kernel::execution::DispatchSlot;
     use crate::kernel::tick::{MotionBasis, MotionCacheEntry, MotionPreview};
-    /// 每段：首个不合格槽及其错误、要存的基础与预览、全部预览，以及首个
-    /// 载荷值（预留后的占位填充，随即被并行段覆盖）。
-    #[derive(Clone, Copy)]
-    struct PartStat {
-        bad: Option<(usize, crate::StepError)>,
-        bases: usize,
-        stored_previews: usize,
-        previews: usize,
-        first_basis: Option<MotionBasis>,
-        first_preview: Option<MotionPreview>,
-    }
     let count = inputs.len().min(slots.len());
-    let parts = execution
-        .dispatch_threads()
-        .saturating_mul(4)
-        .min(PREVIEW_MAX_PARTS)
-        .min(count)
-        .max(1);
-    let span = count.div_ceil(parts).max(1);
+    // 分派各块已统计好且块数不超上限时按块分段，省去单独一遍统计分派。
+    let precomputed = chunk_stats.filter(|stats| {
+        count.div_ceil(chunk_size) <= stats.len().min(PREVIEW_MAX_PARTS)
+            && stats[..count.div_ceil(chunk_size)]
+                .iter()
+                .all(Option::is_some)
+    });
+    let (parts, span) = match precomputed {
+        Some(_) => (count.div_ceil(chunk_size), chunk_size),
+        None => {
+            let parts = execution
+                .dispatch_threads()
+                .saturating_mul(4)
+                .min(PREVIEW_MAX_PARTS)
+                .min(count)
+                .max(1);
+            (parts, count.div_ceil(parts).max(1))
+        }
+    };
     let basis_of = |index: usize, entry: &crate::kernel::tick::WaitingPreviewSlot| {
         if index >= cache_limit {
             return None;
@@ -1824,43 +1868,40 @@ fn consume_waiting_previews_parallel(
             .and_then(|position| payloads[index / chunk_size].get(position.get() as usize - 1))
             .copied()
     };
-    let mut stats = [PartStat {
-        bad: None,
-        bases: 0,
-        stored_previews: 0,
-        previews: 0,
-        first_basis: None,
-        first_preview: None,
-    }; PREVIEW_MAX_PARTS];
-    execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
-        let stat = &mut stat[0];
-        let start = (part * span).min(count);
-        let end = (start + span).min(count);
-        for (index, slot) in slots[start..end].iter().enumerate() {
-            let index = start + index;
-            match slot {
-                DispatchSlot::Done(Ok(entry)) => {
-                    if let Some(basis) = basis_of(index, entry) {
-                        stat.bases += 1;
-                        stat.first_basis.get_or_insert(basis);
-                    }
-                    if let Some(preview) = preview_of(index, entry) {
-                        stat.previews += 1;
-                        stat.stored_previews += usize::from(index < cache_limit);
-                        stat.first_preview.get_or_insert(preview);
-                    }
-                }
-                DispatchSlot::Done(Err(error)) => {
-                    stat.bad = Some((index, *error));
-                    return;
-                }
-                DispatchSlot::Pending | DispatchSlot::Skipped => {
-                    stat.bad = Some((index, crate::StepError::WaitingInvariantViolation));
-                    return;
-                }
+    let mut stats = [PreviewPartStat::EMPTY; PREVIEW_MAX_PARTS];
+    match precomputed {
+        Some(chunk_stats) => {
+            for (stat, chunk) in stats[..parts].iter_mut().zip(chunk_stats) {
+                *stat = chunk.unwrap_or(PreviewPartStat::EMPTY);
             }
         }
-    });
+        None => execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
+            let stat = &mut stat[0];
+            let start = (part * span).min(count);
+            let end = (start + span).min(count);
+            for (index, slot) in slots[start..end].iter().enumerate() {
+                let index = start + index;
+                match slot {
+                    DispatchSlot::Done(Ok(entry)) => {
+                        stat.note(
+                            index,
+                            cache_limit,
+                            basis_of(index, entry),
+                            preview_of(index, entry),
+                        );
+                    }
+                    DispatchSlot::Done(Err(error)) => {
+                        stat.bad = Some((index, *error));
+                        return;
+                    }
+                    DispatchSlot::Pending | DispatchSlot::Skipped => {
+                        stat.bad = Some((index, crate::StepError::WaitingInvariantViolation));
+                        return;
+                    }
+                }
+            }
+        }),
+    }
     let bad_part = stats[..parts].iter().position(|stat| stat.bad.is_some());
     let first_bad = bad_part.and_then(|part| stats[part].bad);
     let used = bad_part.map_or(parts, |part| part + 1);
@@ -2224,6 +2265,10 @@ fn prepare_waiting_previews_dispatched(
             .collect::<Vec<_>>()
     });
     let input_pairs = &workspace.waiting_preview_inputs;
+    // 各块算完后顺带统计并行消费的分段载荷与首个不合格槽；未执行的块保持
+    // `None`，消费时退回单独统计。
+    let chunk_stats: [std::sync::Mutex<Option<PreviewPartStat>>; PREVIEW_MAX_PARTS] =
+        std::array::from_fn(|_| std::sync::Mutex::new(None));
     let compute = |chunk_view: crate::kernel::phase::StepReadView<'_>,
                    start: usize,
                    chunk: &mut [crate::kernel::execution::DispatchSlot<
@@ -2282,6 +2327,38 @@ fn prepare_waiting_previews_dispatched(
                 }
             }
         }
+        if let Some(cell) = chunk_stats.get(start / chunk_size) {
+            let mut stat = PreviewPartStat::EMPTY;
+            for (offset, slot) in chunk.iter().enumerate() {
+                let index = start + offset;
+                match slot {
+                    crate::kernel::execution::DispatchSlot::Done(Ok(entry)) => stat.note(
+                        index,
+                        cache_limit,
+                        entry
+                            .basis_index
+                            .filter(|_| index < cache_limit)
+                            .and_then(|position| bases.get(position.get() as usize - 1))
+                            .copied(),
+                        entry
+                            .preview_index
+                            .and_then(|position| previews.get(position.get() as usize - 1))
+                            .copied(),
+                    ),
+                    crate::kernel::execution::DispatchSlot::Done(Err(error)) => {
+                        stat.bad = Some((index, *error));
+                        break;
+                    }
+                    _ => {
+                        stat.bad = Some((index, crate::StepError::WaitingInvariantViolation));
+                        break;
+                    }
+                }
+            }
+            *cell
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stat);
+        }
         #[cfg(test)]
         if let (started, Some(records)) = (chunk_started, &chunk_records) {
             // 每执行块恰好写一条记录；块计算远超 0ns，0 视作未记录。
@@ -2337,6 +2414,15 @@ fn prepare_waiting_previews_dispatched(
     }
     #[cfg(test)]
     let _consume = preview_stage::begin(preview_stage::CONSUME);
+    let chunk_stats = chunk_stats.map(|cell| {
+        cell.into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    });
+    // 测试注入在分派后改动了槽位时，分派中的统计已过时。
+    #[cfg(test)]
+    let chunk_stats_valid = preview_slot_gap_position().is_none();
+    #[cfg(not(test))]
+    let chunk_stats_valid = true;
     let parallel = if workload >= PREVIEW_PARALLEL_CONSUME_ROWS && execution.coordinator_parallel()
     {
         let inputs = &workspace.waiting_preview_inputs;
@@ -2362,6 +2448,7 @@ fn prepare_waiting_previews_dispatched(
                 next_states,
                 motion_bases,
                 motion_previews,
+                chunk_stats_valid.then_some(&chunk_stats[..]),
             )
         })
     } else {

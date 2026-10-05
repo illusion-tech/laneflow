@@ -348,64 +348,77 @@ impl MotionUpdates {
             .try_reserve(retain_total)
             .map_err(|_| StepError::VehicleStorageAllocFailed)?;
         self.resource_rows.resize(retain_total, 0);
+        // 资源行/稀疏行写入与有效位置位互不依赖，同一次分派完成：第 i 段写第 i 段
+        // 的资源行与稀疏行，并给第 i 块物理块置位。有效位按物理块分段：已消费行
+        // 正是 rank 落在前缀内且已完成的行。
         {
             let order = &self.order[..limit];
+            let reports = &self.reports;
+            let blocks = self.motion.len();
+            let block_chunk = blocks.div_ceil(parts).max(1);
+            let block_parts = blocks.div_ceil(block_chunk);
             let mut retain_rest: &mut [usize] = &mut self.resource_rows;
             let mut special_rest: &mut [u32] = specials;
-            let mut work: [Option<(&mut [usize], &mut [u32])>; ADOPT_MAX_PARTS] =
-                std::array::from_fn(|_| None);
-            for (slot, stat) in work.iter_mut().zip(&stats[..used]) {
-                let (retain, retain_tail) =
-                    std::mem::take(&mut retain_rest).split_at_mut(stat.retain);
-                let (special, special_tail) =
-                    std::mem::take(&mut special_rest).split_at_mut(stat.special);
-                *slot = Some((retain, special));
-                retain_rest = retain_tail;
-                special_rest = special_tail;
+            let mut blocks_rest: &mut [MotionBlock] = &mut self.motion[..blocks];
+            type AdoptWork<'a> = (
+                Option<(&'a mut [usize], &'a mut [u32])>,
+                &'a mut [MotionBlock],
+            );
+            let mut work: [AdoptWork<'_>; ADOPT_MAX_PARTS] =
+                std::array::from_fn(|_| (None, &mut [][..]));
+            for (index, slot) in work.iter_mut().enumerate().take(used.max(block_parts)) {
+                if let Some(stat) = stats[..used].get(index) {
+                    let (retain, retain_tail) =
+                        std::mem::take(&mut retain_rest).split_at_mut(stat.retain);
+                    let (special, special_tail) =
+                        std::mem::take(&mut special_rest).split_at_mut(stat.special);
+                    slot.0 = Some((retain, special));
+                    retain_rest = retain_tail;
+                    special_rest = special_tail;
+                }
+                let take = block_chunk.min(blocks_rest.len());
+                let (part_blocks, blocks_tail) =
+                    std::mem::take(&mut blocks_rest).split_at_mut(take);
+                slot.1 = part_blocks;
+                blocks_rest = blocks_tail;
             }
-            resources.for_each_part(&mut work[..used], 1, |part, work| {
-                let Some((retain, special)) = work[0].as_mut() else {
-                    return;
-                };
-                let start = (part * span).min(limit);
-                let end = (start + span).min(limit);
-                let (mut retain_at, mut special_at) = (0, 0);
-                for (rank, row) in order[start..end].iter().enumerate() {
-                    let rank = start + rank;
-                    let report = reports[row.physical];
-                    if report.finalize_hints.retain() {
-                        retain[retain_at] = rank;
-                        retain_at += 1;
+            resources.for_each_part(&mut work[..used.max(block_parts)], 1, |part, work| {
+                let (rows, blocks) = &mut work[0];
+                if let Some((retain, special)) = rows.as_mut() {
+                    let start = (part * span).min(limit);
+                    let end = (start + span).min(limit);
+                    let (mut retain_at, mut special_at) = (0, 0);
+                    for (rank, row) in order[start..end].iter().enumerate() {
+                        let rank = start + rank;
+                        let report = reports[row.physical];
+                        if report.finalize_hints.retain() {
+                            retain[retain_at] = rank;
+                            retain_at += 1;
+                        }
+                        if report.arrival || report.completed {
+                            special[special_at] = u32::try_from(rank).expect("rank fits u32");
+                            special_at += 1;
+                        }
                     }
-                    if report.arrival || report.completed {
-                        special[special_at] = u32::try_from(rank).expect("rank fits u32");
-                        special_at += 1;
+                    debug_assert_eq!((retain_at, special_at), (retain.len(), special.len()));
+                }
+                let first = part * block_chunk;
+                for (offset, block) in blocks.iter_mut().enumerate() {
+                    let base = (first + offset) * BLOCK_ROWS;
+                    for row in 0..BLOCK_ROWS {
+                        let Some(report) = reports.get(base + row) else {
+                            break;
+                        };
+                        if report.done
+                            && report.canonical_rank != 0
+                            && report.canonical_rank as usize <= limit
+                        {
+                            block.valid[row / 64] |= 1 << (row % 64);
+                        }
                     }
                 }
-                debug_assert_eq!((retain_at, special_at), (retain.len(), special.len()));
             });
         }
-        // 有效位按物理块并行置位：已消费行正是 rank 落在前缀内且已完成的行。
-        let reports = &self.reports;
-        let blocks = self.motion.len();
-        let block_chunk = blocks.div_ceil(parts).max(1);
-        resources.for_each_part(&mut self.motion[..blocks], block_chunk, |chunk, blocks| {
-            let first = chunk * block_chunk;
-            for (offset, block) in blocks.iter_mut().enumerate() {
-                let base = (first + offset) * BLOCK_ROWS;
-                for row in 0..BLOCK_ROWS {
-                    let Some(report) = reports.get(base + row) else {
-                        break;
-                    };
-                    if report.done
-                        && report.canonical_rank != 0
-                        && report.canonical_rank as usize <= limit
-                    {
-                        block.valid[row / 64] |= 1 << (row % 64);
-                    }
-                }
-            }
-        });
         Ok(ParallelAdopt::Adopted { first_bad })
     }
 

@@ -1676,15 +1676,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         });
         #[cfg(test)]
         let tls_baseline = diagnostics.then(conflict_tls_snapshot);
+        // 各块写完报告后顺带统计并行消费的分段载荷数，消费时按块分段，省去
+        // 单独一遍统计分派。
+        let chunk_stats: [std::sync::Mutex<ConsumeStat>; CONSUME_MAX_PARTS] =
+            std::array::from_fn(|_| std::sync::Mutex::new(ConsumeStat::default()));
         let compute =
             |_chunk_view: crate::kernel::phase::StepReadView<'_>,
              start: usize,
              chunk: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>]| {
                 #[cfg(test)]
                 let chunk_baseline = diagnostics.then(conflict_tls_snapshot);
+                let mut stat = ConsumeStat::default();
                 for (offset, slot) in chunk.iter_mut().enumerate() {
                     let index = start + offset;
-                    let (_vehicle, sequence, cache_index, state) =
+                    let (vehicle, sequence, cache_index, state) =
                         self.workspace.conflict_inputs[index];
                     // W1：回收上拍槽位状态的段暂存 backing（五个变体统一
                     // 经 into_scratch——含未消费后缀的 None/Staged/Failed）
@@ -1710,6 +1715,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                             tick,
                             &mut scratch,
                         )));
+                    stat.note(
+                        slot,
+                        view.motion_cache
+                            .get(cache_index)
+                            .is_some_and(|entry| entry.vehicle == vehicle),
+                    );
+                }
+                if let Some(cell) = chunk_stats.get(start / chunk_size) {
+                    *cell
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = stat;
                 }
                 #[cfg(test)]
                 if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
@@ -1737,7 +1753,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 槽位表暂移出工作区，按引用原位消费：只读用得上的字段，不把
         // 整个报告搬出再写回（报告由池线程写成，整块搬运多付跨核缓存行）。
         let mut slots = core::mem::take(&mut self.workspace.conflict_slots);
-        let parallel = self.consume_conflict_cache_parallel(execution, &mut slots);
+        let chunk_stats = chunk_stats.map(|cell| {
+            cell.into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        });
+        // 测试注入在分派后改动了槽位时，分派中的统计已过时。
+        #[cfg(test)]
+        let chunk_stats_valid = CONFLICT_SLOT_GAP.with(std::cell::Cell::get).is_none();
+        #[cfg(not(test))]
+        let chunk_stats_valid = true;
+        let parallel = self.consume_conflict_cache_parallel(
+            execution,
+            &mut slots,
+            chunk_stats_valid.then_some((&chunk_stats[..], chunk_size)),
+        );
         let result = match parallel {
             Some(mut consumed) => {
                 if self.consume_resource_hits_parallel(execution, &mut slots, &consumed) {
@@ -1759,23 +1788,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 预留失败或下标越界时不做任何改动并返回 `None`，交回逐槽串行消费。
     /// 首个错误之后的缓存与决定也已写入；出错的一拍整体作废，这些暂存
     /// 在下次尝试开头清空。同一遍顺带统计各段资源候选的追加形状，供
-    /// `consume_resource_hits_parallel` 判断能否并行追加。
+    /// `consume_resource_hits_parallel` 判断能否并行追加。`chunk_stats` 是分派
+    /// 各块（长 `chunk_size`）写报告时已统计好的分段载荷数；给出时按块分段，
+    /// 不再单独统计。
     fn consume_conflict_cache_parallel<'r>(
         &mut self,
         execution: &'r crate::kernel::execution::ExecutionResources,
         slots: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>],
+        chunk_stats: Option<(&[ConsumeStat], usize)>,
     ) -> Option<ConsumedHits<'r>> {
         use crate::kernel::execution::DispatchSlot;
         use crate::kernel::tick::{MotionBasis, MotionCacheEntry, MotionPreview};
-        #[derive(Clone, Copy)]
-        struct PartStat {
-            previews: usize,
-            bases: usize,
-            decisions: usize,
-            first_preview: Option<MotionPreview>,
-            first_basis: Option<MotionBasis>,
-            first_decision: Option<crate::ConflictDecision>,
-        }
         let inputs = &self.workspace.conflict_inputs;
         let count = inputs.len().min(slots.len());
         if count < CONSUME_PARALLEL_ROWS || !execution.coordinator_parallel() {
@@ -1788,14 +1811,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         {
             return None;
         }
-        let parts = execution
-            .dispatch_threads()
-            .saturating_mul(4)
-            .min(CONSUME_MAX_PARTS)
-            .min(count)
-            .max(1);
-        let span = count.div_ceil(parts).max(1);
-        let parts = count.div_ceil(span);
         fn cache_of(slot: &DispatchSlot<CandidateReport>) -> Option<&CacheUpdates> {
             match slot {
                 DispatchSlot::Done(Ok(
@@ -1809,47 +1824,43 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 _ => None,
             }
         }
-        let motion_cache = &self.workspace.motion_cache;
-        let row_matches = |index: usize| {
-            let (vehicle, _, cache_index, _) = inputs[index];
-            motion_cache
-                .get(cache_index)
-                .is_some_and(|entry| entry.vehicle == vehicle)
+        let mut stats = [ConsumeStat::default(); CONSUME_MAX_PARTS];
+        let (parts, span) = match chunk_stats {
+            Some((chunk_stats, chunk_size))
+                if chunk_size > 0 && count.div_ceil(chunk_size) <= chunk_stats.len() =>
+            {
+                let parts = count.div_ceil(chunk_size);
+                stats[..parts].copy_from_slice(&chunk_stats[..parts]);
+                (parts, chunk_size)
+            }
+            _ => {
+                let parts = execution
+                    .dispatch_threads()
+                    .saturating_mul(4)
+                    .min(CONSUME_MAX_PARTS)
+                    .min(count)
+                    .max(1);
+                let span = count.div_ceil(parts).max(1);
+                let parts = count.div_ceil(span);
+                let motion_cache = &self.workspace.motion_cache;
+                let slots = &*slots;
+                execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
+                    let stat = &mut stat[0];
+                    let start = part * span;
+                    let end = (start + span).min(count);
+                    for (index, slot) in slots.iter().enumerate().take(end).skip(start) {
+                        let (vehicle, _, cache_index, _) = inputs[index];
+                        stat.note(
+                            slot,
+                            motion_cache
+                                .get(cache_index)
+                                .is_some_and(|entry| entry.vehicle == vehicle),
+                        );
+                    }
+                });
+                (parts, span)
+            }
         };
-        let mut stats = [PartStat {
-            previews: 0,
-            bases: 0,
-            decisions: 0,
-            first_preview: None,
-            first_basis: None,
-            first_decision: None,
-        }; CONSUME_MAX_PARTS];
-        {
-            let slots = &*slots;
-            execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
-                let stat = &mut stat[0];
-                let start = part * span;
-                let end = (start + span).min(count);
-                for (index, slot) in slots.iter().enumerate().take(end).skip(start) {
-                    if let Some(cache) = cache_of(slot)
-                        && row_matches(index)
-                    {
-                        if let Some(preview) = cache.preview {
-                            stat.previews += 1;
-                            stat.first_preview.get_or_insert(preview);
-                        }
-                        if let Some(basis) = cache.basis {
-                            stat.bases += 1;
-                            stat.first_basis.get_or_insert(basis);
-                        }
-                    }
-                    if let DispatchSlot::Done(Ok(CandidateReport::Staged { decision, .. })) = slot {
-                        stat.decisions += 1;
-                        stat.first_decision.get_or_insert(*decision);
-                    }
-                }
-            });
-        }
         let stats = &stats[..parts];
         let total_previews: usize = stats.iter().map(|stat| stat.previews).sum();
         let total_bases: usize = stats.iter().map(|stat| stat.bases).sum();
@@ -6545,6 +6556,55 @@ enum DownstreamEvalError {
 #[derive(Clone)]
 enum DownstreamFillError {
     Invariant,
+}
+
+/// 并行消费一段报告的载荷统计：要追加的完整预览、基础载荷与 staged 决定数，
+/// 以及各自首个值（预留后的占位填充，随即被并行段覆盖）。
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ConsumeStat {
+    previews: usize,
+    bases: usize,
+    decisions: usize,
+    first_preview: Option<crate::kernel::tick::MotionPreview>,
+    first_basis: Option<crate::kernel::tick::MotionBasis>,
+    first_decision: Option<crate::ConflictDecision>,
+}
+
+impl ConsumeStat {
+    /// 记入一个槽位；`row_matches` 为该槽缓存行仍属本车。
+    fn note(
+        &mut self,
+        slot: &crate::kernel::execution::DispatchSlot<CandidateReport>,
+        row_matches: bool,
+    ) {
+        use crate::kernel::execution::DispatchSlot;
+        let DispatchSlot::Done(Ok(report)) = slot else {
+            return;
+        };
+        let cache = match report {
+            CandidateReport::None { cache, .. }
+            | CandidateReport::Staged { cache, .. }
+            | CandidateReport::Failed { cache, .. } => Some(cache),
+            CandidateReport::Resource { resource, .. } => Some(&resource.cache),
+            CandidateReport::Spent(_) => None,
+        };
+        if let Some(cache) = cache
+            && row_matches
+        {
+            if let Some(preview) = cache.preview {
+                self.previews += 1;
+                self.first_preview.get_or_insert(preview);
+            }
+            if let Some(basis) = cache.basis {
+                self.bases += 1;
+                self.first_basis.get_or_insert(basis);
+            }
+        }
+        if let CandidateReport::Staged { decision, .. } = report {
+            self.decisions += 1;
+            self.first_decision.get_or_insert(*decision);
+        }
+    }
 }
 
 /// 并行消费返回给协调器的命中清单与各段资源候选统计。
