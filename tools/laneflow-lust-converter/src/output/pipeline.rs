@@ -549,22 +549,10 @@ fn publish_outputs(
     let mut installed = Vec::new();
     let publish_error = match swap_outputs(staging, anchor, &backup, staged, &mut installed) {
         Ok(()) => {
-            // 成功清理：先逐个删除备份内受管文件，再删标记与目录——任一步
-            // 删不动（典型如 Windows 临时文件锁）都保留备份并立即报错指明
-            // 位置：残留带标记备份会让下次运行 fail-closed 报歧义，不在
+            // 成功清理失败（典型如 Windows 临时文件锁）保留备份并立即报错
+            // 指明位置：残留带标记备份会让下次运行 fail-closed 报歧义，不在
             // 成功路径静默埋雷。
-            let mut cleanup_ok = true;
-            for name in managed_names(staged) {
-                let path = backup.join(name);
-                if path.symlink_metadata().is_ok() && fs::remove_file(&path).is_err() {
-                    cleanup_ok = false;
-                }
-            }
-            if cleanup_ok {
-                cleanup_ok = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER)).is_ok()
-                    && fs::remove_dir_all(&backup).is_ok();
-            }
-            if cleanup_ok {
+            if clear_backup(&backup, staged) {
                 return Ok(());
             }
             return Err(Error::Validation {
@@ -580,9 +568,21 @@ fn publish_outputs(
     match restore_backup(anchor, &backup, staged, &installed) {
         Ok(()) => {
             // 恢复完成后才允许清备份：回滚不完整时备份是旧交付集的唯一副本。
-            let _ = fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER));
-            let _ = fs::remove_dir_all(&backup);
-            Err(publish_error)
+            // 清理失败不得静默丢弃：残留带标记备份会让下次运行把已恢复现场
+            // 误判为歧义状态并拒绝自动恢复——first caller 必须知道需要人工
+            // 清理（与成功路径 cleanup 失败同策）。
+            if clear_backup(&backup, staged) {
+                return Err(publish_error);
+            }
+            Err(Error::Validation {
+                stage: "cleanup",
+                message: format!(
+                    "publication failed: {publish_error}; rollback succeeded but backup cleanup \
+                     failed; backup preserved at {} — inspect and remove it manually before \
+                     the next run",
+                    backup.display()
+                ),
+            })
         }
         Err(failures) => Err(Error::Validation {
             stage: "publish",
@@ -592,6 +592,21 @@ fn publish_outputs(
             ),
         }),
     }
+}
+
+/// 备份清理（成功路径与回滚成功分支共用）：先逐个删除备份内受管文件，
+/// 再删标记与目录——任一步删不动（典型如 Windows 临时文件锁）即短路
+/// 返回 false，调用方保留备份并报错指明位置。
+fn clear_backup(backup: &Path, staged: &[(&'static str, &'static str)]) -> bool {
+    let mut ok = true;
+    for name in managed_names(staged) {
+        let path = backup.join(name);
+        if path.symlink_metadata().is_ok() && fs::remove_file(&path).is_err() {
+            ok = false;
+        }
+    }
+    ok && fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER)).is_ok()
+        && fs::remove_dir_all(backup).is_ok()
 }
 
 fn backup_dir(output_dir: &Path) -> PathBuf {
