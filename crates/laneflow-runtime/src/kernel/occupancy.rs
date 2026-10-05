@@ -286,6 +286,50 @@ const fn ahead_pair(high: u32, low: u32) -> u64 {
     ((high as u64) << 32) | low as u64
 }
 
+/// 一条边上排除任意一辆车后的最前记录（后杠、车辆），与 `min_lo_from(桶, 0, 排除)`
+/// 相同：最小后杠记录与车辆不同的次小后杠记录。随前车表在重建后整表写入。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct EdgeFront {
+    min: Option<(u32, VehicleHandle)>,
+    second: Option<(u32, VehicleHandle)>,
+}
+
+impl EdgeFront {
+    fn of(bucket: &OccupancyBucket) -> Self {
+        let records = &bucket.records;
+        let at = |index: usize| {
+            records
+                .get(index)
+                .map(|record| (record.lo_mm, record.vehicle))
+        };
+        if records.is_empty() {
+            return Self::default();
+        }
+        Self {
+            min: bucket
+                .suffix_min_lo
+                .first()
+                .and_then(|&index| usize::try_from(index).ok())
+                .filter(|&index| index < records.len())
+                .and_then(at),
+            second: bucket
+                .suffix_second_lo
+                .first()
+                .copied()
+                .and_then(suffix_slot)
+                .and_then(at),
+        }
+    }
+
+    fn excluding(self, skip: VehicleHandle) -> Option<(u32, VehicleHandle)> {
+        match self.min {
+            Some(min) if min.1 != skip => Some(min),
+            Some(_) => self.second,
+            None => None,
+        }
+    }
+}
+
 /// 一次建表的只读参数；`table` 已按槽位铺好。
 #[derive(Clone, Copy)]
 struct AheadFill<'a> {
@@ -307,6 +351,8 @@ pub(crate) struct OccupancyIndex {
     ahead_epoch: u32,
     /// 上一次建表用的代次；回绕到 0 时整表清零。
     ahead_last: u32,
+    /// 按边存放的最前记录，与前车表同时写入；`ahead_epoch` 为 0 时不可用。
+    fronts: Vec<EdgeFront>,
     #[cfg(test)]
     inspections: AtomicU64,
     #[cfg(test)]
@@ -520,11 +566,14 @@ impl OccupancyIndex {
             ahead,
             ahead_epoch: _,
             ahead_last: _,
+            fronts,
             inspections: _,
             occurrence_walks: _,
         } = self;
         buckets.iter().fold(
-            crate::kernel::state::vec_bytes(buckets) + crate::kernel::state::vec_bytes(ahead),
+            crate::kernel::state::vec_bytes(buckets)
+                + crate::kernel::state::vec_bytes(ahead)
+                + crate::kernel::state::vec_bytes(fronts),
             |bytes, bucket| {
                 bytes
                     + crate::kernel::state::vec_bytes(&bucket.records)
@@ -553,6 +602,7 @@ impl OccupancyIndex {
             ahead: Vec::new(),
             ahead_epoch: 0,
             ahead_last: 0,
+            fronts: Vec::new(),
             #[cfg(test)]
             inspections: AtomicU64::new(0),
             #[cfg(test)]
@@ -597,6 +647,7 @@ impl OccupancyIndex {
             ahead: Vec::new(),
             ahead_epoch: 0,
             ahead_last: 0,
+            fronts: Vec::new(),
             #[cfg(test)]
             inspections: AtomicU64::new(0),
             #[cfg(test)]
@@ -866,6 +917,30 @@ impl OccupancyIndex {
         self.min_lo_from(bucket, 0, self_vehicle)
     }
 
+    /// [`Self::front_most`] 的（后杠, 车辆）。建表后直接读按边的最前记录表，
+    /// 不再访问桶；测试构建逐次与逐桶查询比对（检查计数口径也相同）。
+    fn edge_front(
+        &self,
+        edge: LaneEdgeOrdinal,
+        self_vehicle: VehicleHandle,
+    ) -> Option<(u32, VehicleHandle)> {
+        if self.ahead_epoch != 0
+            && let Some(front) = self.fronts.get(edge.index())
+        {
+            let front = front.excluding(self_vehicle);
+            #[cfg(test)]
+            assert_eq!(
+                front,
+                self.front_most(edge, self_vehicle)
+                    .map(|record| (record.lo_mm, record.vehicle)),
+                "edge front table differs from the bucket query"
+            );
+            return front;
+        }
+        self.front_most(edge, self_vehicle)
+            .map(|record| (record.lo_mm, record.vehicle))
+    }
+
     /// 前保险杠到后杠间隙窗内最近前车后保险杠的 `i64` 毫米间隙；可负。
     ///
     /// 当前边取后缀最小 `lo_mm`。后续出现项按入口距离走到 `front_query_mm`（含端点）；
@@ -938,7 +1013,7 @@ impl OccupancyIndex {
             lengths,
             horizon,
             non_negative,
-            |record| record.vehicle,
+            |vehicle| vehicle,
         )
         .map(|(gap_mm, vehicle)| LeaderContact { vehicle, gap_mm })
     }
@@ -955,7 +1030,7 @@ impl OccupancyIndex {
         lengths: &[u32],
         horizon: LeaderQueryHorizon,
         non_negative: bool,
-        identity: impl Fn(OccupancyRecord) -> T,
+        identity: impl Fn(VehicleHandle) -> T,
     ) -> Option<(i64, T)> {
         let walk = i64::from(horizon.front_query_mm);
         let accept = i64::from(horizon.bumper_gap_mm);
@@ -979,13 +1054,13 @@ impl OccupancyIndex {
                 break;
             }
             self.note_occurrence_walk();
-            if let Some(record) = self.front_most(edge, self_vehicle)
+            if let Some((lo_mm, vehicle)) = self.edge_front(edge, self_vehicle)
                 && let Some(gap) = base_mm
-                    .checked_add(i64::from(record.lo_mm))
+                    .checked_add(i64::from(lo_mm))
                     .filter(|gap| *gap <= accept && (!non_negative || *gap >= 0))
                 && best.is_none_or(|(current, _)| gap < current)
             {
-                best = Some((gap, identity(record)));
+                best = Some((gap, identity(vehicle)));
             }
             let Some(edge_length) = lengths.get(edge.index()).copied() else {
                 return best;
@@ -1077,18 +1152,24 @@ impl OccupancyIndex {
     /// 换根时沿用旧索引的批量表缓冲（不再分配），新索引在下一次重建时才建表。
     pub(crate) fn adopt_ahead_buffer(&mut self, previous: &mut Self) {
         self.ahead = std::mem::take(&mut previous.ahead);
+        self.fronts = std::mem::take(&mut previous.fronts);
         self.ahead_last = previous.ahead_last;
         self.ahead_epoch = 0;
     }
 
     /// 为本次建表铺好按槽位的表并取新代次；分配失败时不建表，查询全部走逐车路径。
-    fn prepare_ahead(&mut self, slots: usize) -> Option<u32> {
+    fn prepare_ahead(&mut self, slots: usize, edges: usize) -> Option<u32> {
         use std::sync::atomic::Ordering;
         self.ahead_epoch = 0;
         if self.ahead.len() < slots {
             self.ahead.try_reserve(slots - self.ahead.len()).ok()?;
             self.ahead.resize_with(slots, AheadEntry::default);
         }
+        // 与桶数等长：换根沿用的旧表更长时截短，越界边与逐桶查询一样没有记录。
+        if self.fronts.len() < edges {
+            self.fronts.try_reserve(edges - self.fronts.len()).ok()?;
+        }
+        self.fronts.resize(edges, EdgeFront::default());
         self.ahead_last = self.ahead_last.wrapping_add(1);
         if self.ahead_last == 0 {
             for entry in &self.ahead {
@@ -1484,6 +1565,8 @@ struct OccupancyGroupWork<'a> {
     first_bucket: usize,
     buckets: &'a mut [OccupancyBucket],
     positions: &'a mut [usize],
+    /// 本组桶的最前记录表；只在建前车表时给出。
+    fronts: Option<&'a mut [EdgeFront]>,
     error: Option<StepError>,
 }
 
@@ -1507,6 +1590,7 @@ fn place_occupancy_parallel(
     let OccupancyIndex {
         buckets,
         ahead: table,
+        fronts,
         record_len,
         ..
     } = occupancy;
@@ -1517,6 +1601,7 @@ fn place_occupancy_parallel(
     });
     let mut buckets = &mut buckets[..bucket_count];
     let mut positions = &mut scratch.positions[..bucket_count];
+    let mut fronts = fill.and_then(|_| fronts.get_mut(..bucket_count));
     let mut work: [Option<OccupancyGroupWork<'_>>; OCCUPANCY_MAX_GROUPS] =
         std::array::from_fn(|_| None);
     for (group, slot) in work.iter_mut().enumerate().take(groups.count) {
@@ -1524,12 +1609,18 @@ fn place_occupancy_parallel(
         let len = groups.span.min(buckets.len());
         let (group_buckets, rest_buckets) = std::mem::take(&mut buckets).split_at_mut(len);
         let (group_positions, rest_positions) = std::mem::take(&mut positions).split_at_mut(len);
+        let group_fronts = fronts.take().map(|all| {
+            let (group, rest) = all.split_at_mut(len);
+            fronts = Some(rest);
+            group
+        });
         buckets = rest_buckets;
         positions = rest_positions;
         *slot = Some(OccupancyGroupWork {
             first_bucket,
             buckets: group_buckets,
             positions: group_positions,
+            fronts: group_fronts,
             error: None,
         });
     }
@@ -1570,6 +1661,11 @@ fn place_occupancy_parallel(
         }
         if let Some(fill) = fill {
             OccupancyIndex::fill_ahead(work.buckets, work.first_bucket, fill);
+            if let Some(fronts) = work.fronts.as_deref_mut() {
+                for (front, bucket) in fronts.iter_mut().zip(work.buckets.iter()) {
+                    *front = EdgeFront::of(bucket);
+                }
+            }
         }
     });
     if let Some(error) = work[..groups.count]
@@ -1622,7 +1718,7 @@ fn rebuild_occupancy_index(
         )?;
         let parts = &parts[..used];
         let lengths = binding.revision.traffic().lane_lengths_millimetres();
-        let epoch = occupancy.prepare_ahead(committed.vehicles.capacity());
+        let epoch = occupancy.prepare_ahead(committed.vehicles.capacity(), bucket_count);
         resources.install(|| {
             place_occupancy_parallel(
                 occupancy,
@@ -1679,13 +1775,17 @@ fn rebuild_occupancy_index(
     let _sort_timer =
         super::exact_path_research::begin(super::exact_path_research::Stage::OccupancySortSuffix);
     occupancy.sort_buckets_with(bucket_count, execution);
-    if let Some(epoch) = occupancy.prepare_ahead(committed.vehicles.capacity()) {
+    if let Some(epoch) = occupancy.prepare_ahead(committed.vehicles.capacity(), bucket_count) {
         let fill = AheadFill {
             lengths: binding.revision.traffic().lane_lengths_millimetres(),
             epoch,
             table: &occupancy.ahead,
         };
-        OccupancyIndex::fill_ahead(&occupancy.buckets[..bucket_count], 0, fill);
+        let buckets = &occupancy.buckets[..bucket_count];
+        OccupancyIndex::fill_ahead(buckets, 0, fill);
+        for (front, bucket) in occupancy.fronts.iter_mut().zip(buckets) {
+            *front = EdgeFront::of(bucket);
+        }
         occupancy.ahead_epoch = epoch;
     }
     Ok(())
