@@ -1767,9 +1767,10 @@ fn discover_preview_inputs_parallel(
         .then_some(crate::StepError::WaitingInvariantViolation)
 }
 
-/// P2 并行规范消费：分段找首个未完成或出错的槽，并行写稠密的同拍缓存行，
-/// 只把需要基础复用或带完整预览的稀疏行留给协调器按序处理。
-/// 结果与串行逐槽 `stage_waiting_preview` 完全相同；稀疏缓冲预留失败返回 `None`。
+/// P2 并行规范消费：分段找首个未完成或出错的槽并清点各段的稀疏载荷，
+/// 再并行写稠密的同拍缓存行、基础/预览载荷与 `next_states`；各段载荷按段序
+/// 前缀和定位，下标与串行逐槽按序追加相同。
+/// 结果与串行逐槽 `stage_waiting_preview` 完全相同；载荷预留失败或下标越界返回 `None`。
 #[inline(never)]
 #[allow(clippy::too_many_arguments)]
 fn consume_waiting_previews_parallel(
@@ -1784,9 +1785,21 @@ fn consume_waiting_previews_parallel(
     next_states: &mut Vec<(usize, super::vehicle_store::MotionValue)>,
     motion_bases: &mut Vec<crate::kernel::tick::MotionBasis>,
     motion_previews: &mut Vec<crate::kernel::tick::MotionPreview>,
-    sparse: &mut Vec<u32>,
 ) -> Option<Result<(), crate::StepError>> {
+    use super::vehicle_store::MotionValue;
     use crate::kernel::execution::DispatchSlot;
+    use crate::kernel::tick::{MotionBasis, MotionCacheEntry, MotionPreview};
+    /// 每段：首个不合格槽及其错误、要存的基础与预览、全部预览，以及首个
+    /// 载荷值（预留后的占位填充，随即被并行段覆盖）。
+    #[derive(Clone, Copy)]
+    struct PartStat {
+        bad: Option<(usize, crate::StepError)>,
+        bases: usize,
+        stored_previews: usize,
+        previews: usize,
+        first_basis: Option<MotionBasis>,
+        first_preview: Option<MotionPreview>,
+    }
     let count = inputs.len().min(slots.len());
     let parts = execution
         .dispatch_threads()
@@ -1795,45 +1808,88 @@ fn consume_waiting_previews_parallel(
         .min(count)
         .max(1);
     let span = count.div_ceil(parts).max(1);
-    let is_sparse = |index: usize, entry: &crate::kernel::tick::WaitingPreviewSlot| {
-        entry.preview_index.is_some() || (entry.basis_index.is_some() && index < cache_limit)
+    let basis_of = |index: usize, entry: &crate::kernel::tick::WaitingPreviewSlot| {
+        if index >= cache_limit {
+            return None;
+        }
+        entry
+            .basis_index
+            .and_then(|position| bases[index / chunk_size].get(position.get() as usize - 1))
+            .copied()
     };
-    // (首个不合格槽及其错误, 之前的稀疏行数)
-    let mut stats = [(None::<(usize, crate::StepError)>, 0_usize); PREVIEW_MAX_PARTS];
+    let preview_of = |index: usize, entry: &crate::kernel::tick::WaitingPreviewSlot| {
+        entry
+            .preview_index
+            .and_then(|position| payloads[index / chunk_size].get(position.get() as usize - 1))
+            .copied()
+    };
+    let mut stats = [PartStat {
+        bad: None,
+        bases: 0,
+        stored_previews: 0,
+        previews: 0,
+        first_basis: None,
+        first_preview: None,
+    }; PREVIEW_MAX_PARTS];
     execution.for_each_part(&mut stats[..parts], 1, |part, stat| {
+        let stat = &mut stat[0];
         let start = (part * span).min(count);
         let end = (start + span).min(count);
         for (index, slot) in slots[start..end].iter().enumerate() {
             let index = start + index;
             match slot {
-                DispatchSlot::Done(Ok(entry)) => stat[0].1 += usize::from(is_sparse(index, entry)),
+                DispatchSlot::Done(Ok(entry)) => {
+                    if let Some(basis) = basis_of(index, entry) {
+                        stat.bases += 1;
+                        stat.first_basis.get_or_insert(basis);
+                    }
+                    if let Some(preview) = preview_of(index, entry) {
+                        stat.previews += 1;
+                        stat.stored_previews += usize::from(index < cache_limit);
+                        stat.first_preview.get_or_insert(preview);
+                    }
+                }
                 DispatchSlot::Done(Err(error)) => {
-                    stat[0].0 = Some((index, *error));
+                    stat.bad = Some((index, *error));
                     return;
                 }
                 DispatchSlot::Pending | DispatchSlot::Skipped => {
-                    stat[0].0 = Some((index, crate::StepError::WaitingInvariantViolation));
+                    stat.bad = Some((index, crate::StepError::WaitingInvariantViolation));
                     return;
                 }
             }
         }
     });
-    let bad_part = stats[..parts].iter().position(|stat| stat.0.is_some());
-    let first_bad = bad_part.and_then(|part| stats[part].0);
+    let bad_part = stats[..parts].iter().position(|stat| stat.bad.is_some());
+    let first_bad = bad_part.and_then(|part| stats[part].bad);
     let used = bad_part.map_or(parts, |part| part + 1);
     let limit = first_bad.map_or(count, |(index, _)| index);
     let dense = limit.min(cache_limit);
-    let total: usize = stats[..used].iter().map(|stat| stat.1).sum();
-    // 稀疏缓冲是可选暂存：预留失败交回串行消费，不新增领域错误。
-    sparse.clear();
-    if sparse.try_reserve(total).is_err() {
+    let used_stats = &stats[..used];
+    let total_bases: usize = used_stats.iter().map(|stat| stat.bases).sum();
+    let total_stored: usize = used_stats.iter().map(|stat| stat.stored_previews).sum();
+    let total_previews: usize = used_stats.iter().map(|stat| stat.previews).sum();
+    let bases_from = motion_bases.len();
+    let previews_from = motion_previews.len();
+    let next_from = next_states.len();
+    // 载荷下标从 1 起须容于 u32；稀疏载荷是可选暂存，预留失败交回串行消费。
+    let fits = |from: usize, total: usize| {
+        from.checked_add(total)
+            .is_some_and(|last| u32::try_from(last).is_ok())
+    };
+    if !fits(bases_from, total_bases)
+        || !fits(previews_from, total_stored)
+        || motion_bases.try_reserve(total_bases).is_err()
+        || motion_previews.try_reserve(total_stored).is_err()
+        || next_states.try_reserve(total_previews).is_err()
+    {
         return None;
     }
     // 缓存容量即 `cache_limit`，稠密行不会超过它，不再分配。
     motion_cache.clear();
     motion_cache.resize(
         dense,
-        crate::kernel::tick::MotionCacheEntry {
+        MotionCacheEntry {
             vehicle: crate::VehicleHandle::new(0, 0),
             update_sequence: 0,
             gate_reachable: None,
@@ -1842,79 +1898,96 @@ fn consume_waiting_previews_parallel(
             basis_index: None,
         },
     );
-    sparse.resize(total, 0);
+    if let Some(filler) = used_stats.iter().find_map(|stat| stat.first_basis) {
+        motion_bases.resize(bases_from + total_bases, filler);
+    }
+    if let Some(filler) = used_stats.iter().find_map(|stat| stat.first_preview) {
+        motion_previews.resize(previews_from + total_stored, filler);
+        next_states.resize(next_from + total_previews, (0, filler.next));
+    }
     {
-        let mut cache_rest: &mut [crate::kernel::tick::MotionCacheEntry] = motion_cache;
-        let mut sparse_rest: &mut [u32] = sparse;
-        let mut work: [Option<(&mut [crate::kernel::tick::MotionCacheEntry], &mut [u32])>;
-            PREVIEW_MAX_PARTS] = std::array::from_fn(|_| None);
-        for (slot, stat) in work.iter_mut().zip(&stats[..used]) {
+        type PartOutput<'a> = (
+            &'a mut [MotionCacheEntry],
+            &'a mut [MotionBasis],
+            &'a mut [MotionPreview],
+            &'a mut [(usize, MotionValue)],
+            (usize, usize),
+        );
+        let mut cache_rest: &mut [MotionCacheEntry] = motion_cache;
+        let mut bases_rest: &mut [MotionBasis] = &mut motion_bases[bases_from..];
+        let mut previews_rest: &mut [MotionPreview] = &mut motion_previews[previews_from..];
+        let mut next_rest: &mut [(usize, MotionValue)] = &mut next_states[next_from..];
+        let mut basis_at = bases_from;
+        let mut preview_at = previews_from;
+        let mut work: [Option<PartOutput<'_>>; PREVIEW_MAX_PARTS] = std::array::from_fn(|_| None);
+        for (slot, stat) in work.iter_mut().zip(used_stats) {
             let take = span.min(cache_rest.len());
             let (cache, cache_tail) = std::mem::take(&mut cache_rest).split_at_mut(take);
-            let (sparse_part, sparse_tail) = std::mem::take(&mut sparse_rest).split_at_mut(stat.1);
-            *slot = Some((cache, sparse_part));
+            let (part_bases, bases_tail) = std::mem::take(&mut bases_rest).split_at_mut(stat.bases);
+            let (part_previews, previews_tail) =
+                std::mem::take(&mut previews_rest).split_at_mut(stat.stored_previews);
+            let (part_next, next_tail) = std::mem::take(&mut next_rest).split_at_mut(stat.previews);
+            *slot = Some((
+                cache,
+                part_bases,
+                part_previews,
+                part_next,
+                (basis_at, preview_at),
+            ));
             cache_rest = cache_tail;
-            sparse_rest = sparse_tail;
+            bases_rest = bases_tail;
+            previews_rest = previews_tail;
+            next_rest = next_tail;
+            basis_at += stat.bases;
+            preview_at += stat.stored_previews;
         }
         execution.for_each_part(&mut work[..used], 1, |part, output| {
-            let Some((cache, sparse)) = output[0].as_mut() else {
+            let Some((cache, part_bases, part_previews, part_next, (basis_at, preview_at))) =
+                output[0].as_mut()
+            else {
                 return;
             };
             let start = (part * span).min(limit);
             let end = (start + span).min(limit);
-            let mut at = 0;
+            let (mut bases_done, mut stored_done, mut previews_done) = (0, 0, 0);
             for index in start..end {
                 let DispatchSlot::Done(Ok(entry)) = &slots[index] else {
                     return;
                 };
                 let (vehicle, update_sequence) = inputs[index];
+                let mut basis_index = None;
+                if let Some(basis) = basis_of(index, entry) {
+                    part_bases[bases_done] = basis;
+                    bases_done += 1;
+                    basis_index = std::num::NonZeroU32::new(
+                        u32::try_from(*basis_at + bases_done).expect("basis index fits u32"),
+                    );
+                }
+                let mut preview_index = None;
+                if let Some(preview) = preview_of(index, entry) {
+                    if index < cache_limit {
+                        part_previews[stored_done] = preview;
+                        stored_done += 1;
+                        preview_index = std::num::NonZeroU32::new(
+                            u32::try_from(*preview_at + stored_done)
+                                .expect("preview index fits u32"),
+                        );
+                    }
+                    part_next[previews_done] = (update_sequence, preview.next);
+                    previews_done += 1;
+                }
                 if let Some(row) = cache.get_mut(index - part * span) {
-                    *row = crate::kernel::tick::MotionCacheEntry {
+                    *row = MotionCacheEntry {
                         vehicle,
                         update_sequence,
                         gate_reachable: entry.gate_reachable,
                         horizon: entry.horizon,
-                        preview_index: None,
-                        basis_index: None,
+                        preview_index,
+                        basis_index,
                     };
-                }
-                if is_sparse(index, entry) {
-                    sparse[at] = u32::try_from(index).expect("preview index fits u32");
-                    at += 1;
                 }
             }
         });
-    }
-    for &index in sparse.iter() {
-        let index = index as usize;
-        let DispatchSlot::Done(Ok(entry)) = &slots[index] else {
-            continue;
-        };
-        let chunk = index / chunk_size;
-        if index < cache_limit
-            && let Some(position) = entry.basis_index
-        {
-            let stored = bases[chunk]
-                .get(position.get() as usize - 1)
-                .copied()
-                .and_then(|basis| crate::kernel::tick::store_motion_payload(motion_bases, basis));
-            if let Some(row) = motion_cache.get_mut(index) {
-                row.basis_index = stored;
-            }
-        }
-        if let Some(preview) = entry
-            .preview_index
-            .and_then(|position| payloads[chunk].get(position.get() as usize - 1))
-            .copied()
-        {
-            if index < cache_limit
-                && let Some(row) = motion_cache.get_mut(index)
-            {
-                row.preview_index =
-                    crate::kernel::tick::store_motion_payload(motion_previews, preview);
-            }
-            next_states.push((inputs[index].1, preview.next));
-        }
     }
     Some(match first_bad {
         Some((_, error)) => Err(error),
@@ -2246,9 +2319,7 @@ fn prepare_waiting_previews_dispatched(
     }
     #[cfg(test)]
     let _consume = preview_stage::begin(preview_stage::CONSUME);
-    let parallel = if workload >= PREVIEW_PARALLEL_CONSUME_ROWS
-        && execution.coordinator_parallel()
-        && let Some(mut sparse) = execution.sparse_indices()
+    let parallel = if workload >= PREVIEW_PARALLEL_CONSUME_ROWS && execution.coordinator_parallel()
     {
         let inputs = &workspace.waiting_preview_inputs;
         let slots = &*slots;
@@ -2258,7 +2329,6 @@ fn prepare_waiting_previews_dispatched(
         let next_states = &mut workspace.next_states;
         let motion_bases = &mut workspace.motion_bases;
         let motion_previews = &mut workspace.motion_previews;
-        let sparse = &mut *sparse;
         execution.install(|| {
             consume_waiting_previews_parallel(
                 execution,
@@ -2272,7 +2342,6 @@ fn prepare_waiting_previews_dispatched(
                 next_states,
                 motion_bases,
                 motion_previews,
-                sparse,
             )
         })
     } else {
@@ -2440,94 +2509,74 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
         #[cfg(test)]
         let _assembly = preview_stage::begin(preview_stage::ASSEMBLY);
-        for preview_index in 0..self.workspace.next_states.len() {
-            let (update_sequence, preview) = self.workspace.next_states[preview_index];
-            let vehicle = self.committed.live_order[update_sequence];
-            let state = self
-                .vehicle_state(vehicle)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let preview = preview.apply(state);
-            let compiled = self
-                .compiled_route(state.route)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            // Waiting 区间按路线顺序且不重叠；既有 membership 的 entry 已在 cursor 后方。
-            let first_pending = compiled.waiting.partition_point({
-                #[cfg(test)]
-                super::route_query_research::note_search("waiting:1962");
-                |occurrence| occurrence.entry_hop < state.route_edge_index
-            });
-            let Some((occurrence_index, occurrence)) = compiled
-                .waiting
-                .iter()
-                .copied()
-                .enumerate()
-                .skip(first_pending)
-                .find(|(_, occurrence)| {
-                    let held = state.waiting_membership.is_some_and(|membership| {
-                        membership.waiting_zone == occurrence.zone
-                            && membership.release_hop == occurrence.release_hop
-                    }) && state.maneuver_traversal.is_some_and(|traversal| {
-                        traversal.maneuver_occurrence_index == occurrence.maneuver_index
+        // 逐预览求本车 Waiting 计划只读已提交状态与路线；大工作集先分段并行
+        // 筛出会产生计划或错误的预览，协调器只对这些按序重算并写入。其余预览
+        // 在串行路径上同样直接跳过，首错与计划集合不变（计划随后整体排序）。
+        let previews = self.workspace.next_states.len();
+        let mut screened = false;
+        if previews >= PREVIEW_PARALLEL_CONSUME_ROWS
+            && let Some(resources) = execution.filter(|resources| resources.coordinator_parallel())
+            && let Some(mut hits) = resources.sparse_indices()
+        {
+            hits.clear();
+            if hits.try_reserve(previews).is_ok() {
+                hits.resize(previews, 0);
+                let parts = resources
+                    .dispatch_threads()
+                    .saturating_mul(4)
+                    .min(PREVIEW_MAX_PARTS)
+                    .min(previews)
+                    .max(1);
+                let span = previews.div_ceil(parts).max(1);
+                // 按段长取整后的实际段数，每段都有输出块。
+                let parts = previews.div_ceil(span);
+                let next_states = &self.workspace.next_states;
+                let found: [usize; PREVIEW_MAX_PARTS] = {
+                    let mut work: [(&mut [u32], usize); PREVIEW_MAX_PARTS] =
+                        std::array::from_fn(|_| (&mut [][..], 0));
+                    for (slot, chunk) in work.iter_mut().zip(hits.chunks_mut(span)) {
+                        slot.0 = chunk;
+                    }
+                    resources.for_each_part(&mut work[..parts], 1, |part, output| {
+                        let (hits, found) = &mut output[0];
+                        let start = part * span;
+                        for (offset, &(update_sequence, preview)) in next_states
+                            [start..(start + span).min(previews)]
+                            .iter()
+                            .enumerate()
+                        {
+                            if !matches!(
+                                waiting_plan_for_preview(view, update_sequence, preview),
+                                Ok(None)
+                            ) {
+                                hits[*found] =
+                                    u32::try_from(start + offset).expect("preview index fits u32");
+                                *found += 1;
+                            }
+                        }
                     });
-                    !held && state.route_edge_index <= occurrence.entry_hop
-                })
-            else {
-                continue;
-            };
-            let entry_index = usize::try_from(occurrence.entry_hop)
-                .ok()
-                .and_then(|value| value.checked_add(1))
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let approach_distance_mm = match distance_to_occurrence_start(
-                &compiled.occurrence_segments,
-                &compiled.occurrence_offsets,
-                &compiled.segment_totals,
-                state.route_edge_index as usize,
-                state.progress_mm,
-                entry_index,
-            ) {
-                Some(BoundedDistance::Finite(value)) => value,
-                Some(BoundedDistance::BeyondFinite) | None => continue,
-            };
-            let entry_gate = compiled
-                .hop_gate
-                .get(occurrence.entry_hop as usize)
-                .copied()
-                .flatten()
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let preview_crossed = preview.route_edge_index > occurrence.entry_hop;
-            let preview_at_boundary = front_at_hop_boundary(
-                compiled,
-                &preview,
-                occurrence.entry_hop,
-                self.binding.revision.traffic().lane_lengths_millimetres(),
-            );
-            let decision = if preview_crossed {
-                WaitingDecisionOutcome::Granted
-            } else if preview_at_boundary && self.gate_is_restrictive(entry_gate, state.profile) {
-                WaitingDecisionOutcome::NotEvaluated
-            } else {
-                continue;
-            };
-            self.workspace.waiting_plans.push(WaitingVehiclePlan {
-                vehicle,
-                vehicle_update_sequence: u32::try_from(update_sequence)
-                    .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
-                occurrence_index: u32::try_from(occurrence_index)
-                    .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
-                zone: occurrence.zone,
-                maneuver_index: occurrence.maneuver_index,
-                entry_hop: occurrence.entry_hop,
-                release_hop: occurrence.release_hop,
-                approach_distance_mm,
-                preview_route_edge_index: preview.route_edge_index,
-                decision,
-                stop_hop: None,
-                stop_zone: None,
-                stop_maneuver_index: None,
-                projection: None,
-                admission_sequence: None,
-            });
+                    std::array::from_fn(|part| work[part].1)
+                };
+                for (part, &found) in found[..parts].iter().enumerate() {
+                    for &index in &hits[part * span..part * span + found] {
+                        let (update_sequence, preview) = self.workspace.next_states[index as usize];
+                        if let Some(plan) =
+                            waiting_plan_for_preview(view, update_sequence, preview)?
+                        {
+                            self.workspace.waiting_plans.push(plan);
+                        }
+                    }
+                }
+                screened = true;
+            }
+        }
+        if !screened {
+            for preview_index in 0..previews {
+                let (update_sequence, preview) = self.workspace.next_states[preview_index];
+                if let Some(plan) = waiting_plan_for_preview(view, update_sequence, preview)? {
+                    self.workspace.waiting_plans.push(plan);
+                }
+            }
         }
 
         self.workspace.waiting_plans.sort_unstable_by_key(|plan| {
@@ -3705,6 +3754,101 @@ fn reserve_waiting_exact<T>(
     values
         .try_reserve_exact(additional)
         .map_err(|_| crate::StepError::WaitingScratchAllocFailed)
+}
+
+/// 一个预览对应的本车 Waiting 计划：只读已提交状态、路线与门策略。
+/// 不产生计划返回 `Ok(None)`，错误与计划内容与逐车串行求值相同。
+fn waiting_plan_for_preview(
+    view: crate::kernel::phase::StepReadView<'_>,
+    update_sequence: usize,
+    preview: super::vehicle_store::MotionValue,
+) -> Result<Option<WaitingVehiclePlan>, crate::StepError> {
+    let vehicle = view.committed.live_order[update_sequence];
+    let state = view
+        .vehicle_state(vehicle)
+        .ok_or(crate::StepError::WaitingInvariantViolation)?;
+    let preview = preview.apply(state);
+    let compiled = view
+        .compiled_route(state.route)
+        .ok_or(crate::StepError::WaitingInvariantViolation)?;
+    // Waiting 区间按路线顺序且不重叠；既有 membership 的 entry 已在 cursor 后方。
+    let first_pending = compiled.waiting.partition_point({
+        #[cfg(test)]
+        super::route_query_research::note_search("waiting:1962");
+        |occurrence| occurrence.entry_hop < state.route_edge_index
+    });
+    let Some((occurrence_index, occurrence)) = compiled
+        .waiting
+        .iter()
+        .copied()
+        .enumerate()
+        .skip(first_pending)
+        .find(|(_, occurrence)| {
+            let held = state.waiting_membership.is_some_and(|membership| {
+                membership.waiting_zone == occurrence.zone
+                    && membership.release_hop == occurrence.release_hop
+            }) && state.maneuver_traversal.is_some_and(|traversal| {
+                traversal.maneuver_occurrence_index == occurrence.maneuver_index
+            });
+            !held && state.route_edge_index <= occurrence.entry_hop
+        })
+    else {
+        return Ok(None);
+    };
+    let entry_index = usize::try_from(occurrence.entry_hop)
+        .ok()
+        .and_then(|value| value.checked_add(1))
+        .ok_or(crate::StepError::WaitingInvariantViolation)?;
+    let approach_distance_mm = match distance_to_occurrence_start(
+        &compiled.occurrence_segments,
+        &compiled.occurrence_offsets,
+        &compiled.segment_totals,
+        state.route_edge_index as usize,
+        state.progress_mm,
+        entry_index,
+    ) {
+        Some(BoundedDistance::Finite(value)) => value,
+        Some(BoundedDistance::BeyondFinite) | None => return Ok(None),
+    };
+    let entry_gate = compiled
+        .hop_gate
+        .get(occurrence.entry_hop as usize)
+        .copied()
+        .flatten()
+        .ok_or(crate::StepError::WaitingInvariantViolation)?;
+    let preview_crossed = preview.route_edge_index > occurrence.entry_hop;
+    let preview_at_boundary = front_at_hop_boundary(
+        compiled,
+        &preview,
+        occurrence.entry_hop,
+        view.binding.revision.traffic().lane_lengths_millimetres(),
+    );
+    let decision = if preview_crossed {
+        WaitingDecisionOutcome::Granted
+    } else if preview_at_boundary && view.gate_is_restrictive(entry_gate, state.profile) {
+        WaitingDecisionOutcome::NotEvaluated
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(WaitingVehiclePlan {
+        vehicle,
+        vehicle_update_sequence: u32::try_from(update_sequence)
+            .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
+        occurrence_index: u32::try_from(occurrence_index)
+            .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
+        zone: occurrence.zone,
+        maneuver_index: occurrence.maneuver_index,
+        entry_hop: occurrence.entry_hop,
+        release_hop: occurrence.release_hop,
+        approach_distance_mm,
+        preview_route_edge_index: preview.route_edge_index,
+        decision,
+        stop_hop: None,
+        stop_zone: None,
+        stop_maneuver_index: None,
+        projection: None,
+        admission_sequence: None,
+    }))
 }
 
 fn front_at_hop_boundary(
