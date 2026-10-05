@@ -1577,94 +1577,102 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
         #[cfg(not(test))]
         let _ = dispatch_stats;
-        for index in 0..self.workspace.conflict_inputs.len() {
+        // 槽位表暂移出工作区，按引用原位消费：只读用得上的字段，不把
+        // 整个报告搬出再写回（报告由池线程写成，整块搬运多付跨核缓存行）。
+        let mut slots = core::mem::take(&mut self.workspace.conflict_slots);
+        let result = self.consume_conflict_slots(&mut slots, tick);
+        self.workspace.conflict_slots = slots;
+        result.map(|()| true)
+    }
+
+    fn consume_conflict_slots(
+        &mut self,
+        slots: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>],
+        tick: u64,
+    ) -> Result<(), StepError> {
+        let count = self.workspace.conflict_inputs.len();
+        for (index, slot) in slots.iter_mut().enumerate().take(count) {
             let (vehicle, sequence, cache_index, state) = self.workspace.conflict_inputs[index];
-            let slot = core::mem::replace(
-                &mut self.workspace.conflict_slots[index],
-                crate::kernel::execution::DispatchSlot::Skipped,
-            );
             let report = match slot {
                 crate::kernel::execution::DispatchSlot::Done(Ok(report)) => report,
-                crate::kernel::execution::DispatchSlot::Done(Err(error)) => return Err(error),
+                crate::kernel::execution::DispatchSlot::Done(Err(error)) => {
+                    let error = *error;
+                    *slot = crate::kernel::execution::DispatchSlot::Skipped;
+                    return Err(error);
+                }
                 crate::kernel::execution::DispatchSlot::Pending
                 | crate::kernel::execution::DispatchSlot::Skipped => {
                     // 完成前沿不变量违例：缺失/跳过/旧 attempt 回报不得视为
                     // 成功或无结果。
+                    *slot = crate::kernel::execution::DispatchSlot::Skipped;
                     return Err(StepError::ConflictInvariantViolation);
                 }
             };
-            let (result, spent) = self.consume_conflict_candidate(
+            let spent = report.take_scratch();
+            let result = self.consume_conflict_candidate(
                 vehicle,
                 sequence,
                 cache_index,
                 state,
                 report,
+                &spent,
                 tick,
             );
             // W1 统一回收路径：成功、错误、无候选、分支切换都在此处把报告
             // 的段暂存归还槽位（Spent = 明确失效 + backing 保留，下拍任务
             // 复用）；不得把已消费报告留作不明确状态。
-            self.workspace.conflict_slots[index] =
-                crate::kernel::execution::DispatchSlot::Done(Ok(CandidateReport::Spent(spent)));
+            *slot = crate::kernel::execution::DispatchSlot::Done(Ok(CandidateReport::Spent(spent)));
             result?;
         }
-        Ok(true)
+        Ok(())
     }
 
     /// P3 规范消费（D3/D5）：按发现序先落缓存更新，再按报告施加共享写与
     /// 真实预留（F1/F2/F3b/F4/staged 原位，次序与融合逐行一致）；任务局部
     /// 暂存不足的段由协调器以同领域原语补算，不冒充领域分配失败。
-    /// 统一回收：无论结果如何都返回本报告的段暂存（Resource 随行的
-    /// scratch；其余变体为空暂存），由调用方写回槽位 Spent。
+    /// 统一回收：调用方先原位取出本报告的段暂存（Resource 随行的
+    /// scratch；其余变体为空暂存），消费后无论结果如何都写回槽位 Spent。
+    #[allow(clippy::too_many_arguments)]
     fn consume_conflict_candidate(
         &mut self,
         vehicle: VehicleHandle,
         update_sequence: u32,
         cache_index: usize,
         state: VehicleState,
-        report: CandidateReport,
+        report: &CandidateReport,
+        scratch: &CandidateScratch,
         tick: u64,
-    ) -> (Result<(), StepError>, CandidateScratch) {
+    ) -> Result<(), StepError> {
         match report {
-            CandidateReport::None { cache, scratch } => {
-                self.apply_conflict_cache_updates(vehicle, cache_index, &cache);
-                (Ok(()), scratch)
+            CandidateReport::None { cache, .. } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, cache);
+                Ok(())
             }
             CandidateReport::Staged {
-                cache,
-                decision,
-                scratch,
+                cache, decision, ..
             } => {
-                self.apply_conflict_cache_updates(vehicle, cache_index, &cache);
-                let result = reserve(&mut self.workspace.conflict_staged_decisions, 1).map(|()| {
-                    self.workspace.conflict_staged_decisions.push(decision);
-                });
-                (result, scratch)
+                self.apply_conflict_cache_updates(vehicle, cache_index, cache);
+                reserve(&mut self.workspace.conflict_staged_decisions, 1).map(|()| {
+                    self.workspace.conflict_staged_decisions.push(*decision);
+                })
             }
-            CandidateReport::Failed {
-                cache,
-                error,
-                scratch,
-            } => {
-                self.apply_conflict_cache_updates(vehicle, cache_index, &cache);
-                (Err(error), scratch)
+            CandidateReport::Failed { cache, error, .. } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, cache);
+                Err(*error)
             }
-            CandidateReport::Resource { resource, scratch } => {
+            CandidateReport::Resource { resource, .. } => {
                 self.apply_conflict_cache_updates(vehicle, cache_index, &resource.cache);
-                let result = self.consume_candidate_resource(
+                self.consume_candidate_resource(
                     vehicle,
                     update_sequence,
                     state,
                     tick,
-                    resource,
-                    &scratch,
-                );
-                (result, scratch)
+                    resource.clone(),
+                    scratch,
+                )
             }
             // Spent 不得进入消费循环（每槽每拍消费一次）；防御性按失效处理。
-            CandidateReport::Spent(scratch) => {
-                (Err(StepError::ConflictInvariantViolation), scratch)
-            }
+            CandidateReport::Spent(_) => Err(StepError::ConflictInvariantViolation),
         }
     }
 
@@ -5623,6 +5631,17 @@ impl CandidateReport {
     /// W1 后缀回收：五个变体统一归一提取随行暂存。未消费的后缀报告
     /// （较早消费失败残留的 None/Staged/Failed）同样保留 backing，
     /// 不得在各回收点自维护不完整变体清单。
+    /// 原位取出随行暂存，报告其余字段留待按引用消费。
+    fn take_scratch(&mut self) -> CandidateScratch {
+        match self {
+            CandidateReport::None { scratch, .. }
+            | CandidateReport::Staged { scratch, .. }
+            | CandidateReport::Failed { scratch, .. }
+            | CandidateReport::Resource { scratch, .. }
+            | CandidateReport::Spent(scratch) => core::mem::take(scratch),
+        }
+    }
+
     fn into_scratch(self) -> CandidateScratch {
         match self {
             CandidateReport::None { scratch, .. }
