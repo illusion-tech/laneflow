@@ -615,6 +615,8 @@ impl ExecutionResources {
             .0
             .try_reserve_exact(threads)
             .map_err(|_| ExecutionInitError::ResourceReservationFailed)?;
+        #[cfg(test)]
+        let counters = WORKER_COUNTERS.with(std::sync::Arc::clone);
         // spawn_handler 的登记持有每个真实 JoinHandle；构建失败也由同一 guard 结算。
         let pool = rayon_core::ThreadPoolBuilder::new()
             .num_threads(threads)
@@ -624,12 +626,14 @@ impl ExecutionResources {
                 if START_FAILURE.with(|fail| fail.get() == Some(thread.index())) {
                     return Err(std::io::Error::other("injected worker start failure"));
                 }
+                #[cfg(test)]
+                let counters = std::sync::Arc::clone(&counters);
                 let worker = std::thread::Builder::new()
                     .name(format!("laneflow-{}", thread.index()))
                     .stack_size(WORKER_STACK_BYTES)
                     .spawn(move || {
                         #[cfg(test)]
-                        let _activity = WorkerActivity::start();
+                        let _activity = WorkerActivity::start(counters);
                         thread.run();
                     })?;
                 workers.0.push(worker);
@@ -1186,30 +1190,50 @@ thread_local! {
     static START_FAILURE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
+/// 池工作线程计数，按建池的测试线程分开记：并发测试各自建池，全局计数会
+/// 读到别的测试仍存活的线程（断言失败后又毒化共享测试锁，连带一批失败）。
 #[cfg(test)]
-static LIVE_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static STARTED_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-pub(crate) static RESOURCE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[cfg(test)]
-pub(crate) fn worker_starts() -> usize {
-    STARTED_WORKERS.load(std::sync::atomic::Ordering::SeqCst)
+#[derive(Default)]
+struct WorkerCounters {
+    live: std::sync::atomic::AtomicUsize,
+    started: std::sync::atomic::AtomicUsize,
 }
 #[cfg(test)]
-struct WorkerActivity;
+thread_local! {
+    static WORKER_COUNTERS: std::sync::Arc<WorkerCounters> = std::sync::Arc::default();
+}
+#[cfg(test)]
+pub(crate) static RESOURCE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// 当前测试线程建的池里仍存活的工作线程数。
+#[cfg(test)]
+pub(crate) fn live_workers() -> usize {
+    WORKER_COUNTERS.with(|counters| counters.live.load(std::sync::atomic::Ordering::SeqCst))
+}
+/// 当前测试线程建的池累计启动过的工作线程数。
+#[cfg(test)]
+pub(crate) fn worker_starts() -> usize {
+    WORKER_COUNTERS.with(|counters| counters.started.load(std::sync::atomic::Ordering::SeqCst))
+}
+#[cfg(test)]
+struct WorkerActivity(std::sync::Arc<WorkerCounters>);
 #[cfg(test)]
 impl WorkerActivity {
-    fn start() -> Self {
-        LIVE_WORKERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        STARTED_WORKERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Self
+    fn start(counters: std::sync::Arc<WorkerCounters>) -> Self {
+        counters
+            .live
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        counters
+            .started
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(counters)
     }
 }
 #[cfg(test)]
 impl Drop for WorkerActivity {
     fn drop(&mut self) {
-        LIVE_WORKERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.0
+            .live
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -1399,7 +1423,7 @@ mod tests {
         assert_eq!(caller_stats.extra_work_chunks, 0);
         assert_eq!(caller_stats.participating_threads, 1);
         assert!(pool_stats.participating_threads >= 2);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1470,7 +1494,7 @@ mod tests {
         assert_eq!(pool_stats.extra_work_chunks, 2);
         drop(caller_world);
         drop(pool_world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1525,7 +1549,7 @@ mod tests {
             }
             drop(world);
         }
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1566,7 +1590,7 @@ mod tests {
         assert!(!visited.contains(&std::thread::current().id()));
         assert!(ids.iter().all(|id| visited.contains(id)));
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1637,7 +1661,7 @@ mod tests {
         assert_eq!(finished_starts, started_starts);
         drop(caller_world);
         drop(pool_world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1700,25 +1724,25 @@ mod tests {
         assert_eq!(stats.completed_chunks, 2);
         assert_eq!(stats.skipped_chunks, 0);
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
     fn partial_start_and_drop_join_real_threads_and_worker_one_stays_inline() {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
-        let started = STARTED_WORKERS.load(Ordering::SeqCst);
+        let started = worker_starts();
         drop(ExecutionResources::start(config(1)).unwrap());
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst), started);
+        assert_eq!(worker_starts(), started);
         START_FAILURE.with(|fail| fail.set(Some(2)));
         let failed = ExecutionResources::start(config(5));
         START_FAILURE.with(|fail| fail.set(None));
         assert!(matches!(failed, Err(ExecutionInitError::WorkerStartFailed)));
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst) - started, 2);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(worker_starts() - started, 2);
+        assert_eq!(live_workers(), 0);
         let resources = ExecutionResources::start(config(4)).unwrap();
         drop(resources);
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst) - started, 6);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(worker_starts() - started, 6);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1755,7 +1779,7 @@ mod tests {
         assert_eq!(world.execution.attempt_epoch, 2);
         assert_eq!(world.execution.thread_ids(), ids);
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1785,7 +1809,7 @@ mod tests {
             assert!(catch_unwind(AssertUnwindSafe(|| world.world_binding())).is_err());
             assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
             drop(world);
-            assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+            assert_eq!(live_workers(), 0);
         }
     }
 
@@ -1841,7 +1865,7 @@ mod tests {
         assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
         let settled_output = output;
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
         assert_eq!(output, settled_output);
         assert_eq!(completed.load(Ordering::SeqCst), 15);
     }
@@ -1924,7 +1948,7 @@ mod tests {
             world.state.rebuild_active_order();
         }
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1952,7 +1976,7 @@ mod tests {
     fn plan_failure_is_after_traffic_validation_and_before_resource_start() {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let (world, _, _) = world_with_vehicle(true);
-        let started = STARTED_WORKERS.load(Ordering::SeqCst);
+        let started = worker_starts();
         let install = |execution| {
             TrafficWorld::install(
                 world.revision(),
@@ -2008,7 +2032,7 @@ mod tests {
             .assert_binding(&restored.world().state);
         assert_eq!(restored.world().execution.active_plan.ranges.len(), 1);
         assert_eq!(restored.world().execution.active_plan.ranges[0], 0..1);
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst), started);
+        assert_eq!(worker_starts(), started);
     }
 
     #[test]

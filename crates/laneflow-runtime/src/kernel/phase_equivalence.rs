@@ -275,7 +275,7 @@ fn exact_baseline_trace_and_retry_match() {
 #[test]
 fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // 场景反复创建真实线程池：持有资源测试锁，避免与 execution.rs 测试族的
-    // 全局 LIVE_WORKERS/STARTED_WORKERS 计数断言并发互扰。
+    // 真实线程池测试并发抢占 CPU（工作线程计数已按建池线程分开记）。
     let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
     // 生产分发阈值为保守 1_024；矩阵场景为 16 车，经强制入口保持
     // 多 worker 真实分发覆盖（digest 轨迹与路径无关，冻结 fixture 不变）。
