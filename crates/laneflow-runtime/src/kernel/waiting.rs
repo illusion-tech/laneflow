@@ -398,7 +398,7 @@ pub(crate) fn set_preview_chunk_multiplier(multiplier: usize) {
 
 #[cfg(test)]
 thread_local! {
-    static PREVIEW_CHUNK_MULTIPLIER: core::cell::Cell<usize> = const { core::cell::Cell::new(2) };
+    static PREVIEW_CHUNK_MULTIPLIER: core::cell::Cell<usize> = const { core::cell::Cell::new(8) };
 }
 
 /// 测试专用：生产分发阈值为保守的 1_024；小场景测试经该守卫强制走真实
@@ -2149,11 +2149,12 @@ fn prepare_waiting_previews_dispatched(
     }
     slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
     // 块数取线程数倍数与活动数的较小者，块数可多于线程数以便均衡；语义中立。
-    // 倍数默认 2，cfg(test) 探针可扫描 1/2/4 以粒度证据调整。
+    // 单车预览代价不均，倍数 2 时块少、末块拖尾明显（探针中分发段约为理想值两倍）；
+    // 倍数 8 让票据认领摊平长块。cfg(test) 探针可扫描倍数以粒度证据调整。
     #[cfg(test)]
     let multiplier = preview_chunk_multiplier();
     #[cfg(not(test))]
-    let multiplier = 2;
+    let multiplier = 8;
     let chunk_count = execution
         .dispatch_threads()
         .saturating_mul(multiplier)
