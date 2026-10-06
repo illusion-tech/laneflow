@@ -281,7 +281,7 @@ fn convert_verified(
     let cargo_lock_sha256 = hex_sha256(CARGO_LOCK_BYTES);
     let build = build_build_provenance(&BuildProvenanceInput {
         converter_commit,
-        rust_version: "1.98.0",
+        rust_version: env!("LANEFLOW_BUILD_RUSTC_VERSION"),
         cargo_lock_sha256,
         config_digest: sha256_digest(config_toml_bytes),
         semantic_provenance_digest: sha256_digest(&semantic),
@@ -1629,6 +1629,14 @@ mod tests {
                 .expect("workspace Cargo.lock");
         assert!(!CARGO_LOCK_BYTES.is_empty());
         assert_eq!(CARGO_LOCK_BYTES, on_disk.as_slice());
+    }
+
+    #[test]
+    fn build_rustc_version_captured_at_compile_time() {
+        // build.rs 捕获的实际构建工具链（非硬编码 MSRV）：`rustc --version`
+        // 完整单行，如 `rustc 1.98.0 (<hash> <date>)`。
+        let version = env!("LANEFLOW_BUILD_RUSTC_VERSION");
+        assert!(version.starts_with("rustc "), "{version}");
     }
 
     #[test]
