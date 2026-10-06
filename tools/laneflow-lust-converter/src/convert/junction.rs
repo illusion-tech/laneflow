@@ -53,12 +53,15 @@ pub fn normalize_junctions(
             *via_ref_count.entry(via.as_str()).or_default() += 1;
         }
         if is_internal_edge(network, &connection.from_edge_id) {
-            *internal_from_count
-                .entry(format!(
-                    "{}_{}",
-                    connection.from_edge_id, connection.from_lane
-                ))
-                .or_default() += 1;
+            // 键必须取声明 lane id：stub 查找（evaluate_stub_candidate）按
+            // 声明 stub_id 进行；捏造 `{edge}_{index}` 约定 id 会在非约定
+            // 命名下漏计（from_refs=0 误拒），甚至撞名误归因。
+            let from_lane = resolve_lane(
+                &lane_by_edge_index,
+                &connection.from_edge_id,
+                connection.from_lane,
+            )?;
+            *internal_from_count.entry(from_lane.id.clone()).or_default() += 1;
         }
     }
     for connection in &network.connections {
@@ -798,12 +801,14 @@ pub fn scan_stub_weld_candidates(network: &SumoNetwork) -> Result<Vec<StubWeldRe
             *via_ref_count.entry(via.as_str()).or_default() += 1;
         }
         if is_internal_edge(network, &connection.from_edge_id) {
-            *internal_from_count
-                .entry(format!(
-                    "{}_{}",
-                    connection.from_edge_id, connection.from_lane
-                ))
-                .or_default() += 1;
+            // 与 normalize 同口径：键取声明 lane id（resolve_lane），不捏造
+            // `{edge}_{index}` 约定 id。
+            let from_lane = resolve_lane(
+                &lane_by_edge_index,
+                &connection.from_edge_id,
+                connection.from_lane,
+            )?;
+            *internal_from_count.entry(from_lane.id.clone()).or_default() += 1;
         }
     }
     let IntLaneOwnership {
@@ -1953,6 +1958,31 @@ mod tests {
         assert!(record.span_m < 0.5);
         assert!(record.locality_m < 0.05);
         assert_eq!(record.shared_traversal_count, 0);
+    }
+
+    #[test]
+    fn stub_weld_counts_internal_from_by_declared_lane_id() {
+        // 非约定 internal lane id（`STUB_A`，非 `{edge}_{index}` 形态）：
+        // internal from 引用计数必须按声明 id 解析——捏造约定 id 会让
+        // from_refs=0，把合法单引用 stub 误判 RejectedTopology。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="west" from="W" to="J"><lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="east" from="J" to="E"><lane id="east_0" index="0" speed="13.89" length="20.00" shape="6806.90,5727.53 6826.90,5727.53"/></edge>
+  <edge id=":J_0" function="internal"><lane id="STUB_A" index="0" speed="13.89" length="0.40" shape="6806.88,5727.52 6807.18,5727.60"/></edge>
+  <junction id="J" type="priority" intLanes="STUB_A"/>
+  <connection from="west" to="east" fromLane="0" toLane="0" via="STUB_A"/>
+  <connection from=":J_0" to="east" fromLane="0" toLane="0"/>
+</net>"#;
+        let network = parse_sumo_network_xml(xml).expect("parse");
+        let topology = normalize_junctions(&network, &StubWeldGate::Unrestricted)
+            .expect("non-conventional stub id welds");
+        assert_eq!(topology.stub_weld_records.len(), 1);
+        let record = &topology.stub_weld_records[0];
+        assert_eq!(record.disposition, StubWeldDisposition::Welded);
+        assert_eq!(record.stub_lane_id, "STUB_A");
+        assert!(topology.dropped_stub_lane_ids.contains("STUB_A"));
     }
 
     #[test]
