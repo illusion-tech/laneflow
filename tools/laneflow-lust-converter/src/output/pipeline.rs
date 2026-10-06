@@ -51,6 +51,13 @@ const BACKUP_COMPLETE_MARKER: &str = ".backup-complete";
 /// 的撞名目录可能是无关产物，恢复/删除它会造成数据损失（#253）。
 const BACKUP_OWNER_MARKER: &str = ".backup-owner";
 const BACKUP_OWNER_MAGIC: &[u8] = b"laneflow-lust-converter publish backup\n";
+/// staging 事务所有权标记（写在 staging 目录内）：创建后、任何产物写入
+/// 之前落笔。残留 staging 仅凭命名形态不足以证明是本 converter 的目录
+/// ——无标记的撞名目录可能是无关产物，清理不得删除（#253，与备份目录
+/// 同一认证思路；staging 无标记只跳过不删，不像备份那样 fail-closed：
+/// 它不是恢复语义的歧义状态，也不阻塞本次转换）。
+const STAGING_OWNER_MARKER: &str = ".staging-owner";
+const STAGING_OWNER_MAGIC: &[u8] = b"laneflow-lust-converter staging\n";
 
 /// Paths written by a successful convert.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -340,6 +347,14 @@ fn convert_verified(
     fs::create_dir_all(&staging).map_err(|source| Error::Io {
         path: staging.clone(),
         source,
+    })?;
+    // 所有权标记先于一切产物写入：残留 staging 目录据此认证
+    // （remove_stale_staging 不删无标记的撞名目录）。
+    fs::write(staging.join(STAGING_OWNER_MARKER), STAGING_OWNER_MAGIC).map_err(|source| {
+        Error::Io {
+            path: staging.join(STAGING_OWNER_MARKER),
+            source,
+        }
     })?;
 
     let stage_outputs = || -> Result<Vec<(&'static str, &'static str)>> {
@@ -906,8 +921,9 @@ fn stale_dir_name_matches(file_name: &str, prefix: &str, suffix: &str) -> bool {
 
 /// 清理残留 staging 目录（`.staging-<pid>-<name>`）：进程在 staging 创建
 /// 后、publish 完成前被杀就会留下——内容是纯新产物副本（旧交付集的唯一
-/// 副本在备份区，不在此处），删除安全。尽力而为：删除失败留待下次运行
-/// 重试，不阻塞本次转换。
+/// 副本在备份区，不在此处），删除安全。只删带所有权标记的目录：命名形态
+/// 撞车的无关目录零触碰。尽力而为：删除失败留待下次运行重试，不阻塞本次
+/// 转换。
 fn remove_stale_staging(anchor: &Path) {
     let name = anchor
         .file_name()
@@ -920,8 +936,16 @@ fn remove_stale_staging(anchor: &Path) {
     };
     for entry in entries.flatten() {
         let file_name = entry.file_name().to_string_lossy().into_owned();
-        if stale_dir_name_matches(&file_name, ".staging-", &suffix) {
-            let _ = fs::remove_dir_all(entry.path());
+        if !stale_dir_name_matches(&file_name, ".staging-", &suffix) {
+            continue;
+        }
+        // 所有权认证：无标记的撞名目录不是本 converter 的 staging，不删。
+        let path = entry.path();
+        if fs::read(path.join(STAGING_OWNER_MARKER))
+            .map(|bytes| bytes == STAGING_OWNER_MAGIC)
+            .unwrap_or(false)
+        {
+            let _ = fs::remove_dir_all(path);
         }
     }
 }
@@ -1136,10 +1160,10 @@ mod tests {
 
     use super::{
         BACKUP_COMPLETE_MARKER, BACKUP_OWNER_MAGIC, BACKUP_OWNER_MARKER, CARGO_LOCK_BYTES,
-        MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML, SURVEY_NAME, acquire_output_lock,
-        backup_dir, convert_with_config, pinned_rust_toolchain_channel, publish_outputs,
-        remove_stale_staging, resolve_converter_commit, restore_backup, semantic_config,
-        swap_outputs,
+        MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML, STAGING_OWNER_MAGIC, STAGING_OWNER_MARKER,
+        SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config,
+        pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging,
+        resolve_converter_commit, restore_backup, semantic_config, swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1739,15 +1763,20 @@ mod tests {
 
     #[test]
     fn stale_staging_dirs_are_removed() {
-        // 崩溃遗留的 staging 目录（纯新产物副本）被清理；非数字 pid 段
-        // 与无关目录不动。
+        // 崩溃遗留的 staging 目录（纯新产物副本）被清理——只认带所有权
+        // 标记的目录；无标记的撞名目录（可能是无关产物）、非数字 pid 段
+        // 与无关目录一律不动。
         let root = std::env::temp_dir().join(format!("lust-stale-staging-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let output = root.join("out");
         std::fs::create_dir_all(&output).expect("output");
         let stale = root.join(".staging-99999993-out");
         std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(STAGING_OWNER_MARKER), STAGING_OWNER_MAGIC).expect("owner");
         std::fs::write(stale.join("manifest.toml"), b"staged").expect("write");
+        let foreign = root.join(".staging-99999995-out");
+        std::fs::create_dir_all(&foreign).expect("foreign");
+        std::fs::write(foreign.join("unrelated.txt"), b"keep me").expect("unrelated");
         let non_numeric = root.join(".staging-abc-out");
         std::fs::create_dir_all(&non_numeric).expect("non-numeric");
         let unrelated = root.join("other");
@@ -1755,7 +1784,8 @@ mod tests {
 
         remove_stale_staging(&output);
 
-        assert!(!stale.exists(), "残留 staging 已清理");
+        assert!(!stale.exists(), "带所有权标记的残留 staging 已清理");
+        assert!(foreign.exists(), "无标记的撞名目录零触碰");
         assert!(non_numeric.exists(), "非数字 pid 段不匹配，不动");
         assert!(unrelated.exists(), "无关目录不动");
         let _ = std::fs::remove_dir_all(&root);
