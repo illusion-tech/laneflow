@@ -112,6 +112,19 @@ pub fn convert_with_config(
         message: format!("could not determine the process current directory: {source}"),
     })?;
     let anchor = output_anchor(&config.output_dir, &entry_cwd);
+    // 解析后的锚点也必须是具名目录：词法校验只拒字面根路径，output_dir
+    // 可以是指向 `/`/`C:\` 的 symlink——锚点无文件名时锁与事务目录会
+    // 退化为 cwd 相对（不同 cwd 的转换各持各锁却发布进同一根）。
+    if anchor.file_name().is_none() {
+        return Err(Error::Validation {
+            stage: "anchor",
+            message: format!(
+                "output_dir {} resolves to filesystem root {} — refusing to transact at a root",
+                config.output_dir.display(),
+                anchor.display()
+            ),
+        });
+    }
     // 排他锁覆盖 恢复→发布 全程：两进程并发同 output_dir 时，后者会把
     // 前者的在途备份误判为中断事务并恢复，造成新旧产物混杂。进程退出
     // 由 OS 自动放锁，崩溃不留死锁；锁文件是 output_dir 的兄弟点文件，
@@ -1943,6 +1956,41 @@ mod tests {
             b"old-manifest",
             "output 原样保留"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn convert_rejects_anchor_resolving_to_root() {
+        // #253：output_dir 是指向文件系统根的 symlink 时，词法校验查不出，
+        // 但解析后的锚点没有文件名——锁与事务目录会退化为 cwd 相对。
+        // 持锁前 fail-closed。
+        let root = std::env::temp_dir().join(format!("lust-anchor-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("root");
+        let link = root.join("link");
+        std::os::unix::fs::symlink("/", &link).expect("symlink to root");
+
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("/nonexistent-lust"),
+            output_dir: link.clone(),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let toml = format!(
+            "source_dir = '/nonexistent-lust'\noutput_dir = '{}'\n",
+            link.display()
+        );
+        let error = convert_with_config(&config, toml.as_bytes())
+            .expect_err("root anchor must fail closed");
+        match error {
+            Error::Validation { stage, message } => {
+                assert_eq!(stage, "anchor");
+                assert!(message.contains("filesystem root"), "{message}");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
