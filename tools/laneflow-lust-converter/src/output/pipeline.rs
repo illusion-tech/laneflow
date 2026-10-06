@@ -1846,6 +1846,26 @@ output_dir = 'E:/nonexistent-out'
         }
     }
 
+    #[test]
+    fn build_compiler_matches_pinned_toolchain() {
+        // #253：provenance 的 rust_version 记录仓库 pin，但 `cargo +其他版本`
+        // 可以用别的编译器产出二进制而记录仍自称 pin 值。测试进程由实际构建
+        // 工具链编译，`rustc` 经 rustup 代理按 RUSTUP_TOOLCHAIN/rust-toolchain.toml
+        // 解析：构建工具链与 pin 不符时本测试直接红——与 pin 不符的构建产物
+        // 无法通过测试门。
+        let output = std::process::Command::new("rustc")
+            .arg("--version")
+            .output()
+            .expect("run rustc --version");
+        assert!(output.status.success());
+        let version = String::from_utf8(output.stdout).expect("rustc version utf8");
+        let channel = pinned_rust_toolchain_channel().expect("pinned channel");
+        assert!(
+            version.starts_with(&format!("rustc {channel} ")),
+            "build compiler must match the pinned toolchain {channel}: {version}"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn publish_rejects_symlink_managed_artifact() {
