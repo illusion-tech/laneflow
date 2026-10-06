@@ -54,6 +54,16 @@ impl LustConverterConfig {
                 self.output_dir.display()
             )));
         }
+        // #253：文件系统根（`/`、`C:\` 等）与 `.` 没有文件名——锁/staging/
+        // 备份会退化为 cwd 相对的 `.lock-output` 等路径，不同 cwd 启动的
+        // 两个转换各持各锁却发布进同一目录，事务位置失去意义（rename 还
+        // 可能跨文件系统）。fail-closed，请命名一个具体目录。
+        if self.output_dir.file_name().is_none() {
+            return Err(Error::Config(format!(
+                "output_dir must name a directory (filesystem root or '.' is not allowed): {}",
+                self.output_dir.display()
+            )));
+        }
         Ok(())
     }
 }
@@ -113,6 +123,31 @@ mod tests {
         match error {
             Error::Config(message) => assert!(message.contains("'..'"), "{message}"),
             other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn validate_rejects_root_and_current_dir_output() {
+        // #253：文件系统根与 `.` 没有文件名——锁/staging/备份会退化为 cwd
+        // 相对路径，不同 cwd 的转换各持各锁却发布进同一目录。一律拒绝。
+        for output_dir in ["/", "."] {
+            let config = LustConverterConfig {
+                source_dir: PathBuf::from("src"),
+                output_dir: PathBuf::from(output_dir),
+                converter_commit: None,
+                source_bundle_url: None,
+                static_bundle_url: None,
+            };
+            let error = match config.validate() {
+                Err(error) => error,
+                Ok(()) => panic!("{output_dir:?} must fail validation"),
+            };
+            match error {
+                Error::Config(message) => {
+                    assert!(message.contains("must name a directory"), "{message}")
+                }
+                other => panic!("unexpected error: {other}"),
+            }
         }
     }
 }
