@@ -362,12 +362,7 @@ fn convert_verified(
     create_dir_exclusive(&staging, "staging")?;
     // 所有权标记先于一切产物写入：残留 staging 目录据此认证
     // （remove_stale_staging 不删无标记的撞名目录）。
-    fs::write(staging.join(STAGING_OWNER_MARKER), STAGING_OWNER_MAGIC).map_err(|source| {
-        Error::Io {
-            path: staging.join(STAGING_OWNER_MARKER),
-            source,
-        }
-    })?;
+    write_staging_owner_marker(&staging)?;
 
     let stage_outputs = || -> Result<Vec<(&'static str, &'static str)>> {
         let bytes_by_name: [(&'static str, Option<&[u8]>); 12] = [
@@ -521,6 +516,24 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
         .map(Path::to_path_buf)
         .unwrap_or_default();
     parent.join(format!(".staging-{}-{name}", std::process::id()))
+}
+
+/// staging 所有权标记写入（排他新建后立即调用，先于一切产物）：残留
+/// staging 目录据此认证（remove_stale_staging 不删无标记的撞名目录）。
+/// 写失败（如卷满）必须归还刚排他新建的空目录——无标记残留既不被入口
+/// 清理，又让同进程重试（同 pid 同名路径）在排他新建处永远撞墙。目录
+/// 此刻必为空（标记是首个写入）：remove_dir 删不动即现场异常，保留
+/// 目录并归还原始错误（备份侧同类失败由 restore_backup→clear_backup
+/// 收敛，无此泄漏）。
+fn write_staging_owner_marker(staging: &Path) -> Result<()> {
+    if let Err(source) = fs::write(staging.join(STAGING_OWNER_MARKER), STAGING_OWNER_MAGIC) {
+        let _ = fs::remove_dir(staging);
+        return Err(Error::Io {
+            path: staging.join(STAGING_OWNER_MARKER),
+            source,
+        });
+    }
+    Ok(())
 }
 
 /// 排他新建事务目录（staging/backup 共用）：同名路径已存在（残留、撞名、
@@ -1207,7 +1220,7 @@ mod tests {
         resolve_converter_commit, restore_backup, semantic_config, swap_outputs,
     };
     #[cfg(unix)]
-    use super::{output_anchor, staging_dir};
+    use super::{output_anchor, staging_dir, write_staging_owner_marker};
     use crate::Error;
 
     #[test]
@@ -1884,6 +1897,31 @@ mod tests {
         let fresh = root.join("fresh");
         create_dir_exclusive(&fresh, "staging").expect("fresh path creates");
         assert!(fresh.is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_marker_write_failure_reclaims_dir() {
+        // #253：排他新建成功后标记写失败（卷满等，此处以目录只读注入）必须
+        // 归还空目录——无标记残留不被入口清理（remove_stale_staging 只认
+        // 标记），同进程重试（同 pid 同名路径）会在排他新建处永远撞墙。
+        // remove_dir 只需父目录可写，staging 自身只读不妨碍归还。
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("lust-staging-marker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o555)).expect("ro");
+
+        let error = write_staging_owner_marker(&staging).expect_err("marker write must fail");
+        match &error {
+            Error::Io { path, .. } => {
+                assert_eq!(*path, staging.join(STAGING_OWNER_MARKER), "{path:?}")
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert!(!staging.exists(), "排他新建的空目录必须归还");
         let _ = std::fs::remove_dir_all(&root);
     }
 
