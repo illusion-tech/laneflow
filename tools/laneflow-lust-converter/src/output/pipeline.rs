@@ -113,8 +113,19 @@ pub fn convert_with_config(
     // 的 rename 备份与 copy 回滚归还不同产物集；在任何转换开销之前
     // fail-closed（publish 前还会复检，覆盖入口之后的 TOCTOU 窗口）。
     ensure_regular_managed_artifacts(&anchor, &managed_names(&deliverables))?;
+    // #253：构建身份（converter checkout 实时 HEAD）在昂贵转换之前
+    // 解析——checkout 被移动/删除时不白跑完整转换才在 provenance
+    // 阶段失败。
+    let converter_commit = resolve_converter_commit(config)?;
     let verified = verify_source_dir(&config.source_dir)?;
-    convert_verified(config, config_toml_bytes, &verified, &anchor, &entry_cwd)
+    convert_verified(
+        config,
+        config_toml_bytes,
+        &verified,
+        &anchor,
+        &entry_cwd,
+        converter_commit,
+    )
 }
 
 fn convert_verified(
@@ -123,6 +134,7 @@ fn convert_verified(
     verified: &VerifiedSourceSet,
     anchor: &Path,
     entry_cwd: &Path,
+    converter_commit: String,
 ) -> Result<ConvertOutputPaths> {
     let net_xml = read_verified(verified, "scenario/lust.net.xml")?;
     let tll_xml = read_verified(verified, "scenario/tll.static.xml")?;
@@ -281,9 +293,9 @@ fn convert_verified(
         conversion_report_bytes: report.as_slice(),
     })?;
 
-    let converter_commit = resolve_converter_commit(config)?;
-    // 认证对象必须是产出本二进制的 lockfile：编译期内嵌（运行时回读
-    // checkout 会在源码树移动/删除/切换版本后认证错对象甚至直接失败）。
+    // converter_commit 由公开入口在转换前解析（checkout 缺失 fail-fast，
+    // 不白跑转换）。认证对象必须是产出本二进制的 lockfile：编译期内嵌
+    // （运行时回读会在源码树移动/删除/切换版本后认证错对象甚至直接失败）。
     let cargo_lock_sha256 = hex_sha256(CARGO_LOCK_BYTES);
     let build = build_build_provenance(&BuildProvenanceInput {
         converter_commit,
