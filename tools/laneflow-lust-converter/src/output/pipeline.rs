@@ -616,10 +616,9 @@ fn publish_outputs(
     // 转换期间被换成 symlink/目录时在此 fail-closed，不进入 swap。
     ensure_regular_managed_artifacts(anchor, &managed_names(staged))?;
     let backup = backup_dir(anchor);
-    fs::create_dir_all(&backup).map_err(|source| Error::Io {
-        path: backup.clone(),
-        source,
-    })?;
+    // 排他新建：同名路径（pid 复用残留/撞名/symlink）必是外来物——
+    // 恢复已处理或拒绝了本 converter 的带标记残留。
+    create_dir_exclusive(&backup, "publish")?;
     let mut installed = Vec::new();
     let publish_error = match swap_outputs(staging, anchor, &backup, staged, &mut installed) {
         Ok(()) => {
@@ -1902,6 +1901,47 @@ mod tests {
             std::fs::read(real.join("keep.txt")).expect("read"),
             b"keep",
             "symlink 目标零触碰"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publish_rejects_symlinked_backup_path() {
+        // #253：备份路径是指向无关目录的 symlink——find_stale_backups 的
+        // file_type 不穿透 symlink（进不了恢复列表），排他新建在此兜底：
+        // fail-closed 于任何 rename 之前，symlink 目标零触碰。
+        let root = std::env::temp_dir().join(format!("lust-backup-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        let foreign = root.join("foreign");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::create_dir_all(&foreign).expect("foreign");
+        std::fs::write(output.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        std::fs::write(foreign.join("unrelated.txt"), b"keep me").expect("unrelated");
+        std::os::unix::fs::symlink(&foreign, backup_dir(&output)).expect("symlink backup path");
+
+        let error = publish_outputs(&staging, &output, &[(MANIFEST_NAME, MANIFEST_NAME)])
+            .expect_err("symlinked backup path must fail closed");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "publish");
+                assert!(message.contains("already exists"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(foreign.join("unrelated.txt")).expect("read"),
+            b"keep me",
+            "symlink 目标零触碰"
+        );
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "output 原样保留"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
