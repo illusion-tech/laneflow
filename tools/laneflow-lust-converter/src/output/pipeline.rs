@@ -46,6 +46,11 @@ const NOTICE_NAME: &str = "NOTICE";
 /// 备份阶段完成标记（写在备份目录内）：装入开始前写入，中断恢复据此
 /// 区分崩溃形态（见 `recover_interrupted_publish`）。
 const BACKUP_COMPLETE_MARKER: &str = ".backup-complete";
+/// 备份事务所有权标记（写在备份目录内）：创建备份后、任何 rename 之前
+/// 写入。残留目录仅凭命名形态不足以证明是本 converter 的事务——无标记
+/// 的撞名目录可能是无关产物，恢复/删除它会造成数据损失（#253）。
+const BACKUP_OWNER_MARKER: &str = ".backup-owner";
+const BACKUP_OWNER_MAGIC: &[u8] = b"laneflow-lust-converter publish backup\n";
 
 /// Paths written by a successful convert.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -661,6 +666,14 @@ fn swap_outputs(
     staged: &[(&'static str, &'static str)],
     installed: &mut Vec<&'static str>,
 ) -> Result<()> {
+    // 所有权标记先于一切 rename：残留备份目录据此认证（见
+    // recover_interrupted_publish 的 fail-closed 分支）。
+    fs::write(backup.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).map_err(|source| {
+        Error::Io {
+            path: backup.join(BACKUP_OWNER_MARKER),
+            source,
+        }
+    })?;
     // 备份现存：交付名 ∪ 排除名。
     for name in managed_names(staged) {
         let dest = output_dir.join(name);
@@ -726,9 +739,10 @@ fn ensure_regular_managed_artifacts(output_dir: &Path, managed: &[&'static str])
 }
 
 /// 中断恢复：上次运行在 swap 中途被杀会留下 `.backup-<pid>-<name>` 残留。
-/// 不变量：备份阶段逐文件先于一切装入，备份完成后才写标记——据此区分
-/// 两种崩溃形态并确定性恢复。恢复失败或存在多个残留时 fail-closed
-/// （备份保留，人工处理）。
+/// 不变量：所有权标记先于一切 rename 写入，备份阶段逐文件先于一切装入，
+/// 备份完成后才写完成标记——据此认证事务归属、区分两种崩溃形态并确定性
+/// 恢复。无所有权标记的撞名目录不恢复、不删除，fail-closed 交人工（备份
+/// 保留）；恢复失败或存在多个残留时同样 fail-closed。
 fn recover_interrupted_publish(
     output_dir: &Path,
     staged: &[(&'static str, &'static str)],
@@ -757,6 +771,22 @@ fn recover_interrupted_publish(
         });
     }
     let backup = &stale[0];
+    // 认证残留目录是本 converter 的事务：命名形态撞车的无关目录（可能
+    // 装着无关内容）不恢复、不删除——恢复会 copy 撞名文件进 output，
+    // 收尾的 remove_dir_all 更会删掉整个目录。fail-closed 交人工。
+    let owner = backup.join(BACKUP_OWNER_MARKER);
+    if fs::read(&owner)
+        .map(|bytes| bytes != BACKUP_OWNER_MAGIC)
+        .unwrap_or(true)
+    {
+        return Err(Error::Validation {
+            stage: "publish",
+            message: format!(
+                "{} matches the backup naming pattern but carries no converter ownership marker — not touching it; inspect and remove it manually",
+                backup.display()
+            ),
+        });
+    }
     // 备份条目是恢复的 copy 源：symlink 条目会被 copy 穿透——把 symlink
     // 目标（可能在 output_dir 之外）的字节作为常规文件写回交付集。发现
     // 即 fail-closed 交人工处置，不做静默恢复。
@@ -1105,10 +1135,11 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        BACKUP_COMPLETE_MARKER, CARGO_LOCK_BYTES, MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML,
-        SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config,
-        pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging,
-        resolve_converter_commit, restore_backup, semantic_config, swap_outputs,
+        BACKUP_COMPLETE_MARKER, BACKUP_OWNER_MAGIC, BACKUP_OWNER_MARKER, CARGO_LOCK_BYTES,
+        MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML, SURVEY_NAME, acquire_output_lock,
+        backup_dir, convert_with_config, pinned_rust_toolchain_channel, publish_outputs,
+        remove_stale_staging, resolve_converter_commit, restore_backup, semantic_config,
+        swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1282,6 +1313,7 @@ mod tests {
         // output 里只有装入一半的新 report。
         let stale = backup_dir(&output);
         std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).expect("owner");
         std::fs::write(stale.join(MANIFEST_NAME), b"old-manifest").expect("old");
         std::fs::write(stale.join("network.lfca"), b"stale-lfca").expect("lfca");
         std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
@@ -1326,6 +1358,7 @@ mod tests {
         // 还没轮到备份、留在 output。
         let stale = backup_dir(&output);
         std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).expect("owner");
         std::fs::write(stale.join(MANIFEST_NAME), b"old-manifest").expect("old");
         std::fs::write(output.join(REPORT_NAME), b"old-report").expect("old report");
         // 本次运行只 stage manifest——装入 report 时失败，走回滚。
@@ -1399,6 +1432,7 @@ mod tests {
         std::fs::write(staging.join("manifest.toml"), b"new-manifest").expect("new");
         let stale = backup_dir(&output);
         std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).expect("owner");
         std::fs::write(stale.join("manifest.toml"), b"previous-manifest").expect("prev");
         std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
 
@@ -1414,6 +1448,47 @@ mod tests {
             "歧义状态下 output 必须原样保留，不得回滚"
         );
         assert!(stale.join("manifest.toml").exists(), "备份保留待人工检查");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn recover_rejects_unauthenticated_backup_dir() {
+        // #253：命名形态撞车的无关目录（无所有权标记）不是本 converter 的
+        // 事务——不恢复、不删除，fail-closed 交人工；无关内容零触碰（否则
+        // 恢复会 copy 撞名文件进 output，收尾的 remove_dir_all 更会删掉
+        // 整个无关目录）。
+        let root = std::env::temp_dir().join(format!("lust-unauth-backup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        let foreign = root.join(".backup-99999994-out");
+        std::fs::create_dir_all(&foreign).expect("foreign");
+        std::fs::write(foreign.join(MANIFEST_NAME), b"foreign-manifest").expect("foreign file");
+        std::fs::write(foreign.join("unrelated.txt"), b"keep me").expect("unrelated");
+
+        let error = publish_outputs(&staging, &output, &[(MANIFEST_NAME, MANIFEST_NAME)])
+            .expect_err("unauthenticated backup dir must fail closed");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "publish");
+                assert!(message.contains("ownership marker"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(foreign.join("unrelated.txt")).expect("read"),
+            b"keep me",
+            "无关目录内容零触碰"
+        );
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "output 原样保留"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1523,6 +1598,7 @@ mod tests {
         // 一半的新 report。
         let stale = backup_dir(&output);
         std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).expect("owner");
         std::fs::write(stale.join(MANIFEST_NAME), b"old-manifest").expect("old");
         std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
         std::fs::write(output.join(REPORT_NAME), b"crashed-report").expect("crashed");
@@ -1928,6 +2004,7 @@ output_dir = 'E:/nonexistent-out'
         std::fs::write(&outside, b"outside-data").expect("outside");
         let stale = backup_dir(&output);
         std::fs::create_dir_all(&stale).expect("stale");
+        std::fs::write(stale.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).expect("owner");
         std::os::unix::fs::symlink(&outside, stale.join(MANIFEST_NAME)).expect("symlink entry");
         std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
         std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("staged");
