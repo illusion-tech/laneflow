@@ -282,7 +282,10 @@ fn convert_verified(
     let cargo_lock_sha256 = hex_sha256(CARGO_LOCK_BYTES);
     let build = build_build_provenance(&BuildProvenanceInput {
         converter_commit,
-        rust_version: env!("LANEFLOW_BUILD_RUSTC_VERSION"),
+        // 记录仓库 pin 的构建工具链：rust-toolchain.toml 由 rustup 在任意
+        // checkout 副本内强制，内嵌值即实际构建工具链（仓库禁 build 脚本，
+        // 构建期捕获 `rustc --version` 不在选项内——钉死而非自称）。
+        rust_version: pinned_rust_toolchain_channel()?,
         cargo_lock_sha256,
         config_digest: sha256_digest(config_toml_bytes),
         semantic_provenance_digest: sha256_digest(&semantic),
@@ -914,6 +917,33 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 const CARGO_LOCK_BYTES: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock"));
 
+/// 构建期内嵌的仓库根 `rust-toolchain.toml`：rustup 在任何 checkout 副本内
+/// 强制其 channel——记录该 pin 即记录实际构建工具链（仓库 wire 审计禁
+/// build 脚本，`rustc --version` 的构建期捕获不在选项内）。
+const RUST_TOOLCHAIN_TOML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../rust-toolchain.toml"
+));
+
+/// 内嵌 pin 文件的 `toolchain.channel`（provenance 的 rust_version 唯一
+/// 来源）。文件由本仓库维护且格式固定；解析失败 fail-closed，不退回任何
+/// 声明值。
+fn pinned_rust_toolchain_channel() -> Result<&'static str> {
+    RUST_TOOLCHAIN_TOML
+        .lines()
+        .map(str::trim)
+        .find_map(|line| {
+            line.strip_prefix("channel")
+                .and_then(|rest| rest.trim_start().strip_prefix('='))
+                .and_then(|value| value.trim().strip_prefix('"'))
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            Error::Config("embedded rust-toolchain.toml lacks toolchain.channel".to_owned())
+        })
+}
+
 fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
     if let Some(commit) = config
         .converter_commit
@@ -999,9 +1029,10 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        BACKUP_COMPLETE_MARKER, CARGO_LOCK_BYTES, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME,
-        acquire_output_lock, backup_dir, convert_with_config, publish_outputs,
-        remove_stale_staging, restore_backup, semantic_config, swap_outputs,
+        BACKUP_COMPLETE_MARKER, CARGO_LOCK_BYTES, MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML,
+        SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config,
+        pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging, restore_backup,
+        semantic_config, swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1633,11 +1664,16 @@ mod tests {
     }
 
     #[test]
-    fn build_rustc_version_captured_at_compile_time() {
-        // build.rs 捕获的实际构建工具链（非硬编码 MSRV）：`rustc --version`
-        // 完整单行，如 `rustc 1.98.0 (<hash> <date>)`。
-        let version = env!("LANEFLOW_BUILD_RUSTC_VERSION");
-        assert!(version.starts_with("rustc "), "{version}");
+    fn rust_toolchain_pin_is_embedded_and_parseable() {
+        // provenance 的 rust_version 唯一来源是仓库根 rust-toolchain.toml 的
+        // pin channel（构建期内嵌，rustup 在 checkout 内强制）；pin 漂移时
+        // 本测试随之失败——不允许记录值与 pin 脱节。
+        assert!(RUST_TOOLCHAIN_TOML.contains("[toolchain]"));
+        assert_eq!(
+            pinned_rust_toolchain_channel().expect("channel"),
+            "1.98.0",
+            "记录值必须与仓库 pin 同步（升 MSRV 时同步本断言）"
+        );
     }
 
     #[test]
