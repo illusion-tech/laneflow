@@ -186,6 +186,7 @@ fn convert_verified(
         stop_line_count: counts.stop_lines,
         maneuver_gate_count: counts.maneuver_gates,
         population_record_count: static_artifacts.population_record_count as u64,
+        population_ordinals: static_artifacts.population_ordinals.clone(),
         require_lust_population_count: true,
         parking_registry_empty: counts.parking_registry_empty,
         parking_polygon_count: crate::sumo::parse_parking_polygon_count(&poly_xml)?,

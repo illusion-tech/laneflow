@@ -6,7 +6,7 @@ use crate::{
     Result,
     convert::population::{
         POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS, POPULATION_DEPART_START_SECONDS,
-        POPULATION_SELECTED_COUNT,
+        POPULATION_SELECTED_COUNT, PopulationOrdinal,
     },
     output::{digest::sha256_digest, json_bytes},
     source::{LUST_COMMIT, LUST_REPOSITORY, LUST_TAG},
@@ -36,6 +36,9 @@ pub struct ConversionReportInput {
     pub stop_line_count: u64,
     pub maneuver_gate_count: u64,
     pub population_record_count: u64,
+    /// 选中记录的源序数（§4：诊断模式不产 routes.toml，报告自承载
+    /// rank → (source-file ordinal, XML vehicle ordinal) 追溯链）。
+    pub population_ordinals: Vec<PopulationOrdinal>,
     pub require_lust_population_count: bool,
     pub parking_registry_empty: bool,
     /// §3.5 parking polygon 健康事实（pinned 基线 175，#253 K6）。
@@ -104,6 +107,15 @@ struct ReportNormalization {
     maneuver_gate_count: u64,
 }
 
+/// 选中记录的源序数（§4 追溯链条目）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReportSelectedRecord {
+    population_rank: u32,
+    source_file_ordinal: u8,
+    source_vehicle_ordinal: u64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ReportPopulation {
@@ -113,6 +125,7 @@ struct ReportPopulation {
     candidate_count_expected: Option<u64>,
     selected_count_expected: Option<u64>,
     selected_count: u64,
+    selected_records: Vec<ReportSelectedRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -185,6 +198,15 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
                 .require_lust_population_count
                 .then_some(POPULATION_SELECTED_COUNT as u64),
             selected_count: input.population_record_count,
+            selected_records: input
+                .population_ordinals
+                .iter()
+                .map(|ordinal| ReportSelectedRecord {
+                    population_rank: ordinal.population_rank,
+                    source_file_ordinal: ordinal.source_file_ordinal,
+                    source_vehicle_ordinal: ordinal.source_vehicle_ordinal,
+                })
+                .collect(),
         },
         warning_boundaries: ReportWarnings {
             major_minor_green_collapsed_to_green: input.major_minor_green_collapsed,
@@ -231,6 +253,18 @@ mod tests {
             stop_line_count: 1,
             maneuver_gate_count: 2,
             population_record_count: 3,
+            population_ordinals: vec![
+                crate::convert::population::PopulationOrdinal {
+                    population_rank: 0,
+                    source_file_ordinal: 1,
+                    source_vehicle_ordinal: 41,
+                },
+                crate::convert::population::PopulationOrdinal {
+                    population_rank: 1,
+                    source_file_ordinal: 2,
+                    source_vehicle_ordinal: 7,
+                },
+            ],
             require_lust_population_count: false,
             parking_registry_empty: true,
             parking_polygon_count: 0,
@@ -246,6 +280,9 @@ mod tests {
         let text = String::from_utf8(report.clone()).expect("utf8");
         assert!(text.contains("sha256:"));
         assert!(text.contains("majorMinorGreenCollapsedToGreen"));
+        assert!(text.contains("\"selectedRecords\""));
+        assert!(text.contains("\"sourceFileOrdinal\": 1"));
+        assert!(text.contains("\"sourceVehicleOrdinal\": 41"));
         assert!(!text.contains("conversionReport"));
         let again = build_conversion_report(&ConversionReportInput {
             external_edge_count: 3,
@@ -261,6 +298,18 @@ mod tests {
             stop_line_count: 1,
             maneuver_gate_count: 2,
             population_record_count: 3,
+            population_ordinals: vec![
+                crate::convert::population::PopulationOrdinal {
+                    population_rank: 0,
+                    source_file_ordinal: 1,
+                    source_vehicle_ordinal: 41,
+                },
+                crate::convert::population::PopulationOrdinal {
+                    population_rank: 1,
+                    source_file_ordinal: 2,
+                    source_vehicle_ordinal: 7,
+                },
+            ],
             require_lust_population_count: false,
             parking_registry_empty: true,
             parking_polygon_count: 0,

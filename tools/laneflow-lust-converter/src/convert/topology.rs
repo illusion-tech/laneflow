@@ -75,6 +75,8 @@ pub struct StaticConversionArtifacts {
     /// lane-level 展开）为 None——不产出 routes.toml。
     pub routes_toml: Option<Vec<u8>>,
     pub population_record_count: usize,
+    /// 选中记录的源序数（§4 契约：进转换报告，诊断模式亦不例外）。
+    pub population_ordinals: Vec<crate::convert::population::PopulationOrdinal>,
     pub route_count: usize,
     /// 「声明臂无受控 link」source-health 事实（#253 K4a；通常为 empty）。
     pub signal_health: Vec<crate::convert::signals::UnclaimedSignalArm>,
@@ -183,6 +185,14 @@ pub(crate) fn convert_static_with_due(
 
     Ok(StaticConversionArtifacts {
         population_record_count,
+        population_ordinals: population
+            .iter()
+            .map(|record| crate::convert::population::PopulationOrdinal {
+                population_rank: record.population_rank,
+                source_file_ordinal: record.source_file_ordinal,
+                source_vehicle_ordinal: record.source_vehicle_ordinal,
+            })
+            .collect(),
         route_count: routes.len(),
         topology,
         routes_toml,
