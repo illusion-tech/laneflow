@@ -1924,17 +1924,25 @@ output_dir = 'E:/nonexistent-out'
 
     #[test]
     fn build_compiler_matches_pinned_toolchain() {
-        // #253：provenance 的 rust_version 记录仓库 pin，但 `cargo +其他版本`
-        // 可以用别的编译器产出二进制而记录仍自称 pin 值。测试进程由实际构建
-        // 工具链编译，`rustc` 经 rustup 代理按 RUSTUP_TOOLCHAIN/rust-toolchain.toml
-        // 解析：构建工具链与 pin 不符时本测试直接红——与 pin 不符的构建产物
-        // 无法通过测试门。
-        let output = std::process::Command::new("rustc")
+        // #253：provenance 的 rust_version 记录仓库 pin，但覆盖构建编译器
+        // 会让记录失真。测试进程由实际构建工具链编译，在此按 cargo 同口径
+        // 解析编译器——RUSTC 环境变量 > PATH（rustup 代理按
+        // RUSTUP_TOOLCHAIN/rust-toolchain.toml 解析）；仓库 wire 审计已禁
+        // cargo config 的 [build] 编译器替换键，覆盖面只剩环境变量。
+        // RUSTC_WRAPPER 类包装器可以改指实际编译器，无法核实即 fail-closed。
+        for var in ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
+            assert!(
+                std::env::var_os(var).is_none(),
+                "{var} redirects the actual compiler; the gate cannot verify it"
+            );
+        }
+        let compiler = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let output = std::process::Command::new(&compiler)
             .arg("--version")
             .output()
-            .expect("run rustc --version");
+            .expect("run build compiler --version");
         assert!(output.status.success());
-        let version = String::from_utf8(output.stdout).expect("rustc version utf8");
+        let version = String::from_utf8(output.stdout).expect("compiler version utf8");
         let channel = pinned_rust_toolchain_channel().expect("pinned channel");
         assert!(
             version.starts_with(&format!("rustc {channel} ")),
