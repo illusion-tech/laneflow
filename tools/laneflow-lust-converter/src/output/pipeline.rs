@@ -344,10 +344,9 @@ fn convert_verified(
     // staging 挂在入口持锁锚点旁（不重解析 output_dir——见 publish_outputs
     // 的 anchor 契约；符号链接跨盘时词法 parent 会让 rename 跨设备失败）。
     let staging = staging_dir(anchor);
-    fs::create_dir_all(&staging).map_err(|source| Error::Io {
-        path: staging.clone(),
-        source,
-    })?;
+    // 排他新建：同名路径（pid 复用残留/撞名/symlink）必是外来物——
+    // 本 converter 的带标记残留已在入口清掉。
+    create_dir_exclusive(&staging, "staging")?;
     // 所有权标记先于一切产物写入：残留 staging 目录据此认证
     // （remove_stale_staging 不删无标记的撞名目录）。
     fs::write(staging.join(STAGING_OWNER_MARKER), STAGING_OWNER_MAGIC).map_err(|source| {
@@ -509,6 +508,28 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
         .map(Path::to_path_buf)
         .unwrap_or_default();
     parent.join(format!(".staging-{}-{name}", std::process::id()))
+}
+
+/// 排他新建事务目录（staging/backup 共用）：同名路径已存在（残留、撞名、
+/// symlink）一律 fail-closed——收编无关目录会把它的内容随收尾
+/// remove_dir_all 一起删掉，symlink 更会把事务写去 output_dir 之外。
+/// 入口的恢复与清理已清掉本 converter 的带标记残留，走到这里的同名
+/// 路径必是外来物。symlink_metadata 预检给出明确报错；create_dir 的
+/// AlreadyExists 兜底预检之后的 TOCTOU 窗口。
+fn create_dir_exclusive(path: &Path, stage: &'static str) -> Result<()> {
+    if path.symlink_metadata().is_ok() {
+        return Err(Error::Validation {
+            stage,
+            message: format!(
+                "transaction directory {} already exists — refusing to adopt an unowned path; inspect and remove it manually",
+                path.display()
+            ),
+        });
+    }
+    fs::create_dir(path).map_err(|source| Error::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// staging/backup 的锚定路径：output_dir 若是（跨盘）符号链接，词法
@@ -1169,7 +1190,7 @@ mod tests {
     use super::{
         BACKUP_COMPLETE_MARKER, BACKUP_OWNER_MAGIC, BACKUP_OWNER_MARKER, CARGO_LOCK_BYTES,
         MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML, STAGING_OWNER_MAGIC, STAGING_OWNER_MARKER,
-        SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config,
+        SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config, create_dir_exclusive,
         pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging,
         resolve_converter_commit, restore_backup, semantic_config, swap_outputs,
     };
@@ -1817,6 +1838,71 @@ mod tests {
         assert!(foreign.exists(), "无标记的撞名目录零触碰");
         assert!(non_numeric.exists(), "非数字 pid 段不匹配，不动");
         assert!(unrelated.exists(), "无关目录不动");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn create_dir_exclusive_rejects_existing_path() {
+        // #253：事务目录（staging/backup）排他新建——同名路径已存在即是
+        // 外来物，fail-closed 不收编（收编会把外来内容随收尾
+        // remove_dir_all 一起删掉）。新路径正常创建。
+        let root =
+            std::env::temp_dir().join(format!("lust-exclusive-create-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("root");
+        let existing = root.join("existing");
+        std::fs::create_dir_all(&existing).expect("existing");
+        std::fs::write(existing.join("keep.txt"), b"keep").expect("keep");
+
+        let error =
+            create_dir_exclusive(&existing, "staging").expect_err("existing path must fail closed");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "staging");
+                assert!(message.contains("already exists"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(existing.join("keep.txt")).expect("read"),
+            b"keep",
+            "外来内容零触碰"
+        );
+
+        let fresh = root.join("fresh");
+        create_dir_exclusive(&fresh, "staging").expect("fresh path creates");
+        assert!(fresh.is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_dir_exclusive_rejects_symlink() {
+        // symlink 到无关目录同样拒绝——create_dir_all 会穿透它把事务写到
+        // output_dir 之外。
+        let root =
+            std::env::temp_dir().join(format!("lust-exclusive-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir_all(&real).expect("real");
+        std::fs::write(real.join("keep.txt"), b"keep").expect("keep");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        let error =
+            create_dir_exclusive(&link, "publish").expect_err("symlink path must fail closed");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "publish");
+                assert!(message.contains("already exists"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(real.join("keep.txt")).expect("read"),
+            b"keep",
+            "symlink 目标零触碰"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
