@@ -14,7 +14,9 @@ pub struct LustConverterConfig {
     pub source_dir: PathBuf,
     /// Directory that will receive static / report outputs.
     pub output_dir: PathBuf,
-    /// Converter git commit recorded in build provenance (or set `LANEFLOW_CONVERTER_COMMIT`).
+    /// Optional assertion of the converter git commit: verified against the
+    /// source checkout HEAD (mismatch fails closed); when unset the checkout
+    /// HEAD is recorded (`LANEFLOW_CONVERTER_COMMIT` acts as the same assertion).
     #[serde(default)]
     pub converter_commit: Option<String>,
     /// Optional GitHub Release URL for the source tar asset.

@@ -50,8 +50,9 @@ cargo +1.98.0 test -p laneflow-lust-converter --locked --lib -- --ignored --skip
 ```toml
 source_dir = "E:/data/LuSTScenario"
 output_dir = "E:/data/laneflow-lust-out"
-converter_commit = "<本仓库 commit>"
-# 也可改用环境变量 LANEFLOW_CONVERTER_COMMIT
+# converter_commit 可省略：记录值锚定 converter 源码 checkout 的实时 HEAD；
+# 显式给出（或设环境变量 LANEFLOW_CONVERTER_COMMIT）时仅作一致性校验，
+# 与 HEAD 不符即 fail-closed（防笔误/陈旧 SHA 混入 provenance）。
 # 发布后填入 Release asset URL（权威仍是 size + SHA-256）：
 # source_bundle_url = "https://github.com/illusion-tech/laneflow/releases/download/.../lust-source.tar"
 # static_bundle_url = "https://github.com/illusion-tech/laneflow/releases/download/.../lust-static.tar"

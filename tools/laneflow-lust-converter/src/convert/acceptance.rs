@@ -498,7 +498,6 @@ fn full_lust_convert_cli_end_to_end() {
         format!(
             "source_dir = {source_dir:?}
 output_dir = {:?}
-converter_commit = \"e7004fe7000000000000000000000000000000000\"
 ",
             root.join("out").to_string_lossy().replace('\\', "/"),
         ),

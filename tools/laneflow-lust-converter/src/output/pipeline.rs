@@ -944,22 +944,33 @@ fn pinned_rust_toolchain_channel() -> Result<&'static str> {
         })
 }
 
+/// 记录的 converter commit 锚定源码 checkout 的实时 HEAD：config/env 的
+/// 透传值只作校验——笔误/陈旧/伪造 SHA 与 HEAD 不符即 fail-closed；缺省
+/// 时直接记录 HEAD。checkout 不可解析同样 fail-closed（构建身份不能确立
+/// 时不产出 provenance）。（wire 审计禁 build 脚本，构建期嵌入 commit
+/// 不在选项内；HEAD 解析与 LuST 来源校验共用 `checkout_revision`。）
 fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
-    if let Some(commit) = config
+    let converter_checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let head = crate::source::verify::checkout_revision(&converter_checkout)?;
+    let supplied = config
         .converter_commit
         .as_ref()
         .filter(|value| !value.is_empty())
+        .cloned()
+        .or_else(|| {
+            std::env::var("LANEFLOW_CONVERTER_COMMIT")
+                .ok()
+                .filter(|value| !value.is_empty())
+        });
+    if let Some(supplied) = supplied
+        && !supplied.eq_ignore_ascii_case(&head)
     {
-        return Ok(commit.clone());
+        return Err(Error::Config(format!(
+            "converter_commit {supplied:?} does not match converter checkout HEAD {head:?} — \
+             fix the stale/typo value (build provenance must identify the actual source)"
+        )));
     }
-    if let Ok(commit) = std::env::var("LANEFLOW_CONVERTER_COMMIT")
-        && !commit.is_empty()
-    {
-        return Ok(commit);
-    }
-    Err(Error::Config(
-        "converter_commit must be set in config or LANEFLOW_CONVERTER_COMMIT".to_owned(),
-    ))
+    Ok(head)
 }
 
 /// manifest 以 size + SHA-256 配对交付物（#253 N1）：诊断模式配对
@@ -1031,8 +1042,8 @@ mod tests {
     use super::{
         BACKUP_COMPLETE_MARKER, CARGO_LOCK_BYTES, MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML,
         SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config,
-        pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging, restore_backup,
-        semantic_config, swap_outputs,
+        pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging,
+        resolve_converter_commit, restore_backup, semantic_config, swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1674,6 +1685,43 @@ mod tests {
             "1.98.0",
             "记录值必须与仓库 pin 同步（升 MSRV 时同步本断言）"
         );
+    }
+
+    #[test]
+    fn converter_commit_defaults_to_checkout_head() {
+        // 缺省时记录 converter 源码 checkout 的实时 HEAD——构建身份锚定
+        // 源码树本身，不再依赖 config/env 透传（也就不存在忘传/传错）。
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("E:/nonexistent-lust"),
+            output_dir: PathBuf::from("E:/nonexistent-out"),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let head = resolve_converter_commit(&config).expect("checkout head");
+        assert_eq!(head.len(), 40);
+        assert!(head.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn converter_commit_mismatch_fails_closed() {
+        // 透传值只作一致性校验：与 checkout HEAD 不符（笔误/陈旧/伪造）
+        // 即 fail-closed——provenance 不得声称与源码树无关的 commit。
+        let config = crate::config::LustConverterConfig {
+            source_dir: PathBuf::from("E:/nonexistent-lust"),
+            output_dir: PathBuf::from("E:/nonexistent-out"),
+            converter_commit: Some("0".repeat(40)),
+            source_bundle_url: None,
+            static_bundle_url: None,
+        };
+        let error = resolve_converter_commit(&config).expect_err("stale commit must fail");
+        match error {
+            Error::Config(message) => assert!(
+                message.contains("does not match converter checkout HEAD"),
+                "{message}"
+            ),
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]

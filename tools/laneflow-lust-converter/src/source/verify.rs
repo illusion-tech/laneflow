@@ -115,7 +115,9 @@ pub fn verify_source_dir(source_dir: &Path) -> Result<VerifiedSourceSet> {
 ///
 /// Fail-closed: any probe failure (git missing, not a repository, unreadable
 /// HEAD) yields [`Error::SourceRevisionUnknown`] rather than a skipped check.
-fn checkout_revision(source_dir: &Path) -> Result<String> {
+/// LuST 来源校验与 converter 自身构建身份（build provenance 的
+/// converter_commit）共用同一解析——两边不得各自实现。
+pub(crate) fn checkout_revision(source_dir: &Path) -> Result<String> {
     let unknown = |reason: String| Error::SourceRevisionUnknown {
         source_dir: source_dir.to_path_buf(),
         reason,
