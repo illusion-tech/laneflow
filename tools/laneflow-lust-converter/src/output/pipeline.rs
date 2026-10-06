@@ -476,20 +476,33 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
 
 /// staging/backup 的锚定路径：output_dir 若是（跨盘）符号链接，词法
 /// parent 会把 staging/backup 放在链接侧，publish 的 rename 跨设备失败
-/// （EXDEV）。存在则解析到真实路径；尚不存在则解析 parent 再拼回名字；
-/// 都失败时相对 `base`（入口 cwd）绝对化——锚点必须全程绝对且稳定：
-/// 相对回退会被进程级 set_current_dir 漂移改指，锁在旧 cwd 下持有而
-/// staging/publish 在新 cwd 下解析（可能发布进错误目录并与那边的
-/// converter 竞争）。
+/// （EXDEV）。存在则解析到真实路径；尚不存在则解析**最近的已存在祖先**
+/// 再拼回缺失组件——只试直接 parent 会在中间祖先也不存在时（如
+/// `link/new/out`，`link` 为符号链接）退回词法路径：锁与 staging 穿透
+/// symlink 的当前目标，发布后整链 canonicalize 与词法锚点不一致（成功
+/// 发布后误报 anchor 漂移），中途重定向更可发布到锁外。全链不可解析时
+/// 相对 `base`（入口 cwd）绝对化——锚点必须全程绝对且稳定：相对回退会
+/// 被进程级 set_current_dir 漂移改指，锁在旧 cwd 下持有而 staging/publish
+/// 在新 cwd 下解析（可能发布进错误目录并与那边的 converter 竞争）。
 fn output_anchor(output_dir: &Path, base: &Path) -> PathBuf {
     if let Ok(resolved) = fs::canonicalize(output_dir) {
         return resolved;
     }
-    if let Some(parent) = output_dir.parent()
-        && let Ok(resolved_parent) = fs::canonicalize(parent)
-        && let Some(name) = output_dir.file_name()
-    {
-        return resolved_parent.join(name);
+    let mut missing = Vec::new();
+    let mut cursor = output_dir;
+    while let Some(parent) = cursor.parent() {
+        let Some(name) = cursor.file_name() else {
+            break;
+        };
+        missing.push(name.to_owned());
+        if let Ok(resolved_parent) = fs::canonicalize(parent) {
+            let mut anchor = resolved_parent;
+            for name in missing.iter().rev() {
+                anchor.push(name);
+            }
+            return anchor;
+        }
+        cursor = parent;
     }
     base.join(output_dir)
 }
@@ -1574,6 +1587,37 @@ mod tests {
             std::fs::read(real.join(MANIFEST_NAME)).expect("read"),
             b"new-manifest",
             "交付必须落到符号链接的真实目标"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_anchor_resolves_nearest_existing_ancestor() {
+        // output_dir 的直接 parent 也不存在（link/new/out，link 为符号链接）：
+        // 锚点必须解析最近的已存在祖先（link → real）再拼回缺失组件，不能
+        // 退回穿透 symlink 的词法路径——否则发布后整链 canonicalize 与词法
+        // 锚点必然不一致（成功发布后误报漂移），symlink 中途重定向更会发布
+        // 到锁外。
+        let root =
+            std::env::temp_dir().join(format!("lust-anchor-ancestor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir_all(&real).expect("real");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        let output = link.join("new").join("out");
+        let anchor = output_anchor(&output, &root);
+
+        let resolved_link = std::fs::canonicalize(&link).expect("canonical link");
+        assert_eq!(anchor, resolved_link.join("new").join("out"));
+        assert!(
+            !anchor
+                .components()
+                .any(|component| component.as_os_str() == "link"),
+            "锚点不得穿透词法 symlink 组件: {}",
+            anchor.display()
         );
         let _ = std::fs::remove_dir_all(&root);
     }
