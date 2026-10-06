@@ -109,6 +109,10 @@ pub fn convert_with_config(
     // 崩溃遗留的 staging 目录随恢复一并清理——内容是纯新产物副本，
     // 不是任何事物的唯一副本；删除失败不阻塞本次转换。
     remove_stale_staging(&anchor);
+    // #253：交付契约只含常规文件——symlink/目录形态的受管产物会让 swap
+    // 的 rename 备份与 copy 回滚归还不同产物集；在任何转换开销之前
+    // fail-closed（publish 前还会复检，覆盖入口之后的 TOCTOU 窗口）。
+    ensure_regular_managed_artifacts(&anchor, &managed_names(&deliverables))?;
     let verified = verify_source_dir(&config.source_dir)?;
     convert_verified(config, config_toml_bytes, &verified, &anchor, &entry_cwd)
 }
@@ -555,6 +559,9 @@ fn publish_outputs(
         source,
     })?;
     recover_interrupted_publish(anchor, staged)?;
+    // 恢复之后、任何 rename 之前复检受管产物形态——入口预检之后、
+    // 转换期间被换成 symlink/目录时在此 fail-closed，不进入 swap。
+    ensure_regular_managed_artifacts(anchor, &managed_names(staged))?;
     let backup = backup_dir(anchor);
     fs::create_dir_all(&backup).map_err(|source| Error::Io {
         path: backup.clone(),
@@ -681,6 +688,31 @@ fn managed_names(staged: &[(&'static str, &'static str)]) -> Vec<&'static str> {
     names
 }
 
+/// 受管交付物形态预检（#253）：交付契约只含常规文件。swap 备份的 rename
+/// 保留 symlink 本体，而失败回滚的 copy 会穿透 symlink 在原位留下常规
+/// 文件——「回滚成功」却归还了不同的产物集，甚至把 output_dir 之外的
+/// 数据复制进交付集。发现 symlink/目录形态即 fail-closed 交人工处置，
+/// 在任何 rename 之前执行（convert 入口与 publish 前各一次，覆盖
+/// TOCTOU 窗口）。
+fn ensure_regular_managed_artifacts(output_dir: &Path, managed: &[&'static str]) -> Result<()> {
+    for name in managed {
+        let path = output_dir.join(name);
+        let Ok(metadata) = path.symlink_metadata() else {
+            continue;
+        };
+        if !metadata.file_type().is_file() {
+            return Err(Error::Validation {
+                stage: "publish",
+                message: format!(
+                    "managed deliverable {} is not a regular file (symlink or directory) — refusing to publish; resolve it manually before re-running",
+                    path.display()
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// 中断恢复：上次运行在 swap 中途被杀会留下 `.backup-<pid>-<name>` 残留。
 /// 不变量：备份阶段逐文件先于一切装入，备份完成后才写标记——据此区分
 /// 两种崩溃形态并确定性恢复。恢复失败或存在多个残留时 fail-closed
@@ -713,6 +745,26 @@ fn recover_interrupted_publish(
         });
     }
     let backup = &stale[0];
+    // 备份条目是恢复的 copy 源：symlink 条目会被 copy 穿透——把 symlink
+    // 目标（可能在 output_dir 之外）的字节作为常规文件写回交付集。发现
+    // 即 fail-closed 交人工处置，不做静默恢复。
+    for name in managed_names(staged) {
+        let entry = backup.join(name);
+        if entry
+            .symlink_metadata()
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(Error::Validation {
+                stage: "publish",
+                message: format!(
+                    "stale backup entry {} is a symlink; automatic recovery would follow it — inspect and resolve {} manually before re-running",
+                    entry.display(),
+                    backup.display()
+                ),
+            });
+        }
+    }
     let marker = backup.join(BACKUP_COMPLETE_MARKER);
     if marker.symlink_metadata().is_ok() {
         // 中断于装入阶段：备份是全量旧集。但 output_dir 已含全部 staged
@@ -1547,10 +1599,11 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_failure_after_successful_swap_errors() {
-        // 交付已落位但备份清理失败（备份内受管名是目录，remove_file 必败）
-        // → 立即报错指明保留的备份；交付文件保持新内容、备份与标记保留。
-        let root = std::env::temp_dir().join(format!("lust-cleanup-{}", std::process::id()));
+    fn publish_rejects_non_regular_managed_artifact() {
+        // #253：受管交付物是目录（非常规文件）时 publish 在任何 rename
+        // 之前 fail-closed——swap 的 rename 备份与 copy 回滚对非常规形态
+        // 会归还不同的产物集。output 原样保留，备份区不创建。
+        let root = std::env::temp_dir().join(format!("lust-nonregular-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let output = root.join("out");
         let staging = root.join("staging");
@@ -1559,24 +1612,39 @@ mod tests {
         std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("staged");
         let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
 
-        let error =
-            publish_outputs(&staging, &output, &staged).expect_err("cleanup failure must error");
+        let error = publish_outputs(&staging, &output, &staged)
+            .expect_err("non-regular artifact must fail closed");
         match &error {
             Error::Validation { stage, message } => {
-                assert_eq!(*stage, "cleanup");
-                assert!(message.contains(".backup-"), "{message}");
+                assert_eq!(*stage, "publish");
+                assert!(message.contains("not a regular file"), "{message}");
             }
             other => panic!("unexpected error: {other:?}"),
         }
-        assert_eq!(
-            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
-            b"new-manifest",
-            "交付已完整落位"
+        assert!(output.join(MANIFEST_NAME).is_dir(), "原现场不被破坏");
+        assert!(
+            !backup_dir(&output).exists(),
+            "任何 rename 之前拒绝——备份区不创建"
         );
-        let backup = backup_dir(&output);
+        assert!(staging.join(MANIFEST_NAME).exists(), "staging 内容未被消耗");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clear_backup_reports_failure_for_directory_entry() {
+        // 清理失败契约：备份内受管名是目录时 remove_file 必败，clear_backup
+        // 返回 false（调用方保留备份并报错指明位置），备份内容保留。
+        let root = std::env::temp_dir().join(format!("lust-clear-backup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let backup = root.join("backup");
+        std::fs::create_dir_all(backup.join(MANIFEST_NAME)).expect("dir entry");
+        std::fs::write(backup.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+
+        assert!(!super::clear_backup(&backup, &staged));
         assert!(
             backup.join(BACKUP_COMPLETE_MARKER).exists(),
-            "带标记备份保留待人工处置"
+            "清理失败时备份保留"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1764,5 +1832,92 @@ output_dir = 'E:/nonexistent-out'
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publish_rejects_symlink_managed_artifact() {
+        // #253：受管交付物是 symlink 时 publish 在任何 rename 之前
+        // fail-closed——否则 swap 的 rename 备份保留 link 本体、失败回滚
+        // 的 copy 穿透它在原位留下常规文件，「回滚成功」却归还不同产物集。
+        let root =
+            std::env::temp_dir().join(format!("lust-symlink-artifact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(&outside, b"outside-data").expect("outside");
+        std::os::unix::fs::symlink(&outside, output.join(MANIFEST_NAME)).expect("symlink");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("staged");
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+
+        let error = publish_outputs(&staging, &output, &staged)
+            .expect_err("symlink artifact must fail closed");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "publish");
+                assert!(message.contains("not a regular file"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert!(
+            output
+                .join(MANIFEST_NAME)
+                .symlink_metadata()
+                .expect("symlink")
+                .file_type()
+                .is_symlink(),
+            "symlink 本体不被触碰"
+        );
+        assert_eq!(
+            std::fs::read(&outside).expect("read"),
+            b"outside-data",
+            "symlink 目标不被读写"
+        );
+        assert!(!backup_dir(&output).exists(), "任何 rename 之前拒绝");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recover_rejects_symlink_backup_entry() {
+        // #253：残留备份里的 symlink 条目是恢复的 copy 源——copy 穿透会把
+        // output_dir 之外的字节写回交付集。发现即 fail-closed，备份保留
+        // 交人工处置。
+        let root = std::env::temp_dir().join(format!("lust-symlink-backup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(&outside, b"outside-data").expect("outside");
+        let stale = backup_dir(&output);
+        std::fs::create_dir_all(&stale).expect("stale");
+        std::os::unix::fs::symlink(&outside, stale.join(MANIFEST_NAME)).expect("symlink entry");
+        std::fs::write(stale.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("staged");
+
+        let error = publish_outputs(&staging, &output, &[(MANIFEST_NAME, MANIFEST_NAME)])
+            .expect_err("symlink backup entry must fail closed");
+        match &error {
+            Error::Validation { stage, message } => {
+                assert_eq!(*stage, "publish");
+                assert!(message.contains("is a symlink"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert!(
+            stale.join(BACKUP_COMPLETE_MARKER).exists(),
+            "备份保留待人工处置"
+        );
+        assert_eq!(
+            std::fs::read(&outside).expect("read"),
+            b"outside-data",
+            "symlink 目标不被读写"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
