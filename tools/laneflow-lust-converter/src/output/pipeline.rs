@@ -648,8 +648,10 @@ fn publish_outputs(
 }
 
 /// 备份清理（成功路径与回滚成功分支共用）：先逐个删除备份内受管文件，
-/// 再删标记与目录——任一步删不动（典型如 Windows 临时文件锁）即短路
-/// 返回 false，调用方保留备份并报错指明位置。
+/// 再删标记与目录——受管文件删不动（典型如 Windows 临时文件锁）即短路
+/// 返回 false，标记与目录保留在原位，调用方报错指明位置。完成标记缺失
+/// 视为已移除：备份阶段中途失败时它本就没写入，NotFound 不是清理失败
+///（否则普通 rename 失败会被叠加一条虚假的清理失败，并留下备份目录）。
 fn clear_backup(backup: &Path, staged: &[(&'static str, &'static str)]) -> bool {
     let mut ok = true;
     for name in managed_names(staged) {
@@ -658,8 +660,14 @@ fn clear_backup(backup: &Path, staged: &[(&'static str, &'static str)]) -> bool 
             ok = false;
         }
     }
-    ok && fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER)).is_ok()
-        && fs::remove_dir_all(backup).is_ok()
+    if !ok {
+        return false;
+    }
+    let marker_removed = match fs::remove_file(backup.join(BACKUP_COMPLETE_MARKER)) {
+        Ok(()) => true,
+        Err(source) => source.kind() == std::io::ErrorKind::NotFound,
+    };
+    marker_removed && fs::remove_dir_all(backup).is_ok()
 }
 
 fn backup_dir(output_dir: &Path) -> PathBuf {
@@ -1758,6 +1766,27 @@ mod tests {
             backup.join(BACKUP_COMPLETE_MARKER).exists(),
             "清理失败时备份保留"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clear_backup_tolerates_missing_complete_marker() {
+        // 备份阶段中途失败时完成标记本就没写入——回滚成功后的清理不得把
+        // NotFound 误报为清理失败（否则普通 rename 失败被叠加一条虚假的
+        // 清理失败，并留下备份目录）。缺失视为已移除。
+        let root = std::env::temp_dir().join(format!("lust-clear-nomarker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let backup = root.join("backup");
+        std::fs::create_dir_all(&backup).expect("backup");
+        std::fs::write(backup.join(MANIFEST_NAME), b"old-manifest").expect("entry");
+        std::fs::write(backup.join(BACKUP_OWNER_MARKER), BACKUP_OWNER_MAGIC).expect("owner");
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+
+        assert!(
+            super::clear_backup(&backup, &staged),
+            "无完成标记的备份应可正常清理"
+        );
+        assert!(!backup.exists(), "清理后备份目录不存在");
         let _ = std::fs::remove_dir_all(&root);
     }
 
