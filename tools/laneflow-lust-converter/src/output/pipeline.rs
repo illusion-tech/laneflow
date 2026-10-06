@@ -218,8 +218,9 @@ fn convert_verified(
     let source_tar = build_source_tar(verified)?;
     // #253 K1：全部 pinned 文件消费完毕，revision 重校验——检查与消费之间
     // checkout 被切换（即便 pinned 字节保留、digest 全过）也使 provenance
-    // 的 revision 声称失真；漂移即 fail-closed。
-    crate::source::recheck_source_revision(&config.source_dir)?;
+    // 的 revision 声称失真；漂移即 fail-closed。重校验走验证记录里已锚定
+    // 的绝对路径，不受进程级 cwd 漂移影响。
+    crate::source::recheck_source_revision(verified.source_dir())?;
     let static_tar = if diagnostic {
         None
     } else {

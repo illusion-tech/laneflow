@@ -93,7 +93,22 @@ impl VerifiedSourceSet {
 /// After all pinned files verify, the checkout revision is the final
 /// authority: `source_dir` must be a git checkout whose HEAD equals
 /// [`LUST_COMMIT`] — file bytes alone never prove provenance (§2.2/§9).
+///
+/// `source_dir` 在验证前锚定为绝对路径（#253）：相对路径若留在验证记录
+/// 里，进程级 cwd 漂移会让后续 `read_verified` 与 revision 重校验解析到
+/// 另一个 checkout。
 pub fn verify_source_dir(source_dir: &Path) -> Result<VerifiedSourceSet> {
+    // 用 std::path::absolute 而非 fs::canonicalize：Windows 下 canonicalize
+    // 产出 `\\?\` 前缀的 verbatim 路径，`git -C` 无法进入（checkout_revision
+    // 的 revision 校验会误失败）；absolute 不触碰文件系统、只消除 cwd 依赖，
+    // 来源真实性仍由 pinned digest 与 HEAD 校验绑定。
+    let source_dir = &std::path::absolute(source_dir).map_err(|source| Error::Validation {
+        stage: "verify-source",
+        message: format!(
+            "could not anchor source_dir {} against the process current directory: {source}",
+            source_dir.display()
+        ),
+    })?;
     let mut files = Vec::with_capacity(PINNED_SOURCE_FILES.len());
     for pinned in PINNED_SOURCE_FILES {
         files.push(verify_pinned_file(source_dir, pinned)?);
@@ -248,6 +263,22 @@ mod tests {
             other => panic!("unexpected error: {other}"),
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_source_dir_anchors_relative_source_dir() {
+        // #253：相对 source_dir 在验证记录里锚定为绝对路径——进程级 cwd
+        // 漂移后 read_verified 与 revision 重校验仍解析到同一 checkout。
+        // 错误中的 source_dir 暴露锚定结果：必须是绝对路径。
+        let relative = std::path::Path::new("laneflow-lust-definitely-missing-relative-src");
+        let error = verify_source_dir(relative).expect_err("missing source must fail");
+        match error {
+            Error::MissingSourceFile { source_dir, .. } => {
+                assert!(source_dir.is_absolute(), "{source_dir:?}");
+                assert!(source_dir.ends_with(relative), "{source_dir:?}");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]
@@ -451,7 +482,8 @@ pub fn prepare_verified_lust_inputs(source_dir: &Path) -> Result<VerifiedLustInp
     // #253 P2：公开准备路径的消费时 revision 重校验——verify_source_dir 只在
     // 入口查 HEAD，全部读取之间 checkout 被切换（pinned 字节保留、digest 全过）
     // 会使 verified 声明失真；与 convert_verified 末尾的 K1 重校验同一语义。
-    recheck_source_revision(source_dir)?;
+    // 重校验走验证记录里已锚定的绝对路径，不受进程级 cwd 漂移影响。
+    recheck_source_revision(verified.source_dir())?;
     Ok(VerifiedLustInputs {
         net_xml,
         tll_xml,
