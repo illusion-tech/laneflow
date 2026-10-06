@@ -276,13 +276,9 @@ fn convert_verified(
     })?;
 
     let converter_commit = resolve_converter_commit(config)?;
-    let cargo_lock_sha256 =
-        hex_sha256(
-            &fs::read(workspace_cargo_lock()).map_err(|source| Error::Io {
-                path: workspace_cargo_lock(),
-                source,
-            })?,
-        );
+    // 认证对象必须是产出本二进制的 lockfile：编译期内嵌（运行时回读
+    // checkout 会在源码树移动/删除/切换版本后认证错对象甚至直接失败）。
+    let cargo_lock_sha256 = hex_sha256(CARGO_LOCK_BYTES);
     let build = build_build_provenance(&BuildProvenanceInput {
         converter_commit,
         rust_version: "1.98.0",
@@ -911,9 +907,11 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
     })
 }
 
-fn workspace_cargo_lock() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock")
-}
+/// 构建期 workspace `Cargo.lock` 字节。`include_bytes!` 让 cargo 把它计入
+/// 重编译依赖：lockfile 一变二进制即重建，provenance 认证的依赖集合与产出
+/// 该二进制的构建永远一致（二进制脱离源码树运行也不漂移）。
+const CARGO_LOCK_BYTES: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock"));
 
 fn resolve_converter_commit(config: &LustConverterConfig) -> Result<String> {
     if let Some(commit) = config
@@ -1000,9 +998,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        BACKUP_COMPLETE_MARKER, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME, acquire_output_lock,
-        backup_dir, convert_with_config, publish_outputs, remove_stale_staging, restore_backup,
-        semantic_config, swap_outputs,
+        BACKUP_COMPLETE_MARKER, CARGO_LOCK_BYTES, MANIFEST_NAME, REPORT_NAME, SURVEY_NAME,
+        acquire_output_lock, backup_dir, convert_with_config, publish_outputs,
+        remove_stale_staging, restore_backup, semantic_config, swap_outputs,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir};
@@ -1620,6 +1618,17 @@ mod tests {
             anchor.display()
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cargo_lock_bytes_embed_workspace_lockfile() {
+        // 内嵌字节即构建时 workspace Cargo.lock：include 路径漂移立刻红
+        // （测试在 checkout 内运行，运行时文件与构建时读取对象一致）。
+        let on_disk =
+            std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock"))
+                .expect("workspace Cargo.lock");
+        assert!(!CARGO_LOCK_BYTES.is_empty());
+        assert_eq!(CARGO_LOCK_BYTES, on_disk.as_slice());
     }
 
     #[test]
