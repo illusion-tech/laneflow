@@ -1,6 +1,10 @@
 //! #826 独立研究插桩；仅补丁构建载入，不进入正式 Runtime API。
 #![allow(missing_docs)]
-use std::{cell::RefCell, fmt::Write, time::Instant};
+use std::{
+    fmt::Write,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 #[derive(Clone, Copy)]
 pub enum Stage {
     Replace,
@@ -98,17 +102,36 @@ pub struct Sample {
     ns: [u64; N],
     calls: [u64; N],
 }
-impl Sample {
+struct Counters {
+    ns: [AtomicU64; N],
+    calls: [AtomicU64; N],
+}
+impl Counters {
     const ZERO: Self = Self {
-        ns: [0; N],
-        calls: [0; N],
+        ns: [const { AtomicU64::new(0) }; N],
+        calls: [const { AtomicU64::new(0) }; N],
     };
+    fn read(&self) -> Sample {
+        Sample {
+            ns: std::array::from_fn(|i| self.ns[i].load(Ordering::Relaxed)),
+            calls: std::array::from_fn(|i| self.calls[i].load(Ordering::Relaxed)),
+        }
+    }
+    fn clear(&self) {
+        for i in 0..N {
+            self.ns[i].store(0, Ordering::Relaxed);
+            self.calls[i].store(0, Ordering::Relaxed);
+        }
+    }
 }
 struct Data {
-    all: Sample,
-    outcomes: [Sample; 4],
+    all: Counters,
+    outcomes: [Counters; 4],
 }
-thread_local! { static DATA: RefCell<Data> = const { RefCell::new(Data { all: Sample::ZERO, outcomes: [Sample::ZERO; 4] }) }; }
+static DATA: Data = Data {
+    all: Counters::ZERO,
+    outcomes: [const { Counters::ZERO }; 4],
+};
 pub struct Timer(Stage, Instant);
 pub fn begin(stage: Stage) -> Timer {
     Timer(stage, Instant::now())
@@ -120,43 +143,41 @@ impl Drop for Timer {
     }
 }
 pub fn add(stage: Stage, ns: u64) {
-    DATA.with(|d| {
-        let mut d = d.borrow_mut();
-        let i = stage as usize;
-        d.all.ns[i] += ns;
-        d.all.calls[i] += 1;
-    });
+    let i = stage as usize;
+    DATA.all.ns[i].fetch_add(ns, Ordering::Relaxed);
+    DATA.all.calls[i].fetch_add(1, Ordering::Relaxed);
 }
+// 只在同步公共调用返回、全部 worker 已 join 的边界读取或清零。
 pub fn snapshot() -> Sample {
-    DATA.with(|d| d.borrow().all)
+    DATA.all.read()
 }
 pub fn outcome(before: Sample, outcome: usize) {
-    DATA.with(|d| {
-        let mut d = d.borrow_mut();
-        for i in 0..N {
-            d.outcomes[outcome].ns[i] += d.all.ns[i] - before.ns[i];
-            d.outcomes[outcome].calls[i] += d.all.calls[i] - before.calls[i];
-        }
-    });
+    let after = snapshot();
+    for i in 0..N {
+        DATA.outcomes[outcome].ns[i].fetch_add(after.ns[i] - before.ns[i], Ordering::Relaxed);
+        DATA.outcomes[outcome].calls[i]
+            .fetch_add(after.calls[i] - before.calls[i], Ordering::Relaxed);
+    }
 }
 pub fn reset() {
-    DATA.with(|d| {
-        *d.borrow_mut() = Data {
-            all: Sample::ZERO,
-            outcomes: [Sample::ZERO; 4],
-        }
-    });
+    DATA.all.clear();
+    for outcome in &DATA.outcomes {
+        outcome.clear();
+    }
 }
-// 主线程的包含式墙钟区间；嵌套项不可相加。分发计时包含 worker 完成等待，不是 CPU 时间。
+// 包含式墙钟区间；嵌套项不可相加。分发计时包含 join 等待，不是 worker CPU 累计。
 pub fn flush(tick: u64, step_ns: u64, command_ns: u64, observation_ns: u64) {
-    DATA.with(|d| {
-        let d = d.borrow();
-        let mut line = format!("{{\"tick\":{tick},\"step_ns\":{step_ns},\"command_ns\":{command_ns},\"observation_ns\":{observation_ns},\"stages\":{{");
+    {
+        let all = DATA.all.read();
+        let outcomes: [Sample; 4] = std::array::from_fn(|i| DATA.outcomes[i].read());
+        let mut line = format!(
+            "{{\"tick\":{tick},\"step_ns\":{step_ns},\"command_ns\":{command_ns},\"observation_ns\":{observation_ns},\"stages\":{{"
+        );
         for (i, name) in NAMES.iter().enumerate() {
             if i > 0 {
                 line.push(',');
             }
-            write!(&mut line, "\"{name}\":[{},{}]", d.all.calls[i], d.all.ns[i]).unwrap();
+            write!(&mut line, "\"{name}\":[{},{}]", all.calls[i], all.ns[i]).unwrap();
         }
         line.push_str("},\"outcomes\":{");
         for (j, name) in ["success", "entry-blocked", "unsafe-follower", "other"]
@@ -174,7 +195,7 @@ pub fn flush(tick: u64, step_ns: u64, command_ns: u64, observation_ns: u64) {
                 write!(
                     &mut line,
                     "\"{stage}\":[{},{}]",
-                    d.outcomes[j].calls[i], d.outcomes[j].ns[i]
+                    outcomes[j].calls[i], outcomes[j].ns[i]
                 )
                 .unwrap();
             }
@@ -182,7 +203,7 @@ pub fn flush(tick: u64, step_ns: u64, command_ns: u64, observation_ns: u64) {
         }
         line.push_str("}}");
         eprintln!("{line}");
-    });
+    }
 }
 
 #[cfg(test)]
@@ -198,16 +219,27 @@ mod tests {
         add(Stage::FreshAdmission, 80);
         add(Stage::DirectFollowers, 60);
         outcome(before, 2);
-        DATA.with(|d| {
-            let d = d.borrow();
-            assert_eq!(d.all.calls[Stage::PublicReplace as usize], 2);
-            assert_eq!(d.outcomes[2].ns[Stage::PublicReplace as usize], 100);
-            assert_eq!(d.outcomes[2].calls[Stage::PublicReplace as usize], 1);
-            assert_eq!(d.outcomes[2].ns[Stage::DirectFollowers as usize], 60);
-            assert_eq!(d.outcomes[0].ns, [0; N]);
-        });
+        assert_eq!(snapshot().calls[Stage::PublicReplace as usize], 2);
+        let rejected = DATA.outcomes[2].read();
+        assert_eq!(rejected.ns[Stage::PublicReplace as usize], 100);
+        assert_eq!(rejected.calls[Stage::PublicReplace as usize], 1);
+        assert_eq!(rejected.ns[Stage::DirectFollowers as usize], 60);
+        assert_eq!(DATA.outcomes[0].read().ns, [0; N]);
         reset();
         assert_eq!(snapshot().ns, [0; N]);
-        DATA.with(|d| assert_eq!(d.borrow().outcomes[2].calls, [0; N]));
+        assert_eq!(DATA.outcomes[2].read().calls, [0; N]);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..1_000 {
+                        add(Stage::MotionLoop, 1);
+                    }
+                });
+            }
+        });
+        assert_eq!(snapshot().calls[Stage::MotionLoop as usize], 8_000);
+        assert_eq!(snapshot().ns[Stage::MotionLoop as usize], 8_000);
+        reset();
+        assert_eq!(snapshot().ns, [0; N]);
     }
 }
