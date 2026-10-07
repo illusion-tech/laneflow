@@ -164,7 +164,15 @@ MotionLoop 内，列准备为 0.0556 秒、包含 join 的分发为 1.9962 秒�
 ## 证据与边界
 
 完整本地证据根为 `E:/projects/laneflow-evidence/issue-707/bounded-profile-20261007/`。
-没有将原始大文件上传 GitHub；报告与研究插桩可随研究成果审查。
+完整原始字节另存为[团队下载归档](https://github.com/illusion-tech/laneflow/releases/download/research-evidence-826-bounded-profile-fe473f0f/bounded-profile-826-fe473f0f.tar.gz)，
+包括三轮记录、首版覆盖缺口、输入、二进制、分析工具及完整清单；不进入 Git 源码树。
+归档冻结研究提交 `fe473f0fa435ee5971267b518e32f9b0614d7ce1`，生产基线仍为上述 `9d61f8d2`。
+文件为 194405939 字节，SHA-256 为
+`6627300d1c769967daabaa1b14aaa4fa54142e43217cbf69b09fedac5c801d46`。
+下载后先核对长度及摘要，再用 `tar -xzf bounded-profile-826-fe473f0f.tar.gz` 解包；
+从 `bounded-profile-20261007/delivery-index.json` 进入，并逐项核对
+`delivery-files-manifest.json` 的路径、字节数与 SHA-256。归档中的报告保留冻结版本；
+当前报告仅新增下载入口，不改写原始测量或冻结清单。
 
 - `measurement-freeze.json` 绑定生产基线、运行目录 commit、补丁/模块、二进制和输入清单；
   `initial-instrumentation-unused/` 与 `profile-r1-source/` 保存早期版本。
