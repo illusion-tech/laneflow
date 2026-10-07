@@ -45,7 +45,9 @@ Active 进入/退出、销毁和替换由准备完毕的生命周期转移更新
 
 ## 3. 内核和 ISA
 
-独立 `laneflow-motion-kernel` crate 仅拥有纯数值执行，接收长度验证一致的只读/独占可写切片；不接收车辆、路线、资源权威或回调。Runtime 继续继承工作区 `unsafe_code = "forbid"`。该 crate 单独允许必要的 unsafe，并 deny `unsafe_op_in_unsafe_fn`；所有 ISA 调用、指针 load/store、尾部与别名证明集中在该边界，禁止扩散到 Runtime。
+独立 `laneflow-motion-kernel` crate 仅拥有纯数值执行，接收长度验证一致的只读/独占可写切片；不接收车辆、路线、资源权威或回调。Runtime 继续继承工作区 `unsafe_code = "forbid"`。该 crate 单独允许必要的 unsafe，并设置 `unsafe_op_in_unsafe_fn = "forbid"`，要求所有不安全操作使用显式 unsafe 块，源码中的单项或组级 lint 属性不得降低该约束；所有 ISA 调用、指针 load/store、尾部与别名证明集中在该边界，禁止扩散到 Runtime。
+
+manifest 的 lint 配置统一从正式 TOML 解析后的结构按类型读取，描述、注释和字符串中的配置示例不参与审计判定。源码审计同时拒绝 `unsafe_op_in_unsafe_fn` 与包含它的 `rust_2024_compatibility` 组名；编译器的 forbid 约束保证源码无法通过其他组级 lint 属性降低该项检查。
 
 提供同布局标量、AVX2、AVX-512 后端；初始化执行资源时检测 CPU/OS 支持并选择整块内核。强制后端只用于受检研究与差异测试，不写入交通身份、快照或摘要。每种 ISA 的完整循环位于同一 `target_feature` 边界；尾块不越界，不因单个复杂通道把整块退回标量。
 
