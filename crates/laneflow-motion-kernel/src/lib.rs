@@ -115,6 +115,9 @@ pub struct Input<'a> {
     pub max_accel: &'a [f32],
     pub comfort_decel: &'a [f32],
     pub emergency_decel: &'a [f32],
+    /// 三列上界只取有限值或 `+∞`，不得为 NaN：标量 `f32::min` 忽略单个 NaN，
+    /// x86 min/max 按操作数位置传播 NaN，两类后端结果会分叉。Runtime 由整数毫米
+    /// 与正时间步导出这三列，满足该约定。
     pub stop_m: &'a [f32],
     pub route_end_m: &'a [f32],
     pub envelope_m: &'a [f32],
@@ -470,6 +473,12 @@ impl Kernel {
         {
             return Err(LengthMismatch);
         }
+        debug_assert!(
+            [input.stop_m, input.route_end_m, input.envelope_m]
+                .iter()
+                .all(|column| column.iter().all(|value| !value.is_nan())),
+            "motion bounds must not be NaN"
+        );
         let mut stats = Stats {
             active_lanes: if TRACK {
                 input.enabled.iter().filter(|&&x| x).count()
