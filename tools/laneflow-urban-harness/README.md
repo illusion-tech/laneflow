@@ -82,6 +82,10 @@ p50/p95/p99/max、样本数，以及各自低于初始目标的拍数。车辆�
 实际 Active；`probe-complete` 只表示窗口完成，不证明持续负载达标，也不替代正式性能认证。
 修改回收策略后必须重新取证，旧计划不能作为当前持续负载的证据。
 
+`diagnostics.json` 的 `window_step_samples_ns` 保存排除暖机后的整步耗时样本，单位为
+纳秒，按耗时升序排列；它不是逐 tick 时序，不能按下标关联车辆或慢拍。
+窗口 p50/p95/p99/max 从这组样本计算，`window_step_ns_max` 为最大值。
+
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
 `plan ... --probe-ticks 128` 生成短试跑；`--probe-warm-up N` 可在 fixture 上覆盖
 “暖机后重新提交角色”的诊断路径。probe 不得冒充正式验收。
