@@ -115,6 +115,9 @@ pub struct Input<'a> {
     pub max_accel: &'a [f32],
     pub comfort_decel: &'a [f32],
     pub emergency_decel: &'a [f32],
+    /// 三列上界只取有限值或 `+∞`，不得为 NaN：标量 `f32::min` 忽略单个 NaN，
+    /// x86 min/max 按操作数位置传播 NaN，两类后端结果会分叉。Runtime 由整数毫米
+    /// 与正时间步导出这三列，满足该约定。
     pub stop_m: &'a [f32],
     pub route_end_m: &'a [f32],
     pub envelope_m: &'a [f32],
@@ -225,15 +228,30 @@ pub struct EdgeStats {
     pub hops: usize,
 }
 
-/// 实际求值通道与尾部口径，包含带掩码的物理孔洞。
+/// 运动工作量：向量和尾部按物理通道计数，提案来源只统计启用行。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Stats {
     pub active_lanes: usize,
     pub vector_lanes: usize,
     pub scalar_tail_lanes: usize,
+    /// 本次使用新计算提案的启用行数，与复用行互斥；不是 SIMD 满宽算术次数。
     pub proposal_lanes_computed: usize,
+    /// 本次使用既有提案的启用行数，包含 Project/FloatProject；Quantize 不计提案来源。
     pub proposal_lanes_reused: usize,
     pub integer_vector_lanes: usize,
+}
+
+impl Stats {
+    fn record_proposal_source(&mut self, enabled: bool, reused: bool) {
+        if !enabled {
+            return;
+        }
+        if reused {
+            self.proposal_lanes_reused += 1;
+        } else {
+            self.proposal_lanes_computed += 1;
+        }
+    }
 }
 
 /// 输入或输出列的长度不一致；任何输出写入前拒绝。
@@ -470,6 +488,12 @@ impl Kernel {
         {
             return Err(LengthMismatch);
         }
+        debug_assert!(
+            [input.stop_m, input.route_end_m, input.envelope_m]
+                .iter()
+                .all(|column| column.iter().all(|value| !value.is_nan())),
+            "motion bounds must not be NaN"
+        );
         let mut stats = Stats {
             active_lanes: if TRACK {
                 input.enabled.iter().filter(|&&x| x).count()
@@ -680,15 +704,13 @@ fn scalar_row<const TRACK: bool>(
     let speed = input.speed_mm_s[row] as f32 / 1_000.0;
     let desired = input.desired_mm_s[row] as f32 / 1_000.0;
     let project = matches!(phase, Phase::Project | Phase::FloatProject);
-    let (raw_travel, raw_speed) = if input.has_proposal[row] || project {
-        if TRACK {
-            stats.proposal_lanes_reused += usize::from(input.enabled[row]);
-        }
+    let reused = input.has_proposal[row] || project;
+    if TRACK {
+        stats.record_proposal_source(input.enabled[row], reused);
+    }
+    let (raw_travel, raw_speed) = if reused {
         (input.proposal_travel_m[row], input.proposal_speed_m_s[row])
     } else {
-        if TRACK {
-            stats.proposal_lanes_computed += usize::from(input.enabled[row]);
-        }
         raw_proposal(&ProposalInput {
             speed_m_s: speed,
             desired_m_s: desired,

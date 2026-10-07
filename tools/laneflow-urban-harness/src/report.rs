@@ -48,7 +48,18 @@ pub struct RunResult {
     pub removals: u64,
     pub pending_departures: usize,
     pub exhausted_departures: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_load: Option<ActiveLoadSummary>,
     pub files: BTreeMap<String, crate::artifacts::FileDigest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActiveLoadSummary {
+    pub target: u64,
+    pub before_step: SampleSummary,
+    pub after_step: SampleSummary,
+    pub before_step_below_target_ticks: usize,
+    pub after_step_below_target_ticks: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,14 +82,14 @@ pub struct ComparisonReport {
     pub right: ComparedRun,
 }
 
-#[derive(Serialize)]
-pub(crate) struct SampleSummary {
-    samples: usize,
-    min: u64,
-    p50: u64,
-    p95: u64,
-    p99: u64,
-    max: u64,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SampleSummary {
+    pub samples: usize,
+    pub min: u64,
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+    pub max: u64,
 }
 
 #[derive(Serialize)]
@@ -316,7 +327,7 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan, execution)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v5".into(),
+        version: "urban-result-v6".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         case: plan.case.clone(),
@@ -343,6 +354,7 @@ pub fn run_to_directory(
         removals: 0,
         pending_departures: 0,
         exhausted_departures: 0,
+        active_load: None,
         files: BTreeMap::new(),
     };
     result.checkpoints.insert(0, harness.checkpoint()?);
@@ -410,6 +422,16 @@ pub fn run_to_directory(
     })();
     if let Err(error) = run {
         result.error = Some(error.to_string());
+    }
+    if plan.recycling.is_some() && !active_samples.is_empty() {
+        let target = u64::from(plan.initial_counts.active);
+        result.active_load = Some(ActiveLoadSummary {
+            target,
+            before_step_below_target_ticks: intent_samples.iter().filter(|&&n| n < target).count(),
+            after_step_below_target_ticks: active_samples.iter().filter(|&&n| n < target).count(),
+            before_step: sample_summary(&mut intent_samples.clone())?,
+            after_step: sample_summary(&mut active_samples.clone())?,
+        });
     }
     if let Some(provenance) = &performance_context
         && result.error.is_none()
@@ -726,7 +748,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             (result.purpose.as_str(), result.status.as_str()),
             ("performance", "performance-round-complete")
         );
-        if result.version != "urban-result-v5"
+        if result.version != "urban-result-v6"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
             || !performance
@@ -934,7 +956,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     for directory in directories {
         let result_bytes = fs::read(directory.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&result_bytes)?;
-        if result.version != "urban-result-v5"
+        if result.version != "urban-result-v6"
             || result.purpose != "performance"
             || result.case != "MIXED-PEAK"
             || result.status != "performance-round-complete"
@@ -1495,7 +1517,7 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v5".into(),
+                version: "urban-result-v6".into(),
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
                 case: "MIXED-PEAK".into(),
@@ -1526,6 +1548,7 @@ mod tests {
                 removals: 0,
                 pending_departures: 0,
                 exhausted_departures: 0,
+                active_load: None,
                 files,
             },
         )

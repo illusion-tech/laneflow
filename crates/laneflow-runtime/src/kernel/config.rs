@@ -62,7 +62,8 @@ impl WorldConfig {
 
 /// 宿主显式指定的执行配置，不进入交通快照、摘要或共享静态路网。
 ///
-/// 线程数包含调用线程；1 不创建辅助线程。构造器不验证当前后端的能力，
+/// 线程数是参与计算的线程数：1 在调用线程上计算、不创建辅助线程；N ≥ 2 时
+/// 由 N 个世界独占的池线程计算，调用线程只等待。构造器不验证当前后端的能力，
 /// 不支持的数量由安装或完整交通恢复后的执行校验拒绝。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionConfig {
@@ -80,7 +81,7 @@ impl ExecutionConfig {
         Self { worker_count }
     }
 
-    /// 包含调用线程的非零线程数上限。
+    /// 参与计算的非零线程数上限。
     #[must_use]
     pub const fn worker_count(self) -> NonZeroU32 {
         self.worker_count

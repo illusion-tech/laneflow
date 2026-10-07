@@ -11,7 +11,9 @@ mod plan;
 #[cfg(feature = "adapter")]
 mod presentation;
 mod report;
+mod requests;
 mod runner;
+mod scenario;
 #[cfg(feature = "adapter")]
 mod transitions;
 #[cfg(feature = "adapter")]
@@ -24,8 +26,8 @@ pub use artifacts::Artifacts;
 pub use evidence::run_evidence;
 pub use plan::{
     BoundaryWindow, DepartureBatch, InitialVehicle, LifecycleBurst, LifecycleCounts,
-    ParkingArrival, ParkingDeparture, ReservationRejection, ResolvedPlan, RoleDeparture, UrbanCase,
-    Window,
+    ParkingArrival, ParkingDeparture, RecyclingPlan, ReservationRejection, ResolvedPlan,
+    RoleDeparture, UrbanCase, Window,
 };
 #[cfg(feature = "adapter")]
 pub use presentation::{
@@ -33,8 +35,9 @@ pub use presentation::{
     SelectionWindow,
 };
 pub use report::{
-    ComparedRun, ComparisonReport, MAX_WORKERS, PerformanceComparisonReport, PerformanceRound,
-    RunResult, compare_performance_runs, compare_runs, run_to_directory,
+    ActiveLoadSummary, ComparedRun, ComparisonReport, MAX_WORKERS, PerformanceComparisonReport,
+    PerformanceRound, RunResult, SampleSummary, compare_performance_runs, compare_runs,
+    run_to_directory,
 };
 pub use runner::{Harness, IndividualId, TickRecord};
 #[cfg(feature = "adapter")]

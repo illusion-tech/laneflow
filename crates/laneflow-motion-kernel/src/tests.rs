@@ -186,7 +186,7 @@ impl Results {
 fn compare(fixture: &Fixture, n: usize, delta_s: f32) {
     let input = fixture.input(n);
     let mut reference = Results::new();
-    Kernel::for_backend(Backend::Scalar)
+    let reference_stats = Kernel::for_backend(Backend::Scalar)
         .unwrap()
         .run(&input, &mut reference.output(n), delta_s)
         .unwrap();
@@ -210,6 +210,11 @@ fn compare(fixture: &Fixture, n: usize, delta_s: f32) {
             input.enabled.iter().filter(|&&v| v).count()
         );
         assert_eq!(stats.vector_lanes + stats.scalar_tail_lanes, n);
+        assert_proposal_counts(
+            stats,
+            reference_stats.proposal_lanes_computed,
+            reference_stats.proposal_lanes_reused,
+        );
     }
     for backend in [Backend::Avx2, Backend::Avx512] {
         let Some(kernel) = Kernel::for_backend(backend) else {
@@ -218,10 +223,133 @@ fn compare(fixture: &Fixture, n: usize, delta_s: f32) {
         let mut actual = Results::new();
         let stats = kernel.run(&input, &mut actual.output(n), delta_s).unwrap();
         assert_eq!(stats.vector_lanes + stats.scalar_tail_lanes, n);
+        assert_proposal_counts(
+            stats,
+            reference_stats.proposal_lanes_computed,
+            reference_stats.proposal_lanes_reused,
+        );
         assert_eq!(
             actual, reference,
             "backend {backend:?}, n {n}, dt {delta_s}"
         );
+    }
+}
+
+fn assert_proposal_counts(stats: Stats, computed: usize, reused: usize) {
+    assert_eq!(stats.proposal_lanes_computed, computed);
+    assert_eq!(stats.proposal_lanes_reused, reused);
+    assert_eq!(
+        stats.proposal_lanes_computed + stats.proposal_lanes_reused,
+        stats.active_lanes,
+    );
+}
+
+#[test]
+fn mixed_cached_proposals_are_counted_once_per_enabled_lane() {
+    let mut fixture = Fixture::new(814);
+    fixture.enabled.fill(true);
+    fixture.speed.fill(5_000);
+    fixture.desired.fill(15_000);
+    fixture.has_leader.fill(false);
+    fixture.has_proposal = std::array::from_fn(|row| row % 2 == 0);
+    fixture.proposal_speed.fill(6.0);
+    fixture.proposal_travel.fill(0.1815);
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut plain = Results::new();
+        kernel
+            .run_direct(&fixture.input(16), &mut plain.direct_output(16), 0.033)
+            .unwrap();
+        let mut tracked = Results::new();
+        let stats = kernel
+            .run_direct_with_stats(&fixture.input(16), &mut tracked.direct_output(16), 0.033)
+            .unwrap();
+        assert_eq!(plain, tracked);
+        assert_proposal_counts(stats, 8, 8);
+    }
+}
+
+#[test]
+fn proposal_source_counts_match_across_masks_phases_and_tails() {
+    for n in [0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 127, 128, 129] {
+        for mask in 0..6 {
+            let mut fixture = Fixture::new(814);
+            for row in 0..N {
+                let (enabled, cached) = match mask {
+                    0 => (true, false),
+                    1 => (true, true),
+                    2 => (true, row % 2 == 0),
+                    3 => (row % 5 != 0, row % 2 == 0),
+                    4 => (false, row % 2 == 0),
+                    5 => (row % 2 == 0, row % 2 == 0),
+                    _ => unreachable!(),
+                };
+                fixture.enabled[row] = enabled;
+                fixture.has_proposal[row] = cached;
+            }
+            let input = fixture.input(n);
+            let active = input.enabled.iter().filter(|&&enabled| enabled).count();
+            let cached = input
+                .enabled
+                .iter()
+                .zip(input.has_proposal)
+                .filter(|&(&enabled, &cached)| enabled && cached)
+                .count();
+            for phase in [
+                Phase::Direct,
+                Phase::Full,
+                Phase::Proposal,
+                Phase::Project,
+                Phase::FloatProject,
+                Phase::Quantize,
+            ] {
+                let run = |kernel: Kernel| {
+                    let mut result = Results::new();
+                    let stats = match phase {
+                        Phase::Direct => kernel.run_direct_with_stats(
+                            &input,
+                            &mut result.direct_output(n),
+                            0.033,
+                        ),
+                        Phase::Full => kernel.run(&input, &mut result.output(n), 0.033),
+                        Phase::Proposal => kernel.proposal(&input, &mut result.output(n), 0.033),
+                        Phase::Project => kernel.project(&input, &mut result.output(n), 0.033),
+                        Phase::FloatProject => {
+                            kernel.float_projection(&input, &mut result.output(n), 0.033)
+                        }
+                        Phase::Quantize => kernel.quantize(&input, &mut result.output(n), 0.033),
+                    }
+                    .unwrap();
+                    (stats, result)
+                };
+                let (_, reference) = run(Kernel::for_backend(Backend::Scalar).unwrap());
+                for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+                    let Some(kernel) = Kernel::for_backend(backend) else {
+                        continue;
+                    };
+                    let (stats, result) = run(kernel);
+                    assert_eq!(result, reference, "backend {backend:?}, n {n}, mask {mask}");
+                    assert_eq!(stats.active_lanes, active);
+                    if phase == Phase::Quantize {
+                        assert_eq!(stats.proposal_lanes_computed, 0);
+                        assert_eq!(stats.proposal_lanes_reused, 0);
+                    } else if matches!(phase, Phase::Project | Phase::FloatProject) {
+                        assert_proposal_counts(stats, 0, active);
+                    } else {
+                        assert_proposal_counts(stats, active - cached, cached);
+                    }
+                    if phase == Phase::Direct {
+                        let mut plain = Results::new();
+                        kernel
+                            .run_direct(&input, &mut plain.direct_output(n), 0.033)
+                            .unwrap();
+                        assert_eq!(plain, result);
+                    }
+                }
+            }
+        }
     }
 }
 

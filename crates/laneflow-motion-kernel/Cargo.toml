@@ -12,4 +12,4 @@ publish = false
 # 不继承工作区 forbid；Runtime 和其它普通 crate 继续继承。
 [lints.rust]
 unsafe_code = "allow"
-unsafe_op_in_unsafe_fn = "deny"
+unsafe_op_in_unsafe_fn = "forbid"

@@ -78,7 +78,8 @@
 //!    include! 藏出文本扫描）——禁绝后 .rs 全集即编译器可达源码全集。
 //!    ADR 0031 数值例外仅包含四个登记文件，unsafe 限 lib.rs/x86.rs；禁止
 //!    外部依赖、额外编译入口、build.rs、源码加载、汇编和文件级 lint 放宽，
-//!    保持 unsafe_op_in_unsafe_fn deny。数值与 ISA 正确性由差异测试/CodeQL 复核。
+//!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
+//!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。
 //! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
 //!    若存在，禁止一切可替换 CI 门禁执行语义的键——`[env]` 段（经
 //!    `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的 HOME/CARGO_HOME
@@ -1444,6 +1445,81 @@ fn tail_truncate(trimmed: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn motion_manifest_forbid_rejects_direct_and_group_lint_overrides() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-motion-lint-canary-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        let production_manifest: toml::Table =
+            include_str!("../../crates/laneflow-motion-kernel/Cargo.toml")
+                .parse()
+                .unwrap();
+        let mut manifest: toml::Table =
+            "[package]\nname = 'motion-lint-canary'\nversion = '0.0.0'\nedition = '2024'\n"
+                .parse()
+                .unwrap();
+        manifest.insert("lints".into(), production_manifest["lints"].clone());
+        let manifest_path = root.join("Cargo.toml");
+        fs::write(&manifest_path, toml::to_string(&manifest).unwrap()).unwrap();
+
+        for (source, expected_error) in [
+            (
+                "pub unsafe fn load(pointer: *const u8) -> u8 { unsafe { *pointer } }",
+                None,
+            ),
+            (
+                "pub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0133"),
+            ),
+            (
+                "#![allow(unsafe_op_in_unsafe_fn)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#![allow(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#![warn(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#![expect(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#[allow(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+        ] {
+            fs::write(root.join("src/lib.rs"), source).unwrap();
+            let output = hermetic_cargo_command(&root)
+                .args(["check", "--offline", "--lib", "--manifest-path"])
+                .arg(&manifest_path)
+                .arg("--target-dir")
+                .arg(root.join("target"))
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            match expected_error {
+                Some(code) => {
+                    assert!(!output.status.success(), "unexpected success: {source}");
+                    assert!(stderr.contains(code), "{source}: {stderr}");
+                    assert!(
+                        stderr.contains("unsafe_op_in_unsafe_fn")
+                            || stderr.contains("unsafe-op-in-unsafe-fn"),
+                        "{stderr}"
+                    );
+                }
+                None => assert!(output.status.success(), "{stderr}"),
+            }
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn cargo_config_hygiene_forbids_env_section() {

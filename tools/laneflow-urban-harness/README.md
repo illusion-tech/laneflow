@@ -64,6 +64,24 @@ target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json
 `WAITING-RELEASE`、`PERMISSIVE-LEFT`、`UNCONTROLLED-YIELD` 和
 `BOUNDARY-BURST`。省略时为 `MIXED-PEAK`。
 
+独立负载探针 `SUSTAINED-ACTIVE` 只接受 probe 窗口：
+
+```text
+target/release/laneflow-urban-harness plan <artifact-directory> <sustained.toml> --case SUSTAINED-ACTIVE --probe-warm-up 512 --probe-ticks 4096
+```
+
+每 tile 初始 1000 Active，无停车初态、停车请求或正确性角色。场景配方分别选择初始
+人口、需求策略和角色集合；共享路线候选计算不改变场景身份。持续需求不展开有限
+出发组：每个提交边界读取实际 Completed 状态，同槽位至多一个回收请求，使用本 tile
+按 key 排序的行驶路线候选，按 `(slot + incarnation * 37) mod 候选数` 选择下一路线。
+入口受阻时每 8 tick 重试，预算持续到窗口结束；未成功请求保留为 pending，不计 exhausted。
+新请求编号集中分配，重试保留编号，incarnation 仅在实际成功替换或 spawn 后按槽位递增。
+
+`result.json` 的 `active_load` 报告观察窗口内 step 前/后的 Active 最小值、
+p50/p95/p99/max、样本数，以及各自低于初始目标的拍数。车辆完成和入口受阻会降低
+实际 Active；`probe-complete` 只表示窗口完成，不证明持续负载达标，也不替代正式性能认证。
+修改回收策略后必须重新取证，旧计划不能作为当前持续负载的证据。
+
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
 `plan ... --probe-ticks 128` 生成短试跑；`--probe-warm-up N` 可在 fixture 上覆盖
 “暖机后重新提交角色”的诊断路径。probe 不得冒充正式验收。
@@ -123,7 +141,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 
 每 tile 1000 个体、750 Active 和 250 个实际占位的 Parked；稳定身份为
 `(tile, slot, incarnation)`，profile 比例为 30:60:10。离场、入场保持身份，Completed
-原子替换使用请求序号派生的新 incarnation。
+原子替换及显式 spawn 使用该槽位递增的新 incarnation，与请求序号独立。
 
 两名入场角色使用 slot 741/743，对应 `c08.bay1` 与 `c09.mixed`。先在实际入口臂上
 取小于停车锚点的最大候选位置，分别为 `c08.e.out` 的 66500 mm 与 `c09.w.out`
@@ -163,9 +181,10 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v5`（v5 起 `diagnostics.json`
-  摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套），旧 v4 运行目录
-  因缺该封套条目被拒绝、不转换；Failed 行不能通过 compare。
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v6`（v6 起 incarnation 与请求序号独立，
+  sustained 显式报告实际 Active 负载；v5 起 `diagnostics.json`
+  摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套），旧载荷拒绝、不转换；
+  Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
 - `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v2`（v2 起
