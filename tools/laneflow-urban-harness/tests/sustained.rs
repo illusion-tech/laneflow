@@ -112,6 +112,11 @@ fn sustained_recipe_has_no_finite_demands_or_correctness_roles_and_rejects_leaka
     for changed in [
         {
             let mut plan = sustained.clone();
+            plan.recycling.as_mut().unwrap().candidate_order = "unknown".into();
+            plan
+        },
+        {
+            let mut plan = sustained.clone();
             plan.arrivals = mixed.arrivals.clone();
             plan
         },

@@ -240,6 +240,8 @@ pub struct LifecycleCounts {
 /// 持续负载的路线与回收策略；不含正确性角色或有限出发请求。
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RecyclingPlan {
+    /// 每次同时轮换入口和位置的确定性顺序，随计划冻结。
+    pub candidate_order: String,
     /// 入口受阻后的固定 tick 重试间隔，必须为正。
     pub retry_ticks: u64,
     /// 一个提交边界允许的最多候选尝试，全部拒绝后才延期。
@@ -321,6 +323,7 @@ impl ResolvedPlan {
         let quantum = 528 / artifacts.dt;
         let (retry_ticks, max_attempts) = if sustained { (0, 0) } else { (4 * quantum, 8) };
         let mut recycling = sustained.then(|| RecyclingPlan {
+            candidate_order: "rotate-entry-and-position".into(),
             retry_ticks: 8,
             attempts_per_boundary: 64,
             progress_mm: (0..11).map(|layer| 7_000 + 8_500 * layer).collect(),
@@ -1417,6 +1420,7 @@ impl ResolvedPlan {
                 return Err(invalid("持续回收计划不得混入有限需求、停车或正确性角色"));
             }
             if recycling.retry_ticks == 0
+                || recycling.candidate_order != "rotate-entry-and-position"
                 || recycling.attempts_per_boundary == 0
                 || recycling.attempts_per_boundary > 64
                 || recycling.progress_mm.is_empty()

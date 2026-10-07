@@ -644,7 +644,8 @@ impl<'a> Harness<'a> {
         Ok(Command::Replace {
             route: entry.routes[route_index as usize].clone(),
             occurrence: 0,
-            progress_mm: plan.progress_mm[(offset / entry_count % positions) as usize],
+            progress_mm: plan.progress_mm
+                [((base / entry_count + u64::from(attempt - 1)) % positions) as usize],
             speed_mm_s: 0,
             east: None,
             role: false,
@@ -2152,6 +2153,16 @@ mod tests {
         harness.collect_completed_recycling(0).unwrap();
         assert!(harness.schedule.is_empty());
         assert_eq!(harness.requests.counts(), (0, 0));
+
+        let positions: std::collections::BTreeSet<_> = (1..=11)
+            .map(
+                |attempt| match harness.recycling_command(969, attempt).unwrap() {
+                    Command::Replace { progress_mm, .. } => progress_mm,
+                    _ => unreachable!(),
+                },
+            )
+            .collect();
+        assert_eq!(positions.len(), 11);
 
         let (slot, blocker, entry_route, entry_edge, entry_progress) = (0..1_000)
             .find_map(|slot| {
