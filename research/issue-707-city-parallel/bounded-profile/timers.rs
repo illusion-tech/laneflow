@@ -148,10 +148,10 @@ pub fn reset() {
     });
 }
 // 主线程的包含式墙钟区间；嵌套项不可相加。分发计时包含 worker 完成等待，不是 CPU 时间。
-pub fn flush(tick: u64) {
+pub fn flush(tick: u64, step_ns: u64, command_ns: u64, observation_ns: u64) {
     DATA.with(|d| {
         let d = d.borrow();
-        let mut line = format!("{{\"tick\":{tick},\"stages\":{{");
+        let mut line = format!("{{\"tick\":{tick},\"step_ns\":{step_ns},\"command_ns\":{command_ns},\"observation_ns\":{observation_ns},\"stages\":{{");
         for (i, name) in NAMES.iter().enumerate() {
             if i > 0 {
                 line.push(',');
