@@ -1,6 +1,6 @@
 # 准入缓存完整重建前的保守筛选
 
-**文档状态**: Proposed（#828；接受后才作为实现的 G1 输入）<br>
+**文档状态**: Accepted（#828 / PR #829；#830 的 G1 输入）<br>
 **最后更新**: 2026-10-08<br>
 **适用范围**: 道路机动车 `spawn_vehicle` / `replace_completed_vehicle` 的派生候选缓存完整重建
 
@@ -9,7 +9,8 @@
 [整数几何](traffic-runtime-integer-geometry.md)、
 [共享路网消费](traffic-runtime-shared-consumption.md)。
 本提案不新增 ADR、公开 API、格式、依赖或运行时开关。当前准入合同继续有效；
-本文尚不表示筛选已经实现或测得收益。
+本文尚不表示筛选已经采用或测得收益。#830 的首个实现经有界验证后未采用，
+产品仍使用原完整预览；见[研究结果](../../research/issue-707-city-parallel/admission-filter-results.md)。
 
 ## 1. 决策与范围
 
