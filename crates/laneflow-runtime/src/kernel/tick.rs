@@ -2,7 +2,7 @@ use laneflow_motion_kernel::max_next_speed_for_decel;
 mod columnar_motion;
 
 /// 仅用于独立单进程诊断，不进入普通 Runtime。顺序固定：基础查询、原始标量提案、
-/// P5 基础复用、完整结果复用、原始向量求解/复用、投影、有效向量/槽、整数向量、
+/// P5 基础复用、完整结果复用、提案来源计算/复用、投影、有效向量/槽、整数向量、
 /// 标量尾部、降速 occurrence 读取、实际路线步、数值入口调用、物理行、活动数值行。
 #[cfg(test)]
 static COLUMNAR_WORK: [std::sync::atomic::AtomicU64; 16] =

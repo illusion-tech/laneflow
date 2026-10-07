@@ -94,6 +94,57 @@ mod tests {
         }
     }
 
+    /// 一整块物理行全部离开后，P5 跳过该块、不重写其回报；并行消费不能凭上一拍
+    /// 残留的完成标记与 rank 给空块重新置有效位。
+    #[test]
+    fn parallel_adopt_ignores_stale_reports_of_an_emptied_block() {
+        let _guard = crate::kernel::execution::RESOURCE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _dispatch = crate::kernel::tick::force_motion_dispatch();
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(300);
+        world.execution = crate::kernel::execution::WorldExecution::start_private(
+            crate::ExecutionConfig::new(std::num::NonZeroU32::new(8).unwrap()),
+            &world.state,
+        );
+        world.step(crate::TickInput::new(100)).unwrap();
+        let first_block: Vec<_> = world
+            .live_vehicles()
+            .iter()
+            .copied()
+            .filter(|&handle| {
+                world
+                    .state
+                    .committed
+                    .vehicles
+                    .active_row(handle)
+                    .is_some_and(|row| row < BLOCK_ROWS)
+            })
+            .collect();
+        assert_eq!(first_block.len(), BLOCK_ROWS, "fixture fills block 0");
+        for handle in first_block {
+            world.despawn_vehicle(handle).unwrap();
+        }
+        assert!(
+            world.state.committed.vehicles.motion[0]
+                .valid
+                .iter()
+                .all(|&bits| bits == 0)
+        );
+        for tick in 0..3 {
+            world
+                .step(crate::TickInput::new(100))
+                .unwrap_or_else(|error| panic!("tick {tick} after emptying block 0: {error:?}"));
+            assert!(
+                world.state.committed.vehicles.motion[0]
+                    .valid
+                    .iter()
+                    .all(|&bits| bits == 0),
+                "tick {tick}: emptied block stays empty"
+            );
+        }
+    }
+
     #[test]
     fn bound_updates_read_next_columns_and_controls_with_a_physical_hole() {
         let world = crate::kernel::waiting::tests::multi_gate_world(3);
@@ -388,7 +439,7 @@ impl MotionUpdates {
         self.resource_rows.resize(retain_total, 0);
         // 资源行/稀疏行写入与有效位置位互不依赖，同一次分派完成：第 i 段写第 i 段
         // 的资源行与稀疏行，并给第 i 块物理块置位。有效位按物理块分段：已消费行
-        // 正是 rank 落在前缀内且已完成的行。
+        // 正是 Current 中有效、rank 落在前缀内且已完成的行。
         {
             let order = &self.order[..limit];
             let reports = &self.reports;
@@ -443,11 +494,18 @@ impl MotionUpdates {
                 let first = part * block_chunk;
                 for (offset, block) in blocks.iter_mut().enumerate() {
                     let base = (first + offset) * BLOCK_ROWS;
+                    // P5 跳过整块无活动行的物理块，不重写其回报；只认 Current 中
+                    // 仍有效的行，块内残留的上一拍完成标记不再置位。
+                    let source = current
+                        .motion
+                        .get(first + offset)
+                        .map_or([0; BLOCK_ROWS / 64], |source| source.valid);
                     for row in 0..BLOCK_ROWS {
                         let Some(report) = reports.get(base + row) else {
                             break;
                         };
-                        if report.done
+                        if source[row / 64] & (1 << (row % 64)) != 0
+                            && report.done
                             && report.canonical_rank != 0
                             && report.canonical_rank as usize <= limit
                         {

@@ -627,10 +627,7 @@ macro_rules! arithmetic {
                 }
                 if $track {
                     for row in start..start + $width {
-                        if $input.enabled[row] {
-                            $stats.proposal_lanes_computed += usize::from(!all_reused);
-                            $stats.proposal_lanes_reused += usize::from($input.has_proposal[row] || project);
-                        }
+                        $stats.record_proposal_source($input.enabled[row], $input.has_proposal[row] || project);
                     }
                 }
             }

@@ -4,6 +4,7 @@ use std::{
     path::Path,
 };
 
+use crate::scenario::{CorrectnessRoles, DemandStrategy, PopulationStrategy, ScenarioRecipe};
 use crate::{Artifacts, Result, artifacts::FileDigest, invalid, sha256};
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +24,7 @@ pub enum UrbanCase {
     UncontrolledYield,
     #[serde(rename = "BOUNDARY-BURST")]
     BoundaryBurst,
-    /// 仅供性能测量：MIXED-PEAK 的角色与路线，每 tile 1,000 辆全部在路上，跑完的车持续回收。
+    /// 独立持续负载探针：每 tile 初始 1,000 Active，按实际完成状态回收，无正确性角色。
     /// 不属于七套正式计划，不参与正确性窗口。
     #[serde(rename = "SUSTAINED-ACTIVE")]
     SustainedActive,
@@ -236,6 +237,15 @@ pub struct LifecycleCounts {
     pub completed: u32,
 }
 
+/// 持续负载的路线与回收策略；不含正确性角色或有限出发请求。
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RecyclingPlan {
+    /// 入口受阻后的固定 tick 重试间隔，必须为正。
+    pub retry_ticks: u64,
+    /// 每 tile 按 key 排序的行驶路线；回收不使用有限出发轮次或方向标签。
+    pub routes_per_tile: Vec<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ResolvedPlan {
     pub version: String,
@@ -263,6 +273,8 @@ pub struct ResolvedPlan {
     pub role_departures: Vec<RoleDeparture>,
     pub boundary_windows: Vec<BoundaryWindow>,
     pub lifecycle_bursts: Vec<LifecycleBurst>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recycling: Option<RecyclingPlan>,
 }
 
 impl ResolvedPlan {
@@ -271,7 +283,11 @@ impl ResolvedPlan {
         Self::for_case(artifacts, UrbanCase::MixedPeak, window)
     }
 
-    /// Expands one of the seven accepted, closed LF-CN-URBAN cases.
+    /// 展开七套正式场景或独立的持续负载探针，不推进交通世界。
+    ///
+    /// # Errors
+    /// 窗口、场景或步长不受支持，目录缺少所需路线、车道、信号或停车锚点，
+    /// 初态位置不足，调度算术溢出、请求编号重复或场景结构不符合配方时返回错误。
     pub fn for_case(artifacts: &Artifacts, case: UrbanCase, window: Window) -> Result<Self> {
         let catalog = &artifacts.catalog;
         let cycle = cycle_ticks(artifacts)?;
@@ -285,22 +301,18 @@ impl ResolvedPlan {
                     && window.end() > 0 => {}
             _ => return Err(invalid("unsupported run window")),
         }
-        let sustained = case == UrbanCase::SustainedActive;
+        let recipe = ScenarioRecipe::for_case(case);
+        let role_set = recipe.roles;
+        let sustained = recipe.demand == DemandStrategy::CompletedRecycling;
         if sustained && window.purpose != "probe" {
             return Err(invalid("SUSTAINED-ACTIVE only runs probe windows"));
         }
-        let case = if sustained {
-            UrbanCase::MixedPeak
-        } else {
-            case
-        };
         let quantum = 528 / artifacts.dt;
-        // 持续计划每 32 个量子补发一轮回收，每 8 tick 重试一次，覆盖到下一轮。
-        let (departure_period, retry_ticks, max_attempts) = if sustained {
-            (32, 8, 64)
-        } else {
-            (64, 4 * quantum, 8)
-        };
+        let (retry_ticks, max_attempts) = if sustained { (0, 0) } else { (4 * quantum, 8) };
+        let mut recycling = sustained.then(|| RecyclingPlan {
+            retry_ticks: 8,
+            routes_per_tile: Vec::new(),
+        });
         let mut initial = Vec::new();
         let mut departures = Vec::new();
         let mut leaves = Vec::new();
@@ -309,13 +321,11 @@ impl ResolvedPlan {
         let mut role_departures = Vec::new();
         let mut boundary_windows = Vec::new();
         let mut lifecycle_bursts = Vec::new();
-        let active_per_tile = if sustained {
-            1_000
-        } else if case == UrbanCase::GarageEgress {
-            250
-        } else {
-            750
-        };
+        let population = recipe.population;
+        let active_per_tile = population.active_per_tile();
+        // 有限计划保留每 tile 至少 75 组的已接受编号跨度；扩大活动人口时同步扩大跨度。
+        let groups_per_tile =
+            (active_per_tile / 10).max(PopulationStrategy::Standard.active_per_tile() / 10);
         let mut route_choices: BTreeMap<&str, Vec<_>> = BTreeMap::new();
         let rank = |kind: &str| match kind {
             "cross-tile" => 0,
@@ -355,19 +365,21 @@ impl ResolvedPlan {
                 .find(|p| p.tile == tile && p.kind == "virtual" && p.capacity == 1_000)
                 .ok_or_else(|| invalid("missing garage"))?;
             if matches!(
-                case,
-                UrbanCase::GarageEgress | UrbanCase::BoundaryBurst | UrbanCase::UncontrolledYield
+                role_set,
+                CorrectnessRoles::GarageEgress
+                    | CorrectnessRoles::BoundaryBurst
+                    | CorrectnessRoles::UncontrolledYield
             ) {
                 for anchor in &garage.exits {
                     background_route_exclusions.insert(anchor.edge.as_str());
                 }
             }
-            let arrival_roles: Vec<_> = match case {
-                UrbanCase::MixedPeak | UrbanCase::BoundaryBurst => vec![
+            let arrival_roles: Vec<_> = match role_set {
+                CorrectnessRoles::MixedPeak | CorrectnessRoles::BoundaryBurst => vec![
                     (741, "c08.bay1", "explicit-arrival"),
                     (743, "c09.mixed", "virtual-arrival"),
                 ],
-                UrbanCase::GarageIngress => vec![
+                CorrectnessRoles::GarageIngress => vec![
                     (741, "c08.bay1", "explicit-arrival"),
                     (743, "c08.mixed", "virtual-arrival"),
                 ],
@@ -392,8 +404,8 @@ impl ResolvedPlan {
                     .rfind(|position| *position < anchor.progress_mm)
                     .ok_or_else(|| invalid("no initial position before parking entry"))?;
                 arrival_fronts.insert(anchor.edge.as_str(), progress_mm);
-                if case == UrbanCase::GarageIngress
-                    || (case == UrbanCase::BoundaryBurst && role == "virtual-arrival")
+                if role_set == CorrectnessRoles::GarageIngress
+                    || (role_set == CorrectnessRoles::BoundaryBurst && role == "virtual-arrival")
                 {
                     background_route_exclusions.insert(anchor.edge.as_str());
                 }
@@ -414,14 +426,14 @@ impl ResolvedPlan {
                     slot: tile * 1_000 + slot,
                     sequence: 11_000_000 + tile * 1_000 + slot,
                     target,
-                    reserve_tick: if case == UrbanCase::GarageIngress {
+                    reserve_tick: if role_set == CorrectnessRoles::GarageIngress {
                         window.warm_up_ticks
                     } else {
                         0
                     },
                     park_not_before_tick: window.warm_up_ticks + u64::from(slot - 740) * quantum,
                 });
-                if case == UrbanCase::GarageIngress && window.warm_up_ticks > 0 {
+                if role_set == CorrectnessRoles::GarageIngress && window.warm_up_ticks > 0 {
                     role_departures.push(RoleDeparture {
                         due_tick: window.warm_up_ticks,
                         slot: tile * 1_000 + slot,
@@ -434,7 +446,7 @@ impl ResolvedPlan {
                     });
                 }
             }
-            if case == UrbanCase::GarageIngress {
+            if role_set == CorrectnessRoles::GarageIngress {
                 for (slot, suffix, role, expected) in [
                     (740, "c08.bay0", "exclusive-rejection", "exclusive-occupied"),
                     (742, "c09.mixed", "full-rejection", "virtual-full"),
@@ -568,8 +580,8 @@ impl ResolvedPlan {
                     boundary_delta
                 };
             let boundary_before = boundary_tick.saturating_sub(1);
-            let traffic_roles: Vec<_> = match case {
-                UrbanCase::WaitingRelease => vec![
+            let traffic_roles: Vec<_> = match role_set {
+                CorrectnessRoles::WaitingRelease => vec![
                     (
                         740,
                         "c00.w0-n0",
@@ -607,7 +619,7 @@ impl ResolvedPlan {
                         waiting_release_delta.saturating_sub(1),
                     ),
                 ],
-                UrbanCase::PermissiveLeft => {
+                CorrectnessRoles::PermissiveLeft => {
                     let due = phase_delta("c01", "p3.green")?;
                     vec![
                         (740, "c01.s0-w0", 0, 92_000, 92_000, "permissive-left", due),
@@ -616,12 +628,12 @@ impl ResolvedPlan {
                         (743, "c01.n0-s0", 0, 75_000, 75_000, "opposing-pulse-2", due),
                     ]
                 }
-                UrbanCase::UncontrolledYield => vec![
+                CorrectnessRoles::UncontrolledYield => vec![
                     (740, "c04.w1-e1", 0, 92_000, 92_000, "mainline-pulse-0", 0),
                     (741, "c04.w1-e1", 0, 83_500, 83_500, "mainline-pulse-1", 0),
                     (742, "c04.n0-e0", 0, 92_000, 75_000, "yield-role", 0),
                 ],
-                UrbanCase::BoundaryBurst => vec![
+                CorrectnessRoles::BoundaryBurst => vec![
                     (
                         740,
                         "c04.w1-e1",
@@ -643,11 +655,11 @@ impl ResolvedPlan {
                 ],
                 _ => Vec::new(),
             };
-            let isolated_cell = match case {
-                UrbanCase::WaitingRelease => Some("c00"),
-                UrbanCase::PermissiveLeft => Some("c01"),
-                UrbanCase::UncontrolledYield => Some("c04"),
-                UrbanCase::BoundaryBurst => Some("c04"),
+            let isolated_cell = match role_set {
+                CorrectnessRoles::WaitingRelease => Some("c00"),
+                CorrectnessRoles::PermissiveLeft => Some("c01"),
+                CorrectnessRoles::UncontrolledYield => Some("c04"),
+                CorrectnessRoles::BoundaryBurst => Some("c04"),
                 _ => None,
             };
             if let Some(cell) = isolated_cell {
@@ -684,13 +696,13 @@ impl ResolvedPlan {
                     departure_occurrence
                 };
                 let initial_occurrence =
-                    if window.warm_up_ticks == 0 && case != UrbanCase::BoundaryBurst {
+                    if window.warm_up_ticks == 0 && role_set != CorrectnessRoles::BoundaryBurst {
                         departure_occurrence
                     } else {
                         route.edge_keys.len().saturating_sub(1) as u32
                     };
                 let initial_progress_mm =
-                    if window.warm_up_ticks == 0 && case != UrbanCase::BoundaryBurst {
+                    if window.warm_up_ticks == 0 && role_set != CorrectnessRoles::BoundaryBurst {
                         departure_progress_mm
                     } else {
                         initial_progress_mm
@@ -759,7 +771,7 @@ impl ResolvedPlan {
                         });
                     }
                 }
-                if case == UrbanCase::BoundaryBurst && role == "boundary-respawn" {
+                if role_set == CorrectnessRoles::BoundaryBurst && role == "boundary-respawn" {
                     lifecycle_bursts.push(LifecycleBurst {
                         tile,
                         slot: tile * 1_000 + slot,
@@ -773,8 +785,11 @@ impl ResolvedPlan {
                     });
                 }
             }
-            if matches!(case, UrbanCase::GarageEgress | UrbanCase::BoundaryBurst) {
-                let slot = if case == UrbanCase::GarageEgress {
+            if matches!(
+                role_set,
+                CorrectnessRoles::GarageEgress | CorrectnessRoles::BoundaryBurst
+            ) {
+                let slot = if role_set == CorrectnessRoles::GarageEgress {
                     active_per_tile - 1
                 } else {
                     744
@@ -788,12 +803,12 @@ impl ResolvedPlan {
                     .iter()
                     .find(|route| route.key == anchor.route)
                     .ok_or_else(|| invalid("missing garage departure route"))?;
-                let due_tick = if case == UrbanCase::BoundaryBurst {
+                let due_tick = if role_set == CorrectnessRoles::BoundaryBurst {
                     boundary_before.saturating_sub(1)
                 } else {
                     window.warm_up_ticks.saturating_sub(1)
                 };
-                let initial_route = if due_tick > 0 && case == UrbanCase::BoundaryBurst {
+                let initial_route = if due_tick > 0 && role_set == CorrectnessRoles::BoundaryBurst {
                     catalog
                         .routes
                         .iter()
@@ -804,7 +819,7 @@ impl ResolvedPlan {
                 };
                 let (initial_occurrence, initial_progress_mm) = if due_tick == 0 {
                     (anchor.route_edge_index, anchor.progress_mm)
-                } else if case == UrbanCase::BoundaryBurst {
+                } else if role_set == CorrectnessRoles::BoundaryBurst {
                     (
                         initial_route.edge_keys.len().saturating_sub(1) as u32,
                         75_000,
@@ -857,7 +872,7 @@ impl ResolvedPlan {
                     });
                 }
             }
-            if case == UrbanCase::BoundaryBurst {
+            if role_set == CorrectnessRoles::BoundaryBurst {
                 let controller_key = format!("{prefix}c00.controller");
                 let controller = catalog
                     .signals
@@ -990,22 +1005,24 @@ impl ResolvedPlan {
             });
             let mut next_slot = active_per_tile;
             for target in &targets {
-                let count = if sustained {
+                let count = if population == PopulationStrategy::AllActive {
                     0
                 } else if target.kind == "explicit" {
                     u32::from(target.key.ends_with(".bay0"))
                 } else if target.capacity == 100 {
-                    if case == UrbanCase::GarageIngress && target.key.ends_with(".c09.mixed") {
+                    if population == PopulationStrategy::GarageIngress
+                        && target.key.ends_with(".c09.mixed")
+                    {
                         100
-                    } else if case == UrbanCase::GarageEgress {
+                    } else if population == PopulationStrategy::GarageEgress {
                         24
                     } else {
                         12
                     }
                 } else if target.capacity == 1_000 {
-                    match case {
-                        UrbanCase::GarageEgress => 500,
-                        UrbanCase::GarageIngress => 32,
+                    match population {
+                        PopulationStrategy::GarageEgress => 500,
+                        PopulationStrategy::GarageIngress => 32,
                         _ => 120,
                     }
                 } else {
@@ -1032,90 +1049,105 @@ impl ResolvedPlan {
             if next_slot != 1_000 {
                 return Err(invalid("initial parking allocation differs"));
             }
-            let east: Vec<_> = catalog
-                .routes
-                .iter()
-                .filter(|r| {
-                    r.key.starts_with(&prefix)
-                        && r.key.contains(".cross.e.l")
-                        && r.edge_keys
-                            .iter()
-                            .all(|edge| !background_route_exclusions.contains(edge.as_str()))
-                        && isolated_cell.is_none_or(|cell| {
-                            let marker = format!(".{cell}.");
-                            r.edge_keys.iter().all(|edge| !edge.contains(&marker))
-                        })
-                })
-                .collect();
-            let west: Vec<_> = catalog
-                .routes
-                .iter()
-                .filter(|r| {
-                    r.key.starts_with(&prefix)
-                        && r.key.contains(".cross.w.l")
-                        && r.edge_keys
-                            .iter()
-                            .all(|edge| !background_route_exclusions.contains(edge.as_str()))
-                        && isolated_cell.is_none_or(|cell| {
-                            let marker = format!(".{cell}.");
-                            r.edge_keys.iter().all(|edge| !edge.contains(&marker))
-                        })
-                })
-                .collect();
-            if east.is_empty() || west.is_empty() {
-                return Err(invalid("missing directional routes"));
-            }
-            let mut east = east;
-            let mut west = west;
-            east.sort_by_key(|r| &r.key);
-            west.sort_by_key(|r| &r.key);
-            // 持续计划把回收分散到本 tile 全部行驶路线的进口车道，避免挤在少数横穿路线的起点。
-            let mut spread: Vec<_> = catalog
-                .routes
-                .iter()
-                .filter(|r| r.key.starts_with(&prefix) && rank(&r.category) < 3)
-                .collect();
-            spread.sort_by_key(|r| &r.key);
-            for group in 0..active_per_tile / 10 {
-                let mut due = u64::from((tile * 75 + group + 544) % departure_period) * quantum;
-                let mut period = 0;
-                while due < window.end() {
-                    let mut routes = Vec::new();
-                    for i in 0..10 {
-                        let route = if sustained {
-                            spread[(group as usize * 10 + i + period * 37) % spread.len()]
-                        } else {
+            if let Some(recycling) = &mut recycling {
+                let mut spread: Vec<_> = catalog
+                    .routes
+                    .iter()
+                    .filter(|r| r.key.starts_with(&prefix) && rank(&r.category) < 3)
+                    .map(|r| r.key.clone())
+                    .collect();
+                spread.sort();
+                recycling.routes_per_tile.push(spread);
+            } else {
+                let east: Vec<_> = catalog
+                    .routes
+                    .iter()
+                    .filter(|r| {
+                        r.key.starts_with(&prefix)
+                            && r.key.contains(".cross.e.l")
+                            && r.edge_keys
+                                .iter()
+                                .all(|edge| !background_route_exclusions.contains(edge.as_str()))
+                            && isolated_cell.is_none_or(|cell| {
+                                let marker = format!(".{cell}.");
+                                r.edge_keys.iter().all(|edge| !edge.contains(&marker))
+                            })
+                    })
+                    .collect();
+                let west: Vec<_> = catalog
+                    .routes
+                    .iter()
+                    .filter(|r| {
+                        r.key.starts_with(&prefix)
+                            && r.key.contains(".cross.w.l")
+                            && r.edge_keys
+                                .iter()
+                                .all(|edge| !background_route_exclusions.contains(edge.as_str()))
+                            && isolated_cell.is_none_or(|cell| {
+                                let marker = format!(".{cell}.");
+                                r.edge_keys.iter().all(|edge| !edge.contains(&marker))
+                            })
+                    })
+                    .collect();
+                if east.is_empty() || west.is_empty() {
+                    return Err(invalid("missing directional routes"));
+                }
+                let mut east = east;
+                let mut west = west;
+                east.sort_by_key(|r| &r.key);
+                west.sort_by_key(|r| &r.key);
+                for group in 0..active_per_tile / 10 {
+                    let group_index = tile
+                        .checked_mul(groups_per_tile)
+                        .and_then(|base| base.checked_add(group))
+                        .ok_or_else(|| invalid("出发组编号溢出"))?;
+                    let offset = group_index
+                        .checked_add(544)
+                        .ok_or_else(|| invalid("出发组偏移溢出"))?;
+                    let mut due = u64::from(offset % 64) * quantum;
+                    let mut period = 0;
+                    while due < window.end() {
+                        let mut routes = Vec::new();
+                        for i in 0..10 {
                             let list = if i < 7 { &east } else { &west };
-                            list[(group as usize * 10 + i + period) % list.len()]
-                        };
-                        routes.push(route.key.clone());
+                            let route = list[(group as usize * 10 + i + period) % list.len()];
+                            routes.push(route.key.clone());
+                        }
+                        departures.push(DepartureBatch {
+                            due_tick: due,
+                            first_slot: tile * 1_000 + group * 10,
+                            sequence: u32::try_from(period)
+                                .ok()
+                                .and_then(|round| round.checked_mul(artifacts.tiles))
+                                .and_then(|base| base.checked_mul(groups_per_tile))
+                                .and_then(|base| base.checked_add(group_index))
+                                .and_then(|base| base.checked_mul(10))
+                                .ok_or_else(|| invalid("出发请求编号溢出"))?,
+                            routes,
+                        });
+                        due += 64 * quantum;
+                        period += 1;
                     }
-                    departures.push(DepartureBatch {
-                        due_tick: due,
-                        first_slot: tile * 1_000 + group * 10,
-                        sequence: (period as u32 * artifacts.tiles * 75 + tile * 75 + group) * 10,
-                        routes,
-                    });
-                    due += u64::from(departure_period) * quantum;
-                    period += 1;
                 }
             }
             let garage_first_slot = active_per_tile
                 + 10
-                + if case == UrbanCase::GarageEgress {
+                + if population == PopulationStrategy::GarageEgress {
                     240
-                } else if case == UrbanCase::GarageIngress {
+                } else if population == PopulationStrategy::GarageIngress {
                     208
                 } else {
                     120
                 };
             let leave_count = if sustained {
                 0
-            } else if case == UrbanCase::UncontrolledYield {
+            } else if role_set == CorrectnessRoles::UncontrolledYield {
                 1
             } else if matches!(
-                case,
-                UrbanCase::MixedPeak | UrbanCase::GarageEgress | UrbanCase::BoundaryBurst
+                role_set,
+                CorrectnessRoles::MixedPeak
+                    | CorrectnessRoles::GarageEgress
+                    | CorrectnessRoles::BoundaryBurst
             ) {
                 20
             } else {
@@ -1133,7 +1165,7 @@ impl ResolvedPlan {
                         )
                     })
                     .ok_or_else(|| invalid("garage lacks a directional exit"))?;
-                let due = if case == UrbanCase::BoundaryBurst {
+                let due = if role_set == CorrectnessRoles::BoundaryBurst {
                     if i < 10 {
                         boundary_before
                     } else {
@@ -1163,48 +1195,48 @@ impl ResolvedPlan {
         let required_per_tile = if sustained {
             BTreeMap::new()
         } else {
-            match case {
-                UrbanCase::MixedPeak => [
+            match role_set {
+                CorrectnessRoles::MixedPeak => [
                     ("crossed_tile_completed".into(), 1),
                     ("red_wait_then_crossed".into(), 1),
                     ("park_or_leave".into(), 1),
                 ]
                 .into(),
-                UrbanCase::GarageEgress => [
+                CorrectnessRoles::GarageEgress => [
                     ("garage_exit_0".into(), 1),
                     ("garage_exit_1".into(), 1),
                     ("safe_leave_rejection".into(), 1),
                     ("retried_leave_success".into(), 1),
                 ]
                 .into(),
-                UrbanCase::GarageIngress => [
+                CorrectnessRoles::GarageIngress => [
                     ("explicit_park".into(), 1),
                     ("virtual_park".into(), 1),
                     ("exclusive_rejection".into(), 1),
                     ("full_rejection".into(), 1),
                 ]
                 .into(),
-                UrbanCase::WaitingRelease => [
+                CorrectnessRoles::WaitingRelease => [
                     ("waiting_entry".into(), 1),
                     ("waiting_capacity_rejection".into(), 1),
                     ("waiting_storage_rejection".into(), 1),
                     ("waiting_release".into(), 1),
                 ]
                 .into(),
-                UrbanCase::PermissiveLeft => [
+                CorrectnessRoles::PermissiveLeft => [
                     ("permissive_no_grant".into(), 1),
                     ("permissive_grant".into(), 1),
                     ("permissive_pass".into(), 1),
                 ]
                 .into(),
-                UrbanCase::UncontrolledYield => [
+                CorrectnessRoles::UncontrolledYield => [
                     ("mainline_pass".into(), 1),
                     ("yield_wait".into(), 1),
                     ("yield_pass".into(), 1),
                     ("garage_leave".into(), 1),
                 ]
                 .into(),
-                UrbanCase::BoundaryBurst => [
+                CorrectnessRoles::BoundaryBurst => [
                     ("phase_change".into(), 1),
                     ("lifecycle_success".into(), 1),
                     ("safe_rejection".into(), 1),
@@ -1213,18 +1245,12 @@ impl ResolvedPlan {
                     ("after_boundary_command".into(), 1),
                 ]
                 .into(),
-                UrbanCase::SustainedActive => unreachable!("mapped to MIXED-PEAK above"),
+                CorrectnessRoles::None => BTreeMap::new(),
             }
         };
-        Ok(Self {
+        let plan = Self {
             version: "urban-demand-v3".into(),
-            case: if sustained {
-                UrbanCase::SustainedActive
-            } else {
-                case
-            }
-            .as_str()
-            .into(),
+            case: case.as_str().into(),
             seed: 544,
             scale: catalog.scale.clone(),
             dt: artifacts.dt,
@@ -1255,7 +1281,10 @@ impl ResolvedPlan {
             role_departures,
             boundary_windows,
             lifecycle_bursts,
-        })
+            recycling,
+        };
+        plan.validate_structure()?;
+        Ok(plan)
     }
 
     pub fn write(&self, path: &Path) -> Result<String> {
@@ -1271,12 +1300,98 @@ impl ResolvedPlan {
     pub fn read(path: &Path) -> Result<Self> {
         Ok(toml::from_str(&fs::read_to_string(path)?)?)
     }
+    /// 核对计划结构、唯一请求身份及按当前来源重新展开的完整内容。
+    ///
+    /// # Errors
+    /// 编号重复或溢出、出发组不完整、持续回收混入其他行为，或内容与来源展开不同时返回错误。
     pub fn validate(&self, artifacts: &Artifacts) -> Result<()> {
+        self.validate_structure()?;
         let case = self.case.parse()?;
         if self != &Self::for_case(artifacts, case, self.window.clone())? {
             return Err(invalid(
                 "plan differs from the frozen expansion or source artifacts",
             ));
+        }
+        Ok(())
+    }
+
+    fn validate_structure(&self) -> Result<()> {
+        let mut ids = BTreeSet::new();
+        let mut insert = |sequence: u32| {
+            if !ids.insert(sequence) {
+                return Err(invalid(format!("重复请求编号：{sequence}")));
+            }
+            Ok(())
+        };
+        for batch in &self.departures {
+            if batch.routes.len() != 10
+                || batch
+                    .first_slot
+                    .checked_add(10)
+                    .is_none_or(|end| end > self.individuals)
+            {
+                return Err(invalid("出发组必须覆盖十个有效槽位与十条路线"));
+            }
+            for offset in 0..10 {
+                insert(
+                    batch
+                        .sequence
+                        .checked_add(offset)
+                        .ok_or_else(|| invalid("请求编号溢出"))?,
+                )?;
+            }
+        }
+        for leave in &self.leaves {
+            insert(leave.sequence)?;
+        }
+        for arrival in &self.arrivals {
+            insert(arrival.sequence)?;
+            insert(
+                20_000_000_u32
+                    .checked_add(arrival.slot)
+                    .ok_or_else(|| invalid("停车请求编号溢出"))?,
+            )?;
+        }
+        for rejection in &self.reservation_rejections {
+            insert(rejection.sequence)?;
+        }
+        for role in &self.role_departures {
+            insert(role.sequence)?;
+        }
+        for burst in &self.lifecycle_bursts {
+            insert(burst.sequence)?;
+            insert(
+                burst
+                    .sequence
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("生命周期请求编号溢出"))?,
+            )?;
+        }
+        if let Some(recycling) = &self.recycling {
+            if self
+                .initial
+                .iter()
+                .any(|vehicle| vehicle.role.is_some() || vehicle.parking.is_some())
+                || !ids.is_empty()
+                || !self.boundary_windows.is_empty()
+                || !self.required_per_tile.is_empty()
+                || self.initial_counts.active != self.individuals
+                || self.initial_counts.parked != 0
+                || self.initial_counts.completed != 0
+                || self.max_attempts != 0
+                || self.retry_ticks != 0
+            {
+                return Err(invalid("持续回收计划不得混入有限需求、停车或正确性角色"));
+            }
+            if recycling.retry_ticks == 0
+                || recycling.routes_per_tile.len() != self.tiles as usize
+                || recycling
+                    .routes_per_tile
+                    .iter()
+                    .any(|routes| routes.is_empty())
+            {
+                return Err(invalid("持续回收必须提供正重试间隔及每 tile 的路线候选"));
+            }
         }
         Ok(())
     }

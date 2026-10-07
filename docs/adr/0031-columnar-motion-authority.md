@@ -13,7 +13,7 @@
 1. 以活动池中的分块整数运动列为唯一已提交运动权威；稳定上下文和稀疏资源状态分离，非 Active 记录单独存放。`VehicleState` 按值组装，不保留完整影子对象。
 2. 完整句柄、规范逻辑位置、物理行三坐标分离。物理执行可重组，规范消费、首错、资源和事件次序仍沿用 ADR 0030；新的行所有权与 attempt 有效性约束见详细设计。
 3. P2/P5 按真正的消费者共用基础查询；提案仅在所有输入一致时复用，新增停止约束从未量化提案重新执行后续投影。数值及量化顺序沿用 ADR 0028，不放宽交通精度来换 SIMD 覆盖。
-4. `laneflow-motion-kernel` 的 safe 切片接口隔离运行时 ISA 分发和 load/store。仅此 crate 采用窄 unsafe 例外；工作区及 Runtime 禁令保持。CPU/OS 特性、边界、尾部、独占和别名证明由该 crate 承担，后端不拥有交通权威。
+4. `laneflow-motion-kernel` 的 safe 切片接口隔离运行时 ISA 分发和 load/store。仅此 crate 采用窄 unsafe 例外：`unsafe_code = "allow"` 与 `unsafe_op_in_unsafe_fn = "forbid"`，所有不安全操作必须有显式 unsafe 块，源码中的单项或组级 lint 属性不得降低该约束；工作区及 Runtime 禁令保持。CPU/OS 特性、边界、尾部、独占和别名证明由该 crate 承担，后端不拥有交通权威。
 5. Current/Next 只包含热运动字段。验证完整后发布 Next，稳定上下文不逐拍复制；生命周期、日志和资源仍按原子阶段合同准备/发布。
 
 ## 取舍与范围

@@ -23,6 +23,19 @@ pub(crate) const AUDITED_MOTION_PACKAGE_NAME: &str = "laneflow-motion-kernel";
 const AUDITED_MOTION_PACKAGE_ROOT: &str = "crates/laneflow-motion-kernel";
 const AUDITED_MOTION_MANIFEST_PATH: &str = "crates/laneflow-motion-kernel/Cargo.toml";
 
+#[derive(Default, serde::Deserialize)]
+struct ManifestLints {
+    workspace: Option<bool>,
+    #[serde(default)]
+    rust: RustLints,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct RustLints {
+    unsafe_code: Option<String>,
+    unsafe_op_in_unsafe_fn: Option<String>,
+}
+
 /// 一个私有 wire 家族的固定路径与命令面。
 pub(crate) struct WireFamily {
     /// 中文标签，用于输出与错误信息。
@@ -340,14 +353,15 @@ fn require_generated_extension(root: &Path, extension: &str) -> Result<(), Strin
 }
 
 fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
-    let workspace_manifest = fs::read_to_string(repository_root.join("Cargo.toml"))
-        .map_err(|error| format!("无法读取 workspace Cargo.toml: {error}"))?;
-    if !toml_has_value(
-        &workspace_manifest,
-        "workspace.lints.rust",
-        "unsafe_code",
-        "forbid",
-    ) {
+    let workspace_manifest = read_manifest(&repository_root.join("Cargo.toml"))?;
+    let workspace_lints = parse_manifest_lints(
+        workspace_manifest
+            .get("workspace")
+            .and_then(toml::Value::as_table)
+            .and_then(|workspace| workspace.get("lints")),
+        "workspace Cargo.toml",
+    )?;
+    if workspace_lints.rust.unsafe_code.as_deref() != Some("forbid") {
         return Err(
             "workspace 必须保持 `[workspace.lints.rust] unsafe_code = \"forbid\"`".to_string(),
         );
@@ -355,9 +369,9 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
 
     let mut wire_manifest_paths = HashSet::new();
     for family in WIRE_FAMILIES {
-        let wire_manifest = fs::read_to_string(repository_root.join(family.wire_manifest_path))
-            .map_err(|error| format!("无法读取 `{}`: {error}", family.wire_manifest_path))?;
-        if !toml_has_value(&wire_manifest, "lints.rust", "unsafe_code", "allow") {
+        let wire_manifest = read_manifest(&repository_root.join(family.wire_manifest_path))?;
+        let lints = parse_manifest_lints(wire_manifest.get("lints"), family.wire_manifest_path)?;
+        if lints.rust.unsafe_code.as_deref() != Some("allow") {
             return Err(format!(
                 "`{}` 必须保持 generated-only `unsafe_code = \"allow\"` 边界",
                 family.wire_manifest_path
@@ -385,17 +399,16 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         let manifest = manifest
             .canonicalize()
             .map_err(|error| format!("无法解析 `{}`: {error}", manifest.display()))?;
-        if wire_manifest_paths.contains(&manifest) {
+        if wire_manifest_paths.contains(&manifest) || manifest == audited_motion_manifest {
             continue;
         }
-        let text = fs::read_to_string(&manifest)
-            .map_err(|error| format!("无法读取 `{}`: {error}", manifest.display()))?;
-        if manifest == audited_motion_manifest {
-            check_audited_motion_manifest(&text)?;
-            continue;
-        }
+        let parsed_manifest = read_manifest(&manifest)?;
+        let lints = parse_manifest_lints(
+            parsed_manifest.get("lints"),
+            &manifest.display().to_string(),
+        )?;
         if manifest == audited_mmap_manifest {
-            if !toml_has_value(&text, "lints.rust", "unsafe_code", "allow") {
+            if lints.rust.unsafe_code.as_deref() != Some("allow") {
                 return Err(format!(
                     "受审计 mmap package 必须保持 crate 级 `unsafe_code = \"allow\"` 登记例外：`{}`",
                     manifest.display()
@@ -403,13 +416,13 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
             }
             continue;
         }
-        if toml_has_value(&text, "lints.rust", "unsafe_code", "allow") {
+        if lints.rust.unsafe_code.as_deref() == Some("allow") {
             return Err(format!(
                 "generated 路径外不得放宽 unsafe lint：`{}`",
                 manifest.display()
             ));
         }
-        if !toml_has_value(&text, "lints", "workspace", "true") {
+        if lints.workspace != Some(true) {
             return Err(format!(
                 "手写 workspace package 必须继承 `unsafe_code = \"forbid\"`：`{}`",
                 manifest.display()
@@ -432,9 +445,8 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
 /// ADR 0031 登记的数值边界没有 build 脚本、外部依赖、过程宏或额外 target。
 /// 与精确文件名单叠加，保证 compiler 可达源码落在四个受检文件内。
 fn check_audited_motion_manifest(text: &str) -> Result<(), String> {
-    let manifest: toml::Table = text
-        .parse()
-        .map_err(|error| format!("SIMD manifest: {error}"))?;
+    let manifest = parse_manifest(text, AUDITED_MOTION_MANIFEST_PATH)?;
+    let lints = parse_manifest_lints(manifest.get("lints"), AUDITED_MOTION_MANIFEST_PATH)?;
     let package = manifest
         .get("package")
         .and_then(toml::Value::as_table)
@@ -444,11 +456,11 @@ fn check_audited_motion_manifest(text: &str) -> Result<(), String> {
         || manifest
             .keys()
             .any(|key| !["package", "lints"].contains(&key.as_str()))
-        || !toml_has_value(text, "lints.rust", "unsafe_code", "allow")
-        || !toml_has_value(text, "lints.rust", "unsafe_op_in_unsafe_fn", "deny")
-        || toml_has_value(text, "lints", "workspace", "true")
+        || lints.rust.unsafe_code.as_deref() != Some("allow")
+        || lints.rust.unsafe_op_in_unsafe_fn.as_deref() != Some("forbid")
+        || lints.workspace.is_some()
     {
-        return Err("SIMD 例外仅限登记的无依赖数值 crate，必须保留 unsafe_op_in_unsafe_fn deny；不得添加构建脚本或编译入口".into());
+        return Err("SIMD 例外仅限登记的无依赖数值 crate，必须保留 unsafe_op_in_unsafe_fn forbid；不得继承 workspace lint、添加构建脚本或编译入口".into());
     }
     Ok(())
 }
@@ -472,6 +484,7 @@ fn check_audited_motion_source(relative: &str, text: &str) -> Result<(), String>
         "cfg_attr",
         "unsafe_code",
         "unsafe_op_in_unsafe_fn",
+        "rust_2024_compatibility",
         "asm",
         "global_asm",
         "llvm_asm",
@@ -777,25 +790,25 @@ fn check_wire_rust_sources(package_root: &Path, generated_path: &Path) -> Result
     Ok(())
 }
 
-fn toml_has_value(text: &str, section: &str, key: &str, expected: &str) -> bool {
-    let mut current_section = "";
-    for raw_line in text.lines() {
-        let line = raw_line.split('#').next().unwrap_or_default().trim();
-        if line.starts_with('[') && line.ends_with(']') {
-            current_section = line.trim_matches(&['[', ']'][..]).trim();
-            continue;
-        }
-        if current_section != section {
-            continue;
-        }
-        let Some((actual_key, actual_value)) = line.split_once('=') else {
-            continue;
-        };
-        if actual_key.trim() == key && actual_value.trim().trim_matches('"') == expected {
-            return true;
-        }
+fn read_manifest(path: &Path) -> Result<toml::Table, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|error| format!("无法读取 `{}`: {error}", path.display()))?;
+    parse_manifest(&text, &path.display().to_string())
+}
+
+fn parse_manifest(text: &str, owner: &str) -> Result<toml::Table, String> {
+    text.parse()
+        .map_err(|error| format!("manifest `{owner}` TOML 解析失败: {error}"))
+}
+
+fn parse_manifest_lints(value: Option<&toml::Value>, owner: &str) -> Result<ManifestLints, String> {
+    match value {
+        Some(value) => value
+            .clone()
+            .try_into()
+            .map_err(|error| format!("manifest `{owner}` lint 类型错误: {error}")),
+        None => Ok(ManifestLints::default()),
     }
-    false
 }
 
 /// path 属性目标的审计策略。
@@ -1244,31 +1257,94 @@ mod tests {
     }
 
     #[test]
-    fn reads_exact_toml_lint_values() {
-        let manifest = "[lints]\nworkspace = true\n\n[lints.rust]\nunsafe_code = \"allow\"\n";
-        assert!(toml_has_value(manifest, "lints", "workspace", "true"));
-        assert!(toml_has_value(
-            manifest,
-            "lints.rust",
-            "unsafe_code",
-            "allow"
-        ));
-        assert!(!toml_has_value(
-            manifest,
-            "workspace.lints.rust",
-            "unsafe_code",
-            "forbid"
-        ));
+    fn manifest_lints_require_typed_values() {
+        let manifest = parse_manifest("[lints]\nworkspace = true\n", "member").unwrap();
+        let lints = parse_manifest_lints(manifest.get("lints"), "member").unwrap();
+        assert_eq!(lints.workspace, Some(true));
+        assert_eq!(lints.rust.unsafe_code, None);
+        for bad in [
+            "workspace = 'true'",
+            "workspace = 1",
+            "rust = 'not a table'",
+            "rust.unsafe_code = true",
+            "rust.unsafe_op_in_unsafe_fn = 1",
+        ] {
+            let manifest = parse_manifest(&format!("[lints]\n{bad}\n"), "member").unwrap();
+            let error = parse_manifest_lints(manifest.get("lints"), "member")
+                .err()
+                .expect("invalid lint type");
+            assert!(error.contains("member"), "{error}");
+        }
+    }
+
+    #[test]
+    fn audited_motion_manifest_accepts_structured_toml_lints() {
+        for manifest in [
+            include_str!("../../crates/laneflow-motion-kernel/Cargo.toml"),
+            "['package']\nname = 'laneflow-motion-kernel'\n['lints'.'rust']\n'unsafe_code' = 'allow'\n'unsafe_op_in_unsafe_fn' = 'forbid' # policy\n",
+            "package.name = 'laneflow-motion-kernel'\nlints.rust.unsafe_code = 'allow'\nlints.rust.unsafe_op_in_unsafe_fn = 'forbid'\n",
+            "package = { name = 'laneflow-motion-kernel', description = '# [lints.rust]' }\nlints = { rust = { unsafe_code = 'allow', unsafe_op_in_unsafe_fn = 'forbid' } }\n",
+            "[package]\nname = 'laneflow-motion-kernel'\n[lints.rust]\nunsafe_code = '''allow'''\nunsafe_op_in_unsafe_fn = '''forbid'''\n",
+        ] {
+            check_audited_motion_manifest(manifest).unwrap();
+        }
+    }
+
+    #[test]
+    fn audited_motion_manifest_rejects_multiline_lint_spoofs() {
+        for delimiter in ["\"\"\"", "'''"] {
+            for real_lint in [
+                "unsafe_op_in_unsafe_fn = \"allow\"",
+                "unsafe_op_in_unsafe_fn = \"deny\"",
+                "",
+            ] {
+                let manifest = format!(
+                    "[package]\nname = \"laneflow-motion-kernel\"\ndescription = {delimiter}\n[lints.rust]\nunsafe_code = \"allow\"\nunsafe_op_in_unsafe_fn = \"forbid\"\nunsafe_op_in_unsafe_fn = \"deny\"\n{delimiter}\n[lints.rust]\nunsafe_code = \"allow\"\n{real_lint}\n"
+                );
+                let error = check_audited_motion_manifest(&manifest).unwrap_err();
+                assert!(error.contains("unsafe_op_in_unsafe_fn forbid"), "{error}");
+            }
+        }
+    }
+
+    #[test]
+    fn audited_motion_manifest_rejects_missing_malformed_and_weakened_lints() {
+        let manifest = include_str!("../../crates/laneflow-motion-kernel/Cargo.toml");
+        for replacement in ["\"allow\"", "\"warn\"", "\"deny\"", "true", "1"] {
+            let bad = manifest.replace(
+                "unsafe_op_in_unsafe_fn = \"forbid\"",
+                &format!("unsafe_op_in_unsafe_fn = {replacement}"),
+            );
+            assert!(check_audited_motion_manifest(&bad).is_err(), "{bad}");
+        }
+        for bad in [
+            manifest.replace("unsafe_code = \"allow\"", "unsafe_code = true"),
+            manifest.replace("unsafe_code = \"allow\"", ""),
+            manifest.replace("unsafe_op_in_unsafe_fn = \"forbid\"", ""),
+            manifest.replace("[lints.rust]", "[lints]\nworkspace = 'true'\n[lints.rust]"),
+            manifest.replace("[lints.rust]", "[lints]\nworkspace = false\n[lints.rust]"),
+            manifest.replace("[lints.rust]", "[lints]\nworkspace = true\n[lints.rust]"),
+            format!("{manifest}\nunsafe_op_in_unsafe_fn = \"allow\"\n"),
+            manifest.replace("[lints.rust]", "[lints.rust"),
+        ] {
+            assert!(check_audited_motion_manifest(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn unsafe_boundary_accepts_repository_configuration() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        check_unsafe_boundary(repository_root).unwrap();
     }
 
     #[test]
     fn audited_motion_boundary_rejects_lint_loading_and_target_escapes() {
-        let manifest = "[package]\nname = \"laneflow-motion-kernel\"\n[lints.rust]\nunsafe_code = \"allow\"\nunsafe_op_in_unsafe_fn = \"deny\"\n";
+        let manifest = include_str!("../../crates/laneflow-motion-kernel/Cargo.toml");
         check_audited_motion_manifest(manifest).unwrap();
         for bad in [
             manifest.replace("laneflow-motion-kernel", "laneflow-runtime"),
             manifest.replace(
-                "unsafe_op_in_unsafe_fn = \"deny\"",
+                "unsafe_op_in_unsafe_fn = \"forbid\"",
                 "unsafe_op_in_unsafe_fn = \"allow\"",
             ),
             format!("{manifest}\n[dependencies]\nexternal = \"1\"\n"),
@@ -1286,6 +1362,11 @@ mod tests {
             "include!(\"payload.txt\");",
             "macro_rules! m { ($x:ident) => { $x!(\"payload.txt\") } } m!(include);",
             "#![allow(unsafe_op_in_unsafe_fn)]",
+            "#![allow(rust_2024_compatibility)]",
+            "#![warn(rust_2024_compatibility)]",
+            "#![expect(rust_2024_compatibility)]",
+            "#[allow(rust_2024_compatibility)] unsafe fn numeric() { load(); }",
+            "macro_rules! m { ($lint:ident) => { #[allow($lint)] unsafe fn numeric() { load(); } } } m!(rust_2024_compatibility);",
             "asm!(\"nop\");",
         ] {
             assert!(
@@ -1297,7 +1378,7 @@ mod tests {
         assert!(check_audited_motion_source("src/other.rs", "unsafe { load() }").is_err());
         check_audited_motion_source(
             "src/tests.rs",
-            "// unsafe, include!, path\nlet s = \"unsafe\";",
+            "// unsafe, include!, path, rust_2024_compatibility\nlet s = \"unsafe_op_in_unsafe_fn rust_2024_compatibility\";",
         )
         .unwrap();
     }
