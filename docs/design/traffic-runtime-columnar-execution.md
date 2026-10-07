@@ -60,6 +60,15 @@ IIDM，关闭通道不妨碍复用。复杂区间保持 Proposal、限速、Proj
 边界与 Quantize 的原数值次序；全关闭区间不进入数值内核。物理行和规范位置保持，
 这项划分不改变调度票据、权威存储大小或每车公式。
 
+诊断中的 `proposal_lanes_computed` 与 `proposal_lanes_reused` 按启用行的提案来源互斥
+计数；Full、Direct、Proposal 每行只归入新计算或既有提案之一，Project/FloatProject
+每个启用行归入既有提案，Quantize 两项均为零，关闭行不计。涉及提案的单次入口满足
+两项之和等于 `active_lanes`。混合缓存的 SIMD 批可能仍执行满宽算术，再选择各行的
+既有提案；这种物理运算不能混入提案来源计数，满宽算术成本需要独立指标及测量。
+Scalar、AVX2、AVX-512 共用私有来源计数函数；普通 Direct 的无统计实例仍在编译期
+去除统计。Runtime 工作量诊断只在 Fused/Proposal 入口消费来源计数，后续投影不再次
+计入同一份来源账本。
+
 完整纵向流水线覆盖整数→SI 转换、IIDM、停止点选择、安全速度限制、硬空间、f64 ties-even 量化、carry 和不跨边推进。静态降速边界、跨边权限、停车/Waiting/Conflict 等控制输入仍须精确准备；复杂通道使用精确路线查询和掩码多 hop 行走。没有“本拍最多跨一边”的假设。
 
 保持每车表达式顺序，禁止 FMA、fast-math、近似倒数和半精度。`u32` 不截为 `i32`；跨 hop gap 为 `i64`；瞬时 SI 为 `f32`；受检量化为 `f64`。长路线保留分段坐标和 `BoundedDistance`，Finite/BeyondFinite/unknown/absent 不混为一个 bool。后端不改变舍入模式，不要求跨平台位级承诺。

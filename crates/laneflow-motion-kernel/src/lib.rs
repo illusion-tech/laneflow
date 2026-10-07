@@ -228,15 +228,30 @@ pub struct EdgeStats {
     pub hops: usize,
 }
 
-/// 实际求值通道与尾部口径，包含带掩码的物理孔洞。
+/// 运动工作量：向量和尾部按物理通道计数，提案来源只统计启用行。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Stats {
     pub active_lanes: usize,
     pub vector_lanes: usize,
     pub scalar_tail_lanes: usize,
+    /// 本次使用新计算提案的启用行数，与复用行互斥；不是 SIMD 满宽算术次数。
     pub proposal_lanes_computed: usize,
+    /// 本次使用既有提案的启用行数，包含 Project/FloatProject；Quantize 不计提案来源。
     pub proposal_lanes_reused: usize,
     pub integer_vector_lanes: usize,
+}
+
+impl Stats {
+    fn record_proposal_source(&mut self, enabled: bool, reused: bool) {
+        if !enabled {
+            return;
+        }
+        if reused {
+            self.proposal_lanes_reused += 1;
+        } else {
+            self.proposal_lanes_computed += 1;
+        }
+    }
 }
 
 /// 输入或输出列的长度不一致；任何输出写入前拒绝。
@@ -689,15 +704,13 @@ fn scalar_row<const TRACK: bool>(
     let speed = input.speed_mm_s[row] as f32 / 1_000.0;
     let desired = input.desired_mm_s[row] as f32 / 1_000.0;
     let project = matches!(phase, Phase::Project | Phase::FloatProject);
-    let (raw_travel, raw_speed) = if input.has_proposal[row] || project {
-        if TRACK {
-            stats.proposal_lanes_reused += usize::from(input.enabled[row]);
-        }
+    let reused = input.has_proposal[row] || project;
+    if TRACK {
+        stats.record_proposal_source(input.enabled[row], reused);
+    }
+    let (raw_travel, raw_speed) = if reused {
         (input.proposal_travel_m[row], input.proposal_speed_m_s[row])
     } else {
-        if TRACK {
-            stats.proposal_lanes_computed += usize::from(input.enabled[row]);
-        }
         raw_proposal(&ProposalInput {
             speed_m_s: speed,
             desired_m_s: desired,
