@@ -1,0 +1,194 @@
+diff --git a/crates/laneflow-runtime/src/kernel/placement.rs b/crates/laneflow-runtime/src/kernel/placement.rs
+index f85944d4..adaaef03 100644
+--- a/crates/laneflow-runtime/src/kernel/placement.rs
++++ b/crates/laneflow-runtime/src/kernel/placement.rs
+@@ -486,6 +486,8 @@ impl crate::kernel::state::WorldState {
+         vehicle_length_mm: u32,
+         update_sequence: u32,
+     ) -> Result<(), FreshAdmissionFailure> {
++        let _timer =
++            crate::__bounded_profile::begin(crate::__bounded_profile::Stage::FreshAdmission);
+         let profile = self
+             .binding
+             .revision
+@@ -742,6 +744,8 @@ impl crate::kernel::state::WorldState {
+     }
+ 
+     fn rebuild_spawn_contenders(&mut self) -> Result<(), FreshAdmissionFailure> {
++        let _timer =
++            crate::__bounded_profile::begin(crate::__bounded_profile::Stage::RebuildContenders);
+         #[cfg(any(test, feature = "placement-fixtures"))]
+         count_filter(0);
+         let zone_count = usize::try_from(
+@@ -858,9 +862,11 @@ impl crate::kernel::state::WorldState {
+     ) -> Result<bool, FreshAdmissionFailure> {
+         #[cfg(any(test, feature = "placement-fixtures"))]
+         if FILTER_REFERENCE.get() {
++            crate::__bounded_profile::reject(0);
+             return Ok(false);
+         }
+         let Some(state) = self.vehicle_state(handle) else {
++            crate::__bounded_profile::reject(1);
+             return Ok(false);
+         };
+         if state.status != VehicleStatus::Active
+@@ -872,6 +878,7 @@ impl crate::kernel::state::WorldState {
+             || self.committed.parking.binding(handle).is_some()
+             || self.read_view().conflict_read().has_authority(handle)
+         {
++            crate::__bounded_profile::reject(2);
+             return Ok(false);
+         }
+         let Some(profile) = self
+@@ -881,9 +888,11 @@ impl crate::kernel::state::WorldState {
+             .relations()
+             .vehicle_profile(state.profile)
+         else {
++            crate::__bounded_profile::reject(3);
+             return Ok(false);
+         };
+         let Some(compiled) = self.compiled_route(state.route) else {
++            crate::__bounded_profile::reject(4);
+             return Ok(false);
+         };
+         if let Some(horizon) = self.binding.policy_binding.horizon() {
+@@ -893,6 +902,7 @@ impl crate::kernel::state::WorldState {
+                 profile.max_accel(),
+                 horizon,
+             ) else {
++                crate::__bounded_profile::reject(5);
+                 return Ok(false);
+             };
+             let first = compiled.conflicts.partition_point(|occurrence| {
+@@ -903,9 +913,11 @@ impl crate::kernel::state::WorldState {
+             });
+             if let Some(occurrence) = compiled.conflicts.get(first) {
+                 let Some(distance) = finite_entry_distance(compiled, &state, occurrence) else {
++                    crate::__bounded_profile::reject(6);
+                     return Ok(false);
+                 };
+                 if prepared.lower_bound(u64::from(distance)) != ApproachEstimate::OutsideHorizon {
++                    crate::__bounded_profile::reject(7);
+                     return Ok(false);
+                 }
+             }
+@@ -915,6 +927,7 @@ impl crate::kernel::state::WorldState {
+             .read_view()
+             .admission_preview_stays_inside(&state, profile, delta_s)
+         {
++            crate::__bounded_profile::reject(8);
+             return Ok(false);
+         }
+         let notes = self.contender_notes(
+diff --git a/crates/laneflow-runtime/src/kernel/tick.rs b/crates/laneflow-runtime/src/kernel/tick.rs
+index f7023aec..867b14dc 100644
+--- a/crates/laneflow-runtime/src/kernel/tick.rs
++++ b/crates/laneflow-runtime/src/kernel/tick.rs
+@@ -1978,6 +1978,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
+                     .get(hop.speed_drop_first as usize..)?
+                     .is_empty()
+             {
++                crate::__bounded_profile::reject(if reach.excludes(remaining) { 10 } else { 9 });
+                 return None;
+             }
+             // 复用可能失败的查询窗与包络校验。占用 gap 查询本身不失败。
+diff --git a/crates/laneflow-runtime/src/lib.rs b/crates/laneflow-runtime/src/lib.rs
+index 71d73d5f..38197d95 100644
+--- a/crates/laneflow-runtime/src/lib.rs
++++ b/crates/laneflow-runtime/src/lib.rs
+@@ -6,6 +6,10 @@ extern crate self as laneflow_runtime;
+ #[cfg(test)]
+ mod test_policy;
+ 
++#[path = "../../../research/issue-707-city-parallel/bounded-profile/timers.rs"]
++#[doc(hidden)]
++pub mod __bounded_profile;
++
+ mod admin;
+ mod facade;
+ mod kernel;
+diff --git a/research/issue-707-city-parallel/bounded-profile/timers.rs b/research/issue-707-city-parallel/bounded-profile/timers.rs
+index 89dd8b86..13240b70 100644
+--- a/research/issue-707-city-parallel/bounded-profile/timers.rs
++++ b/research/issue-707-city-parallel/bounded-profile/timers.rs
+@@ -160,6 +160,7 @@ pub fn outcome(before: Sample, outcome: usize) {
+     }
+ }
+ pub fn reset() {
++    REJECTIONS.set([0; 11]);
+     DATA.all.clear();
+     for outcome in &DATA.outcomes {
+         outcome.clear();
+@@ -243,3 +244,17 @@ mod tests {
+         assert_eq!(snapshot().ns, [0; N]);
+     }
+ }
++
++thread_local! {
++    static REJECTIONS: std::cell::Cell<[u64; 11]> = const { std::cell::Cell::new([0; 11]) };
++}
++pub fn reject(index: usize) {
++    REJECTIONS.with(|counts| {
++        let mut values = counts.get();
++        values[index] += 1;
++        counts.set(values);
++    });
++}
++pub fn rejection_counts() -> [u64; 11] {
++    REJECTIONS.get()
++}
+diff --git a/tools/laneflow-urban-harness/src/runner.rs b/tools/laneflow-urban-harness/src/runner.rs
+index 4decca92..c325f74f 100644
+--- a/tools/laneflow-urban-harness/src/runner.rs
++++ b/tools/laneflow-urban-harness/src/runner.rs
+@@ -714,6 +714,10 @@ impl<'a> Harness<'a> {
+         let started = std::time::Instant::now();
+         let result = call(&mut self.world);
+         let elapsed = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
++        laneflow_runtime::__bounded_profile::add(
++            laneflow_runtime::__bounded_profile::Stage::PublicReplace,
++            elapsed,
++        );
+         self.last_command_ns = self.last_command_ns.saturating_add(elapsed);
+         result
+     }
+@@ -1514,6 +1518,11 @@ impl<'a> Harness<'a> {
+ 
+     /// Processes caller commands, one real fixed step, and public committed observations.
+     pub fn advance(&mut self) -> Result<TickRecord> {
++        laneflow_runtime::__bounded_profile::reset();
++        laneflow_runtime::reset_contender_filter_totals();
++        let commands_timer = laneflow_runtime::__bounded_profile::begin(
++            laneflow_runtime::__bounded_profile::Stage::CallerCommands,
++        );
+         let boundary = self.world.tick_index();
+         if boundary >= self.plan.window.end() {
+             return Err(invalid("finite plan finished"));
+@@ -1528,6 +1537,7 @@ impl<'a> Harness<'a> {
+                 self.execute(request, boundary)?;
+             }
+         }
++        drop(commands_timer);
+         let pre_observation_started = std::time::Instant::now();
+         self.step_before = self
+             .individuals
+@@ -1593,6 +1603,19 @@ impl<'a> Harness<'a> {
+             .saturating_add(observation_started.elapsed())
+             .as_nanos()
+             .min(u128::from(u64::MAX)) as u64;
++        laneflow_runtime::__bounded_profile::flush(
++            outcome.tick_index(),
++            self.last_step_ns,
++            self.last_command_ns,
++            self.last_observation_ns,
++        );
++        eprintln!(
++            r#"{{"filter_tick":{},"counts":{:?},"fallbacks":{:?},"retained_bytes":{}}}"#,
++            outcome.tick_index(),
++            laneflow_runtime::contender_filter_totals(),
++            laneflow_runtime::__bounded_profile::rejection_counts(),
++            self.world.contender_retained_bytes_for_test()
++        );
+         Ok(TickRecord {
+             tick: outcome.tick_index(),
+             time_ms: outcome.time_ms(),
