@@ -429,7 +429,7 @@ index 423d95cb..bd563521 100644
      for pair in bodies.windows(2) {
          if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
 diff --git a/tools/laneflow-urban-harness/src/runner.rs b/tools/laneflow-urban-harness/src/runner.rs
-index 4decca92..4b279868 100644
+index 4decca92..6a40b25f 100644
 --- a/tools/laneflow-urban-harness/src/runner.rs
 +++ b/tools/laneflow-urban-harness/src/runner.rs
 @@ -824,9 +824,22 @@ impl<'a> Harness<'a> {
@@ -488,11 +488,16 @@ index 4decca92..4b279868 100644
          observe::red_waiters(self);
          let pre_observation_elapsed = pre_observation_started.elapsed();
          let (outcome, step_ns) = self.world.step(TickInput::new(self.plan.dt))?;
-@@ -1593,6 +1615,7 @@ impl<'a> Harness<'a> {
+@@ -1593,6 +1615,12 @@ impl<'a> Harness<'a> {
              .saturating_add(observation_started.elapsed())
              .as_nanos()
              .min(u128::from(u64::MAX)) as u64;
-+        laneflow_runtime::__bounded_profile::flush(outcome.tick_index());
++        laneflow_runtime::__bounded_profile::flush(
++            outcome.tick_index(),
++            self.last_step_ns,
++            self.last_command_ns,
++            self.last_observation_ns,
++        );
          Ok(TickRecord {
              tick: outcome.tick_index(),
              time_ms: outcome.time_ms(),
