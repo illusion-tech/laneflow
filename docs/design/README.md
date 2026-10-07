@@ -79,7 +79,7 @@
   降到前方更低限速，并且不让前后车立刻无法紧急制动。恢复和修订切换不套用这层检查。
 - `cross-section-access.md`：横断面与准入 overlay。
 - [`traffic-runtime-admission-contender-filter.md`](traffic-runtime-admission-contender-filter.md)：
-  Accepted（#828 / PR #829）；准入缓存完整重建前的空贡献证明、同边运动上界、owner/失败语义与有界验证。
+  Proposed（#828）；准入缓存完整重建前的空贡献证明、同边运动上界、owner/失败语义与有界验证。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。
 - `spatial-geometry.md`：有界 canonical `f32` 几何与位姿。

@@ -37,11 +37,7 @@ const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 #[cfg(feature = "placement-fixtures")]
-fn account_world() -> (
-    TrafficWorld,
-    laneflow_runtime::RouteHandle,
-    Vec<laneflow_static_contract::LaneEdgeOrdinal>,
-) {
+fn placement_bounded_account() {
     let input =
         check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked fixture");
     let revision = build_shared_network_revision(
@@ -84,12 +80,6 @@ fn account_world() -> (
     let route = world
         .register_route(RouteRegisterInput::new(edges.clone()))
         .expect("route");
-    (world, route, edges)
-}
-
-#[cfg(feature = "placement-fixtures")]
-fn placement_bounded_account() {
-    let (mut world, route, edges) = account_world();
     let started = Instant::now();
     let region = Region::new(GLOBAL);
     let approach_length = world.traffic().lane_lengths_millimetres()[edges[0].index()];
@@ -148,79 +138,6 @@ fn placement_bounded_account() {
     );
 }
 
-#[cfg(feature = "placement-fixtures")]
-fn admission_filter_allocation_account() {
-    let measure = || {
-        let (mut world, route, edges) = account_world();
-        let last = u32::try_from(edges.len() - 1).unwrap();
-        let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
-        world
-            .place_existing_active_vehicle(
-                VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    last,
-                    last_length - 1_000,
-                    0,
-                )
-                .with_open_entrance(),
-            )
-            .unwrap();
-        let before = world.capture_snapshot().unwrap();
-        let region = Region::new(GLOBAL);
-        world.force_rebuild_contenders_for_test();
-        let cold = region.change();
-        let hits = laneflow_runtime::contender_filter_counts()[0];
-        let retained = world.contender_retained_bytes_for_test();
-        let region = Region::new(GLOBAL);
-        for _ in 0..64 {
-            world.force_rebuild_contenders_for_test();
-        }
-        let warm = region.change();
-        assert_eq!(
-            warm.allocations, 0,
-            "warm empty contributions must not allocate"
-        );
-        assert_eq!(warm.bytes_allocated, 0);
-        assert_eq!(world.contender_retained_bytes_for_test(), retained);
-        for kind in [
-            laneflow_runtime::AdmissionReserve::Best,
-            laneflow_runtime::AdmissionReserve::Cell,
-            laneflow_runtime::AdmissionReserve::Waiting,
-        ] {
-            laneflow_runtime::set_admission_reserve_failure(kind, true);
-            world.force_rebuild_contenders_for_test();
-            laneflow_runtime::set_admission_reserve_failure(kind, false);
-            assert!(
-                world
-                    .contender_full_fingerprint_for_test()
-                    .ends_with("None)")
-            );
-            assert_eq!(world.capture_snapshot().unwrap(), before);
-            world.force_rebuild_contenders_for_test();
-            assert_eq!(world.contender_retained_bytes_for_test(), retained);
-        }
-        let fingerprint = world.contender_full_fingerprint_for_test();
-        assert_eq!(world.capture_snapshot().unwrap(), before);
-        (cold, warm, retained, hits, fingerprint)
-    };
-    let candidate = measure();
-    let reference = laneflow_runtime::with_contender_filter_reference(measure);
-    assert!(candidate.3 > 0);
-    assert_eq!(reference.3, 0);
-    assert_eq!(candidate.0, reference.0, "cold allocation calls and bytes");
-    assert_eq!(candidate.1, reference.1, "warm allocation calls and bytes");
-    assert_eq!(
-        candidate.2, reference.2,
-        "retained owner and outer-table capacity"
-    );
-    assert_eq!(candidate.4, reference.4, "retry rebuild values");
-    eprintln!(
-        "FILTER_ACCOUNT cold={:?} warm={:?} retained={} hits={}",
-        candidate.0, candidate.1, candidate.2, candidate.3
-    );
-}
-
 fn main() {
     let mut args = libtest_mimic::Arguments::from_args();
     // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
@@ -228,18 +145,14 @@ fn main() {
     #[cfg_attr(not(feature = "placement-fixtures"), allow(unused_variables))]
     let main_thread = std::thread::current().id();
     #[cfg(feature = "placement-fixtures")]
-    let tests = vec![
-        libtest_mimic::Trial::test("placement_bounded_account", move || {
+    let tests = vec![libtest_mimic::Trial::test(
+        "placement_bounded_account",
+        move || {
             assert_eq!(std::thread::current().id(), main_thread);
             placement_bounded_account();
             Ok(())
-        }),
-        libtest_mimic::Trial::test("admission_filter_allocation_account", move || {
-            assert_eq!(std::thread::current().id(), main_thread);
-            admission_filter_allocation_account();
-            Ok(())
-        }),
-    ];
+        },
+    )];
     #[cfg(not(feature = "placement-fixtures"))]
     let tests: Vec<libtest_mimic::Trial> = Vec::new();
     libtest_mimic::run(&args, tests).exit();
