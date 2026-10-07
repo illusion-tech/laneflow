@@ -1,7 +1,11 @@
 # 未采用候选的成功性证明记录
 
 仅对应历史候选 `b89f7afa098d6d109229ba2bfc9b5f73573fea23`，不是当前产品实现。
-候选和定向测试保留在 Git 历史及证据包 `source/B.tar`。
+候选和定向测试保留在发布标签 `research-evidence-830-admission-filter` 的 Git 祖先历史
+及证据包 `source/B.tar`；标签固定于 `87b06970fc3dfea13a98624eae171872a846c079`。
+候选 `b89f7afa` → 撤回 `e7678605` → 报告 `ee7af1e7` → 归档说明 `a55e0b4a`
+→ 测试计数核正 `87b06970` 是 GitHub PR commits API 与本地祖先检查一致的提交链。
+冻结下载身份见[结果报告](../admission-filter-results.md#6-原始证据与重现)。
 
 ## 首版实现的成功性对应（#830）
 
