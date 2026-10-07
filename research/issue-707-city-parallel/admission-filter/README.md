@@ -2,7 +2,7 @@
 
 Refs #830。正式候选未采用，结论见[研究结果](../admission-filter-results.md)。
 
-`diagnostic.patch` 只适用于候选 commit
+证据包根目录的 `diagnostic.patch` 只适用于候选 commit
 `b89f7afa098d6d109229ba2bfc9b5f73573fea23`，不是当前产品补丁。
 在该 commit 的独立干净 checkout 中先执行 `git apply --check`，再应用补丁；
 使用 Rust 1.98.0、release、`CARGO_INCREMENTAL=0`，构建
