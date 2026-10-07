@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-10-03<br>
+**最后更新**: 2026-10-07<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -48,7 +48,8 @@ seed 属于调用方；不改 LFCA 或 TrafficWorld 的规则。所有选择使�
 
 每 tile 固定 1000 个初始个体，编号为 `(tile, slot, incarnation)`，初始 incarnation
 为 0；按此元组升序提交初态。后续请求另有递增的序号，成功原子替换 Completed 个体时
-使用新 incarnation，并保存新旧编号与句柄的对应关系。离场、入场不改变个体编号；
+该槽位的 incarnation 加一，并保存新旧编号与句柄的对应关系。显式 spawn 同样递增；
+请求编号不承担个体代次。离场、入场不改变个体编号；
 句柄及分配槽位不是跨运行的稳定身份。#545 直接复用这个编号与映射。
 
 每组十个 slot 的 profile 顺序固定为 `compact` 三个、`car` 六个、`van` 一个，
@@ -203,6 +204,38 @@ admission 顺序；在有限两周期窗口内，实际 release 序列必须是 
 等值间隙不放行等精确边界复用领域 owner 小型测试；城市行证明真实让行和放行，不另行
 制造任意几何/时刻/车型的笛卡尔积。
 
+### 4.3 持续负载探针与扩展边界
+
+`SUSTAINED-ACTIVE` 是独立的 probe 场景，不属于七套正确性行，也不使用 Mixed 的
+正式性能窗口。每 tile 初始 1000 Active，停车、正确性角色及有限出发计划均为空。
+场景身份只用于选择受控的场景配方（`ScenarioRecipe`）：初始活动人口、需求策略
+（`DemandStrategy`）和正确性角色集合（`CorrectnessRoles`）分别声明。生成器按各部分
+展开，不将一个 case 改写为另一个 case 来复用行为；路线候选和背景布车规则可共用。
+新增场景必须显式选择这些组成及对应验证，新的行为再增加独立策略，不能靠隐含角色继承。
+
+持续需求在计划中写入 `RecyclingPlan`，包含每 tile 按 key 排序的行驶路线及正的重试
+间隔，不展开周期出发组，也不使用有限尝试预算。控制器在每个提交边界为实际 Completed
+个体创建回收请求，同槽位至多一个；下一路线按 `(slot + incarnation * 37) mod 候选数`
+选择。入口受阻后每 8 tick 重试，直到成功或窗口结束，覆盖 16/33 ms 两种步长，不依赖
+528 ms 量子转换。成功回收才释放该槽位的请求所有权；窗口末仍受阻的请求保留 pending。
+
+全部请求在调度前登记，重试保留身份。唯一请求账本（`RequestLedger`）管理
+Scheduled→Pending→Succeeded/Exhausted 状态，只有 Pending 可以重试或结束；普通有限
+请求保留八次预算，回收请求按窗口终点停止调度。计数随状态转换更新，不从两个集合的
+长度相减。有限计划保留已接受的请求标签，并在展开和安装前检查全部命令及派生停车
+命令的编号唯一性、十个槽位的出发组及算术溢出；新回收请求由账本集中分配编号。
+个体 incarnation 只按该槽位的实际成功生命周期递增，拒绝和重试不产生新个体。
+
+计划结构校验拒绝向持续回收混入停车初态、有限需求、正确性角色及见证要求；重新展开
+校验还核对策略、路线候选、初态和来源摘要。七套正式计划的展开保持其原有输入语义。
+回归验证覆盖角色泄漏、重复编号、请求状态转换、同槽位重复回收、超过 64 次的入口受阻
+重试及成功后释放、跨 worker 对拍和观察窗口负载统计。
+
+观察窗口分别统计命令后 step 前的实际 Active（`N_intent`）及 step 后的实际 Active，
+在 `result.json.active_load` 报告目标、样本数、min/p50/p95/p99/max 及低于目标的拍数。
+完成行程和准入受阻仍可能降低 Active，窗口完成不证明持续负载达标。性能结论必须绑定
+实际负载分布；策略修复前的测量不能作为修复后持续负载的认证，需按新计划重新测量。
+
 ## 5. 观测与校验边界
 
 运行程序只读取公共已提交状态、`StepOutcome`、Parking 命令结果、Waiting/Conflict
@@ -296,7 +329,8 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
 - `comparison.json`：比较结论、case/scale、计划摘要、完成 tick 数、两个执行编号和
   两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；两份原始
-  result 保持不可变。当前载荷为 `urban-result-v5` / `urban-comparison-v2`（v2 起记录两臂 worker 数），不转换旧记录。
+  result 保持不可变。当前载荷为 `urban-result-v6`（incarnation 与请求编号独立，持续负载
+  显式报告实际 Active）/ `urban-comparison-v2`（v2 起记录两臂 worker 数），不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 

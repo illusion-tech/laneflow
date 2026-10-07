@@ -7,6 +7,7 @@ use laneflow_static_contract::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::requests::RequestLedger;
 use crate::{Artifacts, ResolvedPlan, Result, checked, invalid, observe, sha256};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -209,7 +210,27 @@ struct Request {
     slot: usize,
     sequence: u32,
     attempt: u32,
+    retry: RetryPolicy,
     command: Command,
+}
+
+#[derive(Clone, Copy)]
+enum RetryPolicy {
+    Finite { interval: u64, max_attempts: u32 },
+    UntilWindowEnd { interval: u64 },
+}
+
+impl RetryPolicy {
+    fn finite(plan: &ResolvedPlan) -> Self {
+        Self::Finite {
+            interval: plan.retry_ticks,
+            max_attempts: plan.max_attempts,
+        }
+    }
+}
+
+struct CompletedRecycling {
+    pending_by_slot: Vec<Option<u32>>,
 }
 
 pub struct Harness<'a> {
@@ -225,8 +246,8 @@ pub struct Harness<'a> {
     targets: BTreeMap<String, ParkingTarget>,
     pub(crate) target_keys: HashMap<ParkingTarget, String>,
     schedule: BTreeMap<u64, Vec<Request>>,
-    pending: BTreeSet<u32>,
-    exhausted: BTreeSet<u32>,
+    requests: RequestLedger,
+    recycling: Option<CompletedRecycling>,
     pub(crate) evidence: Vec<TileEvidence>,
     pub(crate) red_waiters: BTreeSet<(IndividualId, u32)>,
     pub(crate) claims: BTreeMap<(IndividualId, String, u32), u32>,
@@ -247,6 +268,11 @@ pub struct Harness<'a> {
 }
 
 impl<'a> Harness<'a> {
+    /// 安装已经验证的计划与宿主世界，并登记有限请求或独立回收控制器。
+    ///
+    /// # Errors
+    /// 计划、请求身份或来源校验失败，执行配置、世界安装、路线注册、初态准入或
+    /// 停车绑定失败，以及初始计数或停车不变量不匹配时返回错误。
     pub fn install(
         artifacts: &'a Artifacts,
         plan: &'a ResolvedPlan,
@@ -370,8 +396,10 @@ impl<'a> Harness<'a> {
             targets,
             target_keys,
             schedule: BTreeMap::new(),
-            pending: BTreeSet::new(),
-            exhausted: BTreeSet::new(),
+            requests: RequestLedger::default(),
+            recycling: plan.recycling.as_ref().map(|_| CompletedRecycling {
+                pending_by_slot: vec![None; plan.individuals as usize],
+            }),
             evidence: vec![TileEvidence::default(); plan.tiles as usize],
             red_waiters: BTreeSet::new(),
             claims: BTreeMap::new(),
@@ -392,12 +420,13 @@ impl<'a> Harness<'a> {
         };
         for b in &plan.departures {
             for i in 0..10 {
-                harness.enqueue(Request {
+                harness.enqueue_new(Request {
                     due: b.due_tick,
                     original_due: b.due_tick,
                     slot: b.first_slot as usize + i,
                     sequence: b.sequence + i as u32,
                     attempt: 1,
+                    retry: RetryPolicy::finite(plan),
                     command: Command::Replace {
                         route: b.routes[i].clone(),
                         occurrence: 0,
@@ -406,56 +435,60 @@ impl<'a> Harness<'a> {
                         east: Some(i < 7),
                         role: false,
                     },
-                });
+                })?;
             }
         }
         for l in &plan.leaves {
-            harness.enqueue(Request {
+            harness.enqueue_new(Request {
                 due: l.due_tick,
                 original_due: l.due_tick,
                 slot: l.slot as usize,
                 sequence: l.sequence,
                 attempt: 1,
+                retry: RetryPolicy::finite(plan),
                 command: Command::Leave {
                     target: l.target.clone(),
                     exit: l.exit,
                     east: l.direction == "east",
                 },
-            });
+            })?;
         }
         for arrival in &plan.arrivals {
-            harness.enqueue(Request {
+            harness.enqueue_new(Request {
                 due: arrival.reserve_tick,
                 original_due: arrival.reserve_tick,
                 slot: arrival.slot as usize,
                 sequence: arrival.sequence,
                 attempt: 1,
+                retry: RetryPolicy::finite(plan),
                 command: Command::Reserve {
                     target: arrival.target.clone(),
                     expected_rejection: None,
                 },
-            });
+            })?;
         }
         for rejection in &plan.reservation_rejections {
-            harness.enqueue(Request {
+            harness.enqueue_new(Request {
                 due: rejection.due_tick,
                 original_due: rejection.due_tick,
                 slot: rejection.slot as usize,
                 sequence: rejection.sequence,
                 attempt: 1,
+                retry: RetryPolicy::finite(plan),
                 command: Command::Reserve {
                     target: rejection.target.clone(),
                     expected_rejection: Some(rejection.expected.clone()),
                 },
-            });
+            })?;
         }
         for role in &plan.role_departures {
-            harness.enqueue(Request {
+            harness.enqueue_new(Request {
                 due: role.due_tick,
                 original_due: role.due_tick,
                 slot: role.slot as usize,
                 sequence: role.sequence,
                 attempt: 1,
+                retry: RetryPolicy::finite(plan),
                 command: Command::Replace {
                     route: role.route.clone(),
                     occurrence: role.occurrence,
@@ -464,30 +497,32 @@ impl<'a> Harness<'a> {
                     east: None,
                     role: true,
                 },
-            });
+            })?;
         }
         for burst in &plan.lifecycle_bursts {
-            harness.enqueue(Request {
+            harness.enqueue_new(Request {
                 due: burst.despawn_tick,
                 original_due: burst.despawn_tick,
                 slot: burst.slot as usize,
                 sequence: burst.sequence,
                 attempt: 1,
+                retry: RetryPolicy::finite(plan),
                 command: Command::Despawn,
-            });
-            harness.enqueue(Request {
+            })?;
+            harness.enqueue_new(Request {
                 due: burst.spawn_tick,
                 original_due: burst.spawn_tick,
                 slot: burst.slot as usize,
                 sequence: burst.sequence + 1,
                 attempt: 1,
+                retry: RetryPolicy::finite(plan),
                 command: Command::Spawn {
                     profile: burst.profile.clone(),
                     route: burst.route.clone(),
                     occurrence: burst.occurrence,
                     progress_mm: burst.progress_mm,
                 },
-            });
+            })?;
         }
         let counts = observe::counts(&harness)?;
         if counts
@@ -530,8 +565,91 @@ impl<'a> Harness<'a> {
             checked("checkpoint digest", deterministic_state_digest(&snapshot))?
         ))
     }
-    fn enqueue(&mut self, request: Request) {
+    fn enqueue_new(&mut self, request: Request) -> Result<()> {
+        self.requests
+            .register(request.sequence, request.due, request.command.retryable())?;
         self.schedule.entry(request.due).or_default().push(request);
+        Ok(())
+    }
+
+    fn defer(&mut self, request: &Request, tick: u64) -> Result<()> {
+        let (interval, may_retry) = match request.retry {
+            RetryPolicy::Finite {
+                interval,
+                max_attempts,
+            } => (interval, request.attempt < max_attempts),
+            RetryPolicy::UntilWindowEnd { interval } => (interval, true),
+        };
+        let next_tick = tick
+            .checked_add(interval)
+            .ok_or_else(|| invalid("请求重试时刻溢出"))?;
+        if may_retry && next_tick < self.plan.window.end() {
+            let attempt = request
+                .attempt
+                .checked_add(1)
+                .ok_or_else(|| invalid("请求尝试次数耗尽"))?;
+            self.requests.retry(request.sequence, next_tick, attempt)?;
+            self.schedule.entry(next_tick).or_default().push(Request {
+                due: next_tick,
+                attempt,
+                ..request.clone()
+            });
+        } else if matches!(request.retry, RetryPolicy::Finite { .. }) {
+            self.requests.finish(request.sequence, true)?;
+        }
+        // 回收预算只受窗口终点约束；未成功请求留在 Pending，不伪造为有限预算耗尽。
+        Ok(())
+    }
+
+    fn collect_completed_recycling(&mut self, tick: u64) -> Result<()> {
+        let Some(plan) = &self.plan.recycling else {
+            return Ok(());
+        };
+        let controller = self
+            .recycling
+            .as_mut()
+            .ok_or_else(|| invalid("缺少回收控制器"))?;
+        let mut ready = Vec::new();
+        for (slot, individual) in self.individuals.iter().enumerate() {
+            if controller.pending_by_slot[slot].is_some() {
+                continue;
+            }
+            let state = individual
+                .handle
+                .and_then(|handle| self.world.vehicle(handle))
+                .ok_or_else(|| invalid("回收槽位丢失车辆"))?;
+            if state.status() != VehicleStatus::Completed {
+                continue;
+            }
+            let routes = &plan.routes_per_tile[individual.id.tile as usize];
+            let route_index = (u64::from(individual.id.slot)
+                + u64::from(individual.id.incarnation) * 37)
+                % routes.len() as u64;
+            let sequence = self.requests.allocate()?;
+            controller.pending_by_slot[slot] = Some(sequence);
+            ready.push(Request {
+                due: tick,
+                original_due: tick,
+                slot,
+                sequence,
+                attempt: 1,
+                retry: RetryPolicy::UntilWindowEnd {
+                    interval: plan.retry_ticks,
+                },
+                command: Command::Replace {
+                    route: routes[route_index as usize].clone(),
+                    occurrence: 0,
+                    progress_mm: 7_000,
+                    speed_mm_s: 0,
+                    east: None,
+                    role: false,
+                },
+            });
+        }
+        for request in ready {
+            self.enqueue_new(request)?;
+        }
+        Ok(())
     }
     pub(crate) fn in_observation(&self, tick: u64) -> bool {
         tick >= self.plan.window.warm_up_ticks && tick < self.plan.window.end()
@@ -552,6 +670,18 @@ impl<'a> Harness<'a> {
     }
 
     fn execute(&mut self, request: Request, tick: u64) -> Result<()> {
+        self.requests
+            .begin(request.sequence, tick, request.attempt)?;
+        if matches!(request.retry, RetryPolicy::UntilWindowEnd { .. })
+            && (!matches!(request.command, Command::Replace { role: false, .. })
+                || self
+                    .recycling
+                    .as_ref()
+                    .and_then(|controller| controller.pending_by_slot.get(request.slot))
+                    != Some(&Some(request.sequence)))
+        {
+            return Err(invalid("回收请求与槽位所有权不匹配"));
+        }
         if matches!(&request.command, Command::Despawn | Command::Spawn { .. }) {
             return self.execute_lifecycle_boundary(request, tick);
         }
@@ -559,7 +689,7 @@ impl<'a> Harness<'a> {
         let role_hold = matches!(&request.command, Command::Replace { role: false, .. })
             && self.plan.initial[request.slot].role.is_some();
         if role_hold {
-            self.defer_role_owned_replace(request, tick, id);
+            self.defer_role_owned_replace(request, tick, id)?;
             return Ok(());
         }
         let handle = self.individuals[request.slot]
@@ -573,25 +703,10 @@ impl<'a> Harness<'a> {
         let cursor_before = self.world.command_cursor();
         let event_before = self.world.event_cursor();
         let name = request.command.name();
-        // 持续计划的回收轮询：车还没跑完时静默顺延，不写命令日志，也不计证据。
-        if self.plan.case == "SUSTAINED-ACTIVE"
-            && matches!(request.command, Command::Replace { .. })
+        if matches!(request.retry, RetryPolicy::UntilWindowEnd { .. })
             && before.status() != VehicleStatus::Completed
         {
-            let next_tick = tick + self.plan.retry_ticks;
-            if request.attempt < self.plan.max_attempts && next_tick < self.plan.window.end() {
-                self.enqueue(Request {
-                    due: next_tick,
-                    attempt: request.attempt + 1,
-                    ..request.clone()
-                });
-            } else {
-                self.exhausted.insert(request.sequence);
-            }
-            return Ok(());
-        }
-        if request.command.retryable() && request.attempt == 1 {
-            self.pending.insert(request.sequence);
+            return Err(invalid("回收请求只能指向实际 Completed 车辆"));
         }
         if let Some(east) = request.command.departure()
             && request.attempt == 1
@@ -648,6 +763,10 @@ impl<'a> Harness<'a> {
                     speed_mm_s,
                     ..
                 } => {
+                    let next_incarnation = id
+                        .incarnation
+                        .checked_add(1)
+                        .ok_or_else(|| invalid("车辆 incarnation 耗尽"))?;
                     let input = VehicleSpawnInput::new(
                         before.profile(),
                         self.routes[route],
@@ -664,7 +783,7 @@ impl<'a> Harness<'a> {
                             self.slots.insert(record.new, request.slot);
                             self.individuals[request.slot] = Individual {
                                 id: IndividualId {
-                                    incarnation: request.sequence + 1,
+                                    incarnation: next_incarnation,
                                     ..id
                                 },
                                 handle: Some(record.new),
@@ -888,24 +1007,26 @@ impl<'a> Harness<'a> {
                     }
                 );
                 if expected_reservation && reason != "role-not-active" {
-                    self.pending.remove(&request.sequence);
+                    self.requests.finish(request.sequence, false)?;
                 } else {
-                    let next_tick = tick + self.plan.retry_ticks;
-                    if request.attempt < self.plan.max_attempts
-                        && next_tick < self.plan.window.end()
-                    {
-                        self.enqueue(Request {
-                            due: next_tick,
-                            attempt: request.attempt + 1,
-                            ..request.clone()
-                        });
-                    } else {
-                        self.exhausted.insert(request.sequence);
-                    }
+                    self.defer(&request, tick)?;
                 }
+            } else {
+                self.requests.finish(request.sequence, false)?;
             }
-        } else if request.command.retryable() {
-            self.pending.remove(&request.sequence);
+        } else {
+            self.requests.finish(request.sequence, false)?;
+            if matches!(request.retry, RetryPolicy::UntilWindowEnd { .. }) {
+                let pending = &mut self
+                    .recycling
+                    .as_mut()
+                    .ok_or_else(|| invalid("缺少回收控制器"))?
+                    .pending_by_slot[request.slot];
+                if *pending != Some(request.sequence) {
+                    return Err(invalid("回收请求与槽位所有权不匹配"));
+                }
+                *pending = None;
+            }
             if let Some(east) = request.command.departure()
                 && self.in_observation(tick)
             {
@@ -958,34 +1079,28 @@ impl<'a> Harness<'a> {
         Ok(())
     }
 
-    fn defer_role_owned_replace(&mut self, request: Request, tick: u64, id: IndividualId) {
+    fn defer_role_owned_replace(
+        &mut self,
+        request: Request,
+        tick: u64,
+        id: IndividualId,
+    ) -> Result<()> {
         debug_assert!(matches!(
             &request.command,
             Command::Replace { role: false, .. }
         ));
-        if request.attempt == 1 {
-            self.pending.insert(request.sequence);
-            if let Some(east) = request.command.departure()
-                && self.in_observation(request.original_due)
-            {
-                if east {
-                    self.evidence[id.tile as usize].planned_east += 1;
-                } else {
-                    self.evidence[id.tile as usize].planned_west += 1;
-                }
+        if request.attempt == 1
+            && let Some(east) = request.command.departure()
+            && self.in_observation(request.original_due)
+        {
+            if east {
+                self.evidence[id.tile as usize].planned_east += 1;
+            } else {
+                self.evidence[id.tile as usize].planned_west += 1;
             }
         }
         *self.error_counts.entry("role-held".into()).or_default() += 1;
-        let next_tick = tick + self.plan.retry_ticks;
-        if request.attempt < self.plan.max_attempts && next_tick < self.plan.window.end() {
-            self.enqueue(Request {
-                due: next_tick,
-                attempt: request.attempt + 1,
-                ..request.clone()
-            });
-        } else {
-            self.exhausted.insert(request.sequence);
-        }
+        self.defer(&request, tick)?;
         let cursor = self.world.command_cursor();
         self.commands
             .push(json!({"boundary":tick,"due":request.original_due,
@@ -1011,6 +1126,7 @@ impl<'a> Harness<'a> {
                 evidence.after_boundary_commands += 1;
             }
         }
+        Ok(())
     }
 
     fn execute_lifecycle_boundary(&mut self, request: Request, tick: u64) -> Result<()> {
@@ -1046,6 +1162,10 @@ impl<'a> Harness<'a> {
                 occurrence,
                 progress_mm,
             } => {
+                let next_incarnation = before_id
+                    .incarnation
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("车辆 incarnation 耗尽"))?;
                 if self.individuals[request.slot].handle.is_some() {
                     return Err(invalid("spawn targets a live individual"));
                 }
@@ -1062,7 +1182,7 @@ impl<'a> Harness<'a> {
                     self.measure_command(|world| world.spawn_vehicle(input)),
                 )?;
                 let after_id = IndividualId {
-                    incarnation: request.sequence + 1,
+                    incarnation: next_incarnation,
                     ..before_id
                 };
                 self.individuals[request.slot].id = after_id;
@@ -1108,6 +1228,7 @@ impl<'a> Harness<'a> {
             "committed":true,"cursor_before":cursor_before,"cursor_after":self.world.command_cursor(),
             "details":details}));
         self.record_role_command(&request, tick, after_id);
+        self.requests.finish(request.sequence, false)?;
         Ok(())
     }
 
@@ -1145,12 +1266,14 @@ impl<'a> Harness<'a> {
     }
 
     pub(crate) fn validate_required_role_evidence(&self) -> Result<()> {
-        // Every scheduled role must actually enter its requested incarnation; a caller-side
-        // deferral or a different successful lifecycle command is not a substitute.
+        // 角色请求与成功命令逐一对应；incarnation 只按该槽位的实际成功再出发递增。
+        let mut incarnations = BTreeMap::<u32, u32>::new();
         for role in &self.plan.role_departures {
             if role.due_tick < self.plan.window.end() {
+                let expected = incarnations.entry(role.slot).or_default();
+                *expected += 1;
                 let command = self.role_command(role.slot, role.sequence, "replace")?;
-                if command.individual.incarnation != role.sequence + 1
+                if command.individual.incarnation != *expected
                     || command.boundary < role.due_tick
                     || command.boundary >= self.plan.window.end()
                 {
@@ -1333,6 +1456,7 @@ impl<'a> Harness<'a> {
         self.commands.clear();
         self.events.clear();
         self.last_command_ns = 0;
+        self.collect_completed_recycling(boundary)?;
         while let Some(mut commands) = self.schedule.remove(&boundary) {
             commands.sort_by_key(|r| (r.command.rank(), r.due, r.slot, r.sequence, r.attempt));
             for request in commands {
@@ -1382,16 +1506,17 @@ impl<'a> Harness<'a> {
                 .iter()
                 .find(|a| a.slot as usize == slot)
                 .map_or(boundary + 1, |a| (boundary + 1).max(a.park_not_before_tick));
-            self.enqueue(Request {
+            self.enqueue_new(Request {
                 due,
                 original_due: due,
                 slot,
                 sequence: 20_000_000 + slot as u32,
                 attempt: 1,
+                retry: RetryPolicy::finite(self.plan),
                 command: Command::Park {
                     target: self.target_keys[&arrival.target].clone(),
                 },
-            });
+            })?;
             self.events.push(json!({"kind":"parking-arrival", "tick":outcome.tick_index(),
                 "individual":self.individuals[slot].id, "target":self.target_keys[&arrival.target]}));
         }
@@ -1433,8 +1558,8 @@ impl<'a> Harness<'a> {
                     .plan
                     .role_departures
                     .partition_point(|r| r.due_tick <= boundary),
-            pending_departures: self.pending.len() - self.exhausted.len(),
-            exhausted_departures: self.exhausted.len(),
+            pending_departures: self.requests.counts().0,
+            exhausted_departures: self.requests.counts().1,
             command_cursor: self.world.command_cursor(),
             event_cursor: self.world.event_cursor(),
             state_digest,
@@ -1816,17 +1941,20 @@ mod tests {
                 slot: rejection.slot as usize,
                 sequence: rejection.sequence,
                 attempt: 1,
+                retry: RetryPolicy::finite(&plan),
                 command: Command::Reserve {
                     target: rejection.target.clone(),
                     expected_rejection: Some(rejection.expected.clone()),
                 },
             };
-            for attempt in 1..=8 {
+            for _ in 1..=8 {
+                let sequence = harness.requests.allocate().unwrap();
+                harness.requests.register(sequence, 0, true).unwrap();
                 harness
                     .execute(
                         Request {
                             slot: 880,
-                            attempt,
+                            sequence,
                             ..request.clone()
                         },
                         0,
@@ -1855,6 +1983,7 @@ mod tests {
         let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
         harness.schedule.clear();
         harness.last_command_ns = 123;
+
         harness.advance().unwrap();
         assert_eq!(
             harness.last_command_ns, 0,
@@ -1890,6 +2019,7 @@ mod tests {
         harness.individuals[slot].handle = None;
         let cursor = harness.world.command_cursor();
         harness.last_command_ns = 123;
+        harness.requests.register(544, 0, true).unwrap();
 
         harness
             .execute(
@@ -1899,6 +2029,7 @@ mod tests {
                     slot,
                     sequence: 544,
                     attempt: 1,
+                    retry: RetryPolicy::finite(&plan),
                     command: Command::Replace {
                         route: "must-not-resolve".into(),
                         occurrence: 0,
@@ -1914,7 +2045,7 @@ mod tests {
 
         assert_eq!(harness.world.command_cursor(), cursor);
         assert!(harness.individuals[slot].handle.is_none());
-        assert!(harness.pending.contains(&544));
+        assert_eq!(harness.requests.counts(), (1, 0));
         assert!(harness.schedule.contains_key(&plan.retry_ticks));
         assert_eq!(harness.commands.len(), 1);
         assert_eq!(harness.commands[0]["individual"], serde_json::json!(id));
@@ -1928,5 +2059,113 @@ mod tests {
             (harness.replacements, harness.births, harness.removals),
             (0, 0, 0)
         );
+    }
+
+    #[test]
+    fn completed_recycling_has_one_request_per_slot_and_survives_more_than_64_blocked_attempts() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        generate(&config, Scale::Fixture, &source, None).unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        let plan = ResolvedPlan::for_case(
+            &artifacts,
+            crate::UrbanCase::SustainedActive,
+            crate::Window::probe(2_048).unwrap(),
+        )
+        .unwrap();
+        let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
+        harness.collect_completed_recycling(0).unwrap();
+        assert!(harness.schedule.is_empty());
+        assert_eq!(harness.requests.counts(), (0, 0));
+
+        let routes = &plan.recycling.as_ref().unwrap().routes_per_tile[0];
+        let (slot, blocker) = (0..1_000)
+            .find_map(|slot| {
+                let first_edge = &plan.route_edges[&routes[slot % routes.len()]][0];
+                plan.initial
+                    .iter()
+                    .enumerate()
+                    .find(|(index, initial)| {
+                        *index != slot
+                            && initial.tile == 0
+                            && initial.progress_mm == 7_000
+                            && &plan.route_edges[&initial.route][initial.occurrence as usize]
+                                == first_edge
+                    })
+                    .map(|(blocker, _)| (slot, blocker))
+            })
+            .unwrap();
+        let handle = harness.individuals[slot].handle.unwrap();
+        let old = harness.world.vehicle(handle).unwrap();
+        let route_key = &harness.route_keys[&old.route()];
+        let occurrence = plan.route_edges[route_key].len() as u32 - 1;
+        harness.world.despawn_vehicle(handle).unwrap().unwrap();
+        harness.slots.remove(&handle);
+        let handle = harness
+            .world
+            .spawn_vehicle(
+                VehicleSpawnInput::new(old.profile(), old.route(), occurrence, 94_999, 0)
+                    .with_open_entrance(),
+            )
+            .unwrap();
+        harness.individuals[slot].handle = Some(handle);
+        harness.slots.insert(handle, slot);
+        for _ in 0..16 {
+            harness.advance().unwrap();
+            if harness.world.vehicle(handle).unwrap().status() == VehicleStatus::Completed {
+                break;
+            }
+        }
+        assert_eq!(
+            harness.world.vehicle(handle).unwrap().status(),
+            VehicleStatus::Completed
+        );
+        let start = harness.world.tick_index();
+        // 分配而后放弃的编号也不重用；个体 incarnation 不取自全局请求编号。
+        let _unused_sequence = harness.requests.allocate().unwrap();
+        harness.collect_completed_recycling(start).unwrap();
+        let sequence = harness.recycling.as_ref().unwrap().pending_by_slot[slot].unwrap();
+        let cursor = harness.world.command_cursor();
+        for attempt in 1..=160 {
+            let tick = start + u64::from(attempt - 1) * 8;
+            harness.collect_completed_recycling(tick).unwrap();
+            let requests = harness.schedule.remove(&tick).unwrap();
+            assert_eq!(requests.len(), 1);
+            let request = requests.into_iter().next().unwrap();
+            assert_eq!(
+                (request.slot, request.sequence, request.attempt),
+                (slot, sequence, attempt)
+            );
+            harness.execute(request, tick).unwrap();
+            assert_eq!(harness.world.command_cursor(), cursor);
+            assert_eq!(harness.requests.counts(), (1, 0));
+            assert_eq!(
+                harness.recycling.as_ref().unwrap().pending_by_slot[slot],
+                Some(sequence)
+            );
+        }
+        let blocker = harness.individuals[blocker].handle.unwrap();
+        harness.world.despawn_vehicle(blocker).unwrap().unwrap();
+        let tick = start + 160 * 8;
+        let request = harness.schedule.remove(&tick).unwrap().pop().unwrap();
+        harness.execute(request, tick).unwrap();
+        assert_eq!(
+            harness
+                .world
+                .vehicle(harness.individuals[slot].handle.unwrap())
+                .unwrap()
+                .status(),
+            VehicleStatus::Active
+        );
+        assert_eq!(harness.individuals[slot].id.incarnation, 1);
+        assert_ne!(harness.individuals[slot].id.incarnation, sequence + 1);
+        assert_eq!(harness.requests.counts(), (0, 0));
+        assert_eq!(
+            harness.recycling.as_ref().unwrap().pending_by_slot[slot],
+            None
+        );
+        assert_eq!(harness.replacements, 1);
     }
 }
