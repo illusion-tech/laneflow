@@ -122,7 +122,24 @@ placement-fixtures `-D warnings` 通过。后续定向单测 30 通过、1 忽�
 
 原始目录名：`admission-filter-830-20261008`。完整 Zstandard 证据包随本任务的
 [研究发布](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-830-admission-filter)交付；
-包 SHA256、大小与下载恢复结果记录在发布说明和 PR。该发布承载研究证据，不是产品版本。
+该发布承载研究证据，不是产品版本。仓库侧冻结索引如下：
+
+- [直接下载 admission-filter-830-87b06970.tar.zst](https://github.com/illusion-tech/laneflow/releases/download/research-evidence-830-admission-filter/admission-filter-830-87b06970.tar.zst)。
+- 压缩包大小：`146896934` 字节。
+- 压缩包 SHA256：`cdc3c0c22d7be3a5be6f90019d16b23f8e84155faf6ee430107a856accb44c11`。
+- 被测 A：`b4843a2eeeae401c3152233de4a0dec1dd8142f5`；
+  被测 B：`b89f7afa098d6d109229ba2bfc9b5f73573fea23`。
+- 包内最终报告源码：`87b06970fc3dfea13a98624eae171872a846c079`。
+  此后仓库仅补充归档索引，不改变被测身份或归档字节。
+- 发布标签 `research-evidence-830-admission-filter` 固定于上述报告源码提交，
+  其祖先链包含候选 B 和撤回 `e7678605c7c968a84a16eeadcee4bfdf706c7a12`，
+  因而后续 PR Rebase 或分支清理不成为这些原始提交的唯一保留条件。
+- 已从 GitHub 下载并恢复：120 个清单文件大小/SHA256 全部匹配，含索引与清单共
+  124 文件；另核对 A/B 源码包、三份二进制、全部输入及计划与测量冻结记录一致。
+
+包有两个顶层目录：`admission-filter-830-20261008` 保留原封存材料和历史报告；
+`admission-filter-830-final-report` 保存核正夹具测试计数后的最终报告与源码。
+两份 index 绑定各自 manifest，最终 index 还绑定原证据 index/manifest；原始记录不改写。
 
 包内包含五轮完整 stdout/stderr、JSONL、host/竞争采样、全部输入和计划、三份二进制、
 A/B Git 源码包、诊断模块/补丁、构建及验证日志、失败记录、采集/分析/封存脚本。
