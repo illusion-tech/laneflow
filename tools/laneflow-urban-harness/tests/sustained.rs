@@ -127,7 +127,24 @@ fn sustained_recipe_has_no_finite_demands_or_correctness_roles_and_rejects_leaka
         },
         {
             let mut plan = sustained.clone();
-            plan.recycling.as_mut().unwrap().routes_per_tile[0].clear();
+            plan.recycling.as_mut().unwrap().entries_per_tile[0].clear();
+            plan
+        },
+        {
+            let mut plan = sustained.clone();
+            plan.recycling.as_mut().unwrap().attempts_per_boundary = 0;
+            plan
+        },
+        {
+            let mut plan = sustained.clone();
+            plan.recycling.as_mut().unwrap().progress_mm[0] = 0;
+            plan
+        },
+        {
+            let mut plan = sustained.clone();
+            plan.recycling.as_mut().unwrap().entries_per_tile[0][0]
+                .routes
+                .clear();
             plan
         },
         {
