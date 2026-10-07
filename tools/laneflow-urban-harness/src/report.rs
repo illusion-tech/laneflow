@@ -522,6 +522,8 @@ pub fn run_to_directory(
     // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
     times.sort_unstable();
     window_step_times.sort_unstable();
+    command_times.sort_unstable();
+    observation_times.sort_unstable();
     let percentile = |n: usize| {
         times
             .get((times.len() * n).div_ceil(100).saturating_sub(1))
@@ -544,6 +546,7 @@ pub fn run_to_directory(
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
         "window_steps":window_step_times.len(), "window_step_ns_p50":window_percentile(50), "window_step_ns_p95":window_percentile(95), "window_step_ns_p99":window_percentile(99),
         "window_step_ns_max":window_percentile(100), "window_step_samples_ns":window_step_times,
+        "window_command_samples_ns":command_times, "window_observation_samples_ns":observation_times,
         "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":execution.worker_count().get(),
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),

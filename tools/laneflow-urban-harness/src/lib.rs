@@ -26,8 +26,8 @@ pub use artifacts::Artifacts;
 pub use evidence::run_evidence;
 pub use plan::{
     BoundaryWindow, DepartureBatch, InitialVehicle, LifecycleBurst, LifecycleCounts,
-    ParkingArrival, ParkingDeparture, RecyclingPlan, ReservationRejection, ResolvedPlan,
-    RoleDeparture, UrbanCase, Window,
+    ParkingArrival, ParkingDeparture, RecyclingEntry, RecyclingPlan, ReservationRejection,
+    ResolvedPlan, RoleDeparture, UrbanCase, Window,
 };
 #[cfg(feature = "adapter")]
 pub use presentation::{

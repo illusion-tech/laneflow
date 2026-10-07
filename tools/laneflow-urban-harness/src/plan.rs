@@ -242,8 +242,19 @@ pub struct LifecycleCounts {
 pub struct RecyclingPlan {
     /// 入口受阻后的固定 tick 重试间隔，必须为正。
     pub retry_ticks: u64,
-    /// 每 tile 按 key 排序的行驶路线；回收不使用有限出发轮次或方向标签。
-    pub routes_per_tile: Vec<Vec<String>>,
+    /// 一个提交边界允许的最多候选尝试，全部拒绝后才延期。
+    pub attempts_per_boundary: u32,
+    /// 首边上的候选车头位置；每次准入仍由 Runtime 检查。
+    pub progress_mm: Vec<u32>,
+    /// 每 tile 按入口车道 key 排序的候选；入口内路线按 key 排序。
+    pub entries_per_tile: Vec<Vec<RecyclingEntry>>,
+}
+
+/// 同一条外部进口车道及从该车道起步的路线。
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RecyclingEntry {
+    pub edge: String,
+    pub routes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -311,7 +322,9 @@ impl ResolvedPlan {
         let (retry_ticks, max_attempts) = if sustained { (0, 0) } else { (4 * quantum, 8) };
         let mut recycling = sustained.then(|| RecyclingPlan {
             retry_ticks: 8,
-            routes_per_tile: Vec::new(),
+            attempts_per_boundary: 64,
+            progress_mm: (0..11).map(|layer| 7_000 + 8_500 * layer).collect(),
+            entries_per_tile: Vec::new(),
         });
         let mut initial = Vec::new();
         let mut departures = Vec::new();
@@ -1050,14 +1063,34 @@ impl ResolvedPlan {
                 return Err(invalid("initial parking allocation differs"));
             }
             if let Some(recycling) = &mut recycling {
-                let mut spread: Vec<_> = catalog
-                    .routes
-                    .iter()
-                    .filter(|r| r.key.starts_with(&prefix) && rank(&r.category) < 3)
-                    .map(|r| r.key.clone())
-                    .collect();
-                spread.sort();
-                recycling.routes_per_tile.push(spread);
+                let mut entries = BTreeMap::<String, Vec<String>>::new();
+                for route in &catalog.routes {
+                    let Some(edge) = route.edge_keys.first() else {
+                        continue;
+                    };
+                    if route.key.starts_with(&prefix)
+                        && edge.starts_with(&prefix)
+                        && rank(&route.category) < 3
+                        && matches!(external_lane(edge), Some((_, "in")))
+                        && artifacts.revision.traffic().lane_lengths_millimetres()
+                            [artifacts.edges[edge].index()]
+                            == 95_000
+                    {
+                        entries
+                            .entry(edge.clone())
+                            .or_default()
+                            .push(route.key.clone());
+                    }
+                }
+                recycling.entries_per_tile.push(
+                    entries
+                        .into_iter()
+                        .map(|(edge, mut routes)| {
+                            routes.sort();
+                            RecyclingEntry { edge, routes }
+                        })
+                        .collect(),
+                );
             } else {
                 let east: Vec<_> = catalog
                     .routes
@@ -1384,13 +1417,25 @@ impl ResolvedPlan {
                 return Err(invalid("持续回收计划不得混入有限需求、停车或正确性角色"));
             }
             if recycling.retry_ticks == 0
-                || recycling.routes_per_tile.len() != self.tiles as usize
+                || recycling.attempts_per_boundary == 0
+                || recycling.attempts_per_boundary > 64
+                || recycling.progress_mm.is_empty()
                 || recycling
-                    .routes_per_tile
+                    .progress_mm
                     .iter()
-                    .any(|routes| routes.is_empty())
+                    .any(|p| !(7_000..=92_000).contains(p))
+                || recycling
+                    .progress_mm
+                    .windows(2)
+                    .any(|pair| pair[0] >= pair[1])
+                || recycling.entries_per_tile.len() != self.tiles as usize
+                || recycling.entries_per_tile.iter().any(|entries| {
+                    entries.is_empty() || entries.iter().any(|entry| entry.routes.is_empty())
+                })
             {
-                return Err(invalid("持续回收必须提供正重试间隔及每 tile 的路线候选"));
+                return Err(invalid(
+                    "持续回收必须提供有界尝试、合法位置及每 tile 的入口路线",
+                ));
             }
         }
         Ok(())

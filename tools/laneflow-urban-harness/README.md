@@ -73,8 +73,11 @@ target/release/laneflow-urban-harness plan <artifact-directory> <sustained.toml>
 每 tile 初始 1000 Active，无停车初态、停车请求或正确性角色。场景配方分别选择初始
 人口、需求策略和角色集合；共享路线候选计算不改变场景身份。持续需求不展开有限
 出发组：每个提交边界读取实际 Completed 状态，同槽位至多一个回收请求，使用本 tile
-按 key 排序的行驶路线候选，按 `(slot + incarnation * 37) mod 候选数` 选择下一路线。
-入口受阻时每 8 tick 重试，预算持续到窗口结束；未成功请求保留为 pending，不计 exhausted。
+按实际首条入口车道分组、按 key 排序的行驶路线候选。候选顺序由槽位、代次及尝试编号
+确定，依次轮换入口车道及冻结的位置，避免路线数量差异偏置入口选择。
+每个请求在同一边界最多尝试 64 个候选，全部受阻后间隔 8 tick 继续；预算持续到窗口
+结束。位置从 7000 mm 起每隔 8500 mm，共 11 处，初速为零，均由 Runtime 检查准入。
+每次成功或拒绝记录路线及位置；未成功请求保留为 pending，不计 exhausted。
 新请求编号集中分配，重试保留编号，incarnation 仅在实际成功替换或 spawn 后按槽位递增。
 
 `result.json` 的 `active_load` 报告观察窗口内 step 前/后的 Active 最小值、
@@ -85,6 +88,8 @@ p50/p95/p99/max、样本数，以及各自低于初始目标的拍数。车辆�
 `diagnostics.json` 的 `window_step_samples_ns` 保存排除暖机后的整步耗时样本，单位为
 纳秒，按耗时升序排列；它不是逐 tick 时序，不能按下标关联车辆或慢拍。
 窗口 p50/p95/p99/max 从这组样本计算，`window_step_ns_max` 为最大值。
+`window_command_samples_ns` 与 `window_observation_samples_ns` 分别保存同一窗口的
+公共生命周期调用耗时和观测耗时，也按升序排列；与整轮墙钟一同报告调用方成本。
 
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
 `plan ... --probe-ticks 128` 生成短试跑；`--probe-warm-up N` 可在 fixture 上覆盖
