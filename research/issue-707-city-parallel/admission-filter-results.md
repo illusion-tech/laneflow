@@ -108,7 +108,7 @@ MotionReach 严格边界、微米余数及原 IIDM 数值极值另有定向验�
 记录，不能与缓存容量互相替代。
 
 Rust 1.98.0 下 Runtime placement-fixtures 全测试及 doctest、Scenario placement-fixtures、
-Urban harness 测试通过；Runtime 库单测 562 通过、20 个既有忽略；Clippy all-targets
+Urban harness 测试通过；Runtime placement-fixtures 库单测 563 通过、20 个既有忽略；Clippy all-targets
 placement-fixtures `-D warnings` 通过。后续定向单测 30 通过、1 忽略，格式及 diff 检查通过。
 测试日志按原样保留：首次链接发生 MSVC LNK1318 PDB 错误，降低构建并行度重试成功；
 初次聚合格式检查与编辑交错失败，随后格式修正并重跑定向检查成功。
