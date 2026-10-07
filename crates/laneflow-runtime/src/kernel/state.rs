@@ -374,7 +374,7 @@ impl SpawnConflictContenders {
         self.built_for = None;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "placement-fixtures"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         vec_bytes(&self.best)
             + self.best.iter().map(vec_bytes).sum::<u64>()
@@ -694,7 +694,7 @@ impl TickWorkspace {
 }
 
 /// 测试用：`Vec` 逻辑字节数（capacity × 元素大小）。
-#[cfg(test)]
+#[cfg(any(test, feature = "placement-fixtures"))]
 pub(crate) fn vec_bytes<T>(values: &Vec<T>) -> u64 {
     (values.capacity() * core::mem::size_of::<T>()) as u64
 }

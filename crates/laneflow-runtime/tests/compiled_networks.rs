@@ -4927,6 +4927,167 @@ fn exclusion_work_stays_flat_when_less_urgent_owners_are_added() {
 
 #[cfg(feature = "placement-fixtures")]
 #[test]
+fn admission_filter_matches_complete_cache_on_interior_and_boundary_states() {
+    let mut hits = 0;
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture::default(),
+        ));
+    for delta_ms in [4, 100, 1_000] {
+        for cursor in [0, 2] {
+            for progress in [0, 1, 1_000] {
+                for speed in [0, 500, 10_000] {
+                    let mut world = install_fixture(
+                        std::sync::Arc::clone(&revision),
+                        WorldConfig::new(8, 4, 64, 4, delta_ms),
+                    )
+                    .expect("world");
+                    let held = world.revision();
+                    let routes = yield_routes(&mut world, held.as_ref());
+                    world
+                        .place_existing_active_vehicle(
+                            VehicleSpawnInput::new(
+                                VehicleProfileOrdinal::from_raw(0),
+                                routes[0],
+                                cursor,
+                                progress,
+                                speed,
+                            )
+                            .with_open_entrance(),
+                        )
+                        .expect("existing vehicle");
+                    world.force_rebuild_contenders_for_test();
+                    let candidate = world.contender_full_fingerprint_for_test();
+                    assert!(!candidate.ends_with("None)"), "rebuild must succeed");
+                    hits += laneflow_runtime::contender_filter_counts()[0];
+                    laneflow_runtime::with_contender_filter_reference(|| {
+                        world.force_rebuild_contenders_for_test();
+                    });
+                    assert_eq!(
+                        candidate,
+                        world.contender_full_fingerprint_for_test(),
+                        "delta={delta_ms}, cursor={cursor}, progress={progress}, speed={speed}"
+                    );
+                    assert_eq!(laneflow_runtime::contender_filter_counts()[0], 0);
+                }
+            }
+        }
+    }
+    assert!(hits > 0, "the differential test must exercise the filter");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn admission_filter_matches_command_sequences_and_restored_cache() {
+    for waiting in [false, true] {
+        let revision =
+            compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+                2,
+                false,
+                true,
+                false,
+                13.0,
+                ConflictPolicyFixture {
+                    waiting,
+                    conflict_after_release: waiting,
+                    ..ConflictPolicyFixture::default()
+                },
+            ));
+        let run = || {
+            let config = WorldConfig::new(8, 4, 64, 4, 100);
+            let mut world = install_fixture(Arc::clone(&revision), config).unwrap();
+            let routes = yield_routes(&mut world, revision.as_ref());
+            let profile = VehicleProfileOrdinal::from_raw(0);
+            let exit_length = world.traffic().lane_lengths_millimetres()
+                [world.route_edges(routes[1]).unwrap()[2].index()];
+            world
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(profile, routes[1], 2, exit_length - 1_000, 0)
+                        .with_open_entrance(),
+                )
+                .unwrap();
+            let length = entry_length_mm(&world, routes[0]);
+            world
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(profile, routes[0], 0, length - 400, 1_000)
+                        .with_open_entrance(),
+                )
+                .unwrap();
+            world.force_rebuild_contenders_for_test();
+            let mut checkpoints = Vec::new();
+            for tick in 0..64 {
+                if tick == 0 {
+                    let input =
+                        VehicleSpawnInput::new(profile, routes[1], 0, 0, 0).with_open_entrance();
+                    let first = world.spawn_vehicle(input).unwrap();
+                    let before = world.capture_snapshot().unwrap();
+                    assert!(world.spawn_vehicle(input).is_err());
+                    assert_eq!(world.capture_snapshot().unwrap(), before);
+                    checkpoints.push((
+                        encode_lfrs(&before),
+                        world.contender_full_fingerprint_for_test(),
+                    ));
+                    world.despawn_vehicle(first).unwrap();
+                    let reused = world.spawn_vehicle(input).unwrap();
+                    assert_ne!(first, reused, "slot reuse must retain full handle identity");
+                }
+                world.step(TickInput::new(100)).unwrap();
+                world.force_rebuild_contenders_for_test();
+                checkpoints.push((
+                    encode_lfrs(&world.capture_snapshot().unwrap()),
+                    world.contender_full_fingerprint_for_test(),
+                ));
+            }
+            let saved = encode_lfrs(&world.capture_snapshot().unwrap());
+            let mut restored = restore_lfrs(
+                &saved,
+                Arc::clone(&revision),
+                world.committed_source().clone(),
+                config,
+                laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                SnapshotRestoreLimits::new(1_048_576, 1_024),
+            )
+            .unwrap()
+            .into_world();
+            restored.force_rebuild_contenders_for_test();
+            checkpoints.push((
+                encode_lfrs(&restored.capture_snapshot().unwrap()),
+                restored.contender_full_fingerprint_for_test(),
+            ));
+            checkpoints
+        };
+        assert_eq!(
+            run(),
+            laneflow_runtime::with_contender_filter_reference(run)
+        );
+    }
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn admission_filter_reference_keeps_existing_failure_and_rights_contracts() {
+    laneflow_runtime::with_contender_filter_reference(|| {
+        each_admission_reserve_failure_is_occupancy_alloc_and_commits_nothing();
+        contender_note_reserve_failure_is_not_a_stop_constraint();
+        committed_parking_commands_drop_the_contender_snapshot();
+        committed_rebind_drops_the_contender_snapshot();
+        incremental_contender_update_matches_a_forced_rebuild_without_scanning_everyone();
+        cutover_does_not_reuse_the_previous_generation_contender_cache();
+        fresh_spawn_rebuilds_contenders_when_the_world_generation_changes();
+        middle_live_rank_keeps_the_gate_against_a_later_contender();
+        replacement_does_not_outrank_a_contender_eligible_this_tick();
+        waiting_entrants_keep_approach_order_across_spawn_order();
+        conflict_multiplicity_preserves_owner_local_and_repeated_occurrences();
+    });
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
 fn committed_parking_commands_drop_the_contender_snapshot() {
     let revision =
         compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(

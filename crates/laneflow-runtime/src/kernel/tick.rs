@@ -1943,6 +1943,63 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         )
     }
 
+    /// 准入重建专用：证明完整预览成功且仍在本边内部；不计算或提交运动。
+    /// 后续降速仍走完整路径，避免在筛选中复制分段投影的定义域。
+    pub(crate) fn admission_preview_stays_inside(
+        self,
+        state: &VehicleState,
+        profile: VehicleProfileView,
+        delta_s: f32,
+    ) -> bool {
+        let prove = || -> Option<()> {
+            if state.carry_um >= 1_000 || state.progress_mm == 0 {
+                return None;
+            }
+            let compiled = self.compiled_route(state.route)?;
+            let cursor = usize::try_from(state.route_edge_index).ok()?;
+            let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+            let limits = self
+                .binding
+                .revision
+                .traffic()
+                .lane_speed_limits_millimetres_per_second();
+            let hop = crate::kernel::tables::route_hop(compiled, cursor, lengths, limits)?;
+            let length = hop.length_mm?;
+            let limit = hop.limit_mm_s?;
+            let _ = hop.remaining_to_end?;
+            let edge = *compiled.edges.get(cursor)?;
+            let _ = limits.get(edge.index())?;
+            let _ = compiled.remaining_to_end.get(cursor)?;
+            let remaining = length.checked_sub(state.progress_mm)?;
+            let reach = MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s)?;
+            if !reach.excludes(remaining)
+                || !compiled
+                    .speed_limit_drop
+                    .get(hop.speed_drop_first as usize..)?
+                    .is_empty()
+            {
+                return None;
+            }
+            // 复用可能失败的查询窗与包络校验。占用 gap 查询本身不失败。
+            let _ = leader_query_horizon(state.speed_mm_s, profile, delta_s)?;
+            let _ = speed_limit_path_envelope_from(
+                (length, limit),
+                compiled.edges.as_slice(),
+                lengths,
+                limits,
+                cursor,
+                state.progress_mm,
+                delta_s,
+            )?;
+            // 受检 profile：desired 1..=100000 mm/s、gap <=128 m、headway <=60 s。
+            // 任意正整数 gap >=1 mm：IIDM 两个平方项及加速度均有限；gap<=0 直接停。
+            // MotionReach 域内 travel<=125 m，next_speed<=100 m/s；微米量化不溢出。
+            // 无降速后缀，信号/门只收紧房间；严格内部上界避免 apply_travel 跨边。
+            Some(())
+        };
+        prove().is_some()
+    }
+
     pub(crate) fn preview_active_vehicle_with_waiting_stop(
         self,
         state: VehicleState,
@@ -6252,6 +6309,102 @@ mod preview {
         )
         .unwrap();
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap()
+    }
+
+    #[test]
+    fn admission_preview_proof_preserves_success_and_rejects_unproved_states() {
+        let mut world = install_preview_world();
+        let route = preview_route(&mut world);
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        let length = world.traffic().lane_lengths_millimetres()
+            [world.route_edges(route).unwrap()[0].index()];
+        let mut state = travel_state(0, 1);
+        state.route = route;
+        let mut hits = 0;
+        for speed in [0, 1, 10_000, 100_000, 100_001, u32::MAX] {
+            for carry in [0, 999, 1_000] {
+                for progress in [0, 1, length / 2, length - 1, length] {
+                    for delta in [0.0, 0.003, 0.004, 0.1, 1.0, 1.001, f32::NAN] {
+                        state.speed_mm_s = speed;
+                        state.carry_um = carry;
+                        state.progress_mm = progress;
+                        let read = world.state.read_view();
+                        let proved = read.admission_preview_stays_inside(&state, profile, delta);
+                        if carry >= 1_000
+                            || progress == 0
+                            || progress == length
+                            || speed > 100_000
+                            || !(0.004..=1.0).contains(&delta)
+                        {
+                            assert!(!proved, "outside the published proof domain");
+                        }
+                        if proved {
+                            hits += 1;
+                            assert!(carry < 1_000 && progress > 0 && progress < length);
+                            let preview = read
+                                .preview_active_vehicle_with_waiting_stop(state, delta, None, None)
+                                .expect("a proved preview cannot fail");
+                            let next = preview.next.apply(state);
+                            assert_eq!(next.route_edge_index, state.route_edge_index);
+                            assert!(next.progress_mm < length);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(hits > 0);
+        state.route_edge_index = u32::MAX;
+        assert!(
+            !world
+                .state
+                .read_view()
+                .admission_preview_stays_inside(&state, profile, 0.1)
+        );
+    }
+
+    #[test]
+    fn admission_proposal_extrema_remain_finite_and_inside_motion_reach() {
+        for speed_mm_s in [0, 1, 100_000] {
+            for desired_mm_s in [1, 100_000] {
+                for max_accel in [0.5, 50.0] {
+                    for delta_s in [0.004, 1.0] {
+                        let reach = MotionReach::from_tick(speed_mm_s, max_accel, delta_s).unwrap();
+                        for gap in [None, Some(i64::MIN), Some(0), Some(1), Some(i64::MAX)] {
+                            for min_gap_m in [0.0, 128.0] {
+                                for time_headway in [f32::MIN_POSITIVE, 60.0] {
+                                    let (travel, next) = iidm_step(
+                                        si_speed(speed_mm_s),
+                                        si_speed(desired_mm_s),
+                                        leader_gap_m(gap),
+                                        min_gap_m,
+                                        time_headway,
+                                        max_accel,
+                                        0.5,
+                                        50.0,
+                                        delta_s,
+                                    )
+                                    .expect("受检定义域");
+                                    let um = round_um(f64::from(travel)).unwrap() + 999;
+                                    assert!((um / 1_000) as f64 <= reach.millimeters);
+                                    assert!(round_mm(f64::from(next)).unwrap() <= 100_000);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let reach = MotionReach::from_tick(0, 50.0, 1.0).unwrap();
+        assert!(!reach.excludes(25_049));
+        assert!(!reach.excludes(25_050));
+        assert!(reach.excludes(25_051));
+        for accel in [0.499, 50.001, f32::NAN, f32::INFINITY] {
+            assert!(MotionReach::from_tick(0, accel, 1.0).is_none());
+        }
     }
 
     #[test]

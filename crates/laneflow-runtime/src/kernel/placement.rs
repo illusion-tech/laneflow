@@ -120,6 +120,56 @@ thread_local! {
     static NOTE_ALLOC_FAILED: Cell<bool> = const { Cell::new(false) };
 }
 
+#[cfg(any(test, feature = "placement-fixtures"))]
+thread_local! {
+    static FILTER_REFERENCE: Cell<bool> = const { Cell::new(false) };
+    static FILTER_COUNTS: Cell<[u64; 2]> = const { Cell::new([0; 2]) };
+    static FILTER_TOTALS: Cell<[u64; 4]> = const { Cell::new([0; 4]) };
+}
+
+/// 夹具范围内关闭筛选；退出（包括 unwind）恢复线程原值。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn with_contender_filter_reference<T>(body: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FILTER_REFERENCE.set(self.0);
+        }
+    }
+    let _restore = Restore(FILTER_REFERENCE.replace(true));
+    body()
+}
+
+/// 上次完整重建中的已证明空贡献数和完整预览数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn contender_filter_counts() -> [u64; 2] {
+    FILTER_COUNTS.get()
+}
+
+/// 当前线程累计的完整重建、扫描、已证明空贡献与完整预览次数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn contender_filter_totals() -> [u64; 4] {
+    FILTER_TOTALS.get()
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_contender_filter_totals() {
+    FILTER_TOTALS.set([0; 4]);
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+fn count_filter(index: usize) {
+    FILTER_TOTALS.with(|counts| {
+        let mut values = counts.get();
+        values[index] += 1;
+        counts.set(values);
+    });
+}
+
 /// 下一次「记下这一辆的到达和名次」时，小块预留按失败处理。
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
@@ -629,6 +679,21 @@ impl crate::kernel::state::WorldState {
         rows
     }
 
+    #[cfg(feature = "placement-fixtures")]
+    pub(crate) fn contender_full_fingerprint_for_test(&self) -> String {
+        let cache = &self.derived.spawn_contenders;
+        format!(
+            "{:?}",
+            (
+                &cache.best,
+                &cache.cell_approach,
+                &cache.waiting_entrants,
+                &cache.owners,
+                cache.built_for
+            )
+        )
+    }
+
     fn admission_clocks(
         &self,
         state: &VehicleState,
@@ -677,6 +742,8 @@ impl crate::kernel::state::WorldState {
     }
 
     fn rebuild_spawn_contenders(&mut self) -> Result<(), FreshAdmissionFailure> {
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        count_filter(0);
         let zone_count = usize::try_from(
             self.binding
                 .revision
@@ -742,21 +809,137 @@ impl crate::kernel::state::WorldState {
         let live_count = self.committed.live_order.len();
         #[cfg(any(test, feature = "placement-fixtures"))]
         REBUILD_SCANS.with(|cell| cell.set(0));
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        FILTER_COUNTS.set([0; 2]);
         for sequence in 0..live_count {
             #[cfg(any(test, feature = "placement-fixtures"))]
             REBUILD_SCANS.with(|cell| cell.set(cell.get().saturating_add(1)));
+            #[cfg(any(test, feature = "placement-fixtures"))]
+            count_filter(1);
             let Ok(update_sequence) = u32::try_from(sequence) else {
                 return Err(FreshAdmissionFailure::OccupancyAlloc);
             };
             let Some(handle) = self.committed.live_order.get(sequence).copied() else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            self.add_spawn_contender(handle, update_sequence)?;
+            if !self.add_proven_empty_spawn_contender(handle, update_sequence)? {
+                #[cfg(any(test, feature = "placement-fixtures"))]
+                if self.vehicle_state(handle).is_some_and(|state| {
+                    state.status == VehicleStatus::Active
+                        && self.route_needs_contender(state.route)
+                        && self
+                            .binding
+                            .revision
+                            .traffic()
+                            .relations()
+                            .vehicle_profile(state.profile)
+                            .is_some()
+                }) {
+                    count_filter(3);
+                    FILTER_COUNTS.with(|counts| {
+                        let [hits, previews] = counts.get();
+                        counts.set([hits, previews + 1]);
+                    });
+                }
+                self.add_spawn_contender(handle, update_sequence)?;
+            }
         }
         for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
             sort_waiting_entrants(entrants)?;
         }
         Ok(())
+    }
+
+    /// 仅完整重建调用；命中仍走原 notes/apply，保留空 owner 与分配失败语义。
+    fn add_proven_empty_spawn_contender(
+        &mut self,
+        handle: VehicleHandle,
+        update_sequence: u32,
+    ) -> Result<bool, FreshAdmissionFailure> {
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        if FILTER_REFERENCE.get() {
+            return Ok(false);
+        }
+        let Some(state) = self.vehicle_state(handle) else {
+            return Ok(false);
+        };
+        if state.status != VehicleStatus::Active
+            || !self.route_needs_contender(state.route)
+            || state.progress_mm == 0
+            || state.carry_um >= 1_000
+            || state.maneuver_traversal.is_some()
+            || state.waiting_membership.is_some()
+            || self.committed.parking.binding(handle).is_some()
+            || self.read_view().conflict_read().has_authority(handle)
+        {
+            return Ok(false);
+        }
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        else {
+            return Ok(false);
+        };
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return Ok(false);
+        };
+        if let Some(horizon) = self.binding.policy_binding.horizon() {
+            let Some(prepared) = PreparedApproachEta::new(
+                state.carry_um,
+                state.speed_mm_s,
+                profile.max_accel(),
+                horizon,
+            ) else {
+                return Ok(false);
+            };
+            let first = compiled.conflicts.partition_point(|occurrence| {
+                (
+                    occurrence.entry.route_edge_index,
+                    occurrence.entry.progress_mm,
+                ) < (state.route_edge_index, state.progress_mm)
+            });
+            if let Some(occurrence) = compiled.conflicts.get(first) {
+                let Some(distance) = finite_entry_distance(compiled, &state, occurrence) else {
+                    return Ok(false);
+                };
+                if prepared.lower_bound(u64::from(distance)) != ApproachEstimate::OutsideHorizon {
+                    return Ok(false);
+                }
+            }
+        }
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        if !self
+            .read_view()
+            .admission_preview_stays_inside(&state, profile, delta_s)
+        {
+            return Ok(false);
+        }
+        let notes = self.contender_notes(
+            &state,
+            update_sequence,
+            state,
+            profile.max_accel(),
+            profile.emergency_decel(),
+            profile.min_gap_mm(),
+        );
+        if take_note_alloc() {
+            return Err(FreshAdmissionFailure::OccupancyAlloc);
+        }
+        let Some(notes) = notes else {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        };
+        self.apply_contender_notes(handle, notes)?;
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        count_filter(2);
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        FILTER_COUNTS.with(|counts| {
+            let [hits, previews] = counts.get();
+            counts.set([hits + 1, previews]);
+        });
+        Ok(true)
     }
 
     /// 沿这辆车自己的路线记下证明时窗内的格点到达，以及这一拍预览会申请的第一处冲突。
