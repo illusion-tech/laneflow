@@ -3,6 +3,9 @@
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
 
+最新的[准入贡献融合结果](admission-contributions-results.md)记录同一十万车辆负载下的
+三组普通发布构建对照、完整宿主阶段诊断、语义等价与资源覆盖边界；#707 认证继续开放。
+
 后续诊断设计见[源码成本分析与短窗口诊断草案](short-profile-plan.md)。
 正式 r1 后续状态见 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)，四轮
 身份、完整摘要和观察窗统计见版本化的

@@ -7,7 +7,7 @@ use std::collections::BinaryHeap;
 
 use super::conflict::intervals_conflict;
 use super::conflict::{ApproachEstimate, ApproachFrontierCell, PreparedApproachEta};
-use super::entry_frontier::{delay_approach_for_signal, finite_entry_distance};
+use super::entry_frontier::{PreparedSignalApproach, finite_entry_distance};
 use super::occupancy::LeaderQueryHorizon;
 use super::state::{
     ContenderBuilt, ContenderRank, OwnerContribution, WaitingEntrant, ZoneContender,
@@ -830,11 +830,12 @@ impl crate::kernel::state::WorldState {
         } else {
             state.route_edge_index
         };
-        let (approaches, reached, waiting) = (|| {
+        let (cells, reached, waiting) = (|| {
             let read = self.read_view();
             let compiled = read.compiled_route(state.route)?;
             let lengths = read.binding.revision.traffic().lane_lengths_millimetres();
-            let mut approaches = Vec::new();
+            let mut cells = Vec::new();
+            let mut signal = None;
             if let (Some(prepared), Some(horizon_ms)) = (prepared, horizon) {
                 let first = compiled.conflicts.partition_point(|occurrence| {
                     (
@@ -851,8 +852,14 @@ impl crate::kernel::state::WorldState {
                     if kinematic == ApproachEstimate::OutsideHorizon {
                         break;
                     }
-                    note_reserve(&mut approaches, 1)?;
-                    approaches.push((occurrence.address(), kinematic, distance_mm, horizon_ms));
+                    let signal = signal.get_or_insert_with(|| {
+                        PreparedSignalApproach::new(read, state, emergency_decel)
+                    });
+                    let estimate = signal.apply(kinematic, distance_mm, horizon_ms);
+                    if estimate != ApproachEstimate::OutsideHorizon {
+                        note_reserve(&mut cells, 1)?;
+                        cells.push((occurrence.address(), estimate));
+                    }
                 }
             }
             let mut reached = Vec::new();
@@ -932,25 +939,10 @@ impl crate::kernel::state::WorldState {
                 waiting = Some((occurrence.zone.index(), occurrence.entry_hop, approach_mm));
                 break;
             }
-            Some((approaches, reached, waiting))
+            // 空结果仍经过同一可失败预留入口，保留故障注入与拒绝分类。
+            note_reserve(&mut cells, 0)?;
+            Some((cells, reached, waiting))
         })()?;
-        let mut cells = Vec::new();
-        note_reserve(&mut cells, approaches.len())?;
-        for (address, kinematic, distance_mm, horizon_ms) in approaches {
-            let estimate = delay_approach_for_signal(
-                self.read_view(),
-                state.handle,
-                state,
-                kinematic,
-                distance_mm,
-                horizon_ms,
-                emergency_decel,
-            );
-            if estimate == ApproachEstimate::OutsideHorizon {
-                continue;
-            }
-            cells.push((address, estimate));
-        }
         let mut ranks = Vec::new();
         {
             let read = self.read_view();

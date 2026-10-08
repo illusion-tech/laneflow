@@ -151,6 +151,43 @@ struct SignalHold {
     delay_ms: Option<u64>,
 }
 
+/// 同一提交态、同一车辆的信号约束；只在一次借用期间复用，不跨命令或步进保留。
+pub(crate) struct PreparedSignalApproach {
+    hold: Option<SignalHold>,
+    speed_mm_s: u32,
+    emergency_decel_m_s2: f32,
+}
+
+impl PreparedSignalApproach {
+    pub(crate) fn new(
+        read: StepReadView<'_>,
+        state: &VehicleState,
+        emergency_decel_m_s2: f32,
+    ) -> Self {
+        Self {
+            hold: signal_hold(read, state.handle, state),
+            speed_mm_s: state.speed_mm_s,
+            emergency_decel_m_s2,
+        }
+    }
+
+    pub(crate) fn apply(
+        &self,
+        kinematic: ApproachEstimate,
+        entry_mm: u32,
+        horizon_ms: u64,
+    ) -> ApproachEstimate {
+        raise_signal_bound(
+            kinematic,
+            self.hold,
+            entry_mm,
+            horizon_ms,
+            self.speed_mm_s,
+            self.emergency_decel_m_s2,
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct IncrementSlot {
     generation: u32,
@@ -787,25 +824,6 @@ fn kinematic_reach_mm(speed_mm_s: u32, max_accel_m_s2: f32, seconds: f64, slack_
     }
     let accel_mm_s2 = f64::from(max_accel_m_s2) * 1_000.0;
     f64::from(speed_mm_s) * seconds + 0.5 * accel_mm_s2 * seconds * seconds + slack_mm
-}
-
-pub(crate) fn delay_approach_for_signal(
-    read: StepReadView<'_>,
-    vehicle: VehicleHandle,
-    state: &VehicleState,
-    kinematic: ApproachEstimate,
-    entry_mm: u32,
-    horizon_ms: u64,
-    emergency_decel_m_s2: f32,
-) -> ApproachEstimate {
-    raise_signal_bound(
-        kinematic,
-        signal_hold(read, vehicle, state),
-        entry_mm,
-        horizon_ms,
-        state.speed_mm_s,
-        emergency_decel_m_s2,
-    )
 }
 
 fn raise_signal_bound(
@@ -2625,6 +2643,52 @@ mod tests {
         assert!(
             estimates.iter().all(|ms| *ms != 4_000),
             "an existing reservation is not delayed to the release, estimates={estimates:?}"
+        );
+    }
+
+    #[test]
+    fn prepared_admission_signal_reuses_one_view_and_refreshes_after_step_or_rights_change() {
+        let (mut world, route) = crate::admin::cutover_migration::tests::signal_frontier_world(
+            4_000,
+            Some(4_000),
+            false,
+        );
+        let vehicle = signal_vehicle(&mut world, route, 1, 0);
+        {
+            let state = world.state.vehicle_state(vehicle).expect("signal state");
+            let prepared = super::PreparedSignalApproach::new(world.state.read_view(), &state, 4.0);
+            assert_eq!(
+                prepared.apply(ApproachEstimate::Finite(0), 0, 4_000),
+                ApproachEstimate::OutsideHorizon,
+            );
+            for distance in [0, 1, 2_000] {
+                assert_eq!(
+                    prepared.apply(ApproachEstimate::Finite(100), distance, 4_001),
+                    ApproachEstimate::Finite(4_000),
+                );
+            }
+            assert_eq!(
+                prepared.apply(ApproachEstimate::Finite(5_000), 2_000, 6_000),
+                ApproachEstimate::Finite(5_000),
+            );
+        }
+        step_ms(&mut world, 100);
+        {
+            let state = world.state.vehicle_state(vehicle).expect("after step");
+            let prepared = super::PreparedSignalApproach::new(world.state.read_view(), &state, 4.0);
+            assert_eq!(
+                prepared.apply(ApproachEstimate::Finite(100), 0, 4_000),
+                ApproachEstimate::Finite(3_900),
+            );
+        }
+        crate::admin::format_admission::tests::install_conflict_reservation(
+            &mut world, route, vehicle,
+        );
+        let state = world.state.vehicle_state(vehicle).expect("reserved state");
+        let prepared = super::PreparedSignalApproach::new(world.state.read_view(), &state, 4.0);
+        assert_eq!(
+            prepared.apply(ApproachEstimate::Finite(100), 0, 4_000),
+            ApproachEstimate::Finite(100),
         );
     }
 
