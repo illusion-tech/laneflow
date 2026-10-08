@@ -1,6 +1,7 @@
 # 远处限速下降候选的独立诊断
 
 Refs #834。候选未采用，见[结果](../admission-distant-results.md)。
+[归档索引](archive-index.md)记录下载包身份与已执行的恢复校验。
 证据包 `diagnostic.patch` 只适用于候选 `d7624fb21da11566e8a4a4a624da3e84c45937c9`。
 在其独立干净 checkout 中执行 git apply --check，再应用补丁；使用 Rust 1.98.0、
 release、CARGO_INCREMENTAL=0 构建 laneflow-urban-harness，额外启用

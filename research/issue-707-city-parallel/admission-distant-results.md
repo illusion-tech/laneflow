@@ -133,7 +133,7 @@ Runtime placement-fixtures 全测试汇总 809 通过、50 个原有 ignored；U
 原始目录 `admission-distant-834-20261008`，完整证据随本任务的
 [研究发布](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-834-admission-distant)
 交付；这是研究证据，不是产品版本。封存后的归档大小、SHA256、下载恢复结果和标签身份
-由仓库独立归档索引绑定，不改变被测 A/B 或报告快照身份。
+由[独立归档索引](admission-distant/archive-index.md)绑定，不改变被测 A/B 或报告快照身份。
 
 包内包含五轮原始输出、host/竞争记录、输入、计划、普通 A/B 与诊断二进制、源码包、
 诊断模块/补丁、构建和验证日志、失败说明、采集/分析脚本及逐文件大小/SHA256 清单。
