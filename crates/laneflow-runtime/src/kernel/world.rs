@@ -2586,28 +2586,6 @@ impl TrafficWorld {
         self.state.contender_fingerprint_for_test()
     }
 
-    /// 全部派生候选值，包含 owner、ETA 和有效身份，仅供对拍。
-    ///
-    /// # Panics
-    /// 世界因执行 panic 失效后调用会 panic。
-    #[cfg(feature = "placement-fixtures")]
-    #[doc(hidden)]
-    pub fn contender_full_fingerprint_for_test(&self) -> String {
-        self.execution.assert_usable();
-        self.state.contender_full_fingerprint_for_test()
-    }
-
-    /// 候选缓存拥有的容量字节，复用实例资源账本的同一计数。
-    ///
-    /// # Panics
-    /// 世界因执行 panic 失效后调用会 panic。
-    #[cfg(feature = "placement-fixtures")]
-    #[doc(hidden)]
-    pub fn contender_retained_bytes_for_test(&self) -> u64 {
-        self.execution.assert_usable();
-        self.state.derived.spawn_contenders.retained_logical_bytes()
-    }
-
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
     /// 入口占用、当前停车约束、前车或后车不安全都可以稍后用同一输入再试。降不到前方限速时，同一初速再试仍会失败，须降低初速或更换输入。输入本身非法
