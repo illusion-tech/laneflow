@@ -45,6 +45,11 @@ struct SelectPart {
     failed: bool,
 }
 
+struct GatheredSelection {
+    used_parts: usize,
+    member_upper: usize,
+}
+
 /// 只存本次选中的车辆和缓存出现项，不复制逐车缓存，也不按 worker 复制世界。
 #[derive(Default)]
 pub(crate) struct ReplayScratch {
@@ -119,7 +124,7 @@ pub(super) fn demanded(
     scratch.cell_indices.clear();
     scratch.owners.clear();
     // 只读并行收集各地址成员的身份、live 序与缓存命中；不可用时原地串行选择。
-    let Some(upper) = gather(
+    let Some(gathered) = gather(
         step,
         horizon_ms,
         wanted,
@@ -131,14 +136,16 @@ pub(super) fn demanded(
         });
     };
     // 地址成员数是去重前的上界。容量准备在改动 seen 之前，失败直接融合求值。
-    let upper = upper.min(step.committed.live_order.len());
-    if upper < PARALLEL_ROWS || !scratch.reserve_rows(upper) {
-        return apply_selection(step, &scratch.select_parts, |step, input| {
+    let upper = gathered.member_upper.min(step.committed.live_order.len());
+    let materialize_rows = upper >= PARALLEL_ROWS && scratch.reserve_rows(upper);
+    let current_parts = &scratch.select_parts[..gathered.used_parts];
+    if !materialize_rows {
+        return apply_selection(step, current_parts, |step, input| {
             serial(step, input, horizon_ms, Some(wanted))
         });
     }
     let rows = &mut scratch.rows;
-    let selected = apply_selection(step, &scratch.select_parts, |step, input| {
+    let selected = apply_selection(step, current_parts, |step, input| {
         let cells = step.workspace.frontier_maintenance.slots[input.state.handle.index() as usize]
             .cells
             .len();
@@ -207,7 +214,8 @@ fn select(
     result
 }
 
-/// 按需求地址分段并行收集成员，返回去重前的成员总数。序号表无法铺好、
+/// 按需求地址分段并行收集成员，返回本轮有效分段数与去重前的成员总数。
+/// 尾段保留容量但不属于本轮选择。序号表无法铺好、
 /// 暂存扩容失败时返回 `None`，调用方改走串行选择以保留原首错。
 fn gather(
     step: &mut StepWorkspace<'_>,
@@ -215,7 +223,7 @@ fn gather(
     wanted: &[ConflictPassageAddress],
     resources: &ExecutionResources,
     parts: &mut Vec<SelectPart>,
-) -> Option<usize> {
+) -> Option<GatheredSelection> {
     let slots = step.committed.vehicles.len();
     if !step
         .derived
@@ -268,9 +276,13 @@ fn gather(
     if parts.iter().any(|part| part.failed) {
         return None;
     }
-    parts
+    let member_upper = parts
         .iter()
-        .try_fold(0_usize, |sum, part| sum.checked_add(part.members))
+        .try_fold(0_usize, |sum, part| sum.checked_add(part.members))?;
+    Some(GatheredSelection {
+        used_parts: count,
+        member_upper,
+    })
 }
 
 /// 只读求一个成员的选择结果；序号表未铺好时返回 `None`。
@@ -746,8 +758,20 @@ mod tests {
     use std::num::NonZeroU32;
 
     fn cached_world(workers: u32) -> (TrafficWorld, Vec<ConflictPassageAddress>) {
+        cached_world_with_multiple_addresses(workers, false)
+    }
+
+    fn cached_world_with_multiple_addresses(
+        workers: u32,
+        multiple_addresses: bool,
+    ) -> (TrafficWorld, Vec<ConflictPassageAddress>) {
         let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
-        let mut world = crate::admin::cutover_migration::tests::conflict_scale_world(revision, 16);
+        let mut world =
+            crate::admin::cutover_migration::tests::conflict_scale_world_with_route_capacity(
+                revision,
+                16,
+                if multiple_addresses { 2 } else { 1 },
+            );
         let live = world.state.committed.live_order.clone();
         let route = world.vehicle(live[0]).unwrap().route;
         let address = world
@@ -757,8 +781,40 @@ mod tests {
             .unwrap()
             .conflicts[0]
             .address();
-        // 反向登记让地址成员顺序与 live 序号不同；一个地址有重复路线出现项。
+        let mut wanted = vec![address];
+        if multiple_addresses {
+            let revision = world.revision();
+            let conflict = revision.conflict();
+            let stream = conflict
+                .conflict_zone(address.zone())
+                .unwrap()
+                .participant_streams()
+                .iter()
+                .copied()
+                .find(|stream| *stream != address.stream())
+                .unwrap();
+            let local = conflict
+                .participant_stream(stream)
+                .unwrap()
+                .passages()
+                .iter()
+                .position(|passage| passage.conflict_zone() == address.zone())
+                .unwrap();
+            wanted.push(ConflictPassageAddress::new(
+                address.zone(),
+                stream,
+                local as u32,
+            ));
+            wanted.sort_unstable();
+        }
+        // 直接铺缓存以隔离选择与消费；两个规范地址登记不同成员。反向登记让
+        // 地址成员顺序与 live 序号不同，同一地址还有重复路线出现项。
+        world.state.workspace.frontier_maintenance.ensure_identity(
+            world.state.binding.world_id,
+            world.state.binding.world_generation,
+        );
         for vehicle in live.iter().rev().copied() {
+            let address = wanted[vehicle.index() as usize % wanted.len()];
             let mut state = world.vehicle(vehicle).unwrap();
             state.speed_mm_s = 10_000;
             let accel = world
@@ -799,7 +855,7 @@ mod tests {
             ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
             &world.state,
         );
-        (world, vec![address])
+        (world, wanted)
     }
 
     fn run(world: &mut TrafficWorld, wanted: &[ConflictPassageAddress]) -> Result<(), StepError> {
@@ -808,11 +864,308 @@ mod tests {
             let mut step = state.step_workspace();
             step.workspace.frontier_maintenance.begin_seen()?;
             step.workspace.frontier_maintenance.insertions.clear();
+            step.workspace
+                .frontier_maintenance
+                .scratch_increments
+                .clear();
             step.committed
                 .prepare_conflict(&mut step.derived, &mut step.workspace.conflict)
                 .clear_approach_frontier();
             demanded(&mut step, 5_000, wanted, Some(resources))
         })
+    }
+
+    fn assert_matches_serial(
+        reference: &mut TrafficWorld,
+        pooled: &mut TrafficWorld,
+        wanted: &[ConflictPassageAddress],
+    ) {
+        run(reference, wanted).unwrap();
+        let expected_work = crate::kernel::conflict::conflict_work_counts();
+        run(pooled, wanted).unwrap();
+        let expected = &reference.state.workspace.frontier_maintenance;
+        let actual = &pooled.state.workspace.frontier_maintenance;
+        assert_eq!(actual.insertions, expected.insertions);
+        assert_eq!(actual.scratch_increments, expected.scratch_increments);
+        for index in 0..pooled.state.committed.vehicles.len() {
+            assert_eq!(
+                actual.is_marked(index as u32),
+                expected.is_marked(index as u32),
+                "seen mark for slot {index}"
+            );
+        }
+        assert_eq!(
+            pooled.state.conflict_read().approach_frontier_cells(),
+            reference.state.conflict_read().approach_frontier_cells()
+        );
+        assert_eq!(
+            crate::kernel::conflict::conflict_work_counts(),
+            expected_work
+        );
+    }
+
+    #[test]
+    fn pooled_replay_ignores_retained_parts_when_demand_shrinks() {
+        for workers in [4, 16] {
+            for fail_reserve in [0, 1, 2] {
+                let (mut reference, wanted) = cached_world_with_multiple_addresses(1, true);
+                let (mut pooled, _) = cached_world_with_multiple_addresses(workers, true);
+                for world in [&mut reference, &mut pooled] {
+                    for index in [5, 11] {
+                        // 尾段同时保留重放和 deferred 候选，收缩后两者都不得消费。
+                        world.state.workspace.frontier_maintenance.slots[index].first_excluded_mm =
+                            0;
+                    }
+                }
+                assert_matches_serial(&mut reference, &mut pooled, &wanted);
+                let capacities = {
+                    let mut scratch = pooled.execution.resources().frontier_replay().unwrap();
+                    assert_eq!(scratch.select_parts.len(), 2);
+                    let capacities = scratch
+                        .select_parts
+                        .iter()
+                        .map(|part| part.candidates.capacity())
+                        .collect::<Vec<_>>();
+                    scratch.fail_reserve = fail_reserve;
+                    capacities
+                };
+                for current in [&wanted[..1], &[][..], &wanted[..], &wanted[..1], &[][..]] {
+                    assert_matches_serial(&mut reference, &mut pooled, current);
+                    let scratch = pooled.execution.resources().frontier_replay().unwrap();
+                    assert_eq!(scratch.select_parts.len(), 2);
+                    assert_eq!(
+                        scratch
+                            .select_parts
+                            .iter()
+                            .map(|part| part.candidates.capacity())
+                            .collect::<Vec<_>>(),
+                        capacities,
+                        "retained candidate capacity"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pooled_replay_shrink_rechecks_reused_handles_and_changed_routes() {
+        for workers in [4, 16] {
+            let (mut reference, wanted) = cached_world_with_multiple_addresses(1, true);
+            let (mut pooled, _) = cached_world_with_multiple_addresses(workers, true);
+            assert_matches_serial(&mut reference, &mut pooled, &wanted);
+            for world in [&mut reference, &mut pooled] {
+                let old = world.state.committed.live_order[1];
+                let state = world.vehicle(old).unwrap();
+                world.despawn_vehicle(old).unwrap();
+                let replacement = world
+                    .spawn_vehicle(crate::VehicleSpawnInput::new(
+                        state.profile,
+                        state.route,
+                        0,
+                        20_000,
+                        1_000,
+                    ))
+                    .unwrap();
+                assert_eq!(replacement.index(), old.index());
+                assert_ne!(replacement.generation(), old.generation());
+                let replacement_state = world.vehicle(replacement).unwrap();
+                let accel = world.state.workspace.frontier_maintenance.slots[old.index() as usize]
+                    .max_accel;
+                world
+                    .state
+                    .workspace
+                    .frontier_maintenance
+                    .store(
+                        replacement,
+                        &replacement_state,
+                        NO_DISTANCE_MM,
+                        vec![CachedCell {
+                            address: wanted[1],
+                            distance_mm: 1_000,
+                        }],
+                        NO_DISTANCE_MM,
+                        accel,
+                    )
+                    .unwrap();
+                let removed = VehicleHandle::new(3, 0);
+                world.despawn_vehicle(removed).unwrap();
+
+                let changed = VehicleHandle::new(5, 0);
+                let old_route = world.vehicle(changed).unwrap().route;
+                let edges = world.route_edges(old_route).unwrap().to_vec();
+                let new_route = world
+                    .register_route(crate::RouteRegisterInput::new(edges))
+                    .unwrap();
+                world.state.committed.routes[old_route.index() as usize].live_vehicles -= 1;
+                world.state.committed.routes[new_route.index() as usize].live_vehicles = 1;
+                world
+                    .state
+                    .committed
+                    .vehicles
+                    .slot_mut(changed.index() as usize)
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .route = new_route;
+                world.state.rebuild_occupancy_index().unwrap();
+            }
+            for current in [&wanted[..1], &[][..], &wanted[..]] {
+                assert_matches_serial(&mut reference, &mut pooled, current);
+            }
+            assert!(
+                pooled
+                    .state
+                    .workspace
+                    .frontier_maintenance
+                    .scratch_increments
+                    .contains(&VehicleHandle::new(5, 0)),
+                "changed route must defer using the current state"
+            );
+        }
+    }
+
+    #[test]
+    fn pooled_replay_shrink_preserves_first_error_and_retry() {
+        for workers in [4, 16] {
+            for fail_reserve in [0, 1, 2] {
+                let (mut reference, wanted) = cached_world_with_multiple_addresses(1, true);
+                let (mut pooled, _) = cached_world_with_multiple_addresses(workers, true);
+                assert_matches_serial(&mut reference, &mut pooled, &wanted);
+                pooled
+                    .execution
+                    .resources()
+                    .frontier_replay()
+                    .unwrap()
+                    .fail_reserve = fail_reserve;
+                let profile = reference.vehicle(VehicleHandle::new(8, 0)).unwrap().profile;
+                for world in [&mut reference, &mut pooled] {
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .slot_mut(8)
+                        .state
+                        .as_mut()
+                        .unwrap()
+                        .profile =
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(u32::MAX);
+                    assert_eq!(
+                        run(world, &wanted[..1]),
+                        Err(StepError::ConflictInvariantViolation)
+                    );
+                }
+                assert_eq!(
+                    pooled.state.workspace.frontier_maintenance.insertions,
+                    reference.state.workspace.frontier_maintenance.insertions
+                );
+                assert_eq!(
+                    pooled.state.workspace.frontier_maintenance.insertions.len(),
+                    6,
+                    "three earlier sources, two occurrences each"
+                );
+                for world in [&mut reference, &mut pooled] {
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .slot_mut(8)
+                        .state
+                        .as_mut()
+                        .unwrap()
+                        .profile = profile;
+                }
+                assert_matches_serial(&mut reference, &mut pooled, &wanted[..1]);
+            }
+        }
+    }
+
+    #[test]
+    fn pooled_replay_shrink_after_cutover_does_not_read_previous_world_inputs() {
+        for workers in [4, 16] {
+            let (mut reference, wanted) = cached_world_with_multiple_addresses(1, true);
+            let (mut pooled, _) = cached_world_with_multiple_addresses(workers, true);
+            assert_matches_serial(&mut reference, &mut pooled, &wanted);
+            let threads = pooled.execution.thread_ids();
+            for world in [&mut reference, &mut pooled] {
+                // 缓存夹具向前推进 100 mm；切换前把车头放回当前边内并重建占用。
+                for vehicle in world.state.committed.live_order.clone() {
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .slot_mut(vehicle.index() as usize)
+                        .state
+                        .as_mut()
+                        .unwrap()
+                        .progress_mm -= 200;
+                }
+                world.state.rebuild_occupancy_index().unwrap();
+                let revision = world.revision();
+                let binding =
+                    crate::LfcaOriginBinding::from_canonical_origin(*revision.canonical_origin());
+                let descriptor = crate::NetworkRevisionCutoverDescriptor::new(
+                    binding,
+                    binding,
+                    None,
+                    crate::MigrationPolicyKind::SameRevisionRestore,
+                    world.world_binding(),
+                );
+                let _events = world
+                    .cutover_same_revision(
+                        revision,
+                        world.committed_source().clone(),
+                        &descriptor,
+                        &crate::CutoverPreflightLimits::new(1_048_576),
+                    )
+                    .unwrap();
+                // 与 Frontier 重建入口一致：新世界代次使缓存冷启动，池缓冲仍保留。
+                world.state.workspace.frontier_maintenance.ensure_identity(
+                    world.state.binding.world_id,
+                    world.state.binding.world_generation,
+                );
+                assert!(world.state.workspace.frontier_maintenance.slots.is_empty());
+            }
+            assert_eq!(pooled.execution.thread_ids(), threads);
+            assert_eq!(
+                pooled
+                    .execution
+                    .resources()
+                    .frontier_replay()
+                    .unwrap()
+                    .select_parts
+                    .len(),
+                2
+            );
+            assert_matches_serial(&mut reference, &mut pooled, &wanted[..1]);
+            assert_matches_serial(&mut reference, &mut pooled, &[]);
+
+            let captured = pooled.capture_snapshot().unwrap();
+            let bytes = crate::encode_lfrs(&captured);
+            let restore = |workers| {
+                crate::restore_lfrs(
+                    &bytes,
+                    pooled.revision(),
+                    pooled.committed_source().clone(),
+                    pooled.config(),
+                    ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                    crate::SnapshotRestoreLimits::new(1_048_576, 1_024),
+                )
+                .unwrap()
+                .into_world()
+            };
+            let mut restored_reference = restore(1);
+            let mut restored = restore(workers);
+            assert!(
+                restored
+                    .execution
+                    .resources()
+                    .frontier_replay()
+                    .unwrap()
+                    .select_parts
+                    .is_empty()
+            );
+            assert_matches_serial(&mut restored_reference, &mut restored, &wanted[..1]);
+        }
     }
 
     #[test]
