@@ -4,6 +4,9 @@
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
 
 后续诊断设计见[源码成本分析与短窗口诊断草案](short-profile-plan.md)。
+准入筛选的[远处限速下降候选](admission-distant-results.md)已完成 #834 的有界验证并未采用：
+观察窗筛除 46.2551% 扫描，但普通 ABBA 的公共命令收益方向不一致、全程墙钟未改善。
+独立候选、撤回历史和完整证据保留；#707 正式认证仍开放。
 正式 r1 后续状态见 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)，四轮
 身份、完整摘要和观察窗统计见版本化的
 [`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)；
