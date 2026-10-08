@@ -80,9 +80,11 @@ pub use kernel::parking::{
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
 pub use kernel::placement::{
-    AdmissionReserve, contender_rebuild_scans, incremental_contender_visits,
-    reset_contender_update_counts, set_admission_reserve_failure,
+    AdmissionReserve, contender_filter_counts, contender_filter_speed_drop_kinds,
+    contender_filter_totals, contender_rebuild_scans, incremental_contender_visits,
+    reset_contender_filter_totals, reset_contender_update_counts, set_admission_reserve_failure,
     set_contender_note_reserve_failure, set_contender_reserve_failure,
+    with_contender_filter_reference,
 };
 pub use kernel::policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
 pub use kernel::pose::{CommittedSignalGroupBatch, PoseSource};
