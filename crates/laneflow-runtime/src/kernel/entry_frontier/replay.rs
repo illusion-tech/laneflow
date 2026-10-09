@@ -46,7 +46,11 @@ impl Input {
 struct Row {
     input: Input,
     cells: usize,
-    error: Option<StepError>,
+}
+
+struct ComputedReplay {
+    emitted: Option<usize>,
+    first_error: Option<(usize, StepError)>,
 }
 
 /// 并行收集的一个地址成员：拍初已标记的成员不收集；未通过身份或 live 序检查
@@ -170,11 +174,7 @@ pub(super) fn demanded(
         let cells = step.workspace.frontier_maintenance.slots[input.vehicle.index() as usize]
             .cells
             .len();
-        rows.push(Row {
-            input,
-            cells,
-            error: None,
-        });
+        rows.push(Row { input, cells });
         Ok(())
     });
     // 较晚的选择失败不能抢在较早车辆的计算/插入错误之前。
@@ -203,7 +203,7 @@ pub(super) fn demanded(
         total.expect("checked replay size"),
         (VehicleHandle::new(0, 0), 0),
     );
-    let emitted = compute(
+    let computed = compute(
         step.read_view(),
         &step.workspace.frontier_maintenance,
         horizon_ms,
@@ -211,7 +211,7 @@ pub(super) fn demanded(
         resources,
         scratch,
     );
-    consume(step, scratch, emitted, resources)?;
+    consume(step, scratch, computed, resources)?;
     selected
 }
 
@@ -407,7 +407,7 @@ fn compute(
     wanted: &[ConflictPassageAddress],
     resources: &ExecutionResources,
     scratch: &mut ReplayScratch,
-) -> Option<usize> {
+) -> ComputedReplay {
     let span = scratch
         .rows
         .len()
@@ -419,12 +419,13 @@ fn compute(
         )
         .max(1);
     struct Part<'a> {
-        rows: &'a mut [Row],
+        rows: &'a [Row],
         estimates: &'a mut [ApproachEstimate],
         cell_indices: &'a mut [u32],
         owners: &'a mut [(VehicleHandle, u32)],
         emitted: usize,
         valid: bool,
+        first_error: Option<(usize, StepError)>,
         #[cfg(test)]
         work: crate::kernel::conflict::ConflictWorkCounts,
     }
@@ -433,7 +434,7 @@ fn compute(
     let mut rest_indices = scratch.cell_indices.as_mut_slice();
     let mut rest_owners = scratch.owners.as_mut_slice();
     let count = scratch.rows.len().div_ceil(span);
-    for (part, rows) in parts.iter_mut().zip(scratch.rows.chunks_mut(span)) {
+    for (part, rows) in parts.iter_mut().zip(scratch.rows.chunks(span)) {
         let cells = rows.iter().map(|row| row.cells).sum();
         let (output, tail) = rest.split_at_mut(cells);
         let (indices, tail_indices) = std::mem::take(&mut rest_indices).split_at_mut(cells);
@@ -447,6 +448,7 @@ fn compute(
             owners,
             emitted: 0,
             valid: true,
+            first_error: None,
             #[cfg(test)]
             work: Default::default(),
         });
@@ -454,12 +456,12 @@ fn compute(
     }
     #[cfg(test)]
     let baseline = crate::kernel::conflict::conflict_work_counts();
-    resources.for_each_part(&mut parts[..count], 1, |_, part| {
+    resources.for_each_part(&mut parts[..count], 1, |part_index, part| {
         let part = part[0].as_mut().expect("prepared replay part");
         #[cfg(test)]
         let before = crate::kernel::conflict::conflict_work_counts();
         let mut offset = 0;
-        for row in part.rows.iter_mut() {
+        for (index, row) in part.rows.iter().enumerate() {
             let output = &mut part.estimates[offset..offset + row.cells];
             let indices = &mut part.cell_indices[offset..offset + row.cells];
             let owners = &mut part.owners[offset..offset + row.cells];
@@ -468,32 +470,34 @@ fn compute(
             let cells = &maintenance.slots[row.input.vehicle.index() as usize].cells;
             let emitted = &mut part.emitted;
             let valid = &mut part.valid;
-            row.error = PreparedReplay::new(read, row.input, horizon_ms)
-                .and_then(|prepared| {
-                    prepared.walk(
-                        row.input,
-                        cells,
-                        Some(wanted),
-                        |index, address, estimate| {
-                            output[index] = estimate;
-                            owners[index] = owner;
-                            *emitted += 1;
-                            match read
-                                .conflict_read()
-                                .cell_index(address)
-                                .ok()
-                                .and_then(|cell| u32::try_from(cell).ok())
-                                .filter(|cell| *cell != u32::MAX)
-                            {
-                                Some(cell) => indices[index] = cell,
-                                None => *valid = false,
-                            }
-                            Ok(())
-                        },
-                    )
-                })
-                .err();
-            *valid &= row.error.is_none();
+            let result = PreparedReplay::new(read, row.input, horizon_ms).and_then(|prepared| {
+                prepared.walk(
+                    row.input,
+                    cells,
+                    Some(wanted),
+                    |index, address, estimate| {
+                        output[index] = estimate;
+                        owners[index] = owner;
+                        *emitted += 1;
+                        match read
+                            .conflict_read()
+                            .cell_index(address)
+                            .ok()
+                            .and_then(|cell| u32::try_from(cell).ok())
+                            .filter(|cell| *cell != u32::MAX)
+                        {
+                            Some(cell) => indices[index] = cell,
+                            None => *valid = false,
+                        }
+                        Ok(())
+                    },
+                )
+            });
+            if let Err(error) = result {
+                *valid = false;
+                part.first_error
+                    .get_or_insert((part_index * span + index, error));
+            }
         }
         #[cfg(test)]
         {
@@ -507,12 +511,19 @@ fn compute(
             .flatten()
             .fold(baseline, |sum, part| sum.wrapping_add(part.work)),
     );
-    parts[..count]
-        .iter()
-        .flatten()
-        .try_fold(0_usize, |sum, part| {
-            part.valid.then_some(sum + part.emitted)
-        })
+    ComputedReplay {
+        emitted: parts[..count]
+            .iter()
+            .flatten()
+            .try_fold(0_usize, |sum, part| {
+                part.valid.then_some(sum + part.emitted)
+            }),
+        // 分段顺序与选择行序相同；只归约错误位置，不抢先跳过更早的插入检查。
+        first_error: parts[..count]
+            .iter()
+            .flatten()
+            .find_map(|part| part.first_error),
+    }
 }
 
 /// 按序列出发出项的 cell 下标（跳过未发出的 `u32::MAX`）。
@@ -548,11 +559,11 @@ impl ExactSizeIterator for EmittedCells<'_> {}
 fn consume(
     step: &mut StepWorkspace<'_>,
     scratch: &ReplayScratch,
-    emitted: Option<usize>,
+    computed: ComputedReplay,
     resources: &ExecutionResources,
 ) -> Result<(), StepError> {
-    let Some(emitted) = emitted.filter(|emitted| *emitted > 0) else {
-        return consume_serial(step, scratch);
+    let Some(emitted) = computed.emitted.filter(|emitted| *emitted > 0) else {
+        return consume_serial(step, scratch, computed.first_error);
     };
     #[cfg(test)]
     {
@@ -605,13 +616,19 @@ fn consume(
         })
 }
 
-fn consume_serial(step: &mut StepWorkspace<'_>, scratch: &ReplayScratch) -> Result<(), StepError> {
+fn consume_serial(
+    step: &mut StepWorkspace<'_>,
+    scratch: &ReplayScratch,
+    first_error: Option<(usize, StepError)>,
+) -> Result<(), StepError> {
     let mut conflict = step
         .committed
         .prepare_conflict(&mut step.derived, &mut step.workspace.conflict);
     let mut offset = 0;
-    for row in &scratch.rows {
-        if let Some(error) = row.error {
+    for (index, row) in scratch.rows.iter().enumerate() {
+        if let Some((at, error)) = first_error
+            && at == index
+        {
             return Err(error);
         }
         let vehicle = row.input.vehicle;
@@ -956,11 +973,19 @@ mod tests {
         workers: u32,
         multiple_addresses: bool,
     ) -> (TrafficWorld, Vec<ConflictPassageAddress>) {
+        cached_world_with_population(workers, 16, multiple_addresses)
+    }
+
+    fn cached_world_with_population(
+        workers: u32,
+        population: u32,
+        multiple_addresses: bool,
+    ) -> (TrafficWorld, Vec<ConflictPassageAddress>) {
         let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
         let mut world =
             crate::admin::cutover_migration::tests::conflict_scale_world_with_route_capacity(
                 revision,
-                16,
+                population,
                 if multiple_addresses { 2 } else { 1 },
             );
         let live = world.state.committed.live_order.clone();
@@ -1547,17 +1572,118 @@ mod tests {
                 expected = Some(insertions.clone());
             }
             if let Some(scratch) = world.execution.resources().frontier_replay() {
-                assert_eq!(
-                    scratch.rows[7].error,
-                    Some(StepError::ConflictInvariantViolation)
-                );
-                assert!(scratch.rows[8..].iter().all(|row| row.error.is_none()));
                 assert!(
                     scratch.estimates[32..]
                         .iter()
                         .any(|estimate| matches!(estimate, ApproachEstimate::Finite(_))),
                     "later work must be joined even though consumption stopped at the earlier error"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn replay_multiple_errors_keep_selection_order_and_retry_clears_reports() {
+        let mut expected = None;
+        for workers in [1, 4, 16] {
+            let (mut world, wanted) = cached_world_with_population(workers, 32, false);
+            let originals: Vec<_> = [2, 3, 17]
+                .into_iter()
+                .map(|row| {
+                    let vehicle = world.state.committed.live_order[31 - row];
+                    (vehicle, world.vehicle(vehicle).unwrap().profile)
+                })
+                .collect();
+            for (vehicle, _) in &originals {
+                world
+                    .state
+                    .committed
+                    .vehicles
+                    .slot_mut(vehicle.index() as usize)
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .profile = VehicleProfileOrdinal::from_raw(u32::MAX);
+            }
+            assert_eq!(
+                run(&mut world, &wanted),
+                Err(StepError::ConflictInvariantViolation)
+            );
+            let inserted = world
+                .state
+                .workspace
+                .frontier_maintenance
+                .insertions
+                .clone();
+            assert_eq!(
+                inserted.len(),
+                4,
+                "two sources before the first bad profile"
+            );
+            match &expected {
+                Some(expected) => assert_eq!(&inserted, expected, "{workers} workers"),
+                None => expected = Some(inserted),
+            }
+            if let Some(scratch) = world.execution.resources().frontier_replay() {
+                assert!(
+                    scratch.estimates[72..]
+                        .iter()
+                        .any(|estimate| matches!(estimate, ApproachEstimate::Finite(_))),
+                    "sources after all three errors must finish before consumption returns"
+                );
+            }
+            for (vehicle, profile) in originals {
+                world
+                    .state
+                    .committed
+                    .vehicles
+                    .slot_mut(vehicle.index() as usize)
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .profile = profile;
+            }
+            let (mut fresh, _) = cached_world_with_population(1, 32, false);
+            assert_matches_serial(&mut fresh, &mut world, &wanted);
+        }
+    }
+
+    #[test]
+    fn replay_earlier_insert_failure_precedes_later_computed_error() {
+        let mut expected = None;
+        for workers in [1, 4, 16] {
+            let (mut world, mut wanted) = cached_world(workers);
+            let invalid =
+                ConflictPassageAddress::new(wanted[0].zone(), wanted[0].stream(), u32::MAX);
+            wanted.push(invalid);
+            wanted.sort_unstable();
+            let earlier = world.state.committed.live_order[14];
+            world.state.workspace.frontier_maintenance.slots[earlier.index() as usize].cells[1]
+                .address = invalid;
+            let later = world.state.committed.live_order[8];
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(later.index() as usize)
+                .state
+                .as_mut()
+                .unwrap()
+                .profile = VehicleProfileOrdinal::from_raw(u32::MAX);
+            assert_eq!(
+                run(&mut world, &wanted),
+                Err(StepError::ConflictInvariantViolation)
+            );
+            let inserted = &world.state.workspace.frontier_maintenance.insertions;
+            assert_eq!(
+                inserted.len(),
+                3,
+                "one complete source and the failed insertion"
+            );
+            assert_eq!(inserted.last().unwrap().0, invalid);
+            match &expected {
+                Some(expected) => assert_eq!(inserted, expected, "{workers} workers"),
+                None => expected = Some(inserted.clone()),
             }
         }
     }
