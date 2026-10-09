@@ -16,6 +16,7 @@ use crate::{
 };
 
 mod log_io;
+mod sustained;
 
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v3";
 const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
@@ -555,6 +556,20 @@ pub fn run_to_directory(
             .files
             .insert("measurements.toml".into(), digest_file(&path)?);
     }
+    if result.error.is_none()
+        && let Err(error) = sustained::validate_result(&result)
+    {
+        result.status = "performance-load-failed".into();
+        result.error = Some(error.to_string());
+        // 负载失败仍保留完整测量；日志已包含全部记录，不再次物化长窗日志副本。
+        let failure = json!({"committed_world_tick":harness.world.tick_index(),
+            "active_load":result.active_load,"error":result.error});
+        let path = output.join("failure.json");
+        write_json(&path, &failure)?;
+        result
+            .files
+            .insert("failure.json".into(), digest_file(&path)?);
+    }
     // diagnostics.json 的摘要纳入 result.files 完整性封套（worker 计数
     // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
     times.sort_unstable();
@@ -799,6 +814,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
         if result.version != "urban-result-v7"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
+            || performance && !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
             || !performance
                 && !matches!(
                     (result.purpose.as_str(), result.status.as_str()),
@@ -832,7 +848,13 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
         for line in BufReader::new(File::open(dir.join("ticks.jsonl"))?).lines() {
             let row: TickRecord = serde_json::from_str(&line?)?;
             count += 1;
-            if row.tick != count || row.active + row.parked + row.completed != row.live {
+            if row.tick != count
+                || row
+                    .active
+                    .checked_add(row.parked)
+                    .and_then(|n| n.checked_add(row.completed))
+                    != Some(row.live)
+            {
                 return Err(invalid("tick sequence or lifecycle differs"));
             }
         }
@@ -869,6 +891,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                     ));
                 }
             }
+            sustained::verify(dir, &result, &measurement)?;
             Some(measurement.provenance)
         } else {
             None
@@ -1012,7 +1035,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         }
         if result.version != "urban-result-v7"
             || result.purpose != "performance"
-            || result.case != "MIXED-PEAK"
+            || !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
             || result.status != "performance-round-complete"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
@@ -1039,7 +1062,13 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         for line in BufReader::new(File::open(directory.join("ticks.jsonl"))?).lines() {
             let row: TickRecord = serde_json::from_str(&line?)?;
             tick_count += 1;
-            if row.tick != tick_count || row.active + row.parked + row.completed != row.live {
+            if row.tick != tick_count
+                || row
+                    .active
+                    .checked_add(row.parked)
+                    .and_then(|n| n.checked_add(row.completed))
+                    != Some(row.live)
+            {
                 return Err(invalid("performance tick sequence or lifecycle differs"));
             }
         }
@@ -1075,7 +1104,6 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         {
             return Err(invalid("performance rounds use different provenance"));
         }
-        provenance.get_or_insert(measurement.provenance);
         for samples in [
             &measurement.command_samples_ns,
             &measurement.traffic_world_step_samples_ns,
@@ -1089,6 +1117,8 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 ));
             }
         }
+        sustained::verify(directory, &result, &measurement)?;
+        provenance.get_or_insert(measurement.provenance);
         let current = (
             result.case.clone(),
             result.scale.clone(),
@@ -1280,7 +1310,7 @@ mod tests {
         assert!(!outside.exists());
     }
 
-    fn measurement_fixture() -> serde_json::Value {
+    pub(super) fn measurement_fixture() -> serde_json::Value {
         json!({
             "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
             "git_commit":"a".repeat(40), "git_status":"",
@@ -1521,7 +1551,11 @@ mod tests {
     }
 
     // Synthetic file-envelope test only: no simulation or formal performance evidence.
-    fn write_round(directory: &Path, execution: &str, mut measurement: serde_json::Value) {
+    pub(super) fn write_round(
+        directory: &Path,
+        execution: &str,
+        mut measurement: serde_json::Value,
+    ) {
         fs::create_dir_all(directory).unwrap();
         measurement["execution_id"] = json!(execution);
         fs::write(

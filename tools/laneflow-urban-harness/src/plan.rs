@@ -105,12 +105,27 @@ impl Window {
         if !matches!(artifacts.catalog.scale.as_str(), "10k" | "100k") {
             return Err(invalid("performance requires 10k or 100k artifacts"));
         }
-        let cycle = cycle_ticks(artifacts)?;
-        Ok(Self {
+        Self::performance_for_cycle(cycle_ticks(artifacts)?)
+    }
+
+    pub(crate) fn performance_for_cycle(cycle: u64) -> Result<Self> {
+        let window = Self {
             purpose: "performance".into(),
-            warm_up_ticks: (4 * cycle).max(512),
-            observation_ticks: (8 * cycle).max(4_096),
-        })
+            warm_up_ticks: cycle
+                .checked_mul(4)
+                .filter(|_| cycle != 0)
+                .ok_or_else(|| invalid("invalid performance cycle"))?
+                .max(512),
+            observation_ticks: cycle
+                .checked_mul(8)
+                .ok_or_else(|| invalid("performance window overflow"))?
+                .max(4_096),
+        };
+        window
+            .warm_up_ticks
+            .checked_add(window.observation_ticks)
+            .ok_or_else(|| invalid("performance window overflow"))?;
+        Ok(window)
     }
     pub fn end(&self) -> u64 {
         self.warm_up_ticks + self.observation_ticks
@@ -296,7 +311,7 @@ impl ResolvedPlan {
         Self::for_case(artifacts, UrbanCase::MixedPeak, window)
     }
 
-    /// 展开七套正式场景或独立的持续负载探针，不推进交通世界。
+    /// 展开七套正确性场景或独立的持续 Active 负载，不推进交通世界。
     ///
     /// # Errors
     /// 窗口、场景或步长不受支持，目录缺少所需路线、车道、信号或停车锚点，
@@ -307,7 +322,8 @@ impl ResolvedPlan {
         match window.purpose.as_str() {
             "correctness" if window == Window::correctness(artifacts)? => {}
             "performance"
-                if case == UrbanCase::MixedPeak && window == Window::performance(artifacts)? => {}
+                if matches!(case, UrbanCase::MixedPeak | UrbanCase::SustainedActive)
+                    && window == Window::performance(artifacts)? => {}
             "probe"
                 if window.warm_up_ticks <= cycle
                     && window.observation_ticks <= 3 * cycle
@@ -317,8 +333,8 @@ impl ResolvedPlan {
         let recipe = ScenarioRecipe::for_case(case);
         let role_set = recipe.roles;
         let sustained = recipe.demand == DemandStrategy::CompletedRecycling;
-        if sustained && window.purpose != "probe" {
-            return Err(invalid("SUSTAINED-ACTIVE only runs probe windows"));
+        if sustained && window.purpose == "correctness" {
+            return Err(invalid("SUSTAINED-ACTIVE has no correctness witnesses"));
         }
         let quantum = 528 / artifacts.dt;
         let (retry_ticks, max_attempts) = if sustained { (0, 0) } else { (4 * quantum, 8) };
@@ -1351,7 +1367,7 @@ impl ResolvedPlan {
         Ok(())
     }
 
-    fn validate_structure(&self) -> Result<()> {
+    pub(crate) fn validate_structure(&self) -> Result<()> {
         let mut ids = BTreeSet::new();
         let mut insert = |sequence: u32| {
             if !ids.insert(sequence) {

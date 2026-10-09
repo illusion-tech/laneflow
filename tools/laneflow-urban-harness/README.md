@@ -71,14 +71,15 @@ target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json
 （`compare <performance-a> <performance-b> <performance-c>`，provenance 全等
 含 workers）为准。
 
-`--case` 只接受 `MIXED-PEAK`、`GARAGE-EGRESS`、`GARAGE-INGRESS`、
+七套正确性场景为 `MIXED-PEAK`、`GARAGE-EGRESS`、`GARAGE-INGRESS`、
 `WAITING-RELEASE`、`PERMISSIVE-LEFT`、`UNCONTROLLED-YIELD` 和
 `BOUNDARY-BURST`。省略时为 `MIXED-PEAK`。
 
-独立负载探针 `SUSTAINED-ACTIVE` 只接受 probe 窗口：
+独立持续负载 `SUSTAINED-ACTIVE` 接受 probe 和正式 performance 窗口：
 
 ```text
 target/release/laneflow-urban-harness plan <artifact-directory> <sustained.toml> --case SUSTAINED-ACTIVE --probe-warm-up 512 --probe-ticks 4096
+target/release/laneflow-urban-harness plan <artifact-directory> <sustained-performance.toml> --case SUSTAINED-ACTIVE --performance
 ```
 
 每 tile 初始 1000 Active，无停车初态、停车请求或正确性角色。场景配方分别选择初始
@@ -95,6 +96,13 @@ target/release/laneflow-urban-harness plan <artifact-directory> <sustained.toml>
 p50/p95/p99/max、样本数，以及各自低于初始目标的拍数。车辆完成和入口受阻会降低
 实际 Active；`probe-complete` 只表示窗口完成，不证明持续负载达标，也不替代正式性能认证。
 修改回收策略后必须重新取证，旧计划不能作为当前持续负载的证据。
+
+正式持续负载使用最长信号周期的四周期暖机、八周期观察，并保留现行最小拍数；
+与 Mixed 分别生成计划。观察期每拍 step 前的实际 Active 必须等于一万/十万目标，
+step 后真实下降另列。未达到负载门槛时仍保存全部日志和正式测量，状态为
+`performance-load-failed`、CLI 非零退出；双臂比较与三轮聚合拒绝此类回执。
+比较时重新核对完整计划、周期检查点、逐拍负载与测量样本及回收计数，不只读取汇总值。
+负载有效及三轮取证完成不自动表示预算、交通质量或 #707 整体认证通过。
 
 `diagnostics.json` 的 `window_step_samples_ns` 保存排除暖机后的整步耗时样本，单位为
 纳秒，按耗时升序排列；它不是逐 tick 时序，不能按下标关联车辆或慢拍。
