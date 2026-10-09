@@ -147,6 +147,14 @@ pub(super) fn verify(
     validate_result(result)?;
     let plan = ResolvedPlan::read(&directory.join("resolved-plan.toml"))?;
     plan.validate_structure()?;
+    let frozen_positions: Vec<_> = (0..11).map(|n| 7_000 + n * 8_500).collect();
+    if plan.recycling.as_ref().is_none_or(|p| {
+        p.attempts_per_boundary != 64 || p.retry_ticks != 8 || p.progress_mm != frozen_positions
+    }) {
+        return Err(invalid(
+            "sustained recycling policy differs from frozen constants",
+        ));
+    }
     let expected_dt = if result.scale == "10k" { 16 } else { 33 };
     if plan.version != "urban-demand-v3"
         || plan.case != result.case
@@ -189,6 +197,7 @@ pub(super) fn verify(
         let row: TickRecord = serde_json::from_str(&line?)?;
         tick_count += 1;
         if row.tick != tick_count
+            || Some(row.time_ms) != row.tick.checked_mul(plan.dt)
             || row.live as u64 != target
             || row.parked != 0
             || row.intent > row.live
@@ -356,7 +365,7 @@ pub(super) fn verify(
             if new.tile != row.individual.tile
                 || new.slot != row.individual.slot
                 || Some(new.incarnation) != row.individual.incarnation.checked_add(1)
-                || row.cursor_after <= row.cursor_before
+                || Some(row.cursor_after) != row.cursor_before.checked_add(1)
                 || row.details.route.as_deref() != Some(row.details.placement.route.as_str())
                 || row.details.reason.is_some()
             {
@@ -734,6 +743,9 @@ mod tests {
             "transient-parked",
             "timing-arrays",
             "event-batch",
+            "policy-constants",
+            "timestamp",
+            "cursor-jump",
         ] {
             // 每臂做同一种篡改，不能让跨臂差异代替逐臂校验。
             for (i, directory) in dirs.iter().enumerate() {
@@ -742,13 +754,16 @@ mod tests {
                 let mut result: RunResult =
                     serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
                 match fault {
-                    "tick-deficit" | "pending" | "transient-parked" => {
+                    "tick-deficit" | "pending" | "transient-parked" | "timestamp" => {
                         let rows = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
                         let mut output = std::io::BufWriter::new(
                             File::create(directory.join("ticks.jsonl")).unwrap(),
                         );
                         for text in rows.lines() {
                             let mut row: TickRecord = serde_json::from_str(text).unwrap();
+                            if fault == "timestamp" {
+                                row.time_ms = 0;
+                            }
                             if fault == "tick-deficit"
                                 && row.tick == result.window.warm_up_ticks + 1
                             {
@@ -844,6 +859,17 @@ mod tests {
                         commands[1]["details"]["placement"]["route"] = json!("route");
                         rewrite_commands(directory, &commands, true);
                     }
+                    "policy-constants" => {
+                        let mut plan =
+                            ResolvedPlan::read(&directory.join("resolved-plan.toml")).unwrap();
+                        let p = plan.recycling.as_mut().unwrap();
+                        p.attempts_per_boundary = 63;
+                        p.retry_ticks = 1;
+                        p.progress_mm = vec![7_000, 15_500];
+                        let text = toml::to_string_pretty(&plan).unwrap();
+                        result.plan_digest = sha256(text.as_bytes());
+                        fs::write(directory.join("resolved-plan.toml"), text).unwrap();
+                    }
                     "event-batch" => {
                         let text = fs::read_to_string(directory.join("events.jsonl")).unwrap();
                         let mut file = File::create(directory.join("events.jsonl")).unwrap();
@@ -888,7 +914,8 @@ mod tests {
                     | "new-generation"
                     | "duplicate-request"
                     | "unbound-command"
-                    | "wrong-candidate" => {
+                    | "wrong-candidate"
+                    | "cursor-jump" => {
                         let mut commands: Vec<serde_json::Value> =
                             fs::read_to_string(directory.join("commands.jsonl"))
                                 .unwrap()
@@ -934,9 +961,27 @@ mod tests {
                             "wrong-candidate" => {
                                 commands[0]["details"]["placement"]["progress_mm"] = json!(15_500);
                             }
+                            "cursor-jump" => {
+                                commands[1]["cursor_after"] = json!(778);
+                            }
                             _ => unreachable!(),
                         }
-                        rewrite_commands(directory, &commands, fault == "wrong-candidate");
+                        rewrite_commands(
+                            directory,
+                            &commands,
+                            matches!(fault, "wrong-candidate" | "cursor-jump"),
+                        );
+                        if fault == "cursor-jump" {
+                            let text = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
+                            let mut file = File::create(directory.join("ticks.jsonl")).unwrap();
+                            for line_text in text.lines() {
+                                let mut tick: TickRecord = serde_json::from_str(line_text).unwrap();
+                                if tick.tick >= 2 {
+                                    tick.command_cursor = 778;
+                                }
+                                line(&mut file, &tick).unwrap();
+                            }
+                        }
                     }
                     _ => unreachable!(),
                 }
