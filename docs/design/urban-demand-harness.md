@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-10-07<br>
+**最后更新**: 2026-10-09<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -271,7 +271,7 @@ Scheduled→Pending→Succeeded/Exhausted 状态，只有 Pending 可以重试�
 `step_before`，供意图计数、红灯等待和路线跨越观测使用，不能将它移到命令前。
 命令以提交前边界计数，观察范围为 `[warm_up_ticks,end)`；完成 step 的 tick 是该边界
 加一，决策/事件使用 `(warm_up_ticks,end]`，排除最后一个暖机 step、包含最后一个观察
-step。完整逐 tick 日志仍保留暖机与观察两段。
+step。显式启用诊断时，完整逐 tick 日志保留暖机与观察两段。
 
 两个独立运行从同一 LFCA 和同一展开计划各自创建新世界，不用首轮快照启动第二轮。
 比较输入摘要、逐 tick 状态/事件序列与完整状态检查点；首个差异保留 tick、稳定个体和
@@ -291,6 +291,30 @@ live；未来尚未到期和已到期 pending/exhausted 请求分别计数，均
 本推导失效，需要重新审定观测口径。
 
 ## 6. 运行长度与结果包
+
+### 显式诊断输出（#855）
+
+详细日志属于调用方诊断能力，默认关闭。CLI 只有显式传入 `--diagnostics` 才创建并
+序列化 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`；运行库以 `Diagnostics`
+枚举显式选择，默认值为禁用。禁用时继续执行同一世界、命令、逐拍观测和完整状态
+检查点，仅保存计划、最小运行回执及执行计时，不分配详细日志缓冲，也不编码其内容。
+失败时仍保存错误与最后提交拍，完整命令/事件明细遵守同一开关。
+启用时三份日志各设置 10 MiB 流式缓冲，共 30 MiB，由调用方诊断拥有；禁用时为零。
+
+结果载荷为 `urban-result-v7`，以必填 `diagnostics_enabled` 绑定实际诊断选择。
+未启用详细日志的 probe 可以完成运行，但不能作为逐拍回放或完整语义比较证据。
+双臂比较与三轮聚合均拒绝诊断禁用、记录缺失、版本错误或摘要不符的回执。
+correctness/performance 必须显式启用诊断；未启用时在安装世界和创建输出前拒绝，
+不自动为正式计划开启详细写出，也不在长测结束后才发现取证不完整。
+
+文本诊断采用 Rust `tracing` 的结构化事件、级别与 target，由调用方配置 subscriber。
+命令行只在显式启用诊断时安装 subscriber，并通过 `RUST_LOG` / `EnvFilter` 过滤；库
+不得自行安装全局 subscriber。可过滤的文本事件不承担逐拍验收记录的完整性；详细
+机器记录开启后保留全部规范 JSON 字节，不以过滤或丢弃日志取得性能收益。
+
+日志缓冲、序列化与收尾成本归入 harness，公共 step 计时边界不变。取证时分列调用方
+缓冲容量与 Runtime 资源，并区分最终 write/flush 和文件同步请求的完成边界。
+`flush` 不是设备同步完成证明。
 
 ### 按需表现对照（#713）
 
@@ -332,7 +356,7 @@ Burst 仍保留共同有限窗口，但重点另列两个提交边界的 raw 结
 输入、命令日志与语义证据固定后，计时、环境和错误单独保存。结果包以完成初始化
 （世界安装、路线注册、初态校验和初始检查点）为起点。初始化失败由库返回错误，
 CLI 输出错误并非零退出；本段接受部分准备文件，不提供结构化初始化失败记录或
-半成品世界状态。完成初始化后的运行及受控执行/校验失败，其结果包最少包含：
+半成品世界状态。显式启用诊断的运行及受控执行/校验失败，其结果包最少包含：
 
 - `resolved-plan.toml`：上述实际输入和预期触发；其摘要与来源制品四联进入结果。
 - `commands`、`events`、`ticks`：实际顺序、结果和逐域计数，及用于重复比较的摘要。
@@ -340,8 +364,9 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
 - `comparison.json`：比较结论、case/scale、计划摘要、完成 tick 数、两个执行编号和
   两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；两份原始
-  result 保持不可变。当前载荷为 `urban-result-v6`（incarnation 与请求编号独立，持续负载
-  显式报告实际 Active）/ `urban-comparison-v2`（v2 起记录两臂 worker 数），不转换旧记录。
+  result 保持不可变。当前载荷为 `urban-result-v7`（显式绑定详细诊断开关；incarnation
+  与请求编号独立，持续负载显式报告实际 Active）/ `urban-comparison-v2`（v2 起记录
+  两臂 worker 数），不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 

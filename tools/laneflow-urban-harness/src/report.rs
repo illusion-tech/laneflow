@@ -15,15 +15,34 @@ use crate::{
     runner::TileEvidence, sha256,
 };
 
+mod log_io;
+
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v3";
 const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
 const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=pre-and-post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
+
+/// 调用方显式选择详细日志；最小运行回执与错误不受此开关影响。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Diagnostics {
+    /// 关闭逐拍、命令和事件文件及其编码。
+    #[default]
+    Disabled,
+    /// 输出完整规范日志，供独立回放和验收比较。
+    Enabled,
+}
+
+impl Diagnostics {
+    fn is_enabled(self) -> bool {
+        self == Self::Enabled
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunResult {
     pub version: String,
     pub status: String,
     pub purpose: String,
+    pub diagnostics_enabled: bool,
     pub case: String,
     pub scale: String,
     pub network_revision: String,
@@ -296,16 +315,31 @@ fn line(file: &mut impl Write, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
-/// Runs one fresh world. Controlled execution or validation failures retain the last committed tick.
-/// Initialization errors return Err and may leave preparation files without a failed-run package.
-/// Correctness/probe timing is diagnostic only. A formal performance plan emits measurements.
+/// 运行一个全新世界；受控步进失败保留最后提交的拍和已有观测。
+/// correctness/probe 的计时只作诊断，正式 performance 计划另行输出测量封套。
+///
+/// # Errors
+///
+/// 计划验证、世界安装、输出创建/读写/编码、检查点或执行来源校验失败时返回错误。
+/// correctness/performance 未显式启用诊断时拒绝执行。受控步进失败记入返回值的
+/// `error`，初始化失败可能只留下准备文件。
 pub fn run_to_directory(
     artifacts: &Artifacts,
     plan: &ResolvedPlan,
     output: &Path,
     execution: laneflow_runtime::ExecutionConfig,
+    diagnostics: Diagnostics,
 ) -> Result<RunResult> {
     plan.validate(artifacts)?;
+    if !diagnostics.is_enabled() && plan.window.purpose != "probe" {
+        return Err(invalid(
+            "correctness/performance 需要显式启用诊断（CLI: --diagnostics）",
+        ));
+    }
+    let _span = tracing::info_span!("urban_run", case = %plan.case, scale = %plan.scale,
+        workers = execution.worker_count().get(), diagnostics = diagnostics.is_enabled())
+    .entered();
+    tracing::info!("运行开始");
     let performance_context = if plan.window.purpose == "performance" {
         let checkout = command_output("git", &["rev-parse", "--show-toplevel"])
             .ok_or_else(|| invalid("unavailable checkout for performance output validation"))?;
@@ -327,9 +361,10 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan, execution)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v6".into(),
+        version: "urban-result-v7".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
+        diagnostics_enabled: diagnostics.is_enabled(),
         case: plan.case.clone(),
         scale: plan.scale.clone(),
         network_revision: artifacts.catalog.network_revision.clone(),
@@ -358,9 +393,10 @@ pub fn run_to_directory(
         files: BTreeMap::new(),
     };
     result.checkpoints.insert(0, harness.checkpoint()?);
-    let mut ticks = BufWriter::new(File::create(output.join("ticks.jsonl"))?);
-    let mut commands = BufWriter::new(File::create(output.join("commands.jsonl"))?);
-    let mut events = BufWriter::new(File::create(output.join("events.jsonl"))?);
+    let mut logs = diagnostics
+        .is_enabled()
+        .then(|| log_io::Logs::new(output))
+        .transpose()?;
     let mut times = Vec::new();
     let mut window_step_times = Vec::new();
     let mut command_times = Vec::new();
@@ -370,12 +406,8 @@ pub fn run_to_directory(
     let run: Result<()> = (|| {
         for _ in 0..plan.window.end() {
             let record = harness.advance()?;
-            line(&mut ticks, &record)?;
-            for command in &harness.commands {
-                line(&mut commands, command)?;
-            }
-            for event in &harness.events {
-                line(&mut events, event)?;
+            if let Some(logs) = &mut logs {
+                logs.write_tick(&record, &harness.commands, &harness.events)?;
             }
             times.push(harness.last_step_ns);
             if record.tick > plan.window.warm_up_ticks {
@@ -399,14 +431,14 @@ pub fn run_to_directory(
                     .insert(record.tick, harness.checkpoint()?);
             }
             if record.tick.is_multiple_of(1_024) {
-                eprintln!(
-                    "tick {}/{}: active={} parked={} completed={} elapsed={:.1}s",
-                    record.tick,
-                    plan.window.end(),
-                    record.active,
-                    record.parked,
-                    record.completed,
-                    started.elapsed().as_secs_f64()
+                tracing::debug!(
+                    tick = record.tick,
+                    end = plan.window.end(),
+                    active = record.active,
+                    parked = record.parked,
+                    completed = record.completed,
+                    elapsed_seconds = started.elapsed().as_secs_f64(),
+                    "运行进度"
                 );
             }
         }
@@ -450,15 +482,17 @@ pub fn run_to_directory(
     }
     // Keep committed observations from a failed advance visible, without marking that tick passed.
     if result.error.is_some() {
-        write_json(
-            &output.join("failure.json"),
-            &json!({"committed_world_tick":harness.world.tick_index(),
-            "commands":harness.commands, "events":harness.events, "error":result.error}),
-        )?;
+        let failure = if diagnostics.is_enabled() {
+            json!({"committed_world_tick":harness.world.tick_index(),
+                "commands":harness.commands,"events":harness.events,"error":result.error})
+        } else {
+            json!({"committed_world_tick":harness.world.tick_index(),"error":result.error})
+        };
+        write_json(&output.join("failure.json"), &failure)?;
     }
-    ticks.flush()?;
-    commands.flush()?;
-    events.flush()?;
+    if let Some(logs) = &mut logs {
+        logs.finish()?;
+    }
     result.tile_evidence = harness.evidence.clone();
     result.retry_reasons = harness.error_counts.clone();
     result.atomic_rejections = harness.atomic_rejections.clone();
@@ -472,6 +506,9 @@ pub fn run_to_directory(
         "events.jsonl",
         "resolved-plan.toml",
     ] {
+        if !diagnostics.is_enabled() && name != "resolved-plan.toml" {
+            continue;
+        }
         result
             .files
             .insert(name.into(), digest_file(&output.join(name))?);
@@ -551,6 +588,7 @@ pub fn run_to_directory(
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),
         "invocation":std::env::args().collect::<Vec<_>>(), "memory_measurement":null,
+        "diagnostics_enabled":diagnostics.is_enabled(),
         "git_commit_at_run":command_output("git", &["rev-parse", "HEAD"]),
         "git_status_at_run":command_output("git", &["status", "--porcelain"])}),
     )?;
@@ -558,6 +596,7 @@ pub fn run_to_directory(
         .files
         .insert("diagnostics.json".into(), digest_file(&diagnostics_path)?);
     write_json(&output.join("result.json"), &result)?;
+    tracing::info!(completed_ticks = result.completed_ticks, status = %result.status, "运行结束");
     Ok(result)
 }
 
@@ -752,7 +791,12 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             (result.purpose.as_str(), result.status.as_str()),
             ("performance", "performance-round-complete")
         );
-        if result.version != "urban-result-v6"
+        if !result.diagnostics_enabled {
+            return Err(invalid(
+                "完整语义比较需要显式启用详细诊断日志（--diagnostics）",
+            ));
+        }
+        if result.version != "urban-result-v7"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
             || !performance
@@ -780,6 +824,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                 return Err(invalid(format!("run file changed: {name}")));
             }
         }
+        require_diagnostics_marker(dir)?;
         if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("plan digest differs"));
         }
@@ -960,7 +1005,12 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     for directory in directories {
         let result_bytes = fs::read(directory.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&result_bytes)?;
-        if result.version != "urban-result-v6"
+        if !result.diagnostics_enabled {
+            return Err(invalid(
+                "正式性能聚合需要显式启用详细诊断日志（--diagnostics）",
+            ));
+        }
+        if result.version != "urban-result-v7"
             || result.purpose != "performance"
             || result.case != "MIXED-PEAK"
             || result.status != "performance-round-complete"
@@ -981,6 +1031,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 return Err(invalid(format!("performance run file changed: {name}")));
             }
         }
+        require_diagnostics_marker(directory)?;
         if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("performance plan digest differs"));
         }
@@ -1157,6 +1208,15 @@ pub(crate) fn new_execution_id() -> Result<String> {
     ))
 }
 
+fn require_diagnostics_marker(directory: &Path) -> Result<()> {
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join("diagnostics.json"))?)?;
+    if diagnostics["diagnostics_enabled"].as_bool() != Some(true) {
+        return Err(invalid("执行封套的诊断标记缺失、关闭或与结果回执不符"));
+    }
+    Ok(())
+}
+
 /// 读取运行目录 diagnostics.json 的实际 worker 数；合法域 1..=16，
 /// 缺失或越界拒绝（与 CLI、provenance validate 同一规则）。
 pub(crate) fn read_diagnostics_workers(directory: &Path) -> Result<u32> {
@@ -1324,7 +1384,11 @@ mod tests {
         // b 臂：diagnostics 改写为 workers=1 并一致重算 result.json 摘要，
         // 使拒绝来自交叉核对而非摘要失配。
         let diagnostics = b.join("diagnostics.json");
-        write_json(&diagnostics, &json!({"execution_id":"b", "workers":1})).unwrap();
+        write_json(
+            &diagnostics,
+            &json!({"execution_id":"b", "workers":1,"diagnostics_enabled":true}),
+        )
+        .unwrap();
         let result_path = b.join("result.json");
         let mut result: RunResult =
             serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
@@ -1411,7 +1475,7 @@ mod tests {
         write_round(&contradiction, "exec-contradiction", fixture);
         write_json(
             &contradiction.join("diagnostics.json"),
-            &json!({"execution_id":"exec-contradiction", "workers":1}),
+            &json!({"execution_id":"exec-contradiction", "workers":1,"diagnostics_enabled":true}),
         )
         .unwrap();
         assert!(
@@ -1474,7 +1538,7 @@ mod tests {
         fs::write(directory.join("events.jsonl"), "").unwrap();
         write_json(
             &directory.join("diagnostics.json"),
-            &json!({"execution_id":execution, "workers":measurement["workers"]}),
+            &json!({"execution_id":execution, "workers":measurement["workers"],"diagnostics_enabled":true}),
         )
         .unwrap();
         let mut ticks = File::create(directory.join("ticks.jsonl")).unwrap();
@@ -1521,7 +1585,8 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v6".into(),
+                version: "urban-result-v7".into(),
+                diagnostics_enabled: true,
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
                 case: "MIXED-PEAK".into(),
@@ -1557,6 +1622,76 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn comparisons_reject_quiet_and_old_result_receipts() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        let four = temp.path().join("four");
+        for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            write_round(path, id, measurement_fixture());
+        }
+        let mut fixture = measurement_fixture();
+        fixture["workers"] = json!(4);
+        write_round(&four, "four", fixture);
+        assert!(compare_runs(&a, &four).is_ok());
+        assert!(compare_performance_runs([&a, &b, &c]).is_ok());
+        let path = a.join("result.json");
+        let original: RunResult = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let mut quiet = original.clone();
+        quiet.diagnostics_enabled = false;
+        write_json(&path, &quiet).unwrap();
+        assert!(
+            compare_runs(&a, &four)
+                .unwrap_err()
+                .to_string()
+                .contains("--diagnostics")
+        );
+        assert!(
+            compare_performance_runs([&a, &b, &c])
+                .unwrap_err()
+                .to_string()
+                .contains("--diagnostics")
+        );
+        let mut old = original.clone();
+        old.version = "urban-result-v6".into();
+        write_json(&path, &old).unwrap();
+        assert!(compare_runs(&a, &four).is_err());
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        let mut missing = serde_json::to_value(&original).unwrap();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("diagnostics_enabled");
+        write_json(&path, &missing).unwrap();
+        assert!(compare_runs(&a, &four).is_err());
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        let diagnostics_path = a.join("diagnostics.json");
+        let mut declared: serde_json::Value =
+            serde_json::from_slice(&fs::read(&diagnostics_path).unwrap()).unwrap();
+        declared["diagnostics_enabled"] = json!(false);
+        write_json(&diagnostics_path, &declared).unwrap();
+        let mut contradictory = original;
+        contradictory.files.insert(
+            "diagnostics.json".into(),
+            digest_file(&diagnostics_path).unwrap(),
+        );
+        write_json(&path, &contradictory).unwrap();
+        assert!(
+            compare_runs(&a, &four)
+                .unwrap_err()
+                .to_string()
+                .contains("诊断标记")
+        );
+        assert!(
+            compare_performance_runs([&a, &b, &c])
+                .unwrap_err()
+                .to_string()
+                .contains("诊断标记")
+        );
     }
 
     #[test]

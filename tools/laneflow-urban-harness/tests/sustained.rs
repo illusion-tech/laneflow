@@ -3,7 +3,7 @@ use std::fs;
 
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 use laneflow_urban_harness::{
-    Artifacts, ResolvedPlan, UrbanCase, Window, compare_runs, run_to_directory,
+    Artifacts, Diagnostics, ResolvedPlan, UrbanCase, Window, compare_runs, run_to_directory,
 };
 
 fn artifacts(temp: &tempfile::TempDir) -> Artifacts {
@@ -193,7 +193,8 @@ fn sustained_replays_across_workers_and_reports_actual_observation_load() {
         let execution =
             laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap());
         let output = temp.path().join(name);
-        let result = run_to_directory(&artifacts, &plan, &output, execution).unwrap();
+        let result =
+            run_to_directory(&artifacts, &plan, &output, execution, Diagnostics::Enabled).unwrap();
         assert_eq!(result.status, "probe-complete", "{:?}", result.error);
         assert!(result.replacements > 0);
         assert_eq!(result.exhausted_departures, 0);

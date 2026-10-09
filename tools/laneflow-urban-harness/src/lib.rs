@@ -35,9 +35,9 @@ pub use presentation::{
     SelectionWindow,
 };
 pub use report::{
-    ActiveLoadSummary, ComparedRun, ComparisonReport, MAX_WORKERS, PerformanceComparisonReport,
-    PerformanceRound, RunResult, SampleSummary, compare_performance_runs, compare_runs,
-    run_to_directory,
+    ActiveLoadSummary, ComparedRun, ComparisonReport, Diagnostics, MAX_WORKERS,
+    PerformanceComparisonReport, PerformanceRound, RunResult, SampleSummary,
+    compare_performance_runs, compare_runs, run_to_directory,
 };
 pub use runner::{Harness, IndividualId, TickRecord};
 #[cfg(feature = "adapter")]

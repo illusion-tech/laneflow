@@ -3,8 +3,8 @@ use std::{fs, process::Command};
 use laneflow_runtime::VehicleStatus;
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 use laneflow_urban_harness::{
-    Artifacts, ComparisonReport, Harness, ResolvedPlan, UrbanCase, Window, compare_runs,
-    run_to_directory,
+    Artifacts, ComparisonReport, Diagnostics, Harness, ResolvedPlan, UrbanCase, Window,
+    compare_runs, run_to_directory,
 };
 use sha2::{Digest, Sha256};
 
@@ -53,7 +53,14 @@ fn run_workers_parameter_reaches_execution_and_provenance() {
 
     // probe 窗口 + 4 worker：世界实际安装证据。
     let probe_dir = temp.path().join("probe-w4");
-    let probe = run_to_directory(&artifacts, &plan, &probe_dir, execution(4)).unwrap();
+    let probe = run_to_directory(
+        &artifacts,
+        &plan,
+        &probe_dir,
+        execution(4),
+        Diagnostics::Enabled,
+    )
+    .unwrap();
     assert_eq!(probe.status, "probe-complete", "{:?}", probe.error);
     let diagnostics: serde_json::Value =
         serde_json::from_slice(&fs::read(probe_dir.join("diagnostics.json")).unwrap()).unwrap();
@@ -69,7 +76,14 @@ fn run_workers_parameter_reaches_execution_and_provenance() {
 
     // 缺省 1 worker 的 CLI 兼容：run 不带 --workers 仍成功且记录 1。
     let default_dir = temp.path().join("probe-default");
-    let default = run_to_directory(&artifacts, &plan, &default_dir, execution(1)).unwrap();
+    let default = run_to_directory(
+        &artifacts,
+        &plan,
+        &default_dir,
+        execution(1),
+        Diagnostics::Enabled,
+    )
+    .unwrap();
     assert_eq!(default.status, "probe-complete", "{:?}", default.error);
     let diagnostics: serde_json::Value =
         serde_json::from_slice(&fs::read(default_dir.join("diagnostics.json")).unwrap()).unwrap();
@@ -87,8 +101,10 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
 
     let one = temp.path().join("one");
     let four = temp.path().join("four");
-    let one_result = run_to_directory(&artifacts, &plan, &one, execution(1)).unwrap();
-    let four_result = run_to_directory(&artifacts, &plan, &four, execution(4)).unwrap();
+    let one_result =
+        run_to_directory(&artifacts, &plan, &one, execution(1), Diagnostics::Enabled).unwrap();
+    let four_result =
+        run_to_directory(&artifacts, &plan, &four, execution(4), Diagnostics::Enabled).unwrap();
     assert_eq!(one_result.status, "probe-complete");
     assert_eq!(four_result.status, "probe-complete");
 
@@ -109,7 +125,14 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     )
     .unwrap();
     let mixed = temp.path().join("mixed-plan");
-    run_to_directory(&artifacts, &other_plan, &mixed, execution(4)).unwrap();
+    run_to_directory(
+        &artifacts,
+        &other_plan,
+        &mixed,
+        execution(4),
+        Diagnostics::Enabled,
+    )
+    .unwrap();
     // compare_runs 校验 plan_digest 一致 + 语义逐拍一致：不同 plan 拒绝。
     assert!(compare_runs(&one, &mixed).is_err());
 }
@@ -125,12 +148,19 @@ fn compare_runs_rejects_tampered_diagnostics_workers() {
     let plan = fixture_plan(&artifacts);
     let one = temp.path().join("one");
     let four = temp.path().join("four");
-    run_to_directory(&artifacts, &plan, &one, execution(1)).unwrap();
-    run_to_directory(&artifacts, &plan, &four, execution(4)).unwrap();
+    run_to_directory(&artifacts, &plan, &one, execution(1), Diagnostics::Enabled).unwrap();
+    run_to_directory(&artifacts, &plan, &four, execution(4), Diagnostics::Enabled).unwrap();
     assert_eq!(compare_runs(&one, &four).unwrap().status, "probe-match");
 
     let tampered = temp.path().join("tampered");
-    run_to_directory(&artifacts, &plan, &tampered, execution(1)).unwrap();
+    run_to_directory(
+        &artifacts,
+        &plan,
+        &tampered,
+        execution(1),
+        Diagnostics::Enabled,
+    )
+    .unwrap();
     let diagnostics_path = tampered.join("diagnostics.json");
     let mut diagnostics: serde_json::Value =
         serde_json::from_slice(&fs::read(&diagnostics_path).unwrap()).unwrap();
@@ -145,7 +175,7 @@ fn compare_runs_rejects_tampered_diagnostics_workers() {
     );
 }
 
-/// CLI 解析：--workers 缺省=1、非法值与超界报错。
+/// CLI 缺省关闭详细日志；显式诊断保留相同语义回执并生成完整比较记录。
 #[test]
 fn run_cli_workers_parsing() {
     let temp = tempfile::tempdir().unwrap();
@@ -157,37 +187,71 @@ fn run_cli_workers_parsing() {
     let out = temp.path().join("cli-out");
     let binary = env!("CARGO_BIN_EXE_laneflow-urban-harness");
 
-    let run_cli = |args: &[&str]| {
+    let run_cli = |output: &std::path::Path, args: &[&str]| {
         Command::new(binary)
             .arg("run")
             .arg(&source)
             .arg(&plan_path)
-            .arg(&out)
+            .arg(output)
             .args(args)
+            .env("RUST_LOG", "laneflow_urban_harness=info")
             .output()
             .unwrap()
     };
     // 超界拒绝。
-    let rejected = run_cli(&["--workers", "17"]);
+    let rejected = run_cli(&out, &["--workers", "17"]);
     assert!(!rejected.status.success());
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("1..=16"));
     // 非数值拒绝。
-    let rejected = run_cli(&["--workers", "x"]);
+    let rejected = run_cli(&out, &["--workers", "x"]);
     assert!(!rejected.status.success());
-    // 缺省 = 1：成功且 diagnostics 记录 1。
-    fs::remove_dir_all(&out).ok();
-    let accepted = run_cli(&[]);
+    let accepted = run_cli(&out, &[]);
     assert!(accepted.status.success(), "{:?}", accepted.stderr);
     let diagnostics: serde_json::Value =
         serde_json::from_slice(&fs::read(out.join("diagnostics.json")).unwrap()).unwrap();
     assert_eq!(diagnostics["workers"], 1);
-    // --workers 4：成功且记录 4（CLI 贯通安装层）。
-    fs::remove_dir_all(&out).ok();
-    let accepted = run_cli(&["--workers", "4"]);
+    assert!(
+        accepted.stderr.is_empty(),
+        "default CLI must not install a subscriber"
+    );
+    for name in ["ticks.jsonl", "commands.jsonl", "events.jsonl"] {
+        assert!(
+            !out.join(name).exists(),
+            "default must not create detailed logs"
+        );
+    }
+    let mut quiet: laneflow_urban_harness::RunResult =
+        serde_json::from_slice(&fs::read(out.join("result.json")).unwrap()).unwrap();
+    assert!(!quiet.diagnostics_enabled);
+    let detailed = temp.path().join("cli-diagnostics");
+    let accepted = run_cli(&detailed, &["--workers", "4", "--diagnostics"]);
     assert!(accepted.status.success(), "{:?}", accepted.stderr);
     let diagnostics: serde_json::Value =
-        serde_json::from_slice(&fs::read(out.join("diagnostics.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(detailed.join("diagnostics.json")).unwrap()).unwrap();
     assert_eq!(diagnostics["workers"], 4);
+    assert!(String::from_utf8_lossy(&accepted.stderr).contains("INFO"));
+    for name in ["ticks.jsonl", "commands.jsonl", "events.jsonl"] {
+        assert!(
+            detailed.join(name).exists(),
+            "explicit diagnostics must create complete logs"
+        );
+    }
+    let mut full: laneflow_urban_harness::RunResult =
+        serde_json::from_slice(&fs::read(detailed.join("result.json")).unwrap()).unwrap();
+    assert!(full.diagnostics_enabled);
+    assert!(
+        compare_runs(&out, &detailed)
+            .unwrap_err()
+            .to_string()
+            .contains("--diagnostics")
+    );
+    quiet.diagnostics_enabled = true;
+    quiet.files.clear();
+    full.files.clear();
+    assert_eq!(
+        quiet, full,
+        "diagnostic choice must preserve traffic semantics"
+    );
 }
 
 #[test]
@@ -500,6 +564,7 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         &plan,
         &a,
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        Diagnostics::Enabled,
     )
     .unwrap();
     let second = run_to_directory(
@@ -507,6 +572,7 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         &plan,
         &b,
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        Diagnostics::Enabled,
     )
     .unwrap();
     assert_eq!(first.status, "probe-complete", "{:?}", first.error);
@@ -729,7 +795,8 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             &artifacts,
             &plan,
             &a,
-            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN)
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            Diagnostics::Enabled,
         )
         .is_err()
     );

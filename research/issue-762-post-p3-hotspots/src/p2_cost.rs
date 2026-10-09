@@ -220,7 +220,7 @@ pub(crate) fn capture_scoped_for(
             io::sha(binary)? == identity["binaries"][&mode]["sha256"],
             "binary drift",
         )?;
-        let args = [
+        let mut args = vec![
             "run".to_owned(),
             input
                 .join(format!("inputs/urban-{scale}"))
@@ -234,6 +234,7 @@ pub(crate) fn capture_scoped_for(
             "--workers".to_owned(),
             "4".to_owned(),
         ];
+        io::enable_harness_diagnostics(binary, &mut args)?;
         let command: Vec<_> = std::iter::once(binary.to_string_lossy().into_owned())
             .chain(args.iter().cloned())
             .collect();
