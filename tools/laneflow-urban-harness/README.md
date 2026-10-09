@@ -33,18 +33,29 @@ storage 拒绝，也要求终点脉冲实际 Completed 且无残留占用；时�
 cargo +1.98.0 build -p laneflow-urban-harness --release --locked
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml>
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --case GARAGE-EGRESS
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-a>
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-b>
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-a> --diagnostics
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-b> --diagnostics
 target/release/laneflow-urban-harness compare <run-a> <run-b> <comparison.json>
 ```
 
 `run` 接受 `--workers N`（缺省 1，合法域 1..=16，与 Runtime 执行配置上限一致）。
+详细日志默认关闭：probe 可省略 `--diagnostics`，只保存计划、最小运行回执和执行
+计时；不会创建、分配缓冲或序列化 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`。
+回放、完整比较以及 correctness/performance 必须显式传入 `--diagnostics`；缺少
+完整记录时拒绝通过。库入口的 `Diagnostics` 默认禁用，调用方须明确选择。
+开启详细诊断后，每份日志设置 10 MiB 有界缓冲，三份共 30 MiB；关闭时不分配这些
+缓冲。这是诊断存储设置，不构成 Runtime 性能收益承诺。
+
+文本诊断使用 `tracing` 的级别、target 和结构化字段。CLI 仅在启用诊断时配置
+subscriber，`RUST_LOG` 通过 `EnvFilter` 控制文本级别，缺省为本 crate 的 info。
+库不安装全局 subscriber；文本过滤不删减开启后的规范机器记录。
+
 worker 属于执行配置：不进计划文件、不改变计划摘要、世界逻辑摘要或快照内容。
 同一计划可用不同 worker 各跑一轮后做跨臂语义对拍：
 
 ```text
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-1w> --workers 1
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-4w> --workers 4
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-1w> --workers 1 --diagnostics
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-4w> --workers 4 --diagnostics
 target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json>
 ```
 
@@ -190,9 +201,10 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v6`（v6 起 incarnation 与请求序号独立，
-  sustained 显式报告实际 Active 负载；v5 起 `diagnostics.json`
-  摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套），旧载荷拒绝、不转换；
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v7`，必填 `diagnostics_enabled`
+  绑定详细日志开关。incarnation 与请求序号独立，sustained 显式报告实际 Active；
+  `diagnostics.json` 摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套。
+  诊断关闭的 probe 仅表示运行完成，完整比较拒绝该回执；旧载荷拒绝、不转换；
   Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。

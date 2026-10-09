@@ -213,7 +213,7 @@ fn capture(builds: &Path, input: &Path, raw: &Path, detail: bool) -> Result<()> 
             identity["binaries"][source_arm]["sha256"] == io::sha(binary)?,
             "binary drift",
         )?;
-        let args = vec![
+        let mut args = vec![
             "run".to_owned(),
             input
                 .join(format!("inputs/urban-{scale}"))
@@ -227,6 +227,7 @@ fn capture(builds: &Path, input: &Path, raw: &Path, detail: bool) -> Result<()> 
             "--workers".to_owned(),
             "4".to_owned(),
         ];
+        io::enable_harness_diagnostics(binary, &mut args)?;
         let mut env: BTreeMap<String, String> = serde_json::from_value(
             identity["sources"][source_arm]["build"]["inherited_environment"].clone(),
         )?;

@@ -1,6 +1,6 @@
 use laneflow_urban_harness::{
-    Artifacts, ResolvedPlan, UrbanCase, Window, compare_performance_runs, compare_runs,
-    run_to_directory,
+    Artifacts, Diagnostics, ResolvedPlan, UrbanCase, Window, compare_performance_runs,
+    compare_runs, run_to_directory,
 };
 use std::path::Path;
 
@@ -11,7 +11,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         #[cfg(feature = "adapter")]
@@ -114,9 +114,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             // --workers 属于执行配置：不进 plan/artifacts，不改变计划摘要、
             // 世界逻辑摘要或快照内容。缺省 1，合法域 1..=16。
             let mut workers = 1_u32;
+            let mut diagnostics = Diagnostics::default();
             let mut index = 4;
             while index < args.len() {
                 match args[index].as_str() {
+                    "--diagnostics" if diagnostics == Diagnostics::Disabled => {
+                        diagnostics = Diagnostics::Enabled;
+                        index += 1;
+                    }
                     "--workers" if index + 1 < args.len() => {
                         workers = args[index + 1]
                             .parse()
@@ -132,7 +137,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let execution = laneflow_runtime::ExecutionConfig::new(
                 std::num::NonZeroU32::new(workers).expect("1..=16 is nonzero"),
             );
-            let result = run_to_directory(&artifacts, &plan, Path::new(&args[3]), execution)?;
+            if diagnostics == Diagnostics::Enabled {
+                let directive = match std::env::var("RUST_LOG") {
+                    Ok(value) => value,
+                    Err(std::env::VarError::NotPresent) => "laneflow_urban_harness=info".into(),
+                    Err(error) => return Err(error.into()),
+                };
+                tracing_subscriber::fmt()
+                    .with_env_filter(tracing_subscriber::EnvFilter::try_new(directive)?)
+                    .with_ansi(false)
+                    .with_writer(std::io::stderr)
+                    .try_init()?;
+            }
+            let result = run_to_directory(
+                &artifacts,
+                &plan,
+                Path::new(&args[3]),
+                execution,
+                diagnostics,
+            )?;
             println!(
                 "{}: {}/{} ticks",
                 result.status, result.completed_ticks, result.expected_ticks
@@ -167,5 +190,5 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
 }
