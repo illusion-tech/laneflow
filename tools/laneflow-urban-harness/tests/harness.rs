@@ -214,7 +214,12 @@ fn run_cli_workers_parsing() {
         accepted.stderr.is_empty(),
         "default CLI must not install a subscriber"
     );
-    for name in ["ticks.jsonl", "commands.jsonl", "events.jsonl"] {
+    for name in [
+        "ticks.jsonl",
+        "commands.jsonl",
+        "events.jsonl",
+        "timings.jsonl",
+    ] {
         assert!(
             !out.join(name).exists(),
             "default must not create detailed logs"
@@ -230,7 +235,12 @@ fn run_cli_workers_parsing() {
         serde_json::from_slice(&fs::read(detailed.join("diagnostics.json")).unwrap()).unwrap();
     assert_eq!(diagnostics["workers"], 4);
     assert!(String::from_utf8_lossy(&accepted.stderr).contains("INFO"));
-    for name in ["ticks.jsonl", "commands.jsonl", "events.jsonl"] {
+    for name in [
+        "ticks.jsonl",
+        "commands.jsonl",
+        "events.jsonl",
+        "timings.jsonl",
+    ] {
         assert!(
             detailed.join(name).exists(),
             "explicit diagnostics must create complete logs"
@@ -239,6 +249,36 @@ fn run_cli_workers_parsing() {
     let mut full: laneflow_urban_harness::RunResult =
         serde_json::from_slice(&fs::read(detailed.join("result.json")).unwrap()).unwrap();
     assert!(full.diagnostics_enabled);
+    let timings = fs::read_to_string(detailed.join("timings.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(timings.len() as u64, full.completed_ticks);
+    for (index, row) in timings.iter().enumerate() {
+        assert_eq!(row["tick"].as_u64(), Some(index as u64 + 1));
+        let components = ["step_ns", "command_ns", "observation_ns"]
+            .iter()
+            .map(|field| row[*field].as_u64().unwrap())
+            .sum::<u64>();
+        assert!(row["tick_elapsed_ns"].as_u64().unwrap() >= components);
+    }
+    assert_eq!(
+        diagnostics["tick_timings"]["version"],
+        "urban-tick-timings-v1"
+    );
+    for (field, retained) in [
+        ("step_ns", "window_step_samples_ns"),
+        ("command_ns", "window_command_samples_ns"),
+        ("observation_ns", "window_observation_samples_ns"),
+    ] {
+        let chronological = timings
+            .iter()
+            .filter(|row| row["tick"].as_u64().unwrap() > full.window.warm_up_ticks)
+            .map(|row| row[field].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(diagnostics[retained], serde_json::json!(chronological));
+    }
     assert!(
         compare_runs(&out, &detailed)
             .unwrap_err()
@@ -582,6 +622,7 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     let semantic = |mut result: laneflow_urban_harness::RunResult| {
         result.files.remove("diagnostics.json");
         result.files.remove("measurements.toml");
+        result.files.remove("timings.jsonl");
         result
     };
     assert_eq!(semantic(first.clone()), semantic(second.clone()));

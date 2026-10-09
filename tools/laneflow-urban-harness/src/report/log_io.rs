@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::Result;
 
-const BUFFER_BYTES_PER_LOG: usize = 10 * 1_024 * 1_024;
+pub(super) const BUFFER_BYTES_PER_LOG: usize = 10 * 1_024 * 1_024;
 
 pub(super) struct Logs {
     writers: [BufWriter<File>; 3],
