@@ -17,6 +17,7 @@ use crate::{
 
 mod log_io;
 mod sustained;
+mod timing;
 
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v3";
 const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
@@ -398,6 +399,10 @@ pub fn run_to_directory(
         .is_enabled()
         .then(|| log_io::Logs::new(output))
         .transpose()?;
+    let mut tick_timings = diagnostics
+        .is_enabled()
+        .then(|| timing::Timings::new(plan.window.end()))
+        .transpose()?;
     let mut times = Vec::new();
     let mut window_step_times = Vec::new();
     let mut command_times = Vec::new();
@@ -406,6 +411,7 @@ pub fn run_to_directory(
     let mut intent_samples = Vec::new();
     let run: Result<()> = (|| {
         for _ in 0..plan.window.end() {
+            let tick_started = diagnostics.is_enabled().then(Instant::now);
             let record = harness.advance()?;
             if let Some(logs) = &mut logs {
                 logs.write_tick(&record, &harness.commands, &harness.events)?;
@@ -441,6 +447,16 @@ pub fn run_to_directory(
                     elapsed_seconds = started.elapsed().as_secs_f64(),
                     "运行进度"
                 );
+            }
+            if let (Some(timings), Some(tick_started)) = (&mut tick_timings, tick_started) {
+                timings.push(timing::TickTiming {
+                    tick: record.tick,
+                    step_ns: harness.last_step_ns,
+                    command_ns: harness.last_command_ns,
+                    observation_ns: harness.last_observation_ns,
+                    tick_elapsed_ns: tick_started.elapsed().as_nanos().min(u128::from(u64::MAX))
+                        as u64,
+                });
             }
         }
         if plan.window.purpose == "correctness" {
@@ -494,6 +510,13 @@ pub fn run_to_directory(
     if let Some(logs) = &mut logs {
         logs.finish()?;
     }
+    if let Some(timings) = &tick_timings {
+        timings.write(output)?;
+        result.files.insert(
+            timing::FILE_NAME.into(),
+            digest_file(&output.join(timing::FILE_NAME))?,
+        );
+    }
     result.tile_evidence = harness.evidence.clone();
     result.retry_reasons = harness.error_counts.clone();
     result.atomic_rejections = harness.atomic_rejections.clone();
@@ -517,7 +540,7 @@ pub fn run_to_directory(
     if let Some(provenance) = performance_context
         && result.error.is_none()
     {
-        let mut measured_steps = times
+        let measured_steps = times
             .iter()
             .skip(plan.window.warm_up_ticks as usize)
             .copied()
@@ -528,9 +551,9 @@ pub fn run_to_directory(
             execution_id: execution_id.clone(),
             provenance,
             invocation: std::env::args().collect(),
-            command_ns: sample_summary(&mut command_times)?,
-            traffic_world_step_ns: sample_summary(&mut measured_steps)?,
-            observation_ns: sample_summary(&mut observation_times)?,
+            command_ns: sample_summary(&mut command_times.clone())?,
+            traffic_world_step_ns: sample_summary(&mut measured_steps.clone())?,
+            observation_ns: sample_summary(&mut observation_times.clone())?,
             active: sample_summary(&mut active_samples)?,
             intent: sample_summary(&mut intent_samples)?,
             memory: MemoryMeasurement {
@@ -572,18 +595,18 @@ pub fn run_to_directory(
     }
     // diagnostics.json 的摘要纳入 result.files 完整性封套（worker 计数
     // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
-    times.sort_unstable();
-    window_step_times.sort_unstable();
-    command_times.sort_unstable();
-    observation_times.sort_unstable();
+    let mut sorted_times = times.clone();
+    let mut sorted_window_step_times = window_step_times.clone();
+    sorted_times.sort_unstable();
+    sorted_window_step_times.sort_unstable();
     let percentile = |n: usize| {
-        times
-            .get((times.len() * n).div_ceil(100).saturating_sub(1))
+        sorted_times
+            .get((sorted_times.len() * n).div_ceil(100).saturating_sub(1))
             .copied()
     };
     // 预热之后的观察窗口单独给出，避免预热段稀释持续负载的耗时。
     let window_percentile = |n: usize| {
-        window_step_times
+        sorted_window_step_times
             .get(
                 (window_step_times.len() * n)
                     .div_ceil(100)
@@ -599,6 +622,7 @@ pub fn run_to_directory(
         "window_steps":window_step_times.len(), "window_step_ns_p50":window_percentile(50), "window_step_ns_p95":window_percentile(95), "window_step_ns_p99":window_percentile(99),
         "window_step_ns_max":window_percentile(100), "window_step_samples_ns":window_step_times,
         "window_command_samples_ns":command_times, "window_observation_samples_ns":observation_times,
+        "tick_timings":if diagnostics.is_enabled() { Some(json!({"version":timing::VERSION,"file":timing::FILE_NAME,"order":"completed-tick","scope":"advance; per-tick buffered logs; bookkeeping; checkpoints; excludes initialization and final serialization/flush/hashes"})) } else { None },
         "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":execution.worker_count().get(),
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),
@@ -835,6 +859,9 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             // 正式臂的测量封套同样纳入本臂文件摘要自校验。
             expected_files.push("measurements.toml");
         }
+        if result.files.contains_key(timing::FILE_NAME) {
+            expected_files.push(timing::FILE_NAME);
+        }
         for name in expected_files {
             if result.files.get(name) != Some(&digest_file(&dir.join(name))?) {
                 return Err(invalid(format!("run file changed: {name}")));
@@ -952,12 +979,15 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     // 其摘要已在逐臂 files 校验中与各臂自身内容绑定）。probe/correctness
     // 臂无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
     // 计数、plan 摘要、逐拍日志摘要）全部保留比较。
+    // timings.jsonl 只保存非确定性的逐拍耗时，其摘要也已逐臂核对。
     let mut a_semantic = a.clone();
     a_semantic.files.remove("measurements.toml");
     a_semantic.files.remove("diagnostics.json");
+    a_semantic.files.remove(timing::FILE_NAME);
     let mut b_semantic = b.clone();
     b_semantic.files.remove("measurements.toml");
     b_semantic.files.remove("diagnostics.json");
+    b_semantic.files.remove(timing::FILE_NAME);
     if a_semantic != b_semantic {
         for (index, (left_row, right_row)) in BufReader::new(File::open(left.join("ticks.jsonl"))?)
             .lines()
@@ -1054,6 +1084,11 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 return Err(invalid(format!("performance run file changed: {name}")));
             }
         }
+        if let Some(expected) = result.files.get(timing::FILE_NAME)
+            && expected != &digest_file(&directory.join(timing::FILE_NAME))?
+        {
+            return Err(invalid("逐拍计时文件摘要不符"));
+        }
         require_diagnostics_marker(directory)?;
         if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("performance plan digest differs"));
@@ -1131,14 +1166,11 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             return Err(invalid("performance rounds use different plans"));
         }
         identity.get_or_insert(current);
-        // Only the execution envelopes are non-semantic: the measurements.toml
-        // measurement envelope and the diagnostics.json execution metadata
-        // (each round's own digest still binds them per round). Retained log
-        // digests, complete checkpoints, counts and all other result fields
-        // must match across the three worlds.
+        // 三类计时/执行封套均已核对各轮自身摘要，其余语义轨迹完整比较。
         let mut semantic = result.clone();
         semantic.files.remove("measurements.toml");
         semantic.files.remove("diagnostics.json");
+        semantic.files.remove(timing::FILE_NAME);
         if semantic_result
             .as_ref()
             .is_some_and(|expected| *expected != semantic)

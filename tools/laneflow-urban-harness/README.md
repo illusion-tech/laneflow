@@ -109,10 +109,18 @@ step 后真实下降另列。未达到负载门槛时仍保存全部日志和正
 负载有效及三轮取证完成不自动表示预算、交通质量或 #707 整体认证通过。
 
 `diagnostics.json` 的 `window_step_samples_ns` 保存排除暖机后的整步耗时样本，单位为
-纳秒，按耗时升序排列；它不是逐 tick 时序，不能按下标关联车辆或慢拍。
+纳秒，按观察窗口内的 tick 顺序保留，分位数统计只排序副本。
 窗口 p50/p95/p99/max 从这组样本计算，`window_step_ns_max` 为最大值。
 `window_command_samples_ns` 与 `window_observation_samples_ns` 分别保存同一窗口的
-公共生命周期调用耗时和观测耗时，也按升序排列；与整轮墙钟一同报告调用方成本。
+公共生命周期调用耗时和观测耗时，同样保留原始顺序；与整轮墙钟一同报告调用方成本。
+
+详细诊断另生成 `timings.jsonl`（`urban-tick-timings-v1`），覆盖预热和观察阶段的每个
+已完成 tick。每行包含 `tick`、`step_ns`、`command_ns`、`observation_ns`、
+`tick_elapsed_ns`，可用 tick 关联 `ticks.jsonl` 的实际 Active 和命令/事件。
+整拍耗时独立测量，包含 `advance`、本拍日志缓冲写入、记账和本拍检查点；不含初始化、
+最终序列化、刷盘与摘要。三个分量之和不是整拍耗时，分位数也不能相加。
+记录空间在循环开始前按计划拍数预分配，循环结束后批量输出。关闭诊断时不生成该文件，
+不分配记录空间或读取整拍时钟。旧冻结记录没有逐拍关联，仍只能做分布分析。
 
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
 `plan ... --probe-ticks 128` 生成短试跑；`--probe-warm-up N` 可在 fixture 上覆盖
@@ -125,7 +133,7 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 已加载的目录和共享路网通过 `Artifacts::catalog()` / `revision()` 只读借用；
 改变源输入需要重新载入并展开计划，调用方不能替换已绑定来源摘要的内部字段。
 
-正式性能计划只允许 Mixed 的 10k/100k 制品：
+正式性能计划允许 Mixed 与持续 Active 的 10k/100k 制品：
 
 ```text
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --performance
@@ -145,8 +153,8 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 target/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
 ```
 
-三轮还须保持相同完整语义轨迹：除 `measurements.toml` 与 `diagnostics.json` 两个
-执行封套外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。两个执行
+三轮还须保持相同完整语义轨迹：除 `measurements.toml`、`diagnostics.json` 与 `timings.jsonl` 三个
+执行封套外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。三个执行
 封套均已逐轮独立校验后才排除（摘要绑定入各轮 `result.files`，worker 计数做
 measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要但彼此轨迹不同，
 仍拒绝合并。运行目录应使用 Git 忽略的 `target/` 或 checkout 外目录；未来输出目录
