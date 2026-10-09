@@ -8,12 +8,15 @@ use std::collections::BTreeMap;
 mod replay;
 pub(crate) use replay::ReplayScratch;
 
-use laneflow_static_contract::{ManeuverGateOrdinal, SignalAspect, SignalGroupOrdinal};
+use laneflow_static_contract::{
+    ManeuverGateOrdinal, SignalAspect, SignalGroupOrdinal, VehicleProfileOrdinal,
+};
 use laneflow_static_network::BoundedDistance;
 
 use super::conflict::{PreparedApproachEta, interpret_gate_policy};
 use super::phase::{StepReadView, StepWorkspace};
 use super::tables::{ConflictPassageOccurrence, distance_to_occurrence_progress};
+use super::vehicle_store::{MotionPosition, MotionRead};
 use crate::{
     ApproachEstimate, ConflictPassageAddress, GateCandidateKind, GatePolicyDecision, StepError,
     VehicleHandle, VehicleState, VehicleStatus, WorldGeneration,
@@ -165,7 +168,7 @@ impl PreparedSignalApproach {
         emergency_decel_m_s2: f32,
     ) -> Self {
         Self {
-            hold: signal_hold(read, state.handle, state),
+            hold: signal_hold(read, state.handle, state.route, state.profile, state.into()),
             speed_mm_s: state.speed_mm_s,
             emergency_decel_m_s2,
         }
@@ -456,7 +459,9 @@ impl FrontierMaintenance {
             return None;
         }
         let vehicle = state.vehicle;
-        let Some(remembered) = self.remembered(state) else {
+        let Some(remembered) =
+            self.remembered(state.vehicle, state.route, state.cursor, state.progress_mm)
+        else {
             return Some((vehicle, true, true));
         };
         let traveled = state.progress_mm.saturating_sub(remembered.progress);
@@ -474,16 +479,18 @@ impl FrontierMaintenance {
 
     fn remembered(
         &self,
-        state: super::motion_updates::FrontierMotionInput,
+        vehicle: VehicleHandle,
+        route: crate::RouteHandle,
+        cursor: u32,
+        progress_mm: u32,
     ) -> Option<RememberedSlot> {
-        let vehicle = state.vehicle;
         let slot = self.slots.get(usize::try_from(vehicle.index()).ok()?)?;
         if !slot.valid
             || slot.generation != vehicle.generation()
-            || slot.route_index != state.route.index()
-            || slot.route_generation != state.route.generation()
-            || slot.edge != state.cursor
-            || state.progress_mm < slot.progress
+            || slot.route_index != route.index()
+            || slot.route_generation != route.generation()
+            || slot.edge != cursor
+            || progress_mm < slot.progress
         {
             return None;
         }
@@ -495,19 +502,19 @@ impl FrontierMaintenance {
         })
     }
 
-    fn replay_hit(
-        &self,
-        vehicle: VehicleHandle,
-        state: &VehicleState,
-        horizon_ms: u64,
-    ) -> Option<u32> {
-        debug_assert_eq!(vehicle, state.handle);
-        let remembered = self.remembered(state.into())?;
-        let traveled = state.progress_mm.saturating_sub(remembered.progress);
+    fn replay_hit(&self, state: impl MotionRead, horizon_ms: u64) -> Option<u32> {
+        let position = state.position();
+        let remembered = self.remembered(
+            state.handle(),
+            state.route(),
+            position.route_edge_index,
+            position.progress_mm,
+        )?;
+        let traveled = position.progress_mm.saturating_sub(remembered.progress);
         if remembered.first_excluded_mm != NO_DISTANCE_MM {
             let remaining = remembered.first_excluded_mm.saturating_sub(traveled);
             if f64::from(remaining)
-                <= horizon_reach_mm(state.speed_mm_s, remembered.max_accel, horizon_ms)
+                <= horizon_reach_mm(state.speed_mm_s(), remembered.max_accel, horizon_ms)
             {
                 return None;
             }
@@ -869,30 +876,34 @@ fn can_stop_before(speed_mm_s: u32, emergency_decel_m_s2: f32, distance_mm: u32)
 fn signal_hold(
     read: StepReadView<'_>,
     vehicle: VehicleHandle,
-    state: &VehicleState,
+    route: crate::RouteHandle,
+    profile: VehicleProfileOrdinal,
+    position: MotionPosition,
 ) -> Option<SignalHold> {
     if read.conflict_reservation(vehicle).is_some() {
         return None;
     }
-    let compiled = read.compiled_route(state.route)?;
-    let (gate, gate_mm) = first_red_gate(read, compiled, state)?;
+    let compiled = read.compiled_route(route)?;
+    let (gate, gate_mm) = first_red_gate(read, compiled, profile, position)?;
     Some(SignalHold {
         gate_mm,
-        delay_ms: signal_release_delay_ms(read, gate, state),
+        delay_ms: signal_release_delay_ms(read, gate, profile),
     })
 }
 
 fn first_red_gate(
     read: StepReadView<'_>,
     compiled: &super::tables::CompiledRoute,
-    state: &VehicleState,
+    profile: VehicleProfileOrdinal,
+    position: MotionPosition,
 ) -> Option<(ManeuverGateOrdinal, u32)> {
     // 零进度、零余量表示上一边终点已经规范成下一条边的起点，车辆仍停在上一 hop 的准入门上。
-    let rolled = state.progress_mm == 0 && state.carry_um == 0 && state.route_edge_index > 0;
+    let rolled =
+        position.progress_mm == 0 && position.carry_um == 0 && position.route_edge_index > 0;
     let mut hop = usize::try_from(if rolled {
-        state.route_edge_index - 1
+        position.route_edge_index - 1
     } else {
-        state.route_edge_index
+        position.route_edge_index
     })
     .ok()?;
     let progress_base = if rolled {
@@ -904,7 +915,7 @@ fn first_red_gate(
             .lane_lengths_millimetres()
             .get(edge.index())?
     } else {
-        state.progress_mm
+        position.progress_mm
     };
     let mut from_cursor_start = BoundedDistance::Finite(0);
     let mut accumulated = false;
@@ -916,7 +927,7 @@ fn first_red_gate(
             next.distance_from_hop_start
         };
         accumulated = true;
-        if read.gate_is_restrictive(next.gate, state.profile) {
+        if read.gate_is_restrictive(next.gate, profile) {
             let BoundedDistance::Finite(mm) = from_cursor_start.saturating_sub(progress_base)
             else {
                 return None;
@@ -935,7 +946,7 @@ fn first_red_gate(
 fn signal_release_delay_ms(
     read: StepReadView<'_>,
     gate: ManeuverGateOrdinal,
-    state: &VehicleState,
+    profile: VehicleProfileOrdinal,
 ) -> Option<u64> {
     let relations = read.binding.revision.traffic().relations();
     let group = relations.maneuver_gate(gate)?.signal_group()?;
@@ -972,7 +983,7 @@ fn signal_release_delay_ms(
             return None;
         }
         let phase = phases[cursor];
-        if gate_opens(read, gate, state, phase, group) {
+        if gate_opens(read, gate, profile, phase, group) {
             return Some(wait);
         }
         wait = wait.saturating_add(relations.phase_duration_ms(phase).unwrap_or(0));
@@ -982,7 +993,7 @@ fn signal_release_delay_ms(
 fn gate_opens(
     read: StepReadView<'_>,
     gate: ManeuverGateOrdinal,
-    state: &VehicleState,
+    profile: VehicleProfileOrdinal,
     phase: laneflow_static_contract::SignalPhaseOrdinal,
     group: SignalGroupOrdinal,
 ) -> bool {
@@ -998,7 +1009,7 @@ fn gate_opens(
         })
         .unwrap_or(SignalAspect::Red);
     let Some(class) = relations
-        .vehicle_profile(state.profile)
+        .vehicle_profile(profile)
         .map(|profile| profile.class())
     else {
         return false;
@@ -1168,7 +1179,7 @@ fn held_walk(
                     *miss = u32::from(active_state(read, vehicle).is_some_and(|state| {
                         read.workspace
                             .frontier_maintenance
-                            .replay_hit(vehicle, &state, horizon_ms)
+                            .replay_hit(&state, horizon_ms)
                             .is_none()
                     }));
                 }
@@ -1186,7 +1197,7 @@ fn held_walk(
         if step
             .workspace
             .frontier_maintenance
-            .replay_hit(vehicle, &state, horizon_ms)
+            .replay_hit(&state, horizon_ms)
             .is_none()
         {
             walk_if_new(step, vehicle, horizon_ms, &demanded, true)?;
@@ -1684,7 +1695,7 @@ fn record_walk(
     let max_accel = profile.max_accel();
     let (hold, gate_distance) = {
         let read = step.read_view();
-        let hold = signal_hold(read, vehicle, &state);
+        let hold = signal_hold(read, vehicle, state.route, state.profile, (&state).into());
         let gate_distance = read
             .compiled_route(state.route)
             .map(|compiled| gate_distance_mm(compiled, &state))
@@ -1790,7 +1801,7 @@ fn replay_walk(
     let Some(stored_progress) = step
         .workspace
         .frontier_maintenance
-        .replay_hit(vehicle, &state, horizon_ms)
+        .replay_hit(&state, horizon_ms)
     else {
         return record_walk(step, vehicle, state, sequence, horizon_ms, wanted);
     };
