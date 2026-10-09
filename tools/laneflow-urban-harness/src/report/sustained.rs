@@ -7,6 +7,56 @@ use std::{
 
 use super::{ActiveLoadSummary, RetainedMeasurements, RunResult, sample_summary};
 use crate::{ResolvedPlan, Result, TickRecord, Window, invalid};
+use sha2::{Digest, Sha256};
+
+struct CommandBatch {
+    hash: Sha256,
+    count: usize,
+    first_cursor: u64,
+    last_cursor: u64,
+}
+
+impl CommandBatch {
+    fn new(cursor: u64) -> Self {
+        let mut hash = Sha256::new();
+        hash.update(b"[");
+        Self {
+            hash,
+            count: 0,
+            first_cursor: cursor,
+            last_cursor: cursor,
+        }
+    }
+
+    fn push(&mut self, text: &str, before: u64, after: u64) -> Result<()> {
+        if before != self.last_cursor {
+            return Err(invalid("recycling command cursor chain differs"));
+        }
+        if self.count != 0 {
+            self.hash.update(b",");
+        }
+        self.hash.update(text.as_bytes());
+        self.count += 1;
+        self.last_cursor = after;
+        Ok(())
+    }
+
+    fn finish(mut self) -> (String, u64, u64) {
+        self.hash.update(b"]");
+        (
+            crate::hex(&self.hash.finalize()),
+            self.first_cursor,
+            self.last_cursor,
+        )
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct TimingCopies {
+    window_step_samples_ns: Vec<u64>,
+    window_command_samples_ns: Vec<u64>,
+    window_observation_samples_ns: Vec<u64>,
+}
 
 #[derive(serde::Deserialize)]
 struct RecyclingAttempt {
@@ -97,12 +147,20 @@ pub(super) fn verify(
     validate_result(result)?;
     let plan = ResolvedPlan::read(&directory.join("resolved-plan.toml"))?;
     plan.validate_structure()?;
+    let expected_dt = if result.scale == "10k" { 16 } else { 33 };
     if plan.version != "urban-demand-v3"
         || plan.case != result.case
         || plan.scale != result.scale
         || plan.dt != result.fixed_step_ms
         || u64::from(plan.individuals) != target
         || plan.initial.len() as u64 != target
+        || plan.tiles as u64 != target / 1_000
+        || plan.dt != expected_dt
+        || plan.seed != 544
+        || plan
+            .initial
+            .iter()
+            .any(|v| v.tile >= plan.tiles || v.slot >= 1_000)
         || u64::from(plan.initial_counts.active) != target
         || plan.recycling.is_none()
         || plan.window != result.window
@@ -132,6 +190,7 @@ pub(super) fn verify(
         tick_count += 1;
         if row.tick != tick_count
             || row.live as u64 != target
+            || row.parked != 0
             || row.intent > row.live
             || row
                 .active
@@ -176,6 +235,16 @@ pub(super) fn verify(
             "sustained performance load differs between ticks, result and measurements",
         ));
     }
+    let copies: TimingCopies =
+        serde_json::from_reader(File::open(directory.join("diagnostics.json"))?)?;
+    if measurement.traffic_world_step_samples_ns != copies.window_step_samples_ns
+        || measurement.command_samples_ns != copies.window_command_samples_ns
+        || measurement.observation_samples_ns != copies.window_observation_samples_ns
+    {
+        return Err(invalid(
+            "sustained timing samples differ between measurements and diagnostics",
+        ));
+    }
     let recycling = plan.recycling.as_ref().expect("validated recycling plan");
     let routes: Vec<BTreeSet<_>> = recycling
         .entries_per_tile
@@ -200,11 +269,15 @@ pub(super) fn verify(
     let mut next_sequence = 0_u64;
     let mut last_boundary = 0;
     let mut replacements = 0;
+    let mut active_batch: Option<(u64, CommandBatch)> = None;
+    let mut batches = BTreeMap::new();
     for line in BufReader::new(File::open(directory.join("commands.jsonl"))?).lines() {
-        let row: RecyclingAttempt = serde_json::from_str(&line?)?;
+        let text = line?;
+        let row: RecyclingAttempt = serde_json::from_str(&text)?;
         let slot = (row.individual.tile, row.individual.slot);
         if row.command != "replace"
             || row.attempt == 0
+            || row.boundary == 0
             || row.due > row.boundary
             || row.boundary < last_boundary
             || row.boundary >= plan.window.end()
@@ -219,6 +292,33 @@ pub(super) fn verify(
         {
             return Err(invalid("invalid sustained recycling replacement record"));
         }
+        let entries = &recycling.entries_per_tile[row.individual.tile as usize];
+        let entry_count = entries.len() as u64;
+        let positions = recycling.progress_mm.len() as u64;
+        let base = u64::from(row.individual.slot) + u64::from(row.individual.incarnation) * 37;
+        let offset = base + u64::from(row.attempt - 1);
+        let entry = &entries[(offset % entry_count) as usize];
+        let expected_route = &entry.routes
+            [((base + offset / (entry_count * positions)) % entry.routes.len() as u64) as usize];
+        let expected_progress = recycling.progress_mm
+            [((base / entry_count + u64::from(row.attempt - 1)) % positions) as usize];
+        if row.details.placement.route != *expected_route
+            || row.details.placement.progress_mm != expected_progress
+        {
+            return Err(invalid(
+                "sustained recycling candidate differs from the frozen rotation",
+            ));
+        }
+        if active_batch
+            .as_ref()
+            .is_some_and(|(boundary, _)| *boundary != row.boundary)
+            && let Some((boundary, batch)) = active_batch.take()
+        {
+            batches.insert(boundary, batch.finish());
+        }
+        let (_, batch) = active_batch
+            .get_or_insert_with(|| (row.boundary, CommandBatch::new(row.cursor_before)));
+        batch.push(&text, row.cursor_before, row.cursor_after)?;
         if let Some(previous) = pending.get(&row.sequence) {
             let delay = if previous
                 .attempt
@@ -291,6 +391,87 @@ pub(super) fn verify(
     if !pending.is_empty() || !pending_slots.is_empty() || replacements != result.replacements {
         return Err(invalid("sustained performance recycling counts differ"));
     }
+    if let Some((boundary, batch)) = active_batch {
+        batches.insert(boundary, batch.finish());
+    }
+    let mut event_batches: BTreeMap<u64, (Sha256, usize, usize)> = BTreeMap::new();
+    let mut last_event_tick = 0;
+    for line in BufReader::new(File::open(directory.join("events.jsonl"))?).lines() {
+        let text = line?;
+        let event: serde_json::Value = serde_json::from_str(&text)?;
+        let mut tick = event["tick"]
+            .as_u64()
+            .ok_or_else(|| invalid("missing sustained event tick"))?;
+        let kind = event["kind"]
+            .as_str()
+            .ok_or_else(|| invalid("missing sustained event kind"))?;
+        if !matches!(kind, "decision-batch" | "transition" | "lifecycle") {
+            return Err(invalid("unexpected sustained event kind"));
+        }
+        if kind == "lifecycle" {
+            match event["phase"].as_str() {
+                Some("command") => {
+                    tick = tick
+                        .checked_add(1)
+                        .ok_or_else(|| invalid("event tick overflow"))?;
+                }
+                Some("step") => {}
+                _ => return Err(invalid("invalid sustained lifecycle event phase")),
+            }
+        }
+        if tick == 0 || tick < last_event_tick || tick > plan.window.end() {
+            return Err(invalid("sustained event is outside its step"));
+        }
+        let (hash, count, decisions) = event_batches.entry(tick).or_insert_with(|| {
+            let mut hash = Sha256::new();
+            hash.update(b"[");
+            (hash, 0, 0)
+        });
+        if *count != 0 {
+            hash.update(b",");
+        }
+        hash.update(text.as_bytes());
+        *count += 1;
+        *decisions += usize::from(kind == "decision-batch");
+        last_event_tick = tick;
+    }
+    let event_digests: BTreeMap<_, _> = event_batches
+        .into_iter()
+        .map(|(tick, (mut hash, _, decisions))| {
+            hash.update(b"]");
+            (tick, (crate::hex(&hash.finalize()), decisions))
+        })
+        .collect();
+    let empty_digest = crate::sha256(b"[]");
+    let mut previous_cursor = None;
+    for line in BufReader::new(File::open(directory.join("ticks.jsonl"))?).lines() {
+        let row: TickRecord = serde_json::from_str(&line?)?;
+        if let Some((digest, first, last)) = batches.get(&(row.tick - 1)) {
+            if previous_cursor != Some(*first)
+                || row.command_cursor != *last
+                || &row.commands_digest != digest
+            {
+                return Err(invalid(
+                    "sustained command batch differs from its tick digest or cursor",
+                ));
+            }
+        } else if row.commands_digest != empty_digest
+            || previous_cursor.is_some_and(|c| c != row.command_cursor)
+        {
+            return Err(invalid(
+                "sustained empty command batch differs from its tick evidence",
+            ));
+        }
+        if event_digests
+            .get(&row.tick)
+            .is_none_or(|(digest, decisions)| *decisions != 1 || *digest != row.event_digest)
+        {
+            return Err(invalid(
+                "sustained event batch differs from its tick digest or is incomplete",
+            ));
+        }
+        previous_cursor = Some(row.command_cursor);
+    }
     Ok(())
 }
 
@@ -348,11 +529,17 @@ mod tests {
             },
             max_attempts: 0,
             retry_ticks: 0,
-            route_edges: [("route".into(), vec!["entry".into()])].into(),
+            route_edges: [
+                ("route".into(), vec!["entry-a".into()]),
+                ("alternate".into(), vec!["entry-a".into()]),
+                ("route-1".into(), vec!["entry-b".into()]),
+                ("alternate-1".into(), vec!["entry-b".into()]),
+            ]
+            .into(),
             initial: (0..target)
                 .map(|slot| InitialVehicle {
                     tile: slot / 1_000,
-                    slot,
+                    slot: slot % 1_000,
                     profile: "car".into(),
                     route: "route".into(),
                     occurrence: 0,
@@ -372,12 +559,18 @@ mod tests {
                 candidate_order: "rotate-entry-and-position".into(),
                 retry_ticks: 8,
                 attempts_per_boundary: 64,
-                progress_mm: vec![7_000],
+                progress_mm: (0..11).map(|n| 7_000 + 8_500 * n).collect(),
                 entries_per_tile: vec![
-                    vec![RecyclingEntry {
-                        edge: "entry".into(),
-                        routes: vec!["route".into()]
-                    }];
+                    vec![
+                        RecyclingEntry {
+                            edge: "entry-a".into(),
+                            routes: vec!["route".into(), "alternate".into()]
+                        },
+                        RecyclingEntry {
+                            edge: "entry-b".into(),
+                            routes: vec!["route-1".into(), "alternate-1".into()]
+                        }
+                    ];
                     10
                 ],
             }),
@@ -410,10 +603,29 @@ mod tests {
             before_step_below_target_ticks: 0,
             after_step_below_target_ticks: 1,
         });
+        let command_rows = [false,true].map(|committed| json!({"command":"replace","sequence":0,"boundary":1,"due":1,
+            "attempt":if committed {2} else {1},"individual":{"tile":0,"slot":0,"incarnation":0},
+            "committed":committed,"cursor_before":776,"cursor_after":if committed {777} else {776},
+            "details":if committed {json!({"new_individual":{"tile":0,"slot":0,"incarnation":1},
+                "route":"route-1","placement":{"route":"route-1","occurrence":0,"progress_mm":15_500}})}
+                else {json!({"reason":"entry-blocked","placement":{"route":"route","occurrence":0,"progress_mm":7_000}})}}));
+        let command_digest = sha256(&serde_json::to_vec(&command_rows).unwrap());
+        let empty_digest = sha256(b"[]");
+        let mut events = File::create(directory.join("events.jsonl")).unwrap();
         let mut ticks =
             std::io::BufWriter::new(File::create(directory.join("ticks.jsonl")).unwrap());
         for tick in 1..=window.end() {
             let dropped = tick <= window.warm_up_ticks || tick == window.end();
+            let mut event_rows = Vec::new();
+            if tick == 2 {
+                event_rows.push(json!({"kind":"lifecycle","phase":"command","tick":1,
+                    "sequence":0,"attempt":2,"command":"replace","individual":{"tile":0,"slot":0,"incarnation":0},
+                    "after_individual":{"tile":0,"slot":0,"incarnation":1},"before":"completed","after":"active"}));
+            }
+            event_rows.push(json!({"kind":"decision-batch","tick":tick,"waiting_count":0,"conflict_count":0,"digest":"fixture"}));
+            for row in &event_rows {
+                line(&mut events, row).unwrap();
+            }
             line(
                 &mut ticks,
                 &TickRecord {
@@ -432,28 +644,44 @@ mod tests {
                     future_departures: 0,
                     pending_departures: 0,
                     exhausted_departures: 0,
-                    command_cursor: 777,
+                    command_cursor: if tick == 1 { 776 } else { 777 },
                     event_cursor: 0,
                     state_digest: "fixture".into(),
-                    event_digest: "fixture".into(),
-                    commands_digest: "fixture".into(),
+                    event_digest: sha256(&serde_json::to_vec(&event_rows).unwrap()),
+                    commands_digest: if tick == 2 {
+                        command_digest.clone()
+                    } else {
+                        empty_digest.clone()
+                    },
                 },
             )
             .unwrap();
         }
         ticks.flush().unwrap();
         drop(ticks);
+        drop(events);
         let mut commands = File::create(directory.join("commands.jsonl")).unwrap();
-        for committed in [false, true] {
-            line(&mut commands, &json!({"command":"replace","sequence":0,"boundary":1,"due":1,
-                "attempt":if committed {2} else {1},"individual":{"tile":0,"slot":0,"incarnation":0},
-                "committed":committed,"cursor_before":776,"cursor_after":if committed {777} else {776},
-                "details":if committed {json!({"new_individual":{"tile":0,"slot":0,"incarnation":1},
-                    "route":"route","placement":{"route":"route","occurrence":0,"progress_mm":7_000}})}
-                    else {json!({"reason":"entry-blocked","placement":{"route":"route","occurrence":0,"progress_mm":7_000}})}})).unwrap();
+        for row in command_rows {
+            line(&mut commands, &row).unwrap();
         }
         drop(commands);
-        for name in ["resolved-plan.toml", "ticks.jsonl", "commands.jsonl"] {
+        let mut diagnostics: serde_json::Value =
+            serde_json::from_slice(&fs::read(directory.join("diagnostics.json")).unwrap()).unwrap();
+        for field in [
+            "window_step_samples_ns",
+            "window_command_samples_ns",
+            "window_observation_samples_ns",
+        ] {
+            diagnostics[field] = json!(vec![1; samples]);
+        }
+        write_json(&directory.join("diagnostics.json"), &diagnostics).unwrap();
+        for name in [
+            "resolved-plan.toml",
+            "ticks.jsonl",
+            "commands.jsonl",
+            "events.jsonl",
+            "diagnostics.json",
+        ] {
             result
                 .files
                 .insert(name.into(), digest_file(&directory.join(name)).unwrap());
@@ -500,6 +728,12 @@ mod tests {
             "refusal-side-effect",
             "new-generation",
             "duplicate-request",
+            "unbound-command",
+            "wrong-candidate",
+            "per-tile",
+            "transient-parked",
+            "timing-arrays",
+            "event-batch",
         ] {
             // 每臂做同一种篡改，不能让跨臂差异代替逐臂校验。
             for (i, directory) in dirs.iter().enumerate() {
@@ -508,7 +742,7 @@ mod tests {
                 let mut result: RunResult =
                     serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
                 match fault {
-                    "tick-deficit" | "pending" => {
+                    "tick-deficit" | "pending" | "transient-parked" => {
                         let rows = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
                         let mut output = std::io::BufWriter::new(
                             File::create(directory.join("ticks.jsonl")).unwrap(),
@@ -523,12 +757,25 @@ mod tests {
                             if fault == "pending" && row.tick == result.completed_ticks {
                                 row.pending_departures = 1;
                             }
+                            if fault == "transient-parked"
+                                && row.tick == result.window.warm_up_ticks + 1
+                            {
+                                row.active -= 1;
+                                row.parked = 1;
+                            }
+                            if fault == "transient-parked" && row.tick == result.completed_ticks {
+                                row.active += 1;
+                                row.completed = 0;
+                            }
                             line(&mut output, &row).unwrap();
                         }
                         output.flush().unwrap();
                         drop(output);
                         if fault == "pending" {
                             result.pending_departures = 1;
+                        }
+                        if fault == "transient-parked" {
+                            result.final_counts = (10_000, 0, 0);
                         }
                     }
                     "measurement" => {
@@ -542,6 +789,74 @@ mod tests {
                             toml::to_string(&value).unwrap(),
                         )
                         .unwrap();
+                    }
+                    "timing-arrays" => {
+                        let mut value: toml::Value = toml::from_str(
+                            &fs::read_to_string(directory.join("measurements.toml")).unwrap(),
+                        )
+                        .unwrap();
+                        for field in [
+                            "command_samples_ns",
+                            "traffic_world_step_samples_ns",
+                            "observation_samples_ns",
+                        ] {
+                            value[field] = toml::Value::Array(vec![
+                                toml::Value::Integer(0);
+                                result.window.observation_ticks
+                                    as usize
+                            ]);
+                        }
+                        fs::write(
+                            directory.join("measurements.toml"),
+                            toml::to_string(&value).unwrap(),
+                        )
+                        .unwrap();
+                    }
+                    "per-tile" => {
+                        let mut plan =
+                            ResolvedPlan::read(&directory.join("resolved-plan.toml")).unwrap();
+                        plan.tiles = 1;
+                        for (index, vehicle) in plan.initial.iter_mut().enumerate() {
+                            vehicle.tile = 0;
+                            vehicle.slot = index as u32;
+                        }
+                        let entries = &mut plan.recycling.as_mut().unwrap().entries_per_tile;
+                        entries.truncate(1);
+                        entries[0] = vec![RecyclingEntry {
+                            edge: "entry-a".into(),
+                            routes: vec![
+                                "route".into(),
+                                "route-1".into(),
+                                "alternate".into(),
+                                "alternate-1".into(),
+                            ],
+                        }];
+                        let text = toml::to_string_pretty(&plan).unwrap();
+                        result.plan_digest = sha256(text.as_bytes());
+                        fs::write(directory.join("resolved-plan.toml"), text).unwrap();
+                        let mut commands: Vec<serde_json::Value> =
+                            fs::read_to_string(directory.join("commands.jsonl"))
+                                .unwrap()
+                                .lines()
+                                .map(|s| serde_json::from_str(s).unwrap())
+                                .collect();
+                        commands[1]["details"]["route"] = json!("route");
+                        commands[1]["details"]["placement"]["route"] = json!("route");
+                        rewrite_commands(directory, &commands, true);
+                    }
+                    "event-batch" => {
+                        let text = fs::read_to_string(directory.join("events.jsonl")).unwrap();
+                        let mut file = File::create(directory.join("events.jsonl")).unwrap();
+                        for (i, row) in text.lines().enumerate() {
+                            writeln!(file, "{row}").unwrap();
+                            if i == 0 {
+                                line(
+                                    &mut file,
+                                    &json!({"kind":"transition","tick":1,"extra":"corrupted"}),
+                                )
+                                .unwrap();
+                            }
+                        }
                     }
                     "checkpoint" => {
                         result.checkpoints.remove(&result.window.warm_up_ticks);
@@ -571,7 +886,9 @@ mod tests {
                     | "retry-identity"
                     | "refusal-side-effect"
                     | "new-generation"
-                    | "duplicate-request" => {
+                    | "duplicate-request"
+                    | "unbound-command"
+                    | "wrong-candidate" => {
                         let mut commands: Vec<serde_json::Value> =
                             fs::read_to_string(directory.join("commands.jsonl"))
                                 .unwrap()
@@ -605,12 +922,21 @@ mod tests {
                                 result.births = 2;
                                 result.removals = 2;
                             }
+                            "unbound-command" => {
+                                commands.push(json!({"command":"replace","sequence":1,"boundary":2,"due":2,"attempt":1,
+                                    "individual":{"tile":0,"slot":0,"incarnation":1},"committed":true,"cursor_before":777,"cursor_after":778,
+                                    "details":{"new_individual":{"tile":0,"slot":0,"incarnation":2},"route":"route-1",
+                                        "placement":{"route":"route-1","occurrence":0,"progress_mm":66_500}}}));
+                                result.replacements = 2;
+                                result.births = 2;
+                                result.removals = 2;
+                            }
+                            "wrong-candidate" => {
+                                commands[0]["details"]["placement"]["progress_mm"] = json!(15_500);
+                            }
                             _ => unreachable!(),
                         }
-                        let mut file = File::create(directory.join("commands.jsonl")).unwrap();
-                        for row in commands {
-                            line(&mut file, &row).unwrap();
-                        }
+                        rewrite_commands(directory, &commands, fault == "wrong-candidate");
                     }
                     _ => unreachable!(),
                 }
@@ -619,6 +945,7 @@ mod tests {
                     "measurements.toml",
                     "resolved-plan.toml",
                     "commands.jsonl",
+                    "events.jsonl",
                 ] {
                     result
                         .files
@@ -634,6 +961,25 @@ mod tests {
                 compare_performance_runs([&dirs[0], &dirs[1], &dirs[2]]).is_err(),
                 "accepted {fault} across rounds"
             );
+        }
+    }
+
+    fn rewrite_commands(directory: &Path, commands: &[serde_json::Value], bind: bool) {
+        let mut file = File::create(directory.join("commands.jsonl")).unwrap();
+        for row in commands {
+            line(&mut file, row).unwrap();
+        }
+        drop(file);
+        if bind {
+            let text = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
+            let mut file = File::create(directory.join("ticks.jsonl")).unwrap();
+            for row in text.lines() {
+                let mut tick: TickRecord = serde_json::from_str(row).unwrap();
+                if tick.tick == 2 {
+                    tick.commands_digest = sha256(&serde_json::to_vec(commands).unwrap());
+                }
+                line(&mut file, &tick).unwrap();
+            }
         }
     }
 }
