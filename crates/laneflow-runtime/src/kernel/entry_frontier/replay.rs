@@ -7,7 +7,9 @@ use super::{
 use crate::kernel::conflict::PreparedApproachEta;
 use crate::kernel::execution::ExecutionResources;
 use crate::kernel::phase::{StepReadView, StepWorkspace};
+use crate::kernel::vehicle_store::{MotionPosition, MotionRead};
 use crate::{ApproachEstimate, ConflictPassageAddress, StepError, VehicleHandle, VehicleState};
+use laneflow_static_contract::VehicleProfileOrdinal;
 
 #[cfg(not(test))]
 const PARALLEL_ROWS: usize = 1_024;
@@ -15,11 +17,30 @@ const PARALLEL_ROWS: usize = 1_024;
 const PARALLEL_ROWS: usize = 1;
 const MAX_PARTS: usize = 128;
 
-#[derive(Clone, Copy)]
+/// 本次冻结借用的计算输入；控制成员与生命周期不进入重放暂存。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Input {
-    state: VehicleState,
+    vehicle: VehicleHandle,
+    route: crate::RouteHandle,
+    profile: VehicleProfileOrdinal,
+    position: MotionPosition,
+    speed_mm_s: u32,
     sequence: u32,
     stored_progress: u32,
+}
+
+impl Input {
+    fn new(state: impl MotionRead, sequence: u32, stored_progress: u32) -> Self {
+        Self {
+            vehicle: state.handle(),
+            route: state.route(),
+            profile: state.profile(),
+            position: state.position(),
+            speed_mm_s: state.speed_mm_s(),
+            sequence,
+            stored_progress,
+        }
+    }
 }
 
 struct Row {
@@ -146,7 +167,7 @@ pub(super) fn demanded(
     }
     let rows = &mut scratch.rows;
     let selected = apply_selection(step, current_parts, |step, input| {
-        let cells = step.workspace.frontier_maintenance.slots[input.state.handle.index() as usize]
+        let cells = step.workspace.frontier_maintenance.slots[input.vehicle.index() as usize]
             .cells
             .len();
         rows.push(Row {
@@ -300,10 +321,7 @@ fn gather_member(
     else {
         return Some(Candidate::Rejected);
     };
-    let Some(state) = read
-        .vehicle_state(vehicle)
-        .filter(|state| state.status == crate::VehicleStatus::Active)
-    else {
+    let Some(state) = read.committed.vehicles.active_binding(vehicle) else {
         return Some(Candidate::Rejected);
     };
     let Some(sequence) = read
@@ -313,12 +331,8 @@ fn gather_member(
     else {
         return Some(Candidate::Rejected);
     };
-    Some(match maintenance.replay_hit(vehicle, &state, horizon_ms) {
-        Some(stored_progress) => Candidate::Replay(Input {
-            state,
-            sequence,
-            stored_progress,
-        }),
+    Some(match maintenance.replay_hit(state, horizon_ms) {
+        Some(stored_progress) => Candidate::Replay(Input::new(state, sequence, stored_progress)),
         None => Candidate::Deferred(vehicle),
     })
 }
@@ -370,19 +384,12 @@ fn select_member(
     let stored_progress = step
         .workspace
         .frontier_maintenance
-        .replay_hit(vehicle, &state, horizon_ms);
+        .replay_hit(&state, horizon_ms);
     if !step.workspace.frontier_maintenance.mark(vehicle.index())? {
         return Ok(());
     }
     if let Some(stored_progress) = stored_progress {
-        emit(
-            step,
-            Input {
-                state,
-                sequence,
-                stored_progress,
-            },
-        )
+        emit(step, Input::new(&state, sequence, stored_progress))
     } else {
         let deferred = &mut step.workspace.frontier_maintenance.scratch_increments;
         deferred
@@ -456,12 +463,12 @@ fn compute(
             let output = &mut part.estimates[offset..offset + row.cells];
             let indices = &mut part.cell_indices[offset..offset + row.cells];
             let owners = &mut part.owners[offset..offset + row.cells];
-            let owner = (row.input.state.handle, row.input.sequence);
+            let owner = (row.input.vehicle, row.input.sequence);
             offset += row.cells;
-            let cells = &maintenance.slots[row.input.state.handle.index() as usize].cells;
+            let cells = &maintenance.slots[row.input.vehicle.index() as usize].cells;
             let emitted = &mut part.emitted;
             let valid = &mut part.valid;
-            row.error = PreparedReplay::new(read, row.input.state, horizon_ms)
+            row.error = PreparedReplay::new(read, row.input, horizon_ms)
                 .and_then(|prepared| {
                     prepared.walk(
                         row.input,
@@ -551,7 +558,7 @@ fn consume(
     {
         let mut offset = 0;
         for row in &scratch.rows {
-            let vehicle = row.input.state.handle;
+            let vehicle = row.input.vehicle;
             let cells = &step.workspace.frontier_maintenance.slots[vehicle.index() as usize].cells;
             for (cell, estimate) in cells
                 .iter()
@@ -607,7 +614,7 @@ fn consume_serial(step: &mut StepWorkspace<'_>, scratch: &ReplayScratch) -> Resu
         if let Some(error) = row.error {
             return Err(error);
         }
-        let vehicle = row.input.state.handle;
+        let vehicle = row.input.vehicle;
         let cells = &step.workspace.frontier_maintenance.slots[vehicle.index() as usize].cells;
         for (cell, estimate) in cells
             .iter()
@@ -644,11 +651,7 @@ pub(super) fn cached(
 ) -> Result<(), StepError> {
     serial(
         step,
-        Input {
-            state,
-            sequence,
-            stored_progress,
-        },
+        Input::new(&state, sequence, stored_progress),
         horizon_ms,
         wanted,
     )
@@ -660,8 +663,8 @@ fn serial(
     horizon_ms: u64,
     wanted: Option<&[ConflictPassageAddress]>,
 ) -> Result<(), StepError> {
-    let prepared = PreparedReplay::new(step.read_view(), input.state, horizon_ms)?;
-    let vehicle = input.state.handle;
+    let prepared = PreparedReplay::new(step.read_view(), input, horizon_ms)?;
+    let vehicle = input.vehicle;
     let mut conflict = step
         .committed
         .prepare_conflict(&mut step.derived, &mut step.workspace.conflict);
@@ -682,26 +685,28 @@ struct PreparedReplay {
 }
 
 impl PreparedReplay {
-    fn new(
-        read: StepReadView<'_>,
-        state: VehicleState,
-        horizon_ms: u64,
-    ) -> Result<Self, StepError> {
+    fn new(read: StepReadView<'_>, input: Input, horizon_ms: u64) -> Result<Self, StepError> {
         let profile = read
             .binding
             .revision
             .traffic()
             .relations()
-            .vehicle_profile(state.profile)
+            .vehicle_profile(input.profile)
             .ok_or(StepError::ConflictInvariantViolation)?;
         Ok(Self {
             eta: PreparedApproachEta::new(
-                state.carry_um,
-                state.speed_mm_s,
+                input.position.carry_um,
+                input.speed_mm_s,
                 profile.max_accel(),
                 horizon_ms,
             ),
-            hold: signal_hold(read, state.handle, &state),
+            hold: signal_hold(
+                read,
+                input.vehicle,
+                input.route,
+                input.profile,
+                input.position,
+            ),
             horizon_ms,
             emergency_decel: profile.emergency_decel(),
         })
@@ -715,7 +720,7 @@ impl PreparedReplay {
         mut emit: impl FnMut(usize, ConflictPassageAddress, ApproachEstimate) -> Result<(), StepError>,
     ) -> Result<(), StepError> {
         let traveled = input
-            .state
+            .position
             .progress_mm
             .saturating_sub(input.stored_progress);
         for (index, cell) in cells.iter().enumerate() {
@@ -734,7 +739,7 @@ impl PreparedReplay {
                 self.hold,
                 remaining,
                 self.horizon_ms,
-                input.state.speed_mm_s,
+                input.speed_mm_s,
                 self.emergency_decel,
             );
             if estimate == ApproachEstimate::OutsideHorizon {
@@ -756,6 +761,192 @@ mod tests {
     use crate::kernel::execution::WorldExecution;
     use crate::{ExecutionConfig, TrafficWorld};
     use std::num::NonZeroU32;
+
+    #[test]
+    fn compact_replay_input_matches_full_state_at_position_boundaries() {
+        let (mut world, _) = cached_world(4);
+        let vehicle = world.state.committed.live_order[0];
+        for (cursor, progress, carry, speed) in [
+            (0, 0, 0, 0),
+            (0, 100, 999, 10_000),
+            (1, 0, 0, 0),
+            (1, 0, 777, 10_000),
+            (1, 1, 777, 10_001),
+        ] {
+            let mut state = world.vehicle(vehicle).unwrap();
+            state.route_edge_index = cursor;
+            state.progress_mm = progress;
+            state.carry_um = carry;
+            state.speed_mm_s = speed;
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle.index() as usize)
+                .state = Some(state);
+            let state = world.vehicle(vehicle).unwrap();
+            let row = world
+                .state
+                .committed
+                .vehicles
+                .active_binding(vehicle)
+                .unwrap();
+            let full = Input::new(&state, 9, 17);
+            assert_eq!(Input::new(row, 9, 17), full);
+            for horizon in [1, 5_000, 50_000] {
+                let maintenance = &world.state.workspace.frontier_maintenance;
+                assert_eq!(
+                    maintenance.replay_hit(row, horizon),
+                    maintenance.replay_hit(&state, horizon),
+                );
+            }
+        }
+        assert!(size_of::<Input>() < size_of::<(VehicleState, u32, u32)>());
+        println!(
+            "REPLAY_LAYOUT input={} candidate={} selected_member={} row={} full_state={}",
+            size_of::<Input>(),
+            size_of::<Candidate>(),
+            size_of::<(u32, Candidate)>(),
+            size_of::<Row>(),
+            size_of::<VehicleState>(),
+        );
+    }
+
+    #[test]
+    fn compact_replay_matches_full_state_signal_and_eta_primitives() {
+        use crate::kernel::entry_frontier::PreparedSignalApproach;
+
+        for (green_ms, green_first) in [(Some(4_000), false), (None, false), (Some(200), true)] {
+            let (mut world, route) = crate::admin::cutover_migration::tests::signal_frontier_world(
+                4_000,
+                green_ms,
+                green_first,
+            );
+            let vehicle = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        1,
+                        0,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            let address = world
+                .state
+                .read_view()
+                .compiled_route(route)
+                .unwrap()
+                .conflicts[0]
+                .address();
+            let cells: Vec<_> = [0, 1, 2_000, 60_000, 5_000_000]
+                .into_iter()
+                .map(|distance_mm| CachedCell {
+                    address,
+                    distance_mm,
+                })
+                .collect();
+            for reserved in [false, true] {
+                if reserved {
+                    crate::admin::format_admission::tests::install_conflict_reservation(
+                        &mut world, route, vehicle,
+                    );
+                }
+                for (cursor, progress, carry, speed) in [
+                    (1, 0, 0, 0),
+                    (1, 0, 777, 0),
+                    (0, 100, 999, 10_000),
+                    (1, 100, 0, 10_000),
+                ] {
+                    let mut state = world.vehicle(vehicle).unwrap();
+                    state.route_edge_index = cursor;
+                    state.progress_mm = progress;
+                    state.carry_um = carry;
+                    state.speed_mm_s = speed;
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .slot_mut(vehicle.index() as usize)
+                        .state = Some(state);
+                    let read = world.state.read_view();
+                    let state = world.vehicle(vehicle).unwrap();
+                    let row = read.committed.vehicles.active_binding(vehicle).unwrap();
+                    let profile = read
+                        .binding
+                        .revision
+                        .traffic()
+                        .relations()
+                        .vehicle_profile(state.profile)
+                        .unwrap();
+                    for horizon in [1, 4_000, 5_000, 50_000] {
+                        let eta = PreparedApproachEta::new(
+                            state.carry_um,
+                            state.speed_mm_s,
+                            profile.max_accel(),
+                            horizon,
+                        );
+                        let signal =
+                            PreparedSignalApproach::new(read, &state, profile.emergency_decel());
+                        for wanted in [None, Some([address].as_slice()), Some([].as_slice())] {
+                            let mut expected = Vec::new();
+                            for (index, cell) in cells.iter().enumerate() {
+                                let traveled = state.progress_mm;
+                                if traveled > cell.distance_mm {
+                                    continue;
+                                }
+                                let remaining = cell.distance_mm - traveled;
+                                let kinematic = eta.map_or(ApproachEstimate::Unprovable, |eta| {
+                                    eta.lower_bound(u64::from(remaining))
+                                });
+                                if kinematic == ApproachEstimate::OutsideHorizon {
+                                    break;
+                                }
+                                let estimate = signal.apply(kinematic, remaining, horizon);
+                                if estimate != ApproachEstimate::OutsideHorizon
+                                    && wanted.is_none_or(|wanted| wanted.contains(&cell.address))
+                                {
+                                    expected.push((index, cell.address, estimate));
+                                }
+                            }
+                            let input = Input::new(row, 7, 0);
+                            let mut actual = Vec::new();
+                            PreparedReplay::new(read, input, horizon)
+                                .unwrap()
+                                .walk(input, &cells, wanted, |index, address, estimate| {
+                                    actual.push((index, address, estimate));
+                                    Ok(())
+                                })
+                                .unwrap();
+                            assert_eq!(
+                                actual, expected,
+                                "signal projection: {green_ms:?}, reserved={reserved}"
+                            );
+                            if green_ms == Some(4_000)
+                                && !reserved
+                                && cursor == 1
+                                && progress == 0
+                                && carry == 0
+                                && speed == 0
+                                && horizon == 5_000
+                                && wanted.is_none()
+                            {
+                                assert_eq!(actual[0].2, ApproachEstimate::Finite(4_000));
+                            }
+                        }
+                    }
+                    let mut invalid = Input::new(row, 7, 0);
+                    invalid.profile = VehicleProfileOrdinal::from_raw(u32::MAX);
+                    assert!(matches!(
+                        PreparedReplay::new(read, invalid, 5_000),
+                        Err(StepError::ConflictInvariantViolation)
+                    ));
+                }
+            }
+        }
+    }
 
     fn cached_world(workers: u32) -> (TrafficWorld, Vec<ConflictPassageAddress>) {
         cached_world_with_multiple_addresses(workers, false)
