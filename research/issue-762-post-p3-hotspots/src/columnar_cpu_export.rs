@@ -83,10 +83,11 @@ fn instrument_motion(root: &Path) -> Result<()> {
             &format!("            super::note_pipeline(21, 1);\n{walk_read}"),
         )?;
     }
+    // 准备段从唯一的批次创建处开始，不要求其后的缓存借用与块长度读取相邻。
     for (old, new) in [
         (
-            "    let mut batch = Batch::new();\n    let n = chunk.cursor.len();",
-            "    let _pipeline_flush = super::PipelineFlush;\n    let _sample = super::PipelineSample::begin(start % 4_096 == 0);\n    let _prepare_timer = super::PipelineTimer::begin(6);\n    let mut batch = Batch::new();\n    let n = chunk.cursor.len();",
+            "    let mut batch = Batch::new();",
+            "    let _pipeline_flush = super::PipelineFlush;\n    let _sample = super::PipelineSample::begin(start % 4_096 == 0);\n    let _prepare_timer = super::PipelineTimer::begin(6);\n    let mut batch = Batch::new();",
         ),
         (
             "        let prepared = (|| {",
