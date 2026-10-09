@@ -558,6 +558,8 @@ fn compute(
     delta_s: f32,
 ) {
     let mut batch = Batch::new();
+    // 游标缓存与输出列分开借用；读取整行不需搬入临时值。
+    let mut cursor_rows = chunk.cursor_rows.take();
     let n = chunk.cursor.len();
     let current = view
         .read
@@ -611,12 +613,10 @@ fn compute(
             let waiting = view.waiting_stop_for(state, compiled)?;
             chunk.reports[row].checkpoint = MotionCheckpoint::Conflict;
             let compiled = compiled.ok_or(StepError::ConflictInvariantViolation)?;
-            let cursor_row = chunk
-                .cursor_rows
+            let cursor_row = cursor_rows
                 .as_deref_mut()
                 .and_then(|rows| rows.get_mut(row))
                 .and_then(|slot| cursor_row_for(view, slot, state.route(), compiled, position));
-            let cursor_row = cursor_row.as_ref();
             let profile = view
                 .read
                 .binding
@@ -887,10 +887,10 @@ fn compute(
             let progress = chunk.progress[row];
             let traffic = view.read.binding.revision.traffic();
             // 游标未变时物理行缓存就是本游标的行（本拍准备时已按本车路线核对）。
-            let cursor_row = chunk
-                .cursor_rows
+            let cursor_row = cursor_rows
                 .as_deref()
-                .and_then(|rows| rows.get(row).copied().flatten())
+                .and_then(|rows| rows.get(row))
+                .and_then(Option::as_ref)
                 .filter(|cursor_row| {
                     cursor_row.cursor() == cursor && cursor == source.route_cursor[offset + row]
                 });
@@ -962,7 +962,7 @@ fn compute(
             let hints = chunk.reports[row].finalize_hints;
             chunk.reports[row].finalize_hints = match cursor_row {
                 Some(cursor_row) => {
-                    hints.with_cursor_row_motion(&cursor_row, previous, next, route_completed)
+                    hints.with_cursor_row_motion(cursor_row, previous, next, route_completed)
                 }
                 None => hints.with_motion(
                     Some(compiled),
@@ -987,13 +987,13 @@ fn compute(
 
 /// 取本物理行的（路线, 游标）缓存：键不符时从编译路线现算并写回。游标处没有运动
 /// 输入行时清空并返回 `None`，调用方照常读编译路线。测试构建每次与现算结果比对。
-fn cursor_row_for(
+fn cursor_row_for<'a>(
     view: MotionTaskView<'_>,
-    slot: &mut Option<MotionCursorRow>,
+    slot: &'a mut Option<MotionCursorRow>,
     route: crate::RouteHandle,
     compiled: &CompiledRoute,
     position: MotionPosition,
-) -> Option<MotionCursorRow> {
+) -> Option<&'a MotionCursorRow> {
     let traffic = view.read.binding.revision.traffic();
     let derive = || {
         MotionCursorRow::derive(
@@ -1015,7 +1015,7 @@ fn cursor_row_for(
         }
         _ => *slot = derive(),
     }
-    *slot
+    slot.as_ref()
 }
 
 /// 并行规范消费；规范顺序里有已离开存储的句柄时返回 `None`，交回串行消费。
