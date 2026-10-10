@@ -1,5 +1,9 @@
 # Spatial 缓冲所有权交换 A/B 测量
 
+> **旧工具退役**：本目录的原始证据和分析／拒绝测试脚本已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
+
 关联 [#711](https://github.com/illusion-tech/laneflow/issues/711)。本目录是独立
 workspace 的研究程序，用于对照同一测量程序在两份真实生产源码上的完整
 `SpatialSession::extract_pose_batch` 路径表现：
@@ -70,11 +74,11 @@ B 侧在测量源码提交后取证，只允许 evidence 输出未跟踪。
 
 ## 结果
 
-数值由 `analyze.ps1` 从 evidence 自动汇总（含样本唯一性、逐轮 oracle 完整
-性、分配样本、A/B 程序来源一致性校验；拒绝测试见 `test-analyze.ps1`，8/8
+当时数值由归档内 `analyze.ps1` 从完整原始 evidence 自动汇总（含样本唯一性、逐轮 oracle 完整
+性、分配样本、A/B 程序来源一致性校验；当时的拒绝测试见归档内 `test-analyze.ps1`，8/8
 通过）。完整表见 [results.csv](results.csv) 与自动生成的
 [summary-table.md](summary-table.md)；三轮中位数与全部原始样本在
-[evidence](evidence/)。环境：AMD Ryzen 9 9955HX、Windows 29661、单 logical
+[归档内原始样本](../archives/2026-10-01-json-migration.md)。环境：AMD Ryzen 9 9955HX、Windows 29661、单 logical
 processor 固定、**rustc/cargo 1.98.1（environment.json 取证记录；CI 门禁另用
 1.98.0）**、release opt-level 3。
 
@@ -128,26 +132,15 @@ header、token，失败场景断言完整旧输出保持。
 相等）。不能用本结果宣称 Spatial 整体等比例加速；#712 的来源分配消除仍是
 独立成本。
 
-## 复现
+## 旧工具退役与按需追溯
 
-在仓库根使用 pwsh 7、已缓存依赖（本地默认工具链 1.98.1；CI 门禁另查
-1.98.0）：
+`analyze.ps1` 与 `test-analyze.ps1` 已从当前树移除，原始证据目录一并迁入
+[冻结归档](../archives/2026-10-01-json-migration.md)。简短结果表、研究源码、
+历史结论与上述观察边界保留；生产回归测试及其夹具不受本次退役影响。
 
-```powershell
-cargo clippy --locked --offline --manifest-path research/issue-711-spatial-buffer-swap/Cargo.toml --all-targets --all-features -- -D warnings
-cargo fmt --manifest-path research/issue-711-spatial-buffer-swap/Cargo.toml -- --check
-cargo run --locked --offline --release --manifest-path research/issue-711-spatial-buffer-swap/Cargo.toml -- --smoke
-# A 侧需另建基线工作树并复制本目录（未跟踪）后：
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/run.ps1 -Output research/issue-711-spatial-buffer-swap/evidence/before/run1 -AllowUntracked 'research/issue-711-spatial-buffer-swap/'
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/run.ps1 -Output research/issue-711-spatial-buffer-swap/evidence/after/run1 -AllowUntracked 'research/issue-711-spatial-buffer-swap/evidence'
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/run.ps1 -Output research/issue-711-spatial-buffer-swap/evidence/after/fresh/run1 -AllowUntracked 'research/issue-711-spatial-buffer-swap/evidence' -CaseFilter fresh_output
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/analyze.ps1
-pwsh -NoProfile -File research/issue-711-spatial-buffer-swap/test-analyze.ps1
-cargo test --locked -p laneflow-spatial -p laneflow-bevy --tests
-```
+旧复现方法查阅[冻结版本 README](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-711-spatial-buffer-swap/README.md)。脚本与原始证据位于归档的
+`source/research/issue-711-spatial-buffer-swap/`；完整源码、Git 历史、下载地址及 SHA-256
+均由归档索引绑定。当前目录不再提供旧分析命令，也不将这些入口重写为 Rust。
 
-run.ps1 在构建前、后及采集后要求 HEAD 不变且跟踪文件干净；evidence 目录必须
-是新目录；binary 保留在取证目录但不入库（`.gitignore` 排除），其 SHA-256 记录
-于 environment.json。测量源码提交后再取证；证据另行提交，不 amend/rebase
-测量源码提交。analyze.ps1 拒绝不完整证据（缺 oracle、样本重复/缺失、分配样
-本缺失、来源不一致、墙钟分配列非零），拒绝用例见 test-analyze.ps1。
+不安排例行复核。出现相关回归或结论争议时，由调查该问题的人按需恢复归档，
+按当时的源码身份、输入和观察口径复核；新的调查结果单独报告，不改写旧结论。

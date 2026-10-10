@@ -1,12 +1,12 @@
 # D0 现场确认（D1 10k r1 正式配对前置；UTC+9 本地时间口径）
 
 [binary]
-path = "E:/projects/worktrees/707-measure/laneflow/target/release/laneflow-urban-harness.exe"
+path = "<worktree>/target/release/laneflow-urban-harness.exe"
 sha256 = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523"
 sha256_match = true
 
 [checkout]
-path = "E:/projects/worktrees/707-measure/laneflow"
+path = "<worktree>"
 head = "4de40e045398e4b010b2aa36522afc02a4094c4d"
 worktree_clean = true
 

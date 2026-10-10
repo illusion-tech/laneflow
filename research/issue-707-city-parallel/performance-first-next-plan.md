@@ -1,5 +1,8 @@
 # #707 激进优化与结果验收计划
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。Refs #707。状态：已完成入口参与者缩减、局部时窗、近似 ETA、P3/Waiting 工作范围、预检/收尾及边界/窄版降频原型筛查；
 完整入口许可、多频率模型及交通质量验收仍待完成。
 
@@ -76,8 +79,8 @@ frontier 约占当前插入的 0.24，候选授予约占 0.01。
 frontier 按 hop 记住 + 近门判断放在已持有的运动状态上。
 [无计时最佳候选](untimed-best-results.md)已封存：不开阶段计时的同一二进制上，
 old 30.517 ms，held 28.462 ms。候选身份已由版本化的
-[`retained-best-evidence-manifest.json`](evidence/retained-best-evidence-manifest.json)、
-源码补丁与 [Research Evidence 记录](evidence/retained-best-release.json)绑定；精确
+[`retained-best-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-evidence-manifest.json)、
+源码补丁与 [Research Evidence 记录](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-release.json)绑定；精确
 EXE 与 100k fixture 已发布到独立的 [Research Evidence prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-m16-best-19bf7ecb)，
 并从稳定 URL 重新下载、验签和完成 smoke；本机 `target/` 路径不再承担长期身份。
 held 环境为 `LF707_COAST=on`、`LF707_DEMAND=held`。M3 的 29.334 ms 不改写。

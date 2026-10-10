@@ -1,5 +1,8 @@
 # #682 低活动率成本测量结论
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 **优先验证 Conflict 资格表的容量维护路径。** 在 Active、live 和历史槽位长度均为
 1000 时，仅把配置容量从 10000 提高到 100000，三轮正常库整拍 mean 从约
 0.18 ms 升至 0.50 ms，world-owned retained memory 从 10.82 MiB 增至
@@ -23,11 +26,11 @@
   反向组序。27 次正常库墙钟、27 次独立测试库诊断，以及一个包含六个资源窗口的
   诊断进程，共 55 个进程记录。安装、编译、暖机和输出不计入 step 墙钟。
 
-[机器核验结果](evidence/results.json)、[完整数表](measurements.md)、
+[机器核验结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/results.json)、[完整数表](measurements.md)、
 [schema 2 原始日志与元数据](evidence/v2)、[原 schema 1 记录](evidence/v1) 均随 Git
 保存。每个进程记录 UUID、输入摘要、源码/tree、manifest/lock、rustc、二进制摘要、
-日志摘要和前后负载。环境记录见 [采集前](evidence/environment-before.json) 与
-[采集后](evidence/environment-after.json)。后续核验在采集源码的后代提交上运行。
+日志摘要和前后负载。环境记录见 [采集前](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/environment-before.json) 与
+[采集后](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/environment-after.json)。后续核验在采集源码的后代提交上运行。
 
 从仓库根目录复核封存记录：
 
@@ -133,7 +136,7 @@ sort/suffix 段；count/fill 的记录数仍相同。可保留 touched-bucket �
 - 稀疏夹具轴验证；高水位槽位重用代次及两个失败点同拍重试；4 项 Gate scope、
   2 项 Conflict retry、6 项 eligibility（含撤销）、完整 retained-memory smoke 通过。
 - 工具 3 项单元测试、Runtime/工具 all-targets Clippy `-D warnings`、fmt 通过。
-  [实际封存证据负例](evidence/negative-verification.json) 的日志改动、缺拍、重复轮次、
+  [实际封存证据负例](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/negative-verification.json) 的日志改动、缺拍、重复轮次、
   隐藏 CPU 告警、混合资源源码、账本不平和资源状态变化七种情况均被拒绝。
 - 没有改变正式 Runtime API、交通行为、数据格式、Adapter 或资源权威。
   无插桩墙钟不与诊断二进制的绝对时间相减，不把这些小型串行场景当作城市认证。

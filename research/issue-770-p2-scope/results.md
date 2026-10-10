@@ -1,5 +1,8 @@
 # 收窄 P2 入口预览的采用证据
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #770。采用此内部优化：100k 前两组平衡无插桩整拍收益超过各自同臂重复波动，
 三组全窗与后段 mean 均同向；正确性边界通过，暂存布局与已观测容量峰值不增长。
 10k 没有证明稳定改善，第三组 100k 及最后一对诊断存在明显非平稳波动，不能将
@@ -19,7 +22,7 @@ Refs #770。采用此内部优化：100k 前两组平衡无插桩整拍收益超
 - 源码、manifest/lock、输入、二进制、UUID、前后 HEAD/clean、完整文件清单、
   原生结果与计时均经校验；每尺度所有运行的交通摘要和语义结果相同。
 
-[24 轮无插桩 JSON](evidence/plain.json) 与 [12 轮诊断 JSON](evidence/detail.json)
+[24 轮无插桩 JSON](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-770-p2-scope/evidence/plain.json) 与 [12 轮诊断 JSON](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-770-p2-scope/evidence/detail.json)
 SHA-256 分别为 `26399bc4eba8ec7ce3ae8c4584e023f69170ee2265b6fcadb0635fc7e7039739`、
 `030f6e52918489caceff875837a20b86eed78d3485b7963789dd53f41295f07c`。
 外部原始包和导出树保留在采集工作树的 `target/770-plain-runs`、

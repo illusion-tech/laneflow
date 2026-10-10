@@ -1,5 +1,8 @@
 # #707 B1 暖机后 WPR 热点诊断
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。Refs #707。用户授权的本切片为采集与诊断；已完成一次短窗口采集、
 符号核对、线程活动与调用栈分析。#734 收尾只提交隐私筛选后的紧凑报告与身份索引，
 未改 Runtime/Harness 算法。
@@ -28,7 +31,7 @@ Core 内仍应优先研究运动约束查询与车辆状态迁移，不宜继续
   `b1.etl` 为 1,311,768,576 字节，SHA-256 为
   `42c47b65307dd19852492ae486d361ab5f99517608075c3470315b007ec211fc`；
   采样周期 1ms，lost events / lost buffers 均为 0。匹配的符号、活动和调用栈导出
-  身份见 [`wpr-trace-identities.json`](evidence/wpr-trace-identities.json)。
+  身份见 [`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json)。
 - ETL 起点为日本时间 **00:59:54.2520924**；统一分析相对 **[5s, 40s)**，即连续
   35 秒，早于 46.546s 开始的 rundown。全 ETL 长 69.729s，包含尾部处理，不能
   当作有效样本窗。WPR stop/merge 另耗约 117.5s，不能当作仿真运行耗时。
@@ -145,11 +148,11 @@ Core 的下一条独立研究线仍是运动约束查询；红灯停止线 ETA=0
 
 ## 6. 复核入口
 
-本机证据根：`E:/projects/laneflow/target/issue707-b1-wpr-20260922/`。
+本机证据根：`<checkout>/target/issue707-b1-wpr-20260922/`。
 这是外部诊断制品目录。仓库在 [`evidence/wpr-b1/`](evidence/wpr-b1/) 提交
 13 份隐私筛选后的紧凑 JSON/CSV/TXT 报告；提交副本只统一为 LF、去掉末尾多余换行并
 保留一个终止 LF。来源与提交副本的字节数、SHA-256 以及筛选边界以
-[`wpr-trace-identities.json`](evidence/wpr-trace-identities.json) 为准。
+[`wpr-trace-identities.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json) 为准。
 
 - 已提交：`identity.json`、`capture.json`、`provenance.json`、`verification.json`、
   `trace-stats.txt`、`frequency.txt`、`rundown.txt`、`analysis.json`、三份

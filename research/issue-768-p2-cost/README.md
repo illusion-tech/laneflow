@@ -1,5 +1,8 @@
 # P2 预览与 Waiting 准备成本
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #768、#707。基线固定为 #763 合入的 `7bdf1f0ee4ae436ffc688903899ce9d16f89e41b`。
 使用既有 Rust package 中的 `laneflow-p2-cost-research`；不修改历史 #762/#763 协议或证据。
 
@@ -28,7 +31,7 @@ cargo +1.98.0 run --locked --offline -p laneflow-post-p3-research --bin laneflow
 结束且采集工具提交干净可达后再串行运行，期间不构建/修改源码：
 
 ```powershell
-target/debug/laneflow-p2-cost-research.exe run target/768-build E:/projects/laneflow-evidence/issue-707/4de40e04 target/768-runs
+target/debug/laneflow-p2-cost-research.exe run target/768-build <evidence-root>/issue-707/4de40e04 target/768-runs
 target/debug/laneflow-p2-cost-research.exe analyze target/768-runs target/768-results.json
 target/debug/laneflow-p2-cost-research.exe verify target/768-runs target/768-results.json
 ```

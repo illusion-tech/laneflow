@@ -40,9 +40,9 @@ Active 中位数 45468。已经足以优先诊断，无须先补完 r2/r3。
 
 既有本地证据：
 
-- `E:/projects/laneflow-evidence/issue-707/4de40e04/formal/d2-batch-summary.md`
-- `E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/d2-offline-decomposition.md`
-- `E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/wpr/l1-findings.md`
+- `<evidence-root>/issue-707/4de40e04/formal/d2-batch-summary.md`
+- `<evidence-root>/issue-707/4de40e04/diagnostics/d2-offline-decomposition.md`
+- `<evidence-root>/issue-707/4de40e04/diagnostics/wpr/l1-findings.md`
 
 ## 2. 源码已经确认的成本与归因限制
 

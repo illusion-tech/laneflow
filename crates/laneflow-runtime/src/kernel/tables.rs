@@ -93,6 +93,25 @@ pub(crate) struct NearestMotionBarriers {
     pub(crate) waiting_from_occurrence_start: Option<BoundedDistance>,
 }
 
+/// 一个路线出现项上只取决于（路线, 游标）的运动输入，编译时按游标连续存放。
+///
+/// 逐车准备从一行连续数据取得，不再分别访问边表、车道长度、限速、路终后缀、
+/// 限速下降、门 hop 与屏障表。各字段与从源数组逐项读取的结果相同（见 [`route_hop`]）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RouteHop {
+    pub edge: LaneEdgeOrdinal,
+    pub length_mm: Option<u32>,
+    pub limit_mm_s: Option<u32>,
+    pub remaining_to_end: Option<BoundedDistance>,
+    /// 第一个 `from_route_edge_index >= 游标` 的限速下降下标。
+    pub speed_drop_first: u32,
+    /// 第一个 `>= 游标` 的 `gate_hops` 下标。
+    pub gate_first: u32,
+    pub barriers: Option<NearestMotionBarriers>,
+    /// 下一受控门从本 hop 起点算的距离；没有受控门为 `None`。
+    pub signal_from_start: Option<BoundedDistance>,
+}
+
 /// 本世界 compiled 路线：分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
 /// 受控 hop 链、最近停止距离和限速下降转换。
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
@@ -115,6 +134,10 @@ pub(crate) struct CompiledRoute {
     pub final_conflict_clearance: Option<(RoutePosition, u32)>,
     /// 与 `edges` 等长。同一条边在循环路线中的两次出现各有一行。
     pub nearest_motion_barriers: Vec<NearestMotionBarriers>,
+    /// 静态 Waiting maneuver 覆盖位，按路线出现项索引；空 Waiting 路线不分配。
+    pub waiting_maneuver_bits: Box<[u64]>,
+    /// 与 `edges` 等长的逐游标运动输入；为空时由 [`route_hop`] 从源数组逐项读取。
+    pub hops: Vec<RouteHop>,
 }
 
 #[cfg(test)]
@@ -137,6 +160,8 @@ impl CompiledRoute {
             conflict_gate_ranges,
             final_conflict_clearance: _,
             nearest_motion_barriers,
+            waiting_maneuver_bits,
+            hops,
         } = self;
         crate::kernel::state::vec_bytes(edges)
             + crate::kernel::state::vec_bytes(maneuvers)
@@ -152,10 +177,88 @@ impl CompiledRoute {
             + crate::kernel::state::vec_bytes(conflicts)
             + crate::kernel::state::vec_bytes(conflict_gate_ranges)
             + crate::kernel::state::vec_bytes(nearest_motion_barriers)
+            + crate::kernel::state::slice_bytes(waiting_maneuver_bits)
+            + crate::kernel::state::vec_bytes(hops)
     }
 }
 
+/// 游标处的运动输入：有预编译行就读行，否则从源数组逐项读取（结果相同）。
+#[inline]
+pub(crate) fn route_hop(
+    compiled: &CompiledRoute,
+    cursor: usize,
+    lengths: &[u32],
+    speeds: &[u32],
+) -> Option<RouteHop> {
+    if let Some(hop) = compiled.hops.get(cursor) {
+        return Some(*hop);
+    }
+    derive_route_hop(compiled, cursor, lengths, speeds)
+}
+
+fn derive_route_hop(
+    compiled: &CompiledRoute,
+    cursor: usize,
+    lengths: &[u32],
+    speeds: &[u32],
+) -> Option<RouteHop> {
+    let edge = *compiled.edges.get(cursor)?;
+    let cursor_u32 = u32::try_from(cursor).ok()?;
+    Some(RouteHop {
+        edge,
+        length_mm: lengths.get(edge.index()).copied(),
+        limit_mm_s: speeds.get(edge.index()).copied(),
+        remaining_to_end: compiled.remaining_to_end.get(cursor).copied(),
+        speed_drop_first: u32::try_from(
+            compiled
+                .speed_limit_drop
+                .partition_point(|drop| drop.from_route_edge_index < cursor_u32),
+        )
+        .ok()?,
+        gate_first: u32::try_from(compiled.gate_hops.partition_point(|hop| *hop < cursor_u32))
+            .ok()?,
+        barriers: compiled.nearest_motion_barriers.get(cursor).copied(),
+        signal_from_start: compiled
+            .next_controlled
+            .get(cursor)
+            .copied()
+            .flatten()
+            .map(|next| next.distance_from_hop_start),
+    })
+}
+
 impl CompiledRoute {
+    /// 按当前源数组重建逐游标运动输入行。编译时调用；测试改写源数组后也要调用。
+    pub(crate) fn refresh_hops(
+        &mut self,
+        lengths: &[u32],
+        speeds: &[u32],
+    ) -> Result<(), RouteError> {
+        let mut hops = try_route_vec(self.edges.len())?;
+        self.hops.clear();
+        for cursor in 0..self.edges.len() {
+            hops.push(
+                derive_route_hop(self, cursor, lengths, speeds)
+                    .ok_or(RouteError::AllocationFailed)?,
+            );
+        }
+        self.hops = hops;
+        Ok(())
+    }
+
+    pub(crate) fn waiting_maneuver_at_hop(&self, hop: u32) -> Option<bool> {
+        let hop = usize::try_from(hop).ok()?;
+        if hop >= self.edges.len() {
+            return None;
+        }
+        if self.waiting.is_empty() {
+            return Some(false);
+        }
+        self.waiting_maneuver_bits
+            .get(hop / 64)
+            .map(|word| word & (1 << (hop % 64)) != 0)
+    }
+
     /// 把路线内 conflict occurrence 下标定位成对外 locator；越界返回 `None`。
     pub(crate) fn conflict_occurrence_locator(
         &self,
@@ -230,6 +333,8 @@ pub(crate) struct VehicleSlot {
 thread_local! {
     static ROUTE_RESERVATIONS_BEFORE_FAILURE: Cell<Option<usize>> = const { Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: ROUTE_RESERVATIONS_BEFORE_FAILURE);
 
 #[cfg(test)]
 struct RouteAllocationFailpointReset(Option<usize>);
@@ -526,8 +631,9 @@ pub(crate) fn compile_route(
         compile_nearest_motion_barriers(&route_lengths, &conflicts, &waiting)?;
     let mut compiled_edges = try_route_vec(edges.len())?;
     compiled_edges.extend_from_slice(edges);
+    let waiting_maneuver_bits = compile_waiting_maneuver_bits(edges.len(), &maneuvers, &waiting)?;
 
-    Ok(CompiledRoute {
+    let mut compiled = CompiledRoute {
         edges: compiled_edges,
         maneuvers,
         hop_gate,
@@ -543,7 +649,33 @@ pub(crate) fn compile_route(
         conflict_gate_ranges,
         final_conflict_clearance,
         nearest_motion_barriers,
-    })
+        waiting_maneuver_bits,
+        hops: Vec::new(),
+    };
+    compiled.refresh_hops(lengths, speeds)?;
+    Ok(compiled)
+}
+
+fn compile_waiting_maneuver_bits(
+    hops: usize,
+    maneuvers: &[ManeuverOccurrence],
+    waiting: &[WaitingOccurrence],
+) -> Result<Box<[u64]>, RouteError> {
+    if waiting.is_empty() {
+        return Ok(Box::default());
+    }
+    let mut bits = try_route_vec_filled(hops.div_ceil(64), 0_u64)?;
+    for occurrence in waiting {
+        let maneuver = maneuvers
+            .get(occurrence.maneuver_index as usize)
+            .ok_or(RouteError::ManeuverMismatch)?;
+        for hop in maneuver.entry_route_edge_index..maneuver.exit_route_edge_index {
+            let hop = hop as usize;
+            let word = bits.get_mut(hop / 64).ok_or(RouteError::ManeuverMismatch)?;
+            *word |= 1 << (hop % 64);
+        }
+    }
+    Ok(bits.into_boxed_slice())
 }
 
 /// 分段 `u32` 前缀。下一条边长会让当前段溢出时封段、开新段。不上 `u64`（ADR 0028）。
@@ -1873,6 +2005,59 @@ mod compile_route_tests {
         "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
+    #[test]
+    fn waiting_maneuver_bits_follow_occurrences_cross_words_and_account_capacity() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let state = world.vehicle(world.live_vehicles()[0]).unwrap();
+        let mut compiled = world.state.compiled_route(state.route).unwrap().clone();
+        let mut waiting = compiled.waiting[0];
+        waiting.maneuver_index = 1;
+        let maneuvers = [
+            ManeuverOccurrence {
+                path: ManeuverPathOrdinal::from_raw(0),
+                entry_route_edge_index: 0,
+                exit_route_edge_index: 2,
+            },
+            ManeuverOccurrence {
+                path: ManeuverPathOrdinal::from_raw(0),
+                entry_route_edge_index: 63,
+                exit_route_edge_index: 66,
+            },
+        ];
+        compiled.edges = vec![compiled.edges[0]; 67];
+        compiled.waiting = vec![waiting];
+        compiled.waiting_maneuver_bits = Box::default();
+        let empty_bytes = compiled.retained_logical_bytes();
+        compiled.waiting_maneuver_bits =
+            compile_waiting_maneuver_bits(67, &maneuvers, &[waiting]).unwrap();
+        assert_eq!(compiled.waiting_maneuver_bits.len(), 2);
+        assert_eq!(
+            compiled.retained_logical_bytes() - empty_bytes,
+            crate::kernel::state::slice_bytes(&compiled.waiting_maneuver_bits)
+        );
+        for hop in 0..67 {
+            assert_eq!(
+                compiled.waiting_maneuver_at_hop(hop),
+                Some((63..66).contains(&hop)),
+                "hop={hop}"
+            );
+        }
+        assert_eq!(compiled.waiting_maneuver_at_hop(67), None);
+        assert!(
+            compile_waiting_maneuver_bits(67, &maneuvers, &[])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            with_route_allocation_failure_after(0, || compile_waiting_maneuver_bits(
+                67,
+                &maneuvers,
+                &[waiting]
+            )),
+            Err(RouteError::AllocationFailed)
+        );
+    }
+
     fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
         let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
         build_shared_network_revision(
@@ -2166,6 +2351,8 @@ mod compile_route_tests {
             conflict_gate_ranges: vec![ConflictGateRange { start: 0, len: 1 }],
             final_conflict_clearance: Some((final_clearance, 0)),
             nearest_motion_barriers: Vec::new(),
+            waiting_maneuver_bits: Box::default(),
+            hops: Vec::new(),
         };
         assert_eq!(
             compiled.retained_logical_bytes(),

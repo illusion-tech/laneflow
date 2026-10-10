@@ -4,6 +4,7 @@ members = [
     "crates/laneflow-compiler",
     "crates/laneflow-format",
     "crates/laneflow-format-mmap",
+    "crates/laneflow-motion-kernel",
     "crates/laneflow-road-editing-wire",
     "crates/laneflow-runtime",
     "crates/laneflow-runtime-snapshot-wire",

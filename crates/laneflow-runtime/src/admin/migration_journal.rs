@@ -215,6 +215,8 @@ pub(crate) struct VehicleDelta {
 std::thread_local! {
     static VEHICLE_DELTA_MATERIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: VEHICLE_DELTA_MATERIALIZATIONS);
 
 impl VehicleDelta {
     /// 从已提交车辆状态提取增量。
@@ -1999,7 +2001,11 @@ mod tests {
             .expect("idempotent re-occupy");
         // 强制完成 first 后原子替换。
         let index = usize::try_from(first.index()).expect("index");
-        world.state.committed.vehicles[index]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(index)
             .state
             .as_mut()
             .expect("first")
@@ -2109,10 +2115,10 @@ mod tests {
         assert_eq!(delta.route_index, route.index());
 
         assert!(world.state.disarm_migration_journal().is_some());
-        let before = *world.state.vehicle_state(vehicle).unwrap();
+        let before = world.state.vehicle_state(vehicle).unwrap();
         VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).unwrap();
-        assert_ne!(*world.state.vehicle_state(vehicle).unwrap(), before);
+        assert_ne!(world.state.vehicle_state(vehicle).unwrap(), before);
         assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0, "disarmed tick");
     }
 

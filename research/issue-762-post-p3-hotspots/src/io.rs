@@ -140,3 +140,43 @@ pub(crate) fn command(repo: &Path, program: &str, args: &[&str]) -> Result<Strin
 pub(crate) fn git(repo: &Path, args: &[&str]) -> Result<String> {
     command(repo, "git", args)
 }
+
+pub(crate) fn enable_harness_diagnostics(binary: &Path, args: &mut Vec<String>) -> Result<()> {
+    // 研究可绑定历史二进制；在计时前查询实际 CLI，不转换其结果或改写冻结源码。
+    let usage = Command::new(binary).output()?;
+    need(
+        !usage.status.success(),
+        "unexpected successful harness usage probe",
+    )?;
+    if harness_has_diagnostics(&String::from_utf8(usage.stderr)?)?
+        && !args.iter().any(|arg| arg == "--diagnostics")
+    {
+        args.push("--diagnostics".to_owned());
+    }
+    Ok(())
+}
+
+fn harness_has_diagnostics(usage: &str) -> Result<bool> {
+    need(
+        usage.starts_with("usage: laneflow-urban-harness "),
+        "unrecognized bound harness CLI",
+    )?;
+    Ok(usage.contains("[--diagnostics]"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bound_harness_usage_identifies_explicit_diagnostics_and_rejects_unknown_cli() {
+        assert!(
+            !super::harness_has_diagnostics(
+                "usage: laneflow-urban-harness run <input> <plan> <output> [--workers N]"
+            )
+            .unwrap()
+        );
+        assert!(super::harness_has_diagnostics(
+            "usage: laneflow-urban-harness run <input> <plan> <output> [--workers N] [--diagnostics]"
+        ).unwrap());
+        assert!(super::harness_has_diagnostics("not a bound harness usage response").is_err());
+    }
+}

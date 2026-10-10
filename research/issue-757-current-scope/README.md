@@ -1,5 +1,8 @@
 # 当前主干 P3／Waiting 工作范围研究
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #757；#707 的独立研究切片。基线为
 `46fdfaf47ae0c000ddc63420c8a71443baa8fb04`，历史 #734 结果只提供方向。
 
@@ -10,6 +13,15 @@ Refs #757；#707 的独立研究切片。基线为
 本目录保存隔离研究源码与重建工具。`prepare.py` 只用于导出的基线副本，
 不修改工作区正式 Runtime 文件。研究模块不加入 Cargo workspace，补丁中的实验入口、
 环境变量与计数 API 不构成正式接口。P3 的正式 Runtime 接入由 #759 独立交付，并同步设计实现说明；不以 #707 正式认证作为前提。
+
+## 历史分析入口
+
+下文记录的是原批次的分析方法。依赖已迁移清单的 `analyze.py`、`aggregate.py`、
+`inventory.py`、`verify_analysis.py`、`verify_archive.py` 与旧身份生成器 `freeze.py`
+也随完整源码归档保存，当前源码树已移除这些入口。复核旧批次时，在归档内
+`source/research/issue-757-current-scope/` 运行原命令；需要固定 Git 提交重建时使用
+归档索引提供的 Git bundle。原始运行包仍按下文的外部目录及清单单独取得，
+这次源码归档没有补齐或重新认证旧运行包。
 
 ## 实验
 
@@ -47,11 +59,10 @@ cargo +1.98.0 build --manifest-path target/review-source/Cargo.toml -p laneflow-
 字节、错误后额外计算、线程 CPU 或屏障开销，不以零计数填这些认证义务。
 
 使用 `run.ps1` 为每个新进程记录源码全树、二进制与计划身份、运行前后稳定性、环境、
-退出码和进程峰值工作集。原输入默认只读路径为
-`E:/projects/laneflow-evidence/issue-707/4de40e04`。例如：
+退出码和进程峰值工作集。原输入以只读方式经 `-FrozenInputs` 传入 #707 冻结输入目录（`<evidence-root>/issue-707/4de40e04`）。例如：
 
 ```powershell
-./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/review-source -OutputRoot target/scope-runs -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
+./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/review-source -OutputRoot target/scope-runs -FrozenInputs <冻结输入目录> -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
 
 ```
 

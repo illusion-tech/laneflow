@@ -179,8 +179,6 @@ fn sample_held_candidate(
     ));
     sample_from_stats(region.change(), candidate.retained_logical_bytes())
 }
-
-#[test]
 fn allocation_ledgers_and_per_world_live_bytes() {
     assert_stable_build(
         "min-headless",
@@ -284,17 +282,19 @@ fn allocation_ledgers_and_per_world_live_bytes() {
         );
         // 占用索引、compiled 路线表、Waiting scratch 与 W7 Conflict fixed-step
         // authority/scratch 在每世界上；Conflict cell/claim payload 按首次实际仲裁
-        // 延迟扩展。8 车空世界用独立的 15 KiB 预算约束动态表，避免用世界数量
-        // 乘静态根大小来掩盖单世界增长。
-        const EMPTY_WORLD_LIVE_BUDGET: usize = 15 * 1_024;
+        // 延迟扩展。8 车空世界用独立的 16 KiB 预算约束动态表，避免用世界数量
+        // 乘静态根大小来掩盖单世界增长。编译路线按游标另存一行运动输入
+        // （每出现项约 52 字节），预算由 15 KiB 放宽到 16 KiB。
+        const EMPTY_WORLD_LIVE_BUDGET: usize = 16 * 1_024;
         assert!(
             live_per < EMPTY_WORLD_LIVE_BUDGET,
             "per-world live {live_per} must stay below {EMPTY_WORLD_LIVE_BUDGET} bytes ({count} worlds, static retained {static_retained})"
         );
-        // 8 车 world 仍须显著小于共享 corridor 根；1/6 门覆盖必要的 W7 动态
-        // authority，同时继续阻止把静态路网表复制进每个 world。
+        // 8 车 world 仍须显著小于共享 corridor 根；1/5 门覆盖必要的 W7 动态
+        // authority 与编译路线的逐游标运动输入，同时继续阻止把静态路网表复制进
+        // 每个 world。
         assert!(
-            u64::try_from(live_per).expect("per-world") * 6 < corridor_build.retained,
+            u64::try_from(live_per).expect("per-world") * 5 < corridor_build.retained,
             "per-world live {live_per} must not masquerade as static retained"
         );
         per_world.push(live_per);
@@ -312,4 +312,20 @@ fn allocation_ledgers_and_per_world_live_bytes() {
         max <= min.saturating_mul(2) + 64,
         "per-world live bytes must stay in a tight band, got {per_world:?}"
     );
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    let main_thread = std::thread::current().id();
+    let tests = vec![libtest_mimic::Trial::test(
+        "allocation_ledgers_and_per_world_live_bytes",
+        move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            allocation_ledgers_and_per_world_live_bytes();
+            Ok(())
+        },
+    )];
+    libtest_mimic::run(&args, tests).exit();
 }

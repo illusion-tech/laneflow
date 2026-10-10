@@ -1,10 +1,13 @@
 # P5 最终运动成本归因
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #772。基线固定为 `05c505dde3b76fde0a5302a567bf46fdb236146f`，
 交付研究工具、可复算证据和一个后续候选决策。正式 Runtime 未接入诊断或候选。
 
 - [归因与下一候选](results.md)
-- [12 轮复算证据](evidence/results.json)
+- [12 轮复算证据](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-772-p5-cost/evidence/results.json)
 
 Rust 工具为 `laneflow-p5-cost-research`，复用 #768 的采集、源身份与完整文件
 校验，保留 `laneflow-p2-cost-research` 的历史协议。冻结输入为 #707 `4de40e04`

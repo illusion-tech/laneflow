@@ -930,7 +930,7 @@ impl TrafficWorld {
                     vehicle: handle.index(),
                 },
             )?;
-            if !self.state.restored_waiting_authority_valid(*state) {
+            if !self.state.restored_waiting_authority_valid(state) {
                 return Err(CutoverError::WaitingRevalidationFailed);
             }
             if !self.state.parking_state_valid(handle) {
@@ -969,6 +969,8 @@ impl TrafficWorld {
         self.state.committed.live_route_conflict_occurrence_count =
             staged_conflict_occurrence_count;
         self.state.refresh_signals();
+        let mut staged_occupancy = staged_occupancy;
+        staged_occupancy.adopt_ahead_buffer(&mut self.state.derived.occupancy);
         self.state.derived.occupancy = staged_occupancy;
         self.state.workspace.occupancy_scratch = staged_occupancy_scratch;
         self.state.binding.world_generation = next_world_generation;
@@ -1398,11 +1400,7 @@ pub(crate) mod tests {
             for _ in 0..3 {
                 world.step(TickInput::new(100)).expect("step before");
             }
-            let before = world
-                .state
-                .vehicle_state(vehicle)
-                .copied()
-                .expect("vehicle");
+            let before = world.state.vehicle_state(vehicle).expect("vehicle");
             let edges_before: Vec<_> = world.route_edges(route).expect("route").to_vec();
             let base_origin = *world.revision().canonical_origin();
 
@@ -1433,11 +1431,7 @@ pub(crate) mod tests {
                 world.committed_source(),
                 &source_for(target_origin, "fixture://republished")
             );
-            let after = world
-                .state
-                .vehicle_state(vehicle)
-                .copied()
-                .expect("vehicle");
+            let after = world.state.vehicle_state(vehicle).expect("vehicle");
             assert_eq!(before.handle, after.handle);
             assert_eq!(before.route, after.route);
             assert_eq!(before.route_edge_index, after.route_edge_index);
@@ -1492,11 +1486,7 @@ pub(crate) mod tests {
             let (mut world, route, vehicle) = world_with_vehicle(true);
             let before_origin = *world.revision().canonical_origin();
             let before_source = world.committed_source().clone();
-            let before_state = world
-                .state
-                .vehicle_state(vehicle)
-                .copied()
-                .expect("vehicle");
+            let before_state = world.state.vehicle_state(vehicle).expect("vehicle");
             let before_edges = world.route_edges(route).expect("route").to_vec();
 
             let target = revision(false);
@@ -1521,7 +1511,7 @@ pub(crate) mod tests {
             assert_eq!(result.unwrap_err(), CutoverError::StagingAllocFailed);
             assert_eq!(*world.revision().canonical_origin(), before_origin);
             assert_eq!(world.committed_source(), &before_source);
-            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_state));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(before_state));
             assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
             assert_eq!(world.world_generation(), before_generation);
             world
@@ -1579,11 +1569,7 @@ pub(crate) mod tests {
             world.state.binding.world_generation = WorldGeneration::from_raw_for_test(u64::MAX);
             let before_root = world.revision();
             let before_source = world.committed_source().clone();
-            let before_state = world
-                .state
-                .vehicle_state(vehicle)
-                .copied()
-                .expect("vehicle");
+            let before_state = world.state.vehicle_state(vehicle).expect("vehicle");
             let before_edges = world.route_edges(route).expect("route").to_vec();
 
             let target = revision(false);
@@ -1609,7 +1595,7 @@ pub(crate) mod tests {
             assert!(Arc::ptr_eq(&world.revision(), &before_root));
             assert_eq!(world.committed_source(), &before_source);
             assert_eq!(world.world_generation().get(), u64::MAX);
-            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_state));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(before_state));
             assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
         }
 
@@ -1841,12 +1827,16 @@ pub(crate) mod tests {
             );
 
             let vehicle_index = usize::try_from(vehicle.index()).expect("vehicle index");
-            world.state.committed.vehicles[vehicle_index]
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle_index)
                 .state
                 .as_mut()
                 .expect("vehicle")
                 .status = VehicleStatus::Completed;
-            let before_completed = *world
+            let before_completed = world
                 .state
                 .vehicle_state(vehicle)
                 .expect("completed vehicle");
@@ -1856,19 +1846,23 @@ pub(crate) mod tests {
                 world.spawn_vehicle(spawn).unwrap_err(),
                 SpawnError::CommandCursorExhausted
             );
-            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_completed));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(before_completed));
             assert_eq!(
                 world.replace_completed_vehicle(vehicle, spawn).unwrap_err(),
                 ReplaceError::CommandCursorExhausted
             );
-            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_completed));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(before_completed));
 
-            world.state.committed.vehicles[vehicle_index]
+            world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(vehicle_index)
                 .state
                 .as_mut()
                 .expect("vehicle")
                 .status = VehicleStatus::Active;
-            let before_active = *world.state.vehicle_state(vehicle).expect("active vehicle");
+            let before_active = world.state.vehicle_state(vehicle).expect("active vehicle");
             world.state.rebuild_active_order();
             world.state.derived.spawn_overlap.mark_stale();
             let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
@@ -1876,7 +1870,7 @@ pub(crate) mod tests {
                 world.despawn_vehicle(vehicle).unwrap_err(),
                 ParkingError::CommandCursorExhausted
             );
-            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_active));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(before_active));
             assert_eq!(
                 world.parking_space_state(space),
                 Some(crate::ParkingSpaceState::Vacant)
@@ -1897,7 +1891,7 @@ pub(crate) mod tests {
                 .expect("parking")
                 .vehicle;
             parked_world.state.committed.command_cursor = u64::MAX;
-            let before_parked = *parked_world
+            let before_parked = parked_world
                 .state
                 .vehicle_state(parked_vehicle)
                 .expect("parked vehicle");
@@ -1909,7 +1903,7 @@ pub(crate) mod tests {
             );
             assert_eq!(
                 parked_world.state.vehicle_state(parked_vehicle),
-                Some(&before_parked)
+                Some(before_parked)
             );
             assert_eq!(
                 parked_world.parking_space_state(space),

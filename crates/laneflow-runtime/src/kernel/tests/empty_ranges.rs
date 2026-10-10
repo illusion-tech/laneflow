@@ -29,7 +29,7 @@ fn empty_ranges_match_linear_projection_at_every_edge_boundary() {
                                 admission_gate_hop: 0,
                             },
                         });
-                        world.state.committed.vehicles[slot].state = Some(old);
+                        world.state.committed.vehicles.slot_mut(slot).state = Some(old);
                         let mut next = old;
                         next.route_edge_index = next_hop;
                         next.progress_mm = next_progress;
@@ -71,11 +71,29 @@ fn empty_ranges_match_linear_projection_at_every_edge_boundary() {
                             })
                             .collect();
                         let mut actual = Vec::new();
+                        let mut updates = crate::kernel::motion_updates::MotionUpdates::from_states(
+                            &[(slot, next)],
+                            &world.state.committed.vehicles,
+                        );
                         world
                             .state
                             .step_workspace()
-                            .visit_transition_events(&[(slot, next)], 1, |event| actual.push(event))
+                            .visit_transition_events(&updates, 1, |event| actual.push(event))
                             .unwrap();
+                        world
+                            .state
+                            .step_workspace()
+                            .select_resource_rows(&mut updates);
+                        let mut selected = Vec::new();
+                        world
+                            .state
+                            .step_workspace()
+                            .visit_transition_events(&updates, 1, |event| selected.push(event))
+                            .unwrap();
+                        assert_eq!(selected, actual, "selected events match the complete visit");
+                        if !expected_decisions.is_empty() {
+                            assert_eq!(updates.resource_rows(), [0], "Gate decision obligation");
+                        }
                         assert_eq!(
                             actual
                                 .iter()
@@ -135,13 +153,17 @@ fn same_cursor_prepared_grant_still_emits_crossed_gate() {
     let mut old = world.vehicle(vehicle).unwrap();
     old.route_edge_index = gate_hop + 1;
     old.progress_mm = 0;
-    world.state.committed.vehicles[slot].state = Some(old);
+    world.state.committed.vehicles.slot_mut(slot).state = Some(old);
     world.state.workspace.next_state_by_vehicle[slot] = 1;
     let mut events = Vec::new();
+    let updates = crate::kernel::motion_updates::MotionUpdates::from_states(
+        &[(slot, old)],
+        &world.state.committed.vehicles,
+    );
     world
         .state
         .step_workspace()
-        .visit_transition_events(&[(slot, old)], 1, |event| events.push(event))
+        .visit_transition_events(&updates, 1, |event| events.push(event))
         .unwrap();
     assert_eq!(
         events

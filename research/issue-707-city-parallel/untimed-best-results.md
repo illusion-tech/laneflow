@@ -1,5 +1,8 @@
 # #707：封存无计时最佳候选
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。状态：**封存 held。** 同一二进制、没有阶段计时。
 `public_step_ns` 的 old 均值 30.517 ms，held 均值 28.462 ms，少 2.056 ms。
 四臂短窗交通输出与 M3 逐字节一致，重叠为 0。16 ms 目标未达到。
@@ -45,13 +48,13 @@ held 的 p95 是 32.443 和 31.692 ms。16 ms 未达到。
 无计时最佳候选是 `held`。可复用身份由版本化 manifest、源码补丁和独立 Research
 Evidence 制品共同绑定：
 
-- manifest：[`retained-best-evidence-manifest.json`](evidence/retained-best-evidence-manifest.json)
+- manifest：[`retained-best-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-evidence-manifest.json)
 - 源码：基线 `4de40e045398e4b010b2aa36522afc02a4094c4d` 加
   [`retained-best-source-patch.tar.zst`](evidence/retained-best-source-patch.tar.zst)；归档内明文补丁
   SHA-256 为 `c15fbaf8ffbf4cf0a61c72d2644804412846e9ab0ae2d29b860b85fd1c82abc7`
 - 精确二进制：[Research Evidence prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-m16-best-19bf7ecb) 的
   `issue-707-m16-best-19bf7ecb5dfd.tar.zst`；发布身份和上传摘要见
-  [`retained-best-release.json`](evidence/retained-best-release.json)
+  [`retained-best-release.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-release.json)
 - 运行输入：同一 prerelease 的 `issue-707-m16-fixture-8b4294eb5ca8.tar.zst`，保存 `input/`、
   `plan.toml` 与 `inventory.json`
 - SHA-256：

@@ -11,9 +11,9 @@
 
 ## 身份与本轮变化
 
-- 源码：`E:/projects/laneflow/target/issue707-finalize-source`，冻结提交
+- 源码：`<checkout>/target/issue707-finalize-source`，冻结提交
   `4de40e045398e4b010b2aa36522afc02a4094c4d` 加 scope 实验完整补丁及本轮原型。
-- 产物：`E:/projects/laneflow/target/issue707-finalize-results`；运行、夹具和分析
+- 产物：`<checkout>/target/issue707-finalize-results`；运行、夹具和分析
   工具位于源码的 `research/issue-707-finalize/`。上一轮源码和产物未覆盖。
 - 冻结测量 worktree 与外部正式证据只读；主研究分支仅新增/更新研究文档。
 - 所有臂固定 `frontier=approx`、`scope=both`，安装时用 `LF707_FINISH` 选择：

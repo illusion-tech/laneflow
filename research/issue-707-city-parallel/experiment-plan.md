@@ -1,5 +1,8 @@
 # #707 实验计划（第二切片：入口验证与 pilot；正式窗口 r1 已完成）
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 ## 运行矩阵
 
 > **范围声明（复审口径）**：本切片交付的是**同源码 1w/4w 初步正式对照**；
@@ -22,7 +25,7 @@
 
 r1 的 execution ID、计划/结果/测量/诊断身份和观察窗统计见
 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)及
-[`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)。r1 完成不改变 r2/r3、
+[`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)。r1 完成不改变 r2/r3、
 三轮聚合及 #707 最终认证仍待完成的状态。
 
 ## 正式窗口公式（以 plan 生成为准）

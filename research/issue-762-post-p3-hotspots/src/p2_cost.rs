@@ -102,6 +102,17 @@ fn labels() -> Vec<(String, String, String)> {
         .collect()
 }
 
+fn scoped_labels(scale: Option<&str>) -> Result<Vec<(String, String, String)>> {
+    need(
+        scale.is_none_or(|s| ["10k", "100k"].contains(&s)),
+        "unknown matrix scale",
+    )?;
+    Ok(labels()
+        .into_iter()
+        .filter(|(_, s, _)| scale.is_none_or(|selected| selected == s))
+        .collect())
+}
+
 fn inputs(root: &Path) -> Result<Value> {
     let mut out = json!({});
     for scale in ["10k", "100k"] {
@@ -146,6 +157,18 @@ fn capture(root: &Path, input: &Path, raw: &Path) -> Result<()> {
 }
 
 pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Protocol) -> Result<()> {
+    capture_scoped_for(root, input, raw, protocol, None, |_, _, _| Ok(()))
+}
+
+pub(crate) fn capture_scoped_for(
+    root: &Path,
+    input: &Path,
+    raw: &Path,
+    protocol: Protocol,
+    scale: Option<&str>,
+    observe: fn(&Path, &str, &str) -> Result<()>,
+) -> Result<()> {
+    let matrix = scoped_labels(scale)?;
     let repo = std::env::current_dir()?;
     let head = io::git(&repo, &["rev-parse", "HEAD"])?;
     need(
@@ -162,6 +185,9 @@ pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Proto
     let raw = raw.canonicalize()?;
     let input = input.canonicalize()?;
     let mut identity = json!({"protocol":protocol.name, "head":head, "tree":io::git(&repo,&["rev-parse","HEAD^{tree}"])?, "started":now()?, "workers":4, "ticks":256, "inputs":inputs(&input)?, "rustc":io::command(&repo,"rustc",&["+1.98.0","-Vv"])?, "sources":{}, "binaries":{}});
+    if let Some(scale) = scale {
+        identity["matrix_scale"] = json!(scale);
+    }
     for mode in ["plain", "detail"] {
         let source = io::read_json(&root.join(format!("{mode}-source.json")))?;
         need(
@@ -182,7 +208,8 @@ pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Proto
         "identical diagnostic binary",
     )?;
     io::write_new(&raw.join("identity.json"), &identity)?;
-    for (label, scale, mode) in labels() {
+    for (label, scale, mode) in matrix {
+        observe(&raw, &label, "before")?;
         need(
             io::git(&repo, &["rev-parse", "HEAD"])? == head
                 && io::git(&repo, &["status", "--porcelain"])?.is_empty(),
@@ -193,7 +220,7 @@ pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Proto
             io::sha(binary)? == identity["binaries"][&mode]["sha256"],
             "binary drift",
         )?;
-        let args = [
+        let mut args = vec![
             "run".to_owned(),
             input
                 .join(format!("inputs/urban-{scale}"))
@@ -207,6 +234,7 @@ pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Proto
             "--workers".to_owned(),
             "4".to_owned(),
         ];
+        io::enable_harness_diagnostics(binary, &mut args)?;
         let command: Vec<_> = std::iter::once(binary.to_string_lossy().into_owned())
             .chain(args.iter().cloned())
             .collect();
@@ -230,6 +258,7 @@ pub(crate) fn capture_for(root: &Path, input: &Path, raw: &Path, protocol: Proto
         meta["status_after"] = json!(io::git(&repo, &["status", "--porcelain"])?);
         meta["binary_after"] = json!(io::sha(binary)?);
         io::replace_owned(&path, &meta)?;
+        observe(&raw, &label, "after")?;
         need(
             status.success()
                 && meta["head_after"] == head
@@ -350,7 +379,20 @@ fn analyze(raw: &Path) -> Result<Value> {
     analyze_for(raw, LEGACY)
 }
 pub(crate) fn analyze_for(raw: &Path, protocol: Protocol) -> Result<Value> {
+    analyze_scoped_for(raw, protocol, None)
+}
+
+pub(crate) fn analyze_scoped_for(
+    raw: &Path,
+    protocol: Protocol,
+    scale: Option<&str>,
+) -> Result<Value> {
+    let matrix = scoped_labels(scale)?;
     let identity = io::read_json(&raw.join("identity.json"))?;
+    need(
+        identity["matrix_scale"] == json!(scale),
+        "matrix scale identity",
+    )?;
     need(
         identity["protocol"] == protocol.name
             && identity["completed"] == true
@@ -363,7 +405,7 @@ pub(crate) fn analyze_for(raw: &Path, protocol: Protocol) -> Result<Value> {
     let mut ids = std::collections::BTreeSet::new();
     let mut semantics = std::collections::BTreeMap::new();
     let mut runs = Vec::new();
-    for (label, scale, mode) in labels() {
+    for (label, scale, mode) in matrix {
         let dir = raw.join(&label);
         let meta = io::read_json(&raw.join(format!("{label}.process.json")))?;
         let native = io::read_json(&dir.join("result.json"))?;
@@ -496,6 +538,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scoped_matrix_is_explicit_and_keeps_balanced_order() {
+        assert_eq!(scoped_labels(None).unwrap(), labels());
+        let subset = scoped_labels(Some("100k")).unwrap();
+        assert_eq!(subset.len(), 6);
+        assert!(subset.iter().all(|(_, scale, _)| scale == "100k"));
+        assert_eq!(
+            subset
+                .iter()
+                .map(|(_, _, mode)| mode.as_str())
+                .collect::<Vec<_>>(),
+            ["plain", "detail", "detail", "plain", "plain", "detail"]
+        );
+        assert!(scoped_labels(Some("1m")).is_err());
+    }
     fn fixture() -> (Vec<Value>, Vec<Value>) {
         let ticks = (1..=256)
             .map(|tick| json!({"tick":tick,"N_active":2_048}))

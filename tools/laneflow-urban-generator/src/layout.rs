@@ -43,13 +43,20 @@ impl Direction {
             Self::North => (0, -1),
         }
     }
+
+    /// 干路 3 条，支路 2 条。西、东是干路。
+    pub const fn lane_count(self) -> u32 {
+        match self {
+            Self::West | Self::East => 3,
+            Self::South | Self::North => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Template {
     ProtectedWaiting,
-    Permissive,
     StaggeredSouthT,
     StaggeredNorthT,
     PriorityT,
@@ -58,7 +65,7 @@ pub enum Template {
 
 pub(crate) const TEMPLATE_ORDER: [Template; 10] = [
     Template::ProtectedWaiting,
-    Template::Permissive,
+    Template::Protected,
     Template::StaggeredSouthT,
     Template::StaggeredNorthT,
     Template::PriorityT,
@@ -103,9 +110,9 @@ impl Cell {
         )
     }
 
-    pub fn edge_key(&self, direction: Direction, entering: bool) -> String {
+    pub fn edge_key(&self, direction: Direction, entering: bool, lane: u32) -> String {
         format!(
-            "{}.{}.{}",
+            "{}.{}.{}.l{lane}",
             self.key(),
             direction.key(),
             if entering { "in" } else { "out" }

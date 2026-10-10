@@ -79,6 +79,23 @@ impl LiveOrderIndex {
         (rank < self.indexed_len && live.get(rank) == Some(&vehicle)).then_some(rank)
     }
 
+    /// 铺好序号表；分配失败返回 `false`。
+    pub(crate) fn ensure(&mut self, live: &[VehicleHandle], slots: usize) -> bool {
+        self.prepare(live, slots)
+    }
+
+    /// 序号表已盖住整个 live 序时只读查询；未铺好返回 `None`，由调用方走可变路径。
+    pub(crate) fn prepared_rank(
+        &self,
+        live: &[VehicleHandle],
+        vehicle: VehicleHandle,
+    ) -> Option<Option<u32>> {
+        (self.indexed_len == live.len()).then(|| {
+            self.position(vehicle, live)
+                .map(|position| u32::try_from(position).expect("live rank fits vehicle capacity"))
+        })
+    }
+
     /// 准备一次后按槽位读取 live 序号。句柄与该序号上的 live 项不一致时返回 `Ok(None)`。
     ///
     /// # Errors
@@ -116,6 +133,8 @@ fn reserve_positions(positions: &mut Vec<u32>, slots: usize) -> bool {
 thread_local! {
     static FAIL_RESERVATION: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FAIL_RESERVATION);
 
 #[cfg(test)]
 pub(crate) fn with_position_allocation_failure<T>(run: impl FnOnce() -> T) -> T {

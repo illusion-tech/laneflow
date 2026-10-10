@@ -47,6 +47,7 @@ thread_local! {
     static NANOS: Cell<[u128; STAGE_COUNT]> = const { Cell::new([0; STAGE_COUNT]) };
     static CALLS: Cell<[u64; STAGE_COUNT]> = const { Cell::new([0; STAGE_COUNT]) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: ENABLED, NANOS, CALLS);
 
 /// 阶段计时 span；Drop 时把耗时与调用次数累计到线程局部表。
 pub(crate) struct Span(Option<(Stage, Instant)>);

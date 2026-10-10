@@ -618,7 +618,7 @@ mod tests {
             .collect();
         let committed_source = harness.world().committed_source().clone();
         let reloaded = Artifacts::load_spatial(&source).unwrap();
-        harness
+        let generation = harness
             .adapter_world()
             .unwrap()
             .resource_mut::<LaneFlowSession>()
@@ -628,7 +628,10 @@ mod tests {
                 laneflow_bevy::LaneFlowTargetSpatial::Headless,
                 &laneflow_runtime::CutoverPreflightLimits::new(2_147_483_648),
             )
-            .unwrap();
+            .unwrap()
+            .world_binding()
+            .world_generation();
+        assert_eq!(generation, harness.world().world_generation());
         presentation.mode = PresentationMode::SelectedPresentation {
             selection: SelectionWindow {
                 percent: 0,
@@ -656,7 +659,7 @@ mod tests {
             );
         }
         let rebound = Artifacts::load_spatial(&source).unwrap();
-        harness
+        let generation = harness
             .adapter_world()
             .unwrap()
             .resource_mut::<LaneFlowSession>()
@@ -670,7 +673,10 @@ mod tests {
                 ),
                 &laneflow_runtime::CutoverPreflightLimits::new(2_147_483_648),
             )
-            .unwrap();
+            .unwrap()
+            .world_binding()
+            .world_generation();
+        assert_eq!(generation, harness.world().world_generation());
         presentation.mode = PresentationMode::SelectedPresentation { selection };
         let retry = presentation
             .sample_with_placement(&mut harness, FramePlacementToken::new(45))

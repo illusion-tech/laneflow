@@ -1,55 +1,55 @@
 memory_note = "Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared-root logical bytes are reported separately in manifest."
 
 [phases.compile]
-elapsed_ms = 125103
-allocation_calls = 3280737
-allocated_bytes = 736983207
-requested_live_delta_bytes = 128844433
+elapsed_ms = 229453
+allocation_calls = 10504762
+allocated_bytes = 2170986627
+requested_live_delta_bytes = 368079937
 
 [phases.emit]
-elapsed_ms = 22528
-allocation_calls = 11848023
-allocated_bytes = 3652189066
+elapsed_ms = 26212
+allocation_calls = 33577051
+allocated_bytes = 10251344308
 requested_live_delta_bytes = 550
 
 [phases.headless-build]
-elapsed_ms = 186
-allocation_calls = 85627
-allocated_bytes = 28142589
-requested_live_delta_bytes = 13488140
+elapsed_ms = 305
+allocation_calls = 399227
+allocated_bytes = 89271773
+requested_live_delta_bytes = 39910564
 
 [phases.headless-install]
-elapsed_ms = 56
-allocation_calls = 11583
-allocated_bytes = 115848425
-requested_live_delta_bytes = 115010928
+elapsed_ms = 67
+allocation_calls = 29278
+allocated_bytes = 131750069
+requested_live_delta_bytes = 129619420
 
 [phases.post-emission]
-elapsed_ms = 2742
+elapsed_ms = 2811
 allocation_calls = 0
 allocated_bytes = 0
 requested_live_delta_bytes = -240
 
 [phases.routes-and-topology]
-elapsed_ms = 156
-allocation_calls = 418097
-allocated_bytes = 14696012
-requested_live_delta_bytes = 8460288
+elapsed_ms = 181
+allocation_calls = 978217
+allocated_bytes = 44785762
+requested_live_delta_bytes = 29904836
 
 [phases.source]
-elapsed_ms = 1745
-allocation_calls = 5618181
-allocated_bytes = 286433710
-requested_live_delta_bytes = 81849176
+elapsed_ms = 2526
+allocation_calls = 17642782
+allocated_bytes = 907665011
+requested_live_delta_bytes = 248252430
 
 [phases.spatial-build]
-elapsed_ms = 355
-allocation_calls = 85633
-allocated_bytes = 50039885
-requested_live_delta_bytes = 35900556
+elapsed_ms = 479
+allocation_calls = 399233
+allocated_bytes = 148632061
+requested_live_delta_bytes = 100536372
 
 [phases.spatial-install]
-elapsed_ms = 58
-allocation_calls = 11583
-allocated_bytes = 115848425
-requested_live_delta_bytes = 115010928
+elapsed_ms = 65
+allocation_calls = 29278
+allocated_bytes = 131750069
+requested_live_delta_bytes = 129619420

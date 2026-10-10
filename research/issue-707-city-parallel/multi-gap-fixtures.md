@@ -32,12 +32,12 @@
 
 ## 2. 实现与身份
 
-- 独立 worktree：`E:/projects/laneflow/target/issue707-aggressive-source`，基于
+- 独立 worktree：`<checkout>/target/issue707-aggressive-source`，基于
   `4de40e045398e4b010b2aa36522afc02a4094c4d` 加上一轮诊断补丁与本轮变更。
 - 工具和三份配置：该源码的 `research/issue-707-multi-gap/`。
-- 构建：`E:/projects/laneflow/target/issue707-aggressive-build`；Rust 1.98.0，
+- 构建：`<checkout>/target/issue707-aggressive-build`；Rust 1.98.0，
   offline/locked release，计数构建启用 `gap-audit,short-profile`。
-- 完整结果：`E:/projects/laneflow/target/issue707-multi-gap-outcomes/`。
+- 完整结果：`<checkout>/target/issue707-multi-gap-outcomes/`。
   原始首次生成及粗计数结果另存于 `target/issue707-multi-gap-results/`，未覆盖。
 - `experiment.patch` 保存包含上一轮诊断在内的完整源码差异；`provenance.json`
   记录基线、补丁、源文件、工具链、输入、计划、二进制及输出摘要。修改后的源码

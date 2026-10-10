@@ -567,7 +567,11 @@ fn occupancy_insert_matches_live_order_when_a_completed_vehicle_remains() {
     let route = register_edges(&mut world, &[0]);
     let completed = spawn(&mut world, route, 0, 10_000, 0).expect("先放进去的车");
     let index = usize::try_from(completed.index()).expect("index");
-    world.state.committed.vehicles[index]
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(index)
         .state
         .as_mut()
         .expect("vehicle")
@@ -606,7 +610,11 @@ fn replace_uses_the_same_follower_admission() {
     let follower = spawn(&mut world, route, 0, 20_000, 20_000).expect("移动后车");
     let parked_aside = spawn(&mut world, route, 0, 100_000, 0).expect("待替换的车");
     let index = usize::try_from(parked_aside.index()).expect("index");
-    world.state.committed.vehicles[index]
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(index)
         .state
         .as_mut()
         .expect("vehicle")
@@ -1024,7 +1032,11 @@ fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
 
     let parked = spawn(&mut world, route, 0, 4_500, 0).expect("待替换的车");
     let index = usize::try_from(parked.index()).expect("index");
-    world.state.committed.vehicles[index]
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(index)
         .state
         .as_mut()
         .expect("vehicle")

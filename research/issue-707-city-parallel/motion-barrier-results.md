@@ -1,5 +1,8 @@
 # #707 M2：跳过够不着的屏障查询
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。状态：**保留。** 100k 上 Core 均值下降约 1.1–1.3 ms，短窗交通结果与
 H1 逐字节一致。p95 仍约 33–36 ms，16 ms 目标未达到。
 
@@ -73,7 +76,7 @@ ETA 的验收。那两个问题没有在本轮修改。
 ## 5. 证据
 
 - 机器可读封套见
-  [`motion-barrier-evidence-manifest.json`](evidence/motion-barrier-evidence-manifest.json)：
+  [`motion-barrier-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/motion-barrier-evidence-manifest.json)：
   它绑定十次运行各 17 个文件的完整树身份、二进制与计划身份、每臂
   `LF707_BARRIER` 处理模式、完整 `prefix-result`、进程资源包络、交通文件哈希、
   精确统计和最终计数。逐拍紧凑报告见

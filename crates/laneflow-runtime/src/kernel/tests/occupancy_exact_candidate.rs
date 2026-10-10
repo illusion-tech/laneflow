@@ -8,6 +8,7 @@ use std::cell::Cell;
 thread_local! {
     static FAIL_PENDING_RESERVE: Cell<Option<usize>> = const { Cell::new(None) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FAIL_PENDING_RESERVE);
 
 fn pending_reserve_allowed() -> bool {
     FAIL_PENDING_RESERVE.with(|remaining| match remaining.get() {
@@ -243,8 +244,12 @@ fn incomplete_route_keeps_priority_over_pending_allocation_failure() {
     let before = world.capture_snapshot().unwrap();
     let records = world.state.derived.occupancy.records_snapshot();
     let handle = *world.live_vehicles().last().unwrap();
-    let previous = *world.state.vehicle_state(handle).unwrap();
-    world.state.committed.vehicles[handle.index() as usize]
+    let previous = world.state.vehicle_state(handle).unwrap();
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(handle.index() as usize)
         .state
         .as_mut()
         .unwrap()
@@ -259,7 +264,12 @@ fn incomplete_route_keeps_priority_over_pending_allocation_failure() {
         Err(StepError::OccupancyIntervalIncomplete)
     );
     assert_eq!(world.state.derived.occupancy.records_snapshot(), records);
-    world.state.committed.vehicles[handle.index() as usize].state = Some(previous);
+    world
+        .state
+        .committed
+        .vehicles
+        .slot_mut(handle.index() as usize)
+        .state = Some(previous);
     assert_eq!(world.capture_snapshot().unwrap(), before);
     with_candidate(true, || world.step(input)).unwrap();
     let mut fresh = with_candidate(false, || multi_edge_world(&revision));

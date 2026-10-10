@@ -5,12 +5,18 @@
 
 use std::collections::BTreeMap;
 
-use laneflow_static_contract::{ManeuverGateOrdinal, SignalAspect, SignalGroupOrdinal};
+mod replay;
+pub(crate) use replay::ReplayScratch;
+
+use laneflow_static_contract::{
+    ManeuverGateOrdinal, SignalAspect, SignalGroupOrdinal, VehicleProfileOrdinal,
+};
 use laneflow_static_network::BoundedDistance;
 
 use super::conflict::{PreparedApproachEta, interpret_gate_policy};
 use super::phase::{StepReadView, StepWorkspace};
 use super::tables::{ConflictPassageOccurrence, distance_to_occurrence_progress};
+use super::vehicle_store::{MotionPosition, MotionRead};
 use crate::{
     ApproachEstimate, ConflictPassageAddress, GateCandidateKind, GatePolicyDecision, StepError,
     VehicleHandle, VehicleState, VehicleStatus, WorldGeneration,
@@ -34,7 +40,11 @@ thread_local! {
     static ADDRESS_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// 拆掉旧关联时实际比较过的成员次数。追加新关联不扫描成员。
     static MEMBER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// 可选分类标记缓冲准备失败；融合回退不改变领域错误。
+    static CLASSIFY_SCRATCH_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LINK_RESERVE_SUCCESSES, LINK_COMMIT_SUCCESSES, ADDRESS_COMPARISONS, MEMBER_PROBES, CLASSIFY_SCRATCH_FAILURE);
 
 #[cfg(test)]
 fn link_reserve_should_fail() -> bool {
@@ -144,6 +154,43 @@ struct SignalHold {
     delay_ms: Option<u64>,
 }
 
+/// 同一提交态、同一车辆的信号约束；只在一次借用期间复用，不跨命令或步进保留。
+pub(crate) struct PreparedSignalApproach {
+    hold: Option<SignalHold>,
+    speed_mm_s: u32,
+    emergency_decel_m_s2: f32,
+}
+
+impl PreparedSignalApproach {
+    pub(crate) fn new(
+        read: StepReadView<'_>,
+        state: &VehicleState,
+        emergency_decel_m_s2: f32,
+    ) -> Self {
+        Self {
+            hold: signal_hold(read, state.handle, state.route, state.profile, state.into()),
+            speed_mm_s: state.speed_mm_s,
+            emergency_decel_m_s2,
+        }
+    }
+
+    pub(crate) fn apply(
+        &self,
+        kinematic: ApproachEstimate,
+        entry_mm: u32,
+        horizon_ms: u64,
+    ) -> ApproachEstimate {
+        raise_signal_bound(
+            kinematic,
+            self.hold,
+            entry_mm,
+            horizon_ms,
+            self.speed_mm_s,
+            self.emergency_decel_m_s2,
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct IncrementSlot {
     generation: u32,
@@ -176,7 +223,6 @@ pub(crate) struct FrontierMaintenance {
     scratch_invalid: Vec<VehicleHandle>,
     scratch_increments: Vec<VehicleHandle>,
     scratch_demanded: Vec<ConflictPassageAddress>,
-    scratch_cells: Vec<CachedCell>,
     /// 本车出现项的唯一地址投影。容量跨拍保留，与按路线距离排列的缓存分开。
     scratch_addresses: Vec<ConflictPassageAddress>,
     seen: Vec<u32>,
@@ -219,6 +265,40 @@ impl FrontierMaintenance {
             }
         }
         self.seeded = true;
+    }
+
+    /// 对已发布近门集合、失效名单和尚未消费的生命周期增量逐个回调。
+    ///
+    /// 名单没有在成功提交时发布、或世界身份不符时不回调，返回 `false`。句柄可能已经
+    /// 过期，调用方自己核对。只读，不改变下一次 `step` 看到的维护数据。
+    pub(crate) fn for_each_published_source(
+        &self,
+        world_id: u64,
+        generation: WorldGeneration,
+        mut visit: impl FnMut(VehicleHandle),
+    ) -> bool {
+        if !self.seeded
+            || self.identity
+                != Some(FrontierIdentity {
+                    world_id,
+                    generation,
+                })
+        {
+            return false;
+        }
+        for vehicle in self.ready_near.iter().chain(&self.ready_invalid) {
+            visit(*vehicle);
+        }
+        for index in &self.increment_indexes {
+            if let Some(slot) = usize::try_from(*index)
+                .ok()
+                .and_then(|slot| self.increment_slots.get(slot))
+                && slot.present
+            {
+                visit(VehicleHandle::new(*index, slot.generation));
+            }
+        }
+        true
     }
 
     fn write_increment(&mut self, index: u32, generation: Option<u32>) {
@@ -274,7 +354,6 @@ impl FrontierMaintenance {
         self.scratch_invalid.clear();
         self.scratch_increments.clear();
         self.scratch_demanded.clear();
-        self.scratch_cells.clear();
         self.scratch_addresses.clear();
         self.seen.clear();
         self.seen_gen = 0;
@@ -328,39 +407,71 @@ impl FrontierMaintenance {
         &mut self,
         delta_s: f32,
         horizon_ms: Option<u64>,
-        updates: &[(usize, VehicleState)],
+        updates: &super::motion_updates::MotionUpdates,
+        current: &super::vehicle_store::VehicleStore,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         self.pending_near.clear();
         self.pending_invalid.clear();
-        let active = updates
-            .iter()
-            .filter(|(_, state)| state.status == VehicleStatus::Active)
-            .count();
+        let active = updates.active_len();
         // 两侧一起备好。只扩 pending 时，publish 交换后另一侧会在下一拍首次增长。
         reserve_capacity(&mut self.pending_near, active)?;
         reserve_capacity(&mut self.pending_invalid, active)?;
         reserve_capacity(&mut self.ready_near, active)?;
         reserve_capacity(&mut self.ready_invalid, active)?;
-        for (_, state) in updates {
-            if state.status != VehicleStatus::Active {
-                continue;
+        let rows = updates.len();
+        let parallel = execution
+            .filter(|resources| resources.coordinator_parallel() && rows >= CLASSIFY_PARALLEL_ROWS);
+        if let Some(resources) = parallel {
+            let mut marks = resources
+                .sparse_indices()
+                .expect("private coordinator buffer");
+            marks.clear();
+            if reserve_classify_marks(&mut marks, rows) {
+                marks.resize(rows, 0);
+                let span = rows
+                    .div_ceil(
+                        resources
+                            .dispatch_threads()
+                            .saturating_mul(4)
+                            .min(CLASSIFY_MAX_PARTS),
+                    )
+                    .max(1);
+                resources.for_each_part(&mut marks, span, |part, output| {
+                    for (offset, flags) in output.iter_mut().enumerate() {
+                        *flags = self
+                            .classify_row(
+                                delta_s,
+                                horizon_ms,
+                                updates.frontier_input(part * span + offset, current),
+                            )
+                            .map_or(0, |(_, near, dirty)| {
+                                u32::from(near) | (u32::from(dirty) << 1)
+                            });
+                    }
+                });
+                // 每行只求值一次。join 后按更新顺序收集稀疏名单，只为命中行重读句柄。
+                for (index, flags) in marks.iter().copied().enumerate() {
+                    if flags == 0 {
+                        continue;
+                    }
+                    let vehicle = updates.frontier_input(index, current).vehicle;
+                    if flags & 1 != 0 {
+                        self.pending_near.push(vehicle);
+                    }
+                    if flags & 2 != 0 {
+                        self.pending_invalid.push(vehicle);
+                    }
+                }
+                return Ok(());
             }
-            let vehicle = state.handle;
-            let Some(remembered) = self.remembered(vehicle, state) else {
-                self.pending_near.push(vehicle);
-                self.pending_invalid.push(vehicle);
+        }
+        for index in 0..rows {
+            let Some((vehicle, near, dirty)) =
+                self.classify_row(delta_s, horizon_ms, updates.frontier_input(index, current))
+            else {
                 continue;
             };
-            let traveled = state.progress_mm.saturating_sub(remembered.progress);
-            let reach = one_tick_reach_mm(state.speed_mm_s, remembered.max_accel, delta_s);
-            let gate_remaining = remembered.gate_distance_mm.saturating_sub(traveled);
-            let near = remembered.gate_distance_mm != NO_DISTANCE_MM
-                && (!reach.is_finite() || f64::from(gate_remaining) <= reach);
-            let dirty = horizon_ms.is_some_and(|horizon| {
-                remembered.first_excluded_mm != NO_DISTANCE_MM
-                    && f64::from(remembered.first_excluded_mm.saturating_sub(traveled))
-                        <= horizon_reach_mm(state.speed_mm_s, remembered.max_accel, horizon)
-            });
             if near {
                 self.pending_near.push(vehicle);
             }
@@ -371,14 +482,49 @@ impl FrontierMaintenance {
         Ok(())
     }
 
-    fn remembered(&self, vehicle: VehicleHandle, state: &VehicleState) -> Option<RememberedSlot> {
+    /// 一行的近门与失效判定；非 Active 返回 `None`。只读，可并行调用。
+    fn classify_row(
+        &self,
+        delta_s: f32,
+        horizon_ms: Option<u64>,
+        state: super::motion_updates::FrontierMotionInput,
+    ) -> Option<(VehicleHandle, bool, bool)> {
+        if state.status != VehicleStatus::Active {
+            return None;
+        }
+        let vehicle = state.vehicle;
+        let Some(remembered) =
+            self.remembered(state.vehicle, state.route, state.cursor, state.progress_mm)
+        else {
+            return Some((vehicle, true, true));
+        };
+        let traveled = state.progress_mm.saturating_sub(remembered.progress);
+        let reach = one_tick_reach_mm(state.speed_mm_s, remembered.max_accel, delta_s);
+        let gate_remaining = remembered.gate_distance_mm.saturating_sub(traveled);
+        let near = remembered.gate_distance_mm != NO_DISTANCE_MM
+            && (!reach.is_finite() || f64::from(gate_remaining) <= reach);
+        let dirty = horizon_ms.is_some_and(|horizon| {
+            remembered.first_excluded_mm != NO_DISTANCE_MM
+                && f64::from(remembered.first_excluded_mm.saturating_sub(traveled))
+                    <= horizon_reach_mm(state.speed_mm_s, remembered.max_accel, horizon)
+        });
+        Some((vehicle, near, dirty))
+    }
+
+    fn remembered(
+        &self,
+        vehicle: VehicleHandle,
+        route: crate::RouteHandle,
+        cursor: u32,
+        progress_mm: u32,
+    ) -> Option<RememberedSlot> {
         let slot = self.slots.get(usize::try_from(vehicle.index()).ok()?)?;
         if !slot.valid
             || slot.generation != vehicle.generation()
-            || slot.route_index != state.route.index()
-            || slot.route_generation != state.route.generation()
-            || slot.edge != state.route_edge_index
-            || state.progress_mm < slot.progress
+            || slot.route_index != route.index()
+            || slot.route_generation != route.generation()
+            || slot.edge != cursor
+            || progress_mm < slot.progress
         {
             return None;
         }
@@ -390,18 +536,19 @@ impl FrontierMaintenance {
         })
     }
 
-    fn replay_hit(
-        &self,
-        vehicle: VehicleHandle,
-        state: &VehicleState,
-        horizon_ms: u64,
-    ) -> Option<u32> {
-        let remembered = self.remembered(vehicle, state)?;
-        let traveled = state.progress_mm.saturating_sub(remembered.progress);
+    fn replay_hit(&self, state: impl MotionRead, horizon_ms: u64) -> Option<u32> {
+        let position = state.position();
+        let remembered = self.remembered(
+            state.handle(),
+            state.route(),
+            position.route_edge_index,
+            position.progress_mm,
+        )?;
+        let traveled = position.progress_mm.saturating_sub(remembered.progress);
         if remembered.first_excluded_mm != NO_DISTANCE_MM {
             let remaining = remembered.first_excluded_mm.saturating_sub(traveled);
             if f64::from(remaining)
-                <= horizon_reach_mm(state.speed_mm_s, remembered.max_accel, horizon_ms)
+                <= horizon_reach_mm(state.speed_mm_s(), remembered.max_accel, horizon_ms)
             {
                 return None;
             }
@@ -609,7 +756,6 @@ impl FrontierMaintenance {
             scratch_invalid,
             scratch_increments,
             scratch_demanded,
-            scratch_cells,
             scratch_addresses,
             seen,
             seen_gen: _,
@@ -638,7 +784,6 @@ impl FrontierMaintenance {
             + crate::kernel::state::vec_bytes(scratch_invalid)
             + crate::kernel::state::vec_bytes(scratch_increments)
             + crate::kernel::state::vec_bytes(scratch_demanded)
-            + crate::kernel::state::vec_bytes(scratch_cells)
             + crate::kernel::state::vec_bytes(scratch_addresses)
             + crate::kernel::state::vec_bytes(seen)
             + crate::kernel::state::vec_bytes(full_walked)
@@ -652,6 +797,23 @@ struct RememberedSlot {
     first_excluded_mm: u32,
     gate_distance_mm: u32,
     max_accel: f32,
+}
+
+/// 少于此行数时串行分类；分发两遍的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const CLASSIFY_PARALLEL_ROWS: usize = 4_096;
+#[cfg(test)]
+const CLASSIFY_PARALLEL_ROWS: usize = 1;
+/// 并行分类段数上限；连续行标记按段交给 worker。
+const CLASSIFY_MAX_PARTS: usize = 128;
+
+fn reserve_classify_marks(marks: &mut Vec<u32>, rows: usize) -> bool {
+    #[cfg(test)]
+    if CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.replace(false)) {
+        return false;
+    }
+    marks.try_reserve(rows).is_ok()
 }
 
 fn reserve_capacity(list: &mut Vec<VehicleHandle>, needed: usize) -> Result<(), StepError> {
@@ -705,25 +867,6 @@ fn kinematic_reach_mm(speed_mm_s: u32, max_accel_m_s2: f32, seconds: f64, slack_
     f64::from(speed_mm_s) * seconds + 0.5 * accel_mm_s2 * seconds * seconds + slack_mm
 }
 
-pub(crate) fn delay_approach_for_signal(
-    read: StepReadView<'_>,
-    vehicle: VehicleHandle,
-    state: &VehicleState,
-    kinematic: ApproachEstimate,
-    entry_mm: u32,
-    horizon_ms: u64,
-    emergency_decel_m_s2: f32,
-) -> ApproachEstimate {
-    raise_signal_bound(
-        kinematic,
-        signal_hold(read, vehicle, state),
-        entry_mm,
-        horizon_ms,
-        state.speed_mm_s,
-        emergency_decel_m_s2,
-    )
-}
-
 fn raise_signal_bound(
     kinematic: ApproachEstimate,
     hold: Option<SignalHold>,
@@ -767,30 +910,34 @@ fn can_stop_before(speed_mm_s: u32, emergency_decel_m_s2: f32, distance_mm: u32)
 fn signal_hold(
     read: StepReadView<'_>,
     vehicle: VehicleHandle,
-    state: &VehicleState,
+    route: crate::RouteHandle,
+    profile: VehicleProfileOrdinal,
+    position: MotionPosition,
 ) -> Option<SignalHold> {
     if read.conflict_reservation(vehicle).is_some() {
         return None;
     }
-    let compiled = read.compiled_route(state.route)?;
-    let (gate, gate_mm) = first_red_gate(read, compiled, state)?;
+    let compiled = read.compiled_route(route)?;
+    let (gate, gate_mm) = first_red_gate(read, compiled, profile, position)?;
     Some(SignalHold {
         gate_mm,
-        delay_ms: signal_release_delay_ms(read, gate, state),
+        delay_ms: signal_release_delay_ms(read, gate, profile),
     })
 }
 
 fn first_red_gate(
     read: StepReadView<'_>,
     compiled: &super::tables::CompiledRoute,
-    state: &VehicleState,
+    profile: VehicleProfileOrdinal,
+    position: MotionPosition,
 ) -> Option<(ManeuverGateOrdinal, u32)> {
     // 零进度、零余量表示上一边终点已经规范成下一条边的起点，车辆仍停在上一 hop 的准入门上。
-    let rolled = state.progress_mm == 0 && state.carry_um == 0 && state.route_edge_index > 0;
+    let rolled =
+        position.progress_mm == 0 && position.carry_um == 0 && position.route_edge_index > 0;
     let mut hop = usize::try_from(if rolled {
-        state.route_edge_index - 1
+        position.route_edge_index - 1
     } else {
-        state.route_edge_index
+        position.route_edge_index
     })
     .ok()?;
     let progress_base = if rolled {
@@ -802,7 +949,7 @@ fn first_red_gate(
             .lane_lengths_millimetres()
             .get(edge.index())?
     } else {
-        state.progress_mm
+        position.progress_mm
     };
     let mut from_cursor_start = BoundedDistance::Finite(0);
     let mut accumulated = false;
@@ -814,7 +961,7 @@ fn first_red_gate(
             next.distance_from_hop_start
         };
         accumulated = true;
-        if read.gate_is_restrictive(next.gate, state.profile) {
+        if read.gate_is_restrictive(next.gate, profile) {
             let BoundedDistance::Finite(mm) = from_cursor_start.saturating_sub(progress_base)
             else {
                 return None;
@@ -833,7 +980,7 @@ fn first_red_gate(
 fn signal_release_delay_ms(
     read: StepReadView<'_>,
     gate: ManeuverGateOrdinal,
-    state: &VehicleState,
+    profile: VehicleProfileOrdinal,
 ) -> Option<u64> {
     let relations = read.binding.revision.traffic().relations();
     let group = relations.maneuver_gate(gate)?.signal_group()?;
@@ -870,7 +1017,7 @@ fn signal_release_delay_ms(
             return None;
         }
         let phase = phases[cursor];
-        if gate_opens(read, gate, state, phase, group) {
+        if gate_opens(read, gate, profile, phase, group) {
             return Some(wait);
         }
         wait = wait.saturating_add(relations.phase_duration_ms(phase).unwrap_or(0));
@@ -880,7 +1027,7 @@ fn signal_release_delay_ms(
 fn gate_opens(
     read: StepReadView<'_>,
     gate: ManeuverGateOrdinal,
-    state: &VehicleState,
+    profile: VehicleProfileOrdinal,
     phase: laneflow_static_contract::SignalPhaseOrdinal,
     group: SignalGroupOrdinal,
 ) -> bool {
@@ -896,7 +1043,7 @@ fn gate_opens(
         })
         .unwrap_or(SignalAspect::Red);
     let Some(class) = relations
-        .vehicle_profile(state.profile)
+        .vehicle_profile(profile)
         .map(|profile| profile.class())
     else {
         return false;
@@ -950,7 +1097,10 @@ fn gate_distance_mm(compiled: &super::tables::CompiledRoute, state: &VehicleStat
 }
 
 /// 重建本拍入口 frontier。名单未发布或世界身份变化时全量重走。
-pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
+pub(crate) fn rebuild(
+    step: &mut StepWorkspace<'_>,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
+) -> Result<(), StepError> {
     let Some(horizon_ms) = step.frontier_proof_horizon_ms() else {
         return Ok(());
     };
@@ -966,7 +1116,7 @@ pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
     if !seeded || step.read_view().policy().is_none() {
         return full_walk(step, horizon_ms);
     }
-    held_walk(step, horizon_ms)
+    held_walk(step, horizon_ms, execution)
 }
 
 /// 用本拍运动结果写下一批近门集合和失效名单。
@@ -974,7 +1124,8 @@ pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
 pub(crate) fn classify_pending(
     step: &mut StepWorkspace<'_>,
     delta_s: f32,
-    updates: &[(usize, VehicleState)],
+    updates: &super::motion_updates::MotionUpdates,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
 ) -> Result<(), StepError> {
     let Some(horizon_ms) = step.frontier_proof_horizon_ms() else {
         let maintenance = &mut step.workspace.frontier_maintenance;
@@ -982,9 +1133,13 @@ pub(crate) fn classify_pending(
         maintenance.pending_invalid.clear();
         return Ok(());
     };
-    step.workspace
-        .frontier_maintenance
-        .classify(delta_s, Some(horizon_ms), updates)
+    step.workspace.frontier_maintenance.classify(
+        delta_s,
+        Some(horizon_ms),
+        updates,
+        &step.committed.vehicles,
+        execution,
+    )
 }
 
 fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepError> {
@@ -994,7 +1149,7 @@ fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepEr
         let vehicle = step.committed.live_order[sequence];
         let sequence =
             u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
-        let Some(state) = step.vehicle_state(vehicle).copied() else {
+        let Some(state) = step.vehicle_state(vehicle) else {
             continue;
         };
         if state.status != VehicleStatus::Active {
@@ -1005,13 +1160,17 @@ fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepEr
     Ok(())
 }
 
-fn held_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepError> {
+fn held_walk(
+    step: &mut StepWorkspace<'_>,
+    horizon_ms: u64,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
+) -> Result<(), StepError> {
     step.workspace
         .frontier_maintenance
         .snapshot_published_lists()?;
     let delta_s = step.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
     step.workspace.frontier_maintenance.begin_seen()?;
-    collect_targets(step, delta_s)?;
+    collect_targets(step, delta_s, execution)?;
     let demanded = std::mem::take(&mut step.workspace.frontier_maintenance.scratch_demanded);
 
     step.workspace.frontier_maintenance.begin_seen()?;
@@ -1026,7 +1185,45 @@ fn held_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepEr
         walk_if_new(step, vehicle, horizon_ms, &demanded, true)?;
     }
     let near_len = step.workspace.frontier_maintenance.scratch_near.len();
+    // 近距车辆的重放命中只读本车状态与本车槽位；本拍只有本车的遍历会改写
+    // 本车槽位，且遍历后已标记、不再遍历。大工作集先分段并行筛出未命中的
+    // 车辆，协调器只对它们按序重查并遍历，结果与逐车串行相同。
+    let screened = execution
+        .filter(|resources| resources.coordinator_parallel() && near_len >= TARGETS_PARALLEL_ROWS)
+        .and_then(|resources| {
+            let mut marks = resources
+                .sparse_indices()
+                .expect("private coordinator buffer");
+            marks.clear();
+            marks.try_reserve(near_len).ok()?;
+            marks.resize(near_len, 0);
+            let span = near_len
+                .div_ceil(
+                    resources
+                        .dispatch_threads()
+                        .saturating_mul(4)
+                        .min(TARGETS_MAX_PARTS),
+                )
+                .max(1);
+            let read = &*step;
+            let near = &read.workspace.frontier_maintenance.scratch_near;
+            resources.for_each_part(&mut marks, span, |part, output| {
+                for (offset, miss) in output.iter_mut().enumerate() {
+                    let vehicle = near[part * span + offset];
+                    *miss = u32::from(active_state(read, vehicle).is_some_and(|state| {
+                        read.workspace
+                            .frontier_maintenance
+                            .replay_hit(&state, horizon_ms)
+                            .is_none()
+                    }));
+                }
+            });
+            Some(marks)
+        });
     for index in 0..near_len {
+        if screened.as_ref().is_some_and(|marks| marks[index] == 0) {
+            continue;
+        }
         let vehicle = step.workspace.frontier_maintenance.scratch_near[index];
         let Some(state) = active_state(step, vehicle) else {
             continue;
@@ -1034,69 +1231,21 @@ fn held_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepEr
         if step
             .workspace
             .frontier_maintenance
-            .replay_hit(vehicle, &state, horizon_ms)
+            .replay_hit(&state, horizon_ms)
             .is_none()
         {
             walk_if_new(step, vehicle, horizon_ms, &demanded, true)?;
         }
     }
 
-    let demanded_len = demanded.len();
     step.workspace
         .frontier_maintenance
         .scratch_increments
         .clear();
-    for index in 0..demanded_len {
-        let address = demanded[index];
-        let count = step
-            .workspace
-            .frontier_maintenance
-            .by_cell
-            .get(&address)
-            .map(|indexes| indexes.len())
-            .unwrap_or(0);
-        for position in 0..count {
-            let Some(vehicle_index) = step
-                .workspace
-                .frontier_maintenance
-                .by_cell
-                .get(&address)
-                .and_then(|indexes| indexes.get(position))
-                .copied()
-            else {
-                continue;
-            };
-            if step.workspace.frontier_maintenance.is_marked(vehicle_index) {
-                continue;
-            }
-            let Some(vehicle) = vehicle_from_slot(step, vehicle_index)? else {
-                continue;
-            };
-            let Some((state, sequence)) = accepted_source(step, vehicle)? else {
-                continue;
-            };
-            let reusable = step
-                .workspace
-                .frontier_maintenance
-                .replay_hit(vehicle, &state, horizon_ms)
-                .is_some();
-            if !step.workspace.frontier_maintenance.mark(vehicle.index())? {
-                continue;
-            }
-            if reusable {
-                replay_walk(step, vehicle, state, sequence, horizon_ms, Some(&demanded))?;
-            } else {
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_increments
-                    .try_reserve(1)
-                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_increments
-                    .push(vehicle);
-            }
-        }
+    let replay_result = replay::demanded(step, horizon_ms, &demanded, execution);
+    if let Err(error) = replay_result {
+        step.workspace.frontier_maintenance.scratch_demanded = demanded;
+        return Err(error);
     }
     let deferred = step.workspace.frontier_maintenance.scratch_increments.len();
     for index in 0..deferred {
@@ -1157,7 +1306,7 @@ fn accepted_source(
 }
 
 fn active_state(step: &StepWorkspace<'_>, vehicle: VehicleHandle) -> Option<VehicleState> {
-    let state = step.vehicle_state(vehicle).copied()?;
+    let state = step.vehicle_state(vehicle)?;
     (state.status == VehicleStatus::Active).then_some(state)
 }
 
@@ -1187,41 +1336,167 @@ fn vehicle_from_slot(
     Ok(Some(VehicleHandle::new(index, slot.generation)))
 }
 
-fn collect_targets(step: &mut StepWorkspace<'_>, delta_s: f32) -> Result<(), StepError> {
+/// 少于此车数时串行收集；两遍分发的固定开销大于收益。
+/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+#[cfg(not(test))]
+const TARGETS_PARALLEL_ROWS: usize = 1_024;
+#[cfg(test)]
+const TARGETS_PARALLEL_ROWS: usize = 1;
+/// 并行收集的段数上限；段统计与输出切片都放在栈上。
+const TARGETS_MAX_PARTS: usize = 128;
+
+fn collect_targets(
+    step: &mut StepWorkspace<'_>,
+    delta_s: f32,
+    execution: Option<&crate::kernel::execution::ExecutionResources>,
+) -> Result<(), StepError> {
     step.workspace.frontier_maintenance.scratch_demanded.clear();
     if step.read_view().policy().is_none() {
         return Ok(());
     }
-    let near_len = step.workspace.frontier_maintenance.scratch_near.len();
-    let increment_len = step.workspace.frontier_maintenance.scratch_increments.len();
-    for index in 0..near_len + increment_len {
-        let vehicle = if index < near_len {
-            step.workspace.frontier_maintenance.scratch_near[index]
+    let read = crate::kernel::phase::StepReadView {
+        binding: step.binding,
+        committed: &step.committed,
+        derived: &step.derived,
+    };
+    let maintenance = &mut step.workspace.frontier_maintenance;
+    let mut demanded = std::mem::take(&mut maintenance.scratch_demanded);
+    let near = &maintenance.scratch_near;
+    let increments = &maintenance.scratch_increments;
+    let total = near.len() + increments.len();
+    let vehicle_at = |index: usize| {
+        if index < near.len() {
+            near[index]
         } else {
-            step.workspace.frontier_maintenance.scratch_increments[index - near_len]
-        };
-        let Some(state) = active_state(step, vehicle) else {
-            continue;
-        };
-        if step.conflict_reservation(vehicle).is_some() {
-            continue;
+            increments[index - near.len()]
         }
-        collect_vehicle_targets(step, state, delta_s)?;
+    };
+    // 只读：Active 状态与已持有 reservation 的车辆不收集。
+    let source = |index: usize| {
+        let vehicle = vehicle_at(index);
+        let state = read
+            .vehicle_state(vehicle)
+            .filter(|state| state.status == VehicleStatus::Active)?;
+        read.conflict_reservation(vehicle)
+            .is_none()
+            .then_some(state)
+    };
+    let result = match execution
+        .filter(|resources| resources.coordinator_parallel() && total >= TARGETS_PARALLEL_ROWS)
+    {
+        Some(resources) => resources.install(|| {
+            collect_targets_parallel(resources, read, total, &source, delta_s, &mut demanded)
+        }),
+        None => (0..total).try_for_each(|index| {
+            let Some(state) = source(index) else {
+                return Ok(());
+            };
+            collect_vehicle_targets(read, state, delta_s, &mut |address| {
+                demanded
+                    .try_reserve(1)
+                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+                demanded.push(address);
+                Ok(())
+            })
+        }),
+    };
+    if result.is_ok() {
+        demanded.sort_unstable();
+        demanded.dedup();
     }
-    step.workspace
-        .frontier_maintenance
-        .scratch_demanded
-        .sort_unstable();
-    step.workspace.frontier_maintenance.scratch_demanded.dedup();
+    step.workspace.frontier_maintenance.scratch_demanded = demanded;
+    result
+}
+
+/// 两遍并行收集：先按连续段数出每段的目标地址数（段内遇错即停），再按前缀和
+/// 切开输出并行写入。目标随后排序去重，段序与段内顺序都不影响结果；首错仍取
+/// 下标最小的一段。
+fn collect_targets_parallel(
+    resources: &crate::kernel::execution::ExecutionResources,
+    read: crate::kernel::phase::StepReadView<'_>,
+    total: usize,
+    source: &(impl Fn(usize) -> Option<VehicleState> + Sync),
+    delta_s: f32,
+    demanded: &mut Vec<ConflictPassageAddress>,
+) -> Result<(), StepError> {
+    let parts = resources
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(TARGETS_MAX_PARTS)
+        .min(total)
+        .max(1);
+    let span = total.div_ceil(parts).max(1);
+    let mut counts = [(0_usize, None::<StepError>); TARGETS_MAX_PARTS];
+    resources.for_each_part(&mut counts[..parts], 1, |part, out| {
+        let start = (part * span).min(total);
+        let end = (start + span).min(total);
+        for index in start..end {
+            let Some(state) = source(index) else {
+                continue;
+            };
+            let counted = collect_vehicle_targets(read, state, delta_s, &mut |_| {
+                out[0].0 += 1;
+                Ok(())
+            });
+            if let Err(error) = counted {
+                out[0].1 = Some(error);
+                return;
+            }
+        }
+    });
+    if let Some(error) = counts[..parts].iter().find_map(|count| count.1) {
+        return Err(error);
+    }
+    let sum: usize = counts[..parts].iter().map(|count| count.0).sum();
+    demanded.clear();
+    demanded
+        .try_reserve(sum)
+        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+    demanded.resize(
+        sum,
+        ConflictPassageAddress::new(
+            laneflow_static_contract::ConflictZoneOrdinal::from_raw(0),
+            laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
+            0,
+        ),
+    );
+    let mut rest: &mut [ConflictPassageAddress] = demanded;
+    let mut work: [Option<&mut [ConflictPassageAddress]>; TARGETS_MAX_PARTS] =
+        std::array::from_fn(|_| None);
+    for (slot, count) in work.iter_mut().zip(&counts[..parts]) {
+        let (part, tail) = std::mem::take(&mut rest).split_at_mut(count.0);
+        *slot = Some(part);
+        rest = tail;
+    }
+    resources.for_each_part(&mut work[..parts], 1, |part, output| {
+        let Some(output) = output[0].as_mut() else {
+            return;
+        };
+        let start = (part * span).min(total);
+        let end = (start + span).min(total);
+        let mut at = 0;
+        for index in start..end {
+            let Some(state) = source(index) else {
+                continue;
+            };
+            // 第一遍已证明本段无错，这里只按同一顺序写入。
+            let _ = collect_vehicle_targets(read, state, delta_s, &mut |address| {
+                output[at] = address;
+                at += 1;
+                Ok(())
+            });
+        }
+    });
     Ok(())
 }
 
 fn collect_vehicle_targets(
-    step: &mut StepWorkspace<'_>,
+    read: crate::kernel::phase::StepReadView<'_>,
     state: VehicleState,
     delta_s: f32,
+    emit: &mut impl FnMut(ConflictPassageAddress) -> Result<(), StepError>,
 ) -> Result<(), StepError> {
-    let profile = step
+    let profile = read
         .binding
         .revision
         .traffic()
@@ -1236,7 +1511,7 @@ fn collect_vehicle_targets(
         let mut hop_count = 0usize;
         let mut finished = true;
         {
-            let Some(compiled) = step.compiled_route(state.route) else {
+            let Some(compiled) = read.compiled_route(state.route) else {
                 return Err(StepError::ConflictInvariantViolation);
             };
             let cursor = if state.progress_mm == 0 && state.carry_um == 0 {
@@ -1298,7 +1573,7 @@ fn collect_vehicle_targets(
                     return Err(StepError::ConflictInvariantViolation);
                 };
                 let GatePolicyDecision::Candidate(kind) =
-                    step.read_view().gate_policy_decision(gate, state.profile)
+                    read.gate_policy_decision(gate, state.profile)
                 else {
                     continue;
                 };
@@ -1310,7 +1585,7 @@ fn collect_vehicle_targets(
             }
         }
         for gate_hop in hops[..hop_count].iter().copied() {
-            append_gate_targets(step, state, gate_hop, class)?;
+            append_gate_targets(read, state, gate_hop, class, emit)?;
         }
         if finished {
             break;
@@ -1320,10 +1595,11 @@ fn collect_vehicle_targets(
 }
 
 fn append_gate_targets(
-    step: &mut StepWorkspace<'_>,
+    read: crate::kernel::phase::StepReadView<'_>,
     state: VehicleState,
     gate_hop: u32,
     class: laneflow_static_contract::ParticipantClassOrdinal,
+    emit: &mut impl FnMut(ConflictPassageAddress) -> Result<(), StepError>,
 ) -> Result<(), StepError> {
     let mut occurrences = [ConflictPassageAddress::new(
         laneflow_static_contract::ConflictZoneOrdinal::from_raw(0),
@@ -1335,7 +1611,7 @@ fn append_gate_targets(
     loop {
         let mut batch = 0usize;
         {
-            let Some(compiled) = step.compiled_route(state.route) else {
+            let Some(compiled) = read.compiled_route(state.route) else {
                 return Err(StepError::ConflictInvariantViolation);
             };
             let range = *compiled
@@ -1365,7 +1641,7 @@ fn append_gate_targets(
         }
         for occurrence in occurrences[..batch].iter().copied() {
             let target_len = {
-                let Some(policy) = step.read_view().policy() else {
+                let Some(policy) = read.policy() else {
                     return Err(StepError::ConflictInvariantViolation);
                 };
                 let Some((zone, targets)) = policy.yield_targets(
@@ -1382,7 +1658,7 @@ fn append_gate_targets(
             };
             for target_index in 0..target_len {
                 let address = {
-                    let Some(policy) = step.read_view().policy() else {
+                    let Some(policy) = read.policy() else {
                         return Err(StepError::ConflictInvariantViolation);
                     };
                     let Some((_, targets)) = policy.yield_targets(
@@ -1401,15 +1677,7 @@ fn append_gate_targets(
                         target.passage_local_index(),
                     )
                 };
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_demanded
-                    .try_reserve(1)
-                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-                step.workspace
-                    .frontier_maintenance
-                    .scratch_demanded
-                    .push(address);
+                emit(address)?;
             }
         }
         occurrence_cursor += batch;
@@ -1461,7 +1729,7 @@ fn record_walk(
     let max_accel = profile.max_accel();
     let (hold, gate_distance) = {
         let read = step.read_view();
-        let hold = signal_hold(read, vehicle, &state);
+        let hold = signal_hold(read, vehicle, state.route, state.profile, (&state).into());
         let gate_distance = read
             .compiled_route(state.route)
             .map(|compiled| gate_distance_mm(compiled, &state))
@@ -1567,97 +1835,11 @@ fn replay_walk(
     let Some(stored_progress) = step
         .workspace
         .frontier_maintenance
-        .replay_hit(vehicle, &state, horizon_ms)
+        .replay_hit(&state, horizon_ms)
     else {
         return record_walk(step, vehicle, state, sequence, horizon_ms, wanted);
     };
-    let cell_count = usize::try_from(vehicle.index())
-        .ok()
-        .and_then(|index| {
-            step.workspace
-                .frontier_maintenance
-                .slots
-                .get(index)
-                .map(|slot| slot.cells.len())
-        })
-        .unwrap_or(0);
-    step.workspace.frontier_maintenance.scratch_cells.clear();
-    step.workspace
-        .frontier_maintenance
-        .scratch_cells
-        .try_reserve(cell_count)
-        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-    for index in 0..cell_count {
-        let Some(cell) = usize::try_from(vehicle.index())
-            .ok()
-            .and_then(|slot_index| {
-                step.workspace
-                    .frontier_maintenance
-                    .slots
-                    .get(slot_index)
-                    .and_then(|slot| slot.cells.get(index))
-                    .copied()
-            })
-        else {
-            break;
-        };
-        step.workspace.frontier_maintenance.scratch_cells.push(cell);
-    }
-    let cells = std::mem::take(&mut step.workspace.frontier_maintenance.scratch_cells);
-    let profile = step
-        .binding
-        .revision
-        .traffic()
-        .relations()
-        .vehicle_profile(state.profile)
-        .ok_or(StepError::ConflictInvariantViolation)?;
-    let hold = signal_hold(step.read_view(), vehicle, &state);
-    let prepared = PreparedApproachEta::new(
-        state.carry_um,
-        state.speed_mm_s,
-        profile.max_accel(),
-        horizon_ms,
-    );
-    let traveled = state.progress_mm.saturating_sub(stored_progress);
-    {
-        let mut conflict = step
-            .committed
-            .prepare_conflict(&mut step.derived, &mut step.workspace.conflict);
-        for cell in &cells {
-            if traveled > cell.distance_mm {
-                continue;
-            }
-            let remaining = cell.distance_mm - traveled;
-            let kinematic = prepared.map_or(ApproachEstimate::Unprovable, |prepared| {
-                prepared.lower_bound(u64::from(remaining))
-            });
-            if kinematic == ApproachEstimate::OutsideHorizon {
-                break;
-            }
-            let estimate = raise_signal_bound(
-                kinematic,
-                hold,
-                remaining,
-                horizon_ms,
-                state.speed_mm_s,
-                profile.emergency_decel(),
-            );
-            if estimate == ApproachEstimate::OutsideHorizon {
-                continue;
-            }
-            if wanted.is_some_and(|wanted| !address_wanted(wanted, cell.address)) {
-                continue;
-            }
-            #[cfg(test)]
-            step.workspace
-                .frontier_maintenance
-                .insertions
-                .push((cell.address, vehicle, estimate));
-            insert_owner(&mut conflict, cell.address, vehicle, sequence, estimate)?;
-        }
-    }
-    step.workspace.frontier_maintenance.scratch_cells = cells;
-    Ok(())
+    replay::cached(step, state, sequence, stored_progress, horizon_ms, wanted)
 }
 
 pub(crate) fn finite_entry_distance(
@@ -1818,7 +2000,8 @@ mod tests {
         let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
         let mut world =
             crate::admin::cutover_migration::tests::conflict_scale_world(revision, vehicles);
-        for slot in &mut world.state.committed.vehicles {
+        for index in 0..world.state.committed.vehicles.len() {
+            let mut slot = world.state.committed.vehicles.slot_mut(index);
             if let Some(state) = slot.state.as_mut() {
                 state.speed_mm_s = 0;
                 state.carry_um = 0;
@@ -1874,11 +2057,7 @@ mod tests {
         let mut world = stationary_scale_world(2);
         step(&mut world);
         let old = world.state.committed.live_order[1];
-        let state = world
-            .state
-            .vehicle_state(old)
-            .copied()
-            .expect("rear vehicle");
+        let state = world.state.vehicle_state(old).expect("rear vehicle");
         world.despawn_vehicle(old).expect("despawn rear vehicle");
         let spawned = world
             .spawn_vehicle(
@@ -1938,10 +2117,12 @@ mod tests {
         progress_mm: u32,
         speed_mm_s: u32,
     ) {
-        let state = world.state.committed.vehicles[vehicle.index() as usize]
+        let mut vehicle_slot = world
             .state
-            .as_mut()
-            .expect("pose vehicle");
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize);
+        let state = vehicle_slot.state.as_mut().expect("pose vehicle");
         state.route_edge_index = route_edge_index;
         state.progress_mm = progress_mm;
         state.carry_um = 0;
@@ -1970,6 +2151,7 @@ mod tests {
         fn drop(&mut self) {
             super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
             super::LINK_COMMIT_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
+            super::CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.set(false));
         }
     }
 
@@ -1999,6 +2181,139 @@ mod tests {
             )
         });
         rows
+    }
+
+    #[test]
+    fn sparse_classification_matches_serial_with_dirty_scratch_and_fallback() {
+        use crate::kernel::execution::WorldExecution;
+        use std::num::NonZeroU32;
+        for (workers, fail_scratch) in [(1, false), (4, false), (16, false), (4, true)] {
+            let _reset = FailpointReset;
+            let mut world = crate::kernel::waiting::tests::multi_gate_world(6);
+            world.execution = WorldExecution::start_private(
+                crate::ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            let handles = world.live_vehicles().to_vec();
+            let mut maintenance = super::FrontierMaintenance::default();
+            maintenance
+                .slots
+                .resize_with(6, super::FrontierSlot::default);
+            let mut states = Vec::new();
+            for (index, vehicle) in handles.iter().copied().enumerate() {
+                let old = world.vehicle(vehicle).unwrap();
+                let slot = &mut maintenance.slots[vehicle.index() as usize];
+                slot.valid = true;
+                slot.generation = vehicle.generation() + u32::from(index == 4);
+                slot.route_index = old.route.index();
+                slot.route_generation = old.route.generation();
+                slot.edge = old.route_edge_index;
+                slot.progress = old.progress_mm;
+                slot.gate_distance_mm = if index & 1 != 0 {
+                    150
+                } else {
+                    super::NO_DISTANCE_MM
+                };
+                slot.first_excluded_mm = if index & 2 != 0 {
+                    150
+                } else {
+                    super::NO_DISTANCE_MM
+                };
+                let mut next = old;
+                next.progress_mm += 100;
+                next.speed_mm_s = 10_000;
+                if index == 5 {
+                    next.status = crate::VehicleStatus::Completed;
+                }
+                states.push((vehicle.index() as usize, next));
+            }
+            let mut updates = super::super::motion_updates::MotionUpdates::from_states(
+                &states,
+                &world.state.committed.vehicles,
+            );
+            updates.select_resource_rows(&world.state.committed.vehicles, |_| false);
+            if let Some(mut scratch) = world.execution.resources().sparse_indices() {
+                scratch.resize(updates.len() + 8, u32::MAX);
+            }
+            super::CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.set(fail_scratch));
+            maintenance
+                .classify(
+                    0.1,
+                    Some(100),
+                    &updates,
+                    &world.state.committed.vehicles,
+                    Some(world.execution.resources()),
+                )
+                .unwrap();
+            assert!(updates.resource_rows().is_empty());
+            assert_eq!(
+                maintenance.pending_near,
+                [handles[1], handles[3], handles[4]]
+            );
+            assert_eq!(
+                maintenance.pending_invalid,
+                [handles[2], handles[3], handles[4]]
+            );
+            for vehicle in &handles {
+                let slot = &mut maintenance.slots[vehicle.index() as usize];
+                slot.generation = vehicle.generation();
+                slot.gate_distance_mm = super::NO_DISTANCE_MM;
+                slot.first_excluded_mm = super::NO_DISTANCE_MM;
+            }
+            maintenance
+                .classify(
+                    0.1,
+                    Some(100),
+                    &updates,
+                    &world.state.committed.vehicles,
+                    Some(world.execution.resources()),
+                )
+                .unwrap();
+            assert!(maintenance.pending_near.is_empty());
+            assert!(maintenance.pending_invalid.is_empty());
+        }
+    }
+
+    #[test]
+    fn ordinary_motion_outside_resource_rows_publishes_near_and_invalid_frontier() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let old = world.vehicle(world.live_vehicles()[0]).unwrap();
+        let mut next = old;
+        next.progress_mm += 100;
+        next.speed_mm_s = 10_000;
+        let mut updates = super::super::motion_updates::MotionUpdates::from_states(
+            &[(old.handle.index() as usize, next)],
+            &world.state.committed.vehicles,
+        );
+        updates.select_resource_rows(&world.state.committed.vehicles, |_| false);
+        let mut maintenance = super::FrontierMaintenance::default();
+        maintenance.slots.resize_with(
+            old.handle.index() as usize + 1,
+            super::FrontierSlot::default,
+        );
+        let slot = &mut maintenance.slots[old.handle.index() as usize];
+        slot.valid = true;
+        slot.generation = old.handle.generation();
+        slot.route_index = old.route.index();
+        slot.route_generation = old.route.generation();
+        slot.edge = old.route_edge_index;
+        slot.progress = old.progress_mm;
+        slot.gate_distance_mm = 150;
+        slot.first_excluded_mm = 150;
+        slot.max_accel = 0.0;
+        maintenance
+            .classify(
+                0.1,
+                Some(100),
+                &updates,
+                &world.state.committed.vehicles,
+                None,
+            )
+            .unwrap();
+        assert!(updates.resource_rows().is_empty());
+        maintenance.publish();
+        assert_eq!(maintenance.ready_near, [old.handle]);
+        assert_eq!(maintenance.ready_invalid, [old.handle]);
     }
 
     #[test]
@@ -2144,11 +2459,7 @@ mod tests {
             .frontier_maintenance
             .ready_invalid
             .push(old);
-        let state = world
-            .state
-            .vehicle_state(old)
-            .copied()
-            .expect("source state");
+        let state = world.state.vehicle_state(old).expect("source state");
         world.despawn_vehicle(old).expect("despawn source");
         let spawned = world
             .spawn_vehicle(
@@ -2377,6 +2688,52 @@ mod tests {
         assert!(
             estimates.iter().all(|ms| *ms != 4_000),
             "an existing reservation is not delayed to the release, estimates={estimates:?}"
+        );
+    }
+
+    #[test]
+    fn prepared_admission_signal_reuses_one_view_and_refreshes_after_step_or_rights_change() {
+        let (mut world, route) = crate::admin::cutover_migration::tests::signal_frontier_world(
+            4_000,
+            Some(4_000),
+            false,
+        );
+        let vehicle = signal_vehicle(&mut world, route, 1, 0);
+        {
+            let state = world.state.vehicle_state(vehicle).expect("signal state");
+            let prepared = super::PreparedSignalApproach::new(world.state.read_view(), &state, 4.0);
+            assert_eq!(
+                prepared.apply(ApproachEstimate::Finite(0), 0, 4_000),
+                ApproachEstimate::OutsideHorizon,
+            );
+            for distance in [0, 1, 2_000] {
+                assert_eq!(
+                    prepared.apply(ApproachEstimate::Finite(100), distance, 4_001),
+                    ApproachEstimate::Finite(4_000),
+                );
+            }
+            assert_eq!(
+                prepared.apply(ApproachEstimate::Finite(5_000), 2_000, 6_000),
+                ApproachEstimate::Finite(5_000),
+            );
+        }
+        step_ms(&mut world, 100);
+        {
+            let state = world.state.vehicle_state(vehicle).expect("after step");
+            let prepared = super::PreparedSignalApproach::new(world.state.read_view(), &state, 4.0);
+            assert_eq!(
+                prepared.apply(ApproachEstimate::Finite(100), 0, 4_000),
+                ApproachEstimate::Finite(3_900),
+            );
+        }
+        crate::admin::format_admission::tests::install_conflict_reservation(
+            &mut world, route, vehicle,
+        );
+        let state = world.state.vehicle_state(vehicle).expect("reserved state");
+        let prepared = super::PreparedSignalApproach::new(world.state.read_view(), &state, 4.0);
+        assert_eq!(
+            prepared.apply(ApproachEstimate::Finite(100), 0, 4_000),
+            ApproachEstimate::Finite(100),
         );
     }
 

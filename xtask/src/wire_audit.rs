@@ -1,7 +1,7 @@
 //! Wire / toolchain 审计边界（#376）。
 //!
-//! 不变量：workspace 内除钉版 flatc 生成物与唯一登记的手写 mmap 例外 crate
-//! 外没有 unsafe 代码，且该边界不能被配置 / 环境注入削弱。机制：
+//! 不变量：workspace 内仅钉版 flatc 生成物、登记的 mmap 与 ADR 0031 数值
+//! crate 可含 unsafe，且该边界不能被配置 / 环境注入削弱。机制：
 //!
 //! 1. Cargo.lock resolved 钉版唯一性（有界文本检查）：flatbuffers（wire 生成物
 //!    运行时）与 memmap2/tempfile（mmap 例外 crate 的全部依赖）逐一断言
@@ -22,8 +22,8 @@
 //!    可写入手写 unsafe 的载体。
 //! 3. workspace 成员 lint 分类断言（真 TOML 解析每个成员 manifest）：继承
 //!    workspace `unsafe_code = "forbid"` 的成员构成 forbid 集；
-//!    `[lints.rust] unsafe_code = "allow"` 只允许两个 wire crate 与唯一手写
-//!    例外 laneflow-format-mmap。allow 集逐一与登记名单比对，新增例外或
+//!    `[lints.rust] unsafe_code = "allow"` 只允许两个 wire crate、手写
+//!    laneflow-format-mmap 与 laneflow-motion-kernel。allow 集逐一与登记名单比对，新增例外或
 //!    改类一律 fail closed；`deny` 不再是可登记形态（中间档既允许文件级
 //!    allow 覆盖、又制造模糊地带，已随 mmap 例外独立成 crate 删除）。
 //! 4. forbid 成员的每个 target（lib/bin/test/bench/example）以 hermetic
@@ -76,6 +76,10 @@
 //!    `#[path]` 模块属性、`include!` 宏、`cfg_attr`（cfg_attr 可包裹 path
 //!    属性逃逸直接形态检测）与 `macro_rules!` 宏定义（元变量间接可把
 //!    include! 藏出文本扫描）——禁绝后 .rs 全集即编译器可达源码全集。
+//!    ADR 0031 数值例外仅包含四个登记文件，unsafe 限 lib.rs/x86.rs；禁止
+//!    外部依赖、额外编译入口、build.rs、源码加载、汇编和文件级 lint 放宽，
+//!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
+//!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。
 //! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
 //!    若存在，禁止一切可替换 CI 门禁执行语义的键——`[env]` 段（经
 //!    `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的 HOME/CARGO_HOME
@@ -201,6 +205,7 @@ pub(crate) fn run() -> Result<(), String> {
     check_wire_lib_rs_pins(&repository_root)?;
     check_generated_rs_pins(&repository_root)?;
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
+    schema_codegen::check_audited_motion_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
         "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
@@ -702,8 +707,8 @@ enum UnsafeLevel {
     /// 继承 workspace `unsafe_code = "forbid"`：hermetic 尾参 `-F`。
     Forbid,
     /// 自有 `[lints.rust] unsafe_code = "allow"` 的登记例外：两个纯生成物 wire
-    /// crate（边界由钉版与 clean-regeneration 闭合）与唯一手写例外
-    /// laneflow-format-mmap（边界由 mmap 例外复核闭合）。不参与 hermetic 编译。
+    /// crate（边界由钉版与 clean-regeneration 闭合）、手写 mmap 例外与
+    /// ADR 0031 数值 crate（精确源文件/无依赖/源码加载禁令复核）。不参与 -F 编译。
     Allow,
 }
 
@@ -744,7 +749,7 @@ fn classify_member_lints(manifest_text: &str, label: &str) -> Result<UnsafeLevel
     }
 }
 
-/// 断言 allow 集与登记名单（两个 wire crate + 唯一手写 mmap 例外 crate）
+/// 断言 allow 集与登记名单（两个 wire、mmap 与 ADR 0031 数值 crate）
 /// 完全一致；任何新增例外或改类都使审计失败。
 fn require_expected_classification(classified: &[(String, UnsafeLevel)]) -> Result<(), String> {
     let mut allow: Vec<&str> = classified
@@ -757,10 +762,11 @@ fn require_expected_classification(classified: &[(String, UnsafeLevel)]) -> Resu
         .map(|family| family.wire_package_name)
         .to_vec();
     expected_allow.push(AUDITED_MMAP_PACKAGE_NAME);
+    expected_allow.push(schema_codegen::AUDITED_MOTION_PACKAGE_NAME);
     expected_allow.sort_unstable();
     if allow != expected_allow {
         return Err(format!(
-            "workspace unsafe_code = \"allow\" crate 集合 {allow:?} 与登记名单 {expected_allow:?} 不符；`allow` 只许钉版生成物 crate 与已审计 mmap 例外 crate 使用，新增例外必须在 xtask 审计常量登记并随 PR 评审"
+            "workspace unsafe_code = \"allow\" crate 集合 {allow:?} 与登记名单 {expected_allow:?} 不符；`allow` 只许登记的 wire/mmap/SIMD 数值 crate 使用，新增例外必须在 xtask 审计常量登记并随 PR 评审"
         ));
     }
     Ok(())
@@ -1441,6 +1447,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn motion_manifest_forbid_rejects_direct_and_group_lint_overrides() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-motion-lint-canary-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        let production_manifest: toml::Table =
+            include_str!("../../crates/laneflow-motion-kernel/Cargo.toml")
+                .parse()
+                .unwrap();
+        let mut manifest: toml::Table =
+            "[package]\nname = 'motion-lint-canary'\nversion = '0.0.0'\nedition = '2024'\n"
+                .parse()
+                .unwrap();
+        manifest.insert("lints".into(), production_manifest["lints"].clone());
+        let manifest_path = root.join("Cargo.toml");
+        fs::write(&manifest_path, toml::to_string(&manifest).unwrap()).unwrap();
+
+        for (source, expected_error) in [
+            (
+                "pub unsafe fn load(pointer: *const u8) -> u8 { unsafe { *pointer } }",
+                None,
+            ),
+            (
+                "pub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0133"),
+            ),
+            (
+                "#![allow(unsafe_op_in_unsafe_fn)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#![allow(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#![warn(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#![expect(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+            (
+                "#[allow(rust_2024_compatibility)]\npub unsafe fn load(pointer: *const u8) -> u8 { *pointer }",
+                Some("E0453"),
+            ),
+        ] {
+            fs::write(root.join("src/lib.rs"), source).unwrap();
+            let output = hermetic_cargo_command(&root)
+                .args(["check", "--offline", "--lib", "--manifest-path"])
+                .arg(&manifest_path)
+                .arg("--target-dir")
+                .arg(root.join("target"))
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            match expected_error {
+                Some(code) => {
+                    assert!(!output.status.success(), "unexpected success: {source}");
+                    assert!(stderr.contains(code), "{source}: {stderr}");
+                    assert!(
+                        stderr.contains("unsafe_op_in_unsafe_fn")
+                            || stderr.contains("unsafe-op-in-unsafe-fn"),
+                        "{stderr}"
+                    );
+                }
+                None => assert!(output.status.success(), "{stderr}"),
+            }
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn cargo_config_hygiene_forbids_env_section() {
         let root = std::env::temp_dir().join(format!(
             "laneflow-wire-audit-cargo-config-{}",
@@ -1970,6 +2051,10 @@ mod tests {
             ("laneflow-core".to_string(), UnsafeLevel::Forbid),
             ("laneflow-format".to_string(), UnsafeLevel::Forbid),
             (AUDITED_MMAP_PACKAGE_NAME.to_string(), UnsafeLevel::Allow),
+            (
+                schema_codegen::AUDITED_MOTION_PACKAGE_NAME.to_string(),
+                UnsafeLevel::Allow,
+            ),
             (
                 schema_codegen::ROAD_EDITING.wire_package_name.to_string(),
                 UnsafeLevel::Allow,

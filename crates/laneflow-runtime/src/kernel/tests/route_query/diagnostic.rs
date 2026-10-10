@@ -10,6 +10,7 @@ thread_local! {
     static ENABLED: Cell<bool> = const { Cell::new(false) };
     static SEARCHES: RefCell<BTreeMap<&'static str, u64>> = const { RefCell::new(BTreeMap::new()) };
 }
+crate::kernel::execution::carry_hooks!(carry_test_hooks: ENABLED, SEARCHES);
 
 pub(crate) fn note_search(site: &'static str) {
     if ENABLED.get() {

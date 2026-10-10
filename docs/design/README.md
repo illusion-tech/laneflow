@@ -51,6 +51,8 @@
 
 两文配套 ADR 0030（Accepted）；配置分离与 LFRS 6 已实现，worker 1–16 已开放（#705）。
 
+- [`traffic-runtime-columnar-execution.md`](traffic-runtime-columnar-execution.md)：ADR 0031 接受的列式运动权威、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准。
+
 ## 领域规则
 
 这些文档约束 Runtime 仍实现的道路机动车行为，不表示早期运行入口或数据入口仍存在。
@@ -75,7 +77,15 @@
 - [`traffic-runtime-vehicle-placement.md`](traffic-runtime-vehicle-placement.md)：#742
   已接受。新鲜摆放不要求从路线起点零速开到当前速度；生成和替换要能停住当前约束、
   降到前方更低限速，并且不让前后车立刻无法紧急制动。恢复和修订切换不套用这层检查。
+- [`traffic-runtime-contender-frontier.md`](traffic-runtime-contender-frontier.md)：#861
+  已接受，第一步已实现。准入候选名单的申请者与排队进入者只对已发布近门集合、失效名单和生命周期
+  增量求值，格点到达在第一次读取时求值；格点 owner 的平局键统一为 live 序号；
+  绑定不成立时整份退回全量重建。
 - `cross-section-access.md`：横断面与准入 overlay。
+- [`traffic-runtime-admission-contender-filter.md`](traffic-runtime-admission-contender-filter.md)：
+  Accepted（#828）；准入缓存完整重建前的空贡献证明、同边运动上界、owner/失败语义与有界验证。
+- [`traffic-runtime-admission-speed-drop-proof.md`](traffic-runtime-admission-speed-drop-proof.md)：
+  Accepted（#832 / #834）；首项精确有限距离在制动窗外的成功性证明；#834 候选未采用。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。
 - `spatial-geometry.md`：有界 canonical `f32` 几何与位姿。

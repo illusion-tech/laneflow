@@ -14,7 +14,10 @@ use laneflow_static_network::{AccessCell, SharedNetworkRevision};
 use serde::{Deserialize, Serialize};
 
 use crate::source::{self, Movement, ParkingAnchor, SignalProgram};
-use crate::{GeneratedSource, Result, UrbanConfig, validation};
+use crate::{Direction, GeneratedSource, Result, UrbanConfig, validation};
+
+/// 路线目录的拒绝闸口。多车道转向带车道号，旧的 1 不再接受。
+const CATALOG_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Route {
@@ -63,6 +66,29 @@ pub struct Catalog {
     pub signals: Vec<SignalProgram>,
 }
 
+/// 跨格路线沿走廊接下去。一条车道既能直行又能转向时取直行；只能转向时取那一条。
+fn lane_continuation(
+    movements: &[Movement],
+    cell: u32,
+    direction: Direction,
+    lane: u32,
+    at_exit: bool,
+) -> &Movement {
+    let matches = |movement: &Movement| {
+        movement.cell == cell
+            && if at_exit {
+                movement.exit == direction && movement.exit_lane == lane
+            } else {
+                movement.entry == direction && movement.entry_lane == lane
+            }
+    };
+    movements
+        .iter()
+        .find(|movement| matches(movement) && movement.turn == "Straight")
+        .or_else(|| movements.iter().find(|movement| matches(movement)))
+        .expect("lane movement")
+}
+
 pub(crate) fn build(
     source: &GeneratedSource,
     config: &UrbanConfig,
@@ -73,7 +99,7 @@ pub(crate) fn build(
         routes.push(Route {
             key: movement.key.clone(),
             category: "junction".into(),
-            edge_keys: movement.edges.clone(),
+            edge_keys: movement.route_edges(),
         });
     }
     for cell in &source.layout.cells {
@@ -81,26 +107,25 @@ pub(crate) fn build(
             let Some(next) = source.layout.neighbour(cell, arm) else {
                 continue;
             };
-            let from = source
-                .movements
-                .iter()
-                .find(|m| m.cell == cell.index && m.exit == arm)
-                .expect("exit movement");
-            let to = source
-                .movements
-                .iter()
-                .find(|m| m.cell == next.index && m.entry == arm.opposite())
-                .expect("entry movement");
-            routes.push(Route {
-                key: format!("{}.cross.{}", cell.key(), arm.key()),
-                category: if cell.tile == next.tile {
-                    "cross-cell"
-                } else {
-                    "cross-tile"
-                }
-                .into(),
-                edge_keys: from.edges.iter().chain(&to.edges).cloned().collect(),
-            });
+            for lane in 0..arm.lane_count() {
+                let from = lane_continuation(&source.movements, cell.index, arm, lane, true);
+                let to =
+                    lane_continuation(&source.movements, next.index, arm.opposite(), lane, false);
+                routes.push(Route {
+                    key: format!("{}.cross.{}.l{lane}", cell.key(), arm.key()),
+                    category: if cell.tile == next.tile {
+                        "cross-cell"
+                    } else {
+                        "cross-tile"
+                    }
+                    .into(),
+                    edge_keys: from
+                        .route_edges()
+                        .into_iter()
+                        .chain(to.route_edges())
+                        .collect(),
+                });
+            }
         }
     }
     let mut parking = Vec::new();
@@ -210,7 +235,7 @@ pub(crate) fn build(
         );
     }
     Ok(Catalog {
-        catalog_version: 1,
+        catalog_version: CATALOG_VERSION,
         scale: source.layout.scale.name().into(),
         network_revision: format!("{:x}", revision.network_revision().as_digest()),
         namespace: source::NAMESPACE.into(),
@@ -382,7 +407,7 @@ pub(crate) fn install(
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
-                "fixture://lf-cn-urban-v1",
+                "fixture://lf-cn-urban-v2",
                 origin.canonical_artifact_digest(),
                 origin.canonical_artifact_byte_length(),
                 origin.network_revision(),

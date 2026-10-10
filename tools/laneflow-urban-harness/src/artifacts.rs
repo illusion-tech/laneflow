@@ -117,7 +117,7 @@ impl Artifacts {
                 ),
             ),
         )?;
-        if catalog.catalog_version != 1
+        if catalog.catalog_version != 2
             || catalog.scale != manifest.scale
             || catalog.network_revision != manifest.network_revision
             || format!(
@@ -192,7 +192,7 @@ impl Artifacts {
         let source = checked(
             "source reference",
             PublishedLfcaReference::new(
-                "fixture://lf-cn-urban-v1",
+                "fixture://lf-cn-urban-v2",
                 origin.canonical_artifact_digest(),
                 origin.canonical_artifact_byte_length(),
                 origin.network_revision(),

@@ -1,9 +1,18 @@
 # #707 城市并行性能对照（第二切片：harness 入口验证与带暖机 pilot）
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
+最新的[准入贡献融合结果](admission-contributions-results.md)记录同一十万车辆负载下的
+三组普通发布构建对照、完整宿主阶段诊断、语义等价与资源覆盖边界；#707 认证继续开放。
+
 后续诊断设计见[源码成本分析与短窗口诊断草案](short-profile-plan.md)。
+准入筛选的[远处限速下降候选](admission-distant-results.md)已完成 #834 的有界验证并未采用：
+观察窗筛除 46.2551% 扫描，但普通 ABBA 的公共命令收益方向不一致、全程墙钟未改善。
+独立候选、撤回历史和完整证据保留；#707 正式认证仍开放。
 正式 r1 后续状态见 [D1/D2 与诊断证据索引](formal-diagnostics-index.md)，四轮
 身份、完整摘要和观察窗统计见版本化的
-[`formal-r1-evidence.json`](evidence/formal-r1-evidence.json)；
+[`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)；
 下文“未执行 D/E”专指原 pilot 切片，不表示截至今日未进行任何正式运行。
 2026-09-21 双窗口采集完成后的分析见 [L3 离线诊断](l3-findings.md)，包含采集
 边界、线程活动、函数热点及替换命令的新候选；精确时间窗热点另有隐私最小化
@@ -94,10 +103,16 @@ after 的 `public_step` 均值 40.503 ms，高于 before 的 32.972 ms。命中�
 held 仍可能漏一拍接近来源。车道块只是否决了零命中的这次
 实现。延迟物化的稳定收益尚未分辨。M3 的 29.334 ms 和封存的 28.462 ms
 都不改写。
+[复核目标按车辆去重](recheck-dedupe-results.md)已保留（#861）：两组普通
+ABBA 观察窗公共命令少 16.5%–19.0%，命令 p99 少约 38%–40%，step 无一致方向，
+交通文件逐字节一致。候选名单完整重建仍占回收准入约 60%，另行设计。
+[名单重建只预览够得到门的车](contender-near-results.md)已保留（#861 第一步）：
+普通 ABBA 观察窗公共命令少 13.7%–14.9%，命令 p95 少约 14%–15%，交通文件逐字节一致；
+格点按需求值是第二步。
 
 > 测量基线：`4de40e045398e4b010b2aa36522afc02a4094c4d`（main，#731 合并后）。
-> 证据根：`E:/projects/laneflow-evidence/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
-> 测量 checkout：`E:/projects/worktrees/707-measure/laneflow`（detached @ 4de40e04，全程干净）。
+> 证据根：`<evidence-root>/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
+> 测量 checkout：`<worktree>`（detached @ 4de40e04，全程干净）。
 > 原 pilot 切片范围：WP A/B/C；后续 D1/D2 已完成 r1，完整 D/E 尚未完成。
 > 本研究文档分支未改 Runtime 算法/调度/阈值/P4/SIMD/数据布局或 Harness 代码；
 > 诊断插桩在独立 checkout，身份与边界见分层短测结果。
@@ -172,5 +187,5 @@ laneflow-urban-harness.exe compare <pilot>/<scale>-w1-r1 <pilot>/<scale>-w4-r1 <
   `10795510…` / `792d8d11…`。重放计划与重建计划逐行比较，都只有
   `manifest_digest` 不同。分档 blob 身份、全部摘要与重放二进制见
   [输入差异与冻结计划重放](input-diff.md)及
-  [`frozen-plan-replay.json`](evidence/frozen-plan-replay.json)。据此接受重建
+  [`frozen-plan-replay.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frozen-plan-replay.json)。据此接受重建
   制品用于本 PR 的 pilot/阶段研究范围；#707 完整认证义务保持开放。

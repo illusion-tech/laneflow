@@ -194,7 +194,6 @@ fn parking_world() -> TrafficWorld {
 /// 路口 passage 的 enter/leave、crossing/clear/release 转移段在提交边界
 /// staging 内执行，由整窗零分配间接见证，非资源发布的显式分支断言）。
 /// 预热后 24 拍测量窗内分配与再分配必须为零。
-#[test]
 fn p7_corridor_steady_steps_zero_alloc() {
     let _evidence = EVIDENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut world = corridor_world();
@@ -251,7 +250,6 @@ fn p7_corridor_steady_steps_zero_alloc() {
 /// P7 零分配（场景二）：停车到达的增长发生在 P5 到达观察预留，不在
 /// P7。预热至到达前；到达拍分配数必须恰好等于到达观察数（1），其后
 /// Active→Parked 转移拍与稳态拍必须零分配/零再分配。
-#[test]
 fn p7_parking_arrival_growth_is_in_p5_not_p7() {
     let _evidence = EVIDENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut world = parking_world();
@@ -295,4 +293,24 @@ fn p7_parking_arrival_growth_is_in_p5_not_p7() {
         "p7-parking-arrival allocations_after={} reallocations_after={}",
         stats.allocations, stats.reallocations
     );
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    let main_thread = std::thread::current().id();
+    let tests = vec![
+        libtest_mimic::Trial::test("p7_corridor_steady_steps_zero_alloc", move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            p7_corridor_steady_steps_zero_alloc();
+            Ok(())
+        }),
+        libtest_mimic::Trial::test("p7_parking_arrival_growth_is_in_p5_not_p7", move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            p7_parking_arrival_growth_is_in_p5_not_p7();
+            Ok(())
+        }),
+    ];
+    libtest_mimic::run(&args, tests).exit();
 }

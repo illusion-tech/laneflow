@@ -275,7 +275,7 @@ fn exact_baseline_trace_and_retry_match() {
 #[test]
 fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // 场景反复创建真实线程池：持有资源测试锁，避免与 execution.rs 测试族的
-    // 全局 LIVE_WORKERS/STARTED_WORKERS 计数断言并发互扰。
+    // 真实线程池测试并发抢占 CPU（工作线程计数已按建池线程分开记）。
     let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
     // 生产分发阈值为保守 1_024；矩阵场景为 16 车，经强制入口保持
     // 多 worker 真实分发覆盖（digest 轨迹与路径无关，冻结 fixture 不变）。
@@ -335,7 +335,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
             reinstall_execution(&mut world, workers);
             if raw_workers > 1 {
                 assert_eq!(
-                    world.execution.thread_ids().len() + 1,
+                    world.execution.thread_ids().len(),
                     raw_workers as usize,
                     "{name} workers={raw_workers} must run on a real worker pool"
                 );
@@ -402,6 +402,30 @@ fn input_and_preparation_errors_precede_staged_failure() {
         assert_eq!(result, Err(StepError::ConflictScratchAllocFailed));
         assert_eq!(checkpoint(&world), before);
         world.step(TickInput::new(delta)).unwrap();
+    }
+}
+
+#[test]
+fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
+    let workers = NonZeroU32::new(4).unwrap();
+    for scenario in ["waiting", "conflict", "signals"] {
+        let build = || match scenario {
+            "waiting" => crate::kernel::waiting::tests::multi_gate_world(16),
+            "conflict" => crate::admin::cutover_migration::tests::conflict_scale_world(
+                crate::admin::cutover_migration::tests::conflict_scale_revision(),
+                16,
+            ),
+            "signals" => signals_world(workers),
+            _ => unreachable!(),
+        };
+        let selected = trace_with_workers(build(), 640, true, Some(1_024 * 1_024), workers);
+        let full = crate::kernel::resource_rows::with_full_scan_oracle(|| {
+            trace_with_workers(build(), 640, true, Some(1_024 * 1_024), workers)
+        });
+        assert_eq!(
+            selected, full,
+            "{scenario}: full resource and journal trace"
+        );
     }
 }
 

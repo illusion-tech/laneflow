@@ -16,6 +16,10 @@ path = "src/lib.rs"
 name = "spawn_overlap_allocation"
 harness = false
 
+[[test]]
+name = "waiting_budget_evidence"
+harness = false
+
 # 测量入口与共享夹具放在同一目录，单测和集成测试均无需上级源码引用。
 [[test]]
 name = "parking_command_evidence"
@@ -64,8 +68,11 @@ path = "src/kernel/tests/route_query/wall.rs"
 [features]
 # 默认关闭。只给回归测试放入“已经在路上”的状态；宿主构建不要打开。
 placement-fixtures = []
+# 证据构建仅在安装时选择数值后端；普通构建不读取此环境变量、不插桩。
+motion-kernel-evidence = []
 
 [dependencies]
+laneflow-motion-kernel = { version = "0.0.0", path = "../laneflow-motion-kernel" }
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime-snapshot-wire = { version = "0.0.0", path = "../laneflow-runtime-snapshot-wire" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
@@ -86,3 +93,31 @@ toml = "1.1.3"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "commit_p7_allocation_evidence"
+harness = false
+
+[[test]]
+name = "conflict_budget_evidence"
+harness = false
+
+[[test]]
+name = "shared_network_allocation_evidence"
+harness = false
+
+[[test]]
+name = "cutover_budget_evidence"
+harness = false
+
+[[test]]
+name = "cutover_cross_budget_evidence"
+harness = false
+
+[[test]]
+name = "parking_sparse_scale_evidence"
+harness = false
+
+[[test]]
+name = "placement_account"
+harness = false

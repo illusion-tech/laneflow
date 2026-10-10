@@ -215,8 +215,6 @@ fn sample_sparse_world(revision: Arc<SharedNetworkRevision>) -> (Sample, u64) {
         declared,
     )
 }
-
-#[test]
 fn declared_capacity_10k_and_100k_do_not_expand_static_or_per_world_storage() {
     let ten_thousand = compile_capacity(10_000);
     let hundred_thousand = compile_capacity(100_000);
@@ -239,4 +237,20 @@ fn declared_capacity_10k_and_100k_do_not_expand_static_or_per_world_storage() {
         "parking-sparse-evidence capacities=10000/100000 allocations={} reallocations={} live_bytes={}",
         small.allocations, small.reallocations, small.live_bytes
     );
+}
+
+fn main() {
+    let mut args = libtest_mimic::Arguments::from_args();
+    // 全进程计数不能与框架调度并发；命令行指定更多线程也不能改变测量边界。
+    args.test_threads = Some(1);
+    let main_thread = std::thread::current().id();
+    let tests = vec![libtest_mimic::Trial::test(
+        "declared_capacity_10k_and_100k_do_not_expand_static_or_per_world_storage",
+        move || {
+            assert_eq!(std::thread::current().id(), main_thread);
+            declared_capacity_10k_and_100k_do_not_expand_static_or_per_world_storage();
+            Ok(())
+        },
+    )];
+    libtest_mimic::run(&args, tests).exit();
 }

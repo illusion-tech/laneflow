@@ -128,6 +128,19 @@ impl std::ops::DerefMut for PreparedWorldState {
 pub(crate) struct PoolResources {
     pool: rayon_core::ThreadPool,
     _workers: WorkerJoins,
+    /// 占用索引分段收集缓冲：只在多线程分发时需要，随池存活跨拍保留容量。
+    occupancy_parts: std::sync::Mutex<Vec<super::occupancy::OccupancyPart>>,
+    /// 协调器独占的 Conflict 收尾分段规划缓冲，随池存活跨拍保留容量。
+    finalize_parts: std::sync::Mutex<Vec<super::conflict_tick::FinalizePart>>,
+    /// 协调器并行归约后的稀疏下标（P2 预览消费、P5 到达/完成行）；
+    /// Frontier 分类暂借作逐行位标记。各阶段不重叠使用，随池跨拍保留容量。
+    sparse_indices: std::sync::Mutex<Vec<u32>>,
+    /// Frontier 复用计算的输入与互斥输出；完整 join 后才规范插入。
+    frontier_replay: std::sync::Mutex<super::entry_frontier::ReplayScratch>,
+    /// 非入口 Gate 决定的分段输出；join 后按段序拼接，随池跨拍保留容量。
+    non_entry_parts: std::sync::Mutex<Vec<super::waiting::NonEntryPart>>,
+    /// 转移事件的分段输出；join 后按段序拼接，随池跨拍保留容量。
+    transition_parts: std::sync::Mutex<Vec<super::transitions::TransitionPart>>,
 }
 
 #[derive(Default)]
@@ -143,7 +156,8 @@ impl Drop for WorkerJoins {
 
 pub(crate) enum ExecutionResources {
     Caller,
-    Pool(PoolResources),
+    /// 装箱：单线程世界只保留一个指针宽度，池和协调器缓冲只在多线程时分配。
+    Pool(Box<PoolResources>),
 }
 
 /// 可失败保序分发的输出槽位：`Pending` 尚未计算；`Done` 已完成（含完整领域
@@ -169,8 +183,172 @@ pub(crate) struct DispatchStats {
     pub(crate) extra_work_chunks: usize,
     /// 实际参与本调用的不同线程数（非同时运行峰值）。
     pub(crate) participating_threads: usize,
-    /// 票据式认领下成功取到块票据的总次数（cfg(test) 登记）。
+    /// 成功领取票据的次数；物理列分发的一张票据可以覆盖多个块（cfg(test)）。
     pub(crate) ticket_grabs: usize,
+}
+
+pub(crate) const MAX_WORKS_PER_TICKET: usize = 16;
+
+/// 测试与夹具钩子（线程局部的注入开关与计数）随拍跨线程搬运：拍在池线程上
+/// 运行，进池前把调用线程的取值搬到池线程，出池（含 panic）后再搬回调用
+/// 线程，测试照旧在调用线程上设置与读取。生产构建不存在这层搬运。
+#[cfg(any(test, feature = "placement-fixtures"))]
+macro_rules! carry_hooks {
+    ($name:ident: $($key:ident),+ $(,)?) => {
+        /// 取出本模块钩子的当前线程取值，返回在目标线程上写回它们的闭包。
+        pub(crate) fn $name() -> impl FnOnce() + Send {
+            let carry = || {};
+            $(
+                let value = $crate::kernel::execution::HookCell::carry_out(&$key);
+                let carry = move || {
+                    carry();
+                    $crate::kernel::execution::HookCell::carry_in(&$key, value);
+                };
+            )+
+            carry
+        }
+    };
+}
+#[cfg(any(test, feature = "placement-fixtures"))]
+pub(crate) use carry_hooks;
+
+/// 可随拍搬运的线程局部钩子：`Cell` 复制取值，`RefCell` 移走取值。
+#[cfg(any(test, feature = "placement-fixtures"))]
+pub(crate) trait HookCell {
+    type Value: Send;
+    fn carry_out(&'static self) -> Self::Value;
+    fn carry_in(&'static self, value: Self::Value);
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+impl<T: Copy + Send + 'static> HookCell for std::thread::LocalKey<std::cell::Cell<T>> {
+    type Value = T;
+    fn carry_out(&'static self) -> T {
+        self.with(std::cell::Cell::get)
+    }
+    fn carry_in(&'static self, value: T) {
+        self.with(|cell| cell.set(value));
+    }
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+impl<T: Default + Send + 'static> HookCell for std::thread::LocalKey<std::cell::RefCell<T>> {
+    type Value = T;
+    fn carry_out(&'static self) -> T {
+        self.with(std::cell::RefCell::take)
+    }
+    fn carry_in(&'static self, value: T) {
+        self.with(|cell| *cell.borrow_mut() = value);
+    }
+}
+
+/// 全部模块钩子的一次搬运：在源线程取值，返回在目标线程写回的闭包。
+#[cfg(any(test, feature = "placement-fixtures"))]
+fn carry_step_hooks() -> impl FnOnce() + Send {
+    let fixtures = (
+        crate::kernel::placement::carry_fixture_hooks(),
+        crate::kernel::tick::carry_fixture_hooks(),
+    );
+    #[cfg(test)]
+    let tests = (
+        crate::admin::cutover_migration::carry_test_hooks(),
+        crate::admin::cutover_transaction::carry_test_hooks(),
+        crate::admin::migration_journal::carry_test_hooks(),
+        crate::admin::snapshot::carry_test_hooks(),
+        crate::facade::observation::carry_test_hooks(),
+        crate::kernel::active_order::carry_test_hooks(),
+        crate::kernel::conflict::carry_test_hooks(),
+        crate::kernel::conflict_tick::carry_test_hooks(),
+        crate::kernel::entry_frontier::carry_test_hooks(),
+        crate::kernel::execution::carry_test_hooks(),
+        crate::kernel::occupancy::carry_test_hooks(),
+        crate::kernel::placement::carry_test_hooks(),
+        crate::kernel::resource_rows::carry_test_hooks(),
+        crate::kernel::spawn_overlap::carry_test_hooks(),
+        crate::kernel::tables::carry_test_hooks(),
+        crate::kernel::tick::carry_test_hooks(),
+        crate::kernel::transitions::carry_test_hooks(),
+        crate::kernel::vehicle_store::carry_test_hooks(),
+        crate::kernel::waiting::carry_test_hooks(),
+        crate::kernel::waiting::preview_stage::carry_test_hooks(),
+        crate::kernel::world::carry_test_hooks(),
+        crate::kernel::performance_profile::carry_test_hooks(),
+        crate::kernel::exact_path_research::carry_test_hooks(),
+        crate::kernel::motion_participation::carry_test_hooks(),
+        crate::kernel::occupancy::exact_candidate::carry_test_hooks(),
+        crate::kernel::parking_command_research::carry_test_hooks(),
+        crate::kernel::route_query_research::carry_test_hooks(),
+        crate::kernel::sparse_cost_research::carry_test_hooks(),
+        crate::kernel::eligibility_commit_research::carry_test_hooks(),
+    );
+    move || {
+        let (placement, tick) = fixtures;
+        placement();
+        tick();
+        #[cfg(test)]
+        {
+            let (
+                h0,
+                h1,
+                h2,
+                h3,
+                h4,
+                h5,
+                h6,
+                h7,
+                h8,
+                h9,
+                h10,
+                h11,
+                h12,
+                h13,
+                h14,
+                h15,
+                h16,
+                h17,
+                h18,
+                h19,
+                h20,
+                h21,
+                h22,
+                h23,
+                h24,
+                h25,
+                h26,
+                h27,
+                h28,
+            ) = tests;
+            h0();
+            h1();
+            h2();
+            h3();
+            h4();
+            h5();
+            h6();
+            h7();
+            h8();
+            h9();
+            h10();
+            h11();
+            h12();
+            h13();
+            h14();
+            h15();
+            h16();
+            h17();
+            h18();
+            h19();
+            h20();
+            h21();
+            h22();
+            h23();
+            h24();
+            h25();
+            h26();
+            h27();
+            h28();
+        }
+    }
 }
 
 // 测试专用：最近一次 `try_for_each_chunk` 的调度统计；机制测量探针读取，
@@ -178,6 +356,36 @@ pub(crate) struct DispatchStats {
 #[cfg(test)]
 thread_local! {
     static LAST_DISPATCH_STATS: std::cell::Cell<Option<DispatchStats>> = const { std::cell::Cell::new(None) };
+}
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LAST_DISPATCH_STATS);
+
+/// 测试专用：从池外提交到 Rayon 全局注入队列的任务数（`install`、池外分段并行与
+/// scope 派生各占一格）。注入队列按固定容量分块分配，分配证据据此计入块数。
+#[cfg(test)]
+static COORDINATOR_INJECTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 测试专用：协调器分段并行的 broadcast 次数，每次对应一张 Rayon 内部作业表。
+#[cfg(test)]
+static COORDINATOR_BROADCASTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 测试专用：累计的协调器 broadcast 次数。
+#[cfg(test)]
+pub(crate) fn coordinator_broadcasts() -> u64 {
+    COORDINATOR_BROADCASTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(test)]
+fn note_injections(count: usize) {
+    if rayon_core::current_thread_index().is_none() {
+        COORDINATOR_INJECTIONS.fetch_add(count as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// 测试专用：累计的池外注入任务数。
+#[cfg(test)]
+pub(crate) fn coordinator_injections() -> u64 {
+    COORDINATOR_INJECTIONS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// 测试专用：记录最近一次分发统计（协调器线程）。
@@ -231,18 +439,141 @@ impl DispatchCounters {
     }
 }
 
+/// 递减票据：剩余越少每次领得越少，尾部由多个线程分摊。只依赖已领数量，
+/// 与线程时序无关。
+pub(crate) fn guided_ticket(total: usize, claimed: usize, threads: usize, cap: usize) -> usize {
+    total
+        .saturating_sub(claimed)
+        .div_ceil(threads.saturating_mul(2).max(1))
+        .clamp(1, cap.max(1))
+}
+
+/// 互斥输出分块：`broadcast` 一次唤醒池内全部线程，各线程从共享队列逐块领取
+/// 并计算，先醒的线程多做。作业表由 Rayon 内部分配（执行配置 §3 豁免），
+/// 大小只随线程数固定，与块数和车辆数无关。
+fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
+    output: &mut [T],
+    chunk_size: usize,
+    compute: &F,
+) {
+    let chunks = output.len().div_ceil(chunk_size);
+    if chunks <= 1 {
+        if !output.is_empty() {
+            compute(0, output);
+        }
+        return;
+    }
+    let queue = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
+    let drain = || {
+        loop {
+            let next = queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .next();
+            let Some((index, chunk)) = next else {
+                break;
+            };
+            compute(index, chunk);
+        }
+    };
+    #[cfg(test)]
+    COORDINATOR_BROADCASTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    note_work();
+    rayon_core::broadcast(|_| drain());
+}
+
+/// 拍内并行段计数：派发方在压入任务前递增，`run_awake` 的清醒线程据此在
+/// 新段开始后密集领取任务，长时间无新段则降低领取频率，少扰动协调线程。
+/// 进程内共享；多个世界并发步进时只多几次空领取。
+static WORK_EPOCH: AtomicUsize = AtomicUsize::new(0);
+
+/// 清醒线程连续空领这么多轮后改为让出时间片。
+const IDLE_SPINS_BEFORE_YIELD: u32 = 1_024;
+
+fn note_work() {
+    WORK_EPOCH.fetch_add(1, Ordering::Release);
+}
+
+/// 整拍在一次 `broadcast` 内运行：0 号池线程执行拍体，其余池线程在拍内保持
+/// 清醒，自旋并经 `yield_now` 接手拍内各并行段派发的任务，省去每段唤醒已睡线程
+/// 的开销（Windows 上约 0.1 ms/段）。代价是拍内串行空档里其余线程空转。拍体
+/// 返回或展开时置位结束标志；`broadcast` 等全部线程退出后才返回，拍体的 panic
+/// 随之传回调用线程。作业表由 Rayon 内部分配（执行配置 §3 豁免）。
+fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + Send) -> R {
+    struct Finish<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for Finish<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let run = std::sync::Mutex::new(Some(run));
+    let result = std::sync::Mutex::new(None);
+    #[cfg(test)]
+    COORDINATOR_BROADCASTS.fetch_add(1, Ordering::Relaxed);
+    #[cfg(test)]
+    let full_scan = super::conflict_tick::full_conflict_scan_enabled();
+    pool.broadcast(|context| {
+        if context.index() == 0 {
+            let _finish = Finish(&done);
+            let run = run
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+                .expect("tick body runs once");
+            let value = run();
+            *result
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+        } else {
+            #[cfg(test)]
+            let _full_scan = super::conflict_tick::inherit_full_conflict_scan(full_scan);
+            let mut seen = WORK_EPOCH.load(Ordering::Acquire);
+            let mut idle = 0_u32;
+            while !done.load(Ordering::Acquire) {
+                let now = WORK_EPOCH.load(Ordering::Acquire);
+                if now != seen {
+                    seen = now;
+                    idle = 0;
+                }
+                // 新段后连续空领 256 次内每轮都领，此后每 64 轮领一次。
+                if (idle < 256 || idle.is_multiple_of(64))
+                    && matches!(rayon_core::yield_now(), Some(rayon_core::Yield::Executed))
+                {
+                    idle = 0;
+                    continue;
+                }
+                idle = idle.wrapping_add(1);
+                if idle > IDLE_SPINS_BEFORE_YIELD {
+                    // 久无新段时把时间片让给同核其他线程：机器超额订阅时不白占核心。
+                    std::thread::yield_now();
+                } else {
+                    for _ in 0..8 {
+                        std::hint::spin_loop();
+                    }
+                }
+            }
+        }
+    });
+    result
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .expect("tick body returned")
+}
+
 /// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
 /// `compute` 遇错时须把该槽逻辑下标 min-store 进共享原子并提前返回，
 /// 已完成前缀槽位保持 `Done(Ok(_))`，同块后缀保持 `Pending`。
-fn run_dispatch_chunk<T, F>(
+fn run_dispatch_chunk<T, S, F>(
     compute: &F,
     view: super::phase::StepReadView<'_>,
     first_error: &AtomicUsize,
     #[cfg(test)] counters: &DispatchCounters,
     start: usize,
     chunk: &mut [DispatchSlot<T>],
+    scratch: S,
 ) where
-    F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
+    F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>], S) + Sync,
 {
     #[cfg(test)]
     counters.note_thread();
@@ -262,7 +593,7 @@ fn run_dispatch_chunk<T, F>(
         }
         counters.dispatched.fetch_add(1, Ordering::Relaxed);
     }
-    compute(view, start, chunk);
+    compute(view, start, chunk, scratch);
     #[cfg(test)]
     if chunk
         .iter()
@@ -274,31 +605,35 @@ fn run_dispatch_chunk<T, F>(
 
 impl ExecutionResources {
     fn start(config: ExecutionConfig) -> Result<Self, ExecutionInitError> {
-        let auxiliaries = usize::try_from(config.worker_count().get() - 1)
+        let threads = usize::try_from(config.worker_count().get())
             .map_err(|_| ExecutionInitError::ResourceReservationFailed)?;
-        if auxiliaries == 0 {
+        if threads == 1 {
             return Ok(Self::Caller);
         }
         let mut workers = WorkerJoins::default();
         workers
             .0
-            .try_reserve_exact(auxiliaries)
+            .try_reserve_exact(threads)
             .map_err(|_| ExecutionInitError::ResourceReservationFailed)?;
+        #[cfg(test)]
+        let counters = WORKER_COUNTERS.with(std::sync::Arc::clone);
         // spawn_handler 的登记持有每个真实 JoinHandle；构建失败也由同一 guard 结算。
         let pool = rayon_core::ThreadPoolBuilder::new()
-            .num_threads(auxiliaries)
+            .num_threads(threads)
             .stack_size(WORKER_STACK_BYTES)
             .spawn_handler(|thread| {
                 #[cfg(test)]
                 if START_FAILURE.with(|fail| fail.get() == Some(thread.index())) {
                     return Err(std::io::Error::other("injected worker start failure"));
                 }
+                #[cfg(test)]
+                let counters = std::sync::Arc::clone(&counters);
                 let worker = std::thread::Builder::new()
                     .name(format!("laneflow-{}", thread.index()))
                     .stack_size(WORKER_STACK_BYTES)
                     .spawn(move || {
                         #[cfg(test)]
-                        let _activity = WorkerActivity::start();
+                        let _activity = WorkerActivity::start(counters);
                         thread.run();
                     })?;
                 workers.0.push(worker);
@@ -306,13 +641,19 @@ impl ExecutionResources {
             })
             .build()
             .map_err(|_| ExecutionInitError::WorkerStartFailed)?;
-        Ok(Self::Pool(PoolResources {
+        Ok(Self::Pool(Box::new(PoolResources {
             pool,
             _workers: workers,
-        }))
+            occupancy_parts: std::sync::Mutex::new(Vec::new()),
+            finalize_parts: std::sync::Mutex::new(Vec::new()),
+            sparse_indices: std::sync::Mutex::new(Vec::new()),
+            frontier_replay: std::sync::Mutex::new(Default::default()),
+            non_entry_parts: std::sync::Mutex::new(Vec::new()),
+            transition_parts: std::sync::Mutex::new(Vec::new()),
+        })))
     }
 
-    /// 协调调用线程计算首块，至多 N−1 个私有线程计算其余互斥输出。
+    /// 协调线程计算首块，池内其他线程计算其余互斥输出。
     /// Rayon scope 会在传播任何 panic 前等待全部已分发任务。
     #[cfg_attr(
         not(test),
@@ -335,25 +676,250 @@ impl ExecutionResources {
                     compute(view, index, chunk);
                 }
             }
-            Self::Pool(resources) => resources.pool.in_place_scope(|scope| {
-                let mut chunks = output.chunks_mut(chunk_size).enumerate();
-                let first = chunks.next();
-                for (index, chunk) in chunks {
-                    let compute = &compute;
-                    scope.spawn(move |_| compute(view, index, chunk));
-                }
-                if let Some((index, chunk)) = first {
-                    compute(view, index, chunk);
-                }
-            }),
+            Self::Pool(resources) => {
+                note_work();
+                resources.pool.in_place_scope(|scope| {
+                    let mut chunks = output.chunks_mut(chunk_size).enumerate();
+                    let first = chunks.next();
+                    for (index, chunk) in chunks {
+                        let compute = &compute;
+                        #[cfg(test)]
+                        note_injections(1);
+                        scope.spawn(move |_| compute(view, index, chunk));
+                    }
+                    if let Some((index, chunk)) = first {
+                        compute(view, index, chunk);
+                    }
+                })
+            }
         }
     }
 
-    /// 本次分发最多参与的线程数：调用线程加计池内辅助线程；`Caller` 为 1。
+    /// 协调器并行段是否值得启用。两遍算法会重算一遍：参与线程少于 4 个时
+    /// 反而比串行慢（实测 2 线程整拍 +8%），因此至少 4 个池线程才并行。
+    pub(crate) fn coordinator_parallel(&self) -> bool {
+        self.dispatch_threads() >= 4
+    }
+
+    /// 在池内一次运行一个多遍并行段：段内各遍的 `for_each_part` 已在池线程上，
+    /// 直接内联执行，不再经全局注入队列；每段只向池提交一次。
+    pub(crate) fn install<R: Send>(&self, run: impl FnOnce() -> R + Send) -> R {
+        match self {
+            Self::Caller => run(),
+            Self::Pool(resources) => {
+                #[cfg(test)]
+                note_injections(1);
+                resources.pool.install(run)
+            }
+        }
+    }
+
+    /// 不读取交通视图的互斥分块：每块独占一段输出，完整 join 后返回。
+    /// 在池内 `broadcast` 全部线程逐块领取；作业表属 Rayon 内部分配（§3 豁免）；
+    /// 拍内协调线程已在池上，直接参与计算。供派生索引重建这类协调器工作使用。
+    pub(crate) fn for_each_part<T: Send, F: Fn(usize, &mut [T]) + Sync>(
+        &self,
+        output: &mut [T],
+        chunk_size: usize,
+        compute: F,
+    ) {
+        assert!(chunk_size > 0, "nonzero chunk size");
+        match self {
+            Self::Caller => {
+                for (index, chunk) in output.chunks_mut(chunk_size).enumerate() {
+                    compute(index, chunk);
+                }
+            }
+            Self::Pool(resources) => {
+                #[cfg(test)]
+                note_injections(1);
+                resources
+                    .pool
+                    .install(|| split_parts(output, chunk_size, &compute))
+            }
+        }
+    }
+
+    /// 协调器独占的 Conflict 收尾规划缓冲；`Caller` 不分段，返回空。
+    pub(crate) fn finalize_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::conflict_tick::FinalizePart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .finalize_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的占用收集缓冲；`Caller` 不分段收集，返回空。
+    pub(crate) fn occupancy_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::occupancy::OccupancyPart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .occupancy_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的稀疏下标缓冲；`Caller` 串行消费，返回空。
+    pub(crate) fn sparse_indices(&self) -> Option<std::sync::MutexGuard<'_, Vec<u32>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .sparse_indices
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的非入口决定分段缓冲；`Caller` 不分段，返回空。
+    pub(crate) fn non_entry_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::waiting::NonEntryPart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .non_entry_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 协调器独占的转移事件分段缓冲；`Caller` 串行发射，返回空。
+    pub(crate) fn transition_parts(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, Vec<super::transitions::TransitionPart>>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .transition_parts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    pub(crate) fn frontier_replay(
+        &self,
+    ) -> Option<std::sync::MutexGuard<'_, super::entry_frontier::ReplayScratch>> {
+        match self {
+            Self::Caller => None,
+            Self::Pool(resources) => Some(
+                resources
+                    .frontier_replay
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+
+    /// 本次分发最多参与的线程数：池线程数（拍内协调线程即其中之一）；`Caller` 为 1。
     pub(crate) fn dispatch_threads(&self) -> usize {
         match self {
             Self::Caller => 1,
-            Self::Pool(resources) => resources.pool.current_num_threads().saturating_add(1),
+            Self::Pool(resources) => resources.pool.current_num_threads(),
+        }
+    }
+
+    /// 物理列块的互斥切片票据；不把物理位置当作规范首错顺序。
+    /// 所有票据完整 join 后，由调用方按完整句柄对应的逻辑位置消费回报。
+    ///
+    /// 票据大小逐步递减（guided）：每次领取 `ceil(剩余 / (2 × 线程数))` 块，
+    /// 上限 `works_per_ticket`、下限 1。`total_works` 只用于估计剩余量，
+    /// 偏差只影响票据粒度，不影响覆盖与互斥。
+    pub(crate) fn for_each_work<I, T, F>(
+        &self,
+        view: super::phase::StepReadView<'_>,
+        work: I,
+        works_per_ticket: usize,
+        total_works: usize,
+        compute: F,
+    ) -> DispatchStats
+    where
+        I: Iterator<Item = (usize, T)> + Send,
+        T: Send,
+        F: Fn(super::phase::StepReadView<'_>, usize, T) + Sync,
+    {
+        assert!(
+            (1..=MAX_WORKS_PER_TICKET).contains(&works_per_ticket),
+            "bounded work ticket"
+        );
+        #[cfg(test)]
+        let counters = DispatchCounters::default();
+        let run = |(start, item)| {
+            #[cfg(test)]
+            {
+                counters.note_thread();
+                counters.dispatched.fetch_add(1, Ordering::Relaxed);
+            }
+            compute(view, start, item);
+            #[cfg(test)]
+            counters.completed.fetch_add(1, Ordering::Relaxed);
+        };
+        match self {
+            Self::Caller => {
+                for item in work {
+                    #[cfg(test)]
+                    counters.note_ticket_grab();
+                    run(item);
+                }
+            }
+            Self::Pool(resources) => {
+                let threads = resources.pool.current_num_threads();
+                let tickets = std::sync::Mutex::new((work.fuse(), 0_usize));
+                let drain = || loop {
+                    // 一次领取多个互不重叠的存储块，离开锁后逐块求值；固定数组不分配。
+                    let batch: [Option<(usize, T)>; MAX_WORKS_PER_TICKET] = {
+                        let mut guard = tickets.lock().expect("physical motion tickets");
+                        let (work, claimed) = &mut *guard;
+                        let take = guided_ticket(total_works, *claimed, threads, works_per_ticket);
+                        let batch = std::array::from_fn(|index| {
+                            (index < take).then(|| work.next()).flatten()
+                        });
+                        *claimed = claimed.saturating_add(take);
+                        batch
+                    };
+                    if batch[0].is_none() {
+                        break;
+                    }
+                    #[cfg(test)]
+                    counters.note_ticket_grab();
+                    for ticket in batch.into_iter().flatten() {
+                        run(ticket);
+                    }
+                };
+                #[cfg(test)]
+                note_injections(threads - 1);
+                note_work();
+                resources.pool.in_place_scope(|scope| {
+                    for _ in 1..threads {
+                        scope.spawn(|_| drain());
+                    }
+                    drain();
+                });
+            }
+        }
+        #[cfg(test)]
+        {
+            counters.stats()
+        }
+        #[cfg(not(test))]
+        {
+            DispatchStats::default()
         }
     }
 
@@ -363,7 +929,7 @@ impl ExecutionResources {
     /// 更晚任务在开始执行时先查已错位置，整块晚于已错位置的输出整块标记
     /// `Skipped` 跳过计算。错误不取消其他已分发任务：Rayon scope 在传播
     /// panic 前等待全部任务结束，领域错误也等完整 join 后由调用方按逻辑
-    /// 顺序消费首错。调用线程与池任务票据式认领块。统计只在测试构建登记；
+    /// 顺序消费首错。协调线程与池任务票据式认领块。统计只在测试构建登记；
     /// 生产构建返回默认值、无统计锁无统计分配（票据队列是分发本身的设施）。
     pub(crate) fn try_for_each_chunk<T, F>(
         &self,
@@ -378,30 +944,59 @@ impl ExecutionResources {
         F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
     {
         assert!(chunk_size > 0, "nonzero chunk size");
+        self.try_for_each_work(
+            view,
+            output
+                .chunks_mut(chunk_size)
+                .enumerate()
+                .map(|(index, chunk)| (index * chunk_size, (chunk, ()))),
+            first_error,
+            |view, start, chunk, ()| compute(view, start, chunk),
+        )
+    }
+
+    /// 把独占结果块与独占暂存配对分发；暂存不参与首错选择，全部借用在 join 后归还。
+    pub(crate) fn try_for_each_work<'output, I, T, S, F>(
+        &self,
+        view: super::phase::StepReadView<'_>,
+        work: I,
+        first_error: &AtomicUsize,
+        compute: F,
+    ) -> DispatchStats
+    where
+        I: Iterator<Item = (usize, (&'output mut [DispatchSlot<T>], S))> + Send,
+        T: Send + 'output,
+        S: Send,
+        F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>], S) + Sync,
+    {
         #[cfg(test)]
         let counters = DispatchCounters::default();
         match self {
             Self::Caller => {
-                for (chunk_index, chunk) in output.chunks_mut(chunk_size).enumerate() {
+                for (start, (chunk, scratch)) in work {
                     run_dispatch_chunk(
                         &compute,
                         view,
                         first_error,
                         #[cfg(test)]
                         &counters,
-                        chunk_index * chunk_size,
+                        start,
                         chunk,
+                        scratch,
                     );
                 }
             }
             Self::Pool(resources) => {
-                // 票据式认领：spawn `worker−1` 个池任务，调用线程与池任务
-                // 从共享票据取块直到取完——调用线程不再只算首块后在 scope
+                // 票据式认领：spawn `worker−1` 个池任务，协调线程与池任务
+                // 从共享票据取块直到取完——协调线程不再只算首块后在 scope
                 // 末尾空等（机制测量：同场景整步 w2 −18%、w4 −8%、w8 −7%）。
                 // 取到票据后仍先查已错位置，跳过语义与完整 join 不变。
                 // 锁直接保护切片迭代器：不物化票据容器，热态分发无堆分配。
-                let chunks = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
-                let auxiliaries = resources.pool.current_num_threads();
+                let chunks = std::sync::Mutex::new(work.fuse());
+                let auxiliaries = resources.pool.current_num_threads() - 1;
+                #[cfg(test)]
+                note_injections(auxiliaries);
+                note_work();
                 resources.pool.in_place_scope(|scope| {
                     let compute = &compute;
                     #[cfg(test)]
@@ -409,17 +1004,13 @@ impl ExecutionResources {
                     let chunks = &chunks;
                     macro_rules! claim_chunk {
                         () => {
-                            chunks
-                                .lock()
-                                .expect("dispatch ticket chunks")
-                                .next()
-                                .map(|(chunk_index, chunk)| (chunk_index * chunk_size, chunk))
+                            chunks.lock().expect("dispatch ticket chunks").next()
                         };
                     }
                     for _ in 0..auxiliaries {
                         scope.spawn(move |_| {
                             loop {
-                                let Some((start, chunk)) = claim_chunk!() else {
+                                let Some((start, (chunk, scratch))) = claim_chunk!() else {
                                     break;
                                 };
                                 #[cfg(test)]
@@ -432,12 +1023,13 @@ impl ExecutionResources {
                                     counters,
                                     start,
                                     chunk,
+                                    scratch,
                                 );
                             }
                         });
                     }
                     loop {
-                        let Some((start, chunk)) = claim_chunk!() else {
+                        let Some((start, (chunk, scratch))) = claim_chunk!() else {
                             break;
                         };
                         #[cfg(test)]
@@ -450,6 +1042,7 @@ impl ExecutionResources {
                             counters,
                             start,
                             chunk,
+                            scratch,
                         );
                     }
                 });
@@ -514,10 +1107,12 @@ impl WorldExecution {
         assert!(self.usable, "traffic world invalidated by execution panic");
     }
 
-    pub(crate) fn run<R>(
+    /// 整个作用域在池内运行：每拍只跨池边界一次，拍内各并行段从池线程直接
+    /// 派发，不再各自经全局注入队列往返并阻塞调用线程。调用线程只等待。
+    pub(crate) fn run<R: Send>(
         &mut self,
         state: &mut WorldState,
-        operation: impl FnOnce(&mut WorldState, &ExecutionResources) -> R,
+        operation: impl FnOnce(&mut WorldState, &ExecutionResources) -> R + Send,
     ) -> R {
         self.assert_usable();
         // 先置为失效；只有作用域完整返回才恢复，包括可重试领域错误的返回。
@@ -530,7 +1125,26 @@ impl WorldExecution {
             self.active_plan.assert_binding(state);
             self.active_plan
                 .refresh_workset(state.derived.active_order.len());
-            operation(state, &self.resources)
+            let resources = &self.resources;
+            match resources {
+                ExecutionResources::Caller => operation(state, resources),
+                ExecutionResources::Pool(pool) => {
+                    #[cfg(any(test, feature = "placement-fixtures"))]
+                    {
+                        let hooks = carry_step_hooks();
+                        let (result, hooks) = run_awake(&pool.pool, || {
+                            hooks();
+                            let result =
+                                catch_unwind(AssertUnwindSafe(|| operation(state, resources)));
+                            (result, carry_step_hooks())
+                        });
+                        hooks();
+                        result.unwrap_or_else(|payload| resume_unwind(payload))
+                    }
+                    #[cfg(not(any(test, feature = "placement-fixtures")))]
+                    run_awake(&pool.pool, || operation(state, resources))
+                }
+            }
         })) {
             Ok(result) => {
                 self.usable = true;
@@ -576,30 +1190,50 @@ thread_local! {
     static START_FAILURE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
+/// 池工作线程计数，按建池的测试线程分开记：并发测试各自建池，全局计数会
+/// 读到别的测试仍存活的线程（断言失败后又毒化共享测试锁，连带一批失败）。
 #[cfg(test)]
-static LIVE_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static STARTED_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-pub(crate) static RESOURCE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[cfg(test)]
-pub(crate) fn worker_starts() -> usize {
-    STARTED_WORKERS.load(std::sync::atomic::Ordering::SeqCst)
+#[derive(Default)]
+struct WorkerCounters {
+    live: std::sync::atomic::AtomicUsize,
+    started: std::sync::atomic::AtomicUsize,
 }
 #[cfg(test)]
-struct WorkerActivity;
+thread_local! {
+    static WORKER_COUNTERS: std::sync::Arc<WorkerCounters> = std::sync::Arc::default();
+}
+#[cfg(test)]
+pub(crate) static RESOURCE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// 当前测试线程建的池里仍存活的工作线程数。
+#[cfg(test)]
+pub(crate) fn live_workers() -> usize {
+    WORKER_COUNTERS.with(|counters| counters.live.load(std::sync::atomic::Ordering::SeqCst))
+}
+/// 当前测试线程建的池累计启动过的工作线程数。
+#[cfg(test)]
+pub(crate) fn worker_starts() -> usize {
+    WORKER_COUNTERS.with(|counters| counters.started.load(std::sync::atomic::Ordering::SeqCst))
+}
+#[cfg(test)]
+struct WorkerActivity(std::sync::Arc<WorkerCounters>);
 #[cfg(test)]
 impl WorkerActivity {
-    fn start() -> Self {
-        LIVE_WORKERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        STARTED_WORKERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Self
+    fn start(counters: std::sync::Arc<WorkerCounters>) -> Self {
+        counters
+            .live
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        counters
+            .started
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(counters)
     }
 }
 #[cfg(test)]
 impl Drop for WorkerActivity {
     fn drop(&mut self) {
-        LIVE_WORKERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.0
+            .live
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -692,6 +1326,53 @@ mod tests {
     }
 
     #[test]
+    fn physical_work_tickets_cover_disjoint_tail_chunks_without_duplicate_execution() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        for workers in [1, 4] {
+            let (mut world, _, _) = world_with_vehicle(true);
+            world.execution = WorldExecution::start_private(config(workers), &world.state);
+            for per_ticket in [1, 4, MAX_WORKS_PER_TICKET] {
+                for count in [0, 1, 16, 17, 33] {
+                    let mut output = vec![0_u32; count];
+                    let visits: Vec<_> = (0..count).map(|_| AtomicUsize::new(0)).collect();
+                    let stats = world.execution.run(&mut world.state, |state, resources| {
+                        resources.for_each_work(
+                            state.read_view(),
+                            output.chunks_mut(1).enumerate(),
+                            per_ticket,
+                            count,
+                            |view, start, row| {
+                                assert!(view.vehicle_state(view.derived.active_order[0]).is_some());
+                                visits[start].fetch_add(1, Ordering::Relaxed);
+                                row[0] = start as u32 + 1;
+                            },
+                        )
+                    });
+                    assert_eq!(output, (1..=count as u32).collect::<Vec<_>>());
+                    assert!(
+                        visits
+                            .iter()
+                            .all(|visits| visits.load(Ordering::Relaxed) == 1)
+                    );
+                    assert_eq!(stats.dispatched_chunks, count);
+                    assert_eq!(stats.completed_chunks, count);
+                    // 递减票据的领取次数只由已领数量决定，可确定性复算。
+                    let mut guided = 0;
+                    let mut claimed = 0;
+                    while claimed < count {
+                        claimed += guided_ticket(count, claimed, workers as usize, per_ticket);
+                        guided += 1;
+                    }
+                    assert_eq!(
+                        stats.ticket_grabs,
+                        if workers == 1 { count } else { guided }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn caller_and_pool_try_dispatch_agree_slot_wise_and_on_semantic_stats() {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let slot_count = 9;
@@ -742,7 +1423,7 @@ mod tests {
         assert_eq!(caller_stats.extra_work_chunks, 0);
         assert_eq!(caller_stats.participating_threads, 1);
         assert!(pool_stats.participating_threads >= 2);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -813,7 +1494,7 @@ mod tests {
         assert_eq!(pool_stats.extra_work_chunks, 2);
         drop(caller_world);
         drop(pool_world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -868,7 +1549,7 @@ mod tests {
             }
             drop(world);
         }
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -877,8 +1558,8 @@ mod tests {
         let (mut world, _, _) = world_with_vehicle(true);
         world.execution = WorldExecution::start_private(config(4), &world.state);
         let ids = world.execution.thread_ids();
-        // 前 4 块用屏障强制调用线程与 3 个 worker 同拍重叠；后 4 块不加门，
-        // 避免调用线程算完首块后在 scope join 等待、第二波永远凑不齐 4 方而死锁。
+        // 前 4 块用屏障强制池内协调线程与 3 个 worker 同拍重叠；后 4 块不加门，
+        // 避免协调线程算完首块后在 scope join 等待、第二波永远凑不齐 4 方而死锁。
         let overlap = Barrier::new(4);
         let visited = Mutex::new(Vec::new());
         let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 8];
@@ -905,10 +1586,11 @@ mod tests {
         assert!(stats.participating_threads <= world.execution.resources.dispatch_threads());
         let visited: std::collections::HashSet<_> =
             visited.into_inner().unwrap().into_iter().collect();
-        assert!(visited.contains(&std::thread::current().id()));
+        // 拍在池内运行：调用线程只等待，全部计算落在池线程上。
+        assert!(!visited.contains(&std::thread::current().id()));
         assert!(ids.iter().all(|id| visited.contains(id)));
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -979,7 +1661,7 @@ mod tests {
         assert_eq!(finished_starts, started_starts);
         drop(caller_world);
         drop(pool_world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1042,25 +1724,25 @@ mod tests {
         assert_eq!(stats.completed_chunks, 2);
         assert_eq!(stats.skipped_chunks, 0);
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
     fn partial_start_and_drop_join_real_threads_and_worker_one_stays_inline() {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
-        let started = STARTED_WORKERS.load(Ordering::SeqCst);
+        let started = worker_starts();
         drop(ExecutionResources::start(config(1)).unwrap());
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst), started);
+        assert_eq!(worker_starts(), started);
         START_FAILURE.with(|fail| fail.set(Some(2)));
         let failed = ExecutionResources::start(config(5));
         START_FAILURE.with(|fail| fail.set(None));
         assert!(matches!(failed, Err(ExecutionInitError::WorkerStartFailed)));
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst) - started, 2);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(worker_starts() - started, 2);
+        assert_eq!(live_workers(), 0);
         let resources = ExecutionResources::start(config(4)).unwrap();
         drop(resources);
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst) - started, 5);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(worker_starts() - started, 6);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1090,14 +1772,14 @@ mod tests {
             let visited: std::collections::HashSet<_> =
                 visited.into_inner().unwrap().into_iter().collect();
             assert_eq!(visited.len(), 4);
-            assert!(visited.contains(&std::thread::current().id()));
+            assert!(!visited.contains(&std::thread::current().id()));
             assert!(ids.iter().all(|id| visited.contains(id)));
             assert_eq!(output, [4_500, 4_501, 4_502, 4_503]);
         }
         assert_eq!(world.execution.attempt_epoch, 2);
         assert_eq!(world.execution.thread_ids(), ids);
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1127,7 +1809,7 @@ mod tests {
             assert!(catch_unwind(AssertUnwindSafe(|| world.world_binding())).is_err());
             assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
             drop(world);
-            assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+            assert_eq!(live_workers(), 0);
         }
     }
 
@@ -1183,7 +1865,7 @@ mod tests {
         assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
         let settled_output = output;
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
         assert_eq!(output, settled_output);
         assert_eq!(completed.load(Ordering::SeqCst), 15);
     }
@@ -1266,7 +1948,7 @@ mod tests {
             world.state.rebuild_active_order();
         }
         drop(world);
-        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(live_workers(), 0);
     }
 
     #[test]
@@ -1294,7 +1976,7 @@ mod tests {
     fn plan_failure_is_after_traffic_validation_and_before_resource_start() {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let (world, _, _) = world_with_vehicle(true);
-        let started = STARTED_WORKERS.load(Ordering::SeqCst);
+        let started = worker_starts();
         let install = |execution| {
             TrafficWorld::install(
                 world.revision(),
@@ -1350,7 +2032,7 @@ mod tests {
             .assert_binding(&restored.world().state);
         assert_eq!(restored.world().execution.active_plan.ranges.len(), 1);
         assert_eq!(restored.world().execution.active_plan.ranges[0], 0..1);
-        assert_eq!(STARTED_WORKERS.load(Ordering::SeqCst), started);
+        assert_eq!(worker_starts(), started);
     }
 
     #[test]

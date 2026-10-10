@@ -16,11 +16,13 @@ name = "laneflow-p2-cost-research"
 path = "src/p2_cost.rs"
 
 [dependencies]
+cc = "=1.2.66"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 sha2 = "0.11"
 toml = "1.1.3"
 uuid = { version = "1.24", features = ["v4"] }
+wide = "=1.5.0"
 
 [lints]
 workspace = true
@@ -40,3 +42,27 @@ path = "src/p5_direct_research.rs"
 [[bin]]
 name = "laneflow-empty-ranges-research"
 path = "src/empty_ranges.rs"
+
+[[bin]]
+name = "laneflow-current-hotspots-research"
+path = "src/current_cost.rs"
+
+[[bin]]
+name = "laneflow-p5-chunk-research"
+path = "src/p5_chunks.rs"
+
+[[bin]]
+name = "laneflow-p5-simd-research"
+path = "src/p5_simd.rs"
+
+[[bin]]
+name = "laneflow-p5-hot-simd-research"
+path = "src/p5_hot.rs"
+
+[[bin]]
+name = "laneflow-columnar-runtime-research"
+path = "src/columnar_runtime.rs"
+
+[[bin]]
+name = "laneflow-columnar-measurement"
+path = "src/columnar_measurement.rs"

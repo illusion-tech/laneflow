@@ -1,13 +1,16 @@
 # 空 Gate 与机动转移区间短路
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 Refs #779、#679、#707。
 
 本切片在保持车辆、路线与资源合同的前提下，省去可以证明为空的 Gate 决定和
 事件区间定位。无新索引、缓存、公开 API 或数据格式。
 
 - [判据、验证与测量边界](results.md)
-- [长路线三组 ABBA](evidence/route.json)
-- [城市第一轮](evidence/city-first.json)、[针对波动的补测](evidence/city-repeat.json)
+- [长路线三组 ABBA](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-779-empty-ranges/evidence/route.json)
+- [城市第一轮](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-779-empty-ranges/evidence/city-first.json)、[针对波动的补测](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-779-empty-ranges/evidence/city-repeat.json)
 - [独立诊断与内存](evidence/diagnostic.txt)
 
 普通 release 的 Runtime 不插桩；城市 host 只在公共 step 计时结束后输出计时值。

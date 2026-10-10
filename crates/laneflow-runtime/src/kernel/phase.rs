@@ -51,9 +51,26 @@ impl StepDerived<'_> {
     ) -> Result<Option<u32>, ()> {
         self.0.live_order_index.rank(live, vehicle_slots, vehicle)
     }
+
+    /// 铺好 live 序号表，之后可经只读视图并行查询；分配失败返回 `false`。
+    pub(crate) fn prepare_live_rank(
+        &mut self,
+        live: &[crate::VehicleHandle],
+        vehicle_slots: usize,
+    ) -> bool {
+        self.0.live_order_index.ensure(live, vehicle_slots)
+    }
 }
 
 impl StepCommitted<'_> {
+    /// 只允许准备稀疏车辆池容量，不能修改目录、运动或控制记录。
+    pub(crate) fn prepare_vehicle_storage(
+        &mut self,
+        updates: &crate::kernel::motion_updates::MotionUpdates,
+    ) -> Result<(), crate::StepError> {
+        updates.prepare_storage(&mut self.0.vehicles)
+    }
+
     /// 同时借用已验证的只读路线和受限 Conflict 暂存，循环内无须重读路线槽位。
     pub(crate) fn prepare_conflict_for_route<'a>(
         &'a mut self,

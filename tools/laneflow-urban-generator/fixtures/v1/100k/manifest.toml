@@ -1,5 +1,5 @@
 manifest_version = 1
-generator = "laneflow-urban-generator-v1"
+generator = "laneflow-urban-generator-v2"
 scale = "100k"
 cells = 1000
 tiles = 100
@@ -8,17 +8,17 @@ nominal_individuals = 100000
 fixed_step_ms = 33
 compile_limits = "LF-COMP-SINGLE-NETWORK-1M-v2"
 format_limits = "FormatLimits::HARD"
-network_revision = "cd9cbe68dd9686216a9303ab95aef5ad26b5a819158fa507f8c46d0f238e58ee"
-source_import_edges = ["workload/lf-cn-urban/v1 -> workload/lf-cn-urban/common/v1"]
-lir_logical_records = 1454546
-compiler_output_logical_bytes = 40388602
-compiler_controlled_peak_bytes = 1259346154
-shared_headless_retained_bytes = 13488124
-shared_spatial_retained_bytes = 35900620
-resolved_policy_gate_rows = 11000
-resolved_policy_stream_rows = 10200
+network_revision = "8b7409429083877f019ffdd9d7111cd55329c51b9b03315bfb322d7af242c875"
+source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
+lir_logical_records = 4107782
+compiler_output_logical_bytes = 111116294
+compiler_controlled_peak_bytes = 3930516050
+shared_headless_retained_bytes = 39910548
+shared_spatial_retained_bytes = 100536436
+resolved_policy_gate_rows = 26400
+resolved_policy_stream_rows = 25800
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
-lane_length_mm = 1218879200
+lane_length_mm = 3057259304
 road_alignment_length_mm = 703000000
 bounds_min_meters = [
     0.0,
@@ -30,8 +30,8 @@ bounds_max_meters = [
     1.0,
     8750.0,
 ]
-route_edge_occurrences = 72390
-route_conflict_occurrences = 102048
+route_edge_occurrences = 151199
+route_conflict_occurrences = 484704
 appearance_catalog = "host-owned; no appearance definitions emitted"
 
 [shared_build_limits]
@@ -41,107 +41,107 @@ max_scratch_bytes = 2147483648
 
 [files."common.lfre"]
 bytes = 1024
-sha256 = "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a"
+sha256 = "82b8167c2a8bfb3b06f940d8e73c975d0935fb0841b9373387e8f9a422456109"
 
 [files."config.toml"]
-bytes = 1301
-sha256 = "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8"
+bytes = 1300
+sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
 
 [files."genesis.lfsd"]
-bytes = 171296210
-sha256 = "82c07851c7b446fccafd5d5002884146d3a1e3ab64ecd18b9be0a8ee608d6a54"
+bytes = 482610290
+sha256 = "307d5ea9b5808a30cc0e32b54f92ea1e30409f6a60544f8aa1a5b87d1250c8f1"
 
 [files."network.lfca"]
-bytes = 162397835
-sha256 = "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84"
+bytes = 443693231
+sha256 = "120e16a41ec428e7ce0f120b2de1535ca92a6d267d1fe9cacf46d82761aa354d"
 
 [files."routes.toml"]
-bytes = 9390023
-sha256 = "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3"
+bytes = 19324987
+sha256 = "24e7e714108fc05dff2bc4a2173e6c71a488374139c9a82572f4a2015d017534"
 
 [files."source-map.lfsm"]
-bytes = 213077371
-sha256 = "c5014524bd4d7a28507566e79859af1466626f725c52d9cb543ccf7acb4504af"
+bytes = 624810285
+sha256 = "f18d12b5af2076b37f7e5ffe1953b481bfedab28dd7e5504ac51ce15803c2e20"
 
 [files."topology.lfre"]
-bytes = 24870952
-sha256 = "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae"
+bytes = 83449128
+sha256 = "574e788319b0b933b6e9578d98f52d6184a34e8b3a9d107755305dbdfa0e0322"
 
 [source_declarations]
 canonical-frame = 1
-conflict-zone = 21400
-conflict-zone-region = 21400
-corridor = 7400
-gate = 11000
+conflict-zone = 115600
+conflict-zone-region = 115600
+corridor = 7600
+gate = 26400
 junction = 1000
-lane = 7400
-lane-edge = 18400
-movement = 10200
+lane = 19000
+lane-edge = 45200
+movement = 26000
 parking-facility = 1100
 parking-space = 2000
 participant-class = 1
-participant-stream = 10200
-path = 10200
+participant-stream = 25800
+path = 26000
 right-of-way-policy-set = 1
-road-alignment = 7400
-section = 7400
+road-alignment = 7600
+section = 7600
 signal-controller = 700
-signal-group = 2600
-signal-phase = 7800
-stop-line = 4500
+signal-group = 2800
+signal-phase = 8400
+stop-line = 10000
 vehicle-profile = 3
-waiting-zone = 400
+waiting-zone = 200
 
 [source_references]
 canonical-frame = 0
-conflict-zone = 21400
-conflict-zone-region = 42800
-corridor = 22200
-gate = 31200
-junction = 18400
-lane = 14800
-lane-edge = 3270
-movement = 10200
+conflict-zone = 115600
+conflict-zone-region = 231200
+corridor = 22800
+gate = 74000
+junction = 45200
+lane = 38000
+lane-edge = 8470
+movement = 26000
 parking-facility = 2400
 parking-space = 6000
 participant-class = 0
-participant-stream = 106000
-path = 41600
-right-of-way-policy-set = 24200
-road-alignment = 7400
-section = 14800
-signal-controller = 10400
+participant-stream = 514000
+path = 104200
+right-of-way-policy-set = 109200
+road-alignment = 7600
+section = 26600
+signal-controller = 11200
 signal-group = 0
-signal-phase = 37800
-stop-line = 4500
+signal-phase = 42000
+stop-line = 10000
 vehicle-profile = 3
-waiting-zone = 1200
+waiting-zone = 600
 
 [lir_counts]
 access_rules = 0
-authoring_lanes = 7400
+authoring_lanes = 19000
 canonical_frames = 1
 facility_bands = 0
-junction_internal_edges = 11000
+junction_internal_edges = 26200
 junctions = 1000
-lane_edges = 18400
+lane_edges = 45200
 lane_groups = 0
-lane_successors = 3270
-maneuver_gates = 11000
-maneuver_paths = 10200
-movements = 10200
+lane_successors = 8470
+maneuver_gates = 26400
+maneuver_paths = 26000
+movements = 26000
 parking_facilities = 1100
 parking_spaces = 2000
 participant_classes = 1
-path_edge_occurrences = 31400
-road_corridors = 7400
-road_sections = 7400
+path_edge_occurrences = 78200
+road_corridors = 7600
+road_sections = 7600
 signal_controllers = 700
-signal_groups = 2600
-signal_phases = 7800
-stop_lines = 4500
+signal_groups = 2800
+signal_phases = 8400
+stop_lines = 10000
 vehicle_profiles = 3
-waiting_zones = 400
+waiting_zones = 200
 
 [[lfca_tables]]
 section = "ContractVersions"
@@ -156,52 +156,52 @@ max_chunk_bytes = 116
 [[lfca_tables]]
 section = "CanonicalIdentityTable"
 table = "CanonicalIdentity"
-rows = 123706
-chunks = 3
-max_chunk_rows = 50985
-max_chunk_bytes = 12773256
+rows = 325406
+chunks = 8
+max_chunk_rows = 56271
+max_chunk_bytes = 13227910
 
 [lfca_tables.nested_rows]
-identityFields = 374212
+identityFields = 1009812
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "RoadCorridor"
-rows = 7400
+rows = 7600
 chunks = 1
-max_chunk_rows = 7400
-max_chunk_bytes = 1013816
+max_chunk_rows = 7600
+max_chunk_bytes = 1041216
 
 [lfca_tables.nested_rows]
-elements = 7400
+elements = 7600
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "RoadSection"
-rows = 7400
+rows = 7600
 chunks = 1
-max_chunk_rows = 7400
-max_chunk_bytes = 865816
+max_chunk_rows = 7600
+max_chunk_bytes = 934816
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "AuthoringLane"
-rows = 7400
+rows = 19000
 chunks = 1
-max_chunk_rows = 7400
-max_chunk_bytes = 710416
+max_chunk_rows = 19000
+max_chunk_bytes = 1824016
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "LaneEdge"
-rows = 18400
+rows = 45200
 chunks = 1
-max_chunk_rows = 18400
-max_chunk_bytes = 2000296
+max_chunk_rows = 45200
+max_chunk_bytes = 4915496
 
 [lfca_tables.nested_rows]
 
@@ -211,67 +211,67 @@ table = "Junction"
 rows = 1000
 chunks = 1
 max_chunk_rows = 1000
-max_chunk_bytes = 116816
+max_chunk_bytes = 180016
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "Movement"
-rows = 10200
+rows = 26000
 chunks = 1
-max_chunk_rows = 10200
-max_chunk_bytes = 1377016
+max_chunk_rows = 26000
+max_chunk_bytes = 3511616
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "ManeuverPath"
-rows = 10200
+rows = 26000
 chunks = 1
-max_chunk_rows = 10200
-max_chunk_bytes = 1436016
+max_chunk_rows = 26000
+max_chunk_bytes = 3643216
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "ManeuverGate"
-rows = 11000
+rows = 26400
 chunks = 1
-max_chunk_rows = 11000
-max_chunk_bytes = 1478216
+max_chunk_rows = 26400
+max_chunk_bytes = 3533616
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "WaitingZone"
-rows = 400
+rows = 200
 chunks = 1
-max_chunk_rows = 400
-max_chunk_bytes = 49616
+max_chunk_rows = 200
+max_chunk_bytes = 24816
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "StopLine"
-rows = 4500
+rows = 10000
 chunks = 1
-max_chunk_rows = 4500
-max_chunk_bytes = 458016
+max_chunk_rows = 10000
+max_chunk_bytes = 1025616
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "SignalGroup"
-rows = 2600
+rows = 2800
 chunks = 1
-max_chunk_rows = 2600
-max_chunk_bytes = 276016
+max_chunk_rows = 2800
+max_chunk_bytes = 342416
 
 [lfca_tables.nested_rows]
 
@@ -281,20 +281,20 @@ table = "SignalController"
 rows = 700
 chunks = 1
 max_chunk_rows = 700
-max_chunk_bytes = 134016
+max_chunk_bytes = 137216
 
 [lfca_tables.nested_rows]
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "SignalPhase"
-rows = 7800
+rows = 8400
 chunks = 1
-max_chunk_rows = 7800
-max_chunk_bytes = 2223616
+max_chunk_rows = 8400
+max_chunk_bytes = 2452816
 
 [lfca_tables.nested_rows]
-states = 30000
+states = 33600
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
@@ -372,10 +372,10 @@ max_chunk_bytes = 580
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "ConflictZone"
-rows = 21400
-chunks = 1
-max_chunk_rows = 21400
-max_chunk_bytes = 1626416
+rows = 115600
+chunks = 2
+max_chunk_rows = 65536
+max_chunk_bytes = 4980752
 
 [lfca_tables.nested_rows]
 
@@ -392,13 +392,13 @@ max_chunk_bytes = 76
 [[lfca_tables]]
 section = "CanonicalEntityTables"
 table = "ParticipantStream"
-rows = 10200
-chunks = 1
-max_chunk_rows = 10200
-max_chunk_bytes = 4953616
+rows = 25800
+chunks = 3
+max_chunk_rows = 11006
+max_chunk_bytes = 9533194
 
 [lfca_tables.nested_rows]
-passages = 42800
+passages = 231200
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
@@ -413,10 +413,10 @@ max_chunk_bytes = 140
 [[lfca_tables]]
 section = "CanonicalRelationTables"
 table = "JunctionInternalEdge"
-rows = 11000
+rows = 26200
 chunks = 1
-max_chunk_rows = 11000
-max_chunk_bytes = 528016
+max_chunk_rows = 26200
+max_chunk_bytes = 1257616
 
 [lfca_tables.nested_rows]
 
@@ -443,24 +443,24 @@ max_chunk_bytes = 162
 [[lfca_tables]]
 section = "CanonicalRelationTables"
 table = "PolicyStreamRule"
-rows = 10200
+rows = 25800
 chunks = 1
-max_chunk_rows = 10200
-max_chunk_bytes = 1665316
+max_chunk_rows = 25800
+max_chunk_bytes = 4617016
 
 [lfca_tables.nested_rows]
-evidenceKeys = 10200
+evidenceKeys = 25800
 
 [[lfca_tables]]
 section = "CanonicalRelationTables"
 table = "PolicyGateRule"
-rows = 11000
+rows = 26400
 chunks = 1
-max_chunk_rows = 11000
-max_chunk_bytes = 1793816
+max_chunk_rows = 26400
+max_chunk_bytes = 4357616
 
 [lfca_tables.nested_rows]
-evidenceKeys = 11000
+evidenceKeys = 26400
 
 [[lfca_tables]]
 section = "CanonicalSpatialTables"
@@ -475,14 +475,14 @@ max_chunk_bytes = 58
 [[lfca_tables]]
 section = "CanonicalSpatialTables"
 table = "LaneEdgeGeometry"
-rows = 18400
-chunks = 12
-max_chunk_rows = 8122
-max_chunk_bytes = 9205122
+rows = 45200
+chunks = 31
+max_chunk_rows = 10223
+max_chunk_bytes = 9407811
 
 [lfca_tables.nested_rows]
-points = 485484
-segments = 467084
+points = 1238952
+segments = 1193752
 
 [[lfca_tables]]
 section = "CanonicalSpatialTables"
@@ -498,13 +498,13 @@ points = 0
 [[lfca_tables]]
 section = "CanonicalSpatialTables"
 table = "ConflictZoneRegion"
-rows = 21400
-chunks = 1
-max_chunk_rows = 21400
-max_chunk_bytes = 6163216
+rows = 115600
+chunks = 3
+max_chunk_rows = 42799
+max_chunk_bytes = 12326128
 
 [lfca_tables.nested_rows]
-ringXZ = 85600
+ringXZ = 462400
 
 [[lfca_tables]]
 section = "StaticExecutionConstraints"
@@ -570,84 +570,84 @@ max_chunk_bytes = 297
 [[lfsm_tables]]
 section = "SourceModules"
 table = "SourceLocation"
-rows = 558694
-chunks = 10
+rows = 1631894
+chunks = 28
 max_chunk_rows = 65536
-max_chunk_bytes = 16777162
+max_chunk_bytes = 16777216
 
 [lfsm_tables.nested_rows]
-propertySteps = 629096
+propertySteps = 1857496
 
 [[lfsm_tables]]
 section = "StableEntitySources"
 table = "StableEntitySource"
-rows = 123706
-chunks = 2
+rows = 325406
+chunks = 5
 max_chunk_rows = 65536
-max_chunk_bytes = 6987632
+max_chunk_bytes = 7050832
 
 [lfsm_tables.nested_rows]
 
 [[lfsm_tables]]
 section = "OwnerLocalSources"
 table = "OwnerLocalSource"
-rows = 314275
-chunks = 5
+rows = 949275
+chunks = 15
 max_chunk_rows = 65536
-max_chunk_bytes = 7958000
+max_chunk_bytes = 8242880
 
 [lfsm_tables.nested_rows]
 
 [[lfsm_tables]]
 section = "OwnerLocalSources"
 table = "SpatialGeometrySourceRange"
-rows = 39800
-chunks = 1
-max_chunk_rows = 39800
-max_chunk_bytes = 6009816
+rows = 160800
+chunks = 3
+max_chunk_rows = 65536
+max_chunk_bytes = 9895952
 
 [lfsm_tables.nested_rows]
 
 [[lfsm_tables]]
 section = "DerivedRelationSources"
 table = "DerivedRelationSource"
-rows = 11000
+rows = 26200
 chunks = 1
-max_chunk_rows = 11000
-max_chunk_bytes = 1485016
+max_chunk_rows = 26200
+max_chunk_bytes = 3537016
 
 [lfsm_tables.nested_rows]
 
 [installed_entities]
 access-rule = 0
 canonical-frame = 1
-conflict-zone = 21400
-corridor = 7400
+conflict-zone = 115600
+corridor = 7600
 facility-band = 0
-gate = 11000
+gate = 26400
 junction = 1000
-lane = 7400
-lane-edge = 18400
+lane = 19000
+lane-edge = 45200
 lane-group = 0
-movement = 10200
+movement = 26000
 parking-facility = 1100
 parking-space = 2000
 participant-class = 1
-participant-stream = 10200
-path = 10200
+participant-stream = 25800
+path = 26000
 right-of-way-policy-set = 1
-section = 7400
+section = 7600
 signal-controller = 700
-signal-group = 2600
-signal-phase = 7800
-stop-line = 4500
+signal-group = 2800
+signal-phase = 8400
+stop-line = 10000
 vehicle-profile = 3
-waiting-zone = 400
+waiting-zone = 200
 
 [route_categories]
-cross-cell = 2000
-cross-tile = 1270
-junction = 10200
+cross-cell = 5000
+cross-tile = 3470
+junction = 25800
 parking-arrival = 3200
 parking-departure = 3200
 

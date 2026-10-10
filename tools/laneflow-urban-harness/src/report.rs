@@ -15,15 +15,36 @@ use crate::{
     runner::TileEvidence, sha256,
 };
 
-const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v3";
+mod log_io;
+mod sustained;
+mod timing;
+
+const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v4";
 const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
 const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=pre-and-post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
+
+/// 调用方显式选择详细日志；最小运行回执与错误不受此开关影响。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Diagnostics {
+    /// 关闭逐拍、命令和事件文件及其编码。
+    #[default]
+    Disabled,
+    /// 输出完整规范日志，供独立回放和验收比较。
+    Enabled,
+}
+
+impl Diagnostics {
+    fn is_enabled(self) -> bool {
+        self == Self::Enabled
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunResult {
     pub version: String,
     pub status: String,
     pub purpose: String,
+    pub diagnostics_enabled: bool,
     pub case: String,
     pub scale: String,
     pub network_revision: String,
@@ -48,7 +69,18 @@ pub struct RunResult {
     pub removals: u64,
     pub pending_departures: usize,
     pub exhausted_departures: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_load: Option<ActiveLoadSummary>,
     pub files: BTreeMap<String, crate::artifacts::FileDigest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActiveLoadSummary {
+    pub target: u64,
+    pub before_step: SampleSummary,
+    pub after_step: SampleSummary,
+    pub before_step_below_target_ticks: usize,
+    pub after_step_below_target_ticks: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,14 +103,14 @@ pub struct ComparisonReport {
     pub right: ComparedRun,
 }
 
-#[derive(Serialize)]
-pub(crate) struct SampleSummary {
-    samples: usize,
-    min: u64,
-    p50: u64,
-    p95: u64,
-    p99: u64,
-    max: u64,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SampleSummary {
+    pub samples: usize,
+    pub min: u64,
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+    pub max: u64,
 }
 
 #[derive(Serialize)]
@@ -285,16 +317,31 @@ fn line(file: &mut impl Write, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
-/// Runs one fresh world. Controlled execution or validation failures retain the last committed tick.
-/// Initialization errors return Err and may leave preparation files without a failed-run package.
-/// Correctness/probe timing is diagnostic only. A formal performance plan emits measurements.
+/// 运行一个全新世界；受控步进失败保留最后提交的拍和已有观测。
+/// correctness/probe 的计时只作诊断，正式 performance 计划另行输出测量封套。
+///
+/// # Errors
+///
+/// 计划验证、世界安装、输出创建/读写/编码、检查点或执行来源校验失败时返回错误。
+/// correctness/performance 未显式启用诊断时拒绝执行。受控步进失败记入返回值的
+/// `error`，初始化失败可能只留下准备文件。
 pub fn run_to_directory(
     artifacts: &Artifacts,
     plan: &ResolvedPlan,
     output: &Path,
     execution: laneflow_runtime::ExecutionConfig,
+    diagnostics: Diagnostics,
 ) -> Result<RunResult> {
     plan.validate(artifacts)?;
+    if !diagnostics.is_enabled() && plan.window.purpose != "probe" {
+        return Err(invalid(
+            "correctness/performance 需要显式启用诊断（CLI: --diagnostics）",
+        ));
+    }
+    let _span = tracing::info_span!("urban_run", case = %plan.case, scale = %plan.scale,
+        workers = execution.worker_count().get(), diagnostics = diagnostics.is_enabled())
+    .entered();
+    tracing::info!("运行开始");
     let performance_context = if plan.window.purpose == "performance" {
         let checkout = command_output("git", &["rev-parse", "--show-toplevel"])
             .ok_or_else(|| invalid("unavailable checkout for performance output validation"))?;
@@ -316,9 +363,10 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan, execution)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v5".into(),
+        version: "urban-result-v7".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
+        diagnostics_enabled: diagnostics.is_enabled(),
         case: plan.case.clone(),
         scale: plan.scale.clone(),
         network_revision: artifacts.catalog.network_revision.clone(),
@@ -343,29 +391,34 @@ pub fn run_to_directory(
         removals: 0,
         pending_departures: 0,
         exhausted_departures: 0,
+        active_load: None,
         files: BTreeMap::new(),
     };
     result.checkpoints.insert(0, harness.checkpoint()?);
-    let mut ticks = BufWriter::new(File::create(output.join("ticks.jsonl"))?);
-    let mut commands = BufWriter::new(File::create(output.join("commands.jsonl"))?);
-    let mut events = BufWriter::new(File::create(output.join("events.jsonl"))?);
+    let mut logs = diagnostics
+        .is_enabled()
+        .then(|| log_io::Logs::new(output))
+        .transpose()?;
+    let mut tick_timings = diagnostics
+        .is_enabled()
+        .then(|| timing::Timings::new(plan.window.end()))
+        .transpose()?;
     let mut times = Vec::new();
+    let mut window_step_times = Vec::new();
     let mut command_times = Vec::new();
     let mut observation_times = Vec::new();
     let mut active_samples = Vec::new();
     let mut intent_samples = Vec::new();
     let run: Result<()> = (|| {
         for _ in 0..plan.window.end() {
+            let tick_started = diagnostics.is_enabled().then(Instant::now);
             let record = harness.advance()?;
-            line(&mut ticks, &record)?;
-            for command in &harness.commands {
-                line(&mut commands, command)?;
-            }
-            for event in &harness.events {
-                line(&mut events, event)?;
+            if let Some(logs) = &mut logs {
+                logs.write_tick(&record, &harness.commands, &harness.events)?;
             }
             times.push(harness.last_step_ns);
             if record.tick > plan.window.warm_up_ticks {
+                window_step_times.push(harness.last_step_ns);
                 command_times.push(harness.last_command_ns);
                 observation_times.push(harness.last_observation_ns);
                 active_samples.push(record.active as u64);
@@ -385,15 +438,25 @@ pub fn run_to_directory(
                     .insert(record.tick, harness.checkpoint()?);
             }
             if record.tick.is_multiple_of(1_024) {
-                eprintln!(
-                    "tick {}/{}: active={} parked={} completed={} elapsed={:.1}s",
-                    record.tick,
-                    plan.window.end(),
-                    record.active,
-                    record.parked,
-                    record.completed,
-                    started.elapsed().as_secs_f64()
+                tracing::debug!(
+                    tick = record.tick,
+                    end = plan.window.end(),
+                    active = record.active,
+                    parked = record.parked,
+                    completed = record.completed,
+                    elapsed_seconds = started.elapsed().as_secs_f64(),
+                    "运行进度"
                 );
+            }
+            if let (Some(timings), Some(tick_started)) = (&mut tick_timings, tick_started) {
+                timings.push(timing::TickTiming {
+                    tick: record.tick,
+                    step_ns: harness.last_step_ns,
+                    command_ns: harness.last_command_ns,
+                    observation_ns: harness.last_observation_ns,
+                    tick_elapsed_ns: tick_started.elapsed().as_nanos().min(u128::from(u64::MAX))
+                        as u64,
+                });
             }
         }
         if plan.window.purpose == "correctness" {
@@ -408,6 +471,16 @@ pub fn run_to_directory(
     })();
     if let Err(error) = run {
         result.error = Some(error.to_string());
+    }
+    if plan.recycling.is_some() && !active_samples.is_empty() {
+        let target = u64::from(plan.initial_counts.active);
+        result.active_load = Some(ActiveLoadSummary {
+            target,
+            before_step_below_target_ticks: intent_samples.iter().filter(|&&n| n < target).count(),
+            after_step_below_target_ticks: active_samples.iter().filter(|&&n| n < target).count(),
+            before_step: sample_summary(&mut intent_samples.clone())?,
+            after_step: sample_summary(&mut active_samples.clone())?,
+        });
     }
     if let Some(provenance) = &performance_context
         && result.error.is_none()
@@ -426,15 +499,25 @@ pub fn run_to_directory(
     }
     // Keep committed observations from a failed advance visible, without marking that tick passed.
     if result.error.is_some() {
-        write_json(
-            &output.join("failure.json"),
-            &json!({"committed_world_tick":harness.world.tick_index(),
-            "commands":harness.commands, "events":harness.events, "error":result.error}),
-        )?;
+        let failure = if diagnostics.is_enabled() {
+            json!({"committed_world_tick":harness.world.tick_index(),
+                "commands":harness.commands,"events":harness.events,"error":result.error})
+        } else {
+            json!({"committed_world_tick":harness.world.tick_index(),"error":result.error})
+        };
+        write_json(&output.join("failure.json"), &failure)?;
     }
-    ticks.flush()?;
-    commands.flush()?;
-    events.flush()?;
+    // 先释放三份日志缓冲再分配计时输出缓冲，诊断缓冲同时驻留不超过三份。
+    if let Some(logs) = logs.take() {
+        logs.finish()?;
+    }
+    if let Some(timings) = &tick_timings {
+        timings.write(output)?;
+        result.files.insert(
+            timing::FILE_NAME.into(),
+            digest_file(&output.join(timing::FILE_NAME))?,
+        );
+    }
     result.tile_evidence = harness.evidence.clone();
     result.retry_reasons = harness.error_counts.clone();
     result.atomic_rejections = harness.atomic_rejections.clone();
@@ -448,6 +531,9 @@ pub fn run_to_directory(
         "events.jsonl",
         "resolved-plan.toml",
     ] {
+        if !diagnostics.is_enabled() && name != "resolved-plan.toml" {
+            continue;
+        }
         result
             .files
             .insert(name.into(), digest_file(&output.join(name))?);
@@ -455,7 +541,7 @@ pub fn run_to_directory(
     if let Some(provenance) = performance_context
         && result.error.is_none()
     {
-        let mut measured_steps = times
+        let measured_steps = times
             .iter()
             .skip(plan.window.warm_up_ticks as usize)
             .copied()
@@ -466,9 +552,9 @@ pub fn run_to_directory(
             execution_id: execution_id.clone(),
             provenance,
             invocation: std::env::args().collect(),
-            command_ns: sample_summary(&mut command_times)?,
-            traffic_world_step_ns: sample_summary(&mut measured_steps)?,
-            observation_ns: sample_summary(&mut observation_times)?,
+            command_ns: sample_summary(&mut command_times.clone())?,
+            traffic_world_step_ns: sample_summary(&mut measured_steps.clone())?,
+            observation_ns: sample_summary(&mut observation_times.clone())?,
             active: sample_summary(&mut active_samples)?,
             intent: sample_summary(&mut intent_samples)?,
             memory: MemoryMeasurement {
@@ -494,12 +580,39 @@ pub fn run_to_directory(
             .files
             .insert("measurements.toml".into(), digest_file(&path)?);
     }
+    if result.error.is_none()
+        && let Err(error) = sustained::validate_result(&result)
+    {
+        result.status = "performance-load-failed".into();
+        result.error = Some(error.to_string());
+        // 负载失败仍保留完整测量；日志已包含全部记录，不再次物化长窗日志副本。
+        let failure = json!({"committed_world_tick":harness.world.tick_index(),
+            "active_load":result.active_load,"error":result.error});
+        let path = output.join("failure.json");
+        write_json(&path, &failure)?;
+        result
+            .files
+            .insert("failure.json".into(), digest_file(&path)?);
+    }
     // diagnostics.json 的摘要纳入 result.files 完整性封套（worker 计数
     // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
-    times.sort_unstable();
+    let mut sorted_times = times.clone();
+    let mut sorted_window_step_times = window_step_times.clone();
+    sorted_times.sort_unstable();
+    sorted_window_step_times.sort_unstable();
     let percentile = |n: usize| {
-        times
-            .get((times.len() * n).div_ceil(100).saturating_sub(1))
+        sorted_times
+            .get((sorted_times.len() * n).div_ceil(100).saturating_sub(1))
+            .copied()
+    };
+    // 预热之后的观察窗口单独给出，避免预热段稀释持续负载的耗时。
+    let window_percentile = |n: usize| {
+        sorted_window_step_times
+            .get(
+                (window_step_times.len() * n)
+                    .div_ceil(100)
+                    .saturating_sub(1),
+            )
             .copied()
     };
     let diagnostics_path = output.join("diagnostics.json");
@@ -507,10 +620,15 @@ pub fn run_to_directory(
         &diagnostics_path,
         &json!({"purpose":if plan.window.purpose == "performance" {"execution-metadata; formal timings are in measurements.toml"} else {"diagnostic-only-not-performance-certification"}, "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
+        "window_steps":window_step_times.len(), "window_step_ns_p50":window_percentile(50), "window_step_ns_p95":window_percentile(95), "window_step_ns_p99":window_percentile(99),
+        "window_step_ns_max":window_percentile(100), "window_step_samples_ns":window_step_times,
+        "window_command_samples_ns":command_times, "window_observation_samples_ns":observation_times,
+        "tick_timings":if diagnostics.is_enabled() { Some(json!({"version":timing::VERSION,"file":timing::FILE_NAME,"order":"completed-tick","scope":"advance; per-tick buffered logs; bookkeeping; checkpoints; excludes initialization and final serialization/flush/hashes"})) } else { None },
         "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":execution.worker_count().get(),
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),
         "invocation":std::env::args().collect::<Vec<_>>(), "memory_measurement":null,
+        "diagnostics_enabled":diagnostics.is_enabled(),
         "git_commit_at_run":command_output("git", &["rev-parse", "HEAD"]),
         "git_status_at_run":command_output("git", &["status", "--porcelain"])}),
     )?;
@@ -518,6 +636,7 @@ pub fn run_to_directory(
         .files
         .insert("diagnostics.json".into(), digest_file(&diagnostics_path)?);
     write_json(&output.join("result.json"), &result)?;
+    tracing::info!(completed_ticks = result.completed_ticks, status = %result.status, "运行结束");
     Ok(result)
 }
 
@@ -554,8 +673,12 @@ pub(crate) fn validate_case(harness: &Harness<'_>) -> Result<()> {
     let plan = harness.plan;
     harness.validate_required_role_evidence()?;
     let case: UrbanCase = plan.case.parse()?;
+    if case == UrbanCase::SustainedActive {
+        return Err(invalid("SUSTAINED-ACTIVE has no correctness witnesses"));
+    }
     for (tile, e) in harness.evidence.iter().enumerate() {
         let missing = match case {
+            UrbanCase::SustainedActive => unreachable!("rejected above"),
             UrbanCase::MixedPeak => {
                 e.crossed_tile_completed < plan.required_per_tile["crossed_tile_completed"]
                     || e.red_wait_then_crossed < plan.required_per_tile["red_wait_then_crossed"]
@@ -708,9 +831,15 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             (result.purpose.as_str(), result.status.as_str()),
             ("performance", "performance-round-complete")
         );
-        if result.version != "urban-result-v5"
+        if !result.diagnostics_enabled {
+            return Err(invalid(
+                "完整语义比较需要显式启用详细诊断日志（--diagnostics）",
+            ));
+        }
+        if result.version != "urban-result-v7"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
+            || performance && !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
             || !performance
                 && !matches!(
                     (result.purpose.as_str(), result.status.as_str()),
@@ -726,16 +855,22 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             "events.jsonl",
             // worker 计数的证据封套：摘要失配（复制/篡改）先于 workers 读取拒绝。
             "diagnostics.json",
+            // 详细诊断必然生成逐拍计时；缺失即拒绝，不把旧回执当作当前证据。
+            timing::FILE_NAME,
         ];
         if performance {
             // 正式臂的测量封套同样纳入本臂文件摘要自校验。
             expected_files.push("measurements.toml");
         }
         for name in expected_files {
-            if result.files.get(name) != Some(&digest_file(&dir.join(name))?) {
+            let Some(expected) = result.files.get(name) else {
+                return Err(invalid(format!("run file missing: {name}")));
+            };
+            if expected != &digest_file(&dir.join(name))? {
                 return Err(invalid(format!("run file changed: {name}")));
             }
         }
+        require_diagnostics_marker(dir)?;
         if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("plan digest differs"));
         }
@@ -743,7 +878,13 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
         for line in BufReader::new(File::open(dir.join("ticks.jsonl"))?).lines() {
             let row: TickRecord = serde_json::from_str(&line?)?;
             count += 1;
-            if row.tick != count || row.active + row.parked + row.completed != row.live {
+            if row.tick != count
+                || row
+                    .active
+                    .checked_add(row.parked)
+                    .and_then(|n| n.checked_add(row.completed))
+                    != Some(row.live)
+            {
                 return Err(invalid("tick sequence or lifecycle differs"));
             }
         }
@@ -780,8 +921,11 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                     ));
                 }
             }
+            timing::verify(dir, &result, Some(&measurement))?;
+            sustained::verify(dir, &result, &measurement)?;
             Some(measurement.provenance)
         } else {
+            timing::verify(dir, &result, None)?;
             None
         };
         Ok((
@@ -840,12 +984,15 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     // 其摘要已在逐臂 files 校验中与各臂自身内容绑定）。probe/correctness
     // 臂无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
     // 计数、plan 摘要、逐拍日志摘要）全部保留比较。
+    // timings.jsonl 只保存非确定性的逐拍耗时，其摘要也已逐臂核对。
     let mut a_semantic = a.clone();
     a_semantic.files.remove("measurements.toml");
     a_semantic.files.remove("diagnostics.json");
+    a_semantic.files.remove(timing::FILE_NAME);
     let mut b_semantic = b.clone();
     b_semantic.files.remove("measurements.toml");
     b_semantic.files.remove("diagnostics.json");
+    b_semantic.files.remove(timing::FILE_NAME);
     if a_semantic != b_semantic {
         for (index, (left_row, right_row)) in BufReader::new(File::open(left.join("ticks.jsonl"))?)
             .lines()
@@ -916,9 +1063,14 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     for directory in directories {
         let result_bytes = fs::read(directory.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&result_bytes)?;
-        if result.version != "urban-result-v5"
+        if !result.diagnostics_enabled {
+            return Err(invalid(
+                "正式性能聚合需要显式启用详细诊断日志（--diagnostics）",
+            ));
+        }
+        if result.version != "urban-result-v7"
             || result.purpose != "performance"
-            || result.case != "MIXED-PEAK"
+            || !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
             || result.status != "performance-round-complete"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
@@ -932,11 +1084,16 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             "events.jsonl",
             "measurements.toml",
             "diagnostics.json",
+            timing::FILE_NAME,
         ] {
-            if result.files.get(name) != Some(&digest_file(&directory.join(name))?) {
+            let Some(expected) = result.files.get(name) else {
+                return Err(invalid(format!("performance run file missing: {name}")));
+            };
+            if expected != &digest_file(&directory.join(name))? {
                 return Err(invalid(format!("performance run file changed: {name}")));
             }
         }
+        require_diagnostics_marker(directory)?;
         if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("performance plan digest differs"));
         }
@@ -944,7 +1101,13 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         for line in BufReader::new(File::open(directory.join("ticks.jsonl"))?).lines() {
             let row: TickRecord = serde_json::from_str(&line?)?;
             tick_count += 1;
-            if row.tick != tick_count || row.active + row.parked + row.completed != row.live {
+            if row.tick != tick_count
+                || row
+                    .active
+                    .checked_add(row.parked)
+                    .and_then(|n| n.checked_add(row.completed))
+                    != Some(row.live)
+            {
                 return Err(invalid("performance tick sequence or lifecycle differs"));
             }
         }
@@ -980,7 +1143,6 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         {
             return Err(invalid("performance rounds use different provenance"));
         }
-        provenance.get_or_insert(measurement.provenance);
         for samples in [
             &measurement.command_samples_ns,
             &measurement.traffic_world_step_samples_ns,
@@ -994,6 +1156,9 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 ));
             }
         }
+        timing::verify(directory, &result, Some(&measurement))?;
+        sustained::verify(directory, &result, &measurement)?;
+        provenance.get_or_insert(measurement.provenance);
         let current = (
             result.case.clone(),
             result.scale.clone(),
@@ -1006,14 +1171,11 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             return Err(invalid("performance rounds use different plans"));
         }
         identity.get_or_insert(current);
-        // Only the execution envelopes are non-semantic: the measurements.toml
-        // measurement envelope and the diagnostics.json execution metadata
-        // (each round's own digest still binds them per round). Retained log
-        // digests, complete checkpoints, counts and all other result fields
-        // must match across the three worlds.
+        // 三类计时/执行封套均已核对各轮自身摘要，其余语义轨迹完整比较。
         let mut semantic = result.clone();
         semantic.files.remove("measurements.toml");
         semantic.files.remove("diagnostics.json");
+        semantic.files.remove(timing::FILE_NAME);
         if semantic_result
             .as_ref()
             .is_some_and(|expected| *expected != semantic)
@@ -1113,6 +1275,15 @@ pub(crate) fn new_execution_id() -> Result<String> {
     ))
 }
 
+fn require_diagnostics_marker(directory: &Path) -> Result<()> {
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join("diagnostics.json"))?)?;
+    if diagnostics["diagnostics_enabled"].as_bool() != Some(true) {
+        return Err(invalid("执行封套的诊断标记缺失、关闭或与结果回执不符"));
+    }
+    Ok(())
+}
+
 /// 读取运行目录 diagnostics.json 的实际 worker 数；合法域 1..=16，
 /// 缺失或越界拒绝（与 CLI、provenance validate 同一规则）。
 pub(crate) fn read_diagnostics_workers(directory: &Path) -> Result<u32> {
@@ -1176,7 +1347,7 @@ mod tests {
         assert!(!outside.exists());
     }
 
-    fn measurement_fixture() -> serde_json::Value {
+    pub(super) fn measurement_fixture() -> serde_json::Value {
         json!({
             "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
             "git_commit":"a".repeat(40), "git_status":"",
@@ -1280,7 +1451,11 @@ mod tests {
         // b 臂：diagnostics 改写为 workers=1 并一致重算 result.json 摘要，
         // 使拒绝来自交叉核对而非摘要失配。
         let diagnostics = b.join("diagnostics.json");
-        write_json(&diagnostics, &json!({"execution_id":"b", "workers":1})).unwrap();
+        write_json(
+            &diagnostics,
+            &json!({"execution_id":"b", "workers":1,"diagnostics_enabled":true}),
+        )
+        .unwrap();
         let result_path = b.join("result.json");
         let mut result: RunResult =
             serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
@@ -1367,7 +1542,7 @@ mod tests {
         write_round(&contradiction, "exec-contradiction", fixture);
         write_json(
             &contradiction.join("diagnostics.json"),
-            &json!({"execution_id":"exec-contradiction", "workers":1}),
+            &json!({"execution_id":"exec-contradiction", "workers":1,"diagnostics_enabled":true}),
         )
         .unwrap();
         assert!(
@@ -1413,7 +1588,11 @@ mod tests {
     }
 
     // Synthetic file-envelope test only: no simulation or formal performance evidence.
-    fn write_round(directory: &Path, execution: &str, mut measurement: serde_json::Value) {
+    pub(super) fn write_round(
+        directory: &Path,
+        execution: &str,
+        mut measurement: serde_json::Value,
+    ) {
         fs::create_dir_all(directory).unwrap();
         measurement["execution_id"] = json!(execution);
         fs::write(
@@ -1428,11 +1607,23 @@ mod tests {
         .unwrap();
         fs::write(directory.join("commands.jsonl"), "").unwrap();
         fs::write(directory.join("events.jsonl"), "").unwrap();
-        write_json(
-            &directory.join("diagnostics.json"),
-            &json!({"execution_id":execution, "workers":measurement["workers"]}),
-        )
-        .unwrap();
+        let samples = |field: &str| -> Vec<u64> {
+            serde_json::from_value(measurement[field].clone()).unwrap_or_default()
+        };
+        let (step, command, observation) = (
+            samples("traffic_world_step_samples_ns"),
+            samples("command_samples_ns"),
+            samples("observation_samples_ns"),
+        );
+        let mut diagnostics = json!({"execution_id":execution, "workers":measurement["workers"],"diagnostics_enabled":true});
+        timing::write_fixture(
+            directory,
+            2,
+            0,
+            [&step, &command, &observation],
+            &mut diagnostics,
+        );
+        write_json(&directory.join("diagnostics.json"), &diagnostics).unwrap();
         let mut ticks = File::create(directory.join("ticks.jsonl")).unwrap();
         for tick in 1..=2 {
             line(
@@ -1470,6 +1661,7 @@ mod tests {
             "events.jsonl",
             "measurements.toml",
             "diagnostics.json",
+            timing::FILE_NAME,
         ]
         .into_iter()
         .map(|name| (name.into(), digest_file(&directory.join(name)).unwrap()))
@@ -1477,7 +1669,8 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v5".into(),
+                version: "urban-result-v7".into(),
+                diagnostics_enabled: true,
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
                 case: "MIXED-PEAK".into(),
@@ -1508,10 +1701,162 @@ mod tests {
                 removals: 0,
                 pending_departures: 0,
                 exhausted_departures: 0,
+                active_load: None,
                 files,
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn comparisons_reject_quiet_and_old_result_receipts() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        let four = temp.path().join("four");
+        for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            write_round(path, id, measurement_fixture());
+        }
+        let mut fixture = measurement_fixture();
+        fixture["workers"] = json!(4);
+        write_round(&four, "four", fixture);
+        assert!(compare_runs(&a, &four).is_ok());
+        assert!(compare_performance_runs([&a, &b, &c]).is_ok());
+        let path = a.join("result.json");
+        let original: RunResult = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let mut quiet = original.clone();
+        quiet.diagnostics_enabled = false;
+        write_json(&path, &quiet).unwrap();
+        assert!(
+            compare_runs(&a, &four)
+                .unwrap_err()
+                .to_string()
+                .contains("--diagnostics")
+        );
+        assert!(
+            compare_performance_runs([&a, &b, &c])
+                .unwrap_err()
+                .to_string()
+                .contains("--diagnostics")
+        );
+        // 文件与摘要登记一起删掉也不能冒充旧口径通过。
+        let timing_path = a.join(timing::FILE_NAME);
+        let timing_bytes = fs::read(&timing_path).unwrap();
+        let mut untimed = original.clone();
+        untimed.files.remove(timing::FILE_NAME);
+        write_json(&path, &untimed).unwrap();
+        fs::remove_file(&timing_path).unwrap();
+        for error in [
+            compare_runs(&a, &four).unwrap_err(),
+            compare_performance_runs([&a, &b, &c]).unwrap_err(),
+        ] {
+            assert!(error.to_string().contains(timing::FILE_NAME), "{error}");
+        }
+        // 重算摘要后，空、截断、跳拍或分量被改的计时文件仍须按内容拒绝。
+        let rows = String::from_utf8(timing_bytes.clone()).unwrap();
+        let first_line = rows.lines().next().unwrap().to_owned();
+        for (case, changed) in [
+            ("empty", String::new()),
+            ("truncated", format!("{first_line}\n")),
+            ("gap", rows.replacen("\"tick\":2", "\"tick\":3", 1)),
+            (
+                "component",
+                rows.replacen("\"step_ns\":", "\"step_ns\":9", 1),
+            ),
+            ("elapsed", {
+                let mut row: serde_json::Value = serde_json::from_str(&first_line).unwrap();
+                row["tick_elapsed_ns"] = json!(0);
+                rows.replacen(&first_line, &row.to_string(), 1)
+            }),
+        ] {
+            fs::write(&timing_path, changed).unwrap();
+            let mut rehashed = original.clone();
+            rehashed
+                .files
+                .insert(timing::FILE_NAME.into(), digest_file(&timing_path).unwrap());
+            write_json(&path, &rehashed).unwrap();
+            assert!(compare_runs(&a, &four).is_err(), "accepted {case}");
+            assert!(
+                compare_performance_runs([&a, &b, &c]).is_err(),
+                "accepted {case}"
+            );
+        }
+        fs::write(&timing_path, &timing_bytes).unwrap();
+        let diagnostics_path = a.join("diagnostics.json");
+        let diagnostics_bytes = fs::read(&diagnostics_path).unwrap();
+        let mut undeclared: serde_json::Value = serde_json::from_slice(&diagnostics_bytes).unwrap();
+        undeclared["tick_timings"]["version"] = json!("urban-tick-timings-v0");
+        write_json(&diagnostics_path, &undeclared).unwrap();
+        let mut redeclared = original.clone();
+        redeclared.files.insert(
+            "diagnostics.json".into(),
+            digest_file(&diagnostics_path).unwrap(),
+        );
+        write_json(&path, &redeclared).unwrap();
+        assert!(compare_runs(&a, &four).is_err());
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        fs::write(&diagnostics_path, &diagnostics_bytes).unwrap();
+        // 非 SUSTAINED 的正式臂同样要求 measurements 与逐拍计时一致。
+        let measurements_path = a.join("measurements.toml");
+        let measurements_bytes = fs::read(&measurements_path).unwrap();
+        let mut altered: toml::Value =
+            toml::from_str(std::str::from_utf8(&measurements_bytes).unwrap()).unwrap();
+        altered["traffic_world_step_samples_ns"][0] = toml::Value::Integer(7_777);
+        fs::write(&measurements_path, toml::to_string(&altered).unwrap()).unwrap();
+        let mut remeasured = original.clone();
+        remeasured.files.insert(
+            "measurements.toml".into(),
+            digest_file(&measurements_path).unwrap(),
+        );
+        write_json(&path, &remeasured).unwrap();
+        assert_eq!(original.case, "MIXED-PEAK");
+        for error in [
+            compare_runs(&a, &four).unwrap_err(),
+            compare_performance_runs([&a, &b, &c]).unwrap_err(),
+        ] {
+            assert!(error.to_string().contains("measurements"), "{error}");
+        }
+        fs::write(&measurements_path, &measurements_bytes).unwrap();
+        write_json(&path, &original).unwrap();
+        assert!(compare_runs(&a, &four).is_ok());
+        assert!(compare_performance_runs([&a, &b, &c]).is_ok());
+        let mut old = original.clone();
+        old.version = "urban-result-v6".into();
+        write_json(&path, &old).unwrap();
+        assert!(compare_runs(&a, &four).is_err());
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        let mut missing = serde_json::to_value(&original).unwrap();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("diagnostics_enabled");
+        write_json(&path, &missing).unwrap();
+        assert!(compare_runs(&a, &four).is_err());
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        let diagnostics_path = a.join("diagnostics.json");
+        let mut declared: serde_json::Value =
+            serde_json::from_slice(&fs::read(&diagnostics_path).unwrap()).unwrap();
+        declared["diagnostics_enabled"] = json!(false);
+        write_json(&diagnostics_path, &declared).unwrap();
+        let mut contradictory = original;
+        contradictory.files.insert(
+            "diagnostics.json".into(),
+            digest_file(&diagnostics_path).unwrap(),
+        );
+        write_json(&path, &contradictory).unwrap();
+        assert!(
+            compare_runs(&a, &four)
+                .unwrap_err()
+                .to_string()
+                .contains("诊断标记")
+        );
+        assert!(
+            compare_performance_runs([&a, &b, &c])
+                .unwrap_err()
+                .to_string()
+                .contains("诊断标记")
+        );
     }
 
     #[test]
@@ -1542,6 +1887,7 @@ mod tests {
             ("power_role", json!("power-saver")),
             ("workers", json!(2)),
             ("timing_range", json!("whole-command-phase")),
+            ("version", json!("urban-performance-measurements-v3")),
             ("version", json!("urban-performance-measurements-v1")),
             ("command_samples_ns", json!([1])),
         ] {

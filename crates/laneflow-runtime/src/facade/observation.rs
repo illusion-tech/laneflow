@@ -821,6 +821,8 @@ fn observation_session_bytes(
 thread_local! {
     static OBSERVATION_RESERVATIONS_BEFORE_FAILURE: Cell<Option<usize>> = const { Cell::new(None) };
 }
+#[cfg(test)]
+crate::kernel::execution::carry_hooks!(carry_test_hooks: OBSERVATION_RESERVATIONS_BEFORE_FAILURE);
 
 #[cfg(test)]
 struct ObservationAllocationFailpointReset(Option<usize>);
@@ -1014,7 +1016,7 @@ mod tests {
         let (mut world, route) = world_and_route();
         let vehicle = spawn(&mut world, route, 0, 1_000, 0);
         assert_eq!(world.observation_state_sequence().get(), 1);
-        let before_state = *world.state.vehicle_state(vehicle).expect("vehicle");
+        let before_state = world.state.vehicle_state(vehicle).expect("vehicle");
         let before_tick = world.tick_index();
 
         let mut session = world
@@ -1065,7 +1067,7 @@ mod tests {
         assert_eq!(first_row.front_speed_sum_mm_per_second(), 0);
         assert_eq!(world.tick_index(), before_tick);
         assert_eq!(world.observation_state_sequence().get(), 1);
-        assert_eq!(world.state.vehicle_state(vehicle), Some(&before_state));
+        assert_eq!(world.state.vehicle_state(vehicle), Some(before_state));
         assert!(
             session.retained_bytes().expect("retained")
                 >= session.logical_bytes().expect("logical")
@@ -1166,13 +1168,12 @@ mod tests {
         let edges = world.route_edges(route).expect("route").to_vec();
         let vehicle = spawn(&mut world, route, 0, 0, 700);
         let index = usize::try_from(vehicle.index()).expect("vehicle index");
-        let state = world.state.committed.vehicles[index]
-            .state
-            .as_mut()
-            .expect("vehicle");
+        let mut vehicle_slot = world.state.committed.vehicles.slot_mut(index);
+        let state = vehicle_slot.state.as_mut().expect("vehicle");
         state.route_edge_index = 1;
         state.progress_mm = 1_000;
-        let state = *world.state.vehicle_state(vehicle).expect("vehicle");
+        drop(vehicle_slot);
+        let state = world.state.vehicle_state(vehicle).expect("vehicle");
         let mut session = world
             .open_observation_export(ObservationSelection::AllLaneEdges)
             .expect("open");
@@ -1537,7 +1538,11 @@ mod tests {
         assert_eq!(world.command_cursor(), before_cursor);
 
         let vehicle_index = usize::try_from(vehicle.index()).expect("vehicle index");
-        world.state.committed.vehicles[vehicle_index]
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(vehicle_index)
             .state
             .as_mut()
             .expect("vehicle remains live")

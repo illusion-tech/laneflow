@@ -5283,6 +5283,87 @@ fn closure_recheck_matches_the_full_scan_oracle() {
     );
 }
 
+/// 一条路线在同一道门后经过两个冲突区；已有车这一拍到门，在两个区的名单里各出现一次。
+/// `scratch` 为假时注入去重位图预留失败，复核退回逐条判定，作为参考路径。
+#[cfg(feature = "placement-fixtures")]
+fn duplicated_contender_recheck(
+    scratch: bool,
+) -> (
+    Result<laneflow_runtime::VehicleHandle, SpawnError>,
+    u64,
+    String,
+) {
+    let revision = compile_road_editing_revision(conflict_multiplicity_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("first stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("shared maneuver path")
+        .edges()
+        .to_vec();
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("route");
+    let entry = world.route_edges(route).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[entry.index()];
+    world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .expect("contender at the gate");
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::RecheckScratch,
+        !scratch,
+    );
+    laneflow_runtime::reset_recheck_body_checks();
+    let result = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+            .with_open_entrance(),
+    );
+    let checks = laneflow_runtime::recheck_body_checks();
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::RecheckScratch,
+        false,
+    );
+    let snapshot = world.capture_snapshot().expect("capture");
+    let digest = deterministic_state_digest(&snapshot).expect("snapshot digest");
+    (
+        result,
+        checks,
+        format!("{digest:?} {:?}", world.contender_fingerprint_for_test()),
+    )
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn recheck_body_scan_judges_each_contender_once_with_the_same_outcome() {
+    let (deduplicated, once, deduplicated_state) = duplicated_contender_recheck(true);
+    let (reference, repeated, reference_state) = duplicated_contender_recheck(false);
+    assert_eq!(deduplicated, reference);
+    assert_eq!(deduplicated_state, reference_state);
+    assert!(
+        once >= 1,
+        "the contender route reaches the new body: {deduplicated:?} {reference_state}"
+    );
+    assert!(
+        once < repeated,
+        "the fixture lists one contender in several zones: once {once} repeated {repeated}"
+    );
+}
+
 fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
     compile_road_editing_revision_with_limits(
         conflict_road_editing_module_with_shape_and_speed(
@@ -5792,6 +5873,111 @@ fn reused_slot_generation_keeps_the_old_live_rank() {
             .with_open_entrance(),
         )
         .expect("a reused slot keeps the original live rank, not the slot generation");
+}
+
+/// 名单重建只预览已发布近门集合、失效名单和本窗增量里的车；同一已提交状态上，
+/// 申请者、排队进入者和格点都必须与逐辆预览的全量重建相同。
+#[cfg(feature = "placement-fixtures")]
+fn compare_near_rebuild_with_full(world: &mut laneflow_runtime::TrafficWorld) -> (u64, u64, bool) {
+    laneflow_runtime::set_full_contender_rebuild(false);
+    world.force_rebuild_contenders_for_test();
+    let near_previews = laneflow_runtime::contender_rebuild_previews();
+    let near = (
+        world.contender_fingerprint_for_test(),
+        world.contender_cells_for_test(),
+    );
+    laneflow_runtime::set_full_contender_rebuild(true);
+    world.force_rebuild_contenders_for_test();
+    let full_previews = laneflow_runtime::contender_rebuild_previews();
+    let full = (
+        world.contender_fingerprint_for_test(),
+        world.contender_cells_for_test(),
+    );
+    laneflow_runtime::set_full_contender_rebuild(false);
+    assert_eq!(near, full, "near-gate rebuild must equal the full rebuild");
+    (near_previews, full_previews, !near.0.is_empty())
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn near_gate_rebuild_matches_full_rebuild_across_steps_and_spawns() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                yielding: true,
+                gap_values_ms: Some((5_000, 2_000, 500)),
+                waiting: true,
+                waiting_on_north_only: true,
+                conflict_after_release: true,
+                short_vehicle: true,
+                waiting_capacity: 2,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let lengths: Vec<u32> = routes
+        .iter()
+        .map(|route| {
+            let edge = world.route_edges(*route).expect("route")[0];
+            world.traffic().lane_lengths_millimetres()[edge.index()]
+        })
+        .collect();
+    // 第一次步进前 frontier 还没发布，必须走全量。
+    let (previews, full, _) = compare_near_rebuild_with_full(&mut world);
+    assert_eq!(previews, full);
+    let mut saved = false;
+    let mut with_contenders = false;
+    let spawn_points = [
+        (0usize, 500u32, 3_000u32),
+        (1, 2_500, 2_000),
+        (0, 9_000, 9_000),
+        (1, 14_000, 13_000),
+        (0, 20_000, 0),
+        (1, 30_000, 6_000),
+    ];
+    for tick in 0..240usize {
+        let (route, back, speed) = spawn_points[(tick / 8) % spawn_points.len()];
+        let length = lengths[route];
+        if tick % 8 == 0 && back < length {
+            let _ = world.spawn_vehicle(
+                VehicleSpawnInput::new(dot, routes[route], 0, length - back, speed)
+                    .with_open_entrance(),
+            );
+        }
+        let (previews, full, contenders) = compare_near_rebuild_with_full(&mut world);
+        saved |= previews < full;
+        with_contenders |= contenders;
+        world.step(TickInput::new(100)).expect("step");
+        let (previews, full, contenders) = compare_near_rebuild_with_full(&mut world);
+        saved |= previews < full;
+        with_contenders |= contenders;
+        if previews < full {
+            // 位图预留失败只退回逐辆预览，名单不变，也不报错。
+            laneflow_runtime::set_admission_reserve_failure(
+                laneflow_runtime::AdmissionReserve::ReachMask,
+                true,
+            );
+            let (fallback, full, _) = compare_near_rebuild_with_full(&mut world);
+            laneflow_runtime::set_admission_reserve_failure(
+                laneflow_runtime::AdmissionReserve::ReachMask,
+                false,
+            );
+            assert_eq!(fallback, full);
+        }
+    }
+    assert!(saved, "the near-gate path must skip some previews");
+    assert!(
+        with_contenders,
+        "the fixture must exercise non-empty contender lists"
+    );
 }
 
 #[test]

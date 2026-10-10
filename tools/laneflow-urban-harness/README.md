@@ -33,18 +33,29 @@ storage 拒绝，也要求终点脉冲实际 Completed 且无残留占用；时�
 cargo +1.98.0 build -p laneflow-urban-harness --release --locked
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml>
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --case GARAGE-EGRESS
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-a>
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-b>
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-a> --diagnostics
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-b> --diagnostics
 target/release/laneflow-urban-harness compare <run-a> <run-b> <comparison.json>
 ```
 
 `run` 接受 `--workers N`（缺省 1，合法域 1..=16，与 Runtime 执行配置上限一致）。
+详细日志默认关闭：probe 可省略 `--diagnostics`，只保存计划、最小运行回执和执行
+计时；不会创建、分配缓冲或序列化 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`。
+回放、完整比较以及 correctness/performance 必须显式传入 `--diagnostics`；缺少
+完整记录时拒绝通过。库入口的 `Diagnostics` 默认禁用，调用方须明确选择。
+开启详细诊断后，每份日志设置 10 MiB 有界缓冲，三份共 30 MiB；关闭时不分配这些
+缓冲。窗口结束后先释放这三份缓冲再输出逐拍计时，诊断缓冲同时驻留不超过三份。这是诊断存储设置，不构成 Runtime 性能收益承诺。
+
+文本诊断使用 `tracing` 的级别、target 和结构化字段。CLI 仅在启用诊断时配置
+subscriber，`RUST_LOG` 通过 `EnvFilter` 控制文本级别，缺省为本 crate 的 info。
+库不安装全局 subscriber；文本过滤不删减开启后的规范机器记录。
+
 worker 属于执行配置：不进计划文件、不改变计划摘要、世界逻辑摘要或快照内容。
 同一计划可用不同 worker 各跑一轮后做跨臂语义对拍：
 
 ```text
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-1w> --workers 1
-target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-4w> --workers 4
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-1w> --workers 1 --diagnostics
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-4w> --workers 4 --diagnostics
 target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json>
 ```
 
@@ -60,9 +71,63 @@ target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json
 （`compare <performance-a> <performance-b> <performance-c>`，provenance 全等
 含 workers）为准。
 
-`--case` 只接受 `MIXED-PEAK`、`GARAGE-EGRESS`、`GARAGE-INGRESS`、
+七套正确性场景为 `MIXED-PEAK`、`GARAGE-EGRESS`、`GARAGE-INGRESS`、
 `WAITING-RELEASE`、`PERMISSIVE-LEFT`、`UNCONTROLLED-YIELD` 和
 `BOUNDARY-BURST`。省略时为 `MIXED-PEAK`。
+
+独立持续负载 `SUSTAINED-ACTIVE` 接受 probe 和正式 performance 窗口：
+
+```text
+target/release/laneflow-urban-harness plan <artifact-directory> <sustained.toml> --case SUSTAINED-ACTIVE --probe-warm-up 512 --probe-ticks 4096
+target/release/laneflow-urban-harness plan <artifact-directory> <sustained-performance.toml> --case SUSTAINED-ACTIVE --performance
+```
+
+每 tile 初始 1000 Active，无停车初态、停车请求或正确性角色。场景配方分别选择初始
+人口、需求策略和角色集合；共享路线候选计算不改变场景身份。持续需求不展开有限
+出发组：每个提交边界读取实际 Completed 状态，同槽位至多一个回收请求，使用本 tile
+按实际首条入口车道分组、按 key 排序的行驶路线候选。候选顺序由槽位、代次及尝试编号
+确定，依次轮换入口车道及冻结的位置，避免路线数量差异偏置入口选择。
+每个请求在同一边界最多尝试 64 个候选，全部受阻后间隔 8 tick 继续；预算持续到窗口
+结束。位置从 7000 mm 起每隔 8500 mm，共 11 处，初速为零，均由 Runtime 检查准入。
+每次成功或拒绝记录路线及位置；未成功请求保留为 pending，不计 exhausted。
+新请求编号集中分配，重试保留编号，incarnation 仅在实际成功替换或 spawn 后按槽位递增。
+
+`result.json` 的 `active_load` 报告观察窗口内 step 前/后的 Active 最小值、
+p50/p95/p99/max、样本数，以及各自低于初始目标的拍数。车辆完成和入口受阻会降低
+实际 Active；`probe-complete` 只表示窗口完成，不证明持续负载达标，也不替代正式性能认证。
+修改回收策略后必须重新取证，旧计划不能作为当前持续负载的证据。
+
+正式持续负载使用最长信号周期的四周期暖机、八周期观察，并保留现行最小拍数；
+与 Mixed 分别生成计划。观察期每拍 step 前的实际 Active 必须等于一万/十万目标，
+step 后真实下降另列。未达到负载门槛时仍保存全部日志和正式测量，状态为
+`performance-load-failed`、CLI 非零退出；双臂比较与三轮聚合拒绝此类回执。
+比较时重新核对完整计划、周期检查点、逐拍负载与测量样本及回收计数，不只读取汇总值。
+末尾 Pending 和耗尽请求均须为零；成功回收必须有完整的 `replace` 记录、新个体身份
+和正确代次，不能由其他成功生命周期命令充当。
+保留计划校验每 tile 一千个唯一槽位，逐拍拒绝 Parked；回收候选核对完整冻结轮换顺序。
+命令/事件数组分别绑定 tick 摘要，命令还核对游标链；三类计时数组核对 diagnostics 副本。
+负载有效及三轮取证完成不自动表示预算、交通质量或 #707 整体认证通过。
+
+`diagnostics.json` 的 `window_step_samples_ns` 保存排除暖机后的整步耗时样本，单位为
+纳秒，按观察窗口内的 tick 顺序保留，分位数统计只排序副本。
+窗口 p50/p95/p99/max 从这组样本计算，`window_step_ns_max` 为最大值。
+`window_command_samples_ns` 与 `window_observation_samples_ns` 分别保存同一窗口的
+公共生命周期调用耗时和观测耗时，同样保留原始顺序；与整轮墙钟一同报告调用方成本。
+
+详细诊断另生成 `timings.jsonl`（`urban-tick-timings-v1`），覆盖预热和观察阶段的每个
+已完成 tick。每行包含 `tick`、`step_ns`、`command_ns`、`observation_ns`、
+`tick_elapsed_ns`，可用 tick 关联 `ticks.jsonl` 的实际 Active 和命令/事件。
+整拍耗时独立测量，包含 `advance`、本拍日志缓冲写入、记账和本拍检查点；不含初始化、
+最终序列化、刷盘与摘要。三个分量之和不是整拍耗时，分位数也不能相加。
+记录空间在循环开始前按计划拍数预分配（计入进程峰值），循环结束后批量输出。关闭诊断时不生成该文件，
+不分配记录空间或读取整拍时钟。旧冻结记录没有逐拍关联，仍只能做分布分析。
+双臂比较与三轮聚合都要求该文件及其在 `result.files` 中的摘要；缺失即拒绝，
+不把没有逐拍计时的旧回执当作当前证据。两条比较路径共用同一个计时校验：
+`diagnostics.json` 声明的计时版本、每个完成拍恰好一行且 tick 连续、整拍耗时
+不小于三个分量之和、观察窗三个分量与 `diagnostics.json` 原始样本逐项相等，
+正式臂（任何 case）的 `measurements.toml` 样本也与逐拍值一致。
+这些检查用于发现 harness 自身错误和数据间不一致，不防刻意伪造；威胁模型见
+[设计文档](../../docs/design/urban-demand-harness.md)。
 
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
 `plan ... --probe-ticks 128` 生成短试跑；`--probe-warm-up N` 可在 fixture 上覆盖
@@ -75,7 +140,7 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 已加载的目录和共享路网通过 `Artifacts::catalog()` / `revision()` 只读借用；
 改变源输入需要重新载入并展开计划，调用方不能替换已绑定来源摘要的内部字段。
 
-正式性能计划只允许 Mixed 的 10k/100k 制品：
+正式性能计划允许 Mixed 与持续 Active 的 10k/100k 制品：
 
 ```text
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --performance
@@ -95,8 +160,8 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 target/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
 ```
 
-三轮还须保持相同完整语义轨迹：除 `measurements.toml` 与 `diagnostics.json` 两个
-执行封套外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。两个执行
+三轮还须保持相同完整语义轨迹：除 `measurements.toml`、`diagnostics.json` 与 `timings.jsonl` 三个
+执行封套外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。三个执行
 封套均已逐轮独立校验后才排除（摘要绑定入各轮 `result.files`，worker 计数做
 measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要但彼此轨迹不同，
 仍拒绝合并。运行目录应使用 Git 忽略的 `target/` 或 checkout 外目录；未来输出目录
@@ -107,7 +172,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
 合并口径。
 
-当前测量载荷为 `urban-performance-measurements-v3`（v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
+当前测量载荷为 `urban-performance-measurements-v4`（v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
 完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的
@@ -123,7 +188,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 
 每 tile 1000 个体、750 Active 和 250 个实际占位的 Parked；稳定身份为
 `(tile, slot, incarnation)`，profile 比例为 30:60:10。离场、入场保持身份，Completed
-原子替换使用请求序号派生的新 incarnation。
+原子替换及显式 spawn 使用该槽位递增的新 incarnation，与请求序号独立。
 
 两名入场角色使用 slot 741/743，对应 `c08.bay1` 与 `c09.mixed`。先在实际入口臂上
 取小于停车锚点的最大候选位置，分别为 `c08.e.out` 的 66500 mm 与 `c09.w.out`
@@ -163,9 +228,11 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v5`（v5 起 `diagnostics.json`
-  摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套），旧 v4 运行目录
-  因缺该封套条目被拒绝、不转换；Failed 行不能通过 compare。
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v7`，必填 `diagnostics_enabled`
+  绑定详细日志开关。incarnation 与请求序号独立，sustained 显式报告实际 Active；
+  `diagnostics.json` 摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套。
+  诊断关闭的 probe 仅表示运行完成，完整比较拒绝该回执；旧载荷拒绝、不转换；
+  Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
 - `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v2`（v2 起

@@ -1,5 +1,8 @@
 # 已提交位姿提取研究
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 关联 [#681](https://github.com/illusion-tech/laneflow/issues/681)。生产基线固定为
 `0fb7024c76a99aea987afa956aadb98001199659`。本目录是独立 workspace 的研究程序，
 生产 crate、现有全量城市 harness 和根 workspace 成员均未修改。

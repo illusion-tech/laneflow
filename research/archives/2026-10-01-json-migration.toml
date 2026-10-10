@@ -1,0 +1,40 @@
+# 小型归档索引；逐文件大小、SHA-256 与 Git blob 清单位于制品内。
+schema_version = 1
+issue = 812
+archived_at = "2026-10-01"
+source_repository = "https://github.com/illusion-tech/laneflow"
+source_head = "bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567"
+source_tree = "8d10e9d22628be644e75186c3ec2b97cef9817b0"
+source_files = 1763
+research_json_files = 313
+research_json_lines = 256176
+research_json_bytes = 13649924
+research_directories = 22
+retired_tool_files = 10
+retired_spatial_raw_non_json_files = 72
+git_history_rewritten = false
+release_url = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-json-migration-bc1bf666"
+manifest_path = "migration-manifest.json"
+manifest_sha256 = "dde1c1073d601a9829331e4f3cba7724c5124d4255594c63e6f57130fa2e6994"
+
+[source_archive]
+name = "issue-812-frozen-source-bc1bf666.tar.zst"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-json-migration-bc1bf666/issue-812-frozen-source-bc1bf666.tar.zst"
+bytes = 5927695
+sha256 = "2d17e884542c7c201766e11f850e69837cc37563268e4739d624c5aa2234f7bd"
+source_prefix = "source/"
+
+[source_checksums]
+name = "issue-812-source-SHA256SUMS.txt"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-json-migration-bc1bf666/issue-812-source-SHA256SUMS.txt"
+bytes = 258732
+sha256 = "1b90d13f5f14c0fe0fc96d5783cee2152f86953296c9ae615f0ee91a21b1273b"
+entries = 1764
+
+[main_history]
+name = "issue-812-frozen-main-history-bc1bf666.bundle"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-json-migration-bc1bf666/issue-812-frozen-main-history-bc1bf666.bundle"
+bytes = 25423011
+sha256 = "17792095e43360867c41188391281a2b2f849feb359aa1e37517a601b3dfda47"
+head_ref = "codex/812-frozen-main-history"
+reachable_commits = 1920

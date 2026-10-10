@@ -440,7 +440,7 @@ pub fn generate(
         road_alignment_length_mm: generated
             .edges
             .values()
-            .filter(|e| e.key.ends_with(".in") || e.key.ends_with(".out"))
+            .filter(|e| is_reference_arm(&e.key))
             .map(|e| {
                 ((e.end[0] - e.start[0]).hypot(e.end[1] - e.start[1]) * 1_000.0).round() as u64
             })
@@ -462,6 +462,20 @@ pub fn generate(
     fs::write(directory.join("measurements.toml"),toml::to_string_pretty(&Measurements {phases:recorder.phases,
         memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared-root logical bytes are reported separately in manifest.".into()})?)?;
     Ok(manifest)
+}
+
+/// 每条外部走廊只计 0 号车道，使参考线长度不随同向车道数重复。
+fn is_reference_arm(key: &str) -> bool {
+    let mut parts = key.split('.');
+    let (_tile, _cell, _direction, role, lane, rest) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    );
+    rest.is_none() && matches!(role, Some("in") | Some("out")) && lane == Some("l0")
 }
 
 fn write(

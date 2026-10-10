@@ -1,5 +1,8 @@
 # #707：覆盖、拒绝原因与测量分辨
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-22。状态：**已完成。** 没有改运动或 frontier 的决定。不重开车道块，
 不重开硬间隙投影，不把延迟物化收进 best。16 ms 目标未达到。M3 记录的
 29.334 ms 不改写。封存的 held 28.462 ms 不改写。#707 不关闭。
@@ -116,7 +119,7 @@
 
 四次运行的精确二进制、输入、计划、环境、完整输出树身份和逐份 `timing.csv`
 摘要已绑定在
-[`calibration-aa-repeat-envelope.json`](evidence/calibration-aa-repeat-envelope.json)；
+[`calibration-aa-repeat-envelope.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-aa-repeat-envelope.json)；
 可独立重算的 768 个 `public_step_ns` 样本见
 [`calibration-aa-public-step.csv`](evidence/calibration-aa-public-step.csv)。
 短测程序没有输出 `execution_id`，因此封套使用有序 `evidence_run_id` 加上述
@@ -183,13 +186,13 @@ M16 保留组合现可由基线提交
 重建。M21 审计相对 M16 的五个 Rust 文件增量以单成员补丁提交在
 [`calibration-audit-source-patch.tar.zst`](evidence/calibration-audit-source-patch.tar.zst)，完整重建
 链、规范化源码清单、逐文件前后哈希、构建产品与运行配置见
-[`calibration-audit-manifest.json`](evidence/calibration-audit-manifest.json)。本地 M16/M21
+[`calibration-audit-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-audit-manifest.json)。本地 M16/M21
 目录另有 35 个未进入原 M16 补丁的实验辅助文件；其中没有 Cargo/Rust 构建输入，
 已明确排除在可重建源码清单外。
 
 这一片的四次完整原始输出在外部
 `target/issue707-aa-results/aa-1` 到 `aa-4`；仓库内的
-[`calibration-aa-repeat-envelope.json`](evidence/calibration-aa-repeat-envelope.json)
+[`calibration-aa-repeat-envelope.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-aa-repeat-envelope.json)
 记录全部文件身份，紧凑逐拍报告允许独立重算表中统计。
 这四次只使用上文的 M16 封存程序；下面的 M21 校准审计是另一条覆盖核对，
 不用于补写四次重复的执行身份。该审计程序是 `target/issue707-m21-source` 上的

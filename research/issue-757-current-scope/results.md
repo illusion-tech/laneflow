@@ -1,5 +1,8 @@
 # 当前主干工作范围缩减：研究结果
 
+> **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
+> 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+
 2026-09-26。Refs #757、#707；Runtime 接入见 #759。
 
 **保留 P3 工作范围缩减候选，并推进 `laneflow-runtime` 接入。** 本批仅 P3 在
@@ -21,8 +24,8 @@
 - 运行前后源码、二进制、计划及研究提交稳定，研究树干净。重新导出和准备得到同一源码摘要：
   `820776cb821d8624228c705bf082f2fc84a46ce269cf921bddf25ac19ad27765`。
 
-身份见 [identity.json](evidence/identity.json)，统计和质量见 [results.json](evidence/results.json)，
-原始文件路径、字节数和 SHA-256 见 [files.json](evidence/files.json)。索引含全部 28 个成功进程的
+身份见 [identity.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-757-current-scope/evidence/identity.json)，统计和质量见 [results.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-757-current-scope/evidence/results.json)，
+原始文件路径、字节数和 SHA-256 见 [files.json](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-757-current-scope/evidence/files.json)。索引含全部 28 个成功进程的
 56 个 stdout/stderr 文件；原始包位于独立工作树 `target/review-*`，未进入 Git，远程复核需这些外部文件。
 原 `target/scope-*` 包保持不变；旧报告可从 `67a0ec78` 查看，其急减速值包含完成时清零速度，不能再用作有效急减速统计。
 
