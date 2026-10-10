@@ -47,8 +47,9 @@ impl Logs {
         Ok(())
     }
 
-    pub(super) fn finish(&mut self) -> Result<()> {
-        for writer in &mut self.writers {
+    /// 刷盘后随所有权释放缓冲，后续输出不与日志缓冲同时驻留。
+    pub(super) fn finish(self) -> Result<()> {
+        for mut writer in self.writers {
             writer.flush()?;
         }
         Ok(())
