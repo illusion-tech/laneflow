@@ -69,6 +69,17 @@ pub(super) fn count_overlap_blocker_inspection() {
     OVERLAP_BLOCKER_INSPECTIONS.set(OVERLAP_BLOCKER_INSPECTIONS.get() + 1);
 }
 
+#[cfg(test)]
+thread_local! {
+    static COMMAND_OCCUPANCY_YIELDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// 测试专用：取出命令在占用索引重建点让出的次数并清零。
+#[cfg(test)]
+pub(crate) fn take_command_occupancy_yields() -> u64 {
+    COMMAND_OCCUPANCY_YIELDS.replace(0)
+}
+
 /// 活动世界世代。安装时从 [`Self::INITIAL`] 开始，每次成功换绑活动聚合时递增。
 ///
 /// 字段保持私有：调用方应从 [`TrafficWorld::world_generation`] 取得当前值，
@@ -404,6 +415,7 @@ impl crate::kernel::state::WorldState {
                 waiting_staged_occupancy,
                 waiting_staged_storage_mm,
                 occupancy_scratch,
+                command_occupancy: crate::kernel::occupancy::CommandOccupancy::Rebuild,
                 motion_cache: Vec::new(),
                 motion_cache_spare: Vec::new(),
                 motion_bases: Vec::new(),
@@ -2524,8 +2536,36 @@ impl TrafficWorld {
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
+        self.command_with_parallel_occupancy(|state| state.spawn_vehicle(input))
+    }
+
+    /// 生命周期命令走到占用索引重建点、索引已过期时让出：在执行作用域里借执行资源
+    /// 并行重建，再从头执行这条命令（`traffic-runtime-vehicle-placement.md` 第 8 节）。
+    /// 让出前命令没有提交任何东西。并行重建失败时来源保持为空，重新执行的命令在原位置
+    /// 串行重建并照常报错。资源不能并行时直接执行。
+    pub(crate) fn command_with_parallel_occupancy<R>(
+        &mut self,
+        mut command: impl FnMut(&mut crate::kernel::state::WorldState) -> R,
+    ) -> R {
+        use crate::kernel::occupancy::CommandOccupancy;
         self.execution.assert_usable();
-        self.state.spawn_vehicle(input)
+        if !self.execution.coordinator_parallel() {
+            return command(&mut self.state);
+        }
+        self.state.workspace.command_occupancy = CommandOccupancy::Yield;
+        let first = command(&mut self.state);
+        let yielded = std::mem::take(&mut self.state.workspace.command_occupancy)
+            == CommandOccupancy::Yielded;
+        if !yielded {
+            return first;
+        }
+        #[cfg(test)]
+        COMMAND_OCCUPANCY_YIELDS.set(COMMAND_OCCUPANCY_YIELDS.get() + 1);
+        // 失败时来源保持为空，留给下面的命令在原位置报告。
+        let _ = self.execution.run(&mut self.state, |state, resources| {
+            state.rebuild_occupancy_index_with(Some(resources))
+        });
+        command(&mut self.state)
     }
 
     /// 放入一辆已经处于该活动状态的车，不检查新鲜摆放的运动安全。
@@ -2626,8 +2666,7 @@ impl TrafficWorld {
         old: VehicleHandle,
         input: VehicleSpawnInput,
     ) -> Result<VehicleReplaceRecord, ReplaceError> {
-        self.execution.assert_usable();
-        self.state.replace_completed_vehicle(old, input)
+        self.command_with_parallel_occupancy(|state| state.replace_completed_vehicle(old, input))
     }
 
     /// 把已完成的车换成一个已经在路上的状态，不检查新鲜运动安全，也不检查开放入口。

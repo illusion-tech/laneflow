@@ -1103,6 +1103,11 @@ impl WorldExecution {
         self.config
     }
 
+    /// 执行资源能否在协调器上分段并行。
+    pub(crate) fn coordinator_parallel(&self) -> bool {
+        self.resources.coordinator_parallel()
+    }
+
     pub(crate) const fn assert_usable(&self) {
         assert!(self.usable, "traffic world invalidated by execution panic");
     }

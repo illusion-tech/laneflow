@@ -1592,6 +1592,10 @@ impl crate::kernel::state::WorldState {
         {
             return Err(ParkingError::LeavePhysicalOverlap { blocker });
         }
+        if self.yield_occupancy_rebuild() {
+            // 让出的结果不会返回给调用方。
+            return Err(ParkingError::AllocationFailed);
+        }
         self.ensure_current_occupancy()
             .map_err(|error| match error {
                 crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
@@ -2148,8 +2152,7 @@ impl TrafficWorld {
         vehicle: VehicleHandle,
         input: LeaveParkingTarget,
     ) -> Result<ParkingLeaveRecord, ParkingError> {
-        self.execution.assert_usable();
-        self.state.leave_parking(vehicle, input)
+        self.command_with_parallel_occupancy(|state| state.leave_parking(vehicle, input))
     }
 
     /// 在保持完整物理 footprint 的前提下更换 Reserved route/entry payload。
