@@ -2,6 +2,7 @@
 
 use std::{
     collections::BTreeMap,
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
 };
@@ -465,10 +466,7 @@ fn semantic_config(config: &LustConverterConfig, diagnostic: bool) -> SemanticCo
 /// 恢复→发布 全程，防止并发 convert 把对方的在途备份误判为中断事务。
 /// 锁本体由 OS 管理（进程退出即放），崩溃残留的锁文件不影响下次运行。
 fn acquire_output_lock(anchor: &Path) -> Result<fs::File> {
-    let name = anchor
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "output".to_owned());
+    let name = txn_name(anchor);
     let parent = anchor.parent().map(Path::to_path_buf).unwrap_or_default();
     if !parent.as_os_str().is_empty() {
         fs::create_dir_all(&parent).map_err(|source| Error::Io {
@@ -507,10 +505,7 @@ fn acquire_output_lock(anchor: &Path) -> Result<fs::File> {
 /// staging 目录：output_dir 的兄弟目录 `.staging-<pid>-<name>`（同卷，
 /// 保证 publish 的 rename 可用）。
 fn staging_dir(output_dir: &Path) -> PathBuf {
-    let name = output_dir
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "output".to_owned());
+    let name = txn_name(output_dir);
     let parent = output_dir
         .parent()
         .map(Path::to_path_buf)
@@ -534,6 +529,29 @@ fn write_staging_owner_marker(staging: &Path) -> Result<()> {
         });
     }
     Ok(())
+}
+
+/// 事务路径（锁/staging/backup 及残留发现）使用的 output 目录名。必须
+/// 对原名**可逆**：`to_string_lossy` 会把非 UTF-8 名（Windows 未配对
+/// 代理项、Unix 任意字节）里的非法字节折叠成 U+FFFD，两个不同目录
+/// 折叠后撞名——一侧崩溃残留的 `.backup-*` 会被另一侧同名转换认证、
+/// 误恢复进错误 output 并删除原备份。规则：UTF-8 名原样保留（`%`
+/// 转义为 `%25`）；非 UTF-8 名逐字节 `%XX` 编码（自同编码字节，
+/// 两平台都是原名的单射）。无文件名时回退 `output`（调用方已拒根）。
+fn txn_name(output_dir: &Path) -> String {
+    let name = output_dir
+        .file_name()
+        .unwrap_or_else(|| OsStr::new("output"));
+    match name.to_str() {
+        Some(valid) => valid.replace('%', "%25"),
+        None => {
+            let mut encoded = String::with_capacity(name.len() * 3);
+            for byte in name.as_encoded_bytes() {
+                encoded.push_str(format!("%{byte:02X}").as_str());
+            }
+            encoded
+        }
+    }
 }
 
 /// 排他新建事务目录（staging/backup 共用）：同名路径已存在（残留、撞名、
@@ -717,10 +735,7 @@ fn clear_backup(backup: &Path, staged: &[(&'static str, &'static str)]) -> bool 
 }
 
 fn backup_dir(output_dir: &Path) -> PathBuf {
-    let name = output_dir
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "output".to_owned());
+    let name = txn_name(output_dir);
     let parent = output_dir
         .parent()
         .map(Path::to_path_buf)
@@ -929,10 +944,7 @@ fn recover_interrupted_publish(
 
 /// 找 output_dir 旁的残留备份目录：`.backup-<纯数字 pid>-<name>`。
 fn find_stale_backups(output_dir: &Path) -> Result<Vec<PathBuf>> {
-    let name = output_dir
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "output".to_owned());
+    let name = txn_name(output_dir);
     let parent = output_dir
         .parent()
         .map(Path::to_path_buf)
@@ -979,10 +991,7 @@ fn stale_dir_name_matches(file_name: &str, prefix: &str, suffix: &str) -> bool {
 /// 撞车的无关目录零触碰。尽力而为：删除失败留待下次运行重试，不阻塞本次
 /// 转换。
 fn remove_stale_staging(anchor: &Path) {
-    let name = anchor
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "output".to_owned());
+    let name = txn_name(anchor);
     let parent = anchor.parent().map(Path::to_path_buf).unwrap_or_default();
     let suffix = format!("-{name}");
     let Ok(entries) = fs::read_dir(&parent) else {
@@ -1210,14 +1219,14 @@ fn build_manifest_toml(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::{
         BACKUP_COMPLETE_MARKER, BACKUP_OWNER_MAGIC, BACKUP_OWNER_MARKER, CARGO_LOCK_BYTES,
         MANIFEST_NAME, REPORT_NAME, RUST_TOOLCHAIN_TOML, STAGING_OWNER_MAGIC, STAGING_OWNER_MARKER,
         SURVEY_NAME, acquire_output_lock, backup_dir, convert_with_config, create_dir_exclusive,
         pinned_rust_toolchain_channel, publish_outputs, remove_stale_staging,
-        resolve_converter_commit, restore_backup, semantic_config, swap_outputs,
+        resolve_converter_commit, restore_backup, semantic_config, swap_outputs, txn_name,
     };
     #[cfg(unix)]
     use super::{output_anchor, staging_dir, write_staging_owner_marker};
@@ -1923,6 +1932,36 @@ mod tests {
         }
         assert!(!staging.exists(), "排他新建的空目录必须归还");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn txn_name_preserves_utf8_and_escapes_percent() {
+        // UTF-8 名原样保留（% 转义）；无文件名的根/空前缀回退 output。
+        assert_eq!(txn_name(Path::new("out")), "out");
+        assert_eq!(txn_name(Path::new("/some/中文 目录")), "中文 目录");
+        assert_eq!(txn_name(Path::new("/some/100% 确定")), "100%25 确定");
+        assert_eq!(txn_name(Path::new("/")), "output");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn txn_name_encodes_non_utf8_names_injectively() {
+        // 非 UTF-8 名（Unix 任意字节）逐字节 %XX 编码：两个仅非法字节
+        // 不同的目录 lossy 折叠后撞名（同一个 U+FFFD 替换名），编码后
+        // 必须可区分——否则一侧的残留备份会被另一侧转换误认证。
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let first = PathBuf::from(OsStr::from_bytes(b"bad\xffname"));
+        let second = PathBuf::from(OsStr::from_bytes(b"bad\xfename"));
+        assert_eq!(
+            Path::new(&first).file_name().unwrap().to_string_lossy(),
+            Path::new(&second).file_name().unwrap().to_string_lossy(),
+            "前提：lossy 折叠确实撞名"
+        );
+        assert_ne!(txn_name(&first), txn_name(&second));
+        // 编码形态与任何字面 UTF-8 名不撞：字面名里的 % 已被转义。
+        let spoof = Path::new("bad%FFname");
+        assert_ne!(txn_name(&first), txn_name(spoof));
     }
 
     #[cfg(unix)]
