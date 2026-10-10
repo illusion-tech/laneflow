@@ -870,6 +870,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                 return Err(invalid(format!("run file changed: {name}")));
             }
         }
+        timing::validate(dir, result.completed_ticks, result.window.warm_up_ticks)?;
         require_diagnostics_marker(dir)?;
         if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("plan digest differs"));
@@ -1091,6 +1092,11 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 return Err(invalid(format!("performance run file changed: {name}")));
             }
         }
+        timing::validate(
+            directory,
+            result.completed_ticks,
+            result.window.warm_up_ticks,
+        )?;
         require_diagnostics_marker(directory)?;
         if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("performance plan digest differs"));
@@ -1604,12 +1610,23 @@ mod tests {
         .unwrap();
         fs::write(directory.join("commands.jsonl"), "").unwrap();
         fs::write(directory.join("events.jsonl"), "").unwrap();
-        fs::write(directory.join(timing::FILE_NAME), "").unwrap();
-        write_json(
-            &directory.join("diagnostics.json"),
-            &json!({"execution_id":execution, "workers":measurement["workers"],"diagnostics_enabled":true}),
-        )
-        .unwrap();
+        let samples = |field: &str| -> Vec<u64> {
+            serde_json::from_value(measurement[field].clone()).unwrap_or_default()
+        };
+        let (step, command, observation) = (
+            samples("traffic_world_step_samples_ns"),
+            samples("command_samples_ns"),
+            samples("observation_samples_ns"),
+        );
+        let mut diagnostics = json!({"execution_id":execution, "workers":measurement["workers"],"diagnostics_enabled":true});
+        timing::write_fixture(
+            directory,
+            2,
+            0,
+            [&step, &command, &observation],
+            &mut diagnostics,
+        );
+        write_json(&directory.join("diagnostics.json"), &diagnostics).unwrap();
         let mut ticks = File::create(directory.join("ticks.jsonl")).unwrap();
         for tick in 1..=2 {
             line(
@@ -1727,17 +1744,60 @@ mod tests {
                 .contains("--diagnostics")
         );
         // 文件与摘要登记一起删掉也不能冒充旧口径通过。
+        let timing_path = a.join(timing::FILE_NAME);
+        let timing_bytes = fs::read(&timing_path).unwrap();
         let mut untimed = original.clone();
         untimed.files.remove(timing::FILE_NAME);
         write_json(&path, &untimed).unwrap();
-        fs::remove_file(a.join(timing::FILE_NAME)).unwrap();
+        fs::remove_file(&timing_path).unwrap();
         for error in [
             compare_runs(&a, &four).unwrap_err(),
             compare_performance_runs([&a, &b, &c]).unwrap_err(),
         ] {
             assert!(error.to_string().contains(timing::FILE_NAME), "{error}");
         }
-        fs::write(a.join(timing::FILE_NAME), "").unwrap();
+        // 重算摘要后，空、截断、跳拍或分量被改的计时文件仍须按内容拒绝。
+        let rows = String::from_utf8(timing_bytes.clone()).unwrap();
+        let first_line = rows.lines().next().unwrap().to_owned();
+        for (case, changed) in [
+            ("empty", String::new()),
+            ("truncated", format!("{first_line}\n")),
+            ("gap", rows.replacen("\"tick\":2", "\"tick\":3", 1)),
+            (
+                "component",
+                rows.replacen("\"step_ns\":", "\"step_ns\":9", 1),
+            ),
+        ] {
+            fs::write(&timing_path, changed).unwrap();
+            let mut rehashed = original.clone();
+            rehashed
+                .files
+                .insert(timing::FILE_NAME.into(), digest_file(&timing_path).unwrap());
+            write_json(&path, &rehashed).unwrap();
+            assert!(compare_runs(&a, &four).is_err(), "accepted {case}");
+            assert!(
+                compare_performance_runs([&a, &b, &c]).is_err(),
+                "accepted {case}"
+            );
+        }
+        fs::write(&timing_path, &timing_bytes).unwrap();
+        let diagnostics_path = a.join("diagnostics.json");
+        let diagnostics_bytes = fs::read(&diagnostics_path).unwrap();
+        let mut undeclared: serde_json::Value = serde_json::from_slice(&diagnostics_bytes).unwrap();
+        undeclared["tick_timings"]["version"] = json!("urban-tick-timings-v0");
+        write_json(&diagnostics_path, &undeclared).unwrap();
+        let mut redeclared = original.clone();
+        redeclared.files.insert(
+            "diagnostics.json".into(),
+            digest_file(&diagnostics_path).unwrap(),
+        );
+        write_json(&path, &redeclared).unwrap();
+        assert!(compare_runs(&a, &four).is_err());
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        fs::write(&diagnostics_path, &diagnostics_bytes).unwrap();
+        write_json(&path, &original).unwrap();
+        assert!(compare_runs(&a, &four).is_ok());
+        assert!(compare_performance_runs([&a, &b, &c]).is_ok());
         let mut old = original.clone();
         old.version = "urban-result-v6".into();
         write_json(&path, &old).unwrap();

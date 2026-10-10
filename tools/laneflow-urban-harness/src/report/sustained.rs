@@ -676,13 +676,14 @@ mod tests {
         drop(commands);
         let mut diagnostics: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.join("diagnostics.json")).unwrap()).unwrap();
-        for field in [
-            "window_step_samples_ns",
-            "window_command_samples_ns",
-            "window_observation_samples_ns",
-        ] {
-            diagnostics[field] = json!(vec![1; samples]);
-        }
+        let ones = vec![1; samples];
+        super::super::timing::write_fixture(
+            directory,
+            window.end(),
+            window.warm_up_ticks,
+            [&ones, &ones, &ones],
+            &mut diagnostics,
+        );
         write_json(&directory.join("diagnostics.json"), &diagnostics).unwrap();
         for name in [
             "resolved-plan.toml",
@@ -690,6 +691,7 @@ mod tests {
             "commands.jsonl",
             "events.jsonl",
             "diagnostics.json",
+            super::super::timing::FILE_NAME,
         ] {
             result
                 .files
