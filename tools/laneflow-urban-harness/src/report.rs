@@ -870,7 +870,6 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                 return Err(invalid(format!("run file changed: {name}")));
             }
         }
-        timing::validate(dir, result.completed_ticks, result.window.warm_up_ticks)?;
         require_diagnostics_marker(dir)?;
         if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("plan digest differs"));
@@ -922,9 +921,11 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                     ));
                 }
             }
+            timing::verify(dir, &result, Some(&measurement))?;
             sustained::verify(dir, &result, &measurement)?;
             Some(measurement.provenance)
         } else {
+            timing::verify(dir, &result, None)?;
             None
         };
         Ok((
@@ -1092,11 +1093,6 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 return Err(invalid(format!("performance run file changed: {name}")));
             }
         }
-        timing::validate(
-            directory,
-            result.completed_ticks,
-            result.window.warm_up_ticks,
-        )?;
         require_diagnostics_marker(directory)?;
         if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
             return Err(invalid("performance plan digest differs"));
@@ -1160,6 +1156,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 ));
             }
         }
+        timing::verify(directory, &result, Some(&measurement))?;
         sustained::verify(directory, &result, &measurement)?;
         provenance.get_or_insert(measurement.provenance);
         let current = (
@@ -1767,6 +1764,11 @@ mod tests {
                 "component",
                 rows.replacen("\"step_ns\":", "\"step_ns\":9", 1),
             ),
+            ("elapsed", {
+                let mut row: serde_json::Value = serde_json::from_str(&first_line).unwrap();
+                row["tick_elapsed_ns"] = json!(0);
+                rows.replacen(&first_line, &row.to_string(), 1)
+            }),
         ] {
             fs::write(&timing_path, changed).unwrap();
             let mut rehashed = original.clone();
@@ -1795,6 +1797,27 @@ mod tests {
         assert!(compare_runs(&a, &four).is_err());
         assert!(compare_performance_runs([&a, &b, &c]).is_err());
         fs::write(&diagnostics_path, &diagnostics_bytes).unwrap();
+        // 非 SUSTAINED 的正式臂同样要求 measurements 与逐拍计时一致。
+        let measurements_path = a.join("measurements.toml");
+        let measurements_bytes = fs::read(&measurements_path).unwrap();
+        let mut altered: toml::Value =
+            toml::from_str(std::str::from_utf8(&measurements_bytes).unwrap()).unwrap();
+        altered["traffic_world_step_samples_ns"][0] = toml::Value::Integer(7_777);
+        fs::write(&measurements_path, toml::to_string(&altered).unwrap()).unwrap();
+        let mut remeasured = original.clone();
+        remeasured.files.insert(
+            "measurements.toml".into(),
+            digest_file(&measurements_path).unwrap(),
+        );
+        write_json(&path, &remeasured).unwrap();
+        assert_eq!(original.case, "MIXED-PEAK");
+        for error in [
+            compare_runs(&a, &four).unwrap_err(),
+            compare_performance_runs([&a, &b, &c]).unwrap_err(),
+        ] {
+            assert!(error.to_string().contains("measurements"), "{error}");
+        }
+        fs::write(&measurements_path, &measurements_bytes).unwrap();
         write_json(&path, &original).unwrap();
         assert!(compare_runs(&a, &four).is_ok());
         assert!(compare_performance_runs([&a, &b, &c]).is_ok());
