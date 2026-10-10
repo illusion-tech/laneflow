@@ -2596,6 +2596,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
+            contender_frontier: None,
         };
         #[cfg(test)]
         drop(_preamble);

@@ -7,7 +7,9 @@ use std::collections::BinaryHeap;
 
 use super::conflict::intervals_conflict;
 use super::conflict::{ApproachEstimate, ApproachFrontierCell, PreparedApproachEta};
-use super::entry_frontier::{PreparedSignalApproach, finite_entry_distance};
+use super::entry_frontier::{
+    CachedOccurrence, FrontierMaintenance, PreparedSignalApproach, finite_entry_distance,
+};
 use super::occupancy::LeaderQueryHorizon;
 use super::state::{
     ContenderBuilt, ContenderRank, OwnerContribution, WaitingEntrant, ZoneContender,
@@ -58,10 +60,11 @@ thread_local! {
     static REBUILD_SCANS: Cell<u64> = const { Cell::new(0) };
     static RECHECK_BODY_CHECKS: Cell<u64> = const { Cell::new(0) };
     static REBUILD_PREVIEWS: Cell<u64> = const { Cell::new(0) };
+    static LAZY_SOURCES: Cell<u64> = const { Cell::new(0) };
     static FULL_CONTENDER_REBUILD: Cell<bool> = const { Cell::new(false) };
 }
 #[cfg(any(test, feature = "placement-fixtures"))]
-crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, FULL_CONTENDER_REBUILD);
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, LAZY_SOURCES, FULL_CONTENDER_REBUILD);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_BEST: u8 = 1;
@@ -200,6 +203,13 @@ pub fn reset_recheck_body_checks() {
 #[doc(hidden)]
 pub fn contender_rebuild_previews() -> u64 {
     REBUILD_PREVIEWS.with(Cell::get)
+}
+
+/// 本线程累计在读取格点时从 frontier 并入的来源车次数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn contender_lazy_sources() -> u64 {
+    LAZY_SOURCES.with(Cell::get)
 }
 
 /// 打开后名单重建不读 frontier，逐辆预览，作对拍参考。
@@ -574,6 +584,16 @@ impl crate::kernel::state::WorldState {
             self.invalidate_spawn_contenders();
             return;
         }
+        // 按需模式读格点时按 live 序号归约；生成追加到 live 序尾，这里把序号表补齐。
+        if self.derived.spawn_contenders.lazy_cells
+            && !self
+                .derived
+                .live_order_index
+                .ensure(&self.committed.live_order, self.committed.vehicles.len())
+        {
+            self.invalidate_spawn_contenders();
+            return;
+        }
         let route_needs_admission = self
             .vehicle_state(handle)
             .is_some_and(|state| self.route_needs_contender(state.route));
@@ -622,6 +642,7 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.cell_approach.clear();
         self.derived.spawn_contenders.waiting_entrants.clear();
         self.derived.spawn_contenders.owners.clear();
+        self.derived.spawn_contenders.lazy_cells = false;
         self.derived
             .spawn_contenders
             .best
@@ -682,13 +703,16 @@ impl crate::kernel::state::WorldState {
 
     #[cfg(feature = "placement-fixtures")]
     pub(crate) fn contender_cells_for_test(&self) -> Vec<String> {
-        self.derived
-            .spawn_contenders
-            .cell_approach
-            .iter()
-            .enumerate()
-            .filter(|(_, cell)| cell.occupied())
-            .map(|(index, cell)| format!("{index}:{cell:?}"))
+        let read = self.read_view();
+        (0..self.derived.spawn_contenders.cell_approach.len())
+            .filter_map(|index| {
+                let address = read.conflict_read().cell_address(index)?;
+                match read.contender_cell(index, address) {
+                    Ok(Some(cell)) if cell.occupied() => Some(format!("{index}:{cell:?}")),
+                    Ok(_) => None,
+                    Err(()) => Some(format!("{index}:unproven")),
+                }
+            })
             .collect()
     }
 
@@ -720,11 +744,14 @@ impl crate::kernel::state::WorldState {
     }
 
     fn cache_has_contender(&self) -> bool {
-        self.derived
-            .spawn_contenders
-            .best
-            .iter()
-            .any(|list| !list.is_empty())
+        // 按需模式下未求值的格点可能有 owner，按有处理：刷新总是正确的，只是多做一次。
+        self.derived.spawn_contenders.lazy_cells
+            || self
+                .derived
+                .spawn_contenders
+                .best
+                .iter()
+                .any(|list| !list.is_empty())
             || self
                 .derived
                 .spawn_contenders
@@ -758,6 +785,7 @@ impl crate::kernel::state::WorldState {
         )
         .unwrap_or(0);
         self.derived.spawn_contenders.invalidate();
+        self.derived.spawn_contenders.lazy_cells = false;
         self.derived.spawn_contenders.best.clear();
         self.derived.spawn_contenders.cell_approach.clear();
         self.derived.spawn_contenders.owners.clear();
@@ -810,9 +838,15 @@ impl crate::kernel::state::WorldState {
         }
         let mut reach_mask = std::mem::take(&mut self.derived.spawn_contenders.reach_mask);
         let masked = self.mark_reach_sources(&mut reach_mask);
-        let scanned = self.add_live_contenders(live_count, masked.then_some(&reach_mask));
+        let lazy = masked && self.prepare_lazy_cells(cell_count);
+        let scanned = if lazy {
+            self.add_masked_contenders(&reach_mask)
+        } else {
+            self.add_live_contenders(live_count, masked.then_some(&reach_mask))
+        };
         self.derived.spawn_contenders.reach_mask = reach_mask;
         scanned?;
+        self.derived.spawn_contenders.lazy_cells = lazy;
         for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
             sort_waiting_entrants(entrants)?;
         }
@@ -842,6 +876,62 @@ impl crate::kernel::state::WorldState {
             self.add_spawn_contender(handle, update_sequence, may_reach)?;
         }
         Ok(())
+    }
+
+    /// 按需模式只处理求值集合里的车：按槽位位图逐辆预览并写全部贡献，其余车不访问。
+    /// 名单各表的归约都以 live 序号为键，与处理顺序无关。
+    fn add_masked_contenders(&mut self, reach_mask: &[u64]) -> Result<(), FreshAdmissionFailure> {
+        for (word_index, word) in reach_mask.iter().copied().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let slot = word_index * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                #[cfg(any(test, feature = "placement-fixtures"))]
+                REBUILD_SCANS.with(|cell| cell.set(cell.get().saturating_add(1)));
+                let Some(handle) = self
+                    .committed
+                    .vehicles
+                    .get(slot)
+                    .and_then(|vehicle| vehicle.state)
+                    .map(|state| state.handle)
+                else {
+                    continue;
+                };
+                let Some(Some(update_sequence)) = self
+                    .derived
+                    .live_order_index
+                    .prepared_rank(&self.committed.live_order, handle)
+                else {
+                    return Err(FreshAdmissionFailure::StopConstraint);
+                };
+                self.add_spawn_contender(handle, update_sequence, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 准备按需模式：live 序号表盖住当前 live 序，清空已求值格点。预留失败返回
+    /// `false`，调用方逐辆写格点。
+    fn prepare_lazy_cells(&mut self, cell_count: usize) -> bool {
+        if admission_reserve_denied(AdmissionReserve::ReachMask)
+            || !self
+                .derived
+                .live_order_index
+                .ensure(&self.committed.live_order, self.committed.vehicles.len())
+        {
+            return false;
+        }
+        let Some(lazy) = self.derived.spawn_contenders.ensure_lazy() else {
+            return false;
+        };
+        let words = cell_count.div_ceil(64);
+        lazy.values.clear();
+        lazy.evaluated.clear();
+        if lazy.evaluated.try_reserve(words).is_err() {
+            return false;
+        }
+        lazy.evaluated.resize(words, 0);
+        true
     }
 
     /// 在 `mask` 里标出已发布近门集合、失效名单和本窗生命周期增量中仍然有效的车。
@@ -932,7 +1022,7 @@ impl crate::kernel::state::WorldState {
         let Some(notes) = notes else {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
-        self.apply_contender_notes(handle, notes)
+        self.apply_contender_notes(handle, update_sequence, notes)
     }
 
     fn contender_notes(
@@ -1155,24 +1245,16 @@ impl crate::kernel::state::WorldState {
         })
     }
 
+    /// 格点 owner 与逐车记录都以这辆车的 live 序号为平局键，任何插入或重新归约顺序
+    /// 都留下同样两名车（`traffic-runtime-contender-frontier.md` 4.3 节）。
     fn apply_contender_notes(
         &mut self,
         handle: VehicleHandle,
+        update_sequence: u32,
         notes: ContenderNotes,
     ) -> Result<(), FreshAdmissionFailure> {
         let mut contributed_cells = Vec::new();
         let mut contributed_zones = Vec::new();
-        let update_sequence = notes
-            .ranks
-            .first()
-            .map(|(_, rank, _)| rank.update_sequence())
-            .or_else(|| {
-                notes
-                    .waiting
-                    .as_ref()
-                    .map(|(_, _, entrant)| entrant.update_sequence)
-            })
-            .unwrap_or(0);
         for (address, estimate) in notes.cells {
             if estimate == ApproachEstimate::OutsideHorizon {
                 continue;
@@ -1220,33 +1302,6 @@ impl crate::kernel::state::WorldState {
         } else {
             None
         };
-        let update_sequence = contributed_zones
-            .first()
-            .and_then(|zone| {
-                self.derived
-                    .spawn_contenders
-                    .best
-                    .get(*zone)
-                    .and_then(|list| {
-                        list.iter()
-                            .find(|item| item.vehicle == handle)
-                            .map(|item| item.rank.update_sequence())
-                    })
-            })
-            .or_else(|| {
-                waiting_zone.and_then(|zone| {
-                    self.derived
-                        .spawn_contenders
-                        .waiting_entrants
-                        .get(zone)
-                        .and_then(|list| {
-                            list.iter()
-                                .find(|item| item.vehicle == handle)
-                                .map(|item| item.update_sequence)
-                        })
-                })
-            })
-            .unwrap_or(0);
         self.store_owner(
             handle,
             OwnerContribution {
@@ -1376,6 +1431,9 @@ impl crate::kernel::state::WorldState {
         if let Some(slot) = self.derived.spawn_contenders.cell_approach.get_mut(index) {
             *slot = reduced;
         }
+        if let Some(lazy) = self.derived.spawn_contenders.lazy_mut() {
+            lazy.forget(index);
+        }
     }
 
     fn remember_handle(
@@ -1458,6 +1516,17 @@ impl crate::kernel::state::WorldState {
         }
         self.add_spawn_contender(handle, update_sequence, true)?;
         self.note_owner_cells(handle, &mut dirty)?;
+        if self.derived.spawn_contenders.lazy_cells {
+            // 新车已经写了全部贡献，按需读格点时不能再从 frontier 并入它的旧槽位。
+            let mask = &mut self.derived.spawn_contenders.reach_mask;
+            let slot = handle.index() as usize;
+            let words = slot / 64 + 1;
+            if mask.len() < words {
+                contender_reserve(mask, words - mask.len(), AdmissionReserve::Refresh)?;
+                mask.resize(words, 0);
+            }
+            mask[slot / 64] |= 1u64 << (slot % 64);
+        }
         for index in dirty {
             self.rereduce_cell(index);
         }
@@ -2173,14 +2242,10 @@ impl crate::kernel::state::WorldState {
             let Some(index) = self.read_view().conflict_read().cell_index_of(*address) else {
                 continue;
             };
-            let Some(slot) = self
-                .derived
-                .spawn_contenders
-                .cell_approach
-                .get(index)
-                .copied()
-            else {
-                continue;
+            let slot = match self.read_view().contender_cell(index, *address) {
+                Ok(Some(slot)) => slot,
+                Ok(None) => continue,
+                Err(()) => return Err(FreshAdmissionFailure::StopConstraint),
             };
             for owner in slot.retained_owners().into_iter().flatten() {
                 push_recheck(&mut handles, owner)?;
@@ -2793,4 +2858,117 @@ fn emergency_floor_mm_s(speed_mm_s: u32, emergency_m_s2: f32, delta_s: f32) -> O
         return None;
     }
     Some(floor as u32)
+}
+
+impl crate::kernel::phase::StepReadView<'_> {
+    /// 准入候选名单在格点 `cell`（地址 `address`）上留下的两名车。
+    ///
+    /// 名单处于按需模式时，第一次读取把求值集合外、frontier 反向索引里的来源车并入
+    /// 并缓存到名单失效。格点下标不存在返回 `Ok(None)`。按需求值的前提不成立（没有
+    /// frontier、来源槽位与当前状态对不上、到达下界不可证明）返回 `Err(())`，调用方
+    /// 按不可证明处理。
+    pub(crate) fn contender_cell(
+        self,
+        cell: usize,
+        address: crate::ConflictPassageAddress,
+    ) -> Result<Option<ApproachFrontierCell>, ()> {
+        let contenders = &self.derived.spawn_contenders;
+        let Some(eager) = contenders.cell_approach.get(cell).copied() else {
+            return Ok(None);
+        };
+        if !contenders.lazy_cells {
+            return Ok(Some(eager));
+        }
+        let frontier = self.contender_frontier.ok_or(())?;
+        let mut lazy = contenders.lazy.first().ok_or(())?.lock().map_err(|_| ())?;
+        if let Some(value) = lazy.get(cell) {
+            return Ok(Some(value));
+        }
+        let mut value = eager;
+        self.merge_lazy_cell_sources(frontier, address, &mut value)?;
+        // 缓存失败只影响下一次读取要不要重算，这次结果照样可用。
+        let _ = lazy.remember(cell, value);
+        Ok(Some(value))
+    }
+
+    /// 把求值集合外的来源车并入格点。每辆来源车的到达下界与 `contender_notes` 相同：
+    /// 当前位置到这处出现项的距离 = 缓存距离 − 同一条边上的进度差；已越过的不计，
+    /// 证明时窗外的不计。
+    fn merge_lazy_cell_sources(
+        self,
+        frontier: &FrontierMaintenance,
+        address: crate::ConflictPassageAddress,
+        value: &mut ApproachFrontierCell,
+    ) -> Result<(), ()> {
+        let horizon_ms = self.binding.policy_binding.horizon().ok_or(())?;
+        let mask = &self.derived.spawn_contenders.reach_mask;
+        frontier.for_each_cached_occurrence(address, |occurrence: CachedOccurrence| {
+            let slot = occurrence.slot as usize;
+            if mask
+                .get(slot / 64)
+                .is_some_and(|word| word & (1u64 << (slot % 64)) != 0)
+            {
+                return Ok(());
+            }
+            let handle = VehicleHandle::new(occurrence.slot, occurrence.generation);
+            // 句柄过期、已完成或停车的车不再是来源，全量重建同样不计。槽位换了新车时，
+            // 新车经过生命周期登记，已在求值集合里或已把旧缓存摘掉。
+            let Some(state) = self
+                .vehicle_state(handle)
+                .filter(|state| state.status == VehicleStatus::Active)
+            else {
+                return Ok(());
+            };
+            // 求值集合外的 Active 车没有经历生命周期变化，槽位缓存必须还对得上当前状态。
+            if state.route.index() != occurrence.route_index
+                || state.route.generation() != occurrence.route_generation
+                || state.route_edge_index != occurrence.edge
+                || state.progress_mm < occurrence.progress_mm
+            {
+                return Err(());
+            }
+            let compiled = self.compiled_route(state.route).ok_or(())?;
+            if compiled.conflicts.is_empty() && compiled.waiting.is_empty() {
+                return Ok(());
+            }
+            let traveled = state.progress_mm - occurrence.progress_mm;
+            let Some(distance_mm) = occurrence.distance_mm.checked_sub(traveled) else {
+                return Ok(());
+            };
+            let profile = self
+                .binding
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile)
+                .ok_or(())?;
+            let prepared = PreparedApproachEta::new(
+                state.carry_um,
+                state.speed_mm_s,
+                profile.max_accel(),
+                horizon_ms,
+            )
+            .ok_or(())?;
+            let kinematic = prepared.lower_bound(u64::from(distance_mm));
+            if kinematic == ApproachEstimate::OutsideHorizon {
+                return Ok(());
+            }
+            let estimate = PreparedSignalApproach::new(self, &state, profile.emergency_decel())
+                .apply(kinematic, distance_mm, horizon_ms);
+            if estimate == ApproachEstimate::OutsideHorizon {
+                return Ok(());
+            }
+            let Some(Some(update_sequence)) = self
+                .derived
+                .live_order_index
+                .prepared_rank(&self.committed.live_order, handle)
+            else {
+                return Err(());
+            };
+            #[cfg(any(test, feature = "placement-fixtures"))]
+            LAZY_SOURCES.with(|cell| cell.set(cell.get().saturating_add(1)));
+            value.insert_owner_reduced(handle, update_sequence, estimate);
+            Ok(())
+        })
+    }
 }

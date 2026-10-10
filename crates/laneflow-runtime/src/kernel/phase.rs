@@ -12,6 +12,9 @@ pub(crate) struct StepReadView<'a> {
     pub(crate) binding: &'a WorldBindingState,
     pub(crate) committed: &'a CommittedWorldState,
     pub(crate) derived: &'a DerivedIndexes,
+    /// 命令路径上的入口 frontier。准入候选名单按需求值格点时读它；步进内部的视图
+    /// 不读名单格点，为 `None`。
+    pub(crate) contender_frontier: Option<&'a crate::kernel::entry_frontier::FrontierMaintenance>,
 }
 
 impl<'a> StepReadView<'a> {
@@ -114,6 +117,7 @@ impl StepWorkspace<'_> {
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
+            contender_frontier: None,
         }
     }
 
@@ -143,6 +147,7 @@ impl CommittedStateMut<'_> {
             binding: self.binding,
             committed: self.committed,
             derived: self.derived,
+            contender_frontier: None,
         }
     }
     /// 由该写视图派生、含工作区暂存的 Conflict 只读视图。
@@ -162,6 +167,7 @@ impl crate::kernel::state::WorldState {
             binding: &self.binding,
             committed: &self.committed,
             derived: &self.derived,
+            contender_frontier: Some(&self.workspace.frontier_maintenance),
         }
     }
 

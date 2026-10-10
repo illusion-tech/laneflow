@@ -2520,6 +2520,12 @@ impl<'a> ConflictRead<'a> {
         self.cell_index(address).ok()
     }
 
+    /// 格点下标对应的地址。
+    #[cfg(feature = "placement-fixtures")]
+    pub(crate) fn cell_address(self, index: usize) -> Option<ConflictPassageAddress> {
+        self.derived.addresses.get(index).copied()
+    }
+
     /// 构造仅覆盖已提交状态的只读视图。
     pub(crate) fn committed(
         committed: &'a ConflictCommittedState,

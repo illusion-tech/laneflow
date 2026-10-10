@@ -80,7 +80,7 @@ pub use kernel::parking::{
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
 pub use kernel::placement::{
-    AdmissionReserve, contender_rebuild_previews, contender_rebuild_scans,
+    AdmissionReserve, contender_lazy_sources, contender_rebuild_previews, contender_rebuild_scans,
     incremental_contender_visits, recheck_body_checks, reset_contender_update_counts,
     reset_recheck_body_checks, set_admission_reserve_failure, set_contender_note_reserve_failure,
     set_contender_reserve_failure, set_full_contender_rebuild,

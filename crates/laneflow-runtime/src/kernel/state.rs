@@ -365,15 +365,83 @@ pub(crate) struct SpawnConflictContenders {
     pub(crate) waiting_entrants: Vec<Vec<WaitingEntrant>>,
     /// 按车辆槽位记下这份名单里的贡献。没有贡献的槽是 `None`。
     pub(crate) owners: Vec<Option<OwnerContribution>>,
-    /// 重建时按车辆槽位标记这一拍可能够到门的车。只在重建期间有意义，容量保留。
+    /// 按车辆槽位标记这一拍可能够到门、已在名单里写全部贡献的车（求值集合）。
+    /// 按需模式下读格点时跳过这些车；生成刷新后新车也标进来。容量保留。
     pub(crate) reach_mask: Vec<u64>,
+    /// 名单处于按需模式：`cell_approach` 只含求值集合里车辆的贡献，其余来源车在
+    /// 第一次读取格点时经 frontier 反向索引并入 `lazy`。
+    pub(crate) lazy_cells: bool,
+    /// 按需求值过的格点，第一次进入按需模式时才分配（空切片不占堆）。命令路径
+    /// 单线程；用锁只是因为读视图要能跨线程共享。
+    pub(crate) lazy: Box<[std::sync::Mutex<LazyContenderCells>]>,
     /// `None` 表示名单不能当当前世界使用。建失败或更新不完整都留在这里，不假装已经建好。
     pub(crate) built_for: Option<ContenderBuilt>,
+}
+
+/// 名单按需模式下已经求值的格点。名单失效或重建时清空。
+#[derive(Debug, Default)]
+pub(crate) struct LazyContenderCells {
+    /// 按格点下标的已求值位。
+    pub(crate) evaluated: Vec<u64>,
+    /// 已求值格点的完整值。一份名单通常只读到几十个格点，按下标线性查找。
+    pub(crate) values: Vec<(usize, ApproachFrontierCell)>,
+}
+
+impl LazyContenderCells {
+    pub(crate) fn get(&self, cell: usize) -> Option<ApproachFrontierCell> {
+        let evaluated = self
+            .evaluated
+            .get(cell / 64)
+            .is_some_and(|word| word & (1u64 << (cell % 64)) != 0);
+        if !evaluated {
+            return None;
+        }
+        self.values
+            .iter()
+            .find(|(index, _)| *index == cell)
+            .map(|(_, value)| *value)
+    }
+
+    /// 记下一个格点的完整值。预留失败返回 `false`，不缓存，调用方仍可使用这次结果。
+    pub(crate) fn remember(&mut self, cell: usize, value: ApproachFrontierCell) -> bool {
+        let Some(word) = self.evaluated.get_mut(cell / 64) else {
+            return false;
+        };
+        if self.values.try_reserve(1).is_err() {
+            return false;
+        }
+        *word |= 1u64 << (cell % 64);
+        self.values.push((cell, value));
+        true
+    }
+
+    /// 格点的已求值部分变了，下次读取重新并入。
+    pub(crate) fn forget(&mut self, cell: usize) {
+        if let Some(word) = self.evaluated.get_mut(cell / 64) {
+            *word &= !(1u64 << (cell % 64));
+        }
+        self.values.retain(|(index, _)| *index != cell);
+    }
 }
 
 impl SpawnConflictContenders {
     pub(crate) fn invalidate(&mut self) {
         self.built_for = None;
+    }
+
+    pub(crate) fn lazy_mut(&mut self) -> Option<&mut LazyContenderCells> {
+        self.lazy.first_mut()?.get_mut().ok()
+    }
+
+    /// 按需模式的格点缓存；没有就分配。分配失败返回 `None`。
+    pub(crate) fn ensure_lazy(&mut self) -> Option<&mut LazyContenderCells> {
+        if self.lazy.is_empty() {
+            let mut holder = Vec::new();
+            holder.try_reserve_exact(1).ok()?;
+            holder.push(std::sync::Mutex::default());
+            self.lazy = holder.into_boxed_slice();
+        }
+        self.lazy_mut()
     }
 
     #[cfg(test)]
@@ -391,6 +459,16 @@ impl SpawnConflictContenders {
                 .map(|owner| vec_bytes(&owner.zones) + vec_bytes(&owner.cells))
                 .sum::<u64>()
             + vec_bytes(&self.reach_mask)
+            + self
+                .lazy
+                .iter()
+                .filter_map(|lazy| lazy.lock().ok())
+                .map(|lazy| {
+                    (std::mem::size_of::<std::sync::Mutex<LazyContenderCells>>() as u64)
+                        + vec_bytes(&lazy.evaluated)
+                        + vec_bytes(&lazy.values)
+                })
+                .sum::<u64>()
     }
 }
 
