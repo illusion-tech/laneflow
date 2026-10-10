@@ -5283,6 +5283,87 @@ fn closure_recheck_matches_the_full_scan_oracle() {
     );
 }
 
+/// 一条路线在同一道门后经过两个冲突区；已有车这一拍到门，在两个区的名单里各出现一次。
+/// `scratch` 为假时注入去重位图预留失败，复核退回逐条判定，作为参考路径。
+#[cfg(feature = "placement-fixtures")]
+fn duplicated_contender_recheck(
+    scratch: bool,
+) -> (
+    Result<laneflow_runtime::VehicleHandle, SpawnError>,
+    u64,
+    String,
+) {
+    let revision = compile_road_editing_revision(conflict_multiplicity_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("first stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("shared maneuver path")
+        .edges()
+        .to_vec();
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("route");
+    let entry = world.route_edges(route).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[entry.index()];
+    world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .expect("contender at the gate");
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::RecheckScratch,
+        !scratch,
+    );
+    laneflow_runtime::reset_recheck_body_checks();
+    let result = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+            .with_open_entrance(),
+    );
+    let checks = laneflow_runtime::recheck_body_checks();
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::RecheckScratch,
+        false,
+    );
+    let snapshot = world.capture_snapshot().expect("capture");
+    let digest = deterministic_state_digest(&snapshot).expect("snapshot digest");
+    (
+        result,
+        checks,
+        format!("{digest:?} {:?}", world.contender_fingerprint_for_test()),
+    )
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn recheck_body_scan_judges_each_contender_once_with_the_same_outcome() {
+    let (deduplicated, once, deduplicated_state) = duplicated_contender_recheck(true);
+    let (reference, repeated, reference_state) = duplicated_contender_recheck(false);
+    assert_eq!(deduplicated, reference);
+    assert_eq!(deduplicated_state, reference_state);
+    assert!(
+        once >= 1,
+        "the contender route reaches the new body: {deduplicated:?} {reference_state}"
+    );
+    assert!(
+        once < repeated,
+        "the fixture lists one contender in several zones: once {once} repeated {repeated}"
+    );
+}
+
 fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
     compile_road_editing_revision_with_limits(
         conflict_road_editing_module_with_shape_and_speed(

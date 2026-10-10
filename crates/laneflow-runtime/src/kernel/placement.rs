@@ -56,9 +56,10 @@ thread_local! {
     static FAIL_NOTE_RESERVE: Cell<bool> = const { Cell::new(false) };
     static INCREMENTAL_VISITS: Cell<u64> = const { Cell::new(0) };
     static REBUILD_SCANS: Cell<u64> = const { Cell::new(0) };
+    static RECHECK_BODY_CHECKS: Cell<u64> = const { Cell::new(0) };
 }
 #[cfg(any(test, feature = "placement-fixtures"))]
-crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS);
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_BEST: u8 = 1;
@@ -72,6 +73,8 @@ const FAIL_DOWNSTREAM: u8 = 8;
 const FAIL_ORDER: u8 = 16;
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_REFRESH: u8 = 32;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_RECHECK_SCRATCH: u8 = 64;
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_TABLES: u8 = FAIL_BEST | FAIL_CELL | FAIL_WAITING;
 
@@ -90,6 +93,8 @@ pub enum AdmissionReserve {
     Order,
     /// 车已经放进世界之后，刷新旧名单用的临时表。
     Refresh,
+    /// 复核车身时按车辆去重的可选位图。失败时退回逐条判定，不报错。
+    RecheckScratch,
 }
 
 #[cfg(any(test, feature = "placement-fixtures"))]
@@ -101,6 +106,7 @@ fn reserve_bit(kind: AdmissionReserve) -> u8 {
         AdmissionReserve::Downstream => FAIL_DOWNSTREAM,
         AdmissionReserve::Order => FAIL_ORDER,
         AdmissionReserve::Refresh => FAIL_REFRESH,
+        AdmissionReserve::RecheckScratch => FAIL_RECHECK_SCRATCH,
     }
 }
 
@@ -166,6 +172,20 @@ pub fn incremental_contender_visits() -> u64 {
 #[doc(hidden)]
 pub fn contender_rebuild_scans() -> u64 {
     REBUILD_SCANS.with(Cell::get)
+}
+
+/// 复核目标收集中，按路线判定「是否碰到新车车身」的次数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn recheck_body_checks() -> u64 {
+    RECHECK_BODY_CHECKS.with(Cell::get)
+}
+
+/// 把上面的计数清零。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_recheck_body_checks() {
+    RECHECK_BODY_CHECKS.with(|cell| cell.set(0));
 }
 
 fn contender_reserve<T>(
@@ -2062,14 +2082,19 @@ impl crate::kernel::state::WorldState {
                 .map(|profile| profile.min_gap_mm())
                 .ok_or(FreshAdmissionFailure::StopConstraint)?;
             let zone_count = self.derived.spawn_contenders.best.len();
-            // 同一车辆按同一 gate 的多个冲突区重复出现；判定只依赖该车路线与车身，
-            // 首次出现后重复项不会改变 handles，按槽位位图跳过。
-            let slot_bits = self.derived.spawn_contenders.owners.len();
+            // 同一车辆会按同一 gate 的多个冲突区重复出现。判定只取决于这辆车的
+            // 路线和新车车身，首次判定后重复项不会改变 handles，按槽位位图跳过。
+            // 只有当前有效的句柄才标记槽位。已标记槽位上的项可以跳过：同一句柄已经
+            // 判定过，过期句柄按原判定本来就不碰车身；未标记的过期句柄同样跳过且不
+            // 标记，同槽的有效代次仍会判定。位图是可选工作区，预留失败就退回逐条
+            // 判定，不新增失败。
+            let words = self.derived.spawn_contenders.owners.len().div_ceil(64);
             let mut evaluated: Vec<u64> = Vec::new();
-            evaluated
-                .try_reserve_exact(slot_bits.div_ceil(64))
-                .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
-            evaluated.resize(slot_bits.div_ceil(64), 0);
+            if !admission_reserve_denied(AdmissionReserve::RecheckScratch)
+                && evaluated.try_reserve_exact(words).is_ok()
+            {
+                evaluated.resize(words, 0);
+            }
             let mut zone_index = 0usize;
             while zone_index < zone_count {
                 let zone = zone_index;
@@ -2097,13 +2122,21 @@ impl crate::kernel::state::WorldState {
                     };
                     item = item.saturating_add(1);
                     let slot = vehicle.index() as usize;
+                    let bit = 1u64 << (slot % 64);
+                    if evaluated
+                        .get(slot / 64)
+                        .is_some_and(|word| *word & bit != 0)
+                    {
+                        continue;
+                    }
+                    if self.vehicle_state(vehicle).is_none() {
+                        continue;
+                    }
                     if let Some(word) = evaluated.get_mut(slot / 64) {
-                        let bit = 1u64 << (slot % 64);
-                        if *word & bit != 0 {
-                            continue;
-                        }
                         *word |= bit;
                     }
+                    #[cfg(any(test, feature = "placement-fixtures"))]
+                    RECHECK_BODY_CHECKS.with(|cell| cell.set(cell.get().saturating_add(1)));
                     if self.route_touches_body(vehicle, &body) {
                         push_recheck(&mut handles, vehicle)?;
                     }
