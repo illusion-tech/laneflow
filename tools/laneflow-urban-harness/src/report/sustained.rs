@@ -52,13 +52,6 @@ impl CommandBatch {
 }
 
 #[derive(serde::Deserialize)]
-struct TimingCopies {
-    window_step_samples_ns: Vec<u64>,
-    window_command_samples_ns: Vec<u64>,
-    window_observation_samples_ns: Vec<u64>,
-}
-
-#[derive(serde::Deserialize)]
 struct RecyclingAttempt {
     command: String,
     sequence: u32,
@@ -244,16 +237,7 @@ pub(super) fn verify(
             "sustained performance load differs between ticks, result and measurements",
         ));
     }
-    let copies: TimingCopies =
-        serde_json::from_reader(File::open(directory.join("diagnostics.json"))?)?;
-    if measurement.traffic_world_step_samples_ns != copies.window_step_samples_ns
-        || measurement.command_samples_ns != copies.window_command_samples_ns
-        || measurement.observation_samples_ns != copies.window_observation_samples_ns
-    {
-        return Err(invalid(
-            "sustained timing samples differ between measurements and diagnostics",
-        ));
-    }
+    // 计时样本与 diagnostics、逐拍记录的交叉核对统一由 `timing::verify` 负责。
     let recycling = plan.recycling.as_ref().expect("validated recycling plan");
     let routes: Vec<BTreeSet<_>> = recycling
         .entries_per_tile

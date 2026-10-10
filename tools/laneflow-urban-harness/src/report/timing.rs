@@ -66,9 +66,18 @@ struct Envelope {
     window_observation_samples_ns: Vec<u64>,
 }
 
-/// 比较入口逐行核对逐拍计时：声明版本、每个完成拍恰好一行且 tick 连续，
-/// 观察窗三个分量与 diagnostics 保存的原始样本逐项相等。
-pub(super) fn validate(directory: &Path, completed_ticks: u64, warm_up_ticks: u64) -> Result<()> {
+/// 双臂比较与三轮合并共用的唯一计时一致性校验。
+///
+/// 威胁模型见 `docs/design/urban-demand-harness.md`：摘要封套与这里的交叉核对
+/// 用于发现 harness 自身的错误和数据之间的不一致，不防有意伪造。逐项要求：
+/// diagnostics 声明当前计时版本；每个完成拍恰好一行且 tick 连续；整拍耗时不小于
+/// 其中三段互不重叠的分量之和；观察窗三个分量与 diagnostics 原始样本逐项相等；
+/// 正式臂的 measurements 三组样本也与这些逐拍值逐项相等。
+pub(super) fn verify(
+    directory: &Path,
+    result: &super::RunResult,
+    measurement: Option<&super::RetainedMeasurements>,
+) -> Result<()> {
     let envelope: Envelope = serde_json::from_reader(BufReader::new(File::open(
         directory.join("diagnostics.json"),
     )?))?;
@@ -86,20 +95,34 @@ pub(super) fn validate(directory: &Path, completed_ticks: u64, warm_up_ticks: u6
         if row.tick != tick {
             return Err(invalid("逐拍计时 tick 不连续"));
         }
-        if tick > warm_up_ticks {
+        let parts = row
+            .step_ns
+            .checked_add(row.command_ns)
+            .and_then(|sum| sum.checked_add(row.observation_ns));
+        if parts.is_none_or(|parts| parts > row.tick_elapsed_ns) {
+            return Err(invalid("逐拍计时的整拍耗时小于分量之和"));
+        }
+        if tick > result.window.warm_up_ticks {
             step.push(row.step_ns);
             command.push(row.command_ns);
             observation.push(row.observation_ns);
         }
     }
-    if tick != completed_ticks {
+    if tick != result.completed_ticks {
         return Err(invalid("逐拍计时行数与完成拍数不符"));
     }
     if step != envelope.window_step_samples_ns
         || command != envelope.window_command_samples_ns
         || observation != envelope.window_observation_samples_ns
     {
-        return Err(invalid("逐拍计时与观察窗计时副本不符"));
+        return Err(invalid("逐拍计时与 diagnostics 观察窗样本不符"));
+    }
+    if let Some(measurement) = measurement
+        && (measurement.traffic_world_step_samples_ns != step
+            || measurement.command_samples_ns != command
+            || measurement.observation_samples_ns != observation)
+    {
+        return Err(invalid("measurements 样本与逐拍计时不符"));
     }
     Ok(())
 }
