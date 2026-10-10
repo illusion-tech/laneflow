@@ -374,8 +374,51 @@ pub(crate) struct SpawnConflictContenders {
     /// 按需求值过的格点，第一次进入按需模式时才分配（空切片不占堆）。命令路径
     /// 单线程；用锁只是因为读视图要能跨线程共享。
     pub(crate) lazy: Box<[std::sync::Mutex<LazyContenderCells>]>,
+    /// 复核目标的路线索引，第一次重建名单时才分配（空切片不占堆）。
+    pub(crate) recheck_index: Box<[RecheckRouteIndex]>,
     /// `None` 表示名单不能当当前世界使用。建失败或更新不完整都留在这里，不假装已经建好。
     pub(crate) built_for: Option<ContenderBuilt>,
+}
+
+/// 链表里「没有下一项」。
+pub(crate) const NO_LINK: u32 = u32::MAX;
+
+/// 同一路线上有冲突区名次的申请者链表中的一项，按车辆槽位存放。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RouteContenderLink {
+    pub(crate) vehicle: VehicleHandle,
+    pub(crate) route: u32,
+    pub(crate) prev: u32,
+    pub(crate) next: u32,
+}
+
+impl RouteContenderLink {
+    pub(crate) const EMPTY: Self = Self {
+        vehicle: VehicleHandle::new(u32::MAX, 0),
+        route: NO_LINK,
+        prev: NO_LINK,
+        next: NO_LINK,
+    };
+}
+
+/// 复核目标「路线经过新车车身所在边的申请者」的两级索引。
+///
+/// 第一级「边 → 路线」是按已注册路线建的压缩稀疏行：经过边 `e` 的路线槽位是
+/// `edge_routes[edge_offsets[e]..edge_offsets[e + 1]]`。运行中路线只追加注册，释放空槽
+/// 只发生在世界切换里，因此按 (世界世代, 已注册路线数, 槽位表长度) 判断是否要重建。
+///
+/// 第二级「路线 → 申请者」是按车辆槽位的侵入式双向链表，表头按路线槽位存放。只链入
+/// 冲突区列表非空的逐车贡献记录，即出现在某个冲突区申请者名单里的车；写入与撤销
+/// 贡献记录时 O(1) 维护，名单重建时清空表头。
+#[derive(Debug, Default)]
+pub(crate) struct RecheckRouteIndex {
+    pub(crate) edge_offsets: Vec<u32>,
+    pub(crate) edge_routes: Vec<u32>,
+    pub(crate) edges_built_for: Option<(WorldGeneration, u32, usize)>,
+    pub(crate) route_heads: Vec<u32>,
+    pub(crate) links: Vec<RouteContenderLink>,
+    /// 这份名单的链表完整可用。预留失败后置假，复核退回逐条扫描，直到下次重建。
+    pub(crate) linked: bool,
 }
 
 /// 名单按需模式下已经求值的格点。名单失效或重建时清空。
@@ -433,6 +476,21 @@ impl SpawnConflictContenders {
         self.lazy.first_mut()?.get_mut().ok()
     }
 
+    pub(crate) fn recheck_index_mut(&mut self) -> Option<&mut RecheckRouteIndex> {
+        self.recheck_index.first_mut()
+    }
+
+    /// 复核目标的路线索引；没有就分配。分配失败返回 `None`。
+    pub(crate) fn ensure_recheck_index(&mut self) -> Option<&mut RecheckRouteIndex> {
+        if self.recheck_index.is_empty() {
+            let mut holder = Vec::new();
+            holder.try_reserve_exact(1).ok()?;
+            holder.push(RecheckRouteIndex::default());
+            self.recheck_index = holder.into_boxed_slice();
+        }
+        self.recheck_index_mut()
+    }
+
     /// 按需模式的格点缓存；没有就分配。分配失败返回 `None`。
     pub(crate) fn ensure_lazy(&mut self) -> Option<&mut LazyContenderCells> {
         if self.lazy.is_empty() {
@@ -467,6 +525,17 @@ impl SpawnConflictContenders {
                     (std::mem::size_of::<std::sync::Mutex<LazyContenderCells>>() as u64)
                         + vec_bytes(&lazy.evaluated)
                         + vec_bytes(&lazy.values)
+                })
+                .sum::<u64>()
+            + self
+                .recheck_index
+                .iter()
+                .map(|index| {
+                    (std::mem::size_of::<RecheckRouteIndex>() as u64)
+                        + vec_bytes(&index.edge_offsets)
+                        + vec_bytes(&index.edge_routes)
+                        + vec_bytes(&index.route_heads)
+                        + vec_bytes(&index.links)
                 })
                 .sum::<u64>()
     }

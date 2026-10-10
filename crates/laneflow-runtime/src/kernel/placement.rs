@@ -12,7 +12,8 @@ use super::entry_frontier::{
 };
 use super::occupancy::LeaderQueryHorizon;
 use super::state::{
-    ContenderBuilt, ContenderRank, OwnerContribution, WaitingEntrant, ZoneContender,
+    ContenderBuilt, ContenderRank, NO_LINK, OwnerContribution, RouteContenderLink, WaitingEntrant,
+    ZoneContender,
 };
 use super::tables::{
     body_interval_slots, distance_to_occurrence_start, for_each_admission_interval,
@@ -643,6 +644,9 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.waiting_entrants.clear();
         self.derived.spawn_contenders.owners.clear();
         self.derived.spawn_contenders.lazy_cells = false;
+        if let Some(index) = self.derived.spawn_contenders.recheck_index_mut() {
+            index.linked = false;
+        }
         self.derived
             .spawn_contenders
             .best
@@ -789,6 +793,7 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.best.clear();
         self.derived.spawn_contenders.cell_approach.clear();
         self.derived.spawn_contenders.owners.clear();
+        self.reset_route_contenders();
         if self.derived.spawn_contenders.waiting_entrants.len() > waiting_count {
             self.derived
                 .spawn_contenders
@@ -1326,8 +1331,297 @@ impl crate::kernel::state::WorldState {
             contender_reserve(owners, extra, AdmissionReserve::Best)?;
             owners.resize_with(slot.saturating_add(1), || None);
         }
+        let ranked = !contribution.zones.is_empty();
         owners[slot] = Some(contribution);
+        if ranked {
+            self.link_route_contender(handle);
+        }
         Ok(())
+    }
+
+    /// 名单重建时清空「路线 → 申请者」链表表头。预留失败时这份名单不用索引。
+    fn reset_route_contenders(&mut self) {
+        let routes = self.committed.routes.len();
+        let denied = admission_reserve_denied(AdmissionReserve::RecheckScratch);
+        let Some(index) = self.derived.spawn_contenders.ensure_recheck_index() else {
+            return;
+        };
+        index.linked = false;
+        index.route_heads.clear();
+        if denied || index.route_heads.try_reserve(routes).is_err() {
+            return;
+        }
+        index.route_heads.resize(routes, NO_LINK);
+        index.linked = true;
+    }
+
+    /// 把刚写入、冲突区列表非空的贡献记录链到它所在路线的表头。
+    fn link_route_contender(&mut self, handle: VehicleHandle) {
+        let route = self
+            .vehicle_state(handle)
+            .map(|state| state.route.index() as usize);
+        let Some(index) = self.derived.spawn_contenders.recheck_index_mut() else {
+            return;
+        };
+        if !index.linked {
+            return;
+        }
+        let (Some(route), Ok(route_u32)) = (route, u32::try_from(route.unwrap_or(usize::MAX)))
+        else {
+            index.linked = false;
+            return;
+        };
+        let slot = handle.index() as usize;
+        if index.links.len() <= slot {
+            let extra = slot + 1 - index.links.len();
+            if index.links.try_reserve(extra).is_err() {
+                index.linked = false;
+                return;
+            }
+            index.links.resize(slot + 1, RouteContenderLink::EMPTY);
+        }
+        if index.route_heads.len() <= route {
+            let extra = route + 1 - index.route_heads.len();
+            if index.route_heads.try_reserve(extra).is_err() {
+                index.linked = false;
+                return;
+            }
+            index.route_heads.resize(route + 1, NO_LINK);
+        }
+        let next = index.route_heads[route];
+        index.links[slot] = RouteContenderLink {
+            vehicle: handle,
+            route: route_u32,
+            prev: NO_LINK,
+            next,
+        };
+        if let Some(next) = index.links.get_mut(next as usize) {
+            next.prev = handle.index();
+        }
+        index.route_heads[route] = handle.index();
+    }
+
+    /// 撤销冲突区列表非空的贡献记录时，把这辆车从路线链表里摘掉。
+    fn unlink_route_contender(&mut self, handle: VehicleHandle) {
+        let Some(index) = self.derived.spawn_contenders.recheck_index_mut() else {
+            return;
+        };
+        if !index.linked {
+            return;
+        }
+        let Some(link) = index.links.get(handle.index() as usize).copied() else {
+            index.linked = false;
+            return;
+        };
+        if link.vehicle != handle {
+            index.linked = false;
+            return;
+        }
+        if link.prev == NO_LINK {
+            match index.route_heads.get_mut(link.route as usize) {
+                Some(head) => *head = link.next,
+                None => {
+                    index.linked = false;
+                    return;
+                }
+            }
+        } else if let Some(prev) = index.links.get_mut(link.prev as usize) {
+            prev.next = link.next;
+        }
+        if let Some(next) = index.links.get_mut(link.next as usize) {
+            next.prev = link.prev;
+        }
+    }
+
+    /// 「边 → 路线」压缩稀疏行与当前路线注册表一致；不一致就按计数排序重建。
+    /// 预留失败返回 `false`，复核退回逐条扫描。
+    fn ensure_edge_routes(&mut self) -> bool {
+        let signature = (
+            self.binding.world_generation,
+            self.committed.live_route_count,
+            self.committed.routes.len(),
+        );
+        let edge_count = self
+            .binding
+            .revision
+            .traffic()
+            .lane_lengths_millimetres()
+            .len();
+        let routes = &self.committed.routes;
+        let Some(index) = self.derived.spawn_contenders.ensure_recheck_index() else {
+            return false;
+        };
+        if index.edges_built_for == Some(signature) {
+            return true;
+        }
+        index.edges_built_for = None;
+        let offsets = &mut index.edge_offsets;
+        offsets.clear();
+        if offsets.try_reserve(edge_count + 1).is_err() {
+            return false;
+        }
+        offsets.resize(edge_count + 1, 0);
+        // 计数：每条路线在每条经过的边上计一次（环路重复出现时重复计，查询时去重）。
+        let mut total = 0usize;
+        for slot in routes {
+            let Some(compiled) = slot.compiled.as_ref() else {
+                continue;
+            };
+            for edge in &compiled.edges {
+                let Some(count) = offsets.get_mut(edge.index()) else {
+                    return false;
+                };
+                *count += 1;
+                total += 1;
+            }
+        }
+        // 计数转为起点（独占前缀和），再按起点放置并推进，最后右移一位得到区间边界。
+        let mut start = 0u32;
+        for count in offsets.iter_mut().take(edge_count) {
+            let here = *count;
+            *count = start;
+            start += here;
+        }
+        let edge_routes = &mut index.edge_routes;
+        edge_routes.clear();
+        if edge_routes.try_reserve(total).is_err() {
+            return false;
+        }
+        edge_routes.resize(total, 0);
+        for (route, slot) in routes.iter().enumerate() {
+            let Some(compiled) = slot.compiled.as_ref() else {
+                continue;
+            };
+            let Ok(route) = u32::try_from(route) else {
+                return false;
+            };
+            for edge in &compiled.edges {
+                let cursor = &mut offsets[edge.index()];
+                edge_routes[*cursor as usize] = route;
+                *cursor += 1;
+            }
+        }
+        offsets.copy_within(0..edge_count, 1);
+        offsets[0] = 0;
+        index.edges_built_for = Some(signature);
+        true
+    }
+
+    /// 某辆申请者在全冲突区扫描里第一次出现的位置：(冲突区编号, 名单内位置)。
+    fn first_contender_position(&self, handle: VehicleHandle) -> Option<(usize, usize)> {
+        let owner = self
+            .derived
+            .spawn_contenders
+            .owners
+            .get(handle.index() as usize)?
+            .as_ref()?;
+        owner
+            .zones
+            .iter()
+            .filter_map(|zone| {
+                let list = self.derived.spawn_contenders.best.get(*zone)?;
+                let position = list.iter().position(|item| item.vehicle == handle)?;
+                Some((*zone, position))
+            })
+            .min()
+    }
+
+    /// 路线经过车身所在边的申请者，按全冲突区扫描里第一次出现的顺序排列。
+    fn body_contenders_by_index(
+        &self,
+        body: &[crate::DownstreamInterval],
+    ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
+        let Some(index) = self.derived.spawn_contenders.recheck_index.first() else {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        };
+        let mut found: Vec<(usize, usize, VehicleHandle)> = Vec::new();
+        for interval in body {
+            let edge = interval.edge().index();
+            let (Some(start), Some(end)) = (
+                index.edge_offsets.get(edge).copied(),
+                index.edge_offsets.get(edge + 1).copied(),
+            ) else {
+                continue;
+            };
+            let Some(routes) = index.edge_routes.get(start as usize..end as usize) else {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            };
+            for route in routes {
+                let mut cursor = index
+                    .route_heads
+                    .get(*route as usize)
+                    .copied()
+                    .unwrap_or(NO_LINK);
+                while cursor != NO_LINK {
+                    let Some(link) = index.links.get(cursor as usize).copied() else {
+                        return Err(FreshAdmissionFailure::StopConstraint);
+                    };
+                    cursor = link.next;
+                    if found.iter().any(|(_, _, vehicle)| *vehicle == link.vehicle)
+                        || self.vehicle_state(link.vehicle).is_none()
+                    {
+                        continue;
+                    }
+                    let Some((zone, position)) = self.first_contender_position(link.vehicle) else {
+                        return Err(FreshAdmissionFailure::StopConstraint);
+                    };
+                    push_fallible(&mut found, (zone, position, link.vehicle))?;
+                }
+            }
+        }
+        found.sort_unstable_by_key(|(zone, position, _)| (*zone, *position));
+        let mut vehicles = Vec::new();
+        vehicles
+            .try_reserve(found.len())
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        vehicles.extend(found.into_iter().map(|(_, _, vehicle)| vehicle));
+        Ok(vehicles)
+    }
+
+    /// 逐个冲突区扫描申请者名单，找出路线经过车身所在边的车，按第一次出现排列。
+    /// 每辆车只判定一次；去重位图预留失败时逐条判定，结果相同。
+    fn body_contenders_by_scan(
+        &self,
+        body: &[crate::DownstreamInterval],
+        count_checks: bool,
+    ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
+        let mut touching = Vec::new();
+        let words = self.derived.spawn_contenders.owners.len().div_ceil(64);
+        let mut evaluated: Vec<u64> = Vec::new();
+        if !admission_reserve_denied(AdmissionReserve::RecheckScratch)
+            && evaluated.try_reserve_exact(words).is_ok()
+        {
+            evaluated.resize(words, 0);
+        }
+        for list in &self.derived.spawn_contenders.best {
+            for contender in list {
+                let vehicle = contender.vehicle;
+                let slot = vehicle.index() as usize;
+                let bit = 1u64 << (slot % 64);
+                if evaluated
+                    .get(slot / 64)
+                    .is_some_and(|word| *word & bit != 0)
+                {
+                    continue;
+                }
+                if self.vehicle_state(vehicle).is_none() {
+                    continue;
+                }
+                if let Some(word) = evaluated.get_mut(slot / 64) {
+                    *word |= bit;
+                }
+                #[cfg(any(test, feature = "placement-fixtures"))]
+                if count_checks {
+                    RECHECK_BODY_CHECKS.with(|cell| cell.set(cell.get().saturating_add(1)));
+                }
+                #[cfg(not(any(test, feature = "placement-fixtures")))]
+                let _ = count_checks;
+                if self.route_touches_body(vehicle, body) {
+                    push_recheck(&mut touching, vehicle)?;
+                }
+            }
+        }
+        Ok(touching)
     }
 
     fn owner_zones(&self, handle: VehicleHandle) -> Result<Vec<usize>, FreshAdmissionFailure> {
@@ -1370,6 +1664,9 @@ impl crate::kernel::state::WorldState {
         else {
             return Ok(());
         };
+        if !mark.zones.is_empty() {
+            self.unlink_route_contender(handle);
+        }
         for zone in &mark.zones {
             if let Some(list) = self.derived.spawn_contenders.best.get_mut(*zone) {
                 list.retain(|item| item.vehicle != handle);
@@ -2261,66 +2558,35 @@ impl crate::kernel::state::WorldState {
                 .vehicle_profile(candidate.profile)
                 .map(|profile| profile.min_gap_mm())
                 .ok_or(FreshAdmissionFailure::StopConstraint)?;
-            let zone_count = self.derived.spawn_contenders.best.len();
-            // 同一车辆会按同一 gate 的多个冲突区重复出现。判定只取决于这辆车的
-            // 路线和新车车身，首次判定后重复项不会改变 handles，按槽位位图跳过。
-            // 只有当前有效的句柄才标记槽位。已标记槽位上的项可以跳过：同一句柄已经
-            // 判定过，过期句柄按原判定本来就不碰车身；未标记的过期句柄同样跳过且不
-            // 标记，同槽的有效代次仍会判定。位图是可选工作区，预留失败就退回逐条
-            // 判定，不新增失败。
-            let words = self.derived.spawn_contenders.owners.len().div_ceil(64);
-            let mut evaluated: Vec<u64> = Vec::new();
-            if !admission_reserve_denied(AdmissionReserve::RecheckScratch)
-                && evaluated.try_reserve_exact(words).is_ok()
-            {
-                evaluated.resize(words, 0);
-            }
-            let mut zone_index = 0usize;
-            while zone_index < zone_count {
-                let zone = zone_index;
-                zone_index = zone_index.saturating_add(1);
-                let Some(len) = self
+            // 路线经过车身所在边的申请者：先查「边 → 路线 → 申请者」索引，索引不可用时
+            // 逐个冲突区扫描。两条路径得到同样的车和同样的先后。
+            let indexed = !admission_reserve_denied(AdmissionReserve::RecheckScratch)
+                && self
                     .derived
                     .spawn_contenders
-                    .best
-                    .get(zone)
-                    .map(|list| list.len())
-                else {
-                    continue;
-                };
-                let mut item = 0usize;
-                while item < len {
-                    let Some(vehicle) = self
-                        .derived
-                        .spawn_contenders
-                        .best
-                        .get(zone)
-                        .and_then(|list| list.get(item))
-                        .map(|contender| contender.vehicle)
-                    else {
-                        break;
-                    };
-                    item = item.saturating_add(1);
-                    let slot = vehicle.index() as usize;
-                    let bit = 1u64 << (slot % 64);
-                    if evaluated
-                        .get(slot / 64)
-                        .is_some_and(|word| *word & bit != 0)
-                    {
-                        continue;
-                    }
-                    if self.vehicle_state(vehicle).is_none() {
-                        continue;
-                    }
-                    if let Some(word) = evaluated.get_mut(slot / 64) {
-                        *word |= bit;
-                    }
-                    #[cfg(any(test, feature = "placement-fixtures"))]
-                    RECHECK_BODY_CHECKS.with(|cell| cell.set(cell.get().saturating_add(1)));
-                    if self.route_touches_body(vehicle, &body) {
-                        push_recheck(&mut handles, vehicle)?;
-                    }
+                    .recheck_index
+                    .first()
+                    .is_some_and(|index| index.linked)
+                && self.ensure_edge_routes();
+            let touching = if indexed {
+                let found = self.body_contenders_by_index(&body)?;
+                #[cfg(any(test, feature = "placement-fixtures"))]
+                {
+                    RECHECK_BODY_CHECKS.with(|cell| {
+                        cell.set(cell.get().saturating_add(found.len() as u64));
+                    });
+                    assert_eq!(
+                        found,
+                        self.body_contenders_by_scan(&body, false)?,
+                        "route index must match the zone scan"
+                    );
                 }
+                found
+            } else {
+                self.body_contenders_by_scan(&body, true)?
+            };
+            for vehicle in touching {
+                push_recheck(&mut handles, vehicle)?;
             }
             let mut overlapped = Vec::new();
             let claim_count = self.read_view().conflict_read().committed_downstream_len();
