@@ -557,11 +557,16 @@ fn write_staging_owner_marker(staging: &Path) -> Result<()> {
 /// 误恢复进错误 output 并删除原备份。规则：UTF-8 名原样保留（`%`
 /// 转义为 `%25`）；非 UTF-8 名逐字节 `%XX` 编码（自同编码字节，
 /// 两平台都是原名的单射）。无文件名时回退 `output`（调用方已拒根）。
+/// 编码结果有长度上界：`.staging-<pid>-`/`.lock-` 前缀要占约 20 字节，
+/// 而文件名单组件上限常见 255——长名经 `%` 三倍膨胀后会
+/// ENAMETOOLONG。超预算时截断并缀原名的 sha256 摘要：短名保持可读
+/// 可逆，长名定长且仍随原名区分。
 fn txn_name(output_dir: &Path) -> String {
+    const MAX_TXN_NAME: usize = 128;
     let name = output_dir
         .file_name()
         .unwrap_or_else(|| OsStr::new("output"));
-    match name.to_str() {
+    let encoded = match name.to_str() {
         Some(valid) => valid.replace('%', "%25"),
         None => {
             let mut encoded = String::with_capacity(name.len() * 3);
@@ -570,7 +575,22 @@ fn txn_name(output_dir: &Path) -> String {
             }
             encoded
         }
+    };
+    if encoded.len() <= MAX_TXN_NAME {
+        return encoded;
     }
+    // `~` + 16 位十六进制摘要占 17 字节；截断点须在字符边界且不得落在
+    // %XX/%25 三元组中间（编码里 % 必为三元组之首）。
+    let mut end = MAX_TXN_NAME - 17;
+    while !encoded.is_char_boundary(end) {
+        end -= 1;
+    }
+    let bytes = encoded.as_bytes();
+    while end > 0 && (bytes[end - 1] == b'%' || (end > 1 && bytes[end - 2] == b'%')) {
+        end -= 1;
+    }
+    let digest = hex_sha256(name.as_encoded_bytes());
+    format!("{}~{}", &encoded[..end], &digest[..16])
 }
 
 /// 排他新建事务目录（staging/backup 共用）：同名路径已存在（残留、撞名、
@@ -2144,6 +2164,25 @@ mod tests {
         // 编码形态与任何字面 UTF-8 名不撞：字面名里的 % 已被转义。
         let spoof = Path::new("bad%FFname");
         assert_ne!(txn_name(&first), txn_name(spoof));
+    }
+
+    #[test]
+    fn txn_name_bounds_long_names() {
+        // 合法长名经 % 三倍膨胀后可能顶破组件上限（84 个 % → 252 字节，
+        // 加 .lock- 前缀 258 > 255，ENAMETOOLONG）：超预算截断 + 摘要
+        // 兜底，截断点不得落在 %25 三元组中间，同前缀不同尾部仍可区分。
+        let long = format!("/some/{}", "%".repeat(84));
+        let name = txn_name(Path::new(&long));
+        assert!(name.len() <= 128, "{name} len {}", name.len());
+        let (prefix, digest) = name.split_once('~').expect("digest suffix");
+        assert_eq!(prefix.len() % 3, 0, "截断不得切开 %25 三元组: {prefix}");
+        assert_eq!(digest.len(), 16);
+        let other = format!("/some/{}", "%".repeat(83));
+        let other_name = txn_name(Path::new(&other));
+        assert!(other_name.len() <= 128);
+        assert_ne!(name, other_name, "同前缀不同尾部靠摘要区分");
+        // 短名不受影响（不进入摘要回退）。
+        assert!(!txn_name(Path::new("out")).contains('~'));
     }
 
     #[cfg(unix)]
