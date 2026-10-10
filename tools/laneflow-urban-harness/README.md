@@ -44,7 +44,7 @@ target/release/laneflow-urban-harness compare <run-a> <run-b> <comparison.json>
 回放、完整比较以及 correctness/performance 必须显式传入 `--diagnostics`；缺少
 完整记录时拒绝通过。库入口的 `Diagnostics` 默认禁用，调用方须明确选择。
 开启详细诊断后，每份日志设置 10 MiB 有界缓冲，三份共 30 MiB；关闭时不分配这些
-缓冲。这是诊断存储设置，不构成 Runtime 性能收益承诺。
+缓冲。窗口结束后先释放这三份缓冲再输出逐拍计时，诊断缓冲同时驻留不超过三份。这是诊断存储设置，不构成 Runtime 性能收益承诺。
 
 文本诊断使用 `tracing` 的级别、target 和结构化字段。CLI 仅在启用诊断时配置
 subscriber，`RUST_LOG` 通过 `EnvFilter` 控制文本级别，缺省为本 crate 的 info。
@@ -119,7 +119,7 @@ step 后真实下降另列。未达到负载门槛时仍保存全部日志和正
 `tick_elapsed_ns`，可用 tick 关联 `ticks.jsonl` 的实际 Active 和命令/事件。
 整拍耗时独立测量，包含 `advance`、本拍日志缓冲写入、记账和本拍检查点；不含初始化、
 最终序列化、刷盘与摘要。三个分量之和不是整拍耗时，分位数也不能相加。
-记录空间在循环开始前按计划拍数预分配，循环结束后批量输出。关闭诊断时不生成该文件，
+记录空间在循环开始前按计划拍数预分配（计入进程峰值），循环结束后批量输出。关闭诊断时不生成该文件，
 不分配记录空间或读取整拍时钟。旧冻结记录没有逐拍关联，仍只能做分布分析。
 
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
@@ -165,7 +165,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
 合并口径。
 
-当前测量载荷为 `urban-performance-measurements-v3`（v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
+当前测量载荷为 `urban-performance-measurements-v4`（v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
 完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的

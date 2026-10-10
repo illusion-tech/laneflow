@@ -19,7 +19,7 @@ mod log_io;
 mod sustained;
 mod timing;
 
-const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v3";
+const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v4";
 const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
 const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=pre-and-post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
 
@@ -507,7 +507,8 @@ pub fn run_to_directory(
         };
         write_json(&output.join("failure.json"), &failure)?;
     }
-    if let Some(logs) = &mut logs {
+    // 先释放三份日志缓冲再分配计时输出缓冲，诊断缓冲同时驻留不超过三份。
+    if let Some(logs) = logs.take() {
         logs.finish()?;
     }
     if let Some(timings) = &tick_timings {
@@ -1788,6 +1789,7 @@ mod tests {
             ("power_role", json!("power-saver")),
             ("workers", json!(2)),
             ("timing_range", json!("whole-command-phase")),
+            ("version", json!("urban-performance-measurements-v3")),
             ("version", json!("urban-performance-measurements-v1")),
             ("command_samples_ns", json!([1])),
         ] {
