@@ -758,14 +758,20 @@ fn swap_outputs(
             source,
         }
     })?;
-    // 备份现存：交付名 ∪ 排除名。
+    // 备份现存：交付名 ∪ 排除名。元数据错误不等于无旧文件：只有
+    // NotFound 才跳过备份，EIO/EACCES 等 fail-closed——跳过备份后的
+    // rename（Unix 覆盖语义）会无备份地吃掉旧交付物。
     for name in managed_names(staged) {
         let dest = output_dir.join(name);
-        if dest.symlink_metadata().is_ok() {
-            fs::rename(&dest, backup.join(name)).map_err(|source| Error::Io {
-                path: dest.clone(),
-                source,
-            })?;
+        match dest.symlink_metadata() {
+            Ok(_) => {
+                fs::rename(&dest, backup.join(name)).map_err(|source| Error::Io {
+                    path: dest.clone(),
+                    source,
+                })?;
+            }
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => return Err(Error::Io { path: dest, source }),
         }
     }
     // 备份阶段完成标记——装入开始前写入；崩溃恢复据此区分中断形态。
@@ -1030,7 +1036,19 @@ fn restore_backup(
     for name in managed_names(staged) {
         let from = backup.join(name);
         let to = output_dir.join(name);
-        if from.symlink_metadata().is_ok() {
+        // 元数据错误不等于条目缺失：只有 NotFound 才按「无备份条目」走
+        // installed 分支；EIO/EACCES 等按恢复失败处理（备份保留）——否则
+        // 会删掉已装入的新文件却从不恢复旧文件，收尾 clear_backup 把旧
+        // 交付集的唯一副本清掉。
+        let backed_up = match from.symlink_metadata() {
+            Ok(_) => true,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => false,
+            Err(source) => {
+                failures.push(format!("inspect {}: {source}", from.display()));
+                continue;
+            }
+        };
+        if backed_up {
             // 旧文件：新文件若已落位先删，再从备份恢复。
             if let Err(source) = fs::remove_file(&to)
                 && source.kind() != std::io::ErrorKind::NotFound
@@ -1041,13 +1059,22 @@ fn restore_backup(
             if let Err(source) = fs::copy(&from, &to) {
                 failures.push(format!("restore {}: {source}", to.display()));
             }
-        } else if installed.contains(&name) && to.symlink_metadata().is_ok() {
+        } else if installed.contains(&name) {
             // #253 V1：本次新装入、运行前不存在的文件——失败路径必须删除，
             // 保证错误返回时 output_dir 完全回到运行前状态。判据是实际装入
             // 名单而非 staged 名单：备份阶段中途失败时，尚未轮到的文件无
             // 备份条目却还带着运行前的旧文件，误删会丢掉旧交付集。
-            if let Err(source) = fs::remove_file(&to) {
-                failures.push(format!("remove installed {}: {source}", to.display()));
+            // to 的元数据错误同样不等于「已不存在」：查不动必须记失败。
+            match to.symlink_metadata() {
+                Ok(_) => {
+                    if let Err(source) = fs::remove_file(&to) {
+                        failures.push(format!("remove installed {}: {source}", to.display()));
+                    }
+                }
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    failures.push(format!("inspect installed {}: {source}", to.display()));
+                }
             }
         }
     }
@@ -1962,6 +1989,83 @@ mod tests {
         // 编码形态与任何字面 UTF-8 名不撞：字面名里的 % 已被转义。
         let spoof = Path::new("bad%FFname");
         assert_ne!(txn_name(&first), txn_name(spoof));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_backup_preserves_backup_on_metadata_error() {
+        // 元数据错误不等于条目缺失：备份目录不可搜（EACCES 注入 EIO 同类）
+        // 时恢复必须记失败并保留备份——已装入的新文件不得被删除（旧交付
+        // 集唯一副本在备份里，靠它恢复）。
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("lust-restore-metaerr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let backup = root.join("backup");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&backup).expect("backup");
+        std::fs::write(backup.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(output.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o000))
+            .expect("seal backup");
+
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+        let failures = restore_backup(&output, &backup, &staged, &[MANIFEST_NAME])
+            .expect_err("metadata error must fail");
+        assert!(failures.contains("inspect"), "{failures}");
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"new-manifest",
+            "查不动备份条目时已装入的新文件必须保留"
+        );
+        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o755))
+            .expect("unseal backup");
+        assert_eq!(
+            std::fs::read(backup.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "备份条目零触碰"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn swap_fails_closed_on_dest_metadata_error() {
+        // 备份循环的 dest 元数据错误（EACCES 注入 EIO 同类）fail-closed：
+        // 跳过备份会让 rename 无备份地吃掉旧交付物。错误后旧文件原样。
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("lust-swap-metaerr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        let backup = root.join("backup");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::create_dir_all(&backup).expect("backup");
+        std::fs::write(output.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o000))
+            .expect("seal output");
+
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+        let mut installed = Vec::new();
+        let error = swap_outputs(&staging, &output, &backup, &staged, &mut installed)
+            .expect_err("dest metadata error must fail closed");
+        assert!(matches!(&error, Error::Io { .. }), "{error:?}");
+        assert!(installed.is_empty(), "装入未发生");
+        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o755))
+            .expect("unseal output");
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "旧交付物原样保留"
+        );
+        assert!(
+            !backup.join(MANIFEST_NAME).exists(),
+            "失败前不得有备份 rename"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[cfg(unix)]
