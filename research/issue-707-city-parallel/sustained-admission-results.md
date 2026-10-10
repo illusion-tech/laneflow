@@ -90,7 +90,7 @@ step 计时仅覆盖整步调用；命令计时仅覆盖公共 Runtime 生命周
 
 ## 冻结与复核入口
 
-证据根为 `E:/projects/laneflow-evidence/issue-707/`：
+证据根为 `<evidence-root>/issue-707/`：
 
 - 第一版：`sustained-admission-20261007-v1/`，四次短窗、失败归因、`audit.json`、
   `run-files-manifest.json` 与两份 comparison。

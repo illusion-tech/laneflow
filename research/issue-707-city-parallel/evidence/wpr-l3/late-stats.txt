@@ -12,7 +12,7 @@ Total # Lost Events  : 0
 
 Number of Traces     : 1
 
-Trace name: E:\projects\laneflow-evidence\issue-707\4de40e04\diagnostics\wpr\l3-w4-late.etl
+Trace name: <evidence-root>\issue-707\4de40e04\diagnostics\wpr\l3-w4-late.etl
     Log file mode        : Sequential Relogged
     Pointer size         : 8 (64bit)
     Start time (UTC)     : 2026/09/21:05:47:01.5560826

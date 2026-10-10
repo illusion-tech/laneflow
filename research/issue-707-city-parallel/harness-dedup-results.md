@@ -132,7 +132,7 @@ paged-memory 高水位约 524.5–525.2MiB。没有明显的新增大缓存成�
 
 原目标仍为 100k 规模、33ms 仿真步长、Core p95≤16ms，当前没有达标。
 
-本机根：`E:/projects/laneflow/target/issue707-h1-results/`。
+本机根：`<checkout>/target/issue707-h1-results/`。
 
 仓库内长期复核入口：
 

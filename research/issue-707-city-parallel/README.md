@@ -108,8 +108,8 @@ ABBA 观察窗公共命令少 16.5%–19.0%，命令 p99 少约 38%–40%，step
 交通文件逐字节一致。候选名单完整重建仍占回收准入约 60%，另行设计。
 
 > 测量基线：`4de40e045398e4b010b2aa36522afc02a4094c4d`（main，#731 合并后）。
-> 证据根：`E:/projects/laneflow-evidence/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
-> 测量 checkout：`E:/projects/worktrees/707-measure/laneflow`（detached @ 4de40e04，全程干净）。
+> 证据根：`<evidence-root>/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
+> 测量 checkout：`<worktree>`（detached @ 4de40e04，全程干净）。
 > 原 pilot 切片范围：WP A/B/C；后续 D1/D2 已完成 r1，完整 D/E 尚未完成。
 > 本研究文档分支未改 Runtime 算法/调度/阈值/P4/SIMD/数据布局或 Harness 代码；
 > 诊断插桩在独立 checkout，身份与边界见分层短测结果。

@@ -12,7 +12,7 @@ Total # Lost Events  : 0
 
 Number of Traces     : 1
 
-Trace name: E:\projects\laneflow\target\issue707-b1-wpr-20260922/b1.etl
+Trace name: <checkout>\target\issue707-b1-wpr-20260922/b1.etl
     Log file mode        : Sequential Relogged
     Pointer size         : 8 (64bit)
     Start time (UTC)     : 2026/09/21:15:59:54.2520924

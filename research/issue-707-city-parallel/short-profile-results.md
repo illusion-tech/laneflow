@@ -5,10 +5,10 @@
 
 ## 1. 本轮执行与身份
 
-- 独立源码 checkout：`E:/projects/laneflow/target/issue707-short-source`，基于
+- 独立源码 checkout：`<checkout>/target/issue707-short-source`，基于
   `4de40e045398e4b010b2aa36522afc02a4094c4d` 加本轮诊断补丁。
 - 工具目录：该 checkout 的 `research/issue-707-short-profile/`。
-- 产物根：`E:/projects/laneflow/target/issue707-short-results/`。
+- 产物根：`<checkout>/target/issue707-short-results/`。
 - `provenance.json` 保存源码文件、完整补丁、计划、二进制和输出摘要；
   `diagnostic.patch` 可复核精确源码变更，不能把修改后的 checkout 称为干净基线。
 - 工具链 1.98.0，release，offline/locked；单独 build 目录。`short-profile`

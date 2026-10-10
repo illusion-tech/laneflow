@@ -4,7 +4,7 @@
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
 
 2026-09-21。本文件补充原 WP A/B/C pilot 交付；不关闭 #707，不调整正式预算。
-来源根目录：`E:/projects/laneflow-evidence/issue-707/4de40e04/`。
+来源根目录：`<evidence-root>/issue-707/4de40e04/`。
 源码身份：`4de40e045398e4b010b2aa36522afc02a4094c4d`。
 
 仓库内的 [`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)把四轮

@@ -14,7 +14,7 @@
 - Ryzen 9 9955HX，16 核 / 32 逻辑处理器；交流电、平衡电源方案。
 - 路网复用已冻结的多车道 `urban-10k` / `urban-100k`，复制前轮原件后逐文件验证
   manifest 的长度与 SHA-256；持续回收计划由新 EXE 重新生成，不复用旧计划。
-- 原件目录：`E:/projects/laneflow-evidence/issue-707/post815-20261007-7a65e221/`。
+- 原件目录：`<evidence-root>/issue-707/post815-20261007-7a65e221/`。
   `measurement-freeze.json` 固定源码、输入、二进制、计划和顺序；`run-files-manifest.json`
   固定运行原件摘要；`audit.json`、`summary.csv`、`100k-active-trajectory.csv` 为派生核对结果。
 

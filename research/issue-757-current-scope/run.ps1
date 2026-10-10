@@ -8,7 +8,7 @@ param(
     [int]$Ticks = 512,
     [int]$Workers = 4,
     [switch]$Diagnostic,
-    [string]$FrozenInputs = 'E:/projects/laneflow-evidence/issue-707/4de40e04'
+    [Parameter(Mandatory)][string]$FrozenInputs
 )
 $ErrorActionPreference = 'Stop'
 $exePath = (Resolve-Path -LiteralPath $Binary).Path
