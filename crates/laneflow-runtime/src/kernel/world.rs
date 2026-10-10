@@ -2586,6 +2586,18 @@ impl TrafficWorld {
         self.state.contender_fingerprint_for_test()
     }
 
+    /// 当前接近名单里有车的格点，按格点下标排列，含留下的两名车与估计。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    #[cfg(feature = "placement-fixtures")]
+    #[doc(hidden)]
+    pub fn contender_cells_for_test(&self) -> Vec<String> {
+        self.execution.assert_usable();
+        self.state.contender_cells_for_test()
+    }
+
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
     /// 入口占用、当前停车约束、前车或后车不安全都可以稍后用同一输入再试。降不到前方限速时，同一初速再试仍会失败，须降低初速或更换输入。输入本身非法

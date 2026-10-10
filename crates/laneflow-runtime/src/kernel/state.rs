@@ -365,6 +365,8 @@ pub(crate) struct SpawnConflictContenders {
     pub(crate) waiting_entrants: Vec<Vec<WaitingEntrant>>,
     /// 按车辆槽位记下这份名单里的贡献。没有贡献的槽是 `None`。
     pub(crate) owners: Vec<Option<OwnerContribution>>,
+    /// 重建时按车辆槽位标记这一拍可能够到门的车。只在重建期间有意义，容量保留。
+    pub(crate) reach_mask: Vec<u64>,
     /// `None` 表示名单不能当当前世界使用。建失败或更新不完整都留在这里，不假装已经建好。
     pub(crate) built_for: Option<ContenderBuilt>,
 }
@@ -388,6 +390,7 @@ impl SpawnConflictContenders {
                 .filter_map(Option::as_ref)
                 .map(|owner| vec_bytes(&owner.zones) + vec_bytes(&owner.cells))
                 .sum::<u64>()
+            + vec_bytes(&self.reach_mask)
     }
 }
 

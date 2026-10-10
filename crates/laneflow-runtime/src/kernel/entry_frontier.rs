@@ -267,6 +267,40 @@ impl FrontierMaintenance {
         self.seeded = true;
     }
 
+    /// 对已发布近门集合、失效名单和尚未消费的生命周期增量逐个回调。
+    ///
+    /// 名单没有在成功提交时发布、或世界身份不符时不回调，返回 `false`。句柄可能已经
+    /// 过期，调用方自己核对。只读，不改变下一次 `step` 看到的维护数据。
+    pub(crate) fn for_each_published_source(
+        &self,
+        world_id: u64,
+        generation: WorldGeneration,
+        mut visit: impl FnMut(VehicleHandle),
+    ) -> bool {
+        if !self.seeded
+            || self.identity
+                != Some(FrontierIdentity {
+                    world_id,
+                    generation,
+                })
+        {
+            return false;
+        }
+        for vehicle in self.ready_near.iter().chain(&self.ready_invalid) {
+            visit(*vehicle);
+        }
+        for index in &self.increment_indexes {
+            if let Some(slot) = usize::try_from(*index)
+                .ok()
+                .and_then(|slot| self.increment_slots.get(slot))
+                && slot.present
+            {
+                visit(VehicleHandle::new(*index, slot.generation));
+            }
+        }
+        true
+    }
+
     fn write_increment(&mut self, index: u32, generation: Option<u32>) {
         let Some(index_usize) = usize::try_from(index).ok() else {
             return;
