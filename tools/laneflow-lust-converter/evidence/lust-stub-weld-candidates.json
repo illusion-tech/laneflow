@@ -1,0 +1,2056 @@
+{
+  "manifestVersion": 1,
+  "ruleVersion": "stub-weld/g1-six-cond@2",
+  "pinnedCommit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+  "netDigest": "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341",
+  "generator": "laneflow-lust-converter",
+  "thresholds": {
+    "maxDisplacementM": 0.5,
+    "maxLocalityM": 0.05,
+    "joinGapM": 0.005,
+    "pointStubSpanM": 0.5,
+    "joinGapSource": "compiler MAX_SOURCE_JOIN_GAP_METERS"
+  },
+  "candidates": [
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-11256_0_0",
+      "entryLaneId": "-30574#0_0",
+      "exitLaneId": "-30574#1_0",
+      "junctionId": "-11256",
+      "entryEndM": [
+        5122.52,
+        6699.83
+      ],
+      "weldTargetM": [
+        5122.52,
+        6699.83
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-11556_0_0",
+      "entryLaneId": "-31690_0",
+      "exitLaneId": "-32858#0_0",
+      "junctionId": "-11556",
+      "entryEndM": [
+        5367.79,
+        5840.44
+      ],
+      "weldTargetM": [
+        5367.75,
+        5840.44
+      ],
+      "displacementM": 0.04,
+      "spanM": 0.04,
+      "shapeLenM": 0.04,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-11556_0_1",
+      "entryLaneId": "-31690_1",
+      "exitLaneId": "-32858#0_1",
+      "junctionId": "-11556",
+      "entryEndM": [
+        5367.38,
+        5837.16
+      ],
+      "weldTargetM": [
+        5367.39,
+        5837.16
+      ],
+      "displacementM": 0.01,
+      "spanM": 0.01,
+      "shapeLenM": 0.01,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-11556_0_2",
+      "entryLaneId": "-31690_2",
+      "exitLaneId": "-32858#0_2",
+      "junctionId": "-11556",
+      "entryEndM": [
+        5366.97,
+        5833.89
+      ],
+      "weldTargetM": [
+        5367.03,
+        5833.88
+      ],
+      "displacementM": 0.0608276253029822,
+      "spanM": 0.0608276253029822,
+      "shapeLenM": 0.0608276253029822,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-12400_1_0",
+      "entryLaneId": "-31622#10-AddedOffRampEdge_1",
+      "exitLaneId": "-31622#11_0",
+      "junctionId": "-12400",
+      "entryEndM": [
+        3650.78,
+        6409.94
+      ],
+      "weldTargetM": [
+        3650.78,
+        6410.06
+      ],
+      "displacementM": 0.12,
+      "spanM": 0.12,
+      "shapeLenM": 0.12359173603117452,
+      "localityM": 0.01,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-12400_1_1",
+      "entryLaneId": "-31622#10-AddedOffRampEdge_2",
+      "exitLaneId": "-31622#11_1",
+      "junctionId": "-12400",
+      "entryEndM": [
+        3647.53,
+        6410.5
+      ],
+      "weldTargetM": [
+        3647.54,
+        6410.66
+      ],
+      "displacementM": 0.16031219541881397,
+      "spanM": 0.16031219541881397,
+      "shapeLenM": 0.16384402799378828,
+      "localityM": 0.007485394338621664,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-12400_1_2",
+      "entryLaneId": "-31622#10-AddedOffRampEdge_3",
+      "exitLaneId": "-31622#11_2",
+      "junctionId": "-12400",
+      "entryEndM": [
+        3644.28,
+        6411.06
+      ],
+      "weldTargetM": [
+        3644.29,
+        6411.27
+      ],
+      "displacementM": 0.21023796041628637,
+      "spanM": 0.21023796041628637,
+      "shapeLenM": 0.2108276253029822,
+      "localityM": 0.007134772412317411,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-14502_0_0",
+      "entryLaneId": "-32400#0-AddedOffRampEdge_0",
+      "exitLaneId": "-32310_0",
+      "junctionId": "-14502",
+      "entryEndM": [
+        7112.98,
+        3791.52
+      ],
+      "weldTargetM": [
+        7113.04,
+        3791.45
+      ],
+      "displacementM": 0.09219544457292887,
+      "spanM": 0.09219544457292887,
+      "shapeLenM": 0.09219544457292887,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-14844_0_0",
+      "entryLaneId": "--32122#0_0",
+      "exitLaneId": "--32792#1_0",
+      "junctionId": "-14844",
+      "entryEndM": [
+        9321.81,
+        1190.35
+      ],
+      "weldTargetM": [
+        9321.81,
+        1190.36
+      ],
+      "displacementM": 0.01,
+      "spanM": 0.01,
+      "shapeLenM": 0.01,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-14844_0_1",
+      "entryLaneId": "--32122#0_1",
+      "exitLaneId": "--32792#1_1",
+      "junctionId": "-14844",
+      "entryEndM": [
+        9324.88,
+        1189.16
+      ],
+      "weldTargetM": [
+        9324.88,
+        1189.16
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-14844_2_0",
+      "entryLaneId": "-32792#1_0",
+      "exitLaneId": "-32122#0_0",
+      "junctionId": "-14844",
+      "entryEndM": [
+        9331.03,
+        1186.77
+      ],
+      "weldTargetM": [
+        9331.03,
+        1186.77
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-14844_2_1",
+      "entryLaneId": "-32792#1_1",
+      "exitLaneId": "-32122#0_1",
+      "junctionId": "-14844",
+      "entryEndM": [
+        9327.96,
+        1187.96
+      ],
+      "weldTargetM": [
+        9327.96,
+        1187.96
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-15490_0_0",
+      "entryLaneId": "--31202_0",
+      "exitLaneId": "-32772_0",
+      "junctionId": "-15490",
+      "entryEndM": [
+        9696.39,
+        7333.26
+      ],
+      "weldTargetM": [
+        9696.3,
+        7332.96
+      ],
+      "displacementM": 0.3132091952673165,
+      "spanM": 0.3132091952673165,
+      "shapeLenM": 0.3132091952673165,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
+      "stubLaneId": ":-15490_1_0",
+      "entryLaneId": "-32156_0",
+      "exitLaneId": "-31202_0",
+      "junctionId": "-15490",
+      "entryEndM": [
+        9697.05,
+        7330.38
+      ],
+      "weldTargetM": [
+        9697.37,
+        7330.11
+      ],
+      "displacementM": 0.41868842830916647,
+      "spanM": 0.41868842830916647,
+      "shapeLenM": 0.41868842830916647,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-32772_0",
+          ":-15490_2_0",
+          0.41868842830916647
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-32156_0\" end onto exit lane \"-31202_0\" start, breaking shared traversal \"-32156_0->-32772_0\": first-internal join gap 0.4187 m (> 0.005 m)"
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-15606_0_0",
+      "entryLaneId": "-32454#2_0",
+      "exitLaneId": "-32706_0",
+      "junctionId": "-15606",
+      "entryEndM": [
+        5366.83,
+        5824.9
+      ],
+      "weldTargetM": [
+        5366.75,
+        5824.91
+      ],
+      "displacementM": 0.0806225774829855,
+      "spanM": 0.0806225774829855,
+      "shapeLenM": 0.0806225774829855,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-15606_0_1",
+      "entryLaneId": "-32454#2_1",
+      "exitLaneId": "-32706_1",
+      "junctionId": "-15606",
+      "entryEndM": [
+        5367.17,
+        5828.18
+      ],
+      "weldTargetM": [
+        5367.17,
+        5828.18
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-15606_0_2",
+      "entryLaneId": "-32454#2_2",
+      "exitLaneId": "-32706_2",
+      "junctionId": "-15606",
+      "entryEndM": [
+        5367.52,
+        5831.46
+      ],
+      "weldTargetM": [
+        5367.57,
+        5831.46
+      ],
+      "displacementM": 0.05,
+      "spanM": 0.05,
+      "shapeLenM": 0.05,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-16224_0_0",
+      "entryLaneId": "--31444#1_0",
+      "exitLaneId": "--31444#0_0",
+      "junctionId": "-16224",
+      "entryEndM": [
+        2025.77,
+        7754.28
+      ],
+      "weldTargetM": [
+        2025.85,
+        7754.29
+      ],
+      "displacementM": 0.0806225774829855,
+      "spanM": 0.0806225774829855,
+      "shapeLenM": 0.0806225774829855,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-16224_1_0",
+      "entryLaneId": "-31444#0_0",
+      "exitLaneId": "-31444#1_0",
+      "junctionId": "-16224",
+      "entryEndM": [
+        2026.25,
+        7751.01
+      ],
+      "weldTargetM": [
+        2026.33,
+        7751.02
+      ],
+      "displacementM": 0.0806225774829855,
+      "spanM": 0.0806225774829855,
+      "shapeLenM": 0.0806225774829855,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-1974_0_0",
+      "entryLaneId": "-31272#8_0",
+      "exitLaneId": "-31690_0",
+      "junctionId": "-1974",
+      "entryEndM": [
+        5757.86,
+        5791.34
+      ],
+      "weldTargetM": [
+        5757.78,
+        5791.35
+      ],
+      "displacementM": 0.0806225774829855,
+      "spanM": 0.0806225774829855,
+      "shapeLenM": 0.0806225774829855,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-1974_0_1",
+      "entryLaneId": "-31272#8_1",
+      "exitLaneId": "-31690_1",
+      "junctionId": "-1974",
+      "entryEndM": [
+        5757.61,
+        5788.05
+      ],
+      "weldTargetM": [
+        5757.36,
+        5788.08
+      ],
+      "displacementM": 0.25179356624028343,
+      "spanM": 0.25179356624028343,
+      "shapeLenM": 0.25179356624028343,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-1974_0_2",
+      "entryLaneId": "-31272#8_2",
+      "exitLaneId": "-31690_2",
+      "junctionId": "-1974",
+      "entryEndM": [
+        5757.37,
+        5784.76
+      ],
+      "weldTargetM": [
+        5756.95,
+        5784.8
+      ],
+      "displacementM": 0.42190046219457966,
+      "spanM": 0.42190046219457966,
+      "shapeLenM": 0.42190046219457966,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-20604_0_0",
+      "entryLaneId": "--30872#8_0",
+      "exitLaneId": "--30872#7_0",
+      "junctionId": "-20604",
+      "entryEndM": [
+        5882.15,
+        6256.02
+      ],
+      "weldTargetM": [
+        5882.1,
+        6256.12
+      ],
+      "displacementM": 0.1118033988749895,
+      "spanM": 0.1118033988749895,
+      "shapeLenM": 0.1118033988749895,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-20604_0_1",
+      "entryLaneId": "--30872#8_1",
+      "exitLaneId": "--30872#7_1",
+      "junctionId": "-20604",
+      "entryEndM": [
+        5879.19,
+        6254.56
+      ],
+      "weldTargetM": [
+        5879.19,
+        6254.57
+      ],
+      "displacementM": 0.01,
+      "spanM": 0.01,
+      "shapeLenM": 0.01,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-20604_2_0",
+      "entryLaneId": "-30872#7_0",
+      "exitLaneId": "-30872#8_0",
+      "junctionId": "-20604",
+      "entryEndM": [
+        5873.25,
+        6251.67
+      ],
+      "weldTargetM": [
+        5873.37,
+        6251.43
+      ],
+      "displacementM": 0.2683281572999748,
+      "spanM": 0.2683281572999748,
+      "shapeLenM": 0.2683281572999748,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-20604_2_1",
+      "entryLaneId": "-30872#7_1",
+      "exitLaneId": "-30872#8_1",
+      "junctionId": "-20604",
+      "entryEndM": [
+        5876.27,
+        6253.03
+      ],
+      "weldTargetM": [
+        5876.24,
+        6253.09
+      ],
+      "displacementM": 0.0670820393249937,
+      "spanM": 0.0670820393249937,
+      "shapeLenM": 0.0670820393249937,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-21778_3_0",
+      "entryLaneId": "-30326_0",
+      "exitLaneId": "-32858#1-AddedOnRampEdge_0",
+      "junctionId": "-21778",
+      "entryEndM": [
+        5004.89,
+        5836.69
+      ],
+      "weldTargetM": [
+        5004.91,
+        5836.57
+      ],
+      "displacementM": 0.1216552506059644,
+      "spanM": 0.1216552506059644,
+      "shapeLenM": 0.1216552506059644,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-21938_0_0",
+      "entryLaneId": "--32320_0",
+      "exitLaneId": "-31902_0",
+      "junctionId": "-21938",
+      "entryEndM": [
+        9814.73,
+        7375.14
+      ],
+      "weldTargetM": [
+        9814.59,
+        7374.7
+      ],
+      "displacementM": 0.4617358552246078,
+      "spanM": 0.4617358552246078,
+      "shapeLenM": 0.4617358552246078,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
+      "stubLaneId": ":-21938_1_0",
+      "entryLaneId": "-31658_0",
+      "exitLaneId": "-32320_0",
+      "junctionId": "-21938",
+      "entryEndM": [
+        9815.52,
+        7372.15
+      ],
+      "weldTargetM": [
+        9815.75,
+        7372.0
+      ],
+      "displacementM": 0.2745906043549196,
+      "spanM": 0.2745906043549196,
+      "shapeLenM": 0.2745906043549196,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-31902_0",
+          ":-21938_2_0",
+          0.2745906043549196
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-31658_0\" end onto exit lane \"-32320_0\" start, breaking shared traversal \"-31658_0->-31902_0\": first-internal join gap 0.2746 m (> 0.005 m)"
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-22774_0_0",
+      "entryLaneId": "-32924#2_0",
+      "exitLaneId": "-32924#3_0",
+      "junctionId": "-22774",
+      "entryEndM": [
+        7089.45,
+        6795.07
+      ],
+      "weldTargetM": [
+        7089.45,
+        6795.07
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-22774_0_1",
+      "entryLaneId": "-32924#2_1",
+      "exitLaneId": "-32924#3_1",
+      "junctionId": "-22774",
+      "entryEndM": [
+        7089.48,
+        6791.77
+      ],
+      "weldTargetM": [
+        7089.48,
+        6791.77
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-22774_0_2",
+      "entryLaneId": "-32924#2_2",
+      "exitLaneId": "-32924#3_2",
+      "junctionId": "-22774",
+      "entryEndM": [
+        7089.51,
+        6788.47
+      ],
+      "weldTargetM": [
+        7089.51,
+        6788.47
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-22774_3_0",
+      "entryLaneId": "--32924#3_0",
+      "exitLaneId": "--32924#2_0",
+      "junctionId": "-22774",
+      "entryEndM": [
+        7089.61,
+        6778.57
+      ],
+      "weldTargetM": [
+        7089.61,
+        6778.57
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-22774_3_1",
+      "entryLaneId": "--32924#3_1",
+      "exitLaneId": "--32924#2_1",
+      "junctionId": "-22774",
+      "entryEndM": [
+        7089.58,
+        6781.87
+      ],
+      "weldTargetM": [
+        7089.58,
+        6781.87
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-22774_3_2",
+      "entryLaneId": "--32924#3_2",
+      "exitLaneId": "--32924#2_2",
+      "junctionId": "-22774",
+      "entryEndM": [
+        7089.55,
+        6785.17
+      ],
+      "weldTargetM": [
+        7089.55,
+        6785.17
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-23560_0_0",
+      "entryLaneId": "--30260_0",
+      "exitLaneId": "--31938_0",
+      "junctionId": "-23560",
+      "entryEndM": [
+        9142.77,
+        2731.5
+      ],
+      "weldTargetM": [
+        9142.71,
+        2731.42
+      ],
+      "displacementM": 0.1,
+      "spanM": 0.1,
+      "shapeLenM": 0.1,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-23560_0_1",
+      "entryLaneId": "--30260_1",
+      "exitLaneId": "--31938_1",
+      "junctionId": "-23560",
+      "entryEndM": [
+        9145.5,
+        2729.65
+      ],
+      "weldTargetM": [
+        9145.32,
+        2729.39
+      ],
+      "displacementM": 0.31622776601683794,
+      "spanM": 0.31622776601683794,
+      "shapeLenM": 0.31622776601683794,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-24338_1_0",
+      "entryLaneId": "-31622#5-AddedOffRampEdge_1",
+      "exitLaneId": "-31622#6_0",
+      "junctionId": "-24338",
+      "entryEndM": [
+        6927.41,
+        3078.56
+      ],
+      "weldTargetM": [
+        6927.1,
+        3078.62
+      ],
+      "displacementM": 0.3157530680769389,
+      "spanM": 0.3157530680769389,
+      "shapeLenM": 0.31789139968096247,
+      "localityM": 0.012351423926780961,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-24338_1_1",
+      "entryLaneId": "-31622#5-AddedOffRampEdge_2",
+      "exitLaneId": "-31622#6_1",
+      "junctionId": "-24338",
+      "entryEndM": [
+        6926.22,
+        3075.48
+      ],
+      "weldTargetM": [
+        6925.92,
+        3075.54
+      ],
+      "displacementM": 0.3059411708155671,
+      "spanM": 0.3059411708155671,
+      "shapeLenM": 0.3084631073290864,
+      "localityM": 0.013728129459672887,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-24338_1_2",
+      "entryLaneId": "-31622#5-AddedOffRampEdge_3",
+      "exitLaneId": "-31622#6_2",
+      "junctionId": "-24338",
+      "entryEndM": [
+        6925.03,
+        3072.4
+      ],
+      "weldTargetM": [
+        6924.73,
+        3072.46
+      ],
+      "displacementM": 0.3059411708155671,
+      "spanM": 0.3059411708155671,
+      "shapeLenM": 0.30973665961010277,
+      "localityM": 0.011766968108291045,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25018_0_0",
+      "entryLaneId": "--31980#0_0",
+      "exitLaneId": "-30634#0_0",
+      "junctionId": "-25018",
+      "entryEndM": [
+        7193.04,
+        3550.55
+      ],
+      "weldTargetM": [
+        7193.05,
+        3550.78
+      ],
+      "displacementM": 0.23021728866442678,
+      "spanM": 0.23021728866442678,
+      "shapeLenM": 0.23021728866442678,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25018_1_0",
+      "entryLaneId": "-32104#1_0",
+      "exitLaneId": "-31980#0_0",
+      "junctionId": "-25018",
+      "entryEndM": [
+        7189.78,
+        3550.51
+      ],
+      "weldTargetM": [
+        7189.74,
+        3550.53
+      ],
+      "displacementM": 0.044721359549995794,
+      "spanM": 0.044721359549995794,
+      "shapeLenM": 0.044721359549995794,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25170_1_0",
+      "entryLaneId": "-30668#13_0",
+      "exitLaneId": "-30668#14-AddedOnRampEdge_1",
+      "junctionId": "-25170",
+      "entryEndM": [
+        10804.91,
+        7674.47
+      ],
+      "weldTargetM": [
+        10804.95,
+        7674.62
+      ],
+      "displacementM": 0.15524174696260024,
+      "spanM": 0.15524174696260024,
+      "shapeLenM": 0.15546680459547205,
+      "localityM": 0.0032207831320041546,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25170_1_1",
+      "entryLaneId": "-30668#13_1",
+      "exitLaneId": "-30668#14-AddedOnRampEdge_2",
+      "junctionId": "-25170",
+      "entryEndM": [
+        10801.62,
+        7674.36
+      ],
+      "weldTargetM": [
+        10801.65,
+        7674.51
+      ],
+      "displacementM": 0.15297058540778355,
+      "spanM": 0.15297058540778355,
+      "shapeLenM": 0.1576782893563237,
+      "localityM": 0.009805806756909202,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25170_1_2",
+      "entryLaneId": "-30668#13_2",
+      "exitLaneId": "-30668#14-AddedOnRampEdge_3",
+      "junctionId": "-25170",
+      "entryEndM": [
+        10798.32,
+        7674.25
+      ],
+      "weldTargetM": [
+        10798.35,
+        7674.4
+      ],
+      "displacementM": 0.15297058540778355,
+      "spanM": 0.15297058540778355,
+      "shapeLenM": 0.15634413615167958,
+      "localityM": 0.007844645405527362,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25412_0_0",
+      "entryLaneId": "-30514#0_0",
+      "exitLaneId": "-30514#1_0",
+      "junctionId": "-25412",
+      "entryEndM": [
+        4961.37,
+        6674.58
+      ],
+      "weldTargetM": [
+        4961.37,
+        6674.58
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25748_0_0",
+      "entryLaneId": "-31384#0_0",
+      "exitLaneId": "-31384#1_0",
+      "junctionId": "-25748",
+      "entryEndM": [
+        3636.38,
+        8192.57
+      ],
+      "weldTargetM": [
+        3636.46,
+        8192.6
+      ],
+      "displacementM": 0.08544003745317531,
+      "spanM": 0.08544003745317531,
+      "shapeLenM": 0.08544003745317531,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-25748_1_0",
+      "entryLaneId": "--31384#1_0",
+      "exitLaneId": "--31384#0_0",
+      "junctionId": "-25748",
+      "entryEndM": [
+        3637.3,
+        8189.4
+      ],
+      "weldTargetM": [
+        3637.38,
+        8189.43
+      ],
+      "displacementM": 0.08544003745317531,
+      "spanM": 0.08544003745317531,
+      "shapeLenM": 0.08544003745317531,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-268_0_0",
+      "entryLaneId": "--30378#3_0",
+      "exitLaneId": "--30378#2_0",
+      "junctionId": "-268",
+      "entryEndM": [
+        7823.89,
+        2581.23
+      ],
+      "weldTargetM": [
+        7823.89,
+        2581.23
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-268_1_0",
+      "entryLaneId": "-30378#2_0",
+      "exitLaneId": "-30378#3_0",
+      "junctionId": "-268",
+      "entryEndM": [
+        7823.5,
+        2577.95
+      ],
+      "weldTargetM": [
+        7823.44,
+        2577.96
+      ],
+      "displacementM": 0.0608276253029822,
+      "spanM": 0.0608276253029822,
+      "shapeLenM": 0.0608276253029822,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-27626_0_0",
+      "entryLaneId": "-30576#0_0",
+      "exitLaneId": "-30576#1_0",
+      "junctionId": "-27626",
+      "entryEndM": [
+        3396.52,
+        6745.86
+      ],
+      "weldTargetM": [
+        3396.45,
+        6745.99
+      ],
+      "displacementM": 0.147648230602334,
+      "spanM": 0.147648230602334,
+      "shapeLenM": 0.147648230602334,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-27626_1_0",
+      "entryLaneId": "--30576#1_0",
+      "exitLaneId": "--30576#0_0",
+      "junctionId": "-27626",
+      "entryEndM": [
+        3393.51,
+        6744.48
+      ],
+      "weldTargetM": [
+        3393.74,
+        6744.09
+      ],
+      "displacementM": 0.45276925690687087,
+      "spanM": 0.45276925690687087,
+      "shapeLenM": 0.45276925690687087,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-28674_0_0",
+      "entryLaneId": "-30528#18_0",
+      "exitLaneId": "-30528#19_0",
+      "junctionId": "-28674",
+      "entryEndM": [
+        7383.7,
+        5650.24
+      ],
+      "weldTargetM": [
+        7383.66,
+        5650.15
+      ],
+      "displacementM": 0.09848857801796104,
+      "spanM": 0.09848857801796104,
+      "shapeLenM": 0.09848857801796104,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-28674_0_1",
+      "entryLaneId": "-30528#18_1",
+      "exitLaneId": "-30528#19_1",
+      "junctionId": "-28674",
+      "entryEndM": [
+        7386.74,
+        5648.96
+      ],
+      "weldTargetM": [
+        7386.72,
+        5648.91
+      ],
+      "displacementM": 0.05385164807134505,
+      "spanM": 0.05385164807134505,
+      "shapeLenM": 0.05385164807134505,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-28674_0_2",
+      "entryLaneId": "-30528#18_2",
+      "exitLaneId": "-30528#19_2",
+      "junctionId": "-28674",
+      "entryEndM": [
+        7389.79,
+        5647.68
+      ],
+      "weldTargetM": [
+        7389.78,
+        5647.67
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-28674_3_0",
+      "entryLaneId": "--30528#19_0",
+      "exitLaneId": "--30528#18_0",
+      "junctionId": "-28674",
+      "entryEndM": [
+        7398.92,
+        5643.85
+      ],
+      "weldTargetM": [
+        7398.96,
+        5643.96
+      ],
+      "displacementM": 0.11704699910719625,
+      "spanM": 0.11704699910719625,
+      "shapeLenM": 0.11704699910719625,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-28674_3_1",
+      "entryLaneId": "--30528#19_1",
+      "exitLaneId": "--30528#18_1",
+      "junctionId": "-28674",
+      "entryEndM": [
+        7395.9,
+        5645.19
+      ],
+      "weldTargetM": [
+        7395.87,
+        5645.13
+      ],
+      "displacementM": 0.0670820393249937,
+      "spanM": 0.0670820393249937,
+      "shapeLenM": 0.0670820393249937,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-28674_3_2",
+      "entryLaneId": "--30528#19_2",
+      "exitLaneId": "--30528#18_2",
+      "junctionId": "-28674",
+      "entryEndM": [
+        7392.84,
+        5646.43
+      ],
+      "weldTargetM": [
+        7392.83,
+        5646.41
+      ],
+      "displacementM": 0.022360679774997897,
+      "spanM": 0.022360679774997897,
+      "shapeLenM": 0.022360679774997897,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-29084_1_2",
+      "entryLaneId": "-30668#5_2",
+      "exitLaneId": "-30668#6-AddedOnRampEdge_3",
+      "junctionId": "-29084",
+      "entryEndM": [
+        3639.29,
+        6412.81
+      ],
+      "weldTargetM": [
+        3639.13,
+        6412.42
+      ],
+      "displacementM": 0.42154477816715985,
+      "spanM": 0.42154477816715985,
+      "shapeLenM": 0.42774940152805196,
+      "localityM": 0.01779170419951434,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-29712_1_0",
+      "entryLaneId": "-32858#2_0",
+      "exitLaneId": "-31366#0-AddedOnRampEdge_1",
+      "junctionId": "-29712",
+      "entryEndM": [
+        4026.04,
+        3840.23
+      ],
+      "weldTargetM": [
+        4025.99,
+        3840.13
+      ],
+      "displacementM": 0.1118033988749895,
+      "spanM": 0.1118033988749895,
+      "shapeLenM": 0.1118033988749895,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-29712_1_1",
+      "entryLaneId": "-32858#2_1",
+      "exitLaneId": "-31366#0-AddedOnRampEdge_2",
+      "junctionId": "-29712",
+      "entryEndM": [
+        4029.33,
+        3840.36
+      ],
+      "weldTargetM": [
+        4029.29,
+        3840.26
+      ],
+      "displacementM": 0.1077032961426901,
+      "spanM": 0.1077032961426901,
+      "shapeLenM": 0.1077032961426901,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-29712_1_2",
+      "entryLaneId": "-32858#2_2",
+      "exitLaneId": "-31366#0-AddedOnRampEdge_3",
+      "junctionId": "-29712",
+      "entryEndM": [
+        4032.63,
+        3840.5
+      ],
+      "weldTargetM": [
+        4032.59,
+        3840.38
+      ],
+      "displacementM": 0.12649110640673517,
+      "spanM": 0.12649110640673517,
+      "shapeLenM": 0.12649110640673517,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-346_0_0",
+      "entryLaneId": "--30528#27_0",
+      "exitLaneId": "--30528#26_0",
+      "junctionId": "-346",
+      "entryEndM": [
+        7816.83,
+        4948.35
+      ],
+      "weldTargetM": [
+        7816.82,
+        4948.37
+      ],
+      "displacementM": 0.022360679774997897,
+      "spanM": 0.022360679774997897,
+      "shapeLenM": 0.022360679774997897,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-346_0_1",
+      "entryLaneId": "--30528#27_1",
+      "exitLaneId": "--30528#26_1",
+      "junctionId": "-346",
+      "entryEndM": [
+        7814.02,
+        4946.63
+      ],
+      "weldTargetM": [
+        7814.01,
+        4946.64
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-346_0_2",
+      "entryLaneId": "--30528#27_2",
+      "exitLaneId": "--30528#26_2",
+      "junctionId": "-346",
+      "entryEndM": [
+        7811.21,
+        4944.9
+      ],
+      "weldTargetM": [
+        7811.2,
+        4944.91
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-346_3_0",
+      "entryLaneId": "-30528#26_0",
+      "exitLaneId": "-30528#27_0",
+      "junctionId": "-346",
+      "entryEndM": [
+        7802.78,
+        4939.71
+      ],
+      "weldTargetM": [
+        7802.77,
+        4939.73
+      ],
+      "displacementM": 0.022360679774997897,
+      "spanM": 0.022360679774997897,
+      "shapeLenM": 0.022360679774997897,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-346_3_1",
+      "entryLaneId": "-30528#26_1",
+      "exitLaneId": "-30528#27_1",
+      "junctionId": "-346",
+      "entryEndM": [
+        7805.59,
+        4941.44
+      ],
+      "weldTargetM": [
+        7805.58,
+        4941.45
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-346_3_2",
+      "entryLaneId": "-30528#26_2",
+      "exitLaneId": "-30528#27_2",
+      "junctionId": "-346",
+      "entryEndM": [
+        7808.4,
+        4943.17
+      ],
+      "weldTargetM": [
+        7808.39,
+        4943.18
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
+      "stubLaneId": ":-4410_0_0",
+      "entryLaneId": "-31902_0",
+      "exitLaneId": "--31202_0",
+      "junctionId": "-4410",
+      "entryEndM": [
+        9784.12,
+        7361.17
+      ],
+      "weldTargetM": [
+        9783.79,
+        7361.18
+      ],
+      "displacementM": 0.3301514803843836,
+      "spanM": 0.3301514803843836,
+      "shapeLenM": 0.34768385544597213,
+      "localityM": 0.04240477729707679,
+      "controlled": false,
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-31658_0",
+          ":-4410_1_0",
+          0.3301514803843836
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-31902_0\" end onto exit lane \"--31202_0\" start, breaking shared traversal \"-31902_0->-31658_0\": first-internal join gap 0.3302 m (> 0.005 m)"
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-4410_2_0",
+      "entryLaneId": "-31202_0",
+      "exitLaneId": "-31658_0",
+      "junctionId": "-4410",
+      "entryEndM": [
+        9785.09,
+        7358.13
+      ],
+      "weldTargetM": [
+        9785.4,
+        7358.23
+      ],
+      "displacementM": 0.3257299494980466,
+      "spanM": 0.3257299494980466,
+      "shapeLenM": 0.3257299494980466,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-4658_0_0",
+      "entryLaneId": "-31622#14-AddedOffRampEdge_0",
+      "exitLaneId": "-30322_0",
+      "junctionId": "-4658",
+      "entryEndM": [
+        3353.81,
+        8947.37
+      ],
+      "weldTargetM": [
+        3353.77,
+        8947.31
+      ],
+      "displacementM": 0.07211102550927978,
+      "spanM": 0.07211102550927978,
+      "shapeLenM": 0.07211102550927978,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "rejected-shared-entry",
+      "stubLaneId": ":-5540_0_0",
+      "entryLaneId": "-32772_0",
+      "exitLaneId": "--30804_0",
+      "junctionId": "-5540",
+      "entryEndM": [
+        9630.9,
+        7312.47
+      ],
+      "weldTargetM": [
+        9630.71,
+        7312.52
+      ],
+      "displacementM": 0.19646882704388502,
+      "spanM": 0.19646882704388502,
+      "shapeLenM": 0.19646882704388502,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 1,
+      "sharedTraversals": [
+        [
+          "-32156_0",
+          ":-5540_1_0",
+          0.19646882704388502
+        ]
+      ],
+      "detail": "point-stub removal would move entry lane \"-32772_0\" end onto exit lane \"--30804_0\" start, breaking shared traversal \"-32772_0->-32156_0\": first-internal join gap 0.1965 m (> 0.005 m)"
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-5540_2_0",
+      "entryLaneId": "-30804_0",
+      "exitLaneId": "-32156_0",
+      "junctionId": "-5540",
+      "entryEndM": [
+        9631.78,
+        7309.4
+      ],
+      "weldTargetM": [
+        9631.86,
+        7309.54
+      ],
+      "displacementM": 0.161245154965971,
+      "spanM": 0.161245154965971,
+      "shapeLenM": 0.161245154965971,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-78_0_0",
+      "entryLaneId": "-31952#5_0",
+      "exitLaneId": "-31952#6_0",
+      "junctionId": "-78",
+      "entryEndM": [
+        6659.57,
+        8955.43
+      ],
+      "weldTargetM": [
+        6659.56,
+        8955.44
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-78_0_1",
+      "entryLaneId": "-31952#5_1",
+      "exitLaneId": "-31952#6_1",
+      "junctionId": "-78",
+      "entryEndM": [
+        6657.4,
+        8952.94
+      ],
+      "weldTargetM": [
+        6657.39,
+        8952.95
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-78_0_2",
+      "entryLaneId": "-31952#5_2",
+      "exitLaneId": "-31952#6_2",
+      "junctionId": "-78",
+      "entryEndM": [
+        6655.23,
+        8950.46
+      ],
+      "weldTargetM": [
+        6655.22,
+        8950.46
+      ],
+      "displacementM": 0.01,
+      "spanM": 0.01,
+      "shapeLenM": 0.01,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-78_3_0",
+      "entryLaneId": "--31952#6_0",
+      "exitLaneId": "--31952#5_0",
+      "junctionId": "-78",
+      "entryEndM": [
+        6648.72,
+        8943.0
+      ],
+      "weldTargetM": [
+        6648.71,
+        8943.01
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-78_3_1",
+      "entryLaneId": "--31952#6_1",
+      "exitLaneId": "--31952#5_1",
+      "junctionId": "-78",
+      "entryEndM": [
+        6650.89,
+        8945.49
+      ],
+      "weldTargetM": [
+        6650.88,
+        8945.5
+      ],
+      "displacementM": 0.01414213562373095,
+      "spanM": 0.01414213562373095,
+      "shapeLenM": 0.01414213562373095,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-78_3_2",
+      "entryLaneId": "--31952#6_2",
+      "exitLaneId": "--31952#5_2",
+      "junctionId": "-78",
+      "entryEndM": [
+        6653.06,
+        8947.98
+      ],
+      "weldTargetM": [
+        6653.05,
+        8947.98
+      ],
+      "displacementM": 0.01,
+      "spanM": 0.01,
+      "shapeLenM": 0.01,
+      "localityM": 0.0,
+      "controlled": true,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-80_0_0",
+      "entryLaneId": "-30478#0_0",
+      "exitLaneId": "-30478#1_0",
+      "junctionId": "-80",
+      "entryEndM": [
+        9918.42,
+        9697.04
+      ],
+      "weldTargetM": [
+        9918.42,
+        9697.04
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-80_1_0",
+      "entryLaneId": "--30478#1_0",
+      "exitLaneId": "--30478#0_0",
+      "junctionId": "-80",
+      "entryEndM": [
+        9918.26,
+        9693.74
+      ],
+      "weldTargetM": [
+        9918.26,
+        9693.74
+      ],
+      "displacementM": 0.0,
+      "spanM": 0.0,
+      "shapeLenM": 0.0,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-8998_1_0",
+      "entryLaneId": "-32454#1-AddedOffRampEdge_1",
+      "exitLaneId": "-32454#2_0",
+      "junctionId": "-8998",
+      "entryEndM": [
+        5010.69,
+        5815.0
+      ],
+      "weldTargetM": [
+        5010.66,
+        5815.11
+      ],
+      "displacementM": 0.11401754250991379,
+      "spanM": 0.11401754250991379,
+      "shapeLenM": 0.11401754250991379,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-8998_1_1",
+      "entryLaneId": "-32454#1-AddedOffRampEdge_2",
+      "exitLaneId": "-32454#2_1",
+      "junctionId": "-8998",
+      "entryEndM": [
+        5009.95,
+        5818.21
+      ],
+      "weldTargetM": [
+        5009.93,
+        5818.33
+      ],
+      "displacementM": 0.1216552506059644,
+      "spanM": 0.1216552506059644,
+      "shapeLenM": 0.1216552506059644,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    },
+    {
+      "ruleVersion": "stub-weld/g1-six-cond@2",
+      "disposition": "welded",
+      "stubLaneId": ":-8998_1_2",
+      "entryLaneId": "-32454#1-AddedOffRampEdge_3",
+      "exitLaneId": "-32454#2_2",
+      "junctionId": "-8998",
+      "entryEndM": [
+        5009.21,
+        5821.43
+      ],
+      "weldTargetM": [
+        5009.19,
+        5821.55
+      ],
+      "displacementM": 0.1216552506059644,
+      "spanM": 0.1216552506059644,
+      "shapeLenM": 0.1216552506059644,
+      "localityM": 0.0,
+      "controlled": false,
+      "sharedTraversalCount": 0,
+      "sharedTraversals": [],
+      "detail": ""
+    }
+  ]
+}

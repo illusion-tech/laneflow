@@ -17,6 +17,7 @@ members = [
     "research/issue-762-post-p3-hotspots",
     "tools/laneflow-corridor-generator",
     "tools/laneflow-junction-generator",
+    "tools/laneflow-lust-converter",
     "tools/laneflow-urban-generator",
     "tools/laneflow-urban-harness",
     "xtask",
