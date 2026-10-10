@@ -449,6 +449,50 @@ fn a_looser_intermediate_limit_does_not_hide_a_later_drop() {
     );
 }
 
+/// 删除路线后同一世代里由另一条路线复用同一槽位，路线数和槽位表长度都不变；
+/// 复核目标的「边 → 路线」索引必须换成新路线经过的边。
+#[test]
+fn recycled_route_slot_rebuilds_the_edge_route_index() {
+    let revision = revision("runtime/placement-recycle", |module| {
+        add_edge(module, "first", 40.0, 15.0, None);
+        add_edge(module, "second", 40.0, 15.0, None);
+    });
+    let mut world = install(revision);
+    let first = register_named(&mut world, "runtime/placement-recycle", &["first"]);
+    let first_edge = world.route_edges(first).expect("first route")[0];
+    let routes_through = |world: &mut TrafficWorld, edge: LaneEdgeOrdinal| -> Vec<u32> {
+        assert!(world.state.ensure_edge_routes());
+        let index = world
+            .state
+            .derived
+            .spawn_contenders
+            .recheck_index()
+            .expect("index");
+        let edge = edge.index();
+        index.edge_routes[index.edge_offsets[edge] as usize..index.edge_offsets[edge + 1] as usize]
+            .to_vec()
+    };
+    assert_eq!(routes_through(&mut world, first_edge), [first.index()]);
+    let signature = (
+        world.state.committed.live_route_count,
+        world.state.committed.routes.len(),
+    );
+    world.remove_route(first).expect("remove");
+    let second = register_named(&mut world, "runtime/placement-recycle", &["second"]);
+    assert_eq!(second.index(), first.index(), "the freed slot is reused");
+    assert_eq!(
+        (
+            world.state.committed.live_route_count,
+            world.state.committed.routes.len(),
+        ),
+        signature,
+        "the count signature alone cannot see the recycled slot"
+    );
+    let second_edge = world.route_edges(second).expect("second route")[0];
+    assert!(routes_through(&mut world, first_edge).is_empty());
+    assert_eq!(routes_through(&mut world, second_edge), [second.index()]);
+}
+
 #[test]
 fn warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow() {
     fn visits_after_warmup(extra_edges: u32) -> (u64, u64) {

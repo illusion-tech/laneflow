@@ -1435,7 +1435,7 @@ impl crate::kernel::state::WorldState {
 
     /// 「边 → 路线」压缩稀疏行与当前路线注册表一致；不一致就按计数排序重建。
     /// 预留失败返回 `false`，复核退回逐条扫描。
-    fn ensure_edge_routes(&mut self) -> bool {
+    pub(crate) fn ensure_edge_routes(&mut self) -> bool {
         let signature = (
             self.binding.world_generation,
             self.committed.live_route_count,
@@ -1531,7 +1531,7 @@ impl crate::kernel::state::WorldState {
         &self,
         body: &[crate::DownstreamInterval],
     ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
-        let Some(index) = self.derived.spawn_contenders.recheck_index.first() else {
+        let Some(index) = self.derived.spawn_contenders.recheck_index() else {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
         let mut found: Vec<(usize, usize, VehicleHandle)> = Vec::new();
@@ -2564,8 +2564,7 @@ impl crate::kernel::state::WorldState {
                 && self
                     .derived
                     .spawn_contenders
-                    .recheck_index
-                    .first()
+                    .recheck_index()
                     .is_some_and(|index| index.linked)
                 && self.ensure_edge_routes();
             let touching = if indexed {
@@ -3146,7 +3145,7 @@ impl crate::kernel::phase::StepReadView<'_> {
             return Ok(Some(eager));
         }
         let frontier = self.contender_frontier.ok_or(())?;
-        let mut lazy = contenders.lazy.first().ok_or(())?.lock().map_err(|_| ())?;
+        let mut lazy = contenders.lazy().ok_or(())?.lock().map_err(|_| ())?;
         if let Some(value) = lazy.get(cell) {
             return Ok(Some(value));
         }

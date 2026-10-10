@@ -1012,6 +1012,7 @@ impl crate::kernel::state::WorldState {
         } else {
             self.committed.routes[slot_index] = slot;
         }
+        self.derived.spawn_contenders.invalidate_edge_routes();
         self.committed.live_route_count = self
             .committed
             .live_route_count
@@ -1126,6 +1127,8 @@ impl crate::kernel::state::WorldState {
             .get_mut(index)
             .expect("immutable preflight proved route slot exists");
         slot.compiled = None;
+        // 空槽可能在同一世代里被另一条路线复用，路线数等签名不一定变化。
+        self.derived.spawn_contenders.invalidate_edge_routes();
         self.committed.live_route_count = next_route_count;
         self.committed.live_route_edge_occurrence_count = next_occurrence_count;
         self.committed.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
