@@ -49,9 +49,26 @@ struct ContenderNotes {
 #[cfg(test)]
 thread_local! {
     static FOLLOWER_CANDIDATES: Cell<u64> = const { Cell::new(0) };
+    static EDGE_ROUTE_LIMIT: Cell<u64> = const { Cell::new(u32::MAX as u64) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: FOLLOWER_CANDIDATES);
+crate::kernel::execution::carry_hooks!(carry_test_hooks: FOLLOWER_CANDIDATES, EDGE_ROUTE_LIMIT);
+
+/// 「边 → 路线」压缩稀疏行能容纳的路线经过边总次数：下标是 `u32`。
+#[cfg(not(test))]
+fn edge_route_limit() -> u64 {
+    u64::from(u32::MAX)
+}
+
+#[cfg(test)]
+fn edge_route_limit() -> u64 {
+    EDGE_ROUTE_LIMIT.with(Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn set_edge_route_limit(limit: u64) {
+    EDGE_ROUTE_LIMIT.with(|cell| cell.set(limit));
+}
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 thread_local! {
@@ -63,9 +80,10 @@ thread_local! {
     static REBUILD_PREVIEWS: Cell<u64> = const { Cell::new(0) };
     static LAZY_SOURCES: Cell<u64> = const { Cell::new(0) };
     static FULL_CONTENDER_REBUILD: Cell<bool> = const { Cell::new(false) };
+    static EDGE_ROUTE_REBUILDS: Cell<u64> = const { Cell::new(0) };
 }
 #[cfg(any(test, feature = "placement-fixtures"))]
-crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, LAZY_SOURCES, FULL_CONTENDER_REBUILD);
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, LAZY_SOURCES, FULL_CONTENDER_REBUILD, EDGE_ROUTE_REBUILDS);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_BEST: u8 = 1;
@@ -197,6 +215,20 @@ pub fn recheck_body_checks() -> u64 {
 #[doc(hidden)]
 pub fn reset_recheck_body_checks() {
     RECHECK_BODY_CHECKS.with(|cell| cell.set(0));
+}
+
+/// 「边 → 路线」压缩稀疏行的重建次数（含失败的尝试）。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn edge_route_rebuilds() -> u64 {
+    EDGE_ROUTE_REBUILDS.with(Cell::get)
+}
+
+/// 把上面的计数清零。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_edge_route_rebuilds() {
+    EDGE_ROUTE_REBUILDS.with(|cell| cell.set(0));
 }
 
 /// 最近一次名单重建里做过运动预览的车辆数。
@@ -1347,6 +1379,7 @@ impl crate::kernel::state::WorldState {
             return;
         };
         index.linked = false;
+        index.linked_count = 0;
         index.route_heads.clear();
         if denied || index.route_heads.try_reserve(routes).is_err() {
             return;
@@ -1399,6 +1432,7 @@ impl crate::kernel::state::WorldState {
             next.prev = handle.index();
         }
         index.route_heads[route] = handle.index();
+        index.linked_count = index.linked_count.saturating_add(1);
     }
 
     /// 撤销冲突区列表非空的贡献记录时，把这辆车从路线链表里摘掉。
@@ -1431,16 +1465,36 @@ impl crate::kernel::state::WorldState {
         if let Some(next) = index.links.get_mut(link.next as usize) {
             next.prev = link.prev;
         }
+        index.linked_count = index.linked_count.saturating_sub(1);
     }
 
-    /// 「边 → 路线」压缩稀疏行与当前路线注册表一致；不一致就按计数排序重建。
-    /// 预留失败返回 `false`，复核退回逐条扫描。
-    pub(crate) fn ensure_edge_routes(&mut self) -> bool {
-        let signature = (
+    fn edge_routes_signature(&self) -> (super::world::WorldGeneration, u32, usize) {
+        (
             self.binding.world_generation,
             self.committed.live_route_count,
             self.committed.routes.len(),
-        );
+        )
+    }
+
+    /// 复核能否查「边 → 路线」：已与路线注册表一致，或失效后的逐区扫描量已抵得上一次
+    /// 重建（路线经过边的总次数）而重建成功。否则这次逐区扫描。
+    fn edge_routes_ready(&mut self) -> bool {
+        let signature = self.edge_routes_signature();
+        let occurrences = self.committed.live_route_edge_occurrence_count;
+        let Some(index) = self.derived.spawn_contenders.recheck_index() else {
+            return false;
+        };
+        if index.edges_built_for == Some(signature) {
+            return true;
+        }
+        index.scan_debt >= occurrences && self.ensure_edge_routes()
+    }
+
+    /// 「边 → 路线」压缩稀疏行与当前路线注册表一致；不一致就按计数排序重建。
+    /// 预留失败或总次数超出 `u32` 下标时返回 `false`，复核退回逐区扫描。
+    pub(crate) fn ensure_edge_routes(&mut self) -> bool {
+        let signature = self.edge_routes_signature();
+        let limit = edge_route_limit();
         let edge_count = self
             .binding
             .revision
@@ -1455,6 +1509,10 @@ impl crate::kernel::state::WorldState {
             return true;
         }
         index.edges_built_for = None;
+        // 无论成败，下一次尝试都要再攒够一次重建的扫描量。
+        index.scan_debt = 0;
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        EDGE_ROUTE_REBUILDS.with(|cell| cell.set(cell.get().saturating_add(1)));
         let offsets = &mut index.edge_offsets;
         offsets.clear();
         if offsets.try_reserve(edge_count + 1).is_err() {
@@ -1471,6 +1529,9 @@ impl crate::kernel::state::WorldState {
                 let Some(count) = offsets.get_mut(edge.index()) else {
                     return false;
                 };
+                if total as u64 >= limit {
+                    return false;
+                }
                 *count += 1;
                 total += 1;
             }
@@ -1579,13 +1640,15 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 逐个冲突区扫描申请者名单，找出路线经过车身所在边的车，按第一次出现排列。
-    /// 每辆车只判定一次；去重位图预留失败时逐条判定，结果相同。
+    /// 每辆车只判定一次；去重位图预留失败时逐条判定，结果相同。另返回检查过的名单
+    /// 条目数。
     fn body_contenders_by_scan(
         &self,
         body: &[crate::DownstreamInterval],
         count_checks: bool,
-    ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
+    ) -> Result<(Vec<VehicleHandle>, u64), FreshAdmissionFailure> {
         let mut touching = Vec::new();
+        let mut visited = 0u64;
         let words = self.derived.spawn_contenders.owners.len().div_ceil(64);
         let mut evaluated: Vec<u64> = Vec::new();
         if !admission_reserve_denied(AdmissionReserve::RecheckScratch)
@@ -1595,6 +1658,7 @@ impl crate::kernel::state::WorldState {
         }
         for list in &self.derived.spawn_contenders.best {
             for contender in list {
+                visited = visited.saturating_add(1);
                 let vehicle = contender.vehicle;
                 let slot = vehicle.index() as usize;
                 let bit = 1u64 << (slot % 64);
@@ -1621,7 +1685,7 @@ impl crate::kernel::state::WorldState {
                 }
             }
         }
-        Ok(touching)
+        Ok((touching, visited))
     }
 
     fn owner_zones(&self, handle: VehicleHandle) -> Result<Vec<usize>, FreshAdmissionFailure> {
@@ -2559,15 +2623,24 @@ impl crate::kernel::state::WorldState {
                 .map(|profile| profile.min_gap_mm())
                 .ok_or(FreshAdmissionFailure::StopConstraint)?;
             // 路线经过车身所在边的申请者：先查「边 → 路线 → 申请者」索引，索引不可用时
-            // 逐个冲突区扫描。两条路径得到同样的车和同样的先后。
-            let indexed = !admission_reserve_denied(AdmissionReserve::RecheckScratch)
-                && self
-                    .derived
+            // 逐个冲突区扫描。各路径得到同样的车和同样的先后。
+            let linked = if admission_reserve_denied(AdmissionReserve::RecheckScratch) {
+                None
+            } else {
+                self.derived
                     .spawn_contenders
                     .recheck_index()
-                    .is_some_and(|index| index.linked)
-                && self.ensure_edge_routes();
-            let touching = if indexed {
+                    .filter(|index| index.linked)
+                    .map(|index| index.linked_count)
+            };
+            let touching = if linked == Some(0) {
+                #[cfg(any(test, feature = "placement-fixtures"))]
+                assert!(
+                    self.body_contenders_by_scan(&body, false)?.0.is_empty(),
+                    "an empty route index must match the zone scan"
+                );
+                Vec::new()
+            } else if linked.is_some() && self.edge_routes_ready() {
                 let found = self.body_contenders_by_index(&body)?;
                 #[cfg(any(test, feature = "placement-fixtures"))]
                 {
@@ -2576,13 +2649,19 @@ impl crate::kernel::state::WorldState {
                     });
                     assert_eq!(
                         found,
-                        self.body_contenders_by_scan(&body, false)?,
+                        self.body_contenders_by_scan(&body, false)?.0,
                         "route index must match the zone scan"
                     );
                 }
                 found
             } else {
-                self.body_contenders_by_scan(&body, true)?
+                let (found, visited) = self.body_contenders_by_scan(&body, true)?;
+                if linked.is_some()
+                    && let Some(index) = self.derived.spawn_contenders.recheck_index_mut()
+                {
+                    index.scan_debt = index.scan_debt.saturating_add(visited);
+                }
+                found
             };
             for vehicle in touching {
                 push_recheck(&mut handles, vehicle)?;

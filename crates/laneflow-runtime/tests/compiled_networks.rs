@@ -5364,6 +5364,77 @@ fn recheck_body_scan_judges_each_contender_once_with_the_same_outcome() {
     );
 }
 
+/// 已有申请者时边注册路线边生成：每次注册都作废「边 → 路线」，复核先逐区扫描，攒够
+/// 一次重建的扫描量才重建，而不是每次注册后都整表重建。
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn incremental_route_registration_amortizes_the_edge_route_rebuild() {
+    const REGISTRATIONS: u32 = 12;
+    let revision = compile_road_editing_revision(conflict_multiplicity_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("first stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("shared maneuver path")
+        .edges()
+        .to_vec();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, REGISTRATIONS + 1, 4_096, 4_096, 100),
+    )
+    .expect("world");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("route");
+    let entry = world.route_edges(route).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[entry.index()];
+    world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .expect("contender at the gate");
+    let admit = |world: &mut TrafficWorld| {
+        let vehicle = world
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+                    .with_open_entrance(),
+            )
+            .expect("spawn behind the contender");
+        world.despawn_vehicle(vehicle).expect("despawn");
+    };
+    laneflow_runtime::reset_edge_route_rebuilds();
+    for _ in 0..REGISTRATIONS {
+        world
+            .register_route(RouteRegisterInput::new(route_edges.clone()))
+            .expect("copy route");
+        admit(&mut world);
+    }
+    let incremental = laneflow_runtime::edge_route_rebuilds();
+    assert!(
+        incremental < u64::from(REGISTRATIONS) / 2,
+        "registrations did not each rebuild the index: {incremental}"
+    );
+    // 路线不再变化后，逐区扫描的累计量在有限次准入内抵得上一次重建，索引建起来。
+    let occurrences = (route_edges.len() as u64) * u64::from(REGISTRATIONS + 1);
+    let mut admissions = 0u64;
+    while laneflow_runtime::edge_route_rebuilds() == incremental {
+        assert!(admissions <= occurrences, "the scan debt never paid off");
+        admit(&mut world);
+        admissions += 1;
+    }
+}
+
 fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
     compile_road_editing_revision_with_limits(
         conflict_road_editing_module_with_shape_and_speed(

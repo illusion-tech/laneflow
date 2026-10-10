@@ -412,7 +412,9 @@ impl RouteContenderLink {
 ///
 /// 第一级「边 → 路线」是按已注册路线建的压缩稀疏行：经过边 `e` 的路线槽位是
 /// `edge_routes[edge_offsets[e]..edge_offsets[e + 1]]`。注册与删除路线时直接作废；
-/// 另以 (世界世代, 已注册路线数, 槽位表长度) 兜底，世界切换换表时同样重建。
+/// 另以 (世界世代, 已注册路线数, 槽位表长度) 兜底，世界切换换表时同样重建。作废后
+/// 不立即重建：复核先逐区扫描并记下扫描量，累计到与重建代价（路线经过边的总次数）
+/// 相当时才重建，边注册路线边生成车辆不会每次整表重建。
 ///
 /// 第二级「路线 → 申请者」是按车辆槽位的侵入式双向链表，表头按路线槽位存放。只链入
 /// 冲突区列表非空的逐车贡献记录，即出现在某个冲突区申请者名单里的车；写入与撤销
@@ -422,8 +424,12 @@ pub(crate) struct RecheckRouteIndex {
     pub(crate) edge_offsets: Vec<u32>,
     pub(crate) edge_routes: Vec<u32>,
     pub(crate) edges_built_for: Option<(WorldGeneration, u32, usize)>,
+    /// 「边 → 路线」失效以来逐区扫描累计检查的名单条目数。
+    pub(crate) scan_debt: u64,
     pub(crate) route_heads: Vec<u32>,
     pub(crate) links: Vec<RouteContenderLink>,
+    /// 链表里的申请者数。为零时没有车身复核目标，不查也不建「边 → 路线」。
+    pub(crate) linked_count: u32,
     /// 这份名单的链表完整可用。预留失败后置假，复核退回逐条扫描，直到下次重建。
     pub(crate) linked: bool,
 }
@@ -506,6 +512,7 @@ impl SpawnConflictContenders {
     pub(crate) fn invalidate_edge_routes(&mut self) {
         if let Some(index) = self.recheck_index_mut() {
             index.edges_built_for = None;
+            index.scan_debt = 0;
         }
     }
 
