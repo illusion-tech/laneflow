@@ -855,16 +855,18 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             "events.jsonl",
             // worker 计数的证据封套：摘要失配（复制/篡改）先于 workers 读取拒绝。
             "diagnostics.json",
+            // 详细诊断必然生成逐拍计时；缺失即拒绝，不把旧回执当作当前证据。
+            timing::FILE_NAME,
         ];
         if performance {
             // 正式臂的测量封套同样纳入本臂文件摘要自校验。
             expected_files.push("measurements.toml");
         }
-        if result.files.contains_key(timing::FILE_NAME) {
-            expected_files.push(timing::FILE_NAME);
-        }
         for name in expected_files {
-            if result.files.get(name) != Some(&digest_file(&dir.join(name))?) {
+            let Some(expected) = result.files.get(name) else {
+                return Err(invalid(format!("run file missing: {name}")));
+            };
+            if expected != &digest_file(&dir.join(name))? {
                 return Err(invalid(format!("run file changed: {name}")));
             }
         }
@@ -1080,15 +1082,14 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             "events.jsonl",
             "measurements.toml",
             "diagnostics.json",
+            timing::FILE_NAME,
         ] {
-            if result.files.get(name) != Some(&digest_file(&directory.join(name))?) {
+            let Some(expected) = result.files.get(name) else {
+                return Err(invalid(format!("performance run file missing: {name}")));
+            };
+            if expected != &digest_file(&directory.join(name))? {
                 return Err(invalid(format!("performance run file changed: {name}")));
             }
-        }
-        if let Some(expected) = result.files.get(timing::FILE_NAME)
-            && expected != &digest_file(&directory.join(timing::FILE_NAME))?
-        {
-            return Err(invalid("逐拍计时文件摘要不符"));
         }
         require_diagnostics_marker(directory)?;
         if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
@@ -1603,6 +1604,7 @@ mod tests {
         .unwrap();
         fs::write(directory.join("commands.jsonl"), "").unwrap();
         fs::write(directory.join("events.jsonl"), "").unwrap();
+        fs::write(directory.join(timing::FILE_NAME), "").unwrap();
         write_json(
             &directory.join("diagnostics.json"),
             &json!({"execution_id":execution, "workers":measurement["workers"],"diagnostics_enabled":true}),
@@ -1645,6 +1647,7 @@ mod tests {
             "events.jsonl",
             "measurements.toml",
             "diagnostics.json",
+            timing::FILE_NAME,
         ]
         .into_iter()
         .map(|name| (name.into(), digest_file(&directory.join(name)).unwrap()))
@@ -1723,6 +1726,18 @@ mod tests {
                 .to_string()
                 .contains("--diagnostics")
         );
+        // 文件与摘要登记一起删掉也不能冒充旧口径通过。
+        let mut untimed = original.clone();
+        untimed.files.remove(timing::FILE_NAME);
+        write_json(&path, &untimed).unwrap();
+        fs::remove_file(a.join(timing::FILE_NAME)).unwrap();
+        for error in [
+            compare_runs(&a, &four).unwrap_err(),
+            compare_performance_runs([&a, &b, &c]).unwrap_err(),
+        ] {
+            assert!(error.to_string().contains(timing::FILE_NAME), "{error}");
+        }
+        fs::write(a.join(timing::FILE_NAME), "").unwrap();
         let mut old = original.clone();
         old.version = "urban-result-v6".into();
         write_json(&path, &old).unwrap();
