@@ -537,6 +537,10 @@ fn staging_dir(output_dir: &Path) -> PathBuf {
 /// 收敛，无此泄漏）。
 fn write_staging_owner_marker(staging: &Path) -> Result<()> {
     if let Err(source) = fs::write(staging.join(STAGING_OWNER_MARKER), STAGING_OWNER_MAGIC) {
+        // fs::write 可能已创建/部分写入标记才失败（如 ENOSPC）：先删可能
+        // 残缺的标记再归还目录——目录内容此刻只有我们刚写的标记，无外来
+        // 物；标记删不动则保留现场交人工（remove_dir 失败同理）。
+        let _ = fs::remove_file(staging.join(STAGING_OWNER_MARKER));
         let _ = fs::remove_dir(staging);
         return Err(Error::Io {
             path: staging.join(STAGING_OWNER_MARKER),
@@ -2086,6 +2090,29 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
         assert!(!staging.exists(), "排他新建的空目录必须归还");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_marker_write_failure_removes_partial_marker() {
+        // fs::write 可能已创建/部分写入标记才失败（ENOSPC 等，此处以只读
+        // 占位文件注入「标记已存在但写失败」）：归还目录前必须先删可能
+        // 残缺的标记——残留带残缺标记的目录既不被入口清理（魔数认证不过），
+        // 又让同进程重试在排他新建处永远撞墙。
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("lust-staging-partial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&staging).expect("staging");
+        let marker = staging.join(STAGING_OWNER_MARKER);
+        std::fs::write(&marker, b"").expect("placeholder");
+        std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o444)).expect("ro");
+
+        let error = write_staging_owner_marker(&staging).expect_err("marker write must fail");
+        assert!(matches!(&error, Error::Io { .. }), "{error:?}");
+        assert!(!staging.exists(), "残缺标记已删，空目录已归还");
         let _ = std::fs::remove_dir_all(&root);
     }
 
