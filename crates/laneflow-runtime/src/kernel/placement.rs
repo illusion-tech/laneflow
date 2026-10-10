@@ -426,6 +426,8 @@ pub(crate) enum FreshAdmissionFailure {
     UnsafeLeader(VehicleHandle),
     /// 派生占用索引重建时分配失败。
     OccupancyAlloc,
+    /// 命令在占用索引重建点让出；活动世界丢弃这个结果后重新执行命令。
+    OccupancyYield,
 }
 
 impl FreshAdmissionFailure {
@@ -435,7 +437,8 @@ impl FreshAdmissionFailure {
             Self::DownstreamSpeed => SpawnError::DownstreamSpeedUnsatisfiable,
             Self::UnsafeFollower(follower) => SpawnError::UnsafeFollower { follower },
             Self::UnsafeLeader(leader) => SpawnError::UnsafeLeader { leader },
-            Self::OccupancyAlloc => SpawnError::OccupancyAllocFailed,
+            // 让出的结果不会返回给调用方。
+            Self::OccupancyAlloc | Self::OccupancyYield => SpawnError::OccupancyAllocFailed,
         }
     }
 
@@ -445,7 +448,9 @@ impl FreshAdmissionFailure {
             Self::DownstreamSpeed => crate::ReplaceError::DownstreamSpeedUnsatisfiable,
             Self::UnsafeFollower(follower) => crate::ReplaceError::UnsafeFollower { follower },
             Self::UnsafeLeader(leader) => crate::ReplaceError::UnsafeLeader { leader },
-            Self::OccupancyAlloc => crate::ReplaceError::OccupancyAllocFailed,
+            Self::OccupancyAlloc | Self::OccupancyYield => {
+                crate::ReplaceError::OccupancyAllocFailed
+            }
         }
     }
 }
@@ -594,6 +599,9 @@ impl crate::kernel::state::WorldState {
             emergency,
         ) {
             return Err(FreshAdmissionFailure::DownstreamSpeed);
+        }
+        if self.yield_occupancy_rebuild() {
+            return Err(FreshAdmissionFailure::OccupancyYield);
         }
         self.ensure_current_occupancy()
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;

@@ -1024,6 +1024,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             waiting_staged_occupancy,
             waiting_staged_storage_mm,
             occupancy_scratch,
+            command_occupancy: crate::kernel::occupancy::CommandOccupancy::Rebuild,
             motion_cache: Vec::new(),
             motion_cache_spare: Vec::new(),
             motion_bases: Vec::new(),

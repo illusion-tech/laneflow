@@ -818,6 +818,8 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_staged_occupancy: Box<[u32]>,
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
+    /// 本次命令能否在占用索引重建点让出（`traffic-runtime-vehicle-placement.md` 第 8 节）。
+    pub(crate) command_occupancy: crate::kernel::occupancy::CommandOccupancy,
     pub(crate) motion_cache: Vec<crate::kernel::tick::MotionCacheEntry>,
     /// 上一份运动缓存缓冲，保留旧行（内容无效，只供换入后免去整表补占位行）；
     /// 任何读取者都不看它。
@@ -997,6 +999,7 @@ impl TickWorkspace {
             waiting_staged_occupancy,
             waiting_staged_storage_mm,
             occupancy_scratch,
+            command_occupancy: _,
             motion_cache,
             motion_cache_spare,
             motion_bases,
