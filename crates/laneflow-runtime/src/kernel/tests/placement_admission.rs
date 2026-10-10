@@ -494,6 +494,58 @@ fn recycled_route_slot_rebuilds_the_edge_route_index() {
 }
 
 #[test]
+fn registering_and_spawning_without_contenders_skips_the_edge_route_index() {
+    const ROUTES: u32 = 8;
+    let revision = revision("runtime/placement-incremental", |module| {
+        for index in 0..ROUTES {
+            add_edge(module, &format!("lane-{index}"), 40.0, 15.0, None);
+        }
+    });
+    let mut world = install_sized(revision, 16, 16);
+    crate::kernel::placement::reset_edge_route_rebuilds();
+    for index in 0..ROUTES {
+        let key = format!("lane-{index}");
+        let route = register_named(&mut world, "runtime/placement-incremental", &[&key]);
+        spawn(&mut world, route, 0, 20_000, 0).expect("free lane");
+        let index = world
+            .state
+            .derived
+            .spawn_contenders
+            .recheck_index()
+            .expect("the contender list was rebuilt");
+        assert!(index.linked && index.linked_count == 0);
+    }
+    assert_eq!(
+        crate::kernel::placement::edge_route_rebuilds(),
+        0,
+        "no contender can be a body target, so no registration rebuilds the index"
+    );
+}
+
+#[test]
+fn edge_route_index_beyond_u32_offsets_falls_back_to_the_scan() {
+    let revision = revision("runtime/placement-wide", |module| {
+        add_edge(module, "first", 40.0, 15.0, Some("second"));
+        add_edge(module, "second", 40.0, 15.0, None);
+    });
+    let mut world = install(revision);
+    register_named(&mut world, "runtime/placement-wide", &["first", "second"]);
+    crate::kernel::placement::set_edge_route_limit(2);
+    assert!(world.state.ensure_edge_routes(), "two occurrences fit");
+    register_named(&mut world, "runtime/placement-wide", &["second"]);
+    let fits = world.state.ensure_edge_routes();
+    crate::kernel::placement::set_edge_route_limit(u64::from(u32::MAX));
+    assert!(!fits, "three occurrences exceed the injected offset width");
+    let index = world
+        .state
+        .derived
+        .spawn_contenders
+        .recheck_index()
+        .expect("index");
+    assert_eq!(index.edges_built_for, None);
+}
+
+#[test]
 fn warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow() {
     fn visits_after_warmup(extra_edges: u32) -> (u64, u64) {
         let revision = revision("runtime/placement-plain", |module| {
