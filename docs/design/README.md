@@ -77,6 +77,9 @@
 - [`traffic-runtime-vehicle-placement.md`](traffic-runtime-vehicle-placement.md)：#742
   已接受。新鲜摆放不要求从路线起点零速开到当前速度；生成和替换要能停住当前约束、
   降到前方更低限速，并且不让前后车立刻无法紧急制动。恢复和修订切换不套用这层检查。
+- [`traffic-runtime-contender-frontier.md`](traffic-runtime-contender-frontier.md)：#861
+  提议中。准入候选名单的申请者与排队进入者只对已发布近门集合、失效名单和生命周期
+  增量求值，格点到达只对本次要读的格点求值；绑定不成立时整份退回全量重建。
 - `cross-section-access.md`：横断面与准入 overlay。
 - [`traffic-runtime-admission-contender-filter.md`](traffic-runtime-admission-contender-filter.md)：
   Accepted（#828）；准入缓存完整重建前的空贡献证明、同边运动上界、owner/失败语义与有界验证。
