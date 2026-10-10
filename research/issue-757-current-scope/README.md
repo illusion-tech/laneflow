@@ -59,11 +59,10 @@ cargo +1.98.0 build --manifest-path target/review-source/Cargo.toml -p laneflow-
 字节、错误后额外计算、线程 CPU 或屏障开销，不以零计数填这些认证义务。
 
 使用 `run.ps1` 为每个新进程记录源码全树、二进制与计划身份、运行前后稳定性、环境、
-退出码和进程峰值工作集。原输入默认只读路径为
-`E:/projects/laneflow-evidence/issue-707/4de40e04`。例如：
+退出码和进程峰值工作集。原输入以只读方式经 `-FrozenInputs` 传入 #707 冻结输入目录（`<evidence-root>/issue-707/4de40e04`）。例如：
 
 ```powershell
-./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/review-source -OutputRoot target/scope-runs -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
+./research/issue-757-current-scope/run.ps1 -Binary <封存程序> -Source target/review-source -OutputRoot target/scope-runs -FrozenInputs <冻结输入目录> -Label 10k-a1 -Scale 10k -Mode all -Ticks 512
 
 ```
 

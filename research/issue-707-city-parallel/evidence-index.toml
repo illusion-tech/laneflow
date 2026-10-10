@@ -1,5 +1,5 @@
 # 历史诊断 JSON 的地址已迁为冻结提交；归档与校验入口见 ../archives/2026-10-01-json-migration.md。
-# #707 第二切片证据索引（E:/projects/laneflow-evidence/issue-707/4de40e04/）
+# #707 第二切片证据索引（<evidence-root>/issue-707/4de40e04/）
 # pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
 # 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
 # 8 份现场核查、diagnostics、comparison 原始小封套，以及 4 份 D1/D2 电源边界记录；

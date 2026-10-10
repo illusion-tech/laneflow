@@ -94,7 +94,7 @@ Runtime release + placement-fixtures：536 项单元测试、相关集成与文�
 而失败，原执行码 101 已记录。原零提案反例被停车约束遮蔽的问题也保留原件；
 未修改生产证明、测试门禁或真实 reserve 顺序。
 
-外部原件根为 E:/projects/laneflow-evidence/issue-814：
+外部原件根为 <evidence-root>/issue-814：
 47ad01b9/pipeline-profile-v42 与 8fa2ad0f 保存源码、工具、构建、原始记录、
 验封、负向验证和宿主失败。诊断工具的两次编译失败、验封口径错误及 ABBA
 宿主空 LASTEXITCODE 误判均保留；已完成 ABBA 直接复用，没有重测或挑选结果。

@@ -105,8 +105,8 @@ held 仍可能漏一拍接近来源。车道块只是否决了零命中的这次
 都不改写。
 
 > 测量基线：`4de40e045398e4b010b2aa36522afc02a4094c4d`（main，#731 合并后）。
-> 证据根：`E:/projects/laneflow-evidence/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
-> 测量 checkout：`E:/projects/worktrees/707-measure/laneflow`（detached @ 4de40e04，全程干净）。
+> 证据根：`<evidence-root>/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
+> 测量 checkout：`<worktree>`（detached @ 4de40e04，全程干净）。
 > 原 pilot 切片范围：WP A/B/C；后续 D1/D2 已完成 r1，完整 D/E 尚未完成。
 > 本研究文档分支未改 Runtime 算法/调度/阈值/P4/SIMD/数据布局或 Harness 代码；
 > 诊断插桩在独立 checkout，身份与边界见分层短测结果。

@@ -13,7 +13,7 @@
   `960fe18ca04396fdcf7ded9455456b27b9434760562f3596b4a68ec704e80b95`。这是采集
   元数据登记的精确身份；该 EXE 的原路径后来被不同构建覆盖，当前没有保留这份
   精确文件。
-- 证据目录：`E:/projects/laneflow-evidence/issue-707/4de40e04/diagnostics/wpr/`。
+- 证据目录：`<evidence-root>/issue-707/4de40e04/diagnostics/wpr/`。
 - 同一 PID 11984、workers=4、原始 100k 正式计划，从初态演进。
 - 元数据：`l3-w4-meta.txt`；采集：`l3-w4-early.etl`（1,154,482,176 字节，
   SHA-256 `39461dd8b147ff8688e3bdb49a13a7c8e7f78d9b2220bfa6227fe835be8edd52`）
@@ -141,7 +141,7 @@ L3 只有 w4，早晚车辆状态和命令组合不同。
 
 ## 5. 复核产物
 
-派生报告原件位于 `E:/projects/laneflow/target/issue707-l3-analysis-20260921/`。
+派生报告原件位于 `<checkout>/target/issue707-l3-analysis-20260921/`。
 仓库在 [`evidence/wpr-l3/`](evidence/wpr-l3/) 提交 12 份隐私筛选后的紧凑副本：
 
 - 已提交：早/晚窗 `*-stats.txt`、`*-rundown.txt`、`*-frequency.txt`、

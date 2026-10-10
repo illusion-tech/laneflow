@@ -2,7 +2,7 @@
 # 基线 manifest（提交版；原始素材：证据根 manifest/baseline-manifest-raw.toml）
 
 [checkout]
-path = "E:/projects/worktrees/707-measure/laneflow"
+path = "<worktree>"
 commit = "4de40e045398e4b010b2aa36522afc02a4094c4d"
 worktree_clean = true
 
@@ -45,8 +45,8 @@ LANEFLOW_HARDWARE_ROLE = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
 LANEFLOW_POWER_ROLE = "win11-balanced-381b4222"
 
 [inputs]
-artifacts_10k = "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-10k（本次以冻结入口重建；network_revision=bef82350…）"
-artifacts_100k = "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-100k（同上）"
+artifacts_10k = "<evidence-root>/issue-707/4de40e04/inputs/urban-10k（本次以冻结入口重建；network_revision=bef82350…）"
+artifacts_100k = "<evidence-root>/issue-707/4de40e04/inputs/urban-100k（同上）"
 plans_json_mismatch = "已重放闭合（见 input-diff.md）：用 4de40e04 归档 Harness、版本化冻结 manifest 和逐文件核验内容重建两档计划，字节数/SHA-256 精确匹配 plans.json；与重建制品计划逐行比较仅 manifest_digest 不同；接受重建制品用于本 PR 范围，golden 未改"
 frozen_plan_replay = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frozen-plan-replay.json"
 

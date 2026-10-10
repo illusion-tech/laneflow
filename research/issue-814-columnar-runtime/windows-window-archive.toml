@@ -6,7 +6,7 @@ pmu_per_tick_verified = false
 formal_scaling_runs = 0
 
 [archive]
-path = "E:/projects/laneflow-evidence/issue-814/deliveries/20261002-windows-window/windows-window-20261002.tar.zst"
+path = "<evidence-root>/issue-814/deliveries/20261002-windows-window/windows-window-20261002.tar.zst"
 bytes = 585888271
 sha256 = "eed7e277b9c05906d2b074975c346e585450472ffdf2e021feb24df0fe3319cc"
 manifest_sha256 = "090990030004630c4f6ce45c129be57633e4afdd8c2680de76eed9bad7e410d9"

@@ -7,7 +7,7 @@ verified_members = 352
 verified_payload_bytes = 1182465978
 local_restore_verified = true
 restoration_layers = 2
-local_directory = "E:/projects/laneflow-evidence/issue-814/deliveries/20261002-reduced-load"
+local_directory = "<evidence-root>/issue-814/deliveries/20261002-reduced-load"
 public_download_available = false
 
 embedded_source_archive = "direct-motion-20261002.tar.gz"

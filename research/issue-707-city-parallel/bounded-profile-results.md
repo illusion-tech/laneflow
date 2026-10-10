@@ -163,7 +163,7 @@ MotionLoop 内，列准备为 0.0556 秒、包含 join 的分发为 1.9962 秒�
 
 ## 证据与边界
 
-完整本地证据根为 `E:/projects/laneflow-evidence/issue-707/bounded-profile-20261007/`。
+完整本地证据根为 `<evidence-root>/issue-707/bounded-profile-20261007/`。
 完整原始字节另存为[团队下载归档](https://github.com/illusion-tech/laneflow/releases/download/research-evidence-826-bounded-profile-fe473f0f/bounded-profile-826-fe473f0f.tar.zst)，
 包括三轮记录、首版覆盖缺口、输入、二进制、分析工具及完整清单；不进入 Git 源码树。
 归档冻结研究提交 `fe473f0fa435ee5971267b518e32f9b0614d7ce1`，生产基线仍为上述 `9d61f8d2`。

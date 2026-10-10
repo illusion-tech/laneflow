@@ -148,7 +148,7 @@ Core 的下一条独立研究线仍是运动约束查询；红灯停止线 ETA=0
 
 ## 6. 复核入口
 
-本机证据根：`E:/projects/laneflow/target/issue707-b1-wpr-20260922/`。
+本机证据根：`<checkout>/target/issue707-b1-wpr-20260922/`。
 这是外部诊断制品目录。仓库在 [`evidence/wpr-b1/`](evidence/wpr-b1/) 提交
 13 份隐私筛选后的紧凑 JSON/CSV/TXT 报告；提交副本只统一为 LF、去掉末尾多余换行并
 保留一个终止 LF。来源与提交副本的字节数、SHA-256 以及筛选边界以

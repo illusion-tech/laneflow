@@ -31,7 +31,7 @@ cargo +1.98.0 run --locked --offline -p laneflow-post-p3-research --bin laneflow
 结束且采集工具提交干净可达后再串行运行，期间不构建/修改源码：
 
 ```powershell
-target/debug/laneflow-p2-cost-research.exe run target/768-build E:/projects/laneflow-evidence/issue-707/4de40e04 target/768-runs
+target/debug/laneflow-p2-cost-research.exe run target/768-build <evidence-root>/issue-707/4de40e04 target/768-runs
 target/debug/laneflow-p2-cost-research.exe analyze target/768-runs target/768-results.json
 target/debug/laneflow-p2-cost-research.exe verify target/768-runs target/768-results.json
 ```

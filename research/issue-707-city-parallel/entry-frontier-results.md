@@ -5,9 +5,9 @@
 
 ## 实验身份与模型
 
-- 原型 checkout：`E:/projects/laneflow/target/issue707-entry-source`，基于
+- 原型 checkout：`<checkout>/target/issue707-entry-source`，基于
   `4de40e04` 加上一轮多 gap 补丁及本轮原型；不是干净冻结基线。
-- 产物：`E:/projects/laneflow/target/issue707-entry-results`。
+- 产物：`<checkout>/target/issue707-entry-results`。
 - 原测量 worktree、原 D1/D2/L3 证据、多 gap 输入和上一轮输出不修改。
 - 主研究分支只新增研究文档。没有提交、推送或改变产品预算。
 

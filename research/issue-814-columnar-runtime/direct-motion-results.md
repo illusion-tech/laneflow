@@ -112,7 +112,7 @@ Runtime release + placement-fixtures：536 项单元测试、集成与文档测�
 完整 join、重试、并发参与、资源账本、无半提交与稳态分配门禁保持。
 源码绑定的 release 汇编观察确认统计开/关分立，直接量化辅助内联；它不是计时证明。
 
-原件位于 E:/projects/laneflow-evidence/issue-814 的 d48719c2、902ac9bf 及引用的
+原件位于 <evidence-root>/issue-814 的 d48719c2、902ac9bf 及引用的
 前态目录，包括所有源码、工具、输入、EXE、构建凭据、原始输出、守卫拒绝、
 宿主快照、汇总纠正与负向验证。完整归档见 [本机恢复验封索引](direct-motion-archive.toml)。
 公共下载仍待交付，本机路径不代表公开复现；Git 只留实现、工具、结论与小型索引。

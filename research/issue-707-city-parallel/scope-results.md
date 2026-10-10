@@ -16,9 +16,9 @@
 
 ## 实验身份与边界
 
-- 源码：`E:/projects/laneflow/target/issue707-scope-source`，冻结提交
+- 源码：`<checkout>/target/issue707-scope-source`，冻结提交
   `4de40e045398e4b010b2aa36522afc02a4094c4d` 加入口实验补丁及本轮变更。
-- 产物：`E:/projects/laneflow/target/issue707-scope-results`；工具位于源码的
+- 产物：`<checkout>/target/issue707-scope-results`；工具位于源码的
   `research/issue-707-scope/`。本轮不覆盖上一轮 entry-results。
 - 原冻结测量 worktree 与外部 ETL/正式证据保持只读。主研究分支仅收文档。
 - 工具链 1.98.0，release、offline、locked、`CARGO_INCREMENTAL=0`。
