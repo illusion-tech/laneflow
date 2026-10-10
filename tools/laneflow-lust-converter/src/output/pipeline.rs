@@ -407,7 +407,7 @@ fn convert_verified(
     };
 
     let publish = publish_outputs(&staging, anchor, &staged);
-    let _ = fs::remove_dir_all(&staging);
+    let staging_removed = fs::remove_dir_all(&staging).is_ok();
     publish?;
 
     // 返回路径以词法 output_dir 拼接（保持调用方视角），但交付实际落在
@@ -423,6 +423,21 @@ fn convert_verified(
                 anchor.display(),
                 config.output_dir.display(),
                 current_anchor.display()
+            ),
+        });
+    }
+
+    // 成功路径的清理失败不得静默（与备份清理同策：不在成功路径静默
+    // 埋雷）：残留 staging 带所有权标记，下次运行的 best-effort 清理
+    // 通常收得掉；删不动（如 Windows 文件锁持续）时同进程重试会在
+    // 排他新建处撞上同名路径——first caller 必须立即知道位置。排在
+    // 漂移复检之后：交付落位争议的优先级高于事务目录清理。
+    if !staging_removed {
+        return Err(Error::Validation {
+            stage: "cleanup",
+            message: format!(
+                "delivery published, but staging cleanup failed; staging preserved at {} — remove it manually if the next run cannot clear it",
+                staging.display()
             ),
         });
     }
