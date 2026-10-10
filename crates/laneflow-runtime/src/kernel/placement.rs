@@ -2062,6 +2062,14 @@ impl crate::kernel::state::WorldState {
                 .map(|profile| profile.min_gap_mm())
                 .ok_or(FreshAdmissionFailure::StopConstraint)?;
             let zone_count = self.derived.spawn_contenders.best.len();
+            // 同一车辆按同一 gate 的多个冲突区重复出现；判定只依赖该车路线与车身，
+            // 首次出现后重复项不会改变 handles，按槽位位图跳过。
+            let slot_bits = self.derived.spawn_contenders.owners.len();
+            let mut evaluated: Vec<u64> = Vec::new();
+            evaluated
+                .try_reserve_exact(slot_bits.div_ceil(64))
+                .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+            evaluated.resize(slot_bits.div_ceil(64), 0);
             let mut zone_index = 0usize;
             while zone_index < zone_count {
                 let zone = zone_index;
@@ -2088,6 +2096,14 @@ impl crate::kernel::state::WorldState {
                         break;
                     };
                     item = item.saturating_add(1);
+                    let slot = vehicle.index() as usize;
+                    if let Some(word) = evaluated.get_mut(slot / 64) {
+                        let bit = 1u64 << (slot % 64);
+                        if *word & bit != 0 {
+                            continue;
+                        }
+                        *word |= bit;
+                    }
                     if self.route_touches_body(vehicle, &body) {
                         push_recheck(&mut handles, vehicle)?;
                     }
