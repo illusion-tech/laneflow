@@ -132,15 +132,28 @@ pub fn verify_source_dir(source_dir: &Path) -> Result<VerifiedSourceSet> {
 /// HEAD) yields [`Error::SourceRevisionUnknown`] rather than a skipped check.
 /// LuST 来源校验与 converter 自身构建身份（build provenance 的
 /// converter_commit）共用同一解析——两边不得各自实现。
+/// 探测指定 checkout 的 HEAD。命令环境剔除 GIT_DIR/GIT_WORK_TREE：git
+/// hook 与自动化包装会 export 这些变量（hook 内 git 自动注入 GIT_DIR），
+/// 它们压过 `-C` 的仓库选择，让 rev-parse 读到**另一个仓库**的 HEAD——
+/// source revision 校验与 converter_commit 记录会双双失真（provenance
+/// 声称不相关仓库的 SHA）。
+fn git_rev_parse_command(source_dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(source_dir)
+        .args(["rev-parse", "HEAD"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE");
+    command
+}
+
 pub(crate) fn checkout_revision(source_dir: &Path) -> Result<String> {
     let unknown = |reason: String| Error::SourceRevisionUnknown {
         source_dir: source_dir.to_path_buf(),
         reason,
     };
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(source_dir)
-        .args(["rev-parse", "HEAD"])
+    let output = git_rev_parse_command(source_dir)
         .output()
         .map_err(|source| unknown(format!("failed to run git rev-parse: {source}")))?;
     if !output.status.success() {
@@ -230,7 +243,10 @@ fn hex_digest(bytes: &[u8; 32]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
+    use std::{
+        path::{Path, PathBuf},
+        process::Command,
+    };
 
     use super::{LUST_COMMIT, checkout_revision, hex_digest, verify_source_dir};
     use crate::{Error, source::PINNED_SOURCE_FILES};
@@ -355,6 +371,88 @@ mod tests {
         assert!(revision.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
         assert_ne!(revision, LUST_COMMIT);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn checkout_revision_ignores_ambient_git_dir() {
+        // #253：GIT_DIR/GIT_WORK_TREE 压过 -C 的仓库选择（git hook 会自动
+        // export GIT_DIR）——投毒环境下探测必须仍读目标 checkout 的 HEAD。
+        // edition 2024 下 set_var 是 unsafe 且并行测试共享进程 env，改为
+        // 父子两段：父进程建两个临时仓库，以投毒 GIT_DIR 拉起本测试二进制
+        // 重跑自身（Command::env 只影响子进程）；子进程在投毒环境下断言。
+        if let (Ok(target), Ok(expected)) = (
+            std::env::var("LUST_TEST_TARGET_REPO"),
+            std::env::var("LUST_TEST_EXPECTED_HEAD"),
+        ) {
+            let revision = checkout_revision(Path::new(&target)).expect("read target HEAD");
+            assert_eq!(revision, expected, "GIT_DIR must not redirect the probe");
+            return;
+        }
+        let make_repo = |tag: &str| -> Option<(PathBuf, String)> {
+            let root = std::env::temp_dir().join(format!(
+                "laneflow-lust-verify-gitdir-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).expect("create temp");
+            let git = |args: &[&str]| {
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&root)
+                    .args(args)
+                    .output()
+                    .expect("run git")
+            };
+            if !git(&["init", "-q", "-b", "main"]).status.success() {
+                return None; // git 不可用：跳过（同 checkout_revision_reads_git_head）
+            }
+            std::fs::write(root.join("seed.txt"), tag.as_bytes()).expect("write seed");
+            assert!(git(&["add", "seed.txt"]).status.success());
+            assert!(
+                git(&[
+                    "-c",
+                    "user.name=lust-test",
+                    "-c",
+                    "user.email=lust-test@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "seed",
+                ])
+                .status
+                .success()
+            );
+            let head = git(&["rev-parse", "HEAD"]);
+            let head = String::from_utf8(head.stdout).expect("head utf8");
+            Some((root, head.trim().to_owned()))
+        };
+        let Some((poison, _poison_head)) = make_repo("poison") else {
+            return;
+        };
+        let Some((target, target_head)) = make_repo("target") else {
+            return;
+        };
+
+        let child = Command::new(std::env::current_exe().expect("test binary"))
+            .args([
+                "checkout_revision_ignores_ambient_git_dir",
+                "--exact",
+                "--test-threads=1",
+            ])
+            .env("GIT_DIR", poison.join(".git"))
+            .env("GIT_WORK_TREE", &poison)
+            .env("LUST_TEST_TARGET_REPO", &target)
+            .env("LUST_TEST_EXPECTED_HEAD", &target_head)
+            .output()
+            .expect("respawn test binary");
+        assert!(
+            child.status.success(),
+            "poisoned child failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&poison);
+        let _ = std::fs::remove_dir_all(&target);
     }
 }
 
