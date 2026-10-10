@@ -371,13 +371,20 @@ pub(crate) struct SpawnConflictContenders {
     /// 名单处于按需模式：`cell_approach` 只含求值集合里车辆的贡献，其余来源车在
     /// 第一次读取格点时经 frontier 反向索引并入 `lazy`。
     pub(crate) lazy_cells: bool,
-    /// 按需求值过的格点，第一次进入按需模式时才分配（空切片不占堆）。命令路径
-    /// 单线程；用锁只是因为读视图要能跨线程共享。
-    pub(crate) lazy: Box<[std::sync::Mutex<LazyContenderCells>]>,
-    /// 复核目标的路线索引，第一次重建名单时才分配（空切片不占堆）。
-    pub(crate) recheck_index: Box<[RecheckRouteIndex]>,
+    /// 按需求值过的格点与复核目标的路线索引，第一次用到时才分配（空切片不占堆，
+    /// 空世界只多一个胖指针）。
+    pub(crate) scratch: Box<[ContenderScratch]>,
     /// `None` 表示名单不能当当前世界使用。建失败或更新不完整都留在这里，不假装已经建好。
     pub(crate) built_for: Option<ContenderBuilt>,
+}
+
+/// 名单的可选工作区：按需求值的格点缓存与复核目标的路线索引。合在一个延迟分配的
+/// 盒子里，空世界不占堆。
+#[derive(Debug, Default)]
+pub(crate) struct ContenderScratch {
+    /// 命令路径单线程；用锁只是因为读视图要能跨线程共享。
+    pub(crate) lazy: std::sync::Mutex<LazyContenderCells>,
+    pub(crate) recheck: RecheckRouteIndex,
 }
 
 /// 链表里「没有下一项」。
@@ -404,8 +411,8 @@ impl RouteContenderLink {
 /// 复核目标「路线经过新车车身所在边的申请者」的两级索引。
 ///
 /// 第一级「边 → 路线」是按已注册路线建的压缩稀疏行：经过边 `e` 的路线槽位是
-/// `edge_routes[edge_offsets[e]..edge_offsets[e + 1]]`。运行中路线只追加注册，释放空槽
-/// 只发生在世界切换里，因此按 (世界世代, 已注册路线数, 槽位表长度) 判断是否要重建。
+/// `edge_routes[edge_offsets[e]..edge_offsets[e + 1]]`。注册与删除路线时直接作废；
+/// 另以 (世界世代, 已注册路线数, 槽位表长度) 兜底，世界切换换表时同样重建。
 ///
 /// 第二级「路线 → 申请者」是按车辆槽位的侵入式双向链表，表头按路线槽位存放。只链入
 /// 冲突区列表非空的逐车贡献记录，即出现在某个冲突区申请者名单里的车；写入与撤销
@@ -472,34 +479,48 @@ impl SpawnConflictContenders {
         self.built_for = None;
     }
 
+    fn ensure_scratch(&mut self) -> Option<&mut ContenderScratch> {
+        if self.scratch.is_empty() {
+            let mut holder = Vec::new();
+            holder.try_reserve_exact(1).ok()?;
+            holder.push(ContenderScratch::default());
+            self.scratch = holder.into_boxed_slice();
+        }
+        self.scratch.first_mut()
+    }
+
+    /// 按需求值过的格点；读视图经锁读写。
+    pub(crate) fn lazy(&self) -> Option<&std::sync::Mutex<LazyContenderCells>> {
+        self.scratch.first().map(|scratch| &scratch.lazy)
+    }
+
     pub(crate) fn lazy_mut(&mut self) -> Option<&mut LazyContenderCells> {
-        self.lazy.first_mut()?.get_mut().ok()
+        self.scratch.first_mut()?.lazy.get_mut().ok()
+    }
+
+    pub(crate) fn recheck_index(&self) -> Option<&RecheckRouteIndex> {
+        self.scratch.first().map(|scratch| &scratch.recheck)
+    }
+
+    /// 路线注册表变了：下次查询复核目标时重建「边 → 路线」。
+    pub(crate) fn invalidate_edge_routes(&mut self) {
+        if let Some(index) = self.recheck_index_mut() {
+            index.edges_built_for = None;
+        }
     }
 
     pub(crate) fn recheck_index_mut(&mut self) -> Option<&mut RecheckRouteIndex> {
-        self.recheck_index.first_mut()
+        self.scratch.first_mut().map(|scratch| &mut scratch.recheck)
     }
 
     /// 复核目标的路线索引；没有就分配。分配失败返回 `None`。
     pub(crate) fn ensure_recheck_index(&mut self) -> Option<&mut RecheckRouteIndex> {
-        if self.recheck_index.is_empty() {
-            let mut holder = Vec::new();
-            holder.try_reserve_exact(1).ok()?;
-            holder.push(RecheckRouteIndex::default());
-            self.recheck_index = holder.into_boxed_slice();
-        }
-        self.recheck_index_mut()
+        self.ensure_scratch().map(|scratch| &mut scratch.recheck)
     }
 
     /// 按需模式的格点缓存；没有就分配。分配失败返回 `None`。
     pub(crate) fn ensure_lazy(&mut self) -> Option<&mut LazyContenderCells> {
-        if self.lazy.is_empty() {
-            let mut holder = Vec::new();
-            holder.try_reserve_exact(1).ok()?;
-            holder.push(std::sync::Mutex::default());
-            self.lazy = holder.into_boxed_slice();
-        }
-        self.lazy_mut()
+        self.ensure_scratch()?.lazy.get_mut().ok()
     }
 
     #[cfg(test)]
@@ -518,20 +539,15 @@ impl SpawnConflictContenders {
                 .sum::<u64>()
             + vec_bytes(&self.reach_mask)
             + self
-                .lazy
+                .scratch
                 .iter()
-                .filter_map(|lazy| lazy.lock().ok())
-                .map(|lazy| {
-                    (std::mem::size_of::<std::sync::Mutex<LazyContenderCells>>() as u64)
-                        + vec_bytes(&lazy.evaluated)
-                        + vec_bytes(&lazy.values)
-                })
-                .sum::<u64>()
-            + self
-                .recheck_index
-                .iter()
-                .map(|index| {
-                    (std::mem::size_of::<RecheckRouteIndex>() as u64)
+                .map(|scratch| {
+                    let lazy = scratch.lazy.lock().map_or(0, |lazy| {
+                        vec_bytes(&lazy.evaluated) + vec_bytes(&lazy.values)
+                    });
+                    let index = &scratch.recheck;
+                    (std::mem::size_of::<ContenderScratch>() as u64)
+                        + lazy
                         + vec_bytes(&index.edge_offsets)
                         + vec_bytes(&index.edge_routes)
                         + vec_bytes(&index.route_heads)
