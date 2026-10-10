@@ -32,9 +32,39 @@ pub(crate) fn occupancy_rebuild_events() -> u64 {
 #[cfg(test)]
 thread_local! {
     static MANEUVER_UPSTREAM_EDGE_VISITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// 并行重建注入：`Some(false)` 返回分配失败，`Some(true)` panic。
+    static PARALLEL_OCCUPANCY_FAULT: Cell<Option<bool>> = const { Cell::new(None) };
+    static PARALLEL_OCCUPANCY_REBUILDS: Cell<u64> = const { Cell::new(0) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: OCCUPANCY_REBUILD_EVENTS, MANEUVER_UPSTREAM_EDGE_VISITS);
+crate::kernel::execution::carry_hooks!(
+    carry_test_hooks: OCCUPANCY_REBUILD_EVENTS,
+    MANEUVER_UPSTREAM_EDGE_VISITS,
+    PARALLEL_OCCUPANCY_FAULT,
+    PARALLEL_OCCUPANCY_REBUILDS,
+);
+
+#[cfg(test)]
+pub(crate) fn set_parallel_occupancy_fault(fault: Option<bool>) {
+    PARALLEL_OCCUPANCY_FAULT.set(fault);
+}
+
+#[cfg(test)]
+pub(crate) fn take_parallel_occupancy_rebuilds() -> u64 {
+    PARALLEL_OCCUPANCY_REBUILDS.replace(0)
+}
+
+/// 命令走到占用索引重建点时怎么做（`traffic-runtime-vehicle-placement.md` 第 8 节）。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum CommandOccupancy {
+    /// 在命令里按现行规则串行重建。
+    #[default]
+    Rebuild,
+    /// 来源过期时让出，由活动世界借执行资源并行重建后重新执行命令。
+    Yield,
+    /// 本次命令已经让出。
+    Yielded,
+}
 
 #[cfg(test)]
 pub(crate) fn reset_maneuver_upstream_edge_visits() {
@@ -1705,6 +1735,15 @@ fn rebuild_occupancy_index(
     let execution = execution.filter(|resources| resources.coordinator_parallel());
     let mut guard = execution.and_then(|resources| resources.occupancy_parts());
     if let (Some(resources), Some(parts)) = (execution, guard.as_deref_mut()) {
+        #[cfg(test)]
+        {
+            PARALLEL_OCCUPANCY_REBUILDS.set(PARALLEL_OCCUPANCY_REBUILDS.get() + 1);
+            match PARALLEL_OCCUPANCY_FAULT.get() {
+                Some(false) => return Err(StepError::OccupancyAllocFailed),
+                Some(true) => panic!("injected parallel occupancy panic"),
+                None => {}
+            }
+        }
         // 多线程：每辆车只遍历一次；各段分组后，各桶组并行完成计数到排序。
         let groups = OccupancyGroups::new(bucket_count, resources.dispatch_threads());
         let used = collect_occupancy_parts(
@@ -1977,6 +2016,22 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 两次 step 之间的命令读取当前提交态；重复拒绝可以复用同一份索引。
+    /// 命令走到占用索引重建点：允许让出且来源已过期时记下让出，返回 `true`。
+    /// 让出的命令立即返回，结果由活动世界丢弃，不提交任何东西。
+    pub(crate) fn yield_occupancy_rebuild(&mut self) -> bool {
+        let current = Some((
+            self.binding.world_generation,
+            self.committed.observation_state_sequence,
+        ));
+        if self.workspace.command_occupancy != CommandOccupancy::Yield
+            || self.derived.occupancy.source == current
+        {
+            return false;
+        }
+        self.workspace.command_occupancy = CommandOccupancy::Yielded;
+        true
+    }
+
     pub(crate) fn ensure_current_occupancy(&mut self) -> Result<(), StepError> {
         let source = (
             self.binding.world_generation,
@@ -1992,6 +2047,36 @@ impl crate::kernel::state::WorldState {
     pub(crate) fn occupancy_inspections(&self) -> u64 {
         self.derived.occupancy.inspections()
     }
+}
+
+/// 索引的全部内容：来源、每条边的记录与后缀（按存放顺序）、当前代次的前车表与每条边
+/// 的最前记录。代次本身不比，只比哪些条目属于当前代次。
+#[cfg(test)]
+pub(crate) fn occupancy_full_fingerprint(index: &OccupancyIndex) -> String {
+    let ready = index.ahead_epoch != 0;
+    let ahead: Vec<_> = if ready {
+        index
+            .ahead
+            .iter()
+            .map(|entry| {
+                let key = entry.key.load(Ordering::Relaxed);
+                ((key >> 32) as u32 == index.ahead_epoch).then(|| {
+                    (
+                        key as u32,
+                        entry.place.load(Ordering::Relaxed),
+                        entry.ahead.load(Ordering::Relaxed),
+                    )
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let fronts: &[EdgeFront] = if ready { &index.fronts } else { &[] };
+    format!(
+        "{:?}|{}|{ready}|{:?}|{ahead:?}|{fronts:?}",
+        index.source, index.record_len, index.buckets
+    )
 }
 
 #[cfg(test)]

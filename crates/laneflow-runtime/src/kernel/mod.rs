@@ -89,6 +89,11 @@ pub(crate) mod exact_path_research;
 #[path = "tests/junction_ledger.rs"]
 mod junction_ledger;
 
+/// 命令在占用索引重建点让出、借执行资源并行重建。
+#[cfg(test)]
+#[path = "tests/command_occupancy.rs"]
+mod command_occupancy;
+
 /// #678 命令路径工作量与候选结构研究；不进入生产构建。
 #[cfg(test)]
 #[path = "tests/parking_commands.rs"]

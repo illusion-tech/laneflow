@@ -1592,6 +1592,10 @@ impl crate::kernel::state::WorldState {
         {
             return Err(ParkingError::LeavePhysicalOverlap { blocker });
         }
+        if self.yield_occupancy_rebuild() {
+            // 让出的结果不会返回给调用方。
+            return Err(ParkingError::AllocationFailed);
+        }
         self.ensure_current_occupancy()
             .map_err(|error| match error {
                 crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
@@ -2143,13 +2147,14 @@ impl TrafficWorld {
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    /// 占用索引过期且执行资源可并行时，命令会在执行作用域里重建索引；这次执行 panic
+    /// 会先结算全部已分发任务，再向宿主传播，世界随之失效。
     pub fn leave_parking(
         &mut self,
         vehicle: VehicleHandle,
         input: LeaveParkingTarget,
     ) -> Result<ParkingLeaveRecord, ParkingError> {
-        self.execution.assert_usable();
-        self.state.leave_parking(vehicle, input)
+        self.command_with_parallel_occupancy(|state| state.leave_parking(vehicle, input))
     }
 
     /// 在保持完整物理 footprint 的前提下更换 Reserved route/entry payload。
