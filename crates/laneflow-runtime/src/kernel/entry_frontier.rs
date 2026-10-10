@@ -191,6 +191,19 @@ impl PreparedSignalApproach {
     }
 }
 
+/// 反向索引里一处缓存的冲突出现项，连同记录时的槽位身份与位置。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CachedOccurrence {
+    pub(crate) slot: u32,
+    pub(crate) generation: u32,
+    pub(crate) route_index: u32,
+    pub(crate) route_generation: u32,
+    pub(crate) edge: u32,
+    pub(crate) progress_mm: u32,
+    /// 记录位置到这处出现项入口的路线距离。
+    pub(crate) distance_mm: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct IncrementSlot {
     generation: u32,
@@ -299,6 +312,43 @@ impl FrontierMaintenance {
             }
         }
         true
+    }
+
+    /// 对反向索引里缓存了 `address` 的每个有效槽位、其中每处这个地址的出现项回调。
+    ///
+    /// 只读。槽位记录的是上次记录时的位置，调用方自己与当前车辆状态核对；回调返回
+    /// `Err` 时立即停止并返回它。
+    pub(crate) fn for_each_cached_occurrence<E>(
+        &self,
+        address: ConflictPassageAddress,
+        mut visit: impl FnMut(CachedOccurrence) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let Some(list) = self.by_cell.get(&address) else {
+            return Ok(());
+        };
+        for index in list {
+            let Some(slot) = usize::try_from(*index)
+                .ok()
+                .and_then(|slot| self.slots.get(slot))
+            else {
+                continue;
+            };
+            if !slot.valid {
+                continue;
+            }
+            for cell in slot.cells.iter().filter(|cell| cell.address == address) {
+                visit(CachedOccurrence {
+                    slot: *index,
+                    generation: slot.generation,
+                    route_index: slot.route_index,
+                    route_generation: slot.route_generation,
+                    edge: slot.edge,
+                    progress_mm: slot.progress,
+                    distance_mm: cell.distance_mm,
+                })?;
+            }
+        }
+        Ok(())
     }
 
     fn write_increment(&mut self, index: u32, generation: Option<u32>) {
@@ -1358,6 +1408,7 @@ fn collect_targets(
         binding: step.binding,
         committed: &step.committed,
         derived: &step.derived,
+        contender_frontier: None,
     };
     let maintenance = &mut step.workspace.frontier_maintenance;
     let mut demanded = std::mem::take(&mut maintenance.scratch_demanded);
@@ -2767,6 +2818,60 @@ mod tests {
             estimates.contains(&4_000),
             "red phase must wait for the green phase in the next cycle, estimates={estimates:?}"
         );
+    }
+
+    /// 按需模式的名单：读格点时从 frontier 并入的来源车，结果必须与逐辆求值的全量
+    /// 重建相同，包括缓存之后车速被改的情形。
+    #[cfg(feature = "placement-fixtures")]
+    fn lazy_and_full_contender_cells(
+        world: &mut crate::TrafficWorld,
+    ) -> (Vec<String>, Vec<String>) {
+        crate::set_full_contender_rebuild(false);
+        world.force_rebuild_contenders_for_test();
+        assert!(world.state.derived.spawn_contenders.lazy_cells);
+        let lazy = world.contender_cells_for_test();
+        crate::set_full_contender_rebuild(true);
+        world.force_rebuild_contenders_for_test();
+        assert!(!world.state.derived.spawn_contenders.lazy_cells);
+        let full = world.contender_cells_for_test();
+        crate::set_full_contender_rebuild(false);
+        (lazy, full)
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn lazy_contender_cells_match_full_rebuild_on_scale_world() {
+        let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
+        let mut world = crate::admin::cutover_migration::tests::conflict_scale_world(revision, 64);
+        let before = crate::contender_lazy_sources();
+        let mut occupied = 0;
+        for _ in 0..24 {
+            step(&mut world);
+            let (lazy, full) = lazy_and_full_contender_cells(&mut world);
+            assert_eq!(lazy, full);
+            occupied += lazy.len();
+        }
+        assert!(occupied > 0, "the fixture must occupy some cells");
+        assert!(
+            crate::contender_lazy_sources() > before,
+            "some owners must come from the frontier"
+        );
+        // 步进之外改车辆状态的命令都登记生命周期增量，改过的车进入求值集合。
+        for index in 0..world.state.committed.vehicles.len() {
+            let mut slot = world.state.committed.vehicles.slot_mut(index);
+            let Some(state) = slot.state.as_mut() else {
+                continue;
+            };
+            state.speed_mm_s = 60_000;
+            let handle = state.handle;
+            world
+                .state
+                .workspace
+                .frontier_maintenance
+                .note_active_source(handle);
+        }
+        let (lazy, full) = lazy_and_full_contender_cells(&mut world);
+        assert_eq!(lazy, full);
     }
 
     #[test]

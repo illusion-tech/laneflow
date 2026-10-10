@@ -5935,6 +5935,8 @@ fn near_gate_rebuild_matches_full_rebuild_across_steps_and_spawns() {
     assert_eq!(previews, full);
     let mut saved = false;
     let mut with_contenders = false;
+    let mut refreshed_spawns = 0;
+    let lazy_before = laneflow_runtime::contender_lazy_sources();
     let spawn_points = [
         (0usize, 500u32, 3_000u32),
         (1, 2_500, 2_000),
@@ -5947,10 +5949,40 @@ fn near_gate_rebuild_matches_full_rebuild_across_steps_and_spawns() {
         let (route, back, speed) = spawn_points[(tick / 8) % spawn_points.len()];
         let length = lengths[route];
         if tick % 8 == 0 && back < length {
-            let _ = world.spawn_vehicle(
+            // 生成刷新沿用按需模式的名单：已求值格点经重新归约后重新并入，未求值格点
+            // 以后并入，结果都要与生成后的全量重建相同。
+            laneflow_runtime::set_full_contender_rebuild(false);
+            world.force_rebuild_contenders_for_test();
+            if tick % 16 == 0 {
+                let _ = world.contender_cells_for_test();
+            }
+            let spawned = world.spawn_vehicle(
                 VehicleSpawnInput::new(dot, routes[route], 0, length - back, speed)
                     .with_open_entrance(),
             );
+            if spawned.is_ok() {
+                assert_eq!(
+                    laneflow_runtime::contender_rebuild_scans(),
+                    0,
+                    "spawn must refresh the existing list"
+                );
+                let refreshed = (
+                    world.contender_fingerprint_for_test(),
+                    world.contender_cells_for_test(),
+                );
+                laneflow_runtime::set_full_contender_rebuild(true);
+                world.force_rebuild_contenders_for_test();
+                let full = (
+                    world.contender_fingerprint_for_test(),
+                    world.contender_cells_for_test(),
+                );
+                laneflow_runtime::set_full_contender_rebuild(false);
+                assert_eq!(
+                    refreshed, full,
+                    "refreshed lazy list must equal the full rebuild"
+                );
+                refreshed_spawns += 1;
+            }
         }
         let (previews, full, contenders) = compare_near_rebuild_with_full(&mut world);
         saved |= previews < full;
@@ -5974,6 +6006,14 @@ fn near_gate_rebuild_matches_full_rebuild_across_steps_and_spawns() {
         }
     }
     assert!(saved, "the near-gate path must skip some previews");
+    assert!(
+        refreshed_spawns > 0,
+        "some spawns must refresh the lazy list"
+    );
+    assert!(
+        laneflow_runtime::contender_lazy_sources() > lazy_before,
+        "some cell owners must come from vehicles outside the evaluated set"
+    );
     assert!(
         with_contenders,
         "the fixture must exercise non-empty contender lists"

@@ -1491,6 +1491,7 @@ mod tests {
                         binding: &world.state.binding,
                         committed: &world.state.committed,
                         derived: &world.state.derived,
+                        contender_frontier: None,
                     };
                     let view = MotionTaskView {
                         read,

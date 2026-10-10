@@ -2661,16 +2661,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 let Some(cell) = self.conflict_read().cell_index_of(address) else {
                     return YieldAdmission::Unprovable;
                 };
-                if self
-                    .derived
-                    .spawn_contenders
-                    .cell_approach
-                    .get(cell)
-                    .is_none()
-                {
+                let Some(cached) = self.approach_excluding_subject(cell, address, state.handle)
+                else {
                     return YieldAdmission::Unprovable;
-                }
-                let cached = self.approach_excluding_subject(cell, state.handle);
+                };
                 let approach = incoming
                     .iter()
                     .fold(cached, |current, (candidate, estimate)| {
@@ -3379,22 +3373,22 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 格点到达去掉这辆车自己。只读这个格子留下的两名车，不随更后面的人变长。
+    /// 格点不存在或按需求值不成立时返回 `None`，调用方按不可证明处理。
     fn approach_excluding_subject(
         self,
         cell: usize,
+        address: crate::ConflictPassageAddress,
         subject: crate::VehicleHandle,
-    ) -> ApproachEstimate {
+    ) -> Option<ApproachEstimate> {
         #[cfg(any(test, feature = "placement-fixtures"))]
         {
             EXCLUSION_CALLS.with(|count| count.set(count.get().saturating_add(1)));
             EXCLUSION_WORK.with(|count| count.set(count.get().saturating_add(1)));
         }
-        self.derived
-            .spawn_contenders
-            .cell_approach
-            .get(cell)
+        self.contender_cell(cell, address)
+            .ok()
+            .flatten()
             .map(|slot| slot.value_excluding(subject))
-            .unwrap_or(ApproachEstimate::OutsideHorizon)
     }
 
     /// 已预约的停车入口在声明终点前面时，下一拍不会把这段下游占上。
@@ -4923,6 +4917,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
+            contender_frontier: None,
         };
         columnar_motion::prepare(
             self.workspace,

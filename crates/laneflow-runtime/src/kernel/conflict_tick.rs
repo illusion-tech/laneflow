@@ -1540,6 +1540,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 binding: self.binding,
                 committed: &self.committed,
                 derived: &self.derived,
+                contender_frontier: None,
             },
             conflict: crate::kernel::conflict::ConflictRead::new(
                 &self.committed.conflict,
@@ -3066,6 +3067,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 binding: self.binding,
                 committed: &self.committed,
                 derived: &self.derived,
+                contender_frontier: None,
             },
             conflict: crate::kernel::conflict::ConflictRead::new(
                 &self.committed.conflict,
@@ -3203,6 +3205,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 binding: self.binding,
                 committed: &self.committed,
                 derived: &self.derived,
+                contender_frontier: None,
             },
             conflict: crate::kernel::conflict::ConflictRead::new(
                 &self.committed.conflict,
@@ -3417,6 +3420,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
+            contender_frontier: None,
         };
         let decisions = &mut self.workspace.conflict_staged_decisions;
         free_gate_decisions(read, fields, update_sequence, |decision| {
@@ -3690,6 +3694,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     binding: self.binding,
                     committed: &self.committed,
                     derived: &self.derived,
+                    contender_frontier: None,
                 },
                 conflict: crate::kernel::conflict::ConflictRead::new(
                     &self.committed.conflict,
@@ -3817,6 +3822,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
+            contender_frontier: None,
         };
         let conflict = crate::kernel::conflict::ConflictRead::new(
             &self.committed.conflict,
@@ -5203,6 +5209,7 @@ mod tests {
                         binding: step.binding,
                         committed: &step.committed,
                         derived: &step.derived,
+                        contender_frontier: None,
                     },
                     conflict: crate::kernel::conflict::ConflictRead::new(
                         &step.committed.conflict,
