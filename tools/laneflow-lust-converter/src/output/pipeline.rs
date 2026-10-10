@@ -720,8 +720,17 @@ fn clear_backup(backup: &Path, staged: &[(&'static str, &'static str)]) -> bool 
     let mut ok = true;
     for name in managed_names(staged) {
         let path = backup.join(name);
-        if path.symlink_metadata().is_ok() && fs::remove_file(&path).is_err() {
-            ok = false;
+        // 仅 NotFound 视为条目已缺席；EIO/EACCES 等按清理失败处理——误判
+        // 缺席会继续删完成标记，一旦 remove_dir_all 因残留条目失败，无
+        // 标记备份会让下次恢复误判崩溃形态（把旧文件 copy 回新交付集）。
+        match path.symlink_metadata() {
+            Ok(_) => {
+                if fs::remove_file(&path).is_err() {
+                    ok = false;
+                }
+            }
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => ok = false,
         }
     }
     if !ok {
@@ -812,8 +821,12 @@ fn managed_names(staged: &[(&'static str, &'static str)]) -> Vec<&'static str> {
 fn ensure_regular_managed_artifacts(output_dir: &Path, managed: &[&'static str]) -> Result<()> {
     for name in managed {
         let path = output_dir.join(name);
-        let Ok(metadata) = path.symlink_metadata() else {
-            continue;
+        // 仅 NotFound 视为不存在（无可检对象）；EIO/EACCES 等 fail-closed
+        // ——跳过预检会让非常规形态溜进 swap。
+        let metadata = match path.symlink_metadata() {
+            Ok(metadata) => metadata,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(source) => return Err(Error::Io { path, source }),
         };
         if !metadata.file_type().is_file() {
             return Err(Error::Validation {
@@ -882,11 +895,20 @@ fn recover_interrupted_publish(
     // 即 fail-closed 交人工处置，不做静默恢复。
     for name in managed_names(staged) {
         let entry = backup.join(name);
-        if entry
-            .symlink_metadata()
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
+        // 仅 NotFound 视为无条目；其他元数据错误 fail-closed——放行会让
+        // 恢复的 copy 穿透可能的 symlink，把 output_dir 之外的字节写回
+        // 交付集。
+        let is_symlink = match entry.symlink_metadata() {
+            Ok(metadata) => metadata.file_type().is_symlink(),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => false,
+            Err(source) => {
+                return Err(Error::Io {
+                    path: entry.clone(),
+                    source,
+                });
+            }
+        };
+        if is_symlink {
             return Err(Error::Validation {
                 stage: "publish",
                 message: format!(
@@ -898,13 +920,37 @@ fn recover_interrupted_publish(
         }
     }
     let marker = backup.join(BACKUP_COMPLETE_MARKER);
-    if marker.symlink_metadata().is_ok() {
+    // 元数据错误不等于标记缺失：仅 NotFound 按备份阶段中断处理；EIO/
+    // EACCES 等 fail-closed（备份保留）——误判会把装入阶段中断当备份
+    // 阶段中断恢复：已装入的新文件不清除，与恢复回来的旧文件混杂成
+    // 不可回滚的现场，备份随后还会被删。
+    let install_interrupted = match marker.symlink_metadata() {
+        Ok(_) => true,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => false,
+        Err(source) => {
+            return Err(Error::Io {
+                path: marker.clone(),
+                source,
+            });
+        }
+    };
+    if install_interrupted {
         // 中断于装入阶段：备份是全量旧集。但 output_dir 已含全部 staged
         // 文件时无法区分「装入末尾崩溃」与「成功后清理失败」——fail-closed
-        // 交人工，绝不把可能成功的交付静默回滚。
-        let output_complete = staged
-            .iter()
-            .all(|(name, _)| output_dir.join(name).symlink_metadata().is_ok());
+        // 交人工，绝不把可能成功的交付静默回滚。output 侧的元数据错误
+        // 同样不等于「缺失」：查不动即 fail-closed，不误判为不完整。
+        let mut output_complete = true;
+        for (name, _) in staged {
+            let path = output_dir.join(name);
+            match path.symlink_metadata() {
+                Ok(_) => {}
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                    output_complete = false;
+                    break;
+                }
+                Err(source) => return Err(Error::Io { path, source }),
+            }
+        }
         if output_complete {
             return Err(Error::Validation {
                 stage: "publish",
@@ -1832,6 +1878,39 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn publish_fails_closed_on_artifact_metadata_error() {
+        // 形态预检的元数据错误（EACCES 注入 EIO 同类）不等于「无受管
+        // 产物」：fail-closed 于任何 rename 之前，不进入 swap。
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("lust-artifact-metaerr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let output = root.join("out");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&output).expect("output");
+        std::fs::create_dir_all(&staging).expect("staging");
+        std::fs::write(output.join(MANIFEST_NAME), b"old-manifest").expect("old");
+        std::fs::write(staging.join(MANIFEST_NAME), b"new-manifest").expect("new");
+        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o000))
+            .expect("seal output");
+
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+        let error = publish_outputs(&staging, &output, &staged)
+            .expect_err("artifact metadata error must fail closed");
+        assert!(matches!(&error, Error::Io { .. }), "{error:?}");
+        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o755))
+            .expect("unseal output");
+        assert_eq!(
+            std::fs::read(output.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "旧交付物原样保留"
+        );
+        assert!(!backup_dir(&output).exists(), "任何 rename 之前拒绝");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn clear_backup_reports_failure_for_directory_entry() {
         // 清理失败契约：备份内受管名是目录时 remove_file 必败，clear_backup
@@ -1869,6 +1948,40 @@ mod tests {
             "无完成标记的备份应可正常清理"
         );
         assert!(!backup.exists(), "清理后备份目录不存在");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_backup_retains_complete_marker_on_metadata_error() {
+        // 备份条目的元数据错误（EACCES 注入 EIO 同类）不等于条目已缺席：
+        // 必须按清理失败短路——完成标记保留，备份形态对下次恢复不失真。
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("lust-clear-metaerr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let backup = root.join("backup");
+        std::fs::create_dir_all(&backup).expect("backup");
+        std::fs::write(backup.join(MANIFEST_NAME), b"old-manifest").expect("entry");
+        std::fs::write(backup.join(BACKUP_COMPLETE_MARKER), b"").expect("marker");
+        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o000))
+            .expect("seal backup");
+
+        let staged = [(MANIFEST_NAME, MANIFEST_NAME)];
+        assert!(
+            !super::clear_backup(&backup, &staged),
+            "元数据错误必须按清理失败处理"
+        );
+        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o755))
+            .expect("unseal backup");
+        assert!(
+            backup.join(BACKUP_COMPLETE_MARKER).exists(),
+            "完成标记必须保留"
+        );
+        assert_eq!(
+            std::fs::read(backup.join(MANIFEST_NAME)).expect("read"),
+            b"old-manifest",
+            "备份条目零触碰"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
