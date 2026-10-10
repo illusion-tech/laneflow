@@ -12,8 +12,8 @@ use super::entry_frontier::{
 };
 use super::occupancy::LeaderQueryHorizon;
 use super::state::{
-    ContenderBuilt, ContenderRank, NO_LINK, OwnerContribution, RouteContenderLink, WaitingEntrant,
-    ZoneContender,
+    ContenderBuilt, ContenderRank, DeferredGap, NO_LINK, OwnerContribution, RouteContenderLink,
+    TouchedTable, WaitingEntrant, ZoneContender,
 };
 use super::tables::{
     body_interval_slots, distance_to_occurrence_start, for_each_admission_interval,
@@ -72,7 +72,7 @@ pub(crate) fn set_edge_route_limit(limit: u64) {
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 thread_local! {
-    static FAIL_CONTENDER_RESERVE: Cell<u8> = const { Cell::new(0) };
+    static FAIL_CONTENDER_RESERVE: Cell<u16> = const { Cell::new(0) };
     static FAIL_NOTE_RESERVE: Cell<bool> = const { Cell::new(false) };
     static INCREMENTAL_VISITS: Cell<u64> = const { Cell::new(0) };
     static REBUILD_SCANS: Cell<u64> = const { Cell::new(0) };
@@ -81,28 +81,33 @@ thread_local! {
     static LAZY_SOURCES: Cell<u64> = const { Cell::new(0) };
     static FULL_CONTENDER_REBUILD: Cell<bool> = const { Cell::new(false) };
     static EDGE_ROUTE_REBUILDS: Cell<u64> = const { Cell::new(0) };
+    static ZONE_ROUTE_REBUILDS: Cell<u64> = const { Cell::new(0) };
+    static DEFERRED_EVALUATIONS: Cell<u64> = const { Cell::new(0) };
+    static TOUCHED_CLEARS: Cell<u64> = const { Cell::new(0) };
 }
 #[cfg(any(test, feature = "placement-fixtures"))]
-crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, LAZY_SOURCES, FULL_CONTENDER_REBUILD, EDGE_ROUTE_REBUILDS);
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, LAZY_SOURCES, FULL_CONTENDER_REBUILD, EDGE_ROUTE_REBUILDS, ZONE_ROUTE_REBUILDS, DEFERRED_EVALUATIONS, TOUCHED_CLEARS);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_BEST: u8 = 1;
+const FAIL_BEST: u16 = 1;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_CELL: u8 = 2;
+const FAIL_CELL: u16 = 2;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_WAITING: u8 = 4;
+const FAIL_WAITING: u16 = 4;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_DOWNSTREAM: u8 = 8;
+const FAIL_DOWNSTREAM: u16 = 8;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_ORDER: u8 = 16;
+const FAIL_ORDER: u16 = 16;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_REFRESH: u8 = 32;
+const FAIL_REFRESH: u16 = 32;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_RECHECK_SCRATCH: u8 = 64;
+const FAIL_RECHECK_SCRATCH: u16 = 64;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_REACH_MASK: u8 = 128;
+const FAIL_REACH_MASK: u16 = 128;
 #[cfg(any(test, feature = "placement-fixtures"))]
-const FAIL_TABLES: u8 = FAIL_BEST | FAIL_CELL | FAIL_WAITING;
+const FAIL_DEFERRED: u16 = 256;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_TABLES: u16 = FAIL_BEST | FAIL_CELL | FAIL_WAITING;
 
 /// 预检里哪一块名单内存要按失败处理。只给测试注入。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -123,10 +128,12 @@ pub enum AdmissionReserve {
     RecheckScratch,
     /// 重建名单时标记这一拍可能够到门的车辆的可选位图。失败时退回逐辆预览，不报错。
     ReachMask,
+    /// 按路线延后求值近门车的工作区。失败时这份名单照常立即求值，不报错。
+    Deferred,
 }
 
 #[cfg(any(test, feature = "placement-fixtures"))]
-fn reserve_bit(kind: AdmissionReserve) -> u8 {
+fn reserve_bit(kind: AdmissionReserve) -> u16 {
     match kind {
         AdmissionReserve::Best => FAIL_BEST,
         AdmissionReserve::Cell => FAIL_CELL,
@@ -136,6 +143,7 @@ fn reserve_bit(kind: AdmissionReserve) -> u8 {
         AdmissionReserve::Refresh => FAIL_REFRESH,
         AdmissionReserve::RecheckScratch => FAIL_RECHECK_SCRATCH,
         AdmissionReserve::ReachMask => FAIL_REACH_MASK,
+        AdmissionReserve::Deferred => FAIL_DEFERRED,
     }
 }
 
@@ -229,6 +237,36 @@ pub fn edge_route_rebuilds() -> u64 {
 #[doc(hidden)]
 pub fn reset_edge_route_rebuilds() {
     EDGE_ROUTE_REBUILDS.with(|cell| cell.set(0));
+}
+
+/// 「冲突区 → 路线」压缩稀疏行的重建次数（含失败的尝试）。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn zone_route_rebuilds() -> u64 {
+    ZONE_ROUTE_REBUILDS.with(Cell::get)
+}
+
+/// 按路线延后、读到时才求值的车数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn deferred_evaluations() -> u64 {
+    DEFERRED_EVALUATIONS.with(Cell::get)
+}
+
+/// 重建时只清写过表项的次数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn touched_clears() -> u64 {
+    TOUCHED_CLEARS.with(Cell::get)
+}
+
+/// 把上面三个计数清零。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_deferred_counts() {
+    ZONE_ROUTE_REBUILDS.with(|cell| cell.set(0));
+    DEFERRED_EVALUATIONS.with(|cell| cell.set(0));
+    TOUCHED_CLEARS.with(|cell| cell.set(0));
 }
 
 /// 最近一次名单重建里做过运动预览的车辆数。
@@ -706,7 +744,10 @@ impl crate::kernel::state::WorldState {
     }
 
     #[cfg(feature = "placement-fixtures")]
-    pub(crate) fn contender_fingerprint_for_test(&self) -> Vec<(u32, u32, u32, u32)> {
+    pub(crate) fn contender_fingerprint_for_test(&mut self) -> Vec<(u32, u32, u32, u32)> {
+        let filled = self.materialize_all();
+        self.materialized(filled)
+            .expect("deferred contenders materialize for the fingerprint");
         let mut rows = Vec::new();
         for (zone, list) in self.derived.spawn_contenders.best.iter().enumerate() {
             for contender in list {
@@ -822,10 +863,16 @@ impl crate::kernel::state::WorldState {
         .unwrap_or(0);
         self.derived.spawn_contenders.invalidate();
         self.derived.spawn_contenders.lazy_cells = false;
-        self.derived.spawn_contenders.best.clear();
-        self.derived.spawn_contenders.cell_approach.clear();
+        if let Some(deferred) = self.derived.spawn_contenders.deferred_mut() {
+            deferred.remaining = 0;
+        }
         self.derived.spawn_contenders.owners.clear();
         self.reset_route_contenders();
+        if self.clear_touched_tables(zone_count, cell_count, waiting_count)? {
+            return self.fill_spawn_contenders(cell_count);
+        }
+        self.derived.spawn_contenders.best.clear();
+        self.derived.spawn_contenders.cell_approach.clear();
         if self.derived.spawn_contenders.waiting_entrants.len() > waiting_count {
             self.derived
                 .spawn_contenders
@@ -867,6 +914,77 @@ impl crate::kernel::state::WorldState {
         for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
             entrants.clear();
         }
+        if let Some(scratch) = self.derived.spawn_contenders.scratch.first_mut() {
+            let touched = &mut scratch.touched;
+            touched.zones.clear();
+            touched.waiting.clear();
+            touched.cells.clear();
+            touched.complete = true;
+        }
+        self.fill_spawn_contenders(cell_count)
+    }
+
+    /// 表的尺寸没变、上一份名单的写入都记下了：只清写过的表项，返回 `true`。
+    /// 三张表的预留注入点与整表清理相同。
+    fn clear_touched_tables(
+        &mut self,
+        zone_count: usize,
+        cell_count: usize,
+        waiting_count: usize,
+    ) -> Result<bool, FreshAdmissionFailure> {
+        let contenders = &mut self.derived.spawn_contenders;
+        if contenders.best.len() != zone_count
+            || contenders.cell_approach.len() != cell_count
+            || contenders.waiting_entrants.len() != waiting_count
+            || !contenders
+                .scratch
+                .first()
+                .is_some_and(|scratch| scratch.touched.complete)
+        {
+            return Ok(false);
+        }
+        contender_reserve(&mut contenders.best, 0, AdmissionReserve::Best)?;
+        contender_reserve(&mut contenders.cell_approach, 0, AdmissionReserve::Cell)?;
+        contender_reserve(
+            &mut contenders.waiting_entrants,
+            0,
+            AdmissionReserve::Waiting,
+        )?;
+        let Some(scratch) = contenders.scratch.first_mut() else {
+            return Ok(false);
+        };
+        let touched = &mut scratch.touched;
+        // 与整表清理相同：名单缓冲区释放，格点回到空值。
+        for zone in touched.zones.drain(..) {
+            if let Some(list) = contenders.best.get_mut(zone as usize) {
+                *list = Vec::new();
+            }
+        }
+        for zone in touched.waiting.drain(..) {
+            if let Some(list) = contenders.waiting_entrants.get_mut(zone as usize) {
+                *list = Vec::new();
+            }
+        }
+        for cell in touched.cells.drain(..) {
+            if let Some(slot) = contenders.cell_approach.get_mut(cell as usize) {
+                *slot = ApproachFrontierCell::default();
+            }
+        }
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        {
+            TOUCHED_CLEARS.with(|cell| cell.set(cell.get().saturating_add(1)));
+            assert!(
+                contenders.best.iter().all(Vec::is_empty)
+                    && contenders.waiting_entrants.iter().all(Vec::is_empty)
+                    && contenders.cell_approach.iter().all(|cell| !cell.occupied()),
+                "clearing the touched entries must empty every table"
+            );
+        }
+        Ok(true)
+    }
+
+    /// 表已清空：标出求值集合，立即求值其中的车，其余近门车按路线延后。
+    fn fill_spawn_contenders(&mut self, cell_count: usize) -> Result<(), FreshAdmissionFailure> {
         let live_count = self.committed.live_order.len();
         #[cfg(any(test, feature = "placement-fixtures"))]
         {
@@ -874,8 +992,28 @@ impl crate::kernel::state::WorldState {
             REBUILD_PREVIEWS.with(|cell| cell.set(0));
         }
         let mut reach_mask = std::mem::take(&mut self.derived.spawn_contenders.reach_mask);
-        let masked = self.mark_reach_sources(&mut reach_mask);
+        let mut near = self
+            .derived
+            .spawn_contenders
+            .deferred_mut()
+            .map(|deferred| std::mem::take(&mut deferred.staging))
+            .unwrap_or_default();
+        let masked = self.mark_reach_sources(&mut reach_mask, &mut near);
         let lazy = masked && self.prepare_lazy_cells(cell_count);
+        // 缓存有效的近门车按路线延后求值；做不到时照常标进求值集合。
+        let zone_count = self.derived.spawn_contenders.best.len();
+        if !(lazy && self.prepare_deferred(&reach_mask, &near, zone_count)) {
+            for (vehicle, _) in &near {
+                let slot = vehicle.index() as usize;
+                if let Some(word) = reach_mask.get_mut(slot / 64) {
+                    *word |= 1u64 << (slot % 64);
+                }
+            }
+        }
+        near.clear();
+        if let Some(deferred) = self.derived.spawn_contenders.deferred_mut() {
+            deferred.staging = near;
+        }
         let scanned = if lazy {
             self.add_masked_contenders(&reach_mask)
         } else {
@@ -971,12 +1109,343 @@ impl crate::kernel::state::WorldState {
         true
     }
 
-    /// 在 `mask` 里标出已发布近门集合、失效名单和本窗生命周期增量中仍然有效的车。
+    /// 把不在求值集合里的近门车按路线槽位做计数排序，进入延后求值。预留失败返回
+    /// `false`，调用方照常立即求值这些车。
+    fn prepare_deferred(
+        &mut self,
+        mask: &[u64],
+        near: &[(VehicleHandle, u32)],
+        zone_count: usize,
+    ) -> bool {
+        let routes = self.committed.routes.len();
+        if admission_reserve_denied(AdmissionReserve::Deferred) {
+            return false;
+        }
+        let Some(deferred) = self.derived.spawn_contenders.ensure_scratch_deferred() else {
+            return false;
+        };
+        let in_mask = |vehicle: VehicleHandle| {
+            let slot = vehicle.index() as usize;
+            mask.get(slot / 64)
+                .is_some_and(|word| word & (1u64 << (slot % 64)) != 0)
+        };
+        deferred.remaining = 0;
+        deferred.route_offsets.clear();
+        deferred.vehicles.clear();
+        deferred.materialized.clear();
+        deferred.complete_zones.clear();
+        let deferrable = near
+            .iter()
+            .filter(|(vehicle, _)| !in_mask(*vehicle))
+            .count();
+        let Ok(count) = u32::try_from(deferrable) else {
+            return false;
+        };
+        if deferred.route_offsets.try_reserve(routes + 1).is_err()
+            || deferred.vehicles.try_reserve(deferrable).is_err()
+            || deferred
+                .materialized
+                .try_reserve(routes.div_ceil(64))
+                .is_err()
+            || deferred
+                .complete_zones
+                .try_reserve(zone_count.div_ceil(64))
+                .is_err()
+        {
+            return false;
+        }
+        deferred.route_offsets.resize(routes + 1, 0);
+        deferred.materialized.resize(routes.div_ceil(64), 0);
+        deferred.complete_zones.resize(zone_count.div_ceil(64), 0);
+        deferred
+            .vehicles
+            .resize(deferrable, VehicleHandle::new(u32::MAX, 0));
+        // 计数，转成起点，按起点放置，最后右移一位得到区间边界。
+        for (vehicle, route) in near {
+            if in_mask(*vehicle) {
+                continue;
+            }
+            let Some(count) = deferred.route_offsets.get_mut(*route as usize) else {
+                return false;
+            };
+            *count += 1;
+        }
+        let mut start = 0u32;
+        for count in deferred.route_offsets.iter_mut().take(routes) {
+            let here = *count;
+            *count = start;
+            start += here;
+        }
+        for (vehicle, route) in near {
+            if in_mask(*vehicle) {
+                continue;
+            }
+            let cursor = &mut deferred.route_offsets[*route as usize];
+            deferred.vehicles[*cursor as usize] = *vehicle;
+            *cursor += 1;
+        }
+        deferred.route_offsets.copy_within(0..routes, 1);
+        deferred.route_offsets[0] = 0;
+        deferred.remaining = count;
+        true
+    }
+
+    /// 求值一辆延后的车：写全部贡献并标进求值集合，之后读格点不再从 frontier 并入它。
+    fn evaluate_deferred(&mut self, handle: VehicleHandle) -> Result<(), FreshAdmissionFailure> {
+        if self.vehicle_state(handle).is_none() {
+            return Ok(());
+        }
+        let slot = handle.index() as usize;
+        let mask = &self.derived.spawn_contenders.reach_mask;
+        if mask
+            .get(slot / 64)
+            .is_some_and(|word| word & (1u64 << (slot % 64)) != 0)
+        {
+            return Ok(());
+        }
+        let Some(Some(update_sequence)) = self
+            .derived
+            .live_order_index
+            .prepared_rank(&self.committed.live_order, handle)
+        else {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        };
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        DEFERRED_EVALUATIONS.with(|cell| cell.set(cell.get().saturating_add(1)));
+        self.add_spawn_contender(handle, update_sequence, true)?;
+        let mask = &mut self.derived.spawn_contenders.reach_mask;
+        if mask.len() <= slot / 64 {
+            contender_reserve(mask, slot / 64 + 1 - mask.len(), AdmissionReserve::Refresh)?;
+            mask.resize(slot / 64 + 1, 0);
+        }
+        mask[slot / 64] |= 1u64 << (slot % 64);
+        Ok(())
+    }
+
+    /// 物化路线槽位 `route`：求值这条路线上全部延后的车。
+    fn materialize_route(&mut self, route: usize) -> Result<(), FreshAdmissionFailure> {
+        let Some(deferred) = self.derived.spawn_contenders.deferred() else {
+            return Ok(());
+        };
+        if deferred.remaining == 0
+            || deferred
+                .materialized
+                .get(route / 64)
+                .is_none_or(|word| word & (1u64 << (route % 64)) != 0)
+        {
+            return Ok(());
+        }
+        let (Some(start), Some(end)) = (
+            deferred.route_offsets.get(route).copied(),
+            deferred.route_offsets.get(route + 1).copied(),
+        ) else {
+            return Ok(());
+        };
+        for index in start..end {
+            let Some(handle) = self
+                .derived
+                .spawn_contenders
+                .deferred()
+                .and_then(|deferred| deferred.vehicles.get(index as usize).copied())
+            else {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            };
+            self.evaluate_deferred(handle)?;
+        }
+        if let Some(deferred) = self.derived.spawn_contenders.deferred_mut() {
+            deferred.materialized[route / 64] |= 1u64 << (route % 64);
+            deferred.remaining = deferred.remaining.saturating_sub(end - start);
+        }
+        Ok(())
+    }
+
+    /// 物化全部延后的车。
+    pub(crate) fn materialize_all(&mut self) -> Result<(), FreshAdmissionFailure> {
+        let routes = self
+            .derived
+            .spawn_contenders
+            .deferred()
+            .map_or(0, |deferred| deferred.route_offsets.len().saturating_sub(1));
+        let mut route = 0usize;
+        while route < routes && self.derived.spawn_contenders.has_deferred() {
+            self.materialize_route(route)?;
+            route += 1;
+        }
+        if let Some(deferred) = self.derived.spawn_contenders.deferred_mut() {
+            deferred.remaining = 0;
+        }
+        Ok(())
+    }
+
+    /// 物化经过冲突区 `zone` 的全部路线，使它的申请者名单完整。「冲突区 → 路线」不可用
+    /// 时物化全部，并把求值的车数记作重建这张表的欠账。
+    fn materialize_zone(&mut self, zone: usize) -> Result<(), FreshAdmissionFailure> {
+        if self.derived.spawn_contenders.zone_complete(zone) {
+            return Ok(());
+        }
+        if !self.zone_routes_ready() {
+            let before = self
+                .derived
+                .spawn_contenders
+                .deferred()
+                .map_or(0, |deferred| deferred.remaining);
+            self.materialize_all()?;
+            if let Some(deferred) = self.derived.spawn_contenders.deferred_mut() {
+                deferred.zone_debt = deferred.zone_debt.saturating_add(u64::from(before));
+            }
+            return Ok(());
+        }
+        let (start, end) = {
+            let Some(deferred) = self.derived.spawn_contenders.deferred() else {
+                return Ok(());
+            };
+            match (
+                deferred.zone_offsets.get(zone).copied(),
+                deferred.zone_offsets.get(zone + 1).copied(),
+            ) {
+                (Some(start), Some(end)) => (start, end),
+                _ => return Err(FreshAdmissionFailure::StopConstraint),
+            }
+        };
+        for index in start..end {
+            let Some(route) = self
+                .derived
+                .spawn_contenders
+                .deferred()
+                .and_then(|deferred| deferred.zone_routes.get(index as usize).copied())
+            else {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            };
+            self.materialize_route(route as usize)?;
+        }
+        if let Some(deferred) = self.derived.spawn_contenders.deferred_mut()
+            && let Some(word) = deferred.complete_zones.get_mut(zone / 64)
+        {
+            *word |= 1u64 << (zone % 64);
+        }
+        Ok(())
+    }
+
+    #[cfg(all(test, feature = "placement-fixtures"))]
+    pub(crate) fn materialize_zone_for_test(
+        &mut self,
+        zone: usize,
+    ) -> Result<(), FreshAdmissionFailure> {
+        self.materialize_zone(zone)
+    }
+
+    /// 物化路线经过车身所在边的车，供车身复核查找。「边 → 路线」不可用时物化全部，
+    /// 并按每条路线平均边数折算成逐区扫描的欠账。
+    fn materialize_body_routes(
+        &mut self,
+        body: &[crate::DownstreamInterval],
+    ) -> Result<(), FreshAdmissionFailure> {
+        if !self.derived.spawn_contenders.has_deferred() {
+            return Ok(());
+        }
+        if !self.edge_routes_ready() {
+            let before = self
+                .derived
+                .spawn_contenders
+                .deferred()
+                .map_or(0, |deferred| deferred.remaining);
+            self.materialize_all()?;
+            let per_route = self
+                .committed
+                .live_route_edge_occurrence_count
+                .div_ceil(u64::from(self.committed.live_route_count.max(1)));
+            if let Some(index) = self.derived.spawn_contenders.recheck_index_mut() {
+                index.scan_debt = index
+                    .scan_debt
+                    .saturating_add(u64::from(before).saturating_mul(per_route));
+            }
+            return Ok(());
+        }
+        for interval in body {
+            let edge = interval.edge().index();
+            let (start, end) = {
+                let Some(index) = self.derived.spawn_contenders.recheck_index() else {
+                    return Ok(());
+                };
+                match (
+                    index.edge_offsets.get(edge).copied(),
+                    index.edge_offsets.get(edge + 1).copied(),
+                ) {
+                    (Some(start), Some(end)) => (start, end),
+                    _ => continue,
+                }
+            };
+            for position in start..end {
+                let Some(route) = self
+                    .derived
+                    .spawn_contenders
+                    .recheck_index()
+                    .and_then(|index| index.edge_routes.get(position as usize).copied())
+                else {
+                    return Err(FreshAdmissionFailure::StopConstraint);
+                };
+                self.materialize_route(route as usize)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 物化失败时名单整份作废，错误照常返回给这次准入。
+    pub(crate) fn materialized<T>(
+        &mut self,
+        result: Result<T, FreshAdmissionFailure>,
+    ) -> Result<T, FreshAdmissionFailure> {
+        if result.is_err() {
+            self.invalidate_spawn_contenders();
+        }
+        result
+    }
+
+    /// 在名单完整的前提下执行只读计算 `read`。计算中读到未物化的名单时记下缺口，
+    /// 补物化后重算；第二次仍有缺口就物化全部。只读计算没有可见副作用，重算的结果
+    /// 就是名单完整时的结果（设计 9.4 节）。
+    pub(crate) fn read_complete<T>(
+        &mut self,
+        read: impl Fn(&Self) -> T,
+    ) -> Result<T, FreshAdmissionFailure> {
+        if !self.derived.spawn_contenders.has_deferred() {
+            return Ok(read(self));
+        }
+        let mut attempt = 0u8;
+        loop {
+            self.derived.spawn_contenders.clear_misses();
+            let result = read(self);
+            let gap = self.derived.spawn_contenders.take_gap();
+            let filled = match gap {
+                None => return Ok(result),
+                Some(DeferredGap::Zones(zones)) if attempt == 0 => {
+                    let mut filled = Ok(());
+                    for zone in zones {
+                        filled = self.materialize_zone(zone);
+                        if filled.is_err() {
+                            break;
+                        }
+                    }
+                    filled
+                }
+                Some(_) => self.materialize_all(),
+            };
+            self.materialized(filled)?;
+            attempt = attempt.saturating_add(1);
+        }
+    }
+
+    /// 在 `mask` 里标出失效名单和本窗生命周期增量中仍然有效的车，已发布近门集合里
+    /// 仍是 Active 的车连同路线槽位记进 `near`（不标位图）。
     ///
-    /// 这一拍可能够到门的车都在其中（`traffic-runtime-contender-frontier.md` 第 3 节）。
-    /// 没有证明时窗或路权策略、frontier 未发布或世界身份不符、位图预留失败时返回
-    /// `false`，调用方逐辆预览。
-    fn mark_reach_sources(&self, mask: &mut Vec<u64>) -> bool {
+    /// 这一拍可能够到门的车都在两者之中（`traffic-runtime-contender-frontier.md`
+    /// 第 3 节）。没有证明时窗或路权策略、frontier 未发布或世界身份不符、位图预留
+    /// 失败时返回 `false`，调用方逐辆预览。`near` 预留失败的车直接标进位图。
+    fn mark_reach_sources(
+        &self,
+        mask: &mut Vec<u64>,
+        near: &mut Vec<(VehicleHandle, u32)>,
+    ) -> bool {
         if full_contender_rebuild()
             || self.binding.policy_binding.horizon().is_none()
             || self.read_view().policy().is_none()
@@ -995,8 +1464,15 @@ impl crate::kernel::state::WorldState {
             .for_each_published_source(
                 self.binding.world_id,
                 self.binding.world_generation,
-                |vehicle| {
-                    if self.vehicle_state(vehicle).is_none() {
+                |vehicle, is_near| {
+                    let Some(state) = self.vehicle_state(vehicle) else {
+                        return;
+                    };
+                    if is_near
+                        && state.status == VehicleStatus::Active
+                        && near.try_reserve(1).is_ok()
+                    {
+                        near.push((vehicle, state.route.index()));
                         return;
                     }
                     let slot = vehicle.index() as usize;
@@ -1303,7 +1779,13 @@ impl crate::kernel::state::WorldState {
             let Some(slot) = self.derived.spawn_contenders.cell_approach.get_mut(index) else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
+            let fresh = !slot.occupied();
             slot.insert_owner_reduced(handle, update_sequence, estimate);
+            if fresh {
+                self.derived
+                    .spawn_contenders
+                    .note_touched(TouchedTable::Cell, index);
+            }
             contender_reserve(&mut contributed_cells, 1, AdmissionReserve::Cell)?;
             contributed_cells.push((index, estimate));
         }
@@ -1314,6 +1796,7 @@ impl crate::kernel::state::WorldState {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
             contender_reserve(list, 1, AdmissionReserve::Best)?;
+            let fresh = list.is_empty();
             let position = list.partition_point(|item| item.rank.sorts_before(rank));
             list.insert(
                 position,
@@ -1323,6 +1806,11 @@ impl crate::kernel::state::WorldState {
                     hop,
                 },
             );
+            if fresh {
+                self.derived
+                    .spawn_contenders
+                    .note_touched(TouchedTable::Zone, zone);
+            }
         }
         let waiting_zone = if let Some((zone, _hop, mut entrant)) = notes.waiting {
             let Some(list) = self.derived.spawn_contenders.waiting_entrants.get_mut(zone) else {
@@ -1334,7 +1822,13 @@ impl crate::kernel::state::WorldState {
                     < (entrant.approach_mm, entrant.update_sequence)
             });
             entrant.vehicle = handle;
+            let fresh = list.is_empty();
             list.insert(position, entrant);
+            if fresh {
+                self.derived
+                    .spawn_contenders
+                    .note_touched(TouchedTable::Waiting, zone);
+            }
             Some(zone)
         } else {
             None
@@ -1568,6 +2062,91 @@ impl crate::kernel::state::WorldState {
         true
     }
 
+    /// 「冲突区 → 路线」可用：已与路线注册表一致，或物化全部代替按冲突区物化时求值
+    /// 的车数已抵得上一次重建（已注册路线数，每条路线的冲突出现与一次求值走过的
+    /// 冲突出现相当）而重建成功。
+    fn zone_routes_ready(&mut self) -> bool {
+        let signature = self.edge_routes_signature();
+        let routes = u64::from(self.committed.live_route_count);
+        let Some(deferred) = self.derived.spawn_contenders.deferred() else {
+            return false;
+        };
+        if deferred.zones_built_for == Some(signature) {
+            return true;
+        }
+        deferred.zone_debt >= routes && self.ensure_zone_routes()
+    }
+
+    /// 按已注册路线的冲突出现计数排序重建「冲突区 → 路线」。预留失败或总次数超出
+    /// `u32` 下标时返回 `false`。
+    pub(crate) fn ensure_zone_routes(&mut self) -> bool {
+        let signature = self.edge_routes_signature();
+        let limit = edge_route_limit();
+        let zone_count = self.derived.spawn_contenders.best.len();
+        let routes = &self.committed.routes;
+        let Some(deferred) = self.derived.spawn_contenders.ensure_scratch_deferred() else {
+            return false;
+        };
+        if deferred.zones_built_for == Some(signature) {
+            return true;
+        }
+        deferred.zones_built_for = None;
+        deferred.zone_debt = 0;
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        ZONE_ROUTE_REBUILDS.with(|cell| cell.set(cell.get().saturating_add(1)));
+        let offsets = &mut deferred.zone_offsets;
+        offsets.clear();
+        if offsets.try_reserve(zone_count + 1).is_err() {
+            return false;
+        }
+        offsets.resize(zone_count + 1, 0);
+        let mut total = 0usize;
+        for slot in routes {
+            let Some(compiled) = slot.compiled.as_ref() else {
+                continue;
+            };
+            for entry in &compiled.conflicts {
+                let Some(count) = offsets.get_mut(entry.zone.index()) else {
+                    return false;
+                };
+                if total as u64 >= limit {
+                    return false;
+                }
+                *count += 1;
+                total += 1;
+            }
+        }
+        let mut start = 0u32;
+        for count in offsets.iter_mut().take(zone_count) {
+            let here = *count;
+            *count = start;
+            start += here;
+        }
+        let zone_routes = &mut deferred.zone_routes;
+        zone_routes.clear();
+        if zone_routes.try_reserve(total).is_err() {
+            return false;
+        }
+        zone_routes.resize(total, 0);
+        for (route, slot) in routes.iter().enumerate() {
+            let Some(compiled) = slot.compiled.as_ref() else {
+                continue;
+            };
+            let Ok(route) = u32::try_from(route) else {
+                return false;
+            };
+            for entry in &compiled.conflicts {
+                let cursor = &mut offsets[entry.zone.index()];
+                zone_routes[*cursor as usize] = route;
+                *cursor += 1;
+            }
+        }
+        offsets.copy_within(0..zone_count, 1);
+        offsets[0] = 0;
+        deferred.zones_built_for = Some(signature);
+        true
+    }
+
     /// 某辆申请者在全冲突区扫描里第一次出现的位置：(冲突区编号, 名单内位置)。
     fn first_contender_position(&self, handle: VehicleHandle) -> Option<(usize, usize)> {
         let owner = self
@@ -1790,7 +2369,13 @@ impl crate::kernel::state::WorldState {
             }
         }
         if let Some(slot) = self.derived.spawn_contenders.cell_approach.get_mut(index) {
+            let fresh = !slot.occupied() && reduced.occupied();
             *slot = reduced;
+            if fresh {
+                self.derived
+                    .spawn_contenders
+                    .note_touched(TouchedTable::Cell, index);
+            }
         }
         if let Some(lazy) = self.derived.spawn_contenders.lazy_mut() {
             lazy.forget(index);
@@ -2084,14 +2669,16 @@ impl crate::kernel::state::WorldState {
         let Some(notes) = notes else {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
-        let motion = motion_or_stop(self.read_view().placement_motion(
-            state,
-            None,
-            false,
-            update_sequence,
-            None,
-            &notes.cells,
-        ))?;
+        let motion = motion_or_stop(self.read_complete(|world| {
+            world.read_view().placement_motion(
+                state,
+                None,
+                false,
+                update_sequence,
+                None,
+                &notes.cells,
+            )
+        })?)?;
         if projection_exceeds_emergency(
             input.initial_speed_mm_s(),
             motion,
@@ -2104,7 +2691,7 @@ impl crate::kernel::state::WorldState {
     }
 
     fn admit_nearest_leader(
-        &self,
+        &mut self,
         input: VehicleSpawnInput,
         profile: laneflow_static_network::VehicleProfileView,
         vehicle_length_mm: u32,
@@ -2156,14 +2743,16 @@ impl crate::kernel::state::WorldState {
         let Some(notes) = notes else {
             return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
         };
-        let motion = match self.read_view().placement_motion(
-            state,
-            Some(contact.gap_mm),
-            false,
-            update_sequence,
-            None,
-            &notes.cells,
-        ) {
+        let motion = match self.read_complete(|world| {
+            world.read_view().placement_motion(
+                state,
+                Some(contact.gap_mm),
+                false,
+                update_sequence,
+                None,
+                &notes.cells,
+            )
+        })? {
             Ok(motion) => motion,
             Err(PlacementMotionError::Alloc) => return Err(FreshAdmissionFailure::OccupancyAlloc),
             Err(PlacementMotionError::Unprovable) => {
@@ -2188,8 +2777,9 @@ impl crate::kernel::state::WorldState {
         delta_s: f32,
     ) -> Result<(), FreshAdmissionFailure> {
         let candidates = self.upstream_follower_candidates(input, vehicle_length_mm)?;
-        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
-        let candidate_edges = self.route_edges(input.route()).expect("已校验的路线仍在");
+        // 下面的运动比较可能先物化延后的名单（可变借用），边长从共享修订读。
+        let revision = std::sync::Arc::clone(&self.binding.revision);
+        let lengths = revision.traffic().lane_lengths_millimetres();
         let candidate_index =
             usize::try_from(input.route_edge_index()).expect("route index fits usize");
         #[cfg(test)]
@@ -2209,6 +2799,7 @@ impl crate::kernel::state::WorldState {
             let Ok(follower_index) = usize::try_from(follower.route_edge_index) else {
                 return Err(FreshAdmissionFailure::UnsafeFollower(handle));
             };
+            let candidate_edges = self.route_edges(input.route()).expect("已校验的路线仍在");
             let Some(candidate_gap) = occupancy_front_gap(
                 lengths,
                 follower_edges,
@@ -2250,27 +2841,29 @@ impl crate::kernel::state::WorldState {
             let sequence = self
                 .recorded_sequence(handle)
                 .ok_or(FreshAdmissionFailure::UnsafeFollower(handle))?;
-            let before =
-                match self
+            let before = match self.read_complete(|world| {
+                world
                     .read_view()
                     .placement_motion(follower, None, false, sequence, None, &[])
-                {
-                    Ok(motion) => motion,
-                    Err(PlacementMotionError::Alloc) => {
-                        return Err(FreshAdmissionFailure::OccupancyAlloc);
-                    }
-                    Err(PlacementMotionError::Unprovable) => {
-                        return Err(FreshAdmissionFailure::UnsafeFollower(handle));
-                    }
-                };
-            let after = match self.read_view().placement_motion(
-                follower,
-                Some(candidate_gap),
-                false,
-                sequence,
-                None,
-                &[],
-            ) {
+            })? {
+                Ok(motion) => motion,
+                Err(PlacementMotionError::Alloc) => {
+                    return Err(FreshAdmissionFailure::OccupancyAlloc);
+                }
+                Err(PlacementMotionError::Unprovable) => {
+                    return Err(FreshAdmissionFailure::UnsafeFollower(handle));
+                }
+            };
+            let after = match self.read_complete(|world| {
+                world.read_view().placement_motion(
+                    follower,
+                    Some(candidate_gap),
+                    false,
+                    sequence,
+                    None,
+                    &[],
+                )
+            })? {
                 Ok(motion) => motion,
                 Err(PlacementMotionError::Alloc) => {
                     return Err(FreshAdmissionFailure::OccupancyAlloc);
@@ -2593,12 +3186,18 @@ impl crate::kernel::state::WorldState {
         while zone_cursor < zones.len() {
             let zone = zones[zone_cursor];
             zone_cursor = zone_cursor.saturating_add(1);
+            let filled = self.materialize_zone(zone);
+            self.materialized(filled)?;
             self.push_zone_contenders(zone, &mut handles)?;
         }
         if let Some((zone, _, _)) = notes.waiting {
+            let filled = self.materialize_all();
+            self.materialized(filled)?;
             self.push_waiting_entrants(zone, &mut handles)?;
         }
         for (address, _) in &notes.cells {
+            let filled = self.materialize_zone(address.zone().index());
+            self.materialized(filled)?;
             self.push_zone_contenders(address.zone().index(), &mut handles)?;
             let Some(index) = self.read_view().conflict_read().cell_index_of(*address) else {
                 continue;
@@ -2614,6 +3213,9 @@ impl crate::kernel::state::WorldState {
         }
         let body = self.candidate_body_intervals(candidate)?;
         if !body.is_empty() {
+            // 路线经过车身所在边的车先物化，链表与逐区扫描都只需要这些路线完整。
+            let filled = self.materialize_body_routes(&body);
+            self.materialized(filled)?;
             let body_gap = self
                 .binding
                 .revision
@@ -2708,8 +3310,11 @@ impl crate::kernel::state::WorldState {
             }
         }
         let sharing = self
-            .read_view()
-            .contenders_sharing_downstream(claims, claim_gap_mm)
+            .read_complete(|world| {
+                world
+                    .read_view()
+                    .contenders_sharing_downstream(claims, claim_gap_mm)
+            })?
             .map_err(|error| match error {
                 super::tick::PlacementMotionError::Alloc => FreshAdmissionFailure::OccupancyAlloc,
                 super::tick::PlacementMotionError::Unprovable => {
@@ -3039,12 +3644,14 @@ fn reject_existing_hard_stop(
             let Some(notes) = notes else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            let (candidate_blocked_at, candidate_claims) = match world.read_view().candidate_hold(
-                &candidate,
-                update_sequence,
-                notes.ranks.first().map(|(_, _, hop)| *hop),
-                &notes.cells,
-            ) {
+            let (candidate_blocked_at, candidate_claims) = match world.read_complete(|world| {
+                world.read_view().candidate_hold(
+                    &candidate,
+                    update_sequence,
+                    notes.ranks.first().map(|(_, _, hop)| *hop),
+                    &notes.cells,
+                )
+            })? {
                 Ok(hold) => hold,
                 Err(super::tick::PlacementMotionError::Alloc) => {
                     return Err(FreshAdmissionFailure::OccupancyAlloc);
@@ -3075,18 +3682,20 @@ fn reject_existing_hard_stop(
             continue;
         }
         super::tick::note_recheck_visit();
-        let induced = match world.read_view().incoming_hard_stop(
-            &existing,
-            existing_sequence,
-            super::tick::IncomingPressure {
-                approaches: &notes.cells,
-                ranks: &notes.ranks,
-                waiting: notes.waiting,
-                candidate: &candidate,
-                candidate_blocked_at,
-                candidate_claims: &candidate_claims,
-            },
-        ) {
+        let induced = match world.read_complete(|world| {
+            world.read_view().incoming_hard_stop(
+                &existing,
+                existing_sequence,
+                super::tick::IncomingPressure {
+                    approaches: &notes.cells,
+                    ranks: &notes.ranks,
+                    waiting: notes.waiting,
+                    candidate: &candidate,
+                    candidate_blocked_at,
+                    candidate_claims: &candidate_claims,
+                },
+            )
+        })? {
             Ok(induced) => induced,
             Err(PlacementMotionError::Alloc) => {
                 return Err(FreshAdmissionFailure::OccupancyAlloc);
@@ -3096,25 +3705,24 @@ fn reject_existing_hard_stop(
         let Some(induced) = induced else {
             continue;
         };
-        let Some(before) = proved_motion(world.read_view().placement_motion(
-            existing,
-            None,
-            false,
-            existing_sequence,
-            None,
-            &[],
-        ))?
+        let Some(before) = proved_motion(world.read_complete(|world| {
+            world
+                .read_view()
+                .placement_motion(existing, None, false, existing_sequence, None, &[])
+        })?)?
         else {
             continue;
         };
-        let Some(after) = proved_motion(world.read_view().placement_motion(
-            existing,
-            None,
-            false,
-            existing_sequence,
-            Some(induced),
-            &[],
-        ))?
+        let Some(after) = proved_motion(world.read_complete(|world| {
+            world.read_view().placement_motion(
+                existing,
+                None,
+                false,
+                existing_sequence,
+                Some(induced),
+                &[],
+            )
+        })?)?
         else {
             continue;
         };

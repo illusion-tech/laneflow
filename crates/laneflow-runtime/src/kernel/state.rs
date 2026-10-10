@@ -385,6 +385,73 @@ pub(crate) struct ContenderScratch {
     /// 命令路径单线程；用锁只是因为读视图要能跨线程共享。
     pub(crate) lazy: std::sync::Mutex<LazyContenderCells>,
     pub(crate) recheck: RecheckRouteIndex,
+    pub(crate) deferred: DeferredContenders,
+    pub(crate) touched: TouchedTables,
+}
+
+/// 本份名单写过的表项（设计 9.6 节）。重建时只清这些；记录不完整时整表清理。
+#[derive(Debug, Default)]
+pub(crate) struct TouchedTables {
+    /// 自上次清表以来每一次由空变非空的写入都记下了。
+    pub(crate) complete: bool,
+    pub(crate) zones: Vec<u32>,
+    pub(crate) waiting: Vec<u32>,
+    pub(crate) cells: Vec<u32>,
+}
+
+/// 写过的表。
+#[derive(Clone, Copy)]
+pub(crate) enum TouchedTable {
+    Zone,
+    Waiting,
+    Cell,
+}
+
+/// 按路线延后求值的近门车（`traffic-runtime-contender-frontier.md` 第 9 节）。
+///
+/// 重建时缓存有效的近门车不求值，按路线槽位记进「路线 → 待求值车」；读到某个冲突区
+/// 或某条路线时才把相关路线上的车求值（物化）。
+#[derive(Debug, Default)]
+pub(crate) struct DeferredContenders {
+    /// 这份名单里还没物化的车数。为零时名单完整。
+    pub(crate) remaining: u32,
+    /// 重建时收集近门车 (句柄, 路线槽位) 的工作区，容量复用。
+    pub(crate) staging: Vec<(VehicleHandle, u32)>,
+    /// 路线槽位 `r` 上的待求值车是 `vehicles[route_offsets[r]..route_offsets[r + 1]]`。
+    pub(crate) route_offsets: Vec<u32>,
+    pub(crate) vehicles: Vec<VehicleHandle>,
+    /// 已物化的路线槽位。
+    pub(crate) materialized: Vec<u64>,
+    /// 名单已完整的冲突区。
+    pub(crate) complete_zones: Vec<u64>,
+    /// 「冲突区 → 路线」压缩稀疏行，维护方式同「边 → 路线」（4.5 节）。
+    pub(crate) zone_offsets: Vec<u32>,
+    pub(crate) zone_routes: Vec<u32>,
+    pub(crate) zones_built_for: Option<(WorldGeneration, u32, usize)>,
+    /// 「冲突区 → 路线」失效以来物化全部代替按冲突区物化时求值的车数。
+    pub(crate) zone_debt: u64,
+    /// 只读计算读到未物化名单时记下的缺口。只读视图要能跨线程共享，所以用锁。
+    pub(crate) misses: std::sync::Mutex<DeferredMisses>,
+}
+
+/// 只读计算读到未物化名单的缺口。
+#[derive(Debug, Default)]
+pub(crate) struct DeferredMisses {
+    /// 读了需要全部名单的表（全部冲突区、排队进入者），或记录缺口时预留失败。
+    pub(crate) all: bool,
+    pub(crate) zones: Vec<usize>,
+}
+
+/// 一次只读计算之后要补的物化范围。
+pub(crate) enum DeferredGap {
+    Zones(Vec<usize>),
+    All,
+}
+
+fn bit_set(words: &[u64], index: usize) -> bool {
+    words
+        .get(index / 64)
+        .is_some_and(|word| word & (1u64 << (index % 64)) != 0)
 }
 
 /// 链表里「没有下一项」。
@@ -483,6 +550,10 @@ impl LazyContenderCells {
 impl SpawnConflictContenders {
     pub(crate) fn invalidate(&mut self) {
         self.built_for = None;
+        // 作废的名单不再物化：它对应的已提交状态已经过去，下次使用前整份重建。
+        if let Some(deferred) = self.deferred_mut() {
+            deferred.remaining = 0;
+        }
     }
 
     fn ensure_scratch(&mut self) -> Option<&mut ContenderScratch> {
@@ -508,12 +579,138 @@ impl SpawnConflictContenders {
         self.scratch.first().map(|scratch| &scratch.recheck)
     }
 
-    /// 路线注册表变了：下次查询复核目标时重建「边 → 路线」。
+    /// 路线注册表变了：下次用到时重建「边 → 路线」与「冲突区 → 路线」。
     pub(crate) fn invalidate_edge_routes(&mut self) {
-        if let Some(index) = self.recheck_index_mut() {
-            index.edges_built_for = None;
-            index.scan_debt = 0;
+        if let Some(scratch) = self.scratch.first_mut() {
+            scratch.recheck.edges_built_for = None;
+            scratch.recheck.scan_debt = 0;
+            scratch.deferred.zones_built_for = None;
+            scratch.deferred.zone_debt = 0;
         }
+    }
+
+    /// 记下表项 `index` 由空变为非空。记录失败时本份名单退回整表清理。
+    pub(crate) fn note_touched(&mut self, table: TouchedTable, index: usize) {
+        let Some(touched) = self.scratch.first_mut().map(|scratch| &mut scratch.touched) else {
+            return;
+        };
+        if !touched.complete {
+            return;
+        }
+        let list = match table {
+            TouchedTable::Zone => &mut touched.zones,
+            TouchedTable::Waiting => &mut touched.waiting,
+            TouchedTable::Cell => &mut touched.cells,
+        };
+        match u32::try_from(index) {
+            Ok(index) if list.try_reserve(1).is_ok() => list.push(index),
+            _ => touched.complete = false,
+        }
+    }
+
+    pub(crate) fn deferred(&self) -> Option<&DeferredContenders> {
+        self.scratch.first().map(|scratch| &scratch.deferred)
+    }
+
+    pub(crate) fn deferred_mut(&mut self) -> Option<&mut DeferredContenders> {
+        self.scratch
+            .first_mut()
+            .map(|scratch| &mut scratch.deferred)
+    }
+
+    /// 延后求值的工作区；没有就分配。分配失败返回 `None`。
+    pub(crate) fn ensure_scratch_deferred(&mut self) -> Option<&mut DeferredContenders> {
+        self.ensure_scratch().map(|scratch| &mut scratch.deferred)
+    }
+
+    /// 还有没物化的车。
+    pub(crate) fn has_deferred(&self) -> bool {
+        self.deferred()
+            .is_some_and(|deferred| deferred.remaining > 0)
+    }
+
+    /// 冲突区 `zone` 的申请者名单已完整。
+    pub(crate) fn zone_complete(&self, zone: usize) -> bool {
+        self.deferred().is_none_or(|deferred| {
+            deferred.remaining == 0 || bit_set(&deferred.complete_zones, zone)
+        })
+    }
+
+    fn note_miss(&self, zone: Option<usize>) {
+        let Some(deferred) = self.deferred() else {
+            return;
+        };
+        let Ok(mut misses) = deferred.misses.lock() else {
+            return;
+        };
+        match zone {
+            Some(zone) if !misses.all => {
+                if !misses.zones.contains(&zone) {
+                    if misses.zones.try_reserve(1).is_ok() {
+                        misses.zones.push(zone);
+                    } else {
+                        misses.all = true;
+                    }
+                }
+            }
+            _ => misses.all = true,
+        }
+    }
+
+    /// 只读计算读冲突区 `zone` 的申请者。名单未完整时记下缺口，照常返回已有部分；
+    /// 调用方在计算结束后补物化并重算。
+    pub(crate) fn read_zone(&self, zone: usize) -> Option<&Vec<ZoneContender>> {
+        if !self.zone_complete(zone) {
+            self.note_miss(Some(zone));
+        }
+        self.best.get(zone)
+    }
+
+    /// 只读计算读全部冲突区的申请者。
+    pub(crate) fn read_all_zones(&self) -> &[Vec<ZoneContender>] {
+        if self.has_deferred() {
+            self.note_miss(None);
+        }
+        &self.best
+    }
+
+    /// 只读计算读排队区 `zone` 的进入者。排队进入者不按路线物化，要求全部完整。
+    pub(crate) fn read_waiting(&self, zone: usize) -> Option<&Vec<WaitingEntrant>> {
+        if self.has_deferred() {
+            self.note_miss(None);
+        }
+        self.waiting_entrants.get(zone)
+    }
+
+    /// 清空缺口记录。
+    pub(crate) fn clear_misses(&mut self) {
+        if let Some(misses) = self
+            .deferred_mut()
+            .and_then(|deferred| deferred.misses.get_mut().ok())
+        {
+            misses.all = false;
+            misses.zones.clear();
+        }
+    }
+
+    /// 取出上一次只读计算的缺口。锁中毒时按需要全部物化处理。
+    pub(crate) fn take_gap(&mut self) -> Option<DeferredGap> {
+        let deferred = self.deferred_mut()?;
+        if deferred.remaining == 0 {
+            return None;
+        }
+        let Ok(misses) = deferred.misses.get_mut() else {
+            return Some(DeferredGap::All);
+        };
+        if misses.all {
+            misses.all = false;
+            misses.zones.clear();
+            return Some(DeferredGap::All);
+        }
+        if misses.zones.is_empty() {
+            return None;
+        }
+        Some(DeferredGap::Zones(std::mem::take(&mut misses.zones)))
     }
 
     pub(crate) fn recheck_index_mut(&mut self) -> Option<&mut RecheckRouteIndex> {
@@ -553,12 +750,28 @@ impl SpawnConflictContenders {
                         vec_bytes(&lazy.evaluated) + vec_bytes(&lazy.values)
                     });
                     let index = &scratch.recheck;
+                    let deferred = &scratch.deferred;
+                    let misses = deferred
+                        .misses
+                        .lock()
+                        .map_or(0, |misses| vec_bytes(&misses.zones));
                     (std::mem::size_of::<ContenderScratch>() as u64)
                         + lazy
                         + vec_bytes(&index.edge_offsets)
                         + vec_bytes(&index.edge_routes)
                         + vec_bytes(&index.route_heads)
                         + vec_bytes(&index.links)
+                        + vec_bytes(&scratch.touched.zones)
+                        + vec_bytes(&scratch.touched.waiting)
+                        + vec_bytes(&scratch.touched.cells)
+                        + vec_bytes(&deferred.staging)
+                        + vec_bytes(&deferred.route_offsets)
+                        + vec_bytes(&deferred.vehicles)
+                        + vec_bytes(&deferred.materialized)
+                        + vec_bytes(&deferred.complete_zones)
+                        + vec_bytes(&deferred.zone_offsets)
+                        + vec_bytes(&deferred.zone_routes)
+                        + misses
                 })
                 .sum::<u64>()
     }

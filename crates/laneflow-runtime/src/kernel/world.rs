@@ -2584,7 +2584,7 @@ impl TrafficWorld {
     /// 世界因执行 panic 失效后调用会 panic。
     #[cfg(feature = "placement-fixtures")]
     #[doc(hidden)]
-    pub fn contender_fingerprint_for_test(&self) -> Vec<(u32, u32, u32, u32)> {
+    pub fn contender_fingerprint_for_test(&mut self) -> Vec<(u32, u32, u32, u32)> {
         self.execution.assert_usable();
         self.state.contender_fingerprint_for_test()
     }

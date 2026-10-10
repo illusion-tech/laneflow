@@ -2874,10 +2874,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         note_acquisition_replay();
         let mut earlier = Vec::new();
         note_admission_scratch();
-        let contender_count = self
-            .derived
-            .spawn_contenders
-            .best
+        let lists = self.derived.spawn_contenders.read_all_zones();
+        let contender_count = lists
             .iter()
             .fold(0usize, |count, list| count.saturating_add(list.len()));
         if super::placement::admission_reserve_denied(super::placement::AdmissionReserve::Order)
@@ -2885,7 +2883,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         {
             return Err(AdmissionPreview::Alloc);
         }
-        for (zone, list) in self.derived.spawn_contenders.best.iter().enumerate() {
+        for (zone, list) in lists.iter().enumerate() {
             for contender in list {
                 if contender.rank.sorts_before(rank) {
                     earlier.push((zone, *contender));
@@ -3094,7 +3092,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Ok(Vec::new());
         }
         let mut found = Vec::new();
-        let zone_count = self.derived.spawn_contenders.best.len();
+        let lists = self.derived.spawn_contenders.read_all_zones();
+        let zone_count = lists.len();
         let mut zone_index = 0usize;
         while zone_index < zone_count {
             let zone = zone_index;
@@ -3524,8 +3523,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     && self
                         .derived
                         .spawn_contenders
-                        .best
-                        .get(*zone)
+                        .read_zone(*zone)
                         .is_some_and(|list| {
                             list.iter().any(|best| {
                                 best.vehicle == existing.handle && rank.sorts_before(best.rank)
@@ -3846,12 +3844,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             };
         }
         let mut occupancy = zone_state.occupancy;
-        let Some(entrants) = self
-            .derived
-            .spawn_contenders
-            .waiting_entrants
-            .get(zone_index)
-        else {
+        let Some(entrants) = self.derived.spawn_contenders.read_waiting(zone_index) else {
             return WaitingGrant::Unprovable;
         };
         let mut extra = extra;

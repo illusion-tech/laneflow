@@ -280,7 +280,8 @@ impl FrontierMaintenance {
         self.seeded = true;
     }
 
-    /// 对已发布近门集合、失效名单和尚未消费的生命周期增量逐个回调。
+    /// 对已发布近门集合、失效名单和尚未消费的生命周期增量逐个回调。第二个参数为真
+    /// 表示这一项来自近门集合；同一辆车可能既近门又失效，两次回调。
     ///
     /// 名单没有在成功提交时发布、或世界身份不符时不回调，返回 `false`。句柄可能已经
     /// 过期，调用方自己核对。只读，不改变下一次 `step` 看到的维护数据。
@@ -288,7 +289,7 @@ impl FrontierMaintenance {
         &self,
         world_id: u64,
         generation: WorldGeneration,
-        mut visit: impl FnMut(VehicleHandle),
+        mut visit: impl FnMut(VehicleHandle, bool),
     ) -> bool {
         if !self.seeded
             || self.identity
@@ -299,8 +300,11 @@ impl FrontierMaintenance {
         {
             return false;
         }
-        for vehicle in self.ready_near.iter().chain(&self.ready_invalid) {
-            visit(*vehicle);
+        for vehicle in &self.ready_near {
+            visit(*vehicle, true);
+        }
+        for vehicle in &self.ready_invalid {
+            visit(*vehicle, false);
         }
         for index in &self.increment_indexes {
             if let Some(slot) = usize::try_from(*index)
@@ -308,7 +312,7 @@ impl FrontierMaintenance {
                 .and_then(|slot| self.increment_slots.get(slot))
                 && slot.present
             {
-                visit(VehicleHandle::new(*index, slot.generation));
+                visit(VehicleHandle::new(*index, slot.generation), false);
             }
         }
         true
@@ -2658,6 +2662,53 @@ mod tests {
         assert_eq!(sorted_insertions(&failed), sorted_insertions(&reference));
     }
 
+    /// 规模夹具：两条路线经过同一路口，若干辆车以不同距离驶向路口门，登记为增量。
+    /// 走过一拍之后，缓存有效的近门车在下一次重建时按路线延后求值。
+    #[cfg(feature = "placement-fixtures")]
+    pub(super) fn deferred_scale_world()
+    -> (crate::TrafficWorld, crate::RouteHandle, crate::RouteHandle) {
+        let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
+        let mut world =
+            crate::admin::cutover_migration::tests::conflict_scale_world_with_route_capacity(
+                revision.clone(),
+                24,
+                2,
+            );
+        let stem = world
+            .state
+            .vehicle_state(world.state.committed.live_order[0])
+            .expect("stem vehicle")
+            .route;
+        let other = world
+            .register_route(crate::RouteRegisterInput::new(
+                ["other-entry", "other-internal", "other-exit"]
+                    .into_iter()
+                    .map(|key| scale_edge(&revision, key))
+                    .collect::<Vec<_>>(),
+            ))
+            .expect("other route");
+        let entry = scale_edge(&revision, "entry");
+        let index = route_edge_index(&world, stem, entry);
+        let length = world.traffic().lane_lengths_millimetres()[entry.index()];
+        let handles = world.state.committed.live_order.clone();
+        // 一拍 4 ms 约走 36 mm。离门 90 mm：第一拍作为增量重走并记下缓存，第二拍之后
+        // 仍在同一条边上、这一拍够得到门，成为缓存有效的近门车。
+        let first = handles[0];
+        for spare in handles.iter().rev().take(3) {
+            world.despawn_vehicle(*spare).expect("free a slot");
+        }
+        set_pose(&mut world, first, index, length - 90, 9_000);
+        world
+            .state
+            .workspace
+            .frontier_maintenance
+            .note_active_source(first);
+        for _ in 0..2 {
+            step(&mut world);
+        }
+        (world, stem, other)
+    }
+
     fn place_scale_querier_at_gate(
         world: &mut crate::TrafficWorld,
         revision: &laneflow_static_network::SharedNetworkRevision,
@@ -2872,6 +2923,291 @@ mod tests {
         }
         let (lazy, full) = lazy_and_full_contender_cells(&mut world);
         assert_eq!(lazy, full);
+    }
+
+    /// (申请者与排队进入者指纹, 格点)。
+    #[cfg(feature = "placement-fixtures")]
+    type ContenderTables = (Vec<(u32, u32, u32, u32)>, Vec<String>);
+
+    /// 名单完整时的 (申请者与排队进入者指纹, 格点)。指纹先物化全部延后的车。
+    #[cfg(feature = "placement-fixtures")]
+    fn contender_tables(world: &mut crate::TrafficWorld) -> ContenderTables {
+        let fingerprint = world.contender_fingerprint_for_test();
+        (fingerprint, world.contender_cells_for_test())
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn deferred_contenders_match_full_rebuild_on_scale_world() {
+        let (mut world, _, _) = deferred_scale_world();
+        crate::reset_deferred_counts();
+        let mut deferred = 0;
+        for _ in 0..8 {
+            crate::set_full_contender_rebuild(false);
+            world.force_rebuild_contenders_for_test();
+            if world.state.derived.spawn_contenders.has_deferred() {
+                deferred += 1;
+            }
+            let lazy = contender_tables(&mut world);
+            assert!(!world.state.derived.spawn_contenders.has_deferred());
+            crate::set_full_contender_rebuild(true);
+            world.force_rebuild_contenders_for_test();
+            let full = contender_tables(&mut world);
+            crate::set_full_contender_rebuild(false);
+            assert_eq!(lazy, full);
+            step(&mut world);
+        }
+        assert!(
+            deferred > 0,
+            "near-gate vehicles must be deferred on some steps"
+        );
+        assert!(
+            crate::touched_clears() > 0,
+            "rebuilds after a deferred list clear only the touched entries"
+        );
+    }
+
+    /// 同一世界走同样的拍和生成，一份按路线延后求值，一份注入延后工作区预留失败而
+    /// 立即求值：每次生成结果与之后的名单都相同。
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn spawns_match_with_and_without_deferred_contenders() {
+        let (mut world, stem, other) = deferred_scale_world();
+        let (mut reference, _, _) = deferred_scale_world();
+        let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
+        let other_entry = scale_edge(&revision, "other-entry");
+        let other_length = world.traffic().lane_lengths_millimetres()[other_entry.index()];
+        let profile = world
+            .state
+            .vehicle_state(world.state.committed.live_order[0])
+            .expect("stem vehicle")
+            .profile;
+        let mut during_spawns = 0u64;
+        let mut outcomes = std::collections::BTreeSet::new();
+        // 同一命令窗口里反复生成再腾出槽位：每次腾出都作废名单，重建时门前那辆车仍是
+        // 缓存有效的近门车，再次延后。另一条路线上以不同距离与速度驶向同一路口，
+        // 它是否在名单里决定候选要不要为它停车。
+        for tick in 0..40u32 {
+            let back = 200 + (tick % 8) * 1_500;
+            let speed = 4_000 + (tick / 8) * 3_000;
+            for (route, edge, progress, speed) in [
+                (other, 0, other_length.saturating_sub(back), speed),
+                (other, 0, other_length.saturating_sub(back / 2), 2_000),
+                (stem, tick % 3, (tick * 2_300) % 6_000, 8_000),
+            ] {
+                let input = crate::VehicleSpawnInput::new(profile, route, edge, progress, speed)
+                    .with_open_entrance();
+                crate::reset_deferred_counts();
+                let got = world.spawn_vehicle(input);
+                during_spawns += crate::deferred_evaluations();
+                crate::set_admission_reserve_failure(crate::AdmissionReserve::Deferred, true);
+                let expected = reference.spawn_vehicle(input);
+                crate::set_admission_reserve_failure(crate::AdmissionReserve::Deferred, false);
+                assert_eq!(
+                    got, expected,
+                    "tick {tick} route {route:?} edge {edge} at {progress} speed {speed}"
+                );
+                outcomes.insert(got.is_ok());
+                let current = world.state.derived.spawn_contenders.built_for.is_some();
+                assert_eq!(
+                    current,
+                    reference.state.derived.spawn_contenders.built_for.is_some()
+                );
+                if current {
+                    crate::set_admission_reserve_failure(crate::AdmissionReserve::Deferred, true);
+                    let expected = contender_tables(&mut reference);
+                    crate::set_admission_reserve_failure(crate::AdmissionReserve::Deferred, false);
+                    assert_eq!(contender_tables(&mut world), expected, "tick {tick}");
+                }
+                // 腾出槽位，下一次生成仍走完整准入。
+                if let (Ok(added), Ok(reference_added)) = (got, expected) {
+                    world.despawn_vehicle(added).expect("despawn");
+                    reference
+                        .despawn_vehicle(reference_added)
+                        .expect("despawn reference");
+                }
+            }
+        }
+        assert!(during_spawns > 0, "spawns must read deferred lists");
+        assert_eq!(
+            outcomes.len(),
+            2,
+            "the fixture must both accept and reject spawns"
+        );
+    }
+
+    /// 只读计算读到未物化的冲突区：记下缺口，物化后重算，得到完整名单上的结果。
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn read_only_gap_is_filled_and_recomputed() {
+        let (mut world, _, _) = deferred_scale_world();
+        world.force_rebuild_contenders_for_test();
+        assert!(world.state.derived.spawn_contenders.has_deferred());
+        let deferred_vehicle = world.state.committed.live_order[0];
+        let zone = world
+            .state
+            .compiled_route(
+                world
+                    .state
+                    .vehicle_state(deferred_vehicle)
+                    .expect("deferred")
+                    .route,
+            )
+            .expect("route")
+            .conflicts
+            .first()
+            .expect("the stem crosses the junction")
+            .zone
+            .index();
+        let listed = |world: &crate::kernel::state::WorldState| {
+            world
+                .derived
+                .spawn_contenders
+                .read_zone(zone)
+                .is_some_and(|list| list.iter().any(|item| item.vehicle == deferred_vehicle))
+        };
+        assert!(
+            !listed(&world.state),
+            "the deferred vehicle is not listed yet"
+        );
+        world.state.derived.spawn_contenders.clear_misses();
+        assert!(
+            world
+                .state
+                .read_complete(|world| listed(world))
+                .expect("fill the gap"),
+            "the recomputation reads the complete list"
+        );
+        assert!(world.state.derived.spawn_contenders.zone_complete(zone));
+    }
+
+    /// 只读计算读全部冲突区：缺口按全部记，物化全部后重算。
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn read_only_global_read_materializes_everything() {
+        let (mut world, _, _) = deferred_scale_world();
+        world.force_rebuild_contenders_for_test();
+        assert!(world.state.derived.spawn_contenders.has_deferred());
+        let total = |world: &crate::kernel::state::WorldState| {
+            world
+                .derived
+                .spawn_contenders
+                .read_all_zones()
+                .iter()
+                .map(Vec::len)
+                .sum::<usize>()
+        };
+        let partial = total(&world.state);
+        world.state.derived.spawn_contenders.clear_misses();
+        let complete = world.state.read_complete(total).expect("fill the gap");
+        assert!(complete > partial, "the deferred vehicle joins a list");
+        assert!(!world.state.derived.spawn_contenders.has_deferred());
+    }
+
+    /// 路线注册或删除使「冲突区 → 路线」作废（夹具路线容量已满，直接调用注册与删除
+    /// 时调用的作废入口）：按冲突区物化退回物化全部，欠账未够时不重建，结果相同。
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn invalidated_zone_route_index_falls_back_to_materializing_everything() {
+        let (mut world, stem, _) = deferred_scale_world();
+        world.force_rebuild_contenders_for_test();
+        assert!(world.state.ensure_zone_routes());
+        world
+            .state
+            .derived
+            .spawn_contenders
+            .invalidate_edge_routes();
+        let zone = world
+            .state
+            .compiled_route(stem)
+            .expect("stem")
+            .conflicts
+            .first()
+            .expect("the stem crosses the junction")
+            .zone
+            .index();
+        crate::reset_deferred_counts();
+        world
+            .state
+            .materialize_zone_for_test(zone)
+            .expect("materialize");
+        assert!(!world.state.derived.spawn_contenders.has_deferred());
+        assert_eq!(
+            crate::zone_route_rebuilds(),
+            0,
+            "the index waits for its debt"
+        );
+        let fallback = world.contender_fingerprint_for_test();
+        crate::set_admission_reserve_failure(crate::AdmissionReserve::Deferred, true);
+        world.force_rebuild_contenders_for_test();
+        let reference = world.contender_fingerprint_for_test();
+        crate::set_admission_reserve_failure(crate::AdmissionReserve::Deferred, false);
+        assert_eq!(fallback, reference);
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn failed_materialization_invalidates_the_contender_list() {
+        let (mut world, _, _) = deferred_scale_world();
+        world.force_rebuild_contenders_for_test();
+        assert!(
+            world.state.derived.spawn_contenders.has_deferred(),
+            "the fixture must defer some vehicles"
+        );
+        assert!(world.state.derived.spawn_contenders.built_for.is_some());
+        crate::set_admission_reserve_failure(crate::AdmissionReserve::Best, true);
+        let filled = world.state.materialize_all();
+        let result = world.state.materialized(filled);
+        crate::set_admission_reserve_failure(crate::AdmissionReserve::Best, false);
+        assert_eq!(
+            result,
+            Err(crate::kernel::placement::FreshAdmissionFailure::OccupancyAlloc)
+        );
+        assert!(world.state.derived.spawn_contenders.built_for.is_none());
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn zone_route_index_beyond_u32_offsets_materializes_everything() {
+        let (mut world, _, _) = deferred_scale_world();
+        world.force_rebuild_contenders_for_test();
+        assert!(
+            world.state.derived.spawn_contenders.has_deferred(),
+            "the fixture must defer some vehicles"
+        );
+        assert!(world.state.ensure_zone_routes());
+        let deferred = world
+            .state
+            .derived
+            .spawn_contenders
+            .deferred()
+            .expect("deferred");
+        let zone = (0..deferred.zone_offsets.len() - 1)
+            .find(|zone| deferred.zone_offsets[*zone] < deferred.zone_offsets[zone + 1])
+            .expect("some zone lies on a registered route");
+        world
+            .state
+            .derived
+            .spawn_contenders
+            .invalidate_edge_routes();
+        crate::kernel::placement::set_edge_route_limit(0);
+        let fits = world.state.ensure_zone_routes();
+        let filled = world.state.materialize_zone_for_test(zone);
+        crate::kernel::placement::set_edge_route_limit(u64::from(u32::MAX));
+        assert!(!fits, "no occurrence fits the injected offset width");
+        filled.expect("fallback materializes everything");
+        assert!(!world.state.derived.spawn_contenders.has_deferred());
+        let deferred = world
+            .state
+            .derived
+            .spawn_contenders
+            .deferred()
+            .expect("deferred");
+        assert_eq!(deferred.zones_built_for, None);
+        assert!(
+            deferred.zone_debt > 0,
+            "the fallback is charged to the index rebuild"
+        );
     }
 
     #[test]
