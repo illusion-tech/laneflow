@@ -2147,6 +2147,8 @@ impl TrafficWorld {
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    /// 占用索引过期且执行资源可并行时，命令会在执行作用域里重建索引；这次执行 panic
+    /// 会先结算全部已分发任务，再向宿主传播，世界随之失效。
     pub fn leave_parking(
         &mut self,
         vehicle: VehicleHandle,
