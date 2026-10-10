@@ -57,9 +57,11 @@ thread_local! {
     static INCREMENTAL_VISITS: Cell<u64> = const { Cell::new(0) };
     static REBUILD_SCANS: Cell<u64> = const { Cell::new(0) };
     static RECHECK_BODY_CHECKS: Cell<u64> = const { Cell::new(0) };
+    static REBUILD_PREVIEWS: Cell<u64> = const { Cell::new(0) };
+    static FULL_CONTENDER_REBUILD: Cell<bool> = const { Cell::new(false) };
 }
 #[cfg(any(test, feature = "placement-fixtures"))]
-crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS);
+crate::kernel::execution::carry_hooks!(carry_fixture_hooks: FAIL_CONTENDER_RESERVE, FAIL_NOTE_RESERVE, INCREMENTAL_VISITS, REBUILD_SCANS, RECHECK_BODY_CHECKS, REBUILD_PREVIEWS, FULL_CONTENDER_REBUILD);
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_BEST: u8 = 1;
@@ -75,6 +77,8 @@ const FAIL_ORDER: u8 = 16;
 const FAIL_REFRESH: u8 = 32;
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_RECHECK_SCRATCH: u8 = 64;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_REACH_MASK: u8 = 128;
 #[cfg(any(test, feature = "placement-fixtures"))]
 const FAIL_TABLES: u8 = FAIL_BEST | FAIL_CELL | FAIL_WAITING;
 
@@ -95,6 +99,8 @@ pub enum AdmissionReserve {
     Refresh,
     /// 复核车身时按车辆去重的可选位图。失败时退回逐条判定，不报错。
     RecheckScratch,
+    /// 重建名单时标记这一拍可能够到门的车辆的可选位图。失败时退回逐辆预览，不报错。
+    ReachMask,
 }
 
 #[cfg(any(test, feature = "placement-fixtures"))]
@@ -107,6 +113,7 @@ fn reserve_bit(kind: AdmissionReserve) -> u8 {
         AdmissionReserve::Order => FAIL_ORDER,
         AdmissionReserve::Refresh => FAIL_REFRESH,
         AdmissionReserve::RecheckScratch => FAIL_RECHECK_SCRATCH,
+        AdmissionReserve::ReachMask => FAIL_REACH_MASK,
     }
 }
 
@@ -186,6 +193,30 @@ pub fn recheck_body_checks() -> u64 {
 #[doc(hidden)]
 pub fn reset_recheck_body_checks() {
     RECHECK_BODY_CHECKS.with(|cell| cell.set(0));
+}
+
+/// 最近一次名单重建里做过运动预览的车辆数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn contender_rebuild_previews() -> u64 {
+    REBUILD_PREVIEWS.with(Cell::get)
+}
+
+/// 打开后名单重建不读 frontier，逐辆预览，作对拍参考。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn set_full_contender_rebuild(enabled: bool) {
+    FULL_CONTENDER_REBUILD.with(|cell| cell.set(enabled));
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+fn full_contender_rebuild() -> bool {
+    FULL_CONTENDER_REBUILD.with(Cell::get)
+}
+
+#[cfg(not(any(test, feature = "placement-fixtures")))]
+const fn full_contender_rebuild() -> bool {
+    false
 }
 
 fn contender_reserve<T>(
@@ -649,6 +680,18 @@ impl crate::kernel::state::WorldState {
         rows
     }
 
+    #[cfg(feature = "placement-fixtures")]
+    pub(crate) fn contender_cells_for_test(&self) -> Vec<String> {
+        self.derived
+            .spawn_contenders
+            .cell_approach
+            .iter()
+            .enumerate()
+            .filter(|(_, cell)| cell.occupied())
+            .map(|(index, cell)| format!("{index}:{cell:?}"))
+            .collect()
+    }
+
     fn admission_clocks(
         &self,
         state: &VehicleState,
@@ -761,7 +804,27 @@ impl crate::kernel::state::WorldState {
         }
         let live_count = self.committed.live_order.len();
         #[cfg(any(test, feature = "placement-fixtures"))]
-        REBUILD_SCANS.with(|cell| cell.set(0));
+        {
+            REBUILD_SCANS.with(|cell| cell.set(0));
+            REBUILD_PREVIEWS.with(|cell| cell.set(0));
+        }
+        let mut reach_mask = std::mem::take(&mut self.derived.spawn_contenders.reach_mask);
+        let masked = self.mark_reach_sources(&mut reach_mask);
+        let scanned = self.add_live_contenders(live_count, masked.then_some(&reach_mask));
+        self.derived.spawn_contenders.reach_mask = reach_mask;
+        scanned?;
+        for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
+            sort_waiting_entrants(entrants)?;
+        }
+        Ok(())
+    }
+
+    /// 按 `live_order` 逐辆写入名单。给了 `reach_mask` 时，位图外的车只记格点，不预览。
+    fn add_live_contenders(
+        &mut self,
+        live_count: usize,
+        reach_mask: Option<&Vec<u64>>,
+    ) -> Result<(), FreshAdmissionFailure> {
         for sequence in 0..live_count {
             #[cfg(any(test, feature = "placement-fixtures"))]
             REBUILD_SCANS.with(|cell| cell.set(cell.get().saturating_add(1)));
@@ -771,20 +834,60 @@ impl crate::kernel::state::WorldState {
             let Some(handle) = self.committed.live_order.get(sequence).copied() else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            self.add_spawn_contender(handle, update_sequence)?;
-        }
-        for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
-            sort_waiting_entrants(entrants)?;
+            let slot = handle.index() as usize;
+            let may_reach = reach_mask.is_none_or(|mask| {
+                mask.get(slot / 64)
+                    .is_some_and(|word| word & (1u64 << (slot % 64)) != 0)
+            });
+            self.add_spawn_contender(handle, update_sequence, may_reach)?;
         }
         Ok(())
     }
 
+    /// 在 `mask` 里标出已发布近门集合、失效名单和本窗生命周期增量中仍然有效的车。
+    ///
+    /// 这一拍可能够到门的车都在其中（`traffic-runtime-contender-frontier.md` 第 3 节）。
+    /// 没有证明时窗或路权策略、frontier 未发布或世界身份不符、位图预留失败时返回
+    /// `false`，调用方逐辆预览。
+    fn mark_reach_sources(&self, mask: &mut Vec<u64>) -> bool {
+        if full_contender_rebuild()
+            || self.binding.policy_binding.horizon().is_none()
+            || self.read_view().policy().is_none()
+        {
+            return false;
+        }
+        let words = self.committed.vehicles.len().div_ceil(64);
+        mask.clear();
+        if admission_reserve_denied(AdmissionReserve::ReachMask) || mask.try_reserve(words).is_err()
+        {
+            return false;
+        }
+        mask.resize(words, 0);
+        self.workspace
+            .frontier_maintenance
+            .for_each_published_source(
+                self.binding.world_id,
+                self.binding.world_generation,
+                |vehicle| {
+                    if self.vehicle_state(vehicle).is_none() {
+                        return;
+                    }
+                    let slot = vehicle.index() as usize;
+                    if let Some(word) = mask.get_mut(slot / 64) {
+                        *word |= 1u64 << (slot % 64);
+                    }
+                },
+            )
+    }
+
     /// 沿这辆车自己的路线记下证明时窗内的格点到达，以及这一拍预览会申请的第一处冲突。
+    /// `may_reach` 为假时这辆车这一拍够不到门，只记格点，不做运动预览。
     /// 分配失败返回 [`FreshAdmissionFailure::OccupancyAlloc`]。材料不齐不能当成停不住。
     fn add_spawn_contender(
         &mut self,
         handle: VehicleHandle,
         update_sequence: u32,
+        may_reach: bool,
     ) -> Result<(), FreshAdmissionFailure> {
         let Some(state) = self.vehicle_state(handle) else {
             return Ok(());
@@ -801,17 +904,24 @@ impl crate::kernel::state::WorldState {
         else {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
-        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
-        let Some(preview) = self
-            .read_view()
-            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, None)
-        else {
-            return Err(FreshAdmissionFailure::StopConstraint);
+        let preview_next = if may_reach {
+            #[cfg(any(test, feature = "placement-fixtures"))]
+            REBUILD_PREVIEWS.with(|cell| cell.set(cell.get().saturating_add(1)));
+            let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+            let Some(preview) = self
+                .read_view()
+                .preview_active_vehicle_with_waiting_stop(state, delta_s, None, None)
+            else {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            };
+            Some(preview.next.apply(state))
+        } else {
+            None
         };
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next.apply(state),
+            preview_next,
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -829,7 +939,7 @@ impl crate::kernel::state::WorldState {
         &self,
         state: &VehicleState,
         update_sequence: u32,
-        preview_next: VehicleState,
+        preview_next: Option<VehicleState>,
         max_accel: f32,
         emergency_decel: f32,
         min_gap_mm: u32,
@@ -883,6 +993,12 @@ impl crate::kernel::state::WorldState {
                 }
             }
             let mut reached = Vec::new();
+            let mut waiting = None;
+            // 没有预览说明这辆车这一拍够不到门，也越不过排队区入口。
+            let Some(preview_next) = preview_next else {
+                note_reserve(&mut cells, 0)?;
+                return Some((cells, reached, waiting));
+            };
             let first_gate = compiled
                 .gate_hops
                 .partition_point(|hop| *hop < first_possible);
@@ -928,7 +1044,6 @@ impl crate::kernel::state::WorldState {
                     crossed_waiting: preview_next.route_edge_index > hop,
                 });
             }
-            let mut waiting = None;
             let first_wait = compiled
                 .waiting
                 .partition_point(|entry| entry.entry_hop < first_possible);
@@ -1333,7 +1448,7 @@ impl crate::kernel::state::WorldState {
             INCREMENTAL_VISITS.with(|cell| cell.set(cell.get().saturating_add(1)));
             let before = self.owner_zones(current)?;
             self.revoke_owner(current, &mut dirty)?;
-            self.add_spawn_contender(current, sequence)?;
+            self.add_spawn_contender(current, sequence, true)?;
             self.note_owner_cells(current, &mut dirty)?;
             let after = self.owner_zones(current)?;
             if before != after {
@@ -1341,7 +1456,7 @@ impl crate::kernel::state::WorldState {
                 self.members_in_zones(&after, &mut affected, handle)?;
             }
         }
-        self.add_spawn_contender(handle, update_sequence)?;
+        self.add_spawn_contender(handle, update_sequence, true)?;
         self.note_owner_cells(handle, &mut dirty)?;
         for index in dirty {
             self.rereduce_cell(index);
@@ -1405,7 +1520,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next.apply(state),
+            Some(preview.next.apply(state)),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -1528,7 +1643,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next.apply(state),
+            Some(preview.next.apply(state)),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -1600,7 +1715,7 @@ impl crate::kernel::state::WorldState {
         let notes = self.contender_notes(
             &state,
             update_sequence,
-            preview.next.apply(state),
+            Some(preview.next.apply(state)),
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
@@ -2504,7 +2619,7 @@ fn reject_existing_hard_stop(
             let notes = world.contender_notes(
                 &candidate,
                 update_sequence,
-                preview.next.apply(candidate),
+                Some(preview.next.apply(candidate)),
                 profile.max_accel(),
                 profile.emergency_decel(),
                 profile.min_gap_mm(),
