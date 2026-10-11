@@ -15,7 +15,6 @@ pub(crate) struct RouteTable {
     edge_len_mm: Vec<Vec<u32>>,
     /// 每路线 `edge_count - 1` 项：hop 从边 hop 进入边 hop+1 是否跨 tile。
     cross_tile: Vec<Vec<bool>>,
-    max_edge_raw: u32,
     index_of: FastMap<RouteHandle, u32>,
 }
 
@@ -32,9 +31,6 @@ impl RouteTable {
         self.handles.push(handle);
         self.keys.push(key);
         self.edge_raws.push(edges.iter().map(|e| e.raw()).collect());
-        self.max_edge_raw = edges
-            .iter()
-            .fold(self.max_edge_raw, |max, e| max.max(e.raw()));
         self.edge_len_mm
             .push(edges.iter().map(|e| lengths[e.index()]).collect());
         self.cross_tile.push(
@@ -86,11 +82,6 @@ impl RouteTable {
 
     pub(crate) fn crosses_tile(&self, index: u32, hop: usize) -> bool {
         self.cross_tile[index as usize][hop]
-    }
-
-    /// `edge_raw` 取值上界（最大 raw + 1），供按边直接索引的桶结构定界。
-    pub(crate) fn edge_index_capacity(&self) -> usize {
-        self.max_edge_raw as usize + 1
     }
 
     /// 快照恢复后按旧句柄→新句柄重绑定；路线内容与序号不变。
