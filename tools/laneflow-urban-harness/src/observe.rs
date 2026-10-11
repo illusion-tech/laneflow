@@ -356,7 +356,9 @@ fn validate_facility_counts(
 }
 
 /// step 前一遍完成：step_before 快照、intent 计数与 red_waiters 采集。
-/// 状态值、判断条件与插入集合与原先三段独立遍历完全相同。
+/// 按固定块并行：块内逐车读 world.vehicle 复制快照，主线程按块序拼接
+/// step_before（槽位序不变）；intent 求和、red_waiters 求并集，均与
+/// 串行结果相同。
 pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
     let warm = h.world.tick_index() >= h.plan.window.warm_up_ticks;
     h.scratch_red.clear();
@@ -369,39 +371,79 @@ pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
                 .map(|(g, a)| (g.raw(), *a == SignalAspect::Red)),
         );
     }
+    let view = StateView {
+        world: &h.world,
+        individuals: &h.individuals,
+        step_before: &[],
+        slots: &h.slots,
+        route_table: &h.route_table,
+        target_keys: &h.target_keys,
+        plan: h.plan,
+        transition_gates: &h.transition_gates,
+        scratch_red: &h.scratch_red,
+    };
+    let n = h.individuals.len();
+    let blocks = run_blocks(h.workers, n, OBSERVATION_BLOCK, |from, to| {
+        Ok(pre_step_block(&view, from, to, warm))
+    });
     h.step_before.clear();
-    h.step_before.reserve(h.individuals.len());
+    h.step_before.reserve(n);
     let mut intent = 0;
-    for i in 0..h.individuals.len() {
-        let state = h.individuals[i]
+    for block in blocks {
+        let mut block = block.expect("pre_step block encoding is infallible");
+        intent += block.intent;
+        h.step_before.append(&mut block.states);
+        for red in block.red {
+            h.red_waiters.insert(red);
+        }
+    }
+    intent
+}
+
+/// pre_step 的只读块产出：槽位区间的车辆快照、intent 计数与 red_waiter
+/// 候选（主线程求并集，与串行插入得到的集合相同）。
+struct PreBlock {
+    states: Vec<Option<VehicleState>>,
+    intent: usize,
+    red: Vec<(IndividualId, u32)>,
+}
+
+fn pre_step_block(view: &StateView<'_>, from: usize, to: usize, warm: bool) -> PreBlock {
+    let mut out = PreBlock {
+        states: Vec::with_capacity(to - from),
+        intent: 0,
+        red: Vec::new(),
+    };
+    for i in from..to {
+        let state = view.individuals[i]
             .handle
-            .and_then(|handle| h.world.vehicle(handle));
+            .and_then(|handle| view.world.vehicle(handle));
         if let Some(state) = state
             && state.status() == VehicleStatus::Active
         {
-            intent += 1;
+            out.intent += 1;
             if warm && state.speed_mm_s() == 0 {
-                let route = h.route_table.index(state.route());
+                let route = view.route_table.index(state.route());
                 let current = state.route_edge_index() as usize;
-                if current + 1 < h.route_table.edge_count(route)
-                    && h.route_table
+                if current + 1 < view.route_table.edge_count(route)
+                    && view
+                        .route_table
                         .edge_len_mm(route, current)
                         .saturating_sub(state.progress_mm())
                         <= 1
-                    && let Some(&(gate, group)) = h.transition_gates.get(&(
-                        h.route_table.edge_raw(route, current),
-                        h.route_table.edge_raw(route, current + 1),
+                    && let Some(&(gate, group)) = view.transition_gates.get(&(
+                        view.route_table.edge_raw(route, current),
+                        view.route_table.edge_raw(route, current + 1),
                     ))
-                    && h.scratch_red.get(&group) == Some(&true)
+                    && view.scratch_red.get(&group) == Some(&true)
                 {
-                    let id = h.individuals[i].id;
-                    h.red_waiters.insert((id, gate));
+                    out.red.push((view.individuals[i].id, gate));
                 }
             }
         }
-        h.step_before.push(state);
+        out.states.push(state);
     }
-    intent
+    out
 }
 
 fn conflict_reason(reason: ConflictNoGrantReason) -> u32 {
@@ -608,6 +650,8 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             route_table: &h.route_table,
             target_keys: &h.target_keys,
             plan: h.plan,
+            transition_gates: &h.transition_gates,
+            scratch_red: &h.scratch_red,
         };
         let waiting_len = view.world.latest_waiting_decisions().len();
         decisions.n(waiting_len.div_ceil(OBSERVATION_BLOCK) as u64);
@@ -910,6 +954,8 @@ struct StateView<'x> {
     route_table: &'x crate::route_table::RouteTable,
     target_keys: &'x FastMap<ParkingTarget, String>,
     plan: &'x crate::ResolvedPlan,
+    transition_gates: &'x FastMap<(u32, u32), (u32, u32)>,
+    scratch_red: &'x FastMap<u32, bool>,
 }
 
 impl StateView<'_> {
@@ -1145,6 +1191,8 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
         route_table: &h.route_table,
         target_keys: &h.target_keys,
         plan: h.plan,
+        transition_gates: &h.transition_gates,
+        scratch_red: &h.scratch_red,
     };
     hash.n(n.div_ceil(block_size) as u64);
     let outcomes = run_blocks(h.workers, n, block_size, |from, to| {
