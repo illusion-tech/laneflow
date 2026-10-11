@@ -1161,6 +1161,34 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     state_impl(h, OBSERVATION_BLOCK)
 }
 
+/// claims 不变量的只读块检查：逐条核对 reservation owner，owner 校验结果与
+/// (zone, id) 按原 map 迭代序成对返回；块闭包不失败，Err 以第三元组分量
+/// 带回，由主线程按块序归并后先插入 zone_owners 再判定，触发点与串行逐条
+/// （zone 独占冲突先于 owner 缺失）一致。
+fn claims_block(
+    world: &TrafficWorld,
+    individuals: &[crate::runner::Individual],
+    claims: &[(&(IndividualId, u32, u32), &u32)],
+) -> Vec<(u32, IndividualId, Result<()>)> {
+    claims
+        .iter()
+        .map(|((id, _, _), zone)| {
+            let individual = &individuals[id.tile as usize * 1_000 + id.slot as usize];
+            let owner = if individual.id != *id
+                || individual
+                    .handle
+                    .and_then(|handle| world.conflict_reservation(handle))
+                    .is_none()
+            {
+                Err(invalid("claim has no current reservation owner"))
+            } else {
+                Ok(())
+            };
+            (**zone, *id, owner)
+        })
+        .collect()
+}
+
 /// v3 树形摘要：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
 /// 信号、remaining-claims）；叶 = 固定块界槽位区间编码字节的 SHA-256。
 /// remaining-claims 的 route 按内部索引编码（注册顺序即目录 key 升序，序号
@@ -1174,19 +1202,29 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
     hash.n(h.world.event_cursor());
+    // claims 不变量按固定块并行核对：块线程只读校验 reservation owner，
+    // 主线程按块序（= 原 map 迭代序）逐对插入 zone_owners 再判定 owner，
+    // 报错触发点与串行逐条一致；claims 借用与块结果在下方可变借用前消费完。
     let mut zone_owners = FastMap::default();
-    for ((id, _, _), zone) in &h.claims {
-        if zone_owners.insert(*zone, *id).is_some_and(|old| old != *id) {
-            return Err(invalid("committed conflict claims are not exclusive"));
-        }
-        let individual = &h.individuals[id.tile as usize * 1_000 + id.slot as usize];
-        if individual.id != *id
-            || individual
-                .handle
-                .and_then(|handle| h.world.conflict_reservation(handle))
-                .is_none()
-        {
-            return Err(invalid("claim has no current reservation owner"));
+    {
+        let claims: Vec<_> = h.claims.iter().collect();
+        // adapter feature 下 Host 含 bevy App（非 Sync）：闭包只捕获解引用后的
+        // &TrafficWorld 与 &individuals，与 StateView 的共享方式一致。
+        let world: &TrafficWorld = &h.world;
+        let individuals: &[crate::runner::Individual] = &h.individuals;
+        let checks = run_blocks(
+            h.pool.as_ref(),
+            claims.len(),
+            OBSERVATION_BLOCK,
+            |from, to| Ok(claims_block(world, individuals, &claims[from..to])),
+        );
+        for check in checks {
+            for (zone, id, owner) in check? {
+                if zone_owners.insert(zone, id).is_some_and(|old| old != id) {
+                    return Err(invalid("committed conflict claims are not exclusive"));
+                }
+                owner?;
+            }
         }
     }
     // 逐车循环按固定块并行：块界与 workers 无关（叶摘要跨并行度稳定）；
