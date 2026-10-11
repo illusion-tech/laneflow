@@ -1,0 +1,22 @@
+Road network data © OpenStreetMap contributors.
+
+Open Data Commons Open Database License (ODbL) v1.0:
+https://opendatacommons.org/licenses/odbl/1-0/
+
+This LaneFlow static/source bundle redistributes Luxembourg SUMO Traffic
+(LuST) Scenario v2.0 materials under their upstream terms:
+
+- LuST Scenario v2.0: MIT License
+  https://github.com/lcodeca/LuSTScenario
+  pinned commit c4bd5bd3751d426d42a9a1749c815e47ea188549
+- Derived road-network data: ODbL 1.0 (OpenStreetMap contributors)
+
+Please cite LuST as requested by its authors:
+
+L. Codeca, R. Frank, S. Faye and T. Engel, "Luxembourg SUMO Traffic (LuST)
+Scenario: Traffic Demand Evaluation," in IEEE Intelligent Transportation
+Systems Magazine, vol. 9, no. 2, pp. 52-63, Summer 2017.
+doi: 10.1109/MITS.2017.2666585
+
+LaneFlow converter, config, and project-owned documentation remain Apache-2.0
+and are not relicensed by this NOTICE.
