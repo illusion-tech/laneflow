@@ -5,6 +5,7 @@ mod allocation;
 mod artifacts;
 #[cfg(feature = "adapter")]
 mod evidence;
+mod fastmap;
 mod host;
 mod observe;
 mod plan;
@@ -12,6 +13,7 @@ mod plan;
 mod presentation;
 mod report;
 mod requests;
+mod route_table;
 mod runner;
 mod scenario;
 #[cfg(feature = "adapter")]

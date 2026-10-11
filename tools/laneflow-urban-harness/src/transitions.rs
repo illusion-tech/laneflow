@@ -105,21 +105,12 @@ fn restore<'a>(mut harness: Harness<'a>, output: &Path) -> Result<Harness<'a>> {
     write_json(
         &output.join("save-identities.json"),
         &json!({"version":1,"vehicles":identity_map,
-        "routes":old_routes.iter().zip(snapshot.routes()).map(|(h,s)| json!({"route_key":harness.route_keys[h],"snapshot_route_id":s.snapshot_route_id()})).collect::<Vec<_>>()}),
+        "routes":old_routes.iter().zip(snapshot.routes()).map(|(h,s)| json!({"route_key":harness.route_key(*h),"snapshot_route_id":s.snapshot_route_id()})).collect::<Vec<_>>()}),
     )?;
     for handle in harness.routes.values_mut() {
         *handle = routes[handle];
     }
-    harness.route_keys = harness
-        .route_keys
-        .into_iter()
-        .map(|(h, k)| (routes[&h], k))
-        .collect();
-    harness.route_edges = harness
-        .route_edges
-        .into_iter()
-        .map(|(h, e)| (routes[&h], e))
-        .collect();
+    harness.route_table.remap_handles(&routes);
     harness.slots.clear();
     for (slot, individual) in harness.individuals.iter_mut().enumerate() {
         if let Some(old) = individual.handle {
