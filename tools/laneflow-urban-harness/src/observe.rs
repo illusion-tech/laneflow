@@ -81,9 +81,13 @@ fn text_json<T: serde::Serialize + ?Sized>(
     Ok(())
 }
 
-/// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/text_json 完全相同；
-/// 主线程按块序把各块字节送入同一 SHA-256，摘要与串行编码逐字节一致
-///（有单元测试比对）。
+/// v3 树形摘要的固定块界（个体槽位数 / 决策条数）：与 workers 无关，
+/// 保证不同并行度下摘要逐字节一致。
+const OBSERVATION_BLOCK: usize = 4096;
+
+/// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/json 完全相同。
+/// v3 中每块字节在块线程内各自 SHA-256 成叶摘要，主线程按块序把叶摘要
+/// 送入根哈希（有单元测试比对）。
 struct BlockHash {
     bytes: Vec<u8>,
     scratch: Vec<u8>,
@@ -115,6 +119,11 @@ impl BlockHash {
         self.n(len);
         self.bytes.extend_from_slice(&self.scratch);
         Ok(())
+    }
+    /// 块字节的叶摘要：与 crate::sha256(&self.bytes) 相同，但保留原始字节
+    /// 数组供根哈希直接消费。
+    fn digest(&self) -> [u8; 32] {
+        Sha256::digest(&self.bytes).into()
     }
 }
 
@@ -792,7 +801,7 @@ pub(crate) fn status(value: VehicleStatus) -> u32 {
 /// lifecycle 事件与 crossed_tile 置位请求，由主线程按块序合并：
 /// 事件顺序与串行逐车一致，计数类合并满足交换律，crossed_tile 置位幂等。
 struct BlockOutcome {
-    bytes: Vec<u8>,
+    digest: [u8; 32],
     live: usize,
     status_counts: (usize, usize, usize),
     bindings: FastMap<ParkingTarget, (u64, u64)>,
@@ -824,7 +833,7 @@ impl StateView<'_> {
 fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Result<BlockOutcome> {
     let mut hash = BlockHash::with_capacity((to - from) * 192);
     let mut out = BlockOutcome {
-        bytes: Vec::new(),
+        digest: [0; 32],
         live: 0,
         status_counts: (0, 0, 0),
         bindings: FastMap::default(),
@@ -1001,13 +1010,22 @@ fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Resul
             }
         }
     }
-    out.bytes = hash.bytes;
+    out.digest = hash.digest();
     Ok(out)
 }
 
 pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize))> {
+    state_impl(h, OBSERVATION_BLOCK)
+}
+
+/// v3 树形摘要：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
+/// 信号、remaining-claims，与 v2 相同的原始字节）；叶 = 固定块界槽位区间
+/// 编码字节的 SHA-256。块界与 workers 无关，摘要跨并行度稳定；报错仍为
+/// 块内逐车序 + 块间按块序取首个 Err。
+fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize, usize, usize))> {
+    debug_assert!(block_size > 0);
     let mut hash = Hash::default();
-    hash.text("urban-observation-v2");
+    hash.text("urban-observation-v3");
     hash.n(h.world.tick_index());
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
@@ -1027,8 +1045,9 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
             return Err(invalid("claim has no current reservation owner"));
         }
     }
-    // 逐车循环按连续块并行：每块编码字节流与串行 Hash 完全相同，主线程
-    // 按块序送入同一 SHA-256；检查汇总、事件与置位请求随块结果合并。
+    // 逐车循环按固定块并行：块界与 workers 无关（叶摘要跨并行度稳定），
+    // 线程按跨步取块保持负载均衡；检查汇总、事件与置位请求随块结果按块序
+    // 合并，与串行逐车序等价。
     let tick = h.world.tick_index();
     let n = h.individuals.len();
     let workers = (h.workers as usize).max(1);
@@ -1041,24 +1060,44 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
         target_keys: &h.target_keys,
         plan: h.plan,
     };
-    let mut outcomes = Vec::new();
-    if workers <= 1 || n == 0 {
-        outcomes.push(state_block(&view, 0, n, tick));
+    let block_count = n.div_ceil(block_size);
+    hash.n(block_count as u64);
+    let mut outcomes: Vec<Option<Result<BlockOutcome>>> = Vec::new();
+    outcomes.resize_with(block_count, || None);
+    if workers <= 1 || block_count <= 1 {
+        for (block, slot) in outcomes.iter_mut().enumerate() {
+            let from = block * block_size;
+            *slot = Some(state_block(&view, from, (from + block_size).min(n), tick));
+        }
     } else {
-        let chunk = n.div_ceil(workers);
+        let tasks = workers.min(block_count);
         let view_ref = &view;
-        std::thread::scope(|s| {
-            let mut spawned = Vec::new();
-            let mut from = 0;
-            while from < n {
-                let to = (from + chunk).min(n);
-                spawned.push(s.spawn(move || state_block(view_ref, from, to, tick)));
-                from = to;
+        let assigned = std::thread::scope(|s| {
+            let mut spawned = Vec::with_capacity(tasks);
+            for task in 0..tasks {
+                spawned.push(s.spawn(move || {
+                    let mut done = Vec::new();
+                    let mut block = task;
+                    while block < block_count {
+                        let from = block * block_size;
+                        done.push((
+                            block,
+                            state_block(view_ref, from, (from + block_size).min(n), tick),
+                        ));
+                        block += tasks;
+                    }
+                    done
+                }));
             }
+            let mut done = Vec::new();
             for handle in spawned {
-                outcomes.push(handle.join().expect("state observation block panicked"));
+                done.extend(handle.join().expect("state observation block panicked"));
             }
+            done
         });
+        for (block, outcome) in assigned {
+            outcomes[block] = Some(outcome);
+        }
     }
     let mut bodies = Vec::with_capacity(n);
     let mut waiting = BTreeMap::<u32, u32>::new();
@@ -1066,8 +1105,8 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     let mut live = 0_usize;
     let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
     for outcome in outcomes {
-        let outcome = outcome?;
-        hash.bytes(&outcome.bytes);
+        let outcome = outcome.expect("each block computed")?;
+        hash.bytes(&outcome.digest);
         live += outcome.live;
         status_counts.0 += outcome.status_counts.0;
         status_counts.1 += outcome.status_counts.1;
@@ -1407,5 +1446,74 @@ mod tests {
                 .to_string()
                 .contains("explicit facility binding count differs")
         );
+    }
+
+    #[test]
+    fn block_digest_matches_sha256_of_block_bytes() {
+        let mut block = BlockHash::with_capacity(0);
+        block.text("城市路線 α");
+        block.n(42_u64);
+        block.json(&json!({"k": [1, 2, "𐍈"]})).unwrap();
+        assert_eq!(crate::hex(&block.digest()), crate::sha256(&block.bytes));
+    }
+
+    fn fixture_artifacts() -> (tempfile::TempDir, Artifacts) {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config = laneflow_urban_generator::UrbanConfig::parse(include_str!(
+            "../../../examples/config/cn-urban.toml"
+        ))
+        .unwrap();
+        laneflow_urban_generator::generate(
+            &config,
+            laneflow_urban_generator::Scale::Fixture,
+            &source,
+            None,
+        )
+        .unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        (temp, artifacts)
+    }
+
+    fn execution(workers: u32) -> laneflow_runtime::ExecutionConfig {
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap())
+    }
+
+    fn fixture_plan(artifacts: &Artifacts) -> crate::ResolvedPlan {
+        crate::ResolvedPlan::for_case(
+            artifacts,
+            crate::UrbanCase::SustainedActive,
+            crate::Window::probe(2_048).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn observation_digests_are_worker_count_invariant() {
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = fixture_plan(&artifacts);
+        let run = |workers| {
+            let mut h = Harness::install(&artifacts, &plan, execution(workers)).unwrap();
+            (0..4)
+                .map(|_| {
+                    let record = h.advance().unwrap();
+                    (record.state_digest, record.event_digest)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(1), run(4));
+    }
+
+    #[test]
+    fn state_tree_digest_is_invariant_across_block_worker_partitioning() {
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = fixture_plan(&artifacts);
+        let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
+        h.advance().unwrap();
+        h.workers = 1;
+        let sequential = state_impl(&mut h, 64).unwrap().0;
+        h.workers = 4;
+        let parallel = state_impl(&mut h, 64).unwrap().0;
+        assert_eq!(sequential, parallel);
     }
 }
