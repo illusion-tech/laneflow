@@ -254,6 +254,8 @@ pub struct Harness<'a> {
     pub(crate) step_before: Vec<Option<VehicleState>>,
     pub(crate) scratch_red: crate::fastmap::FastMap<u32, bool>,
     pub(crate) json_scratch: Vec<u8>,
+    pub(crate) scratch_body_buckets:
+        crate::fastmap::FastMap<u32, Vec<(u64, u64, crate::IndividualId)>>,
     pub(crate) commands: Vec<Value>,
     pub(crate) events: Vec<Value>,
     pub(crate) error_counts: BTreeMap<String, u64>,
@@ -406,6 +408,7 @@ impl<'a> Harness<'a> {
             step_before: Vec::new(),
             scratch_red: crate::fastmap::FastMap::default(),
             json_scratch: Vec::new(),
+            scratch_body_buckets: crate::fastmap::FastMap::default(),
             commands: Vec::new(),
             events: Vec::new(),
             error_counts: BTreeMap::new(),
