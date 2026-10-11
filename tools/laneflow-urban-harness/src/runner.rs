@@ -265,15 +265,16 @@ pub struct Harness<'a> {
     pub(crate) last_step_ns: u64,
     pub(crate) last_command_ns: u64,
     pub(crate) last_observation_ns: u64,
-    pub(crate) workers: u32,
+    /// 观测块并行用的常驻池；workers==1 时为 None，全部观测在调用线程上跑。
+    pub(crate) pool: Option<rayon_core::ThreadPool>,
 }
 
 impl<'a> Harness<'a> {
     /// 安装已经验证的计划与宿主世界，并登记有限请求或独立回收控制器。
     ///
     /// # Errors
-    /// 计划、请求身份或来源校验失败，执行配置、世界安装、路线注册、初态准入或
-    /// 停车绑定失败，以及初始计数或停车不变量不匹配时返回错误。
+    /// 计划、请求身份或来源校验失败，执行配置、观测线程池构建、世界安装、路线注册、
+    /// 初态准入或停车绑定失败，以及初始计数或停车不变量不匹配时返回错误。
     pub fn install(
         artifacts: &'a Artifacts,
         plan: &'a ResolvedPlan,
@@ -383,6 +384,17 @@ impl<'a> Harness<'a> {
             });
         }
         let last_signals = signal_signature(&world)?;
+        let workers = execution.worker_count().get();
+        let pool = if workers > 1 {
+            Some(checked(
+                "observation thread pool",
+                rayon_core::ThreadPoolBuilder::new()
+                    .num_threads(workers as usize)
+                    .build(),
+            )?)
+        } else {
+            None
+        };
         let mut harness = Self {
             artifacts,
             plan,
@@ -417,7 +429,7 @@ impl<'a> Harness<'a> {
             last_step_ns: 0,
             last_command_ns: 0,
             last_observation_ns: 0,
-            workers: execution.worker_count().get(),
+            pool,
         };
         for b in &plan.departures {
             for i in 0..10 {

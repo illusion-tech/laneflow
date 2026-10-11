@@ -113,11 +113,12 @@ impl BlockHash {
     }
 }
 
-/// 固定块界并行执行块函数：[0, len) 按 block_size 切块，线程按跨步取块
-/// 保持负载均衡；workers<=1 或单块时在调用线程上跑，不创建辅助线程。
-/// 返回逐块结果，块序即输入序；报错等价于块内序 + 块序首个 Err。
+/// 固定块界并行执行块函数：[0, len) 按 block_size 切块，常驻池线程按跨步取块
+/// 保持负载均衡；pool 为 None（单 worker）或单块时在调用线程上跑，不借用辅助
+/// 线程。返回逐块结果，块序即输入序；报错等价于块内序 + 块序首个 Err；块内
+/// panic 由 in_place_scope 统一传播，等价于逐块 join 的 expect。
 fn run_blocks<T: Send>(
-    workers: u32,
+    pool: Option<&rayon_core::ThreadPool>,
     len: usize,
     block_size: usize,
     run: impl Fn(usize, usize) -> Result<T> + Sync,
@@ -126,19 +127,14 @@ fn run_blocks<T: Send>(
     let block_count = len.div_ceil(block_size);
     let mut outcomes: Vec<Option<Result<T>>> = Vec::new();
     outcomes.resize_with(block_count, || None);
-    let workers = (workers as usize).max(1);
-    if workers <= 1 || block_count <= 1 {
-        for (block, slot) in outcomes.iter_mut().enumerate() {
-            let from = block * block_size;
-            *slot = Some(run(from, (from + block_size).min(len)));
-        }
-    } else {
-        let tasks = workers.min(block_count);
+    if let Some(pool) = pool.filter(|_| block_count > 1) {
+        let tasks = pool.current_num_threads().min(block_count);
         let run = &run;
-        let assigned = std::thread::scope(|s| {
-            let mut spawned = Vec::with_capacity(tasks);
+        let assigned = std::sync::Mutex::new(Vec::new());
+        pool.in_place_scope(|scope| {
+            let assigned = &assigned;
             for task in 0..tasks {
-                spawned.push(s.spawn(move || {
+                scope.spawn(move |_| {
                     let mut done = Vec::new();
                     let mut block = task;
                     while block < block_count {
@@ -146,17 +142,23 @@ fn run_blocks<T: Send>(
                         done.push((block, run(from, (from + block_size).min(len))));
                         block += tasks;
                     }
-                    done
-                }));
+                    assigned
+                        .lock()
+                        .expect("observation blocks mutex poisoned")
+                        .extend(done);
+                });
             }
-            let mut done = Vec::new();
-            for handle in spawned {
-                done.extend(handle.join().expect("observation block panicked"));
-            }
-            done
         });
-        for (block, outcome) in assigned {
+        for (block, outcome) in assigned
+            .into_inner()
+            .expect("observation blocks mutex poisoned")
+        {
             outcomes[block] = Some(outcome);
+        }
+    } else {
+        for (block, slot) in outcomes.iter_mut().enumerate() {
+            let from = block * block_size;
+            *slot = Some(run(from, (from + block_size).min(len)));
         }
     }
     outcomes
@@ -383,7 +385,7 @@ pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
         scratch_red: &h.scratch_red,
     };
     let n = h.individuals.len();
-    let blocks = run_blocks(h.workers, n, OBSERVATION_BLOCK, |from, to| {
+    let blocks = run_blocks(h.pool.as_ref(), n, OBSERVATION_BLOCK, |from, to| {
         Ok(pre_step_block(&view, from, to, warm))
     });
     h.step_before.clear();
@@ -655,17 +657,23 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         };
         let waiting_len = view.world.latest_waiting_decisions().len();
         decisions.n(waiting_len.div_ceil(OBSERVATION_BLOCK) as u64);
-        for leaf in run_blocks(h.workers, waiting_len, OBSERVATION_BLOCK, |from, to| {
-            waiting_decision_block(&view, from, to)
-        }) {
+        for leaf in run_blocks(
+            h.pool.as_ref(),
+            waiting_len,
+            OBSERVATION_BLOCK,
+            |from, to| waiting_decision_block(&view, from, to),
+        ) {
             decisions.bytes(&leaf?);
         }
         decisions.text("conflict");
         let conflict_len = view.world.latest_conflict_decisions().len();
         decisions.n(conflict_len.div_ceil(OBSERVATION_BLOCK) as u64);
-        for leaf in run_blocks(h.workers, conflict_len, OBSERVATION_BLOCK, |from, to| {
-            conflict_decision_block(&view, from, to)
-        }) {
+        for leaf in run_blocks(
+            h.pool.as_ref(),
+            conflict_len,
+            OBSERVATION_BLOCK,
+            |from, to| conflict_decision_block(&view, from, to),
+        ) {
             decisions.bytes(&leaf?);
         }
     }
@@ -1196,7 +1204,7 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
         scratch_red: &h.scratch_red,
     };
     hash.n(n.div_ceil(block_size) as u64);
-    let outcomes = run_blocks(h.workers, n, block_size, |from, to| {
+    let outcomes = run_blocks(h.pool.as_ref(), n, block_size, |from, to| {
         state_block(&view, from, to, tick)
     });
     let mut bodies = Vec::with_capacity(n);
@@ -1613,9 +1621,14 @@ mod tests {
         let plan = fixture_plan(&artifacts);
         let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
         h.advance().unwrap();
-        h.workers = 1;
+        h.pool = None;
         let sequential = state_impl(&mut h, 64).unwrap().0;
-        h.workers = 4;
+        h.pool = Some(
+            rayon_core::ThreadPoolBuilder::new()
+                .num_threads(4)
+                .build()
+                .unwrap(),
+        );
         let parallel = state_impl(&mut h, 64).unwrap().0;
         assert_eq!(sequential, parallel);
     }

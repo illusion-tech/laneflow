@@ -3244,6 +3244,7 @@ dependencies = [
  "laneflow-static-contract",
  "laneflow-static-network",
  "laneflow-urban-generator",
+ "rayon-core",
  "serde",
  "serde_json",
  "sha2",
