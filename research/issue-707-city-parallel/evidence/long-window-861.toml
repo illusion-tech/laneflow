@@ -1,7 +1,7 @@
 # #861 长窗验收证据索引（long-window-acceptance-results.md）。
 # 一轮十万辆持续 Active 正式计划长窗，不构成 #707 三轮认证。
-# 逐拍计时、曲线与分析脚本放在 Research Evidence prerelease；完整原始输出（含约
-# 1.8 GB events.jsonl）留在作者本机，交通文件与 #857 第一轮逐字节相同。
+# 逐拍计时、曲线、分析脚本与完整原始输出包放在 Research Evidence prerelease；包内
+# 带路径的六个文本文件是占位符副本，原件与副本摘要见包内 MANIFEST.toml。
 
 release = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-861-long-window-404aea19"
 source_commit = "404aea199e79de14388a89cc39b6ce7b744afb49"
@@ -90,3 +90,14 @@ sha256 = "7198b6b0db816c9f3d6b88c1c9ef9fe22f43503927bc0a8e78ef625ff9fdb6a8"
 name = "timings.jsonl"
 bytes = 4763682
 sha256 = "5fdfd44056b5ba400b1b9d85ebf8a7e138a1fb6a59fe17b95404eb86e6b8e9b7"
+
+[[assets]]
+name = "long-window-861-404aea19.tar.zst"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-861-long-window-404aea19/long-window-861-404aea19.tar.zst"
+bytes = 97426025
+sha256 = "a9ec8db689fe544c15dd409ed53d2c28fdcf69dc25d1f63d1eab782285646b5c"
+files = 20
+manifest = "long-window-861-404aea19/MANIFEST.toml"
+manifest_bytes = 5632
+manifest_sha256 = "f954133a679df7e7cc6eaee64fbcbc837becd8a1ac6fdc2303e0371a27adcc98"
+excluded = ["二进制（含本机路径，按 binary_sha256 从 source_commit 重建）", "#857 冻结输入 urban-100k"]
