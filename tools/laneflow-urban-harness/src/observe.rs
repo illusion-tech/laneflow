@@ -67,21 +67,7 @@ impl Hash {
     }
 }
 
-/// 复用缓冲编码 JSON 后按原样送入哈希。`to_writer` 与 `to_string`/`to_vec` 同一实现，
-/// 因此与 `serde_json::to_string` 逐字节一致（有单元测试比对）。
-fn text_json<T: serde::Serialize + ?Sized>(
-    hash: &mut Hash,
-    scratch: &mut Vec<u8>,
-    value: &T,
-) -> Result<()> {
-    scratch.clear();
-    serde_json::to_writer(&mut *scratch, value)?;
-    hash.n(scratch.len() as u64);
-    hash.bytes(scratch);
-    Ok(())
-}
-
-/// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/text_json 完全相同；
+/// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/json 完全相同；
 /// 主线程按块序把各块字节送入同一 SHA-256，摘要与串行编码逐字节一致
 ///（有单元测试比对）。
 struct BlockHash {
@@ -480,21 +466,52 @@ fn occupied_yield_pulse(
     None
 }
 
-pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
-    // Every decision, including NotEvaluated/NotRequired, contributes in public batch order.
-    // Store its digest once per tick instead of millions of repetitive diagnostic rows.
-    let mut decisions = Hash::default();
-    decisions.text("waiting");
-    for d in h.world.latest_waiting_decisions() {
-        let id = h
+/// 观测并行的最小块规模：低于此规模时线程创建开销超过分块收益。
+const PARALLEL_BLOCK_MIN: usize = 4096;
+
+/// 把 [0, len) 按连续块分发给块函数并行执行；workers=1 或规模不足时
+/// 在调用线程上跑，不创建辅助线程。返回逐块结果，块序即输入序。
+fn parallel_blocks<T: Send>(
+    workers: u32,
+    len: usize,
+    run: impl Fn(usize, usize) -> Result<T> + Sync,
+) -> Vec<Result<T>> {
+    let workers = (workers as usize).max(1);
+    if workers <= 1 || len < PARALLEL_BLOCK_MIN {
+        return vec![run(0, len)];
+    }
+    let chunk = len.div_ceil(workers);
+    let run = &run;
+    std::thread::scope(|s| {
+        let mut spawned = Vec::new();
+        let mut from = 0;
+        while from < len {
+            let to = (from + chunk).min(len);
+            spawned.push(s.spawn(move || run(from, to)));
+            from = to;
+        }
+        let mut outcomes = Vec::new();
+        for handle in spawned {
+            outcomes.push(handle.join().expect("observation block panicked"));
+        }
+        outcomes
+    })
+}
+
+/// 决策批编码的只读块：字节流与串行 decisions Hash 完全相同
+///（同一字段顺序与 JSON 编码），由主线程按块序送入同一 SHA-256。
+fn waiting_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Result<BlockHash> {
+    let mut hash = BlockHash::with_capacity((to - from) * 64);
+    for d in &view.world.latest_waiting_decisions()[from..to] {
+        let id = view
             .stable_individual(d.vehicle())
             .ok_or_else(|| invalid("unknown decision owner"))?;
-        decisions.id(id);
-        decisions.n(d.vehicle_update_sequence());
-        decisions.text(h.route_key(d.anchor().route()));
-        decisions.n(d.anchor().maneuver_occurrence_index());
-        decisions.n(d.anchor().hop());
-        decisions.n(d.zone().map_or(u32::MAX, |z| z.raw()));
+        hash.id(id);
+        hash.n(d.vehicle_update_sequence());
+        hash.text(view.route_table.key_of(d.anchor().route()));
+        hash.n(d.anchor().maneuver_occurrence_index());
+        hash.n(d.anchor().hop());
+        hash.n(d.zone().map_or(u32::MAX, |z| z.raw()));
         let (tag, reason) = match d.outcome() {
             WaitingDecisionOutcome::Deferred => (0_u32, 0),
             WaitingDecisionOutcome::NotEvaluated => (1, 0),
@@ -506,7 +523,73 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 (4, 2 + conflict_reason(r))
             }
         };
-        if h.in_step_observation(h.world.tick_index())
+        hash.n(tag);
+        hash.n(reason);
+    }
+    Ok(hash)
+}
+
+fn conflict_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Result<BlockHash> {
+    let mut hash = BlockHash::with_capacity((to - from) * 96);
+    for d in &view.world.latest_conflict_decisions()[from..to] {
+        let id = view
+            .stable_individual(d.vehicle())
+            .ok_or_else(|| invalid("unknown decision owner"))?;
+        hash.id(id);
+        hash.n(d.vehicle_update_sequence());
+        hash.text(view.route_table.key_of(d.anchor().route()));
+        hash.n(d.anchor().maneuver_occurrence_index());
+        hash.n(d.anchor().hop());
+        hash.json(&d.passage().map(|p| passage(view.route_table, p)))?;
+        let (tag, reason) = match d.outcome() {
+            ConflictDecisionOutcome::NotEvaluated => (0_u32, 0),
+            ConflictDecisionOutcome::NotRequired => (1, 0),
+            ConflictDecisionOutcome::Granted => (2, 0),
+            ConflictDecisionOutcome::NoGrant(r) => (3, conflict_reason(r)),
+        };
+        hash.n(tag);
+        hash.n(reason);
+    }
+    Ok(hash)
+}
+
+pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
+    // Every decision, including NotEvaluated/NotRequired, contributes in public batch order.
+    // Store its digest once per tick instead of millions of repetitive diagnostic rows.
+    // 编码是可并行的纯只读字节流；evidence 的 right_of_way 状态机有跨决策
+    // 顺序语义，保持串行第二遍。两遍遍历的决策顺序相同。
+    let tick = h.world.tick_index();
+    let mut decisions = Hash::default();
+    decisions.text("waiting");
+    {
+        let view = StateView {
+            world: &h.world,
+            individuals: &h.individuals,
+            step_before: &h.step_before,
+            slots: &h.slots,
+            route_table: &h.route_table,
+            target_keys: &h.target_keys,
+            plan: h.plan,
+        };
+        let waiting_len = view.world.latest_waiting_decisions().len();
+        for block in parallel_blocks(h.workers, waiting_len, |from, to| {
+            waiting_decision_block(&view, from, to)
+        }) {
+            decisions.bytes(&block?.bytes);
+        }
+        decisions.text("conflict");
+        let conflict_len = view.world.latest_conflict_decisions().len();
+        for block in parallel_blocks(h.workers, conflict_len, |from, to| {
+            conflict_decision_block(&view, from, to)
+        }) {
+            decisions.bytes(&block?.bytes);
+        }
+    }
+    for d in h.world.latest_waiting_decisions() {
+        let id = h
+            .stable_individual(d.vehicle())
+            .ok_or_else(|| invalid("unknown decision owner"))?;
+        if h.in_step_observation(tick)
             && h.plan.case == "WAITING-RELEASE"
             && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
                 .role
@@ -534,27 +617,11 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 _ => {}
             }
         }
-        decisions.n(tag);
-        decisions.n(reason);
     }
-    decisions.text("conflict");
     for d in h.world.latest_conflict_decisions() {
         let id = h
             .stable_individual(d.vehicle())
             .ok_or_else(|| invalid("unknown decision owner"))?;
-        decisions.id(id);
-        decisions.n(d.vehicle_update_sequence());
-        decisions.text(h.route_key(d.anchor().route()));
-        decisions.n(d.anchor().maneuver_occurrence_index());
-        decisions.n(d.anchor().hop());
-        let encoded_passage = d.passage().map(|p| passage(&h.route_table, p));
-        text_json(&mut decisions, &mut h.json_scratch, &encoded_passage)?;
-        let (tag, reason) = match d.outcome() {
-            ConflictDecisionOutcome::NotEvaluated => (0_u32, 0),
-            ConflictDecisionOutcome::NotRequired => (1, 0),
-            ConflictDecisionOutcome::Granted => (2, 0),
-            ConflictDecisionOutcome::NoGrant(r) => (3, conflict_reason(r)),
-        };
         let role = h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
             .role
             .as_deref();
@@ -563,7 +630,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             ("UNCONTROLLED-YIELD", Some("yield-role")) => Some("mainline-pulse-"),
             _ => None,
         };
-        if h.in_step_observation(h.world.tick_index())
+        if h.in_step_observation(tick)
             && let Some(prefix) = pulse_prefix
         {
             let witness = h.evidence[id.tile as usize]
@@ -591,7 +658,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                     {
                         witness
                             .granted
-                            .get_or_insert((h.world.tick_index(), d.vehicle_update_sequence()));
+                            .get_or_insert((tick, d.vehicle_update_sequence()));
                     }
                 }
                 ConflictDecisionOutcome::NoGrant(reason) => {
@@ -603,7 +670,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 _ => {}
             }
         }
-        if h.in_step_observation(h.world.tick_index())
+        if h.in_step_observation(tick)
             && h.plan.case == "WAITING-RELEASE"
             && role.is_some_and(|role| role.starts_with("waiting-fifo-"))
             && matches!(
@@ -613,10 +680,8 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         {
             h.evidence[id.tile as usize].waiting_storage_rejections += 1;
         }
-        decisions.n(tag);
-        decisions.n(reason);
     }
-    h.events.push(json!({"kind":"decision-batch", "tick":h.world.tick_index(),
+    h.events.push(json!({"kind":"decision-batch", "tick":tick,
         "waiting_count":h.world.latest_waiting_decisions().len(), "conflict_count":h.world.latest_conflict_decisions().len(), "digest":decisions.finish()}));
     for e in h.world.latest_transition_events() {
         let id = h
@@ -1023,7 +1088,6 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     // 按块序送入同一 SHA-256；检查汇总、事件与置位请求随块结果合并。
     let tick = h.world.tick_index();
     let n = h.individuals.len();
-    let workers = (h.workers as usize).max(1);
     let view = StateView {
         world: &h.world,
         individuals: &h.individuals,
@@ -1033,25 +1097,7 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
         target_keys: &h.target_keys,
         plan: h.plan,
     };
-    let mut outcomes = Vec::new();
-    if workers <= 1 || n == 0 {
-        outcomes.push(state_block(&view, 0, n, tick));
-    } else {
-        let chunk = n.div_ceil(workers);
-        let view_ref = &view;
-        std::thread::scope(|s| {
-            let mut spawned = Vec::new();
-            let mut from = 0;
-            while from < n {
-                let to = (from + chunk).min(n);
-                spawned.push(s.spawn(move || state_block(view_ref, from, to, tick)));
-                from = to;
-            }
-            for handle in spawned {
-                outcomes.push(handle.join().expect("state observation block panicked"));
-            }
-        });
-    }
+    let outcomes = parallel_blocks(h.workers, n, |from, to| state_block(&view, from, to, tick));
     let mut bodies = Vec::with_capacity(n);
     let mut waiting = BTreeMap::<u32, u32>::new();
     let mut status_counts = (0_usize, 0_usize, 0_usize);
@@ -1227,36 +1273,38 @@ mod tests {
     }
 
     #[test]
-    fn text_json_matches_to_string_byte_for_byte() {
-        fn check(scratch: &mut Vec<u8>, value: &impl serde::Serialize) {
+    fn block_json_matches_to_string_byte_for_byte() {
+        fn check(value: &impl serde::Serialize) {
             let mut expected = Hash::default();
             expected.text(&serde_json::to_string(value).unwrap());
-            let mut actual = Hash::default();
-            text_json(&mut actual, scratch, value).unwrap();
-            assert_eq!(actual.finish(), expected.finish());
+            let mut actual = BlockHash::with_capacity(0);
+            actual.json(value).unwrap();
+            let mut stitched = Hash::default();
+            stitched.bytes(&actual.bytes);
+            assert_eq!(stitched.finish(), expected.finish());
         }
-        let mut scratch = Vec::new();
         let none: Option<Value> = None;
-        check(&mut scratch, &none);
+        check(&none);
         check(
-            &mut scratch,
             &Some(json!(["tile-0001.route.urban-crossing", 3, 1, 2, 4, 5, 6])),
         );
-        check(&mut scratch, &json!(null));
-        check(&mut scratch, &json!([]));
-        check(&mut scratch, &json!({}));
-        check(&mut scratch, &json!(0));
-        check(&mut scratch, &json!("短文本\"转义\\\n"));
-        check(&mut scratch, &json!([1, "two", null, {"nested": [true, false]}, ""]));
-        check(&mut scratch, &json!({"unicode": "é中𐍈", "control": ""}));
-        // 同一 scratch 连续复用（clear 语义）时仍逐字节一致。
+        check(&json!(null));
+        check(&json!([]));
+        check(&json!({}));
+        check(&json!(0));
+        check(&json!("短文本\"转义\\\n"));
+        check(&json!([1, "two", null, {"nested": [true, false]}, ""]));
+        check(&json!({"unicode": "é中𐍈", "control": "\u{1}\u{1f}"}));
+        // BlockHash 连续编码多个值时仍逐字节一致。
         let mut expected = Hash::default();
-        let mut actual = Hash::default();
+        let mut actual = BlockHash::with_capacity(0);
         for value in [json!("x"), json!({"k": [1, 2]}), json!(null)] {
             expected.text(&serde_json::to_string(&value).unwrap());
-            text_json(&mut actual, &mut scratch, &value).unwrap();
+            actual.json(&value).unwrap();
         }
-        assert_eq!(actual.finish(), expected.finish());
+        let mut stitched = Hash::default();
+        stitched.bytes(&actual.bytes);
+        assert_eq!(stitched.finish(), expected.finish());
     }
 
     #[test]
@@ -1321,7 +1369,7 @@ mod tests {
         full.n(u64::MAX);
         full.text("城市路線 α");
         full.id(id);
-        text_json(&mut full, &mut Vec::new(), &value).unwrap();
+        full.text(&serde_json::to_string(&value).unwrap());
         full.n(7_u64);
         let expected = full.finish();
         // 两块拼接：块边界落在任意操作之间。
