@@ -67,6 +67,20 @@ impl Hash {
     }
 }
 
+/// 复用缓冲编码 JSON 后按原样送入哈希。`to_writer` 与 `to_string`/`to_vec` 同一实现，
+/// 因此与 `serde_json::to_string` 逐字节一致（有单元测试比对）。
+fn text_json<T: serde::Serialize + ?Sized>(
+    hash: &mut Hash,
+    scratch: &mut Vec<u8>,
+    value: &T,
+) -> Result<()> {
+    scratch.clear();
+    serde_json::to_writer(&mut *scratch, value)?;
+    hash.n(scratch.len() as u64);
+    hash.bytes(scratch);
+    Ok(())
+}
+
 pub(crate) fn transition_gates(a: &Artifacts) -> FastMap<(u32, u32), (u32, u32)> {
     let mut result = FastMap::default();
     for raw in 0..a.revision.identity().entity_count(EntityKind::ManeuverGate) {
@@ -238,11 +252,13 @@ pub(crate) fn red_waiters(h: &mut Harness<'_>) {
         return;
     }
     let signals = h.world.committed_signal_groups();
-    let red: FastMap<_, _> = signals
-        .as_slice()
-        .iter()
-        .map(|(g, a)| (g.raw(), *a == SignalAspect::Red))
-        .collect();
+    h.scratch_red.clear();
+    h.scratch_red.extend(
+        signals
+            .as_slice()
+            .iter()
+            .map(|(g, a)| (g.raw(), *a == SignalAspect::Red)),
+    );
     for (i, state) in h.step_before.iter().enumerate() {
         let Some(state) = state else {
             continue;
@@ -263,7 +279,7 @@ pub(crate) fn red_waiters(h: &mut Harness<'_>) {
                     h.route_table.edge_raw(route, current),
                     h.route_table.edge_raw(route, current + 1),
                 ))
-            && red.get(&group) == Some(&true)
+            && h.scratch_red.get(&group) == Some(&true)
         {
             h.red_waiters.insert((h.individuals[i].id, gate));
         }
@@ -465,7 +481,8 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         decisions.text(h.route_key(d.anchor().route()));
         decisions.n(d.anchor().maneuver_occurrence_index());
         decisions.n(d.anchor().hop());
-        decisions.text(&serde_json::to_string(&d.passage().map(|p| passage(h, p)))?);
+        let encoded_passage = d.passage().map(|p| passage(h, p));
+        text_json(&mut decisions, &mut h.json_scratch, &encoded_passage)?;
         let (tag, reason) = match d.outcome() {
             ConflictDecisionOutcome::NotEvaluated => (0_u32, 0),
             ConflictDecisionOutcome::NotRequired => (1, 0),
@@ -738,7 +755,8 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
     hash.n(h.world.event_cursor());
-    let mut bodies = Vec::new();
+    let mut bodies = Vec::with_capacity(h.individuals.len());
+    let mut json_scratch = Vec::new();
     let mut zone_owners = FastMap::default();
     for ((id, _, _), zone) in &h.claims {
         if zone_owners.insert(*zone, *id).is_some_and(|old| old != *id) {
@@ -821,7 +839,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         }
         if let Some(r) = h.world.conflict_reservation(handle) {
             hash.n(1_u32);
-            hash.text(&serde_json::to_string(&range(h, r.passage_range()))?);
+            text_json(&mut hash, &mut json_scratch, &range(h, r.passage_range()))?;
             hash.id(h
                 .stable_individual(r.downstream_owner())
                 .ok_or_else(|| invalid("unknown claim owner"))?);
@@ -951,6 +969,39 @@ mod tests {
             bytes.extend_from_slice(&u64::MAX.to_le_bytes());
             assert_eq!(hash.finish(), crate::sha256(&bytes));
         }
+    }
+
+    #[test]
+    fn text_json_matches_to_string_byte_for_byte() {
+        fn check(scratch: &mut Vec<u8>, value: &impl serde::Serialize) {
+            let mut expected = Hash::default();
+            expected.text(&serde_json::to_string(value).unwrap());
+            let mut actual = Hash::default();
+            text_json(&mut actual, scratch, value).unwrap();
+            assert_eq!(actual.finish(), expected.finish());
+        }
+        let mut scratch = Vec::new();
+        let none: Option<Value> = None;
+        check(&mut scratch, &none);
+        check(
+            &mut scratch,
+            &Some(json!(["tile-0001.route.urban-crossing", 3, 1, 2, 4, 5, 6])),
+        );
+        check(&mut scratch, &json!(null));
+        check(&mut scratch, &json!([]));
+        check(&mut scratch, &json!({}));
+        check(&mut scratch, &json!(0));
+        check(&mut scratch, &json!("短文本\"转义\\\n"));
+        check(&mut scratch, &json!([1, "two", null, {"nested": [true, false]}, ""]));
+        check(&mut scratch, &json!({"unicode": "é中𐍈", "control": ""}));
+        // 同一 scratch 连续复用（clear 语义）时仍逐字节一致。
+        let mut expected = Hash::default();
+        let mut actual = Hash::default();
+        for value in [json!("x"), json!({"k": [1, 2]}), json!(null)] {
+            expected.text(&serde_json::to_string(&value).unwrap());
+            text_json(&mut actual, &mut scratch, &value).unwrap();
+        }
+        assert_eq!(actual.finish(), expected.finish());
     }
 
     #[test]

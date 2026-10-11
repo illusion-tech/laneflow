@@ -252,6 +252,8 @@ pub struct Harness<'a> {
     pub(crate) claims: BTreeMap<(IndividualId, u32, u32), u32>,
     pub(crate) transition_gates: crate::fastmap::FastMap<(u32, u32), (u32, u32)>,
     pub(crate) step_before: Vec<Option<VehicleState>>,
+    pub(crate) scratch_red: crate::fastmap::FastMap<u32, bool>,
+    pub(crate) json_scratch: Vec<u8>,
     pub(crate) commands: Vec<Value>,
     pub(crate) events: Vec<Value>,
     pub(crate) error_counts: BTreeMap<String, u64>,
@@ -402,6 +404,8 @@ impl<'a> Harness<'a> {
             claims: BTreeMap::new(),
             transition_gates: observe::transition_gates(artifacts),
             step_before: Vec::new(),
+            scratch_red: crate::fastmap::FastMap::default(),
+            json_scratch: Vec::new(),
             commands: Vec::new(),
             events: Vec::new(),
             error_counts: BTreeMap::new(),
@@ -1530,11 +1534,12 @@ impl<'a> Harness<'a> {
             }
         }
         let pre_observation_started = std::time::Instant::now();
-        self.step_before = self
-            .individuals
-            .iter()
-            .map(|i| i.handle.and_then(|handle| self.world.vehicle(handle)))
-            .collect();
+        self.step_before.clear();
+        self.step_before.extend(
+            self.individuals
+                .iter()
+                .map(|i| i.handle.and_then(|handle| self.world.vehicle(handle))),
+        );
         let intent = self
             .step_before
             .iter()
