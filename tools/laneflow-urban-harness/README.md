@@ -181,8 +181,10 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 来源校验用于防止错用/混合记录，不证明保存的描述等于二进制的真实构建来源；正式取证
 仍须冻结构建及输入，不能在运行中更改工作树。
 
-观测摘要用固定大小的栈缓冲合批提交编码字节，字节顺序、长度前缀和摘要域不变；
-不减少逐拍安全检查。编码专项对照仅供诊断，不替代真实城市前缀或正式性能取证。
+观测摘要按固定块界（4096 个个体槽位或决策条，与 workers 无关）树形编码：块内仍用
+固定大小的栈缓冲合批编码字节并各自取 SHA-256 叶摘要，主线程按块序把叶摘要合成根摘要；
+不减少逐拍安全检查。v3 起状态与决策批摘要的 digest 值随方案更新，不能与更早摘要
+版本的运行对拍。编码专项对照仅供诊断，不替代真实城市前缀或正式性能取证。
 
 ## Mixed 的具体输入
 
@@ -260,8 +262,11 @@ compare 要求两份诊断记录中的编号存在且不同，用于拦截误复
 按静态设施归属汇总显式绑定，与虚拟绑定一起核对每个设施的 reserved/occupied/total；
 按路线向后展开的 Active 车身区间不重叠。通过 reservation acquire、passage clear 与
 reservation release 的公开事件记录剩余 claim，核对资源区互斥和当前 reservation owner。
-`urban-observation-v2` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
-公开 Conflict reservation 和灯色，周期性完整快照补充隐藏权威状态。
+`urban-observation-v3` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
+公开 Conflict reservation 和灯色，周期性完整快照补充隐藏权威状态。摘要为两级树形
+结构：固定块界 4096 个槽位（块界与 workers 无关，跨并行度稳定），块内编码字节各自
+SHA-256 成叶摘要，主线程按块序把叶摘要与等待区、灯色、剩余 claim 等尾部原始字节
+送入根哈希；每 tick 的 decision-batch 摘要采用同一固定块界和树形结构。
 失败命令逐次检查主体和游标，并对每类前八个候选调用中的第一次实际拒绝比较完整
 快照；Ingress 的 `exclusive-occupied` / `virtual-full` 各自取证，预先的非 Active
 拒绝不消耗这两类候选预算。未触发的原子性样本不宣称已测量。
