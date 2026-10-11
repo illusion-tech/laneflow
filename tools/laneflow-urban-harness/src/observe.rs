@@ -1144,6 +1144,7 @@ fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Resul
             }
         }
     }
+    out.bodies.sort_unstable();
     out.digest = hash.digest();
     Ok(out)
 }
@@ -1235,7 +1236,9 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     if expected_live < 0 || live != expected_live as usize {
         return Err(invalid("birth/removal identity conservation failed"));
     }
-    bodies.sort_unstable();
+    // 各块 bodies 已在块线程内有序；主线程用运行自适应的稳定排序归并，
+    // 总序与全量 sort_unstable 相同（元组全序，稳定性无关）。
+    bodies.sort();
     for pair in bodies.windows(2) {
         if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
             return Err(invalid(format!(
