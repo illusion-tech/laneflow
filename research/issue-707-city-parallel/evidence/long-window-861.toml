@@ -1,0 +1,92 @@
+# #861 长窗验收证据索引（long-window-acceptance-results.md）。
+# 一轮十万辆持续 Active 正式计划长窗，不构成 #707 三轮认证。
+# 逐拍计时、曲线与分析脚本放在 Research Evidence prerelease；完整原始输出（含约
+# 1.8 GB events.jsonl）留在作者本机，交通文件与 #857 第一轮逐字节相同。
+
+release = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-861-long-window-404aea19"
+source_commit = "404aea199e79de14388a89cc39b6ce7b744afb49"
+binary_sha256 = "bfeb52495c8e179eeaa8fa3cb2c6bf9b919f68ea428670494944e7f984c537b7"
+plan_sha256 = "f9f778d73e01778525cb659725576193fc9ee96017f1a7e1ad11fc5622df5b11"
+input_manifest_sha256 = "95348c7cca3352bcf3b6a86a218dc75635ffda0f4e2bda342324ad43c11b7fbd"
+arguments = ["run", "<inputs/urban-100k>", "<plan>", "<output>", "--workers", "16", "--diagnostics"]
+workers = 16
+hardware_role = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
+power_role = "win11-balanced-381b4222"
+warm_up_ticks = 14848
+observation_ticks = 29696
+status = "performance-round-complete"
+completed_ticks = 44544
+replacements = 252673
+pending_departures = 0
+exhausted_departures = 0
+process_elapsed_seconds = 3170.7178784
+peak_working_set_bytes = 715890688
+
+[baseline]
+name = "#857 sustained-100k-w16-round1"
+source_commit = "e153fca4072ddb1af6e2c8a74fe1bd5892928011"
+binary_sha256 = "65892948e5b8fb2cbeae1bb0ba7f5ff99ce5112c966fb8e50da454ff1ceba2ce"
+process_elapsed_seconds = 7171.1466284
+same_traffic_files = ["resolved-plan.toml", "ticks.jsonl", "commands.jsonl", "events.jsonl"]
+
+[[assets]]
+name = "long-window-861-analyze.py"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-861-long-window-404aea19/long-window-861-analyze.py"
+bytes = 9755
+sha256 = "3024d3fbb323f9603877b7f6c70a82ed0c9afd519d9a8e8752cb99ecaae091ae"
+
+[[assets]]
+name = "long-window-861-curve.png"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-861-long-window-404aea19/long-window-861-curve.png"
+bytes = 245150
+sha256 = "21ee428521ae05859d865bf0c5434de1b9a322c01ab8f087c613b8ba3800f56b"
+
+[[assets]]
+name = "long-window-861-ticks.csv.gz"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-861-long-window-404aea19/long-window-861-ticks.csv.gz"
+bytes = 888956
+sha256 = "caf81f3db86c3e746fd4fb7e853c7b327a681177c5b05dfd917008a3bb8b5197"
+rows = 44544
+csv_bytes = 3245979
+csv_sha256 = "42c513cec8a11af4b751c463e6c1db6827e123a04a1b46c5f4f1cf6c3a6924b0"
+columns = ["tick", "window", "step_ns", "command_ns", "observation_ns", "tick_elapsed_ns", "active_before_step", "active_after_step", "completed", "command_cursor"]
+
+[[output_files]]
+name = "commands.jsonl"
+bytes = 350091653
+sha256 = "0b7a3c008c3924182acc8666dfcebc72886b17b11c4479049f4890b01144c5a8"
+
+[[output_files]]
+name = "diagnostics.json"
+bytes = 1212084
+sha256 = "b74759b3230ae69aabc3fa4212dfba213e56eeb7aa4e0011410cc98f91ce59fb"
+
+[[output_files]]
+name = "events.jsonl"
+bytes = 1844238557
+sha256 = "ff122f77e352cdd9a3160bd231598e9331bf85334cda14826ffe2467c2130dcb"
+
+[[output_files]]
+name = "measurements.toml"
+bytes = 1896662
+sha256 = "1363b61f63bce7c897ff87b88bf81ce28f41b4ca8d7d80dc775759b1dd08615a"
+
+[[output_files]]
+name = "resolved-plan.toml"
+bytes = 17621746
+sha256 = "f9f778d73e01778525cb659725576193fc9ee96017f1a7e1ad11fc5622df5b11"
+
+[[output_files]]
+name = "result.json"
+bytes = 115034
+sha256 = "a8d40f777634c8d782066e0a3ee183e14e48052a2d7345845b44a29cffaa2745"
+
+[[output_files]]
+name = "ticks.jsonl"
+bytes = 27316758
+sha256 = "7198b6b0db816c9f3d6b88c1c9ef9fe22f43503927bc0a8e78ef625ff9fdb6a8"
+
+[[output_files]]
+name = "timings.jsonl"
+bytes = 4763682
+sha256 = "5fdfd44056b5ba400b1b9d85ebf8a7e138a1fb6a59fe17b95404eb86e6b8e9b7"

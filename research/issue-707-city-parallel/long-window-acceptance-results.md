@@ -111,7 +111,19 @@ Active 正式计划跑一轮长窗。交通文件与 #857 第一轮逐字节一�
 
 ## 7. 证据
 
-原始输出保存在作者本机，未随仓库发布；按下列身份可重新构建并复跑。
+证据索引 [`evidence/long-window-861.toml`](evidence/long-window-861.toml) 记录被测与
+基线身份、运行参数（路径以占位符表示）、负载结果、运行目录全部输出文件的字节数与
+SHA256，以及
+[Research Evidence prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-861-long-window-404aea19)
+里三个制品的摘要：
+
+- `long-window-861-ticks.csv.gz`：全部 44,544 拍的逐拍计时（step、命令、观测、整拍），
+  并入同拍 step 前后 Active、Completed 与命令游标；
+- `long-window-861-curve.png`：四个分量的逐拍值与 256 拍滚动中位数、p95；
+- `long-window-861-analyze.py`：生成本文各表与曲线的分析脚本。
+
+完整原始输出（含约 1.8 GB 的 `events.jsonl`）保存在作者本机，未随仓库发布；按下列
+身份可重新构建并复跑。
 
 - 被测源码 `404aea199e79de14388a89cc39b6ce7b744afb49`，二进制
   `bfeb52495c8e179eeaa8fa3cb2c6bf9b919f68ea428670494944e7f984c537b7`。
