@@ -254,8 +254,9 @@ pub struct Harness<'a> {
     pub(crate) step_before: Vec<Option<VehicleState>>,
     pub(crate) scratch_red: crate::fastmap::FastMap<u32, bool>,
     pub(crate) json_scratch: Vec<u8>,
-    pub(crate) scratch_body_buckets:
-        crate::fastmap::FastMap<u32, Vec<(u64, u64, crate::IndividualId)>>,
+    pub(crate) scratch_body_buckets: Vec<Vec<(u64, u64, crate::IndividualId)>>,
+    pub(crate) scratch_bucket_of_edge: Vec<u32>,
+    pub(crate) scratch_bucket_edges: Vec<u32>,
     pub(crate) commands: Vec<Value>,
     pub(crate) events: Vec<Value>,
     pub(crate) error_counts: BTreeMap<String, u64>,
@@ -385,6 +386,7 @@ impl<'a> Harness<'a> {
             });
         }
         let last_signals = signal_signature(&world)?;
+        let edge_index_capacity = route_table.edge_index_capacity();
         let mut harness = Self {
             artifacts,
             plan,
@@ -408,7 +410,9 @@ impl<'a> Harness<'a> {
             step_before: Vec::new(),
             scratch_red: crate::fastmap::FastMap::default(),
             json_scratch: Vec::new(),
-            scratch_body_buckets: crate::fastmap::FastMap::default(),
+            scratch_body_buckets: Vec::new(),
+            scratch_bucket_of_edge: vec![u32::MAX; edge_index_capacity],
+            scratch_bucket_edges: Vec::new(),
             commands: Vec::new(),
             events: Vec::new(),
             error_counts: BTreeMap::new(),
