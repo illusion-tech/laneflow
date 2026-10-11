@@ -266,6 +266,7 @@ pub struct Harness<'a> {
     pub(crate) last_step_ns: u64,
     pub(crate) last_command_ns: u64,
     pub(crate) last_observation_ns: u64,
+    pub(crate) workers: u32,
 }
 
 impl<'a> Harness<'a> {
@@ -418,6 +419,7 @@ impl<'a> Harness<'a> {
             last_step_ns: 0,
             last_command_ns: 0,
             last_observation_ns: 0,
+            workers: execution.worker_count().get(),
         };
         for b in &plan.departures {
             for i in 0..10 {
