@@ -27,6 +27,7 @@ laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
 laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
 laneflow-urban-generator = { version = "0.0.0", path = "../laneflow-urban-generator" }
+rayon-core = "1.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = { version = "0.11", default-features = false }
