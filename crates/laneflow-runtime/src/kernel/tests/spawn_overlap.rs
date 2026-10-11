@@ -700,3 +700,73 @@ fn zero_entry_admission_preserves_non_overlap_on_the_next_tick() {
         "zero progress entry points are physical, not route-occurrence identities"
     );
 }
+
+/// 多 worker 世界在重叠检查处让出，由占用记录填出重叠索引；替换（含被挡）的结果、
+/// 重叠索引与最终状态都与单 worker 世界逐次相同（`traffic-runtime-vehicle-placement.md`
+/// 第 9 节）。
+#[test]
+fn parallel_overlap_fill_matches_the_serial_world_for_replacements() {
+    use crate::kernel::spawn_overlap::{
+        overlap_fingerprint, take_overlap_fills, take_overlap_yields,
+    };
+    let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+    let build = |workers: u32| {
+        let mut world = empty_world(road_revision(2, 10.0, false), 8);
+        world.execution = crate::kernel::execution::WorldExecution::start_private(
+            crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap()),
+            &world.state,
+        );
+        let routes = lane_routes(&mut world, 2);
+        (world, routes)
+    };
+    let (mut serial, routes) = build(1);
+    let (mut parallel, _) = build(16);
+    let fingerprint =
+        |world: &TrafficWorld| overlap_fingerprint(&world.state.derived.spawn_overlap);
+    let moving_input = VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        routes[0],
+        0,
+        1_000,
+        10_000,
+    )
+    .with_open_entrance();
+    let mut handles = Vec::new();
+    for spawn in [moving_input, input(routes[1], 0, 10_000)] {
+        let expected = serial.spawn_vehicle(spawn);
+        assert_eq!(parallel.spawn_vehicle(spawn), expected);
+        handles.push(expected.unwrap());
+    }
+    let (moving, completing) = (handles[0], handles[1]);
+    for _ in 0..6 {
+        serial.step(TickInput::new(100)).unwrap();
+        parallel.step(TickInput::new(100)).unwrap();
+    }
+    assert_eq!(
+        serial.state.vehicle_state(completing).unwrap().status,
+        VehicleStatus::Completed
+    );
+    take_overlap_yields();
+    take_overlap_fills();
+    let position = serial.state.vehicle_state(moving).unwrap().progress_mm;
+    let mut outcomes = Vec::new();
+    for target in [input(routes[0], 0, position), input(routes[1], 0, 5_000)] {
+        assert_eq!(fingerprint(&parallel), fingerprint(&serial));
+        let expected = serial.replace_completed_vehicle(completing, target);
+        let got = parallel.replace_completed_vehicle(completing, target);
+        assert_eq!(got, expected);
+        assert_eq!(fingerprint(&parallel), fingerprint(&serial));
+        assert!(
+            fingerprint(&parallel).is_some(),
+            "the overlap index is current"
+        );
+        outcomes.push(got.is_ok());
+    }
+    assert_eq!(outcomes, [false, true], "blocked first, then replaced");
+    assert_eq!(take_overlap_yields(), 1, "only the first check yields");
+    assert_eq!(take_overlap_fills(), 1);
+    assert_eq!(
+        crate::deterministic_state_digest(&parallel.capture_snapshot().unwrap()).unwrap(),
+        crate::deterministic_state_digest(&serial.capture_snapshot().unwrap()).unwrap()
+    );
+}

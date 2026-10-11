@@ -9,9 +9,44 @@ use crate::{RouteHandle, VehicleHandle, VehicleState, VehicleStatus};
 thread_local! {
     static RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> = const { core::cell::Cell::new(None) };
     static REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    static FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    static OVERLAP_YIELDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: RESERVATIONS_BEFORE_FAILURE, REBUILDS);
+crate::kernel::execution::carry_hooks!(
+    carry_test_hooks: RESERVATIONS_BEFORE_FAILURE,
+    REBUILDS,
+    FILLS,
+    OVERLAP_YIELDS,
+);
+
+/// 测试用：取出由占用索引填出重叠索引的次数并清零。
+#[cfg(test)]
+pub(crate) fn take_overlap_fills() -> usize {
+    FILLS.replace(0)
+}
+
+/// 测试用：取出命令在重叠检查处让出的次数并清零。
+#[cfg(test)]
+pub(crate) fn take_overlap_yields() -> usize {
+    OVERLAP_YIELDS.replace(0)
+}
+
+/// 测试用：每条边上的车辆，按槽位与世代排序。
+#[cfg(test)]
+pub(crate) fn overlap_fingerprint(index: &SpawnOverlapIndex) -> Option<Vec<Vec<(u32, u32)>>> {
+    index.is_current().then(|| {
+        index
+            .buckets
+            .iter()
+            .map(|bucket| {
+                let mut keys: Vec<_> = bucket.iter().copied().map(handle_key).collect();
+                keys.sort_unstable();
+                keys
+            })
+            .collect()
+    })
+}
 
 /// 测试用：令索引在第 `count` 次成功预留之后注入分配失败。
 #[cfg(test)]
@@ -76,6 +111,29 @@ impl SpawnOverlapIndex {
     /// 标记索引失效；下次查询前重建。
     pub(crate) fn mark_stale(&mut self) {
         self.stale = true;
+    }
+
+    /// 由当前的占用索引填出：两份索引对活动车用同一个车身展开，每条边上的车辆
+    /// 多重集相同（`traffic-runtime-vehicle-placement.md` 9.2 节）。按边分块并行。
+    pub(crate) fn fill_from_occupancy(
+        &mut self,
+        edge_count: usize,
+        occupancy: &crate::kernel::occupancy::OccupancyIndex,
+        resources: &crate::kernel::execution::ExecutionResources,
+    ) {
+        self.buckets.resize_with(edge_count, Vec::new);
+        let chunk = edge_count
+            .div_ceil(resources.dispatch_threads().saturating_mul(4))
+            .max(1);
+        resources.for_each_part(&mut self.buckets, chunk, |part, buckets| {
+            for (offset, bucket) in buckets.iter_mut().enumerate() {
+                bucket.clear();
+                bucket.extend(occupancy.edge_vehicles(part * chunk + offset));
+            }
+        });
+        self.stale = false;
+        #[cfg(test)]
+        FILLS.with(|count| count.set(count.get() + 1));
     }
 
     fn refresh(
@@ -239,6 +297,22 @@ impl SpawnOverlapIndex {
 }
 
 impl crate::kernel::state::WorldState {
+    /// 命令走到重叠检查：允许让出且重叠索引已过期时记下让出，返回 `true`
+    /// （`traffic-runtime-vehicle-placement.md` 第 9 节）。让出的命令立即返回，结果由
+    /// 活动世界丢弃，不提交任何东西。
+    pub(crate) fn yield_overlap_refresh(&mut self) -> bool {
+        use crate::kernel::occupancy::CommandOccupancy;
+        if self.workspace.command_occupancy != CommandOccupancy::Yield
+            || self.derived.spawn_overlap.is_current()
+        {
+            return false;
+        }
+        self.workspace.command_occupancy = CommandOccupancy::Yielded;
+        #[cfg(test)]
+        OVERLAP_YIELDS.with(|count| count.set(count.get() + 1));
+        true
+    }
+
     /// 批量状态变动后首次查询重建；单次命令只登记/移除自己的实际占用边。
     pub(crate) fn overlap_blocker(
         &mut self,

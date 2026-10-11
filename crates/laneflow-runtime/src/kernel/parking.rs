@@ -1587,6 +1587,10 @@ impl crate::kernel::state::WorldState {
             waiting_membership: None,
             ..candidate
         };
+        if self.yield_overlap_refresh() {
+            // 让出的结果不会返回给调用方。
+            return Err(ParkingError::AllocationFailed);
+        }
         if let Some(blocker) =
             self.overlap_blocker(route, occurrence, exit_progress_mm, state.length_mm)
         {

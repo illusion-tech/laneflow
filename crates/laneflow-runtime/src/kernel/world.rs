@@ -1386,6 +1386,10 @@ impl crate::kernel::state::WorldState {
             }
         }
         if status == VehicleStatus::Active {
+            if self.yield_overlap_refresh() {
+                // 让出的结果不会返回给调用方。
+                return Err(SpawnError::Overlap);
+            }
             if self
                 .overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
                 .is_some()
@@ -1582,6 +1586,10 @@ impl crate::kernel::state::WorldState {
                 .map_err(super::entrance::entrance_replace_error)?;
             self.admit_declared_departure(input)
                 .map_err(super::departure::departure_replace_error)?;
+        }
+        if self.yield_overlap_refresh() {
+            // 让出的结果不会返回给调用方。
+            return Err(ReplaceError::OccupancyAllocFailed);
         }
         if let Some(blocker) =
             self.overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
@@ -2541,10 +2549,10 @@ impl TrafficWorld {
         self.command_with_parallel_occupancy(|state| state.spawn_vehicle(input))
     }
 
-    /// 生命周期命令走到占用索引重建点、索引已过期时让出：在执行作用域里借执行资源
-    /// 并行重建，再从头执行这条命令（`traffic-runtime-vehicle-placement.md` 第 8 节）。
-    /// 让出前命令没有提交任何东西。并行重建失败时来源保持为空，重新执行的命令在原位置
-    /// 串行重建并照常报错。资源不能并行时直接执行。
+    /// 生命周期命令走到重叠检查或占用索引重建点、相应索引已过期时让出：在执行作用域里
+    /// 借执行资源备好两份索引，再从头执行这条命令（`traffic-runtime-vehicle-placement.md`
+    /// 第 8、9 节）。让出前命令没有提交任何东西。占用索引并行重建失败时两份索引都保持
+    /// 原状，重新执行的命令在原位置串行重建并照常报错。资源不能并行时直接执行。
     pub(crate) fn command_with_parallel_occupancy<R>(
         &mut self,
         mut command: impl FnMut(&mut crate::kernel::state::WorldState) -> R,
@@ -2563,9 +2571,9 @@ impl TrafficWorld {
         }
         #[cfg(test)]
         COMMAND_OCCUPANCY_YIELDS.set(COMMAND_OCCUPANCY_YIELDS.get() + 1);
-        // 失败时来源保持为空，留给下面的命令在原位置报告。
-        let _ = self.execution.run(&mut self.state, |state, resources| {
-            state.rebuild_occupancy_index_with(Some(resources))
+        // 失败时索引保持原状，留给下面的命令在原位置重建并报告。
+        self.execution.run(&mut self.state, |state, resources| {
+            state.rebuild_command_indexes(resources);
         });
         command(&mut self.state)
     }
