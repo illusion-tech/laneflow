@@ -230,7 +230,12 @@ pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
         let Some(handle) = individual.handle else {
             continue;
         };
-        accumulate_parking_binding(&h.world, &mut bindings, handle, h.world.parking_binding(handle))?;
+        accumulate_parking_binding(
+            &h.world,
+            &mut bindings,
+            handle,
+            h.world.parking_binding(handle),
+        )?;
     }
     for (target, key) in &h.target_keys {
         let (reserved, occupied) = bindings.get(target).copied().unwrap_or_default();
@@ -380,7 +385,10 @@ fn conflict_reason_name(reason: ConflictNoGrantReason) -> &'static str {
     }
 }
 
-fn passage(route_table: &crate::route_table::RouteTable, p: ConflictPassageOccurrenceLocator) -> Value {
+fn passage(
+    route_table: &crate::route_table::RouteTable,
+    p: ConflictPassageOccurrenceLocator,
+) -> Value {
     json!([
         route_table.key_of(p.route()),
         p.maneuver_occurrence_index(),
@@ -1247,7 +1255,10 @@ mod tests {
         check(&mut scratch, &json!({}));
         check(&mut scratch, &json!(0));
         check(&mut scratch, &json!("短文本\"转义\\\n"));
-        check(&mut scratch, &json!([1, "two", null, {"nested": [true, false]}, ""]));
+        check(
+            &mut scratch,
+            &json!([1, "two", null, {"nested": [true, false]}, ""]),
+        );
         check(&mut scratch, &json!({"unicode": "é中𐍈", "control": ""}));
         // 同一 scratch 连续复用（clear 语义）时仍逐字节一致。
         let mut expected = Hash::default();
