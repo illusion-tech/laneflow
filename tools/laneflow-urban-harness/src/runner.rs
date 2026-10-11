@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use laneflow_runtime::*;
 use laneflow_static_contract::{
@@ -238,20 +238,19 @@ pub struct Harness<'a> {
     pub(crate) plan: &'a ResolvedPlan,
     pub(crate) world: crate::host::Host,
     pub(crate) individuals: Vec<Individual>,
-    pub(crate) slots: HashMap<VehicleHandle, usize>,
+    pub(crate) slots: crate::fastmap::FastMap<VehicleHandle, usize>,
     pub(crate) routes: BTreeMap<String, RouteHandle>,
     profiles: BTreeMap<String, VehicleProfileOrdinal>,
-    pub(crate) route_keys: HashMap<RouteHandle, String>,
-    pub(crate) route_edges: HashMap<RouteHandle, Vec<String>>,
+    pub(crate) route_table: crate::route_table::RouteTable,
     targets: BTreeMap<String, ParkingTarget>,
-    pub(crate) target_keys: HashMap<ParkingTarget, String>,
+    pub(crate) target_keys: crate::fastmap::FastMap<ParkingTarget, String>,
     schedule: BTreeMap<u64, Vec<Request>>,
     requests: RequestLedger,
     recycling: Option<CompletedRecycling>,
     pub(crate) evidence: Vec<TileEvidence>,
     pub(crate) red_waiters: BTreeSet<(IndividualId, u32)>,
-    pub(crate) claims: BTreeMap<(IndividualId, String, u32), u32>,
-    pub(crate) transition_gates: HashMap<(u32, u32), (u32, u32)>,
+    pub(crate) claims: BTreeMap<(IndividualId, u32, u32), u32>,
+    pub(crate) transition_gates: crate::fastmap::FastMap<(u32, u32), (u32, u32)>,
     pub(crate) step_before: Vec<Option<VehicleState>>,
     pub(crate) commands: Vec<Value>,
     pub(crate) events: Vec<Value>,
@@ -281,22 +280,21 @@ impl<'a> Harness<'a> {
         plan.validate(artifacts)?;
         let mut world = artifacts.install(execution)?;
         let mut routes = BTreeMap::new();
-        let mut route_keys = HashMap::new();
-        let mut route_edges = HashMap::new();
+        let mut route_table = crate::route_table::RouteTable::default();
+        let lengths = artifacts.revision.traffic().lane_lengths_millimetres();
         let mut catalog_routes: Vec<_> = artifacts.catalog.routes.iter().collect();
         catalog_routes.sort_by_key(|r| &r.key);
         for r in catalog_routes {
             let edges: Vec<_> = r.edge_keys.iter().map(|key| artifacts.edges[key]).collect();
             let handle = checked(
                 "register route",
-                world.register_route(RouteRegisterInput::new(edges)),
+                world.register_route(RouteRegisterInput::new(edges.clone())),
             )?;
             routes.insert(r.key.clone(), handle);
-            route_keys.insert(handle, r.key.clone());
-            route_edges.insert(handle, r.edge_keys.clone());
+            route_table.register(handle, r.key.clone(), r.edge_keys.clone(), &edges, lengths);
         }
         let mut targets = BTreeMap::new();
-        let mut target_keys = HashMap::new();
+        let mut target_keys = crate::fastmap::FastMap::default();
         for p in &artifacts.catalog.parking {
             let target = if p.kind == "explicit" {
                 let id: ParkingSpaceId = crate::catalog_id(&p.stable_id)?;
@@ -333,7 +331,7 @@ impl<'a> Harness<'a> {
             );
         }
         let mut individuals = Vec::new();
-        let mut slots = HashMap::new();
+        let mut slots = crate::fastmap::FastMap::default();
         for initial in &plan.initial {
             let profile = profiles[&initial.profile];
             let route = routes[&initial.route];
@@ -391,8 +389,7 @@ impl<'a> Harness<'a> {
             slots,
             routes,
             profiles,
-            route_keys,
-            route_edges,
+            route_table,
             targets,
             target_keys,
             schedule: BTreeMap::new(),
@@ -557,6 +554,10 @@ impl<'a> Harness<'a> {
     }
     pub fn stable_individual(&self, handle: VehicleHandle) -> Option<IndividualId> {
         self.slots.get(&handle).map(|i| self.individuals[*i].id)
+    }
+
+    pub(crate) fn route_key(&self, handle: RouteHandle) -> &str {
+        self.route_table.key_of(handle)
     }
     pub fn checkpoint(&self) -> Result<String> {
         let snapshot = checked("capture checkpoint", self.world.capture_snapshot())?;
@@ -1800,7 +1801,7 @@ mod tests {
                     if initial.role.as_deref() == Some("garage-exit-blocker")
                         && let Some(state) = state
                     {
-                        let route = &harness.route_edges[&state.route()];
+                        let route = harness.route_table.edge_keys_of(state.route());
                         eprintln!("blocker route {route:?}");
                         for (other_slot, other) in harness.individuals.iter().enumerate() {
                             let Some(other) = other
@@ -1809,12 +1810,16 @@ mod tests {
                             else {
                                 continue;
                             };
-                            let edge = &harness.route_edges[&other.route()]
-                                [other.route_edge_index() as usize];
-                            if other.status() == VehicleStatus::Active && route.contains(edge) {
+                            let edge = harness.route_table.edge_key(
+                                harness.route_table.index(other.route()),
+                                other.route_edge_index() as usize,
+                            );
+                            if other.status() == VehicleStatus::Active
+                                && route.iter().any(|e| e == edge)
+                            {
                                 eprintln!(
                                     "corridor slot={other_slot} edge={edge} route={} state={other:?}",
-                                    harness.route_keys[&other.route()]
+                                    harness.route_key(other.route())
                                 );
                             }
                         }
@@ -2196,7 +2201,7 @@ mod tests {
             .unwrap();
         let handle = harness.individuals[slot].handle.unwrap();
         let old = harness.world.vehicle(handle).unwrap();
-        let route_key = &harness.route_keys[&old.route()];
+        let route_key = harness.route_key(old.route());
         let occurrence = plan.route_edges[route_key].len() as u32 - 1;
         harness.world.despawn_vehicle(handle).unwrap().unwrap();
         harness.slots.remove(&handle);

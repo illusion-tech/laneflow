@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use laneflow_runtime::*;
 use laneflow_static_contract::{
@@ -7,6 +7,7 @@ use laneflow_static_contract::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::fastmap::FastMap;
 use crate::{Artifacts, Harness, IndividualId, Result, invalid};
 
 // This encoding belongs to the harness v1 observation, not a Runtime wire format.
@@ -66,8 +67,8 @@ impl Hash {
     }
 }
 
-pub(crate) fn transition_gates(a: &Artifacts) -> HashMap<(u32, u32), (u32, u32)> {
-    let mut result = HashMap::new();
+pub(crate) fn transition_gates(a: &Artifacts) -> FastMap<(u32, u32), (u32, u32)> {
+    let mut result = FastMap::default();
     for raw in 0..a.revision.identity().entity_count(EntityKind::ManeuverGate) {
         let gate = a
             .revision
@@ -133,7 +134,7 @@ pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
 }
 
 pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
-    let mut bindings: HashMap<ParkingTarget, (u64, u64)> = HashMap::new();
+    let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
     for individual in &h.individuals {
         let Some(handle) = individual.handle else {
             continue;
@@ -237,12 +238,11 @@ pub(crate) fn red_waiters(h: &mut Harness<'_>) {
         return;
     }
     let signals = h.world.committed_signal_groups();
-    let red: HashMap<_, _> = signals
+    let red: FastMap<_, _> = signals
         .as_slice()
         .iter()
         .map(|(g, a)| (g.raw(), *a == SignalAspect::Red))
         .collect();
-    let lengths = h.artifacts.revision.traffic().lane_lengths_millimetres();
     for (i, state) in h.step_before.iter().enumerate() {
         let Some(state) = state else {
             continue;
@@ -250,16 +250,19 @@ pub(crate) fn red_waiters(h: &mut Harness<'_>) {
         if state.status() != VehicleStatus::Active || state.speed_mm_s() != 0 {
             continue;
         }
-        let route = h
-            .world
-            .route_edges(state.route())
-            .expect("registered route");
+        let route = h.route_table.index(state.route());
         let current = state.route_edge_index() as usize;
-        if current + 1 < route.len()
-            && lengths[route[current].index()].saturating_sub(state.progress_mm()) <= 1
+        if current + 1 < h.route_table.edge_count(route)
+            && h.route_table
+                .edge_len_mm(route, current)
+                .saturating_sub(state.progress_mm())
+                <= 1
             && let Some(&(gate, group)) = h
                 .transition_gates
-                .get(&(route[current].raw(), route[current + 1].raw()))
+                .get(&(
+                    h.route_table.edge_raw(route, current),
+                    h.route_table.edge_raw(route, current + 1),
+                ))
             && red.get(&group) == Some(&true)
         {
             h.red_waiters.insert((h.individuals[i].id, gate));
@@ -297,7 +300,7 @@ fn conflict_reason_name(reason: ConflictNoGrantReason) -> &'static str {
 
 fn passage(h: &Harness<'_>, p: ConflictPassageOccurrenceLocator) -> Value {
     json!([
-        h.route_keys[&p.route()],
+        h.route_key(p.route()),
         p.maneuver_occurrence_index(),
         p.admission_gate_hop(),
         p.conflict_occurrence_index(),
@@ -308,7 +311,7 @@ fn passage(h: &Harness<'_>, p: ConflictPassageOccurrenceLocator) -> Value {
 }
 fn range(h: &Harness<'_>, r: ConflictPassageRange) -> Value {
     json!([
-        h.route_keys[&r.route()],
+        h.route_key(r.route()),
         r.maneuver_occurrence_index(),
         r.admission_gate_hop(),
         r.first_conflict_occurrence_index(),
@@ -368,7 +371,7 @@ fn occupied_yield_pulse(
                 }
                 let target = h
                     .world
-                    .conflict_passage_occurrence_locator(h.routes[route], *index)?
+                    .conflict_passage_occurrence_locator(h.route_table.handle(*route), *index)?
                     .address();
                 targets
                     .iter()
@@ -406,7 +409,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             .ok_or_else(|| invalid("unknown decision owner"))?;
         decisions.id(id);
         decisions.n(d.vehicle_update_sequence());
-        decisions.text(&h.route_keys[&d.anchor().route()]);
+        decisions.text(h.route_key(d.anchor().route()));
         decisions.n(d.anchor().maneuver_occurrence_index());
         decisions.n(d.anchor().hop());
         decisions.n(d.zone().map_or(u32::MAX, |z| z.raw()));
@@ -459,7 +462,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             .ok_or_else(|| invalid("unknown decision owner"))?;
         decisions.id(id);
         decisions.n(d.vehicle_update_sequence());
-        decisions.text(&h.route_keys[&d.anchor().route()]);
+        decisions.text(h.route_key(d.anchor().route()));
         decisions.n(d.anchor().maneuver_occurrence_index());
         decisions.n(d.anchor().hop());
         decisions.text(&serde_json::to_string(&d.passage().map(|p| passage(h, p)))?);
@@ -547,7 +550,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                         .ok_or_else(|| invalid("unknown reservation passage"))?;
                     if h.claims
                         .insert(
-                            (id, h.route_keys[&r.route()].clone(), index),
+                            (id, h.route_table.index(r.route()), index),
                             p.address().zone().raw(),
                         )
                         .is_some()
@@ -569,7 +572,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 if h.claims
                     .remove(&(
                         id,
-                        h.route_keys[&p.route()].clone(),
+                        h.route_table.index(p.route()),
                         p.conflict_occurrence_index(),
                     ))
                     .is_none()
@@ -680,7 +683,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         let a = e.anchor();
         let p = a.position();
         h.events.push(json!({"kind":"transition", "tick":e.tick(), "individual":id, "sequence":e.vehicle_update_sequence(),
-            "route":h.route_keys[&a.route()], "occurrence":a.maneuver_occurrence_index(), "hop":a.hop(),
+            "route":h.route_key(a.route()), "occurrence":a.maneuver_occurrence_index(), "hop":a.hop(),
             "position":[p.route_edge_index(),p.progress_mm(),p.carry_um()], "detail":detail}));
     }
     for (i, before) in h.step_before.iter().enumerate() {
@@ -696,12 +699,12 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                     .expect("step cannot create an absent slot"),
             )
             .expect("live individual");
-        let route = &h.route_edges[&after.route()];
+        let route = h.route_table.index(after.route());
         let first = before.route_edge_index() as usize;
         let last = after.route_edge_index() as usize;
         if before.status() == VehicleStatus::Active && first < last {
             for hop in first..last {
-                if route[hop].split('.').next() != route[hop + 1].split('.').next() {
+                if h.route_table.crosses_tile(route, hop) {
                     individual.crossed_tile = true;
                 }
             }
@@ -735,9 +738,8 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
     hash.n(h.world.event_cursor());
-    let lengths = h.artifacts.revision.traffic().lane_lengths_millimetres();
     let mut bodies = Vec::new();
-    let mut zone_owners = HashMap::new();
+    let mut zone_owners = FastMap::default();
     for ((id, _, _), zone) in &h.claims {
         if zone_owners.insert(*zone, *id).is_some_and(|old| old != *id) {
             return Err(invalid("committed conflict claims are not exclusive"));
@@ -766,7 +768,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
             .ok_or_else(|| invalid("missing vehicle"))?;
         hash.n(v.profile().raw());
         hash.n(v.class().raw());
-        hash.text(&h.route_keys[&v.route()]);
+        hash.text(h.route_key(v.route()));
         for n in [
             v.route_edge_index(),
             v.progress_mm(),
@@ -779,7 +781,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         }
         if let Some(t) = v.maneuver_traversal() {
             hash.n(1_u32);
-            hash.text(&h.route_keys[&t.route()]);
+            hash.text(h.route_key(t.route()));
             hash.n(t.maneuver_occurrence_index());
             let (tag, hop) = match t.phase() {
                 ManeuverTraversalPhase::PreGate { next_gate_hop } => (0_u32, next_gate_hop),
@@ -812,7 +814,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
             Some(ParkingBinding::Reserved(r)) => {
                 hash.n(2_u32);
                 hash.text(&h.target_keys[&r.target()]);
-                hash.text(&h.route_keys[&r.route()]);
+                hash.text(h.route_key(r.route()));
                 hash.n(r.entry_route_occurrence());
                 hash.n(r.virtual_entry_selector().map_or(u32::MAX, |s| s.raw()));
             }
@@ -829,35 +831,35 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
             hash.n(0_u32);
         }
         if v.status() == VehicleStatus::Active {
-            let route = h.world.route_edges(v.route()).expect("registered route");
+            let route = h.route_table.index(v.route());
             let mut cursor = v.route_edge_index() as usize;
             let mut front = u64::from(v.progress_mm()) * 1_000 + u64::from(v.carry_um());
             let mut remaining = u64::from(v.length_mm()) * 1_000;
-            if front > u64::from(lengths[route[cursor].index()]) * 1_000 {
+            if front > u64::from(h.route_table.edge_len_mm(route, cursor)) * 1_000 {
                 return Err(invalid(format!(
                     "front outside current route edge: tick={} individual={:?} route={} occurrence={} edge={} progress_mm={} carry_um={} length_mm={} speed_mm_s={}",
                     h.world.tick_index(),
                     individual.id,
-                    h.route_keys[&v.route()],
+                    h.route_key(v.route()),
                     v.route_edge_index(),
-                    h.route_edges[&v.route()][cursor],
+                    h.route_table.edge_key(route, cursor),
                     v.progress_mm(),
                     v.carry_um(),
-                    lengths[route[cursor].index()],
+                    h.route_table.edge_len_mm(route, cursor),
                     v.speed_mm_s()
                 )));
             }
             loop {
                 let back = front.saturating_sub(remaining);
                 if front > back {
-                    bodies.push((route[cursor].raw(), back, front, individual.id));
+                    bodies.push((h.route_table.edge_raw(route, cursor), back, front, individual.id));
                 }
                 remaining = remaining.saturating_sub(front);
                 if remaining == 0 || cursor == 0 {
                     break;
                 }
                 cursor -= 1;
-                front = u64::from(lengths[route[cursor].index()]) * 1_000;
+                front = u64::from(h.route_table.edge_len_mm(route, cursor)) * 1_000;
             }
         }
     }
@@ -904,7 +906,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
     hash.text("remaining-claims");
     for ((id, route, index), zone) in &h.claims {
         hash.id(*id);
-        hash.text(route);
+        hash.text(h.route_table.key(*route));
         hash.n(*index);
         hash.n(*zone);
     }
