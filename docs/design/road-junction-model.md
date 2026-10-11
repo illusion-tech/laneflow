@@ -1,7 +1,7 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-27<br>
+**最后更新**: 2026-10-11<br>
 **适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.10 继承）、确定性与性能边界<br>
 **实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
 Route occurrence compiler 与一等 ManeuverGate；#262 的 Traffic v0.9 迁移保留上述
@@ -46,15 +46,15 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 
 ### 1.2 当前 production
 
-| 范围              | Current production                                  |
-| ----------------- | --------------------------------------------------- |
-| Traffic           | exact-current `0.8`                                 |
-| Lane topology     | LaneEdge + directed connection + Junction hierarchy |
-| Route             | 显式有限 edge sequence，注册期编译 occurrences      |
-| Gate              | 一等 `ManeuverGateHandle`                           |
-| Junction identity | 显式 external ID + handle                           |
-| Spatial           | SpatialPackage `0.1` edge centerline                |
-| Conflict          | authoring protected phases；无 solver               |
+| 范围              | Current production                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| Traffic           | current v0.10 语义经 LFCA 制品构建 `SharedNetworkRevision`；旧 JSON 契约已 Retired（`data-format.md`） |
+| Lane topology     | LaneEdge + directed connection + Junction hierarchy                                                    |
+| Route             | 显式有限 edge sequence，注册期编译 occurrences                                                         |
+| Gate              | 一等 `ManeuverGateHandle`                                                                              |
+| Junction identity | 显式 external ID + handle                                                                              |
+| Spatial           | 折线 edge centerline 经 `SharedSpatialNetwork` / `SpatialSession` 消费（`spatial-geometry.md`）        |
+| Conflict          | authoring protected phases；无 solver                                                                  |
 
 ### 1.3 非目标
 
