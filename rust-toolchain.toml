@@ -1,0 +1,6 @@
+# 仓库统一工具链：CI 以 RUSTUP_TOOLCHAIN=1.98.0 同值钉死（见
+# .github/workflows/ci.yml），本文件让 rustup 在任何 checkout 副本内
+# 默认选中同一 channel——converter 的 build provenance 内嵌本文件并
+# 记录该 channel，记录值即实际构建工具链。
+[toolchain]
+channel = "1.98.0"
