@@ -743,31 +743,6 @@ pub(crate) fn status(value: VehicleStatus) -> u32 {
     }
 }
 
-/// 按边分桶的车身不重叠检查：边号直接索引桶（无哈希），边升序、桶内按
-/// (back, front, id) 排序，与原先全量 (edge, back, front, id) 排序后
-/// windows(2) 扫描报同一对违例。`edges` 为本拍有车身段的边（每条恰一次）。
-fn check_body_overlap(
-    tick: u64,
-    edges: &mut [u32],
-    bucket_of_edge: &[u32],
-    buckets: &mut [Vec<(u64, u64, IndividualId)>],
-) -> Result<()> {
-    edges.sort_unstable();
-    for &edge in edges.iter() {
-        let bucket = &mut buckets[bucket_of_edge[edge as usize] as usize];
-        bucket.sort_unstable();
-        for pair in bucket.windows(2) {
-            if pair[0].1 > pair[1].0 && pair[0].2 != pair[1].2 {
-                return Err(invalid(format!(
-                    "body overlap at tick {} on edge {}: {:?} and {:?}",
-                    tick, edge, pair[0].2, pair[1].2
-                )));
-            }
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize))> {
     let mut hash = Hash::default();
     hash.text("urban-observation-v2");
@@ -775,12 +750,8 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
     hash.n(h.world.event_cursor());
+    let mut bodies = Vec::with_capacity(h.individuals.len());
     let mut json_scratch = Vec::new();
-    for &edge in &h.scratch_bucket_edges {
-        let slot = h.scratch_bucket_of_edge[edge as usize];
-        h.scratch_body_buckets[slot as usize].clear();
-    }
-    h.scratch_bucket_edges.clear();
     let mut zone_owners = FastMap::default();
     for ((id, _, _), zone) in &h.claims {
         if zone_owners.insert(*zone, *id).is_some_and(|old| old != *id) {
@@ -951,18 +922,7 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
             loop {
                 let back = front.saturating_sub(remaining);
                 if front > back {
-                    let edge_raw = h.route_table.edge_raw(route, cursor);
-                    let mut slot = h.scratch_bucket_of_edge[edge_raw as usize];
-                    if slot == u32::MAX {
-                        slot = h.scratch_body_buckets.len() as u32;
-                        h.scratch_body_buckets.push(Vec::new());
-                        h.scratch_bucket_of_edge[edge_raw as usize] = slot;
-                    }
-                    let bucket = &mut h.scratch_body_buckets[slot as usize];
-                    if bucket.is_empty() {
-                        h.scratch_bucket_edges.push(edge_raw);
-                    }
-                    bucket.push((back, front, individual.id));
+                    bodies.push((h.route_table.edge_raw(route, cursor), back, front, individual.id));
                 }
                 remaining = remaining.saturating_sub(front);
                 if remaining == 0 || cursor == 0 {
@@ -981,12 +941,18 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     if expected_live < 0 || live != expected_live as usize {
         return Err(invalid("birth/removal identity conservation failed"));
     }
-    check_body_overlap(
-        h.world.tick_index(),
-        &mut h.scratch_bucket_edges,
-        &h.scratch_bucket_of_edge,
-        &mut h.scratch_body_buckets,
-    )?;
+    bodies.sort_unstable();
+    for pair in bodies.windows(2) {
+        if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
+            return Err(invalid(format!(
+                "body overlap at tick {} on edge {}: {:?} and {:?}",
+                h.world.tick_index(),
+                pair[0].0,
+                pair[0].3,
+                pair[1].3
+            )));
+        }
+    }
     for raw in 0..h
         .artifacts
         .revision
@@ -1204,77 +1170,6 @@ mod tests {
         assert!(binding_matches_status(VehicleStatus::Active, None));
         assert!(binding_matches_status(VehicleStatus::Completed, None));
         assert!(!binding_matches_status(VehicleStatus::Parked, None));
-    }
-
-    #[test]
-    fn bucketed_body_overlap_matches_global_sort() {
-        fn id(tile: u32, slot: u32) -> IndividualId {
-            IndividualId {
-                tile,
-                slot,
-                incarnation: 0,
-            }
-        }
-        fn reference(mut bodies: Vec<(u32, u64, u64, IndividualId)>) -> Option<String> {
-            bodies.sort_unstable();
-            for pair in bodies.windows(2) {
-                if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
-                    return Some(format!(
-                        "body overlap at tick 9 on edge {}: {:?} and {:?}",
-                        pair[0].0, pair[0].3, pair[1].3
-                    ));
-                }
-            }
-            None
-        }
-        let cases: Vec<Vec<(u32, u64, u64, IndividualId)>> = vec![
-            vec![],
-            // 相接不重叠（front == back 不算）。
-            vec![(5, 0, 100, id(0, 0)), (5, 100, 200, id(0, 1))],
-            // 同边重叠 1mm。
-            vec![(5, 0, 101, id(0, 0)), (5, 100, 200, id(0, 1))],
-            // 同一个体的相邻段不报错。
-            vec![(5, 0, 100, id(0, 0)), (5, 50, 150, id(0, 0))],
-            // 两条边各有重叠：先报更小边号桶内的对。
-            vec![
-                (7, 0, 60, id(0, 3)),
-                (3, 0, 50, id(0, 2)),
-                (7, 30, 90, id(0, 4)),
-                (3, 40, 80, id(0, 5)),
-            ],
-            // 跨边车身互不重叠。
-            vec![(3, 0, 100, id(0, 6)), (7, 0, 100, id(0, 7))],
-            // 同边三段：报排序后首个重叠对。
-            vec![
-                (5, 0, 100, id(0, 8)),
-                (5, 90, 150, id(0, 9)),
-                (5, 140, 200, id(0, 10)),
-            ],
-        ];
-        for bodies in cases {
-            let expected = reference(bodies.clone());
-            let capacity = bodies.iter().map(|b| b.0 + 1).max().unwrap_or(0) as usize;
-            let mut bucket_of_edge = vec![u32::MAX; capacity];
-            let mut buckets: Vec<Vec<(u64, u64, IndividualId)>> = Vec::new();
-            let mut edges = Vec::new();
-            for (edge, back, front, id) in bodies.iter().copied() {
-                let mut slot = bucket_of_edge[edge as usize];
-                if slot == u32::MAX {
-                    slot = buckets.len() as u32;
-                    buckets.push(Vec::new());
-                    bucket_of_edge[edge as usize] = slot;
-                }
-                let bucket = &mut buckets[slot as usize];
-                if bucket.is_empty() {
-                    edges.push(edge);
-                }
-                bucket.push((back, front, id));
-            }
-            let actual = check_body_overlap(9, &mut edges, &bucket_of_edge, &mut buckets)
-                .err()
-                .map(|e| e.to_string());
-            assert_eq!(actual, expected, "bodies: {bodies:?}");
-        }
     }
 
     #[test]
