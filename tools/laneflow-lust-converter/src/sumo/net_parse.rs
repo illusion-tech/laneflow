@@ -1,0 +1,382 @@
+//! Parse SUMO `lust.net.xml` (or fixture nets) into [`SumoNetwork`].
+
+use std::str::FromStr;
+
+use roxmltree::{Document, Node};
+
+use crate::{
+    Error, Result,
+    sumo::{
+        decimal::ExactDecimal,
+        net::{
+            SumoConnection, SumoEdge, SumoJunction, SumoLane, SumoLocation, SumoNetwork,
+            SumoTlLogic, SumoTlPhase,
+        },
+    },
+};
+
+/// Parse a SUMO network XML document.
+pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
+    let document = Document::parse(xml).map_err(|source| Error::XmlParse(source.to_string()))?;
+    let root = document.root_element();
+    if root.tag_name().name() != "net" {
+        return Err(Error::SumoModel(format!(
+            "expected root <net>, found <{}>",
+            root.tag_name().name()
+        )));
+    }
+
+    let location = parse_location(root)?;
+    let mut edges = Vec::new();
+    let mut lanes = Vec::new();
+    let mut junctions: Vec<SumoJunction> = Vec::new();
+    let mut connections = Vec::new();
+    let mut tl_logics: Vec<SumoTlLogic> = Vec::new();
+
+    for child in root.children().filter(Node::is_element) {
+        match child.tag_name().name() {
+            "edge" => parse_edge(child, &mut edges, &mut lanes)?,
+            "junction" => {
+                let junction = parse_junction(child)?;
+                // #253 P3：重复 junction id fail-closed——id 是全局寻址键，
+                // 后者静默覆盖前者会让归属按 XML 序绑定歧义拓扑。
+                if let Some(previous) = junctions.iter().find(|existing| existing.id == junction.id)
+                {
+                    return Err(Error::SumoModel(format!(
+                        "duplicate junction id {:?}: earlier declaration type={:?}                          conflicts with this one",
+                        junction.id, previous.junction_type
+                    )));
+                }
+                junctions.push(junction);
+            }
+            "connection" => connections.push(parse_connection(child)?),
+            "tlLogic" => {
+                let logic = parse_tl_logic(child)?;
+                // 重复 tlLogic id fail-closed——net_tl_logic_ids 排序去重后才与
+                // tll.static.xml 做 exact-closure 比对，不查重会静默塌缩歧义
+                // controller 声明（外部 TLL 与 junction/edge/lane id 已同策）。
+                if let Some(previous) = tl_logics.iter().find(|existing| existing.id == logic.id) {
+                    return Err(Error::SumoModel(format!(
+                        "duplicate tlLogic id {:?}: earlier declaration type={:?} \
+                         conflicts with this one",
+                        logic.id, previous.logic_type
+                    )));
+                }
+                tl_logics.push(logic);
+            }
+            _ => {}
+        }
+    }
+
+    if lanes.is_empty() {
+        return Err(Error::SumoModel(
+            "SUMO network contains no <lane> elements".to_owned(),
+        ));
+    }
+
+    // #253 Q1：lane id 全局查重——id 跨 (edge,index) 唯一是 `SumoNetwork::lane`
+    // 按 id 寻址与几何索引一致性的前提，重复时 XML 序决定语义，fail-closed。
+    {
+        let mut seen = std::collections::HashSet::with_capacity(lanes.len());
+        for lane in &lanes {
+            if !seen.insert(lane.id.as_str()) {
+                return Err(Error::SumoModel(format!(
+                    "duplicate lane id {:?} declared on multiple (edge, index) addresses",
+                    lane.id
+                )));
+            }
+        }
+    }
+
+    Ok(SumoNetwork {
+        location,
+        edges,
+        lanes,
+        junctions,
+        connections,
+        tl_logics,
+    })
+}
+
+fn parse_location(root: Node<'_, '_>) -> Result<SumoLocation> {
+    // #253 Q4：恰好一个 <location>——多元素时取首个会让其余声明静默失效，
+    // fail-closed 要求唯一权威。
+    let mut location_nodes = root
+        .children()
+        .filter(|child| child.is_element() && child.tag_name().name() == "location");
+    let Some(node) = location_nodes.next() else {
+        return Err(Error::SumoModel(
+            "SUMO network missing <location>".to_owned(),
+        ));
+    };
+    if location_nodes.next().is_some() {
+        return Err(Error::SumoModel(
+            "SUMO network declares multiple <location> elements".to_owned(),
+        ));
+    }
+    let net_offset_raw = required_attr(node, "netOffset")?;
+    let conv_boundary_raw = required_attr(node, "convBoundary")?;
+    let net_offset = parse_pair(&net_offset_raw)?;
+    let conv_boundary = parse_quad(&conv_boundary_raw)?;
+    Ok(SumoLocation {
+        net_offset,
+        conv_boundary,
+        net_offset_raw,
+        conv_boundary_raw,
+    })
+}
+
+fn parse_edge(
+    edge: Node<'_, '_>,
+    edges: &mut Vec<SumoEdge>,
+    lanes: &mut Vec<SumoLane>,
+) -> Result<()> {
+    let edge_id = required_attr(edge, "id")?;
+    // #253 L4：重复 edge id  fail-closed——id 是全局寻址键，后者静默覆盖前者
+    // 会让 connection/寻址按 XML 序绑定歧义拓扑。
+    if let Some(previous) = edges.iter().find(|existing| existing.id == edge_id) {
+        return Err(Error::SumoModel(format!(
+            "duplicate edge id {edge_id:?}: earlier declaration function={:?}              conflicts with this one",
+            previous.function_internal
+        )));
+    }
+    let function_internal = edge.attribute("function") == Some("internal");
+    edges.push(SumoEdge {
+        id: edge_id.clone(),
+        from_junction_id: edge.attribute("from").map(str::to_owned),
+        to_junction_id: edge.attribute("to").map(str::to_owned),
+        function_internal,
+    });
+    for lane in edge
+        .children()
+        .filter(|child| child.is_element() && child.tag_name().name() == "lane")
+    {
+        let id = required_attr(lane, "id")?;
+        let index = parse_u32(required_attr(lane, "index")?, "lane@index")?;
+        let length = ExactDecimal::from_str(&required_attr(lane, "length")?)?;
+        let speed = ExactDecimal::from_str(&required_attr(lane, "speed")?)?;
+        let shape = parse_shape(&required_attr(lane, "shape")?)?;
+        if shape.len() < 2 {
+            return Err(Error::SumoModel(format!(
+                "lane {id:?} shape must contain at least two points"
+            )));
+        }
+        lanes.push(SumoLane {
+            id,
+            edge_id: edge_id.clone(),
+            index,
+            length,
+            speed,
+            shape,
+            function_internal,
+        });
+    }
+    Ok(())
+}
+
+fn parse_junction(node: Node<'_, '_>) -> Result<SumoJunction> {
+    let id = required_attr(node, "id")?;
+    let junction_type = required_attr(node, "type")?;
+    let int_lane_ids = match node.attribute("intLanes") {
+        Some(raw) if !raw.trim().is_empty() => raw
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    Ok(SumoJunction {
+        id,
+        junction_type,
+        int_lane_ids,
+    })
+}
+
+fn parse_connection(node: Node<'_, '_>) -> Result<SumoConnection> {
+    let from_edge_id = required_attr(node, "from")?;
+    let to_edge_id = required_attr(node, "to")?;
+    let from_lane = parse_u32(required_attr(node, "fromLane")?, "connection@fromLane")?;
+    let to_lane = parse_u32(required_attr(node, "toLane")?, "connection@toLane")?;
+    let via_lane_ids = match node.attribute("via") {
+        Some(via) if !via.trim().is_empty() => via
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let tl_id = node.attribute("tl").map(str::to_owned);
+    let link_index = match node.attribute("linkIndex") {
+        Some(raw) => Some(parse_u32(raw.to_owned(), "connection@linkIndex")?),
+        None => None,
+    };
+    if tl_id.is_some() != link_index.is_some() {
+        return Err(Error::SumoModel(format!(
+            "connection {from_edge_id:?}->{to_edge_id:?} must set both @tl and @linkIndex or neither"
+        )));
+    }
+    Ok(SumoConnection {
+        from_edge_id,
+        to_edge_id,
+        from_lane,
+        to_lane,
+        via_lane_ids,
+        tl_id,
+        link_index,
+    })
+}
+
+pub(crate) fn parse_tl_logic(node: Node<'_, '_>) -> Result<SumoTlLogic> {
+    let id = required_attr(node, "id")?;
+    let logic_type = required_attr(node, "type")?;
+    // programID 为 SUMO schema 必填（缺失即拒绝），但转换按 id 匹配程序，值不携带。
+    let _program_id = required_attr(node, "programID")?;
+    let offset = ExactDecimal::from_str(&required_attr(node, "offset")?)?;
+    let mut phases = Vec::new();
+    for child in node
+        .children()
+        .filter(|child| child.is_element() && child.tag_name().name() == "phase")
+    {
+        phases.push(SumoTlPhase {
+            duration: ExactDecimal::from_str(&required_attr(child, "duration")?)?,
+            state: required_attr(child, "state")?,
+        });
+    }
+    if phases.is_empty() {
+        return Err(Error::SumoModel(format!(
+            "tlLogic {id:?} has no <phase> children"
+        )));
+    }
+    Ok(SumoTlLogic {
+        id,
+        logic_type,
+        offset,
+        phases,
+    })
+}
+
+fn parse_shape(raw: &str) -> Result<Vec<(ExactDecimal, ExactDecimal)>> {
+    let mut points = Vec::new();
+    for token in raw.split_whitespace() {
+        points.push(parse_pair(token)?);
+    }
+    Ok(points)
+}
+
+fn parse_pair(raw: &str) -> Result<(ExactDecimal, ExactDecimal)> {
+    let (x, y) = raw
+        .split_once(',')
+        .ok_or_else(|| Error::SumoModel(format!("expected comma-separated pair, got {raw:?}")))?;
+    Ok((
+        ExactDecimal::from_str(x.trim())?,
+        ExactDecimal::from_str(y.trim())?,
+    ))
+}
+
+fn parse_quad(raw: &str) -> Result<(ExactDecimal, ExactDecimal, ExactDecimal, ExactDecimal)> {
+    let parts: Vec<&str> = raw.split(',').collect();
+    if parts.len() != 4 {
+        return Err(Error::SumoModel(format!(
+            "expected four comma-separated decimals, got {raw:?}"
+        )));
+    }
+    Ok((
+        ExactDecimal::from_str(parts[0].trim())?,
+        ExactDecimal::from_str(parts[1].trim())?,
+        ExactDecimal::from_str(parts[2].trim())?,
+        ExactDecimal::from_str(parts[3].trim())?,
+    ))
+}
+
+fn required_attr(node: Node<'_, '_>, name: &str) -> Result<String> {
+    node.attribute(name).map(str::to_owned).ok_or_else(|| {
+        Error::SumoModel(format!(
+            "<{}> missing required attribute @{name}",
+            node.tag_name().name()
+        ))
+    })
+}
+
+fn parse_u32(raw: String, field: &str) -> Result<u32> {
+    raw.parse::<u32>()
+        .map_err(|_| Error::SumoModel(format!("invalid u32 for {field}: {raw:?}")))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn duplicate_lane_id_across_addresses_fails_closed() {
+        // #253 Q1：同 lane id 出现在不同 (edge,index)——XML 序决定语义的歧义
+        // fail-closed。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="a" from="A" to="B"><lane id="shared_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <edge id="b" from="B" to="C"><lane id="shared_0" index="0" speed="13.89" length="10.00" shape="0,5 10,5"/></edge>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate lane id");
+        assert!(error.to_string().contains("duplicate lane id"), "{error}");
+    }
+
+    #[test]
+    fn multiple_location_elements_fail_closed() {
+        // #253 Q4：多个 <location> 不再取首个——fail-closed 要求唯一权威。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <location netOffset="1,1" convBoundary="0,0,50,50"/>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("multiple locations");
+        assert!(error.to_string().contains("multiple <location>"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_junction_id_fails_closed() {
+        // #253 P3：重复 junction id 的歧义归属 fail-closed（带冲突声明细节）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="a" from="J" to="E"><lane id="a_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <junction id="dup" type="priority" intLanes=""/>
+  <junction id="dup" type="traffic_light" intLanes=""/>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate junction id");
+        assert!(
+            error.to_string().contains("duplicate junction id"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("dup"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_edge_id_fails_closed() {
+        // #253 L4：重复 edge id 的歧义拓扑 fail-closed（带冲突声明细节）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="dup" from="A" to="B"><lane id="dup_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <edge id="dup" from="C" to="D"><lane id="dup_0" index="0" speed="13.89" length="10.00" shape="0,5 10,5"/></edge>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate edge id");
+        assert!(error.to_string().contains("duplicate edge id"), "{error}");
+        assert!(error.to_string().contains("dup"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_tl_logic_id_fails_closed() {
+        // 重复内嵌 tlLogic id 的歧义声明 fail-closed（带冲突声明细节）——
+        // net_tl_logic_ids 排序去重后与 tll.static.xml 的 exact-closure 比对
+        // 会静默塌缩重复，必须在解析期拒绝（外部 TLL 已同策）。
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<net>
+  <location netOffset="0,0" convBoundary="0,0,100,100"/>
+  <edge id="a" from="A" to="B"><lane id="a_0" index="0" speed="13.89" length="10.00" shape="0,0 10,0"/></edge>
+  <tlLogic id="dup" type="static" programID="0" offset="0"><phase duration="10" state="G"/></tlLogic>
+  <tlLogic id="dup" type="static" programID="1" offset="5"><phase duration="20" state="r"/></tlLogic>
+</net>"#;
+        let error = crate::sumo::parse_sumo_network_xml(xml).expect_err("duplicate tlLogic id");
+        assert!(
+            error.to_string().contains("duplicate tlLogic id"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("dup"), "{error}");
+    }
+}
