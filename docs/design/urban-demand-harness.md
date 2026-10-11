@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-10-09<br>
+**最后更新**: 2026-10-11<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -288,6 +288,12 @@ command、step、observation 计时数组还须与 diagnostics 副本一致，�
 5. 每个成功 tick 按稳定顺序摘要车辆状态、命令结果、决策和事件；在初态、暖机末及每个
    完整观察周期末，另用 `capture_snapshot` / `deterministic_state_digest` 核对完整状态。
    不把 Debug 文本、内存地址、计时或运行目录写进语义摘要。
+
+逐拍状态与决策批摘要自 `urban-observation-v3` 起采用两级树形哈希：个体槽位和决策条
+分别按固定块界 4096 分块，块界是摘要定义的一部分，与 worker 数无关；块内编码后各自
+取 SHA-256 叶摘要，主线程按块序把叶摘要送入根哈希，状态摘要的尾部（等待区、灯色、
+剩余 claim）保持原始字节编码。同一计划以不同 worker 数运行的摘要逐字节一致；v3 与
+更早版本的 digest 值不同，跨摘要版本的运行不属于同一次比较。
 
 命令成功引发的 park/leave/replace 生命周期变化在命令边界记录前后状态、稳定身份及
 命令序号；step 引发的变化在 step 提交时记录，以 phase 区分。命令后仍独立采集
