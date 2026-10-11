@@ -81,6 +81,43 @@ fn text_json<T: serde::Serialize + ?Sized>(
     Ok(())
 }
 
+/// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/text_json 完全相同；
+/// 主线程按块序把各块字节送入同一 SHA-256，摘要与串行编码逐字节一致
+///（有单元测试比对）。
+struct BlockHash {
+    bytes: Vec<u8>,
+    scratch: Vec<u8>,
+}
+
+impl BlockHash {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(capacity),
+            scratch: Vec::new(),
+        }
+    }
+    fn n(&mut self, value: impl Into<u64>) {
+        self.bytes.extend_from_slice(&value.into().to_le_bytes());
+    }
+    fn text(&mut self, text: &str) {
+        self.n(text.len() as u64);
+        self.bytes.extend_from_slice(text.as_bytes());
+    }
+    fn id(&mut self, id: IndividualId) {
+        self.n(id.tile);
+        self.n(id.slot);
+        self.n(id.incarnation);
+    }
+    fn json<T: serde::Serialize + ?Sized>(&mut self, value: &T) -> Result<()> {
+        self.scratch.clear();
+        serde_json::to_writer(&mut self.scratch, value)?;
+        let len = self.scratch.len() as u64;
+        self.n(len);
+        self.bytes.extend_from_slice(&self.scratch);
+        Ok(())
+    }
+}
+
 pub(crate) fn transition_gates(a: &Artifacts) -> FastMap<(u32, u32), (u32, u32)> {
     let mut result = FastMap::default();
     for raw in 0..a.revision.identity().entity_count(EntityKind::ManeuverGate) {
@@ -156,7 +193,7 @@ pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
 
 // parking_invariants() 与 state() 共用同一逐车绑定汇总与车位归属检查。
 fn accumulate_parking_binding(
-    world: &crate::host::Host,
+    world: &laneflow_runtime::TrafficWorld,
     bindings: &mut FastMap<ParkingTarget, (u64, u64)>,
     handle: VehicleHandle,
     binding: Option<ParkingBinding>,
@@ -343,9 +380,9 @@ fn conflict_reason_name(reason: ConflictNoGrantReason) -> &'static str {
     }
 }
 
-fn passage(h: &Harness<'_>, p: ConflictPassageOccurrenceLocator) -> Value {
+fn passage(route_table: &crate::route_table::RouteTable, p: ConflictPassageOccurrenceLocator) -> Value {
     json!([
-        h.route_key(p.route()),
+        route_table.key_of(p.route()),
         p.maneuver_occurrence_index(),
         p.admission_gate_hop(),
         p.conflict_occurrence_index(),
@@ -354,9 +391,9 @@ fn passage(h: &Harness<'_>, p: ConflictPassageOccurrenceLocator) -> Value {
         p.address().passage_local_index()
     ])
 }
-fn range(h: &Harness<'_>, r: ConflictPassageRange) -> Value {
+fn range(route_table: &crate::route_table::RouteTable, r: ConflictPassageRange) -> Value {
     json!([
-        h.route_key(r.route()),
+        route_table.key_of(r.route()),
         r.maneuver_occurrence_index(),
         r.admission_gate_hop(),
         r.first_conflict_occurrence_index(),
@@ -510,7 +547,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         decisions.text(h.route_key(d.anchor().route()));
         decisions.n(d.anchor().maneuver_occurrence_index());
         decisions.n(d.anchor().hop());
-        let encoded_passage = d.passage().map(|p| passage(h, p));
+        let encoded_passage = d.passage().map(|p| passage(&h.route_table, p));
         text_json(&mut decisions, &mut h.json_scratch, &encoded_passage)?;
         let (tag, reason) = match d.outcome() {
             ConflictDecisionOutcome::NotEvaluated => (0_u32, 0),
@@ -684,16 +721,16 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 json!(["waiting-entered", zone.raw(), admission_sequence])
             }
             TrafficTransitionKind::ReservationAcquired { passage_range } => {
-                json!(["reservation-acquired", range(h, passage_range)])
+                json!(["reservation-acquired", range(&h.route_table, passage_range)])
             }
             TrafficTransitionKind::ReservationReleased { passage_range } => {
-                json!(["reservation-released", range(h, passage_range)])
+                json!(["reservation-released", range(&h.route_table, passage_range)])
             }
             TrafficTransitionKind::ConflictEntered { passage: p } => {
-                json!(["conflict-entered", passage(h, p)])
+                json!(["conflict-entered", passage(&h.route_table, p)])
             }
             TrafficTransitionKind::ConflictCleared { passage: p } => {
-                json!(["conflict-cleared", passage(h, p)])
+                json!(["conflict-cleared", passage(&h.route_table, p)])
             }
             TrafficTransitionKind::ManeuverTraversalCompleted {
                 maneuver_occurrence_index,
@@ -743,102 +780,120 @@ pub(crate) fn status(value: VehicleStatus) -> u32 {
     }
 }
 
-pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize))> {
-    let mut hash = Hash::default();
-    hash.text("urban-observation-v2");
-    hash.n(h.world.tick_index());
-    hash.n(h.world.time_ms());
-    hash.n(h.world.command_cursor());
-    hash.n(h.world.event_cursor());
-    let mut bodies = Vec::with_capacity(h.individuals.len());
-    let mut json_scratch = Vec::new();
-    let mut zone_owners = FastMap::default();
-    for ((id, _, _), zone) in &h.claims {
-        if zone_owners.insert(*zone, *id).is_some_and(|old| old != *id) {
-            return Err(invalid("committed conflict claims are not exclusive"));
-        }
-        let individual = &h.individuals[id.tile as usize * 1_000 + id.slot as usize];
-        if individual.id != *id
-            || individual
-                .handle
-                .and_then(|handle| h.world.conflict_reservation(handle))
-                .is_none()
-        {
-            return Err(invalid("claim has no current reservation owner"));
-        }
+/// state() 逐车循环的单块产出。除编码字节外还携带该块的检查汇总、
+/// lifecycle 事件与 crossed_tile 置位请求，由主线程按块序合并：
+/// 事件顺序与串行逐车一致，计数类合并满足交换律，crossed_tile 置位幂等。
+struct BlockOutcome {
+    bytes: Vec<u8>,
+    live: usize,
+    status_counts: (usize, usize, usize),
+    bindings: FastMap<ParkingTarget, (u64, u64)>,
+    bodies: Vec<(u32, u64, u64, IndividualId)>,
+    waiting: BTreeMap<u32, u32>,
+    lifecycle: Vec<Value>,
+    crossed: Vec<usize>,
+    crossed_completed: Vec<usize>,
+}
+
+/// state_block 的只读视图：观测只碰 TrafficWorld（Sync），不碰 Host 枚举
+///（adapter feature 下 bevy App 非 Sync），因此块线程可以安全共享。
+struct StateView<'x> {
+    world: &'x laneflow_runtime::TrafficWorld,
+    individuals: &'x [crate::runner::Individual],
+    step_before: &'x [Option<VehicleState>],
+    slots: &'x FastMap<VehicleHandle, usize>,
+    route_table: &'x crate::route_table::RouteTable,
+    target_keys: &'x FastMap<ParkingTarget, String>,
+    plan: &'x crate::ResolvedPlan,
+}
+
+impl StateView<'_> {
+    fn stable_individual(&self, handle: VehicleHandle) -> Option<IndividualId> {
+        self.slots.get(&handle).map(|i| self.individuals[*i].id)
     }
-    let mut waiting = BTreeMap::<u32, u32>::new();
-    let mut status_counts = (0_usize, 0_usize, 0_usize);
-    let mut live = 0_usize;
-    let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
-    for i in 0..h.individuals.len() {
-        // 生命周期比对（原 events() 尾部循环）：保持个体槽位序与事件内容不变，
-        // events() 先返回，lifecycle 条目仍在 transitions 之后入列。
-        if let Some(before) = h.step_before[i] {
-            let after = h
+}
+
+fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Result<BlockOutcome> {
+    let mut hash = BlockHash::with_capacity((to - from) * 192);
+    let mut out = BlockOutcome {
+        bytes: Vec::new(),
+        live: 0,
+        status_counts: (0, 0, 0),
+        bindings: FastMap::default(),
+        bodies: Vec::new(),
+        waiting: BTreeMap::new(),
+        lifecycle: Vec::new(),
+        crossed: Vec::new(),
+        crossed_completed: Vec::new(),
+    };
+    for i in from..to {
+        // 生命周期比对：与串行版同槽位序；crossed_tile 置位延后到主线程
+        // 合并（事件取 旧值 || 本拍跨 tile，与串行置位后再读一致）。
+        if let Some(before) = view.step_before[i] {
+            let after = view
                 .world
                 .vehicle(
-                    h.individuals[i]
+                    view.individuals[i]
                         .handle
                         .expect("step cannot create an absent slot"),
                 )
                 .expect("live individual");
-            let route = h.route_table.index(after.route());
+            let route = view.route_table.index(after.route());
             let first = before.route_edge_index() as usize;
             let last = after.route_edge_index() as usize;
+            let mut crossed_now = false;
             if before.status() == VehicleStatus::Active && first < last {
-                let mut crossed = false;
                 for hop in first..last {
-                    if h.route_table.crosses_tile(route, hop) {
-                        crossed = true;
+                    if view.route_table.crosses_tile(route, hop) {
+                        crossed_now = true;
                     }
                 }
-                if crossed {
-                    h.individuals[i].crossed_tile = true;
-                }
+            }
+            if crossed_now {
+                out.crossed.push(i);
             }
             if before.status() != after.status() {
-                let id = h.individuals[i].id;
-                let crossed_tile = h.individuals[i].crossed_tile;
-                h.events.push(json!({"kind":"lifecycle", "phase":"step", "tick":h.world.tick_index(), "individual":id,
+                let id = view.individuals[i].id;
+                let crossed_tile = view.individuals[i].crossed_tile || crossed_now;
+                out.lifecycle.push(json!({"kind":"lifecycle", "phase":"step", "tick":tick, "individual":id,
                     "before":status(before.status()), "after":status(after.status()), "crossed_tile":crossed_tile}));
                 if after.status() == VehicleStatus::Completed
                     && crossed_tile
-                    && h.plan.window.contains_completed_step(h.world.tick_index())
+                    && view.plan.window.contains_completed_step(tick)
                 {
-                    h.evidence[id.tile as usize].crossed_tile_completed += 1;
+                    out.crossed_completed.push(id.tile as usize);
                 }
             }
         }
-        let individual = &h.individuals[i];
+        let individual = &view.individuals[i];
         hash.id(individual.id);
         let Some(handle) = individual.handle else {
             hash.n(0_u32);
             continue;
         };
-        live += 1;
+        out.live += 1;
         hash.n(1_u32);
-        let v = h
+        let v = view
             .world
             .vehicle(handle)
             .ok_or_else(|| invalid("missing vehicle"))?;
         // counts() 的逐车部分（冷路径 counts() 仍供 install 与报告使用）。
-        if h.slots.get(&handle) != Some(&i) {
+        if view.slots.get(&handle) != Some(&i) {
             return Err(invalid("handle identity map differs"));
         }
         match v.status() {
-            VehicleStatus::Active => status_counts.0 += 1,
-            VehicleStatus::Parked => status_counts.1 += 1,
-            VehicleStatus::Completed => status_counts.2 += 1,
+            VehicleStatus::Active => out.status_counts.0 += 1,
+            VehicleStatus::Parked => out.status_counts.1 += 1,
+            VehicleStatus::Completed => out.status_counts.2 += 1,
         }
-        let binding = h.world.parking_binding(handle);
+        let binding = view.world.parking_binding(handle);
         if !binding_matches_status(v.status(), binding) {
             return Err(invalid("parking binding and lifecycle disagree"));
         }
-        accumulate_parking_binding(&h.world, &mut bindings, handle, binding)?;
+        accumulate_parking_binding(view.world, &mut out.bindings, handle, binding)?;
         hash.n(v.profile().raw());
         hash.n(v.class().raw());
-        hash.text(h.route_key(v.route()));
+        hash.text(view.route_table.key_of(v.route()));
         for n in [
             v.route_edge_index(),
             v.progress_mm(),
@@ -851,7 +906,7 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
         }
         if let Some(t) = v.maneuver_traversal() {
             hash.n(1_u32);
-            hash.text(h.route_key(t.route()));
+            hash.text(view.route_table.key_of(t.route()));
             hash.n(t.maneuver_occurrence_index());
             let (tag, hop) = match t.phase() {
                 ManeuverTraversalPhase::PreGate { next_gate_hop } => (0_u32, next_gate_hop),
@@ -871,7 +926,7 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
             hash.n(m.waiting_zone().raw());
             hash.n(m.admission_sequence());
             hash.n(m.release_hop());
-            *waiting.entry(m.waiting_zone().raw()).or_default() += 1;
+            *out.waiting.entry(m.waiting_zone().raw()).or_default() += 1;
         } else {
             hash.n(0_u32);
         }
@@ -879,20 +934,20 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
             None => hash.n(0_u32),
             Some(ParkingBinding::Occupied(target)) => {
                 hash.n(1_u32);
-                hash.text(&h.target_keys[&target]);
+                hash.text(&view.target_keys[&target]);
             }
             Some(ParkingBinding::Reserved(r)) => {
                 hash.n(2_u32);
-                hash.text(&h.target_keys[&r.target()]);
-                hash.text(h.route_key(r.route()));
+                hash.text(&view.target_keys[&r.target()]);
+                hash.text(view.route_table.key_of(r.route()));
                 hash.n(r.entry_route_occurrence());
                 hash.n(r.virtual_entry_selector().map_or(u32::MAX, |s| s.raw()));
             }
         }
-        if let Some(r) = h.world.conflict_reservation(handle) {
+        if let Some(r) = view.world.conflict_reservation(handle) {
             hash.n(1_u32);
-            text_json(&mut hash, &mut json_scratch, &range(h, r.passage_range()))?;
-            hash.id(h
+            hash.json(&range(view.route_table, r.passage_range()))?;
+            hash.id(view
                 .stable_individual(r.downstream_owner())
                 .ok_or_else(|| invalid("unknown claim owner"))?);
             hash.n(r.downstream_claim_count());
@@ -901,36 +956,129 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
             hash.n(0_u32);
         }
         if v.status() == VehicleStatus::Active {
-            let route = h.route_table.index(v.route());
+            let route = view.route_table.index(v.route());
             let mut cursor = v.route_edge_index() as usize;
             let mut front = u64::from(v.progress_mm()) * 1_000 + u64::from(v.carry_um());
             let mut remaining = u64::from(v.length_mm()) * 1_000;
-            if front > u64::from(h.route_table.edge_len_mm(route, cursor)) * 1_000 {
+            if front > u64::from(view.route_table.edge_len_mm(route, cursor)) * 1_000 {
                 return Err(invalid(format!(
                     "front outside current route edge: tick={} individual={:?} route={} occurrence={} edge={} progress_mm={} carry_um={} length_mm={} speed_mm_s={}",
-                    h.world.tick_index(),
+                    tick,
                     individual.id,
-                    h.route_key(v.route()),
+                    view.route_table.key_of(v.route()),
                     v.route_edge_index(),
-                    h.route_table.edge_key(route, cursor),
+                    view.route_table.edge_key(route, cursor),
                     v.progress_mm(),
                     v.carry_um(),
-                    h.route_table.edge_len_mm(route, cursor),
+                    view.route_table.edge_len_mm(route, cursor),
                     v.speed_mm_s()
                 )));
             }
             loop {
                 let back = front.saturating_sub(remaining);
                 if front > back {
-                    bodies.push((h.route_table.edge_raw(route, cursor), back, front, individual.id));
+                    out.bodies.push((
+                        view.route_table.edge_raw(route, cursor),
+                        back,
+                        front,
+                        individual.id,
+                    ));
                 }
                 remaining = remaining.saturating_sub(front);
                 if remaining == 0 || cursor == 0 {
                     break;
                 }
                 cursor -= 1;
-                front = u64::from(h.route_table.edge_len_mm(route, cursor)) * 1_000;
+                front = u64::from(view.route_table.edge_len_mm(route, cursor)) * 1_000;
             }
+        }
+    }
+    out.bytes = hash.bytes;
+    Ok(out)
+}
+
+pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize))> {
+    let mut hash = Hash::default();
+    hash.text("urban-observation-v2");
+    hash.n(h.world.tick_index());
+    hash.n(h.world.time_ms());
+    hash.n(h.world.command_cursor());
+    hash.n(h.world.event_cursor());
+    let mut zone_owners = FastMap::default();
+    for ((id, _, _), zone) in &h.claims {
+        if zone_owners.insert(*zone, *id).is_some_and(|old| old != *id) {
+            return Err(invalid("committed conflict claims are not exclusive"));
+        }
+        let individual = &h.individuals[id.tile as usize * 1_000 + id.slot as usize];
+        if individual.id != *id
+            || individual
+                .handle
+                .and_then(|handle| h.world.conflict_reservation(handle))
+                .is_none()
+        {
+            return Err(invalid("claim has no current reservation owner"));
+        }
+    }
+    // 逐车循环按连续块并行：每块编码字节流与串行 Hash 完全相同，主线程
+    // 按块序送入同一 SHA-256；检查汇总、事件与置位请求随块结果合并。
+    let tick = h.world.tick_index();
+    let n = h.individuals.len();
+    let workers = (h.workers as usize).max(1);
+    let view = StateView {
+        world: &h.world,
+        individuals: &h.individuals,
+        step_before: &h.step_before,
+        slots: &h.slots,
+        route_table: &h.route_table,
+        target_keys: &h.target_keys,
+        plan: h.plan,
+    };
+    let mut outcomes = Vec::new();
+    if workers <= 1 || n == 0 {
+        outcomes.push(state_block(&view, 0, n, tick));
+    } else {
+        let chunk = n.div_ceil(workers);
+        let view_ref = &view;
+        std::thread::scope(|s| {
+            let mut spawned = Vec::new();
+            let mut from = 0;
+            while from < n {
+                let to = (from + chunk).min(n);
+                spawned.push(s.spawn(move || state_block(view_ref, from, to, tick)));
+                from = to;
+            }
+            for handle in spawned {
+                outcomes.push(handle.join().expect("state observation block panicked"));
+            }
+        });
+    }
+    let mut bodies = Vec::with_capacity(n);
+    let mut waiting = BTreeMap::<u32, u32>::new();
+    let mut status_counts = (0_usize, 0_usize, 0_usize);
+    let mut live = 0_usize;
+    let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
+    for outcome in outcomes {
+        let outcome = outcome?;
+        hash.bytes(&outcome.bytes);
+        live += outcome.live;
+        status_counts.0 += outcome.status_counts.0;
+        status_counts.1 += outcome.status_counts.1;
+        status_counts.2 += outcome.status_counts.2;
+        for (target, count) in outcome.bindings {
+            let entry = bindings.entry(target).or_default();
+            entry.0 += count.0;
+            entry.1 += count.1;
+        }
+        bodies.extend(outcome.bodies);
+        for (zone, count) in outcome.waiting {
+            *waiting.entry(zone).or_default() += count;
+        }
+        h.events.extend(outcome.lifecycle);
+        for i in outcome.crossed {
+            h.individuals[i].crossed_tile = true;
+        }
+        for tile in outcome.crossed_completed {
+            h.evidence[tile].crossed_tile_completed += 1;
         }
     }
     // counts() 的守恒汇总（随逐车循环累计完成，仍在同一拍报错）。
@@ -1155,6 +1303,49 @@ mod tests {
                     elapsed.as_nanos()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn block_hash_byte_stream_matches_batched_hash() {
+        // 同一操作序列：全程走 Hash 与 分块 BlockHash 后按块序送入同一
+        // SHA-256，两者摘要逐字节一致（并行 state() 的等价性基础）。
+        let id = IndividualId {
+            tile: 3,
+            slot: 4,
+            incarnation: 5,
+        };
+        let value = json!(["tile-0000.route", 1, null, {"x": [true, "𐍈"]}]);
+        let mut full = Hash::default();
+        full.n(0_u64);
+        full.n(u64::MAX);
+        full.text("城市路線 α");
+        full.id(id);
+        text_json(&mut full, &mut Vec::new(), &value).unwrap();
+        full.n(7_u64);
+        let expected = full.finish();
+        // 两块拼接：块边界落在任意操作之间。
+        for split in 0..=6 {
+            let mut first = BlockHash::with_capacity(0);
+            let mut second = BlockHash::with_capacity(0);
+            let run = |b: &mut BlockHash, from: usize, to: usize| {
+                for op in from..to {
+                    match op {
+                        0 => b.n(0_u64),
+                        1 => b.n(u64::MAX),
+                        2 => b.text("城市路線 α"),
+                        3 => b.id(id),
+                        4 => b.json(&value).unwrap(),
+                        _ => b.n(7_u64),
+                    }
+                }
+            };
+            run(&mut first, 0, split);
+            run(&mut second, split, 6);
+            let mut stitched = Hash::default();
+            stitched.bytes(&first.bytes);
+            stitched.bytes(&second.bytes);
+            assert_eq!(stitched.finish(), expected, "split: {split}");
         }
     }
 
