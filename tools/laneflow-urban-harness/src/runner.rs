@@ -1534,19 +1534,7 @@ impl<'a> Harness<'a> {
             }
         }
         let pre_observation_started = std::time::Instant::now();
-        self.step_before.clear();
-        self.step_before.extend(
-            self.individuals
-                .iter()
-                .map(|i| i.handle.and_then(|handle| self.world.vehicle(handle))),
-        );
-        let intent = self
-            .step_before
-            .iter()
-            .flatten()
-            .filter(|s| s.status() == VehicleStatus::Active)
-            .count();
-        observe::red_waiters(self);
+        let intent = observe::pre_step(self);
         let pre_observation_elapsed = pre_observation_started.elapsed();
         let (outcome, step_ns) = self.world.step(TickInput::new(self.plan.dt))?;
         self.last_step_ns = step_ns;
@@ -1592,9 +1580,7 @@ impl<'a> Harness<'a> {
                 "individual":self.individuals[slot].id, "target":self.target_keys[&arrival.target]}));
         }
         observe::events(self)?;
-        let state_digest = observe::state(self)?;
-        let (active, parked, completed) = observe::counts(self)?;
-        observe::parking_invariants(self)?;
+        let (state_digest, (active, parked, completed)) = observe::state(self)?;
         self.last_observation_ns = pre_observation_elapsed
             .saturating_add(observation_started.elapsed())
             .as_nanos()
