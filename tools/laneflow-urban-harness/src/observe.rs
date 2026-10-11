@@ -1655,6 +1655,199 @@ mod tests {
     }
 
     #[test]
+    fn run_blocks_partitions_match_across_lengths_and_workers() {
+        // 块数 1/2/N、整除与不整除、空输入，串行（pool=None）与 4 线程池两路
+        // 结果必须与期望块界逐块一致；块界不重叠且全覆盖 [0, len)。
+        const BLOCK: usize = 3;
+        let pool = rayon_core::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        for len in [
+            0_usize,
+            1,
+            BLOCK,
+            BLOCK + 1,
+            2 * BLOCK,
+            2 * BLOCK + 1,
+            4 * BLOCK,
+            4 * BLOCK + 1,
+        ] {
+            let expected: Vec<(usize, usize)> = (0..len)
+                .step_by(BLOCK)
+                .map(|from| (from, (from + BLOCK).min(len)))
+                .collect();
+            let run = |pool: Option<&rayon_core::ThreadPool>| {
+                run_blocks(pool, len, BLOCK, |from, to| Ok((from, to)))
+                    .into_iter()
+                    .map(|outcome| outcome.unwrap())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(run(None), expected, "serial len={len}");
+            assert_eq!(run(Some(&pool)), expected, "parallel len={len}");
+            let covered: Vec<usize> = expected.iter().flat_map(|&(from, to)| from..to).collect();
+            assert_eq!(covered, (0..len).collect::<Vec<_>>(), "len={len}");
+        }
+    }
+
+    #[test]
+    fn run_blocks_reports_per_block_errors_in_block_order() {
+        // 块函数对特定块返回 Err 时，逐块结果向量保持块序：该位置为 Err、
+        // 其余块仍返回 Ok；len=7、block_size=3 时 4 线程池的 workers（4）> 块数（3）。
+        let pool = rayon_core::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        for pool in [None, Some(&pool)] {
+            let outcomes = run_blocks(pool, 7, 3, |from, _to| {
+                if from == 3 {
+                    Err(invalid("injected block failure"))
+                } else {
+                    Ok(from)
+                }
+            });
+            assert_eq!(outcomes.len(), 3);
+            assert_eq!(outcomes[0].as_ref().unwrap(), &0);
+            assert!(
+                outcomes[1]
+                    .as_ref()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("injected block failure")
+            );
+            assert_eq!(outcomes[2].as_ref().unwrap(), &6);
+        }
+    }
+
+    // 逐拍不变量的违例注入：harness 自有状态（claims/individuals/slots/births）
+    // 可直接篡改，注入后同一拍 state_impl 即报错。世界派生状态（车身重叠、
+    // 等待区容量/成员、front 越界、停车 binding 矩阵）无法经公共 API 伪造——
+    // Runtime 自身会拦截这类违例，其防线在 Runtime 自身的测试中覆盖。
+    #[test]
+    fn state_rejects_claim_without_current_reservation_owner() {
+        // claims 归属：claim 的 id 与个体记录不符（incarnation 改大），
+        // owner 校验先于排他判定逐条执行，同一拍报归属错误。
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = fixture_plan(&artifacts);
+        let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
+        h.advance().unwrap();
+        let slot = h
+            .individuals
+            .iter()
+            .position(|individual| individual.handle.is_some())
+            .expect("fixture has live individuals");
+        let forged = IndividualId {
+            incarnation: h.individuals[slot].id.incarnation + 1,
+            ..h.individuals[slot].id
+        };
+        h.claims.insert((forged, 0, 0), 0);
+        assert!(
+            state_impl(&mut h, 64)
+                .unwrap_err()
+                .to_string()
+                .contains("claim has no current reservation owner")
+        );
+    }
+
+    #[test]
+    fn state_rejects_non_exclusive_committed_conflict_claims() {
+        // claims 排他：merge 按 map 序逐条先插入 zone_owners 再判定 owner，
+        // 首个同 zone 的 claim 必须先通过 owner 校验，排他错误才会在第二条
+        // 触发。owner 通过需要世界里真实的 conflict reservation：SUSTAINED-ACTIVE
+        // 等负载场景的 conflict arbiter 全程休眠，UNCONTROLLED-YIELD 的
+        // opposing pulse 持 reservation 通过冲突区（实测第 133 拍起，确定性）。
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = crate::ResolvedPlan::for_case(
+            &artifacts,
+            crate::UrbanCase::UncontrolledYield,
+            crate::Window::probe(2_048).unwrap(),
+        )
+        .unwrap();
+        let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
+        let holder = (0..600)
+            .find_map(|_| {
+                let holder = h
+                    .individuals
+                    .iter()
+                    .find(|individual| {
+                        individual
+                            .handle
+                            .and_then(|handle| h.world.conflict_reservation(handle))
+                            .is_some()
+                    })
+                    .map(|individual| individual.id);
+                if holder.is_some() {
+                    return holder;
+                }
+                h.advance().unwrap();
+                None
+            })
+            .expect("UNCONTROLLED-YIELD fixture produces a conflict reservation holder");
+        // 真 owner 的 claim（map 序在前）+ 同 zone 不同 owner 的 claim。
+        h.claims.insert((holder, 0, 0), 0);
+        h.claims.insert(
+            (
+                IndividualId {
+                    incarnation: holder.incarnation + 1,
+                    ..holder
+                },
+                0,
+                0,
+            ),
+            0,
+        );
+        assert!(
+            state_impl(&mut h, 64)
+                .unwrap_err()
+                .to_string()
+                .contains("committed conflict claims are not exclusive")
+        );
+    }
+
+    #[test]
+    fn state_rejects_live_identity_violation() {
+        // live 身份守恒：摘掉一个个体的 handle 并从 slots 删除其条目，
+        // world 的 live 数（不变）与观测 live 数（-1）不一致。
+        // 必须同时清空 step_before 对应槽位，否则 state_block 的拍间对照
+        // 会因 handle 缺失先 panic；只删 slots 条目则先报
+        // "handle identity map differs"，到不了守恒检查。
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = fixture_plan(&artifacts);
+        let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
+        h.advance().unwrap();
+        let slot = h
+            .individuals
+            .iter()
+            .position(|individual| individual.handle.is_some())
+            .expect("fixture has live individuals");
+        let handle = h.individuals[slot].handle.take().unwrap();
+        h.step_before[slot] = None;
+        h.slots.remove(&handle);
+        assert!(
+            state_impl(&mut h, 64)
+                .unwrap_err()
+                .to_string()
+                .contains("live identity conservation failed")
+        );
+    }
+
+    #[test]
+    fn state_rejects_birth_removal_identity_violation() {
+        // 出生/移除守恒：births 凭空 +1，plan 期望 live 数与观测不符。
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = fixture_plan(&artifacts);
+        let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
+        h.advance().unwrap();
+        h.births += 1;
+        assert!(
+            state_impl(&mut h, 64)
+                .unwrap_err()
+                .to_string()
+                .contains("birth/removal identity conservation failed")
+        );
+    }
+
+    #[test]
     fn state_tree_digest_is_invariant_across_block_worker_partitioning() {
         let (_temp, artifacts) = fixture_artifacts();
         let plan = fixture_plan(&artifacts);
