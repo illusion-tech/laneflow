@@ -107,6 +107,16 @@ pub(crate) fn transition_gates(a: &Artifacts) -> FastMap<(u32, u32), (u32, u32)>
     result
 }
 
+// counts() 与 state() 共用同一生命周期/绑定匹配矩阵，避免冷热路径语义漂移。
+fn binding_matches_status(status: VehicleStatus, binding: Option<ParkingBinding>) -> bool {
+    matches!(
+        (status, binding),
+        (VehicleStatus::Parked, Some(ParkingBinding::Occupied(_)))
+            | (VehicleStatus::Active, Some(ParkingBinding::Reserved(_)))
+            | (VehicleStatus::Active | VehicleStatus::Completed, None)
+    )
+}
+
 pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
     let live = h
         .individuals
@@ -137,14 +147,44 @@ pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
             VehicleStatus::Parked => counts.1 += 1,
             VehicleStatus::Completed => counts.2 += 1,
         }
-        match (state.status(), h.world.parking_binding(handle)) {
-            (VehicleStatus::Parked, Some(ParkingBinding::Occupied(_)))
-            | (VehicleStatus::Active, Some(ParkingBinding::Reserved(_)))
-            | (VehicleStatus::Active | VehicleStatus::Completed, None) => {}
-            _ => return Err(invalid("parking binding and lifecycle disagree")),
+        if !binding_matches_status(state.status(), h.world.parking_binding(handle)) {
+            return Err(invalid("parking binding and lifecycle disagree"));
         }
     }
     Ok(counts)
+}
+
+// parking_invariants() 与 state() 共用同一逐车绑定汇总与车位归属检查。
+fn accumulate_parking_binding(
+    world: &crate::host::Host,
+    bindings: &mut FastMap<ParkingTarget, (u64, u64)>,
+    handle: VehicleHandle,
+    binding: Option<ParkingBinding>,
+) -> Result<()> {
+    let Some(binding) = binding else {
+        return Ok(());
+    };
+    let (target, reserved) = match binding {
+        ParkingBinding::Reserved(r) => (r.target(), true),
+        ParkingBinding::Occupied(t) => (t, false),
+    };
+    let count = bindings.entry(target).or_default();
+    if reserved {
+        count.0 += 1;
+    } else {
+        count.1 += 1;
+    }
+    if let ParkingTarget::ExplicitSpace(space) = target {
+        let expected = if reserved {
+            ParkingSpaceState::Reserved(handle)
+        } else {
+            ParkingSpaceState::Occupied(handle)
+        };
+        if world.parking_space_state(space) != Some(expected) {
+            return Err(invalid("space owner differs from binding"));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
@@ -153,28 +193,7 @@ pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
         let Some(handle) = individual.handle else {
             continue;
         };
-        if let Some(binding) = h.world.parking_binding(handle) {
-            let (target, reserved) = match binding {
-                ParkingBinding::Reserved(r) => (r.target(), true),
-                ParkingBinding::Occupied(t) => (t, false),
-            };
-            let count = bindings.entry(target).or_default();
-            if reserved {
-                count.0 += 1;
-            } else {
-                count.1 += 1;
-            }
-            if let ParkingTarget::ExplicitSpace(space) = target {
-                let expected = if reserved {
-                    ParkingSpaceState::Reserved(handle)
-                } else {
-                    ParkingSpaceState::Occupied(handle)
-                };
-                if h.world.parking_space_state(space) != Some(expected) {
-                    return Err(invalid("space owner differs from binding"));
-                }
-            }
-        }
+        accumulate_parking_binding(&h.world, &mut bindings, handle, h.world.parking_binding(handle))?;
     }
     for (target, key) in &h.target_keys {
         let (reserved, occupied) = bindings.get(target).copied().unwrap_or_default();
@@ -247,43 +266,53 @@ fn validate_facility_counts(
     Ok(())
 }
 
-pub(crate) fn red_waiters(h: &mut Harness<'_>) {
-    if h.world.tick_index() < h.plan.window.warm_up_ticks {
-        return;
-    }
-    let signals = h.world.committed_signal_groups();
+/// step 前一遍完成：step_before 快照、intent 计数与 red_waiters 采集。
+/// 状态值、判断条件与插入集合与原先三段独立遍历完全相同。
+pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
+    let warm = h.world.tick_index() >= h.plan.window.warm_up_ticks;
     h.scratch_red.clear();
-    h.scratch_red.extend(
-        signals
-            .as_slice()
-            .iter()
-            .map(|(g, a)| (g.raw(), *a == SignalAspect::Red)),
-    );
-    for (i, state) in h.step_before.iter().enumerate() {
-        let Some(state) = state else {
-            continue;
-        };
-        if state.status() != VehicleStatus::Active || state.speed_mm_s() != 0 {
-            continue;
-        }
-        let route = h.route_table.index(state.route());
-        let current = state.route_edge_index() as usize;
-        if current + 1 < h.route_table.edge_count(route)
-            && h.route_table
-                .edge_len_mm(route, current)
-                .saturating_sub(state.progress_mm())
-                <= 1
-            && let Some(&(gate, group)) = h
-                .transition_gates
-                .get(&(
-                    h.route_table.edge_raw(route, current),
-                    h.route_table.edge_raw(route, current + 1),
-                ))
-            && h.scratch_red.get(&group) == Some(&true)
-        {
-            h.red_waiters.insert((h.individuals[i].id, gate));
-        }
+    if warm {
+        let signals = h.world.committed_signal_groups();
+        h.scratch_red.extend(
+            signals
+                .as_slice()
+                .iter()
+                .map(|(g, a)| (g.raw(), *a == SignalAspect::Red)),
+        );
     }
+    h.step_before.clear();
+    h.step_before.reserve(h.individuals.len());
+    let mut intent = 0;
+    for i in 0..h.individuals.len() {
+        let state = h.individuals[i]
+            .handle
+            .and_then(|handle| h.world.vehicle(handle));
+        if let Some(state) = state
+            && state.status() == VehicleStatus::Active
+        {
+            intent += 1;
+            if warm && state.speed_mm_s() == 0 {
+                let route = h.route_table.index(state.route());
+                let current = state.route_edge_index() as usize;
+                if current + 1 < h.route_table.edge_count(route)
+                    && h.route_table
+                        .edge_len_mm(route, current)
+                        .saturating_sub(state.progress_mm())
+                        <= 1
+                    && let Some(&(gate, group)) = h.transition_gates.get(&(
+                        h.route_table.edge_raw(route, current),
+                        h.route_table.edge_raw(route, current + 1),
+                    ))
+                    && h.scratch_red.get(&group) == Some(&true)
+                {
+                    let id = h.individuals[i].id;
+                    h.red_waiters.insert((id, gate));
+                }
+            }
+        }
+        h.step_before.push(state);
+    }
+    intent
 }
 
 fn conflict_reason(reason: ConflictNoGrantReason) -> u32 {
@@ -703,40 +732,6 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             "route":h.route_key(a.route()), "occurrence":a.maneuver_occurrence_index(), "hop":a.hop(),
             "position":[p.route_edge_index(),p.progress_mm(),p.carry_um()], "detail":detail}));
     }
-    for (i, before) in h.step_before.iter().enumerate() {
-        let Some(before) = before else {
-            continue;
-        };
-        let individual = &mut h.individuals[i];
-        let after = h
-            .world
-            .vehicle(
-                individual
-                    .handle
-                    .expect("step cannot create an absent slot"),
-            )
-            .expect("live individual");
-        let route = h.route_table.index(after.route());
-        let first = before.route_edge_index() as usize;
-        let last = after.route_edge_index() as usize;
-        if before.status() == VehicleStatus::Active && first < last {
-            for hop in first..last {
-                if h.route_table.crosses_tile(route, hop) {
-                    individual.crossed_tile = true;
-                }
-            }
-        }
-        if before.status() != after.status() {
-            h.events.push(json!({"kind":"lifecycle", "phase":"step", "tick":h.world.tick_index(), "individual":individual.id,
-                "before":status(before.status()), "after":status(after.status()), "crossed_tile":individual.crossed_tile}));
-            if after.status() == VehicleStatus::Completed
-                && individual.crossed_tile
-                && h.plan.window.contains_completed_step(h.world.tick_index())
-            {
-                h.evidence[individual.id.tile as usize].crossed_tile_completed += 1;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -748,7 +743,7 @@ pub(crate) fn status(value: VehicleStatus) -> u32 {
     }
 }
 
-pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
+pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize))> {
     let mut hash = Hash::default();
     hash.text("urban-observation-v2");
     hash.n(h.world.tick_index());
@@ -773,17 +768,74 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         }
     }
     let mut waiting = BTreeMap::<u32, u32>::new();
-    for individual in &h.individuals {
+    let mut status_counts = (0_usize, 0_usize, 0_usize);
+    let mut live = 0_usize;
+    let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
+    for i in 0..h.individuals.len() {
+        // 生命周期比对（原 events() 尾部循环）：保持个体槽位序与事件内容不变，
+        // events() 先返回，lifecycle 条目仍在 transitions 之后入列。
+        if let Some(before) = h.step_before[i] {
+            let after = h
+                .world
+                .vehicle(
+                    h.individuals[i]
+                        .handle
+                        .expect("step cannot create an absent slot"),
+                )
+                .expect("live individual");
+            let route = h.route_table.index(after.route());
+            let first = before.route_edge_index() as usize;
+            let last = after.route_edge_index() as usize;
+            if before.status() == VehicleStatus::Active && first < last {
+                let mut crossed = false;
+                for hop in first..last {
+                    if h.route_table.crosses_tile(route, hop) {
+                        crossed = true;
+                    }
+                }
+                if crossed {
+                    h.individuals[i].crossed_tile = true;
+                }
+            }
+            if before.status() != after.status() {
+                let id = h.individuals[i].id;
+                let crossed_tile = h.individuals[i].crossed_tile;
+                h.events.push(json!({"kind":"lifecycle", "phase":"step", "tick":h.world.tick_index(), "individual":id,
+                    "before":status(before.status()), "after":status(after.status()), "crossed_tile":crossed_tile}));
+                if after.status() == VehicleStatus::Completed
+                    && crossed_tile
+                    && h.plan.window.contains_completed_step(h.world.tick_index())
+                {
+                    h.evidence[id.tile as usize].crossed_tile_completed += 1;
+                }
+            }
+        }
+        let individual = &h.individuals[i];
         hash.id(individual.id);
         let Some(handle) = individual.handle else {
             hash.n(0_u32);
             continue;
         };
+        live += 1;
         hash.n(1_u32);
         let v = h
             .world
             .vehicle(handle)
             .ok_or_else(|| invalid("missing vehicle"))?;
+        // counts() 的逐车部分（冷路径 counts() 仍供 install 与报告使用）。
+        if h.slots.get(&handle) != Some(&i) {
+            return Err(invalid("handle identity map differs"));
+        }
+        match v.status() {
+            VehicleStatus::Active => status_counts.0 += 1,
+            VehicleStatus::Parked => status_counts.1 += 1,
+            VehicleStatus::Completed => status_counts.2 += 1,
+        }
+        let binding = h.world.parking_binding(handle);
+        if !binding_matches_status(v.status(), binding) {
+            return Err(invalid("parking binding and lifecycle disagree"));
+        }
+        accumulate_parking_binding(&h.world, &mut bindings, handle, binding)?;
         hash.n(v.profile().raw());
         hash.n(v.class().raw());
         hash.text(h.route_key(v.route()));
@@ -823,7 +875,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         } else {
             hash.n(0_u32);
         }
-        match h.world.parking_binding(handle) {
+        match binding {
             None => hash.n(0_u32),
             Some(ParkingBinding::Occupied(target)) => {
                 hash.n(1_u32);
@@ -881,6 +933,14 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
             }
         }
     }
+    // counts() 的守恒汇总（随逐车循环累计完成，仍在同一拍报错）。
+    if h.world.live_vehicles().len() != live || h.slots.len() != live {
+        return Err(invalid("live identity conservation failed"));
+    }
+    let expected_live = i64::from(h.plan.individuals) + h.births as i64 - h.removals as i64;
+    if expected_live < 0 || live != expected_live as usize {
+        return Err(invalid("birth/removal identity conservation failed"));
+    }
     bodies.sort_unstable();
     for pair in bodies.windows(2) {
         if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
@@ -928,7 +988,54 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         hash.n(*index);
         hash.n(*zone);
     }
-    Ok(hash.finish())
+    // parking_invariants() 的循环后部分（target 归属与设施计数守恒）。
+    for (target, key) in &h.target_keys {
+        let (reserved, occupied) = bindings.get(target).copied().unwrap_or_default();
+        if let ParkingTarget::ExplicitSpace(space) = target
+            && (reserved + occupied > 1
+                || (reserved + occupied == 0
+                    && h.world.parking_space_state(*space) != Some(ParkingSpaceState::Vacant)))
+        {
+            return Err(invalid(format!(
+                "explicit capacity or ownership differs: {key}"
+            )));
+        }
+    }
+    for raw in 0..h
+        .artifacts
+        .revision
+        .identity()
+        .entity_count(EntityKind::ParkingFacility)
+    {
+        let facility = ParkingFacilityOrdinal::from_raw(raw);
+        let definition = h
+            .artifacts
+            .revision
+            .traffic()
+            .relations()
+            .parking_facility(facility)
+            .ok_or_else(|| invalid("missing facility definition"))?;
+        let explicit = definition
+            .spaces()
+            .iter()
+            .fold((0, 0), |(reserved, occupied), space| {
+                let count = bindings
+                    .get(&ParkingTarget::ExplicitSpace(*space))
+                    .copied()
+                    .unwrap_or_default();
+                (reserved + count.0, occupied + count.1)
+            });
+        let virtual_pool = bindings
+            .get(&ParkingTarget::VirtualPool(facility))
+            .copied()
+            .unwrap_or_default();
+        let counts = h
+            .world
+            .parking_facility_counts(facility)
+            .ok_or_else(|| invalid("missing facility counts"))?;
+        validate_facility_counts(counts, explicit, virtual_pool)?;
+    }
+    Ok((hash.finish(), status_counts))
 }
 
 #[cfg(test)]
@@ -1049,6 +1156,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn binding_status_matrix_matches_counts_semantics() {
+        // Reserved 变体只能由 Runtime 内部构造；其三种组合与以下矩阵同属同一
+        // matches! 模式表，且被十万辆短窗正常路径覆盖。
+        let space = ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0));
+        let occupied = Some(ParkingBinding::Occupied(space));
+        assert!(binding_matches_status(VehicleStatus::Parked, occupied));
+        assert!(!binding_matches_status(VehicleStatus::Active, occupied));
+        assert!(!binding_matches_status(VehicleStatus::Completed, occupied));
+        assert!(binding_matches_status(VehicleStatus::Active, None));
+        assert!(binding_matches_status(VehicleStatus::Completed, None));
+        assert!(!binding_matches_status(VehicleStatus::Parked, None));
     }
 
     #[test]
