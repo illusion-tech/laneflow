@@ -100,4 +100,4 @@ files = 20
 manifest = "long-window-861-404aea19/MANIFEST.toml"
 manifest_bytes = 5632
 manifest_sha256 = "f954133a679df7e7cc6eaee64fbcbc837becd8a1ac6fdc2303e0371a27adcc98"
-excluded = ["二进制（含本机路径，按 binary_sha256 从 source_commit 重建）", "#857 冻结输入 urban-100k"]
+excluded = ["二进制（含采集机本机路径，未发布；执行身份以 binary_sha256 为准，按 source_commit 与冻结构建参数重建的字节不保证相同；构建去除本机路径见 #876）", "#857 冻结输入 urban-100k"]
