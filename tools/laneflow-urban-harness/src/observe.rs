@@ -1162,9 +1162,10 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
 }
 
 /// v3 树形摘要：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
-/// 信号、remaining-claims，与 v2 相同的原始字节）；叶 = 固定块界槽位区间
-/// 编码字节的 SHA-256。块界与 workers 无关，摘要跨并行度稳定；报错仍为
-/// 块内逐车序 + 块间按块序取首个 Err。
+/// 信号、remaining-claims）；叶 = 固定块界槽位区间编码字节的 SHA-256。
+/// remaining-claims 的 route 按内部索引编码（注册顺序即目录 key 升序，序号
+/// 与 key 一一对应），不再内联 route key 文本。块界与 workers 无关，摘要跨
+/// 并行度稳定；报错仍为块内逐车序 + 块间按块序取首个 Err。
 fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize, usize, usize))> {
     debug_assert!(block_size > 0);
     let mut hash = Hash::default();
@@ -1289,7 +1290,7 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     hash.text("remaining-claims");
     for ((id, route, index), zone) in &h.claims {
         hash.id(*id);
-        hash.text(h.route_table.key(*route));
+        hash.n(*route);
         hash.n(*index);
         hash.n(*zone);
     }
