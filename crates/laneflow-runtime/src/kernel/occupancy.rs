@@ -899,6 +899,14 @@ impl OccupancyIndex {
         }
     }
 
+    /// 第 `edge` 条边上有记录的车辆，一条记录一项；越界为空。
+    pub(crate) fn edge_vehicles(&self, edge: usize) -> impl Iterator<Item = VehicleHandle> + '_ {
+        self.buckets
+            .get(edge)
+            .into_iter()
+            .flat_map(|bucket| bucket.records.iter().map(|record| record.vehicle))
+    }
+
     fn bucket(&self, edge: LaneEdgeOrdinal) -> Option<&OccupancyBucket> {
         self.buckets.get(edge.index())
     }
@@ -2019,17 +2027,47 @@ impl crate::kernel::state::WorldState {
     /// 命令走到占用索引重建点：允许让出且来源已过期时记下让出，返回 `true`。
     /// 让出的命令立即返回，结果由活动世界丢弃，不提交任何东西。
     pub(crate) fn yield_occupancy_rebuild(&mut self) -> bool {
-        let current = Some((
-            self.binding.world_generation,
-            self.committed.observation_state_sequence,
-        ));
-        if self.workspace.command_occupancy != CommandOccupancy::Yield
-            || self.derived.occupancy.source == current
-        {
+        if self.workspace.command_occupancy != CommandOccupancy::Yield || self.occupancy_current() {
             return false;
         }
         self.workspace.command_occupancy = CommandOccupancy::Yielded;
         true
+    }
+
+    /// 占用索引来源是当前提交序号。
+    pub(crate) fn occupancy_current(&self) -> bool {
+        self.derived.occupancy.source
+            == Some((
+                self.binding.world_generation,
+                self.committed.observation_state_sequence,
+            ))
+    }
+
+    /// 命令让出后，在执行作用域里备好命令要用的派生索引
+    /// （`traffic-runtime-vehicle-placement.md` 第 8、9 节）：占用索引过期时并行重建，
+    /// 重叠索引过期时由当前的占用记录填出。占用索引重建失败时两份索引都保持原状，
+    /// 留给命令在原位置串行重建并报告。
+    pub(crate) fn rebuild_command_indexes(
+        &mut self,
+        resources: &crate::kernel::execution::ExecutionResources,
+    ) {
+        if !self.occupancy_current() && self.rebuild_occupancy_index_with(Some(resources)).is_err()
+        {
+            return;
+        }
+        if !self.derived.spawn_overlap.is_current() {
+            let edge_count = self
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres()
+                .len();
+            self.derived.spawn_overlap.fill_from_occupancy(
+                edge_count,
+                &self.derived.occupancy,
+                resources,
+            );
+        }
     }
 
     pub(crate) fn ensure_current_occupancy(&mut self) -> Result<(), StepError> {

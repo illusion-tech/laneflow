@@ -8,6 +8,7 @@ use std::sync::Arc;
 use crate::kernel::occupancy::{
     occupancy_full_fingerprint, set_parallel_occupancy_fault, take_parallel_occupancy_rebuilds,
 };
+use crate::kernel::spawn_overlap::{overlap_fingerprint, take_overlap_fills, take_overlap_yields};
 use crate::kernel::world::take_command_occupancy_yields;
 use crate::{TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput};
 
@@ -24,7 +25,11 @@ fn step(world: &mut TrafficWorld) {
 }
 
 fn fingerprint(world: &TrafficWorld) -> String {
-    occupancy_full_fingerprint(&world.state.derived.occupancy)
+    format!(
+        "{}|{:?}",
+        occupancy_full_fingerprint(&world.state.derived.occupancy),
+        overlap_fingerprint(&world.state.derived.spawn_overlap)
+    )
 }
 
 fn digest(world: &TrafficWorld) -> String {
@@ -84,6 +89,8 @@ fn parallel_command_rebuild_matches_serial_world() {
         step(&mut parallel);
         take_command_occupancy_yields();
         take_parallel_occupancy_rebuilds();
+        take_overlap_yields();
+        take_overlap_fills();
         let mut added: Vec<(VehicleHandle, VehicleHandle)> = Vec::new();
         for command in 0..4u32 {
             let input = spawn_input(&serial, batch, command);
@@ -106,6 +113,9 @@ fn parallel_command_rebuild_matches_serial_world() {
             "batch {batch} yielded {batch_yields} times"
         );
         assert_eq!(take_parallel_occupancy_rebuilds(), batch_yields);
+        // 步进让两份索引都过期：让出发生在重叠检查处，一次备好两份索引。
+        assert_eq!(take_overlap_yields() as u64, batch_yields);
+        assert_eq!(take_overlap_fills() as u64, batch_yields);
         yields += batch_yields;
         for (serial_handle, parallel_handle) in added {
             serial.despawn_vehicle(serial_handle).expect("despawn");
@@ -127,6 +137,7 @@ fn failed_parallel_rebuild_falls_back_to_the_serial_rebuild() {
         step(&mut serial);
         step(&mut parallel);
         take_command_occupancy_yields();
+        take_overlap_fills();
         set_parallel_occupancy_fault(Some(false));
         let mut added = Vec::new();
         for command in 0..4u32 {
@@ -144,6 +155,11 @@ fn failed_parallel_rebuild_falls_back_to_the_serial_rebuild() {
             }
         }
         set_parallel_occupancy_fault(None);
+        assert_eq!(
+            take_overlap_fills(),
+            0,
+            "a failed rebuild leaves the overlap index stale"
+        );
         yields += take_command_occupancy_yields();
         for (serial_handle, parallel_handle) in added {
             serial.despawn_vehicle(serial_handle).expect("despawn");

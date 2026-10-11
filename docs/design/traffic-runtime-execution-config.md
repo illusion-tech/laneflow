@@ -91,9 +91,9 @@ worker 1–16，请求更大 worker 数须返回执行能力错误；类型可�
 `step(&mut self, TickInput) -> Result<StepOutcome, StepError>` 保持同步；返回前完成
 本次所有任务的 join。生命周期命令、观测和 Routing 仍消费完整已提交世界，Adapter
 不接收分区身份。宿主调用点须传执行配置，但不因此改变表现层数据协议。生命周期命令
-走到占用索引重建点时，可以借执行资源并行重建派生占用索引，再重新执行这条命令
-（[新鲜摆放第 8 节](traffic-runtime-vehicle-placement.md)）；它只改派生索引，panic
-同样使世界失效。
+走到重叠检查或占用索引重建点时，可以借执行资源并行备好派生占用索引与生成重叠
+索引，再重新执行这条命令（[新鲜摆放第 8、9 节](traffic-runtime-vehicle-placement.md)）；
+它只改派生索引，panic 同样使世界失效。
 
 ## 3. 私有所有权
 
