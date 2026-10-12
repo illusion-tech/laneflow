@@ -1,7 +1,6 @@
 //! Finite replay and capacity-only migration witnesses using the shared demand program.
 
 use std::{
-    collections::HashMap,
     fs,
     io::{BufWriter, Write},
     path::Path,
@@ -58,78 +57,37 @@ fn target_source(root: &SharedNetworkRevision) -> Result<CommittedNetworkSource>
     })
 }
 
-/// Rebind caller identities through snapshot-local IDs. Runtime handles are never
-/// encoded as durable identities, nor inferred from possibly identical routes/poses.
-fn restore<'a>(mut harness: Harness<'a>, output: &Path) -> Result<Harness<'a>> {
-    let snapshot = checked("capture replay save", harness.world.capture_snapshot())?;
-    let old_routes: Vec<_> = harness.world.live_routes().collect();
-    let old_vehicles = harness.world.live_vehicles().to_vec();
-    if old_routes.len() != snapshot.routes().len()
-        || old_vehicles.len() != snapshot.live_order().len()
-    {
-        return Err(invalid("snapshot identity cardinalities differ"));
-    }
-    let bytes = encode_lfrs(&snapshot);
-    fs::write(output.join("save.lfrs"), &bytes)?;
-    let restored = checked(
-        "restore replay save",
-        restore_lfrs(
-            &bytes,
-            harness.world.revision().clone(),
-            harness.world.committed_source().clone(),
-            harness.world.config(),
-            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            SnapshotRestoreLimits::new(2_147_483_648, 4_096),
-        ),
+/// 存档与续跑共用同一条序列化与重绑路径（设计 §7.7）：写出存档目录，丢弃旧世界后
+/// 从文件恢复并核对，再接回 Adapter 宿主。运行时句柄不作为耐久身份。
+fn restore<'a>(harness: Harness<'a>, output: &Path, state_digest: &str) -> Result<Harness<'a>> {
+    let (artifacts, plan) = (harness.artifacts, harness.plan);
+    let plan_digest = plan.digest()?;
+    let (record, _) = crate::save::write_save(
+        output,
+        &harness,
+        state_digest,
+        &plan_digest,
+        crate::save::SaveSource {
+            execution_id: "transition-replay".into(),
+            git_commit: None,
+            binary_sha256: None,
+            workers: 1,
+        },
     )?;
-    let mut routes = HashMap::new();
-    for (old, captured) in old_routes.iter().zip(snapshot.routes()) {
-        routes.insert(
-            *old,
-            restored
-                .route_handle(captured.snapshot_route_id())
-                .ok_or_else(|| invalid("restored route absent"))?,
-        );
-    }
-    let mut vehicles = HashMap::new();
-    let mut identity_map = Vec::new();
-    for (old, snapshot_id) in old_vehicles.iter().zip(snapshot.live_order()) {
-        let new = restored
-            .vehicle_handle(*snapshot_id)
-            .ok_or_else(|| invalid("restored vehicle absent"))?;
-        vehicles.insert(*old, new);
-        identity_map.push(
-            json!({"individual":harness.stable_individual(*old),"snapshot_vehicle_id":snapshot_id}),
-        );
-    }
-    write_json(
-        &output.join("save-identities.json"),
-        &json!({"version":1,"vehicles":identity_map,
-        "routes":old_routes.iter().zip(snapshot.routes()).map(|(h,s)| json!({"route_key":harness.route_key(*h),"snapshot_route_id":s.snapshot_route_id()})).collect::<Vec<_>>()}),
-    )?;
-    for handle in harness.routes.values_mut() {
-        *handle = routes[handle];
-    }
-    harness.route_table.remap_handles(&routes);
-    harness.slots.clear();
-    for (slot, individual) in harness.individuals.iter_mut().enumerate() {
-        if let Some(old) = individual.handle {
-            let new = *vehicles
-                .get(&old)
-                .ok_or_else(|| invalid("caller identity absent from snapshot"))?;
-            individual.handle = Some(new);
-            harness.slots.insert(new, slot);
-        }
-    }
-    let root = restored.world().revision().clone();
     let digest = harness.checkpoint()?;
-    harness.world =
-        Host::Headless(Box::new(restored.into_world())).into_adapter(spatial(&root)?)?;
-    harness.step_before.clear();
-    if harness.checkpoint()? != digest {
+    drop(harness);
+    let save = crate::save::load_save(&output.join(&record.path), artifacts, &plan_digest)?;
+    let restored = Harness::resume(
+        artifacts,
+        plan,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        save,
+    )?;
+    let restored = restored.into_adapter(spatial(artifacts.revision())?)?;
+    if restored.checkpoint()? != digest {
         return Err(invalid("save/restore digest differs"));
     }
-    Ok(harness)
+    Ok(restored)
 }
 
 fn native<'h>(harness: &'h mut Harness<'_>) -> Result<&'h mut TrafficWorld> {
@@ -334,12 +292,13 @@ fn trial(
     let mut transition = Value::Null;
     let mut transaction = None;
     let mut save_digest = String::new();
+    let mut state_digest = String::new();
     let mut command_count = 0;
     for tick in 0..END_TICK {
         if tick == SAVE_TICK {
             save_digest = harness.checkpoint()?;
             if mode == "restore" {
-                harness = restore(harness, output)?;
+                harness = restore(harness, output, &state_digest)?;
                 presentation = Presentation::default();
             }
         }
@@ -422,6 +381,7 @@ fn trial(
             transition = adapter_cutover(&mut harness, reloaded, variant)?;
         }
         let record = harness.advance()?;
+        state_digest.clone_from(&record.state_digest);
         command_count += harness.commands.len();
         let sample = if adapter {
             Some(presentation.sample(&mut harness)?)

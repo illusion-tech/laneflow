@@ -133,8 +133,9 @@ impl RightOfWayWitness {
     }
 }
 
-#[derive(Clone)]
-enum Command {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum Command {
     Replace {
         route: String,
         occurrence: u32,
@@ -203,19 +204,21 @@ impl Command {
     }
 }
 
-#[derive(Clone)]
-struct Request {
-    due: u64,
-    original_due: u64,
-    slot: usize,
-    sequence: u32,
-    attempt: u32,
-    retry: RetryPolicy,
-    command: Command,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Request {
+    pub(crate) due: u64,
+    pub(crate) original_due: u64,
+    pub(crate) slot: usize,
+    pub(crate) sequence: u32,
+    pub(crate) attempt: u32,
+    pub(crate) retry: RetryPolicy,
+    pub(crate) command: Command,
 }
 
-#[derive(Clone, Copy)]
-enum RetryPolicy {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum RetryPolicy {
     Finite { interval: u64, max_attempts: u32 },
     UntilWindowEnd { interval: u64 },
 }
@@ -229,8 +232,8 @@ impl RetryPolicy {
     }
 }
 
-struct CompletedRecycling {
-    pending_by_slot: Vec<Option<u32>>,
+pub(crate) struct CompletedRecycling {
+    pub(crate) pending_by_slot: Vec<Option<u32>>,
 }
 
 pub struct Harness<'a> {
@@ -240,13 +243,13 @@ pub struct Harness<'a> {
     pub(crate) individuals: Vec<Individual>,
     pub(crate) slots: crate::fastmap::FastMap<VehicleHandle, usize>,
     pub(crate) routes: BTreeMap<String, RouteHandle>,
-    profiles: BTreeMap<String, VehicleProfileOrdinal>,
+    pub(crate) profiles: BTreeMap<String, VehicleProfileOrdinal>,
     pub(crate) route_table: crate::route_table::RouteTable,
-    targets: BTreeMap<String, ParkingTarget>,
+    pub(crate) targets: BTreeMap<String, ParkingTarget>,
     pub(crate) target_keys: crate::fastmap::FastMap<ParkingTarget, String>,
-    schedule: BTreeMap<u64, Vec<Request>>,
-    requests: RequestLedger,
-    recycling: Option<CompletedRecycling>,
+    pub(crate) schedule: BTreeMap<u64, Vec<Request>>,
+    pub(crate) requests: RequestLedger,
+    pub(crate) recycling: Option<CompletedRecycling>,
     pub(crate) evidence: Vec<TileEvidence>,
     pub(crate) red_waiters: BTreeSet<(IndividualId, u32)>,
     pub(crate) claims: BTreeMap<(IndividualId, u32, u32), u32>,
@@ -257,11 +260,11 @@ pub struct Harness<'a> {
     pub(crate) events: Vec<Value>,
     pub(crate) error_counts: BTreeMap<String, u64>,
     pub(crate) atomic_rejections: BTreeMap<String, u32>,
-    watched: BTreeMap<String, u32>,
+    pub(crate) watched: BTreeMap<String, u32>,
     pub(crate) replacements: u64,
     pub(crate) births: u64,
     pub(crate) removals: u64,
-    last_signals: BTreeMap<u32, u8>,
+    pub(crate) last_signals: BTreeMap<u32, u8>,
     pub(crate) last_step_ns: u64,
     pub(crate) last_command_ns: u64,
     pub(crate) last_observation_ns: u64,
@@ -296,43 +299,7 @@ impl<'a> Harness<'a> {
             routes.insert(r.key.clone(), handle);
             route_table.register(handle, r.key.clone(), r.edge_keys.clone(), &edges, lengths);
         }
-        let mut targets = BTreeMap::new();
-        let mut target_keys = crate::fastmap::FastMap::default();
-        for p in &artifacts.catalog.parking {
-            let target = if p.kind == "explicit" {
-                let id: ParkingSpaceId = crate::catalog_id(&p.stable_id)?;
-                ParkingTarget::ExplicitSpace(
-                    artifacts
-                        .revision
-                        .identity()
-                        .ordinal(id)
-                        .ok_or_else(|| invalid("unknown space"))?,
-                )
-            } else {
-                let id: ParkingFacilityId = crate::catalog_id(&p.stable_id)?;
-                ParkingTarget::VirtualPool(
-                    artifacts
-                        .revision
-                        .identity()
-                        .ordinal(id)
-                        .ok_or_else(|| invalid("unknown facility"))?,
-                )
-            };
-            targets.insert(p.key.clone(), target);
-            target_keys.insert(target, p.key.clone());
-        }
-        let mut profiles = BTreeMap::new();
-        for (key, id) in &artifacts.catalog.profile_ids {
-            let id: VehicleProfileId = crate::catalog_id(id)?;
-            profiles.insert(
-                key.clone(),
-                artifacts
-                    .revision
-                    .identity()
-                    .ordinal(id)
-                    .ok_or_else(|| invalid("unknown profile"))?,
-            );
-        }
+        let (targets, target_keys, profiles) = catalog_bindings(artifacts)?;
         let mut individuals = Vec::new();
         let mut slots = crate::fastmap::FastMap::default();
         for initial in &plan.initial {
@@ -384,17 +351,7 @@ impl<'a> Harness<'a> {
             });
         }
         let last_signals = signal_signature(&world)?;
-        let workers = execution.worker_count().get();
-        let pool = if workers > 1 {
-            Some(checked(
-                "observation thread pool",
-                rayon_core::ThreadPoolBuilder::new()
-                    .num_threads(workers as usize)
-                    .build(),
-            )?)
-        } else {
-            None
-        };
+        let pool = observation_pool(execution)?;
         let mut harness = Self {
             artifacts,
             plan,
@@ -1638,7 +1595,72 @@ impl<'a> Harness<'a> {
     }
 }
 
-fn signal_signature(world: &TrafficWorld) -> Result<BTreeMap<u32, u8>> {
+pub(crate) type CatalogBindings = (
+    BTreeMap<String, ParkingTarget>,
+    crate::fastmap::FastMap<ParkingTarget, String>,
+    BTreeMap<String, VehicleProfileOrdinal>,
+);
+
+/// 停车目标与 profile 由共享根的稳定标识解析；安装与续跑恢复共用。
+pub(crate) fn catalog_bindings(artifacts: &Artifacts) -> Result<CatalogBindings> {
+    let mut targets = BTreeMap::new();
+    let mut target_keys = crate::fastmap::FastMap::default();
+    for p in &artifacts.catalog.parking {
+        let target = if p.kind == "explicit" {
+            let id: ParkingSpaceId = crate::catalog_id(&p.stable_id)?;
+            ParkingTarget::ExplicitSpace(
+                artifacts
+                    .revision
+                    .identity()
+                    .ordinal(id)
+                    .ok_or_else(|| invalid("unknown space"))?,
+            )
+        } else {
+            let id: ParkingFacilityId = crate::catalog_id(&p.stable_id)?;
+            ParkingTarget::VirtualPool(
+                artifacts
+                    .revision
+                    .identity()
+                    .ordinal(id)
+                    .ok_or_else(|| invalid("unknown facility"))?,
+            )
+        };
+        targets.insert(p.key.clone(), target);
+        target_keys.insert(target, p.key.clone());
+    }
+    let mut profiles = BTreeMap::new();
+    for (key, id) in &artifacts.catalog.profile_ids {
+        let id: VehicleProfileId = crate::catalog_id(id)?;
+        profiles.insert(
+            key.clone(),
+            artifacts
+                .revision
+                .identity()
+                .ordinal(id)
+                .ok_or_else(|| invalid("unknown profile"))?,
+        );
+    }
+    Ok((targets, target_keys, profiles))
+}
+
+/// 观测块并行用的常驻池；workers==1 时为 None。
+pub(crate) fn observation_pool(
+    execution: laneflow_runtime::ExecutionConfig,
+) -> Result<Option<rayon_core::ThreadPool>> {
+    let workers = execution.worker_count().get();
+    if workers > 1 {
+        Ok(Some(checked(
+            "observation thread pool",
+            rayon_core::ThreadPoolBuilder::new()
+                .num_threads(workers as usize)
+                .build(),
+        )?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) fn signal_signature(world: &TrafficWorld) -> Result<BTreeMap<u32, u8>> {
     world
         .committed_signal_groups()
         .as_slice()

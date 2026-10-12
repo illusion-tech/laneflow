@@ -15,6 +15,7 @@ mod report;
 mod requests;
 mod route_table;
 mod runner;
+mod save;
 mod scenario;
 #[cfg(feature = "adapter")]
 mod transitions;
@@ -37,11 +38,12 @@ pub use presentation::{
     SelectionWindow,
 };
 pub use report::{
-    ActiveLoadSummary, ComparedRun, ComparisonReport, Diagnostics, MAX_WORKERS,
-    PerformanceComparisonReport, PerformanceRound, RunResult, SampleSummary,
-    compare_performance_runs, compare_runs, run_to_directory,
+    ActiveLoadSummary, ComparedRun, ComparisonReport, Diagnostics, Endpoint, MAX_WORKERS,
+    PerformanceComparisonReport, PerformanceRound, RunOptions, RunResult, SampleSummary,
+    compare_performance_runs, compare_runs, run_to_directory, run_with_options,
 };
 pub use runner::{Harness, IndividualId, TickRecord};
+pub use save::{ResumedFrom, SaveManifest, SaveRecord, SaveSource};
 #[cfg(feature = "adapter")]
 pub use variant::prepare_capacity_variant;
 

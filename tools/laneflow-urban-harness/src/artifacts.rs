@@ -152,6 +152,24 @@ impl Artifacts {
         &self,
         execution: laneflow_runtime::ExecutionConfig,
     ) -> Result<TrafficWorld> {
+        let pin: RightOfWayPolicySetId = crate::catalog_id(&self.catalog.policy_id)?;
+        let world = checked(
+            "world install",
+            TrafficWorld::install(
+                self.revision.clone(),
+                self.world_config()?,
+                execution,
+                self.committed_source()?,
+                544,
+                WorldPolicySelection::Pinned(PolicyPin { policy: pin }),
+            ),
+        )?;
+        self.check_policy(&world)?;
+        Ok(world)
+    }
+
+    /// 安装与续跑恢复共用的世界容量配置。
+    pub(crate) fn world_config(&self) -> Result<WorldConfig> {
         let mut passages = BTreeMap::new();
         for raw in 0..self
             .revision
@@ -187,8 +205,18 @@ impl Artifacts {
                 conflict_capacity += passages.get(edge).copied().unwrap_or(0);
             }
         }
+        Ok(WorldConfig::new(
+            self.individuals,
+            self.catalog.routes.len() as u32,
+            edge_capacity,
+            conflict_capacity,
+            self.dt,
+        ))
+    }
+
+    /// 安装与续跑恢复共用的已提交来源。
+    pub(crate) fn committed_source(&self) -> Result<CommittedNetworkSource> {
         let origin = self.revision.canonical_origin();
-        let pin: RightOfWayPolicySetId = crate::catalog_id(&self.catalog.policy_id)?;
         let source = checked(
             "source reference",
             PublishedLfcaReference::new(
@@ -198,23 +226,11 @@ impl Artifacts {
                 origin.network_revision(),
             ),
         )?;
-        let world = checked(
-            "world install",
-            TrafficWorld::install(
-                self.revision.clone(),
-                WorldConfig::new(
-                    self.individuals,
-                    self.catalog.routes.len() as u32,
-                    edge_capacity,
-                    conflict_capacity,
-                    self.dt,
-                ),
-                execution,
-                CommittedNetworkSource::Published { reference: source },
-                544,
-                WorldPolicySelection::Pinned(PolicyPin { policy: pin }),
-            ),
-        )?;
+        Ok(CommittedNetworkSource::Published { reference: source })
+    }
+
+    /// 世界（含快照恢复所得）必须使用 urban-conservative-v1 间隙策略。
+    pub(crate) fn check_policy(&self, world: &TrafficWorld) -> Result<()> {
         if world.policy_gap_profiles().is_empty()
             || world
                 .policy_gap_profiles()
@@ -223,7 +239,7 @@ impl Artifacts {
         {
             return Err(invalid("urban-conservative-v1 gap differs"));
         }
-        Ok(world)
+        Ok(())
     }
 
     pub(crate) fn signal_group(&self, key: &str) -> Result<SignalGroupOrdinal> {

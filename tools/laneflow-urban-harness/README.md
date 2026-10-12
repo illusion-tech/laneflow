@@ -38,6 +38,18 @@ target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-
 target/release/laneflow-urban-harness compare <run-a> <run-b> <comparison.json>
 ```
 
+存档与续跑（设计 §7）：`run` 可加 `--save-at <T>`（可重复）在第 T 拍写出
+`saves/tick-<T>/`，`--until-tick <E>` 只推进到第 E 拍，`--resume <save-dir>` 从存档在
+新进程里续跑（worker 数可以不同）。续跑、分段以及带存档的 performance 运行状态为
+`segment-complete`，不做 case 校验、不写正式测量；`compare` 对它们按推进区间分段比较，
+通过状态为 `segment-match`，不是正确性、正式性能或认证证据。
+
+```text
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <full> --diagnostics --save-at 11136 --until-tick 14848
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <resumed> --diagnostics --resume <full>/saves/tick-11136 --until-tick 14848
+target/release/laneflow-urban-harness compare <full> <resumed> <comparison.json>
+```
+
 `run` 接受 `--workers N`（缺省 1，合法域 1..=16，与 Runtime 执行配置上限一致）。
 详细日志默认关闭：probe 可省略 `--diagnostics`，只保存计划、最小运行回执和执行
 计时；不会创建、分配缓冲或序列化 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`。
@@ -230,17 +242,19 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v7`，必填 `diagnostics_enabled`
-  绑定详细日志开关。incarnation 与请求序号独立，sustained 显式报告实际 Active；
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v8`，必填 `diagnostics_enabled`
+  绑定详细日志开关；v8 起记录续跑来源 `resumed_from`、存档 `saves`、终点 `segment_end`、
+  观察窗与推进区间的交集 `observed_ticks`，以及终点核对值 `endpoint`（第 E 拍完整检查点
+  与宿主状态摘要 `urban-caller-digest-v1`）。incarnation 与请求序号独立，sustained 显式报告实际 Active；
   `diagnostics.json` 摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套。
   诊断关闭的 probe 仅表示运行完成，完整比较拒绝该回执；旧载荷拒绝、不转换；
   Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
-- `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v2`（v2 起
-  `ComparedRun` 记录两臂各自 worker 数；v1 报告布局不含该字段，不转换），记录
-  `case-pass`、`probe-match` 或 `performance-match`、case/scale、计划摘要、完成 tick 数，
-  以及两个执行编号和两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；
+- `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v3`（记录比较
+  区间 `(T, E]` 与两臂各自的起点、终点、续跑存档清单摘要和 worker 数；旧报告不转换），
+  记录 `case-pass`、`probe-match`、`performance-match` 或 `segment-match`、case/scale、
+  计划摘要，以及两个执行编号和两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；
   失败比较不生成通过报告。
   库的 `compare_runs` 返回同一结构，可用 `ComparisonReport::write` 保存。
 - `diagnostics.json` 保存执行编号、环境和诊断耗时；step 范围只包围公共 step 调用，
