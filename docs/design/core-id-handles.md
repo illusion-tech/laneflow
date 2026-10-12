@@ -601,8 +601,8 @@ replace_completed_vehicle(
 
 只有物理 overlap 返回可恢复的 typed `ReplaceError::Blocked`，payload 含 old/blocker handle、前后关系和 bumper gap。stale、非 Completed、Parking 占用、profile、route、`route_edge_index`、progress、speed、限速、准入和容量错误均为致命 `ReplaceError`。任一 blocked/fatal 结果都保持 committed world 不变。
 
-重叠准入使用路线起点截断后的非空车身区间，并拒绝重合的零进度前杠入口点；多个 blocker 取当前世界内部
-`(slot index, generation)` 字典序最小值，不按 `live_order` 选第一个。该规则不增加
+重叠准入使用路线起点截断后的非空车身区间，并拒绝重合的零进度前杠入口点；多个 blocker 按
+几何规则选择（离前杠最近者），与槽位分配无关、快照恢复前后一致。该规则不增加
 handle 公共排序能力，详见 `vehicle-following.md` §7.4。
 
 replace 尽量保留 old 的 `live_order` 位置，不产生 tombstone。TrafficWorld 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。走廊 / 城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 Adapter transaction 原子切换 binding。详细职责见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。

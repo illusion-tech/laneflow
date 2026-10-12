@@ -212,6 +212,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - **回放身份**：命令目标用耐久身份（快照局部标识或宿主自有 ID），不用进程
   句柄；恢复经「局部标识 → 新分配句柄」映射重提交；检查点之后由命令新建的
   实体，其耐久 ID 由命令载荷自带。
+- **恢复等价**：Runtime 对外结果（命令与步进结果、事件、错误及其诊断句柄所指的
+  车辆）只由已提交状态决定，不依赖槽位分配、generation 或派生索引的内部顺序；同一
+  已提交状态恢复后给出相同结果，句柄按新世界映射。
 - **G2 身份接缝**：`CapturedRoute` / `CapturedVehicle` 以只读访问器公开局部 ID 与
   逻辑字段；`RestoredSnapshot::route_mappings` / `vehicle_mappings` 返回按局部 ID
   升序的完整新句柄表，单 ID 查询只作便利入口。宿主据此把自己保存的耐久 ID
