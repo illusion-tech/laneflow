@@ -3,10 +3,12 @@
 //!
 //! #705 整步等价：`trace_with_workers` 把同一 digest 轨迹在真实多 worker 世界
 //! 下重跑（`WorldExecution::start_private` 重建世界独占执行资源，等同安装合同
-//! 的计划/资源准备），逐场景断言 worker 2/4/8/16 与 worker 1 完全一致，并与
+//! 的计划/资源准备），逐场景断言 worker 4/16 与 worker 1 完全一致，并与
 //! 固定 fixture `phase-parallel-matrix-c009d2dc.txt` 一致；fixture 值取自
 //! worker 1 融合路径，其 digest 管线已由 pre-refactor fixture
-//! `phase-protocol-e011745e.txt` 锚定。
+//! `phase-protocol-e011745e.txt` 锚定。worker 档位与拍数经 #915 outcome 级
+//! 测量论证降档（档位 [1,4,16]，拍数 64/12/320/360），恢复+续跑比较抽样于
+//! workers∈{1,16}。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
 use crate::{StepError, TickInput, TrafficWorld};
@@ -69,7 +71,54 @@ fn reinstall_execution(world: &mut TrafficWorld, workers: NonZeroU32) {
 }
 
 fn trace(world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u64>) -> String {
-    trace_with_workers(world, ticks, retry, journal_bound, NonZeroU32::MIN)
+    trace_with_workers(
+        world,
+        ticks,
+        retry,
+        journal_bound,
+        NonZeroU32::MIN,
+        RestoreCheck::IntoDigest,
+    )
+}
+
+/// 恢复+续跑比较的执行方式。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RestoreCheck {
+    /// 续跑 digest 并入轨迹 digest（e011745e pre-refactor 锚定路径，行为冻结）。
+    IntoDigest,
+    /// 恢复+续跑仅作旁路断言，不进轨迹 digest（worker 矩阵抽样臂），
+    /// 保持跨臂 digest 可比较。
+    SideAssert,
+    /// 不执行（矩阵未抽样臂；恢复机制与 worker 数无关，抽样覆盖）。
+    Skip,
+}
+
+/// 恢复快照并续跑一拍：恢复不重建历史 latest batches，按快照局部身份比较
+/// 后续语义。返回续跑后状态 digest 的 `{continued:?}` 形式。
+fn restore_and_continue(world: &mut TrafficWorld, workers: NonZeroU32, input: TickInput) -> String {
+    let captured = world.capture_snapshot().unwrap();
+    let mut restored = crate::restore_lfrs(
+        &crate::encode_lfrs(&captured),
+        world.revision(),
+        world.committed_source().clone(),
+        world.config(),
+        crate::ExecutionConfig::new(workers),
+        crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4_096),
+    )
+    .unwrap()
+    .into_world();
+    assert_eq!(
+        crate::deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
+        crate::deterministic_state_digest(&captured).unwrap()
+    );
+    world.step(input).unwrap();
+    restored.step(input).unwrap();
+    let continued = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+    assert_eq!(
+        crate::deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
+        continued
+    );
+    format!("{continued:?}")
 }
 
 fn trace_with_workers(
@@ -78,6 +127,7 @@ fn trace_with_workers(
     retry: bool,
     journal_bound: Option<u64>,
     workers: NonZeroU32,
+    restore: RestoreCheck,
 ) -> String {
     if let Some(bound) = journal_bound {
         world.state.arm_migration_journal(bound).unwrap();
@@ -123,30 +173,12 @@ fn trace_with_workers(
         );
     }
     digest.update(journal(&world).as_bytes());
-    // 恢复不重建历史 latest batches；按快照局部身份比较后续语义。
-    let captured = world.capture_snapshot().unwrap();
-    let mut restored = crate::restore_lfrs(
-        &crate::encode_lfrs(&captured),
-        world.revision(),
-        world.committed_source().clone(),
-        world.config(),
-        crate::ExecutionConfig::new(workers),
-        crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4_096),
-    )
-    .unwrap()
-    .into_world();
-    assert_eq!(
-        crate::deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
-        crate::deterministic_state_digest(&captured).unwrap()
-    );
-    world.step(input).unwrap();
-    restored.step(input).unwrap();
-    let continued = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
-    assert_eq!(
-        crate::deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
-        continued
-    );
-    digest.update(format!("{continued:?}").as_bytes());
+    if restore != RestoreCheck::Skip {
+        let continued = restore_and_continue(&mut world, workers, input);
+        if restore == RestoreCheck::IntoDigest {
+            digest.update(continued.as_bytes());
+        }
+    }
     eprintln!(
         "phase-trace-cost vehicles={} ticks={ticks} retry={retry} journal_bound={journal_bound:?} conflict_retained_bytes={}",
         world.live_vehicles().len(),
@@ -283,6 +315,13 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
     // 车辆-bearing 场景的活动数必须达到分发门槛，多 worker 运行才真正分发；
     // 信号时钟场景无车辆，覆盖空工作集下的池世界整步。
+    // 拍数论证（#915，w=1 outcome 级测量：各 outcome/事件/状态种类首次出现拍与
+    // 活动尾拍；详见 Issue 测量表）：
+    // - waiting 64：种类穷尽于 35、活动止于 18（含 Completed@34），近 2× 余量；
+    // - conflict 320：所有 outcome 种类第 0 拍穷尽，决策/事件活动止于 307；
+    //   Completed@592 的机制由 waiting-parallel 与 #814 waiting 场景覆盖；
+    // - signals 360：信号组切换发生在 0/289/339，保留全部切换加余量；
+    // - overflow 12：journal 溢出形状所需，不变。
     type Scenario = (
         &'static str,
         Box<dyn Fn(NonZeroU32) -> TrafficWorld>,
@@ -294,7 +333,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
         (
             "waiting-parallel",
             Box::new(|_| crate::kernel::waiting::tests::multi_gate_world(16)),
-            160,
+            64,
             None,
             true,
         ),
@@ -313,14 +352,14 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
                     16,
                 )
             }),
-            640,
+            320,
             None,
             true,
         ),
         (
             "signals-clock-parallel",
             Box::new(signals_world),
-            600,
+            360,
             Some(1_024 * 1_024),
             false,
         ),
@@ -328,7 +367,9 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     let mut actual = Vec::new();
     for (name, build, ticks, bound, dispatch_required) in &scenarios {
         let mut baseline: Option<String> = None;
-        for raw_workers in [1_u32, 2, 4, 8, 16] {
+        // #915 档位论证：2/8 分别与 4/16 同构（常规并行/超订细分块），裁剪不损失
+        // 块形状信号；16 保留——4 vCPU CI 上超订臂调度扰动最强、最易暴露顺序依赖。
+        for raw_workers in [1_u32, 4, 16] {
             let workers = NonZeroU32::new(raw_workers).expect("nonzero workers");
             let mut world = build(workers);
             // 多 worker 场景经世界独占执行资源的计划/资源准备重跑，与安装合同同一路径。
@@ -358,7 +399,14 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
                     "{name} must keep at least {DISPATCH_MIN_ACTIVE} active vehicles, got {active}"
                 );
             }
-            let rerun = trace_with_workers(world, *ticks, true, *bound, workers);
+            // 恢复+续跑比较抽样于 1/16 两臂：恢复机制与 worker 数无关，其余臂
+            // 无边际信号；比较不进轨迹 digest，跨臂 digest 保持可比较。
+            let restore = if matches!(raw_workers, 1 | 16) {
+                RestoreCheck::SideAssert
+            } else {
+                RestoreCheck::Skip
+            };
+            let rerun = trace_with_workers(world, *ticks, true, *bound, workers, restore);
             match &baseline {
                 None => baseline = Some(rerun),
                 Some(expected) => assert_eq!(
@@ -371,8 +419,10 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     }
     let actual = actual.join("\n");
     eprintln!("PHASE_PARALLEL_BASELINE_BEGIN\n{actual}\nPHASE_PARALLEL_BASELINE_END");
-    // 值冻结自 worker 1 融合路径（与安装合同同一计划/资源准备），digest 管线由
-    // pre-refactor fixture phase-protocol-e011745e.txt 锚定；不得用被测实现重生成。
+    // 值取自 worker 1 融合路径（与安装合同同一计划/资源准备）；#915 降档时随
+    // 矩阵形状变化重生成一次——digest 管线与场景构造器仍由 pre-refactor fixture
+    // phase-protocol-e011745e.txt 锚定（exact_baseline 拍数不变），此后不得用
+    // 被测实现重生成。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-parallel-matrix-c009d2dc.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
@@ -418,9 +468,23 @@ fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
             "signals" => signals_world(workers),
             _ => unreachable!(),
         };
-        let selected = trace_with_workers(build(), 640, true, Some(1_024 * 1_024), workers);
+        let selected = trace_with_workers(
+            build(),
+            640,
+            true,
+            Some(1_024 * 1_024),
+            workers,
+            RestoreCheck::SideAssert,
+        );
         let full = crate::kernel::resource_rows::with_full_scan_oracle(|| {
-            trace_with_workers(build(), 640, true, Some(1_024 * 1_024), workers)
+            trace_with_workers(
+                build(),
+                640,
+                true,
+                Some(1_024 * 1_024),
+                workers,
+                RestoreCheck::SideAssert,
+            )
         });
         assert_eq!(
             selected, full,
