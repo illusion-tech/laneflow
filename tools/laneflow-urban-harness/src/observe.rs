@@ -215,8 +215,10 @@ pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
     if h.world.live_vehicles().len() != live || h.slots.len() != live {
         return Err(invalid("live identity conservation failed"));
     }
-    let expected_live = i64::from(h.plan.individuals) + h.births as i64 - h.removals as i64;
-    if expected_live < 0 || live != expected_live as usize {
+    let expected_live = i64::from(h.plan.individuals)
+        .checked_add_unsigned(h.births)
+        .and_then(|n| n.checked_sub_unsigned(h.removals));
+    if expected_live.is_none_or(|expected| usize::try_from(expected) != Ok(live)) {
         return Err(invalid("birth/removal identity conservation failed"));
     }
     let mut counts = (0, 0, 0);
@@ -1282,8 +1284,10 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     if h.world.live_vehicles().len() != live || h.slots.len() != live {
         return Err(invalid("live identity conservation failed"));
     }
-    let expected_live = i64::from(h.plan.individuals) + h.births as i64 - h.removals as i64;
-    if expected_live < 0 || live != expected_live as usize {
+    let expected_live = i64::from(h.plan.individuals)
+        .checked_add_unsigned(h.births)
+        .and_then(|n| n.checked_sub_unsigned(h.removals));
+    if expected_live.is_none_or(|expected| usize::try_from(expected) != Ok(live)) {
         return Err(invalid("birth/removal identity conservation failed"));
     }
     // 各块 bodies 已在块线程内有序；主线程用运行自适应的稳定排序归并，

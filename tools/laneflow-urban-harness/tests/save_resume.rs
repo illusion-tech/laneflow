@@ -461,6 +461,49 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         },
         "retry policy",
     );
+    // 排队请求改为指向已知停车目标、但出口越界的 Leave。
+    let parking = &artifacts.catalog().parking[0];
+    let (target, exits) = (parking.key.clone(), parking.exits.len());
+    reject(
+        queued,
+        "leave exit out of range",
+        &|caller| {
+            caller["schedule"][0]["command"] = serde_json::json!({
+                "kind": "leave", "target": target, "exit": exits, "east": true
+            });
+        },
+        "references unknown entities",
+    );
+    fn claims(caller: &mut Value) -> &mut Vec<Value> {
+        let claims = caller["claims"].as_array_mut().unwrap();
+        assert!(!claims.is_empty(), "the save must hold conflict claims");
+        claims
+    }
+    reject(
+        sustained,
+        "claim occurrence out of range",
+        &|caller| {
+            claims(caller)[0][0][2] = 99_999.into();
+        },
+        "conflict claim",
+    );
+    reject(
+        sustained,
+        "claim zone mismatch",
+        &|caller| {
+            let claim = &mut claims(caller)[0];
+            claim[1] = (claim[1].as_u64().unwrap() + 1).into();
+        },
+        "conflict claim",
+    );
+    reject(
+        sustained,
+        "overflowing births",
+        &|caller| {
+            caller["births"] = u64::MAX.into();
+        },
+        "conservation",
+    );
     reject(
         sustained,
         "swapped routes",
@@ -561,6 +604,28 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         "observation encoding",
     );
     // 清单声明的长度先于读入内存核对：超过上限或与磁盘长度不符即拒绝。
+    let forged = temp.path().join("fixed-step");
+    fs::create_dir_all(&forged).unwrap();
+    for name in ["world.lfrs", "caller.json"] {
+        fs::copy(save.join(name), forged.join(name)).unwrap();
+    }
+    let mut manifest: toml::Table =
+        toml::from_str(&fs::read_to_string(save.join("save.toml")).unwrap()).unwrap();
+    let step = manifest["fixed_step_ms"].as_integer().unwrap();
+    manifest.insert("fixed_step_ms".into(), toml::Value::Integer(step + 1));
+    fs::write(
+        forged.join("save.toml"),
+        toml::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    resume(
+        RunOptions {
+            resume: Some(forged),
+            ..RunOptions::default()
+        },
+        "fixed-step",
+        "fixed step",
+    );
     for (label, file, bytes) in [
         ("oversized-world", "world", 4_294_967_296_i64),
         ("mismatched-caller", "caller", 1),
