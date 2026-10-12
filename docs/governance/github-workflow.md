@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-09-20
+**最后更新**: 2026-10-12
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -305,6 +305,21 @@ cargo +1.98.0 nextest run -p laneflow-junction-generator --locked --features pla
 
 证据类测试不在本地常规运行；需要时按 `Evidence` workflow 的命令执行（钉版 nextest
 `--run-ignored ignored-only --test-threads 1 --no-capture` 加 `-E` 过滤）。
+
+### 8.2 偶发失败 triage
+
+CI 失败不等于真回归，也不得默认当偶发放过。判读与处置按以下口径执行；签名判读
+入口见 `../reference/validation-matrix.md` 第 8 节：
+
+1. **分诊**：先按签名对照表判读失败面。命中已知偶发签名且现场数据相符，按第 2 条
+   留档后重跑放行；对不上签名、或现场数据与签名不符的一律按真回归处理，不得放行。
+2. **留档**：重跑放行前必须把失败日志片段（断言行、现场数据行与 run 链接）贴进
+   对应追踪 issue。不留档的重跑等于销毁证据，禁止执行。
+3. **取证优先**：命中已探针覆盖的签名时，直接读探针现场数据（如 `[digest-probe]`、
+   `[tick-ledger]`）归因，不再做无探针盲跑循环；探针不足时按 #797 / #893 范式补
+   留置探针后转自然取样。
+4. **修复口径**：优先结构性隔离（#791 / #795 / #796 先例），不放缩真实断言、不为
+   偶发叠加双轨隔离。收口以「连续 ≥10 次全量全绿」为准，重跑通过不算修复。
 
 ## 9. Release 规则
 

@@ -1,15 +1,16 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-09-20
+**最后更新**: 2026-10-12
 
-**适用范围**: LaneFlow 各切片类型在合并前的最小验证要求
+**适用范围**: LaneFlow 各切片类型在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
 **关联文档**:
 
 - 上游治理:
   - `../governance/development-gates.md`
   - `../governance/dependency-security.md`
   - `../governance/security-scanning.md`
+  - `../governance/github-workflow.md`（偶发失败 triage 口径，第 8.2 节）
   - `commit-convention.md`
   - `../adr/0026-merge-governance-rebuild.md`
   - `../adr/0027-retire-external-review-check.md`
@@ -99,3 +100,24 @@ GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 
 本矩阵定义“做什么检查”，`commit-convention.md` 定义 commit 标题和 footer。切片类型写在
 PR 模板里，不进 commit 门禁。
+
+## 8. 偶发失败签名对照表
+
+本表是偶发失败签名与判读方法的单一事实源；处置流程见
+`../governance/github-workflow.md` 第 8.2 节。每行可反向索引追踪 issue，结论以追踪
+issue 为准，本表只做判读入口，不复制诊断结论。
+
+| 签名（断言 / 错误面）                                                                                               | 出处                                                                              | 判读方法                                                                              | 状态 / 追踪                            |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------- |
+| `Validation { stage: "file-backed emission", detail: "Format(DigestMismatch { structure: ChunkDirectoryEntry })" }` | urban-harness → `laneflow-format` 读回校验                                        | 读 `[digest-probe]` 行（entry/offset/长度、期望 vs 实际摘要、内容头 32 字节）判别机理 | 未归因，探针就位（#797）· #794         |
+| `warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow: assertion failed: left: N`                          | `placement_admission` warm 重扫计数                                               | 病因为并发测试污染进程全局 `MANEUVER_UPSTREAM_EDGE_VISITS`                            | 已修（#796，thread-local）· 再现即回归 |
+| `spawn_overlap_allocation.rs:123/124 assertion ... failed` 同 tid 双 panic                                          | `allocation_guard_rejects_real_heap_operations` 的 `catch_unwind` 预期失败 stderr | 误报判别：看该二进制 `test result:` 行，`ok. 2 passed` 即非失败                       | 误报已撤销（#794 症状①）               |
+| `steady Waiting ticks allocated` / `repeated admission sample N allocated`                                          | `waiting_budget_evidence` 零分配窗口                                              | 读 `[tick-ledger]` 逐拍行与暖机余量，判别懒物化漂移 / 他面串扰 / 计量边界             | 未归因，探针就位（#893）· #794         |
+| `armed steady ticks must not allocate beyond unarmed steady ticks`                                                  | `cutover_cross_budget_evidence` 稳态账本不等                                      | 同上 `[tick-ledger]`；left=unarmed、right=armed                                       | 未归因，探针就位（#893）· #794         |
+| `per-world live N must stay below M bytes`                                                                          | `shared_network_allocation_evidence` 每世界预算                                   | 先对比分支 diff 是否真实增长（实测有 +4 B/世界的研究分支实例），再判串扰              | 多为真预算超限                         |
+| `NonFiniteMotion` 家族偶发                                                                                          | `phase_equivalence` 等                                                            | 故障注入跨武装世界引爆                                                                | 已修（#795）· #792                     |
+| 取样脚本报 FAILED 但目标 `test result: ok`                                                                          | 自建循环取样脚本                                                                  | 检查匹配是否大小写不敏感、是否误计 `catch_unwind` 预期失败 stderr                     | 方法论教训（#794 iter 5）              |
+
+收录机制：追踪 issue 收口时，把最终签名与判读方法回写本表并在实现 PR 中索引；修复后
+保留行并标注「已修（`<PR>`）· 再现即回归」，不删行。新增签名未入表前，一律按真回归
+处理。
