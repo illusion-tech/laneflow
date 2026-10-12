@@ -69,9 +69,23 @@ mod tests {
     }
 
     #[test]
-    fn changes_only_common_primitive_and_matches_hot_split() {
-        let original = include_str!("../../../crates/laneflow-runtime/src/kernel/tick.rs")
-            .replace("\r\n", "\n");
+    fn rejects_columnar_runtime_as_a_split_export_source() {
+        let original = include_str!("../../../crates/laneflow-runtime/src/kernel/tick.rs");
+        assert!(patch_tick(&mut original.replace("\r\n", "\n"), "candidate").is_err());
+    }
+
+    #[test]
+    #[ignore = "manual archive reproduction: requires the original frozen Git object"]
+    fn patches_frozen_runtime_and_restores_it_byte_for_byte() {
+        let original = io::git(
+            &std::env::current_dir().unwrap(),
+            &[
+                "show",
+                &format!("{}:crates/laneflow-runtime/src/kernel/tick.rs", BASE),
+            ],
+        )
+        .unwrap()
+        .replace("\r\n", "\n");
         let mut split = original.clone();
         patch_tick(&mut split, "candidate").unwrap();
         let mut hot = original.clone();
