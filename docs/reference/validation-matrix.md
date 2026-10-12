@@ -114,16 +114,16 @@ issue 为准，本表只做判读入口，不复制诊断结论。
 | `spawn_overlap_allocation.rs:123/124 assertion ... failed` 同 tid 双 panic                                          | `allocation_guard_rejects_real_heap_operations` 的 `catch_unwind` 预期失败 stderr | 该二进制 `test result: ok`，且双 panic 同 tid 成对出现                                            | 误报判别：看该二进制 `test result:` 行，`ok. 2 passed` 即非失败                       | 误报已撤销（#794 症状①）               |
 | `steady Waiting ticks allocated` / `repeated admission sample N allocated`                                          | `waiting_budget_evidence` 零分配窗口                                              | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 4 alloc / 0 realloc）                            | 读 `[tick-ledger]` 逐拍行与暖机余量，判别懒物化漂移 / 他面串扰 / 计量边界             | 未归因，探针就位（#893）· #794         |
 | `armed steady ticks must not allocate beyond unarmed steady ticks`                                                  | `cutover_cross_budget_evidence` 稳态账本不等                                      | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 unarmed 侧孤立 4 alloc / 900 B 对 armed 侧全 0） | 同上 `[tick-ledger]`；left=unarmed、right=armed                                       | 未归因，探针就位（#893）· #794         |
-| `per-world live N must stay below M bytes`                                                                          | `shared_network_allocation_evidence` 每世界预算                                   | 分支 diff 存在对应的每世界真实增长（如 +4 B/世界）即真超限，否则待裁决                            | 先对比分支 diff 是否真实增长（实测有 +4 B/世界的研究分支实例），再判串扰              | 多为真预算超限                         |
+| `per-world live N must stay below M bytes`                                                                          | `shared_network_allocation_evidence` 每世界预算                                   | 分支 diff 存在对应的每世界真实增长（如 +4 B/世界）即真超限，否则待裁决                            | 先对比分支 diff 是否真实增长（实测有 +4 B/世界的研究分支实例），再判串扰              | 多为真预算超限 · #794                  |
 | `NonFiniteMotion` 家族偶发                                                                                          | `phase_equivalence` 等                                                            | —（已修，任何命中即回归）                                                                         | 故障注入跨武装世界引爆                                                                | 已修（#795）· #792                     |
 | 取样脚本报 FAILED 但目标 `test result: ok`                                                                          | 自建循环取样脚本                                                                  | 目标二进制 `test result: ok` 即脚本误报                                                           | 检查匹配是否大小写不敏感、是否误计 `catch_unwind` 预期失败 stderr                     | 方法论教训（#794 iter 5）              |
 
 放行裁决与收录机制：
 
-- **重跑解除合并阻塞**与**裁决为偶发**分开。任何命中都可留档后重跑解除阻塞，但只有
-  表内匹配谓词逐项吻合才构成偶发裁决；无谓词行（标注「待归因」）不具裁决资格，命中
-  一律记为待裁决事件留档追踪 issue，同一签名连续命中或出现谓词外数据即升级按真回归
-  处理。已修行的任何命中一律是回归。
+- **裁决口径分三类**：表内匹配谓词逐项吻合 → 偶发裁决成立，留档后重跑放行；无谓词行
+  （标注「待归因」）命中**保持阻塞**，由维护者依现场数据与探针输出显式裁决（记录进
+  追踪 issue）后方可重跑放行，同签名重复命中不予裁决并升级真回归；谓词外命中与未入表
+  签名一律真回归，**修复后方可合入**。已修行的任何命中一律是回归。
 - 收录机制：追踪 issue 收口时，把最终签名、匹配谓词与判读方法回写本表并在实现 PR 中
   索引；修复后保留行并标注「已修（`<PR>`）· 再现即回归」，不删行。新增签名未入表前
   一律按真回归处理。
