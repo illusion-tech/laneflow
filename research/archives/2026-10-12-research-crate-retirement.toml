@@ -1,0 +1,36 @@
+# 小型归档索引；逐文件大小、SHA-256 与 Git blob 清单位于制品内。
+schema_version = 1
+issue = 897
+archived_at = "2026-10-12"
+source_repository = "https://github.com/illusion-tech/laneflow"
+source_head = "bcd6918ab22e65b6619624ee9b96885e46db8ffa"
+source_tree = "fb23f99b6b9ea85095322791aac2a68ea0eef251"
+retired_files = 28
+retired_bytes = 361915
+research_directories = 6
+git_history_rewritten = false
+release_url = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-research-crate-retirement-bcd6918a"
+manifest_path = "retirement-manifest.json"
+manifest_sha256 = "8ac18e244d63303a310ed0316b0f40f283255e039b81584214211e3c9418f6f5"
+
+[source_archive]
+name = "issue-897-retired-source-bcd6918a.tar.gz"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-research-crate-retirement-bcd6918a/issue-897-retired-source-bcd6918a.tar.gz"
+bytes = 96286
+sha256 = "0013b481c266902da2a7f4421261b2ea79d7d7f72cdf017e4d11bb9efe537ae0"
+source_prefix = "source/"
+
+[source_checksums]
+name = "issue-897-source-SHA256SUMS.txt"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-research-crate-retirement-bcd6918a/issue-897-source-SHA256SUMS.txt"
+bytes = 3508
+sha256 = "da4b59c32ab06f97b8025cac0c117d5240fd3d772dfb92321a683eac94fc1aef"
+entries = 29
+
+[main_history]
+name = "issue-897-main-history-bcd6918a.bundle"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-research-crate-retirement-bcd6918a/issue-897-main-history-bcd6918a.bundle"
+bytes = 26826387
+sha256 = "03ac0ff30e761bb26a9bfa11e50058a8ab74c48b7e75715b1c8ff7eb873e550e"
+head_ref = "codex/897-frozen-main-history"
+reachable_commits = 2145

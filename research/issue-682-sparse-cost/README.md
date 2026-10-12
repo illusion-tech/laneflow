@@ -1,5 +1,7 @@
 # 低活动率、容量与占用索引成本
 
+> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。研究结论、结果表与既有证据保留在原位；历史构建与运行命令只在归档制品内有效。
+
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
 
