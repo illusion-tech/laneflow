@@ -105,6 +105,12 @@ pub struct RunOptions {
     pub resume: Option<std::path::PathBuf>,
 }
 
+/// 观察窗与推进区间 `(start, until]` 的交集（首末拍，含端点）。
+fn observed_interval(start: u64, warm_up_ticks: u64, until: u64) -> Option<(u64, u64)> {
+    let first = start.max(warm_up_ticks) + 1;
+    (first <= until).then_some((first, until))
+}
+
 impl RunResult {
     /// 本次运行的起点 T（续跑的存档拍，否则为 0）。
     pub fn start_tick(&self) -> u64 {
@@ -519,10 +525,7 @@ pub fn run_with_options(
         resumed_from,
         saves: Vec::new(),
         segment_end: until,
-        observed_ticks: {
-            let first = start.max(plan.window.warm_up_ticks) + 1;
-            (first <= until).then_some((first, until))
-        },
+        observed_ticks: observed_interval(start, plan.window.warm_up_ticks, until),
         endpoint: None,
     };
     // 续跑的起点检查点已在恢复时与存档清单核对。
@@ -1015,6 +1018,13 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         || result.error.is_some()
         || result.completed_ticks != result.segment_end
         || result.endpoint.as_ref().map(|endpoint| endpoint.tick) != Some(result.segment_end)
+        || result.segment_end > result.expected_ticks
+        || result.observed_ticks
+            != observed_interval(
+                result.start_tick(),
+                result.window.warm_up_ticks,
+                result.segment_end,
+            )
         || !status_ok
     {
         return Err(invalid("cannot accept an incomplete or failed run"));

@@ -224,7 +224,7 @@ pub(crate) enum RetryPolicy {
 }
 
 impl RetryPolicy {
-    fn finite(plan: &ResolvedPlan) -> Self {
+    pub(crate) fn finite(plan: &ResolvedPlan) -> Self {
         Self::Finite {
             interval: plan.retry_ticks,
             max_attempts: plan.max_attempts,
