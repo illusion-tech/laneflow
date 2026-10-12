@@ -392,7 +392,7 @@ catalog 0.1 的 portal/lane/slot/route 语义与走廊 catalog 0.4 同构；
 ## 13. 治理与完成边界
 
 - 设计来源：#184，G1 冻结记录见 <https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599>；
-- #185、#186–#189 与 #203 分别按自身 Gate Ledger 推进；各 Issue 的当前状态以 GitHub 为准，任一设计 Issue 或上游 G1 都不自动授权下游开工；
+- #185、#186–#189 与 #203 独立推进；各 Issue 的当前状态以 GitHub 为准，任一设计 Issue 或上游 G1 都不自动授权下游开工；
 - #184 的 Delivery PR 只交付设计与 ADR，不授权下游自动开工；
 - v0.8 Milestone 由 #193 跟踪，只有 #195 独立收口通过并满足父目标退出条件后才可完成；
 - v0.9 #194 的受保护左转、直行、右转车道/相位能力由 #196 冻结；#229 已交付通用
