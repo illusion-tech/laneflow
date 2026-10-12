@@ -4293,7 +4293,6 @@ mod tests {
 
     #[test]
     fn cache_scan_discovery_falls_back_to_live_order_when_rows_disagree() {
-        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let discover = |swap: bool| {
             let mut world = crate::kernel::waiting::tests::multi_gate_world(32);
@@ -4328,7 +4327,9 @@ mod tests {
 
     #[test]
     fn gate_scope_sparse_inputs_match_full_scan_with_retry_and_reuse() {
-        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK
+            .lock()
+            .unwrap();
         let _force = super::force_conflict_dispatch();
         fn fixture(workers: u32) -> TrafficWorld {
             let mut world = crate::kernel::waiting::tests::multi_gate_world_with_id(
@@ -4469,7 +4470,9 @@ mod tests {
 
     #[test]
     fn p2_excluded_preview_still_fails_atomically_in_p5_and_retries() {
-        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = crate::kernel::execution::MOTION_INJECTION_TEST_LOCK
+            .lock()
+            .unwrap();
         let _p2 = crate::kernel::waiting::force_preview_dispatch();
         let _p5 = crate::kernel::tick::force_motion_dispatch();
         fn fixture(workers: u32) -> TrafficWorld {
@@ -4541,7 +4544,6 @@ mod tests {
 
     #[test]
     fn p2_scope_matches_uncached_reference_through_waiting_hold_and_release() {
-        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = crate::kernel::waiting::force_preview_dispatch();
         for workers in [1, 2, 4, 8, 16] {
             let mut reference = crate::kernel::waiting::tests::multi_gate_world(16);
@@ -4578,7 +4580,6 @@ mod tests {
 
     #[test]
     fn gate_scope_resource_lifecycle_matches_full_scan() {
-        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
         for workers in [1, 2, 4, 8, 16] {
@@ -5030,8 +5031,6 @@ mod tests {
     /// 本测试的容量断言必失败。
     #[test]
     fn conflict_scratch_capacity_reused_across_successful_consumption() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
@@ -5092,8 +5091,8 @@ mod tests {
     /// 报告在下一拍被回收复用，清注入重试与 fresh 一致，且容量不丢。
     #[test]
     fn conflict_scratch_survives_failed_consumption_and_retry() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let mut fresh = conflict_scale_world_with_identity(
@@ -5143,8 +5142,6 @@ mod tests {
     /// len==workload 时要求 2×workload，容量轨迹可见证）。
     #[test]
     fn conflict_slots_reserve_uses_additional_not_total() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
@@ -5181,8 +5178,8 @@ mod tests {
     #[test]
     fn f4_consumption_three_branch_regression() {
         use crate::kernel::conflict_tick::reset_conflict_reserve_probe_log;
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         let revision = conflict_scale_revision();
 
         // 构造真实 Computed 报告前缀（每分支一个世界；resource/scratch
@@ -5472,8 +5469,8 @@ mod tests {
     #[test]
     fn conflict_unconsumed_suffix_scratch_is_recovered() {
         let _oracle = super::full_conflict_scan();
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
         // 完整求值 oracle 保留足够槽位以验证底层未消费后缀协议。

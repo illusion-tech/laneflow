@@ -7208,7 +7208,6 @@ pub(crate) mod tests {
 
     #[test]
     fn parallel_non_entry_decisions_match_serial_and_fall_back_on_cache_miss() {
-        let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
         // 4 线程走分段生成；缓存上限 0 时每行缺序号，整段退回串行线性合并。
         let run = |workers: u32, cache_limit: Option<usize>| {
             let _cache =
@@ -7245,10 +7244,8 @@ pub(crate) mod tests {
 
     #[test]
     fn sparse_basis_payloads_merge_canonically_and_reuse_attempt_buffers() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
         use crate::kernel::state::vec_bytes;
 
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         let mut reference = None;
         for workers in [1, 4] {
@@ -7364,8 +7361,8 @@ pub(crate) mod tests {
     /// （#705 验收：首错与交错、retry/fresh replay）。
     #[test]
     fn preview_first_error_is_stable_across_workers_and_positions() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::PREVIEW_INJECTION_TEST_LOCK;
+        let _lock = PREVIEW_INJECTION_TEST_LOCK.lock().unwrap();
         // 生产分发阈值为保守 1_024；16 车世界经强制入口走真实分发。
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_100;
@@ -7448,8 +7445,8 @@ pub(crate) mod tests {
     /// 由较小逻辑位置决定，与 kind、worker 数无关（#705 验收：首错与交错）。
     #[test]
     fn earlier_preview_error_never_overridden_by_later() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::PREVIEW_INJECTION_TEST_LOCK;
+        let _lock = PREVIEW_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_200;
         // (NonFiniteMotion 位置, WaitingInvariantViolation 位置, 期望公开首错)。
@@ -7487,8 +7484,6 @@ pub(crate) mod tests {
     /// 计数证明分发臂与回退确实发生（#705 验收：可选 scratch 回退）。
     #[test]
     fn preview_slot_reserve_failure_falls_back_to_fused() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_300;
         let mut reference = multi_gate_world_with_id(16, WORLD_ID);
@@ -7532,8 +7527,6 @@ pub(crate) mod tests {
     /// 分发与融合都被执行（#705 验收：工作集形状与生命周期变化）。
     #[test]
     fn preview_workset_shapes_match_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 705_400;
         let step_pair = |reference: &mut TrafficWorld, parallel: &mut TrafficWorld| {
             reference.step(TickInput::new(100)).unwrap();
@@ -7622,8 +7615,8 @@ pub(crate) mod tests {
     /// 公开首错（#705 验收：缺失槽位、首错次序）。
     #[test]
     fn missing_preview_slot_before_first_error_is_invariant_violation() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::PREVIEW_INJECTION_TEST_LOCK;
+        let _lock = PREVIEW_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_500;
         // (workers, 缺失槽位位置, NonFiniteMotion 注入位置, 期望公开首错)。
@@ -7667,8 +7660,8 @@ pub(crate) mod tests {
     /// 仅身份错误时所有路径都公开 `WaitingInvariantViolation`。
     #[test]
     fn preview_error_before_identity_failure_keeps_serial_first_error() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::PREVIEW_INJECTION_TEST_LOCK;
+        let _lock = PREVIEW_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_750;
         const IDENTITY_POSITION: usize = 12;
@@ -7748,8 +7741,6 @@ pub(crate) mod tests {
     /// 增长拍恢复真实分发。
     #[test]
     fn preview_input_reserve_failure_falls_back_to_fused() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_800;
         let (mut reference, reference_routes) = multi_gate_world_partial(16, 8, WORLD_ID);
@@ -7811,8 +7802,6 @@ pub(crate) mod tests {
     /// 每拍真实走 P2 分发（`WaitingPreviewPathCounts` 证明），worker=1 走融合。
     #[test]
     fn dispatch_matches_after_fresh_restore_first_tick() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_760;
         const PRE_TICKS: usize = 4;
@@ -7882,8 +7871,6 @@ pub(crate) mod tests {
     /// 事件与 worker=1 参考一致，多 worker 臂经强制分发每拍真实走 P2 分发。
     #[test]
     fn dispatch_matches_after_same_revision_cutover_first_tick() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_770;
         const PRE_TICKS: usize = 4;
@@ -8040,8 +8027,8 @@ pub(crate) mod tests {
     /// 与 fresh 世界同拍一致。
     #[test]
     fn earlier_arrival_reserve_failure_beats_later_motion_error() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::MOTION_INJECTION_TEST_LOCK;
+        let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_100;
         let _force = force_motion_dispatch();
         let counts_before = motion_path_counts();
@@ -8084,8 +8071,8 @@ pub(crate) mod tests {
     /// 首拍一致；路径计数按臂互斥（worker=1 融合、>1 分发）。
     #[test]
     fn motion_first_error_is_stable_across_workers_and_positions() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::MOTION_INJECTION_TEST_LOCK;
+        let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_110;
         let _force = force_motion_dispatch();
         let counts_before = motion_path_counts();
@@ -8142,8 +8129,8 @@ pub(crate) mod tests {
     /// 覆盖。
     #[test]
     fn motion_canonical_first_error_across_chunk_boundaries() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::MOTION_INJECTION_TEST_LOCK;
+        let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_120;
         let _force = force_motion_dispatch();
         for positions in [&[3_usize, 11][..], &[11, 3]] {
@@ -8164,8 +8151,8 @@ pub(crate) mod tests {
     /// 分发计数互斥。
     #[test]
     fn motion_scratch_reserve_failure_falls_back_to_fused() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::MOTION_INJECTION_TEST_LOCK;
+        let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_130;
         let _force = force_motion_dispatch();
         let run = |workers: u32, inject: Option<fn() -> crate::kernel::tick::MotionBoolGuard>| {
@@ -8224,8 +8211,8 @@ pub(crate) mod tests {
     /// 公开首错。
     #[test]
     fn missing_motion_slot_before_first_error_is_detected() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::MOTION_INJECTION_TEST_LOCK;
+        let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_140;
         let _force = force_motion_dispatch();
         for (gap, expected) in [
@@ -8294,8 +8281,6 @@ pub(crate) mod tests {
     /// digest/决策/事件/结局与 worker=1 融合参考一致。
     #[test]
     fn motion_dispatch_matches_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_160;
         let _force = force_motion_dispatch();
         let run = |workers: u32| {
@@ -8325,8 +8310,6 @@ pub(crate) mod tests {
     /// `parking_arrivals`）与 worker=1 融合参考一致。
     #[test]
     fn motion_parking_arrival_matches_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_170;
         let _force = force_motion_dispatch();
         let run = |workers: u32| {
@@ -8352,8 +8335,6 @@ pub(crate) mod tests {
     /// 运动内核/horizon 重算计数总计一致（任务线程增量经块级记录汇总）。
     #[test]
     fn motion_counters_match_between_fused_and_dispatched() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_180;
         let _force = force_motion_dispatch();
         let _diagnostics = crate::kernel::tick::enable_motion_diagnostics();
@@ -8431,10 +8412,11 @@ pub(crate) mod tests {
     /// fresh 世界同拍一致。
     #[test]
     fn earlier_f2_failure_beats_later_downstream_invariant() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
         // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
         const INJECT_WORLD_ID: u64 = 708_010;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK
+            .lock()
+            .unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let mut probe =
@@ -8489,10 +8471,11 @@ pub(crate) mod tests {
     /// 规范。
     #[test]
     fn earlier_f1_failure_beats_later_downstream_invariant() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
         // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
         const INJECT_WORLD_ID: u64 = 708_011;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK
+            .lock()
+            .unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let mut fresh =
@@ -8529,8 +8512,8 @@ pub(crate) mod tests {
     /// 消费序先于完成序的性质由 F1/F2/F4/F3b 位序反例覆盖。
     #[test]
     fn conflict_first_error_is_stable_across_workers_and_positions() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_220;
         let _force = force_conflict_dispatch();
         let counts_before = conflict_path_counts();
@@ -8584,8 +8567,8 @@ pub(crate) mod tests {
     /// 计数与分发计数互斥。
     #[test]
     fn conflict_scratch_reserve_failure_falls_back_to_fused() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_230;
         let _force = force_conflict_dispatch();
         let mut reference = multi_gate_world_with_id(16, WORLD_ID);
@@ -8626,8 +8609,8 @@ pub(crate) mod tests {
     /// 公开首错。
     #[test]
     fn missing_conflict_slot_before_first_error_is_detected() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_240;
         let _force = force_conflict_dispatch();
         for (gap, expected) in [
@@ -8680,8 +8663,6 @@ pub(crate) mod tests {
     /// 公开记录与工作区语义池字节级记录同 worker=1 融合参考一致。
     #[test]
     fn conflict_dispatch_matches_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_260;
         let _force = force_conflict_dispatch();
         let before = conflict_path_counts();
@@ -8722,8 +8703,6 @@ pub(crate) mod tests {
     /// 语义池同 worker=1 融合参考一致。
     #[test]
     fn conflict_computed_candidate_matches_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let run = |workers: u32| {
@@ -8754,8 +8733,6 @@ pub(crate) mod tests {
     /// 车辆路径都在分发臂下与融合逐拍一致。
     #[test]
     fn conflict_parking_scenario_matches_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_270;
         let _force = force_conflict_dispatch();
         let run = |workers: u32| {
@@ -8785,8 +8762,8 @@ pub(crate) mod tests {
     /// 领域错误；失败拍状态不变。
     #[test]
     fn downstream_reserve_failures_map_to_scratch_alloc_failed() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
+        let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         for arm in 0..2 {
@@ -8816,8 +8793,6 @@ pub(crate) mod tests {
     /// yield target 求值。
     #[test]
     fn conflict_counters_match_between_fused_and_dispatched() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let _diagnostics = enable_conflict_diagnostics();
         let revision = conflict_scale_revision();
@@ -8850,12 +8825,10 @@ pub(crate) mod tests {
     /// P3 非空生命周期身份由 gate_scope 测试覆盖。
     #[test]
     fn mixed_lifecycle_empty_conflict_workset_matches_fused_reference() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
         use crate::kernel::tick::{MotionPathCounts, force_motion_dispatch, motion_path_counts};
         use crate::kernel::waiting::{
             WaitingPreviewPathCounts, force_preview_dispatch, preview_path_counts,
         };
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_310;
         const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
         let _force_preview = force_preview_dispatch();
@@ -9020,8 +8993,6 @@ pub(crate) mod tests {
     /// 增长（旧实现 reserve 把已有 len 计入需求 → 每拍额外增长）。
     #[test]
     fn conflict_scratch_buffers_do_not_accumulate_across_ticks() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
@@ -9057,10 +9028,11 @@ pub(crate) mod tests {
     /// 错误；清注入同 tick 重试 == fresh。
     #[test]
     fn f4_reserve_injection_gated_by_real_growth_on_both_paths() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
         // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
         const INJECT_WORLD_ID: u64 = 708_013;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK
+            .lock()
+            .unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         for workers in [1_u32, 4] {
@@ -9115,10 +9087,11 @@ pub(crate) mod tests {
             ConflictReserveSite, conflict_reserve_probe_log, fail_conflict_cell_work_reserve,
             reset_conflict_reserve_probe_log,
         };
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
         // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
         const INJECT_WORLD_ID: u64 = 708_014;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK
+            .lock()
+            .unwrap();
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
 
@@ -9166,9 +9139,9 @@ pub(crate) mod tests {
     /// 重新开始的连续到达拍覆盖。）
     #[test]
     fn parking_arrival_injection_requires_growth_per_step() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::execution::MOTION_INJECTION_TEST_LOCK;
         use crate::kernel::tick::{fail_motion_arrival_reserve, motion_path_counts};
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_320;
         let _force = force_motion_dispatch();
         let counts_before = motion_path_counts();
@@ -9239,8 +9212,6 @@ pub(crate) mod tests {
     /// 失败注入语义在全分发组合下不回归（矩阵外由 D4/首错测试覆盖）。
     #[test]
     fn phase_combination_matrix_matches_across_all_arms() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_300;
         use crate::kernel::tick::{
             MotionPathCounts, force_motion_dispatch, force_motion_fuse, motion_path_counts,
@@ -9348,9 +9319,9 @@ pub(crate) mod tests {
     /// panic 测试的模式（#705 验收：执行器异常）。
     #[test]
     fn preview_panic_invalidates_world_and_rejects_queries() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::execution::PREVIEW_INJECTION_TEST_LOCK;
         use std::panic::{AssertUnwindSafe, catch_unwind};
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _lock = PREVIEW_INJECTION_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_600;
         let mut world = multi_gate_world_with_id(16, WORLD_ID);
@@ -9503,8 +9474,6 @@ pub(crate) mod tests {
     /// 1_024，小场景经强制入口分发。
     #[test]
     fn mixed_lifecycle_ticks_take_real_dispatch() {
-        use crate::kernel::execution::RESOURCE_TEST_LOCK;
-        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_700;
         const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);

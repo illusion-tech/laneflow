@@ -1207,8 +1207,28 @@ struct WorkerCounters {
 thread_local! {
     static WORKER_COUNTERS: std::sync::Arc<WorkerCounters> = std::sync::Arc::default();
 }
+/// 全库串行兜底锁：只服务 worker 计数精确增量（`worker_starts`/`live_workers`/
+/// `thread_ids` 身份）、带超时的会合/参与度探针，以及 allocation/计量面相邻的
+/// 保守保留测试。注入武装互斥按族拆到下方三把族锁；无武装的重等价测试不放锁。
 #[cfg(test)]
 pub(crate) static RESOURCE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// P5 motion 族注入互斥锁。motion 族注入（`inject_motion_nonfinite`、
+/// `fail_motion_arrival_reserve`、`fail_motion_slot_reserve`）是进程级单槽
+/// 原子量，武装 guard 为 swap/快照-恢复式：同族并发武装会互相挤掉，guard
+/// 交叠时还会把已 drop 世界的武装泄漏回槽位，故武装 motion 族的测试必须互斥；
+/// 不同族之间可并行，不武装任何注入的测试不需要本锁。
+#[cfg(test)]
+pub(crate) static MOTION_INJECTION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// P2 preview 族注入互斥锁；不变量同 `MOTION_INJECTION_TEST_LOCK`，武装面为
+/// `inject_preview_errors`/`inject_preview_panic`。
+#[cfg(test)]
+pub(crate) static PREVIEW_INJECTION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// P3 conflict 族注入互斥锁；不变量同 `MOTION_INJECTION_TEST_LOCK`，武装面为
+/// `inject_conflict_nonfinite`、`inject_conflict_invariant_downstream` 与
+/// `fail_conflict_*_reserve` 一族。
+#[cfg(test)]
+pub(crate) static CONFLICT_INJECTION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// 当前测试线程建的池里仍存活的工作线程数。
 #[cfg(test)]
 pub(crate) fn live_workers() -> usize {

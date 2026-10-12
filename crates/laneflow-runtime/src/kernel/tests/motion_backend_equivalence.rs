@@ -11,7 +11,7 @@ use laneflow_motion_kernel::{Backend, Kernel};
 use crate::admin::cutover_migration::tests::{
     conflict_scale_revision, conflict_scale_world_with_identity,
 };
-use crate::kernel::execution::{RESOURCE_TEST_LOCK, WorldExecution};
+use crate::kernel::execution::{MOTION_INJECTION_TEST_LOCK, WorldExecution};
 use crate::kernel::waiting::tests::multi_gate_world_with_id;
 use crate::{
     ExecutionConfig, SnapshotRestoreLimits, StepError, TickInput, TrafficWorld,
@@ -134,7 +134,7 @@ fn candidate(scenario: &Scenario<'_>, kernel: Kernel, workers: u32) -> Vec<Strin
 }
 
 fn assert_matrix(scenario: &Scenario<'_>, exercised: &str) {
-    let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+    let _lock = MOTION_INJECTION_TEST_LOCK.lock().unwrap();
     let _motion = crate::kernel::tick::force_motion_dispatch();
     let _preview = crate::kernel::waiting::force_preview_dispatch();
     let name = scenario.name;
