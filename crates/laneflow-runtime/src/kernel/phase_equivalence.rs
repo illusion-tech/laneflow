@@ -7,8 +7,8 @@
 //! 固定 fixture `phase-parallel-matrix-c009d2dc.txt` 一致；fixture 值取自
 //! worker 1 融合路径，其 digest 管线已由 pre-refactor fixture
 //! `phase-protocol-e011745e.txt` 锚定。worker 档位与拍数经 #915 outcome 级
-//! 测量论证降档（档位 [1,4,16]，拍数 64/12/320/360），恢复+续跑比较抽样于
-//! workers∈{1,16}。
+//! 测量论证降档（车辆场景档位 [1,2,4,16]、signals [1,4,16]，拍数
+//! 64/12/320/360），恢复+续跑比较抽样于 workers∈{1,16}。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
 use crate::{StepError, TickInput, TrafficWorld};
@@ -328,6 +328,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
         usize,
         Option<u64>,
         bool,
+        &'static [u32],
     );
     let scenarios: Vec<Scenario> = vec![
         (
@@ -336,6 +337,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
             64,
             None,
             true,
+            &[1, 2, 4, 16],
         ),
         (
             "waiting-parallel-overflow",
@@ -343,6 +345,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
             12,
             Some(32),
             true,
+            &[1, 2, 4, 16],
         ),
         (
             "conflict-parallel",
@@ -355,6 +358,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
             320,
             None,
             true,
+            &[1, 2, 4, 16],
         ),
         (
             "signals-clock-parallel",
@@ -362,14 +366,17 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
             360,
             Some(1_024 * 1_024),
             false,
+            &[1, 4, 16],
         ),
     ];
     let mut actual = Vec::new();
-    for (name, build, ticks, bound, dispatch_required) in &scenarios {
+    for (name, build, ticks, bound, dispatch_required, tiers) in &scenarios {
         let mut baseline: Option<String> = None;
-        // #915 档位论证：2/8 分别与 4/16 同构（常规并行/超订细分块），裁剪不损失
-        // 块形状信号；16 保留——4 vCPU CI 上超订臂调度扰动最强、最易暴露顺序依赖。
-        for raw_workers in [1_u32, 4, 16] {
+        // #915 档位论证：8 与 16 同构（超订细分块）裁去；16 保留——4 vCPU CI 上
+        // 超订臂调度扰动最强、最易暴露顺序依赖。车辆场景保留 2：预览发现
+        // parts=线程数×4 被车辆数 16 封顶，w=2 是唯一每段 2 车（span=2）的臂，
+        // 4/16 均退化为每段 1 车；signals 无车辆，2 无新分区形状。
+        for &raw_workers in *tiers {
             let workers = NonZeroU32::new(raw_workers).expect("nonzero workers");
             let mut world = build(workers);
             // 多 worker 场景经世界独占执行资源的计划/资源准备重跑，与安装合同同一路径。
