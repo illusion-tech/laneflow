@@ -13,6 +13,11 @@
 `issue-679-route-query/evidence/` 是当前 Runtime 完整性测试与研究编译使用的夹具，
 仍随源码交付。
 
+研究 crate 的 workspace 归属（workspace 成员或独立 `[workspace]`）由立项 Issue 决定，
+并在各目录 `README.md` 声明理由；两种形态都必须 `publish = false`、声明非生产身份，
+且第三方依赖必须纳入许可证与 RustSec 审计。完整规则见
+[许可证与依赖安全基线](../docs/governance/dependency-security.md) 第 8 节。
+
 ## 本机路径占位
 
 研究文档、索引、脚本和提交的工具输出不写采集机的本机布局路径；系统工具链的标准

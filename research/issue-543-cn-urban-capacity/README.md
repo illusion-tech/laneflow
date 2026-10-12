@@ -2,10 +2,10 @@
 
 > **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。研究结论、结果表与既有证据保留在原位；历史构建与运行命令只在归档制品内有效。
 
-本目录保存 #543 调研 spike 的可执行证据生成器与结果。它是独立 Rust workspace，**故意不加入
-主 workspace 成员**（#308 规则：研究代码不得进入生产 crate 或 workspace 成员），不是生产
-包、公共 API 或已接受的数据格式。所有结论以本文件登记的假设为前提；正式口径以 #304 G1 与
-后续实施 Issue 为准。
+本目录保存 #543 调研 spike 的可执行证据生成器与结果。该生成器退役前是独立 Rust workspace，
+**故意不加入主 workspace 成员**，不是生产包、公共 API 或已接受的数据格式；研究 crate 的
+workspace 归属与依赖审计规则见 `docs/governance/dependency-security.md` 第 8 节。所有结论
+以本文件登记的假设为前提；正式口径以 #304 G1 与后续实施 Issue 为准。
 
 ## 当前执行与历史证据边界
 
