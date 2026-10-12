@@ -280,6 +280,9 @@ pub(crate) fn load_save(
     if manifest.artifact_files != artifacts.files {
         return Err(invalid("save belongs to different artifacts"));
     }
+    if manifest.fixed_step_ms != artifacts.dt {
+        return Err(invalid("save fixed step differs from the artifacts"));
+    }
     let read = |name: &str, expected: &FileDigest, limit: u64| -> Result<Vec<u8>> {
         let bytes = read_bounded(&directory.join(name), limit, Some(expected.bytes))?;
         if &digest_bytes(&bytes) != expected {
@@ -468,13 +471,19 @@ impl<'a> Harness<'a> {
         let (targets, target_keys, profiles) = catalog_bindings(artifacts)?;
         let mut catalog_routes: Vec<_> = artifacts.catalog.routes.iter().collect();
         catalog_routes.sort_by_key(|route| &route.key);
+        let exits: BTreeMap<_, _> = artifacts
+            .catalog
+            .parking
+            .iter()
+            .map(|parking| (parking.key.as_str(), parking.exits.len()))
+            .collect();
         check_structure(
             plan,
             &caller,
             manifest.tick,
             &restored,
             &catalog_routes,
-            &targets,
+            &exits,
             &profiles,
         )?;
 
@@ -605,6 +614,18 @@ impl<'a> Harness<'a> {
                 )));
             }
         }
+        // 冲突声明须能在恢复的世界中解析，且所在 zone 与存档一致。
+        for ((_, route, occurrence), zone) in &self.claims {
+            if self
+                .world
+                .conflict_passage_occurrence_locator(self.route_table.handle(*route), *occurrence)
+                .is_none_or(|locator| locator.address().zone().raw() != *zone)
+            {
+                return Err(invalid(
+                    "saved conflict claim does not resolve to its zone in the restored world",
+                ));
+            }
+        }
         self.step_before = vec![None; self.individuals.len()];
         let (state_digest, counts) = observe::state(self)?;
         if state_digest != manifest.state_digest {
@@ -627,7 +648,8 @@ fn check_structure(
     tick: u64,
     restored: &RestoredSnapshot,
     catalog_routes: &[&laneflow_urban_generator::Route],
-    targets: &BTreeMap<String, ParkingTarget>,
+    // 停车目标 key → 出口数；键集合与目录停车目标绑定相同。
+    exits: &BTreeMap<&str, usize>,
     profiles: &BTreeMap<String, laneflow_static_contract::VehicleProfileOrdinal>,
 ) -> Result<()> {
     let count = caller.individuals.len();
@@ -720,9 +742,12 @@ fn check_structure(
             Command::Spawn { profile, route, .. } => {
                 route_known(route) && profiles.contains_key(profile)
             }
-            Command::Leave { target, .. }
-            | Command::Reserve { target, .. }
-            | Command::Park { target } => targets.contains_key(target),
+            Command::Leave { target, exit, .. } => {
+                exits.get(target.as_str()).is_some_and(|count| exit < count)
+            }
+            Command::Reserve { target, .. } | Command::Park { target } => {
+                exits.contains_key(target.as_str())
+            }
             Command::Despawn => true,
         };
         // 重试策略只能是计划给出的两种：普通请求的有限策略、回收请求的
