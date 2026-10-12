@@ -48,3 +48,24 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.digest]
 opt-level = 2
+
+# CI 测试阶段的另一主成本是仿真重 crate 在 opt-level=0 下跑全量等价性/soak
+# 矩阵（#899：前 20 个重测试占测试 CPU 约六成，实验测量见该 Issue）。测试档
+# 为这些 crate 与其热路径依赖开优化；debug-assertions 与 overflow-checks
+# 保持默认开启，被测语义不变。不使用 package."*"：避免 bevy 依赖树开优化，
+# 拖慢依赖缓存失效后的全量编译。与上方 [profile.dev.package.*] 块（#748）
+# 及 #802 的构建产物体积配置正交。
+[profile.test.package.laneflow-runtime]
+opt-level = 2
+[profile.test.package.laneflow-scenario]
+opt-level = 2
+[profile.test.package.laneflow-urban-harness]
+opt-level = 2
+[profile.test.package.serde]
+opt-level = 2
+[profile.test.package.serde_json]
+opt-level = 2
+[profile.test.package.sha2]
+opt-level = 2
+[profile.test.package.toml]
+opt-level = 2
