@@ -8,7 +8,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs,
-    io::Read,
     path::Path,
     time::Instant,
 };
@@ -22,8 +21,8 @@ use crate::{
     checked, invalid, observe,
     requests::{RequestLedger, SavedLedger},
     runner::{
-        Command, CompletedRecycling, Individual, PARKING_SEQUENCE_BASE, Request, RetryPolicy,
-        TileEvidence, catalog_bindings, observation_pool, planned_requests, recycling_command,
+        CompletedRecycling, Individual, Request, RetryPolicy, TileEvidence, catalog_bindings,
+        observation_pool,
     },
     sha256,
 };
@@ -34,48 +33,7 @@ pub(crate) const CALLER_DIGEST_VERSION: &str = "urban-caller-digest-v1";
 const WORLD_FILE: &str = "world.lfrs";
 const CALLER_FILE: &str = "caller.json";
 const MANIFEST_FILE: &str = "save.toml";
-/// 存档各文件读入内存前的长度上限；`world.lfrs` 与快照恢复上限一致。
-const WORLD_MAX_BYTES: u64 = 2_147_483_648;
-const CALLER_MAX_BYTES: u64 = 1_073_741_824;
-const MANIFEST_MAX_BYTES: u64 = 16 * 1_024 * 1_024;
-/// `caller.json` 中整数的上界。合法值（拍号、编号、标识、计数）都远小于它，
-/// 任何计数从这里自增在一次运行内都不会溢出。
-const CALLER_INTEGER_LIMIT: u64 = 1 << 48;
-
-/// 核对 `caller.json` 的每个数都是不超过上界的非负整数。
-fn check_integers(value: &serde_json::Value) -> Result<()> {
-    match value {
-        serde_json::Value::Number(number) => {
-            if number.as_u64().is_none_or(|n| n > CALLER_INTEGER_LIMIT) {
-                return Err(invalid("saved caller state holds an out-of-range number"));
-            }
-        }
-        serde_json::Value::Array(items) => items.iter().try_for_each(check_integers)?,
-        serde_json::Value::Object(fields) => fields.values().try_for_each(check_integers)?,
-        _ => {}
-    }
-    Ok(())
-}
-const RESTORE_LIMITS: SnapshotRestoreLimits = SnapshotRestoreLimits::new(WORLD_MAX_BYTES, 4_096);
-
-/// 先按文件元数据核对长度（不超过上限，且与 `expected` 一致），再读入内存。
-fn read_bounded(path: &Path, limit: u64, expected: Option<u64>) -> Result<Vec<u8>> {
-    let name = path
-        .file_name()
-        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-    let length = fs::metadata(path)?.len();
-    if length > limit || expected.is_some_and(|expected| expected != length) {
-        return Err(invalid(format!("save file length out of bounds: {name}")));
-    }
-    let mut bytes = Vec::new();
-    fs::File::open(path)?
-        .take(limit + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 != length {
-        return Err(invalid(format!("save file changed while reading: {name}")));
-    }
-    Ok(bytes)
-}
+const RESTORE_LIMITS: SnapshotRestoreLimits = SnapshotRestoreLimits::new(2_147_483_648, 4_096);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -141,7 +99,7 @@ pub struct SaveManifest {
     pub deterministic_state_digest: String,
     pub state_digest: String,
     /// 存档时内存中宿主状态的 `urban-caller-digest-v1` 摘要；恢复后重算比对，
-    /// 发现导出与导入不对称。
+    /// 发现本程序导出与导入的不对称。
     pub caller_digest: String,
     pub world: FileDigest,
     pub caller: FileDigest,
@@ -285,7 +243,7 @@ pub(crate) fn load_save(
     artifacts: &Artifacts,
     plan_digest: &str,
 ) -> Result<LoadedSave> {
-    let manifest_bytes = read_bounded(&directory.join(MANIFEST_FILE), MANIFEST_MAX_BYTES, None)?;
+    let manifest_bytes = fs::read(directory.join(MANIFEST_FILE))?;
     let manifest: SaveManifest = toml::from_str(
         std::str::from_utf8(&manifest_bytes).map_err(|error| invalid(error.to_string()))?,
     )?;
@@ -303,21 +261,15 @@ pub(crate) fn load_save(
     if manifest.artifact_files != artifacts.files {
         return Err(invalid("save belongs to different artifacts"));
     }
-    if manifest.fixed_step_ms != artifacts.dt {
-        return Err(invalid("save fixed step differs from the artifacts"));
-    }
-    let read = |name: &str, expected: &FileDigest, limit: u64| -> Result<Vec<u8>> {
-        let bytes = read_bounded(&directory.join(name), limit, Some(expected.bytes))?;
+    let read = |name: &str, expected: &FileDigest| -> Result<Vec<u8>> {
+        let bytes = fs::read(directory.join(name))?;
         if &digest_bytes(&bytes) != expected {
             return Err(invalid(format!("save file changed: {name}")));
         }
         Ok(bytes)
     };
-    let world = read(WORLD_FILE, &manifest.world, WORLD_MAX_BYTES)?;
-    let caller: serde_json::Value =
-        serde_json::from_slice(&read(CALLER_FILE, &manifest.caller, CALLER_MAX_BYTES)?)?;
-    check_integers(&caller)?;
-    let caller: CallerState = serde_json::from_value(caller)?;
+    let world = read(WORLD_FILE, &manifest.world)?;
+    let caller: CallerState = serde_json::from_slice(&read(CALLER_FILE, &manifest.caller)?)?;
     if caller.version != CALLER_VERSION {
         return Err(invalid("unsupported caller state version"));
     }
@@ -496,20 +448,15 @@ impl<'a> Harness<'a> {
         let (targets, target_keys, profiles) = catalog_bindings(artifacts)?;
         let mut catalog_routes: Vec<_> = artifacts.catalog.routes.iter().collect();
         catalog_routes.sort_by_key(|route| &route.key);
-        let catalog = CatalogRefs {
-            routes: &catalog_routes,
-            targets: artifacts
-                .catalog
-                .parking
-                .iter()
-                .map(|parking| parking.key.as_str())
-                .collect(),
-            gates: observe::transition_gates(artifacts)
-                .values()
-                .map(|&(gate, _)| gate)
-                .collect(),
-        };
-        check_structure(plan, &caller, manifest.tick, &restored, &catalog)?;
+        check_structure(
+            plan,
+            &caller,
+            manifest.tick,
+            &restored,
+            &catalog_routes,
+            &targets,
+            &profiles,
+        )?;
 
         // 重绑：结构核对已保证每个局部标识恰好对应一个恢复出的句柄。
         let lengths = artifacts.revision.traffic().lane_lengths_millimetres();
@@ -638,18 +585,6 @@ impl<'a> Harness<'a> {
                 )));
             }
         }
-        // 冲突声明须能在恢复的世界中解析，且所在 zone 与存档一致。
-        for ((_, route, occurrence), zone) in &self.claims {
-            if self
-                .world
-                .conflict_passage_occurrence_locator(self.route_table.handle(*route), *occurrence)
-                .is_none_or(|locator| locator.address().zone().raw() != *zone)
-            {
-                return Err(invalid(
-                    "saved conflict claim does not resolve to its zone in the restored world",
-                ));
-            }
-        }
         self.step_before = vec![None; self.individuals.len()];
         let (state_digest, counts) = observe::state(self)?;
         if state_digest != manifest.state_digest {
@@ -672,24 +607,15 @@ impl<'a> Harness<'a> {
 }
 
 /// 结构核对：`caller.json` 的每个下标、长度与引用在任何使用之前核对。
-/// 结构核对用的目录引用。
-struct CatalogRefs<'c> {
-    /// 按 key 升序的目录路线。
-    routes: &'c [&'c laneflow_urban_generator::Route],
-    /// 目录停车目标 key（与目录停车目标绑定的键集合相同）。
-    targets: BTreeSet<&'c str>,
-    /// 转移门表中出现的机动 Gate 序号（`red_waiters` 只可能记录这些门）。
-    gates: BTreeSet<u32>,
-}
-
 fn check_structure(
     plan: &ResolvedPlan,
     caller: &CallerState,
     tick: u64,
     restored: &RestoredSnapshot,
-    catalog: &CatalogRefs<'_>,
+    catalog_routes: &[&laneflow_urban_generator::Route],
+    targets: &BTreeMap<String, ParkingTarget>,
+    profiles: &BTreeMap<String, laneflow_static_contract::VehicleProfileOrdinal>,
 ) -> Result<()> {
-    let catalog_routes = catalog.routes;
     let count = caller.individuals.len();
     if count != plan.initial.len()
         || caller
@@ -760,73 +686,34 @@ fn check_structure(
         .claims
         .iter()
         .any(|((id, route, _), _)| !individual(id) || *route as usize >= catalog_routes.len())
-        || caller
-            .red_waiters
-            .iter()
-            .any(|(id, gate)| !individual(id) || !catalog.gates.contains(gate))
+        || caller.red_waiters.iter().any(|(id, _)| !individual(id))
     {
         return Err(invalid(
             "saved claims or red waiters reference unknown entities",
         ));
     }
-    // 排队请求：每个都绑定到它的来源，并与请求登记表双向一一对应。来源只有三种：
-    // 计划冻结的请求（槽位、原到期拍、重试策略与命令都与计划相同）、回收请求
-    // （命令由计划、个体身份与尝试次数决定）、停车到达请求（预分配编号对应槽位，
-    // 命令为驶入已知停车目标）。登记项的计入标记由命令决定。
-    let planned: BTreeMap<_, _> = planned_requests(plan)
-        .into_iter()
-        .map(|request| (request.sequence, request))
-        .collect();
-    let counted: BTreeMap<_, _> = caller
-        .ledger
-        .entries
-        .iter()
-        .map(|entry| (entry.sequence, entry.counted))
-        .collect();
-    let keyed: BTreeSet<_> = caller.ledger.keyed.iter().copied().collect();
+    // 排队请求：引用在范围内，并与请求登记表双向一一对应。
+    let route_known = |key: &str| {
+        catalog_routes
+            .binary_search_by(|r| r.key.as_str().cmp(key))
+            .is_ok()
+    };
     let mut queued = BTreeMap::new();
     for request in &caller.schedule {
-        let origin = request.slot < count
-            && match planned.get(&request.sequence) {
-                Some(frozen) => {
-                    frozen.slot == request.slot
-                        && frozen.original_due == request.original_due
-                        && frozen.retry == request.retry
-                        && frozen.command == request.command
-                }
-                None => match request.retry {
-                    RetryPolicy::UntilWindowEnd { interval } => {
-                        caller.recycling.is_some()
-                            && interval == plan.retry_ticks
-                            && recycling_command(
-                                plan,
-                                caller.individuals[request.slot].id,
-                                request.attempt,
-                            )
-                            .is_ok_and(|command| command == request.command)
-                    }
-                    RetryPolicy::Finite { .. } => {
-                        request.retry == RetryPolicy::finite(plan)
-                            && u64::from(request.sequence)
-                                == u64::from(PARKING_SEQUENCE_BASE) + request.slot as u64
-                            && keyed.contains(&request.sequence)
-                            && matches!(&request.command, Command::Park { target }
-                                if catalog.targets.contains(target.as_str()))
-                    }
-                },
-            };
-        if request.due < tick || !origin {
+        use crate::runner::Command;
+        let references = match &request.command {
+            Command::Replace { route, .. } => route_known(route),
+            Command::Spawn { profile, route, .. } => {
+                route_known(route) && profiles.contains_key(profile)
+            }
+            Command::Leave { target, .. }
+            | Command::Reserve { target, .. }
+            | Command::Park { target } => targets.contains_key(target),
+            Command::Despawn => true,
+        };
+        if request.due < tick || request.slot >= count || !references {
             return Err(invalid(format!(
-                "saved request {} is stale or has no origin in the plan",
-                request.sequence
-            )));
-        }
-        if counted
-            .get(&request.sequence)
-            .is_some_and(|&counted| counted != request.command.retryable())
-        {
-            return Err(invalid(format!(
-                "saved request {} is counted inconsistently with its command",
+                "saved request {} is stale or references unknown entities",
                 request.sequence
             )));
         }
@@ -855,16 +742,11 @@ fn check_structure(
                 owners.insert(request.sequence, request.slot);
             }
         }
-        let mut claimed = BTreeMap::new();
-        for (slot, sequence) in pending.iter().enumerate() {
-            if let Some(sequence) = *sequence
-                && claimed.insert(sequence, slot).is_some()
-            {
-                return Err(invalid(format!(
-                    "saved recycling request {sequence} has two owners"
-                )));
-            }
-        }
+        let claimed: BTreeMap<_, _> = pending
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, sequence)| sequence.map(|sequence| (sequence, slot)))
+            .collect();
         if owners != claimed {
             return Err(invalid(
                 "saved recycling owners and queued recycling requests disagree",

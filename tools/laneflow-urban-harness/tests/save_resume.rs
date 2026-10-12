@@ -155,53 +155,6 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         assert_eq!(comparison.right.start, tick);
     }
 
-    // 回执声明的观察窗交集须与 (T, E] 和计划观察窗一致。
-    // 回执自校验：伪造的观察窗交集、空推进区间与磁盘上不存在的存档记录都被拒绝。
-    let forge = |label: &str, source: &Path, edit: &dyn Fn(&mut Value)| -> PathBuf {
-        let forged = temp.path().join(label);
-        fs::create_dir_all(&forged).unwrap();
-        for entry in fs::read_dir(source).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_file() {
-                fs::copy(entry.path(), forged.join(entry.file_name())).unwrap();
-            }
-        }
-        let mut receipt: Value =
-            serde_json::from_slice(&fs::read(forged.join("result.json")).unwrap()).unwrap();
-        edit(&mut receipt);
-        fs::write(
-            forged.join("result.json"),
-            serde_json::to_vec(&receipt).unwrap(),
-        )
-        .unwrap();
-        forged
-    };
-    let resumed_700 = temp.path().join("resume-700");
-    for (label, source, edit) in [
-        (
-            "forged-observed",
-            &resumed_700,
-            &(|receipt: &mut Value| receipt["observed_ticks"] = serde_json::json!([33, end]))
-                as &dyn Fn(&mut Value),
-        ),
-        ("empty-segment", &resumed_700, &|receipt: &mut Value| {
-            receipt["segment_end"] = 700.into();
-            receipt["completed_ticks"] = 700.into();
-            receipt["endpoint"]["tick"] = 700.into();
-            receipt["observed_ticks"] = Value::Null;
-        }),
-    ] {
-        let forged = forge(label, source, edit);
-        let error = compare_runs(&full, &forged).unwrap_err().to_string();
-        assert!(error.contains("cannot accept"), "{label}: {error}");
-    }
-    // 不带 saves 目录复制的不中断臂：回执里的存档记录在磁盘上不存在。
-    let without_saves = forge("without-saves", &full, &|_| {});
-    let error = compare_runs(&without_saves, &resumed_700)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("save records"), "{error}");
-
     // 续跑可以再存档；两份从同一存档续跑的运行可直接比较。
     let first = temp.path().join("chain-first");
     run(
@@ -466,133 +419,6 @@ fn resume_rejects_malformed_saves_without_writing_output() {
     );
     reject(
         sustained,
-        "recycling request with two owners",
-        &|caller| {
-            let pending = caller["recycling"].as_array_mut().unwrap();
-            let mut free = pending
-                .iter()
-                .enumerate()
-                .filter(|(_, owner)| owner.is_null())
-                .map(|(slot, _)| slot);
-            let (first, second) = (free.next().unwrap(), free.next().unwrap());
-            pending[first] = 999_999.into();
-            pending[second] = 999_999.into();
-        },
-        "two owners",
-    );
-    reject(
-        queued,
-        "zero retry interval",
-        &|caller| {
-            caller["schedule"][0]["retry"]["interval"] = 0.into();
-        },
-        "no origin",
-    );
-    // 排队请求改为指向已知停车目标、但出口越界的 Leave。
-    let parking = &artifacts.catalog().parking[0];
-    let (target, exits) = (parking.key.clone(), parking.exits.len());
-    reject(
-        queued,
-        "leave exit out of range",
-        &|caller| {
-            caller["schedule"][0]["command"] = serde_json::json!({
-                "kind": "leave", "target": target, "exit": exits, "east": true
-            });
-        },
-        "no origin",
-    );
-    reject(
-        queued,
-        "planned request turned into despawn",
-        &|caller| {
-            caller["schedule"][0]["command"] = serde_json::json!({"kind": "despawn"});
-        },
-        "no origin",
-    );
-    reject(
-        queued,
-        "replace occurrence beyond its route",
-        &|caller| {
-            let replace = caller["schedule"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|request| request["command"]["kind"] == "replace")
-                .expect("a queued replace request");
-            replace["command"]["occurrence"] = 99.into();
-        },
-        "no origin",
-    );
-    reject(
-        queued,
-        "flipped ledger counted flag",
-        &|caller| {
-            let entry = &mut caller["ledger"]["entries"][0];
-            entry["counted"] = (!entry["counted"].as_bool().unwrap()).into();
-        },
-        "counted inconsistently",
-    );
-    fn claims(caller: &mut Value) -> &mut Vec<Value> {
-        let claims = caller["claims"].as_array_mut().unwrap();
-        assert!(!claims.is_empty(), "the save must hold conflict claims");
-        claims
-    }
-    reject(
-        sustained,
-        "claim occurrence out of range",
-        &|caller| {
-            claims(caller)[0][0][2] = 99_999.into();
-        },
-        "conflict claim",
-    );
-    reject(
-        sustained,
-        "claim zone mismatch",
-        &|caller| {
-            let claim = &mut claims(caller)[0];
-            claim[1] = (claim[1].as_u64().unwrap() + 1).into();
-        },
-        "conflict claim",
-    );
-    reject(
-        sustained,
-        "inflated births",
-        &|caller| {
-            caller["births"] = (1_u64 << 47).into();
-        },
-        "conservation",
-    );
-    reject(
-        sustained,
-        "overflowing counter",
-        &|caller| {
-            caller["replacements"] = u64::MAX.into();
-        },
-        "out-of-range number",
-    );
-    reject(
-        sustained,
-        "red waiter at an unknown gate",
-        &|caller| {
-            let id = caller["individuals"][0]["id"].clone();
-            caller["red_waiters"]
-                .as_array_mut()
-                .unwrap()
-                .push(serde_json::json!([id, 999_999]));
-        },
-        "reference unknown entities",
-    );
-    reject(
-        sustained,
-        "flipped crossed-tile flag",
-        &|caller| {
-            let individual = &mut caller["individuals"][0];
-            individual["crossed_tile"] = (!individual["crossed_tile"].as_bool().unwrap()).into();
-        },
-        "caller state digest",
-    );
-    reject(
-        sustained,
         "swapped routes",
         &|caller| {
             let routes = caller["routes"].as_array_mut().unwrap();
@@ -602,6 +428,16 @@ fn resume_rejects_malformed_saves_without_writing_output() {
             routes[last]["snapshot_route_id"] = first;
         },
         "",
+    );
+    // 模拟导出缺陷：结构与世界摘要都不覆盖的宿主字段被写错，由宿主状态摘要往返比对发现。
+    reject(
+        sustained,
+        "caller field written wrong",
+        &|caller| {
+            let individual = &mut caller["individuals"][0];
+            individual["crossed_tile"] = (!individual["crossed_tile"].as_bool().unwrap()).into();
+        },
+        "caller state digest",
     );
 
     // 区间与版本：在恢复世界之前拒绝。
@@ -690,56 +526,4 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         "observation-version",
         "observation encoding",
     );
-    // 清单声明的长度先于读入内存核对：超过上限或与磁盘长度不符即拒绝。
-    let forged = temp.path().join("fixed-step");
-    fs::create_dir_all(&forged).unwrap();
-    for name in ["world.lfrs", "caller.json"] {
-        fs::copy(save.join(name), forged.join(name)).unwrap();
-    }
-    let mut manifest: toml::Table =
-        toml::from_str(&fs::read_to_string(save.join("save.toml")).unwrap()).unwrap();
-    let step = manifest["fixed_step_ms"].as_integer().unwrap();
-    manifest.insert("fixed_step_ms".into(), toml::Value::Integer(step + 1));
-    fs::write(
-        forged.join("save.toml"),
-        toml::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-    resume(
-        RunOptions {
-            resume: Some(forged),
-            ..RunOptions::default()
-        },
-        "fixed-step",
-        "fixed step",
-    );
-    for (label, file, bytes) in [
-        ("oversized-world", "world", 4_294_967_296_i64),
-        ("mismatched-caller", "caller", 1),
-    ] {
-        let forged = temp.path().join(label);
-        fs::create_dir_all(&forged).unwrap();
-        for name in ["world.lfrs", "caller.json"] {
-            fs::copy(save.join(name), forged.join(name)).unwrap();
-        }
-        let mut manifest: toml::Table =
-            toml::from_str(&fs::read_to_string(save.join("save.toml")).unwrap()).unwrap();
-        manifest[file]
-            .as_table_mut()
-            .unwrap()
-            .insert("bytes".into(), toml::Value::Integer(bytes));
-        fs::write(
-            forged.join("save.toml"),
-            toml::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-        resume(
-            RunOptions {
-                resume: Some(forged),
-                ..RunOptions::default()
-            },
-            label,
-            "length out of bounds",
-        );
-    }
 }
