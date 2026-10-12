@@ -20,6 +20,9 @@
 #[path = "support/policy.rs"]
 mod test_policy;
 
+#[path = "support/tick_ledger.rs"]
+mod tick_ledger;
+
 use std::alloc::System;
 use std::sync::Arc;
 
@@ -139,7 +142,18 @@ fn entry_exit(
     panic!("fixture exposes a connected edge pair");
 }
 
-fn world_with_fleet() -> TrafficWorld {
+fn ledger_step(
+    ledger: &mut tick_ledger::TickLedger,
+    phase: &'static str,
+    tick: u32,
+    world: &mut TrafficWorld,
+) {
+    let region = Region::new(GLOBAL);
+    world.step(TickInput::new(DELTA_MS)).expect("ledger step");
+    ledger.record(phase, tick, region.change());
+}
+
+fn world_with_fleet(ledger: &mut tick_ledger::TickLedger) -> TrafficWorld {
     let revision = build(ORACLE_BASE);
     let mut world = TrafficWorld::install(
         std::sync::Arc::clone(&revision),
@@ -163,8 +177,8 @@ fn world_with_fleet() -> TrafficWorld {
             )
             .expect("vehicle");
     }
-    for _ in 0..4 {
-        world.step(TickInput::new(DELTA_MS)).expect("warmup step");
+    for index in 0..4 {
+        ledger_step(ledger, "fleet-warmup", index, &mut world);
     }
     world
 }
@@ -183,35 +197,35 @@ fn prepare_transaction(world: &mut TrafficWorld) -> laneflow_runtime::CutoverTra
 }
 fn cross_revision_cutover_budget_evidence() {
     // —— 武装期在线准备干扰：武装前后稳态 tick 账本相等（硬断言）——
-    let mut unarmed = world_with_fleet();
-    for _ in 0..STEADY_TICKS {
-        unarmed.step(TickInput::new(DELTA_MS)).expect("warmup step");
+    let mut ledger = tick_ledger::TickLedger::new();
+    let mut unarmed = world_with_fleet(&mut ledger);
+    for index in 0..STEADY_TICKS {
+        ledger_step(&mut ledger, "unarmed-warmup", index, &mut unarmed);
     }
     let unarmed_ledger = {
         let region = Region::new(GLOBAL);
-        for _ in 0..STEADY_TICKS {
-            unarmed.step(TickInput::new(DELTA_MS)).expect("step");
+        for index in 0..STEADY_TICKS {
+            ledger_step(&mut ledger, "unarmed-window", index, &mut unarmed);
         }
         Ledger::from_change(region.change())
     };
 
-    let mut armed = world_with_fleet();
-    // 与未武装侧相同的预热步数：保证两侧在测量起点处于同一演化状态
-    //（占用索引容量已长到位），账本差异只剩日志写入路径本身。
-    for _ in 0..STEADY_TICKS {
-        armed
-            .step(TickInput::new(DELTA_MS))
-            .expect("pre-prepare warmup");
+    let mut armed = world_with_fleet(&mut ledger);
+    for index in 0..STEADY_TICKS {
+        ledger_step(&mut ledger, "armed-warmup", index, &mut armed);
     }
     let mut transaction = prepare_transaction(&mut armed);
     let armed_ledger = {
         // 新建测量区段：arena 预留与候选克隆留在区段外。
         let region = Region::new(GLOBAL);
-        for _ in 0..STEADY_TICKS {
-            armed.step(TickInput::new(DELTA_MS)).expect("armed step");
+        for index in 0..STEADY_TICKS {
+            ledger_step(&mut ledger, "armed-window", index, &mut armed);
         }
         Ledger::from_change(region.change())
     };
+    if unarmed_ledger != armed_ledger {
+        ledger.dump("cutover-steady-windows");
+    }
     assert_eq!(
         unarmed_ledger, armed_ledger,
         "armed steady ticks must not allocate beyond unarmed steady ticks"
@@ -237,7 +251,7 @@ fn cross_revision_cutover_budget_evidence() {
     );
 
     // —— Prepare 分配账本（描述性：候选动态双份 + 日志 arena 预留等）——
-    let mut probe = world_with_fleet();
+    let mut probe = world_with_fleet(&mut ledger);
     probe.step(TickInput::new(DELTA_MS)).expect("probe step");
     let prepare_ledger = {
         let region = Region::new(GLOBAL);

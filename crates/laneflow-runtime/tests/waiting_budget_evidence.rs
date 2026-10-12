@@ -18,6 +18,10 @@
 mod test_policy;
 
 #[cfg(feature = "placement-fixtures")]
+#[path = "support/tick_ledger.rs"]
+mod tick_ledger;
+
+#[cfg(feature = "placement-fixtures")]
 use std::alloc::System;
 #[cfg(feature = "placement-fixtures")]
 use std::sync::Arc;
@@ -71,6 +75,18 @@ const FULL_SPATIAL: &[u8] = include_bytes!(
 const DELTA_MS: u64 = 4;
 #[cfg(feature = "placement-fixtures")]
 const STEADY_TICKS: u32 = 16;
+
+#[cfg(feature = "placement-fixtures")]
+fn ledger_step(
+    ledger: &mut tick_ledger::TickLedger,
+    phase: &'static str,
+    tick: u32,
+    world: &mut TrafficWorld,
+) {
+    let region = Region::new(GLOBAL);
+    world.step(TickInput::new(DELTA_MS)).expect("ledger step");
+    ledger.record(phase, tick, region.change());
+}
 
 #[cfg(feature = "placement-fixtures")]
 fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
@@ -130,24 +146,21 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
 
     // 同形弃置暖机（#754）：一台同入口车辆完整走「入门 → 暖机 → 稳态窗口」，
     // 一次性懒初始化在其中吸收；其统计即弃，不作断言。
+    let mut ledger = tick_ledger::TickLedger::new();
     {
         let _priming = Region::new(GLOBAL);
         let primed = spawn_entry_vehicle(&mut world);
-        world
-            .step(TickInput::new(DELTA_MS))
-            .expect("priming admission");
-        world
-            .step(TickInput::new(DELTA_MS))
-            .expect("priming settle");
-        for _ in 0..STEADY_TICKS {
-            world.step(TickInput::new(DELTA_MS)).expect("priming step");
+        ledger_step(&mut ledger, "priming-admission", 0, &mut world);
+        ledger_step(&mut ledger, "priming-settle", 0, &mut world);
+        for index in 0..STEADY_TICKS {
+            ledger_step(&mut ledger, "priming-step", index, &mut world);
         }
         world.despawn_vehicle(primed).expect("priming despawn");
     }
 
     let vehicle = spawn_entry_vehicle(&mut world);
 
-    world.step(TickInput::new(DELTA_MS)).expect("admission");
+    ledger_step(&mut ledger, "admission", 0, &mut world);
     assert!(
         world
             .vehicle(vehicle)
@@ -156,17 +169,18 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         "fixture vehicle must hold a Waiting membership before measurement"
     );
     // 进入等待区后的第一下移动，车身可能跨到下一条边，那条边的占用桶只长大一次。
-    world
-        .step(TickInput::new(DELTA_MS))
-        .expect("settle occupancy");
+    ledger_step(&mut ledger, "settle-occupancy", 0, &mut world);
 
     let stats = {
         let region = Region::new(GLOBAL);
-        for _ in 0..STEADY_TICKS {
-            world.step(TickInput::new(DELTA_MS)).expect("steady step");
+        for index in 0..STEADY_TICKS {
+            ledger_step(&mut ledger, "steady-window", index, &mut world);
         }
         region.change()
     };
+    if stats.allocations != 0 || stats.reallocations != 0 || stats.bytes_allocated != 0 {
+        ledger.dump("waiting-steady-window");
+    }
     assert_eq!(stats.allocations, 0, "steady Waiting ticks allocated");
     assert_eq!(stats.reallocations, 0, "steady Waiting ticks reallocated");
     assert_eq!(
@@ -192,9 +206,12 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         world.despawn_vehicle(current).unwrap();
         current = spawn_entry_vehicle(&mut world);
         let region = Region::new(GLOBAL);
-        world.step(TickInput::new(DELTA_MS)).unwrap();
+        ledger_step(&mut ledger, "repeated-admission", sample, &mut world);
         let stats = region.change();
         if sample >= 4 {
+            if stats.allocations != 0 || stats.reallocations != 0 || stats.bytes_allocated != 0 {
+                ledger.dump("waiting-repeated-admission");
+            }
             assert_eq!(
                 (
                     stats.allocations,
