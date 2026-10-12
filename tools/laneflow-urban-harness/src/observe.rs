@@ -638,7 +638,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
     // Every decision, including NotEvaluated/NotRequired, contributes in public batch order.
     // Store its digest once per tick instead of millions of repetitive diagnostic rows.
     // v3 决策批摘要：编码按固定块并行取叶摘要（块界与 workers 无关），主线程
-    // 按块序把叶摘要送入根哈希；evidence 的 right_of_way 状态机有跨决策顺序
+    // 按块序把叶摘要送入根哈希；证据（`evidence`）的 right_of_way 状态机有跨决策顺序
     // 依赖，保持串行第二遍。两遍遍历同一 latest_*_decisions() 快照，顺序相同。
     let tick = h.world.tick_index();
     let mut decisions = Hash::default();
@@ -1161,10 +1161,10 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     state_impl(h, OBSERVATION_BLOCK)
 }
 
-/// claims 不变量的只读块检查：逐条核对 reservation owner，owner 校验结果与
+/// 资源声明（`claims`）不变量的只读块检查：逐条核对预约持有方，持有方校验结果与
 /// (zone, id) 按原 map 迭代序成对返回；块闭包不失败，Err 以第三元组分量
 /// 带回，由主线程按块序归并后先插入 zone_owners 再判定，触发点与串行逐条
-/// （zone 独占冲突先于 owner 缺失）一致。
+/// （zone 独占冲突先于持有方缺失）一致。
 fn claims_block(
     world: &TrafficWorld,
     individuals: &[crate::runner::Individual],
@@ -1190,8 +1190,8 @@ fn claims_block(
 }
 
 /// v3 树形摘要：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
-/// 信号、remaining-claims）；叶 = 固定块界槽位区间编码字节的 SHA-256。
-/// remaining-claims 的 route 按内部索引编码（注册顺序即目录 key 升序，序号
+/// 信号、`remaining-claims`）；叶 = 固定块界槽位区间编码字节的 SHA-256。
+/// `remaining-claims` 段的 route 按内部索引编码（注册顺序即目录 key 升序，序号
 /// 与 key 一一对应），不再内联 route key 文本。块界与 workers 无关，摘要跨
 /// 并行度稳定；报错仍为块内逐车序 + 块间按块序取首个 Err。
 fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize, usize, usize))> {
@@ -1202,9 +1202,9 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
     hash.n(h.world.event_cursor());
-    // claims 不变量按固定块并行核对：块线程只读校验 reservation owner，
-    // 主线程按块序（= 原 map 迭代序）逐对插入 zone_owners 再判定 owner，
-    // 报错触发点与串行逐条一致；claims 借用与块结果在下方可变借用前消费完。
+    // 资源声明不变量按固定块并行核对：块线程只读校验预约持有方，
+    // 主线程按块序（= 原 map 迭代序）逐对插入 zone_owners 再判定持有方，
+    // 报错触发点与串行逐条一致；`claims` 借用与块结果在下方可变借用前消费完。
     let mut zone_owners = FastMap::default();
     {
         let claims: Vec<_> = h.claims.iter().collect();
@@ -1719,14 +1719,14 @@ mod tests {
         }
     }
 
-    // 逐拍不变量的违例注入：harness 自有状态（claims/individuals/slots/births）
+    // 逐拍不变量的违例注入：harness 自有状态（`claims`/`individuals`/`slots`/`births`）
     // 可直接篡改，注入后同一拍 state_impl 即报错。世界派生状态（车身重叠、
     // 等待区容量/成员、front 越界、停车 binding 矩阵）无法经公共 API 伪造——
     // Runtime 自身会拦截这类违例，其防线在 Runtime 自身的测试中覆盖。
     #[test]
     fn state_rejects_claim_without_current_reservation_owner() {
-        // claims 归属：claim 的 id 与个体记录不符（incarnation 改大），
-        // owner 校验先于排他判定逐条执行，同一拍报归属错误。
+        // 资源声明归属：声明的 id 与个体记录不符（incarnation 改大），
+        // 持有方校验先于排他判定逐条执行，同一拍报归属错误。
         let (_temp, artifacts) = fixture_artifacts();
         let plan = fixture_plan(&artifacts);
         let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
@@ -1751,11 +1751,11 @@ mod tests {
 
     #[test]
     fn state_rejects_non_exclusive_committed_conflict_claims() {
-        // claims 排他：merge 按 map 序逐条先插入 zone_owners 再判定 owner，
-        // 首个同 zone 的 claim 必须先通过 owner 校验，排他错误才会在第二条
-        // 触发。owner 通过需要世界里真实的 conflict reservation：SUSTAINED-ACTIVE
-        // 等负载场景的 conflict arbiter 全程休眠，UNCONTROLLED-YIELD 的
-        // opposing pulse 持 reservation 通过冲突区（实测第 133 拍起，确定性）。
+        // 资源声明排他：merge 按 map 序逐条先插入 zone_owners 再判定持有方，
+        // 首个同 zone 的声明必须先通过持有方校验，排他错误才会在第二条
+        // 触发。持有方通过需要世界里真实的冲突预约：SUSTAINED-ACTIVE
+        // 等负载场景的冲突裁决全程休眠，UNCONTROLLED-YIELD 的
+        // opposing pulse 持预约通过冲突区（实测第 133 拍起，确定性）。
         let (_temp, artifacts) = fixture_artifacts();
         let plan = crate::ResolvedPlan::for_case(
             &artifacts,
