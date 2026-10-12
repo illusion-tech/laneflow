@@ -1019,6 +1019,7 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         || result.completed_ticks != result.segment_end
         || result.endpoint.as_ref().map(|endpoint| endpoint.tick) != Some(result.segment_end)
         || result.segment_end > result.expected_ticks
+        || result.segment_end <= result.start_tick()
         || result.observed_ticks
             != observed_interval(
                 result.start_tick(),
@@ -1052,6 +1053,22 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         }
     }
     require_diagnostics_marker(dir)?;
+    // 存档记录是比较时出发状态绑定的依据，须与本臂目录中的存档一致：拍号严格
+    // 递增且落在 (T, E]，路径为 saves/tick-<拍号>，清单摘要与磁盘文件相同。
+    let mut previous = result.start_tick();
+    for saved in &result.saves {
+        if saved.tick <= previous
+            || saved.tick > result.segment_end
+            || saved.path != format!("saves/tick-{}", saved.tick)
+            || digest_file(&dir.join(&saved.path).join("save.toml"))
+                .ok()
+                .as_ref()
+                != Some(&saved.manifest)
+        {
+            return Err(invalid("run save records differ from the saves on disk"));
+        }
+        previous = saved.tick;
+    }
     if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
         return Err(invalid("plan digest differs"));
     }

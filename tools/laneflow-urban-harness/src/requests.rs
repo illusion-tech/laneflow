@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -31,8 +31,11 @@ pub(crate) struct RequestLedger {
     entries: BTreeMap<RequestId, Entry>,
     next_sequence: u32,
     /// 封口后可登记的最小编号；封口前（安装期间）为空，计划请求可按任意序登记。
-    /// 封口后登记编号严格递增，结束移出的编号因此不能再次登记。
+    /// 封口后新分配的编号严格递增登记，结束移出的编号因此不能再次登记。
     registration_floor: Option<u32>,
+    /// 已登记过的预分配编号（停车到达按交通序到达，不随登记水位递增）。每个编号
+    /// 至多登记一次；集合以个体数为上界，不随运行时长增长。
+    keyed: BTreeSet<u32>,
     pending: usize,
     exhausted: usize,
 }
@@ -62,6 +65,26 @@ impl RequestLedger {
         if self.registration_floor.is_some() {
             self.registration_floor = Some(next);
         }
+        self.entries.insert(
+            id,
+            Entry {
+                state: RequestState::Scheduled { due },
+                counted,
+            },
+        );
+        Ok(())
+    }
+
+    /// 登记预分配编号的请求：不受登记水位约束，但同一编号整个运行至多登记一次。
+    pub fn register_keyed(&mut self, sequence: u32, due: u64, counted: bool) -> Result<()> {
+        let id = RequestId(sequence);
+        if self.entries.contains_key(&id) || !self.keyed.insert(sequence) {
+            return Err(invalid(format!("请求编号已登记：{sequence}")));
+        }
+        let next = sequence
+            .checked_add(1)
+            .ok_or_else(|| invalid("请求编号耗尽"))?;
+        self.next_sequence = self.next_sequence.max(next);
         self.entries.insert(
             id,
             Entry {
@@ -149,7 +172,8 @@ impl RequestLedger {
         self.registration_floor = Some(self.next_sequence);
     }
 
-    /// 存档用的在途登记：按序号升序的每一项、两个编号水位与两项计数。
+    /// 存档用的在途登记：按序号升序的每一项、两个编号水位、已登记的预分配编号
+    /// 与两项计数。
     pub(crate) fn save(&self) -> SavedLedger {
         SavedLedger {
             entries: self
@@ -163,29 +187,39 @@ impl RequestLedger {
                 .collect(),
             next_sequence: self.next_sequence,
             registration_floor: self.registration_floor.unwrap_or(self.next_sequence),
+            keyed: self.keyed.iter().copied().collect(),
             pending: self.pending,
             exhausted: self.exhausted,
         }
     }
 
-    /// 从存档重建（已封口）并核对自洽：序号严格递增且小于登记水位、登记水位
-    /// 不大于下一编号、在途计数与按登记项重算的值相同、只有排队中的请求（执行中
-    /// 只出现在单个请求执行过程中，结束的请求已移出）。
+    /// 从存档重建（已封口）并核对自洽：登记水位不大于下一编号；预分配编号严格
+    /// 递增且小于下一编号；登记项序号严格递增，且小于登记水位或是已登记的预分配
+    /// 编号；在途计数与按登记项重算的值相同；只有排队中的请求（执行中只出现在
+    /// 单个请求执行过程中，结束的请求已移出）。
     pub(crate) fn restore(saved: &SavedLedger) -> Result<Self> {
-        if saved.registration_floor > saved.next_sequence {
-            return Err(invalid("存档登记水位大于下一编号"));
+        if saved.registration_floor > saved.next_sequence
+            || saved.keyed.windows(2).any(|pair| pair[0] >= pair[1])
+            || saved
+                .keyed
+                .last()
+                .is_some_and(|&last| last >= saved.next_sequence)
+        {
+            return Err(invalid("存档请求编号水位或预分配编号不自洽"));
         }
         let mut ledger = Self {
             entries: BTreeMap::new(),
             next_sequence: saved.next_sequence,
             registration_floor: Some(saved.registration_floor),
+            keyed: saved.keyed.iter().copied().collect(),
             pending: 0,
             exhausted: saved.exhausted,
         };
         let mut previous = None;
         for entry in &saved.entries {
             if previous.is_some_and(|previous| previous >= entry.sequence)
-                || entry.sequence >= saved.registration_floor
+                || (entry.sequence >= saved.registration_floor
+                    && !ledger.keyed.contains(&entry.sequence))
             {
                 return Err(invalid("存档请求编号不递增或不小于登记水位"));
             }
@@ -246,6 +280,7 @@ pub(crate) struct SavedLedger {
     pub entries: Vec<SavedLedgerEntry>,
     pub next_sequence: u32,
     pub registration_floor: u32,
+    pub keyed: Vec<u32>,
     pub pending: usize,
     pub exhausted: usize,
 }
@@ -290,6 +325,34 @@ mod tests {
         ledger.begin(3, 0, 1).unwrap();
         ledger.finish(3, false).unwrap();
         assert_eq!(ledger.counts(), (0, 3));
+    }
+
+    #[test]
+    fn preassigned_ids_register_in_arrival_order_but_only_once() {
+        let mut ledger = RequestLedger::default();
+        ledger.register(3, 0, true).unwrap();
+        ledger.seal();
+        // 停车到达按交通序：大编号先到，小编号后到。
+        ledger.register_keyed(20_000_743, 5, true).unwrap();
+        ledger.register_keyed(20_000_741, 6, true).unwrap();
+        for sequence in [20_000_743, 20_000_741] {
+            ledger
+                .begin(sequence, if sequence == 20_000_743 { 5 } else { 6 }, 1)
+                .unwrap();
+            ledger.finish(sequence, false).unwrap();
+        }
+        assert!(ledger.register_keyed(20_000_741, 9, true).is_err());
+        assert!(ledger.allocate().unwrap() > 20_000_743);
+        let saved = ledger.save();
+        assert_eq!(saved.keyed, vec![20_000_741, 20_000_743]);
+        let mut restored = RequestLedger::restore(&saved).unwrap();
+        assert!(restored.register_keyed(20_000_743, 9, true).is_err());
+        restored.register_keyed(20_000_742, 9, true).unwrap();
+        let saved = restored.save();
+        assert!(RequestLedger::restore(&saved).is_ok());
+        let mut unkeyed = saved.clone();
+        unkeyed.keyed.retain(|&sequence| sequence != 20_000_742);
+        assert!(RequestLedger::restore(&unkeyed).is_err());
     }
 
     #[test]
