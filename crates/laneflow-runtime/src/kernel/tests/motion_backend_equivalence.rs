@@ -185,7 +185,9 @@ fn conflict_world_matches_across_backends_workers_retry_and_restore() {
         name: "conflict-scale",
         build: &build,
         delta_ms: 4,
-        ticks: 200,
+        // #915：outcome 种类第 0 拍穷尽、决策/事件活动止于 73 拍（64 车 w=1
+        // 测量），96 = 活动尾拍+余量；fail_row=21 不受影响。
+        ticks: 96,
         fail_row: 21,
     };
     assert_matrix(&scenario, "\nconflict=[]\n");
