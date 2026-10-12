@@ -8,8 +8,8 @@
 //! worker 1 融合路径，其 digest 管线已由 pre-refactor fixture
 //! `phase-protocol-e011745e.txt` 锚定。worker 档位与拍数经 #915 outcome 级
 //! 测量论证降档（车辆场景档位 [1,2,4,16]、signals [1,4,16]，拍数
-//! 64/12/320/360），恢复+续跑比较抽样于 workers∈{1,16}（续跑 digest 跨抽样臂
-//! 对照）。
+//! 64/12/320/360），恢复+续跑比较抽样于分区形状唯一的臂 workers∈{1,2,16}
+//! （续跑 digest 跨抽样臂对照）。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
 use crate::{StepError, TickInput, TrafficWorld};
@@ -424,10 +424,11 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
                     "{name} must keep at least {DISPATCH_MIN_ACTIVE} active vehicles, got {active}"
                 );
             }
-            // 恢复+续跑比较抽样于 1/16 两臂：恢复机制与 worker 数无关，其余臂
-            // 无边际信号；比较不进轨迹 digest，跨臂 digest 保持可比较；抽样臂的
-            // 续跑 digest 跨臂对照（臂内断言观测不到恢复后首拍的跨 worker 发散）。
-            let restore = if matches!(raw_workers, 1 | 16) {
+            // 恢复+续跑比较抽样于分区形状唯一的臂：1=融合参考、2=span=2 多车段、
+            // 16=span=1 超订；4 与 16 同形（span=1）跳过。比较不进轨迹 digest，
+            // 跨臂 digest 保持可比较；抽样臂的续跑 digest 跨臂对照（臂内断言
+            // 观测不到恢复后首拍的跨 worker 发散）。
+            let restore = if matches!(raw_workers, 1 | 2 | 16) {
                 RestoreCheck::SideAssert
             } else {
                 RestoreCheck::Skip
