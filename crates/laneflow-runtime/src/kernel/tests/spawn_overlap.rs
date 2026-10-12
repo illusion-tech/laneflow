@@ -204,33 +204,60 @@ fn input(route: RouteHandle, occurrence: u32, progress: u32) -> VehicleSpawnInpu
     .with_open_entrance()
 }
 
-/// 参考路径从已提交 live 表全扫，不借用候选索引或 active_order。
+/// 参考路径从已提交 live 表全扫，不借用候选索引或 active_order：候选区间按准入遍历序
+/// 编号，取第一段出现重叠的区间；同段取对方重叠区间终点、起点最大者，再取 live 序靠前者。
 fn linear_blocker(
     world: &TrafficWorld,
     route: RouteHandle,
     occurrence: usize,
     progress: u32,
 ) -> Option<VehicleHandle> {
+    use crate::kernel::tables::{admission_intervals_overlap, for_each_admission_interval};
+    let lengths = world.traffic().lane_lengths_millimetres();
+    let mut candidate = Vec::new();
+    for_each_admission_interval(
+        lengths,
+        world.route_edges(route).unwrap(),
+        occurrence,
+        progress,
+        4_500,
+        |edge, lo, hi| candidate.push((edge, lo, hi)),
+    )
+    .unwrap();
     world
         .live_vehicles()
         .iter()
         .copied()
-        .filter(|handle| {
-            let state = world.state.vehicle_state(*handle).expect("live state");
-            state.status == VehicleStatus::Active
-                && crate::kernel::tables::bodies_overlap(
-                    world.traffic().lane_lengths_millimetres(),
-                    world.route_edges(route).unwrap(),
-                    occurrence,
-                    progress,
-                    4_500,
-                    world.route_edges(state.route).unwrap(),
-                    state.route_edge_index as usize,
-                    state.progress_mm,
-                    state.length_mm,
-                )
+        .enumerate()
+        .filter_map(|(rank, handle)| {
+            let state = world.state.vehicle_state(handle).expect("live state");
+            if state.status != VehicleStatus::Active {
+                return None;
+            }
+            let mut body = Vec::new();
+            for_each_admission_interval(
+                lengths,
+                world.route_edges(state.route).unwrap(),
+                state.route_edge_index as usize,
+                state.progress_mm,
+                state.length_mm,
+                |edge, lo, hi| body.push((edge, lo, hi)),
+            )?;
+            candidate
+                .iter()
+                .enumerate()
+                .find_map(|(segment, &(edge, lo, hi))| {
+                    body.iter()
+                        .filter(|&&(other, other_lo, other_hi)| {
+                            other == edge && admission_intervals_overlap(lo, hi, other_lo, other_hi)
+                        })
+                        .map(|&(_, other_lo, other_hi)| (other_hi, other_lo))
+                        .max()
+                        .map(|key| ((segment, std::cmp::Reverse(key), rank), handle))
+                })
         })
-        .min_by_key(|handle| (handle.index(), handle.generation()))
+        .min_by_key(|(order, _)| *order)
+        .map(|(_, handle)| handle)
 }
 
 #[test]
@@ -443,7 +470,7 @@ fn cutover_overlap_keeps_live_order_and_entity_error_priority() {
 }
 
 #[test]
-fn route_start_is_clipped_and_blocker_selection_survives_slot_reuse() {
+fn route_start_is_clipped_and_blocker_selection_is_geometric_across_slot_reuse() {
     let mut world = empty_world(road_revision(1, 10.0, false), 8);
     let route = lane_routes(&mut world, 1)[0];
     let zero = world.spawn_vehicle(input(route, 0, 0)).unwrap();
@@ -451,9 +478,10 @@ fn route_start_is_clipped_and_blocker_selection_survives_slot_reuse() {
     let low = world.spawn_vehicle(input(route, 0, 2_000)).unwrap();
     let high = world.spawn_vehicle(input(route, 0, 7_000)).unwrap();
     assert_eq!(world.state.overlap_blocker(route, 0, 0, 4_500), Some(zero));
+    // 两车都与 [1500, 6000] 重叠：取区间终点最大（离前杠最近）者，而非槽位最小者。
     assert_eq!(
         world.state.overlap_blocker(route, 0, 6_000, 4_500),
-        Some(low)
+        Some(high)
     );
     world.despawn_vehicle(zero).unwrap();
     let reused = world.spawn_vehicle(input(route, 0, 0)).unwrap();
@@ -470,9 +498,55 @@ fn route_start_is_clipped_and_blocker_selection_survives_slot_reuse() {
         }
         assert_eq!(
             world.state.overlap_blocker(route, 0, 6_000, 4_500),
-            Some(low_again)
+            Some(high)
         );
     }
+}
+
+#[test]
+fn blocker_selection_is_identical_across_snapshot_restore() {
+    // 槽位复用使槽位序（low_again 在前）与 live 序（high 在前）相反；恢复按新世界分配
+    // 槽位。选择只由已提交状态决定，恢复前后报告同一辆（按 live 序位置对应）。
+    let revision = road_revision(1, 10.0, false);
+    let mut world = empty_world(Arc::clone(&revision), 8);
+    let route = lane_routes(&mut world, 1)[0];
+    let low = world.spawn_vehicle(input(route, 0, 2_000)).unwrap();
+    let high = world.spawn_vehicle(input(route, 0, 7_000)).unwrap();
+    world.despawn_vehicle(low).unwrap();
+    let low_again = world.spawn_vehicle(input(route, 0, 2_000)).unwrap();
+    assert!(low_again.index() < high.index());
+    assert_eq!(world.live_vehicles(), &[high, low_again]);
+    let before: Vec<_> = [0, 1_000, 3_000, 6_000, 9_000]
+        .into_iter()
+        .map(|progress| {
+            world
+                .state
+                .overlap_blocker(route, 0, progress, 4_500)
+                .map(|blocker| world.live_vehicles().iter().position(|h| *h == blocker))
+        })
+        .collect();
+    assert!(before.contains(&Some(Some(0))));
+    let restored = restore_lfrs(
+        &encode_lfrs(&world.capture_snapshot().unwrap()),
+        revision,
+        world.committed_source().clone(),
+        world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        SnapshotRestoreLimits::new(1_048_576, 1_024),
+    )
+    .unwrap();
+    let restored_route = restored.route_mappings()[0].1;
+    let mut restored = restored.into_world();
+    let after: Vec<_> = [0, 1_000, 3_000, 6_000, 9_000]
+        .into_iter()
+        .map(|progress| {
+            restored
+                .state
+                .overlap_blocker(restored_route, 0, progress, 4_500)
+                .map(|blocker| restored.live_vehicles().iter().position(|h| *h == blocker))
+        })
+        .collect();
+    assert_eq!(before, after);
 }
 
 #[test]

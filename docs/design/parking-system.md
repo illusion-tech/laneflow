@@ -482,8 +482,8 @@ follower 只剩物理几何要求；`g0_mm <= min_gap_mm` 且 `v > 0` 时 availa
 拒绝。
 
 生产查询可以用 edge-local/route-aware index 缩小候选，但必须保留 full-scan reference
-oracle 对拍。多个物理 overlap blocker 按当前世界内部 `(slot index, generation)`
-字典序选择最小值，区间及缓存规则见 `vehicle-following.md` §7.4；多个 unsafe-follower
+oracle 对拍。多个物理 overlap blocker 按 `vehicle-following.md` §7.4 的几何规则
+选择，与槽位分配无关，区间及缓存规则同见该节；多个 unsafe-follower
 仍按稳定 live/update order 选择。物理 overlap 与
 unsafe-follower 必须是两个可区分错误，不能统一为含糊的 `unsafe exit`。
 

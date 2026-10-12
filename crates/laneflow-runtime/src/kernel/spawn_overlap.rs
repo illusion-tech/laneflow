@@ -40,7 +40,10 @@ pub(crate) fn overlap_fingerprint(index: &SpawnOverlapIndex) -> Option<Vec<Vec<(
             .buckets
             .iter()
             .map(|bucket| {
-                let mut keys: Vec<_> = bucket.iter().copied().map(handle_key).collect();
+                let mut keys: Vec<_> = bucket
+                    .iter()
+                    .map(|handle| (handle.index(), handle.generation()))
+                    .collect();
                 keys.sort_unstable();
                 keys
             })
@@ -341,7 +344,12 @@ impl crate::kernel::state::WorldState {
         )
     }
 
-    /// 在已刷新索引上查询候选准入 footprint 的阻挡车辆；多个阻挡取槽位/世代最小者。
+    /// 在已刷新索引上查询候选准入 footprint 的阻挡车辆。
+    ///
+    /// 多个阻挡按几何选择，只读已提交状态、与槽位分配无关，快照恢复前后一致：沿准入
+    /// 区间遍历序（前杠所在边起）第一条出现重叠的边；同边内取对方重叠区间终点、起点
+    /// 最大者（离前杠最近）；区间完全相同时取 live 序靠前者。找到重叠边后不再访问
+    /// 其余边。
     pub(crate) fn indexed_overlap_blocker(
         &self,
         route: RouteHandle,
@@ -353,7 +361,8 @@ impl crate::kernel::state::WorldState {
         debug_assert!(self.derived.spawn_overlap.is_current());
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let spawn_edges = self.route_edges(route)?;
-        let mut blocker: Option<VehicleHandle> = None;
+        // (阻挡车辆, 其在该边上的重叠区间 (hi, lo))；只保留第一条重叠边上的候选。
+        let mut blocker: Option<(VehicleHandle, (u32, u32))> = None;
         for_each_admission_interval(
             lengths,
             spawn_edges,
@@ -361,23 +370,23 @@ impl crate::kernel::state::WorldState {
             progress,
             length,
             |edge, lo, hi| {
+                if blocker.is_some() {
+                    return;
+                }
                 for &handle in &self.derived.spawn_overlap.buckets[edge.index()] {
                     if Some(handle) == excluded {
                         continue;
                     }
                     #[cfg(test)]
                     super::world::count_overlap_blocker_inspection();
-                    // 多个 blocker 取槽位/世代最小值，不依赖桶的插入或重建顺序。
-                    if blocker.is_some_and(|current| handle_key(current) <= handle_key(handle)) {
-                        continue;
-                    }
                     let Some(state) = self.vehicle_state(handle) else {
                         continue;
                     };
                     let Some(edges) = self.route_edges(state.route) else {
                         continue;
                     };
-                    let mut overlaps = false;
+                    // 路线可重复经过同一边：取该边上与候选重叠的最大区间。
+                    let mut overlap: Option<(u32, u32)> = None;
                     let complete = for_each_admission_interval(
                         lengths,
                         edges,
@@ -385,18 +394,40 @@ impl crate::kernel::state::WorldState {
                         state.progress_mm,
                         state.length_mm,
                         |other: LaneEdgeOrdinal, other_lo, other_hi| {
-                            overlaps |= edge == other
-                                && admission_intervals_overlap(lo, hi, other_lo, other_hi);
+                            if edge == other
+                                && admission_intervals_overlap(lo, hi, other_lo, other_hi)
+                            {
+                                overlap = overlap.max(Some((other_hi, other_lo)));
+                            }
                         },
                     )
                     .is_some();
-                    if complete && overlaps {
-                        blocker = Some(handle);
+                    let Some(key) = overlap.filter(|_| complete) else {
+                        continue;
+                    };
+                    let better = match blocker {
+                        None => true,
+                        Some((current, current_key)) => {
+                            key > current_key
+                                || (key == current_key
+                                    && self.live_position(handle) < self.live_position(current))
+                        }
+                    };
+                    if better {
+                        blocker = Some((handle, key));
                     }
                 }
             },
         )?;
-        blocker
+        blocker.map(|(handle, _)| handle)
+    }
+
+    /// 区间完全相同的阻挡才需要的 live 序位置（已提交状态下不可达），线性查找。
+    fn live_position(&self, handle: VehicleHandle) -> Option<usize> {
+        self.committed
+            .live_order
+            .iter()
+            .position(|live| *live == handle)
     }
 
     /// 把单车的实际占用边登记进当前索引。
@@ -428,8 +459,4 @@ impl crate::kernel::state::WorldState {
             state,
         );
     }
-}
-
-fn handle_key(handle: VehicleHandle) -> (u32, u32) {
-    (handle.index(), handle.generation())
 }
