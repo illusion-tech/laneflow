@@ -34,7 +34,7 @@ bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
 bevy_mesh = { version = "0.19", optional = true }
 bevy_time = { version = "0.19", default-features = false, features = ["std"] }
-bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
+bevy_transform = { version = "0.20", default-features = false, features = ["bevy-support", "std"] }
 laneflow-runtime = { version = "0.0.0", path = "../laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
