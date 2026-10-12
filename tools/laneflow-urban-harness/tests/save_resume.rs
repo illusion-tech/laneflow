@@ -155,6 +155,26 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         assert_eq!(comparison.right.start, tick);
     }
 
+    // 回执声明的观察窗交集须与 (T, E] 和计划观察窗一致。
+    let forged = temp.path().join("forged-observed");
+    fs::create_dir_all(&forged).unwrap();
+    for entry in fs::read_dir(temp.path().join("resume-700")).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            fs::copy(entry.path(), forged.join(entry.file_name())).unwrap();
+        }
+    }
+    let mut receipt: Value =
+        serde_json::from_slice(&fs::read(forged.join("result.json")).unwrap()).unwrap();
+    receipt["observed_ticks"] = serde_json::json!([33, end]);
+    fs::write(
+        forged.join("result.json"),
+        serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    let error = compare_runs(&full, &forged).unwrap_err().to_string();
+    assert!(error.contains("cannot accept"), "{error}");
+
     // 续跑可以再存档；两份从同一存档续跑的运行可直接比较。
     let first = temp.path().join("chain-first");
     run(
@@ -419,6 +439,30 @@ fn resume_rejects_malformed_saves_without_writing_output() {
     );
     reject(
         sustained,
+        "recycling request with two owners",
+        &|caller| {
+            let pending = caller["recycling"].as_array_mut().unwrap();
+            let mut free = pending
+                .iter()
+                .enumerate()
+                .filter(|(_, owner)| owner.is_null())
+                .map(|(slot, _)| slot);
+            let (first, second) = (free.next().unwrap(), free.next().unwrap());
+            pending[first] = 999_999.into();
+            pending[second] = 999_999.into();
+        },
+        "two owners",
+    );
+    reject(
+        queued,
+        "zero retry interval",
+        &|caller| {
+            caller["schedule"][0]["retry"]["interval"] = 0.into();
+        },
+        "retry policy",
+    );
+    reject(
+        sustained,
         "swapped routes",
         &|caller| {
             let routes = caller["routes"].as_array_mut().unwrap();
@@ -516,4 +560,34 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         "observation-version",
         "observation encoding",
     );
+    // 清单声明的长度先于读入内存核对：超过上限或与磁盘长度不符即拒绝。
+    for (label, file, bytes) in [
+        ("oversized-world", "world", 4_294_967_296_i64),
+        ("mismatched-caller", "caller", 1),
+    ] {
+        let forged = temp.path().join(label);
+        fs::create_dir_all(&forged).unwrap();
+        for name in ["world.lfrs", "caller.json"] {
+            fs::copy(save.join(name), forged.join(name)).unwrap();
+        }
+        let mut manifest: toml::Table =
+            toml::from_str(&fs::read_to_string(save.join("save.toml")).unwrap()).unwrap();
+        manifest[file]
+            .as_table_mut()
+            .unwrap()
+            .insert("bytes".into(), toml::Value::Integer(bytes));
+        fs::write(
+            forged.join("save.toml"),
+            toml::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        resume(
+            RunOptions {
+                resume: Some(forged),
+                ..RunOptions::default()
+            },
+            label,
+            "length out of bounds",
+        );
+    }
 }

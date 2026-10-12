@@ -8,6 +8,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs,
+    io::Read,
     path::Path,
     time::Instant,
 };
@@ -33,7 +34,30 @@ pub(crate) const CALLER_DIGEST_VERSION: &str = "urban-caller-digest-v1";
 const WORLD_FILE: &str = "world.lfrs";
 const CALLER_FILE: &str = "caller.json";
 const MANIFEST_FILE: &str = "save.toml";
-const RESTORE_LIMITS: SnapshotRestoreLimits = SnapshotRestoreLimits::new(2_147_483_648, 4_096);
+/// 存档各文件读入内存前的长度上限；`world.lfrs` 与快照恢复上限一致。
+const WORLD_MAX_BYTES: u64 = 2_147_483_648;
+const CALLER_MAX_BYTES: u64 = 1_073_741_824;
+const MANIFEST_MAX_BYTES: u64 = 16 * 1_024 * 1_024;
+const RESTORE_LIMITS: SnapshotRestoreLimits = SnapshotRestoreLimits::new(WORLD_MAX_BYTES, 4_096);
+
+/// 先按文件元数据核对长度（不超过上限，且与 `expected` 一致），再读入内存。
+fn read_bounded(path: &Path, limit: u64, expected: Option<u64>) -> Result<Vec<u8>> {
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let length = fs::metadata(path)?.len();
+    if length > limit || expected.is_some_and(|expected| expected != length) {
+        return Err(invalid(format!("save file length out of bounds: {name}")));
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(limit + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 != length {
+        return Err(invalid(format!("save file changed while reading: {name}")));
+    }
+    Ok(bytes)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -238,7 +262,7 @@ pub(crate) fn load_save(
     artifacts: &Artifacts,
     plan_digest: &str,
 ) -> Result<LoadedSave> {
-    let manifest_bytes = fs::read(directory.join(MANIFEST_FILE))?;
+    let manifest_bytes = read_bounded(&directory.join(MANIFEST_FILE), MANIFEST_MAX_BYTES, None)?;
     let manifest: SaveManifest = toml::from_str(
         std::str::from_utf8(&manifest_bytes).map_err(|error| invalid(error.to_string()))?,
     )?;
@@ -256,15 +280,16 @@ pub(crate) fn load_save(
     if manifest.artifact_files != artifacts.files {
         return Err(invalid("save belongs to different artifacts"));
     }
-    let read = |name: &str, expected: &FileDigest| -> Result<Vec<u8>> {
-        let bytes = fs::read(directory.join(name))?;
+    let read = |name: &str, expected: &FileDigest, limit: u64| -> Result<Vec<u8>> {
+        let bytes = read_bounded(&directory.join(name), limit, Some(expected.bytes))?;
         if &digest_bytes(&bytes) != expected {
             return Err(invalid(format!("save file changed: {name}")));
         }
         Ok(bytes)
     };
-    let world = read(WORLD_FILE, &manifest.world)?;
-    let caller: CallerState = serde_json::from_slice(&read(CALLER_FILE, &manifest.caller)?)?;
+    let world = read(WORLD_FILE, &manifest.world, WORLD_MAX_BYTES)?;
+    let caller: CallerState =
+        serde_json::from_slice(&read(CALLER_FILE, &manifest.caller, CALLER_MAX_BYTES)?)?;
     if caller.version != CALLER_VERSION {
         return Err(invalid("unsupported caller state version"));
     }
@@ -700,6 +725,20 @@ fn check_structure(
             | Command::Park { target } => targets.contains_key(target),
             Command::Despawn => true,
         };
+        // 重试策略只能是计划给出的两种：普通请求的有限策略、回收请求的
+        // 窗口末策略（仅回收计划）。
+        let retry_ok = match request.retry {
+            RetryPolicy::Finite { .. } => request.retry == RetryPolicy::finite(plan),
+            RetryPolicy::UntilWindowEnd { interval } => {
+                caller.recycling.is_some() && interval == plan.retry_ticks
+            }
+        };
+        if !retry_ok {
+            return Err(invalid(format!(
+                "saved request {} has a retry policy the plan does not issue",
+                request.sequence
+            )));
+        }
         if request.due < tick || request.slot >= count || !references {
             return Err(invalid(format!(
                 "saved request {} is stale or references unknown entities",
@@ -731,11 +770,16 @@ fn check_structure(
                 owners.insert(request.sequence, request.slot);
             }
         }
-        let claimed: BTreeMap<_, _> = pending
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, sequence)| sequence.map(|sequence| (sequence, slot)))
-            .collect();
+        let mut claimed = BTreeMap::new();
+        for (slot, sequence) in pending.iter().enumerate() {
+            if let Some(sequence) = *sequence
+                && claimed.insert(sequence, slot).is_some()
+            {
+                return Err(invalid(format!(
+                    "saved recycling request {sequence} has two owners"
+                )));
+            }
+        }
         if owners != claimed {
             return Err(invalid(
                 "saved recycling owners and queued recycling requests disagree",
