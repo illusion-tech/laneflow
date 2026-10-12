@@ -525,6 +525,12 @@ fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
             selected.trace, full.trace,
             "{scenario}: full resource and journal trace"
         );
+        // 续跑拍同样跨模式对照：稀疏选择与全扫描若在恢复快照才暴露的 retained
+        // 状态上发散，唯一显形机会是续跑拍；臂内断言只覆盖各自模式内部。
+        assert_eq!(
+            selected.continued, full.continued,
+            "{scenario}: full resource and journal continued state"
+        );
     }
 }
 
