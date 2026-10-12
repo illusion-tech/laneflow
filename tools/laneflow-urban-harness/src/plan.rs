@@ -663,7 +663,7 @@ impl ResolvedPlan {
                 CorrectnessRoles::UncontrolledYield => vec![
                     (740, "c04.w1-e1", 0, 92_000, 92_000, "mainline-pulse-0", 0),
                     (741, "c04.w1-e1", 0, 83_500, 83_500, "mainline-pulse-1", 0),
-                    (742, "c04.n0-e0", 0, 92_000, 75_000, "yield-role", 0),
+                    (742, "c04.n0-e1", 0, 92_000, 75_000, "yield-role", 0),
                 ],
                 CorrectnessRoles::BoundaryBurst => vec![
                     (

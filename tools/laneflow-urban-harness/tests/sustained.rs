@@ -49,9 +49,11 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
             UrbanCase::PermissiveLeft,
             "a78d35ee5927dc440a6e0df0bfd46d07a84ac9839112746b9e2c17299be39bed",
         ),
+        // 唯一有意偏离 9adc198761 的一项：那时冻结的让行角色走 c04.n0-e0，与主路脉冲
+        // c04.w1-e1 没有共同冲突区，真实让行关系从未出现；改走同出口车道汇入的 c04.n0-e1。
         (
             UrbanCase::UncontrolledYield,
-            "042a8fe3018e58830815133f0cc2496b5324b62d8b0e5fa4fd148980528aec03",
+            "d835b90afb6162b722711d9a4f8b9dcd5e9a854c0f961b3411cc1d035c364150",
         ),
         (
             UrbanCase::BoundaryBurst,
