@@ -3,6 +3,8 @@ use serde_json::json;
 use std::{fs, path::Path};
 
 const TICK: &str = "crates/laneflow-runtime/src/kernel/tick.rs";
+// 注入导出树的 wide pin 必须与 issue-762 Cargo.toml 的精确 pin 同步。
+const WIDE_PIN: &str = "=1.7.1";
 
 fn replace(text: &mut String, anchor: &str, value: &str) -> Result<()> {
     need(
@@ -192,7 +194,7 @@ pub(crate) fn export_patched(
         replace(
             &mut text,
             "[dependencies]\n",
-            "[dependencies]\nwide = \"=1.5.0\"\n",
+            &format!("[dependencies]\nwide = \"{WIDE_PIN}\"\n"),
         )?;
         fs::write(manifest, text)?;
         let research_manifest = source.join("research/issue-762-post-p3-hotspots/Cargo.toml");
@@ -200,7 +202,7 @@ pub(crate) fn export_patched(
         replace(
             &mut text,
             "[dependencies]\n",
-            "[dependencies]\nwide = \"=1.5.0\"\n",
+            &format!("[dependencies]\nwide = \"{WIDE_PIN}\"\n"),
         )?;
         fs::write(research_manifest, text)?;
         // 两臂共用同一锁文件，导出树独立添加研究 SIMD 依赖。
