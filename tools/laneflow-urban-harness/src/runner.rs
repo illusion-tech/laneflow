@@ -505,6 +505,7 @@ impl<'a> Harness<'a> {
             return Err(invalid("initial lifecycle counts differ"));
         }
         observe::parking_invariants(&harness)?;
+        harness.requests.seal();
         Ok(harness)
     }
 
@@ -2114,7 +2115,8 @@ mod tests {
         harness.individuals[slot].handle = None;
         let cursor = harness.world.command_cursor();
         harness.last_command_ns = 123;
-        harness.requests.register(544, 0, true).unwrap();
+        let sequence = harness.requests.allocate().unwrap();
+        harness.requests.register(sequence, 0, true).unwrap();
 
         harness
             .execute(
@@ -2122,7 +2124,7 @@ mod tests {
                     due: 0,
                     original_due: 0,
                     slot,
-                    sequence: 544,
+                    sequence,
                     attempt: 1,
                     retry: RetryPolicy::finite(&plan),
                     command: Command::Replace {

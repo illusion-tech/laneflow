@@ -109,6 +109,19 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
     );
     assert_eq!(full_result.saves.len(), 4);
     assert!(full_result.replacements > 0);
+    // 账本只存在途请求：结束的请求已移出，登记项恰是排队队列。
+    let caller: Value =
+        serde_json::from_slice(&fs::read(save_dir(&full, 700).join("caller.json")).unwrap())
+            .unwrap();
+    let ledger = &caller["ledger"];
+    assert_eq!(
+        ledger["entries"].as_array().unwrap().len(),
+        caller["schedule"].as_array().unwrap().len()
+    );
+    assert!(
+        ledger["next_sequence"].as_u64().unwrap()
+            > ledger["entries"].as_array().unwrap().len() as u64
+    );
 
     for tick in [16, 32, 400, 700] {
         // 1 worker 存档、4 worker 续跑。
