@@ -502,7 +502,7 @@ Tick hot path 要求：
 
 Signals 服从完整 Core step 总预算，不叠加专项预算：
 
-- 一万 common target `<= 1 ms/tick`，G3 hard limit `<= 4 ms/tick`，连续 60 ticks `<= 240 ms`；
+- 一万 common target `<= 1 ms/tick`，hard limit `<= 4 ms/tick`，连续 60 ticks `<= 240 ms`；
 - no-Signals legacy 场景相对同机 v0.3 等价基线回归 `>20%` 必须分析，`>30%` 默认阻断；
 - matched all-green controlled 与 all-none 场景必须报告增量，`>20%` 必须 profile；
 - 十万同时把车辆和 signal topology 放大 10 倍，一万→十万耗时比目标 `<= 20x`；

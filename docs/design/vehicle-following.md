@@ -727,7 +727,7 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 
 ### 16.1 分级
 
-- 一万：每 tick 高精度 Vehicle Following，G3 验收规模。
+- 一万：每 tick 高精度 Vehicle Following，验收规模。
 - 十万：复杂度和扩展性观察，不设置跨机器绝对时间门槛。
 - 一百万：城市级容量探索，不承诺当前单线程实时。
 - 一百万+：由 #72 设计 partition、parallel、multi-rate 和 mesoscopic/aggregate 模型。
@@ -737,7 +737,7 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 - 一万辆道路交通活动车辆，连续 60 个 16 ms fixed ticks。
 - 场景：free-flow、dense platoon、stop-and-go；projection-heavy 单独报告。
 - 指定 reference desktop 常规场景目标 median `<= 1 ms/tick`。
-- G3 硬上限 median `<= 4 ms/tick`，即 60 ticks `<= 240 ms`。
+- 硬上限 median `<= 4 ms/tick`，即 60 ticks `<= 240 ms`。
 - Benchmark 排除 world/schema 构建和样本重置，固定输入并消费状态/事件。
 - 记录 CPU、OS、rustc、release profile 和电源模式。
 - CI 运行一万功能 smoke 与 benchmark compile，不使用共享 CI wall-clock assertion。
