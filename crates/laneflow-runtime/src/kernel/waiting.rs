@@ -8764,10 +8764,13 @@ pub(crate) mod tests {
     fn downstream_reserve_failures_map_to_scratch_alloc_failed() {
         use crate::kernel::execution::CONFLICT_INJECTION_TEST_LOCK;
         let _lock = CONFLICT_INJECTION_TEST_LOCK.lock().unwrap();
+        // #792：武装注入测试世界独占身份（708_xxx 保留区间）。
+        const INJECT_WORLD_ID: u64 = 708_015;
         let _force = force_conflict_dispatch();
         let revision = conflict_scale_revision();
         for arm in 0..2 {
-            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            let mut world =
+                conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
             install_execution(&mut world, 4);
             let before = world.capture_snapshot().unwrap();
             let guard = if arm == 0 {
@@ -9110,7 +9113,8 @@ pub(crate) mod tests {
             "普通拍四个 F 位必须全部到达: {log:?}"
         );
 
-        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut world =
+            conflict_scale_world_with_identity(Arc::clone(&revision), 16, 1, INJECT_WORLD_ID);
         install_execution(&mut world, 4);
         reset_conflict_reserve_probe_log();
         let guard = fail_conflict_cell_work_reserve(world.state.binding.world_id);
