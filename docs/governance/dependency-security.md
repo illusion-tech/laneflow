@@ -66,6 +66,9 @@ license = "Apache-2.0"
 
 每个 workspace package 必须声明 `license.workspace = true`。新增 package 若不适用该许可证，必须先拆分分发边界并记录显式例外，不得静默省略 `license` 或使用模糊的 `license-file` 覆盖 workspace 决策。
 
+不加入 workspace 的独立 research workspace 同样受本文约束，不得因脱离根依赖图而免于
+许可证与 RustSec 审计；其归属、license 声明与审计入口要求见第 8 节。
+
 ## 4. 第三方依赖政策
 
 ### 4.1 允许列表
@@ -164,3 +167,36 @@ cargo +1.98.0 test --workspace --locked
 合并前还必须确认 GitHub 上的 `Dependency policy` required check 已成功完成；missing、pending、skipped、cancelled 或 failure 均阻断。
 
 公开发布前重新验证目标 commit，不得复用历史截图或旧 PR 的空告警结果。发布分发物若包含仓库外第三方材料，还必须单独生成/复核 attribution 清单。
+
+## 8. 研究与非生产 crate 的归属与审计
+
+研究代码（调研 spike、基准工具、诊断执行器）不是生产包、公共应用程序接口（API）或
+已接受的数据格式，但其第三方依赖、许可证与来源同样受本文约束，不因不加入 workspace
+而脱离本文范围。
+
+### 8.1 workspace 归属
+
+research crate 可以是 workspace 成员，也可以用独立 `[workspace]` 自隔离。归属由立项
+Issue 决定，并在该目录 `README.md` 声明理由；两种形态都不是默认合规，也不是默认违规：
+
+- **workspace 成员**：必须声明 `license.workspace = true` 并继承 workspace lints，由
+  根 `cargo deny check` 与 CI `Dependency policy` 覆盖。
+- **独立 `[workspace]`**：脱离根依赖图，必须显式声明 license，并另行提供等价审计入口，
+  不得默认逃逸 `cargo deny` 与 Dependabot；逐目录审计命令必须写进该目录 `README.md`。
+
+两种形态都必须 `publish = false`，并在 `README.md` 声明非生产身份（不是生产包、不是公共
+API、不是已接受的数据格式）。
+
+### 8.2 审计覆盖
+
+任何形态的研究 crate 的第三方依赖都必须进入许可证与 RustSec 审计，使审计范围与实际
+依赖范围一致。若再次出现独立 research workspace，必须在 `Dependency policy` required
+check 中逐目录执行 `cargo deny check`（或等价方案），并由 Dependabot 逐目录维护；不得把
+「未执行」「不可读取」记为零告警。
+
+### 8.3 历史禁令的适用范围
+
+`#308` 的「研究执行器不得加回工作区」只约束 #308 自身（原文见
+`docs/design/compiler-budget-calibration.md`），不是项目级通则。不得把它扩写成
+「研究代码不得进入生产 crate 或 workspace 成员」一类的全局规则；引用历史禁令时必须
+保留其原本的适用范围。
