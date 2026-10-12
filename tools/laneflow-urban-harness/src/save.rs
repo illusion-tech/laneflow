@@ -22,8 +22,8 @@ use crate::{
     checked, invalid, observe,
     requests::{RequestLedger, SavedLedger},
     runner::{
-        CompletedRecycling, Individual, Request, RetryPolicy, TileEvidence, catalog_bindings,
-        observation_pool,
+        Command, CompletedRecycling, Individual, PARKING_SEQUENCE_BASE, Request, RetryPolicy,
+        TileEvidence, catalog_bindings, observation_pool, planned_requests, recycling_command,
     },
     sha256,
 };
@@ -38,6 +38,24 @@ const MANIFEST_FILE: &str = "save.toml";
 const WORLD_MAX_BYTES: u64 = 2_147_483_648;
 const CALLER_MAX_BYTES: u64 = 1_073_741_824;
 const MANIFEST_MAX_BYTES: u64 = 16 * 1_024 * 1_024;
+/// `caller.json` 中整数的上界。合法值（拍号、编号、标识、计数）都远小于它，
+/// 任何计数从这里自增在一次运行内都不会溢出。
+const CALLER_INTEGER_LIMIT: u64 = 1 << 48;
+
+/// 核对 `caller.json` 的每个数都是不超过上界的非负整数。
+fn check_integers(value: &serde_json::Value) -> Result<()> {
+    match value {
+        serde_json::Value::Number(number) => {
+            if number.as_u64().is_none_or(|n| n > CALLER_INTEGER_LIMIT) {
+                return Err(invalid("saved caller state holds an out-of-range number"));
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().try_for_each(check_integers)?,
+        serde_json::Value::Object(fields) => fields.values().try_for_each(check_integers)?,
+        _ => {}
+    }
+    Ok(())
+}
 const RESTORE_LIMITS: SnapshotRestoreLimits = SnapshotRestoreLimits::new(WORLD_MAX_BYTES, 4_096);
 
 /// 先按文件元数据核对长度（不超过上限，且与 `expected` 一致），再读入内存。
@@ -122,6 +140,9 @@ pub struct SaveManifest {
     pub observation_version: String,
     pub deterministic_state_digest: String,
     pub state_digest: String,
+    /// 存档时内存中宿主状态的 `urban-caller-digest-v1` 摘要；恢复后重算比对，
+    /// 发现导出与导入不对称。
+    pub caller_digest: String,
     pub world: FileDigest,
     pub caller: FileDigest,
     pub source: SaveSource,
@@ -215,6 +236,7 @@ pub(crate) fn write_save(
     let started = Instant::now();
     let world = encode_lfrs(&snapshot);
     let caller = serde_json::to_vec(&harness.export_caller(&route_ids, &vehicle_ids)?)?;
+    let caller_digest = harness.caller_digest()?;
     let encode_ns = elapsed_ns(started);
     let started = Instant::now();
     fs::create_dir(&partial)?;
@@ -231,6 +253,7 @@ pub(crate) fn write_save(
         observation_version: observe::OBSERVATION_VERSION.into(),
         deterministic_state_digest: deterministic,
         state_digest: state_digest.into(),
+        caller_digest,
         world: digest_bytes(&world),
         caller: digest_bytes(&caller),
         source,
@@ -291,8 +314,10 @@ pub(crate) fn load_save(
         Ok(bytes)
     };
     let world = read(WORLD_FILE, &manifest.world, WORLD_MAX_BYTES)?;
-    let caller: CallerState =
+    let caller: serde_json::Value =
         serde_json::from_slice(&read(CALLER_FILE, &manifest.caller, CALLER_MAX_BYTES)?)?;
+    check_integers(&caller)?;
+    let caller: CallerState = serde_json::from_value(caller)?;
     if caller.version != CALLER_VERSION {
         return Err(invalid("unsupported caller state version"));
     }
@@ -471,21 +496,20 @@ impl<'a> Harness<'a> {
         let (targets, target_keys, profiles) = catalog_bindings(artifacts)?;
         let mut catalog_routes: Vec<_> = artifacts.catalog.routes.iter().collect();
         catalog_routes.sort_by_key(|route| &route.key);
-        let exits: BTreeMap<_, _> = artifacts
-            .catalog
-            .parking
-            .iter()
-            .map(|parking| (parking.key.as_str(), parking.exits.len()))
-            .collect();
-        check_structure(
-            plan,
-            &caller,
-            manifest.tick,
-            &restored,
-            &catalog_routes,
-            &exits,
-            &profiles,
-        )?;
+        let catalog = CatalogRefs {
+            routes: &catalog_routes,
+            targets: artifacts
+                .catalog
+                .parking
+                .iter()
+                .map(|parking| parking.key.as_str())
+                .collect(),
+            gates: observe::transition_gates(artifacts)
+                .values()
+                .map(|&(gate, _)| gate)
+                .collect(),
+        };
+        check_structure(plan, &caller, manifest.tick, &restored, &catalog)?;
 
         // 重绑：结构核对已保证每个局部标识恰好对应一个恢复出的句柄。
         let lengths = artifacts.revision.traffic().lane_lengths_millimetres();
@@ -637,21 +661,35 @@ impl<'a> Harness<'a> {
         if observe::counts(self)? != counts {
             return Err(invalid("restored lifecycle counts differ"));
         }
-        observe::parking_invariants(self)
+        observe::parking_invariants(self)?;
+        if self.caller_digest()? != manifest.caller_digest {
+            return Err(invalid(
+                "restored caller state digest differs from the save manifest",
+            ));
+        }
+        Ok(())
     }
 }
 
 /// 结构核对：`caller.json` 的每个下标、长度与引用在任何使用之前核对。
+/// 结构核对用的目录引用。
+struct CatalogRefs<'c> {
+    /// 按 key 升序的目录路线。
+    routes: &'c [&'c laneflow_urban_generator::Route],
+    /// 目录停车目标 key（与目录停车目标绑定的键集合相同）。
+    targets: BTreeSet<&'c str>,
+    /// 转移门表中出现的机动 Gate 序号（`red_waiters` 只可能记录这些门）。
+    gates: BTreeSet<u32>,
+}
+
 fn check_structure(
     plan: &ResolvedPlan,
     caller: &CallerState,
     tick: u64,
     restored: &RestoredSnapshot,
-    catalog_routes: &[&laneflow_urban_generator::Route],
-    // 停车目标 key → 出口数；键集合与目录停车目标绑定相同。
-    exits: &BTreeMap<&str, usize>,
-    profiles: &BTreeMap<String, laneflow_static_contract::VehicleProfileOrdinal>,
+    catalog: &CatalogRefs<'_>,
 ) -> Result<()> {
+    let catalog_routes = catalog.routes;
     let count = caller.individuals.len();
     if count != plan.initial.len()
         || caller
@@ -722,51 +760,73 @@ fn check_structure(
         .claims
         .iter()
         .any(|((id, route, _), _)| !individual(id) || *route as usize >= catalog_routes.len())
-        || caller.red_waiters.iter().any(|(id, _)| !individual(id))
+        || caller
+            .red_waiters
+            .iter()
+            .any(|(id, gate)| !individual(id) || !catalog.gates.contains(gate))
     {
         return Err(invalid(
             "saved claims or red waiters reference unknown entities",
         ));
     }
-    // 排队请求：引用在范围内，并与请求登记表双向一一对应。
-    let route_known = |key: &str| {
-        catalog_routes
-            .binary_search_by(|r| r.key.as_str().cmp(key))
-            .is_ok()
-    };
+    // 排队请求：每个都绑定到它的来源，并与请求登记表双向一一对应。来源只有三种：
+    // 计划冻结的请求（槽位、原到期拍、重试策略与命令都与计划相同）、回收请求
+    // （命令由计划、个体身份与尝试次数决定）、停车到达请求（预分配编号对应槽位，
+    // 命令为驶入已知停车目标）。登记项的计入标记由命令决定。
+    let planned: BTreeMap<_, _> = planned_requests(plan)
+        .into_iter()
+        .map(|request| (request.sequence, request))
+        .collect();
+    let counted: BTreeMap<_, _> = caller
+        .ledger
+        .entries
+        .iter()
+        .map(|entry| (entry.sequence, entry.counted))
+        .collect();
+    let keyed: BTreeSet<_> = caller.ledger.keyed.iter().copied().collect();
     let mut queued = BTreeMap::new();
     for request in &caller.schedule {
-        use crate::runner::Command;
-        let references = match &request.command {
-            Command::Replace { route, .. } => route_known(route),
-            Command::Spawn { profile, route, .. } => {
-                route_known(route) && profiles.contains_key(profile)
-            }
-            Command::Leave { target, exit, .. } => {
-                exits.get(target.as_str()).is_some_and(|count| exit < count)
-            }
-            Command::Reserve { target, .. } | Command::Park { target } => {
-                exits.contains_key(target.as_str())
-            }
-            Command::Despawn => true,
-        };
-        // 重试策略只能是计划给出的两种：普通请求的有限策略、回收请求的
-        // 窗口末策略（仅回收计划）。
-        let retry_ok = match request.retry {
-            RetryPolicy::Finite { .. } => request.retry == RetryPolicy::finite(plan),
-            RetryPolicy::UntilWindowEnd { interval } => {
-                caller.recycling.is_some() && interval == plan.retry_ticks
-            }
-        };
-        if !retry_ok {
+        let origin = request.slot < count
+            && match planned.get(&request.sequence) {
+                Some(frozen) => {
+                    frozen.slot == request.slot
+                        && frozen.original_due == request.original_due
+                        && frozen.retry == request.retry
+                        && frozen.command == request.command
+                }
+                None => match request.retry {
+                    RetryPolicy::UntilWindowEnd { interval } => {
+                        caller.recycling.is_some()
+                            && interval == plan.retry_ticks
+                            && recycling_command(
+                                plan,
+                                caller.individuals[request.slot].id,
+                                request.attempt,
+                            )
+                            .is_ok_and(|command| command == request.command)
+                    }
+                    RetryPolicy::Finite { .. } => {
+                        request.retry == RetryPolicy::finite(plan)
+                            && u64::from(request.sequence)
+                                == u64::from(PARKING_SEQUENCE_BASE) + request.slot as u64
+                            && keyed.contains(&request.sequence)
+                            && matches!(&request.command, Command::Park { target }
+                                if catalog.targets.contains(target.as_str()))
+                    }
+                },
+            };
+        if request.due < tick || !origin {
             return Err(invalid(format!(
-                "saved request {} has a retry policy the plan does not issue",
+                "saved request {} is stale or has no origin in the plan",
                 request.sequence
             )));
         }
-        if request.due < tick || request.slot >= count || !references {
+        if counted
+            .get(&request.sequence)
+            .is_some_and(|&counted| counted != request.command.retryable())
+        {
             return Err(invalid(format!(
-                "saved request {} is stale or references unknown entities",
+                "saved request {} is counted inconsistently with its command",
                 request.sequence
             )));
         }

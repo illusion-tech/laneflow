@@ -156,24 +156,51 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
     }
 
     // 回执声明的观察窗交集须与 (T, E] 和计划观察窗一致。
-    let forged = temp.path().join("forged-observed");
-    fs::create_dir_all(&forged).unwrap();
-    for entry in fs::read_dir(temp.path().join("resume-700")).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_file() {
-            fs::copy(entry.path(), forged.join(entry.file_name())).unwrap();
+    // 回执自校验：伪造的观察窗交集、空推进区间与磁盘上不存在的存档记录都被拒绝。
+    let forge = |label: &str, source: &Path, edit: &dyn Fn(&mut Value)| -> PathBuf {
+        let forged = temp.path().join(label);
+        fs::create_dir_all(&forged).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_file() {
+                fs::copy(entry.path(), forged.join(entry.file_name())).unwrap();
+            }
         }
+        let mut receipt: Value =
+            serde_json::from_slice(&fs::read(forged.join("result.json")).unwrap()).unwrap();
+        edit(&mut receipt);
+        fs::write(
+            forged.join("result.json"),
+            serde_json::to_vec(&receipt).unwrap(),
+        )
+        .unwrap();
+        forged
+    };
+    let resumed_700 = temp.path().join("resume-700");
+    for (label, source, edit) in [
+        (
+            "forged-observed",
+            &resumed_700,
+            &(|receipt: &mut Value| receipt["observed_ticks"] = serde_json::json!([33, end]))
+                as &dyn Fn(&mut Value),
+        ),
+        ("empty-segment", &resumed_700, &|receipt: &mut Value| {
+            receipt["segment_end"] = 700.into();
+            receipt["completed_ticks"] = 700.into();
+            receipt["endpoint"]["tick"] = 700.into();
+            receipt["observed_ticks"] = Value::Null;
+        }),
+    ] {
+        let forged = forge(label, source, edit);
+        let error = compare_runs(&full, &forged).unwrap_err().to_string();
+        assert!(error.contains("cannot accept"), "{label}: {error}");
     }
-    let mut receipt: Value =
-        serde_json::from_slice(&fs::read(forged.join("result.json")).unwrap()).unwrap();
-    receipt["observed_ticks"] = serde_json::json!([33, end]);
-    fs::write(
-        forged.join("result.json"),
-        serde_json::to_vec(&receipt).unwrap(),
-    )
-    .unwrap();
-    let error = compare_runs(&full, &forged).unwrap_err().to_string();
-    assert!(error.contains("cannot accept"), "{error}");
+    // 不带 saves 目录复制的不中断臂：回执里的存档记录在磁盘上不存在。
+    let without_saves = forge("without-saves", &full, &|_| {});
+    let error = compare_runs(&without_saves, &resumed_700)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("save records"), "{error}");
 
     // 续跑可以再存档；两份从同一存档续跑的运行可直接比较。
     let first = temp.path().join("chain-first");
@@ -459,7 +486,7 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         &|caller| {
             caller["schedule"][0]["retry"]["interval"] = 0.into();
         },
-        "retry policy",
+        "no origin",
     );
     // 排队请求改为指向已知停车目标、但出口越界的 Leave。
     let parking = &artifacts.catalog().parking[0];
@@ -472,7 +499,38 @@ fn resume_rejects_malformed_saves_without_writing_output() {
                 "kind": "leave", "target": target, "exit": exits, "east": true
             });
         },
-        "references unknown entities",
+        "no origin",
+    );
+    reject(
+        queued,
+        "planned request turned into despawn",
+        &|caller| {
+            caller["schedule"][0]["command"] = serde_json::json!({"kind": "despawn"});
+        },
+        "no origin",
+    );
+    reject(
+        queued,
+        "replace occurrence beyond its route",
+        &|caller| {
+            let replace = caller["schedule"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|request| request["command"]["kind"] == "replace")
+                .expect("a queued replace request");
+            replace["command"]["occurrence"] = 99.into();
+        },
+        "no origin",
+    );
+    reject(
+        queued,
+        "flipped ledger counted flag",
+        &|caller| {
+            let entry = &mut caller["ledger"]["entries"][0];
+            entry["counted"] = (!entry["counted"].as_bool().unwrap()).into();
+        },
+        "counted inconsistently",
     );
     fn claims(caller: &mut Value) -> &mut Vec<Value> {
         let claims = caller["claims"].as_array_mut().unwrap();
@@ -498,11 +556,40 @@ fn resume_rejects_malformed_saves_without_writing_output() {
     );
     reject(
         sustained,
-        "overflowing births",
+        "inflated births",
         &|caller| {
-            caller["births"] = u64::MAX.into();
+            caller["births"] = (1_u64 << 47).into();
         },
         "conservation",
+    );
+    reject(
+        sustained,
+        "overflowing counter",
+        &|caller| {
+            caller["replacements"] = u64::MAX.into();
+        },
+        "out-of-range number",
+    );
+    reject(
+        sustained,
+        "red waiter at an unknown gate",
+        &|caller| {
+            let id = caller["individuals"][0]["id"].clone();
+            caller["red_waiters"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!([id, 999_999]));
+        },
+        "reference unknown entities",
+    );
+    reject(
+        sustained,
+        "flipped crossed-tile flag",
+        &|caller| {
+            let individual = &mut caller["individuals"][0];
+            individual["crossed_tile"] = (!individual["crossed_tile"].as_bool().unwrap()).into();
+        },
+        "caller state digest",
     );
     reject(
         sustained,
