@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path, process::Command};
 
 const TARGET: &str = "x86_64-pc-windows-msvc";
+// 记录并校验解析工具链的 cc 版本；升级 cc 时必须与 Cargo.toml 的精确 pin 同步。
+const RESOLVER: &str = "cc 1.6.0";
 const ROLES: [&str; 4] = ["compiler", "archiver", "assembler", "linker"];
 const NAMES: [&str; 4] = ["cl.exe", "lib.exe", "ml64.exe", "link.exe"];
 
@@ -140,7 +142,7 @@ pub(crate) fn snapshot() -> Result<Value> {
             .all(|t| Path::new(t["path"].as_str().unwrap_or("")).parent() == parent),
         "mixed MSVC installations",
     )?;
-    let value = json!({"schema":"p5-chunk-native-msvc-v1","target":TARGET,"resolver":"cc 1.2.66","tools":tools,"controlled_environment":pinned(&tools)?});
+    let value = json!({"schema":"p5-chunk-native-msvc-v1","target":TARGET,"resolver":RESOLVER,"tools":tools,"controlled_environment":pinned(&tools)?});
     validate(&value)?;
     Ok(value)
 }
@@ -149,7 +151,7 @@ pub(crate) fn validate(value: &Value) -> Result<()> {
     need(
         value["schema"] == "p5-chunk-native-msvc-v1"
             && value["target"] == TARGET
-            && value["resolver"] == "cc 1.2.66"
+            && value["resolver"] == RESOLVER
             && tools.len() == 4,
         "native toolchain schema",
     )?;
@@ -211,7 +213,7 @@ pub(crate) fn probe(
 #[cfg(test)]
 pub(crate) fn fixture(root: &Path) -> Value {
     let tools: Vec<_> = ROLES.into_iter().zip(NAMES).map(|(role,name)| json!({"role":role,"path":root.join(name),"sha256":"a".repeat(64),"bytes":1,"version_banner":"MSVC fixture","arguments":[],"environment":{"PATH":root}})).collect();
-    json!({"schema":"p5-chunk-native-msvc-v1","target":TARGET,"resolver":"cc 1.2.66","controlled_environment":pinned(&tools).unwrap(),"tools":tools})
+    json!({"schema":"p5-chunk-native-msvc-v1","target":TARGET,"resolver":RESOLVER,"controlled_environment":pinned(&tools).unwrap(),"tools":tools})
 }
 
 #[cfg(test)]

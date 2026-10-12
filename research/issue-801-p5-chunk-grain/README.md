@@ -61,7 +61,7 @@ P5 `dispatch_threads() × 2` 改成 `× 4`；导出树参与测试相应要求 1
   本协议的受控构建限定 Windows x64 MSVC。构建子进程先清空环境，再传入记录过的
   系统路径、Rust 编译设置和固定 MSVC 设置；继承的 `CC`、`CFLAGS`、目标/HOST
   变体、`BLAKE3_*`、`CL`/`LINK` 覆盖及 SDK/VC 选择覆盖均不传入。
-  通过已锁定的 `cc 1.2.66` 解析 `cl.exe`、`lib.exe`、`ml64.exe`、`link.exe`，
+  通过已锁定的 `cc 1.6.0` 解析 `cl.exe`、`lib.exe`、`ml64.exe`、`link.exe`，
   记录绝对路径、版本信息、文件大小、SHA-256、解析参数及 SDK 路径环境；
   用 `CC=cl.exe` 与首位 PATH 固定 MSVC 分支，并固定归档器及 Rust 链接器。
   构建前后重新解析且全部记录必须相同，任一工具漂移即拒绝产物。
