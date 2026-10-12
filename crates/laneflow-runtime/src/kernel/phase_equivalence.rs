@@ -8,7 +8,8 @@
 //! worker 1 融合路径，其 digest 管线已由 pre-refactor fixture
 //! `phase-protocol-e011745e.txt` 锚定。worker 档位与拍数经 #915 outcome 级
 //! 测量论证降档（车辆场景档位 [1,2,4,16]、signals [1,4,16]，拍数
-//! 64/12/320/360），恢复+续跑比较抽样于 workers∈{1,16}。
+//! 64/12/320/360），恢复+续跑比较抽样于 workers∈{1,16}（续跑 digest 跨抽样臂
+//! 对照）。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
 use crate::{StepError, TickInput, TrafficWorld};
@@ -79,6 +80,7 @@ fn trace(world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u
         NonZeroU32::MIN,
         RestoreCheck::IntoDigest,
     )
+    .trace
 }
 
 /// 恢复+续跑比较的执行方式。
@@ -86,11 +88,20 @@ fn trace(world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u
 enum RestoreCheck {
     /// 续跑 digest 并入轨迹 digest（e011745e pre-refactor 锚定路径，行为冻结）。
     IntoDigest,
-    /// 恢复+续跑仅作旁路断言，不进轨迹 digest（worker 矩阵抽样臂），
-    /// 保持跨臂 digest 可比较。
+    /// 恢复+续跑作臂内断言，不进轨迹 digest（worker 矩阵抽样臂），
+    /// 保持跨臂 digest 可比较；续跑 digest 随 [`TraceDigest`] 返回，
+    /// 由调用方跨抽样臂对照。
     SideAssert,
     /// 不执行（矩阵未抽样臂；恢复机制与 worker 数无关，抽样覆盖）。
     Skip,
+}
+
+/// `trace_with_workers` 的产物。
+struct TraceDigest {
+    /// 轨迹 digest：fixture 比较与跨臂相等的对象。
+    trace: String,
+    /// 恢复+续跑后的状态 digest；仅 [`RestoreCheck::SideAssert`] 臂产生。
+    continued: Option<String>,
 }
 
 /// 恢复快照并续跑一拍：恢复不重建历史 latest batches，按快照局部身份比较
@@ -128,7 +139,7 @@ fn trace_with_workers(
     journal_bound: Option<u64>,
     workers: NonZeroU32,
     restore: RestoreCheck,
-) -> String {
+) -> TraceDigest {
     if let Some(bound) = journal_bound {
         world.state.arm_migration_journal(bound).unwrap();
     }
@@ -173,12 +184,15 @@ fn trace_with_workers(
         );
     }
     digest.update(journal(&world).as_bytes());
-    if restore != RestoreCheck::Skip {
-        let continued = restore_and_continue(&mut world, workers, input);
-        if restore == RestoreCheck::IntoDigest {
+    let continued = match restore {
+        RestoreCheck::Skip => None,
+        RestoreCheck::IntoDigest => {
+            let continued = restore_and_continue(&mut world, workers, input);
             digest.update(continued.as_bytes());
+            None
         }
-    }
+        RestoreCheck::SideAssert => Some(restore_and_continue(&mut world, workers, input)),
+    };
     eprintln!(
         "phase-trace-cost vehicles={} ticks={ticks} retry={retry} journal_bound={journal_bound:?} conflict_retained_bytes={}",
         world.live_vehicles().len(),
@@ -189,7 +203,10 @@ fn trace_with_workers(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    format!("{hex}:{event_count}")
+    TraceDigest {
+        trace: format!("{hex}:{event_count}"),
+        continued,
+    }
 }
 
 fn signals_world(workers: NonZeroU32) -> TrafficWorld {
@@ -372,6 +389,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     let mut actual = Vec::new();
     for (name, build, ticks, bound, dispatch_required, tiers) in &scenarios {
         let mut baseline: Option<String> = None;
+        let mut continued_baseline: Option<String> = None;
         // #915 档位论证：8 与 16 同构（超订细分块）裁去；16 保留——4 vCPU CI 上
         // 超订臂调度扰动最强、最易暴露顺序依赖。车辆场景保留 2：预览发现
         // parts=线程数×4 被车辆数 16 封顶，w=2 是唯一每段 2 车（span=2）的臂，
@@ -407,17 +425,27 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
                 );
             }
             // 恢复+续跑比较抽样于 1/16 两臂：恢复机制与 worker 数无关，其余臂
-            // 无边际信号；比较不进轨迹 digest，跨臂 digest 保持可比较。
+            // 无边际信号；比较不进轨迹 digest，跨臂 digest 保持可比较；抽样臂的
+            // 续跑 digest 跨臂对照（臂内断言观测不到恢复后首拍的跨 worker 发散）。
             let restore = if matches!(raw_workers, 1 | 16) {
                 RestoreCheck::SideAssert
             } else {
                 RestoreCheck::Skip
             };
             let rerun = trace_with_workers(world, *ticks, true, *bound, workers, restore);
+            if let Some(continued) = &rerun.continued {
+                match &continued_baseline {
+                    None => continued_baseline = Some(continued.clone()),
+                    Some(expected) => assert_eq!(
+                        continued, expected,
+                        "{name} restored continuation diverged between worker 1 and workers={raw_workers}"
+                    ),
+                }
+            }
             match &baseline {
-                None => baseline = Some(rerun),
+                None => baseline = Some(rerun.trace),
                 Some(expected) => assert_eq!(
-                    &rerun, expected,
+                    &rerun.trace, expected,
                     "{name} diverged between worker 1 and workers={raw_workers}"
                 ),
             }
@@ -494,7 +522,7 @@ fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
             )
         });
         assert_eq!(
-            selected, full,
+            selected.trace, full.trace,
             "{scenario}: full resource and journal trace"
         );
     }
