@@ -11,6 +11,7 @@ thread_local! {
     static REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     static FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     static OVERLAP_YIELDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    static LIVE_POSITION_SCANS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 #[cfg(test)]
 crate::kernel::execution::carry_hooks!(
@@ -18,7 +19,14 @@ crate::kernel::execution::carry_hooks!(
     REBUILDS,
     FILLS,
     OVERLAP_YIELDS,
+    LIVE_POSITION_SCANS,
 );
+
+/// 测试用：取出阻挡选择做 live 序线性查找的次数并清零。
+#[cfg(test)]
+pub(crate) fn take_live_position_scans() -> usize {
+    LIVE_POSITION_SCANS.replace(0)
+}
 
 /// 测试用：取出由占用索引填出重叠索引的次数并清零。
 #[cfg(test)]
@@ -374,7 +382,11 @@ impl crate::kernel::state::WorldState {
                     return;
                 }
                 for &handle in &self.derived.spawn_overlap.buckets[edge.index()] {
-                    if Some(handle) == excluded {
+                    // 环线上同一辆车在一条边的桶里可重复登记；已选中的不再展开，也不进
+                    // live 序平局查找。
+                    if Some(handle) == excluded
+                        || blocker.is_some_and(|(current, _)| current == handle)
+                    {
                         continue;
                     }
                     #[cfg(test)]
@@ -424,6 +436,8 @@ impl crate::kernel::state::WorldState {
 
     /// 区间完全相同的阻挡才需要的 live 序位置（已提交状态下不可达），线性查找。
     fn live_position(&self, handle: VehicleHandle) -> Option<usize> {
+        #[cfg(test)]
+        LIVE_POSITION_SCANS.with(|count| count.set(count.get() + 1));
         self.committed
             .live_order
             .iter()

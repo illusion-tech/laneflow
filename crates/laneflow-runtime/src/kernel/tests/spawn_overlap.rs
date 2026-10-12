@@ -287,11 +287,18 @@ fn indexed_admission_matches_linear_cross_edge_and_repeated_occurrences() {
                 let end = world.traffic().lane_lengths_millimetres()[edge.index()];
                 for progress in [0, 1, 999, 1_000, end - 1, end] {
                     let expected = linear_blocker(&world, route, occurrence, progress);
+                    crate::kernel::spawn_overlap::take_live_position_scans();
                     assert_eq!(
                         world
                             .state
                             .overlap_blocker(route, occurrence, progress, 4_500),
                         expected,
+                        "rebuild={rebuild}, occurrence={occurrence}, progress={progress}"
+                    );
+                    // 环线车辆在同一边桶内重复登记，不触发 live 序线性查找。
+                    assert_eq!(
+                        crate::kernel::spawn_overlap::take_live_position_scans(),
+                        0,
                         "rebuild={rebuild}, occurrence={occurrence}, progress={progress}"
                     );
                     world.state.derived.spawn_overlap.mark_stale();
