@@ -1029,7 +1029,7 @@ dependencies = [
  "arrayvec",
  "bevy_reflect",
  "derive_more",
- "glam 0.32.1",
+ "glam",
  "itertools",
  "libm",
  "rand",
@@ -1059,7 +1059,7 @@ dependencies = [
  "bytemuck",
  "derive_more",
  "encase",
- "glam 0.32.1",
+ "glam",
  "half",
  "hexasphere",
  "thiserror 2.0.21",
@@ -1185,7 +1185,7 @@ dependencies = [
  "downcast-rs",
  "erased-serde",
  "foldhash 0.2.0",
- "glam 0.32.1",
+ "glam",
  "indexmap",
  "inventory",
  "petgraph",
@@ -1247,7 +1247,7 @@ dependencies = [
  "derive_more",
  "downcast-rs",
  "encase",
- "glam 0.32.1",
+ "glam",
  "image",
  "indexmap",
  "itertools",
@@ -2518,12 +2518,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glam"
-version = "0.34.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc148d4ddd3930c52f9e5ae79b89805c6f07e9ff417e7b083e0348cea60a5aba"
-
-[[package]]
 name = "gltf"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2705,7 +2699,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "177ea6330876de4ef08e184f827b98acc037614a4ce409902c5b0d53a9c2e951"
 dependencies = [
  "constgebra",
- "glam 0.32.1",
+ "glam",
  "tinyvec",
 ]
 
@@ -3172,29 +3166,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "laneflow-sparse-cost-research"
-version = "0.0.0"
-dependencies = [
- "serde_json",
- "sha2",
- "uuid",
-]
-
-[[package]]
 name = "laneflow-spatial"
 version = "0.0.0"
 dependencies = [
  "laneflow-format",
  "laneflow-static-contract",
  "laneflow-static-network",
-]
-
-[[package]]
-name = "laneflow-spatial-research"
-version = "0.0.0"
-dependencies = [
- "euclid",
- "glam 0.34.1",
 ]
 
 [[package]]
