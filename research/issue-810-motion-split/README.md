@@ -35,6 +35,14 @@ laneflow-motion-split-research build-collector <new-tools>
 `codex/810-motion-split-source-freeze`。prepare/run 使用该干净提交；报告 PR 和
 合并提交不替代它。解压归档的 verify 无需当前工作树匹配。
 
+主线经 #814 切换列式权威后，拆分补丁对当前 Runtime 源的预期行为是拒绝；
+对冻结基线的逐字还原验证与 #808 工具一样保留为手动测试，需要本地存在冻结
+Git 对象：
+
+```text
+cargo test -p laneflow-post-p3-research patches_frozen -- --ignored
+```
+
 ## 证据保存
 
 仓库保留源码、采集前方案、结果报告、小型统计摘要与验封索引。完整源码清单、
