@@ -716,6 +716,12 @@ mod tests {
     fn sustained_formal_packets_reject_rehashed_inconsistent_load_and_plan_evidence() {
         let temp = tempfile::tempdir().unwrap();
         let dirs = ["a", "b", "c", "four"].map(|n| temp.path().join(n));
+        let pristine = ["a", "b", "c", "four"].map(|n| temp.path().join(format!("pristine-{n}")));
+        // packet() 每次生成 4608 拍完整产物，88 次调用里只有 4 种产出；
+        // 先各生成一份 pristine，每个故障再逐臂复制后施加既有篡改。
+        for (i, directory) in pristine.iter().enumerate() {
+            packet(directory, &format!("exec-{i}"), if i == 3 { 4 } else { 1 });
+        }
         for fault in [
             "tick-deficit",
             "measurement",
@@ -740,9 +746,11 @@ mod tests {
             "timestamp",
             "cursor-jump",
         ] {
+            for (source, directory) in pristine.iter().zip(&dirs) {
+                copy_fixture(source, directory);
+            }
             // 每臂做同一种篡改，不能让跨臂差异代替逐臂校验。
-            for (i, directory) in dirs.iter().enumerate() {
-                packet(directory, &format!("exec-{i}"), if i == 3 { 4 } else { 1 });
+            for directory in &dirs {
                 let path = directory.join("result.json");
                 let mut result: RunResult =
                     serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -999,6 +1007,23 @@ mod tests {
                 compare_performance_runs([&dirs[0], &dirs[1], &dirs[2]]).is_err(),
                 "accepted {fault} across rounds"
             );
+        }
+    }
+
+    // packet() 产物当前为扁平文件集；逐文件复制，若将来出现子目录则递归复制。
+    fn copy_fixture(source: &Path, destination: &Path) {
+        if destination.exists() {
+            fs::remove_dir_all(destination).unwrap();
+        }
+        fs::create_dir(destination).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let target = destination.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_fixture(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), &target).unwrap();
+            }
         }
     }
 
