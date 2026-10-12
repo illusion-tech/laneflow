@@ -191,7 +191,7 @@ impl Command {
             _ => None,
         }
     }
-    pub(crate) fn retryable(&self) -> bool {
+    fn retryable(&self) -> bool {
         matches!(
             self,
             Self::Replace { .. }
@@ -224,161 +224,13 @@ pub(crate) enum RetryPolicy {
 }
 
 impl RetryPolicy {
-    pub(crate) fn finite(plan: &ResolvedPlan) -> Self {
+    fn finite(plan: &ResolvedPlan) -> Self {
         Self::Finite {
             interval: plan.retry_ticks,
             max_attempts: plan.max_attempts,
         }
     }
 }
-
-/// 计划冻结的全部请求，按安装登记顺序。恢复时用它核对排队请求的来源。
-pub(crate) fn planned_requests(plan: &ResolvedPlan) -> Vec<Request> {
-    let mut requests = Vec::new();
-    for b in &plan.departures {
-        for i in 0..10 {
-            requests.push(Request {
-                due: b.due_tick,
-                original_due: b.due_tick,
-                slot: b.first_slot as usize + i,
-                sequence: b.sequence + i as u32,
-                attempt: 1,
-                retry: RetryPolicy::finite(plan),
-                command: Command::Replace {
-                    route: b.routes[i].clone(),
-                    occurrence: 0,
-                    progress_mm: 7_000,
-                    speed_mm_s: 0,
-                    east: Some(i < 7),
-                    role: false,
-                },
-            });
-        }
-    }
-    for l in &plan.leaves {
-        requests.push(Request {
-            due: l.due_tick,
-            original_due: l.due_tick,
-            slot: l.slot as usize,
-            sequence: l.sequence,
-            attempt: 1,
-            retry: RetryPolicy::finite(plan),
-            command: Command::Leave {
-                target: l.target.clone(),
-                exit: l.exit,
-                east: l.direction == "east",
-            },
-        });
-    }
-    for arrival in &plan.arrivals {
-        requests.push(Request {
-            due: arrival.reserve_tick,
-            original_due: arrival.reserve_tick,
-            slot: arrival.slot as usize,
-            sequence: arrival.sequence,
-            attempt: 1,
-            retry: RetryPolicy::finite(plan),
-            command: Command::Reserve {
-                target: arrival.target.clone(),
-                expected_rejection: None,
-            },
-        });
-    }
-    for rejection in &plan.reservation_rejections {
-        requests.push(Request {
-            due: rejection.due_tick,
-            original_due: rejection.due_tick,
-            slot: rejection.slot as usize,
-            sequence: rejection.sequence,
-            attempt: 1,
-            retry: RetryPolicy::finite(plan),
-            command: Command::Reserve {
-                target: rejection.target.clone(),
-                expected_rejection: Some(rejection.expected.clone()),
-            },
-        });
-    }
-    for role in &plan.role_departures {
-        requests.push(Request {
-            due: role.due_tick,
-            original_due: role.due_tick,
-            slot: role.slot as usize,
-            sequence: role.sequence,
-            attempt: 1,
-            retry: RetryPolicy::finite(plan),
-            command: Command::Replace {
-                route: role.route.clone(),
-                occurrence: role.occurrence,
-                progress_mm: role.progress_mm,
-                speed_mm_s: role.speed_mm_s,
-                east: None,
-                role: true,
-            },
-        });
-    }
-    for burst in &plan.lifecycle_bursts {
-        requests.push(Request {
-            due: burst.despawn_tick,
-            original_due: burst.despawn_tick,
-            slot: burst.slot as usize,
-            sequence: burst.sequence,
-            attempt: 1,
-            retry: RetryPolicy::finite(plan),
-            command: Command::Despawn,
-        });
-        requests.push(Request {
-            due: burst.spawn_tick,
-            original_due: burst.spawn_tick,
-            slot: burst.slot as usize,
-            sequence: burst.sequence + 1,
-            attempt: 1,
-            retry: RetryPolicy::finite(plan),
-            command: Command::Spawn {
-                profile: burst.profile.clone(),
-                route: burst.route.clone(),
-                occurrence: burst.occurrence,
-                progress_mm: burst.progress_mm,
-            },
-        });
-    }
-    requests
-}
-
-/// 回收请求的命令：只由计划与个体稳定身份、尝试次数决定。
-pub(crate) fn recycling_command(
-    plan: &ResolvedPlan,
-    id: IndividualId,
-    attempt: u32,
-) -> Result<Command> {
-    let plan = plan
-        .recycling
-        .as_ref()
-        .ok_or_else(|| invalid("缺少回收计划"))?;
-    let entries = &plan.entries_per_tile[id.tile as usize];
-    let base = u64::from(id.slot) + u64::from(id.incarnation) * 37;
-    let offset = base
-        + u64::from(
-            attempt
-                .checked_sub(1)
-                .ok_or_else(|| invalid("回收尝试编号必须为正"))?,
-        );
-    let entry_count = entries.len() as u64;
-    let positions = plan.progress_mm.len() as u64;
-    let entry = &entries[(offset % entry_count) as usize];
-    let route_index = (base + offset / (entry_count * positions)) % entry.routes.len() as u64;
-    Ok(Command::Replace {
-        route: entry.routes[route_index as usize].clone(),
-        occurrence: 0,
-        progress_mm: plan.progress_mm
-            [((base / entry_count + u64::from(attempt - 1)) % positions) as usize],
-        speed_mm_s: 0,
-        east: None,
-        role: false,
-    })
-}
-
-/// 停车请求的预分配编号基数：编号为基数加全局槽位。
-pub(crate) const PARKING_SEQUENCE_BASE: u32 = 20_000_000;
 
 pub(crate) struct CompletedRecycling {
     pub(crate) pending_by_slot: Vec<Option<u32>>,
@@ -536,8 +388,111 @@ impl<'a> Harness<'a> {
             last_observation_ns: 0,
             pool,
         };
-        for request in planned_requests(plan) {
-            harness.enqueue_new(request)?;
+        for b in &plan.departures {
+            for i in 0..10 {
+                harness.enqueue_new(Request {
+                    due: b.due_tick,
+                    original_due: b.due_tick,
+                    slot: b.first_slot as usize + i,
+                    sequence: b.sequence + i as u32,
+                    attempt: 1,
+                    retry: RetryPolicy::finite(plan),
+                    command: Command::Replace {
+                        route: b.routes[i].clone(),
+                        occurrence: 0,
+                        progress_mm: 7_000,
+                        speed_mm_s: 0,
+                        east: Some(i < 7),
+                        role: false,
+                    },
+                })?;
+            }
+        }
+        for l in &plan.leaves {
+            harness.enqueue_new(Request {
+                due: l.due_tick,
+                original_due: l.due_tick,
+                slot: l.slot as usize,
+                sequence: l.sequence,
+                attempt: 1,
+                retry: RetryPolicy::finite(plan),
+                command: Command::Leave {
+                    target: l.target.clone(),
+                    exit: l.exit,
+                    east: l.direction == "east",
+                },
+            })?;
+        }
+        for arrival in &plan.arrivals {
+            harness.enqueue_new(Request {
+                due: arrival.reserve_tick,
+                original_due: arrival.reserve_tick,
+                slot: arrival.slot as usize,
+                sequence: arrival.sequence,
+                attempt: 1,
+                retry: RetryPolicy::finite(plan),
+                command: Command::Reserve {
+                    target: arrival.target.clone(),
+                    expected_rejection: None,
+                },
+            })?;
+        }
+        for rejection in &plan.reservation_rejections {
+            harness.enqueue_new(Request {
+                due: rejection.due_tick,
+                original_due: rejection.due_tick,
+                slot: rejection.slot as usize,
+                sequence: rejection.sequence,
+                attempt: 1,
+                retry: RetryPolicy::finite(plan),
+                command: Command::Reserve {
+                    target: rejection.target.clone(),
+                    expected_rejection: Some(rejection.expected.clone()),
+                },
+            })?;
+        }
+        for role in &plan.role_departures {
+            harness.enqueue_new(Request {
+                due: role.due_tick,
+                original_due: role.due_tick,
+                slot: role.slot as usize,
+                sequence: role.sequence,
+                attempt: 1,
+                retry: RetryPolicy::finite(plan),
+                command: Command::Replace {
+                    route: role.route.clone(),
+                    occurrence: role.occurrence,
+                    progress_mm: role.progress_mm,
+                    speed_mm_s: role.speed_mm_s,
+                    east: None,
+                    role: true,
+                },
+            })?;
+        }
+        for burst in &plan.lifecycle_bursts {
+            harness.enqueue_new(Request {
+                due: burst.despawn_tick,
+                original_due: burst.despawn_tick,
+                slot: burst.slot as usize,
+                sequence: burst.sequence,
+                attempt: 1,
+                retry: RetryPolicy::finite(plan),
+                command: Command::Despawn,
+            })?;
+            harness.enqueue_new(Request {
+                due: burst.spawn_tick,
+                original_due: burst.spawn_tick,
+                slot: burst.slot as usize,
+                sequence: burst.sequence + 1,
+                attempt: 1,
+                retry: RetryPolicy::finite(plan),
+                command: Command::Spawn {
+                    profile: burst.profile.clone(),
+                    route: burst.route.clone(),
+                    occurrence: burst.occurrence,
+                    progress_mm: burst.progress_mm,
+                },
+            })?;
         }
         let counts = observe::counts(&harness)?;
         if counts
@@ -592,7 +547,7 @@ impl<'a> Harness<'a> {
         Ok(())
     }
 
-    /// 预分配编号（停车到达：`PARKING_SEQUENCE_BASE + slot`）的请求按交通到达序登记。
+    /// 预分配编号（停车到达：`20_000_000 + slot`）的请求按交通到达序登记。
     fn enqueue_keyed(&mut self, request: Request) -> Result<()> {
         self.requests
             .register_keyed(request.sequence, request.due, request.command.retryable())?;
@@ -651,7 +606,33 @@ impl<'a> Harness<'a> {
     }
 
     fn recycling_command(&self, slot: usize, attempt: u32) -> Result<Command> {
-        recycling_command(self.plan, self.individuals[slot].id, attempt)
+        let plan = self
+            .plan
+            .recycling
+            .as_ref()
+            .ok_or_else(|| invalid("缺少回收计划"))?;
+        let id = self.individuals[slot].id;
+        let entries = &plan.entries_per_tile[id.tile as usize];
+        let base = u64::from(id.slot) + u64::from(id.incarnation) * 37;
+        let offset = base
+            + u64::from(
+                attempt
+                    .checked_sub(1)
+                    .ok_or_else(|| invalid("回收尝试编号必须为正"))?,
+            );
+        let entry_count = entries.len() as u64;
+        let positions = plan.progress_mm.len() as u64;
+        let entry = &entries[(offset % entry_count) as usize];
+        let route_index = (base + offset / (entry_count * positions)) % entry.routes.len() as u64;
+        Ok(Command::Replace {
+            route: entry.routes[route_index as usize].clone(),
+            occurrence: 0,
+            progress_mm: plan.progress_mm
+                [((base / entry_count + u64::from(attempt - 1)) % positions) as usize],
+            speed_mm_s: 0,
+            east: None,
+            role: false,
+        })
     }
 
     fn collect_completed_recycling(&mut self, tick: u64) -> Result<()> {
@@ -1566,7 +1547,7 @@ impl<'a> Harness<'a> {
                 due,
                 original_due: due,
                 slot,
-                sequence: PARKING_SEQUENCE_BASE + slot as u32,
+                sequence: 20_000_000 + slot as u32,
                 attempt: 1,
                 retry: RetryPolicy::finite(self.plan),
                 command: Command::Park {

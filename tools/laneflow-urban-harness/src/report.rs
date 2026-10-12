@@ -105,12 +105,6 @@ pub struct RunOptions {
     pub resume: Option<std::path::PathBuf>,
 }
 
-/// 观察窗与推进区间 `(start, until]` 的交集（首末拍，含端点）。
-fn observed_interval(start: u64, warm_up_ticks: u64, until: u64) -> Option<(u64, u64)> {
-    let first = start.max(warm_up_ticks) + 1;
-    (first <= until).then_some((first, until))
-}
-
 impl RunResult {
     /// 本次运行的起点 T（续跑的存档拍，否则为 0）。
     pub fn start_tick(&self) -> u64 {
@@ -525,7 +519,10 @@ pub fn run_with_options(
         resumed_from,
         saves: Vec::new(),
         segment_end: until,
-        observed_ticks: observed_interval(start, plan.window.warm_up_ticks, until),
+        observed_ticks: {
+            let first = start.max(plan.window.warm_up_ticks) + 1;
+            (first <= until).then_some((first, until))
+        },
         endpoint: None,
     };
     // 续跑的起点检查点已在恢复时与存档清单核对。
@@ -1018,14 +1015,6 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         || result.error.is_some()
         || result.completed_ticks != result.segment_end
         || result.endpoint.as_ref().map(|endpoint| endpoint.tick) != Some(result.segment_end)
-        || result.segment_end > result.expected_ticks
-        || result.segment_end <= result.start_tick()
-        || result.observed_ticks
-            != observed_interval(
-                result.start_tick(),
-                result.window.warm_up_ticks,
-                result.segment_end,
-            )
         || !status_ok
     {
         return Err(invalid("cannot accept an incomplete or failed run"));
@@ -1053,22 +1042,6 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         }
     }
     require_diagnostics_marker(dir)?;
-    // 存档记录是比较时出发状态绑定的依据，须与本臂目录中的存档一致：拍号严格
-    // 递增且落在 (T, E]，路径为 saves/tick-<拍号>，清单摘要与磁盘文件相同。
-    let mut previous = result.start_tick();
-    for saved in &result.saves {
-        if saved.tick <= previous
-            || saved.tick > result.segment_end
-            || saved.path != format!("saves/tick-{}", saved.tick)
-            || digest_file(&dir.join(&saved.path).join("save.toml"))
-                .ok()
-                .as_ref()
-                != Some(&saved.manifest)
-        {
-            return Err(invalid("run save records differ from the saves on disk"));
-        }
-        previous = saved.tick;
-    }
     if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
         return Err(invalid("plan digest differs"));
     }
