@@ -21,7 +21,12 @@ Refs #706。固定基线 `b99a282ee399e15687301265dd8b27e8f7457d27`（main，含
 - 场景：`examples/preview_parallel_wall_clock` 的 multi-gate 1_024 活动车（补员保持
   稳态），warmup 24 拍 + 测量 128 拍 × 3 rounds，逐拍整步墙钟 p50/p95；
   worker ∈ {1,2,4,8,16}。
-- 机器：9955HX 16C/32T；两组测量串行执行、无并发编译负载。
+- 机器：9955HX 16C/32T。同组内两臂串行执行、无并发编译负载。
+
+**跨轮负载不同，绝对值不可跨轮直比**：`cost-evidence.md` 注明此前各轮测量期间有验证链
+并发，只有 W1/W2 后短对照（2026-09-19，当前 head 重跑）是机器无并发负载的。因此本文件
+不汇总 p50/p95 数值、不声称净收益；`cost-evidence.md` 另注明 `b99a282e` 基线对照为 R3
+前中间修订测量、未在当前 head 重测。
 
 测量口径、逐轮原始输出与结论以 [cost-evidence.md](cost-evidence.md) 为准；本文件不复述
 其结论。
