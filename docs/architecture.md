@@ -350,7 +350,8 @@ committed/earlier-staged claim 冲突时 fail closed。candidate proposal 可以
 但线程调度/锁竞争不能决定 winner。
 SignalController、Adapter、JunctionGroup 与二维几何均不拥有最终通行权；任何
 grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该设计已
-通过 G1，但仍须由后续独立 implementation slices 生产化并完成各自 G0–G2。
+通过 G1，但仍须由后续独立 implementation slices 生产化；每个切片走完 G0–G2
+人流程，并通过合并门禁（PR 合入、Issue 关闭）才算完成。
 
 Parking runtime 由私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与
 exact Occupied binding 一致，Parked vehicle 保留 live identity 但不进入 travel-lane
