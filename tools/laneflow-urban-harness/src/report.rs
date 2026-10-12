@@ -12,7 +12,9 @@ use serde_json::json;
 
 use crate::{
     Artifacts, Harness, ResolvedPlan, Result, TickRecord, UrbanCase, invalid, observe,
-    runner::TileEvidence, sha256,
+    runner::TileEvidence,
+    save::{self, ResumedFrom, SaveRecord, SaveSource},
+    sha256,
 };
 
 mod log_io;
@@ -72,6 +74,49 @@ pub struct RunResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_load: Option<ActiveLoadSummary>,
     pub files: BTreeMap<String, crate::artifacts::FileDigest>,
+    /// 续跑来源；从第 0 拍开始的运行为空。
+    pub resumed_from: Option<ResumedFrom>,
+    /// 本次运行写出的存档。
+    pub saves: Vec<SaveRecord>,
+    /// 本次运行的终点 E（`--until-tick`，缺省为计划终点）。
+    pub segment_end: u64,
+    /// 观察窗与本次推进区间 `(T, E]` 的交集（首末拍，含端点）；无交集为空。
+    pub observed_ticks: Option<(u64, u64)>,
+    /// 终点核对值；运行失败为空。
+    pub endpoint: Option<Endpoint>,
+}
+
+/// 第 E 拍的完整检查点与宿主状态摘要。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Endpoint {
+    pub tick: u64,
+    pub checkpoint: String,
+    pub caller_digest: String,
+}
+
+/// 存档与分段选项。
+#[derive(Debug, Clone, Default)]
+pub struct RunOptions {
+    /// 在这些拍（严格递增，落在本次执行区间内）写出存档。
+    pub save_at: Vec<u64>,
+    /// 只推进到这一拍（缺省为计划终点）。
+    pub until_tick: Option<u64>,
+    /// 从该存档目录续跑。
+    pub resume: Option<std::path::PathBuf>,
+}
+
+impl RunResult {
+    /// 本次运行的起点 T（续跑的存档拍，否则为 0）。
+    pub fn start_tick(&self) -> u64 {
+        self.resumed_from.as_ref().map_or(0, |resumed| resumed.tick)
+    }
+
+    /// 从第 0 拍跑到计划终点、且 performance 未写存档的运行；只有它可作正式证据。
+    pub fn is_formal(&self) -> bool {
+        self.resumed_from.is_none()
+            && self.segment_end == self.expected_ticks
+            && (self.purpose != "performance" || self.saves.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,6 +133,12 @@ pub struct ComparedRun {
     pub execution_id: String,
     pub workers: u32,
     pub result: crate::artifacts::FileDigest,
+    /// 本臂起点：0，或续跑存档拍号。
+    pub start: u64,
+    /// 本臂终点 E。
+    pub end: u64,
+    /// 续跑臂的存档清单 SHA-256。
+    pub resumed_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,7 +149,8 @@ pub struct ComparisonReport {
     pub case: String,
     pub scale: String,
     pub plan_digest: String,
-    pub completed_ticks: u64,
+    /// 比较的推进区间 `(T, E]`。
+    pub interval: (u64, u64),
     pub left: ComparedRun,
     pub right: ComparedRun,
 }
@@ -332,17 +384,70 @@ pub fn run_to_directory(
     execution: laneflow_runtime::ExecutionConfig,
     diagnostics: Diagnostics,
 ) -> Result<RunResult> {
+    run_with_options(
+        artifacts,
+        plan,
+        output,
+        execution,
+        diagnostics,
+        &RunOptions::default(),
+    )
+}
+
+/// 带存档与分段选项运行（设计 §7）。续跑恢复存档后从第 T+1 拍推进到 E；
+/// 续跑、分段及带存档的 performance 运行状态为 `segment-complete`，不做 case
+/// 校验、不写正式测量。
+///
+/// # Errors
+///
+/// 除 [`run_to_directory`] 的错误外：`--until-tick`、`--save-at` 或续跑区间越界，
+/// 存档文件、版本、计划或制品不符，以及恢复后结构或语义核对失败时返回错误。
+pub fn run_with_options(
+    artifacts: &Artifacts,
+    plan: &ResolvedPlan,
+    output: &Path,
+    execution: laneflow_runtime::ExecutionConfig,
+    diagnostics: Diagnostics,
+    options: &RunOptions,
+) -> Result<RunResult> {
     plan.validate(artifacts)?;
     if !diagnostics.is_enabled() && plan.window.purpose != "probe" {
         return Err(invalid(
             "correctness/performance 需要显式启用诊断（CLI: --diagnostics）",
         ));
     }
+    let end = plan.window.end();
+    let until = options.until_tick.unwrap_or(end);
+    if until == 0 || until > end {
+        return Err(invalid("--until-tick must satisfy 0 < E <= plan end"));
+    }
+    let loaded = options
+        .resume
+        .as_deref()
+        .map(|directory| save::load_save(directory, artifacts, &plan.digest()?))
+        .transpose()?;
+    let start = loaded.as_ref().map_or(0, |save| save.manifest.tick);
+    if start >= until {
+        return Err(invalid("resume requires T < E <= plan end"));
+    }
+    if options.save_at.windows(2).any(|pair| pair[0] >= pair[1])
+        || options
+            .save_at
+            .iter()
+            .any(|&tick| tick <= start || tick > until)
+    {
+        return Err(invalid(
+            "--save-at ticks must increase strictly and lie in the executed interval (T, E]",
+        ));
+    }
+    let formal = start == 0
+        && until == end
+        && (plan.window.purpose != "performance" || options.save_at.is_empty());
     let _span = tracing::info_span!("urban_run", case = %plan.case, scale = %plan.scale,
         workers = execution.worker_count().get(), diagnostics = diagnostics.is_enabled())
     .entered();
     tracing::info!("运行开始");
-    let performance_context = if plan.window.purpose == "performance" {
+    let performance_context = if formal && plan.window.purpose == "performance" {
         let checkout = command_output("git", &["rev-parse", "--show-toplevel"])
             .ok_or_else(|| invalid("unavailable checkout for performance output validation"))?;
         validate_performance_output(&std::path::absolute(output)?, Path::new(&checkout))?;
@@ -356,14 +461,32 @@ pub fn run_to_directory(
     } else {
         None
     };
+    // 续跑的结构与语义核对在创建输出目录之前完成，拒绝时不留下任何输出。
+    let resumed = match loaded {
+        Some(save) => {
+            if output.exists() {
+                return Err(invalid("run output already exists"));
+            }
+            let resumed = ResumedFrom {
+                tick: save.manifest.tick,
+                manifest_sha256: save.manifest_digest.sha256.clone(),
+                source: save.manifest.source.clone(),
+            };
+            Some((Harness::resume(artifacts, plan, execution, save)?, resumed))
+        }
+        None => None,
+    };
     fs::create_dir(output)?;
     let execution_id = new_execution_id()?;
     let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
     let started = Instant::now();
-    let mut harness = Harness::install(artifacts, plan, execution)?;
+    let (mut harness, resumed_from) = match resumed {
+        Some((harness, resumed)) => (harness, Some(resumed)),
+        None => (Harness::install(artifacts, plan, execution)?, None),
+    };
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v7".into(),
+        version: "urban-result-v8".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         diagnostics_enabled: diagnostics.is_enabled(),
@@ -393,15 +516,35 @@ pub fn run_to_directory(
         exhausted_departures: 0,
         active_load: None,
         files: BTreeMap::new(),
+        resumed_from,
+        saves: Vec::new(),
+        segment_end: until,
+        observed_ticks: {
+            let first = start.max(plan.window.warm_up_ticks) + 1;
+            (first <= until).then_some((first, until))
+        },
+        endpoint: None,
     };
-    result.checkpoints.insert(0, harness.checkpoint()?);
+    // 续跑的起点检查点已在恢复时与存档清单核对。
+    result.checkpoints.insert(start, harness.checkpoint()?);
+    result.completed_ticks = start;
+    let source = SaveSource {
+        execution_id: execution_id.clone(),
+        git_commit: command_output("git", &["rev-parse", "HEAD"]),
+        binary_sha256: std::env::current_exe()
+            .ok()
+            .and_then(|path| digest_file(&path).ok())
+            .map(|digest| digest.sha256),
+        workers: execution.worker_count().get(),
+    };
+    let mut save_timings = Vec::new();
     let mut logs = diagnostics
         .is_enabled()
         .then(|| log_io::Logs::new(output))
         .transpose()?;
     let mut tick_timings = diagnostics
         .is_enabled()
-        .then(|| timing::Timings::new(plan.window.end()))
+        .then(|| timing::Timings::new(until - start))
         .transpose()?;
     let mut times = Vec::new();
     let mut window_step_times = Vec::new();
@@ -410,7 +553,7 @@ pub fn run_to_directory(
     let mut active_samples = Vec::new();
     let mut intent_samples = Vec::new();
     let run: Result<()> = (|| {
-        for _ in 0..plan.window.end() {
+        for _ in start..until {
             let tick_started = diagnostics.is_enabled().then(Instant::now);
             let record = harness.advance()?;
             if let Some(logs) = &mut logs {
@@ -458,8 +601,35 @@ pub fn run_to_directory(
                         as u64,
                 });
             }
+            // 存档写出在整拍计时之后，不进入四项计时。
+            if options.save_at.binary_search(&record.tick).is_ok() {
+                let (saved, timing) = save::write_save(
+                    output,
+                    &harness,
+                    &record.state_digest,
+                    &result.plan_digest,
+                    source.clone(),
+                )?;
+                result.saves.push(saved);
+                save_timings.push(timing);
+            }
         }
-        if plan.window.purpose == "correctness" {
+        let checkpoint = match result.checkpoints.get(&until) {
+            Some(checkpoint) => checkpoint.clone(),
+            None => {
+                let checkpoint = harness.checkpoint()?;
+                result.checkpoints.insert(until, checkpoint.clone());
+                checkpoint
+            }
+        };
+        result.endpoint = Some(Endpoint {
+            tick: until,
+            checkpoint,
+            caller_digest: harness.caller_digest()?,
+        });
+        if !formal {
+            result.status = "segment-complete".into();
+        } else if plan.window.purpose == "correctness" {
             validate_case(&harness)?;
             result.status = "case-pass-replay-required".into();
         } else if plan.window.purpose == "performance" {
@@ -581,6 +751,7 @@ pub fn run_to_directory(
             .insert("measurements.toml".into(), digest_file(&path)?);
     }
     if result.error.is_none()
+        && formal
         && let Err(error) = sustained::validate_result(&result)
     {
         result.status = "performance-load-failed".into();
@@ -628,7 +799,7 @@ pub fn run_to_directory(
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),
         "invocation":std::env::args().collect::<Vec<_>>(), "memory_measurement":null,
-        "diagnostics_enabled":diagnostics.is_enabled(),
+        "diagnostics_enabled":diagnostics.is_enabled(), "saves":save_timings,
         "git_commit_at_run":command_output("git", &["rev-parse", "HEAD"]),
         "git_status_at_run":command_output("git", &["status", "--porcelain"])}),
     )?;
@@ -810,6 +981,142 @@ pub(crate) fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
 }
 
 /// Verifies retained files and returns a report binding both executions to the comparison.
+struct ReadRun {
+    result: RunResult,
+    digest: crate::artifacts::FileDigest,
+    envelope: Option<MeasurementProvenance>,
+}
+
+/// 逐臂独立校验：版本与状态、文件摘要、计划摘要、逐拍日志连续、计时与正式测量。
+fn read_run(dir: &Path) -> Result<ReadRun> {
+    let bytes = fs::read(dir.join("result.json"))?;
+    let result: RunResult = serde_json::from_slice(&bytes)?;
+    if !result.diagnostics_enabled {
+        return Err(invalid(
+            "完整语义比较需要显式启用详细诊断日志（--diagnostics）",
+        ));
+    }
+    let formal = result.is_formal();
+    let performance = formal
+        && matches!(
+            (result.purpose.as_str(), result.status.as_str()),
+            ("performance", "performance-round-complete")
+        );
+    let status_ok = if formal {
+        performance && matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
+            || matches!(
+                (result.purpose.as_str(), result.status.as_str()),
+                ("probe", "probe-complete") | ("correctness", "case-pass-replay-required")
+            )
+    } else {
+        result.status == "segment-complete"
+    };
+    if result.version != "urban-result-v8"
+        || result.error.is_some()
+        || result.completed_ticks != result.segment_end
+        || result.endpoint.as_ref().map(|endpoint| endpoint.tick) != Some(result.segment_end)
+        || !status_ok
+    {
+        return Err(invalid("cannot accept an incomplete or failed run"));
+    }
+    let mut expected_files = vec![
+        "resolved-plan.toml",
+        "ticks.jsonl",
+        "commands.jsonl",
+        "events.jsonl",
+        // worker 计数的证据封套：摘要失配（复制/篡改）先于 workers 读取拒绝。
+        "diagnostics.json",
+        // 详细诊断必然生成逐拍计时；缺失即拒绝，不把旧回执当作当前证据。
+        timing::FILE_NAME,
+    ];
+    if performance {
+        // 正式臂的测量封套同样纳入本臂文件摘要自校验。
+        expected_files.push("measurements.toml");
+    }
+    for name in expected_files {
+        let Some(expected) = result.files.get(name) else {
+            return Err(invalid(format!("run file missing: {name}")));
+        };
+        if expected != &digest_file(&dir.join(name))? {
+            return Err(invalid(format!("run file changed: {name}")));
+        }
+    }
+    require_diagnostics_marker(dir)?;
+    if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
+        return Err(invalid("plan digest differs"));
+    }
+    let mut tick = result.start_tick();
+    for line in BufReader::new(File::open(dir.join("ticks.jsonl"))?).lines() {
+        let row: TickRecord = serde_json::from_str(&line?)?;
+        tick += 1;
+        if row.tick != tick
+            || row
+                .active
+                .checked_add(row.parked)
+                .and_then(|n| n.checked_add(row.completed))
+                != Some(row.live)
+        {
+            return Err(invalid("tick sequence or lifecycle differs"));
+        }
+    }
+    if tick != result.completed_ticks {
+        return Err(invalid("tick log is incomplete"));
+    }
+    // 正式臂逐臂独立校验测量封套：版本、执行编号与目录一致、worker
+    // 合法、固定协议 provenance 通过、样本数与观测窗一致。封套内容
+    // 本身不参与跨臂相等（计时与执行编号按定义不同）。
+    let envelope = if performance {
+        let measurement: RetainedMeasurements = toml::from_str(
+            std::str::from_utf8(&fs::read(dir.join("measurements.toml"))?)
+                .map_err(|e| invalid(e.to_string()))?,
+        )?;
+        if measurement.version != MEASUREMENTS_VERSION {
+            return Err(invalid(
+                "unsupported performance measurement version; rerun with the current timing protocol",
+            ));
+        }
+        if measurement.execution_id != read_execution_id(dir)? {
+            return Err(invalid("performance execution identity differs"));
+        }
+        measurement.provenance.validate()?;
+        for samples in [
+            &measurement.command_samples_ns,
+            &measurement.traffic_world_step_samples_ns,
+            &measurement.observation_samples_ns,
+            &measurement.active_samples,
+            &measurement.intent_samples,
+        ] {
+            if samples.len() as u64 != result.window.observation_ticks {
+                return Err(invalid(
+                    "performance sample count differs from the observation window",
+                ));
+            }
+        }
+        timing::verify(dir, &result, Some(&measurement))?;
+        sustained::verify(dir, &result, &measurement)?;
+        Some(measurement.provenance)
+    } else {
+        timing::verify(dir, &result, None)?;
+        None
+    };
+    Ok(ReadRun {
+        result,
+        digest: crate::artifacts::FileDigest {
+            bytes: bytes.len() as u64,
+            sha256: sha256(&bytes),
+        },
+        envelope,
+    })
+}
+
+/// 比较两份运行：两份正式运行（从第 0 拍跑到计划终点）逐项比较完整回执；
+/// 任一臂为续跑或分段时按设计 §7.5 在共有推进区间 `(T, E]` 上分段比较，
+/// 通过状态为 `segment-match`，不是正确性、正式性能或认证证据。
+///
+/// # Errors
+///
+/// 任一臂未完成、文件被改动、计划不同、出发状态未绑定、检查点缺失或不等、
+/// 终点核对值不等，或逐行日志不同时返回错误。
 pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if fs::canonicalize(left)? == fs::canonicalize(right)? {
         return Err(invalid("replay requires two distinct run directories"));
@@ -819,132 +1126,65 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if left_execution == right_execution {
         return Err(invalid("replay requires distinct execution identities"));
     }
+    let a = read_run(left)?;
+    let b = read_run(right)?;
     // workers 在两臂摘要校验之后读取（证据封套绑定）。
-    let read = |dir: &Path| -> Result<(
-        RunResult,
-        crate::artifacts::FileDigest,
-        Option<MeasurementProvenance>,
-    )> {
-        let bytes = fs::read(dir.join("result.json"))?;
-        let result: RunResult = serde_json::from_slice(&bytes)?;
-        let performance = matches!(
-            (result.purpose.as_str(), result.status.as_str()),
-            ("performance", "performance-round-complete")
-        );
-        if !result.diagnostics_enabled {
-            return Err(invalid(
-                "完整语义比较需要显式启用详细诊断日志（--diagnostics）",
-            ));
-        }
-        if result.version != "urban-result-v7"
-            || result.error.is_some()
-            || result.completed_ticks != result.expected_ticks
-            || performance && !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
-            || !performance
-                && !matches!(
-                    (result.purpose.as_str(), result.status.as_str()),
-                    ("probe", "probe-complete") | ("correctness", "case-pass-replay-required")
-                )
-        {
-            return Err(invalid("cannot accept an incomplete or failed run"));
-        }
-        let mut expected_files = vec![
-            "resolved-plan.toml",
-            "ticks.jsonl",
-            "commands.jsonl",
-            "events.jsonl",
-            // worker 计数的证据封套：摘要失配（复制/篡改）先于 workers 读取拒绝。
-            "diagnostics.json",
-            // 详细诊断必然生成逐拍计时；缺失即拒绝，不把旧回执当作当前证据。
-            timing::FILE_NAME,
-        ];
-        if performance {
-            // 正式臂的测量封套同样纳入本臂文件摘要自校验。
-            expected_files.push("measurements.toml");
-        }
-        for name in expected_files {
-            let Some(expected) = result.files.get(name) else {
-                return Err(invalid(format!("run file missing: {name}")));
-            };
-            if expected != &digest_file(&dir.join(name))? {
-                return Err(invalid(format!("run file changed: {name}")));
-            }
-        }
-        require_diagnostics_marker(dir)?;
-        if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
-            return Err(invalid("plan digest differs"));
-        }
-        let mut count = 0;
-        for line in BufReader::new(File::open(dir.join("ticks.jsonl"))?).lines() {
-            let row: TickRecord = serde_json::from_str(&line?)?;
-            count += 1;
-            if row.tick != count
-                || row
-                    .active
-                    .checked_add(row.parked)
-                    .and_then(|n| n.checked_add(row.completed))
-                    != Some(row.live)
-            {
-                return Err(invalid("tick sequence or lifecycle differs"));
-            }
-        }
-        if count != result.completed_ticks {
-            return Err(invalid("tick log is incomplete"));
-        }
-        // 正式臂逐臂独立校验测量封套：版本、执行编号与目录一致、worker
-        // 合法、固定协议 provenance 通过、样本数与观测窗一致。封套内容
-        // 本身不参与跨臂相等（计时与执行编号按定义不同）。
-        let envelope = if performance {
-            let measurement: RetainedMeasurements = toml::from_str(
-                std::str::from_utf8(&fs::read(dir.join("measurements.toml"))?)
-                    .map_err(|e| invalid(e.to_string()))?,
-            )?;
-            if measurement.version != MEASUREMENTS_VERSION {
-                return Err(invalid(
-                    "unsupported performance measurement version; rerun with the current timing protocol",
-                ));
-            }
-            if measurement.execution_id != read_execution_id(dir)? {
-                return Err(invalid("performance execution identity differs"));
-            }
-            measurement.provenance.validate()?;
-            for samples in [
-                &measurement.command_samples_ns,
-                &measurement.traffic_world_step_samples_ns,
-                &measurement.observation_samples_ns,
-                &measurement.active_samples,
-                &measurement.intent_samples,
-            ] {
-                if samples.len() as u64 != result.window.observation_ticks {
-                    return Err(invalid(
-                        "performance sample count differs from the observation window",
-                    ));
-                }
-            }
-            timing::verify(dir, &result, Some(&measurement))?;
-            sustained::verify(dir, &result, &measurement)?;
-            Some(measurement.provenance)
-        } else {
-            timing::verify(dir, &result, None)?;
-            None
-        };
-        Ok((
-            result,
-            crate::artifacts::FileDigest {
-                bytes: bytes.len() as u64,
-                sha256: sha256(&bytes),
-            },
-            envelope,
-        ))
-    };
-    let (a, left_digest, left_envelope) = read(left)?;
-    let (b, right_digest, right_envelope) = read(right)?;
     let left_workers = read_diagnostics_workers(left)?;
     let right_workers = read_diagnostics_workers(right)?;
-    if a.plan_digest != b.plan_digest {
+    if a.result.plan_digest != b.result.plan_digest {
         return Err(invalid("different resolved plans"));
     }
-    match (&left_envelope, &right_envelope) {
+    let segmented = !a.result.is_formal() || !b.result.is_formal();
+    let interval = if segmented {
+        compare_segments(left, &a.result, right, &b.result)?
+    } else {
+        compare_complete(left, &a, left_workers, right, &b, right_workers)?;
+        (0, a.result.segment_end)
+    };
+    let arm = |run: &ReadRun, execution_id: String, workers: u32| ComparedRun {
+        execution_id,
+        workers,
+        result: run.digest.clone(),
+        start: run.result.start_tick(),
+        end: run.result.segment_end,
+        resumed_from: run
+            .result
+            .resumed_from
+            .as_ref()
+            .map(|resumed| resumed.manifest_sha256.clone()),
+    };
+    Ok(ComparisonReport {
+        version: "urban-comparison-v3".into(),
+        status: if segmented {
+            "segment-match"
+        } else {
+            match a.result.purpose.as_str() {
+                "correctness" => "case-pass",
+                "performance" => "performance-match",
+                _ => "probe-match",
+            }
+        }
+        .into(),
+        purpose: a.result.purpose.clone(),
+        case: a.result.case.clone(),
+        scale: a.result.scale.clone(),
+        plan_digest: a.result.plan_digest.clone(),
+        interval,
+        left: arm(&a, left_execution, left_workers),
+        right: arm(&b, right_execution, right_workers),
+    })
+}
+
+/// 两份正式运行：除执行封套与存档记录外逐项相等。
+fn compare_complete(
+    left: &Path,
+    a: &ReadRun,
+    left_workers: u32,
+    right: &Path,
+    b: &ReadRun,
+    right_workers: u32,
+) -> Result<()> {
+    match (&a.envelope, &b.envelope) {
         (Some(left), Some(right)) => {
             if left.workers != left_workers || right.workers != right_workers {
                 return Err(invalid(
@@ -983,17 +1223,18 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     // 封套与 diagnostics.json 执行元数据（计时、执行编号、workers 的载体；
     // 其摘要已在逐臂 files 校验中与各臂自身内容绑定）。probe/correctness
     // 臂无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
-    // 计数、plan 摘要、逐拍日志摘要）全部保留比较。
-    // timings.jsonl 只保存非确定性的逐拍耗时，其摘要也已逐臂核对。
-    let mut a_semantic = a.clone();
-    a_semantic.files.remove("measurements.toml");
-    a_semantic.files.remove("diagnostics.json");
-    a_semantic.files.remove(timing::FILE_NAME);
-    let mut b_semantic = b.clone();
-    b_semantic.files.remove("measurements.toml");
-    b_semantic.files.remove("diagnostics.json");
-    b_semantic.files.remove(timing::FILE_NAME);
-    if a_semantic != b_semantic {
+    // 计数、plan 摘要、逐拍日志摘要、终点核对值）全部保留比较。
+    // timings.jsonl 只保存非确定性的逐拍耗时，其摘要也已逐臂核对；存档记录
+    // 不改变语义（正式运行只有非 performance 计划可以带存档）。
+    let semantic = |run: &RunResult| {
+        let mut run = run.clone();
+        run.files.remove("measurements.toml");
+        run.files.remove("diagnostics.json");
+        run.files.remove(timing::FILE_NAME);
+        run.saves.clear();
+        run
+    };
+    if semantic(&a.result) != semantic(&b.result) {
         for (index, (left_row, right_row)) in BufReader::new(File::open(left.join("ticks.jsonl"))?)
             .lines()
             .zip(BufReader::new(File::open(right.join("ticks.jsonl"))?).lines())
@@ -1012,33 +1253,155 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             "independent runs differ; compare ticks and semantic logs",
         ));
     }
-    Ok(ComparisonReport {
-        version: "urban-comparison-v2".into(),
-        status: match a.purpose.as_str() {
-            "correctness" => "case-pass",
-            "performance" => "performance-match",
-            _ => "probe-match",
-        }
-        .into(),
-        purpose: a.purpose,
-        case: a.case,
-        scale: a.scale,
-        plan_digest: a.plan_digest,
-        completed_ticks: a.completed_ticks,
-        left: ComparedRun {
-            execution_id: left_execution,
-            workers: left_workers,
-            result: left_digest,
-        },
-        right: ComparedRun {
-            execution_id: right_execution,
-            workers: right_workers,
-            result: right_digest,
-        },
-    })
+    Ok(())
 }
 
-/// Verifies and combines exactly three independent formal performance rounds.
+/// 分段比较（设计 §7.5）：两臂终点相同、出发状态绑定、区间内计划规定的全部
+/// 周期检查点与终点核对值相等，三份日志在 `(T, E]` 上按所属推进逐行相同。
+fn compare_segments(left: &Path, a: &RunResult, right: &Path, b: &RunResult) -> Result<(u64, u64)> {
+    if a.segment_end != b.segment_end {
+        return Err(invalid("segment comparison requires the same endpoint"));
+    }
+    let end = a.segment_end;
+    let start = a.start_tick().max(b.start_tick());
+    // 出发状态：两臂都从第 0 拍起跑时比较初始检查点；续跑臂的存档必须由另一臂
+    // 写出，或两臂来自同一存档。
+    let saved_by = |full: &RunResult, resumed: &ResumedFrom| {
+        full.saves.iter().any(|save| {
+            save.tick == resumed.tick && save.manifest.sha256 == resumed.manifest_sha256
+        })
+    };
+    let bound = match (&a.resumed_from, &b.resumed_from) {
+        (None, None) => {
+            a.checkpoints.contains_key(&0) && a.checkpoints.get(&0) == b.checkpoints.get(&0)
+        }
+        (None, Some(resumed)) => saved_by(a, resumed),
+        (Some(resumed), None) => saved_by(b, resumed),
+        (Some(left), Some(right)) => {
+            left.manifest_sha256 == right.manifest_sha256 || saved_by(a, right) || saved_by(b, left)
+        }
+    };
+    if !bound {
+        return Err(invalid(
+            "segment arms do not start from the same state (initial checkpoint or save binding)",
+        ));
+    }
+    // 计划规定的周期检查点：暖机末、观察期每个信号周期边界、计划终点，加上终点 E。
+    let plan = ResolvedPlan::read(&left.join("resolved-plan.toml"))?;
+    let warm = plan.window.warm_up_ticks;
+    let mut required: Vec<u64> = (start + 1..=end)
+        .filter(|&tick| {
+            tick == warm
+                || tick == plan.window.end()
+                || (tick > warm && (tick - warm).is_multiple_of(plan.cycle_ticks))
+        })
+        .collect();
+    if required.last() != Some(&end) {
+        required.push(end);
+    }
+    for tick in required {
+        match (a.checkpoints.get(&tick), b.checkpoints.get(&tick)) {
+            (Some(left), Some(right)) if left == right => {}
+            (Some(_), Some(_)) => {
+                return Err(invalid(format!("checkpoint differs at tick {tick}")));
+            }
+            _ => {
+                return Err(invalid(format!(
+                    "segment comparison requires the planned checkpoint at tick {tick} in both arms"
+                )));
+            }
+        }
+    }
+    if a.endpoint != b.endpoint
+        || a.tile_evidence != b.tile_evidence
+        || a.retry_reasons != b.retry_reasons
+        || a.atomic_rejections != b.atomic_rejections
+        || (a.replacements, a.births, a.removals) != (b.replacements, b.births, b.removals)
+        || (a.pending_departures, a.exhausted_departures)
+            != (b.pending_departures, b.exhausted_departures)
+        || a.final_counts != b.final_counts
+        || a.committed_world_tick != b.committed_world_tick
+    {
+        return Err(invalid(
+            "segment endpoint, caller state digest or cumulative evidence differs",
+        ));
+    }
+    for (name, kind) in [
+        ("ticks.jsonl", LogKind::Ticks),
+        ("commands.jsonl", LogKind::Commands),
+        ("events.jsonl", LogKind::Events),
+    ] {
+        let mut left_lines = owned_lines(&left.join(name), kind, start)?;
+        let mut right_lines = owned_lines(&right.join(name), kind, start)?;
+        let mut index = 0_u64;
+        loop {
+            match (
+                left_lines.next().transpose()?,
+                right_lines.next().transpose()?,
+            ) {
+                (None, None) => break,
+                (Some(left_row), Some(right_row)) if left_row == right_row => index += 1,
+                (left_row, right_row) => {
+                    return Err(invalid(format!(
+                        "{name}: first differing line {} after advance {start}: left={}; right={}",
+                        index + 1,
+                        left_row.as_deref().unwrap_or("<end>"),
+                        right_row.as_deref().unwrap_or("<end>")
+                    )));
+                }
+            }
+        }
+    }
+    Ok((start, end))
+}
+
+#[derive(Clone, Copy)]
+enum LogKind {
+    Ticks,
+    Commands,
+    Events,
+}
+
+/// 逐行所属推进：第 k 次推进先在边界 k−1 执行命令、再步进到第 k 拍。
+fn owning_advance(kind: LogKind, line: &str) -> Result<u64> {
+    #[derive(Deserialize)]
+    struct Row {
+        tick: Option<u64>,
+        boundary: Option<u64>,
+        phase: Option<String>,
+    }
+    let row: Row = serde_json::from_str(line)?;
+    let owner = match kind {
+        LogKind::Ticks => row.tick,
+        LogKind::Commands => row.boundary.map(|boundary| boundary + 1),
+        LogKind::Events if row.phase.as_deref() == Some("command") => row.tick.map(|tick| tick + 1),
+        LogKind::Events => row.tick,
+    };
+    owner.ok_or_else(|| invalid("log row has no tick or boundary"))
+}
+
+/// 所属推进晚于 `after` 的行。日志按推进顺序写出，所属推进单调不减，
+/// 因此跳过前缀后其余行原样逐行返回。
+fn owned_lines(
+    path: &Path,
+    kind: LogKind,
+    after: u64,
+) -> Result<impl Iterator<Item = Result<String>> + use<>> {
+    let mut lines = BufReader::new(File::open(path)?).lines();
+    let mut first = None;
+    for line in lines.by_ref() {
+        let line = line?;
+        if owning_advance(kind, &line)? > after {
+            first = Some(line);
+            break;
+        }
+    }
+    Ok(first
+        .map(Ok)
+        .into_iter()
+        .chain(lines.map(|line| line.map_err(Into::into))))
+}
+
 pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceComparisonReport> {
     let canonical = directories
         .map(fs::canonicalize)
@@ -1068,7 +1431,8 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 "正式性能聚合需要显式启用详细诊断日志（--diagnostics）",
             ));
         }
-        if result.version != "urban-result-v7"
+        if result.version != "urban-result-v8"
+            || !result.is_formal()
             || result.purpose != "performance"
             || !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
             || result.status != "performance-round-complete"
@@ -1669,7 +2033,7 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v7".into(),
+                version: "urban-result-v8".into(),
                 diagnostics_enabled: true,
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
@@ -1703,6 +2067,15 @@ mod tests {
                 exhausted_departures: 0,
                 active_load: None,
                 files,
+                resumed_from: None,
+                saves: Vec::new(),
+                segment_end: 2,
+                observed_ticks: Some((1, 2)),
+                endpoint: Some(Endpoint {
+                    tick: 2,
+                    checkpoint: String::new(),
+                    caller_digest: String::new(),
+                }),
             },
         )
         .unwrap();

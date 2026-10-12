@@ -80,21 +80,19 @@ impl RouteTable {
         &self.edge_keys[self.index(handle) as usize]
     }
 
-    pub(crate) fn crosses_tile(&self, index: u32, hop: usize) -> bool {
-        self.cross_tile[index as usize][hop]
+    pub(crate) fn len(&self) -> usize {
+        self.handles.len()
     }
 
-    /// 快照恢复后按旧句柄→新句柄重绑定；路线内容与序号不变。
-    #[cfg(feature = "adapter")]
-    pub(crate) fn remap_handles(
-        &mut self,
-        map: &std::collections::HashMap<RouteHandle, RouteHandle>,
-    ) {
-        for handle in &mut self.handles {
-            *handle = map[handle];
-        }
-        self.index_of = (0..self.handles.len() as u32)
-            .map(|index| (self.handles[index as usize], index))
-            .collect();
+    pub(crate) fn edge_keys(&self, index: u32) -> &[String] {
+        &self.edge_keys[index as usize]
+    }
+
+    pub(crate) fn edge_raws(&self, index: u32) -> &[u32] {
+        &self.edge_raws[index as usize]
+    }
+
+    pub(crate) fn crosses_tile(&self, index: u32, hop: usize) -> bool {
+        self.cross_tile[index as usize][hop]
     }
 }

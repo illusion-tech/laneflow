@@ -71,6 +71,9 @@ impl Hash {
 /// 保证不同并行度下摘要逐字节一致。
 const OBSERVATION_BLOCK: usize = 4096;
 
+/// 逐拍状态摘要的编码版本；存档清单记录它，续跑要求相同。
+pub(crate) const OBSERVATION_VERSION: &str = "urban-observation-v3";
+
 /// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/json 完全相同。
 /// v3 中每块字节在块线程内各自 SHA-256 成叶摘要，主线程按块序把叶摘要
 /// 送入根哈希（有单元测试比对）。
@@ -1197,7 +1200,7 @@ fn claims_block(
 fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize, usize, usize))> {
     debug_assert!(block_size > 0);
     let mut hash = Hash::default();
-    hash.text("urban-observation-v3");
+    hash.text(OBSERVATION_VERSION);
     hash.n(h.world.tick_index());
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());

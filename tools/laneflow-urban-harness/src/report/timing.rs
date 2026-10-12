@@ -70,7 +70,7 @@ struct Envelope {
 ///
 /// 威胁模型见 `docs/design/urban-demand-harness.md`：摘要封套与这里的交叉核对
 /// 用于发现 harness 自身的错误和数据之间的不一致，不防有意伪造。逐项要求：
-/// diagnostics 声明当前计时版本；每个完成拍恰好一行且 tick 连续；整拍耗时不小于
+/// diagnostics 声明当前计时版本；本次推进区间 (T, E] 的每个完成拍恰好一行且 tick 连续；整拍耗时不小于
 /// 其中三段互不重叠的分量之和；观察窗三个分量与 diagnostics 原始样本逐项相等；
 /// 正式臂的 measurements 三组样本也与这些逐拍值逐项相等。
 pub(super) fn verify(
@@ -87,7 +87,9 @@ pub(super) fn verify(
     {
         return Err(invalid("逐拍计时声明缺失或版本不符"));
     }
-    let mut tick = 0;
+    // 续跑只含 T+1..=E 的拍：起点取存档拍号，普通运行为 0。
+    let start = result.start_tick();
+    let mut tick = start;
     let (mut step, mut command, mut observation) = (Vec::new(), Vec::new(), Vec::new());
     for line in BufReader::new(File::open(directory.join(FILE_NAME))?).lines() {
         let row: TickTiming = serde_json::from_str(&line?)?;

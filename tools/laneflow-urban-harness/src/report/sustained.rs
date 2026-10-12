@@ -574,6 +574,13 @@ mod tests {
         result.window = window.clone();
         result.expected_ticks = window.end();
         result.completed_ticks = window.end();
+        result.segment_end = window.end();
+        result.observed_ticks = Some((window.warm_up_ticks + 1, window.end()));
+        result.endpoint = Some(super::super::Endpoint {
+            tick: window.end(),
+            checkpoint: "fixture".into(),
+            caller_digest: "fixture".into(),
+        });
         result.committed_world_tick = window.end();
         result.plan_digest = sha256(plan_bytes.as_bytes());
         result.initial_counts = (target as usize, 0, 0);

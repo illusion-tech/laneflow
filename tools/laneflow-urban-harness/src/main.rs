@@ -1,6 +1,6 @@
 use laneflow_urban_harness::{
-    Artifacts, Diagnostics, ResolvedPlan, UrbanCase, Window, compare_performance_runs,
-    compare_runs, run_to_directory,
+    Artifacts, Diagnostics, ResolvedPlan, RunOptions, UrbanCase, Window, compare_performance_runs,
+    compare_runs, run_with_options,
 };
 use std::path::Path;
 
@@ -115,9 +115,30 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // 世界逻辑摘要或快照内容。缺省 1，合法域 1..=16。
             let mut workers = 1_u32;
             let mut diagnostics = Diagnostics::default();
+            let mut options = RunOptions::default();
             let mut index = 4;
             while index < args.len() {
                 match args[index].as_str() {
+                    "--save-at" if index + 1 < args.len() => {
+                        options.save_at.push(
+                            args[index + 1]
+                                .parse()
+                                .map_err(|_| "invalid --save-at tick")?,
+                        );
+                        index += 2;
+                    }
+                    "--until-tick" if index + 1 < args.len() && options.until_tick.is_none() => {
+                        options.until_tick = Some(
+                            args[index + 1]
+                                .parse()
+                                .map_err(|_| "invalid --until-tick")?,
+                        );
+                        index += 2;
+                    }
+                    "--resume" if index + 1 < args.len() && options.resume.is_none() => {
+                        options.resume = Some(args[index + 1].clone().into());
+                        index += 2;
+                    }
                     "--diagnostics" if diagnostics == Diagnostics::Disabled => {
                         diagnostics = Diagnostics::Enabled;
                         index += 1;
@@ -149,12 +170,13 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     .with_writer(std::io::stderr)
                     .try_init()?;
             }
-            let result = run_to_directory(
+            let result = run_with_options(
                 &artifacts,
                 &plan,
                 Path::new(&args[3]),
                 execution,
                 diagnostics,
+                &options,
             )?;
             println!(
                 "{}: {}/{} ticks",
@@ -190,5 +212,5 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] [--save-at T]... [--until-tick E] [--resume <save-dir>] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
 }

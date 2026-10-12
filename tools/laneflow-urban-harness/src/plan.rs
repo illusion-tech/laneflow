@@ -1352,6 +1352,10 @@ impl ResolvedPlan {
     pub fn read(path: &Path) -> Result<Self> {
         Ok(toml::from_str(&fs::read_to_string(path)?)?)
     }
+    /// 与 `write` 写出字节相同的计划摘要。
+    pub(crate) fn digest(&self) -> Result<String> {
+        Ok(sha256(toml::to_string_pretty(self)?.as_bytes()))
+    }
     /// 核对计划结构、唯一请求身份及按当前来源重新展开的完整内容。
     ///
     /// # Errors

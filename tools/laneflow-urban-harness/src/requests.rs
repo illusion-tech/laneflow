@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{Result, invalid};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct RequestId(u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RequestState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum RequestState {
     Scheduled {
         due: u64,
     },
@@ -132,6 +135,94 @@ impl RequestLedger {
     pub fn counts(&self) -> (usize, usize) {
         (self.pending, self.exhausted)
     }
+
+    /// 存档用的完整登记：按序号升序的每一项、下一编号与两项计数。
+    pub(crate) fn save(&self) -> SavedLedger {
+        SavedLedger {
+            entries: self
+                .entries
+                .iter()
+                .map(|(id, entry)| SavedLedgerEntry {
+                    sequence: id.0,
+                    state: entry.state,
+                    counted: entry.counted,
+                })
+                .collect(),
+            next_sequence: self.next_sequence,
+            pending: self.pending,
+            exhausted: self.exhausted,
+        }
+    }
+
+    /// 从存档重建并核对自洽：序号严格递增、下一编号大于全部序号、两项计数与
+    /// 按登记项重算的值相同、没有执行中的请求（只出现在单个请求执行过程中）。
+    pub(crate) fn restore(saved: &SavedLedger) -> Result<Self> {
+        let mut ledger = Self {
+            entries: BTreeMap::new(),
+            next_sequence: saved.next_sequence,
+            pending: 0,
+            exhausted: 0,
+        };
+        let mut previous = None;
+        for entry in &saved.entries {
+            if previous.is_some_and(|previous| previous >= entry.sequence)
+                || entry.sequence >= saved.next_sequence
+            {
+                return Err(invalid("存档请求编号不递增或不小于下一编号"));
+            }
+            previous = Some(entry.sequence);
+            match entry.state {
+                RequestState::Pending {
+                    next_tick: None, ..
+                } => return Err(invalid("存档含执行中的请求")),
+                RequestState::Pending { .. } if entry.counted => ledger.pending += 1,
+                RequestState::Exhausted if entry.counted => ledger.exhausted += 1,
+                _ => {}
+            }
+            ledger.entries.insert(
+                RequestId(entry.sequence),
+                Entry {
+                    state: entry.state,
+                    counted: entry.counted,
+                },
+            );
+        }
+        if (ledger.pending, ledger.exhausted) != (saved.pending, saved.exhausted) {
+            return Err(invalid("存档请求计数与登记项不符"));
+        }
+        Ok(ledger)
+    }
+
+    /// 应当恰好对应一个排队请求的登记项：(序号, 到期拍, 尝试次数)。
+    pub(crate) fn queued(&self) -> impl Iterator<Item = (u32, u64, u32)> + '_ {
+        self.entries
+            .iter()
+            .filter_map(|(id, entry)| match entry.state {
+                RequestState::Scheduled { due } => Some((id.0, due, 1)),
+                RequestState::Pending {
+                    attempt,
+                    next_tick: Some(due),
+                } => Some((id.0, due, attempt)),
+                _ => None,
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SavedLedgerEntry {
+    pub sequence: u32,
+    pub state: RequestState,
+    pub counted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SavedLedger {
+    pub entries: Vec<SavedLedgerEntry>,
+    pub next_sequence: u32,
+    pub pending: usize,
+    pub exhausted: usize,
 }
 
 #[cfg(test)]
@@ -172,5 +263,41 @@ mod tests {
         ledger.begin(3, 0, 1).unwrap();
         ledger.finish(3, false).unwrap();
         assert_eq!(ledger.counts(), (0, 3));
+    }
+
+    #[test]
+    fn saved_ledger_round_trips_and_rejects_inconsistent_saves() {
+        let mut ledger = RequestLedger::default();
+        for sequence in 0..4 {
+            ledger.register(sequence, 5, sequence != 3).unwrap();
+        }
+        ledger.begin(0, 5, 1).unwrap();
+        ledger.retry(0, 9, 2).unwrap();
+        ledger.begin(1, 5, 1).unwrap();
+        ledger.finish(1, true).unwrap();
+        let saved = ledger.save();
+        let restored = RequestLedger::restore(&saved).unwrap();
+        assert_eq!(restored.save(), saved);
+        assert_eq!(restored.counts(), ledger.counts());
+        assert_eq!(
+            restored.queued().collect::<Vec<_>>(),
+            vec![(0, 9, 2), (2, 5, 1), (3, 5, 1)]
+        );
+
+        let mut wrong_count = saved.clone();
+        wrong_count.pending += 1;
+        assert!(RequestLedger::restore(&wrong_count).is_err());
+        let mut running = saved.clone();
+        running.entries[0].state = RequestState::Pending {
+            attempt: 2,
+            next_tick: None,
+        };
+        assert!(RequestLedger::restore(&running).is_err());
+        let mut unordered = saved.clone();
+        unordered.entries.swap(0, 1);
+        assert!(RequestLedger::restore(&unordered).is_err());
+        let mut stale_next = saved;
+        stale_next.next_sequence = 3;
+        assert!(RequestLedger::restore(&stale_next).is_err());
     }
 }
