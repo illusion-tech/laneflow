@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-10-11<br>
+**最后更新**: 2026-10-12<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -331,7 +331,7 @@ live；未来尚未到期和已到期 pending/exhausted 请求分别计数，均
 启用时三份日志各设置 10 MiB 流式缓冲，共 30 MiB，由调用方诊断拥有；禁用时为零。
 窗口结束后先刷盘并释放这三份缓冲，再分配逐拍计时的输出缓冲，诊断缓冲同时驻留不超过三份。
 
-结果载荷为 `urban-result-v7`，以必填 `diagnostics_enabled` 绑定实际诊断选择。
+结果载荷为 `urban-result-v8`，以必填 `diagnostics_enabled` 绑定实际诊断选择。
 未启用详细日志的 probe 可以完成运行，但不能作为逐拍回放或完整语义比较证据。
 双臂比较与三轮聚合均拒绝诊断禁用、记录缺失、版本错误或摘要不符的回执。
 correctness/performance 必须显式启用诊断；未启用时在安装世界和创建输出前拒绝，
@@ -393,11 +393,11 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
 - `commands`、`events`、`ticks`：实际顺序、结果和逐域计数，及用于重复比较的摘要。
 - `result.json`：工作负载/计划/结果版本、case/scale、LFCA/config/catalog
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
-- `comparison.json`：比较结论、case/scale、计划摘要、完成 tick 数、两个执行编号和
-  两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；两份原始
-  result 保持不可变。当前载荷为 `urban-result-v7`（显式绑定详细诊断开关；incarnation
-  与请求编号独立，持续负载显式报告实际 Active）/ `urban-comparison-v2`（v2 起记录
-  两臂 worker 数），不转换旧记录。
+- `comparison.json`：比较结论、case/scale、计划摘要、比较区间、两臂起止与 worker 数、
+  两个执行编号和两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；
+  两份原始 result 保持不可变。当前载荷为 `urban-result-v8`（显式绑定详细诊断开关；
+  incarnation 与请求编号独立，持续负载显式报告实际 Active；v8 起记录存档、续跑来源与
+  终点核对值，见 §7）/ `urban-comparison-v3`（见 §7.5），不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 
@@ -454,9 +454,9 @@ OS/架构、硬件/电源角色、worker 和计时范围必须可用且不变。
 初始 75% Active 给测量行命名。#544 的交付不包含新性能门禁、产品达标声明或 owner
 组件的大范围优化；真实缺陷按组件形成可复现的问题，再决定相应修复范围。
 
-## 7. 存档与续跑（提案）
+## 7. 存档与续跑
 
-**状态**：提案，待 G1（#874）。依据 #861 长窗验收
+**状态**：已实现（#874；G1 设计 #875）。依据 #861 长窗验收
 （[`long-window-acceptance-results.md`](../../research/issue-707-city-parallel/long-window-acceptance-results.md)）。
 
 ### 7.1 目的与边界
@@ -586,7 +586,7 @@ OS/架构、硬件/电源角色、worker 和计时范围必须可用且不变。
    登记的 `next_tick`（要到 `RequestLedger::begin` 处理它时才失败）、`tile_evidence`
    截短（要到该 tile 有活动时才越界）也都在这一步拒绝。
 4. 按快照局部标识把路线 key、个体槽位重绑到新句柄：重建 `slots` 与 `routes`，
-   `route_table` 用 `remap_handles` 换成新句柄（序号与内容不变）；按稳定标识重建停车
+   `route_table` 按目录 key 升序以新句柄重建（序号与内容不变）；按稳定标识重建停车
    目标与 profile。
 5. 语义核对：`deterministic_state_digest` 与清单相同；`observe::state` 与清单中第 T 拍
    的 `state_digest` 相同（它同时覆盖 `claims` 与稳定身份映射）；每个 key 所绑 Runtime
