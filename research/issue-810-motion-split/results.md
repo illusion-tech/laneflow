@@ -60,7 +60,7 @@
 
 ## 封存与复现
 
-原始归档已复制到仓库外 `E:/projects/laneflow-evidence/issue-810/354bd602/issue-810-motion-split.tar.zst`：116944188 字节，SHA-256 `971f63851ceb19850cb5318d8b940dcaf05d294890eeb53c4c0dabccf4e0579c`，6671 个载荷加一份 seal。副本长度与摘要复核一致，原归档未改写。全新目录解压后全部路径/长度/SHA-256 与文件数量验证通过；解压后的采集器重验证和全部 24 轮结果重派生通过。原始及负向损坏副本均保留。
+原始归档已复制到仓库外 `<evidence-root>/issue-810/354bd602/issue-810-motion-split.tar.zst`：116944188 字节，SHA-256 `971f63851ceb19850cb5318d8b940dcaf05d294890eeb53c4c0dabccf4e0579c`，6671 个载荷加一份 seal。副本长度与摘要复核一致，原归档未改写。全新目录解压后全部路径/长度/SHA-256 与文件数量验证通过；解压后的采集器重验证和全部 24 轮结果重派生通过。原始及负向损坏副本均保留。
 
 入库只保留 [summary.json](evidence/summary.json) 的六窗口统计和 [archive.toml](evidence/archive.toml) 的下载索引。来源、完整环境、负向验证及验封凭据随公开资产保存；原始归档内部的 `results.json` 与 `810-validation-summary.json` 是完整版本。摘要的六窗口数值与封存原件逐项一致，`summary.json` 不能作为采集器 `verify` 的输入。
 
