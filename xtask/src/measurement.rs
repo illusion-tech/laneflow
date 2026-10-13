@@ -102,8 +102,10 @@ fn home_dir() -> Result<PathBuf, String> {
 }
 
 fn cargo_home() -> Result<PathBuf, String> {
+    // CARGO_HOME 允许相对拼写（相对当前工作目录解析）；词法绝对化后再使用，
+    // 否则与 cargo metadata 的绝对 manifest 路径不可比。
     if let Some(value) = env::var_os("CARGO_HOME") {
-        return Ok(PathBuf::from(value));
+        return absolute_lexical(PathBuf::from(value));
     }
     Ok(home_dir()?.join(".cargo"))
 }
@@ -137,7 +139,9 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
         .into_iter()
         .map(|name| (cargo_home.join(name), format!("<cargo-home>/{name}")))
         .collect();
-    for ancestor in repo.ancestors().skip(1) {
+    // 审计覆盖构建 cwd（仓库根）自身：被 .git/info/exclude 或全局 ignore 隐藏的
+    // checkout 本地配置不改变 git 干净状态，但会被 Cargo 探测。
+    for ancestor in repo.ancestors() {
         for name in [".cargo/config.toml", ".cargo/config"] {
             candidates.push((ancestor.join(name), format!("祖先目录的 {name}")));
         }
@@ -507,19 +511,20 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
 
     let target_dir = repo.join("target").join("release-measurement");
     let receipt_path = receipt_path.unwrap_or_else(|| target_dir.join("build-receipt.json"));
+    // 回执只新增不覆盖：先失败——既不在完成构建与扫描后才报错，也不让随后的
+    // 目录清理把既有回执吞掉。
+    if receipt_path.exists() {
+        return Err(format!(
+            "回执路径已存在：{}；请显式给一个全新的 --receipt 路径",
+            receipt_path.display()
+        ));
+    }
     // 每次正式构建使用全新 target 目录：Cargo 只按 build.rs 声明的
     // rerun-if-* 跟踪构建脚本输入，陈旧复用可携带未被声明的本机残留；
     // 全新目录把这类风险整体消除（代价仅是正式构建多花几十秒）。
     if target_dir.exists() {
         fs::remove_dir_all(&target_dir)
             .map_err(|e| format!("无法清空 {}: {e}", target_dir.display()))?;
-    }
-    // 回执只新增不覆盖：先失败，不在完成构建与扫描后才报错。
-    if receipt_path.exists() {
-        return Err(format!(
-            "回执路径已存在：{}；请显式给一个全新的 --receipt 路径",
-            receipt_path.display()
-        ));
     }
     // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
     // 产物位置或目标平台。
