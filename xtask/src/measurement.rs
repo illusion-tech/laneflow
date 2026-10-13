@@ -190,10 +190,10 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                 }
             }
         }
-        // include 键递归并入审计（相对路径相对当前配置文件目录解析）。
-        if let Some(include) = value.get("include") {
+        // 配置的 include 键递归并入审计（相对路径相对当前配置文件目录解析）。
+        if let Some(include_value) = value.get("include") {
             let parent = path.parent().unwrap_or_else(|| Path::new("."));
-            let includes: Vec<String> = match include {
+            let included_files: Vec<String> = match include_value {
                 toml::Value::String(single) => vec![single.clone()],
                 toml::Value::Array(list) => list
                     .iter()
@@ -201,8 +201,8 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                     .collect(),
                 _ => vec![],
             };
-            for entry in includes {
-                queue.push_back((parent.join(&entry), format!("{label} include 的 {entry}")));
+            for entry in included_files {
+                queue.push_back((parent.join(&entry), format!("{label} 包含的 {entry}")));
             }
         }
     }
