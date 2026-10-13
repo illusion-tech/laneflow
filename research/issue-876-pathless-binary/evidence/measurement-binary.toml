@@ -1,0 +1,23 @@
+# #876 无路径测量二进制证据索引（../README.md）。
+# 首个可原样发布的正式测量 harness 二进制：构建附加 --remap-path-prefix 本机根
+# 映射，扫描零命中；同提交普通构建对照与正式 performance 端到端见 README §4。
+# 本轮为 10k 单轮协议烟通，不构成 #707 三轮认证。
+
+release = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-10ab17cf"
+source_commit = "10ab17cf8a37264cc97e14529da0f52bd575115d"
+build_parameters = "pwsh -NoProfile -File tools/laneflow-urban-harness/build-measurement.ps1"
+measurements_version = "urban-performance-measurements-v5"
+hardware_role = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
+power_role = "win11-balanced-381b4222"
+
+[[assets]]
+name = "laneflow-urban-harness-10ab17cf.exe"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-876-pathless-binary-10ab17cf/laneflow-urban-harness-10ab17cf.exe"
+bytes = 6745088
+sha256 = "1ad01445a16ec132cbc1e73c1a2aef7c7c5f9b3344064b273cbcbb304bf342be"
+
+[[assets]]
+name = "build-receipt-10ab17cf.json"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-876-pathless-binary-10ab17cf/build-receipt-10ab17cf.json"
+bytes = 1065
+sha256 = "fd2d9e64fce6a7cc712d0fdb86ebd7d335be72fee9b0de81297f72b85bd486a0"
