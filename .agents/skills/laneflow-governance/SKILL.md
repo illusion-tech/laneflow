@@ -77,7 +77,7 @@ footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。�
 禁止用 `Co-authored-by` 标注 AI 工具或模型。人类合作者的 `Co-authored-by` 仍然允许，
 且必须放在 `Refs:` / `Closes:` 之前。AI 参与的提交在 `BREAKING CHANGE:` 与
 `Refs:` / `Closes:` 之前成对写入下面两行；纯人工提交可以不写。两行各出现一次，
-键名大小写必须精确，取值非空，`Harness:` 的下一行就是 `Model:`。`Model` 填提交时实际使用的模型，
+键名大小写必须精确，取值非空，`Harness:` 的下一行就是 `Model:`，并与 `Refs:` / `Closes:` 连成同一段、中间不空行。`Model` 填提交时实际使用的模型，
 不要照抄工具自动生成的值。
 
 ```text

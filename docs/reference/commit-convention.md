@@ -135,6 +135,7 @@ Model: <实际使用的模型标识>
   冒号后有一个空格，取值去掉首尾空白后不得为空。
 - `Harness:` 的下一行必须是 `Model:`，中间不能空行。
 - 两行必须位于 `BREAKING CHANGE:`（若有）和 `Refs:` / `Closes:` 之前。
+- `Harness:`、`Model:`、可选的 `BREAKING CHANGE:` 与 `Refs:` / `Closes:` 必须属于提交末尾的同一段 trailer，中间不能空行。空行会让 Git 只解析最后一段。
 - `Refs:` / `Closes:` 仍是最后一个非空行。人类 `Co-authored-by` 也不得写在它后面。
 - 不校验取值是否属于白名单。`Model` 必须填写提交时实际使用的模型，不得照抄工具
   自动生成、且可能过期的模型名。
@@ -147,7 +148,6 @@ feat(runtime): 校验 route segment 连续性
 
 Harness: Claude Code
 Model: claude-opus-4.7
-
 Refs: #12
 ```
 
@@ -191,8 +191,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
 - 不以 `Co-authored-by` 标注 AI 工具或模型；人类合作者除外。
-- `Harness:` / `Model:` 要么都不写，要么成对、非空，并且位于 `BREAKING CHANGE:`
-  与 `Refs:` / `Closes:` 之前。
+- `Harness:` / `Model:` 要么都不写，要么成对、非空，与后续 footer 连成同一段，并且位于 `BREAKING CHANGE:` 与 `Refs:` / `Closes:` 之前。
 
 Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下条件的机器提交提供
 窄例外：
@@ -201,7 +200,8 @@ Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下�
 - Git author email 精确为 `49699333+dependabot[bot]@users.noreply.github.com`。
 - 标题为非 breaking 的 `build(deps): <description>`。
 
-该例外只豁免单个 bot commit 的 footer，不豁免 PR 审阅、cargo-deny 或 CodeQL。
+该例外只豁免单个 bot commit 缺少的 `Refs:` / `Closes:` footer，不豁免 AI 署名、标题、
+`BREAKING CHANGE:`、PR 审阅、cargo-deny 或 CodeQL。
 本地 `commit-msg` hook 不应用 Dependabot 例外。
 
 本地可运行：

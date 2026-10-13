@@ -72,10 +72,12 @@ pub(crate) fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), 
         let message = git(["log", "-1", "--format=%B", commit_hash])?;
         let author_name = git(["log", "-1", "--format=%an", commit_hash])?;
         let author_email = git(["log", "-1", "--format=%ae", commit_hash])?;
-        if is_allowed_dependabot_commit(author_name.trim(), author_email.trim(), &message) {
-            continue;
-        }
-        errors.extend(validate_message(commit_hash, &message));
+        errors.extend(commit_message_errors(
+            commit_hash,
+            author_name.trim(),
+            author_email.trim(),
+            &message,
+        ));
     }
 
     if errors.is_empty() {
@@ -260,7 +262,25 @@ fn git<const N: usize>(args: [&str; N]) -> Result<String, String> {
     }
 }
 
+fn commit_message_errors(
+    commit_hash: &str,
+    author_name: &str,
+    author_email: &str,
+    message: &str,
+) -> Vec<String> {
+    let exempt_issue_footer = is_allowed_dependabot_commit(author_name, author_email, message);
+    validate_message_with_footer_policy(commit_hash, message, exempt_issue_footer)
+}
+
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
+    validate_message_with_footer_policy(commit_hash, message, false)
+}
+
+fn validate_message_with_footer_policy(
+    commit_hash: &str,
+    message: &str,
+    exempt_issue_footer: bool,
+) -> Vec<String> {
     let message = normalize_commit_message_line_endings(message);
     let message = message.as_ref();
     let title = message.lines().next().unwrap_or_default();
@@ -288,7 +308,7 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
         );
     }
 
-    if let Err(error) = validate_issue_footer(message) {
+    if !exempt_issue_footer && let Err(error) = validate_issue_footer(message) {
         errors.push(error.message().to_string());
     }
 
@@ -565,6 +585,7 @@ fn harness_model_errors(message: &str) -> Vec<String> {
     }
 
     push_attribution_position_errors(&lines, &harness_hits, &model_hits, &mut errors);
+    push_attribution_trailer_block_error(&lines, &harness_hits, &model_hits, &mut errors);
     errors
 }
 
@@ -627,6 +648,34 @@ fn push_attribution_position_errors(
     }
     if after_issue_footer {
         errors.push("`Harness:` / `Model:` 必须位于 `Refs:` / `Closes:` 之前".to_string());
+    }
+}
+
+fn push_attribution_trailer_block_error(
+    lines: &[&str],
+    harness_hits: &[AttributionHit],
+    model_hits: &[AttributionHit],
+    errors: &mut Vec<String>,
+) {
+    let Some(first_index) = harness_hits
+        .iter()
+        .chain(model_hits.iter())
+        .map(|hit| hit.index)
+        .min()
+    else {
+        return;
+    };
+    let Some(last_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
+        return;
+    };
+    if first_index < last_index
+        && lines[first_index..=last_index]
+            .iter()
+            .any(|line| line.trim().is_empty())
+    {
+        errors.push(
+            "`Harness:` / `Model:` 必须与后续 footer 连成同一段 trailer，中间不能空行".to_string(),
+        );
     }
 }
 
@@ -1235,12 +1284,45 @@ Refs: #12
     }
 
     #[test]
-    fn allows_dependabot_commit_even_with_ai_tool_coauthor() {
-        assert!(is_allowed_dependabot_commit(
+    fn accepts_dependabot_message_without_issue_footer() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
             DEPENDABOT_AUTHOR_NAME,
             DEPENDABOT_AUTHOR_EMAIL,
-            "build(deps): bump serde from 1.0.227 to 1.0.228\n\nCo-authored-by: Codex <noreply@openai.com>\n"
-        ));
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n",
+        );
+
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn rejects_ai_tool_coauthor_on_dependabot_commit() {
+        let message = "build(deps): bump serde from 1.0.227 to 1.0.228\n\nCo-authored-by: Codex <noreply@openai.com>\n";
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            message,
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("不得标注 AI 工具")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().all(|error| !error.contains("缺少 `Refs:`")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_blank_line_inside_attribution_trailer_block() {
+        assert_rejected(
+            "docs(governance): 对齐提交规范\n\nHarness: Cursor\nModel: example-model\n\nRefs: #23\n",
+            "中间不能空行",
+        );
     }
 
     #[test]
