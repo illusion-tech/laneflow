@@ -11,16 +11,15 @@ targets = [
 [advisories]
 unmaintained = "workspace"
 unsound = "all"
-# ignore 未命中即失败：上游修复后必须删除对应例外。
-unused-ignored-advisory = "deny"
 ignore = [
     # #935 ruzstd 0.8.3 解压炸弹（仅 DoS）。来源：laneflow-bevy `native-example` → bevy 0.19
     # `3d_api` 固定启用的 `zstd_rust` → bevy_image（要求 ruzstd ^0.8，0.20 亦然）。只用于解码
     # Bevy 编译进二进制的 KTX2 LUT；LaneFlow 不经 AssetServer 加载外部资源，默认特性不含该依赖。
     # 替代方案（改用 zstd_c、放弃 3d_api、patch 上游）代价高于收益。
-    # 机器约束：[bans] 只允许 bevy_image 直接依赖 ruzstd，新增依赖路径即失败；依赖图中不再有
-    # 受影响 ruzstd 时 unused-ignored-advisory 失败，强制删除本条。cargo-deny 0.20.2 不支持
-    # ignore 的 `expiry`/`allow`，人工到期：每次 Bevy 升级 PR 复核，最迟 2027-01-13。owner @wangzishi。
+    # 机器约束：[bans] 只允许 bevy_image 直接依赖 ruzstd，新增依赖路径即失败。依赖图中不再有
+    # 受影响 ruzstd 时会出现 advisory-not-detected 警告（fuzz manifest 共用本配置且不含 Bevy，
+    # 不能设为 deny），见到即删除本条。cargo-deny 0.20.2 不支持 ignore 的 `expiry`/`allow`，
+    # 人工到期：每次 Bevy 升级 PR 复核，最迟 2027-01-13。owner @wangzishi。
     { id = "RUSTSEC-2026-0344", reason = "#935: ruzstd 只解码 Bevy 内嵌的可信 KTX2 资产；等待 bevy_image 支持 ruzstd >= 0.9.1" },
 ]
 
