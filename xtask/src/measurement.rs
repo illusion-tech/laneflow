@@ -46,6 +46,12 @@ const COMPILER_WRAPPER_ENV_DISABLE: [&str; 4] = [
     "RUSTC_WORKSPACE_WRAPPER",
     "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
 ];
+/// 本机原生工具链变量：依赖的构建脚本（如 blake3）会读它们选择汇编/内联路径，
+/// 采集机残留值会静默改变产物；一律清除（含目标三元组限定形式，构建时按 host
+/// 展开）。
+const NATIVE_TOOLCHAIN_ENV_UNSET: [&str; 7] = [
+    "CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "AR", "ARFLAGS",
+];
 
 struct RemapRoot {
     from: PathBuf,
@@ -161,6 +167,19 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                     return Err(format!(
                         "Cargo 配置 {label} 含冻结构建不允许的 build.{key}；请移出测量机配置后重建"
                     ));
+                }
+            }
+        }
+        if let Some(target) = value.get("target").and_then(toml::Value::as_table) {
+            for settings in target.values() {
+                if let Some(table) = settings.as_table() {
+                    for key in ["linker", "runner", "rustflags"] {
+                        if table.contains_key(key) {
+                            return Err(format!(
+                                "Cargo 配置 {label} 含冻结构建不允许的 target.*.{key}；请移出测量机配置后重建"
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -376,8 +395,22 @@ fn derived_roots(repo: &Path) -> Result<Vec<ScanRoot>, String> {
 
 /// 显式指定的扫描根做词法绝对化（不触文件系统，扫描机上根可以不存在），
 /// 相对拼写否则会被原样当成 needle 而漏扫实际嵌入的绝对路径。
+/// `std::path::absolute` 只前接当前目录、不消除 `.`/`..`，再按组件词法归一。
 fn absolute_lexical(path: PathBuf) -> Result<PathBuf, String> {
-    std::path::absolute(&path).map_err(|e| format!("无法绝对化 {}: {e}", path.display()))
+    let absolute =
+        std::path::absolute(&path).map_err(|e| format!("无法绝对化 {}: {e}", path.display()))?;
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            // 越过根的词法 `..` 与根本身等价（如 `C:\..` 即 `C:\`）。
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    Ok(normalized)
 }
 
 fn write_receipt(path: &Path, value: &serde_json::Value) -> Result<(), String> {
@@ -502,14 +535,30 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     for name in COMPILER_WRAPPER_ENV_DISABLE {
         command.env(name, "");
     }
+    // 目标三元组限定的覆盖变量（linker、cc-rs 读取的 CC_<target> 等）随 host 展开清除。
+    let host_env = host.replace(['-', '.'], "_").to_uppercase();
+    command.env_remove(format!("CARGO_TARGET_{host_env}_LINKER"));
+    for name in NATIVE_TOOLCHAIN_ENV_UNSET {
+        command.env_remove(name);
+        command.env_remove(format!("{name}_{host_env}"));
+    }
     for (name, value) in PROFILE_PINS {
         command.env(name, value);
     }
-    let status = command
-        .status()
+    let output = command
+        .output()
         .map_err(|e| format!("无法启动 cargo: {e}"))?;
-    if !status.success() {
-        return Err(format!("{CARGO_COMMAND} 失败：{status}"));
+    if !output.status.success() {
+        // 输出可留存为证据：映射根先替换为占位符，控制台不留本机路径。
+        let mut log = String::from_utf8_lossy(&output.stdout).into_owned();
+        log.push_str(&String::from_utf8_lossy(&output.stderr));
+        for root in map.iter() {
+            let from = root.from.to_string_lossy().replace('\\', "/");
+            log = log
+                .replace(root.from.to_string_lossy().as_ref(), root.placeholder)
+                .replace(&from, root.placeholder);
+        }
+        return Err(format!("{CARGO_COMMAND} 失败：{}\n{log}", output.status));
     }
 
     let binary = target_dir
@@ -572,10 +621,12 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         "scan": scan,
     });
     write_receipt(&receipt_path, &receipt)?;
-    println!(
-        "build-measurement: pass; receipt written to {}",
-        receipt_path.display()
-    );
+    // 控制台输出遵循占位符约定：路径一律以 <worktree> 形式出现。
+    let display = receipt_path
+        .strip_prefix(&repo)
+        .map(|rest| format!("<worktree>/{}", rest.to_string_lossy().replace('\\', "/")))
+        .unwrap_or_else(|_| "<receipt>".into());
+    println!("build-measurement: pass; receipt written to {display}");
     Ok(())
 }
 
@@ -691,6 +742,14 @@ mod tests {
         // 逐字节折叠会损坏 0x4E（'N'）类高字节，不得回退到那种视图。
         let corrupted = ascii_lower(&file);
         assert!(corrupted != folded);
+    }
+
+    #[test]
+    fn absolute_lexical_collapses_parent_components() {
+        let out = absolute_lexical(PathBuf::from("base/sub/../evidence")).unwrap();
+        let text = out.to_string_lossy().replace('\\', "/");
+        assert!(text.ends_with("base/evidence"), "{text}");
+        assert!(!text.contains(".."), "{text}");
     }
 
     #[test]
