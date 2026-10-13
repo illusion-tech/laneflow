@@ -1376,8 +1376,8 @@ mod tests {
     }
 
     #[test]
-    fn physical_columns_match_exact_vehicle_primitive_with_holes_permuted_rows_and_cache_prefixes()
-    {
+    fn physical_columns_match_exact_vehicle_primitive_with_holes_storage_round_trips_and_cache_prefixes()
+     {
         for count in [1, 7, 8, 9, 15, 16, 17, 127, 128, 129] {
             for (cache_prefix, basis_mode) in [0, 5, usize::MAX]
                 .into_iter()
@@ -1391,7 +1391,7 @@ mod tests {
                     let handles = world.live_vehicles().to_vec();
                     if count > 2 {
                         world.despawn_vehicle(handles[1]).unwrap();
-                        // 通过 storage-class 迁移交换两行，逻辑身份/快照值不变。
+                        // 两车经非 Active 往返后回到各自槽位号所在的行，逻辑身份/快照值不变。
                         let a = world.vehicle(handles[0]).unwrap();
                         let b = world.vehicle(*handles.last().unwrap()).unwrap();
                         for state in [a, b] {
@@ -1412,10 +1412,12 @@ mod tests {
                                 .slot_mut(state.handle.index() as usize)
                                 .state = Some(state);
                         }
-                        assert_ne!(
-                            world.state.committed.vehicles.active_row(a.handle),
-                            Some(a.handle.index() as usize)
-                        );
+                        for state in [a, b] {
+                            assert_eq!(
+                                world.state.committed.vehicles.active_row(state.handle),
+                                Some(state.handle.index() as usize)
+                            );
+                        }
                     }
                     let complex_vehicle = (count >= 16).then(|| handles[count / 2]);
                     if let Some(handle) = complex_vehicle {
