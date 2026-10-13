@@ -21,8 +21,24 @@ mod log_io;
 mod sustained;
 mod timing;
 
-const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v4";
-const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
+// v5 起正式测量二进制必须经 build-measurement.ps1 构建：脚本内部执行同一 cargo
+// 命令并附加冻结的 --remap-path-prefix，使封存二进制不含采集机本机路径（#876）。
+// 构建 flag 经编译期环境变量嵌入（wire 审计禁止 harness 携带 build.rs）：包装
+// 脚本按同一映射表写出实际 CARGO_ENCODED_RUSTFLAGS 与归一化（占位符）记录
+// 各一份，测量 provenance 逐项校验；后者永不携带本机路径。
+const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v5";
+const BUILD_PARAMETERS: &str =
+    "pwsh -NoProfile -File tools/laneflow-urban-harness/build-measurement.ps1";
+const BUILD_RUSTFLAGS: &str = match option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS") {
+    Some(value) => value,
+    None => "",
+};
+#[cfg(not(debug_assertions))]
+const BUILD_PROFILE: &str = "release;debug-assertions=off";
+#[cfg(debug_assertions)]
+const BUILD_PROFILE: &str = "dev;debug-assertions=on";
+const EXPECTED_BUILD_RUSTFLAGS: &str = "--remap-path-prefix=<worktree>=<worktree> --remap-path-prefix=<cargo-home>=<cargo-home> --remap-path-prefix=<rustup-toolchain>=<rustup-toolchain>";
+const EXPECTED_BUILD_PROFILE: &str = "release;debug-assertions=off";
 const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=pre-and-post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
 
 /// 调用方显式选择详细日志；最小运行回执与错误不受此开关影响。
@@ -222,6 +238,8 @@ struct MeasurementProvenance {
     cargo: String,
     target: String,
     build_parameters: String,
+    build_rustflags: String,
+    build_profile: String,
     os: String,
     architecture: String,
     hardware_role: String,
@@ -249,6 +267,8 @@ impl MeasurementProvenance {
             cargo: read("cargo", &["+1.98.0", "-V"])?,
             target,
             build_parameters: BUILD_PARAMETERS.into(),
+            build_rustflags: BUILD_RUSTFLAGS.into(),
+            build_profile: BUILD_PROFILE.into(),
             os: std::env::consts::OS.into(),
             architecture: std::env::consts::ARCH.into(),
             hardware_role,
@@ -267,6 +287,8 @@ impl MeasurementProvenance {
             &self.cargo,
             &self.target,
             &self.build_parameters,
+            &self.build_rustflags,
+            &self.build_profile,
             &self.os,
             &self.architecture,
             &self.hardware_role,
@@ -291,6 +313,8 @@ impl MeasurementProvenance {
                 != Some(self.target.as_str())
             || !valid_workers(self.workers)
             || self.build_parameters != BUILD_PARAMETERS
+            || self.build_rustflags != EXPECTED_BUILD_RUSTFLAGS
+            || self.build_profile != EXPECTED_BUILD_PROFILE
             || self.timing_range != TIMING_RANGE
         {
             return Err(invalid(
@@ -1718,6 +1742,7 @@ mod tests {
             "rustc":"rustc 1.98.0 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 22.1.8",
             "cargo":"cargo 1.98.0 (fixture)", "target":"x86_64-pc-windows-msvc",
             "build_parameters":BUILD_PARAMETERS, "os":"windows", "architecture":"x86_64",
+            "build_rustflags":EXPECTED_BUILD_RUSTFLAGS, "build_profile":EXPECTED_BUILD_PROFILE,
             "hardware_role":"fixture-machine", "power_role":"balanced", "workers":1,
             "timing_range":TIMING_RANGE,
             "command_samples_ns":[1,2], "traffic_world_step_samples_ns":[3,4],
@@ -2254,12 +2279,18 @@ mod tests {
             ("cargo", json!("cargo 1.98.0 (different)")),
             ("target", json!("aarch64-unknown-linux-gnu")),
             ("build_parameters", json!("debug build")),
+            (
+                "build_rustflags",
+                json!("--remap-path-prefix=<worktree>=<worktree>"),
+            ),
+            ("build_profile", json!("dev;debug-assertions=on")),
             ("os", json!("linux")),
             ("architecture", json!("aarch64")),
             ("hardware_role", json!("other-machine")),
             ("power_role", json!("power-saver")),
             ("workers", json!(2)),
             ("timing_range", json!("whole-command-phase")),
+            ("version", json!("urban-performance-measurements-v4")),
             ("version", json!("urban-performance-measurements-v3")),
             ("version", json!("urban-performance-measurements-v1")),
             ("command_samples_ns", json!([1])),
@@ -2280,6 +2311,8 @@ mod tests {
             "cargo",
             "target",
             "build_parameters",
+            "build_rustflags",
+            "build_profile",
             "os",
             "architecture",
             "hardware_role",
@@ -2302,6 +2335,8 @@ mod tests {
             "cargo",
             "target",
             "build_parameters",
+            "build_rustflags",
+            "build_profile",
             "os",
             "architecture",
             "hardware_role",
