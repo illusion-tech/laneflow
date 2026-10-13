@@ -119,24 +119,34 @@ fn path_starts_with_ci(path: &Path, prefix: &Path) -> bool {
     path == prefix || path.starts_with(&format!("{prefix}\\"))
 }
 
-/// 采集机 Cargo 配置审计：用户级 config 的 profile / paths / source / build 键可
-/// 绕过命令行钉住（package 级 profile 覆盖、本地路径覆盖、wrapper、目录替换、
-/// 换编译器），正式构建一律 fail closed。仓库自身无 `.cargo/config.toml`，
-/// 仓库内配置由干净 checkout 要求覆盖。
-fn check_cargo_config(cargo_home: &Path) -> Result<(), String> {
-    for name in ["config.toml", "config"] {
-        let path = cargo_home.join(name);
+/// 采集机 Cargo 配置审计：用户级（CARGO_HOME）与仓库各祖先目录的
+/// `.cargo/config{,.toml}`（Cargo 从构建 cwd 逐级向上探测）出现
+/// profile / paths / source / patch 表或 build.rustc*/rustflags 键即 fail closed——
+/// 这些键可绕过命令行钉住（package 级 profile 覆盖、本地路径覆盖、wrapper、
+/// 目录替换、换编译器）。仓库自身无 `.cargo/config.toml`，仓库内配置由干净
+/// checkout 要求覆盖。
+fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
+    let mut candidates: Vec<(PathBuf, String)> = ["config.toml", "config"]
+        .into_iter()
+        .map(|name| (cargo_home.join(name), format!("<cargo-home>/{name}")))
+        .collect();
+    for ancestor in repo.ancestors().skip(1) {
+        for name in [".cargo/config.toml", ".cargo/config"] {
+            candidates.push((ancestor.join(name), format!("祖先目录的 {name}")));
+        }
+    }
+    for (path, label) in candidates {
         if !path.is_file() {
             continue;
         }
         let text = fs::read_to_string(&path)
-            .map_err(|e| format!("无法读取 Cargo 配置 <cargo-home>/{name}: {e}"))?;
+            .map_err(|e| format!("无法读取 Cargo 配置 {}: {e}", path.display()))?;
         let value: toml::Value = toml::from_str(&text)
-            .map_err(|e| format!("Cargo 配置 <cargo-home>/{name} 解析失败: {e}"))?;
+            .map_err(|e| format!("Cargo 配置 {} 解析失败: {e}", path.display()))?;
         for key in ["profile", "paths", "source", "patch"] {
             if value.get(key).is_some() {
                 return Err(format!(
-                    "Cargo 配置 <cargo-home>/{name} 含冻结构建不允许的 [{key}] 表；请移出测量机配置后重建"
+                    "Cargo 配置 {label} 含冻结构建不允许的 [{key}] 表；请移出测量机配置后重建"
                 ));
             }
         }
@@ -149,7 +159,7 @@ fn check_cargo_config(cargo_home: &Path) -> Result<(), String> {
             ] {
                 if build.contains_key(key) {
                     return Err(format!(
-                        "Cargo 配置 <cargo-home>/{name} 含冻结构建不允许的 build.{key}；请移出测量机配置后重建"
+                        "Cargo 配置 {label} 含冻结构建不允许的 build.{key}；请移出测量机配置后重建"
                     ));
                 }
             }
@@ -406,7 +416,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     let repo = repo_root()?;
     let sysroot = toolchain_sysroot(&repo)?;
     let cargo_home = cargo_home()?;
-    check_cargo_config(&cargo_home)?;
+    check_cargo_config(&cargo_home, &repo)?;
     check_dependency_roots(&repo, &cargo_home)?;
     // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
     // provenance 在测量窗口两端复查干净状态。
