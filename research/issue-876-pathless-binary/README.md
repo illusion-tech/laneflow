@@ -17,7 +17,7 @@ rustup 主目录/工具链、工作树，以及调用方追加的证据根）即
 同一提交两种构建各跑 10k 短窗：交通文件逐字节一致，耗时差异在运行间波动内；
 新构建的二进制扫描不到任何本机路径，并以正式 performance 窗口端到端跑通 v5
 来源校验。该二进制已原样上传（[Research Evidence
-prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-753432d1)，
+prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-f58646d8)，
 索引见 [evidence/measurement-binary.toml](evidence/measurement-binary.toml)，
 制品经重新下载核对 SHA-256），执行身份与公开制品一致。
 
@@ -71,7 +71,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 
 ## 4. 验证
 
-被测提交：`753432d1d8c70bef65e20c8f4cace942a5bb61a6`（本 PR 实现提交；其后的
+被测提交：`f58646d8a5017f55fbc250842d86d9c02899b565`（本 PR 实现提交；其后的
 文档提交不改 harness 构建输入）。
 采集机：`amd-ryzen9-9955hx-16c-32t-64gb-hyperv` / `win11-balanced-381b4222`。
 证据目录：`<worktree>/target/issue876-evidence/`（Git 忽略的本地生成数据，重建
@@ -122,8 +122,9 @@ step p95 四轮运行间极差 1.41 ms，同位 A−B 差值（+0.04 / −1.41 m
   `measurements.toml`（3,257,868 字节，SHA-256
   `173bde7f2d9b1364bf2c472c2152ba62f41f4c82b1f7c9217187b8e8734dd53b`）记录
   `version = "urban-performance-measurements-v5"` 与 §3 两个新字段的冻结值，
-  `diagnostics.json` 的二进制摘要与上传制品一致，provenance 提交与回执
-  `source_commit` 一致。
+  `diagnostics.json` 的二进制摘要与上传制品一致。正式轮于 `753432d1` 运行、
+  回执于 `f58646d8` 生成，两提交间 harness 源码与构建输入不变（仅 xtask 与
+  文档），二进制逐字节同一。
   本轮只验证协议端到端，不构成性能结论，也不替代 #707 的三轮认证。
 
 ### 4.4 发布前复扫
