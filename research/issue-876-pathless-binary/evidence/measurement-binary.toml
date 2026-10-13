@@ -3,21 +3,21 @@
 # 映射并钉住构建环境，扫描零命中；同提交普通构建对照与正式 performance 端到端
 # 见 README §4。本轮为 10k 单轮协议烟通，不构成 #707 三轮认证。
 
-release = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-f58646d8"
-source_commit = "f58646d8a5017f55fbc250842d86d9c02899b565"
+release = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-9e4c7982"
+source_commit = "9e4c7982ba57821ebf2b23a050a3d3449d558d84"
 build_parameters = "cargo +1.98.0 run --locked -p xtask -- build-measurement"
 measurements_version = "urban-performance-measurements-v5"
 hardware_role = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
 power_role = "win11-balanced-381b4222"
 
 [[assets]]
-name = "laneflow-urban-harness-f58646d8.exe"
-url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-876-pathless-binary-f58646d8/laneflow-urban-harness-f58646d8.exe"
+name = "laneflow-urban-harness-9e4c7982.exe"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-876-pathless-binary-9e4c7982/laneflow-urban-harness-9e4c7982.exe"
 bytes = 6748160
-sha256 = "1d61c606b06e63450d8fcbc60821307b148a821987a602b089cbb27e5327e73f"
+sha256 = "64c2e116e7553333c3a7a4d8057573c9e826316071234d03a1c33e9f85aaf4c0"
 
 [[assets]]
-name = "build-receipt-f58646d8.json"
-url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-876-pathless-binary-f58646d8/build-receipt-f58646d8.json"
+name = "build-receipt-9e4c7982.json"
+url = "https://github.com/illusion-tech/laneflow/releases/download/research-evidence-876-pathless-binary-9e4c7982/build-receipt-9e4c7982.json"
 bytes = 1638
-sha256 = "5d88394f584e20485fd5e09f519e06596937ee525eb702f4ed0f04faf5f6e2c7"
+sha256 = "17399ede400556c1cc9c8cd44c201560cea26e55850b13d0f0528e200da5bb67"
