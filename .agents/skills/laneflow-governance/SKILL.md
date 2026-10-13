@@ -74,11 +74,22 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。不要再写
 `Gate` / `Slice` / `Impact` / `Scope` / `Validation` / `Docs`。
 
+禁止用 `Co-authored-by` 标注 AI 工具或模型。人类合作者的 `Co-authored-by` 仍然允许，
+且必须放在 `Refs:` / `Closes:` 之前。AI 参与的提交在 `BREAKING CHANGE:` 与
+`Refs:` / `Closes:` 之前成对写入下面两行；纯人工提交可以不写。两行各出现一次，
+键名大小写必须精确，取值非空，`Harness:` 的下一行就是 `Model:`。`Model` 填提交时实际使用的模型，
+不要照抄工具自动生成的值。
+
 ```text
 <type>[optional scope][optional !]: <description>
 
+Harness: <执行框架，如 Codex CLI / Claude Code / Cursor>
+Model: <提交时实际使用的模型标识>
 Refs: #<id>
 ```
+
+关闭 Cursor 的 Commit Attribution / PR Attribution、Codex 的 `commit_attribution = ""`、
+Claude Code 的 `attribution.commit`。漏网的 AI 工具 `Co-authored-by` 由 commit-msg hook 拒绝。
 
 本地 hook：
 

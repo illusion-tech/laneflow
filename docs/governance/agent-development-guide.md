@@ -1,7 +1,7 @@
 # AI Agent 开发指南
 
 **文档状态**: Active
-**最后更新**: 2026-09-20
+**最后更新**: 2026-10-13
 
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
@@ -48,7 +48,8 @@ AI Agent 应遵守以下流程：
 Agent 不得用实现方便、临时用途或 G1 不适用自行豁免。
 
 提交信息应遵守 `docs/reference/commit-convention.md`：Conventional Commits 标题、
-`Refs: #<id>`，标题带 `!` 时加上 `BREAKING CHANGE:`。
+`Refs: #<id>`，标题带 `!` 时加上 `BREAKING CHANGE:`。AI 参与时另在该 footer 之前成对写
+`Harness:` 与 `Model:`，不要用 `Co-authored-by` 标注工具或模型。
 
 修改 Rust 代码时还应读取 `docs/reference/rust-code-style.md`。其中无法由 `rustfmt`
 表达的规则只约束本次触及范围；不得在无关功能 PR 中顺带重排历史格式。

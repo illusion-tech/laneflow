@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-10-12
+**最后更新**: 2026-10-13
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -254,7 +254,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 当前检查：
 
 - `Commit message`：Conventional Commits 标题、`Refs` / `Closes`、必要时
-  `BREAKING CHANGE:`。
+  `BREAKING CHANGE:`，以及 AI 署名（禁止工具 `Co-authored-by`，`Harness:` /
+  `Model:` 成对出现）。规则见 `../reference/commit-convention.md`。
 - `Markdown tables`：表格格式，只警告。
 - `Rust checks`：`cargo fmt` 与
   `cargo clippy --workspace --all-targets --locked -D warnings`；

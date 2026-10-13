@@ -99,6 +99,18 @@ Refs: #12
 具体规则以 `docs/reference/commit-convention.md` 为准。不要再写 `Gate` / `Slice` /
 `Impact` 等 G3 正文字段。
 
+不要用 `Co-authored-by` 标注 AI 工具或模型。AI 参与时，在 `BREAKING CHANGE:`（若有）和
+`Refs:` / `Closes:` 之前成对写 `Harness: <执行框架>` 与 `Model: <实际使用的模型标识>`；
+纯人工提交可以不写。人类合作者的 `Co-authored-by` 仍然允许，但必须放在 `Refs:` /
+`Closes:` 之前。`Model` 填写提交时实际使用的模型，不要照抄工具自动生成的值。
+
+使用这些工具时关闭自动署名，再按上面的 trailer 手写：
+
+- Cursor：关闭 Commit Attribution 和 PR Attribution。
+- Codex CLI：在配置中设置 `commit_attribution = ""`。
+- Claude Code：将 `attribution.commit` 设为空字符串。该设置已知不一定生效；仓库
+  `commit-msg` hook 会拒绝仍然写上的 AI 工具 `Co-authored-by`。
+
 ## 7. 文档要求
 
 长期结论应进入仓库文档：

@@ -1,5 +1,6 @@
 //! LaneFlow commit message contract: Conventional Commits title, Refs/Closes footer,
-//! and BREAKING CHANGE when the title uses `!`. Extra body fields are ignored.
+//! BREAKING CHANGE when the title uses `!`, and paired Harness/Model trailers.
+//! AI tool `Co-authored-by` trailers are rejected. Other body fields are ignored.
 
 use std::borrow::Cow;
 use std::env;
@@ -11,6 +12,15 @@ const ALLOWED_TYPES: &[&str] = &[
 
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
+
+// 显示名与邮箱 local-part 按 ASCII 词边界匹配；不匹配域名，避免误伤 `@openai.com` 等人类地址（#933）。
+const AI_TOOL_COAUTHOR_TOKENS: &[&str] = &["cursor", "claude", "codex", "copilot"];
+const AI_TOOL_COAUTHOR_EMAILS: &[&str] = &[
+    "noreply@anthropic.com",
+    "noreply@openai.com",
+    "cursoragent@cursor.com",
+];
+const AI_COAUTHOR_REWRITE_HINT: &str = "`Co-authored-by` 不得标注 AI 工具或模型。请删除该行，并在 `BREAKING CHANGE:` 与 `Refs:` / `Closes:` 之前成对写入 `Harness: <执行框架>` 和 `Model: <实际模型>`";
 
 /// 读取并校验单个 commit message 文件（commit-msg 钩子入口）：归一化换行、剥离 Git 注释行后按合同校验。
 pub(crate) fn check_commit_message_file(path: &str) -> Result<(), String> {
@@ -282,6 +292,8 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
         errors.push(error.message().to_string());
     }
 
+    errors.extend(ai_attribution_errors(message));
+
     errors
         .into_iter()
         .map(|error| {
@@ -443,6 +455,179 @@ fn valid_pending_reason(value: &str) -> bool {
     value
         .strip_prefix("pending, ")
         .is_some_and(|reason| !reason.trim().is_empty())
+}
+
+fn ai_attribution_errors(message: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    if message
+        .lines()
+        .any(|line| coauthored_by_value(line).is_some_and(is_ai_tool_coauthor))
+    {
+        errors.push(AI_COAUTHOR_REWRITE_HINT.to_string());
+    }
+    errors.extend(harness_model_errors(message));
+    errors
+}
+
+fn coauthored_by_value(line: &str) -> Option<&str> {
+    strip_prefix_ignore_ascii_case(line, "Co-authored-by:").map(str::trim)
+}
+
+fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let mut rest = value;
+    for expected in prefix.chars() {
+        let mut chars = rest.chars();
+        let actual = chars.next()?;
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return None;
+        }
+        rest = chars.as_str();
+    }
+    Some(rest)
+}
+
+fn is_ai_tool_coauthor(value: &str) -> bool {
+    let (name, email) = split_coauthor(value);
+    if let Some(email) = email
+        && (AI_TOOL_COAUTHOR_EMAILS
+            .iter()
+            .any(|candidate| email.eq_ignore_ascii_case(candidate))
+            || contains_ai_tool_token(email_local_part(email)))
+    {
+        return true;
+    }
+    contains_ai_tool_token(name)
+}
+
+fn split_coauthor(value: &str) -> (&str, Option<&str>) {
+    let value = value.trim();
+    if let Some((name, rest)) = value.split_once('<') {
+        let email = rest
+            .split_once('>')
+            .map(|(email, _)| email.trim())
+            .filter(|email| !email.is_empty());
+        return (name.trim(), email);
+    }
+    if value.contains('@') && !value.contains(char::is_whitespace) {
+        return ("", Some(value));
+    }
+    (value, None)
+}
+
+fn email_local_part(email: &str) -> &str {
+    email
+        .split_once('@')
+        .map(|(local, _)| local)
+        .unwrap_or(email)
+}
+
+fn contains_ai_tool_token(value: &str) -> bool {
+    value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .any(|token| {
+            AI_TOOL_COAUTHOR_TOKENS
+                .iter()
+                .any(|tool| token.eq_ignore_ascii_case(tool))
+        })
+}
+
+struct AttributionHit {
+    index: usize,
+    exact_key: bool,
+    value_present: bool,
+}
+
+fn harness_model_errors(message: &str) -> Vec<String> {
+    let lines = message.lines().collect::<Vec<_>>();
+    let harness_hits = attribution_hits(&lines, "Harness:");
+    let model_hits = attribution_hits(&lines, "Model:");
+    let mut errors = Vec::new();
+
+    if harness_hits.len() > 1 {
+        errors.push("`Harness:` 只能出现一次".to_string());
+    }
+    if model_hits.len() > 1 {
+        errors.push("`Model:` 只能出现一次".to_string());
+    }
+    if harness_hits.is_empty() != model_hits.is_empty() {
+        errors.push("`Harness:` 与 `Model:` 必须成对出现".to_string());
+    }
+
+    push_attribution_key_errors(&harness_hits, "Harness:", &mut errors);
+    push_attribution_key_errors(&model_hits, "Model:", &mut errors);
+
+    if harness_hits.len() == 1
+        && model_hits.len() == 1
+        && model_hits[0].index != harness_hits[0].index + 1
+    {
+        errors.push("`Harness:` 必须紧邻写在 `Model:` 的前一行".to_string());
+    }
+
+    push_attribution_position_errors(&lines, &harness_hits, &model_hits, &mut errors);
+    errors
+}
+
+fn attribution_hits(lines: &[&str], key: &str) -> Vec<AttributionHit> {
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let rest = strip_prefix_ignore_ascii_case(line, key)?;
+            Some(AttributionHit {
+                index,
+                exact_key: line.starts_with(key),
+                value_present: rest
+                    .strip_prefix(' ')
+                    .is_some_and(|value| !value.trim().is_empty()),
+            })
+        })
+        .collect()
+}
+
+fn push_attribution_key_errors(hits: &[AttributionHit], key: &str, errors: &mut Vec<String>) {
+    if hits.iter().any(|hit| !hit.exact_key) {
+        errors.push(format!("`{key}` 键名大小写必须精确"));
+    }
+    if hits.iter().any(|hit| !hit.value_present) {
+        errors.push(format!("`{key}` 必须写成 `{key} <非空取值>`"));
+    }
+}
+
+fn push_attribution_position_errors(
+    lines: &[&str],
+    harness_hits: &[AttributionHit],
+    model_hits: &[AttributionHit],
+    errors: &mut Vec<String>,
+) {
+    let breaking_index = lines
+        .iter()
+        .position(|line| line.starts_with("BREAKING CHANGE:"));
+    let issue_footer_index = lines
+        .iter()
+        .rposition(|line| is_issue_footer_candidate(line));
+    let mut after_breaking = false;
+    let mut after_issue_footer = false;
+
+    for index in harness_hits
+        .iter()
+        .chain(model_hits.iter())
+        .map(|hit| hit.index)
+    {
+        if breaking_index.is_some_and(|breaking| index > breaking) {
+            after_breaking = true;
+        }
+        if issue_footer_index.is_some_and(|footer| index > footer) {
+            after_issue_footer = true;
+        }
+    }
+
+    if after_breaking {
+        errors.push("`Harness:` / `Model:` 必须位于 `BREAKING CHANGE:` 之前".to_string());
+    }
+    if after_issue_footer {
+        errors.push("`Harness:` / `Model:` 必须位于 `Refs:` / `Closes:` 之前".to_string());
+    }
 }
 
 #[cfg(test)]
@@ -908,6 +1093,170 @@ Refs: #12
         let range = commit_range_from_event(Some("push"), None, Some("def"), None).unwrap();
 
         assert_eq!(range, "def^!");
+    }
+
+    fn message_with_body(body: &str) -> String {
+        format!("docs(governance): 对齐提交规范\n\n{body}\nRefs: #23\n")
+    }
+
+    fn assert_accepted(message: &str) {
+        let errors = validate_message("0123456789abcdef", message);
+        assert!(errors.is_empty(), "{message:?} => {errors:?}");
+    }
+
+    fn assert_rejected(message: &str, needle: &str) {
+        let errors = validate_message("0123456789abcdef", message);
+        assert!(
+            errors.iter().any(|error| error.contains(needle)),
+            "{message:?} => {errors:?}, missing {needle:?}"
+        );
+    }
+
+    #[test]
+    fn accepts_human_coauthors_and_paired_ai_trailers() {
+        for message in [
+            message_with_body("Co-authored-by: Ada Lovelace <ada@example.com>"),
+            message_with_body("Co-Authored-By: Ada Lovelace <ada@example.com>"),
+            message_with_body("Co-authored-by: Claudette Morel <claudette@example.com>"),
+            message_with_body("Co-authored-by: Researcher <researcher@openai.com>"),
+            message_with_body("Co-authored-by: Ada Lovelace <ada@cursor.com>"),
+            message_with_body("Harness: Cursor\nModel: example-model"),
+            message_with_body(
+                "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: Claude Code\nModel: claude-opus-4.7",
+            ),
+            BREAKING_MESSAGE.replace(
+                "BREAKING CHANGE:",
+                "Harness: Claude Code\nModel: claude-opus-4.7\nBREAKING CHANGE:",
+            ),
+            VALID_MESSAGE.to_string(),
+        ] {
+            assert_accepted(&message);
+        }
+    }
+
+    #[test]
+    fn rejects_lowercase_harness_and_model_keys() {
+        assert_rejected(
+            &message_with_body("harness: Cursor\nmodel: example-model"),
+            "键名大小写必须精确",
+        );
+    }
+
+    #[test]
+    fn rejects_ai_tool_coauthors_with_rewrite_hint() {
+        for trailer in [
+            "Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+            "Co-authored-by: Codex <noreply@openai.com>",
+            "Co-authored-by: Cursor <cursoragent@cursor.com>",
+            "Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>",
+            "co-authored-by: Assistant <noreply@openai.com>",
+            "Co-authored-by: cursoragent@cursor.com",
+        ] {
+            assert_rejected(&message_with_body(trailer), "不得标注 AI 工具");
+        }
+    }
+
+    #[test]
+    fn rejects_ai_tool_coauthor_even_with_harness_model_pair() {
+        assert_rejected(
+            &message_with_body(
+                "Co-authored-by: Codex <noreply@openai.com>\nHarness: Codex CLI\nModel: example-model",
+            ),
+            "不得标注 AI 工具",
+        );
+    }
+
+    #[test]
+    fn rejects_unpaired_harness_or_model() {
+        assert_rejected(&message_with_body("Harness: Cursor"), "必须成对出现");
+        assert_rejected(&message_with_body("Model: example-model"), "必须成对出现");
+    }
+
+    #[test]
+    fn rejects_empty_harness_or_model_value() {
+        assert_rejected(
+            &message_with_body("Harness:\nModel: example-model"),
+            "`Harness:` 必须写成",
+        );
+        assert_rejected(
+            &message_with_body("Harness:   \nModel: example-model"),
+            "`Harness:` 必须写成",
+        );
+        assert_rejected(
+            &message_with_body("Harness: Cursor\nModel:"),
+            "`Model:` 必须写成",
+        );
+        assert_rejected(
+            &message_with_body("Harness: Cursor\nModel:   "),
+            "`Model:` 必须写成",
+        );
+    }
+
+    #[test]
+    fn rejects_harness_model_that_are_not_adjacent() {
+        assert_rejected(
+            &message_with_body("Harness: Cursor\n\nModel: example-model"),
+            "必须紧邻",
+        );
+        assert_rejected(
+            &message_with_body("Model: example-model\nHarness: Cursor"),
+            "必须紧邻",
+        );
+    }
+
+    #[test]
+    fn rejects_repeated_harness_or_model() {
+        assert_rejected(
+            &message_with_body("Harness: Cursor\nHarness: Claude Code\nModel: example-model"),
+            "`Harness:` 只能出现一次",
+        );
+        assert_rejected(
+            &message_with_body("Harness: Cursor\nModel: example-model\nModel: other-model"),
+            "`Model:` 只能出现一次",
+        );
+    }
+
+    #[test]
+    fn rejects_harness_model_after_issue_footer() {
+        assert_rejected(
+            &format!("{VALID_MESSAGE}Harness: Cursor\nModel: example-model\n"),
+            "必须位于 `Refs:` / `Closes:` 之前",
+        );
+    }
+
+    #[test]
+    fn rejects_harness_model_after_breaking_change() {
+        let message = BREAKING_MESSAGE.replace(
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nRefs: #12",
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: Cursor\nModel: example-model\nRefs: #12",
+        );
+
+        assert_rejected(&message, "必须位于 `BREAKING CHANGE:` 之前");
+    }
+
+    #[test]
+    fn allows_dependabot_commit_even_with_ai_tool_coauthor() {
+        assert!(is_allowed_dependabot_commit(
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n\nCo-authored-by: Codex <noreply@openai.com>\n"
+        ));
+    }
+
+    #[test]
+    fn rejects_ai_tool_coauthor_in_commit_message_file() {
+        let path = temp_message_path("ai-coauthor");
+        let message = VALID_MESSAGE.replace(
+            "Refs: #23\n",
+            "Co-authored-by: Codex <noreply@openai.com>\nRefs: #23\n",
+        );
+        std::fs::write(&path, message).expect("test commit message should be written");
+
+        let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+        let error = result.expect_err("AI tool co-author should fail");
+        assert!(error.contains("不得标注 AI 工具"));
     }
 
     fn temp_message_path(name: &str) -> std::path::PathBuf {
