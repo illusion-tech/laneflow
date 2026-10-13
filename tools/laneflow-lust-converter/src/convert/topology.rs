@@ -377,9 +377,9 @@ fn convert_network_packages(
         .collect();
     let artifacts = if options.emit_infeasibility_report {
         // #804 事项 2：清单总量基数按实际输入网络统计——lane 数按权威
-        // function 元数据；junction 数双口径：verified pinned 路径用清单
-        // junction 列口径（geom::internal_lane_junction，保持基线逐字节），
-        // 通用输入渲染声明归属口径（数值 id 口径对非 LuST 命名会失真）。
+        // function 元数据；junction 数双口径：清单 junction 列口径
+        // （geom::internal_lane_junction，pinned 基线逐字节）+ 归一化
+        // 道路 junction 归属口径（数值 id 口径失真的输入回退使用）。
         let survey_base = crate::output::geom::SurveyBaseCounts {
             internal_lanes: network
                 .lanes
@@ -392,11 +392,8 @@ fn convert_network_packages(
                 .filter_map(|id| crate::output::geom::internal_lane_junction(id))
                 .collect::<std::collections::BTreeSet<_>>()
                 .len(),
-            junctions_with_internal_lanes_declared: network
-                .junctions
-                .iter()
-                .filter(|junction| !junction.int_lane_ids.is_empty())
-                .count(),
+            junctions_with_internal_lanes_normalized:
+                crate::convert::junction::junctions_with_internal_lanes_normalized(network)?,
         };
         compile_network_lfca_with_infeasibility_report(
             &traffic,
