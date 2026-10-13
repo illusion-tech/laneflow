@@ -300,7 +300,6 @@ pub(crate) struct VehicleStore {
     context: Vec<ContextBlock>,
     control: Vec<ControlState>,
     inactive: Vec<Option<VehicleState>>,
-    free_active: Vec<u32>,
     free_inactive: Vec<usize>,
     free_control: Vec<usize>,
     capacity: usize,
@@ -321,8 +320,6 @@ impl VehicleStore {
             return Ok(());
         }
         self.directory.try_reserve_exact(capacity - self.len())?;
-        self.free_active
-            .try_reserve_exact(capacity - self.free_active.len())?;
         let blocks = capacity.div_ceil(BLOCK_ROWS);
         self.motion.try_reserve_exact(blocks - self.motion.len())?;
         self.context
@@ -339,10 +336,6 @@ impl VehicleStore {
                 self.context.push(context);
             }
         }
-        self.free_active
-            .extend((self.capacity..capacity).rev().map(|row| {
-                u32::try_from(row).expect("physical row fits validated u32 vehicle capacity")
-            }));
         self.capacity = capacity;
         Ok(())
     }
@@ -760,9 +753,6 @@ impl VehicleStore {
                         self.motion[position / BLOCK_ROWS].valid[position % BLOCK_ROWS / 64] &=
                             !(1 << (position % 64));
                         self.context[position / BLOCK_ROWS].rows[position % BLOCK_ROWS] = None;
-                        self.free_active.push(
-                            u32::try_from(position).expect("physical row fits vehicle capacity"),
-                        );
                     }
                     Location::Inactive(row) => {
                         self.inactive[row] = None;
@@ -771,9 +761,8 @@ impl VehicleStore {
                     Location::Vacant => {}
                 }
                 if active {
-                    Location::Active(
-                        self.free_active.pop().expect("active row preallocated") as usize
-                    )
+                    // 物理行固定取槽位号：遍历序与列存储序一致，槽位复用不打乱布局。
+                    Location::Active(index)
                 } else if slot.state.is_some() {
                     let row = self.free_inactive.pop().unwrap_or_else(|| {
                         let row = self.inactive.len();
@@ -851,7 +840,6 @@ impl VehicleStore {
             + vec_bytes(&self.context)
             + vec_bytes(&self.control)
             + vec_bytes(&self.inactive)
-            + vec_bytes(&self.free_active)
             + vec_bytes(&self.free_inactive)
             + vec_bytes(&self.free_control)
             + self
@@ -918,6 +906,51 @@ impl Iterator for VehicleStoreIter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_rows_follow_slot_index_across_holes_and_reuse() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let template = world.vehicle(world.live_vehicles()[0]).unwrap();
+        let active = |index: u32, generation: u32| {
+            let mut state = template;
+            state.handle = VehicleHandle::new(index, generation);
+            VehicleSlot {
+                generation,
+                state: Some(state),
+            }
+        };
+        let mut store = VehicleStore::with_capacity(BLOCK_ROWS + 2);
+        for index in 0..=u32::try_from(BLOCK_ROWS).unwrap() + 1 {
+            store.push(active(index, 1));
+        }
+        let parked = |index: u32| {
+            let mut slot = active(index, 1);
+            slot.state.as_mut().unwrap().status = VehicleStatus::Parked;
+            slot
+        };
+        // 先后退出 0、末行与跨块行；按相反次序重新进入，旧 LIFO 栈会交换行。
+        let last = BLOCK_ROWS + 1;
+        store.set(0, parked(0));
+        store.set(
+            last,
+            VehicleSlot {
+                generation: 1,
+                state: None,
+            },
+        );
+        store.set(BLOCK_ROWS, parked(u32::try_from(BLOCK_ROWS).unwrap()));
+        assert_eq!(store.active_extent(), BLOCK_ROWS);
+        store.set(0, active(0, 1));
+        store.set(last, active(u32::try_from(last).unwrap(), 2));
+        store.set(BLOCK_ROWS, active(u32::try_from(BLOCK_ROWS).unwrap(), 1));
+        for index in 0..=last {
+            let generation = if index == last { 2 } else { 1 };
+            let handle = VehicleHandle::new(u32::try_from(index).unwrap(), generation);
+            assert_eq!(store.active_row(handle), Some(index));
+            assert_eq!(store.active_at(index).unwrap().handle, handle);
+        }
+        assert_eq!(store.active_extent(), last + 1);
+    }
 
     #[test]
     fn physical_and_next_reads_keep_identity_after_row_reuse() {
