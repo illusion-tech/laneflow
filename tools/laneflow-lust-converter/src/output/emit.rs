@@ -96,15 +96,23 @@ pub fn compile_network_lfca(
 /// 诊断清单模式：不可行的 lane 记录诊断后以占位程序兜底继续，不产出
 /// `network_lfca`，交付物为 `TopologyArtifacts::infeasibility_report`
 /// （#253 验收重划，见 G1 补充记录）。`source` 声明实际转换输入的字节摘要
-/// 与独立校验状态，随清单渲染，不得声称与输入不符的基线。
+/// 与独立校验状态，随清单渲染，不得声称与输入不符的基线。`survey_base`
+/// 为清单总量基数（#804 事项 2），按实际输入网络统计传入。
 pub fn compile_network_lfca_with_infeasibility_report(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
     source: geom::ReportSource,
+    survey_base: geom::SurveyBaseCounts,
     weld_records: &[crate::convert::junction::StubWeldRecord],
     internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
-    compile_network_lfca_inner(traffic, spatial, Some(source), weld_records, internal_lanes)
+    compile_network_lfca_inner(
+        traffic,
+        spatial,
+        Some((source, survey_base)),
+        weld_records,
+        internal_lanes,
+    )
 }
 
 /// `report` 为 `Some` 时进入诊断清单模式；`None` 为 fail-fast。诊断收集器
@@ -113,7 +121,7 @@ pub fn compile_network_lfca_with_infeasibility_report(
 fn compile_network_lfca_inner(
     traffic: &TrafficPackage,
     spatial: &SpatialPackage,
-    report: Option<geom::ReportSource>,
+    report: Option<(geom::ReportSource, geom::SurveyBaseCounts)>,
     weld_records: &[crate::convert::junction::StubWeldRecord],
     internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
@@ -176,7 +184,7 @@ fn compile_network_lfca_inner(
     // 诊断清单模式：compiler 阶段跳过（兜底占位曲线不进入验收），交付
     // 确定性渲染的诊断清单。`diagnostics` 为本次转换局部收集器，此处随
     // 返回消费；错误路径由调用方整体丢弃，无残留。
-    if let Some(source) = report {
+    if let Some((source, survey_base)) = report {
         let entries = diagnostic_entries
             .take()
             .expect("diagnostics collector present");
@@ -187,6 +195,7 @@ fn compile_network_lfca_inner(
                 entries,
                 source,
                 weld_records,
+                survey_base,
             )),
         });
     }

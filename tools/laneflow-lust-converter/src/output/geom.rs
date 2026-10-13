@@ -107,6 +107,41 @@ pub struct InfeasibilityDiagnosis {
     pub entry: String,
 }
 
+/// 总量基数的千分位分组渲染（清单文本形态与 pinned 基线一致）。
+fn thousands_grouped(value: usize) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.char_indices() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// 占比渲染（`{:.1}%` 口径）：分母为 0 时（通用输入可能没有内车道）
+/// 不伪造百分比。
+fn percent_of_total(part: usize, base: usize) -> String {
+    if base == 0 {
+        return "-".to_owned();
+    }
+    format!("{:.1}%", part as f64 / (base as f64 / 100.0))
+}
+
+/// 诊断清单的 junction 归属解析口径（junction 列与总量基数共用，#804
+/// 事项 2）：LuST 内车道的 LaneFlow id 为 `sumo:` + `:<head>_<…>` 形态，
+/// head 须可解析为整数（LuST junction 数值 id 命名习惯）；非数值 head 的
+/// 内车道不归入任何 junction 统计。
+pub(crate) fn internal_lane_junction(lane_id: &str) -> Option<String> {
+    lane_id
+        .strip_prefix(SUMO_ID_PREFIX)
+        .filter(|rest| rest.starts_with(':'))
+        .and_then(|rest| rest[1..].split('_').next())
+        .filter(|head| head.parse::<i64>().is_ok())
+        .map(str::to_owned)
+}
+
 /// 由 lane id 与发射层规范错误串构造诊断记录（纯函数；收集由调用方持有，
 /// 无跨转换全局状态）。
 /// 由调用方按权威元数据（`SumoLane::function_internal`）解析好的
@@ -116,12 +151,7 @@ pub(crate) fn classify_infeasible(
     entry: String,
     is_internal: bool,
 ) -> InfeasibilityDiagnosis {
-    let junction = lane_id
-        .strip_prefix(SUMO_ID_PREFIX)
-        .filter(|rest| rest.starts_with(':'))
-        .and_then(|rest| rest[1..].split('_').next())
-        .filter(|head| head.parse::<i64>().is_ok())
-        .map(str::to_owned);
+    let junction = internal_lane_junction(lane_id);
     let mechanism = if entry.matches("fillet arc tangent (prescribed)").count() >= 2 {
         InfeasibilityMechanism::HardCornerFillet
     } else if entry.contains("boundary clamp") {
@@ -268,6 +298,24 @@ fn pinned_net_reference() -> (&'static str, &'static str) {
     (LUST_COMMIT, pinned.sha256_hex)
 }
 
+/// 诊断清单总量基数（#804 事项 2）：占比与总量声明的分母由调用方按实际
+/// 输入网络统计传入——pinned LuST 输入下取值与基线一致（渲染逐字节不变），
+/// 通用输入下不再冒用 pinned 常量。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SurveyBaseCounts {
+    /// 输入网络的 SUMO 内车道（`function="internal"`）总数。
+    pub internal_lanes: usize,
+    /// 输入网络的 authored 边（非 internal）车道总数。
+    pub external_lanes: usize,
+    /// 输入网络内车道的属主 junction 总数（与清单 junction 列同一解析
+    /// 口径，见 `internal_lane_junction`）。
+    pub junctions_with_internal_lanes: usize,
+    /// junction 声明归属口径（`int_lane_ids` 非空）的内车道属主总数：
+    /// 非 pinned 通用输入的诚实分母（数值 id 口径对非 LuST 命名会失真
+    /// 乃至报 0）；verified pinned 路径不渲染本字段。
+    pub junctions_with_internal_lanes_declared: usize,
+}
+
 /// 确定性诊断清单（验收重划后的正式交付物，见 #253 G1 补充记录）：
 /// 同一输入下两次运行的 `rendered` 逐字节一致。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -326,11 +374,14 @@ impl InfeasibilityReport {
     }
 
     /// 由诊断记录渲染确定性 Markdown 清单；`weld_records` 为 stub 删焊处置
-    /// 记录（已归一化类），渲染为附录随清单落出（G1 可追溯）。
+    /// 记录（已归一化类），渲染为附录随清单落出（G1 可追溯）。`base` 为总量
+    /// 基数（#804 事项 2）：占比分母按实际输入网络统计传入，pinned LuST
+    /// 输入下与基线逐字节一致。
     pub fn render(
         entries: Vec<InfeasibilityDiagnosis>,
         source: ReportSource,
         weld_records: &[crate::convert::junction::StubWeldRecord],
+        base: SurveyBaseCounts,
     ) -> Self {
         let internal = entries.iter().filter(|e| e.is_internal).count();
         let external = entries.len() - internal;
@@ -411,17 +462,21 @@ impl InfeasibilityReport {
         out.push_str("## 总量\n\n");
         out.push_str("| 类别 | 不可行 | 基数 | 占比 |\n| --- | ---: | ---: | ---: |\n");
         out.push_str(&format!(
-            "| SUMO 内车道（自动生成） | {internal} | 15,953 | {:.1}% |\n",
-            internal as f64 / 159.53
+            "| SUMO 内车道（自动生成） | {internal} | {} | {} |\n",
+            thousands_grouped(base.internal_lanes),
+            percent_of_total(internal, base.internal_lanes)
         ));
         out.push_str(&format!(
-            "| authored 边（external） | {external} | 8,622 | {:.1}% |\n",
-            external as f64 / 86.22
+            "| authored 边（external） | {external} | {} | {} |\n",
+            thousands_grouped(base.external_lanes),
+            percent_of_total(external, base.external_lanes)
         ));
+        let total_lanes = base.internal_lanes + base.external_lanes;
         out.push_str(&format!(
-            "| **合计** | **{}** | 24,575 | {:.1}% |\n\n",
+            "| **合计** | **{}** | {} | {} |\n\n",
             entries.len(),
-            entries.len() as f64 / 245.75
+            thousands_grouped(total_lanes),
+            percent_of_total(entries.len(), total_lanes)
         ));
         let exhausted = entries
             .iter()
@@ -443,10 +498,22 @@ impl InfeasibilityReport {
 ",
             entries.len() - exhausted - precheck - proven
         ));
-        out.push_str(&format!(
-            "- 内车道不可行遍布 **{junctions} 个 junction**（XML 有内车道的 junction 共 1,942 个）。
-"
-        ));
+        if source.is_verified() {
+            // verified pinned 路径：数值 id 口径（与基线逐字节一致）。
+            out.push_str(&format!(
+                "- 内车道不可行遍布 **{junctions} 个 junction**（XML 有内车道的 junction 共 {} 个）。
+",
+                thousands_grouped(base.junctions_with_internal_lanes)
+            ));
+        } else {
+            // 通用输入：数值 id 口径对非 LuST 命名失真（乃至报 0），分母
+            // 改用 junction 声明归属口径并标注口径差异（#804 评审）。
+            out.push_str(&format!(
+                "- 内车道不可行遍布 **{junctions} 个 junction**（junction 归属按 LuST 数值 id 口径；XML 声明拥有内车道的 junction 共 {} 个）。
+",
+                thousands_grouped(base.junctions_with_internal_lanes_declared)
+            ));
+        }
         out.push_str(&format!(
             "- 内车道失败机制分布（两端均倒圆 → 硬折角倒圆；任一端边界钳制 → 边界钳制相关；\
              否则 → 纯内部 CR；authored 边不计入）：硬折角倒圆 {hard}、边界钳制相关 {clamp}、\
@@ -2161,8 +2228,17 @@ mod tests {
             shared_traversals: Vec::new(),
             detail: String::new(),
         }];
-        let report =
-            InfeasibilityReport::render(entries, ReportSource::unverified_unknown(), &records);
+        let report = InfeasibilityReport::render(
+            entries,
+            ReportSource::unverified_unknown(),
+            &records,
+            SurveyBaseCounts {
+                internal_lanes: 1,
+                external_lanes: 0,
+                junctions_with_internal_lanes: 0,
+                junctions_with_internal_lanes_declared: 1,
+            },
+        );
         assert!(report.rendered.contains("| 机制 | 预算裁决 | span |"));
         assert!(report.rendered.contains("采样候选耗尽"));
         assert!(report.rendered.contains("- 发射预算裁决分布"));
@@ -2177,6 +2253,83 @@ mod tests {
                 .contains("| `:J_0_0` | `west_0` | `east_0` | `J` |")
         );
         assert!(report.rendered.contains("未支持-未评估"));
+    }
+
+    #[test]
+    fn render_totals_take_base_counts_from_caller() {
+        // #804 事项 2：总量基数来自参数而非硬编码 pinned 常量——pinned 取值下
+        // 渲染形态与基线一致（千分位分组、占比口径）；分母为 0 不伪造百分比。
+        let entries = vec![classify_infeasible(
+            "sumo::lane_0",
+            "span 1/1 (chord 1.0 m) is not emittable: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+                .to_owned(),
+            true,
+        )];
+        let report = InfeasibilityReport::render(
+            entries,
+            ReportSource::unverified_unknown(),
+            &[],
+            SurveyBaseCounts {
+                internal_lanes: 15_953,
+                external_lanes: 8_622,
+                junctions_with_internal_lanes: 1_942,
+                junctions_with_internal_lanes_declared: 3_849,
+            },
+        );
+        assert!(
+            report
+                .rendered
+                .contains("| SUMO 内车道（自动生成） | 1 | 15,953 | 0.0% |")
+        );
+        assert!(
+            report
+                .rendered
+                .contains("| authored 边（external） | 0 | 8,622 | 0.0% |")
+        );
+        assert!(
+            report
+                .rendered
+                .contains("| **合计** | **1** | 24,575 | 0.0% |")
+        );
+        // 通用（未验证）路径：junction 分母改用声明归属口径并标注口径
+        assert!(report.rendered.contains(
+            "junction 归属按 LuST 数值 id 口径；XML 声明拥有内车道的 junction 共 3,849 个"
+        ));
+        // verified pinned 路径：保持基线原句（数值 id 口径），字节形态不变
+        let verified = InfeasibilityReport::render(
+            Vec::new(),
+            ReportSource::verified("sha256:00".to_owned()),
+            &[],
+            SurveyBaseCounts {
+                internal_lanes: 15_953,
+                external_lanes: 8_622,
+                junctions_with_internal_lanes: 1_942,
+                junctions_with_internal_lanes_declared: 3_849,
+            },
+        );
+        assert!(
+            verified
+                .rendered
+                .contains("（XML 有内车道的 junction 共 1,942 个）")
+        );
+
+        let zero_base = InfeasibilityReport::render(
+            Vec::new(),
+            ReportSource::unverified_unknown(),
+            &[],
+            SurveyBaseCounts {
+                internal_lanes: 0,
+                external_lanes: 0,
+                junctions_with_internal_lanes: 0,
+                junctions_with_internal_lanes_declared: 0,
+            },
+        );
+        assert!(
+            zero_base
+                .rendered
+                .contains("| SUMO 内车道（自动生成） | 0 | 0 | - |"),
+            "分母为 0 不得伪造百分比"
+        );
     }
 
     #[test]
