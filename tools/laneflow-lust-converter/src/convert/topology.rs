@@ -30,15 +30,10 @@ use crate::{
 };
 
 pub(crate) const DEFAULT_FIXED_DELTA_MS: u64 = 16;
-const DEFAULT_TRAFFIC_REF: &str = "lust-topology.traffic.json";
-const DEFAULT_SPATIAL_REF: &str = "lust-topology.spatial.json";
 
 /// Options for topology / static conversion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopologyConvertOptions {
-    pub fixed_delta_ms: u64,
-    pub traffic_artifact_ref: String,
-    pub spatial_artifact_ref: String,
     /// When true, require pinned LuST `<location>` lexical anchors.
     pub require_lust_location_anchors: bool,
     /// When true, require exactly 10,592 filtered DUE candidates before taking 10k.
@@ -55,9 +50,6 @@ pub struct TopologyConvertOptions {
 impl Default for TopologyConvertOptions {
     fn default() -> Self {
         Self {
-            fixed_delta_ms: DEFAULT_FIXED_DELTA_MS,
-            traffic_artifact_ref: DEFAULT_TRAFFIC_REF.to_owned(),
-            spatial_artifact_ref: DEFAULT_SPATIAL_REF.to_owned(),
             require_lust_location_anchors: false,
             require_lust_population_count: false,
             emit_infeasibility_report: false,
@@ -384,10 +376,33 @@ fn convert_network_packages(
         .map(|lane| lane.laneflow_id())
         .collect();
     let artifacts = if options.emit_infeasibility_report {
+        // #804 事项 2：清单总量基数按实际输入网络统计——lane 数按权威
+        // function 元数据；junction 数双口径：verified pinned 路径用清单
+        // junction 列口径（geom::internal_lane_junction，保持基线逐字节），
+        // 通用输入渲染声明归属口径（数值 id 口径对非 LuST 命名会失真）。
+        let survey_base = crate::output::geom::SurveyBaseCounts {
+            internal_lanes: network
+                .lanes
+                .iter()
+                .filter(|lane| lane.function_internal)
+                .count(),
+            external_lanes: network.external_lane_count(),
+            junctions_with_internal_lanes: internal_lanes
+                .iter()
+                .filter_map(|id| crate::output::geom::internal_lane_junction(id))
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            junctions_with_internal_lanes_declared: network
+                .junctions
+                .iter()
+                .filter(|junction| !junction.int_lane_ids.is_empty())
+                .count(),
+        };
         compile_network_lfca_with_infeasibility_report(
             &traffic,
             &spatial,
             report_source,
+            survey_base,
             &stub_weld_records,
             &internal_lanes,
         )
