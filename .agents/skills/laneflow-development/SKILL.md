@@ -113,7 +113,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   TODO、变更日志式注释与注释掉的代码。
 - 不要在只完成子切片时声称父任务已完成。
 - 不要隐瞒未运行的检查；说明未运行项及原因。
-- 提交标题使用 Conventional Commits；scope 可省略，使用时表示主要受影响的组件或职责域，不等同于 PR 切片类型。footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。禁止用 `Co-authored-by` 标注 AI 工具或模型；AI 参与时在其前成对写 `Harness: <执行框架>` 与 `Model: <实际模型>`，纯人工提交可以不写。`Model` 填提交时实际使用的模型。详见 `docs/reference/commit-convention.md`。
+- 提交标题使用 Conventional Commits；scope 可省略，使用时表示主要受影响的组件或职责域，不等同于 PR 切片类型。footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。禁止用 `Co-authored-by` 或 `Made-with:` 标注 AI 工具或模型；AI 参与时在末尾 trailer 段成对写 `Harness: <执行框架>` 与 `Model: <实际模型>`，段前空一行，`BREAKING CHANGE:` 留在段前。纯人工提交可以不写。`Model` 填提交时实际使用的模型。详见 `docs/reference/commit-convention.md`。
 
 ## 交付说明
 
