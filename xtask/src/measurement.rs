@@ -433,7 +433,9 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--receipt" => {
-                receipt_path = Some(PathBuf::from(iter.next().ok_or("--receipt 缺少路径")?))
+                receipt_path = Some(absolute_lexical(PathBuf::from(
+                    iter.next().ok_or("--receipt 缺少路径")?,
+                ))?)
             }
             "--evidence-root" => {
                 evidence_root = Some(absolute_lexical(PathBuf::from(
@@ -640,7 +642,9 @@ pub(crate) fn check_binary_paths(args: &[String]) -> Result<(), String> {
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--receipt" => {
-                receipt_path = Some(PathBuf::from(iter.next().ok_or("--receipt 缺少路径")?))
+                receipt_path = Some(absolute_lexical(PathBuf::from(
+                    iter.next().ok_or("--receipt 缺少路径")?,
+                ))?)
             }
             "--evidence-root" => {
                 evidence_root = Some(absolute_lexical(PathBuf::from(
