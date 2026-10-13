@@ -159,7 +159,8 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 cargo +1.98.0 run --locked -p xtask -- build-measurement
 ```
 
-该 xtask 命令在专用目标目录 `target/release-measurement/` 执行冻结的
+该 xtask 命令在专用目标目录 `target/release-measurement/`（产物位于其下
+`<target-triple>/release/`，目标三元组钉住为主机值）执行冻结的
 `cargo +1.98.0 build -p laneflow-urban-harness --release --locked`，附加固定顺序的
 `--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、rustup
 工具链→`<rustup-toolchain>`）、钉住的 release profile 与工具链内 rustc，并显式
@@ -174,10 +175,10 @@ cargo +1.98.0 run --locked -p xtask -- check-binary-paths <binary>
 ```
 
 正式性能计划允许 Mixed 与持续 Active 的 10k/100k 制品（正式窗口命令使用测量
-二进制）：
+二进制，`<triple>` 为采集机目标三元组，如 `x86_64-pc-windows-msvc`）：
 
 ```text
-target/release-measurement/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --performance
+target/release-measurement/<triple>/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --performance
 ```
 
 运行前必须设置 `LANEFLOW_HARDWARE_ROLE` 和 `LANEFLOW_POWER_ROLE`。每轮只统计观察
@@ -192,7 +193,7 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 均拒绝。正式运行在初始化前和窗口结束后核对来源，变化或无法读取时不产出性能通过包：
 
 ```text
-target/release-measurement/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
+target/release-measurement/<triple>/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
 ```
 
 三轮还须保持相同完整语义轨迹：除 `measurements.toml`、`diagnostics.json` 与 `timings.jsonl` 三个
