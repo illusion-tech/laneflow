@@ -175,10 +175,12 @@ fn ascii_lower(bytes: &[u8]) -> Vec<u8> {
     bytes.iter().map(u8::to_ascii_lowercase).collect()
 }
 
-/// UTF-16LE 编码的 ASCII 大小写折叠（高字节为 0 的 ASCII 大写转小写）。
-fn utf16le_ascii_lower(bytes: &[u8]) -> Vec<u8> {
+/// UTF-16LE 视图的 ASCII 折叠：只折高字节为 0 的码元，非 ASCII 码元原样保留
+///（逐字节折叠会把非 ASCII 码元的高字节误判为 ASCII 大写而损坏）。
+/// `offset` 覆盖奇偶两种对齐：宽字符串在文件内可从任意字节偏移开始。
+fn utf16le_fold(bytes: &[u8], offset: usize) -> Vec<u8> {
     let mut out = bytes.to_vec();
-    for pair in out.chunks_exact_mut(2) {
+    for pair in out[offset..].chunks_exact_mut(2) {
         if pair[1] == 0 && pair[0].is_ascii_uppercase() {
             pair[0] += 32;
         }
@@ -187,7 +189,7 @@ fn utf16le_ascii_lower(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// 每个根展开的搜索针：两种目录分隔符 × UTF-8/UTF-16LE，全部 ASCII 大小写折叠。
-fn needles(path: &Path) -> Vec<(&'static str, Vec<u8>)> {
+fn needles(path: &Path) -> Vec<(bool, &'static str, Vec<u8>)> {
     let text = path
         .to_string_lossy()
         .trim_end_matches(['\\', '/'])
@@ -195,23 +197,24 @@ fn needles(path: &Path) -> Vec<(&'static str, Vec<u8>)> {
     let mut out = Vec::new();
     for separator in ['\\', '/'] {
         let surface = text.replace(['\\', '/'], &separator.to_string());
-        let utf8 = surface.as_bytes().to_vec();
         out.push((
+            false,
             if separator == '\\' {
                 "utf-8 \\"
             } else {
                 "utf-8 /"
             },
-            ascii_lower(&utf8),
+            ascii_lower(surface.as_bytes()),
         ));
         let wide: Vec<u8> = surface.encode_utf16().flat_map(u16::to_le_bytes).collect();
         out.push((
+            true,
             if separator == '\\' {
                 "utf-16le \\"
             } else {
                 "utf-16le /"
             },
-            utf16le_ascii_lower(&wide),
+            utf16le_fold(&wide, 0),
         ));
     }
     out
@@ -233,13 +236,15 @@ struct ScanHit {
 }
 
 /// 扫描二进制中的本机路径；返回命中列表。回执与输出只含占位符。
+/// UTF-8 针搜逐字节折叠视图；UTF-16LE 针搜码元折叠视图（奇偶两种对齐）。
 fn scan_binary(
     binary: &Path,
     roots: &[ScanRoot],
 ) -> Result<(Vec<ScanHit>, serde_json::Value), String> {
     let bytes =
         fs::read(binary).map_err(|e| format!("无法读取二进制 {}: {e}", binary.display()))?;
-    let lowered = ascii_lower(&bytes);
+    let lowered_utf8 = ascii_lower(&bytes);
+    let lowered_wide = [utf16le_fold(&bytes, 0), utf16le_fold(&bytes, 1)];
     let mut hits = Vec::new();
     for root in roots {
         if !root.explicit && !root.path.is_dir() {
@@ -248,8 +253,18 @@ fn scan_binary(
                 root.placeholder
             ));
         }
-        for (encoding_separator, needle) in needles(&root.path) {
-            let found = find_all(&lowered, &needle);
+        for (wide, encoding_separator, needle) in needles(&root.path) {
+            let found = if wide {
+                let mut offsets: Vec<u64> = lowered_wide
+                    .iter()
+                    .flat_map(|haystack| find_all(haystack, &needle))
+                    .collect();
+                offsets.sort_unstable();
+                offsets.dedup();
+                offsets
+            } else {
+                find_all(&lowered_utf8, &needle)
+            };
             if !found.is_empty() {
                 hits.push(ScanHit {
                     root: root.placeholder.clone(),
@@ -372,6 +387,21 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
 
     let target_dir = repo.join("target").join("release-measurement");
     let receipt_path = receipt_path.unwrap_or_else(|| target_dir.join("build-receipt.json"));
+    // 回执只新增不覆盖：先失败，不在完成构建与扫描后才报错。
+    if receipt_path.exists() {
+        return Err(format!(
+            "回执路径已存在：{}；请显式给一个全新的 --receipt 路径",
+            receipt_path.display()
+        ));
+    }
+    // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
+    // 产物位置或目标平台。
+    let verbose = command_output("rustc", &[TOOLCHAIN_ARG, "-Vv"], &repo)?;
+    let host = verbose
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_owned)
+        .ok_or("rustc -Vv 缺少 host 行")?;
     let mut command = Command::new("cargo");
     command
         .args([
@@ -381,6 +411,8 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
             "laneflow-urban-harness",
             "--release",
             "--locked",
+            "--target",
+            &host,
         ])
         .current_dir(&repo)
         .env("CARGO_ENCODED_RUSTFLAGS", &actual)
@@ -390,6 +422,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         // CARGO_ENCODED_RUSTFLAGS 在 Cargo flag 来源中优先级最高，覆盖 config 的
         // build.rustflags；RUSTFLAGS 及编译器包装变量一律清除，编译器钉到工具链内 rustc。
         .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_BUILD_TARGET")
         .env(
             "CARGO_BUILD_RUSTC",
             sysroot
@@ -409,11 +442,14 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         return Err(format!("{CARGO_COMMAND} 失败：{status}"));
     }
 
-    let binary = target_dir.join("release").join(if cfg!(windows) {
-        "laneflow-urban-harness.exe"
-    } else {
-        "laneflow-urban-harness"
-    });
+    let binary = target_dir
+        .join(&host)
+        .join("release")
+        .join(if cfg!(windows) {
+            "laneflow-urban-harness.exe"
+        } else {
+            "laneflow-urban-harness"
+        });
     if !binary.is_file() {
         return Err(format!("预期二进制不存在：{}", binary.display()));
     }
@@ -457,6 +493,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         "cargo_command": CARGO_COMMAND,
         "rustflags_normalized": normalized,
         "build_profile": "release;debug-assertions=off",
+        "target": host,
         "profile_pins": PROFILE_PINS.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>(),
         "compiler": "<rustup-toolchain>/bin/rustc",
         "binary": scan["binary"].clone(),
@@ -546,20 +583,42 @@ mod tests {
         let lowered = ascii_lower(&haystack);
         assert!(
             set.iter()
-                .any(|(_, needle)| !find_all(&lowered, needle).is_empty())
+                .any(|(wide, _, needle)| !*wide && !find_all(&lowered, needle).is_empty())
         );
-        let wide: Vec<u8> = "C:\\USERS\\mix"
+        let wide_bytes: Vec<u8> = "C:\\USERS\\mix"
             .encode_utf16()
             .flat_map(u16::to_le_bytes)
             .collect();
+        assert!(set.iter().any(|(wide, _, needle)| *wide && {
+            let mut padded = vec![0u8; 6];
+            padded.extend_from_slice(&wide_bytes);
+            !find_all(&utf16le_fold(&padded, 0), needle).is_empty()
+        }));
+    }
+
+    /// 非 ASCII 路径成分（如中文目录名）的 UTF-16 高字节不得被折叠损坏：
+    /// 码元折叠视图必须仍能命中。中（U+4E2D）的高字节 0x4E 即 ASCII 'N'，
+    /// 逐字节折叠会把它损坏为 0x6E。
+    #[test]
+    fn utf16le_fold_preserves_non_ascii_units() {
+        let path = Path::new("D:\\中\\Mix");
+        let set = needles(path);
+        let wide: Vec<u8> = "d:\\中\\mix"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let mut file = vec![0xAAu8];
+        file.extend_from_slice(&wide);
+        file.push(0);
+        let folded = utf16le_fold(&file, 1);
         assert!(
             set.iter()
-                .any(|(tag, needle)| tag.starts_with("utf-16le") && {
-                    let mut padded = vec![0u8; 6];
-                    padded.extend_from_slice(&wide);
-                    !find_all(&ascii_lower(&padded), needle).is_empty()
-                })
+                .any(|(wide, _, needle)| *wide && !find_all(&folded, needle).is_empty()),
+            "非 ASCII UTF-16 路径必须可被扫描命中"
         );
+        // 逐字节折叠会损坏 0x4E（'N'）类高字节，不得回退到那种视图。
+        let corrupted = ascii_lower(&file);
+        assert!(corrupted != folded);
     }
 
     #[test]
