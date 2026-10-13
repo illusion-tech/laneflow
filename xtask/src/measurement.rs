@@ -126,11 +126,12 @@ fn path_starts_with_ci(path: &Path, prefix: &Path) -> bool {
 }
 
 /// 采集机 Cargo 配置审计：用户级（CARGO_HOME）与仓库各祖先目录的
-/// `.cargo/config{,.toml}`（Cargo 从构建 cwd 逐级向上探测）出现
-/// profile / paths / source / patch 表或 build.rustc*/rustflags 键即 fail closed——
-/// 这些键可绕过命令行钉住（package 级 profile 覆盖、本地路径覆盖、wrapper、
-/// 目录替换、换编译器）。仓库自身无 `.cargo/config.toml`，仓库内配置由干净
-/// checkout 要求覆盖。
+/// `.cargo/config{,.toml}`（Cargo 从构建 cwd 逐级向上探测），并递归跟随
+/// 顶层 `include` 键。出现 profile / paths / source / patch / env 表或
+/// build.rustc*/rustflags 键即 fail closed——这些键可绕过命令行钉住
+///（package 级 profile 覆盖、本地路径覆盖、wrapper、目录替换、换编译器、
+/// 向构建脚本强制注入环境变量）。仓库自身无 `.cargo/config.toml`，仓库内
+/// 配置由干净 checkout 要求覆盖。
 fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
     let mut candidates: Vec<(PathBuf, String)> = ["config.toml", "config"]
         .into_iter()
@@ -141,15 +142,17 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
             candidates.push((ancestor.join(name), format!("祖先目录的 {name}")));
         }
     }
-    for (path, label) in candidates {
-        if !path.is_file() {
+    let mut visited = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(PathBuf, String)> = candidates.into();
+    while let Some((path, label)) = queue.pop_front() {
+        if !path.is_file() || !visited.insert(path.to_string_lossy().to_lowercase()) {
             continue;
         }
         let text = fs::read_to_string(&path)
             .map_err(|e| format!("无法读取 Cargo 配置 {}: {e}", path.display()))?;
         let value: toml::Value = toml::from_str(&text)
             .map_err(|e| format!("Cargo 配置 {} 解析失败: {e}", path.display()))?;
-        for key in ["profile", "paths", "source", "patch"] {
+        for key in ["profile", "paths", "source", "patch", "env"] {
             if value.get(key).is_some() {
                 return Err(format!(
                     "Cargo 配置 {label} 含冻结构建不允许的 [{key}] 表；请移出测量机配置后重建"
@@ -181,6 +184,21 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                         }
                     }
                 }
+            }
+        }
+        // include 键递归并入审计（相对路径相对当前配置文件目录解析）。
+        if let Some(include) = value.get("include") {
+            let parent = path.parent().unwrap_or_else(|| Path::new("."));
+            let includes: Vec<String> = match include {
+                toml::Value::String(single) => vec![single.clone()],
+                toml::Value::Array(list) => list
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect(),
+                _ => vec![],
+            };
+            for entry in includes {
+                queue.push_back((parent.join(&entry), format!("{label} include 的 {entry}")));
             }
         }
     }
@@ -489,6 +507,13 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
 
     let target_dir = repo.join("target").join("release-measurement");
     let receipt_path = receipt_path.unwrap_or_else(|| target_dir.join("build-receipt.json"));
+    // 每次正式构建使用全新 target 目录：Cargo 只按 build.rs 声明的
+    // rerun-if-* 跟踪构建脚本输入，陈旧复用可携带未被声明的本机残留；
+    // 全新目录把这类风险整体消除（代价仅是正式构建多花几十秒）。
+    if target_dir.exists() {
+        fs::remove_dir_all(&target_dir)
+            .map_err(|e| format!("无法清空 {}: {e}", target_dir.display()))?;
+    }
     // 回执只新增不覆盖：先失败，不在完成构建与扫描后才报错。
     if receipt_path.exists() {
         return Err(format!(
@@ -537,12 +562,16 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     for name in COMPILER_WRAPPER_ENV_DISABLE {
         command.env(name, "");
     }
-    // 目标三元组限定的覆盖变量（linker、cc-rs 读取的 CC_<target> 等）随 host 展开清除。
+    // 目标三元组限定与 HOST_/TARGET_ 前缀的覆盖变量（linker、cc-rs 读取的
+    // CC_<target>/CC_<target_underscored>/HOST_CC/TARGET_CC 等）全部清除。
     let host_env = host.replace(['-', '.'], "_").to_uppercase();
     command.env_remove(format!("CARGO_TARGET_{host_env}_LINKER"));
     for name in NATIVE_TOOLCHAIN_ENV_UNSET {
         command.env_remove(name);
+        command.env_remove(format!("{name}_{host}"));
         command.env_remove(format!("{name}_{host_env}"));
+        command.env_remove(format!("HOST_{name}"));
+        command.env_remove(format!("TARGET_{name}"));
     }
     for (name, value) in PROFILE_PINS {
         command.env(name, value);
@@ -574,8 +603,9 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     if !binary.is_file() {
         return Err(format!("预期二进制不存在：{}", binary.display()));
     }
-    // 正向断言：二进制必须嵌入了期望的归一化 flag 串。option_env! 不进 cargo
-    // 重建指纹，陈旧复用在本步暴露，而不是留到测量 provenance 才失败。
+    // 正向断言：二进制必须嵌入了期望的归一化 flag 串。rustc 会把
+    // env!/option_env! 读取的变量记入 dep-info、Cargo 据以触发重编，
+    // 本断言是其上的纵深防御（例如同一目录的手工构建或指纹边界）。
     let bytes = fs::read(&binary).map_err(|e| format!("无法读取二进制: {e}"))?;
     if find_all(&bytes, normalized.as_bytes()).is_empty() {
         return Err(format!(
