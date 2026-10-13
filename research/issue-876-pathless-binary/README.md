@@ -4,11 +4,11 @@
 
 ## 1. 结论
 
-正式测量二进制改用 `tools/laneflow-urban-harness/build-measurement.ps1` 构建：
+正式测量二进制改用 `cargo +1.98.0 run --locked -p xtask -- build-measurement` 构建：
 冻结的 `cargo +1.98.0 build -p laneflow-urban-harness --release --locked` 附加三条
 固定顺序的 `--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、
 rustup 工具链→`<rustup-toolchain>`）与 `CARGO_INCREMENTAL=0`。构建后固定执行
-`test-binary-local-paths.ps1` 扫描，命中任何本机根（用户目录、Cargo 主目录、
+`check-binary-paths` 扫描，命中任何本机根（用户目录、Cargo 主目录、
 rustup 主目录/工具链、工作树，以及调用方追加的证据根）即失败。测量载荷升级为
 `urban-performance-measurements-v5`：provenance 新增 `build_rustflags`（来源端
 占位符归一化后的实际构建 flag）与 `build_profile` 两个固定协议字段，普通 cargo
@@ -28,7 +28,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
   不能作为映射入口。
 - `--remap-path-prefix`：稳定可用。`CARGO_ENCODED_RUSTFLAGS` 在 Cargo 的 flag
   来源中优先级最高（覆盖 config 的 `build.rustflags` 与用户环境 `RUSTFLAGS`），
-  包装脚本设置后即锁定实际 flag 集合。
+  构建入口设置后即锁定实际 flag 集合。
 - 基线盘点（同提交普通 release 构建，`CARGO_INCREMENTAL=0`）：二进制内嵌两类
   本机路径——rustup 工具链 sysroot（86 处，std panic 位置经 rust-src 组件落到
   本机 `lib/rustlib/src/rust/...`）与 Cargo registry 源码目录（155 处）；工作树
@@ -38,7 +38,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
   build.rs（build.rs 可生成文本扫描不可见的 Rust 源码，fail closed）。改用
   编译期环境变量：实测 Cargo 把进程环境传给 rustc，`option_env!` 可读
   `CARGO_ENCODED_RUSTFLAGS` 等变量；但直接嵌入该变量会把 remap 来源端（本机
-  路径）写进二进制，故包装脚本按同一映射表另写一份归一化记录
+  路径）写进二进制，故构建入口按同一映射表另写一份归一化记录
   `LANEFLOW_MEASUREMENT_RUSTFLAGS` 供嵌入。profile 无法经环境变量读取
   （`PROFILE`/`OPT_LEVEL`/`DEBUG` 只对 build.rs 可见），由
   `cfg!(debug_assertions)` 派生；opt-level 等细节由锁定的 workspace release
@@ -52,18 +52,22 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 - `report.rs`：provenance 新增 `build_rustflags`（编译期
   `option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS")` 嵌入的归一化 flag 记录）与
   `build_profile`（`cfg!(debug_assertions)` 派生）两个固定协议字段，
-  与 `build_parameters`（改为包装脚本入口）一起逐项校验；三轮聚合的
+  与 `build_parameters`（改为 xtask 构建入口）一起逐项校验；三轮聚合的
   provenance 全等比较自动覆盖新字段。
-- `build-measurement.ps1`：正式构建唯一入口；同一张映射表写出实际
-  `CARGO_ENCODED_RUSTFLAGS` 与归一化记录（来源端替换为占位符，永不携带本机
-  路径），固定 target 目录 `target/release-measurement/`（与日常
-  `target/release` 互不触发重建）。`option_env!` 不进 Cargo 重建指纹，构建后
-  正向断言二进制嵌入了期望的归一化串（防陈旧复用），再固定执行扫描；
-  回执（占位符、字节数、SHA-256）写入 `--ReceiptPath`（默认 target 下，
+- `xtask/src/measurement.rs` 的 `build-measurement`：正式构建唯一入口；同一张
+  映射表写出实际 `CARGO_ENCODED_RUSTFLAGS` 与归一化记录（来源端替换为占位符，
+  永不携带本机路径），固定 target 目录 `target/release-measurement/`（与日常
+  `target/release` 互不触发重建）。同时钉住 release profile 各键
+  （`CARGO_PROFILE_RELEASE_*`）与工具链内 rustc（`CARGO_BUILD_RUSTC`，清除
+  `RUSTC`/wrapper 类变量），并要求 `cargo metadata` 的全部依赖源码落在工作树
+  或 Cargo 主目录内（目录替换等逃逸 fail closed）。`option_env!` 不进 Cargo
+  重建指纹，构建后正向断言二进制嵌入了期望的归一化串（防陈旧复用），再固定
+  执行扫描；回执（占位符、字节数、SHA-256）写入 `--receipt`（默认 target 下，
   不回写源码树）。
-- `test-binary-local-paths.ps1`：独立扫描入口，UTF-8（两种目录分隔符）与
-  UTF-16LE 逐个根检查；输出只含占位符、命中计数与字节偏移，可随证据公开；
-  发布前复扫使用同一脚本，`-EvidenceRoot` 追加证据根。
+- 同模块的 `check-binary-paths`：独立扫描入口，ASCII 大小写折叠后对 UTF-8
+  （两种目录分隔符）与 UTF-16LE 逐个根检查；派生根在本机必须可解析，显式
+  指定的根（`--evidence-root` / `--extra-root`）不存在的路径也照扫。输出只含
+  占位符、命中计数与字节偏移，可随证据公开；发布前复扫使用同一命令。
 
 ## 4. 验证
 
@@ -122,13 +126,13 @@ remap 不改变优化结果与运行行为。短窗命令样本多为零（无�
 
 ### 4.4 发布前复扫
 
-`test-binary-local-paths.ps1 -EvidenceRoot <evidence-root>` 对 B 复扫通过
-（六类根零命中），作为取证脚本上传前的固定步骤。
+`check-binary-paths --evidence-root <evidence-root>` 对 B 复扫通过
+（六类根零命中），作为取证流程上传前的固定步骤。
 
 ## 5. 后续
 
 - 本 PR 的 10k 正式轮二进制已原样上传并登记（§1 链接与索引），满足 #876 的
   发布验收；后续正式或验收测量沿用同一入口：测量 worktree 干净检出目标提交，
-  运行 `build-measurement.ps1`，二进制连同构建回执原样上传，证据索引登记下载
+  运行 `xtask build-measurement`，二进制连同构建回执原样上传，证据索引登记下载
   地址、字节数与 SHA-256。
 - 取证脚本（证据根侧，仓库外）把"构建→扫描→上传"替换为上述入口。

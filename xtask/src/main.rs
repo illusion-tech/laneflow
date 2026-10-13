@@ -1,5 +1,6 @@
 mod commit_messages;
 mod markdown_tables;
+mod measurement;
 mod runtime_architecture;
 mod schema_codegen;
 mod wire_audit;
@@ -33,9 +34,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         Some("check-wire-audit") => wire_audit::run(),
         Some("check-runtime-architecture") => runtime_architecture::run(),
+        Some("build-measurement") => measurement::build_measurement(&args[1..]),
+        Some("check-binary-paths") => measurement::check_binary_paths(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths"
                 .to_string(),
         ),
     }

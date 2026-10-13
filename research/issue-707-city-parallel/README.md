@@ -150,14 +150,14 @@ set LANEFLOW_POWER_ROLE=win11-balanced-381b4222
 构建（仅测量 worktree，benchmark 前完成，之后零编译）：
 
 ```text
-pwsh -NoProfile -File tools/laneflow-urban-harness/build-measurement.ps1
+cargo +1.98.0 run --locked -p xtask -- build-measurement
 cargo +1.98.0 build -p laneflow-urban-generator --release --locked
 ```
 
-> #876 起正式测量二进制由 `build-measurement.ps1` 构建（冻结 cargo 命令附加
-> `--remap-path-prefix` 本机根映射），构建后固定扫描本机路径；测量载荷
-> `urban-performance-measurements-v5` 起记录归一化 rustflags 与 profile，
-> 普通 cargo 构建的二进制不再通过正式测量 provenance。设计口径见
+> #876 起正式测量二进制由 `xtask build-measurement` 构建（冻结 cargo 命令附加
+> `--remap-path-prefix` 本机根映射，钉住 profile 与编译器选择），构建后固定扫描
+> 本机路径；测量载荷 `urban-performance-measurements-v5` 起记录归一化 rustflags
+> 与 profile，普通 cargo 构建的二进制不再通过正式测量 provenance。设计口径见
 > `docs/design/urban-demand-harness.md`，构建/行为对照见
 > [`../issue-876-pathless-binary/`](../issue-876-pathless-binary/)。
 
