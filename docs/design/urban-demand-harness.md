@@ -411,19 +411,20 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
 
 性能使用 CI 固定 Rust 版本的正常 release binary；正确性摘要、完整快照捕获和诊断
 断言耗时不混入正常 tick latency。正式测量二进制由
-`tools/laneflow-urban-harness/build-measurement.ps1` 构建（#876）：脚本内部执行
-冻结的 `cargo +1.98.0 build -p laneflow-urban-harness --release --locked` 并附加
-`--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、rustup
-工具链→`<rustup-toolchain>`，固定顺序）与 `CARGO_INCREMENTAL=0`，使封存二进制不含
-采集机本机路径、可原样作为公开证据制品发布。Cargo `trim-paths` 在固定工具链
-（1.98.0）尚未稳定，不作为映射入口。同一张映射表同时写出归一化记录
+`cargo +1.98.0 run --locked -p xtask -- build-measurement` 构建（#876）：该 xtask
+命令执行冻结的 `cargo +1.98.0 build -p laneflow-urban-harness --release --locked`
+并附加 `--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、
+rustup 工具链→`<rustup-toolchain>`，固定顺序）、钉住 release profile 各键与工具链内
+rustc、显式 `CARGO_INCREMENTAL=0`，并要求依赖源码全部落在工作树或 Cargo 主目录内，
+使封存二进制不含采集机本机路径、可原样作为公开证据制品发布。Cargo `trim-paths`
+在固定工具链（1.98.0）尚未稳定，不作为映射入口。同一张映射表同时写出归一化记录
 `LANEFLOW_MEASUREMENT_RUSTFLAGS`（来源端为占位符），由 harness 经编译期
 `option_env!` 嵌入二进制——wire 审计禁止 harness 携带 build.rs，不能以构建脚本
 生成代码；profile 记录由 `cfg!(debug_assertions)` 派生（`release;debug-assertions=off`），
-opt-level 等 profile 细节由锁定的 workspace release profile 与冻结命令承载。
-构建完成固定执行
-`tools/laneflow-urban-harness/test-binary-local-paths.ps1` 扫描；发布前同一脚本
-（可追加证据根）复扫通过才可上传，扫描回执只含占位符、字节数与 SHA-256。
+钉住的 profile 键值由 xtask 构建入口承载。构建完成固定执行
+`check-binary-paths` 扫描（ASCII 大小写不敏感、UTF-8/UTF-16LE 双编码）；发布前
+以同一命令（`--evidence-root` 追加证据根）复扫通过才可上传，扫描回执只含占位符、
+字节数与 SHA-256。
 分别记录 TrafficWorld step、调用方命令与观测开销。
 其中 command 只累计六类公共生命周期调用自身耗时，实际 Runtime 拒绝也计入，无调用
 则为零；输入准备、延期/重试调度、快照、断言及调用方记账不在该计时范围内。
@@ -431,7 +432,7 @@ observation 累计 step 前的 `step_before` 采集、Active/intent 计数、红
 以及 step 后的信号采集、事件/状态摘要和校验；两段均不含 step 调用。三项
 不覆盖全部调用方工作，不能相加冒充整轮墙钟。该计时范围绑定
 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags 与
-profile 设置，正式二进制限 `build-measurement.ps1` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
+profile 设置，正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
 按性能合同逐轮计算 p50/p95/p99 后取三轮中位数，max 取三轮最坏值，不池化样本求分位；
 合并报告 `urban-performance-comparison-v3` 显式记录该口径（v3 起记录三轮已验证的共同 worker 数；v2 及更早报告不转换），样本数仍报告三轮总数。
 不能把两个正确性运行当性能轮次；工具链

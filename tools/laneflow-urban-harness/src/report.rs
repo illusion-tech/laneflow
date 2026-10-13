@@ -21,14 +21,13 @@ mod log_io;
 mod sustained;
 mod timing;
 
-// v5 起正式测量二进制必须经 build-measurement.ps1 构建：脚本内部执行同一 cargo
+// v5 起正式测量二进制必须经 `xtask build-measurement` 构建：内部执行同一 cargo
 // 命令并附加冻结的 --remap-path-prefix，使封存二进制不含采集机本机路径（#876）。
-// 构建 flag 经编译期环境变量嵌入（wire 审计禁止 harness 携带 build.rs）：包装
-// 脚本按同一映射表写出实际 CARGO_ENCODED_RUSTFLAGS 与归一化（占位符）记录
+// 构建 flag 经编译期环境变量嵌入（wire 审计禁止 harness 携带 build.rs）：xtask
+// 按同一映射表写出实际 CARGO_ENCODED_RUSTFLAGS 与归一化（占位符）记录
 // 各一份，测量 provenance 逐项校验；后者永不携带本机路径。
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v5";
-const BUILD_PARAMETERS: &str =
-    "pwsh -NoProfile -File tools/laneflow-urban-harness/build-measurement.ps1";
+const BUILD_PARAMETERS: &str = "cargo +1.98.0 run --locked -p xtask -- build-measurement";
 const BUILD_RUSTFLAGS: &str = match option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS") {
     Some(value) => value,
     None => "",
