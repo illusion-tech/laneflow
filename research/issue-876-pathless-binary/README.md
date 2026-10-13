@@ -17,7 +17,7 @@ rustup 主目录/工具链、工作树，以及调用方追加的证据根）即
 同一提交两种构建各跑 10k 短窗：交通文件逐字节一致，耗时差异在运行间波动内；
 新构建的二进制扫描不到任何本机路径，并以正式 performance 窗口端到端跑通 v5
 来源校验。该二进制已原样上传（[Research Evidence
-prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-1ad13f70)，
+prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-ec2983ab)，
 索引见 [evidence/measurement-binary.toml](evidence/measurement-binary.toml)，
 制品经重新下载核对 SHA-256），执行身份与公开制品一致。
 
@@ -71,7 +71,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 
 ## 4. 验证
 
-被测提交：`1ad13f70c81b4b191972fdacac716ebc807ff977`（本 PR 实现提交；其后的
+被测提交：`ec2983abb112eb22ba69cb409f8c01f1105cc679`（本 PR 实现提交；其后的
 文档提交不改 harness 构建输入，Cargo 复用同一二进制）。
 采集机：`amd-ryzen9-9955hx-16c-32t-64gb-hyperv` / `win11-balanced-381b4222`。
 证据目录：`<worktree>/target/issue876-evidence/`（Git 忽略的本地生成数据，重建
@@ -82,7 +82,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 | 构建      | SHA-256                                                            |  字节数 | 扫描                                                                                        |
 | --------- | ------------------------------------------------------------------ | ------: | ------------------------------------------------------------------------------------------- |
 | 普通（A） | `a389ec8dc2256e8d5d58b0bb8e67670dd98a813f037f593684f628a92644fe50` | 6748672 | fail：`<user-profile>`/`<rustup-home>`/`<rustup-toolchain>` 各 86 处、`<cargo-home>` 155 处 |
-| 包装（B） | `b6f34d44702fc079f52b3b09f37c32d2299d20e8eee48be272357e875b8766e0` | 6748160 | pass：五类根零命中                                                                          |
+| 包装（B） | `3f633b851d1d8a52da04e66349a0bf12dbb6d2445d82b35c79bf5a9082347a1a` | 6748160 | pass：五类根零命中                                                                          |
 
 ### 4.2 同提交短窗逐字节一致与计时波动
 
@@ -108,18 +108,21 @@ B1↔B2），四份交通文件两臂逐字节相同：
 
 step p95 四轮运行间极差 0.08 ms，同位 A−B 差值（+0.07 / +0.01 ms）落在波动内；
 remap 不改变优化结果与运行行为。短窗命令样本多为零（无命令拍占多数），
-不列为依据。
+不列为依据。计时表测自同源码构建的先前包装二进制；最终包装二进制与其仅
+PE 头时间戳不同（同源码、同 flag），四份交通文件的逐字节一致性已在最终
+二进制上复验（同表）。机器有干扰的批次里两臂整体同向漂移，仍无稳定
+A−B 分离。
 
 ### 4.3 正式 performance 端到端（v5 provenance）
 
 - 负路径：普通构建（A）运行正式 performance 计划在初始化前被
   "missing or unavailable performance provenance" 拒绝，退出码 1，不留输出目录。
 - 正路径：B 跑 10k 正式 performance 一轮（30,624 暖机 + 61,248 观察，共
-  91,872 拍，workers=1），`performance-round-complete`，全程 461.1 s；
+  91,872 拍，workers=1），`performance-round-complete`，全程 547.9 s；
   初始化前与窗口结束后来源校验均通过。计划摘要
   `045b87c845f270e5de51da0b47a9d06eb8f8396cd5ec795a73f9276bc7029ceb`，
-  `measurements.toml`（3,257,622 字节，SHA-256
-  `0e792dff74b922ddb9d7dda9060847109a254fb973e68867be665273ee7f83e0`）记录
+  `measurements.toml`（3,257,786 字节，SHA-256
+  `0cd61058a17e97b318eb94f94bc4cb4ab7f380b2a2e71fc04b5529e2447fc9bd`）记录
   `version = "urban-performance-measurements-v5"` 与 §3 两个新字段的冻结值，
   `diagnostics.json` 的二进制摘要与上传制品一致。
   本轮只验证协议端到端，不构成性能结论，也不替代 #707 的三轮认证。
