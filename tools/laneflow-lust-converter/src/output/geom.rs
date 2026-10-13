@@ -310,10 +310,10 @@ pub struct SurveyBaseCounts {
     /// 输入网络内车道的属主 junction 总数（与清单 junction 列同一解析
     /// 口径，见 `internal_lane_junction`）。
     pub junctions_with_internal_lanes: usize,
-    /// junction 声明归属口径（`int_lane_ids` 非空）的内车道属主总数：
-    /// 非 pinned 通用输入的诚实分母（数值 id 口径对非 LuST 命名会失真
-    /// 乃至报 0）；verified pinned 路径不渲染本字段。
-    pub junctions_with_internal_lanes_declared: usize,
+    /// 归一化道路 junction 归属口径的内车道属主总数（内部辅助节点折叠
+    /// 进道路 junction 簇）：数值 id 口径失真的通用输入的诚实分母
+    /// （#804 评审）；数值口径可用时不渲染本字段。
+    pub junctions_with_internal_lanes_normalized: usize,
 }
 
 /// 确定性诊断清单（验收重划后的正式交付物，见 #253 G1 补充记录）：
@@ -498,20 +498,23 @@ impl InfeasibilityReport {
 ",
             entries.len() - exhausted - precheck - proven
         ));
-        if source.is_verified() {
-            // verified pinned 路径：数值 id 口径（与基线逐字节一致）。
+        if base.junctions_with_internal_lanes > 0 || base.internal_lanes == 0 {
+            // 数值 id 口径可解析（或无内车道）：与清单 junction 列同口径，
+            // pinned 输入无论经哪条入口都渲染基线原句（分母只随输入网络，
+            // 不随来源校验状态变化——#804 评审）。
             out.push_str(&format!(
                 "- 内车道不可行遍布 **{junctions} 个 junction**（XML 有内车道的 junction 共 {} 个）。
 ",
                 thousands_grouped(base.junctions_with_internal_lanes)
             ));
         } else {
-            // 通用输入：数值 id 口径对非 LuST 命名失真（乃至报 0），分母
-            // 改用 junction 声明归属口径并标注口径差异（#804 评审）。
+            // 数值 id 口径对本输入失真（有内车道却解析不出数值 junction
+            // head，如 junction `J` 拥有 `:J_0_0`）：分母改用归一化道路
+            // junction 归属计数并标注口径（#804 评审）。
             out.push_str(&format!(
-                "- 内车道不可行遍布 **{junctions} 个 junction**（junction 归属按 LuST 数值 id 口径；XML 声明拥有内车道的 junction 共 {} 个）。
+                "- 内车道不可行遍布 **{junctions} 个 junction**（junction 归属数值 id 口径不适用；归一化道路 junction 归属共 {} 个）。
 ",
-                thousands_grouped(base.junctions_with_internal_lanes_declared)
+                thousands_grouped(base.junctions_with_internal_lanes_normalized)
             ));
         }
         out.push_str(&format!(
@@ -2236,7 +2239,7 @@ mod tests {
                 internal_lanes: 1,
                 external_lanes: 0,
                 junctions_with_internal_lanes: 0,
-                junctions_with_internal_lanes_declared: 1,
+                junctions_with_internal_lanes_normalized: 1,
             },
         );
         assert!(report.rendered.contains("| 机制 | 预算裁决 | span |"));
@@ -2273,7 +2276,7 @@ mod tests {
                 internal_lanes: 15_953,
                 external_lanes: 8_622,
                 junctions_with_internal_lanes: 1_942,
-                junctions_with_internal_lanes_declared: 3_849,
+                junctions_with_internal_lanes_normalized: 1_994,
             },
         );
         assert!(
@@ -2291,11 +2294,13 @@ mod tests {
                 .rendered
                 .contains("| **合计** | **1** | 24,575 | 0.0% |")
         );
-        // 通用（未验证）路径：junction 分母改用声明归属口径并标注口径
-        assert!(report.rendered.contains(
-            "junction 归属按 LuST 数值 id 口径；XML 声明拥有内车道的 junction 共 3,849 个"
-        ));
-        // verified pinned 路径：保持基线原句（数值 id 口径），字节形态不变
+        // 数值 id 口径可用时渲染基线原句——与来源校验状态无关（未验证
+        // 输入同字节）
+        assert!(
+            report
+                .rendered
+                .contains("（XML 有内车道的 junction 共 1,942 个）")
+        );
         let verified = InfeasibilityReport::render(
             Vec::new(),
             ReportSource::verified("sha256:00".to_owned()),
@@ -2304,13 +2309,33 @@ mod tests {
                 internal_lanes: 15_953,
                 external_lanes: 8_622,
                 junctions_with_internal_lanes: 1_942,
-                junctions_with_internal_lanes_declared: 3_849,
+                junctions_with_internal_lanes_normalized: 1_994,
             },
         );
         assert!(
             verified
                 .rendered
-                .contains("（XML 有内车道的 junction 共 1,942 个）")
+                .contains("（XML 有内车道的 junction 共 1,942 个）"),
+            "分母只随输入网络，不随来源校验状态变化"
+        );
+
+        // 数值 id 口径失真（有内车道但解析为 0，如 junction `J` 拥有
+        // `:J_0_0`）：回退归一化归属口径并标注口径差异
+        let non_lust = InfeasibilityReport::render(
+            Vec::new(),
+            ReportSource::unverified_unknown(),
+            &[],
+            SurveyBaseCounts {
+                internal_lanes: 2,
+                external_lanes: 3,
+                junctions_with_internal_lanes: 0,
+                junctions_with_internal_lanes_normalized: 1,
+            },
+        );
+        assert!(
+            non_lust
+                .rendered
+                .contains("junction 归属数值 id 口径不适用；归一化道路 junction 归属共 1 个")
         );
 
         let zero_base = InfeasibilityReport::render(
@@ -2321,7 +2346,7 @@ mod tests {
                 internal_lanes: 0,
                 external_lanes: 0,
                 junctions_with_internal_lanes: 0,
-                junctions_with_internal_lanes_declared: 0,
+                junctions_with_internal_lanes_normalized: 0,
             },
         );
         assert!(
