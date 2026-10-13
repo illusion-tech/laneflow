@@ -36,10 +36,11 @@ const PROFILE_PINS: [(&str, &str); 8] = [
     ("CARGO_PROFILE_RELEASE_PANIC", "unwind"),
     ("CARGO_PROFILE_RELEASE_STRIP", "false"),
 ];
-/// 会替换编译器或包装编译器的环境变量：全部清除，改由 CARGO_BUILD_RUSTC 钉住
-/// 工具链内的 rustc。
-const COMPILER_ENV_UNSET: [&str; 5] = [
-    "RUSTC",
+/// 会替换编译器的环境变量：清除，改由 CARGO_BUILD_RUSTC 钉住工具链内的 rustc。
+const COMPILER_ENV_UNSET: [&str; 1] = ["RUSTC"];
+/// 编译器包装变量：置空串以显式禁用（Cargo 文档：空串环境变量覆盖 config 的
+/// build.rustc-wrapper / build.rustc-workspace-wrapper；env_remove 反而放行配置值）。
+const COMPILER_WRAPPER_ENV_DISABLE: [&str; 4] = [
     "RUSTC_WRAPPER",
     "CARGO_BUILD_RUSTC_WRAPPER",
     "RUSTC_WORKSPACE_WRAPPER",
@@ -109,10 +110,52 @@ fn rustup_home() -> Result<PathBuf, String> {
 }
 
 /// 小写化并统一分隔符后的前缀匹配：Windows 文件系统大小写不敏感，依赖来源
-/// 检查不得因盘符或路径大小写差异放行逃逸。
+/// 检查不得因盘符或路径大小写差异放行逃逸。按组件边界比较：根本身或其直接
+/// 后代才命中，`D:\work\laneflow-modified` 不算在 `D:\work\laneflow` 内。
 fn path_starts_with_ci(path: &Path, prefix: &Path) -> bool {
     let normalize = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
-    normalize(path).starts_with(&normalize(prefix))
+    let (path, prefix) = (normalize(path), normalize(prefix));
+    let prefix = prefix.trim_end_matches('\\');
+    path == prefix || path.starts_with(&format!("{prefix}\\"))
+}
+
+/// 采集机 Cargo 配置审计：用户级 config 的 profile / paths / source / build 键可
+/// 绕过命令行钉住（package 级 profile 覆盖、本地路径覆盖、wrapper、目录替换、
+/// 换编译器），正式构建一律 fail closed。仓库自身无 `.cargo/config.toml`，
+/// 仓库内配置由干净 checkout 要求覆盖。
+fn check_cargo_config(cargo_home: &Path) -> Result<(), String> {
+    for name in ["config.toml", "config"] {
+        let path = cargo_home.join(name);
+        if !path.is_file() {
+            continue;
+        }
+        let text = fs::read_to_string(&path)
+            .map_err(|e| format!("无法读取 Cargo 配置 <cargo-home>/{name}: {e}"))?;
+        let value: toml::Value = toml::from_str(&text)
+            .map_err(|e| format!("Cargo 配置 <cargo-home>/{name} 解析失败: {e}"))?;
+        for key in ["profile", "paths", "source", "patch"] {
+            if value.get(key).is_some() {
+                return Err(format!(
+                    "Cargo 配置 <cargo-home>/{name} 含冻结构建不允许的 [{key}] 表；请移出测量机配置后重建"
+                ));
+            }
+        }
+        if let Some(build) = value.get("build").and_then(toml::Value::as_table) {
+            for key in [
+                "rustc",
+                "rustc-wrapper",
+                "rustc-workspace-wrapper",
+                "rustflags",
+            ] {
+                if build.contains_key(key) {
+                    return Err(format!(
+                        "Cargo 配置 <cargo-home>/{name} 含冻结构建不允许的 build.{key}；请移出测量机配置后重建"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// 依赖来源根检查：每个依赖包的 manifest 必须落在工作树或 Cargo 主目录内；
@@ -321,6 +364,12 @@ fn derived_roots(repo: &Path) -> Result<Vec<ScanRoot>, String> {
     ])
 }
 
+/// 显式指定的扫描根做词法绝对化（不触文件系统，扫描机上根可以不存在），
+/// 相对拼写否则会被原样当成 needle 而漏扫实际嵌入的绝对路径。
+fn absolute_lexical(path: PathBuf) -> Result<PathBuf, String> {
+    std::path::absolute(&path).map_err(|e| format!("无法绝对化 {}: {e}", path.display()))
+}
+
 fn write_receipt(path: &Path, value: &serde_json::Value) -> Result<(), String> {
     let mut text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
     text.push('\n');
@@ -344,20 +393,28 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
                 receipt_path = Some(PathBuf::from(iter.next().ok_or("--receipt 缺少路径")?))
             }
             "--evidence-root" => {
-                evidence_root = Some(PathBuf::from(
+                evidence_root = Some(absolute_lexical(PathBuf::from(
                     iter.next().ok_or("--evidence-root 缺少路径")?,
-                ))
+                ))?)
             }
-            "--extra-root" => {
-                extra_roots.push(PathBuf::from(iter.next().ok_or("--extra-root 缺少路径")?))
-            }
+            "--extra-root" => extra_roots.push(absolute_lexical(PathBuf::from(
+                iter.next().ok_or("--extra-root 缺少路径")?,
+            ))?),
             other => return Err(format!("未知 build-measurement 参数：{other}")),
         }
     }
     let repo = repo_root()?;
     let sysroot = toolchain_sysroot(&repo)?;
     let cargo_home = cargo_home()?;
+    check_cargo_config(&cargo_home)?;
     check_dependency_roots(&repo, &cargo_home)?;
+    // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
+    // provenance 在测量窗口两端复查干净状态。
+    let source_commit = command_output("git", &["rev-parse", "HEAD"], &repo)?;
+    let source_tree = command_output("git", &["rev-parse", "HEAD^{tree}"], &repo)?;
+    if !command_output("git", &["status", "--porcelain"], &repo)?.is_empty() {
+        return Err("正式测量构建要求干净 checkout；请先提交或清理工作树".into());
+    }
 
     // 唯一映射表：实际 flag 与归一化记录同源于此，二者不可能漂移。
     let map = [
@@ -432,6 +489,9 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     for name in COMPILER_ENV_UNSET {
         command.env_remove(name);
     }
+    for name in COMPILER_WRAPPER_ENV_DISABLE {
+        command.env(name, "");
+    }
     for (name, value) in PROFILE_PINS {
         command.env(name, value);
     }
@@ -490,7 +550,9 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     let receipt = json!({
         "version": "urban-measurement-build-v1",
         "build_parameters": "cargo +1.98.0 run --locked -p xtask -- build-measurement",
-        "cargo_command": CARGO_COMMAND,
+        "cargo_command": format!("{CARGO_COMMAND} --target {host}"),
+        "source_commit": source_commit,
+        "source_tree": source_tree,
         "rustflags_normalized": normalized,
         "build_profile": "release;debug-assertions=off",
         "target": host,
@@ -520,13 +582,13 @@ pub(crate) fn check_binary_paths(args: &[String]) -> Result<(), String> {
                 receipt_path = Some(PathBuf::from(iter.next().ok_or("--receipt 缺少路径")?))
             }
             "--evidence-root" => {
-                evidence_root = Some(PathBuf::from(
+                evidence_root = Some(absolute_lexical(PathBuf::from(
                     iter.next().ok_or("--evidence-root 缺少路径")?,
-                ))
+                ))?)
             }
-            "--extra-root" => {
-                extra_roots.push(PathBuf::from(iter.next().ok_or("--extra-root 缺少路径")?))
-            }
+            "--extra-root" => extra_roots.push(absolute_lexical(PathBuf::from(
+                iter.next().ok_or("--extra-root 缺少路径")?,
+            ))?),
             other if binary.is_none() && !other.starts_with("--") => {
                 binary = Some(PathBuf::from(other))
             }
@@ -630,6 +692,15 @@ mod tests {
         assert!(!path_starts_with_ci(
             Path::new("D:/vendor/x"),
             Path::new("e:\\.cargo")
+        ));
+        // 组件边界：兄弟目录的前缀共享不算命中。
+        assert!(!path_starts_with_ci(
+            Path::new("D:/work/laneflow-modified/crate"),
+            Path::new("D:\\work\\laneflow")
+        ));
+        assert!(path_starts_with_ci(
+            Path::new("D:/work/laneflow/crate"),
+            Path::new("D:\\work\\laneflow")
         ));
     }
 }
