@@ -261,7 +261,7 @@ impl MeasurementProvenance {
             .to_owned();
         let provenance = Self {
             git_commit: read("git", &["rev-parse", "HEAD"])?,
-            git_status: read("git", &["status", "--porcelain"])?,
+            git_status: read("git", &["status", "--porcelain", "--untracked-files=all"])?,
             rustc,
             cargo: read("cargo", &["+1.98.0", "-V"])?,
             target,
@@ -824,7 +824,7 @@ pub fn run_with_options(
         "invocation":std::env::args().collect::<Vec<_>>(), "memory_measurement":null,
         "diagnostics_enabled":diagnostics.is_enabled(), "saves":save_timings,
         "git_commit_at_run":command_output("git", &["rev-parse", "HEAD"]),
-        "git_status_at_run":command_output("git", &["status", "--porcelain"])}),
+        "git_status_at_run":command_output("git", &["status", "--porcelain", "--untracked-files=all"])}),
     )?;
     result
         .files
