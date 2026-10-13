@@ -394,6 +394,7 @@ fn convert_network_packages(
                 .len(),
             junctions_with_internal_lanes_normalized:
                 crate::convert::junction::junctions_with_internal_lanes_normalized(network)?,
+            input_matches_lust_anchors: network.location.matches_lust_anchors(),
         };
         compile_network_lfca_with_infeasibility_report(
             &traffic,
