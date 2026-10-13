@@ -161,7 +161,7 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
             .map_err(|e| format!("无法读取 Cargo 配置 {}: {e}", path.display()))?;
         let value: toml::Value = toml::from_str(&text)
             .map_err(|e| format!("Cargo 配置 {} 解析失败: {e}", path.display()))?;
-        for key in ["profile", "paths", "source", "patch", "env"] {
+        for key in ["profile", "paths", "source", "patch", "env", "unstable"] {
             if value.get(key).is_some() {
                 return Err(format!(
                     "Cargo 配置 {label} 含冻结构建不允许的 [{key}] 表；请移出测量机配置后重建"
@@ -183,6 +183,7 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                 "rustc-wrapper",
                 "rustc-workspace-wrapper",
                 "rustflags",
+                "build-dir",
             ] {
                 if build.contains_key(key) {
                     return Err(format!(
@@ -191,18 +192,13 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                 }
             }
         }
-        if let Some(target) = value.get("target").and_then(toml::Value::as_table) {
-            for settings in target.values() {
-                if let Some(table) = settings.as_table() {
-                    for key in ["linker", "runner", "rustflags"] {
-                        if table.contains_key(key) {
-                            return Err(format!(
-                                "Cargo 配置 {label} 含冻结构建不允许的 target.*.{key}；请移出测量机配置后重建"
-                            ));
-                        }
-                    }
-                }
-            }
+        // target.* 整表拒绝：直达键（linker/runner/rustflags）与嵌套的
+        // target.<triple>.<links> 构建脚本覆盖（rustc-link-lib/cfg/env 注入）
+        // 都会改变产物。
+        if value.get("target").is_some() {
+            return Err(format!(
+                "Cargo 配置 {label} 含冻结构建不允许的 [target] 表（含 target.<triple>.<links> 构建脚本覆盖）；请移出测量机配置后重建"
+            ));
         }
         // 配置的 include 键递归并入审计（相对路径相对当前配置文件目录解析）。
         if let Some(include_value) = value.get("include") {
@@ -571,12 +567,16 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         .current_dir(&repo)
         .env("CARGO_ENCODED_RUSTFLAGS", &actual)
         .env("LANEFLOW_MEASUREMENT_RUSTFLAGS", &normalized)
+        .env("LANEFLOW_MEASUREMENT_COMMIT", &source_commit)
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_TARGET_DIR", &target_dir)
         // CARGO_ENCODED_RUSTFLAGS 在 Cargo flag 来源中优先级最高，覆盖 config 的
         // build.rustflags；RUSTFLAGS 及编译器包装变量一律清除，编译器钉到工具链内 rustc。
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_BUILD_TARGET")
+        // 中间产物目录钉进全新清理的目录内（build.build-dir 或
+        // CARGO_BUILD_BUILD_DIR 不得把可复用缓存挪到未扫描处）。
+        .env("CARGO_BUILD_BUILD_DIR", target_dir.join("build"))
         .env(
             "CARGO_BUILD_RUSTC",
             sysroot
@@ -586,6 +586,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     for name in COMPILER_ENV_UNSET {
         command.env_remove(name);
     }
+    command.env_remove("RUSTC_BOOTSTRAP");
     for name in COMPILER_WRAPPER_ENV_DISABLE {
         command.env(name, "");
     }
