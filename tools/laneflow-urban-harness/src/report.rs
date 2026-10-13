@@ -32,6 +32,13 @@ const BUILD_RUSTFLAGS: &str = match option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS"
     Some(value) => value,
     None => "",
 };
+// 构建提交经编译期环境变量嵌入，运行时 provenance 要求其等于当前 HEAD：
+// 换提交后复用旧二进制（哪怕是纯文档提交）都失败；rustc dep-info 跟踪
+// option_env!，构建入口设置的值变化会触发重编。
+const BUILD_SOURCE_COMMIT: &str = match option_env!("LANEFLOW_MEASUREMENT_COMMIT") {
+    Some(value) => value,
+    None => "",
+};
 #[cfg(not(debug_assertions))]
 const BUILD_PROFILE: &str = "release;debug-assertions=off";
 #[cfg(debug_assertions)]
@@ -239,6 +246,7 @@ struct MeasurementProvenance {
     build_parameters: String,
     build_rustflags: String,
     build_profile: String,
+    build_commit: String,
     os: String,
     architecture: String,
     hardware_role: String,
@@ -268,6 +276,7 @@ impl MeasurementProvenance {
             build_parameters: BUILD_PARAMETERS.into(),
             build_rustflags: BUILD_RUSTFLAGS.into(),
             build_profile: BUILD_PROFILE.into(),
+            build_commit: BUILD_SOURCE_COMMIT.into(),
             os: std::env::consts::OS.into(),
             architecture: std::env::consts::ARCH.into(),
             hardware_role,
@@ -288,6 +297,7 @@ impl MeasurementProvenance {
             &self.build_parameters,
             &self.build_rustflags,
             &self.build_profile,
+            &self.build_commit,
             &self.os,
             &self.architecture,
             &self.hardware_role,
@@ -314,6 +324,7 @@ impl MeasurementProvenance {
             || self.build_parameters != BUILD_PARAMETERS
             || self.build_rustflags != EXPECTED_BUILD_RUSTFLAGS
             || self.build_profile != EXPECTED_BUILD_PROFILE
+            || self.build_commit != self.git_commit
             || self.timing_range != TIMING_RANGE
         {
             return Err(invalid(
@@ -1742,6 +1753,7 @@ mod tests {
             "cargo":"cargo 1.98.0 (fixture)", "target":"x86_64-pc-windows-msvc",
             "build_parameters":BUILD_PARAMETERS, "os":"windows", "architecture":"x86_64",
             "build_rustflags":EXPECTED_BUILD_RUSTFLAGS, "build_profile":EXPECTED_BUILD_PROFILE,
+            "build_commit":"a".repeat(40),
             "hardware_role":"fixture-machine", "power_role":"balanced", "workers":1,
             "timing_range":TIMING_RANGE,
             "command_samples_ns":[1,2], "traffic_world_step_samples_ns":[3,4],
@@ -2289,6 +2301,7 @@ mod tests {
             ("power_role", json!("power-saver")),
             ("workers", json!(2)),
             ("timing_range", json!("whole-command-phase")),
+            ("build_commit", json!("b".repeat(40))),
             ("version", json!("urban-performance-measurements-v4")),
             ("version", json!("urban-performance-measurements-v3")),
             ("version", json!("urban-performance-measurements-v1")),
@@ -2312,6 +2325,7 @@ mod tests {
             "build_parameters",
             "build_rustflags",
             "build_profile",
+            "build_commit",
             "os",
             "architecture",
             "hardware_role",
@@ -2336,6 +2350,7 @@ mod tests {
             "build_parameters",
             "build_rustflags",
             "build_profile",
+            "build_commit",
             "os",
             "architecture",
             "hardware_role",
