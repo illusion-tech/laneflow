@@ -94,7 +94,7 @@ Refs: #12
 
 - 标题必须使用 `!`。
 - `BREAKING CHANGE:` 必须提供单行非空说明，并放在 `Refs` / `Closes` 之前。
-- 若写 `Harness:` / `Model:`，这两行必须放在 `BREAKING CHANGE:` 之前，见第 6 节。
+- 若同时写 AI 署名，`BREAKING CHANGE:` 留在 trailer 段之前，并空一行。`BREAKING CHANGE:` 的键名含空格，写进 trailer 段会让 Git 整段都解析不到。见第 6 节。
 - `Refs` / `Closes` 必须是最后一个非空 footer 行。
 - 复杂迁移说明应写入 PR、design 或 ADR。
 
@@ -134,9 +134,10 @@ Model: <实际使用的模型标识>
 - 键名大小写必须精确。写成 `harness:` 或 `MODEL:` 会拒绝，而不是当成普通正文忽略。
   冒号后有一个空格，取值去掉首尾空白后不得为空。
 - `Harness:` 的下一行必须是 `Model:`，中间不能空行。
-- 两行必须位于 `BREAKING CHANGE:`（若有）和 `Refs:` / `Closes:` 之前。
-- `Harness:`、`Model:`、可选的 `BREAKING CHANGE:` 与 `Refs:` / `Closes:` 必须属于提交末尾的同一段 trailer，中间不能空行。空行会让 Git 只解析最后一段。
-- `Refs:` / `Closes:` 仍是最后一个非空行。人类 `Co-authored-by` 也不得写在它后面。
+- 这两行和 `Refs:` / `Closes:` 属于提交末尾的同一段 Git trailer，前面必须有空行，段内不能再有空行。
+- `BREAKING CHANGE:` 不是 Git trailer 键。有 AI 署名时把它写在这段之前，不要写进 trailer 段。
+- `Refs:` / `Closes:` 仍是最后一个非空行。人类 `Co-authored-by` 也不得写在它后面。键名和冒号之间的空格仍视为同一个 `Co-authored-by`。
+- 也拒绝 `Made-with:` 标注 AI 工具，例如 Cursor 默认的 `Made-with: Cursor`。
 - 不校验取值是否属于白名单。`Model` 必须填写提交时实际使用的模型，不得照抄工具
   自动生成、且可能过期的模型名。
 
@@ -156,10 +157,11 @@ Refs: #12
 ```text
 feat(runtime)!: 调整 tick API
 
+BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
+
 Co-authored-by: Ada Lovelace <ada@example.com>
 Harness: Claude Code
 Model: claude-opus-4.7
-BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
 Refs: #12
 ```
 
@@ -191,7 +193,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
 - 不以 `Co-authored-by` 标注 AI 工具或模型；人类合作者除外。
-- `Harness:` / `Model:` 要么都不写，要么成对、非空，与后续 footer 连成同一段，并且位于 `BREAKING CHANGE:` 与 `Refs:` / `Closes:` 之前。
+- `Harness:` / `Model:` 要么都不写，要么成对、非空，和 `Refs:` / `Closes:` 组成末尾 trailer 段。段前有空行，段内没有 `BREAKING CHANGE:`。
 
 Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下条件的机器提交提供
 窄例外：

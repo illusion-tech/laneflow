@@ -48,8 +48,9 @@ AI Agent 应遵守以下流程：
 Agent 不得用实现方便、临时用途或 G1 不适用自行豁免。
 
 提交信息应遵守 `docs/reference/commit-convention.md`：Conventional Commits 标题、
-`Refs: #<id>`，标题带 `!` 时加上 `BREAKING CHANGE:`。AI 参与时另在该 footer 之前成对写
-`Harness:` 与 `Model:`，不要用 `Co-authored-by` 标注工具或模型。
+`Refs: #<id>`，标题带 `!` 时加上 `BREAKING CHANGE:`。AI 参与时在末尾 trailer 段成对写
+`Harness:` 与 `Model:`，段前空一行；`BREAKING CHANGE:` 留在这段之前。不要用 `Co-authored-by`
+或 `Made-with:` 标注工具或模型。
 
 修改 Rust 代码时还应读取 `docs/reference/rust-code-style.md`。其中无法由 `rustfmt`
 表达的规则只约束本次触及范围；不得在无关功能 PR 中顺带重排历史格式。

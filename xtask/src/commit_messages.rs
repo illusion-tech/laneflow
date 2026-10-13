@@ -20,7 +20,8 @@ const AI_TOOL_COAUTHOR_EMAILS: &[&str] = &[
     "noreply@openai.com",
     "cursoragent@cursor.com",
 ];
-const AI_COAUTHOR_REWRITE_HINT: &str = "`Co-authored-by` 不得标注 AI 工具或模型。请删除该行，并在 `BREAKING CHANGE:` 与 `Refs:` / `Closes:` 之前成对写入 `Harness: <执行框架>` 和 `Model: <实际模型>`";
+const AI_COAUTHOR_REWRITE_HINT: &str = "`Co-authored-by` 不得标注 AI 工具或模型。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架>` 和 `Model: <实际模型>`";
+const AI_MADE_WITH_REWRITE_HINT: &str = "`Made-with:` 不得标注 AI 工具。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架>` 和 `Model: <实际模型>`";
 
 /// 读取并校验单个 commit message 文件（commit-msg 钩子入口）：归一化换行、剥离 Git 注释行后按合同校验。
 pub(crate) fn check_commit_message_file(path: &str) -> Result<(), String> {
@@ -456,9 +457,31 @@ fn has_single_valid_breaking_change_footer(message: &str) -> bool {
         && valid_breaking_change_footer_line(lines[breaking_index])
         && valid_issue_footer_line(lines[last_non_empty_index])
         && breaking_index < last_non_empty_index
-        && lines[breaking_index + 1..last_non_empty_index]
+        && (lines[breaking_index + 1..last_non_empty_index]
             .iter()
             .all(|line| line.trim().is_empty())
+            || attribution_trailer_follows_breaking(&lines, breaking_index, last_non_empty_index))
+}
+
+fn attribution_trailer_follows_breaking(
+    lines: &[&str],
+    breaking_index: usize,
+    last_index: usize,
+) -> bool {
+    let Some(relative_start) = lines[breaking_index + 1..=last_index]
+        .iter()
+        .position(|line| !line.trim().is_empty())
+    else {
+        return false;
+    };
+    let block_start = breaking_index + 1 + relative_start;
+    block_start > breaking_index + 1
+        && lines[block_start..=last_index]
+            .iter()
+            .all(|line| looks_like_git_trailer(line))
+        && lines[block_start..=last_index]
+            .iter()
+            .any(|line| trailer_key_is(line, "Harness") || trailer_key_is(line, "Model"))
 }
 
 fn is_issue_footer_candidate(line: &str) -> bool {
@@ -485,12 +508,49 @@ fn ai_attribution_errors(message: &str) -> Vec<String> {
     {
         errors.push(AI_COAUTHOR_REWRITE_HINT.to_string());
     }
+    if message
+        .lines()
+        .any(|line| made_with_value(line).is_some_and(contains_ai_tool_token))
+    {
+        errors.push(AI_MADE_WITH_REWRITE_HINT.to_string());
+    }
     errors.extend(harness_model_errors(message));
     errors
 }
 
 fn coauthored_by_value(line: &str) -> Option<&str> {
-    strip_prefix_ignore_ascii_case(line, "Co-authored-by:").map(str::trim)
+    trailer_value_ignore_key_case(line, "Co-authored-by")
+}
+
+fn made_with_value(line: &str) -> Option<&str> {
+    trailer_value_ignore_key_case(line, "Made-with")
+}
+
+fn trailer_value_ignore_key_case<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let rest = strip_prefix_ignore_ascii_case(line.trim(), key)?;
+    let rest = rest.trim_start().strip_prefix(':')?;
+    Some(rest.trim())
+}
+
+fn looks_like_git_trailer(line: &str) -> bool {
+    git_trailer_token(line).is_some()
+}
+
+fn trailer_key_is(line: &str, key: &str) -> bool {
+    git_trailer_token(line).is_some_and(|token| token.eq_ignore_ascii_case(key))
+}
+
+fn git_trailer_token(line: &str) -> Option<&str> {
+    let (token, _) = line.trim().split_once(':')?;
+    let token = token.trim();
+    if token.is_empty()
+        || !token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    {
+        return None;
+    }
+    Some(token)
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
@@ -621,31 +681,13 @@ fn push_attribution_position_errors(
     model_hits: &[AttributionHit],
     errors: &mut Vec<String>,
 ) {
-    let breaking_index = lines
-        .iter()
-        .position(|line| line.starts_with("BREAKING CHANGE:"));
     let issue_footer_index = lines
         .iter()
         .rposition(|line| is_issue_footer_candidate(line));
-    let mut after_breaking = false;
-    let mut after_issue_footer = false;
-
-    for index in harness_hits
+    let after_issue_footer = harness_hits
         .iter()
         .chain(model_hits.iter())
-        .map(|hit| hit.index)
-    {
-        if breaking_index.is_some_and(|breaking| index > breaking) {
-            after_breaking = true;
-        }
-        if issue_footer_index.is_some_and(|footer| index > footer) {
-            after_issue_footer = true;
-        }
-    }
-
-    if after_breaking {
-        errors.push("`Harness:` / `Model:` 必须位于 `BREAKING CHANGE:` 之前".to_string());
-    }
+        .any(|hit| issue_footer_index.is_some_and(|footer| hit.index > footer));
     if after_issue_footer {
         errors.push("`Harness:` / `Model:` 必须位于 `Refs:` / `Closes:` 之前".to_string());
     }
@@ -677,6 +719,28 @@ fn push_attribution_trailer_block_error(
             "`Harness:` / `Model:` 必须与后续 footer 连成同一段 trailer，中间不能空行".to_string(),
         );
     }
+
+    let block_start = git_trailer_block_start(lines, first_index);
+    if block_start == 0 || !lines[block_start - 1].trim().is_empty() {
+        errors.push("AI 署名 trailer 段之前必须有空行".to_string());
+    }
+    if lines[block_start..=last_index]
+        .iter()
+        .any(|line| !line.trim().is_empty() && !looks_like_git_trailer(line))
+    {
+        errors.push(
+            "`BREAKING CHANGE:` 不能写进 Git trailer 段。请把它放在空行之前，trailer 段只保留 `Harness:`、`Model:` 与 `Refs:` / `Closes:`"
+                .to_string(),
+        );
+    }
+}
+
+fn git_trailer_block_start(lines: &[&str], first_attribution: usize) -> usize {
+    let mut start = first_attribution;
+    while start > 0 && looks_like_git_trailer(lines[start - 1]) {
+        start -= 1;
+    }
+    start
 }
 
 #[cfg(test)]
@@ -1173,10 +1237,7 @@ Refs: #12
             message_with_body(
                 "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: Claude Code\nModel: claude-opus-4.7",
             ),
-            BREAKING_MESSAGE.replace(
-                "BREAKING CHANGE:",
-                "Harness: Claude Code\nModel: claude-opus-4.7\nBREAKING CHANGE:",
-            ),
+            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: Claude Code\nModel: claude-opus-4.7\nRefs: #12\n".to_string(),
             VALID_MESSAGE.to_string(),
         ] {
             assert_accepted(&message);
@@ -1274,13 +1335,35 @@ Refs: #12
     }
 
     #[test]
-    fn rejects_harness_model_after_breaking_change() {
+    fn rejects_breaking_change_inside_attribution_trailer_block() {
         let message = BREAKING_MESSAGE.replace(
             "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nRefs: #12",
             "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: Cursor\nModel: example-model\nRefs: #12",
         );
 
-        assert_rejected(&message, "必须位于 `BREAKING CHANGE:` 之前");
+        assert_rejected(&message, "trailer 段之前必须有空行");
+    }
+
+    #[test]
+    fn rejects_attribution_trailer_without_leading_blank_line() {
+        assert_rejected(
+            "docs(governance): 对齐提交规范\nHarness: Cursor\nModel: example-model\nRefs: #23\n",
+            "trailer 段之前必须有空行",
+        );
+    }
+
+    #[test]
+    fn rejects_coauthored_by_with_space_before_colon() {
+        assert_rejected(
+            &message_with_body("Co-authored-by : Codex <noreply@openai.com>"),
+            "不得标注 AI 工具",
+        );
+    }
+
+    #[test]
+    fn rejects_made_with_cursor_trailer() {
+        assert_rejected(&message_with_body("Made-with: Cursor"), "`Made-with:`");
+        assert_rejected(&message_with_body("Made-with : Cursor"), "`Made-with:`");
     }
 
     #[test]
