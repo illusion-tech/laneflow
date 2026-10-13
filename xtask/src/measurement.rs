@@ -26,7 +26,7 @@ const TOOLCHAIN_ARG: &str = "+1.98.0";
 /// 本常量记录脚本内部实际执行的命令）。
 const CARGO_COMMAND: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
 /// 固定 profile 钉值：覆盖采集机可能配置的环境或 config 覆盖。
-const PROFILE_PINS: [(&str, &str); 8] = [
+const PROFILE_PINS: [(&str, &str); 10] = [
     ("CARGO_PROFILE_RELEASE_OPT_LEVEL", "3"),
     ("CARGO_PROFILE_RELEASE_DEBUG", "false"),
     ("CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS", "false"),
@@ -35,6 +35,8 @@ const PROFILE_PINS: [(&str, &str); 8] = [
     ("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16"),
     ("CARGO_PROFILE_RELEASE_PANIC", "unwind"),
     ("CARGO_PROFILE_RELEASE_STRIP", "false"),
+    ("CARGO_PROFILE_RELEASE_RPATH", "false"),
+    ("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "false"),
 ];
 /// 会替换编译器的环境变量：清除，改由 CARGO_BUILD_RUSTC 钉住工具链内的 rustc。
 const COMPILER_ENV_UNSET: [&str; 1] = ["RUSTC"];
@@ -76,6 +78,10 @@ fn command_output(program: &str, args: &[&str], cwd: &Path) -> Result<String, St
     let output = Command::new(program)
         .args(args)
         .current_dir(cwd)
+        // 自动化环境可能导出 GIT_DIR/GIT_WORK_TREE，把 git 命令重定向到别的
+        // checkout；来源核对必须绑定 cwd 指向的仓库。
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
         .output()
         .map_err(|e| format!("无法执行 {program}: {e}"))?;
     if !output.status.success() {
