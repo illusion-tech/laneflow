@@ -252,7 +252,7 @@ fn ascii_lower(bytes: &[u8]) -> Vec<u8> {
 /// `offset` 覆盖奇偶两种对齐：宽字符串在文件内可从任意字节偏移开始。
 fn utf16le_fold(bytes: &[u8], offset: usize) -> Vec<u8> {
     let mut out = bytes.to_vec();
-    for pair in out[offset..].chunks_exact_mut(2) {
+    for pair in out[offset..].as_chunks_mut::<2>().0 {
         if pair[1] == 0 && pair[0].is_ascii_uppercase() {
             pair[0] += 32;
         }
