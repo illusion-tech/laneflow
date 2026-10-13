@@ -11,7 +11,14 @@ targets = [
 [advisories]
 unmaintained = "workspace"
 unsound = "all"
-ignore = []
+ignore = [
+    # #936 ruzstd 0.8.3 解压炸弹（仅 DoS）。来源：laneflow-bevy `native-example` → bevy 0.19
+    # `3d_api` 固定启用的 `zstd_rust` → bevy_image（要求 ruzstd ^0.8，0.20 亦然）。只用于解码
+    # Bevy 编译进二进制的 KTX2 LUT；LaneFlow 不经 AssetServer 加载外部资源，默认特性不含该依赖。
+    # 替代方案（改用 zstd_c、放弃 3d_api、patch 上游）代价高于收益。
+    # 到期：Cargo.lock 不再含 ruzstd < 0.9.1 时删除，最迟在下一次 Bevy 升级 PR 中复核；owner @wangzishi。
+    { id = "RUSTSEC-2026-0344", reason = "#936: ruzstd 只解码 Bevy 内嵌的可信 KTX2 资产；等待 bevy_image 支持 ruzstd >= 0.9.1" },
+]
 
 [licenses]
 allow = [
