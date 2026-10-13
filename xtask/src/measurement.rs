@@ -47,11 +47,14 @@ const COMPILER_WRAPPER_ENV_DISABLE: [&str; 4] = [
     "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
 ];
 /// 本机原生工具链变量：依赖的构建脚本（如 blake3）会读它们选择汇编/内联路径，
-/// 采集机残留值会静默改变产物；一律清除（含目标三元组限定形式，构建时按 host
-/// 展开）。
-const NATIVE_TOOLCHAIN_ENV_UNSET: [&str; 7] = [
-    "CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "AR", "ARFLAGS",
+/// 采集机残留值会静默改变产物；一律清除（含 HOST_/TARGET_ 前缀与目标三元组的
+/// 破折号/下划线限定形式，构建时按 host 展开）。
+const NATIVE_TOOLCHAIN_ENV_UNSET: [&str; 8] = [
+    "CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "AR", "ARFLAGS", "RANLIB",
 ];
+/// cc-rs 的构建控制变量（只作全局开关，无目标限定形式）：同样清除。
+const NATIVE_CONTROL_ENV_UNSET: [&str; 3] =
+    ["CRATE_CC_NO_DEFAULTS", "CROSS_COMPILE", "CC_MASM_ASM"];
 
 struct RemapRoot {
     from: PathBuf,
@@ -149,7 +152,9 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
     let mut visited = std::collections::HashSet::new();
     let mut queue: std::collections::VecDeque<(PathBuf, String)> = candidates.into();
     while let Some((path, label)) = queue.pop_front() {
-        if !path.is_file() || !visited.insert(path.to_string_lossy().to_lowercase()) {
+        // 去重不折叠大小写：大小写敏感文件系统上仅大小写不同的两个 include
+        // 都会被 Cargo 合并，必须各自接受审计。
+        if !path.is_file() || !visited.insert(path.to_string_lossy().into_owned()) {
             continue;
         }
         let text = fs::read_to_string(&path)
@@ -162,6 +167,15 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                     "Cargo 配置 {label} 含冻结构建不允许的 [{key}] 表；请移出测量机配置后重建"
                 ));
             }
+        }
+        if value
+            .get("resolver")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|resolver| resolver.contains_key("lockfile-path"))
+        {
+            return Err(format!(
+                "Cargo 配置 {label} 含冻结构建不允许的 resolver.lockfile-path（替换锁文件）；请移出测量机配置后重建"
+            ));
         }
         if let Some(build) = value.get("build").and_then(toml::Value::as_table) {
             for key in [
@@ -477,9 +491,17 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     check_dependency_roots(&repo, &cargo_home)?;
     // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
     // provenance 在测量窗口两端复查干净状态。
+    // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all。
+    let git_status = |repo: &Path| {
+        command_output(
+            "git",
+            &["status", "--porcelain", "--untracked-files=all"],
+            repo,
+        )
+    };
     let source_commit = command_output("git", &["rev-parse", "HEAD"], &repo)?;
     let source_tree = command_output("git", &["rev-parse", "HEAD^{tree}"], &repo)?;
-    if !command_output("git", &["status", "--porcelain"], &repo)?.is_empty() {
+    if !git_status(&repo)?.is_empty() {
         return Err("正式测量构建要求干净 checkout；请先提交或清理工作树".into());
     }
 
@@ -578,6 +600,9 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         command.env_remove(format!("HOST_{name}"));
         command.env_remove(format!("TARGET_{name}"));
     }
+    for name in NATIVE_CONTROL_ENV_UNSET {
+        command.env_remove(name);
+    }
     for (name, value) in PROFILE_PINS {
         command.env(name, value);
     }
@@ -657,6 +682,13 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         "binary": scan["binary"].clone(),
         "scan": scan,
     });
+    // 构建与扫描完成后复核源码树未漂移（构建期间的改动不得进入已封存二进制）。
+    if command_output("git", &["rev-parse", "HEAD"], &repo)? != source_commit
+        || command_output("git", &["rev-parse", "HEAD^{tree}"], &repo)? != source_tree
+        || !git_status(&repo)?.is_empty()
+    {
+        return Err("构建期间源码树发生漂移；回执未写出".into());
+    }
     write_receipt(&receipt_path, &receipt)?;
     // 控制台输出遵循占位符约定：路径一律以 <worktree> 形式出现。
     let display = receipt_path
