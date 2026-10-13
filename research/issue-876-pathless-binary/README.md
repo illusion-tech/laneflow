@@ -56,12 +56,18 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
   provenance 全等比较自动覆盖新字段。
 - `xtask/src/measurement.rs` 的 `build-measurement`：正式构建唯一入口；同一张
   映射表写出实际 `CARGO_ENCODED_RUSTFLAGS` 与归一化记录（来源端替换为占位符，
-  永不携带本机路径），固定 target 目录 `target/release-measurement/`（与日常
-  `target/release` 互不触发重建）。同时钉住 release profile 各键
-  （`CARGO_PROFILE_RELEASE_*`）与工具链内 rustc（`CARGO_BUILD_RUSTC`，清除
-  `RUSTC`/wrapper 类变量），并要求 `cargo metadata` 的全部依赖源码落在工作树
-  或 Cargo 主目录内（目录替换等逃逸 fail closed）。`option_env!` 不进 Cargo
-  重建指纹，构建后正向断言二进制嵌入了期望的归一化串（防陈旧复用），再固定
+  永不携带本机路径）；每次正式构建使用全新 target 目录
+  `target/release-measurement/`（先清空，杜绝构建脚本缓存携带未声明输入）。
+  同时钉住 release profile 各键
+  （`CARGO_PROFILE_RELEASE_*`）与工具链内 rustc（`CARGO_BUILD_RUSTC`），清除
+  `RUSTC`/wrapper 类变量与本机原生工具链变量（`CC`/`CFLAGS`/`AR` 等的
+  plain/`HOST_`/`TARGET_`/目标三元组限定形式），审计采集机 Cargo 配置
+  （用户级与祖先目录，递归跟随 `include`；拒绝 profile/paths/source/patch/env
+  表与 build.rustc*/rustflags、target.*.linker/runner/rustflags），并要求
+  `cargo metadata` 的全部依赖源码落在工作树
+  或 Cargo 主目录内（目录替换等逃逸 fail closed）。构建后正向断言二进制嵌入了
+  期望的归一化串（rustc dep-info 本已跟踪 `option_env!` 触发重编，此为纵深
+  防御），再固定
   执行扫描；回执（占位符、字节数、SHA-256）写入 `--receipt`（默认 target 下，
   不回写源码树）。
 - 同模块的 `check-binary-paths`：独立扫描入口，ASCII 大小写折叠后对 UTF-8
