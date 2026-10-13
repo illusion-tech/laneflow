@@ -10,7 +10,8 @@
 
 - `glossary.md`：双语术语单一事实源；中文术语和中文定义权威。
 - `commit-convention.md`：Conventional Commits、`Refs` / `Closes`、必要时的
-  `BREAKING CHANGE:`；PR 默认经 Merge Queue 最终 Rebase。
+  `BREAKING CHANGE:`，以及 AI 署名的 `Harness:` / `Model:`；PR 默认经 Merge Queue
+  最终 Rebase。
 - `rust-code-style.md`：`rustfmt` 无法表达的仓库级可读性约定。
 - `validation-matrix.md`：切片类型到最小验证要求。
 - `mcpls.md`：可选 Rust 语义开发工具的安装、信任与回退边界。

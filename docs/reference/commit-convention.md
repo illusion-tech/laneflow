@@ -1,14 +1,15 @@
 # 提交规范
 
 **文档状态**: Active
-**最后更新**: 2026-08-27
+**最后更新**: 2026-10-13
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查
 
 ## 1. 目标
 
 LaneFlow 的提交信息以 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/)
-为标题基础。机器只检查标题、`Refs` / `Closes` footer，以及破坏性变更的
-`BREAKING CHANGE:`。切片、影响和验证写在 PR 模板里，不进 commit 门禁。
+为标题基础。机器检查标题、`Refs` / `Closes` footer、破坏性变更的
+`BREAKING CHANGE:`，以及第 6 节的 AI 署名。切片、影响和验证写在 PR 模板里，
+不进 commit 门禁。
 
 ## 2. 推荐格式
 
@@ -93,6 +94,7 @@ Refs: #12
 
 - 标题必须使用 `!`。
 - `BREAKING CHANGE:` 必须提供单行非空说明，并放在 `Refs` / `Closes` 之前。
+- 若写 `Harness:` / `Model:`，这两行必须放在 `BREAKING CHANGE:` 之前，见第 6 节。
 - `Refs` / `Closes` 必须是最后一个非空 footer 行。
 - 复杂迁移说明应写入 PR、design 或 ADR。
 
@@ -105,14 +107,73 @@ Refs: #12
 历史提交上残留的 `Gate` / `Slice` / `Impact` / `Scope` / `Validation` / `Docs`
 字段可以忽略，不强制改写。新提交不必再写这些字段。
 
-## 6. 与 PR 的关系
+## 6. AI 署名
+
+`Co-authored-by` 只用于人类合作者。不得用它标注 AI 执行框架或模型。本地
+`commit-msg` hook 与 CI 的 `Commit message` 使用同一套校验。
+
+`Co-authored-by` 键名大小写不敏感。取值满足任一条件即拒绝，并提示改写为
+`Harness:` / `Model:`：
+
+- 显示名按 ASCII 词边界包含 `cursor`、`claude`、`codex` 或 `copilot`
+  （大小写不敏感）。没有尖括号时，整段取值按显示名处理。
+- 尖括号内邮箱的 local-part 按同样的词边界命中上述标识。
+- 邮箱精确等于 `noreply@anthropic.com`、`noreply@openai.com` 或
+  `cursoragent@cursor.com`（大小写不敏感）。
+
+不检查邮箱域名，因此 `researcher@openai.com` 不会仅因域名被拒绝。词边界
+也不会把 `Claudette` 当成 `claude`。
+
+AI 参与的提交改用下面两行，纯人工提交可以不写。出现时必须同时写，且各写一次：
+
+```text
+Harness: <执行框架>
+Model: <实际使用的模型标识>
+```
+
+- 键名大小写必须精确。写成 `harness:` 或 `MODEL:` 会拒绝，而不是当成普通正文忽略。
+  冒号后有一个空格，取值去掉首尾空白后不得为空。
+- `Harness:` 的下一行必须是 `Model:`，中间不能空行。
+- 两行必须位于 `BREAKING CHANGE:`（若有）和 `Refs:` / `Closes:` 之前。
+- `Refs:` / `Closes:` 仍是最后一个非空行。人类 `Co-authored-by` 也不得写在它后面。
+- 不校验取值是否属于白名单。`Model` 必须填写提交时实际使用的模型，不得照抄工具
+  自动生成、且可能过期的模型名。
+
+执行框架可以写成 `Codex CLI`、`Claude Code` 或 `Cursor`，也可以是其他非空名称。
+下面只说明格式，校验不核对这些取值：
+
+```text
+feat(runtime): 校验 route segment 连续性
+
+Harness: Claude Code
+Model: claude-opus-4.7
+
+Refs: #12
+```
+
+带人类合作者和破坏性变更时：
+
+```text
+feat(runtime)!: 调整 tick API
+
+Co-authored-by: Ada Lovelace <ada@example.com>
+Harness: Claude Code
+Model: claude-opus-4.7
+BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
+Refs: #12
+```
+
+关闭各工具自动追加的 `Co-authored-by` 见 `CONTRIBUTING.md` 第 6 节。hook
+仍会拒绝漏网的 AI 工具署名。
+
+## 7. 与 PR 的关系
 
 PR 是主要合并证据。Core、数据格式、Adapter、跨层变更和任何 breaking change
 都应走 PR。当前 Ruleset 不要求固定批准数或 CODEOWNERS review；已有 review
 conversation 必须在当前 patchset 上解决后才能入队。若以后要强制独立批准，必须先经
 治理 Issue 选择 GitHub 原生 required approvals / CODEOWNERS。
 
-## 7. PR 合并策略
+## 8. PR 合并策略
 
 PR 默认通过 Merge Queue 合入 `main`，队列最终 **Rebase**。详见
 `../governance/github-workflow.md` 第 7 节。
@@ -121,14 +182,17 @@ PR 默认通过 Merge Queue 合入 `main`，队列最终 **Rebase**。详见
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-## 8. CI 校验
+## 9. CI 校验
 
 `Commit message` job 检查：
 
 - 标题符合 Conventional Commits。
 - scope 省略或符合小写短标识语法；不检查封闭枚举。
-- 底部包含 `Refs` 或 `Closes`。
+- 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
+- 不以 `Co-authored-by` 标注 AI 工具或模型；人类合作者除外。
+- `Harness:` / `Model:` 要么都不写，要么成对、非空，并且位于 `BREAKING CHANGE:`
+  与 `Refs:` / `Closes:` 之前。
 
 Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下条件的机器提交提供
 窄例外：
