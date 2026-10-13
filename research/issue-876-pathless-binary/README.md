@@ -78,7 +78,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 ## 4. 验证
 
 被测提交：`d9e359c675b5aeb9d16c6d619ae6964118dcd0d9`（本 PR 实现提交；其后的
-文档提交不改 harness 构建输入）。
+文档提交与 xtask 风格修复不改 harness 构建输入与构建语义）。
 采集机：`amd-ryzen9-9955hx-16c-32t-64gb-hyperv` / `win11-balanced-381b4222`。
 证据目录：`<worktree>/target/issue876-evidence/`（Git 忽略的本地生成数据，重建
 入口即本节命令；封存制品见 §1 的 prerelease 与索引）。
