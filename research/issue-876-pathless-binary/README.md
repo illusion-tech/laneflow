@@ -17,7 +17,7 @@ rustup 主目录/工具链、工作树，以及调用方追加的证据根）即
 同一提交两种构建各跑 10k 短窗：交通文件逐字节一致，耗时差异在运行间波动内；
 新构建的二进制扫描不到任何本机路径，并以正式 performance 窗口端到端跑通 v5
 来源校验。该二进制已原样上传（[Research Evidence
-prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-ec2983ab)，
+prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-753432d1)，
 索引见 [evidence/measurement-binary.toml](evidence/measurement-binary.toml)，
 制品经重新下载核对 SHA-256），执行身份与公开制品一致。
 
@@ -71,8 +71,8 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 
 ## 4. 验证
 
-被测提交：`ec2983abb112eb22ba69cb409f8c01f1105cc679`（本 PR 实现提交；其后的
-文档提交不改 harness 构建输入，Cargo 复用同一二进制）。
+被测提交：`753432d1d8c70bef65e20c8f4cace942a5bb61a6`（本 PR 实现提交；其后的
+文档提交不改 harness 构建输入）。
 采集机：`amd-ryzen9-9955hx-16c-32t-64gb-hyperv` / `win11-balanced-381b4222`。
 证据目录：`<worktree>/target/issue876-evidence/`（Git 忽略的本地生成数据，重建
 入口即本节命令；封存制品见 §1 的 prerelease 与索引）。
@@ -82,7 +82,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 | 构建      | SHA-256                                                            |  字节数 | 扫描                                                                                        |
 | --------- | ------------------------------------------------------------------ | ------: | ------------------------------------------------------------------------------------------- |
 | 普通（A） | `a389ec8dc2256e8d5d58b0bb8e67670dd98a813f037f593684f628a92644fe50` | 6748672 | fail：`<user-profile>`/`<rustup-home>`/`<rustup-toolchain>` 各 86 处、`<cargo-home>` 155 处 |
-| 包装（B） | `3f633b851d1d8a52da04e66349a0bf12dbb6d2445d82b35c79bf5a9082347a1a` | 6748160 | pass：五类根零命中                                                                          |
+| 包装（B） | `1d61c606b06e63450d8fcbc60821307b148a821987a602b089cbb27e5327e73f` | 6748160 | pass：五类根零命中                                                                          |
 
 ### 4.2 同提交短窗逐字节一致与计时波动
 
@@ -97,34 +97,33 @@ B1↔B2），四份交通文件两臂逐字节相同：
 | commands.jsonl     | `fe29de61bfbd890200b9cc082b58e6fb99963f886fa7d0049763f4c80e034c86` |
 | events.jsonl       | `920d15e4ea6ba525630d36c648be4dc0c85c45c2c795ae641080905e57b55a4b` |
 
-观察窗耗时（ms/拍，最近秩分位）：
+观察窗耗时（ms/拍，最近秩分位；最终两个二进制，ABBA 顺序）：
 
 | 运行       | step p50 | step p95 | 观测 p50 | 观测 p95 |
 | ---------- | -------: | -------: | -------: | -------: |
-| A1（普通） |    3.249 |    4.291 |    2.388 |    3.013 |
-| B1（包装） |    3.133 |    4.217 |    2.382 |    3.067 |
-| B2（包装） |    3.179 |    4.295 |    2.376 |    3.022 |
-| A2（普通） |    3.232 |    4.300 |    2.388 |    3.038 |
+| A1（普通） |    3.013 |    3.955 |    2.309 |    2.813 |
+| B1（包装） |    2.917 |    3.918 |    2.233 |    2.803 |
+| B2（包装） |    3.050 |    4.771 |    2.299 |    3.295 |
+| A2（普通） |    2.783 |    3.357 |    2.183 |    2.532 |
 
-step p95 四轮运行间极差 0.08 ms，同位 A−B 差值（+0.07 / +0.01 ms）落在波动内；
-remap 不改变优化结果与运行行为。短窗命令样本多为零（无命令拍占多数），
-不列为依据。计时表测自同源码构建的先前包装二进制；最终包装二进制与其仅
-PE 头时间戳不同（同源码、同 flag），四份交通文件的逐字节一致性已在最终
-二进制上复验（同表）。机器有干扰的批次里两臂整体同向漂移，仍无稳定
-A−B 分离。
+step p95 四轮运行间极差 1.41 ms，同位 A−B 差值（+0.04 / −1.41 ms）方向相反、
+无稳定 A−B 分离，落在运行间波动内；更早的空闲批次四轮极差 0.08 ms 同样无
+分离。remap 不改变优化结果与运行行为。短窗命令样本多为零（无命令拍占多数），
+不列为依据。
 
 ### 4.3 正式 performance 端到端（v5 provenance）
 
 - 负路径：普通构建（A）运行正式 performance 计划在初始化前被
   "missing or unavailable performance provenance" 拒绝，退出码 1，不留输出目录。
 - 正路径：B 跑 10k 正式 performance 一轮（30,624 暖机 + 61,248 观察，共
-  91,872 拍，workers=1），`performance-round-complete`，全程 547.9 s；
+  91,872 拍，workers=1），`performance-round-complete`，全程 517.4 s；
   初始化前与窗口结束后来源校验均通过。计划摘要
   `045b87c845f270e5de51da0b47a9d06eb8f8396cd5ec795a73f9276bc7029ceb`，
-  `measurements.toml`（3,257,786 字节，SHA-256
-  `0cd61058a17e97b318eb94f94bc4cb4ab7f380b2a2e71fc04b5529e2447fc9bd`）记录
+  `measurements.toml`（3,257,868 字节，SHA-256
+  `173bde7f2d9b1364bf2c472c2152ba62f41f4c82b1f7c9217187b8e8734dd53b`）记录
   `version = "urban-performance-measurements-v5"` 与 §3 两个新字段的冻结值，
-  `diagnostics.json` 的二进制摘要与上传制品一致。
+  `diagnostics.json` 的二进制摘要与上传制品一致，provenance 提交与回执
+  `source_commit` 一致。
   本轮只验证协议端到端，不构成性能结论，也不替代 #707 的三轮认证。
 
 ### 4.4 发布前复扫
