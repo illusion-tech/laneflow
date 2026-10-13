@@ -1300,26 +1300,6 @@ struct IntLaneOwnership<'a> {
     orphan_members: HashMap<&'a str, &'a str>,
 }
 
-/// 归一化道路 junction 归属的内车道属主计数（#804 评审）：内部辅助节点
-/// 折叠进道路 junction 簇，孤儿成员计入其 helper 持有者——数值 id 口径
-/// 失真（非 LuST 命名）的通用输入的诚实 junction 分母。
-///
-/// # Errors
-///
-/// - `Error::SumoModel`：`intLanes` 成员非法、簇父映射冲突或内边归属
-///   冲突（与 `normalize_junctions` 同一 fail-closed 语义）。
-pub(crate) fn junctions_with_internal_lanes_normalized(network: &SumoNetwork) -> Result<usize> {
-    let IntLaneOwnership {
-        owners,
-        orphan_members,
-    } = build_int_lane_owners(network)?;
-    Ok(owners
-        .values()
-        .chain(orphan_members.values())
-        .collect::<std::collections::BTreeSet<_>>()
-        .len())
-}
-
 fn build_int_lane_owners(network: &SumoNetwork) -> Result<IntLaneOwnership<'_>> {
     // SUMO 路口簇模型（LuST 有 1855 个 type="internal" 内部节点）：
     // - road junction 的 @intLanes 直接列出部分内边，同时把内部节点 id
