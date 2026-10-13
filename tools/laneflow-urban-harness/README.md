@@ -152,6 +152,25 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 已加载的目录和共享路网通过 `Artifacts::catalog()` / `revision()` 只读借用；
 改变源输入需要重新载入并展开计划，调用方不能替换已绑定来源摘要的内部字段。
 
+正式性能测量使用专用构建入口（#876），使封存二进制不含采集机本机路径、可原样
+作为公开证据制品发布：
+
+```powershell
+pwsh -NoProfile -File tools/laneflow-urban-harness/build-measurement.ps1
+```
+
+脚本在专用目标目录 `target/release-measurement/` 执行冻结的
+`cargo +1.98.0 build -p laneflow-urban-harness --release --locked`，附加固定顺序的
+`--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、rustup
+工具链→`<rustup-toolchain>`）并显式 `CARGO_INCREMENTAL=0`；构建后固定扫描二进制，
+命中任何本机根即失败并拒绝写出回执。日常开发/诊断仍可用普通 cargo 构建，
+但其二进制不通过正式测量 provenance。发布二进制前用同一扫描脚本复扫
+（`-EvidenceRoot` 追加证据根）：
+
+```powershell
+pwsh -NoProfile -File tools/laneflow-urban-harness/test-binary-local-paths.ps1 -BinaryPath <binary>
+```
+
 正式性能计划允许 Mixed 与持续 Active 的 10k/100k 制品：
 
 ```text
@@ -164,7 +183,8 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 流程启动三个新进程；单轮文件不代表三轮合并结论或产品预算认证。
 三轮完成后仍通过 `compare` 入口做文件摘要、计划摘要和独立执行编号校验，并精确合并
 三轮保存的观察窗口样本：p50/p95/p99 先逐轮计算，再取三个轮次值的中位数，max 取
-三个轮次的最坏值；不将样本池化后求分位。每轮提交、干净状态、Rust/Cargo/target、构建参数、OS/架构、
+三个轮次的最坏值；不将样本池化后求分位。每轮提交、干净状态、Rust/Cargo/target、构建参数、
+构建期归一化 rustflags 与 profile 设置、OS/架构、
 硬件/电源角色、worker 与计时口径必须可用且一致；缺字段、脏工作树、样本数与窗口不符
 均拒绝。正式运行在初始化前和窗口结束后核对来源，变化或无法读取时不产出性能通过包：
 
@@ -184,7 +204,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
 合并口径。
 
-当前测量载荷为 `urban-performance-measurements-v4`（v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
+当前测量载荷为 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags 与 profile 设置，正式二进制限 `build-measurement.ps1` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
 完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的

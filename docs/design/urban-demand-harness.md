@@ -399,7 +399,9 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
   两份原始 result 保持不可变。当前载荷为 `urban-result-v8`（显式绑定详细诊断开关；
   incarnation 与请求编号独立，持续负载显式报告实际 Active；v8 起记录存档、续跑来源与
   终点核对值，见 §7）/ `urban-comparison-v3`（见 §7.5），不转换旧记录。
-- 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
+- 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、
+  构建期实际 rustflags（`--remap-path-prefix` 来源端以 `<worktree>`/`<cargo-home>`/
+  `<rustup-toolchain>` 占位符归一化）与 profile 设置、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 
 首段 Mixed 实现的具体角色、命令与摘要口径见
@@ -408,19 +410,34 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
 100k 仍需各自取证。
 
 性能使用 CI 固定 Rust 版本的正常 release binary；正确性摘要、完整快照捕获和诊断
-断言耗时不混入正常 tick latency。分别记录 TrafficWorld step、调用方命令与观测开销。
+断言耗时不混入正常 tick latency。正式测量二进制由
+`tools/laneflow-urban-harness/build-measurement.ps1` 构建（#876）：脚本内部执行
+冻结的 `cargo +1.98.0 build -p laneflow-urban-harness --release --locked` 并附加
+`--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、rustup
+工具链→`<rustup-toolchain>`，固定顺序）与 `CARGO_INCREMENTAL=0`，使封存二进制不含
+采集机本机路径、可原样作为公开证据制品发布。Cargo `trim-paths` 在固定工具链
+（1.98.0）尚未稳定，不作为映射入口。同一张映射表同时写出归一化记录
+`LANEFLOW_MEASUREMENT_RUSTFLAGS`（来源端为占位符），由 harness 经编译期
+`option_env!` 嵌入二进制——wire 审计禁止 harness 携带 build.rs，不能以构建脚本
+生成代码；profile 记录由 `cfg!(debug_assertions)` 派生（`release;debug-assertions=off`），
+opt-level 等 profile 细节由锁定的 workspace release profile 与冻结命令承载。
+构建完成固定执行
+`tools/laneflow-urban-harness/test-binary-local-paths.ps1` 扫描；发布前同一脚本
+（可追加证据根）复扫通过才可上传，扫描回执只含占位符、字节数与 SHA-256。
+分别记录 TrafficWorld step、调用方命令与观测开销。
 其中 command 只累计六类公共生命周期调用自身耗时，实际 Runtime 拒绝也计入，无调用
 则为零；输入准备、延期/重试调度、快照、断言及调用方记账不在该计时范围内。
 observation 累计 step 前的 `step_before` 采集、Active/intent 计数、红灯等待扫描，
 以及 step 后的信号采集、事件/状态摘要和校验；两段均不含 step 调用。三项
 不覆盖全部调用方工作，不能相加冒充整轮墙钟。该计时范围绑定
-`urban-performance-measurements-v4`（v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
+`urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags 与
+profile 设置，正式二进制限 `build-measurement.ps1` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
 按性能合同逐轮计算 p50/p95/p99 后取三轮中位数，max 取三轮最坏值，不池化样本求分位；
 合并报告 `urban-performance-comparison-v3` 显式记录该口径（v3 起记录三轮已验证的共同 worker 数；v2 及更早报告不转换），样本数仍报告三轮总数。
 不能把两个正确性运行当性能轮次；工具链
 变化须重跑用于当前判断的三个轮次。未测内存项写明未测量，不填 0。
 正式运行在初始化前与窗口结束后核对来源；提交、干净状态、Rust/Cargo/target、构建参数、
-OS/架构、硬件/电源角色、worker 和计时范围必须可用且不变。三轮合并逐项比较这些字段，
+构建期归一化 rustflags 与 profile 设置、OS/架构、硬件/电源角色、worker 和计时范围必须可用且不变。三轮合并逐项比较这些字段，
 并核对各列样本数等于观察窗口长度；缺失、不可用、脏工作树或混合来源均拒绝。
 三轮除计时/环境测量文件外的完整语义结果也必须相同：逐 tick、命令和事件文件摘要、
 检查点、计数、角色见证及最终世界状态均逐项比较，不能只核对每个包自身文件摘要。
