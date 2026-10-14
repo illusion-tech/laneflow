@@ -309,7 +309,9 @@ fn validate_message_with_footer_policy(
         );
     }
 
-    if !exempt_issue_footer && let Err(error) = validate_issue_footer(message) {
+    if let Err(error) = validate_issue_footer(message)
+        && !(exempt_issue_footer && error == IssueFooterError::Missing)
+    {
         errors.push(error.message().to_string());
     }
 
@@ -614,7 +616,8 @@ fn contains_ai_tool_token(value: &str) -> bool {
 
 struct AttributionHit {
     index: usize,
-    exact_key: bool,
+    exact_case: bool,
+    colon_immediately_after_key: bool,
     value_present: bool,
 }
 
@@ -634,8 +637,8 @@ fn harness_model_errors(message: &str) -> Vec<String> {
         errors.push("`Harness:` 与 `Model:` 必须成对出现".to_string());
     }
 
-    push_attribution_key_errors(&harness_hits, "Harness:", &mut errors);
-    push_attribution_key_errors(&model_hits, "Model:", &mut errors);
+    push_attribution_key_errors(&harness_hits, "Harness", &mut errors);
+    push_attribution_key_errors(&model_hits, "Model", &mut errors);
 
     if harness_hits.len() == 1
         && model_hits.len() == 1
@@ -650,28 +653,47 @@ fn harness_model_errors(message: &str) -> Vec<String> {
 }
 
 fn attribution_hits(lines: &[&str], key: &str) -> Vec<AttributionHit> {
+    let key_name = key.strip_suffix(':').unwrap_or(key);
     lines
         .iter()
         .enumerate()
-        .filter_map(|(index, line)| {
-            let rest = strip_prefix_ignore_ascii_case(line, key)?;
-            Some(AttributionHit {
-                index,
-                exact_key: line.starts_with(key),
-                value_present: rest
-                    .strip_prefix(' ')
-                    .is_some_and(|value| !value.trim().is_empty()),
-            })
-        })
+        .filter_map(|(index, line)| attribution_hit(index, line, key_name))
         .collect()
 }
 
-fn push_attribution_key_errors(hits: &[AttributionHit], key: &str, errors: &mut Vec<String>) {
-    if hits.iter().any(|hit| !hit.exact_key) {
-        errors.push(format!("`{key}` 键名大小写必须精确"));
+fn attribution_hit(index: usize, line: &str, key_name: &str) -> Option<AttributionHit> {
+    let trimmed_start = line.trim_start();
+    let (token, rest) = trimmed_start.split_once(':')?;
+    if !token.trim().eq_ignore_ascii_case(key_name) {
+        return None;
+    }
+
+    let colon_immediately_after_key = trimmed_start.len() == line.len() && token == token.trim();
+    let value_present = if colon_immediately_after_key && token == key_name {
+        rest.starts_with(' ') && !rest.trim().is_empty()
+    } else {
+        !rest.trim().is_empty()
+    };
+    Some(AttributionHit {
+        index,
+        exact_case: token.trim() == key_name,
+        colon_immediately_after_key,
+        value_present,
+    })
+}
+
+fn push_attribution_key_errors(hits: &[AttributionHit], key_name: &str, errors: &mut Vec<String>) {
+    if hits.iter().any(|hit| !hit.exact_case) {
+        errors.push(format!("`{key_name}:` 键名大小写必须精确"));
+    }
+    if hits
+        .iter()
+        .any(|hit| hit.exact_case && !hit.colon_immediately_after_key)
+    {
+        errors.push(format!("`{key_name}:` 的冒号必须紧跟键名"));
     }
     if hits.iter().any(|hit| !hit.value_present) {
-        errors.push(format!("`{key}` 必须写成 `{key} <非空取值>`"));
+        errors.push(format!("`{key_name}:` 必须写成 `{key_name}: <非空取值>`"));
     }
 }
 
@@ -1253,6 +1275,14 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_space_before_attribution_colon() {
+        assert_rejected(
+            &message_with_body("Harness : Codex CLI\nModel : GPT-5.6"),
+            "冒号必须紧跟键名",
+        );
+    }
+
+    #[test]
     fn rejects_ai_tool_coauthors_with_rewrite_hint() {
         for trailer in [
             "Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
@@ -1364,6 +1394,36 @@ Refs: #12
     fn rejects_made_with_cursor_trailer() {
         assert_rejected(&message_with_body("Made-with: Cursor"), "`Made-with:`");
         assert_rejected(&message_with_body("Made-with : Cursor"), "`Made-with:`");
+    }
+
+    #[test]
+    fn rejects_malformed_dependabot_issue_footer() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n\nRefs: malformed\n",
+        );
+
+        assert!(
+            errors.iter().any(|error| error.contains("格式不正确")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_dependabot_issue_footer_that_is_not_last() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n\nRefs: #12\njunk\n",
+        );
+
+        assert!(
+            errors.iter().any(|error| error.contains("最后一个非空行")),
+            "{errors:?}"
+        );
     }
 
     #[test]
