@@ -41,12 +41,16 @@ const PROFILE_PINS: [(&str, &str); 10] = [
 /// 嵌套工具链调用（探测与正式构建）统一使用的环境白名单：只放回父环境真实
 /// 存在的系统变量（缺席的不写成空串，空串会污染 GetTempPath/home 回退链），
 /// 加上钉住的测量变量；未列出的采集机变量一律不存在于子进程。
-/// ProgramFiles 两个变量是 find-msvc-tools 在 COM 枚举失败后经 vswhere 定位
-/// 链接器的兜底链必需项；HOME/TMPDIR 是 Unix 侧 home 与临时目录回退。
-const PASSTHROUGH_ENV: [&str; 12] = [
+/// ProgramFiles/ProgramData 是 find-msvc-tools 发现 MSVC 链接器的兜底链
+/// 必需项（COM 实例注册读 %ProgramData%\Microsoft\VisualStudio\...，vswhere
+/// 定位读 ProgramFiles(x86)）；HOME/TMPDIR 是 Unix 侧回退；其余为无害系统
+/// 布局常量。
+const PASSTHROUGH_ENV: [&str; 20] = [
     "PATH",
     "PATHEXT",
     "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
     "TEMP",
     "TMP",
     "USERPROFILE",
@@ -54,6 +58,12 @@ const PASSTHROUGH_ENV: [&str; 12] = [
     "HOMEPATH",
     "PROGRAMFILES",
     "PROGRAMFILES(X86)",
+    "PROGRAMDATA",
+    "PUBLIC",
+    "COMSPEC",
+    "OS",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
     "HOME",
     "TMPDIR",
 ];
