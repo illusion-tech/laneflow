@@ -147,7 +147,9 @@ impl ToolEnv {
     }
 
     fn output(&self, program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
-        finish_output(self.command(program, cwd), program, args)
+        let mut command = self.command(program, cwd);
+        command.args(args);
+        finish_output(command, program, args)
     }
 }
 
