@@ -41,7 +41,7 @@
 - [2026-10-13 #285 复杂路口有界性能程序退役](archives/2026-10-13-junction-scale-retirement.md)：
   退役 `laneflow-bevy` 中 4 个 `junction_scale*` example、4 个私有支持模块与
   `issue-285-junction-scale` 的 4 个脚本共 12 个文件；README 保留协议与结论，
-  退役文件按冻结提交的 Git blob 恢复，不另发制品。
+  退役文件按冻结提交的固定原始文件地址下载并以 SHA-256 复核，不另发 Release。
 
 历史报告里的 JSON 链接指向冻结提交；旧命令如果依赖已迁移文件，应在归档源码
 目录运行。各报告另外引用的采集原包、二进制或输入制品仍须按对应身份单独取得，

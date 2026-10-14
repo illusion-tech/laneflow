@@ -6,8 +6,16 @@ Refs #926。冻结主线 `ec934c4f56707f101f8bb172ddc075b0031a43d1`，源码树
 文件、197616 个 Git blob 字节。它们是一次性证据程序，不是 Adapter 用法示例；
 example 目录只保留演示与 smoke 用途（#925）。
 
-本次不另发 Release 制品：退役文件全部可从上述冻结提交按 Git blob 恢复，下表绑定
-大小、SHA-256 与原 blob 身份。
+本次不另发 Release 制品。冻结提交位于 `main` 历史中，按
+[文档边界政策](../../docs/governance/documentation-policy.md#研究证据与大体量生成数据)
+证据清理保留旧提交历史，重写历史须另行授权；因此退役文件的制品下载地址就是
+按冻结提交固定的 GitHub 原始文件地址：
+
+```text
+https://raw.githubusercontent.com/illusion-tech/laneflow/ec934c4f56707f101f8bb172ddc075b0031a43d1/<原路径>
+```
+
+下表绑定每个文件的原路径、字节数、SHA-256 与原 Git blob 身份。
 [`research/issue-285-junction-scale/README.md`](../issue-285-junction-scale/README.md)
 保留协议、测量口径与预算结论；其中的 freeze/run 命令只在冻结提交内有效。
 
@@ -32,15 +40,26 @@ example 目录只保留演示与 smoke 用途（#925）。
 dev-dependency、`junction_scale_render` example 声明与 CI 编译项；生成器 crate 本身
 保留。
 
-## 恢复与边界
+## 恢复与复核
 
-需要复跑历史协议时，在仓库外新建工作树并检出冻结提交，再按该提交内的 README
-执行：
+单个文件按上面的地址下载后，用本机 SHA-256 工具对照表中字节数与摘要。已有完整
+克隆时也可以直接读取原 blob；浅克隆先取回冻结提交：
+
+```text
+git fetch --depth=1 origin ec934c4f56707f101f8bb172ddc075b0031a43d1
+git cat-file blob <Git blob> > <输出文件>
+```
+
+需要复跑历史协议时，在仓库外新建工作树检出冻结提交，再按该提交内的 README 执行：
 
 ```text
 git worktree add <新的工作树目录> ec934c4f56707f101f8bb172ddc075b0031a43d1
-git -C <新的工作树目录> cat-file -p <Git blob>
 ```
+
+## 已完成的验证与边界
+
+删除前，12 个文件都已按上面的原始文件地址实际下载，字节数与 SHA-256 均与表中
+一致；表中摘要另从冻结提交的 Git blob 独立计算。
 
 既有长测结果包、二进制与环境转储仍由 #285 原报告的身份约束；此次没有重跑试验，
 也没有把退役程序迁入 `tools/`。若以后需要持续的路口规模基线，应另立 Issue 设计
