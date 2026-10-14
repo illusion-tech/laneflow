@@ -271,8 +271,13 @@ impl MeasurementProvenance {
         // 不能读到别的仓库。首个 rev-parse 只能由进程 cwd 解析，这是入口语义。
         let checkout = read("git", &["rev-parse", "--show-toplevel"])?;
         let read_git = |args: &[&str]| {
-            command_output_at("git", args, Some(Path::new(&checkout)))
-                .ok_or_else(|| invalid("unavailable provenance: git"))
+            // --work-tree 压住仓库本地 config 的 core.worktree：读取锚定到该 checkout。
+            command_output_at(
+                "git",
+                &[["--work-tree", checkout.as_str()].as_slice(), args].concat(),
+                Some(Path::new(&checkout)),
+            )
+            .ok_or_else(|| invalid("unavailable provenance: git"))
         };
         let git_status = read_git(&["status", "--porcelain", "--untracked-files=all"])?;
         // skip-worktree/assume-unchanged 索引位让被改的 tracked 文件在 status
@@ -881,6 +886,8 @@ fn validate_performance_output(output: &Path, checkout: &Path) -> Result<()> {
         );
         let mut check_ignore = std::process::Command::new("git");
         check_ignore
+            .arg("--work-tree")
+            .arg(&checkout)
             .current_dir(&checkout)
             .args(["check-ignore", "--quiet", "--"])
             .arg(relative);
