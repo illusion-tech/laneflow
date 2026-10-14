@@ -38,25 +38,25 @@ const PROFILE_PINS: [(&str, &str); 10] = [
     ("CARGO_PROFILE_RELEASE_RPATH", "false"),
     ("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "false"),
 ];
-/// 会替换编译器的环境变量：清除，改由 CARGO_BUILD_RUSTC 钉住工具链内的 rustc。
-const COMPILER_ENV_UNSET: [&str; 1] = ["RUSTC"];
-/// 编译器包装变量：置空串以显式禁用（Cargo 文档：空串环境变量覆盖 config 的
-/// build.rustc-wrapper / build.rustc-workspace-wrapper；env_remove 反而放行配置值）。
-const COMPILER_WRAPPER_ENV_DISABLE: [&str; 4] = [
-    "RUSTC_WRAPPER",
-    "CARGO_BUILD_RUSTC_WRAPPER",
-    "RUSTC_WORKSPACE_WRAPPER",
-    "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+/// 嵌套工具链调用（探测与正式构建）统一使用的环境白名单：只放回父环境真实
+/// 存在的系统变量（缺席的不写成空串，空串会污染 GetTempPath/home 回退链），
+/// 加上钉住的测量变量；未列出的采集机变量一律不存在于子进程。
+/// ProgramFiles 两个变量是 find-msvc-tools 在 COM 枚举失败后经 vswhere 定位
+/// 链接器的兜底链必需项；HOME/TMPDIR 是 Unix 侧 home 与临时目录回退。
+const PASSTHROUGH_ENV: [&str; 12] = [
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "HOME",
+    "TMPDIR",
 ];
-/// 本机原生工具链变量：依赖的构建脚本（如 blake3）会读它们选择汇编/内联路径，
-/// 采集机残留值会静默改变产物；一律清除（含 HOST_/TARGET_ 前缀与目标三元组的
-/// 破折号/下划线限定形式，构建时按 host 展开）。
-const NATIVE_TOOLCHAIN_ENV_UNSET: [&str; 8] = [
-    "CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "AR", "ARFLAGS", "RANLIB",
-];
-/// cc-rs 的构建控制变量（只作全局开关，无目标限定形式）：同样清除。
-const NATIVE_CONTROL_ENV_UNSET: [&str; 3] =
-    ["CRATE_CC_NO_DEFAULTS", "CROSS_COMPILE", "CC_MASM_ASM"];
 
 struct RemapRoot {
     from: PathBuf,
@@ -74,16 +74,48 @@ fn repo_root() -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn command_output(program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(args)
-        .current_dir(cwd)
-        // 自动化环境可能导出 GIT_DIR/GIT_WORK_TREE，把 git 命令重定向到别的
-        // checkout；来源核对必须绑定 cwd 指向的仓库。
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
+/// git 来源读取的卫生：清掉全部 `GIT_` 前缀变量与 `XDG_CONFIG_HOME`（Windows
+/// 环境名大小写不敏感，前缀匹配必须折叠大小写），并显式回钉
+/// `GIT_NO_REPLACE_OBJECTS=1`——前缀清除会顺带剥掉用户主动设置的该变量，
+/// 而仓库内遗留的 replace ref 必须对来源核对不可见。
+fn sanitize_git_env(command: &mut Command) {
+    let doomed: Vec<std::ffi::OsString> = env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| {
+            let text = key.to_string_lossy();
+            text.to_ascii_uppercase().starts_with("GIT_")
+                || text.eq_ignore_ascii_case("XDG_CONFIG_HOME")
+        })
+        .collect();
+    for key in doomed {
+        command.env_remove(key);
+    }
+    command.env("GIT_NO_REPLACE_OBJECTS", "1");
+}
+
+/// git 来源读取：默认环境 + git 卫生。
+fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
+    command_with("git", args, cwd, false)
+}
+
+/// 嵌套工具链探测（rustc/cargo 只读调用）：白名单环境 + git 卫生。
+fn tool_output(program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
+    command_with(program, args, cwd, true)
+}
+
+fn command_with(
+    program: &str,
+    args: &[&str],
+    cwd: &Path,
+    whitelist: bool,
+) -> Result<String, String> {
+    let mut command = Command::new(program);
+    command.args(args).current_dir(cwd);
+    if whitelist {
+        whitelist_env(&mut command);
+    }
+    sanitize_git_env(&mut command);
+    let output = command
         .output()
         .map_err(|e| format!("无法执行 {program}: {e}"))?;
     if !output.status.success() {
@@ -96,8 +128,19 @@ fn command_output(program: &str, args: &[&str], cwd: &Path) -> Result<String, St
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
+/// 白名单环境：只放回父环境存在的变量；未列出的采集机变量一律不存在。
+fn whitelist_env(command: &mut Command) -> &mut Command {
+    command.env_clear();
+    for name in PASSTHROUGH_ENV {
+        if let Some(value) = env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    command
+}
+
 fn toolchain_sysroot(repo: &Path) -> Result<PathBuf, String> {
-    let sysroot = command_output("rustc", &[TOOLCHAIN_ARG, "--print", "sysroot"], repo)?;
+    let sysroot = tool_output("rustc", &[TOOLCHAIN_ARG, "--print", "sysroot"], repo)?;
     let path = PathBuf::from(&sysroot);
     if !path.is_dir() {
         return Err(format!("rustup 工具链 sysroot 不可解析：{sysroot}"));
@@ -112,23 +155,34 @@ fn home_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "无法定位用户目录（USERPROFILE/HOME）".to_string())
 }
 
+/// 环境变量路径根的统一锚定（规则 3）：相对拼写锚定嵌套构建的 cwd（仓库根），
+/// 再词法绝对化。CLI 参数锚的是进程 cwd，与此语义不同，不要混用。
+fn env_root(name: &str, repo: &Path) -> Result<Option<PathBuf>, String> {
+    match env::var_os(name) {
+        None => Ok(None),
+        Some(value) if value.is_empty() => Err(format!("{name} 为空串")),
+        Some(value) => {
+            let path = PathBuf::from(value);
+            absolute_lexical(if path.is_absolute() {
+                path
+            } else {
+                repo.join(path)
+            })
+            .map(Some)
+        }
+    }
+}
+
 fn cargo_home(repo: &Path) -> Result<PathBuf, String> {
-    // CARGO_HOME 允许相对拼写；Cargo 按各进程 cwd 解析，嵌套构建以 repo 为
-    // cwd，相对值必须锚定到 repo，否则与 metadata 的绝对 manifest 路径不可比。
-    if let Some(value) = env::var_os("CARGO_HOME") {
-        let path = PathBuf::from(value);
-        return absolute_lexical(if path.is_absolute() {
-            path
-        } else {
-            repo.join(path)
-        });
+    if let Some(path) = env_root("CARGO_HOME", repo)? {
+        return Ok(path);
     }
     Ok(home_dir()?.join(".cargo"))
 }
 
-fn rustup_home() -> Result<PathBuf, String> {
-    if let Some(value) = env::var_os("RUSTUP_HOME") {
-        return Ok(PathBuf::from(value));
+fn rustup_home(repo: &Path) -> Result<PathBuf, String> {
+    if let Some(path) = env_root("RUSTUP_HOME", repo)? {
+        return Ok(path);
     }
     Ok(home_dir()?.join(".rustup"))
 }
@@ -246,7 +300,7 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
 /// 依赖来源根检查：每个依赖包的 manifest 必须落在工作树或 Cargo 主目录内；
 /// 目录替换（vendor）等来源会让 remap 覆盖不到，构建必须 fail closed。
 fn check_dependency_roots(repo: &Path, cargo_home: &Path) -> Result<(), String> {
-    let stdout = command_output(
+    let stdout = tool_output(
         "cargo",
         &[
             TOOLCHAIN_ARG,
@@ -381,25 +435,28 @@ fn scan_binary(
                 root.placeholder
             ));
         }
-        for (wide, encoding_separator, needle) in needles(&root.path) {
-            let found = if wide {
-                let mut offsets: Vec<u64> = lowered_wide
-                    .iter()
-                    .flat_map(|haystack| find_all(haystack, &needle))
-                    .collect();
-                offsets.sort_unstable();
-                offsets.dedup();
-                offsets
-            } else {
-                find_all(&lowered_utf8, &needle)
-            };
-            if !found.is_empty() {
-                hits.push(ScanHit {
-                    root: root.placeholder.clone(),
-                    encoding_separator,
-                    count: found.len(),
-                    first_byte: found[0],
-                });
+        // 词法与规范两种拼写都扫：junction/subst/8.3 短名的拼写分叉不致共模漏扫。
+        for spelling in both_spellings(&root.path) {
+            for (wide, encoding_separator, needle) in needles(&spelling) {
+                let found = if wide {
+                    let mut offsets: Vec<u64> = lowered_wide
+                        .iter()
+                        .flat_map(|haystack| find_all(haystack, &needle))
+                        .collect();
+                    offsets.sort_unstable();
+                    offsets.dedup();
+                    offsets
+                } else {
+                    find_all(&lowered_utf8, &needle)
+                };
+                if !found.is_empty() {
+                    hits.push(ScanHit {
+                        root: root.placeholder.clone(),
+                        encoding_separator,
+                        count: found.len(),
+                        first_byte: found[0],
+                    });
+                }
             }
         }
     }
@@ -433,7 +490,7 @@ fn derived_roots(repo: &Path) -> Result<Vec<ScanRoot>, String> {
         },
         ScanRoot {
             placeholder: "<rustup-home>".into(),
-            path: rustup_home()?,
+            path: rustup_home(repo)?,
             explicit: false,
         },
         ScanRoot {
@@ -467,6 +524,24 @@ fn absolute_lexical(path: PathBuf) -> Result<PathBuf, String> {
         }
     }
     Ok(normalized)
+}
+
+/// 派生根的词法与规范两种拼写：junction/subst 盘/8.3 短名会让工具链嵌入的
+/// 拼写与词法值分叉；两种都进 remap 表与 needle，共模失效（remap 漏映射且
+/// 扫描漏扫）才闭合。
+fn both_spellings(path: &Path) -> Vec<PathBuf> {
+    let mut out = vec![path.to_path_buf()];
+    if let Ok(canonical) = fs::canonicalize(path) {
+        let text = canonical
+            .to_string_lossy()
+            .trim_start_matches("\\\\?\\")
+            .to_owned();
+        let canonical = PathBuf::from(text);
+        if canonical != out[0] {
+            out.push(canonical);
+        }
+    }
+    out
 }
 
 fn write_receipt(path: &Path, value: &serde_json::Value) -> Result<(), String> {
@@ -511,43 +586,48 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     check_dependency_roots(&repo, &cargo_home)?;
     // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
     // provenance 在测量窗口两端复查干净状态。
-    // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all。
-    let git_status = |repo: &Path| {
-        command_output(
-            "git",
-            &["status", "--porcelain", "--untracked-files=all"],
-            repo,
-        )
-    };
-    let source_commit = command_output("git", &["rev-parse", "HEAD"], &repo)?;
-    let source_tree = command_output("git", &["rev-parse", "HEAD^{tree}"], &repo)?;
+    // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all；
+    // skip-worktree/assume-unchanged 索引位让被改的 tracked 文件在 status
+    // 里隐身，ls-files -v 的小写标签或 S 即 fail closed。
+    let git_status =
+        |repo: &Path| git_output(&["status", "--porcelain", "--untracked-files=all"], repo);
+    let source_commit = git_output(&["rev-parse", "HEAD"], &repo)?;
+    let source_tree = git_output(&["rev-parse", "HEAD^{tree}"], &repo)?;
     if !git_status(&repo)?.is_empty() {
         return Err("正式测量构建要求干净 checkout；请先提交或清理工作树".into());
     }
+    let ls_files = git_output(&["ls-files", "-v"], &repo)?;
+    if ls_files
+        .lines()
+        .any(|line| line.starts_with(|c: char| c.is_ascii_lowercase()) || line.starts_with('S'))
+    {
+        return Err("检出含 skip-worktree/assume-unchanged 条目；干净判定不可信".into());
+    }
 
     // 唯一映射表：实际 flag 与归一化记录同源于此，二者不可能漂移。
-    let map = [
-        RemapRoot {
-            from: repo.clone(),
-            placeholder: "<worktree>",
-        },
-        RemapRoot {
-            from: cargo_home.clone(),
-            placeholder: "<cargo-home>",
-        },
-        RemapRoot {
-            from: sysroot.clone(),
-            placeholder: "<rustup-toolchain>",
-        },
+    // 每个逻辑根登记词法与规范两种拼写（共模失效闭合）；归一化记录仍按三个
+    // 逻辑根各一条——它描述映射语义，不是逐 flag 回放配方。
+    let logical = [
+        (repo.clone(), "<worktree>"),
+        (cargo_home.clone(), "<cargo-home>"),
+        (sysroot.clone(), "<rustup-toolchain>"),
     ];
+    let map: Vec<RemapRoot> = logical
+        .iter()
+        .flat_map(|(root, placeholder)| {
+            both_spellings(root)
+                .into_iter()
+                .map(move |from| RemapRoot { from, placeholder })
+        })
+        .collect();
     let actual = map
         .iter()
         .map(|r| format!("--remap-path-prefix={}={}", r.from.display(), r.placeholder))
         .collect::<Vec<_>>()
         .join("\u{1f}");
-    let normalized = map
+    let normalized = logical
         .iter()
-        .map(|r| format!("--remap-path-prefix={0}={0}", r.placeholder))
+        .map(|(_, placeholder)| format!("--remap-path-prefix={0}={0}", placeholder))
         .collect::<Vec<_>>()
         .join(" ");
 
@@ -573,7 +653,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     }
     // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
     // 产物位置或目标平台。
-    let verbose = command_output("rustc", &[TOOLCHAIN_ARG, "-Vv"], &repo)?;
+    let verbose = tool_output("rustc", &[TOOLCHAIN_ARG, "-Vv"], &repo)?;
     let host = verbose
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
@@ -591,18 +671,19 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
             "--target",
             &host,
         ])
-        .current_dir(&repo)
+        .current_dir(&repo);
+    // 白名单环境：只放回父环境存在的系统变量，再加钉住的测量变量；
+    // CARGO_ENCODED_RUSTFLAGS 在 Cargo flag 来源中优先级最高，覆盖 config 的
+    // build.rustflags；编译器钉到工具链内 rustc；中间产物目录钉进全新清理的
+    // 目录内（build.build-dir 或 CARGO_BUILD_BUILD_DIR 不得把可复用缓存挪到
+    // 未扫描处）。采集机的 RUSTC/wrapper/CC 家族/代理/其他一切变量一律缺席。
+    whitelist_env(&mut command);
+    command
         .env("CARGO_ENCODED_RUSTFLAGS", &actual)
         .env("LANEFLOW_MEASUREMENT_RUSTFLAGS", &normalized)
         .env("LANEFLOW_MEASUREMENT_COMMIT", &source_commit)
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_TARGET_DIR", &target_dir)
-        // CARGO_ENCODED_RUSTFLAGS 在 Cargo flag 来源中优先级最高，覆盖 config 的
-        // build.rustflags；RUSTFLAGS 及编译器包装变量一律清除，编译器钉到工具链内 rustc。
-        .env_remove("RUSTFLAGS")
-        .env_remove("CARGO_BUILD_TARGET")
-        // 中间产物目录钉进全新清理的目录内（build.build-dir 或
-        // CARGO_BUILD_BUILD_DIR 不得把可复用缓存挪到未扫描处）。
         .env("CARGO_BUILD_BUILD_DIR", target_dir.join("build"))
         .env(
             "CARGO_BUILD_RUSTC",
@@ -610,27 +691,6 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
                 .join("bin")
                 .join(if cfg!(windows) { "rustc.exe" } else { "rustc" }),
         );
-    for name in COMPILER_ENV_UNSET {
-        command.env_remove(name);
-    }
-    command.env_remove("RUSTC_BOOTSTRAP");
-    for name in COMPILER_WRAPPER_ENV_DISABLE {
-        command.env(name, "");
-    }
-    // 目标三元组限定与 HOST_/TARGET_ 前缀的覆盖变量（linker、cc-rs 读取的
-    // CC_<target>/CC_<target_underscored>/HOST_CC/TARGET_CC 等）全部清除。
-    let host_env = host.replace(['-', '.'], "_").to_uppercase();
-    command.env_remove(format!("CARGO_TARGET_{host_env}_LINKER"));
-    for name in NATIVE_TOOLCHAIN_ENV_UNSET {
-        command.env_remove(name);
-        command.env_remove(format!("{name}_{host}"));
-        command.env_remove(format!("{name}_{host_env}"));
-        command.env_remove(format!("HOST_{name}"));
-        command.env_remove(format!("TARGET_{name}"));
-    }
-    for name in NATIVE_CONTROL_ENV_UNSET {
-        command.env_remove(name);
-    }
     for (name, value) in PROFILE_PINS {
         command.env(name, value);
     }
@@ -711,8 +771,8 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         "scan": scan,
     });
     // 构建与扫描完成后复核源码树未漂移（构建期间的改动不得进入已封存二进制）。
-    if command_output("git", &["rev-parse", "HEAD"], &repo)? != source_commit
-        || command_output("git", &["rev-parse", "HEAD^{tree}"], &repo)? != source_tree
+    if git_output(&["rev-parse", "HEAD"], &repo)? != source_commit
+        || git_output(&["rev-parse", "HEAD^{tree}"], &repo)? != source_tree
         || !git_status(&repo)?.is_empty()
     {
         return Err("构建期间源码树发生漂移；回执未写出".into());
