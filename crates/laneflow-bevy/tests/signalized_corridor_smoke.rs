@@ -1,4 +1,7 @@
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+#[path = "../examples/support/scene_loader.rs"]
+mod scene_loader;
+
+use std::{num::NonZeroU32, time::Duration};
 
 use bevy_app::App;
 use bevy_ecs::{
@@ -9,52 +12,28 @@ use bevy_ecs::{
 use bevy_math::Vec3;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
-use laneflow_bevy::{
-    LaneFlowCommittedPoseBatch, LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig,
+use laneflow_bevy::{LaneFlowCommittedPoseBatch, LaneFlowPlugin, LaneFlowSession};
+use laneflow_runtime::{
+    PolicyPin, TrafficWorld, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
 };
-use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
-use laneflow_spatial::{FramePlacementToken, SpatialSession};
-use laneflow_static_contract::VehicleProfileOrdinal;
-use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-    build_shared_network_revision,
-};
+use laneflow_spatial::FramePlacementToken;
+use laneflow_static_contract::{EntityKind, RightOfWayPolicySetId, VehicleProfileOrdinal};
 
-fn install_fixture(
-    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
-    config: laneflow_runtime::WorldConfig,
-) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
-    let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
-            reference: laneflow_runtime::PublishedLfcaReference::new(
-                "fixture://in-process",
-                origin.canonical_artifact_digest(),
-                origin.canonical_artifact_byte_length(),
-                origin.network_revision(),
+fn corridor_policy() -> WorldPolicySelection {
+    WorldPolicySelection::Pinned(PolicyPin {
+        policy: RightOfWayPolicySetId::from_untyped(
+            laneflow_compiler::derive_canonical_stable_id_v1(
+                EntityKind::RightOfWayPolicySet,
+                "laneflow/signalized-corridor",
+                "protected-entry",
+                &laneflow_compiler::CompileLimits::p100_initial_v1(),
             )
-            .expect("non-empty fixture key"),
-        },
-        0,
-        laneflow_runtime::WorldPolicySelection::Pinned(laneflow_runtime::PolicyPin {
-            policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
-                laneflow_compiler::derive_canonical_stable_id_v1(
-                    laneflow_static_contract::EntityKind::RightOfWayPolicySet,
-                    "laneflow/signalized-corridor",
-                    "protected-entry",
-                    &laneflow_compiler::CompileLimits::p100_initial_v1(),
-                )
-                .expect("corridor fixture policy identity"),
-            ),
-        }),
-    )
+            .expect("corridor fixture policy identity"),
+        ),
+    })
 }
 
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
@@ -67,19 +46,6 @@ struct PoseBuffer(LaneFlowCommittedPoseBatch);
 
 #[derive(Resource)]
 struct Proxy(Entity);
-
-fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input(CORRIDOR_LFCA, FormatLimits::HARD)
-        .expect("checked canonical network input");
-    build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
-        ),
-    )
-    .expect("shared network revision")
-}
 
 fn spawn_on_slot(
     world: &mut TrafficWorld,
@@ -178,22 +144,17 @@ fn sync_proxy(
 
 #[test]
 fn headless_app_steps_corridor_runtime_and_moves_proxy_transform() {
-    let revision = revision();
-    let mut world = install_fixture(
-        Arc::clone(&revision),
+    let revision = scene_loader::shared_revision(CORRIDOR_LFCA).expect("shared network revision");
+    let mut world = scene_loader::install_world(
+        &revision,
+        "fixture://in-process",
         WorldConfig::new(8, 32, 1_024, 1_024, 16),
+        corridor_policy(),
     )
     .expect("install");
     spawn_two_vehicles(&mut world, &revision);
-    let spatial = SpatialSession::bind(revision)
-        .expect("bind")
-        .expect("session");
-    let session = LaneFlowSession::new(
-        world,
-        Some(spatial),
-        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
-    )
-    .expect("paired session");
+    let session = scene_loader::paired_session(world, NonZeroU32::new(8).expect("non-zero"))
+        .expect("paired session");
     let mut app = App::new();
     app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(

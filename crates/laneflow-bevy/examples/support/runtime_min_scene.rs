@@ -1,37 +1,27 @@
 //! runtime_min 与无窗口 smoke 共用的完整初始化路径。
-use std::{error::Error, num::NonZeroU32, sync::Arc};
+use std::{error::Error, num::NonZeroU32};
 
-use laneflow_bevy::{LaneFlowSession, LaneFlowSessionConfig};
-use laneflow_format::{FormatLimits, check_canonical_network_input};
+use laneflow_bevy::LaneFlowSession;
 use laneflow_runtime::{
-    CommittedNetworkSource, PolicyPin, PublishedLfcaReference, RouteRegisterInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    PolicyPin, RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    WorldPolicySelection,
 };
-use laneflow_spatial::SpatialSession;
 use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, RightOfWayPolicySetId, VehicleProfileOrdinal,
 };
-use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-    build_shared_network_revision,
-};
+
+#[path = "scene_loader.rs"]
+mod scene_loader;
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 
+const MAX_CATCH_UP_STEPS: NonZeroU32 = NonZeroU32::new(8).expect("non-zero");
+
 /// 安装夹具修订、注册沿机动路径的路线并生成两辆车的世界。
 pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
-    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
-        .map_err(|error| format!("{error:?}"))?;
-    let revision = build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
-        ),
-    )
-    .map_err(|error| format!("{error:?}"))?;
+    let revision = scene_loader::shared_revision(FULL_SPATIAL)?;
     // 宿主选择夹具明确声明的策略身份，不按根内策略顺序或缺省值选取。
     let policy = RightOfWayPolicySetId::from_untyped(
         laneflow_compiler::derive_canonical_stable_id_v1(
@@ -42,25 +32,12 @@ pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
         )
         .map_err(|error| format!("{error:?}"))?,
     );
-    let mut world = {
-        let origin = revision.canonical_origin();
-        TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
-                reference: PublishedLfcaReference::new(
-                    "scenario://runtime-min",
-                    origin.canonical_artifact_digest(),
-                    origin.canonical_artifact_byte_length(),
-                    origin.network_revision(),
-                )
-                .expect("non-empty scenario key"),
-            },
-            0,
-            WorldPolicySelection::Pinned(PolicyPin { policy }),
-        )?
-    };
+    let mut world = scene_loader::install_world(
+        &revision,
+        "scenario://runtime-min",
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        WorldPolicySelection::Pinned(PolicyPin { policy }),
+    )?;
     let edge_for_length = |world: &TrafficWorld, length: u32| {
         let index = world
             .traffic()
@@ -97,18 +74,6 @@ pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
     Ok(world)
 }
 
-pub fn session_config() -> LaneFlowSessionConfig {
-    LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"))
-}
-
 pub fn session() -> Result<LaneFlowSession, Box<dyn Error>> {
-    let world = world()?;
-    let spatial = SpatialSession::bind(world.revision())
-        .map_err(|error| format!("{error:?}"))?
-        .ok_or("missing spatial session")?;
-    Ok(LaneFlowSession::new(
-        world,
-        Some(spatial),
-        session_config(),
-    )?)
+    scene_loader::paired_session(world()?, MAX_CATCH_UP_STEPS)
 }

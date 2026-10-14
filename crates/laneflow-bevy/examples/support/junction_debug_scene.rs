@@ -3,20 +3,14 @@
 //! 从检入的 catalog 0.1 + LFCA 建立 Session：Identity v1 绑定 → 安装世界 →
 //! 注册全部 catalog 路线 → 固定四车 spawn 计划。无 PRNG，两次装配逐状态一致。
 
-use std::{error::Error, num::NonZeroU32, sync::Arc};
+use std::{error::Error, num::NonZeroU32};
 
-use laneflow_bevy::{LaneFlowSession, LaneFlowSessionConfig};
-use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{
-    CommittedNetworkSource, PublishedLfcaReference, RouteHandle, TrafficWorld, VehicleHandle,
-    VehicleSpawnInput, WorldConfig,
-};
+use laneflow_bevy::LaneFlowSession;
+use laneflow_runtime::{RouteHandle, VehicleHandle, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::complex_junction::{JunctionCatalog, VEHICLE_PROFILE_KEY, bind};
-use laneflow_spatial::SpatialSession;
-use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-    build_shared_network_revision,
-};
+
+#[path = "scene_loader.rs"]
+mod scene_loader;
 
 pub const JUNCTION_LFCA: &[u8] =
     include_bytes!("../../../../examples/data/v0.1-complex-junction.lfca");
@@ -26,6 +20,8 @@ pub const JUNCTION_CATALOG: &str =
 /// 固定 dt（毫秒），与场景合同 `examples/config/v0.1-complex-junction.toml` 的
 /// `fixed_delta_ms` 一致。
 const FIXED_DELTA_MS: u64 = 16;
+
+const MAX_CATCH_UP_STEPS: NonZeroU32 = NonZeroU32::new(8).expect("non-zero");
 
 /// 四车 spawn 计划的角色：直行车、进待转区的保护左转车、先 NoGrant 后找间隙的
 /// 许可左转车、环路重复过门车。
@@ -101,43 +97,17 @@ pub struct JunctionDebugScene {
     pub spawned: Box<[SpawnedVehicle]>,
 }
 
-pub fn session_config() -> LaneFlowSessionConfig {
-    LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"))
-}
-
 /// 从检入制品装配 Session 并执行固定 spawn 计划。
 pub fn build() -> Result<JunctionDebugScene, Box<dyn Error>> {
     let catalog: JunctionCatalog = toml::from_str(JUNCTION_CATALOG)?;
-    let input = check_canonical_network_input(JUNCTION_LFCA, FormatLimits::HARD)
-        .map_err(|error| format!("{error:?}"))?;
-    let revision = build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
-        ),
-    )
-    .map_err(|error| format!("{error:?}"))?;
+    let revision = scene_loader::shared_revision(JUNCTION_LFCA)?;
     let bound = bind(&catalog, &revision).map_err(|error| error.to_string())?;
-    let mut world = {
-        let origin = revision.canonical_origin();
-        TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(16, 16, 1_024, 1_024, FIXED_DELTA_MS),
-            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
-                reference: PublishedLfcaReference::new(
-                    "scenario://complex-junction",
-                    origin.canonical_artifact_digest(),
-                    origin.canonical_artifact_byte_length(),
-                    origin.network_revision(),
-                )
-                .expect("non-empty scenario key"),
-            },
-            0,
-            bound.policy_selection,
-        )?
-    };
+    let mut world = scene_loader::install_world(
+        &revision,
+        "scenario://complex-junction",
+        WorldConfig::new(16, 16, 1_024, 1_024, FIXED_DELTA_MS),
+        bound.policy_selection,
+    )?;
     let profile = *bound
         .profiles
         .get(VEHICLE_PROFILE_KEY)
@@ -171,10 +141,7 @@ pub fn build() -> Result<JunctionDebugScene, Box<dyn Error>> {
             slot_id: entry.slot_id,
         });
     }
-    let spatial = SpatialSession::bind(revision)
-        .map_err(|error| format!("{error:?}"))?
-        .ok_or("missing spatial session")?;
-    let session = LaneFlowSession::new(world, Some(spatial), session_config())?;
+    let session = scene_loader::paired_session(world, MAX_CATCH_UP_STEPS)?;
     Ok(JunctionDebugScene {
         session,
         spawned: spawned.into_boxed_slice(),
