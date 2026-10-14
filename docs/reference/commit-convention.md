@@ -112,7 +112,7 @@ Refs: #12
 
 `Co-authored-by` 只用于人类合作者。不得用它标注 AI 执行框架或模型。本地
 `commit-msg` hook 与 CI 的 `Commit message` 使用同一套校验：先用
-`git interpret-trailers --parse --no-divider` 取得 Git 认定的 trailer，再检查 AI 署名和
+`git interpret-trailers --parse --no-divider` 取得 Git 认定的 trailer。该调用固定 `trailer.separators=:`，并忽略宿主机的 Git 配置。然后再检查 AI 署名和
 `Harness:` / `Model:` 成对。原文只用来拒绝冒号前空格、行首缩进、取值折行和其他不规范写法。
 
 `Co-authored-by` 键名大小写不敏感。取值满足任一条件即拒绝，并提示改写为
