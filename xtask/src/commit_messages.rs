@@ -1,10 +1,13 @@
 //! LaneFlow commit message contract: Conventional Commits title, Refs/Closes footer,
 //! BREAKING CHANGE when the title uses `!`, and paired Harness/Model trailers.
-//! AI tool `Co-authored-by` trailers are rejected. Other body fields are ignored.
+//! Trailer identity comes from `git interpret-trailers --parse`. The raw message only
+//! rejects non-canonical spelling. AI tool trailers are rejected.
 
 use std::borrow::Cow;
 use std::env;
+use std::io::Write;
 use std::process::Command;
+use std::process::Stdio;
 
 const ALLOWED_TYPES: &[&str] = &[
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "revert",
@@ -302,27 +305,34 @@ fn validate_message_with_footer_policy(
         errors.push("`BREAKING CHANGE: ` footer 必须与标题 `!` 同时使用".to_string());
     }
 
-    if has_breaking_change_footer && !has_single_valid_breaking_change_footer(message) {
+    let trailers = match git_parsed_trailers(message) {
+        Ok(trailers) => trailers,
+        Err(error) => {
+            errors.push(error);
+            return prefix_commit_errors(commit_hash, title, errors);
+        }
+    };
+
+    if has_breaking_change_footer && !has_single_valid_breaking_change_footer(message, &trailers) {
         errors.push(
-            "`BREAKING CHANGE: ` footer 格式不正确，必须在 `Refs:` / `Closes:` 前提供单行非空说明"
+            "`BREAKING CHANGE: ` footer 格式不正确，必须在 Git trailer 段之前提供单行非空说明，并与该段空一行"
                 .to_string(),
         );
     }
 
-    if let Err(error) = validate_issue_footer(message)
-        && !(exempt_issue_footer && error == IssueFooterError::Missing)
-    {
-        errors.push(error.message().to_string());
-    }
+    errors.extend(issue_footer_errors(message, &trailers, exempt_issue_footer));
+    errors.extend(canonical_trailer_errors(message, &trailers));
+    errors.extend(unrecognized_controlled_trailers(message, &trailers));
+    errors.extend(ai_attribution_errors_from_git(&trailers));
 
-    errors.extend(ai_attribution_errors(message));
+    prefix_commit_errors(commit_hash, title, errors)
+}
 
+fn prefix_commit_errors(commit_hash: &str, title: &str, errors: Vec<String>) -> Vec<String> {
+    let short_hash = commit_hash.chars().take(12).collect::<String>();
     errors
         .into_iter()
-        .map(|error| {
-            let short_hash = commit_hash.chars().take(12).collect::<String>();
-            format!("{short_hash} {title}: {error}")
-        })
+        .map(|error| format!("{short_hash} {title}: {error}"))
         .collect()
 }
 
@@ -364,59 +374,6 @@ fn valid_scope(scope: &str) -> bool {
     chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IssueFooterError {
-    Missing,
-    InvalidFormat,
-    NotLast,
-}
-
-impl IssueFooterError {
-    fn message(self) -> &'static str {
-        match self {
-            Self::Missing => "缺少 `Refs:` 或 `Closes:` footer",
-            Self::InvalidFormat => {
-                "`Refs:` / `Closes:` footer 格式不正确，应使用 `Refs: #<id>`、`Refs: pending, <reason>` 或 `Closes: #<id>`"
-            }
-            Self::NotLast => "`Refs:` / `Closes:` footer 必须是提交信息最后一个非空行",
-        }
-    }
-}
-
-fn validate_issue_footer(message: &str) -> Result<(), IssueFooterError> {
-    let lines = message.lines().collect::<Vec<_>>();
-    let Some(last_non_empty_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
-        return Err(IssueFooterError::Missing);
-    };
-
-    let mut has_issue_footer_candidate = false;
-    let mut has_valid_issue_footer_before_last_line = false;
-
-    for (index, line) in lines.iter().enumerate() {
-        if !is_issue_footer_candidate(line) {
-            continue;
-        }
-
-        has_issue_footer_candidate = true;
-        if valid_issue_footer_line(line) {
-            if index == last_non_empty_index {
-                return Ok(());
-            }
-            has_valid_issue_footer_before_last_line = true;
-        }
-    }
-
-    if is_issue_footer_candidate(lines[last_non_empty_index]) {
-        Err(IssueFooterError::InvalidFormat)
-    } else if has_valid_issue_footer_before_last_line {
-        Err(IssueFooterError::NotLast)
-    } else if has_issue_footer_candidate {
-        Err(IssueFooterError::InvalidFormat)
-    } else {
-        Err(IssueFooterError::Missing)
-    }
-}
-
 fn valid_refs_footer_line(line: &str) -> bool {
     line.strip_prefix("Refs: ")
         .is_some_and(|value| valid_issue_reference(value) || valid_pending_reason(value))
@@ -443,7 +400,12 @@ fn breaking_change_footer_count(message: &str) -> usize {
         .count()
 }
 
-fn has_single_valid_breaking_change_footer(message: &str) -> bool {
+struct GitTrailer {
+    key: String,
+    value: String,
+}
+
+fn has_single_valid_breaking_change_footer(message: &str, trailers: &[GitTrailer]) -> bool {
     let lines = message.lines().collect::<Vec<_>>();
     let Some(last_non_empty_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
         return false;
@@ -457,37 +419,270 @@ fn has_single_valid_breaking_change_footer(message: &str) -> bool {
 
     breaking_change_footer_count(message) == 1
         && valid_breaking_change_footer_line(lines[breaking_index])
-        && valid_issue_footer_line(lines[last_non_empty_index])
         && breaking_index < last_non_empty_index
-        && (lines[breaking_index + 1..last_non_empty_index]
-            .iter()
-            .all(|line| line.trim().is_empty())
-            || attribution_trailer_follows_breaking(&lines, breaking_index, last_non_empty_index))
+        && git_trailer_block_follows_breaking(
+            &lines,
+            breaking_index,
+            last_non_empty_index,
+            trailers,
+        )
 }
 
-fn attribution_trailer_follows_breaking(
+fn git_trailer_block_follows_breaking(
     lines: &[&str],
     breaking_index: usize,
     last_index: usize,
+    trailers: &[GitTrailer],
 ) -> bool {
-    let Some(relative_start) = lines[breaking_index + 1..=last_index]
-        .iter()
-        .position(|line| !line.trim().is_empty())
-    else {
+    if trailers.is_empty() || breaking_index >= last_index {
         return false;
-    };
-    let block_start = breaking_index + 1 + relative_start;
-    block_start > breaking_index + 1
-        && lines[block_start..=last_index]
+    }
+    let mut block_start = last_index;
+    while block_start > 0 && !lines[block_start - 1].trim().is_empty() {
+        block_start -= 1;
+    }
+    if block_start <= breaking_index
+        || !lines[breaking_index + 1..block_start]
             .iter()
-            .all(|line| looks_like_git_trailer(line))
-        && lines[block_start..=last_index]
+            .all(|line| line.trim().is_empty())
+    {
+        return false;
+    }
+    let paragraph = lines[block_start..=last_index]
+        .iter()
+        .copied()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let rendered = trailers
+        .iter()
+        .map(|trailer| format!("{}: {}", trailer.key, trailer.value))
+        .collect::<Vec<_>>();
+    paragraph.len() == rendered.len()
+        && paragraph
             .iter()
-            .any(|line| trailer_key_is(line, "Harness") || trailer_key_is(line, "Model"))
+            .zip(&rendered)
+            .all(|(line, rendered)| *line == rendered)
 }
 
-fn is_issue_footer_candidate(line: &str) -> bool {
-    line.starts_with("Refs:") || line.starts_with("Closes:")
+fn git_parsed_trailers(message: &str) -> Result<Vec<GitTrailer>, String> {
+    let mut child = Command::new("git")
+        .args(["interpret-trailers", "--parse"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("无法运行 git interpret-trailers: {err}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("git interpret-trailers 缺少 stdin")?
+        .write_all(message.as_bytes())
+        .map_err(|err| format!("无法把 commit message 传给 git interpret-trailers: {err}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|err| format!("git interpret-trailers 失败: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git interpret-trailers 失败: {}", stderr.trim()));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|err| format!("git interpret-trailers 输出不是 UTF-8: {err}"))?;
+    Ok(stdout.lines().filter_map(parse_git_trailer_line).collect())
+}
+
+fn parse_git_trailer_line(line: &str) -> Option<GitTrailer> {
+    let (key, value) = line.split_once(':')?;
+    let key = key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    Some(GitTrailer {
+        key: key.to_string(),
+        value: value.trim().to_string(),
+    })
+}
+
+fn rendered_trailer(trailer: &GitTrailer) -> String {
+    format!("{}: {}", trailer.key, trailer.value)
+}
+
+fn issue_footer_errors(
+    message: &str,
+    trailers: &[GitTrailer],
+    exempt_missing: bool,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    let last_line = message.lines().rev().find(|line| !line.trim().is_empty());
+    let issue_position = trailers
+        .iter()
+        .rposition(|trailer| is_issue_trailer_key(&trailer.key));
+    let Some(issue_position) = issue_position else {
+        if !exempt_missing {
+            errors.push("缺少 `Refs:` 或 `Closes:` footer".to_string());
+            if message.contains("Refs") || message.contains("Closes") || message.contains("Harness")
+            {
+                errors.push(
+                    "Git 没有把提交末尾认成 trailer 段。trailer 段之前必须有空行，行首不能缩进，取值不能折行，`BREAKING CHANGE:` 不能写进同一段。"
+                        .to_string(),
+                );
+            }
+        }
+        if raw_issue_footer_is_not_last(message) {
+            errors.push("`Refs:` / `Closes:` footer 必须是提交信息最后一个非空行".to_string());
+        }
+        return errors;
+    };
+    if issue_position + 1 != trailers.len() {
+        errors.push("`Refs:` / `Closes:` footer 必须是提交信息最后一个非空行".to_string());
+    }
+    let trailer = &trailers[issue_position];
+    if !valid_parsed_issue_footer(trailer) {
+        errors.push(
+            "`Refs:` / `Closes:` footer 格式不正确，应使用 `Refs: #<id>`、`Refs: pending, <reason>` 或 `Closes: #<id>`"
+                .to_string(),
+        );
+    }
+    let rendered = rendered_trailer(trailer);
+    if message.lines().any(|line| line == rendered) && last_line != Some(rendered.as_str()) {
+        errors.push("`Refs:` / `Closes:` footer 必须是提交信息最后一个非空行".to_string());
+    }
+    errors
+}
+
+fn is_issue_trailer_key(key: &str) -> bool {
+    key == "Refs" || key == "Closes"
+}
+
+fn valid_parsed_issue_footer(trailer: &GitTrailer) -> bool {
+    match trailer.key.as_str() {
+        "Refs" => valid_issue_reference(&trailer.value) || valid_pending_reason(&trailer.value),
+        "Closes" => valid_issue_reference(&trailer.value),
+        _ => false,
+    }
+}
+
+fn raw_issue_footer_is_not_last(message: &str) -> bool {
+    let lines = message
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let Some((last, earlier)) = lines.split_last() else {
+        return false;
+    };
+    earlier.iter().any(|line| valid_issue_footer_line(line)) && !valid_issue_footer_line(last)
+}
+
+fn canonical_trailer_errors(message: &str, trailers: &[GitTrailer]) -> Vec<String> {
+    let mut errors = Vec::new();
+    let lines = message.lines().collect::<Vec<_>>();
+    for trailer in trailers {
+        if let Some(expected) = required_trailer_key(&trailer.key)
+            && trailer.key != expected
+        {
+            errors.push(format!("`{expected}:` 键名大小写必须精确"));
+            continue;
+        }
+        let rendered = rendered_trailer(trailer);
+        if !lines.contains(&rendered.as_str()) {
+            errors.push(format!(
+                "`{}` 的写法不规范。请写成单行 `{rendered}`：冒号必须紧跟键名，行首不能缩进，取值不能折行",
+                trailer.key
+            ));
+        }
+    }
+    errors
+}
+
+fn required_trailer_key(key: &str) -> Option<&'static str> {
+    match key.to_ascii_lowercase().as_str() {
+        "harness" => Some("Harness"),
+        "model" => Some("Model"),
+        "refs" => Some("Refs"),
+        "closes" => Some("Closes"),
+        _ => None,
+    }
+}
+
+fn unrecognized_controlled_trailers(message: &str, trailers: &[GitTrailer]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for key in ["Harness", "Model", "Co-authored-by", "Made-with"] {
+        let raw_has_key = message.lines().any(|line| {
+            line.trim_start()
+                .split_once(':')
+                .is_some_and(|(token, _)| token.trim().eq_ignore_ascii_case(key))
+        });
+        let git_has_key = trailers
+            .iter()
+            .any(|trailer| trailer.key.eq_ignore_ascii_case(key));
+        if raw_has_key && !git_has_key {
+            errors.push(format!(
+                "`{key}:` 没有被 Git 认成 trailer。它必须位于末尾 trailer 段：段前必须有空行，中间不能空行，行首不能缩进，取值不能折行"
+            ));
+        }
+    }
+    errors
+}
+
+fn ai_attribution_errors_from_git(trailers: &[GitTrailer]) -> Vec<String> {
+    let mut errors = Vec::new();
+    if trailers.iter().any(|trailer| {
+        trailer.key.eq_ignore_ascii_case("Co-authored-by") && is_ai_tool_coauthor(&trailer.value)
+    }) {
+        errors.push(AI_COAUTHOR_REWRITE_HINT.to_string());
+    }
+    if trailers.iter().any(|trailer| {
+        trailer.key.eq_ignore_ascii_case("Made-with") && contains_ai_tool_token(&trailer.value)
+    }) {
+        errors.push(AI_MADE_WITH_REWRITE_HINT.to_string());
+    }
+    errors.extend(harness_model_errors_from_git(trailers));
+    errors
+}
+
+fn harness_model_errors_from_git(trailers: &[GitTrailer]) -> Vec<String> {
+    let harness = trailer_positions(trailers, "Harness");
+    let model = trailer_positions(trailers, "Model");
+    let mut errors = Vec::new();
+    if harness.len() > 1 {
+        errors.push("`Harness:` 只能出现一次".to_string());
+    }
+    if model.len() > 1 {
+        errors.push("`Model:` 只能出现一次".to_string());
+    }
+    if harness.is_empty() != model.is_empty() {
+        errors.push("`Harness:` 与 `Model:` 必须成对出现".to_string());
+    }
+    if harness.len() == 1 && model.len() == 1 && model[0] != harness[0] + 1 {
+        errors.push("`Harness:` 必须紧邻写在 `Model:` 的前一行".to_string());
+    }
+    for (key, positions) in [("Harness", &harness), ("Model", &model)] {
+        if positions
+            .iter()
+            .any(|index| trailers[*index].value.is_empty())
+        {
+            errors.push(format!("`{key}:` 必须写成 `{key}: <非空取值>`"));
+        }
+    }
+    if let Some(footer) = trailers
+        .iter()
+        .rposition(|trailer| is_issue_trailer_key(&trailer.key))
+        && harness
+            .iter()
+            .chain(model.iter())
+            .any(|index| *index > footer)
+    {
+        errors.push("`Harness:` / `Model:` 必须位于 `Refs:` / `Closes:` 之前".to_string());
+    }
+    errors
+}
+
+fn trailer_positions(trailers: &[GitTrailer], key: &str) -> Vec<usize> {
+    trailers
+        .iter()
+        .enumerate()
+        .filter(|(_, trailer)| trailer.key.eq_ignore_ascii_case(key))
+        .map(|(index, _)| index)
+        .collect()
 }
 
 fn valid_issue_reference(value: &str) -> bool {
@@ -500,72 +695,6 @@ fn valid_pending_reason(value: &str) -> bool {
     value
         .strip_prefix("pending, ")
         .is_some_and(|reason| !reason.trim().is_empty())
-}
-
-fn ai_attribution_errors(message: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-    if message
-        .lines()
-        .any(|line| coauthored_by_value(line).is_some_and(is_ai_tool_coauthor))
-    {
-        errors.push(AI_COAUTHOR_REWRITE_HINT.to_string());
-    }
-    if message
-        .lines()
-        .any(|line| made_with_value(line).is_some_and(contains_ai_tool_token))
-    {
-        errors.push(AI_MADE_WITH_REWRITE_HINT.to_string());
-    }
-    errors.extend(harness_model_errors(message));
-    errors
-}
-
-fn coauthored_by_value(line: &str) -> Option<&str> {
-    trailer_value_ignore_key_case(line, "Co-authored-by")
-}
-
-fn made_with_value(line: &str) -> Option<&str> {
-    trailer_value_ignore_key_case(line, "Made-with")
-}
-
-fn trailer_value_ignore_key_case<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    let rest = strip_prefix_ignore_ascii_case(line.trim(), key)?;
-    let rest = rest.trim_start().strip_prefix(':')?;
-    Some(rest.trim())
-}
-
-fn looks_like_git_trailer(line: &str) -> bool {
-    git_trailer_token(line).is_some()
-}
-
-fn trailer_key_is(line: &str, key: &str) -> bool {
-    git_trailer_token(line).is_some_and(|token| token.eq_ignore_ascii_case(key))
-}
-
-fn git_trailer_token(line: &str) -> Option<&str> {
-    let (token, _) = line.trim().split_once(':')?;
-    let token = token.trim();
-    if token.is_empty()
-        || !token
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-    {
-        return None;
-    }
-    Some(token)
-}
-
-fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let mut rest = value;
-    for expected in prefix.chars() {
-        let mut chars = rest.chars();
-        let actual = chars.next()?;
-        if !actual.eq_ignore_ascii_case(&expected) {
-            return None;
-        }
-        rest = chars.as_str();
-    }
-    Some(rest)
 }
 
 fn is_ai_tool_coauthor(value: &str) -> bool {
@@ -614,157 +743,6 @@ fn contains_ai_tool_token(value: &str) -> bool {
         })
 }
 
-struct AttributionHit {
-    index: usize,
-    exact_case: bool,
-    colon_immediately_after_key: bool,
-    value_present: bool,
-}
-
-fn harness_model_errors(message: &str) -> Vec<String> {
-    let lines = message.lines().collect::<Vec<_>>();
-    let harness_hits = attribution_hits(&lines, "Harness:");
-    let model_hits = attribution_hits(&lines, "Model:");
-    let mut errors = Vec::new();
-
-    if harness_hits.len() > 1 {
-        errors.push("`Harness:` 只能出现一次".to_string());
-    }
-    if model_hits.len() > 1 {
-        errors.push("`Model:` 只能出现一次".to_string());
-    }
-    if harness_hits.is_empty() != model_hits.is_empty() {
-        errors.push("`Harness:` 与 `Model:` 必须成对出现".to_string());
-    }
-
-    push_attribution_key_errors(&harness_hits, "Harness", &mut errors);
-    push_attribution_key_errors(&model_hits, "Model", &mut errors);
-
-    if harness_hits.len() == 1
-        && model_hits.len() == 1
-        && model_hits[0].index != harness_hits[0].index + 1
-    {
-        errors.push("`Harness:` 必须紧邻写在 `Model:` 的前一行".to_string());
-    }
-
-    push_attribution_position_errors(&lines, &harness_hits, &model_hits, &mut errors);
-    push_attribution_trailer_block_error(&lines, &harness_hits, &model_hits, &mut errors);
-    errors
-}
-
-fn attribution_hits(lines: &[&str], key: &str) -> Vec<AttributionHit> {
-    let key_name = key.strip_suffix(':').unwrap_or(key);
-    lines
-        .iter()
-        .enumerate()
-        .filter_map(|(index, line)| attribution_hit(index, line, key_name))
-        .collect()
-}
-
-fn attribution_hit(index: usize, line: &str, key_name: &str) -> Option<AttributionHit> {
-    let trimmed_start = line.trim_start();
-    let (token, rest) = trimmed_start.split_once(':')?;
-    if !token.trim().eq_ignore_ascii_case(key_name) {
-        return None;
-    }
-
-    let colon_immediately_after_key = trimmed_start.len() == line.len() && token == token.trim();
-    let value_present = if colon_immediately_after_key && token == key_name {
-        rest.starts_with(' ') && !rest.trim().is_empty()
-    } else {
-        !rest.trim().is_empty()
-    };
-    Some(AttributionHit {
-        index,
-        exact_case: token.trim() == key_name,
-        colon_immediately_after_key,
-        value_present,
-    })
-}
-
-fn push_attribution_key_errors(hits: &[AttributionHit], key_name: &str, errors: &mut Vec<String>) {
-    if hits.iter().any(|hit| !hit.exact_case) {
-        errors.push(format!("`{key_name}:` 键名大小写必须精确"));
-    }
-    if hits
-        .iter()
-        .any(|hit| hit.exact_case && !hit.colon_immediately_after_key)
-    {
-        errors.push(format!("`{key_name}:` 的冒号必须紧跟键名"));
-    }
-    if hits.iter().any(|hit| !hit.value_present) {
-        errors.push(format!("`{key_name}:` 必须写成 `{key_name}: <非空取值>`"));
-    }
-}
-
-fn push_attribution_position_errors(
-    lines: &[&str],
-    harness_hits: &[AttributionHit],
-    model_hits: &[AttributionHit],
-    errors: &mut Vec<String>,
-) {
-    let issue_footer_index = lines
-        .iter()
-        .rposition(|line| is_issue_footer_candidate(line));
-    let after_issue_footer = harness_hits
-        .iter()
-        .chain(model_hits.iter())
-        .any(|hit| issue_footer_index.is_some_and(|footer| hit.index > footer));
-    if after_issue_footer {
-        errors.push("`Harness:` / `Model:` 必须位于 `Refs:` / `Closes:` 之前".to_string());
-    }
-}
-
-fn push_attribution_trailer_block_error(
-    lines: &[&str],
-    harness_hits: &[AttributionHit],
-    model_hits: &[AttributionHit],
-    errors: &mut Vec<String>,
-) {
-    let Some(first_index) = harness_hits
-        .iter()
-        .chain(model_hits.iter())
-        .map(|hit| hit.index)
-        .min()
-    else {
-        return;
-    };
-    let Some(last_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
-        return;
-    };
-    if first_index < last_index
-        && lines[first_index..=last_index]
-            .iter()
-            .any(|line| line.trim().is_empty())
-    {
-        errors.push(
-            "`Harness:` / `Model:` 必须与后续 footer 连成同一段 trailer，中间不能空行".to_string(),
-        );
-    }
-
-    let block_start = git_trailer_block_start(lines, first_index);
-    if block_start == 0 || !lines[block_start - 1].trim().is_empty() {
-        errors.push("AI 署名 trailer 段之前必须有空行".to_string());
-    }
-    if lines[block_start..=last_index]
-        .iter()
-        .any(|line| !line.trim().is_empty() && !looks_like_git_trailer(line))
-    {
-        errors.push(
-            "`BREAKING CHANGE:` 不能写进 Git trailer 段。请把它放在空行之前，trailer 段只保留 `Harness:`、`Model:` 与 `Refs:` / `Closes:`"
-                .to_string(),
-        );
-    }
-}
-
-fn git_trailer_block_start(lines: &[&str], first_attribution: usize) -> usize {
-    let mut start = first_attribution;
-    while start > 0 && looks_like_git_trailer(lines[start - 1]) {
-        start -= 1;
-    }
-    start
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -792,6 +770,7 @@ Refs: #23
 feat(runtime)!: 调整 tick API
 
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。
+
 Refs: #12
 ";
 
@@ -864,7 +843,7 @@ Refs: #12
     #[test]
     fn rejects_breaking_change_after_issue_footer() {
         let message = BREAKING_MESSAGE.replace(
-            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nRefs: #12",
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nRefs: #12",
             "Refs: #12\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。",
         );
 
@@ -1283,6 +1262,29 @@ Refs: #12
     }
 
     #[test]
+    fn accepts_human_coauthor_after_breaking_change_without_ai_attribution() {
+        assert_accepted(
+            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: 调用方必须显式传入 tick 间隔。\n\nCo-authored-by: Ada Lovelace <ada@example.com>\nRefs: #12\n",
+        );
+    }
+
+    #[test]
+    fn rejects_folded_ai_coauthor() {
+        assert_rejected(
+            "docs(governance): 对齐提交规范\n\nCo-authored-by:\n Codex <noreply@openai.com>\nRefs: #23\n",
+            "不得标注 AI 工具",
+        );
+    }
+
+    #[test]
+    fn rejects_indented_trailer_block() {
+        assert_rejected(
+            "docs(governance): 对齐提交规范\n\n Co-authored-by: Ada <ada@example.com>\nHarness: Cursor\nModel: m\nRefs: #23\n",
+            "没有把提交末尾认成 trailer",
+        );
+    }
+
+    #[test]
     fn rejects_ai_tool_coauthors_with_rewrite_hint() {
         for trailer in [
             "Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
@@ -1336,7 +1338,7 @@ Refs: #12
     fn rejects_harness_model_that_are_not_adjacent() {
         assert_rejected(
             &message_with_body("Harness: Cursor\n\nModel: example-model"),
-            "必须紧邻",
+            "必须成对出现",
         );
         assert_rejected(
             &message_with_body("Model: example-model\nHarness: Cursor"),
@@ -1367,7 +1369,7 @@ Refs: #12
     #[test]
     fn rejects_breaking_change_inside_attribution_trailer_block() {
         let message = BREAKING_MESSAGE.replace(
-            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nRefs: #12",
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nRefs: #12",
             "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: Cursor\nModel: example-model\nRefs: #12",
         );
 
@@ -1394,6 +1396,25 @@ Refs: #12
     fn rejects_made_with_cursor_trailer() {
         assert_rejected(&message_with_body("Made-with: Cursor"), "`Made-with:`");
         assert_rejected(&message_with_body("Made-with : Cursor"), "`Made-with:`");
+    }
+
+    #[test]
+    fn rejects_spaced_malformed_dependabot_issue_footer() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n\nRefs : malformed\n",
+        );
+
+        assert!(
+            errors.iter().any(|error| error.contains("格式不正确")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().all(|error| !error.contains("缺少 `Refs:`")),
+            "{errors:?}"
+        );
     }
 
     #[test]
