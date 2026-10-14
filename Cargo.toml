@@ -34,6 +34,26 @@ license = "Apache-2.0"
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+# 构建产物体积（#802）：dev 档（test 档继承）只生成行表级调试信息，panic 栈与
+# dhat 栈仍带文件名与行号；依赖不生成调试信息（`package."*"` 不匹配工作区
+# 成员）。需要变量级调试时改用 `cargo build --profile debugging`（定义见下，
+# 产物落在 `target/debugging`，需完整重建一次）。incremental 缓存 Cargo 永不
+# 回收，单工作树实测可达数十 GiB，关闭以换取磁盘。
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+
+# 变量级调试档：与 dev 同设置，仅恢复完整调试信息与增量编译。注意 package
+# 覆盖会被 inherits 继承，故本档只恢复工作区 crate 的变量级调试，依赖仍无
+# 调试信息；需要时临时加 [profile.debugging.package."*"] debug = true。
+[profile.debugging]
+inherits = "dev"
+debug = true
+incremental = true
+
 # 测试夹具全管线（Road Editing 来源写入 → 可移植发射 → 后发射检查 → 建网）
 # 是测试套件主成本：debug 档单次近 50 s，其中发射与后发射检查约七成半、
 # 来源写入约两成半（#748 P0 实测）。测试档把这些管线 crate 与摘要 crate
