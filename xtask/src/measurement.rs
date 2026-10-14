@@ -95,26 +95,13 @@ fn sanitize_git_env(command: &mut Command) {
 
 /// git 来源读取：默认环境 + git 卫生。
 fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
-    command_with("git", args, cwd, false)
-}
-
-/// 嵌套工具链探测（rustc/cargo 只读调用）：白名单环境 + git 卫生。
-fn tool_output(program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
-    command_with(program, args, cwd, true)
-}
-
-fn command_with(
-    program: &str,
-    args: &[&str],
-    cwd: &Path,
-    whitelist: bool,
-) -> Result<String, String> {
-    let mut command = Command::new(program);
+    let mut command = Command::new("git");
     command.args(args).current_dir(cwd);
-    if whitelist {
-        whitelist_env(&mut command);
-    }
     sanitize_git_env(&mut command);
+    finish_output(command, "git", args)
+}
+
+fn finish_output(mut command: Command, program: &str, args: &[&str]) -> Result<String, String> {
     let output = command
         .output()
         .map_err(|e| format!("无法执行 {program}: {e}"))?;
@@ -128,19 +115,44 @@ fn command_with(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-/// 白名单环境：只放回父环境存在的变量；未列出的采集机变量一律不存在。
-fn whitelist_env(command: &mut Command) -> &mut Command {
-    command.env_clear();
-    for name in PASSTHROUGH_ENV {
-        if let Some(value) = env::var_os(name) {
-            command.env(name, value);
-        }
-    }
-    command
+/// 嵌套工具链环境：白名单 + 锚定后的 CARGO_HOME/RUSTUP_HOME。
+/// 探测与正式构建共用同一环境，审计/映射/扫描看到的目录与嵌套进程一致。
+struct ToolEnv {
+    cargo_home: PathBuf,
+    rustup_home: PathBuf,
 }
 
-fn toolchain_sysroot(repo: &Path) -> Result<PathBuf, String> {
-    let sysroot = tool_output("rustc", &[TOOLCHAIN_ARG, "--print", "sysroot"], repo)?;
+impl ToolEnv {
+    fn resolve(repo: &Path) -> Result<Self, String> {
+        Ok(Self {
+            cargo_home: cargo_home(repo)?,
+            rustup_home: rustup_home(repo)?,
+        })
+    }
+
+    /// 白名单环境：只放回父环境存在的变量；未列出的采集机变量一律不存在。
+    fn command(&self, program: &str, cwd: &Path) -> Command {
+        let mut command = Command::new(program);
+        command.current_dir(cwd);
+        command.env_clear();
+        for name in PASSTHROUGH_ENV {
+            if let Some(value) = env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        command.env("CARGO_HOME", &self.cargo_home);
+        command.env("RUSTUP_HOME", &self.rustup_home);
+        sanitize_git_env(&mut command);
+        command
+    }
+
+    fn output(&self, program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
+        finish_output(self.command(program, cwd), program, args)
+    }
+}
+
+fn toolchain_sysroot(tool_env: &ToolEnv, repo: &Path) -> Result<PathBuf, String> {
+    let sysroot = tool_env.output("rustc", &[TOOLCHAIN_ARG, "--print", "sysroot"], repo)?;
     let path = PathBuf::from(&sysroot);
     if !path.is_dir() {
         return Err(format!("rustup 工具链 sysroot 不可解析：{sysroot}"));
@@ -299,8 +311,12 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
 
 /// 依赖来源根检查：每个依赖包的 manifest 必须落在工作树或 Cargo 主目录内；
 /// 目录替换（vendor）等来源会让 remap 覆盖不到，构建必须 fail closed。
-fn check_dependency_roots(repo: &Path, cargo_home: &Path) -> Result<(), String> {
-    let stdout = tool_output(
+fn check_dependency_roots(
+    tool_env: &ToolEnv,
+    repo: &Path,
+    cargo_home: &Path,
+) -> Result<(), String> {
+    let stdout = tool_env.output(
         "cargo",
         &[
             TOOLCHAIN_ARG,
@@ -475,8 +491,8 @@ fn scan_binary(
     Ok((hits, receipt))
 }
 
-fn derived_roots(repo: &Path) -> Result<Vec<ScanRoot>, String> {
-    let sysroot = toolchain_sysroot(repo)?;
+fn derived_roots(tool_env: &ToolEnv, repo: &Path) -> Result<Vec<ScanRoot>, String> {
+    let sysroot = toolchain_sysroot(tool_env, repo)?;
     Ok(vec![
         ScanRoot {
             placeholder: "<user-profile>".into(),
@@ -580,10 +596,11 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         }
     }
     let repo = repo_root()?;
-    let sysroot = toolchain_sysroot(&repo)?;
-    let cargo_home = cargo_home(&repo)?;
+    let tool_env = ToolEnv::resolve(&repo)?;
+    let sysroot = toolchain_sysroot(&tool_env, &repo)?;
+    let cargo_home = tool_env.cargo_home.clone();
     check_cargo_config(&cargo_home, &repo)?;
-    check_dependency_roots(&repo, &cargo_home)?;
+    check_dependency_roots(&tool_env, &repo, &cargo_home)?;
     // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
     // provenance 在测量窗口两端复查干净状态。
     // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all；
@@ -653,31 +670,29 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     }
     // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
     // 产物位置或目标平台。
-    let verbose = tool_output("rustc", &[TOOLCHAIN_ARG, "-Vv"], &repo)?;
+    let verbose = tool_env.output("rustc", &[TOOLCHAIN_ARG, "-Vv"], &repo)?;
     let host = verbose
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .map(str::to_owned)
         .ok_or("rustc -Vv 缺少 host 行")?;
-    let mut command = Command::new("cargo");
-    command
-        .args([
-            TOOLCHAIN_ARG,
-            "build",
-            "-p",
-            "laneflow-urban-harness",
-            "--release",
-            "--locked",
-            "--target",
-            &host,
-        ])
-        .current_dir(&repo);
-    // 白名单环境：只放回父环境存在的系统变量，再加钉住的测量变量；
+    let mut command = tool_env.command("cargo", &repo);
+    command.args([
+        TOOLCHAIN_ARG,
+        "build",
+        "-p",
+        "laneflow-urban-harness",
+        "--release",
+        "--locked",
+        "--target",
+        &host,
+    ]);
+
+    // 白名单环境（ToolEnv::command 已施加）：钉住的测量变量之外，
     // CARGO_ENCODED_RUSTFLAGS 在 Cargo flag 来源中优先级最高，覆盖 config 的
     // build.rustflags；编译器钉到工具链内 rustc；中间产物目录钉进全新清理的
     // 目录内（build.build-dir 或 CARGO_BUILD_BUILD_DIR 不得把可复用缓存挪到
     // 未扫描处）。采集机的 RUSTC/wrapper/CC 家族/代理/其他一切变量一律缺席。
-    whitelist_env(&mut command);
     command
         .env("CARGO_ENCODED_RUSTFLAGS", &actual)
         .env("LANEFLOW_MEASUREMENT_RUSTFLAGS", &normalized)
@@ -732,7 +747,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let mut roots = derived_roots(&repo)?;
+    let mut roots = derived_roots(&tool_env, &repo)?;
     if let Some(root) = evidence_root {
         roots.push(ScanRoot {
             placeholder: "<evidence-root>".into(),
@@ -817,7 +832,8 @@ pub(crate) fn check_binary_paths(args: &[String]) -> Result<(), String> {
     }
     let binary = binary.ok_or("缺少二进制路径")?;
     let repo = repo_root()?;
-    let mut roots = derived_roots(&repo)?;
+    let tool_env = ToolEnv::resolve(&repo)?;
+    let mut roots = derived_roots(&tool_env, &repo)?;
     if let Some(root) = evidence_root {
         roots.push(ScanRoot {
             placeholder: "<evidence-root>".into(),
