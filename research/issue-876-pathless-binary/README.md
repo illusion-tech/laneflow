@@ -18,7 +18,7 @@ rustup 主目录/工具链、工作树，以及调用方追加的证据根）即
 同一提交两种构建各跑 10k 短窗：交通文件逐字节一致，耗时差异在运行间波动内；
 新构建的二进制扫描不到任何本机路径，并以正式 performance 窗口端到端跑通 v5
 来源校验。该二进制已原样上传（[Research Evidence
-prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-0131c948)，
+prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-876-pathless-binary-f88bef43)，
 索引见 [evidence/measurement-binary.toml](evidence/measurement-binary.toml)，
 制品经重新下载核对 SHA-256），执行身份与公开制品一致。
 
@@ -51,22 +51,33 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 ## 3. 实现
 
 - `report.rs`：provenance 新增 `build_rustflags`（编译期
-  `option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS")` 嵌入的归一化 flag 记录）与
-  `build_profile`（`cfg!(debug_assertions)` 派生）两个固定协议字段，
+  `option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS")` 嵌入的归一化 flag 记录）、
+  `build_profile`（`cfg!(debug_assertions)` 派生）与 `build_commit`（构建期嵌入
+  的源码提交，运行时校验等于当前 HEAD）三个固定协议字段，
   与 `build_parameters`（改为 xtask 构建入口）一起逐项校验；三轮聚合的
-  provenance 全等比较自动覆盖新字段。
+  provenance 全等比较自动覆盖新字段。运行时来源核对与构建侧同一 git 卫生
+  规则（清 `GIT_*` 前缀与 `XDG_CONFIG_HOME`、回钉 `GIT_NO_REPLACE_OBJECTS=1`、
+  `ls-files -v` 索引位检查），git 读取锚定到 `rev-parse --show-toplevel`
+  解析出的 checkout。
 - `xtask/src/measurement.rs` 的 `build-measurement`：正式构建唯一入口；同一张
   映射表写出实际 `CARGO_ENCODED_RUSTFLAGS` 与归一化记录（来源端替换为占位符，
   永不携带本机路径）；每次正式构建使用全新 target 目录
   `target/release-measurement/`（先清空，杜绝构建脚本缓存携带未声明输入）。
-  同时钉住 release profile 各键
-  （`CARGO_PROFILE_RELEASE_*`）与工具链内 rustc（`CARGO_BUILD_RUSTC`），清除
-  `RUSTC`/wrapper 类变量与本机原生工具链变量（`CC`/`CFLAGS`/`AR` 等的
-  plain/`HOST_`/`TARGET_`/目标三元组限定形式），审计采集机 Cargo 配置
-  （用户级与祖先目录，递归跟随 `include`；拒绝 profile/paths/source/patch/env
-  表与 build.rustc*/rustflags、target.*.linker/runner/rustflags），并要求
+  嵌套工具链探测与正式构建统一走**环境白名单**（`env_clear` 后只放回父环境
+  真实存在的系统变量——含 MSVC 发现兜底的 `ProgramFiles`/`ProgramData`，Unix
+  侧 `HOME`/`TMPDIR`——加上锚定后的 `CARGO_HOME`/`RUSTUP_HOME` 与钉住的
+  `CARGO_PROFILE_RELEASE_*`/`CARGO_BUILD_RUSTC`/`CARGO_BUILD_BUILD_DIR`/
+  `CARGO_TARGET_DIR`/`CARGO_INCREMENTAL=0` 与测量变量）；采集机的
+  RUSTC/wrapper/CC 家族/代理等一切未列出变量一律缺席，不再逐条追赶。
+  审计采集机 Cargo 配置
+  （用户级与祖先目录，递归跟随 `include`；拒绝 profile/paths/source/patch/env/
+  unstable 表与 build.rustc*/rustflags/build-dir、resolver.lockfile-path、
+  整个 target 表），并要求
   `cargo metadata` 的全部依赖源码落在工作树
-  或 Cargo 主目录内（目录替换等逃逸 fail closed）。构建后正向断言二进制嵌入了
+  或 Cargo 主目录内（目录替换等逃逸 fail closed）。git 来源读取统一前缀清除
+  `GIT_*` 与 `XDG_CONFIG_HOME` 并回钉 `GIT_NO_REPLACE_OBJECTS=1`，干净判定补
+  `ls-files -v` 索引位检查，构建后写回执前复核 HEAD/tree/状态未漂移。
+  构建后正向断言二进制嵌入了
   期望的归一化串（rustc dep-info 本已跟踪 `option_env!` 触发重编，此为纵深
   防御），再固定
   执行扫描；回执（占位符、字节数、SHA-256）写入 `--receipt`（默认 target 下，
@@ -78,7 +89,7 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 
 ## 4. 验证
 
-被测提交：`0131c9485168d27cb7264cf765eefb36df1c0552`（本 PR 实现提交；其后的
+被测提交：`f88bef43c0396cb12af4c33640cbdb10eda77889`（本 PR 实现提交；其后的
 文档提交不改 harness 构建输入）。
 采集机：`amd-ryzen9-9955hx-16c-32t-64gb-hyperv` / `win11-balanced-381b4222`。
 证据目录：`<worktree>/target/issue876-evidence/`（Git 忽略的本地生成数据，重建
@@ -88,8 +99,8 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
 
 | 构建      | SHA-256                                                            |  字节数 | 扫描                                                                                        |
 | --------- | ------------------------------------------------------------------ | ------: | ------------------------------------------------------------------------------------------- |
-| 普通（A） | `9f5bbb0f0baf887d530e1454af4fd600d84790bff6e14616322f2a43c38a1aab` | 6752256 | fail：`<user-profile>`/`<rustup-home>`/`<rustup-toolchain>` 各 85 处、`<cargo-home>` 154 处 |
-| 包装（B） | `f560e4ddb6a7ecd8f89762848c57715f0a8c9efd6dd61ff3d0b59cff226f46c8` | 6752256 | pass：五类根零命中                                                                          |
+| 普通（A） | `2482a752d81330c9f6a7fb5dfe84e0bf3c09c5a4c44d63a13f09da925f7c9fe7` | 6752256 | fail：`<user-profile>`/`<rustup-home>`/`<rustup-toolchain>` 各 85 处、`<cargo-home>` 154 处 |
+| 包装（B） | `118a7b21ff241e44cfacb6b1357b371a96ceca31b4525aa04797d7bc7ad53499` | 6752256 | pass：五类根零命中                                                                          |
 
 ### 4.2 同提交短窗逐字节一致与计时波动
 
@@ -108,12 +119,12 @@ B1↔B2），四份交通文件两臂逐字节相同：
 
 | 运行       | step p50 | step p95 | 观测 p50 | 观测 p95 |
 | ---------- | -------: | -------: | -------: | -------: |
-| A1（普通） |    2.548 |    3.116 |    2.057 |    2.382 |
-| B1（包装） |    2.553 |    3.085 |    2.040 |    2.351 |
-| B2（包装） |    2.534 |    3.057 |    2.045 |    2.381 |
-| A2（普通） |    2.593 |    3.199 |    2.059 |    2.414 |
+| A1（普通） |    3.631 |    4.659 |    2.677 |    3.306 |
+| B1（包装） |    3.693 |    4.650 |    2.651 |    3.247 |
+| B2（包装） |    3.580 |    4.375 |    2.557 |    3.093 |
+| A2（普通） |    3.617 |    4.474 |    2.628 |    3.167 |
 
-step p95 四轮运行间极差 0.14 ms，同位 A−B 差值（+0.03 / −0.14 ms）方向相反、
+step p95 四轮运行间极差 0.28 ms，同位 A−B 差值（+0.01 / −0.10 ms）方向相反、
 无稳定 A−B 分离，落在运行间波动内。remap 不改变优化结果与运行行为。
 短窗命令样本多为零（无命令拍占多数），不列为依据。
 
@@ -122,11 +133,11 @@ step p95 四轮运行间极差 0.14 ms，同位 A−B 差值（+0.03 / −0.14 m
 - 负路径：普通构建（A）运行正式 performance 计划在初始化前被
   "missing or unavailable performance provenance" 拒绝，退出码 1，不留输出目录。
 - 正路径：B 跑 10k 正式 performance 一轮（30,624 暖机 + 61,248 观察，共
-  91,872 拍，workers=1），`performance-round-complete`，全程 398.7 s；
+  91,872 拍，workers=1），`performance-round-complete`，全程 461.2 s；
   初始化前与窗口结束后来源校验均通过。计划摘要
   `045b87c845f270e5de51da0b47a9d06eb8f8396cd5ec795a73f9276bc7029ceb`，
-  `measurements.toml`（3,257,668 字节，SHA-256
-  `bc2cdf1e318446117dac52b2bcf73d385dd77b73523e2fc0b8683eb9a9e63ac1`）记录
+  `measurements.toml`（3,257,676 字节，SHA-256
+  `79c6cf20260fbba3d728c23abb0631da98fefcf54c6f5370a7ddee3d9c671a66`）记录
   `version = "urban-performance-measurements-v5"` 与 §3 三个新字段的冻结值；
   `diagnostics.json` 的二进制摘要、provenance 提交、回执 `source_commit`、
   嵌入 `build_commit` 与上传制品五者一致。
