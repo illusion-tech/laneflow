@@ -145,6 +145,20 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 PR 中必须记录实际运行的检查。无法运行时，应说明原因和风险。
 
+### 8.1 本地调试与构建产物体积（#802）
+
+根 `Cargo.toml` 的 `dev` 档（`test` 档继承它）只生成行表级调试信息，依赖不生成调试信息，并关闭 `incremental`。后果是：panic 栈与 dhat 栈仍有文件名与行号，但调试器看不到局部变量与类型。需要变量级调试时使用：
+
+```text
+cargo build --profile debugging
+```
+
+`debugging` 档继承 `dev`，仅恢复 `debug = true` 与 `incremental = true`；产物落在 `target/debugging`，首次使用需完整重建一次。
+
+注意 `[profile.dev.package."*"]` 的覆盖会被 `inherits` 一并继承（实测：双 crate 最小工程下，自有 crate 拿到 `-C debuginfo=2`，依赖 crate 仍无调试信息）。因此 `debugging` 档恢复的是**工作区 crate** 的变量级调试；单步进入依赖内部时仍看不到依赖的局部变量。确实需要依赖调试信息时，临时加 `[profile.debugging.package."*"] debug = true`（代价是 `debugging` 档体积回到改造前量级）。
+
+`target/` 不会自动回收：Cargo 稳定版没有 build-dir GC。体积长期增长时用 `cargo clean` 清理，或按保留天数清扫（工具与实测数据见 #802）。
+
 ## 9. AI Agent 开发
 
 AI Agent 可以参与设计、实现、测试和文档维护，但应遵守 `docs/governance/agent-development-guide.md`。
