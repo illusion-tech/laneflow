@@ -53,7 +53,7 @@ pub(crate) fn source() -> Result<Value> {
             .ok_or_else(|| invalid(format!("unavailable source metadata: {program}")))
     };
     let commit = read("git", &["rev-parse", "HEAD"])?;
-    let status = read("git", &["status", "--porcelain"])?;
+    let status = read("git", &["status", "--porcelain", "--untracked-files=all"])?;
     if !status.is_empty() || commit.len() != 40 {
         return Err(invalid("evidence requires a frozen clean source checkout"));
     }

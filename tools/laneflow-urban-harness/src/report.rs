@@ -267,9 +267,28 @@ impl MeasurementProvenance {
             .find_map(|line| line.strip_prefix("host: "))
             .ok_or_else(|| invalid("unavailable target provenance"))?
             .to_owned();
+        // git 读取先解析 checkout，再锚定到该目录：从别的目录启动时来源核对
+        // 不能读到别的仓库。首个 rev-parse 只能由进程 cwd 解析，这是入口语义。
+        let checkout = read("git", &["rev-parse", "--show-toplevel"])?;
+        let read_git = |args: &[&str]| {
+            command_output_at("git", args, Some(Path::new(&checkout)))
+                .ok_or_else(|| invalid("unavailable provenance: git"))
+        };
+        let git_status = read_git(&["status", "--porcelain", "--untracked-files=all"])?;
+        // skip-worktree/assume-unchanged 索引位让被改的 tracked 文件在 status
+        // 里隐身：小写标签或 S 即拒绝。
+        let ls_files = read_git(&["ls-files", "-v"])?;
+        if ls_files
+            .lines()
+            .any(|line| line.starts_with(|c: char| c.is_ascii_lowercase()) || line.starts_with('S'))
+        {
+            return Err(invalid(
+                "checkout has skip-worktree/assume-unchanged entries; cleanliness is not attestable",
+            ));
+        }
         let provenance = Self {
-            git_commit: read("git", &["rev-parse", "HEAD"])?,
-            git_status: read("git", &["status", "--porcelain", "--untracked-files=all"])?,
+            git_commit: read_git(&["rev-parse", "HEAD"])?,
+            git_status,
             rustc,
             cargo: read("cargo", &["+1.98.0", "-V"])?,
             target,
@@ -860,11 +879,13 @@ fn validate_performance_output(output: &Path, checkout: &Path) -> Result<()> {
                 .file_name()
                 .ok_or_else(|| invalid("performance output requires a new directory name"))?,
         );
-        let ignored = std::process::Command::new("git")
+        let mut check_ignore = std::process::Command::new("git");
+        check_ignore
             .current_dir(&checkout)
             .args(["check-ignore", "--quiet", "--"])
-            .arg(relative)
-            .status()?;
+            .arg(relative);
+        sanitize_git_env(&mut check_ignore);
+        let ignored = check_ignore.status()?;
         if !ignored.success() {
             return Err(invalid(
                 "formal performance output must be outside the checkout or git-ignored (for example target/)",
@@ -1704,11 +1725,42 @@ fn read_execution_id(directory: &Path) -> Result<String> {
         .ok_or_else(|| invalid("missing execution identity; rerun to produce current evidence"))
 }
 
+/// 来源核对子进程的统一卫生（与 xtask 测量构建入口同规则，两侧各自实现）：
+/// 清掉全部 `GIT_` 前缀变量与 `XDG_CONFIG_HOME`（前缀匹配折叠 ASCII 大小写，
+/// Windows 环境名不敏感），并回钉 `GIT_NO_REPLACE_OBJECTS=1`——遗留的
+/// replace ref 对来源核对必须不可见。rustc/cargo 只读调用不受其影响。
+fn sanitize_git_env(command: &mut std::process::Command) {
+    let doomed: Vec<std::ffi::OsString> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| {
+            let text = key.to_string_lossy();
+            text.to_ascii_uppercase().starts_with("GIT_")
+                || text.eq_ignore_ascii_case("XDG_CONFIG_HOME")
+        })
+        .collect();
+    for key in doomed {
+        command.env_remove(key);
+    }
+    command.env("GIT_NO_REPLACE_OBJECTS", "1");
+}
+
 pub(crate) fn command_output(program: &str, args: &[&str]) -> Option<String> {
-    let output = std::process::Command::new(program)
-        .args(args)
-        .output()
-        .ok()?;
+    command_output_at(program, args, None)
+}
+
+/// `cwd` 为 None 时用进程当前目录。
+pub(crate) fn command_output_at(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Option<String> {
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    sanitize_git_env(&mut command);
+    let output = command.output().ok()?;
     output
         .status
         .success()
