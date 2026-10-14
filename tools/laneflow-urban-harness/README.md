@@ -190,7 +190,7 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 三轮完成后仍通过 `compare` 入口做文件摘要、计划摘要和独立执行编号校验，并精确合并
 三轮保存的观察窗口样本：p50/p95/p99 先逐轮计算，再取三个轮次值的中位数，max 取
 三个轮次的最坏值；不将样本池化后求分位。每轮提交、干净状态、Rust/Cargo/target、构建参数、
-构建期归一化 rustflags 与 profile 设置、OS/架构、
+构建期归一化 rustflags、profile 设置与嵌入的构建提交（build_commit）、OS/架构、
 硬件/电源角色、worker 与计时口径必须可用且一致；缺字段、脏工作树、样本数与窗口不符
 均拒绝。正式运行在初始化前和窗口结束后核对来源，变化或无法读取时不产出性能通过包：
 
@@ -210,7 +210,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
 合并口径。
 
-当前测量载荷为 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags 与 profile 设置，正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
+当前测量载荷为 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags、profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
 完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的
