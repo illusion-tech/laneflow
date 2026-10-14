@@ -67,6 +67,10 @@ name = "runtime_min_smoke"
 path = "examples/support/runtime_min_smoke.rs"
 
 [[test]]
+name = "signalized_corridor_smoke"
+path = "examples/support/signalized_corridor_smoke.rs"
+
+[[test]]
 name = "junction_observation"
 path = "examples/support/junction_observation.rs"
 

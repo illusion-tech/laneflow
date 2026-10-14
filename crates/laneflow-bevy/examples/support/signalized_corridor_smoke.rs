@@ -1,4 +1,4 @@
-#[path = "../examples/support/scene_loader.rs"]
+#[path = "scene_loader.rs"]
 mod scene_loader;
 
 use std::{num::NonZeroU32, time::Duration};
@@ -36,9 +36,10 @@ fn corridor_policy() -> WorldPolicySelection {
     })
 }
 
-const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
+const CORRIDOR_LFCA: &[u8] =
+    include_bytes!("../../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
-    include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
+    include_str!("../../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 /// 跨帧复用的提取缓冲（adapter-api §6 稳定容量合同）。
 #[derive(Resource, Default)]
