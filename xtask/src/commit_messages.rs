@@ -451,11 +451,20 @@ fn git_trailer_block_follows_breaking(
 }
 
 fn git_parsed_trailers(message: &str) -> Result<Vec<GitTrailer>, String> {
-    let mut child = Command::new("git")
-        .args(["interpret-trailers", "--parse", "--no-divider"])
+    let mut command = Command::new("git");
+    command
+        .args([
+            "-c",
+            "trailer.separators=:",
+            "interpret-trailers",
+            "--parse",
+            "--no-divider",
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    isolate_git_config(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|err| format!("无法运行 git interpret-trailers: {err}"))?;
     child
@@ -474,6 +483,24 @@ fn git_parsed_trailers(message: &str) -> Result<Vec<GitTrailer>, String> {
     let stdout = String::from_utf8(output.stdout)
         .map_err(|err| format!("git interpret-trailers 输出不是 UTF-8: {err}"))?;
     Ok(stdout.lines().filter_map(parse_git_trailer_line).collect())
+}
+
+fn isolate_git_config(command: &mut Command) {
+    command
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", null_config_path())
+        .env("GIT_CONFIG_SYSTEM", null_config_path())
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_PARAMETERS");
+    for key in std::env::vars().map(|(key, _)| key) {
+        if key.starts_with("GIT_CONFIG_KEY_") || key.starts_with("GIT_CONFIG_VALUE_") {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn null_config_path() -> &'static str {
+    if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
 fn parse_git_trailer_line(line: &str) -> Option<GitTrailer> {
@@ -807,10 +834,11 @@ fn is_ai_tool_coauthor(value: &str) -> bool {
 fn split_coauthor(value: &str) -> (&str, Option<&str>) {
     let value = value.trim();
     if let Some((name, rest)) = value.split_once('<') {
-        let email = rest
-            .split_once('>')
-            .map(|(email, _)| email.trim())
-            .filter(|email| !email.is_empty());
+        let email = match rest.split_once('>') {
+            Some((email, _)) => email.trim(),
+            None => rest.trim(),
+        };
+        let email = if email.is_empty() { None } else { Some(email) };
         return (name.trim(), email);
     }
     if value.contains('@') && !value.contains(char::is_whitespace) {
@@ -1361,6 +1389,36 @@ Refs: #12
     }
 
     #[test]
+    fn parses_trailers_when_host_git_config_changes_separators() {
+        if std::env::var_os("LANEFLOW_TRAILER_ISOLATION_CHILD").is_some() {
+            assert_accepted(VALID_MESSAGE);
+            return;
+        }
+
+        let output = Command::new(std::env::current_exe().expect("test binary path"))
+            .args([
+                "--exact",
+                "parses_trailers_when_host_git_config_changes_separators",
+                "--test-threads=1",
+            ])
+            .env("LANEFLOW_TRAILER_ISOLATION_CHILD", "1")
+            .env("GIT_CONFIG_COUNT", "2")
+            .env("GIT_CONFIG_KEY_0", "trailer.separators")
+            .env("GIT_CONFIG_VALUE_0", "=")
+            .env("GIT_CONFIG_KEY_1", "trailer.refs.key")
+            .env("GIT_CONFIG_VALUE_1", "Ticket")
+            .output()
+            .expect("isolation child should spawn");
+
+        assert!(
+            output.status.success(),
+            "stdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn rejects_ai_coauthor_hidden_before_human_trailer_block() {
         assert_rejected(
             "docs(governance): 对齐提交规范\n\nCo-authored-by: Codex <noreply@openai.com>\n\nCo-authored-by: Ada Lovelace <ada@example.com>\nRefs: #23\n",
@@ -1372,6 +1430,27 @@ Refs: #12
     fn accepts_human_coauthor_after_breaking_change_without_ai_attribution() {
         assert_accepted(
             "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: 调用方必须显式传入 tick 间隔。\n\nCo-authored-by: Ada Lovelace <ada@example.com>\nRefs: #12\n",
+        );
+    }
+
+    #[test]
+    fn rejects_unclosed_ai_coauthor_address() {
+        assert_rejected(
+            &message_with_body("Co-authored-by: <noreply@openai.com"),
+            "不得标注 AI 工具",
+        );
+    }
+
+    #[test]
+    fn does_not_treat_unclosed_human_address_as_ai_tool() {
+        let errors = validate_message(
+            "0123456789abcdef",
+            &message_with_body("Co-authored-by: <ada@example.com"),
+        );
+
+        assert!(
+            errors.iter().all(|error| !error.contains("不得标注 AI 工具")),
+            "{errors:?}"
         );
     }
 
