@@ -89,11 +89,12 @@ Traffic Runtime；对应范围使用 `runtime`。历史提交保持原样，不�
 feat(runtime)!: 调整 tick API
 
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
+
 Refs: #12
 ```
 
 - 标题必须使用 `!`。
-- `BREAKING CHANGE:` 必须提供单行非空说明，并放在 `Refs` / `Closes` 之前。
+- `BREAKING CHANGE:` 必须提供单行非空说明，放在 trailer 段之前，并与该段空一行。它不是 Git trailer 键，贴着 `Refs` / `Closes` 写会让 Git 认不出 footer。
 - 若同时写 AI 署名，`BREAKING CHANGE:` 留在 trailer 段之前，并空一行。`BREAKING CHANGE:` 的键名含空格，写进 trailer 段会让 Git 整段都解析不到。见第 6 节。
 - `Refs` / `Closes` 必须是最后一个非空 footer 行。
 - 复杂迁移说明应写入 PR、design 或 ADR。
@@ -110,7 +111,9 @@ Refs: #12
 ## 6. AI 署名
 
 `Co-authored-by` 只用于人类合作者。不得用它标注 AI 执行框架或模型。本地
-`commit-msg` hook 与 CI 的 `Commit message` 使用同一套校验。
+`commit-msg` hook 与 CI 的 `Commit message` 使用同一套校验：先用
+`git interpret-trailers --parse` 取得 Git 认定的 trailer，再检查 AI 署名和
+`Harness:` / `Model:` 成对。原文只用来拒绝冒号前空格、行首缩进、取值折行和其他不规范写法。
 
 `Co-authored-by` 键名大小写不敏感。取值满足任一条件即拒绝，并提示改写为
 `Harness:` / `Model:`：
