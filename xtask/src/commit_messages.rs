@@ -1449,7 +1449,9 @@ Refs: #12
         );
 
         assert!(
-            errors.iter().all(|error| !error.contains("不得标注 AI 工具")),
+            errors
+                .iter()
+                .all(|error| !error.contains("不得标注 AI 工具")),
             "{errors:?}"
         );
     }
