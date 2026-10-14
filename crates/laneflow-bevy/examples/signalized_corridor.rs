@@ -2,25 +2,19 @@
 //!
 //! 不恢复 50–200 人口、HUD、灯具或同一 Entity 回流。GUI 不进 CI。
 
-use std::{error::Error, num::NonZeroU32, sync::Arc};
+#[path = "support/scene_loader.rs"]
+mod scene_loader;
+
+use std::{error::Error, num::NonZeroU32};
 
 use bevy::prelude::*;
-use laneflow_bevy::{
-    LaneFlowCommittedPoseBatch, LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig,
-};
-use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{
-    CommittedNetworkSource, PublishedLfcaReference, TrafficWorld, VehicleSpawnInput, WorldConfig,
-};
+use laneflow_bevy::{LaneFlowCommittedPoseBatch, LaneFlowPlugin, LaneFlowSession};
+use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
-use laneflow_spatial::{FramePlacementToken, SpatialSession};
+use laneflow_spatial::FramePlacementToken;
 use laneflow_static_contract::VehicleProfileOrdinal;
-use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-    build_shared_network_revision,
-};
 
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
@@ -28,36 +22,14 @@ const CORRIDOR_CATALOG: &str =
 
 fn main() -> Result<(), Box<dyn Error>> {
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG)?;
-    let input = check_canonical_network_input(CORRIDOR_LFCA, FormatLimits::HARD)
-        .map_err(|error| format!("{error:?}"))?;
-    let revision = build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
-        ),
-    )
-    .map_err(|error| format!("{error:?}"))?;
+    let revision = scene_loader::shared_revision(CORRIDOR_LFCA)?;
     let bound = bind(&catalog, &revision).map_err(|error| error.to_string())?;
-    let mut world = {
-        let origin = revision.canonical_origin();
-        TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(8, 32, 1_024, 1_024, 16),
-            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
-                reference: PublishedLfcaReference::new(
-                    "scenario://signalized-corridor",
-                    origin.canonical_artifact_digest(),
-                    origin.canonical_artifact_byte_length(),
-                    origin.network_revision(),
-                )
-                .expect("non-empty scenario key"),
-            },
-            0,
-            bound.policy_selection,
-        )?
-    };
+    let mut world = scene_loader::install_world(
+        &revision,
+        "scenario://signalized-corridor",
+        WorldConfig::new(8, 32, 1_024, 1_024, 16),
+        bound.policy_selection,
+    )?;
     let profile = *bound
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
@@ -68,14 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (follower, leader) = follow_pair(&catalog, &bound)?;
     spawn_on_slot(&mut world, profile, leader, &routes)?;
     spawn_on_slot(&mut world, profile, follower, &routes)?;
-    let spatial = SpatialSession::bind(revision)
-        .map_err(|error| format!("{error:?}"))?
-        .ok_or("missing spatial session")?;
-    let session = LaneFlowSession::new(
-        world,
-        Some(spatial),
-        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
-    )?;
+    let session = scene_loader::paired_session(world, NonZeroU32::new(8).expect("non-zero"))?;
 
     App::new()
         .add_plugins((DefaultPlugins, LaneFlowPlugin))

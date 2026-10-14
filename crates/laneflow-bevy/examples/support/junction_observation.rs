@@ -3,7 +3,7 @@
 #[path = "runtime_min_scene.rs"]
 mod runtime_min_scene;
 
-use std::{sync::Arc, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
 use bevy_ecs::{
@@ -15,7 +15,7 @@ use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::TransformPlugin;
 use laneflow_bevy::{
     LaneFlowFixed, LaneFlowFixedSet, LaneFlowJunctionObservationContext, LaneFlowPlugin,
-    LaneFlowSession,
+    LaneFlowSession, LaneFlowSessionConfig,
 };
 use laneflow_runtime::{EntityKind, WaitingZoneOrdinal, WorldGeneration};
 
@@ -127,8 +127,8 @@ fn route_gate_matches_world_direct_lookup() {
 fn headless_session_exposes_domain_observation() {
     // 无 Spatial 配对的 headless Session；领域观察不依赖 Spatial 配对。
     let world = runtime_min_scene::world().expect("fixture world");
-    let session = LaneFlowSession::new(world, None, runtime_min_scene::session_config())
-        .expect("headless session");
+    let config = LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"));
+    let session = LaneFlowSession::new(world, None, config).expect("headless session");
     let world = session.world();
     let view = session.junction_observation();
     assert!(Arc::ptr_eq(&view.revision(), &world.revision()));
