@@ -131,8 +131,7 @@ Harness: <执行框架>
 Model: <实际使用的模型标识>
 ```
 
-- 键名大小写必须精确。写成 `harness:` 或 `MODEL:` 会拒绝，而不是当成普通正文忽略。
-  冒号后有一个空格，取值去掉首尾空白后不得为空。
+- 键名大小写必须精确，冒号必须紧跟键名。`harness:`、`MODEL:` 和 `Harness :` 都会拒绝，而不是当成普通正文忽略。冒号后有一个空格，取值去掉首尾空白后不得为空。
 - `Harness:` 的下一行必须是 `Model:`，中间不能空行。
 - 这两行和 `Refs:` / `Closes:` 属于提交末尾的同一段 Git trailer，前面必须有空行，段内不能再有空行。
 - `BREAKING CHANGE:` 不是 Git trailer 键。有 AI 署名时把它写在这段之前，不要写进 trailer 段。
@@ -202,8 +201,7 @@ Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下�
 - Git author email 精确为 `49699333+dependabot[bot]@users.noreply.github.com`。
 - 标题为非 breaking 的 `build(deps): <description>`。
 
-该例外只豁免单个 bot commit 缺少的 `Refs:` / `Closes:` footer，不豁免 AI 署名、标题、
-`BREAKING CHANGE:`、PR 审阅、cargo-deny 或 CodeQL。
+该例外只豁免单个 bot commit 缺少的 `Refs:` / `Closes:` footer。footer 格式错误，或它不是最后一个非空行，仍然拒绝。例外也不豁免 AI 署名、标题、`BREAKING CHANGE:`、PR 审阅、cargo-deny 或 CodeQL。
 本地 `commit-msg` hook 不应用 Dependabot 例外。
 
 本地可运行：
