@@ -104,9 +104,15 @@ fn sanitize_git_env(command: &mut Command) {
 }
 
 /// git 来源读取：默认环境 + git 卫生。
+/// git 来源读取：默认环境 + git 卫生；`--work-tree` 显式压住仓库本地 config 的
+/// core.worktree，cwd 之外被配置指向别的 checkout 时读取不跑题。
 fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
     let mut command = Command::new("git");
-    command.args(args).current_dir(cwd);
+    command
+        .arg("--work-tree")
+        .arg(cwd)
+        .args(args)
+        .current_dir(cwd);
     sanitize_git_env(&mut command);
     finish_output(command, "git", args)
 }
