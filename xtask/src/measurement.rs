@@ -216,11 +216,22 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
         // 配置的 include 键递归并入审计（相对路径相对当前配置文件目录解析）。
         if let Some(include_value) = value.get("include") {
             let parent = path.parent().unwrap_or_else(|| Path::new("."));
+            // Cargo 接受字符串、字符串数组与内联表（{ path = "..." }）三种
+            // include 形态，缺 path 键的内联表由 Cargo 自身报错。
             let included_files: Vec<String> = match include_value {
                 toml::Value::String(single) => vec![single.clone()],
                 toml::Value::Array(list) => list
                     .iter()
-                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .filter_map(|item| match item {
+                        toml::Value::String(text) => Some(text.clone()),
+                        toml::Value::Table(table) => table.get("path")?.as_str().map(str::to_owned),
+                        _ => None,
+                    })
+                    .collect(),
+                toml::Value::Table(table) => table
+                    .get("path")
+                    .and_then(|p| p.as_str().map(str::to_owned))
+                    .into_iter()
                     .collect(),
                 _ => vec![],
             };
