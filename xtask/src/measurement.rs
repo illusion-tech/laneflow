@@ -244,8 +244,12 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
     let mut queue: std::collections::VecDeque<(PathBuf, String)> = candidates.into();
     while let Some((path, label)) = queue.pop_front() {
         // 去重不折叠大小写：大小写敏感文件系统上仅大小写不同的两个 include
-        // 都会被 Cargo 合并，必须各自接受审计。
-        if !path.is_file() || !visited.insert(path.to_string_lossy().into_owned()) {
+        // 都会被 Cargo 合并，必须各自接受审计。键先词法归一，否则
+        // `sub/../config.toml` 类别名让同一文件无限递归。
+        let key = absolute_lexical(path.clone())?
+            .to_string_lossy()
+            .into_owned();
+        if !path.is_file() || !visited.insert(key) {
             continue;
         }
         let text = fs::read_to_string(&path)
@@ -534,6 +538,13 @@ fn derived_roots(tool_env: &ToolEnv, repo: &Path) -> Result<Vec<ScanRoot>, Strin
     ])
 }
 
+/// 控制台与错误信息里的路径一律以占位符形式出现（输出可留存为证据）。
+fn display_placeholder(repo: &Path, path: &Path) -> String {
+    path.strip_prefix(repo)
+        .map(|rest| format!("<worktree>/{}", rest.to_string_lossy().replace('\\', "/")))
+        .unwrap_or_else(|_| "<path>".into())
+}
+
 /// 显式指定的扫描根做词法绝对化（不触文件系统，扫描机上根可以不存在），
 /// 相对拼写否则会被原样当成 needle 而漏扫实际嵌入的绝对路径。
 /// `std::path::absolute` 只前接当前目录、不消除 `.`/`..`，再按组件词法归一。
@@ -560,10 +571,12 @@ fn absolute_lexical(path: PathBuf) -> Result<PathBuf, String> {
 fn both_spellings(path: &Path) -> Vec<PathBuf> {
     let mut out = vec![path.to_path_buf()];
     if let Ok(canonical) = fs::canonicalize(path) {
-        let text = canonical
-            .to_string_lossy()
-            .trim_start_matches("\\\\?\\")
-            .to_owned();
+        let text = canonical.to_string_lossy();
+        // `\\?\UNC\server\share` 还原为 `\\server\share`；普通 `\\?\` 前缀剥掉。
+        let text = text
+            .strip_prefix("\\\\?\\UNC\\")
+            .map(|rest| format!("\\\\{rest}"))
+            .unwrap_or_else(|| text.trim_start_matches("\\\\?\\").to_owned());
         let canonical = PathBuf::from(text);
         if canonical != out[0] {
             out.push(canonical);
@@ -665,10 +678,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     // 回执只新增不覆盖：先失败——既不在完成构建与扫描后才报错，也不让随后的
     // 目录清理把既有回执吞掉。
     if receipt_path.exists() {
-        let display = receipt_path
-            .strip_prefix(&repo)
-            .map(|rest| format!("<worktree>/{}", rest.to_string_lossy().replace('\\', "/")))
-            .unwrap_or_else(|_| "<receipt>".into());
+        let display = display_placeholder(&repo, &receipt_path);
         return Err(format!(
             "回执路径已存在：{display}；请显式给一个全新的 --receipt 路径"
         ));
@@ -678,7 +688,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     // 全新目录把这类风险整体消除（代价仅是正式构建多花几十秒）。
     if target_dir.exists() {
         fs::remove_dir_all(&target_dir)
-            .map_err(|e| format!("无法清空 {}: {e}", target_dir.display()))?;
+            .map_err(|e| format!("无法清空 {}: {e}", display_placeholder(&repo, &target_dir)))?;
     }
     // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
     // 产物位置或目标平台。
@@ -755,7 +765,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     if find_all(&bytes, normalized.as_bytes()).is_empty() {
         return Err(format!(
             "二进制未嵌入期望的归一化 rustflags；请删除 {} 后重建",
-            target_dir.display()
+            display_placeholder(&repo, &target_dir)
         ));
     }
 
@@ -806,10 +816,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     }
     write_receipt(&receipt_path, &receipt)?;
     // 控制台输出遵循占位符约定：路径一律以 <worktree> 形式出现。
-    let display = receipt_path
-        .strip_prefix(&repo)
-        .map(|rest| format!("<worktree>/{}", rest.to_string_lossy().replace('\\', "/")))
-        .unwrap_or_else(|_| "<receipt>".into());
+    let display = display_placeholder(&repo, &receipt_path);
     println!("build-measurement: pass; receipt written to {display}");
     Ok(())
 }
