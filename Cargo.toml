@@ -54,6 +54,19 @@ inherits = "dev"
 debug = true
 incremental = true
 
+# 完整调试信息不会抵消 dev 档为测试速度开出的 opt-level = 2：优化后局部变量可能
+# 被优化掉或重排，与「变量级调试兜底」的定位冲突，故在本档重置为 0。
+[profile.debugging.package.laneflow-compiler]
+opt-level = 0
+[profile.debugging.package.laneflow-format]
+opt-level = 0
+[profile.debugging.package.laneflow-static-network]
+opt-level = 0
+[profile.debugging.package.sha2]
+opt-level = 0
+[profile.debugging.package.digest]
+opt-level = 0
+
 # 测试夹具全管线（Road Editing 来源写入 → 可移植发射 → 后发射检查 → 建网）
 # 是测试套件主成本：debug 档单次近 50 s，其中发射与后发射检查约七成半、
 # 来源写入约两成半（#748 P0 实测）。测试档把这些管线 crate 与摘要 crate

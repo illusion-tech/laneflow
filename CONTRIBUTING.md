@@ -147,10 +147,17 @@ PR 中必须记录实际运行的检查。无法运行时，应说明原因和�
 
 ### 8.1 本地调试与构建产物体积（#802）
 
-根 `Cargo.toml` 的 `dev` 档（`test` 档继承它）只生成行表级调试信息，依赖不生成调试信息，并关闭 `incremental`。后果是：panic 栈与 dhat 栈仍有文件名与行号，但调试器看不到局部变量与类型。需要变量级调试时使用：
+根 `Cargo.toml` 的 `dev` 档（`test` 档继承它）只生成行表级调试信息，依赖不生成调试信息，并关闭 `incremental`。后果是：panic 栈与 dhat 栈仍有文件名与行号，但调试器看不到局部变量与类型。需要变量级调试时使用 `debugging` 档。构建普通目标：
 
 ```text
 cargo build --profile debugging
+```
+
+缺失局部变量出现在单元/集成测试里时，测试目标也要用同一档（否则只做了普通构建、
+测试二进制仍按 `test` 档生成）：
+
+```text
+cargo test --profile debugging      # 也可加 -p <crate> / --test <name> 收窄范围
 ```
 
 `debugging` 档继承 `dev`，仅恢复 `debug = true` 与 `incremental = true`；产物落在 `target/debugging`，首次使用需完整重建一次。
