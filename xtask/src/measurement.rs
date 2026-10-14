@@ -82,6 +82,8 @@ fn command_output(program: &str, args: &[&str], cwd: &Path) -> Result<String, St
         // checkout；来源核对必须绑定 cwd 指向的仓库。
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
         .output()
         .map_err(|e| format!("无法执行 {program}: {e}"))?;
     if !output.status.success() {
@@ -110,11 +112,16 @@ fn home_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "无法定位用户目录（USERPROFILE/HOME）".to_string())
 }
 
-fn cargo_home() -> Result<PathBuf, String> {
-    // CARGO_HOME 允许相对拼写（相对当前工作目录解析）；词法绝对化后再使用，
-    // 否则与 cargo metadata 的绝对 manifest 路径不可比。
+fn cargo_home(repo: &Path) -> Result<PathBuf, String> {
+    // CARGO_HOME 允许相对拼写；Cargo 按各进程 cwd 解析，嵌套构建以 repo 为
+    // cwd，相对值必须锚定到 repo，否则与 metadata 的绝对 manifest 路径不可比。
     if let Some(value) = env::var_os("CARGO_HOME") {
-        return absolute_lexical(PathBuf::from(value));
+        let path = PathBuf::from(value);
+        return absolute_lexical(if path.is_absolute() {
+            path
+        } else {
+            repo.join(path)
+        });
     }
     Ok(home_dir()?.join(".cargo"))
 }
@@ -410,7 +417,7 @@ fn derived_roots(repo: &Path) -> Result<Vec<ScanRoot>, String> {
         },
         ScanRoot {
             placeholder: "<cargo-home>".into(),
-            path: cargo_home()?,
+            path: cargo_home(repo)?,
             explicit: false,
         },
         ScanRoot {
@@ -488,7 +495,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     }
     let repo = repo_root()?;
     let sysroot = toolchain_sysroot(&repo)?;
-    let cargo_home = cargo_home()?;
+    let cargo_home = cargo_home(&repo)?;
     check_cargo_config(&cargo_home, &repo)?;
     check_dependency_roots(&repo, &cargo_home)?;
     // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
@@ -538,9 +545,12 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     // 回执只新增不覆盖：先失败——既不在完成构建与扫描后才报错，也不让随后的
     // 目录清理把既有回执吞掉。
     if receipt_path.exists() {
+        let display = receipt_path
+            .strip_prefix(&repo)
+            .map(|rest| format!("<worktree>/{}", rest.to_string_lossy().replace('\\', "/")))
+            .unwrap_or_else(|_| "<receipt>".into());
         return Err(format!(
-            "回执路径已存在：{}；请显式给一个全新的 --receipt 路径",
-            receipt_path.display()
+            "回执路径已存在：{display}；请显式给一个全新的 --receipt 路径"
         ));
     }
     // 每次正式构建使用全新 target 目录：Cargo 只按 build.rs 声明的
