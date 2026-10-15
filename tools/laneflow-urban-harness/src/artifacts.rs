@@ -89,7 +89,12 @@ impl Artifacts {
                 bytes: bytes.len() as u64,
                 sha256: sha256(&bytes),
             };
-            if manifest.files.get(name) != Some(&actual) {
+            if let Some(expected) = manifest.files.get(name) {
+                if expected != &actual {
+                    probe_artifact_mismatch(&directory.join(name), name, expected, &bytes);
+                    return Err(invalid(format!("artifact digest mismatch: {name}")));
+                }
+            } else {
                 return Err(invalid(format!("artifact digest mismatch: {name}")));
             }
             consumed.insert(name.to_owned(), actual);
@@ -255,4 +260,24 @@ impl Artifacts {
             .ordinal(SignalGroupId::from_untyped(id))
             .ok_or_else(|| invalid(format!("unknown signal group {key}")))
     }
+}
+
+/// 工件摘要失配现场探针（#794 症状③）：输出清单期望值与读回实际值的长度差、摘要
+/// 差异、读回头部 32 字节及二次回读稳定性，供判别写侧丢失或错位、读侧不稳定与位级
+/// 损坏。仅诊断输出：命中不改变 `Artifacts::load` 的失败语义与错误文案。
+fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readback: &[u8]) {
+    let reread = fs::read(path).ok();
+    let reread_same = reread.as_deref() == Some(readback);
+    let reread_sha = reread.as_deref().map(sha256);
+    eprintln!(
+        "[digest-probe] site=artifact-load name={name} expected_bytes={} expected_sha={} readback_bytes={} readback_sha={} len_delta={} head32={:02x?} reread_same={} reread_sha={}",
+        expected.bytes,
+        expected.sha256,
+        readback.len() as u64,
+        sha256(readback),
+        readback.len() as i64 - expected.bytes as i64,
+        &readback[..readback.len().min(32)],
+        reread_same,
+        reread_sha.as_deref().unwrap_or("unreadable"),
+    );
 }
