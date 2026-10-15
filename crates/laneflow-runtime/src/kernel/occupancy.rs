@@ -994,7 +994,12 @@ impl OccupancyIndex {
                 let chunk = count
                     .div_ceil(resources.dispatch_threads().saturating_mul(8))
                     .max(1);
-                let mut groups = Vec::with_capacity(count.div_ceil(chunk));
+                let mut groups = Vec::new();
+                // 分组表分配失败就串行排序：结果与分组无关，不让分配失败中止进程。
+                if groups.try_reserve_exact(count.div_ceil(chunk)).is_err() {
+                    all.sort_all();
+                    return;
+                }
                 while all.spans.len() > chunk {
                     let (head, rest) = all.split_at(chunk);
                     groups.push(head);
