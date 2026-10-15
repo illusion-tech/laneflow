@@ -484,7 +484,9 @@ fn write(
     bytes: &[u8],
     files: &mut BTreeMap<String, FileDigest>,
 ) -> Result<()> {
-    fs::write(directory.join(name), bytes)?;
+    let path = directory.join(name);
+    fs::write(&path, bytes)?;
+    probe_write_readback(&path, name, bytes);
     files.insert(
         name.into(),
         FileDigest {
@@ -493,6 +495,99 @@ fn write(
         },
     );
     Ok(())
+}
+
+/// 写后回读分歧形态（#794 症状③ 取证分类）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReadbackShape {
+    /// 回读是写入内容的严格前缀：尾部字节丢失。
+    TruncatedTail,
+    /// 写入内容是回读的严格前缀：尾部多出字节。
+    ExtendedTail,
+    /// 公共前缀内存在分歧字节：内容错位或损坏。
+    ContentMismatch,
+}
+
+impl ReadbackShape {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::TruncatedTail => "truncated-tail",
+            Self::ExtendedTail => "extended-tail",
+            Self::ContentMismatch => "content-mismatch",
+        }
+    }
+}
+
+/// 写后回读与写入字节的分歧现场。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReadbackDivergence {
+    shape: ReadbackShape,
+    /// 公共前缀内首个分歧字节偏移；公共前缀完整一致时为 `None`。
+    first_diff_offset: Option<usize>,
+    /// 公共前缀内分歧字节数。
+    differing_bytes: usize,
+    /// 回读长度减写入长度。
+    len_delta: i64,
+}
+
+/// 比对写入字节与回读字节；完全一致时返回 `None`。
+fn readback_divergence(written: &[u8], readback: &[u8]) -> Option<ReadbackDivergence> {
+    let common = written.len().min(readback.len());
+    let first_diff_offset = (0..common).find(|&index| written[index] != readback[index]);
+    let differing_bytes = (0..common)
+        .filter(|&index| written[index] != readback[index])
+        .count();
+    let len_delta = readback.len() as i64 - written.len() as i64;
+    if first_diff_offset.is_none() && len_delta == 0 {
+        return None;
+    }
+    let shape = match (first_diff_offset, len_delta) {
+        (None, ..) if len_delta < 0 => ReadbackShape::TruncatedTail,
+        (None, ..) => ReadbackShape::ExtendedTail,
+        (Some(_), _) => ReadbackShape::ContentMismatch,
+    };
+    Some(ReadbackDivergence {
+        shape,
+        first_diff_offset,
+        differing_bytes,
+        len_delta,
+    })
+}
+
+/// 写后回读裁决探针（#794 症状③）：`fs::write` 之后立即回读逐字节对照，分歧时输出
+/// 首个分歧偏移、分歧形态、长度差、写入与回读摘要及二次回读稳定性，供
+/// `artifact digest mismatch` / `DigestMismatch` 现场判别写侧丢失或错位、读侧不稳定
+/// 与位级损坏。仅诊断输出：命中前零日志，命中不改变 `write` 的成功/失败语义。
+fn probe_write_readback(path: &Path, name: &str, written: &[u8]) {
+    let readback = match fs::read(path) {
+        Ok(readback) => readback,
+        Err(error) => {
+            eprintln!("[digest-probe] site=write-readback name={name} read-error={error}");
+            return;
+        }
+    };
+    let Some(divergence) = readback_divergence(written, &readback) else {
+        return;
+    };
+    let reread_same = fs::read(path)
+        .map(|reread| reread == readback)
+        .unwrap_or(false);
+    let diff_head32 = divergence
+        .first_diff_offset
+        .map(|offset| &readback[offset..(offset + 32).min(readback.len())]);
+    eprintln!(
+        "[digest-probe] site=write-readback name={name} written_bytes={} readback_bytes={} shape={} first_diff_offset={:?} differing_bytes={} len_delta={} written_sha={} readback_sha={} reread_same={} diff_head32={:02x?}",
+        written.len(),
+        readback.len(),
+        divergence.shape.as_str(),
+        divergence.first_diff_offset,
+        divergence.differing_bytes,
+        divergence.len_delta,
+        source::digest(written),
+        source::digest(&readback),
+        reread_same,
+        diff_head32,
+    );
 }
 
 fn lir_counts(output: &CompilationOutput) -> BTreeMap<String, u64> {
@@ -582,4 +677,73 @@ fn table_counts(view: ValueCheckedObjectView<'_>, kind: PortableObjectKind) -> V
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readback_divergence_is_none_for_identical_bytes() {
+        assert!(
+            readback_divergence(b"abcde", b"abcde").is_none(),
+            "identical bytes diverge"
+        );
+    }
+
+    #[test]
+    fn readback_divergence_classifies_truncated_tail() {
+        let divergence = readback_divergence(b"abcde", b"abc").expect("truncated tail diverges");
+        assert_eq!(divergence.shape, ReadbackShape::TruncatedTail, "shape");
+        assert_eq!(divergence.first_diff_offset, None, "prefix intact");
+        assert_eq!(divergence.differing_bytes, 0, "no prefix diff");
+        assert_eq!(divergence.len_delta, -2, "len delta");
+    }
+
+    #[test]
+    fn readback_divergence_classifies_extended_tail() {
+        let divergence = readback_divergence(b"abc", b"abcde").expect("extended tail diverges");
+        assert_eq!(divergence.shape, ReadbackShape::ExtendedTail, "shape");
+        assert_eq!(divergence.first_diff_offset, None, "prefix intact");
+        assert_eq!(divergence.differing_bytes, 0, "no prefix diff");
+        assert_eq!(divergence.len_delta, 2, "len delta");
+    }
+
+    #[test]
+    fn readback_divergence_classifies_content_mismatch() {
+        let divergence =
+            readback_divergence(b"abcde", b"abXde").expect("content mismatch diverges");
+        assert_eq!(divergence.shape, ReadbackShape::ContentMismatch, "shape");
+        assert_eq!(divergence.first_diff_offset, Some(2), "first diff offset");
+        assert_eq!(divergence.differing_bytes, 1, "one differing byte");
+        assert_eq!(divergence.len_delta, 0, "len delta");
+    }
+
+    #[test]
+    fn readback_divergence_keeps_content_mismatch_when_length_also_differs() {
+        let divergence = readback_divergence(b"abcde", b"abX").expect("mixed divergence");
+        assert_eq!(divergence.shape, ReadbackShape::ContentMismatch, "shape");
+        assert_eq!(divergence.first_diff_offset, Some(2), "first diff offset");
+        assert_eq!(divergence.differing_bytes, 1, "one differing byte");
+        assert_eq!(divergence.len_delta, -2, "len delta");
+    }
+
+    #[test]
+    fn readback_shape_labels_are_stable() {
+        assert_eq!(
+            ReadbackShape::TruncatedTail.as_str(),
+            "truncated-tail",
+            "label"
+        );
+        assert_eq!(
+            ReadbackShape::ExtendedTail.as_str(),
+            "extended-tail",
+            "label"
+        );
+        assert_eq!(
+            ReadbackShape::ContentMismatch.as_str(),
+            "content-mismatch",
+            "label"
+        );
+    }
 }
