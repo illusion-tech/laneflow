@@ -201,7 +201,7 @@ fn toolchain_sysroot(tool_env: &ToolEnv, repo: &Path) -> Result<PathBuf, String>
     let sysroot = tool_env.output("rustc", &[TOOLCHAIN_ARG, "--print", "sysroot"], repo)?;
     let path = PathBuf::from(&sysroot);
     if !path.is_dir() {
-        return Err(format!("rustup 工具链 sysroot 不可解析：{sysroot}"));
+        return Err("rustup 工具链 sysroot 不可解析（<rustup-toolchain> 非目录）".into());
     }
     Ok(path)
 }
@@ -286,10 +286,10 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
         if !path.is_file() || !visited.insert(key) {
             continue;
         }
-        let text = fs::read_to_string(&path)
-            .map_err(|e| format!("无法读取 Cargo 配置 {}: {e}", path.display()))?;
-        let value: toml::Value = toml::from_str(&text)
-            .map_err(|e| format!("Cargo 配置 {} 解析失败: {e}", path.display()))?;
+        let text =
+            fs::read_to_string(&path).map_err(|e| format!("无法读取 Cargo 配置 {label}: {e}"))?;
+        let value: toml::Value =
+            toml::from_str(&text).map_err(|e| format!("Cargo 配置 {label} 解析失败: {e}"))?;
         for key in ["profile", "paths", "source", "patch", "env", "unstable"] {
             if value.get(key).is_some() {
                 return Err(format!(
@@ -489,8 +489,7 @@ fn scan_binary(
     binary: &Path,
     roots: &[ScanRoot],
 ) -> Result<(Vec<ScanHit>, serde_json::Value), String> {
-    let bytes =
-        fs::read(binary).map_err(|e| format!("无法读取二进制 {}: {e}", binary.display()))?;
+    let bytes = fs::read(binary).map_err(|e| format!("无法读取二进制: {e}"))?;
     let lowered_utf8 = ascii_lower(&bytes);
     let lowered_wide = [utf16le_fold(&bytes, 0), utf16le_fold(&bytes, 1)];
     let mut hits = Vec::new();
@@ -583,8 +582,7 @@ fn display_placeholder(repo: &Path, path: &Path) -> String {
 /// 相对拼写否则会被原样当成 needle 而漏扫实际嵌入的绝对路径。
 /// `std::path::absolute` 只前接当前目录、不消除 `.`/`..`，再按组件词法归一。
 fn absolute_lexical(path: PathBuf) -> Result<PathBuf, String> {
-    let absolute =
-        std::path::absolute(&path).map_err(|e| format!("无法绝对化 {}: {e}", path.display()))?;
+    let absolute = std::path::absolute(&path).map_err(|e| format!("无法绝对化路径: {e}"))?;
     let mut normalized = PathBuf::new();
     for component in absolute.components() {
         match component {
@@ -641,7 +639,7 @@ fn write_receipt(path: &Path, value: &serde_json::Value) -> Result<(), String> {
         .create_new(true)
         .open(path)
         .and_then(|mut f| std::io::Write::write_all(&mut f, text.as_bytes()))
-        .map_err(|e| format!("回执必须写入新路径 {}: {e}", path.display()))
+        .map_err(|e| format!("回执必须写入新路径: {e}"))
 }
 
 /// `build-measurement [ --receipt <path> ] [ --evidence-root <dir> ] [ --extra-root <dir> ]...`
@@ -799,7 +797,10 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
             "laneflow-urban-harness"
         });
     if !binary.is_file() {
-        return Err(format!("预期二进制不存在：{}", binary.display()));
+        return Err(format!(
+            "预期二进制不存在：{}",
+            display_placeholder(&repo, &binary)
+        ));
     }
     // 正向断言：二进制必须嵌入了期望的归一化 flag 串。rustc 会把
     // env!/option_env! 读取的变量记入 dep-info、Cargo 据以触发重编，
