@@ -297,6 +297,16 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   G2 对拍点冻结为 `(command_cursor, tick, deterministic_state_digest)`；宿主从检查点
   依序重放并比较各点，首个不等点与上一个相等点构成首个分歧区间。失同步只诊断，
   不自动纠偏、不重启世界，处置归宿主。
+- **完整性接缝（#955 G1，见
+  [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md)）**：
+  检查点三元组同时是完整性期望值的持久锚——宿主持久检查点锚，Runtime 在校验窗登记
+  同值锚并核对，分歧即校验过程不可信。完整性失配（页级内存失真检出）与失同步共用
+  同一处置权威（归宿主），但停机语义不同：失同步状态仍是合法确定性状态，只诊断不停
+  机；完整性失配的状态可信度已被破坏，Runtime **失败关闭**（停止推进、不自动纠偏 /
+  回滚 / 重演 / 重启），宿主按检查点 + 输入命令序列处置。共享静态根不在 C(T) 内
+  （ADR 0030），其失配不属回滚 / 重演可修复面，只能根重建。完整性校验不进入
+  committed-state barrier，期望值登记表是进程内诊断状态，不进入本快照、不进入确定性
+  状态摘要前像，digest 7 / runtime state 5 版本轴不变。
 
 ## 7. 跨修订迁移入口
 

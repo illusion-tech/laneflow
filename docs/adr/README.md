@@ -95,6 +95,9 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 
 - [`0030`](0030-single-world-parallel-execution.md)：首版独立计算并行、P4 规范串行、交通/执行配置分离、
   规范首错与资源/计划寿命、LFRS 独立版本轴（Accepted；配置/格式交付不等于生产多线程已实现）。
+- [`0031`](0031-runtime-state-integrity-and-distortion-disposition-authority.md)：运行时状态完整性
+  失真的检测权、失败关闭与宿主处置的单一权威政策；共享静态根独立失败语义、无可信基准
+  不作宣称（Accepted；#955 G1；机制见运行时状态完整性设计）。
 
 ## 命名规则
 
