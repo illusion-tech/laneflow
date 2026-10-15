@@ -20,6 +20,9 @@
   策略、迁移增量日志与失败关闭预算（#302 G1；G2 起实现）。
 - `traffic-runtime-snapshot.md`：版本化运行时快照容器、保存/恢复合同、回放与
   跨修订迁移入口（#302 G1；G2 起实现）。
+- `traffic-runtime-state-integrity.md`：运行时状态完整性校验与失真恢复——可信期望值
+  与两类前像、失败关闭 + 宿主处置的恢复权威边界、校验间隔与漏检面、遥测与性能协议
+  （#955 G1；配套 [ADR 0031](../adr/0031-runtime-state-integrity-and-distortion-disposition-authority.md)）。
 - `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2
   起实现）。
