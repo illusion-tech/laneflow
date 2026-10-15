@@ -1392,10 +1392,14 @@ impl OccupancyIndex {
     }
 
     /// 把新记录插进各自的桶。调用前容量必须已经够，这里不再分配。
-    pub(crate) fn insert_reserved_records(&mut self, extra: &[OccupancyRecord]) {
+    ///
+    /// 先按边原地分组：同一条边的记录连续插入，每条边最多搬到列尾一次，
+    /// 与 [`Self::reserve_insert_slots`] 的上界一致。桶内顺序由排序键决定，与插入次序无关。
+    pub(crate) fn insert_reserved_records(&mut self, extra: &mut [OccupancyRecord]) {
         // 插入会改变同桶其它车的前车，批量表整体作废，留到下一次重建。
         self.ahead_epoch = 0;
-        for record in extra {
+        extra.sort_unstable_by_key(|record| record.bucket.index());
+        for record in extra.iter() {
             self.insert_reserved_record(*record);
         }
     }
@@ -2125,7 +2129,7 @@ impl crate::kernel::state::WorldState {
             self.derived.occupancy.source = None;
             return;
         }
-        self.derived.occupancy.insert_reserved_records(&records);
+        self.derived.occupancy.insert_reserved_records(&mut records);
         self.derived.occupancy.source =
             Some((generation, self.committed.observation_state_sequence));
     }
@@ -2831,23 +2835,23 @@ pub(crate) mod tests {
         index.rebuild_from_pending(&mut scratch, &pending, 4);
         // 一批里同一条中间边两条、末边一条：中间边搬到列尾一次，第二条直接在列尾插入；
         // 随后末边已不在列尾，再搬一次。
-        let batch = [
+        let mut batch = [
             record(1, 5, 500, 950),
             record(1, 6, 20, 80),
             record(3, 7, 400, 700),
         ];
         index.reserve_insert_slots(&batch).expect("reserve");
         let capacity = index.records_capacity();
-        index.insert_reserved_records(&batch);
+        index.insert_reserved_records(&mut batch);
         assert_eq!(
             index.records_capacity(),
             capacity,
             "inserts must not reallocate"
         );
         // 再插一条到当前列尾的边，不应再搬动。
-        let tail = [record(3, 8, 800, 900)];
+        let mut tail = [record(3, 8, 800, 900)];
         index.reserve_insert_slots(&tail).expect("reserve tail");
-        index.insert_reserved_records(&tail);
+        index.insert_reserved_records(&mut tail);
         pending.extend(batch);
         pending.extend(tail);
         let (mut fresh, mut fresh_scratch) = OccupancyIndex::with_capacity(4, 0);
@@ -2861,6 +2865,47 @@ pub(crate) mod tests {
         index.rebuild_from_pending(&mut scratch, &pending, 4);
         assert_eq!(index.buckets.records.len(), pending.len());
         assert!(index.same_layout(&fresh));
+    }
+
+    #[test]
+    fn interleaved_inserts_move_each_lane_once() {
+        fn record(edge: u32, vehicle: u32, lo_mm: u32, hi_mm: u32) -> OccupancyRecord {
+            OccupancyRecord {
+                vehicle: VehicleHandle::new(vehicle, 0),
+                bucket: OccupancyBucketOrdinal::from_edge(LaneEdgeOrdinal::from_raw(edge)),
+                lo_mm,
+                hi_mm,
+                update_sequence: vehicle,
+            }
+        }
+
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(3, 0);
+        let mut pending = vec![
+            record(0, 1, 0, 400),
+            record(0, 2, 500, 900),
+            record(1, 3, 100, 300),
+            record(2, 4, 50, 300),
+        ];
+        index.rebuild_from_pending(&mut scratch, &pending, 3);
+        // 短环路线上一辆车按路线顺序覆盖 A、B、A：两条边都不在列尾。
+        let mut batch = [
+            record(0, 5, 1_000, 1_200),
+            record(1, 5, 0, 50),
+            record(0, 5, 1_300, 1_400),
+        ];
+        index.reserve_insert_slots(&batch).expect("reserve");
+        let before = index.buckets.records.len();
+        index.insert_reserved_records(&mut batch);
+        // 预留上界：A 搬一次（2）加两条新记录，B 搬一次（1）加一条。
+        assert_eq!(index.buckets.records.len() - before, 2 + 2 + 1 + 1);
+        pending.extend(batch);
+        let (mut fresh, mut fresh_scratch) = OccupancyIndex::with_capacity(3, 0);
+        fresh.rebuild_from_pending(&mut fresh_scratch, &pending, 3);
+        assert_eq!(index.records_len(), pending.len());
+        assert!(
+            index.same_layout(&fresh),
+            "interleaved inserts must match a full rebuild"
+        );
     }
 
     #[test]
