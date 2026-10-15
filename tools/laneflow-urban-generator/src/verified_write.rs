@@ -6,20 +6,23 @@
 //!    SHA-256；之后一切读回判定只对照该登记摘要，绝不从可疑缓冲重算期望；
 //! 2. **登记后源缓冲损坏即失败关闭**：每次写入/重写前复核源缓冲仍与登记摘要一致，
 //!    不一致时不重试、直接失败并输出现场；
-//! 3. **两路读回分歧即失败关闭**：读回 A（一次性读）与读回 B（flush 后独立流式读）
-//!    必须同时命中登记摘要；两路不一致说明读路径本身不可信，失败关闭、不重试。
-//!    平台无法绕过页缓存核对持久介质时，缓存—持久分歧面显式不覆盖（见
-//!    [`ArtifactIo::read_persistent`]）；
-//! 4. **重写有界**：一致失配（两路相同但与登记摘要不符）时允许从源缓冲重写，
-//!    上限固定（[`WritePolicy::DEFAULT`] = 3 次）；
+//! 3. **两路读回分歧即失败关闭**：读回 A（写后立即）与读回 B（flush 后独立重新打开）
+//!    两次独立流式读必须给出同一内容且命中登记摘要；两路不一致说明读路径本身不可
+//!    信，失败关闭、不重试。独立性边界如实声明：两路为同一读实现、不同时刻与不同
+//!    打开；普通文件 API 无法绕过页缓存直接核对持久介质，缓存—持久分歧面在该面
+//!    不可见时显式不覆盖（见 [`ArtifactIo::stream_file`]）；
+//! 4. **重写有界**：两路一致但与登记摘要不符时允许从源缓冲重写，上限固定
+//!    （[`WritePolicy::DEFAULT`] = 3 次）；
 //! 5. **耗尽删残件、终态失败关闭**：任何失败路径不留可被消费的未验证文件。
 //!
-//! 保证范围：成功判定包含 flush 后读回；**不含断电耐久与目录项耐久**（rename、
-//! 目录 fsync 与发布事务属宿主 / 发布边界，见 compiler 后发射设计）。
+//! 成本契约：读回全程 64 KiB 窗口流式（增量哈希 + 增量分歧统计），不整体持有回读
+//! 副本；验证峰值与工件大小无关（#956 审阅）。成功判定包含 flush 后读回；**不含断电
+//! 耐久与目录项耐久**（rename、目录 fsync 与发布事务属宿主 / 发布边界，见 compiler
+//! 后发射设计）。
 //!
-//! 失配现场以 `[digest-probe] site=write-readback` 行输出，与
-//! `docs/reference/validation-matrix.md` 判读口径一致；成功重写次数由
-//! [`VerifiedWrite::rewrites`] 提供恢复遥测。
+//! 失配与分歧现场均以 `[digest-probe] site=write-readback` 行输出（含分歧偏移、
+//! 分歧字节数、长度差与 action），与 `docs/reference/validation-matrix.md` 判读
+//! 口径一致；成功重写次数由 [`VerifiedWrite::rewrites`] 提供恢复遥测。
 
 use std::fmt;
 use std::fs;
@@ -27,6 +30,9 @@ use std::io::{self, Read};
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
+
+/// 读回窗口大小：限界内存的流式比对单元。
+const READ_WINDOW: usize = 64 * 1024;
 
 /// 写后校验与重写策略：上限固定有界。
 #[derive(Clone, Copy, Debug)]
@@ -142,14 +148,11 @@ impl std::error::Error for VerifiedWriteError {
 trait ArtifactIo {
     /// 写出完整内容（新建或覆盖）。
     fn write_file(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
-    /// 读回 A：一次性整体读（缓存路径）。
-    fn read_once(&self, path: &Path) -> io::Result<Vec<u8>>;
+    /// 流式读回：把文件内容按窗口交给 `sink`。实现不得整体持有文件副本（限界内存）；
+    /// 同一实现的两次调用构成两路读回（不同时刻、不同打开）。
+    fn stream_file(&self, path: &Path, sink: &mut dyn FnMut(&[u8])) -> io::Result<()>;
     /// 把缓存内容刷向持久层。
     fn sync(&self, path: &Path) -> io::Result<()>;
-    /// 读回 B：flush 后独立流式读。与读回 A 走不同实现路径；两路不一致即分歧信号。
-    /// 平台限制：普通文件 API 无法绕过页缓存直接核对持久介质，缓存—持久分歧面
-    /// 在该面不可见时显式不覆盖。
-    fn read_persistent(&self, path: &Path) -> io::Result<Vec<u8>>;
     /// 删除残件。
     fn remove_file(&self, path: &Path) -> io::Result<()>;
 }
@@ -161,8 +164,16 @@ impl ArtifactIo for FsIo {
         fs::write(path, bytes)
     }
 
-    fn read_once(&self, path: &Path) -> io::Result<Vec<u8>> {
-        fs::read(path)
+    fn stream_file(&self, path: &Path, sink: &mut dyn FnMut(&[u8])) -> io::Result<()> {
+        let mut file = fs::File::open(path)?;
+        let mut window = [0_u8; READ_WINDOW];
+        loop {
+            let read = file.read(&mut window)?;
+            if read == 0 {
+                return Ok(());
+            }
+            sink(&window[..read]);
+        }
     }
 
     fn sync(&self, path: &Path) -> io::Result<()> {
@@ -171,13 +182,6 @@ impl ArtifactIo for FsIo {
             .write(true)
             .open(path)?
             .sync_all()
-    }
-
-    fn read_persistent(&self, path: &Path) -> io::Result<Vec<u8>> {
-        let mut file = fs::File::open(path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-        Ok(buffer)
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
@@ -228,18 +232,32 @@ fn write_verified_with(
             let _ = io.remove_file(path);
             return Err(VerifiedWriteError::Io(error));
         }
-        let first = read_or_clean(io, path)?;
-        let first_sha: [u8; 32] = Sha256::digest(&first).into();
+        // 读回 A：写后立即，窗口流式，增量哈希 + 增量分歧统计。
+        let mut first_hasher = Sha256::new();
+        let mut divergence = Divergence::new(source);
+        stream_or_clean(io, path, &mut |window| {
+            first_hasher.update(window);
+            divergence.push(window);
+        })?;
+        let first_sha: [u8; 32] = first_hasher.finalize().into();
         io.sync(path).map_err(|error| {
             let _ = io.remove_file(path);
             VerifiedWriteError::Io(error)
         })?;
-        let second = io.read_persistent(path).map_err(|error| {
-            let _ = io.remove_file(path);
-            VerifiedWriteError::Io(error)
-        })?;
-        let second_sha: [u8; 32] = Sha256::digest(&second).into();
+        // 读回 B：flush 后独立重新打开，窗口流式，增量哈希。
+        let mut second_hasher = Sha256::new();
+        stream_or_clean(io, path, &mut |window| second_hasher.update(window))?;
+        let second_sha: [u8; 32] = second_hasher.finalize().into();
         if first_sha != second_sha {
+            std::eprintln!(
+                "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} first_sha={} second_sha={} first_diff_offset={:?} differing_bytes={} len_delta={} reason=divergent-readback action=fail-closed",
+                registration.hex(),
+                hex(&first_sha),
+                hex(&second_sha),
+                divergence.first_diff_offset,
+                divergence.differing_bytes(),
+                divergence.len_delta(),
+            );
             let _ = io.remove_file(path);
             return Err(VerifiedWriteError::ReadbackDivergent {
                 attempt,
@@ -250,19 +268,18 @@ fn write_verified_with(
         if first_sha == registration.digest {
             return Ok(VerifiedWrite { rewrites });
         }
-        let divergence = stream_divergence(source, &first);
         let action = if rewrites >= policy.max_rewrites {
             "fail-closed"
         } else {
             "retry"
         };
         std::eprintln!(
-            "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} readback_sha={} first_diff_offset={:?} differing_bytes={} len_delta={} reread_same=true action={action}",
+            "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} readback_sha={} first_diff_offset={:?} differing_bytes={} len_delta={} reread_same=true reason=consistent-mismatch action={action}",
             registration.hex(),
             hex(&first_sha),
             divergence.first_diff_offset,
-            divergence.differing_bytes,
-            divergence.len_delta,
+            divergence.differing_bytes(),
+            divergence.len_delta(),
         );
         let _ = io.remove_file(path);
         if rewrites >= policy.max_rewrites {
@@ -276,30 +293,52 @@ fn write_verified_with(
     }
 }
 
-fn read_or_clean(io: &dyn ArtifactIo, path: &Path) -> Result<Vec<u8>, VerifiedWriteError> {
-    io.read_once(path).map_err(|error| {
+fn stream_or_clean(
+    io: &dyn ArtifactIo,
+    path: &Path,
+    sink: &mut dyn FnMut(&[u8]),
+) -> Result<(), VerifiedWriteError> {
+    io.stream_file(path, sink).map_err(|error| {
         let _ = io.remove_file(path);
         VerifiedWriteError::Io(error)
     })
 }
 
-/// 与登记摘要一致的源缓冲的分歧统计（诊断用；源缓冲已复核与登记一致）。
-struct Divergence {
+/// 期望侧分歧统计累加器（限界内存；期望为已复核与登记摘要一致的源缓冲）。
+struct Divergence<'a> {
+    expected: &'a [u8],
+    offset: usize,
     first_diff_offset: Option<usize>,
     differing_bytes: usize,
-    len_delta: i64,
 }
 
-fn stream_divergence(expected: &[u8], readback: &[u8]) -> Divergence {
-    let common = expected.len().min(readback.len());
-    let first_diff_offset = (0..common).find(|&index| expected[index] != readback[index]);
-    let differing_bytes = (0..common)
-        .filter(|&index| expected[index] != readback[index])
-        .count();
-    Divergence {
-        first_diff_offset,
-        differing_bytes,
-        len_delta: readback.len() as i64 - expected.len() as i64,
+impl<'a> Divergence<'a> {
+    fn new(expected: &'a [u8]) -> Self {
+        Self {
+            expected,
+            offset: 0,
+            first_diff_offset: None,
+            differing_bytes: 0,
+        }
+    }
+
+    fn push(&mut self, window: &[u8]) {
+        for (index, byte) in window.iter().enumerate() {
+            let index = self.offset + index;
+            if index < self.expected.len() && self.expected[index] != *byte {
+                self.differing_bytes += 1;
+                self.first_diff_offset.get_or_insert(index);
+            }
+        }
+        self.offset += window.len();
+    }
+
+    fn differing_bytes(&self) -> usize {
+        self.differing_bytes
+    }
+
+    fn len_delta(&self) -> i64 {
+        self.offset as i64 - self.expected.len() as i64
     }
 }
 
@@ -329,6 +368,7 @@ mod tests {
         corruption: Corruption,
         divergent_read_b: Cell<bool>,
         writes: Cell<u32>,
+        streams: Cell<u32>,
     }
 
     impl FaultyIo {
@@ -338,6 +378,7 @@ mod tests {
                 corruption,
                 divergent_read_b: Cell::new(false),
                 writes: Cell::new(0),
+                streams: Cell::new(0),
             }
         }
     }
@@ -353,22 +394,23 @@ mod tests {
             fs::write(path, bytes)
         }
 
-        fn read_once(&self, path: &Path) -> io::Result<Vec<u8>> {
-            fs::read(path)
-        }
-
-        fn sync(&self, _path: &Path) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn read_persistent(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fn stream_file(&self, path: &Path, sink: &mut dyn FnMut(&[u8])) -> io::Result<()> {
+            self.streams.set(self.streams.get() + 1);
             let mut bytes = fs::read(path)?;
             if self.divergent_read_b.get()
+                && self.streams.get() == 2
                 && let Some(byte) = bytes.first_mut()
             {
                 *byte ^= 0xFF;
             }
-            Ok(bytes)
+            for window in bytes.chunks(READ_WINDOW) {
+                sink(window);
+            }
+            Ok(())
+        }
+
+        fn sync(&self, _path: &Path) -> io::Result<()> {
+            Ok(())
         }
 
         fn remove_file(&self, path: &Path) -> io::Result<()> {
