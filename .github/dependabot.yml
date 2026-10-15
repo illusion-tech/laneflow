@@ -11,15 +11,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build(deps)"
-    # bevy 伞形生态与子 crate 严格版本绑定，单子 crate 升级必然 CI 失败；
-    # 整体迁移由 #912 统一推进，完成后移除此 ignore。
-    # update-types 仅作用于版本升级，bevy 系安全更新仍会正常开 PR。
-    ignore:
-      - dependency-name: "bevy*"
-        update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
-          - "version-update:semver-patch"
 
   - package-ecosystem: github-actions
     directory: /
