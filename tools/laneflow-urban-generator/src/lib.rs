@@ -4,6 +4,7 @@ mod config;
 mod delivery;
 mod layout;
 mod source;
+pub mod verified_write;
 
 pub use catalog::{AnchorRoute, Catalog, ParkingTarget, Route};
 pub use compare::compare_artifacts;
