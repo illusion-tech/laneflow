@@ -281,6 +281,31 @@ fn path_starts_with_ci(path: &Path, prefix: &Path) -> bool {
     path == prefix || path.starts_with(&format!("{prefix}\\"))
 }
 
+/// include 条目的 label 形态：条目内容来自采集机配置文件本身，绝对/根相对
+/// 路径原样进 label 会把本机路径带进错误串。已知根先归占位符（根内 include
+/// 保持可读），仍是机器形态路径则整段占位。
+fn sanitize_include_entry(entry: &str, cargo_home: &Path, repo: &Path) -> String {
+    let roots: Vec<RemapRoot> = [(cargo_home, "<cargo-home>"), (repo, "<worktree>")]
+        .into_iter()
+        .flat_map(|(root, placeholder)| {
+            both_spellings(root)
+                .into_iter()
+                .map(move |from| RemapRoot { from, placeholder })
+        })
+        .collect();
+    let redacted = redact_roots(entry, &roots);
+    let machine_shaped = redacted.starts_with(['/', '\\'])
+        || Path::new(&redacted)
+            .components()
+            .next()
+            .is_some_and(|c| matches!(c, std::path::Component::Prefix(_)));
+    if machine_shaped {
+        "<include 绝对路径>".to_string()
+    } else {
+        redacted
+    }
+}
+
 /// 采集机 Cargo 配置审计：用户级（CARGO_HOME）与仓库各祖先目录的
 /// `.cargo/config{,.toml}`（Cargo 从构建 cwd 逐级向上探测），并递归跟随
 /// 顶层 `include` 键。出现 profile / paths / source / patch / env 表或
@@ -378,7 +403,9 @@ fn check_cargo_config(cargo_home: &Path, repo: &Path) -> Result<(), String> {
                 _ => vec![],
             };
             for entry in included_files {
-                queue.push_back((parent.join(&entry), format!("{label} 包含的 {entry}")));
+                // label 保持占位符约定：条目是采集机配置内容，绝对路径须净化。
+                let display = sanitize_include_entry(&entry, cargo_home, repo);
+                queue.push_back((parent.join(&entry), format!("{label} 包含的 {display}")));
             }
         }
     }
@@ -1173,6 +1200,31 @@ mod tests {
         assert_eq!(entries[0].path, "crates/x/src/lib.rs");
         assert_eq!(entries[1].path, "README.md");
         assert!(parse_index_entries("100644 abc123 0\n").is_err());
+    }
+
+    #[test]
+    fn sanitize_include_entry_redacts_machine_paths() {
+        let cargo_home = Path::new("E:/cargo-home");
+        let repo = Path::new("E:/work/laneflow");
+        // 相对条目原样保留（不含本机路径）。
+        assert_eq!(
+            sanitize_include_entry("sub/extra.toml", cargo_home, repo),
+            "sub/extra.toml"
+        );
+        // 根内绝对路径归占位符，保持可读。
+        assert_eq!(
+            sanitize_include_entry("E:/cargo-home/shared.toml", cargo_home, repo),
+            "<cargo-home>/shared.toml"
+        );
+        // 根外绝对路径与根相对路径整段占位。
+        assert_eq!(
+            sanitize_include_entry("/opt/shared/team.toml", cargo_home, repo),
+            "<include 绝对路径>"
+        );
+        assert_eq!(
+            sanitize_include_entry("\\\\server\\share\\team.toml", cargo_home, repo),
+            "<include 绝对路径>"
+        );
     }
 
     #[test]
