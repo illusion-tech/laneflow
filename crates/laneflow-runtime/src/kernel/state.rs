@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 /// 已提交 Conflict 资格表。每次可变借用都换一个进程内唯一的版本号：步进交换
 /// 暂存表时据此判断上拍记下的 Some 位置清单是否仍覆盖这张表（宿主命令、恢复
-/// 与切换都可能改写它），覆盖时只清这些位置，否则整表清空。
+/// 与切换都可能改写它），覆盖时只清这些位置，否则整表清空。只清空单个车位
+/// 不会新增 Some 位置，走 `clear_slot`，不换版本。
 #[derive(Clone, Debug, Default)]
 pub(crate) struct EligibilityTable {
     slots: Vec<Option<crate::ConflictEligibilityState>>,
@@ -41,6 +42,14 @@ impl EligibilityTable {
 
     pub(crate) fn into_vec(self) -> Vec<Option<crate::ConflictEligibilityState>> {
         self.slots
+    }
+
+    /// 把一个车位清成 `None`，不换版本：清空只会减少 Some 位置，上拍记下的清单
+    /// 仍覆盖本表。替换、生成与解除停车每次都清一个车位，换版本会让下一拍整表清空。
+    pub(crate) fn clear_slot(&mut self, index: usize) {
+        if let Some(slot) = self.slots.get_mut(index) {
+            *slot = None;
+        }
     }
 }
 
@@ -1209,5 +1218,23 @@ mod tests {
             armed.partitions[4]
         );
         eprintln!("runtime-state-memory initial={initial:?} warm={warm:?} armed={armed:?}");
+    }
+}
+
+#[cfg(test)]
+mod eligibility_table_tests {
+    use super::EligibilityTable;
+
+    #[test]
+    fn clearing_one_slot_keeps_the_version() {
+        let mut table = EligibilityTable::from(vec![None; 4]);
+        let version = table.version();
+        table.clear_slot(2);
+        table.clear_slot(9);
+        assert_eq!(table.version(), version);
+        assert!(table.iter().all(Option::is_none));
+        // 其他可变借用仍换版本。
+        table.truncate(2);
+        assert_ne!(table.version(), version);
     }
 }

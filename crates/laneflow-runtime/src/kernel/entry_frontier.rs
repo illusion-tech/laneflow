@@ -42,9 +42,11 @@ thread_local! {
     static MEMBER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// 可选分类标记缓冲准备失败；融合回退不改变领域错误。
     static CLASSIFY_SCRATCH_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// 让行目标段缓冲不可用；改走两遍收集，结果与错误不变。
+    static TARGET_PARTS_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: LINK_RESERVE_SUCCESSES, LINK_COMMIT_SUCCESSES, ADDRESS_COMPARISONS, MEMBER_PROBES, CLASSIFY_SCRATCH_FAILURE);
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LINK_RESERVE_SUCCESSES, LINK_COMMIT_SUCCESSES, ADDRESS_COMPARISONS, MEMBER_PROBES, CLASSIFY_SCRATCH_FAILURE, TARGET_PARTS_FAILURE);
 
 #[cfg(test)]
 fn link_reserve_should_fail() -> bool {
@@ -1463,10 +1465,107 @@ fn collect_targets(
     result
 }
 
-/// 两遍并行收集：先按连续段数出每段的目标地址数（段内遇错即停），再按前缀和
-/// 切开输出并行写入。目标随后排序去重，段序与段内顺序都不影响结果；首错仍取
-/// 下标最小的一段。
+/// 让行目标的一段并行输出：段内遇错即停；缓冲随池跨拍保留容量。
+#[derive(Default)]
+pub(crate) struct TargetPart {
+    targets: Vec<ConflictPassageAddress>,
+    error: Option<StepError>,
+    /// 段缓冲扩容失败：本次改走两遍收集。
+    full: bool,
+}
+
+/// 一遍并行收集：每段写进自己的池缓冲，join 后按段序拼接。目标随后排序去重，
+/// 段序与段内顺序都不影响结果；首错仍取下标最小的一段。段缓冲扩容失败时改走
+/// 两遍收集，错误与结果不变。
 fn collect_targets_parallel(
+    resources: &crate::kernel::execution::ExecutionResources,
+    read: crate::kernel::phase::StepReadView<'_>,
+    total: usize,
+    source: &(impl Fn(usize) -> Option<VehicleState> + Sync),
+    delta_s: f32,
+    demanded: &mut Vec<ConflictPassageAddress>,
+) -> Result<(), StepError> {
+    let parts = resources
+        .dispatch_threads()
+        .saturating_mul(4)
+        .min(TARGETS_MAX_PARTS)
+        .min(total)
+        .max(1);
+    let span = total.div_ceil(parts).max(1);
+    #[cfg(test)]
+    if TARGET_PARTS_FAILURE.get() {
+        return collect_targets_counted(resources, read, total, source, delta_s, demanded);
+    }
+    let Some(mut buffers) = resources.target_parts() else {
+        return collect_targets_counted(resources, read, total, source, delta_s, demanded);
+    };
+    if let Some(missing) = parts
+        .checked_sub(buffers.len())
+        .filter(|missing| *missing > 0)
+    {
+        if buffers.try_reserve(missing).is_err() {
+            drop(buffers);
+            return collect_targets_counted(resources, read, total, source, delta_s, demanded);
+        }
+        buffers.resize_with(parts, TargetPart::default);
+    }
+    resources.for_each_part(&mut buffers[..parts], 1, |part, out| {
+        let out = &mut out[0];
+        out.targets.clear();
+        out.error = None;
+        out.full = false;
+        let start = (part * span).min(total);
+        let end = (start + span).min(total);
+        for index in start..end {
+            let Some(state) = source(index) else {
+                continue;
+            };
+            let mut full = false;
+            let targets = &mut out.targets;
+            let collected = collect_vehicle_targets(read, state, delta_s, &mut |address| {
+                if targets.try_reserve(1).is_err() {
+                    full = true;
+                    return Err(StepError::ConflictScratchAllocFailed);
+                }
+                targets.push(address);
+                Ok(())
+            });
+            // 段缓冲扩容失败不是领域错误：标记后整次改走两遍收集。
+            if full {
+                out.full = true;
+                return;
+            }
+            if let Err(error) = collected {
+                out.error = Some(error);
+                return;
+            }
+        }
+    });
+    let used = &buffers[..parts];
+    if used.iter().any(|part| part.full) {
+        drop(buffers);
+        return collect_targets_counted(resources, read, total, source, delta_s, demanded);
+    }
+    if let Some(error) = used.iter().find_map(|part| part.error) {
+        return Err(error);
+    }
+    let sum = used
+        .iter()
+        .try_fold(0_usize, |sum, part| sum.checked_add(part.targets.len()))
+        .ok_or(StepError::ConflictScratchAllocFailed)?;
+    demanded.clear();
+    demanded
+        .try_reserve(sum)
+        .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+    for part in used {
+        demanded.extend_from_slice(&part.targets);
+    }
+    Ok(())
+}
+
+/// 两遍并行收集：先按连续段数出每段的目标地址数（段内遇错即停），再按前缀和
+/// 切开输出并行写入。段缓冲不可用时使用。
+fn collect_targets_counted(
     resources: &crate::kernel::execution::ExecutionResources,
     read: crate::kernel::phase::StepReadView<'_>,
     total: usize,
@@ -2207,6 +2306,44 @@ mod tests {
             super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
             super::LINK_COMMIT_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
             super::CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.set(false));
+            super::TARGET_PARTS_FAILURE.with(|fail| fail.set(false));
+        }
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    #[test]
+    fn single_pass_targets_match_serial_and_counted_collection() {
+        use crate::kernel::execution::WorldExecution;
+        use std::num::NonZeroU32;
+        let mut expected: Option<Vec<Vec<crate::ConflictPassageAddress>>> = None;
+        for (workers, counted) in [(1, false), (4, false), (16, false), (4, true)] {
+            let _reset = FailpointReset;
+            super::TARGET_PARTS_FAILURE.with(|fail| fail.set(counted));
+            let (mut world, _, _) = deferred_scale_world();
+            world.execution = WorldExecution::start_private(
+                crate::ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            let mut observed = Vec::new();
+            for _ in 0..12 {
+                step(&mut world);
+                observed.push(
+                    world
+                        .state
+                        .workspace
+                        .frontier_maintenance
+                        .scratch_demanded
+                        .clone(),
+                );
+            }
+            assert!(
+                observed.iter().any(|targets| !targets.is_empty()),
+                "fixture must demand yield targets"
+            );
+            match &expected {
+                Some(expected) => assert_eq!(&observed, expected, "{workers} workers"),
+                None => expected = Some(observed),
+            }
         }
     }
 
