@@ -6297,8 +6297,7 @@ mod preview {
         let occupancy_records = world.state.derived.occupancy.records_capacity();
         let occupancy_scratch = world.state.workspace.occupancy_scratch.capacity();
         let occupancy_offsets = world.state.derived.occupancy.offsets_capacity();
-        let occupancy_suffix = world.state.derived.occupancy.suffix_min_lo_capacity();
-        let occupancy_second = world.state.derived.occupancy.suffix_second_lo_capacity();
+        let occupancy_suffix = world.state.derived.occupancy.suffix_capacity();
         for _ in 0..16 {
             world.step(TickInput::new(100)).unwrap();
             assert_eq!(world.state.workspace.next_states.capacity(), next_cap);
@@ -6317,12 +6316,8 @@ mod preview {
                 occupancy_offsets
             );
             assert_eq!(
-                world.state.derived.occupancy.suffix_min_lo_capacity(),
+                world.state.derived.occupancy.suffix_capacity(),
                 occupancy_suffix
-            );
-            assert_eq!(
-                world.state.derived.occupancy.suffix_second_lo_capacity(),
-                occupancy_second
             );
         }
     }
