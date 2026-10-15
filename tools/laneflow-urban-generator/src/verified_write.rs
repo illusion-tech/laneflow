@@ -13,9 +13,10 @@
 //!    不可见时显式不覆盖（见 [`ArtifactIo::stream_file`]）；
 //! 4. **重写有界**：两路一致但与登记摘要不符时允许从源缓冲重写，上限固定
 //!    （[`WritePolicy::DEFAULT`] = 3 次）；
-//! 5. **耗尽删残件、终态失败关闭**：失败路径尽力删除残件，删除失败经
-//!    [`VerifiedWriteError`] 的 `residual` 字段与 `[digest-probe]` 现场行显式上浮，
-//!    不谎称已清理、不静默留可被消费的未验证文件。
+//! 5. **耗尽删残件、终态失败关闭**：`path` 语义为「已验证工件或空」——调用方应视
+//!    路径为本操作所有；任何失败退出（含源缓冲损坏）都尽力清理路径上的全部字节
+//!    （含预存文件），清理失败经 [`VerifiedWriteError`] 的 `residual` 字段与
+//!    `[digest-probe]` 现场行显式上浮，不谎称已清理、不静默留可被消费的未验证文件。
 //!
 //! 成本契约：读回全程 64 KiB 窗口流式（增量哈希 + 增量分歧统计），不整体持有回读
 //! 副本；验证峰值与工件大小无关（#956 审阅）。成功判定包含 flush 后读回；**不含断电
@@ -261,6 +262,8 @@ fn write_verified_with(
         // 登记后源缓冲损坏：失败关闭、不重写（内存失真可破坏 &[u8] 背后的物理页）。
         let source_now: [u8; 32] = Sha256::digest(source).into();
         if source_now != registration.digest {
+            // 路径语义为「已验证工件或空」：失败退出前清理一切残件（含预存文件）。
+            remove_residual(io, path, &name, attempt, &mut residual, "fail-closed");
             emit_probe(format_args!(
                 "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} actual_sha={} reason=source-corrupted action=fail-closed residual={residual}",
                 registration.hex(),
@@ -674,6 +677,32 @@ mod tests {
         );
         assert_eq!(io.writes.get(), 0, "never written");
         assert!(!path.exists(), "no artifact created");
+    }
+
+    #[test]
+    fn preexisting_destination_is_cleared_on_source_corruption() {
+        let directory = tempdir().expect("tempdir");
+        let path = directory.path().join("artifact.bin");
+        fs::write(&path, b"stale artifact").expect("stale file");
+        let io = FaultyIo::new(Corruption::Truncate);
+        let registered_source = source();
+        let registration = SourceRegistration::of(&registered_source);
+        let mut corrupted = registered_source;
+        corrupt(&mut corrupted, Corruption::ZeroPage);
+        let error =
+            write_verified_with(&io, &path, &corrupted, &registration, WritePolicy::DEFAULT)
+                .expect_err("corrupted source fails");
+        assert!(
+            matches!(
+                error,
+                VerifiedWriteError::SourceCorrupted {
+                    residual: false,
+                    ..
+                }
+            ),
+            "cleared path reports no residual"
+        );
+        assert!(!path.exists(), "owned path cleared on failure");
     }
 
     #[test]
