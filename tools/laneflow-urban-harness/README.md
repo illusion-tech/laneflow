@@ -159,7 +159,7 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 cargo +1.98.0 run --locked -p xtask -- build-measurement
 ```
 
-该 xtask 命令在专用目标目录 `target/release-measurement/`（产物位于其下
+该 xtask 命令在隔离目标目录 `target/release-measurement-quarantine/`（产物位于其下
 `<target-triple>/release/`，目标三元组钉住为主机值）执行冻结的
 `cargo +1.98.0 build -p laneflow-urban-harness --release --locked`，附加固定顺序的
 `--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、rustup
@@ -167,9 +167,12 @@ cargo +1.98.0 run --locked -p xtask -- build-measurement
 CC 家族/代理等未列出变量一律缺席），release profile 与工具链内 rustc 钉住，
 `CARGO_INCREMENTAL=0`，依赖缓存须先按 `--locked` 预热（白名单不含代理变量）。
 依赖源码必须落在工作树或 Cargo 主目录内，否则拒绝构建。
-构建后固定扫描二进制并正向断言嵌入的归一化 flag，命中任何本机根即失败并拒绝
-写出回执。日常开发/诊断仍可用普通 cargo 构建，但其二进制不通过正式测量
-provenance。发布二进制前用扫描入口复扫（`--evidence-root` 追加证据根，
+构建后固定扫描二进制并正向断言嵌入的归一化 flag，并复核源码树未漂移；全部
+通过才把二进制 rename 发布到正式路径 `target/release-measurement/`
+`<target-triple>/release/` 并写出回执——任何失败都不会在正式路径留下未过检
+二进制，上一轮合格二进制保持原位。日常开发/诊断仍可用普通 cargo 构建，但其
+二进制不通过正式测量 provenance。发布二进制前用扫描入口复扫（`--evidence-root`
+追加证据根，
 显式指定的根不存在的本机路径也照扫不误）：
 
 ```text

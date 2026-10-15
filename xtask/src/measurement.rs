@@ -68,6 +68,7 @@ const PASSTHROUGH_ENV: [&str; 20] = [
     "TMPDIR",
 ];
 
+#[derive(Clone)]
 struct RemapRoot {
     from: PathBuf,
     placeholder: &'static str,
@@ -140,8 +141,10 @@ fn finish_output(
             .output()
             .map_err(|e| format!("无法执行 {program}: {e}"))?,
         Some(input) => {
-            // 子进程边读边处理（hash-object --stdin-paths 逐行消费），
-            // 同步写入不会撑满管道。
+            // communicate 模式：stdin 由写线程喂给，主线程 wait_with_output
+            // 并发排空 stdout/stderr。同步写会死锁——清单可超百 KB，stdout
+            // 管道一满子进程就停止消费 stdin，两侧互等（Windows 匿名管道
+            // 缓冲小，本仓库清单 stdin/stdout 均远超其上限）。
             command
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
@@ -150,12 +153,21 @@ fn finish_output(
                 .spawn()
                 .map_err(|e| format!("无法执行 {program}: {e}"))?;
             let mut stdin = child.stdin.take().expect("stdin 已接管");
-            std::io::Write::write_all(&mut stdin, input.as_bytes())
-                .map_err(|e| format!("无法向 {program} 写入 stdin: {e}"))?;
-            drop(stdin);
-            child
+            let input = input.to_owned();
+            let writer =
+                std::thread::spawn(move || std::io::Write::write_all(&mut stdin, input.as_bytes()));
+            let output = child
                 .wait_with_output()
-                .map_err(|e| format!("无法等待 {program}: {e}"))?
+                .map_err(|e| format!("无法等待 {program}: {e}"))?;
+            let write_result = writer
+                .join()
+                .map_err(|_| format!("{program} 的 stdin 写线程异常终止"))?;
+            // 子进程失败时写线程遇断管属预期，失败由状态码与 stderr 报告；
+            // 子进程成功而写入失败才是真异常。
+            if output.status.success() {
+                write_result.map_err(|e| format!("无法向 {program} 写入 stdin: {e}"))?;
+            }
+            output
         }
     };
     if !output.status.success() {
@@ -670,19 +682,24 @@ fn both_spellings(path: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// 文本脱敏：把根目录的每种登记拼写（原生与 `/` 分隔符两种）替换为占位符。
+/// 文本脱敏：把根目录的登记拼写替换为占位符。`\` 与 `/` 两种分隔符拼写都
+/// 生成——根的存储拼写本身可能来自任一种（env 值、词法/canonical 不一），
+/// 不能只按存储拼写推导变体。
 /// 正式构建失败日志与探测辅助的 stderr 共用同一实现，输出才可留存为证据。
 /// Windows 路径身份大小写不敏感（工具诊断的驱动器号/组件大小写可与注册根
 /// 分叉），替换按 ASCII 折叠大小写——与扫描针的 `ascii_lower` 折叠同级；
-/// 非 ASCII 的 Unicode 折叠出界。
+/// 非 ASCII 的 Unicode 折叠出界。重叠根按拼写长度降序替换：细粒度占位符
+/// 优先（sysroot 先于其父 rustup-home），与二进制 remap 的精确映射一致。
 fn redact_roots(text: &str, roots: &[RemapRoot]) -> String {
+    let mut roots: Vec<&RemapRoot> = roots.iter().collect();
+    roots.sort_by_key(|root| std::cmp::Reverse(root.from.as_os_str().len()));
     let mut out = text.to_owned();
     for root in roots {
         let from = root.from.to_string_lossy();
+        let back = from.replace('/', "\\");
         let forward = from.replace('\\', "/");
-        out = replace_ascii_ci(&out, &from, root.placeholder);
-        if forward != from {
-            out = replace_ascii_ci(&out, &forward, root.placeholder);
+        for spelling in [from.as_ref(), back.as_str(), forward.as_str()] {
+            out = replace_ascii_ci(&out, spelling, root.placeholder);
         }
     }
     out
@@ -877,8 +894,13 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         .collect::<Vec<_>>()
         .join(" ");
 
-    let target_dir = repo.join("target").join("release-measurement");
-    let receipt_path = receipt_path.unwrap_or_else(|| target_dir.join("build-receipt.json"));
+    let final_dir = repo.join("target").join("release-measurement");
+    // 隔离构建：二进制在全部证明（嵌入断言/扫描/漂移复核）通过前不得落在
+    // 正式测量路径上——否则失败轮留下的半成品会在检出清理干净后被 harness
+    // 当作合格正式二进制接受（运行时只核对内嵌提交）。全部通过后 rename
+    // 发布，上一轮合格二进制在发布前保持原位。
+    let quarantine_dir = repo.join("target").join("release-measurement-quarantine");
+    let receipt_path = receipt_path.unwrap_or_else(|| final_dir.join("build-receipt.json"));
     // 回执只新增不覆盖：先失败——既不在完成构建与扫描后才报错，也不让随后的
     // 目录清理把既有回执吞掉。
     if receipt_path.exists() {
@@ -890,9 +912,13 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     // 每次正式构建使用全新 target 目录：Cargo 只按 build.rs 声明的
     // rerun-if-* 跟踪构建脚本输入，陈旧复用可携带未被声明的本机残留；
     // 全新目录把这类风险整体消除（代价仅是正式构建多花几十秒）。
-    if target_dir.exists() {
-        fs::remove_dir_all(&target_dir)
-            .map_err(|e| format!("无法清空 {}: {e}", display_placeholder(&repo, &target_dir)))?;
+    if quarantine_dir.exists() {
+        fs::remove_dir_all(&quarantine_dir).map_err(|e| {
+            format!(
+                "无法清空 {}: {e}",
+                display_placeholder(&repo, &quarantine_dir)
+            )
+        })?;
     }
     // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
     // 产物位置或目标平台。
@@ -924,8 +950,8 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         .env("LANEFLOW_MEASUREMENT_RUSTFLAGS", &normalized)
         .env("LANEFLOW_MEASUREMENT_COMMIT", &source_commit)
         .env("CARGO_INCREMENTAL", "0")
-        .env("CARGO_TARGET_DIR", &target_dir)
-        .env("CARGO_BUILD_BUILD_DIR", target_dir.join("build"))
+        .env("CARGO_TARGET_DIR", &quarantine_dir)
+        .env("CARGO_BUILD_BUILD_DIR", quarantine_dir.join("build"))
         .env(
             "CARGO_BUILD_RUSTC",
             sysroot
@@ -940,20 +966,35 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         .map_err(|e| format!("无法启动 cargo: {e}"))?;
     if !output.status.success() {
         // 输出可留存为证据：映射根先替换为占位符，控制台不留本机路径。
+        // 链接器/构建脚本诊断还会引用 rustup-home、用户目录与临时目录
+        // （白名单放回 TEMP/TMP/USERPROFILE），一并进脱敏表。
         let mut log = String::from_utf8_lossy(&output.stdout).into_owned();
         log.push_str(&String::from_utf8_lossy(&output.stderr));
-        let log = redact_roots(&log, &map);
+        let mut redact = map.clone();
+        let mut extras = vec![
+            (tool_env.rustup_home.clone(), "<rustup-home>"),
+            (env::temp_dir(), "<temp>"),
+        ];
+        if let Ok(profile) = home_dir() {
+            extras.push((profile, "<user-profile>"));
+        }
+        for (root, placeholder) in extras {
+            redact.extend(
+                both_spellings(&root)
+                    .into_iter()
+                    .map(|from| RemapRoot { from, placeholder }),
+            );
+        }
+        let log = redact_roots(&log, &redact);
         return Err(format!("{CARGO_COMMAND} 失败：{}\n{log}", output.status));
     }
 
-    let binary = target_dir
-        .join(&host)
-        .join("release")
-        .join(if cfg!(windows) {
-            "laneflow-urban-harness.exe"
-        } else {
-            "laneflow-urban-harness"
-        });
+    let exe_name = if cfg!(windows) {
+        "laneflow-urban-harness.exe"
+    } else {
+        "laneflow-urban-harness"
+    };
+    let binary = quarantine_dir.join(&host).join("release").join(exe_name);
     if !binary.is_file() {
         return Err(format!(
             "预期二进制不存在：{}",
@@ -967,7 +1008,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     if find_all(&bytes, normalized.as_bytes()).is_empty() {
         return Err(format!(
             "二进制未嵌入期望的归一化 rustflags；请删除 {} 后重建",
-            display_placeholder(&repo, &target_dir)
+            display_placeholder(&repo, &quarantine_dir)
         ));
     }
 
@@ -1015,9 +1056,34 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         || git_output(&["rev-parse", "HEAD^{tree}"], &repo)? != source_tree
         || !git_status(&repo)?.is_empty()
     {
-        return Err("构建期间源码树发生漂移；回执未写出".into());
+        return Err("构建期间源码树发生漂移；二进制未发布，回执未写出".into());
     }
     check_tree_matches_index(&repo)?;
+    // 全部证明通过才把二进制发布到正式测量路径（同卷 rename）：此前任何
+    // 失败分支都不会在正式路径留下未过检二进制，上一轮合格二进制此刻才被
+    // 替换。
+    let published = final_dir.join(&host).join("release").join(exe_name);
+    let publish_parent = published.parent().expect("发布路径有父目录");
+    fs::create_dir_all(publish_parent).map_err(|e| {
+        format!(
+            "无法创建 {}: {e}",
+            display_placeholder(&repo, publish_parent)
+        )
+    })?;
+    if published.exists() {
+        fs::remove_file(&published).map_err(|e| {
+            format!(
+                "无法替换旧二进制 {}: {e}",
+                display_placeholder(&repo, &published)
+            )
+        })?;
+    }
+    fs::rename(&binary, &published).map_err(|e| {
+        format!(
+            "无法发布二进制到 {}: {e}",
+            display_placeholder(&repo, &published)
+        )
+    })?;
     write_receipt(&receipt_path, &receipt)?;
     // 控制台输出遵循占位符约定：路径一律以 <worktree> 形式出现。
     let display = display_placeholder(&repo, &receipt_path);
@@ -1188,6 +1254,26 @@ mod tests {
             "日志 <u> 失败"
         );
         assert_eq!(replace_ascii_ci("无命中", "x:\\y", "<p>"), "无命中");
+    }
+
+    #[test]
+    fn redact_roots_prefers_finer_placeholder_for_nested_roots() {
+        // sysroot 是 rustup-home 的子路径：细粒度占位符须优先于父根。
+        let roots = vec![
+            RemapRoot {
+                from: PathBuf::from("E:/rustup"),
+                placeholder: "<rustup-home>",
+            },
+            RemapRoot {
+                from: PathBuf::from("E:/rustup/toolchains/1.98.0-x86_64"),
+                placeholder: "<rustup-toolchain>",
+            },
+        ];
+        let log = "error: E:\\rustup\\toolchains\\1.98.0-x86_64\\lib missing; E:/rustup/x";
+        assert_eq!(
+            redact_roots(log, &roots),
+            "error: <rustup-toolchain>\\lib missing; <rustup-home>/x"
+        );
     }
 
     #[test]
