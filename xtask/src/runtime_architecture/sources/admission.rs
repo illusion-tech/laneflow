@@ -101,7 +101,7 @@ fn signature(
     externals: &BTreeSet<String>,
 ) -> Result<Vec<String>, String> {
     if sig.asyncness.is_some()
-        || sig.unsafety.is_some()
+        || !matches!(sig.safety, syn::Safety::Default)
         || sig.constness.is_some()
         || sig.abi.is_some()
         || sig.variadic.is_some()
