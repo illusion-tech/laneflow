@@ -103,7 +103,6 @@ fn sanitize_git_env(command: &mut Command) {
     command.env("GIT_NO_REPLACE_OBJECTS", "1");
 }
 
-/// git 来源读取：默认环境 + git 卫生。
 /// git 来源读取：默认环境 + git 卫生；`--work-tree` 显式压住仓库本地 config 的
 /// core.worktree，cwd 之外被配置指向别的 checkout 时读取不跑题。
 fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
@@ -114,18 +113,33 @@ fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
         .args(args)
         .current_dir(cwd);
     sanitize_git_env(&mut command);
-    finish_output(command, "git", args)
+    let roots: Vec<RemapRoot> = both_spellings(cwd)
+        .into_iter()
+        .map(|from| RemapRoot {
+            from,
+            placeholder: "<worktree>",
+        })
+        .collect();
+    finish_output(command, "git", args, &roots)
 }
 
-fn finish_output(mut command: Command, program: &str, args: &[&str]) -> Result<String, String> {
+fn finish_output(
+    mut command: Command,
+    program: &str,
+    args: &[&str],
+    roots: &[RemapRoot],
+) -> Result<String, String> {
     let output = command
         .output()
         .map_err(|e| format!("无法执行 {program}: {e}"))?;
     if !output.status.success() {
+        // 失败日志可留存为证据：子进程 stderr 常带绝对路径（git fatal、cargo
+        // 配置诊断），与正式构建失败日志同规则先脱敏再入错误串。
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "{program} {:?} 失败：{}",
             args,
-            String::from_utf8_lossy(&output.stderr)
+            redact_roots(&stderr, roots)
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
@@ -165,7 +179,21 @@ impl ToolEnv {
     fn output(&self, program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
         let mut command = self.command(program, cwd);
         command.args(args);
-        finish_output(command, program, args)
+        // 探测失败日志同样可留存为证据：三个逻辑根（rustup-home 覆盖其下的
+        // sysroot）的词法/规范拼写都进脱敏表。
+        let roots: Vec<RemapRoot> = [
+            (cwd, "<worktree>"),
+            (self.cargo_home.as_path(), "<cargo-home>"),
+            (self.rustup_home.as_path(), "<rustup-home>"),
+        ]
+        .into_iter()
+        .flat_map(|(root, placeholder)| {
+            both_spellings(root)
+                .into_iter()
+                .map(move |from| RemapRoot { from, placeholder })
+        })
+        .collect();
+        finish_output(command, program, args, &roots)
     }
 }
 
@@ -591,6 +619,20 @@ fn both_spellings(path: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// 文本脱敏：把根目录的每种登记拼写（原生与 `/` 分隔符两种）替换为占位符。
+/// 正式构建失败日志与探测辅助的 stderr 共用同一实现，输出才可留存为证据。
+fn redact_roots(text: &str, roots: &[RemapRoot]) -> String {
+    let mut out = text.to_owned();
+    for root in roots {
+        let from = root.from.to_string_lossy();
+        let forward = from.replace('\\', "/");
+        out = out
+            .replace(from.as_ref(), root.placeholder)
+            .replace(&forward, root.placeholder);
+    }
+    out
+}
+
 fn write_receipt(path: &Path, value: &serde_json::Value) -> Result<(), String> {
     let mut text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
     text.push('\n');
@@ -744,12 +786,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         // 输出可留存为证据：映射根先替换为占位符，控制台不留本机路径。
         let mut log = String::from_utf8_lossy(&output.stdout).into_owned();
         log.push_str(&String::from_utf8_lossy(&output.stderr));
-        for root in map.iter() {
-            let from = root.from.to_string_lossy().replace('\\', "/");
-            log = log
-                .replace(root.from.to_string_lossy().as_ref(), root.placeholder)
-                .replace(&from, root.placeholder);
-        }
+        let log = redact_roots(&log, &map);
         return Err(format!("{CARGO_COMMAND} 失败：{}\n{log}", output.status));
     }
 
@@ -950,6 +987,21 @@ mod tests {
         let text = out.to_string_lossy().replace('\\', "/");
         assert!(text.ends_with("base/evidence"), "{text}");
         assert!(!text.contains(".."), "{text}");
+    }
+
+    #[test]
+    fn redact_roots_replaces_native_and_forward_spellings() {
+        let roots = vec![RemapRoot {
+            from: PathBuf::from("E:\\work\\laneflow"),
+            placeholder: "<worktree>",
+        }];
+        // 伪造含绝对路径的子进程 stderr：原生与 `/` 两种拼写都不得残留。
+        let stderr = "fatal: cannot chdir to E:\\work\\laneflow; see E:/work/laneflow/config";
+        let out = redact_roots(stderr, &roots);
+        assert_eq!(
+            out,
+            "fatal: cannot chdir to <worktree>; see <worktree>/config"
+        );
     }
 
     #[test]
