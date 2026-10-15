@@ -14,11 +14,11 @@ allocation = ["adapter", "dep:stats_alloc"]
 pose-profiling = ["adapter", "laneflow-bevy/pose-profiling"]
 
 [dependencies]
-bevy_app = { version = "0.19", default-features = false, features = ["std"], optional = true }
-bevy_ecs = { version = "0.19", default-features = false, features = ["std"], optional = true }
-bevy_math = { version = "0.19", default-features = false, optional = true }
-bevy_time = { version = "0.19", default-features = false, features = ["std"], optional = true }
-bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"], optional = true }
+bevy_app = { version = "0.20", default-features = false, features = ["std"], optional = true }
+bevy_ecs = { version = "0.20", default-features = false, features = ["std"], optional = true }
+bevy_math = { version = "0.20", default-features = false, optional = true }
+bevy_time = { version = "0.20", default-features = false, features = ["std"], optional = true }
+bevy_transform = { version = "0.20", default-features = false, features = ["bevy-support", "std"], optional = true }
 laneflow-bevy = { version = "0.0.0", path = "../../crates/laneflow-bevy", optional = true }
 laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial", optional = true }
 laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }

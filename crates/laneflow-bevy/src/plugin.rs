@@ -1,4 +1,4 @@
-//! Bevy 0.19 Plugin 与 LaneFlow 专用 schedule。
+//! Bevy 0.20 Plugin 与 LaneFlow 专用 schedule。
 
 use bevy_app::{App, First, MainScheduleOrder, Plugin};
 use bevy_ecs::{

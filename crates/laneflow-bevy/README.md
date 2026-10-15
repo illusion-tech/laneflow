@@ -1,6 +1,6 @@
 # laneflow_bevy
 
-LaneFlow 的 Bevy 0.19 Reference Adapter crate。
+LaneFlow 的 Bevy 0.20 Reference Adapter crate。
 
 当前入口消费 `TrafficWorld` 与可选 `SpatialSession`。`LaneFlowSession::new` 在提供 Spatial 时要求 `Arc::ptr_eq`：
 
@@ -61,7 +61,7 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 走廊 example / smoke 的第三方 **dev-dependency** 不进入 `laneflow-bevy` 生产 graph：
 
 - `toml 1.1.4+spec-1.1.0`：crates.io，MIT OR Apache-2.0；只解析检入的 catalog TOML。生成器已使用同一 crate。
-- `bevy_math 0.19.1`：crates.io，MIT OR Apache-2.0；smoke 用 `Vec3` 组 `looking_to`。生产 crate 已依赖 `bevy_transform 0.19`，该 crate 本就在 lock graph 中。
+- `bevy_math 0.20.0`：crates.io，MIT OR Apache-2.0；smoke 用 `Vec3` 组 `looking_to`。生产 crate 已依赖 `bevy_transform 0.20`，该 crate 本就在 lock graph 中。
 
 二者均在 `deny.toml` 允许的 SPDX 分支内，无 copyleft，不新增 crates.io 之外的来源。已知漏洞由 CI `Dependency policy`（cargo-deny advisories）把关。
 

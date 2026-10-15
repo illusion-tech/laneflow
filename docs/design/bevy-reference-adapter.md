@@ -2,9 +2,9 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-09-13（#285 阶段二：`junction_debug` 示例以 mesh/文本落地可见诊断）
+**最后更新**: 2026-10-13（#912：支持线迁至 Bevy 0.20）
 
-**适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
+**适用范围**: Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
 **关联文档**:
 
@@ -28,10 +28,20 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
 
 ## 2. 版本、工具链与依赖边界
 
-- v0.7 只支持 Bevy `0.19.x`；实际 patch 由仓库 `Cargo.lock` 固定。
-- 升级到 Bevy 0.20 必须创建独立迁移 Issue，重新审计 API、feature graph、MSRV、许可证、RustSec 与性能，不在 v0.7 中静默放宽版本范围。
-- LaneFlow workspace MSRV 为 Rust `1.98.0`（#495 显式提升，不跟随开发机静默变化）。Bevy 0.19.0 的 MSRV 为 Rust 1.95.0，不构成 LaneFlow 的工具链下限约束。
-- Bevy 0.19.0 使用 `MIT OR Apache-2.0`，可进入 LaneFlow 当前 cargo-deny 允许范围；最终实现仍必须以实际 lock graph 重新运行完整 dependency policy。
+- 当前只支持 Bevy `0.20.x`；实际 patch 由仓库 `Cargo.lock` 固定。Bevy 伞形 crate 与
+  子 crate 版本严格绑定，所有 Bevy 系依赖必须整体升级，同一依赖图不得出现两条 Bevy
+  版本线。
+- #912 迁移审计：Adapter 与 example 源码无需改动即在 0.20 编译、通过 clippy 与全部
+  headless 测试；`junction_debug` 的 `persp` / `close` / `signals` 预设出图人工核对
+  路面、标线、灯具自发光、大气与阴影无回归。项目未使用屏幕空间透射，0.20 改为
+  opt-in 不改变画面。生产 modular feature graph 与 `native-example` 的十个伞形
+  feature 名均未变化。
+- LaneFlow workspace MSRV 为 Rust `1.98.0`（#495 显式提升，不跟随开发机静默变化）。Bevy 0.20.0 的 MSRV 为 Rust 1.97.1，不构成 LaneFlow 的工具链下限约束。
+- Bevy 0.20.0 使用 `MIT OR Apache-2.0`；#912 以实际 lock graph 运行 cargo-deny
+  `--all-features`，advisories、bans、licenses、sources 全部通过，并删除迁移后不再
+  出现的 render 路径许可证例外。
+- #171 的 Adapter 性能 Gate 数字是 Bevy 0.19 campus 路径的历史证据；#912 未在固定
+  机重测，不把它当作 0.20 的性能结论。
 - production `laneflow-bevy` 直接依赖最小 modular crates：`bevy_app`、`bevy_ecs`、`bevy_time` 与 `bevy_transform`。LaneFlow 生产依赖只有 `laneflow-runtime` 与 `laneflow-spatial`；parking target/record 由 Runtime 再导出，不把 `laneflow-static-contract` 写入 Adapter 生产 graph。
 - production manifest 对四个 modular crates 关闭 default features；`bevy_app`、`bevy_ecs`、`bevy_time` 只启用 `std`，`bevy_transform` 启用 `std + bevy-support`。默认 graph 不激活 Bevy reflect、async executor 或 backtrace。
 - 默认 production feature graph 不包含 umbrella `bevy`、renderer、window、audio、asset、scene、UI、Gizmos，以及没有被实现证明必要的 reflect/state/input。
@@ -302,7 +312,8 @@ Spatial batch extract
 
 本设计不改变 Core API、current data format 或 Spatial public authority。它新增 Bevy-specific Adapter API；在 v1.0 前仍可按独立 Issue 演进，但以下变化必须重新进入 G1：
 
-- 支持 Bevy 0.20 或第二个 Bevy major/minor line；
+- 迁移到 Bevy 0.21 或同时支持第二个 Bevy major/minor line；迁移 Issue 必须重新审计
+  API、feature graph、MSRV、许可证、RustSec 与 example 画面；
 - 修改 default dependency/feature graph；
 - 修改 fixed schedule ownership、time-drop policy 或 authority；
 - 放宽为多 Session、多 canonical frame 或跨 frame migration；
