@@ -9,9 +9,10 @@ const RESOLVER: &str = "cc 1.6.0";
 const ROLES: [&str; 4] = ["compiler", "archiver", "assembler", "linker"];
 const NAMES: [&str; 4] = ["cl.exe", "lib.exe", "ml64.exe", "link.exe"];
 
-fn map(values: &[(std::ffi::OsString, std::ffi::OsString)]) -> BTreeMap<String, String> {
+fn map<'a>(
+    values: impl Iterator<Item = (&'a std::ffi::OsStr, &'a std::ffi::OsStr)>,
+) -> BTreeMap<String, String> {
     values
-        .iter()
         .map(|(k, v)| {
             (
                 k.to_string_lossy().to_ascii_uppercase(),
@@ -117,7 +118,7 @@ pub(crate) fn snapshot() -> Result<Value> {
                 .is_some_and(|v| v.to_string_lossy().eq_ignore_ascii_case(name)),
             "native MSVC tool name",
         )?;
-        let environment = map(tool.env());
+        let environment = map(tool.get_envs());
         let output = Command::new(&path).envs(&environment).arg("/?").output()?;
         let banner = format!(
             "{}\n{}",
