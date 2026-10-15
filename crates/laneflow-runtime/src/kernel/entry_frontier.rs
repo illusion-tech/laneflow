@@ -44,9 +44,11 @@ thread_local! {
     static CLASSIFY_SCRATCH_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// 让行目标段缓冲不可用；改走两遍收集，结果与错误不变。
     static TARGET_PARTS_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// 不写零贡献证明：对拍参考每拍都完整重放。
+    static DORMANCY_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: LINK_RESERVE_SUCCESSES, LINK_COMMIT_SUCCESSES, ADDRESS_COMPARISONS, MEMBER_PROBES, CLASSIFY_SCRATCH_FAILURE, TARGET_PARTS_FAILURE);
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LINK_RESERVE_SUCCESSES, LINK_COMMIT_SUCCESSES, ADDRESS_COMPARISONS, MEMBER_PROBES, CLASSIFY_SCRATCH_FAILURE, TARGET_PARTS_FAILURE, DORMANCY_DISABLED);
 
 #[cfg(test)]
 fn link_reserve_should_fail() -> bool {
@@ -131,6 +133,21 @@ struct FrontierSlot {
     max_accel: f32,
     cells: Vec<CachedCell>,
     valid: bool,
+    /// 零贡献证明；随缓存一起失效。
+    proof: Option<ZeroProof>,
+}
+
+/// 复用车辆在 `[from_tick, wake_tick)` 内对任何 cell 都不贡献接近记录的证明。
+/// 只依赖下列绑定输入与已提交时刻；任一输入不同即不成立。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ZeroProof {
+    from_tick: u64,
+    wake_tick: u64,
+    position: MotionPosition,
+    speed_mm_s: u32,
+    profile: VehicleProfileOrdinal,
+    reserved: bool,
+    horizon_ms: u64,
 }
 
 impl Default for FrontierSlot {
@@ -146,6 +163,7 @@ impl Default for FrontierSlot {
             max_accel: 0.0,
             cells: Vec::new(),
             valid: false,
+            proof: None,
         }
     }
 }
@@ -455,6 +473,7 @@ impl FrontierMaintenance {
             slot.valid = false;
             slot.cells.clear();
             slot.first_excluded_mm = NO_DISTANCE_MM;
+            slot.proof = None;
         }
     }
 
@@ -653,7 +672,45 @@ impl FrontierMaintenance {
         slot.max_accel = max_accel;
         slot.cells = cells;
         slot.valid = true;
+        slot.proof = None;
         Ok(())
+    }
+
+    /// 零贡献证明本拍是否成立：绑定输入逐项相同，且已提交拍号落在证明区间内。
+    /// 调用方先以 `replay_hit` 确认槽位缓存仍可复用。
+    fn proof_holds(
+        &self,
+        index: u32,
+        state: impl MotionRead,
+        reserved: bool,
+        tick: u64,
+        horizon_ms: u64,
+    ) -> bool {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.slots.get(index))
+            .and_then(|slot| slot.proof)
+            .is_some_and(|proof| {
+                (proof.from_tick..proof.wake_tick).contains(&tick)
+                    && proof.position == state.position()
+                    && proof.speed_mm_s == state.speed_mm_s()
+                    && proof.profile == state.profile()
+                    && proof.reserved == reserved
+                    && proof.horizon_ms == horizon_ms
+            })
+    }
+
+    /// 写入或清除一辆复用车辆的零贡献证明；槽位缓存已失效时不写。
+    fn set_proof(&mut self, vehicle: VehicleHandle, proof: Option<ZeroProof>) {
+        #[cfg(test)]
+        let proof = proof.filter(|_| !DORMANCY_DISABLED.get());
+        if let Some(slot) = usize::try_from(vehicle.index())
+            .ok()
+            .and_then(|index| self.slots.get_mut(index))
+            .filter(|slot| slot.valid && slot.generation == vehicle.generation())
+        {
+            slot.proof = proof;
+        }
     }
 
     /// 把本车出现项投影成唯一地址，排序并去重一次。不改写按路线距离保存的 `cells`。
@@ -748,6 +805,7 @@ impl FrontierMaintenance {
         }
         let mut cells = std::mem::take(&mut slot.cells);
         slot.valid = false;
+        slot.proof = None;
         cells.sort_unstable_by_key(|cell| cell.address);
         let mut previous: Option<ConflictPassageAddress> = None;
         for cell in &cells {
@@ -974,18 +1032,76 @@ fn signal_hold(
         return None;
     }
     let compiled = read.compiled_route(route)?;
-    let (gate, gate_mm) = first_red_gate(read, compiled, profile, position)?;
+    let (gate, gate_mm) = first_red_gate(read, compiled, profile, position, |_| {})?;
     Some(SignalHold {
         gate_mm,
         delay_ms: signal_release_delay_ms(read, gate, profile),
     })
 }
 
+/// 依赖放行下界的零贡献证明从建立拍起最多覆盖的拍数：放行等待首次小于证明
+/// 时窗的那一拍，与已提交时刻首次跨过相位边界的那一拍，取较早者。等待不足
+/// 时窗或步长为 0 时没有证明。
+fn signal_wake_ticks(delay_ms: u64, horizon_ms: u64, delta_ms: u64, stable_ms: u64) -> Option<u64> {
+    if delta_ms == 0 {
+        return None;
+    }
+    let release = (delay_ms.checked_sub(horizon_ms)? / delta_ms).checked_add(1)?;
+    Some(release.min(stable_ms.div_ceil(delta_ms)))
+}
+
+/// 信号保持的结构（首个拒绝停车门及其放行目标）最早可能改变前还剩多少毫秒：
+/// 从游标到首个拒绝门（含）的受控门链上，各信号控制器下一次相位边界的最小值。
+/// 门链之外的门不影响首个拒绝门；不受信号控制的门不随时间变化。
+fn hold_stable_ms(
+    read: StepReadView<'_>,
+    route: crate::RouteHandle,
+    profile: VehicleProfileOrdinal,
+    position: MotionPosition,
+) -> Option<u64> {
+    let compiled = read.compiled_route(route)?;
+    let mut stable = Some(u64::MAX);
+    first_red_gate(read, compiled, profile, position, |gate| {
+        stable = stable
+            .zip(phase_boundary_ms(read, gate))
+            .map(|(a, b)| a.min(b));
+    })?;
+    stable
+}
+
+/// 门所属信号控制器从当前已提交时刻到下一次相位边界的毫秒数（至少 1）；
+/// 不受信号控制或灯态不随时间变化时为 `u64::MAX`，无法确定时为 `None`。
+fn phase_boundary_ms(read: StepReadView<'_>, gate: ManeuverGateOrdinal) -> Option<u64> {
+    let relations = read.binding.revision.traffic().relations();
+    let Some(group) = relations.maneuver_gate(gate)?.signal_group() else {
+        return Some(u64::MAX);
+    };
+    let controller = relations.signal_controller(relations.signal_group(group)?.controller())?;
+    let cycle = controller.cycle_ms();
+    let phases = controller.phases();
+    if cycle == 0 || phases.is_empty() {
+        return Some(u64::MAX);
+    }
+    let position = u64::try_from(
+        (u128::from(read.committed.time_ms) + u128::from(controller.offset_ms()))
+            % u128::from(cycle),
+    )
+    .ok()?;
+    let index = phases
+        .partition_point(|phase| relations.phase_end_offset_ms(*phase).unwrap_or(0) <= position);
+    relations
+        .phase_end_offset_ms(*phases.get(index)?)?
+        .checked_sub(position)
+        .filter(|remaining| *remaining > 0)
+}
+
+/// 沿受控门链找第一道拒绝停车的门；`visit` 依次收到经过的每道门（含找到的那道）。
 fn first_red_gate(
     read: StepReadView<'_>,
     compiled: &super::tables::CompiledRoute,
     profile: VehicleProfileOrdinal,
     position: MotionPosition,
+    mut visit: impl FnMut(ManeuverGateOrdinal),
 ) -> Option<(ManeuverGateOrdinal, u32)> {
     // 零进度、零余量表示上一边终点已经规范成下一条边的起点，车辆仍停在上一 hop 的准入门上。
     let rolled =
@@ -1017,6 +1133,7 @@ fn first_red_gate(
             next.distance_from_hop_start
         };
         accumulated = true;
+        visit(next.gate);
         if read.gate_is_restrictive(next.gate, profile) {
             let BoundedDistance::Finite(mm) = from_cursor_start.saturating_sub(progress_base)
             else {
@@ -2307,6 +2424,35 @@ mod tests {
             super::LINK_COMMIT_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
             super::CLASSIFY_SCRATCH_FAILURE.with(|fail| fail.set(false));
             super::TARGET_PARTS_FAILURE.with(|fail| fail.set(false));
+            super::DORMANCY_DISABLED.with(|disabled| disabled.set(false));
+        }
+    }
+
+    #[test]
+    fn signal_wake_is_never_later_than_release_or_phase_boundary() {
+        use super::signal_wake_ticks;
+        // 时窗 2_000 ms、步长 100 ms：第 k 拍的放行等待是 delay − 100k。
+        assert_eq!(signal_wake_ticks(1_999, 2_000, 100, u64::MAX), None);
+        assert_eq!(signal_wake_ticks(2_000, 2_000, 100, u64::MAX), Some(1));
+        assert_eq!(signal_wake_ticks(2_099, 2_000, 100, u64::MAX), Some(1));
+        assert_eq!(signal_wake_ticks(2_100, 2_000, 100, u64::MAX), Some(2));
+        assert_eq!(signal_wake_ticks(2_101, 2_000, 100, u64::MAX), Some(2));
+        // 第 k 拍的已提交时刻跨过边界即醒：边界 200 ms 在第 2 拍，201 ms 在第 3 拍。
+        assert_eq!(signal_wake_ticks(9_000, 2_000, 100, 150), Some(2));
+        assert_eq!(signal_wake_ticks(9_000, 2_000, 100, 200), Some(2));
+        assert_eq!(signal_wake_ticks(9_000, 2_000, 100, 201), Some(3));
+        assert_eq!(signal_wake_ticks(9_000, 2_000, 0, 201), None);
+        assert_eq!(signal_wake_ticks(u64::MAX, 0, 1, u64::MAX), None);
+        // 逐拍核对：证明覆盖的每一拍，放行等待都不小于时窗且没有跨过边界。
+        for delay in 2_000..2_400 {
+            for stable in [1, 99, 100, 101, 250, 1_000, u64::MAX] {
+                let wake = signal_wake_ticks(delay, 2_000, 100, stable).unwrap();
+                for k in 0..wake {
+                    assert!(delay - 100 * k >= 2_000, "delay={delay} k={k}");
+                    assert!(100 * k < stable, "stable={stable} k={k}");
+                }
+                assert!(delay < 2_000 + 100 * wake || 100 * wake >= stable);
+            }
         }
     }
 

@@ -1,8 +1,9 @@
 //! Frontier 缓存复用：规范选择、并行求值、完整 join 后原序插入。
 
 use super::{
-    CachedCell, FrontierMaintenance, SignalHold, accepted_source, address_wanted, insert_owner,
-    raise_signal_bound, signal_hold, vehicle_from_slot,
+    CachedCell, FrontierMaintenance, SignalHold, ZeroProof, accepted_source, address_wanted,
+    hold_stable_ms, insert_owner, raise_signal_bound, signal_hold, signal_wake_ticks,
+    vehicle_from_slot,
 };
 use crate::kernel::conflict::PreparedApproachEta;
 use crate::kernel::execution::ExecutionResources;
@@ -61,6 +62,8 @@ struct ComputedReplay {
 #[derive(Clone, Copy)]
 enum Candidate {
     Rejected,
+    /// 零贡献证明成立：本拍不求值、不标记，等同于求值后全部越窗。
+    Dormant,
     Replay(Input),
     Deferred(crate::VehicleHandle),
 }
@@ -92,6 +95,8 @@ pub(crate) struct ReplayScratch {
     /// 各计算分段把本段发出项的位置紧凑写在本段区间开头；按 cell 分段插入与
     /// 脏 cell 登记只读这些位置，不扫描未发出项。
     emitted_positions: Vec<u32>,
+    /// 与 `rows` 对齐：本拍零贡献的行建立的证明；完整消费后写回槽位。
+    proofs: Vec<Option<ZeroProof>>,
     #[cfg(test)]
     fail_reserve: u8,
 }
@@ -106,6 +111,7 @@ impl ReplayScratch {
             cell_indices,
             owners,
             emitted_positions,
+            proofs,
             fail_reserve: _,
         } = self;
         crate::kernel::state::vec_bytes(select_parts)
@@ -118,6 +124,7 @@ impl ReplayScratch {
             + crate::kernel::state::vec_bytes(cell_indices)
             + crate::kernel::state::vec_bytes(owners)
             + crate::kernel::state::vec_bytes(emitted_positions)
+            + crate::kernel::state::vec_bytes(proofs)
     }
 
     fn reserve_rows(&mut self, count: usize) -> bool {
@@ -128,7 +135,7 @@ impl ReplayScratch {
         self.rows.try_reserve(count).is_ok()
     }
 
-    fn reserve_estimates(&mut self, count: usize) -> bool {
+    fn reserve_estimates(&mut self, count: usize, rows: usize) -> bool {
         #[cfg(test)]
         if self.fail_reserve == 2 {
             return false;
@@ -150,6 +157,7 @@ impl ReplayScratch {
             && fit(&mut self.cell_indices, count, u32::MAX)
             && fit(&mut self.owners, count, (VehicleHandle::new(0, 0), 0))
             && fit(&mut self.emitted_positions, count, 0)
+            && fit(&mut self.proofs, rows, None)
     }
 }
 
@@ -202,7 +210,7 @@ pub(super) fn demanded(
         .iter()
         .try_fold(0_usize, |sum, row| sum.checked_add(row.cells));
     let prepared = scratch.rows.len() >= PARALLEL_ROWS
-        && total.is_some_and(|total| scratch.reserve_estimates(total));
+        && total.is_some_and(|total| scratch.reserve_estimates(total, scratch.rows.len()));
     if !prepared {
         for row in &scratch.rows {
             serial(step, row.input, horizon_ms, Some(wanted))?;
@@ -218,6 +226,12 @@ pub(super) fn demanded(
         scratch,
     );
     consume(step, scratch, computed, resources)?;
+    // 完整消费后才写回证明；发出过的行清掉旧证明。
+    for (row, proof) in scratch.rows.iter().zip(&scratch.proofs) {
+        step.workspace
+            .frontier_maintenance
+            .set_proof(row.input.vehicle, *proof);
+    }
     selected
 }
 
@@ -338,6 +352,17 @@ fn gather_member(
         return Some(Candidate::Rejected);
     };
     Some(match maintenance.replay_hit(state, horizon_ms) {
+        Some(_)
+            if maintenance.proof_holds(
+                index,
+                state,
+                read.conflict_reservation(vehicle).is_some(),
+                read.committed.tick_index,
+                horizon_ms,
+            ) =>
+        {
+            Candidate::Dormant
+        }
         Some(stored_progress) => Candidate::Replay(Input::new(state, sequence, stored_progress)),
         None => Candidate::Deferred(vehicle),
     })
@@ -354,7 +379,7 @@ fn apply_selection(
             continue;
         }
         match *candidate {
-            Candidate::Rejected => {}
+            Candidate::Rejected | Candidate::Dormant => {}
             Candidate::Replay(input) => {
                 step.workspace.frontier_maintenance.mark(*index)?;
                 emit(step, input)?;
@@ -391,6 +416,17 @@ fn select_member(
         .workspace
         .frontier_maintenance
         .replay_hit(&state, horizon_ms);
+    if stored_progress.is_some()
+        && step.workspace.frontier_maintenance.proof_holds(
+            index,
+            &state,
+            step.read_view().conflict_reservation(vehicle).is_some(),
+            step.committed.tick_index,
+            horizon_ms,
+        )
+    {
+        return Ok(());
+    }
     if !step.workspace.frontier_maintenance.mark(vehicle.index())? {
         return Ok(());
     }
@@ -430,6 +466,7 @@ fn compute(
         cell_indices: &'a mut [u32],
         owners: &'a mut [(VehicleHandle, u32)],
         positions: &'a mut [u32],
+        proofs: &'a mut [Option<ZeroProof>],
         base: usize,
         emitted: usize,
         valid: bool,
@@ -442,12 +479,15 @@ fn compute(
     let mut rest_indices = scratch.cell_indices.as_mut_slice();
     let mut rest_owners = scratch.owners.as_mut_slice();
     let mut rest_positions = scratch.emitted_positions.as_mut_slice();
+    let mut rest_proofs = scratch.proofs.as_mut_slice();
     let mut base = 0;
     let count = scratch.rows.len().div_ceil(span);
     for (part, rows) in parts.iter_mut().zip(scratch.rows.chunks(span)) {
         let cells = rows.iter().map(|row| row.cells).sum();
         let (positions, tail_positions) = std::mem::take(&mut rest_positions).split_at_mut(cells);
         rest_positions = tail_positions;
+        let (proofs, tail_proofs) = std::mem::take(&mut rest_proofs).split_at_mut(rows.len());
+        rest_proofs = tail_proofs;
         let (output, tail) = rest.split_at_mut(cells);
         let (indices, tail_indices) = std::mem::take(&mut rest_indices).split_at_mut(cells);
         rest_indices = tail_indices;
@@ -459,6 +499,7 @@ fn compute(
             cell_indices: indices,
             owners,
             positions,
+            proofs,
             base,
             emitted: 0,
             valid: true,
@@ -487,9 +528,12 @@ fn compute(
             offset += row.cells;
             let cells = &maintenance.slots[row.input.vehicle.index() as usize].cells;
             let positions = &mut *part.positions;
+            let emitted_before = part.emitted;
             let emitted = &mut part.emitted;
             let valid = &mut part.valid;
+            let mut zero_proof = None;
             let result = PreparedReplay::new(read, row.input, horizon_ms).and_then(|prepared| {
+                zero_proof = Some(prepared);
                 prepared.walk(
                     row.input,
                     cells,
@@ -516,11 +560,19 @@ fn compute(
                     },
                 )
             });
-            if let Err(error) = result {
-                *valid = false;
-                part.first_error
-                    .get_or_insert((part_index * span + index, error));
-            }
+            let proof = match result {
+                Err(error) => {
+                    *valid = false;
+                    part.first_error
+                        .get_or_insert((part_index * span + index, error));
+                    None
+                }
+                Ok(()) if part.emitted == emitted_before => {
+                    zero_proof.and_then(|prepared| prepared.zero_proof(read, row.input, cells))
+                }
+                Ok(()) => None,
+            };
+            part.proofs[index] = proof;
         }
         #[cfg(test)]
         {
@@ -734,6 +786,7 @@ fn serial(
     })
 }
 
+#[derive(Clone, Copy)]
 struct PreparedReplay {
     eta: Option<PreparedApproachEta>,
     hold: Option<SignalHold>,
@@ -766,6 +819,69 @@ impl PreparedReplay {
             ),
             horizon_ms,
             emergency_decel: profile.emergency_decel(),
+        })
+    }
+
+    /// 本拍零贡献的车辆建立证明（设计 §4.1）。全部未越过的缓存项都越出时窗才
+    /// 建立，与目标地址无关；只靠运动下界越窗的项不随时间变化，依赖放行下界的
+    /// 项取放行等待首次可能进入时窗的拍与门链相位边界中较早者。任何一项无法
+    /// 确定都不建立。
+    fn zero_proof(
+        self,
+        read: StepReadView<'_>,
+        input: Input,
+        cells: &[CachedCell],
+    ) -> Option<ZeroProof> {
+        let traveled = input
+            .position
+            .progress_mm
+            .saturating_sub(input.stored_progress);
+        let mut signal = false;
+        for cell in cells {
+            if traveled > cell.distance_mm {
+                continue;
+            }
+            let remaining = cell.distance_mm - traveled;
+            let kinematic = self.eta.map_or(ApproachEstimate::Unprovable, |eta| {
+                eta.lower_bound(u64::from(remaining))
+            });
+            match kinematic {
+                // 出现项按路线距离排列；运动下界随距离不减，后面的项同样越窗。
+                ApproachEstimate::OutsideHorizon => break,
+                ApproachEstimate::Unprovable => return None,
+                ApproachEstimate::Finite(_) => {}
+            }
+            let estimate = raise_signal_bound(
+                kinematic,
+                self.hold,
+                remaining,
+                self.horizon_ms,
+                input.speed_mm_s,
+                self.emergency_decel,
+            );
+            if estimate != ApproachEstimate::OutsideHorizon {
+                return None;
+            }
+            signal = true;
+        }
+        let tick = read.committed.tick_index;
+        let wake_tick = if signal {
+            let delta = read.binding.config.fixed_delta_time_ms();
+            let delay = self.hold?.delay_ms?;
+            let stable = hold_stable_ms(read, input.route, input.profile, input.position)?;
+            tick.checked_add(signal_wake_ticks(delay, self.horizon_ms, delta, stable)?)?
+        } else {
+            u64::MAX
+        };
+        // 证明至少要覆盖下一拍才有用。
+        (wake_tick > tick.checked_add(1)?).then_some(ZeroProof {
+            from_tick: tick,
+            wake_tick,
+            position: input.position,
+            speed_mm_s: input.speed_mm_s,
+            profile: input.profile,
+            reserved: read.conflict_reservation(input.vehicle).is_some(),
+            horizon_ms: self.horizon_ms,
         })
     }
 
@@ -1131,6 +1247,154 @@ mod tests {
         })
     }
 
+    /// 红灯停止线前的静止车：先建立零贡献证明并休眠，放行等待进入时窗的那一拍
+    /// 重新求值并插入；之后放行起步。与不写证明的参考逐拍相同，1 / 4 / 16 worker。
+    #[test]
+    fn dormant_rows_match_full_replay_across_the_release() {
+        const HORIZON_MS: u64 = 2_000;
+        let build = |workers: u32| {
+            let (mut world, route) = crate::admin::cutover_migration::tests::signal_frontier_world(
+                4_000,
+                Some(4_000),
+                false,
+            );
+            let vehicle = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        1,
+                        0,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            let address = world
+                .state
+                .read_view()
+                .compiled_route(route)
+                .unwrap()
+                .conflicts[0]
+                .address();
+            world.execution = WorldExecution::start_private(
+                ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            (world, vehicle, address)
+        };
+        let run_at = |world: &mut TrafficWorld, wanted: &[ConflictPassageAddress]| {
+            world
+                .execution
+                .run(&mut world.state, |state, resources| {
+                    let mut step = state.step_workspace();
+                    step.workspace.frontier_maintenance.begin_seen()?;
+                    step.workspace.frontier_maintenance.insertions.clear();
+                    step.committed
+                        .prepare_conflict(&mut step.derived, &mut step.workspace.conflict)
+                        .clear_approach_frontier();
+                    demanded(&mut step, HORIZON_MS, wanted, Some(resources))
+                })
+                .unwrap();
+        };
+        let cache = |world: &mut TrafficWorld, vehicle: crate::VehicleHandle, address| {
+            let state = world.vehicle(vehicle).unwrap();
+            let accel = world
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile)
+                .unwrap()
+                .max_accel();
+            world
+                .state
+                .workspace
+                .frontier_maintenance
+                .store(
+                    vehicle,
+                    &state,
+                    NO_DISTANCE_MM,
+                    [0, 1, 500]
+                        .into_iter()
+                        .map(|distance_mm| CachedCell {
+                            address,
+                            distance_mm,
+                        })
+                        .collect(),
+                    NO_DISTANCE_MM,
+                    accel,
+                )
+                .unwrap();
+        };
+        for workers in [1, 4, 16] {
+            let (mut dormant, vehicle, address) = build(workers);
+            let (mut reference, reference_vehicle, _) = build(workers);
+            assert_eq!(vehicle, reference_vehicle);
+            let wanted = [address];
+            let mut slept = 0;
+            let mut inserted = 0;
+            for tick in 0..80 {
+                for (world, disabled) in [(&mut dormant, false), (&mut reference, true)] {
+                    world
+                        .step(crate::TickInput::new(100))
+                        .expect("signal dormancy step");
+                    let state = world.vehicle(vehicle).unwrap();
+                    let remembered = world
+                        .state
+                        .workspace
+                        .frontier_maintenance
+                        .remembered(
+                            vehicle,
+                            state.route,
+                            state.route_edge_index,
+                            state.progress_mm,
+                        )
+                        .is_some();
+                    if !remembered {
+                        cache(world, vehicle, address);
+                    }
+                    crate::kernel::entry_frontier::DORMANCY_DISABLED
+                        .with(|cell| cell.set(disabled));
+                    run_at(world, &wanted);
+                    crate::kernel::entry_frontier::DORMANCY_DISABLED.with(|cell| cell.set(false));
+                }
+                let observed = (
+                    dormant
+                        .state
+                        .workspace
+                        .frontier_maintenance
+                        .insertions
+                        .clone(),
+                    dormant.state.conflict_read().approach_frontier_cells(),
+                );
+                let expected = (
+                    reference
+                        .state
+                        .workspace
+                        .frontier_maintenance
+                        .insertions
+                        .clone(),
+                    reference.state.conflict_read().approach_frontier_cells(),
+                );
+                assert_eq!(observed, expected, "{workers} workers, tick {tick}");
+                assert_eq!(
+                    dormant.vehicle(vehicle).unwrap(),
+                    reference.vehicle(vehicle).unwrap(),
+                    "{workers} workers, tick {tick}"
+                );
+                inserted += usize::from(!observed.0.is_empty());
+                slept += usize::from(
+                    dormant.state.workspace.frontier_maintenance.slots[vehicle.index() as usize]
+                        .proof
+                        .is_some(),
+                );
+            }
+            assert!(inserted > 0, "the release must enter the horizon");
+            if workers >= 4 {
+                assert!(slept > 0, "the red stop line must establish a proof");
+            }
+        }
+    }
+
     fn assert_matches_serial(
         reference: &mut TrafficWorld,
         pooled: &mut TrafficWorld,
@@ -1480,7 +1744,8 @@ mod tests {
                         + scratch.estimates.capacity() * size_of::<ApproachEstimate>()
                         + scratch.cell_indices.capacity() * size_of::<u32>()
                         + scratch.owners.capacity() * size_of::<(VehicleHandle, u32)>()
-                        + scratch.emitted_positions.capacity() * size_of::<u32>())
+                        + scratch.emitted_positions.capacity() * size_of::<u32>()
+                        + scratch.proofs.capacity() * size_of::<Option<ZeroProof>>())
                         as u64
                 );
                 assert!(bytes > 0);
