@@ -51,6 +51,9 @@ struct Row {
 struct ComputedReplay {
     emitted: Option<usize>,
     first_error: Option<(usize, StepError)>,
+    /// 各计算分段的（区间起点, 发出数）；发出项位置紧凑存放在区间开头。
+    spans: [(usize, usize); MAX_PARTS],
+    parts: usize,
 }
 
 /// 并行收集的一个地址成员：拍初已标记的成员不收集；未通过身份或 live 序检查
@@ -86,6 +89,9 @@ pub(crate) struct ReplayScratch {
     /// 与 `estimates` 对齐的发出者（车辆, live 序）；只在发出项上有意义。
     /// 按 cell 分段插入时直接按项取，不再逐段回扫全部行。
     owners: Vec<(VehicleHandle, u32)>,
+    /// 各计算分段把本段发出项的位置紧凑写在本段区间开头；按 cell 分段插入与
+    /// 脏 cell 登记只读这些位置，不扫描未发出项。
+    emitted_positions: Vec<u32>,
     #[cfg(test)]
     fail_reserve: u8,
 }
@@ -99,6 +105,7 @@ impl ReplayScratch {
             estimates,
             cell_indices,
             owners,
+            emitted_positions,
             fail_reserve: _,
         } = self;
         crate::kernel::state::vec_bytes(select_parts)
@@ -110,6 +117,7 @@ impl ReplayScratch {
             + crate::kernel::state::vec_bytes(estimates)
             + crate::kernel::state::vec_bytes(cell_indices)
             + crate::kernel::state::vec_bytes(owners)
+            + crate::kernel::state::vec_bytes(emitted_positions)
     }
 
     fn reserve_rows(&mut self, count: usize) -> bool {
@@ -125,9 +133,23 @@ impl ReplayScratch {
         if self.fail_reserve == 2 {
             return false;
         }
-        self.estimates.try_reserve(count).is_ok()
-            && self.cell_indices.try_reserve(count).is_ok()
-            && self.owners.try_reserve(count).is_ok()
+        // 长度对齐到本次总数：只有增长的部分写初值，其余沿用上次内容，由计算
+        // 分段在并行段里覆盖（估计）或只在发出项上读取（其余三列）。
+        fn fit<T: Copy>(buffer: &mut Vec<T>, count: usize, fill: T) -> bool {
+            if let Some(grow) = count.checked_sub(buffer.len()) {
+                if buffer.try_reserve(grow).is_err() {
+                    return false;
+                }
+                buffer.resize(count, fill);
+            } else {
+                buffer.truncate(count);
+            }
+            true
+        }
+        fit(&mut self.estimates, count, ApproachEstimate::OutsideHorizon)
+            && fit(&mut self.cell_indices, count, u32::MAX)
+            && fit(&mut self.owners, count, (VehicleHandle::new(0, 0), 0))
+            && fit(&mut self.emitted_positions, count, 0)
     }
 }
 
@@ -145,9 +167,6 @@ pub(super) fn demanded(
     let mut scratch = resources.frontier_replay().expect("private pool scratch");
     let scratch = &mut *scratch;
     scratch.rows.clear();
-    scratch.estimates.clear();
-    scratch.cell_indices.clear();
-    scratch.owners.clear();
     // 只读并行收集各地址成员的身份、live 序与缓存命中；不可用时原地串行选择。
     let Some(gathered) = gather(
         step,
@@ -190,19 +209,6 @@ pub(super) fn demanded(
         }
         return selected;
     }
-    scratch.estimates.resize(
-        total.expect("checked replay size"),
-        ApproachEstimate::OutsideHorizon,
-    );
-    // 未写到的项（越过当前位置、提前越出时窗）不得留下上一拍的结果。
-    scratch.estimates.fill(ApproachEstimate::OutsideHorizon);
-    scratch
-        .cell_indices
-        .resize(total.expect("checked replay size"), u32::MAX);
-    scratch.owners.resize(
-        total.expect("checked replay size"),
-        (VehicleHandle::new(0, 0), 0),
-    );
     let computed = compute(
         step.read_view(),
         &step.workspace.frontier_maintenance,
@@ -423,6 +429,8 @@ fn compute(
         estimates: &'a mut [ApproachEstimate],
         cell_indices: &'a mut [u32],
         owners: &'a mut [(VehicleHandle, u32)],
+        positions: &'a mut [u32],
+        base: usize,
         emitted: usize,
         valid: bool,
         first_error: Option<(usize, StepError)>,
@@ -433,9 +441,13 @@ fn compute(
     let mut rest = scratch.estimates.as_mut_slice();
     let mut rest_indices = scratch.cell_indices.as_mut_slice();
     let mut rest_owners = scratch.owners.as_mut_slice();
+    let mut rest_positions = scratch.emitted_positions.as_mut_slice();
+    let mut base = 0;
     let count = scratch.rows.len().div_ceil(span);
     for (part, rows) in parts.iter_mut().zip(scratch.rows.chunks(span)) {
         let cells = rows.iter().map(|row| row.cells).sum();
+        let (positions, tail_positions) = std::mem::take(&mut rest_positions).split_at_mut(cells);
+        rest_positions = tail_positions;
         let (output, tail) = rest.split_at_mut(cells);
         let (indices, tail_indices) = std::mem::take(&mut rest_indices).split_at_mut(cells);
         rest_indices = tail_indices;
@@ -446,6 +458,8 @@ fn compute(
             estimates: output,
             cell_indices: indices,
             owners,
+            positions,
+            base,
             emitted: 0,
             valid: true,
             first_error: None,
@@ -453,6 +467,7 @@ fn compute(
             work: Default::default(),
         });
         rest = tail;
+        base += cells;
     }
     #[cfg(test)]
     let baseline = crate::kernel::conflict::conflict_work_counts();
@@ -460,14 +475,18 @@ fn compute(
         let part = part[0].as_mut().expect("prepared replay part");
         #[cfg(test)]
         let before = crate::kernel::conflict::conflict_work_counts();
+        // 未写到的项（越过当前位置、提前越出时窗）不得留下上一拍的结果。
+        part.estimates.fill(ApproachEstimate::OutsideHorizon);
         let mut offset = 0;
         for (index, row) in part.rows.iter().enumerate() {
             let output = &mut part.estimates[offset..offset + row.cells];
             let indices = &mut part.cell_indices[offset..offset + row.cells];
             let owners = &mut part.owners[offset..offset + row.cells];
             let owner = (row.input.vehicle, row.input.sequence);
+            let row_start = part.base + offset;
             offset += row.cells;
             let cells = &maintenance.slots[row.input.vehicle.index() as usize].cells;
+            let positions = &mut *part.positions;
             let emitted = &mut part.emitted;
             let valid = &mut part.valid;
             let result = PreparedReplay::new(read, row.input, horizon_ms).and_then(|prepared| {
@@ -478,6 +497,10 @@ fn compute(
                     |index, address, estimate| {
                         output[index] = estimate;
                         owners[index] = owner;
+                        match u32::try_from(row_start + index) {
+                            Ok(position) => positions[*emitted] = position,
+                            Err(_) => *valid = false,
+                        }
                         *emitted += 1;
                         match read
                             .conflict_read()
@@ -523,12 +546,21 @@ fn compute(
             .iter()
             .flatten()
             .find_map(|part| part.first_error),
+        spans: std::array::from_fn(|index| {
+            parts[index]
+                .as_ref()
+                .map_or((0, 0), |part| (part.base, part.emitted))
+        }),
+        parts: count,
     }
 }
 
-/// 按序列出发出项的 cell 下标（跳过未发出的 `u32::MAX`）。
+/// 按位置顺序列出发出项的 cell 下标：逐段读紧凑位置，不扫描未发出项。
 struct EmittedCells<'a> {
     indices: &'a [u32],
+    positions: &'a [u32],
+    spans: &'a [(usize, usize)],
+    at: usize,
     remaining: usize,
 }
 
@@ -536,12 +568,15 @@ impl Iterator for EmittedCells<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
-        while let Some((first, rest)) = self.indices.split_first() {
-            self.indices = rest;
-            if *first != u32::MAX {
+        while let Some(&(base, count)) = self.spans.first() {
+            if self.at < count {
+                let position = self.positions[base + self.at] as usize;
+                self.at += 1;
                 self.remaining -= 1;
-                return Some(*first as usize);
+                return Some(self.indices[position] as usize);
             }
+            self.spans = &self.spans[1..];
+            self.at = 0;
         }
         None
     }
@@ -595,15 +630,20 @@ fn consume(
             resources,
             EmittedCells {
                 indices: &scratch.cell_indices,
+                positions: &scratch.emitted_positions,
+                spans: &computed.spans[..computed.parts],
+                at: 0,
                 remaining: emitted,
             },
             |range, insert| {
-                // 未发出项的下标为 u32::MAX，不落在任何段内。
-                for (position, cell) in scratch.cell_indices.iter().enumerate() {
-                    let cell = *cell as usize;
-                    if range.contains(&cell) {
-                        let (vehicle, sequence) = scratch.owners[position];
-                        insert(cell, vehicle, sequence, scratch.estimates[position]);
+                for &(base, count) in &computed.spans[..computed.parts] {
+                    for &position in &scratch.emitted_positions[base..base + count] {
+                        let position = position as usize;
+                        let cell = scratch.cell_indices[position] as usize;
+                        if range.contains(&cell) {
+                            let (vehicle, sequence) = scratch.owners[position];
+                            insert(cell, vehicle, sequence, scratch.estimates[position]);
+                        }
                     }
                 }
             },
@@ -1439,7 +1479,8 @@ mod tests {
                         + scratch.rows.capacity() * size_of::<Row>()
                         + scratch.estimates.capacity() * size_of::<ApproachEstimate>()
                         + scratch.cell_indices.capacity() * size_of::<u32>()
-                        + scratch.owners.capacity() * size_of::<(VehicleHandle, u32)>())
+                        + scratch.owners.capacity() * size_of::<(VehicleHandle, u32)>()
+                        + scratch.emitted_positions.capacity() * size_of::<u32>())
                         as u64
                 );
                 assert!(bytes > 0);

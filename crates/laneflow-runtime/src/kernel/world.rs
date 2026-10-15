@@ -755,13 +755,9 @@ impl crate::kernel::state::WorldState {
 
     /// 清除指定车辆的 Conflict 资格并规范化资格表。
     pub(crate) fn clear_conflict_eligibility(&mut self, vehicle: VehicleHandle) {
-        if let Some(eligibility) = self
-            .committed
+        self.committed
             .conflict_eligibility
-            .get_mut(vehicle.index() as usize)
-        {
-            *eligibility = None;
-        }
+            .clear_slot(vehicle.index() as usize);
         self.normalize_conflict_eligibility();
     }
 
@@ -1451,9 +1447,7 @@ impl crate::kernel::state::WorldState {
             maneuver_traversal: authority.maneuver_traversal,
             waiting_membership: authority.waiting_membership,
         };
-        if let Some(eligibility) = self.committed.conflict_eligibility.get_mut(slot_index) {
-            *eligibility = None;
-        }
+        self.committed.conflict_eligibility.clear_slot(slot_index);
         let slot = VehicleSlot {
             generation,
             state: Some(state),
@@ -1687,9 +1681,7 @@ impl crate::kernel::state::WorldState {
             maneuver_traversal: traversal,
             waiting_membership: None,
         };
-        if let Some(eligibility) = self.committed.conflict_eligibility.get_mut(slot_index) {
-            *eligibility = None;
-        }
+        self.committed.conflict_eligibility.clear_slot(slot_index);
 
         if reusable_generation.is_some() {
             *self.committed.vehicles.slot_mut(old_index) = VehicleSlot {
