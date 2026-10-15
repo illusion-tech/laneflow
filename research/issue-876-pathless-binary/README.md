@@ -61,8 +61,10 @@ prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evid
   解析出的 checkout。
 - `xtask/src/measurement.rs` 的 `build-measurement`：正式构建唯一入口；同一张
   映射表写出实际 `CARGO_ENCODED_RUSTFLAGS` 与归一化记录（来源端替换为占位符，
-  永不携带本机路径）；每次正式构建使用全新 target 目录
-  `target/release-measurement/`（先清空，杜绝构建脚本缓存携带未声明输入）。
+  永不携带本机路径）；每次正式构建使用全新隔离 target 目录
+  `target/release-measurement-quarantine/`（先清空，杜绝构建脚本缓存携带未声明
+  输入），扫描/嵌入断言/漂移复核全部通过后才 rename 发布到
+  `target/release-measurement/`——未过检二进制不落在正式路径。
   嵌套工具链探测与正式构建统一走**环境白名单**（`env_clear` 后只放回父环境
   真实存在的系统变量——含 MSVC 发现兜底的 `ProgramFiles`/`ProgramData`，Unix
   侧 `HOME`/`TMPDIR`——加上锚定后的 `CARGO_HOME`/`RUSTUP_HOME` 与钉住的
