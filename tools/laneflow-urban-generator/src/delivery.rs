@@ -22,7 +22,7 @@ use serde::Serialize;
 use stats_alloc::{Stats, StatsAlloc};
 
 use crate::{
-    Result, Scale, UrbanConfig, catalog, compile_source, generate_source, source, validation,
+    Error, Result, Scale, UrbanConfig, catalog, compile_source, generate_source, source, validation,
 };
 
 #[derive(Debug, Serialize)]
@@ -464,7 +464,10 @@ pub fn generate(
         &verified_write::SourceRegistration::of(manifest_bytes.as_bytes()),
         verified_write::WritePolicy::DEFAULT,
     )
-    .map_err(|error| validation("write-readback", error))?;
+    .map_err(|error| Error::Validation {
+        stage: "write-readback",
+        detail: format!("manifest.toml: {error}"),
+    })?;
     let measurements_bytes = toml::to_string_pretty(&Measurements {phases:recorder.phases,
         memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared-root logical bytes are reported separately in manifest.".into()})?;
     verified_write::write_verified(
@@ -473,7 +476,10 @@ pub fn generate(
         &verified_write::SourceRegistration::of(measurements_bytes.as_bytes()),
         verified_write::WritePolicy::DEFAULT,
     )
-    .map_err(|error| validation("write-readback", error))?;
+    .map_err(|error| Error::Validation {
+        stage: "write-readback",
+        detail: format!("measurements.toml: {error}"),
+    })?;
     Ok(manifest)
 }
 
@@ -505,7 +511,10 @@ fn write(
         &verified_write::SourceRegistration::of(bytes),
         verified_write::WritePolicy::DEFAULT,
     )
-    .map_err(|error| validation("write-readback", error))?;
+    .map_err(|error| Error::Validation {
+        stage: "write-readback",
+        detail: format!("{name}: {error}"),
+    })?;
     files.insert(
         name.into(),
         FileDigest {

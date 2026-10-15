@@ -228,8 +228,12 @@ impl ArtifactIo for FsIo {
 ///
 /// - [`VerifiedWriteError::SourceCorrupted`]：源缓冲在登记后损坏（不重试）；
 /// - [`VerifiedWriteError::ReadbackDivergent`]：两路读回不一致（不重试）；
-/// - [`VerifiedWriteError::ReadbackMismatch`]：重写耗尽仍失配（残件已删除）；
-/// - [`VerifiedWriteError::Io`]：文件 I/O 失败（残件已尽力删除）。
+/// - [`VerifiedWriteError::ReadbackMismatch`]：重写耗尽仍失配；
+/// - [`VerifiedWriteError::Io`]：文件 I/O 失败。
+///
+/// 各变体的 `residual` 表示残件是否删除失败：为真时被拒字节可能仍留在 `path`，
+/// 调用方**必须检查该字段**决定清理或隔离；为假时残件已确认删除（仅
+/// `ErrorKind::NotFound` 视为确认不存在）。
 pub fn write_verified(
     path: &Path,
     source: &[u8],
@@ -253,18 +257,23 @@ fn write_verified_with(
     let mut rewrites = 0_u32;
     let mut residual = false;
     loop {
+        let attempt = rewrites + 1;
         // 登记后源缓冲损坏：失败关闭、不重写（内存失真可破坏 &[u8] 背后的物理页）。
         let source_now: [u8; 32] = Sha256::digest(source).into();
         if source_now != registration.digest {
+            emit_probe(format_args!(
+                "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} actual_sha={} reason=source-corrupted action=fail-closed residual={residual}",
+                registration.hex(),
+                hex(&source_now),
+            ));
             return Err(VerifiedWriteError::SourceCorrupted {
                 registered: registration.hex(),
                 actual: hex(&source_now),
                 residual,
             });
         }
-        let attempt = rewrites + 1;
         if let Err(error) = io.write_file(path, source) {
-            remove_residual(io, path, &name, attempt, &mut residual);
+            remove_residual(io, path, &name, attempt, &mut residual, "fail-closed");
             return Err(VerifiedWriteError::Io { error, residual });
         }
         // 读回 A：写后立即，窗口流式，增量哈希 + 增量分歧统计。
@@ -276,7 +285,7 @@ fn write_verified_with(
         })?;
         let first_sha: [u8; 32] = first_hasher.finalize().into();
         io.sync(path).map_err(|error| {
-            remove_residual(io, path, &name, attempt, &mut residual);
+            remove_residual(io, path, &name, attempt, &mut residual, "fail-closed");
             VerifiedWriteError::Io { error, residual }
         })?;
         // 读回 B：flush 后独立重新打开，窗口流式，增量哈希 + 增量分歧统计
@@ -290,18 +299,22 @@ fn write_verified_with(
         let second_sha: [u8; 32] = second_hasher.finalize().into();
         if first_sha != second_sha {
             // 清理先于诊断：探针输出不可用时也不阻断失败关闭路径。
-            remove_residual(io, path, &name, attempt, &mut residual);
+            remove_residual(io, path, &name, attempt, &mut residual, "fail-closed");
             emit_probe(format_args!(
-                "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} first_sha={} second_sha={} a_first_diff_offset={:?} a_differing_bytes={} a_len_delta={} b_first_diff_offset={:?} b_differing_bytes={} b_len_delta={} reason=divergent-readback action=fail-closed",
+                "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} first_sha={} second_sha={} a_first_diff_offset={:?} a_differing_bytes={} a_len_delta={} a_expected_head32={:02x?} a_readback_head32={:02x?} b_first_diff_offset={:?} b_differing_bytes={} b_len_delta={} b_expected_head32={:02x?} b_readback_head32={:02x?} reason=divergent-readback action=fail-closed",
                 registration.hex(),
                 hex(&first_sha),
                 hex(&second_sha),
                 first_divergence.first_diff_offset,
                 first_divergence.differing_bytes(),
                 first_divergence.len_delta(),
+                first_divergence.expected_sample(),
+                first_divergence.readback_sample(),
                 second_divergence.first_diff_offset,
                 second_divergence.differing_bytes(),
                 second_divergence.len_delta(),
+                second_divergence.expected_sample(),
+                second_divergence.readback_sample(),
             ));
             return Err(VerifiedWriteError::ReadbackDivergent {
                 attempt,
@@ -318,14 +331,18 @@ fn write_verified_with(
         } else {
             "retry"
         };
-        remove_residual(io, path, &name, attempt, &mut residual);
+        remove_residual(io, path, &name, attempt, &mut residual, action);
         emit_probe(format_args!(
-            "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} readback_sha={} first_diff_offset={:?} differing_bytes={} len_delta={} reread_same=true reason=consistent-mismatch action={action}",
+            "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} readback_sha={} first_diff_offset={:?} differing_bytes={} len_delta={} written_bytes={} readback_bytes={} expected_head32={:02x?} readback_head32={:02x?} reread_same=true reason=consistent-mismatch action={action}",
             registration.hex(),
             hex(&first_sha),
             first_divergence.first_diff_offset,
             first_divergence.differing_bytes(),
             first_divergence.len_delta(),
+            source.len(),
+            first_divergence.offset,
+            first_divergence.expected_sample(),
+            first_divergence.readback_sample(),
         ));
         if rewrites >= policy.max_rewrites {
             return Err(VerifiedWriteError::ReadbackMismatch {
@@ -347,13 +364,16 @@ fn emit_probe(line: std::fmt::Arguments<'_>) {
 }
 
 /// 删除残件并把结果写入 `residual`：删除失败经 `[digest-probe]` 现场行显式上浮，
-/// 不静默丢弃；删除成功则清除残留标记（状态以末次清理结果为准）。
+/// 不静默丢弃；删除成功则清除残留标记（状态以末次清理结果为准）。`action` 如实
+/// 反映本次清理后的流程走向（重试或失败关闭），不把仍会重试的清理失败标成
+/// `fail-closed`。
 fn remove_residual(
     io: &dyn ArtifactIo,
     path: &Path,
     name: &str,
     attempt: u32,
     residual: &mut bool,
+    action: &str,
 ) {
     // 仅 `NotFound` 视为「已确认不存在」；其余删除错误一律按残留上浮——
     // 元数据查询同样失败时 `Path::exists()` 会误报不存在，不能充当删除已确认的证据。
@@ -365,7 +385,7 @@ fn remove_residual(
     *residual = failed;
     if failed {
         emit_probe(format_args!(
-            "[digest-probe] site=write-readback name={name} attempt={attempt} reason=cleanup-failed action=fail-closed"
+            "[digest-probe] site=write-readback name={name} attempt={attempt} reason=cleanup-failed action={action}"
         ));
     }
 }
@@ -379,7 +399,7 @@ fn stream_or_clean(
     sink: &mut dyn FnMut(&[u8]),
 ) -> Result<(), VerifiedWriteError> {
     io.stream_file(path, sink).map_err(|error| {
-        remove_residual(io, path, name, attempt, residual);
+        remove_residual(io, path, name, attempt, residual, "fail-closed");
         VerifiedWriteError::Io {
             error,
             residual: *residual,
@@ -388,11 +408,17 @@ fn stream_or_clean(
 }
 
 /// 期望侧分歧统计累加器（限界内存；期望为已复核与登记摘要一致的源缓冲）。
+/// 首个分歧处同时保留两侧 ≤32 字节样本，供零页 / 页位移指纹判读（失配文件会被
+/// 删除，日志样本是唯一残留现场）。
 struct Divergence<'a> {
     expected: &'a [u8],
     offset: usize,
     first_diff_offset: Option<usize>,
     differing_bytes: usize,
+    expected_sample: [u8; 32],
+    readback_sample: [u8; 32],
+    expected_sample_len: usize,
+    readback_sample_len: usize,
 }
 
 impl<'a> Divergence<'a> {
@@ -402,6 +428,10 @@ impl<'a> Divergence<'a> {
             offset: 0,
             first_diff_offset: None,
             differing_bytes: 0,
+            expected_sample: [0; 32],
+            readback_sample: [0; 32],
+            expected_sample_len: 0,
+            readback_sample_len: 0,
         }
     }
 
@@ -410,7 +440,18 @@ impl<'a> Divergence<'a> {
             let index = self.offset + index;
             if index < self.expected.len() && self.expected[index] != *byte {
                 self.differing_bytes += 1;
-                self.first_diff_offset.get_or_insert(index);
+                if self.first_diff_offset.is_none() {
+                    self.first_diff_offset = Some(index);
+                    let expected_len = (self.expected.len() - index).min(32);
+                    self.expected_sample[..expected_len]
+                        .copy_from_slice(&self.expected[index..index + expected_len]);
+                    self.expected_sample_len = expected_len;
+                    let window_at = index - self.offset;
+                    let readback_len = (window.len() - window_at).min(32);
+                    self.readback_sample[..readback_len]
+                        .copy_from_slice(&window[window_at..window_at + readback_len]);
+                    self.readback_sample_len = readback_len;
+                }
             }
         }
         self.offset += window.len();
@@ -422,6 +463,16 @@ impl<'a> Divergence<'a> {
 
     fn len_delta(&self) -> i64 {
         self.offset as i64 - self.expected.len() as i64
+    }
+
+    /// 首个分歧处的期望侧样本（≤32 字节）。
+    fn expected_sample(&self) -> &[u8] {
+        &self.expected_sample[..self.expected_sample_len]
+    }
+
+    /// 首个分歧处的读回侧样本（≤32 字节；首窗内截断）。
+    fn readback_sample(&self) -> &[u8] {
+        &self.readback_sample[..self.readback_sample_len]
     }
 }
 
@@ -733,7 +784,7 @@ mod tests {
         let path = directory.path().join("missing.bin");
         let io = FaultyIo::new(Corruption::Truncate);
         let mut residual = false;
-        remove_residual(&io, &path, "missing.bin", 1, &mut residual);
+        remove_residual(&io, &path, "missing.bin", 1, &mut residual, "fail-closed");
         assert!(!residual, "not-found is confirmed absence");
     }
 }
