@@ -732,7 +732,12 @@ impl OccupancyIndex {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             source: _,
-            buckets,
+            buckets:
+                BucketStore {
+                    spans,
+                    records,
+                    suffix,
+                },
             record_len: _,
             ahead,
             ahead_epoch: _,
@@ -741,9 +746,9 @@ impl OccupancyIndex {
             inspections: _,
             occurrence_walks: _,
         } = self;
-        crate::kernel::state::vec_bytes(&buckets.spans)
-            + crate::kernel::state::vec_bytes(&buckets.records)
-            + crate::kernel::state::vec_bytes(&buckets.suffix)
+        crate::kernel::state::vec_bytes(spans)
+            + crate::kernel::state::vec_bytes(records)
+            + crate::kernel::state::vec_bytes(suffix)
             + crate::kernel::state::vec_bytes(ahead)
             + crate::kernel::state::vec_bytes(fronts)
     }
