@@ -214,49 +214,134 @@ fn merge_suffix_pair(
     }
 }
 
-/// 一条边自己的占用记录。后缀下标只指向这一条边，插入别的边不会挪动它。
-#[derive(Debug)]
-struct OccupancyBucket {
-    records: Vec<OccupancyRecord>,
-    /// `suffix_min_lo[i]` 是本桶 `[i, len)` 中 `lo_mm` 最小记录的桶内下标。
-    suffix_min_lo: Vec<u32>,
-    /// 同后缀中车辆不同于最小值的次小 `lo_mm`，供 O(1) 排除 self。
-    suffix_second_lo: Vec<u32>,
+/// 一条边在连续列中的区间。后缀下标是桶内下标，区间整体搬动不改写它们。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BucketSpan {
+    start: u32,
+    len: u32,
 }
 
-impl OccupancyBucket {
-    /// 按本拍条数预留；不缩小已有容量，放不下时多留一段，
-    /// 车身跨到下一条边时这一拍不再重新分配。
-    fn reserve(&mut self, needed: usize) -> Result<(), StepError> {
-        let target = if needed <= self.records.capacity()
-            && needed <= self.suffix_min_lo.capacity()
-            && needed <= self.suffix_second_lo.capacity()
-        {
-            needed
-        } else {
-            needed
-                .saturating_add(needed / 2)
-                .max(needed.saturating_add(1))
-        };
-        try_reserve_len(&mut self.records, target)?;
-        try_reserve_len(&mut self.suffix_min_lo, target)?;
-        try_reserve_len(&mut self.suffix_second_lo, target)?;
+impl BucketSpan {
+    fn range(self) -> std::ops::Range<usize> {
+        let start = self.start as usize;
+        start..start + self.len as usize
+    }
+}
+
+/// 后缀链接：`min_lo` 是本桶 `[i, len)` 中 `lo_mm` 最小记录的桶内下标；`second_lo` 是同后缀中
+/// 车辆不同于最小值的次小 `lo_mm`，供 O(1) 排除 self。两者总是一起读，放在同一列。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SuffixLinks {
+    min_lo: u32,
+    second_lo: u32,
+}
+
+impl SuffixLinks {
+    const EMPTY: Self = Self {
+        min_lo: 0,
+        second_lo: SUFFIX_NONE,
+    };
+}
+
+/// 全部边的占用记录按边序存放在两条连续列里（CSR）。重建时按边序紧密铺放；
+/// 生成插入只把被插入的边搬到列尾，旧区间留空到下一次重建。
+#[derive(Debug, Default)]
+struct BucketStore {
+    spans: Vec<BucketSpan>,
+    records: Vec<OccupancyRecord>,
+    suffix: Vec<SuffixLinks>,
+}
+
+impl BucketStore {
+    fn len(&self) -> usize {
+        self.spans.len()
+    }
+
+    fn get(&self, index: usize) -> Option<OccupancyBucket<'_>> {
+        let range = self.spans.get(index)?.range();
+        Some(OccupancyBucket {
+            records: &self.records[range.clone()],
+            suffix: &self.suffix[range],
+        })
+    }
+
+    fn get_mut(&mut self, index: usize) -> Option<OccupancyBucketMut<'_>> {
+        let range = self.spans.get(index)?.range();
+        Some(OccupancyBucketMut {
+            records: &mut self.records[range.clone()],
+            suffix: &mut self.suffix[range],
+        })
+    }
+
+    #[cfg(test)]
+    fn iter(&self) -> impl Iterator<Item = OccupancyBucket<'_>> + '_ {
+        (0..self.spans.len()).filter_map(|index| self.get(index))
+    }
+
+    /// 边数变化时调整区间表；新边为空区间。
+    fn try_resize(&mut self, bucket_count: usize) -> Result<(), StepError> {
+        if self.spans.len() < bucket_count {
+            try_reserve_len(&mut self.spans, bucket_count)?;
+        }
+        self.spans.resize(bucket_count, BucketSpan::default());
         Ok(())
     }
 
-    /// 已预留后把三列铺成 `count` 个占位，等待按写入头填入。
-    fn layout(&mut self, count: usize) {
-        debug_assert!(self.records.capacity() >= count);
-        debug_assert!(self.suffix_min_lo.capacity() >= count);
-        debug_assert!(self.suffix_second_lo.capacity() >= count);
-        self.records.clear();
-        self.records.resize(count, OccupancyRecord::PLACEHOLDER);
-        self.suffix_min_lo.clear();
-        self.suffix_min_lo.resize(count, 0);
-        self.suffix_second_lo.clear();
-        self.suffix_second_lo.resize(count, SUFFIX_NONE);
+    /// 两列取 `total` 长度。重建会按区间写满每个位置，旧内容不必清掉；
+    /// 只有新增长的部分写占位。容量不缩小。
+    fn try_size(&mut self, total: usize) -> Result<(), StepError> {
+        try_reserve_len(&mut self.records, total)?;
+        try_reserve_len(&mut self.suffix, total)?;
+        self.records.truncate(total);
+        self.records.resize(total, OccupancyRecord::PLACEHOLDER);
+        self.suffix.truncate(total);
+        self.suffix.resize(total, SuffixLinks::EMPTY);
+        Ok(())
     }
 
+    /// 按每条边的条数紧密铺放区间。
+    fn try_layout(&mut self, counts: &[usize]) -> Result<usize, StepError> {
+        let total: usize = counts.iter().sum();
+        self.try_size(total)?;
+        let mut start = 0usize;
+        for (span, &count) in self.spans.iter_mut().zip(counts) {
+            *span = BucketSpan {
+                start: record_slot(start),
+                len: record_slot(count),
+            };
+            start += count;
+        }
+        Ok(total)
+    }
+
+    /// 紧密铺放后，连续一段边 `[first, first + len)` 的可变视图。
+    fn group_mut(&mut self, first: usize, len: usize) -> BucketGroupMut<'_> {
+        let spans = &self.spans[first..first + len];
+        let lo = spans.first().map_or(0, |span| span.start as usize);
+        let hi = spans.last().map_or(lo, |span| span.range().end);
+        BucketGroupMut {
+            spans,
+            base: lo,
+            records: &mut self.records[lo..hi],
+            suffix: &mut self.suffix[lo..hi],
+        }
+    }
+}
+
+/// 一条边的只读视图。
+#[derive(Clone, Copy, Debug)]
+struct OccupancyBucket<'a> {
+    records: &'a [OccupancyRecord],
+    suffix: &'a [SuffixLinks],
+}
+
+/// 一条边的可变视图。
+struct OccupancyBucketMut<'a> {
+    records: &'a mut [OccupancyRecord],
+    suffix: &'a mut [SuffixLinks],
+}
+
+impl OccupancyBucketMut<'_> {
     fn sort(&mut self) {
         self.records.sort_unstable_by_key(|record| {
             (
@@ -269,30 +354,87 @@ impl OccupancyBucket {
         self.fill_suffix();
     }
 
-    fn empty() -> Self {
-        Self {
-            records: Vec::new(),
-            suffix_min_lo: Vec::new(),
-            suffix_second_lo: Vec::new(),
-        }
-    }
-
     fn fill_suffix(&mut self) {
         let end = self.records.len();
         if end == 0 {
             return;
         }
         let last = end - 1;
-        self.suffix_min_lo[last] = record_slot(last);
-        self.suffix_second_lo[last] = SUFFIX_NONE;
+        self.suffix[last] = SuffixLinks {
+            min_lo: record_slot(last),
+            second_lo: SUFFIX_NONE,
+        };
         for index in (0..last).rev() {
-            let later_min = usize::try_from(self.suffix_min_lo[index + 1])
-                .expect("suffix min index fits usize");
-            let later_second = suffix_slot(self.suffix_second_lo[index + 1]);
-            let (best, second) = merge_suffix_pair(&self.records, index, later_min, later_second);
-            self.suffix_min_lo[index] = record_slot(best);
-            self.suffix_second_lo[index] = second.map_or(SUFFIX_NONE, record_slot);
+            let later = self.suffix[index + 1];
+            let later_min = usize::try_from(later.min_lo).expect("suffix min index fits usize");
+            let later_second = suffix_slot(later.second_lo);
+            let (best, second) = merge_suffix_pair(self.records, index, later_min, later_second);
+            self.suffix[index] = SuffixLinks {
+                min_lo: record_slot(best),
+                second_lo: second.map_or(SUFFIX_NONE, record_slot),
+            };
         }
+    }
+}
+
+/// 紧密铺放后连续一段边的可变视图；区间相对 `base` 偏移。
+struct BucketGroupMut<'a> {
+    spans: &'a [BucketSpan],
+    base: usize,
+    records: &'a mut [OccupancyRecord],
+    suffix: &'a mut [SuffixLinks],
+}
+
+impl BucketGroupMut<'_> {
+    fn local(&self, index: usize) -> std::ops::Range<usize> {
+        let range = self.spans[index].range();
+        range.start - self.base..range.end - self.base
+    }
+
+    fn bucket(&self, index: usize) -> OccupancyBucket<'_> {
+        let range = self.local(index);
+        OccupancyBucket {
+            records: &self.records[range.clone()],
+            suffix: &self.suffix[range],
+        }
+    }
+
+    fn bucket_mut(&mut self, index: usize) -> OccupancyBucketMut<'_> {
+        let range = self.local(index);
+        OccupancyBucketMut {
+            records: &mut self.records[range.clone()],
+            suffix: &mut self.suffix[range],
+        }
+    }
+
+    fn sort_all(&mut self) {
+        for index in 0..self.spans.len() {
+            self.bucket_mut(index).sort();
+        }
+    }
+
+    /// 按区间切成前后两段，供并行分组。
+    fn split_at(self, len: usize) -> (Self, Self) {
+        let (left_spans, right_spans) = self.spans.split_at(len);
+        let cut = right_spans
+            .first()
+            .map_or(self.records.len(), |span| span.start as usize - self.base);
+        let (lr, rr) = self.records.split_at_mut(cut);
+        let (ls, rs) = self.suffix.split_at_mut(cut);
+        (
+            Self {
+                spans: left_spans,
+                base: self.base,
+                records: lr,
+                suffix: ls,
+            },
+            Self {
+                spans: right_spans,
+                base: self.base + cut,
+                records: rr,
+                suffix: rs,
+            },
+        )
     }
 }
 
@@ -337,16 +479,15 @@ impl EdgeFront {
         }
         Self {
             min: bucket
-                .suffix_min_lo
+                .suffix
                 .first()
-                .and_then(|&index| usize::try_from(index).ok())
+                .and_then(|links| usize::try_from(links.min_lo).ok())
                 .filter(|&index| index < records.len())
                 .and_then(at),
             second: bucket
-                .suffix_second_lo
+                .suffix
                 .first()
-                .copied()
-                .and_then(suffix_slot)
+                .and_then(|links| suffix_slot(links.second_lo))
                 .and_then(at),
         }
     }
@@ -372,7 +513,7 @@ struct AheadFill<'a> {
 pub(crate) struct OccupancyIndex {
     /// 仅在当前世界重建成功后记录来源；事务纯构造的索引尚未绑定活动世代。
     source: Option<(WorldGeneration, ObservationStateSequence)>,
-    buckets: Vec<OccupancyBucket>,
+    buckets: BucketStore,
     /// 全部车道的记录条数。生成时直接改它，不把每条车道再加一遍。
     record_len: usize,
     /// 按车辆槽位存放的当前边前车；只在重建成功后整表写入。
@@ -600,17 +741,11 @@ impl OccupancyIndex {
             inspections: _,
             occurrence_walks: _,
         } = self;
-        buckets.iter().fold(
-            crate::kernel::state::vec_bytes(buckets)
-                + crate::kernel::state::vec_bytes(ahead)
-                + crate::kernel::state::vec_bytes(fronts),
-            |bytes, bucket| {
-                bytes
-                    + crate::kernel::state::vec_bytes(&bucket.records)
-                    + crate::kernel::state::vec_bytes(&bucket.suffix_min_lo)
-                    + crate::kernel::state::vec_bytes(&bucket.suffix_second_lo)
-            },
-        )
+        crate::kernel::state::vec_bytes(&buckets.spans)
+            + crate::kernel::state::vec_bytes(&buckets.records)
+            + crate::kernel::state::vec_bytes(&buckets.suffix)
+            + crate::kernel::state::vec_bytes(ahead)
+            + crate::kernel::state::vec_bytes(fronts)
     }
 }
 
@@ -627,7 +762,7 @@ impl OccupancyIndex {
     pub(crate) fn try_empty() -> Result<(Self, OccupancyScratch), StepError> {
         let mut index = Self {
             source: None,
-            buckets: Vec::new(),
+            buckets: BucketStore::default(),
             record_len: 0,
             ahead: Vec::new(),
             ahead_epoch: 0,
@@ -657,8 +792,10 @@ impl OccupancyIndex {
         bucket_count: usize,
         _record_capacity: usize,
     ) -> (Self, OccupancyScratch) {
-        let mut buckets = Vec::with_capacity(bucket_count);
-        buckets.resize_with(bucket_count, OccupancyBucket::empty);
+        let buckets = BucketStore {
+            spans: vec![BucketSpan::default(); bucket_count],
+            ..BucketStore::default()
+        };
         let scratch = OccupancyScratch {
             positions: vec![0; bucket_count],
             maneuver_upstream_offsets: Vec::new(),
@@ -702,9 +839,7 @@ impl OccupancyIndex {
 
     #[cfg(test)]
     pub(crate) fn records_capacity(&self) -> usize {
-        self.buckets.iter().fold(0, |sum, bucket| {
-            sum.saturating_add(bucket.records.capacity())
-        })
+        self.buckets.records.capacity()
     }
 
     #[cfg(test)]
@@ -714,21 +849,12 @@ impl OccupancyIndex {
 
     #[cfg(test)]
     pub(crate) fn offsets_capacity(&self) -> usize {
-        self.buckets.capacity()
+        self.buckets.spans.capacity()
     }
 
     #[cfg(test)]
-    pub(crate) fn suffix_min_lo_capacity(&self) -> usize {
-        self.buckets.iter().fold(0, |sum, bucket| {
-            sum.saturating_add(bucket.suffix_min_lo.capacity())
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn suffix_second_lo_capacity(&self) -> usize {
-        self.buckets.iter().fold(0, |sum, bucket| {
-            sum.saturating_add(bucket.suffix_second_lo.capacity())
-        })
+    pub(crate) fn suffix_capacity(&self) -> usize {
+        self.buckets.suffix.capacity()
     }
 
     #[cfg(test)]
@@ -745,12 +871,8 @@ impl OccupancyIndex {
             && self
                 .buckets
                 .iter()
-                .zip(&other.buckets)
-                .all(|(left, right)| {
-                    left.records == right.records
-                        && left.suffix_min_lo == right.suffix_min_lo
-                        && left.suffix_second_lo == right.suffix_second_lo
-                })
+                .zip(other.buckets.iter())
+                .all(|(left, right)| left.records == right.records && left.suffix == right.suffix)
     }
 
     fn note_inspection(&self) {
@@ -806,17 +928,7 @@ impl OccupancyIndex {
         scratch: &mut OccupancyScratch,
         bucket_count: usize,
     ) -> Result<(), StepError> {
-        if self.buckets.len() < bucket_count {
-            let extra = bucket_count - self.buckets.len();
-            self.buckets
-                .try_reserve(extra)
-                .map_err(|_| StepError::OccupancyAllocFailed)?;
-            for _ in 0..extra {
-                self.buckets.push(OccupancyBucket::empty());
-            }
-        } else if self.buckets.len() > bucket_count {
-            self.buckets.truncate(bucket_count);
-        }
+        self.buckets.try_resize(bucket_count)?;
         try_reserve_len(&mut scratch.positions, bucket_count)?;
         scratch.positions.clear();
         scratch.positions.resize(bucket_count, 0);
@@ -829,25 +941,17 @@ impl OccupancyIndex {
         scratch: &OccupancyScratch,
         bucket_count: usize,
     ) -> Result<(), StepError> {
-        for index in 0..bucket_count {
-            let needed = scratch.positions.get(index).copied().unwrap_or(0);
-            let bucket = self
-                .buckets
-                .get_mut(index)
-                .ok_or(StepError::OccupancyIntervalIncomplete)?;
-            bucket.reserve(needed)?;
+        if self.buckets.len() < bucket_count || scratch.positions.len() < bucket_count {
+            return Err(StepError::OccupancyIntervalIncomplete);
         }
+        self.record_len = self
+            .buckets
+            .try_layout(&scratch.positions[..bucket_count])?;
         Ok(())
     }
 
     fn finish_layout(&mut self, scratch: &mut OccupancyScratch, bucket_count: usize) {
-        let mut total = 0usize;
-        for index in 0..bucket_count {
-            let count = scratch.positions.get(index).copied().unwrap_or(0);
-            total = total.saturating_add(count);
-            self.buckets[index].layout(count);
-        }
-        self.record_len = total;
+        // 区间已在预留时紧密铺好；这里只清写入头。
         scratch.positions.clear();
         scratch.positions.resize(bucket_count, 0);
     }
@@ -861,7 +965,7 @@ impl OccupancyIndex {
         if let Some(target) = self
             .buckets
             .get_mut(bucket_index)
-            .and_then(|bucket| bucket.records.get_mut(slot))
+            .and_then(|OccupancyBucketMut { records, .. }| records.get_mut(slot))
         {
             *target = record;
             *head = slot.saturating_add(1);
@@ -879,23 +983,26 @@ impl OccupancyIndex {
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) {
         let count = bucket_count.min(self.buckets.len());
-        let buckets = &mut self.buckets[..count];
+        let mut all = self.buckets.group_mut(0, count);
         match execution {
             Some(resources) if resources.coordinator_parallel() && count > 0 => {
                 let chunk = count
                     .div_ceil(resources.dispatch_threads().saturating_mul(8))
                     .max(1);
-                resources.for_each_part(buckets, chunk, |_, buckets| {
-                    Self::sort_bucket_slice(buckets);
+                let mut groups = Vec::with_capacity(count.div_ceil(chunk));
+                while all.spans.len() > chunk {
+                    let (head, rest) = all.split_at(chunk);
+                    groups.push(head);
+                    all = rest;
+                }
+                groups.push(all);
+                resources.for_each_part(&mut groups, 1, |_, groups| {
+                    for group in groups {
+                        group.sort_all();
+                    }
                 });
             }
-            _ => Self::sort_bucket_slice(buckets),
-        }
-    }
-
-    fn sort_bucket_slice(buckets: &mut [OccupancyBucket]) {
-        for bucket in buckets {
-            bucket.sort();
+            _ => all.sort_all(),
         }
     }
 
@@ -907,7 +1014,7 @@ impl OccupancyIndex {
             .flat_map(|bucket| bucket.records.iter().map(|record| record.vehicle))
     }
 
-    fn bucket(&self, edge: LaneEdgeOrdinal) -> Option<&OccupancyBucket> {
+    fn bucket(&self, edge: LaneEdgeOrdinal) -> Option<OccupancyBucket<'_>> {
         self.buckets.get(edge.index())
     }
 
@@ -921,7 +1028,8 @@ impl OccupancyIndex {
             return None;
         }
         self.note_inspection();
-        let pick = usize::try_from(*bucket.suffix_min_lo.get(start)?)
+        let links = *bucket.suffix.get(start)?;
+        let pick = usize::try_from(links.min_lo)
             .ok()
             .filter(|index| *index < bucket.records.len())?;
         let record = *bucket.records.get(pick)?;
@@ -929,7 +1037,7 @@ impl OccupancyIndex {
             return Some(record);
         }
         self.note_inspection();
-        let second = suffix_slot(*bucket.suffix_second_lo.get(start)?)?;
+        let second = suffix_slot(links.second_lo)?;
         bucket.records.get(second).copied()
     }
 
@@ -943,7 +1051,7 @@ impl OccupancyIndex {
         let skip = bucket
             .records
             .partition_point(|record| record.hi_mm <= front_mm);
-        self.min_lo_from(bucket, skip, self_vehicle)
+        self.min_lo_from(&bucket, skip, self_vehicle)
     }
 
     fn front_most(
@@ -952,7 +1060,7 @@ impl OccupancyIndex {
         self_vehicle: VehicleHandle,
     ) -> Option<OccupancyRecord> {
         let bucket = self.bucket(edge)?;
-        self.min_lo_from(bucket, 0, self_vehicle)
+        self.min_lo_from(&bucket, 0, self_vehicle)
     }
 
     /// [`Self::front_most`] 的（后杠, 车辆）。建表后直接读按边的最前记录表，
@@ -1138,15 +1246,16 @@ impl OccupancyIndex {
     /// 倒扫时维护「第一个前杠更大的下标」，即逐车查询的 `partition_point(hi <= front)`；
     /// 再从该下标取排除本车的后缀最小后杠，与 `min_lo_from` 相同。前杠恰在边末的记录
     /// 与车身跨过的上游边记录不写，查询回到逐车路径。
-    fn fill_ahead(buckets: &[OccupancyBucket], first_edge: usize, fill: AheadFill<'_>) {
+    fn fill_ahead(buckets: &BucketGroupMut<'_>, first_edge: usize, fill: AheadFill<'_>) {
         use std::sync::atomic::Ordering;
-        for (offset, bucket) in buckets.iter().enumerate() {
+        for offset in 0..buckets.spans.len() {
+            let bucket = &buckets.bucket(offset);
             let edge = first_edge + offset;
             let (Some(&length), Ok(edge_raw)) = (fill.lengths.get(edge), u32::try_from(edge))
             else {
                 continue;
             };
-            let records = &bucket.records;
+            let records = bucket.records;
             let mut upper = records.len();
             for index in (0..records.len()).rev() {
                 let record = records[index];
@@ -1178,13 +1287,14 @@ impl OccupancyIndex {
 
     /// `min_lo_from` 的无计数版本，返回桶内下标。
     fn pick_from(bucket: &OccupancyBucket, start: usize, skip: VehicleHandle) -> Option<usize> {
-        let pick = usize::try_from(*bucket.suffix_min_lo.get(start)?)
+        let links = *bucket.suffix.get(start)?;
+        let pick = usize::try_from(links.min_lo)
             .ok()
             .filter(|index| *index < bucket.records.len())?;
         if bucket.records.get(pick)?.vehicle != skip {
             return Some(pick);
         }
-        suffix_slot(*bucket.suffix_second_lo.get(start)?)
+        suffix_slot(links.second_lo)
     }
 
     /// 换根时沿用旧索引的批量表缓冲（不再分配），新索引在下一次重建时才建表。
@@ -1229,7 +1339,7 @@ impl OccupancyIndex {
         if min_hi > max_hi {
             return;
         }
-        let Some(records) = self.bucket(edge).map(|bucket| bucket.records.as_slice()) else {
+        let Some(records) = self.bucket(edge).map(|bucket| bucket.records) else {
             return;
         };
         let from = records.partition_point(|record| record.hi_mm < min_hi);
@@ -1249,6 +1359,7 @@ impl OccupancyIndex {
             buckets.push(record.bucket.index());
         }
         buckets.sort_unstable();
+        let mut extra_len = 0usize;
         let mut cursor = 0;
         while cursor < buckets.len() {
             let bucket_index = buckets[cursor];
@@ -1258,19 +1369,25 @@ impl OccupancyIndex {
                 count += 1;
                 cursor += 1;
             }
-            let bucket = self
+            let span = *self
                 .buckets
-                .get_mut(bucket_index)
+                .spans
+                .get(bucket_index)
                 .ok_or(StepError::OccupancyIntervalIncomplete)?;
-            let needed = bucket
-                .records
-                .len()
-                .checked_add(count)
+            // 最坏情况整条边搬到列尾再插入。
+            extra_len = extra_len
+                .checked_add(span.len as usize + count)
                 .ok_or(StepError::OccupancyAllocFailed)?;
-            try_reserve_len(&mut bucket.records, needed)?;
-            try_reserve_len(&mut bucket.suffix_min_lo, needed)?;
-            try_reserve_len(&mut bucket.suffix_second_lo, needed)?;
         }
+        let needed = self
+            .buckets
+            .records
+            .len()
+            .checked_add(extra_len)
+            .filter(|&needed| needed < SUFFIX_INDEX_LIMIT)
+            .ok_or(StepError::OccupancyAllocFailed)?;
+        try_reserve_len(&mut self.buckets.records, needed)?;
+        try_reserve_len(&mut self.buckets.suffix, needed)?;
         Ok(())
     }
 
@@ -1284,17 +1401,28 @@ impl OccupancyIndex {
     }
 
     fn insert_reserved_record(&mut self, record: OccupancyRecord) {
-        let Some(bucket) = self.buckets.get_mut(record.bucket.index()) else {
+        let bucket_index = record.bucket.index();
+        let Some(mut span) = self.buckets.spans.get(bucket_index).copied() else {
             debug_assert!(false, "spawn occupancy bucket was reserved");
             return;
         };
+        let store = &mut self.buckets;
+        if span.range().end != store.records.len() {
+            // 不在列尾：整条边搬到列尾，旧区间留空到下一次重建。后缀下标是桶内下标，不变。
+            let range = span.range();
+            let start = store.records.len();
+            debug_assert!(start + range.len() < store.records.capacity());
+            store.records.extend_from_within(range.clone());
+            store.suffix.extend_from_within(range);
+            span.start = record_slot(start);
+        }
         let key = (
             record.hi_mm,
             record.lo_mm,
             record.update_sequence,
             record.vehicle.index(),
         );
-        let at = bucket.records.partition_point(|existing| {
+        let at = store.records[span.range()].partition_point(|existing| {
             (
                 existing.hi_mm,
                 existing.lo_mm,
@@ -1302,13 +1430,16 @@ impl OccupancyIndex {
                 existing.vehicle.index(),
             ) < key
         });
-        debug_assert!(bucket.records.len() < bucket.records.capacity());
-        debug_assert!(bucket.suffix_min_lo.len() < bucket.suffix_min_lo.capacity());
-        debug_assert!(bucket.suffix_second_lo.len() < bucket.suffix_second_lo.capacity());
-        bucket.records.insert(at, record);
-        bucket.suffix_min_lo.insert(at, 0);
-        bucket.suffix_second_lo.insert(at, SUFFIX_NONE);
-        bucket.fill_suffix();
+        debug_assert!(store.records.len() < store.records.capacity());
+        debug_assert!(store.suffix.len() < store.suffix.capacity());
+        let position = span.start as usize + at;
+        store.records.insert(position, record);
+        store.suffix.insert(position, SuffixLinks::EMPTY);
+        span.len += 1;
+        store.spans[bucket_index] = span;
+        if let Some(mut bucket) = store.get_mut(bucket_index) {
+            bucket.fill_suffix();
+        }
         self.record_len = self.record_len.saturating_add(1);
     }
 
@@ -1601,7 +1732,10 @@ fn group_part(part: &mut OccupancyPart, groups: OccupancyGroups) -> Result<(), S
 /// 一组桶的并行放置工作：互斥的桶与写入头切片。
 struct OccupancyGroupWork<'a> {
     first_bucket: usize,
-    buckets: &'a mut [OccupancyBucket],
+    base: usize,
+    spans: &'a mut [BucketSpan],
+    records: &'a mut [OccupancyRecord],
+    suffix: &'a mut [SuffixLinks],
     positions: &'a mut [usize],
     /// 本组桶的最前记录表；只在建前车表时给出。
     fronts: Option<&'a mut [EdgeFront]>,
@@ -1625,42 +1759,64 @@ fn place_occupancy_parallel(
         return Err(StepError::OccupancyCapacityExceeded);
     }
     let bucket_count = groups.bucket_count;
+    // 各组条数可在分发前由各段分组结果求和；先按组定好列内基址再并行铺放。
+    let mut group_totals = [0usize; OCCUPANCY_MAX_GROUPS];
+    for part in parts {
+        let mut previous = 0u32;
+        for (group, &end) in part.group_ends.iter().enumerate().take(groups.count) {
+            group_totals[group] += (end - previous) as usize;
+            previous = end;
+        }
+    }
     let OccupancyIndex {
-        buckets,
+        buckets: store,
         ahead: table,
         fronts,
         record_len,
         ..
     } = occupancy;
+    store.try_size(total)?;
     let fill = ahead.map(|(lengths, epoch)| AheadFill {
         lengths,
         epoch,
         table: table.as_slice(),
     });
-    let mut buckets = &mut buckets[..bucket_count];
+    let mut spans = &mut store.spans[..bucket_count];
+    let mut records = store.records.as_mut_slice();
+    let mut suffix = store.suffix.as_mut_slice();
+    let mut base = 0usize;
     let mut positions = &mut scratch.positions[..bucket_count];
     let mut fronts = fill.and_then(|_| fronts.get_mut(..bucket_count));
     let mut work: [Option<OccupancyGroupWork<'_>>; OCCUPANCY_MAX_GROUPS] =
         std::array::from_fn(|_| None);
     for (group, slot) in work.iter_mut().enumerate().take(groups.count) {
         let first_bucket = group * groups.span;
-        let len = groups.span.min(buckets.len());
-        let (group_buckets, rest_buckets) = std::mem::take(&mut buckets).split_at_mut(len);
+        let len = groups.span.min(spans.len());
+        let (group_spans, rest_spans) = std::mem::take(&mut spans).split_at_mut(len);
+        let rows = group_totals[group];
+        let (group_records, rest_records) = std::mem::take(&mut records).split_at_mut(rows);
+        let (group_suffix, rest_suffix) = std::mem::take(&mut suffix).split_at_mut(rows);
         let (group_positions, rest_positions) = std::mem::take(&mut positions).split_at_mut(len);
         let group_fronts = fronts.take().map(|all| {
             let (group, rest) = all.split_at_mut(len);
             fronts = Some(rest);
             group
         });
-        buckets = rest_buckets;
+        spans = rest_spans;
+        records = rest_records;
+        suffix = rest_suffix;
         positions = rest_positions;
         *slot = Some(OccupancyGroupWork {
             first_bucket,
-            buckets: group_buckets,
+            base,
+            spans: group_spans,
+            records: group_records,
+            suffix: group_suffix,
             positions: group_positions,
             fronts: group_fronts,
             error: None,
         });
+        base += rows;
     }
     let records_of = |group: usize| {
         parts.iter().flat_map(move |part| {
@@ -1680,28 +1836,39 @@ fn place_occupancy_parallel(
         for record in records_of(group) {
             work.positions[record.bucket.index() - work.first_bucket] += 1;
         }
-        for (bucket, count) in work.buckets.iter_mut().zip(work.positions.iter_mut()) {
-            if let Err(error) = bucket.reserve(*count) {
-                work.error = Some(error);
-                return;
-            }
-            bucket.layout(*count);
-            *count = 0;
+        // 组内紧密铺放区间；写入头暂存为组内绝对下标。
+        let mut start = 0usize;
+        for (span, count) in work.spans.iter_mut().zip(work.positions.iter_mut()) {
+            *span = BucketSpan {
+                start: record_slot(work.base + start),
+                len: record_slot(*count),
+            };
+            let head = start;
+            start += *count;
+            *count = head;
+        }
+        if start != work.records.len() {
+            work.error = Some(StepError::OccupancyIntervalIncomplete);
+            return;
         }
         for record in records_of(group) {
             let local = record.bucket.index() - work.first_bucket;
             let head = &mut work.positions[local];
-            work.buckets[local].records[*head] = *record;
+            work.records[*head] = *record;
             *head += 1;
         }
-        for bucket in work.buckets.iter_mut() {
-            bucket.sort();
-        }
+        let mut view = BucketGroupMut {
+            spans: work.spans,
+            base: work.base,
+            records: work.records,
+            suffix: work.suffix,
+        };
+        view.sort_all();
         if let Some(fill) = fill {
-            OccupancyIndex::fill_ahead(work.buckets, work.first_bucket, fill);
+            OccupancyIndex::fill_ahead(&view, work.first_bucket, fill);
             if let Some(fronts) = work.fronts.as_deref_mut() {
-                for (front, bucket) in fronts.iter_mut().zip(work.buckets.iter()) {
-                    *front = EdgeFront::of(bucket);
+                for (offset, front) in fronts.iter_mut().enumerate() {
+                    *front = EdgeFront::of(&view.bucket(offset));
                 }
             }
         }
@@ -1823,15 +1990,21 @@ fn rebuild_occupancy_index(
         super::exact_path_research::begin(super::exact_path_research::Stage::OccupancySortSuffix);
     occupancy.sort_buckets_with(bucket_count, execution);
     if let Some(epoch) = occupancy.prepare_ahead(committed.vehicles.capacity(), bucket_count) {
+        let OccupancyIndex {
+            buckets,
+            fronts,
+            ahead: ahead_table,
+            ..
+        } = &mut *occupancy;
         let fill = AheadFill {
             lengths: binding.revision.traffic().lane_lengths_millimetres(),
             epoch,
-            table: &occupancy.ahead,
+            table: ahead_table,
         };
-        let buckets = &occupancy.buckets[..bucket_count];
-        OccupancyIndex::fill_ahead(buckets, 0, fill);
-        for (front, bucket) in occupancy.fronts.iter_mut().zip(buckets) {
-            *front = EdgeFront::of(bucket);
+        let view = buckets.group_mut(0, bucket_count);
+        OccupancyIndex::fill_ahead(&view, 0, fill);
+        for (offset, front) in fronts.iter_mut().enumerate().take(bucket_count) {
+            *front = EdgeFront::of(&view.bucket(offset));
         }
         occupancy.ahead_epoch = epoch;
     }
@@ -2113,15 +2286,17 @@ pub(crate) fn occupancy_full_fingerprint(index: &OccupancyIndex) -> String {
     let fronts: &[EdgeFront] = if ready { &index.fronts } else { &[] };
     format!(
         "{:?}|{}|{ready}|{:?}|{ahead:?}|{fronts:?}",
-        index.source, index.record_len, index.buckets
+        index.source,
+        index.record_len,
+        index.buckets.iter().collect::<Vec<_>>()
     )
 }
 
 #[cfg(test)]
 pub(crate) fn occupancy_fingerprint(index: &OccupancyIndex) -> Vec<(u32, u32, u32, u32, u32)> {
     let mut rows = Vec::new();
-    for bucket in &index.buckets {
-        for record in &bucket.records {
+    for bucket in index.buckets.iter() {
+        for record in bucket.records {
             rows.push((
                 record.vehicle.index(),
                 record.lo_mm,
@@ -2592,37 +2767,27 @@ pub(crate) mod tests {
             record(early, 2, 0, 500, 1),
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 8);
-        let late_records = index.buckets[5].records.as_ptr();
-        let late_suffix = index.buckets[5].suffix_min_lo.as_ptr();
-        let late_second = index.buckets[5].suffix_second_lo.as_ptr();
+        // CSR：插入只搬动被插入的边；其他边的内容不变。
+        let lane = |index: &OccupancyIndex, edge: usize| {
+            let bucket = index.buckets.get(edge).expect("lane");
+            (bucket.records.to_vec(), bucket.suffix.to_vec())
+        };
+        let late_before = lane(&index, 5);
         let added_early = record(early, 3, 800, 1_200, 2);
         index
             .reserve_insert_slots(&[added_early])
             .expect("reserve the touched lane");
-        assert_eq!(
-            index.buckets[5].records.as_ptr(),
-            late_records,
-            "reserving an earlier lane must not move a later lane"
-        );
+        assert_eq!(lane(&index, 5), late_before);
         index.insert_reserved_record(added_early);
-        assert_eq!(index.buckets[5].records.as_ptr(), late_records);
-        assert_eq!(index.buckets[5].suffix_min_lo.as_ptr(), late_suffix);
-        assert_eq!(index.buckets[5].suffix_second_lo.as_ptr(), late_second);
-        assert_eq!(index.buckets[5].records.len(), 1);
-        let early_records = index.buckets[0].records.as_ptr();
+        assert_eq!(lane(&index, 5), late_before);
+        let early_before = lane(&index, 0);
         let added_far = record(farther, 4, 100, 400, 3);
         index
             .reserve_insert_slots(&[added_far])
             .expect("reserve the farther lane");
-        assert_eq!(index.buckets[0].records.as_ptr(), early_records);
-        assert_eq!(index.buckets[5].records.as_ptr(), late_records);
         index.insert_reserved_record(added_far);
-        assert_eq!(
-            index.buckets[0].records.as_ptr(),
-            early_records,
-            "inserting a later lane must not move an earlier lane"
-        );
-        assert_eq!(index.buckets[5].records.as_ptr(), late_records);
+        assert_eq!(lane(&index, 0), early_before);
+        assert_eq!(lane(&index, 5), late_before);
         let summed = index
             .buckets
             .iter()
@@ -2633,7 +2798,6 @@ pub(crate) mod tests {
             summed,
             "cached record total must match the buckets after inserts"
         );
-        assert_eq!(index.buckets[5].suffix_min_lo.as_ptr(), late_suffix);
         pending.push(added_early);
         pending.push(added_far);
         let (mut fresh, mut fresh_scratch) = OccupancyIndex::with_capacity(8, 0);
@@ -2643,6 +2807,60 @@ pub(crate) mod tests {
             index.same_layout(&fresh),
             "bucket insert must match a full rebuild"
         );
+    }
+
+    #[test]
+    fn repeated_inserts_into_one_lane_match_a_full_rebuild() {
+        fn record(edge: u32, vehicle: u32, lo_mm: u32, hi_mm: u32) -> OccupancyRecord {
+            OccupancyRecord {
+                vehicle: VehicleHandle::new(vehicle, 0),
+                bucket: OccupancyBucketOrdinal::from_edge(LaneEdgeOrdinal::from_raw(edge)),
+                lo_mm,
+                hi_mm,
+                update_sequence: vehicle,
+            }
+        }
+
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(4, 0);
+        let mut pending = vec![
+            record(0, 1, 0, 400),
+            record(1, 2, 100, 900),
+            record(1, 3, 1_000, 1_500),
+            record(3, 4, 50, 300),
+        ];
+        index.rebuild_from_pending(&mut scratch, &pending, 4);
+        // 一批里同一条中间边两条、末边一条：中间边搬到列尾一次，第二条直接在列尾插入；
+        // 随后末边已不在列尾，再搬一次。
+        let batch = [
+            record(1, 5, 500, 950),
+            record(1, 6, 20, 80),
+            record(3, 7, 400, 700),
+        ];
+        index.reserve_insert_slots(&batch).expect("reserve");
+        let capacity = index.records_capacity();
+        index.insert_reserved_records(&batch);
+        assert_eq!(
+            index.records_capacity(),
+            capacity,
+            "inserts must not reallocate"
+        );
+        // 再插一条到当前列尾的边，不应再搬动。
+        let tail = [record(3, 8, 800, 900)];
+        index.reserve_insert_slots(&tail).expect("reserve tail");
+        index.insert_reserved_records(&tail);
+        pending.extend(batch);
+        pending.extend(tail);
+        let (mut fresh, mut fresh_scratch) = OccupancyIndex::with_capacity(4, 0);
+        fresh.rebuild_from_pending(&mut fresh_scratch, &pending, 4);
+        assert_eq!(index.records_len(), pending.len());
+        assert!(
+            index.same_layout(&fresh),
+            "inserts must match a full rebuild"
+        );
+        // 重建后紧密铺放，不保留搬动留下的空区间。
+        index.rebuild_from_pending(&mut scratch, &pending, 4);
+        assert_eq!(index.buckets.records.len(), pending.len());
+        assert!(index.same_layout(&fresh));
     }
 
     #[test]
@@ -3707,14 +3925,9 @@ pub(crate) mod tests {
             "retained occupancy capacity must stay below the fail-closed ceiling, cap={cap} ceiling={ceiling}"
         );
         assert!(
-            world.state.derived.occupancy.suffix_min_lo_capacity() < 256,
-            "suffix min table must follow actual records, cap={}",
-            world.state.derived.occupancy.suffix_min_lo_capacity()
-        );
-        assert!(
-            world.state.derived.occupancy.suffix_second_lo_capacity() < 256,
-            "suffix second table must follow actual records, cap={}",
-            world.state.derived.occupancy.suffix_second_lo_capacity()
+            world.state.derived.occupancy.suffix_capacity() < 256,
+            "suffix table must follow actual records, cap={}",
+            world.state.derived.occupancy.suffix_capacity()
         );
     }
 
