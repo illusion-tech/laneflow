@@ -356,12 +356,15 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 tick 开始前取得该修订的
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
-该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。旧 snapshot 可以继续完成在途
+该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。完整性开启时，一切修订
+绑定的 snapshot / facade 必须保留并核对共享根完整性租约（含失效世代，#955 G1）；只保留
+根 `Arc`、拿不到租约的 facade 不得作为消费路径。旧 snapshot 可以继续完成在途
 读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根，不能与新根的 component 配对。
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
 和执行计划全部 per world。共享根完整性租约是**根外对象**，持有受保护的根级失效
-（poison）标记（双副本），供全部绑定消费者（世界与 Spatial）在读取 / 步进 / 位姿提取前
-核对；它不属于 component、不进入根 payload，也不给根本体引入可变性。
+（poison）标记（双副本）与单调失效世代，供全部绑定消费者（世界与 Spatial）核对：
+操作入口取世代快照、提交 / 发布出口复核（#955 §3）；它不属于 component、不进入根
+payload，也不给根本体引入可变性。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
 对象，并暴露：
