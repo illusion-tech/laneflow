@@ -435,6 +435,16 @@ P7 内允许按现行依赖先提交 Conflict 转移、移除 Waiting 旧 member
 观察载荷在 P5 准备，P8 移交已经准备好的载荷；不因本设计改动它的 API。
 宿主另行请求的 full/delta observation export 仍由原有 session 管理，不自动每拍导出。
 
+**完整性校验窗在阶段协议之外（#955 G1）**：完整性校验窗（见
+[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.5）是
+宿主每 tick 链上的显式同步操作，位于 `step` 返回之后、输出交付之前
+（`apply_pending → step → 完整性校验窗 → consume_world`），**不属于 P0–P8 任何
+阶段**。它只读已提交 C(T)、完整性期望值登记表与待交付输出批次；`step` 的 P7/P8
+规则不因它改变（P8 仍只交付结果，无新计算、无新错误）。校验窗失败关闭是**世界
+状态**：此后 `step` 返回「世界已失败关闭」终止性错误，未交付输出批次不交付；已
+发布结果不撤销，处置归宿主（ADR 0032）。完整性期望值登记表是进程内诊断状态，不
+进入本协议的五分区、`CommitPlan` 与提交路径。
+
 ### 5.3 游标和管理数据
 
 - 普通 successful step 增加 `tick_index`、`time_ms` 和
