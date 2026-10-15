@@ -1248,7 +1248,8 @@ mod tests {
     }
 
     /// 红灯停止线前的静止车：先建立零贡献证明并休眠，放行等待进入时窗的那一拍
-    /// 重新求值并插入；之后放行起步。与不写证明的参考逐拍相同，1 / 4 / 16 worker。
+    /// 重新求值并插入；之后放行起步。休眠期间获得 reservation 或速度改变时下一拍
+    /// 即重新求值。与不写证明的参考逐拍相同，1 / 4 / 16 worker。
     #[test]
     fn dormant_rows_match_full_replay_across_the_release() {
         const HORIZON_MS: u64 = 2_000;
@@ -1281,7 +1282,7 @@ mod tests {
                 ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
                 &world.state,
             );
-            (world, vehicle, address)
+            (world, route, vehicle, address)
         };
         let run_at = |world: &mut TrafficWorld, wanted: &[ConflictPassageAddress]| {
             world
@@ -1325,9 +1326,9 @@ mod tests {
                 )
                 .unwrap();
         };
-        for workers in [1, 4, 16] {
-            let (mut dormant, vehicle, address) = build(workers);
-            let (mut reference, reference_vehicle, _) = build(workers);
+        for (workers, change) in [(1, 0), (4, 0), (16, 0), (4, 1), (16, 2)] {
+            let (mut dormant, route, vehicle, address) = build(workers);
+            let (mut reference, _, reference_vehicle, _) = build(workers);
             assert_eq!(vehicle, reference_vehicle);
             let wanted = [address];
             let mut slept = 0;
@@ -1337,6 +1338,35 @@ mod tests {
                     world
                         .step(crate::TickInput::new(100))
                         .expect("signal dormancy step");
+                    if tick == 5 {
+                        let had_proof = world.state.workspace.frontier_maintenance.slots
+                            [vehicle.index() as usize]
+                            .proof
+                            .is_some();
+                        assert!(
+                            disabled || workers < 4 || had_proof,
+                            "dormant before the change"
+                        );
+                        match change {
+                            1 => {
+                                crate::admin::format_admission::tests::install_conflict_reservation(
+                                    world, route, vehicle,
+                                )
+                            }
+                            2 => {
+                                world
+                                    .state
+                                    .committed
+                                    .vehicles
+                                    .slot_mut(vehicle.index() as usize)
+                                    .state
+                                    .as_mut()
+                                    .unwrap()
+                                    .speed_mm_s = 1;
+                            }
+                            _ => {}
+                        }
+                    }
                     let state = world.vehicle(vehicle).unwrap();
                     let remembered = world
                         .state
@@ -1375,7 +1405,16 @@ mod tests {
                         .clone(),
                     reference.state.conflict_read().approach_frontier_cells(),
                 );
-                assert_eq!(observed, expected, "{workers} workers, tick {tick}");
+                assert_eq!(
+                    observed, expected,
+                    "{workers} workers, change {change}, tick {tick}"
+                );
+                if change != 0 && tick == 5 {
+                    assert!(
+                        !observed.0.is_empty(),
+                        "the change must wake the vehicle at once"
+                    );
+                }
                 assert_eq!(
                     dormant.vehicle(vehicle).unwrap(),
                     reference.vehicle(vehicle).unwrap(),
