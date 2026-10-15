@@ -11,6 +11,15 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build(deps)"
+    # bevy 伞形 crate 与子 crate 严格版本绑定，必须在同一 PR 内整体升级（#883、#912）。
+    groups:
+      bevy:
+        patterns:
+          - "bevy*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
 
   - package-ecosystem: github-actions
     directory: /
