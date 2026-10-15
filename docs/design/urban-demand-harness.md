@@ -472,6 +472,13 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 改写构建过程的主机本来就能伪造全部记录。超出此边界的加固不在本设计内叠加。
 嵌套构建使用环境白名单：代理类变量（`HTTP_PROXY` 等）不在其内，依赖须先按
 `--locked` 预热 Cargo 缓存；白名单值本身错误时构建响亮失败，不静默产出。
+干净判定同样在此边界内分三层：`status`（钉住 `--untracked-files=all`）抓未跟踪、
+删除与真实编辑，`ls-files -v` 抓 skip-worktree/assume-unchanged 索引位遮蔽，
+`hash-object --no-filters` 与索引 blob 的逐字节比对抓 text/eol 与 `filter.clean`
+的转换遮蔽（防的是编辑器残留 CRLF 这类诚实失真：status 判净而 Cargo 编译的字节
+与 commit blob 不同）。蓄意部署把脏内容映射回已提交内容的过滤器属采集机被控制，
+出界。运行时测量窗口复查继承 git 的转换视图：构建侧已保证二进制按 blob 字节
+编译，窗口内转换级漂移不影响已封存二进制，属接受残余。
 
 每项证据显式记录通过、失败、未测量、依赖未交付或不适用，只有通过项参与整体通过。
 性能超预算如实报告，不改变正确性预期；实际 Active 衰减或积压必须可见，不能继续用
