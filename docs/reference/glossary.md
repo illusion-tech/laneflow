@@ -597,6 +597,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 失真指纹       | distortion fingerprint            | 失配现场的形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。           |
 | 校验窗         | verification window               | 宿主每 tick 链上的显式同步操作（`step` 返回后、输出交付前），执行校验、期望值登记与输出批次放行；不进入 P0–P8 任何阶段，不改变首错、事件与提交语义。 |
 | 根级失效       | shared-root poison                | 共享静态根失配触发的失效状态，由共享根完整性租约（独立对象，不写入不可变共享根）承载并传播给全部绑定消费者（所有世界与 Spatial）：任一消费者下次读取 / 步进 / 位姿提取前核对租约并失败关闭；处置只能是根重建。 |
+| 共享根绑定聚合 | shared root binding aggregate     | 完整性开启时跨边界的唯一共享根句柄：`Arc<SharedNetworkRevision>` + 共享根完整性租约 + 构建方旁车基线；根本体保持不可变，租约 / 旁车是根外对象，`install` / `bind` 以聚合为准。 |
 | 检查点锚       | checkpoint anchor                 | 检查点三元组 `(command_cursor, tick, deterministic_state_digest)` 在完整性维度的持久角色：宿主持久、Runtime 登记核对。          |
 | 判因           | distortion attribution            | 失配归因结论（逻辑对象 / 物理-热表 / 物理-工作区 / 物理-共享静态根 / 登记表 / 无法判因）；允许「无法判因」，不承诺唯一根因。     |
 
