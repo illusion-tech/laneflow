@@ -1136,6 +1136,8 @@ fn preflight_chunked_section(
                 "[digest-probe] entry={entry} offset={byte_offset} len={byte_length} expected={expected_digest:02x?} actual={actual_digest:02x?} head32={:02x?}",
                 &chunk[..chunk.len().min(32)]
             );
+            #[cfg(feature = "std")]
+            dump_digest_probe_chunk(entry, byte_offset, chunk);
             return Err(FormatError::DigestMismatch {
                 structure: FormatStructure::ChunkDirectoryEntry,
             });
@@ -1268,6 +1270,39 @@ fn check_source_location_rows(
         });
     }
     Ok(())
+}
+
+/// 摘要失配失真转储探针（#794）：把失真 chunk 字节落盘并回读比对，供与确定性
+/// 健康工件逐字节对照定位损坏范围；回读与内存字节不一致时说明转储写盘路径本身
+/// 也失真（环境层证据）。仅诊断输出，只在失配分支执行，不改变失败语义；
+/// 转储目录取 `LANEFLOW_DIGEST_PROBE_DIR`，缺省为进程临时目录。
+#[cfg(feature = "std")]
+fn dump_digest_probe_chunk(entry: u64, byte_offset: u64, chunk: &[u8]) {
+    let directory = std::env::var_os("LANEFLOW_DIGEST_PROBE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let path = directory.join(std::format!(
+        "laneflow-digest-probe-{}-{entry}-{byte_offset}.bin",
+        std::process::id()
+    ));
+    match std::fs::write(&path, chunk) {
+        Ok(()) => {
+            let readback = std::fs::read(&path).unwrap_or_default();
+            let readback_digest: [u8; 32] = Sha256::digest(&readback).into();
+            std::eprintln!(
+                "[digest-probe] dump path={} dump_len={} dump_sha={readback_digest:02x?} readback_same={}",
+                path.display(),
+                readback.len(),
+                readback == chunk,
+            );
+        }
+        Err(error) => {
+            std::eprintln!(
+                "[digest-probe] dump failed path={} error={error}",
+                path.display()
+            );
+        }
+    }
 }
 
 #[cfg(test)]

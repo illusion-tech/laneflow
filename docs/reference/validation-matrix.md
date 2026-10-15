@@ -109,8 +109,8 @@ issue 为准，本表只做判读入口，不复制诊断结论。
 
 | 签名（断言 / 错误面）                                                                                               | 出处                                                                              | 匹配谓词                                                                                          | 判读方法                                                                              | 状态 / 追踪                            |
 | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------- |
-| `Validation { stage: "file-backed emission", detail: "Format(DigestMismatch { structure: ChunkDirectoryEntry })" }` | urban-harness → `laneflow-format` 读回校验                                        | 待归因（无谓词，不具偶发裁决资格）                                                                | 读 `[digest-probe]` 行（entry/offset/长度、期望 vs 实际摘要、内容头 32 字节）判别机理 | 未归因，探针就位（#797）· #794         |
-| `artifact digest mismatch: <name>`（实测 `Validation("artifact digest mismatch: network.lfca")`）                    | urban-harness `Artifacts::load` 对生成器刚写出工件的读回摘要核对                  | 待归因（无谓词，不具偶发裁决资格；长度与 SHA-256 可双失配）                                       | 读 `[digest-probe]` `site=write-readback` / `site=artifact-load` 行（写入 vs 回读长度与摘要、首个分歧偏移、分歧形态、二次回读稳定性）判别写侧丢失或错位 / 读侧不稳定 / 位级损坏 | 未归因，探针就位（写后回读）· #794     |
+| `Validation { stage: "file-backed emission", detail: "Format(DigestMismatch { structure: ChunkDirectoryEntry })" }` | urban-harness → `laneflow-format` 读回校验                                        | 待归因（无谓词，不具偶发裁决资格）                                                                | 读 `[digest-probe]` 行（entry/offset/长度、期望 vs 实际摘要、内容头 32 字节）；失真指纹（首坏偏移页对齐、整页替换、页整数倍位移、零页）命中即按环境对照裁决（独立写-读浸泡 A/B） | 已归因（机器级页失真，非代码）· #794     |
+| `artifact digest mismatch: <name>`（实测 `Validation("artifact digest mismatch: network.lfca")`）                    | urban-harness `Artifacts::load` 对生成器刚写出工件的读回摘要核对                  | 待归因（无谓词，不具偶发裁决资格；长度与 SHA-256 可双失配）                                       | 读 `[digest-probe]` `site=write-readback` / `site=artifact-load` 行（写入 vs 回读长度与摘要、首个分歧偏移、分歧形态、二次回读稳定性）；失真指纹命中即按环境对照裁决（独立写-读浸泡 A/B） | 已归因（机器级页失真，非代码）· #794     |
 | `warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow: assertion failed: left: N`                          | `placement_admission` warm 重扫计数                                               | —（已修，任何命中即回归）                                                                         | 病因为并发测试污染进程全局 `MANEUVER_UPSTREAM_EDGE_VISITS`                            | 已修（#796，thread-local）· 再现即回归 |
 | `spawn_overlap_allocation.rs:123/124 assertion ... failed` 同 tid 双 panic                                          | `allocation_guard_rejects_real_heap_operations` 的 `catch_unwind` 预期失败 stderr | 该二进制 `test result: ok`，且双 panic 同 tid 成对出现                                            | 误报判别：看该二进制 `test result:` 行，`ok. 2 passed` 即非失败                       | 误报已撤销（#794 症状①）               |
 | `steady Waiting ticks allocated` / `repeated admission sample N allocated`                                          | `waiting_budget_evidence` 零分配窗口                                              | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 4 alloc / 0 realloc）                            | 读 `[tick-ledger]` 逐拍行与暖机余量，判别懒物化漂移 / 他面串扰 / 计量边界             | 未归因，探针就位（#893）· #794         |
@@ -125,6 +125,10 @@ issue 为准，本表只做判读入口，不复制诊断结论。
   （标注「待归因」）命中**保持阻塞**，由维护者依现场数据与探针输出显式裁决（记录进
   追踪 issue）后方可重跑放行，同签名重复命中不予裁决并升级真回归；谓词外命中与未入表
   签名一律真回归，**修复后方可合入**。已修行的任何命中一律是回归。
+- **环境失真指纹**（#794 归档）：首个分歧偏移精确页对齐、整页替换（约 4 千字节级分歧
+  达随机巧合水平）、位移量为 4 KiB 页的整数倍、伴随零页丢失，且随内存压力升高命中率
+  上升——命中即先跑环境对照（独立写-读浸泡 A/B，不经 LaneFlow 代码）排除机器故障，
+  对照实验自身输出须双路径读回互证后再采信。
 - 收录机制：追踪 issue 收口时，把最终签名、匹配谓词与判读方法回写本表并在实现 PR 中
   索引；修复后保留行并标注「已修（`<PR>`）· 再现即回归」，不删行。新增签名未入表前
   一律按真回归处理。
