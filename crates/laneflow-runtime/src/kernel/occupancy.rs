@@ -1350,7 +1350,11 @@ impl OccupancyIndex {
     }
 
     /// 按将要插入的边预留空位。只增长被插入的边，不移动其他边的记录。
-    fn reserve_insert_slots(&mut self, extra: &[OccupancyRecord]) -> Result<(), StepError> {
+    ///
+    /// 搬动留下的旧区间累计超过活记录数与边数中较大者时返回 `false`，不再增量维护：
+    /// 调用方作废索引，由下一次重建紧密铺放。重建代价因此摊到已发生的搬动上，
+    /// 两次重建之间列长度不超过活记录的常数倍。
+    fn reserve_insert_slots(&mut self, extra: &[OccupancyRecord]) -> Result<bool, StepError> {
         let mut buckets = Vec::new();
         buckets
             .try_reserve(extra.len())
@@ -1379,16 +1383,19 @@ impl OccupancyIndex {
                 .checked_add(span.len as usize + count)
                 .ok_or(StepError::OccupancyAllocFailed)?;
         }
-        let needed = self
-            .buckets
-            .records
-            .len()
-            .checked_add(extra_len)
-            .filter(|&needed| needed < SUFFIX_INDEX_LIMIT)
-            .ok_or(StepError::OccupancyAllocFailed)?;
+        let Some(needed) = self.buckets.records.len().checked_add(extra_len) else {
+            return Ok(false);
+        };
+        let live = self.record_len.saturating_add(extra.len());
+        if needed.saturating_sub(live) > live.max(self.buckets.spans.len()) {
+            return Ok(false);
+        }
+        if needed >= SUFFIX_INDEX_LIMIT {
+            return Err(StepError::OccupancyAllocFailed);
+        }
         try_reserve_len(&mut self.buckets.records, needed)?;
         try_reserve_len(&mut self.buckets.suffix, needed)?;
-        Ok(())
+        Ok(true)
     }
 
     /// 把新记录插进各自的桶。调用前容量必须已经够，这里不再分配。
@@ -2119,8 +2126,12 @@ impl crate::kernel::state::WorldState {
         &mut self,
         handle: VehicleHandle,
         previous: ObservationStateSequence,
-        mut records: Vec<OccupancyRecord>,
+        records: Option<Vec<OccupancyRecord>>,
     ) {
+        let Some(mut records) = records else {
+            self.derived.occupancy.source = None;
+            return;
+        };
         for record in &mut records {
             record.vehicle = handle;
         }
@@ -2134,18 +2145,19 @@ impl crate::kernel::state::WorldState {
             Some((generation, self.committed.observation_state_sequence));
     }
 
-    /// 提交前确认增量插入放得下。索引来源不是当前序号时返回空，提交后再作废。
+    /// 提交前确认增量插入放得下。索引来源不是当前序号、或旧区间过多不宜增量插入时
+    /// 返回 `None`，提交后再作废。
     pub(crate) fn reserve_spawn_occupancy(
         &mut self,
         input: crate::VehicleSpawnInput,
         vehicle_length_mm: u32,
         update_sequence: u32,
-    ) -> Result<Vec<OccupancyRecord>, StepError> {
+    ) -> Result<Option<Vec<OccupancyRecord>>, StepError> {
         let generation = self.binding.world_generation;
         if self.derived.occupancy.source
             != Some((generation, self.committed.observation_state_sequence))
         {
-            return Ok(Vec::new());
+            return Ok(None);
         }
         let edges = self
             .route_edges(input.route())
@@ -2196,8 +2208,11 @@ impl crate::kernel::state::WorldState {
         {
             return Err(StepError::OccupancyCapacityExceeded);
         }
-        self.derived.occupancy.reserve_insert_slots(&records)?;
-        Ok(records)
+        if !self.derived.occupancy.reserve_insert_slots(&records)? {
+            // 旧区间过多：放弃增量插入，提交后作废索引。
+            return Ok(None);
+        }
+        Ok(Some(records))
     }
 
     /// 两次 step 之间的命令读取当前提交态；重复拒绝可以复用同一份索引。
@@ -2778,17 +2793,21 @@ pub(crate) mod tests {
         };
         let late_before = lane(&index, 5);
         let added_early = record(early, 3, 800, 1_200, 2);
-        index
-            .reserve_insert_slots(&[added_early])
-            .expect("reserve the touched lane");
+        assert!(
+            index
+                .reserve_insert_slots(&[added_early])
+                .expect("reserve the touched lane")
+        );
         assert_eq!(lane(&index, 5), late_before);
         index.insert_reserved_record(added_early);
         assert_eq!(lane(&index, 5), late_before);
         let early_before = lane(&index, 0);
         let added_far = record(farther, 4, 100, 400, 3);
-        index
-            .reserve_insert_slots(&[added_far])
-            .expect("reserve the farther lane");
+        assert!(
+            index
+                .reserve_insert_slots(&[added_far])
+                .expect("reserve the farther lane")
+        );
         index.insert_reserved_record(added_far);
         assert_eq!(lane(&index, 0), early_before);
         assert_eq!(lane(&index, 5), late_before);
@@ -2840,7 +2859,7 @@ pub(crate) mod tests {
             record(1, 6, 20, 80),
             record(3, 7, 400, 700),
         ];
-        index.reserve_insert_slots(&batch).expect("reserve");
+        assert!(index.reserve_insert_slots(&batch).expect("reserve"));
         let capacity = index.records_capacity();
         index.insert_reserved_records(&mut batch);
         assert_eq!(
@@ -2850,7 +2869,7 @@ pub(crate) mod tests {
         );
         // 再插一条到当前列尾的边，不应再搬动。
         let mut tail = [record(3, 8, 800, 900)];
-        index.reserve_insert_slots(&tail).expect("reserve tail");
+        assert!(index.reserve_insert_slots(&tail).expect("reserve tail"));
         index.insert_reserved_records(&mut tail);
         pending.extend(batch);
         pending.extend(tail);
@@ -2865,6 +2884,51 @@ pub(crate) mod tests {
         index.rebuild_from_pending(&mut scratch, &pending, 4);
         assert_eq!(index.buckets.records.len(), pending.len());
         assert!(index.same_layout(&fresh));
+    }
+
+    #[test]
+    fn alternating_inserts_stop_before_stale_rows_outgrow_live_rows() {
+        fn record(edge: u32, vehicle: u32) -> OccupancyRecord {
+            OccupancyRecord {
+                vehicle: VehicleHandle::new(vehicle, 0),
+                bucket: OccupancyBucketOrdinal::from_edge(LaneEdgeOrdinal::from_raw(edge)),
+                lo_mm: vehicle * 10,
+                hi_mm: vehicle * 10 + 5,
+                update_sequence: vehicle,
+            }
+        }
+
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(2, 0);
+        let mut pending = vec![record(0, 0), record(1, 1)];
+        index.rebuild_from_pending(&mut scratch, &pending, 2);
+        // 两拍之间交替往两条边生成：每次都把整条边搬到列尾。
+        let mut vehicle = 2;
+        loop {
+            let mut one = [record(vehicle % 2, vehicle)];
+            if !index.reserve_insert_slots(&one).expect("reserve") {
+                break;
+            }
+            index.insert_reserved_records(&mut one);
+            pending.extend(one);
+            let live = index.records_len();
+            assert!(
+                index.buckets.records.len() <= 2 * live.max(2),
+                "stale rows stay bounded by live rows"
+            );
+            vehicle += 1;
+            assert!(vehicle < 1_000, "incremental inserts must stop");
+        }
+        let (mut fresh, mut fresh_scratch) = OccupancyIndex::with_capacity(2, 0);
+        fresh.rebuild_from_pending(&mut fresh_scratch, &pending, 2);
+        assert!(index.same_layout(&fresh));
+        // 重建收回旧区间后增量插入恢复。
+        index.rebuild_from_pending(&mut scratch, &pending, 2);
+        assert_eq!(index.buckets.records.len(), pending.len());
+        assert!(
+            index
+                .reserve_insert_slots(&[record(vehicle % 2, vehicle)])
+                .expect("reserve")
+        );
     }
 
     #[test]
@@ -2893,7 +2957,7 @@ pub(crate) mod tests {
             record(1, 5, 0, 50),
             record(0, 5, 1_300, 1_400),
         ];
-        index.reserve_insert_slots(&batch).expect("reserve");
+        assert!(index.reserve_insert_slots(&batch).expect("reserve"));
         let before = index.buckets.records.len();
         index.insert_reserved_records(&mut batch);
         // 预留上界：A 搬一次（2）加两条新记录，B 搬一次（1）加一条。
