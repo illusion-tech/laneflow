@@ -3122,6 +3122,58 @@ mod tests {
         );
     }
 
+    /// 停止线前的保持结构在本控制器下一次相位边界前不变；没有拒绝门时没有期限。
+    #[test]
+    fn hold_is_stable_until_the_next_phase_boundary() {
+        for (green_ms, green_first, time_ms, expected) in [
+            (Some(4_000), false, 100, Some(3_900)),
+            (Some(4_000), false, 3_900, Some(100)),
+            (Some(200), true, 300, Some(3_900)),
+            (None, false, 100, Some(3_900)),
+        ] {
+            let (mut world, route) = crate::admin::cutover_migration::tests::signal_frontier_world(
+                4_000,
+                green_ms,
+                green_first,
+            );
+            while world.state.committed.time_ms < time_ms {
+                step_ms(&mut world, 100);
+            }
+            let vehicle = signal_vehicle(&mut world, route, 1, 0);
+            let state = world.state.vehicle_state(vehicle).expect("stop line");
+            assert_eq!(
+                super::hold_stable_ms(
+                    world.state.read_view(),
+                    route,
+                    state.profile,
+                    (&state).into(),
+                ),
+                expected,
+                "green={green_ms:?} green_first={green_first} t={time_ms}"
+            );
+        }
+        let (mut world, route) = crate::admin::cutover_migration::tests::signal_frontier_world(
+            4_000,
+            Some(4_000),
+            false,
+        );
+        while world.state.committed.time_ms < 4_100 {
+            step_ms(&mut world, 100);
+        }
+        let vehicle = signal_vehicle(&mut world, route, 1, 0);
+        let state = world.state.vehicle_state(vehicle).expect("green stop line");
+        assert_eq!(
+            super::hold_stable_ms(
+                world.state.read_view(),
+                route,
+                state.profile,
+                (&state).into()
+            ),
+            None,
+            "no rejecting gate, no hold"
+        );
+    }
+
     #[test]
     fn red_phase_without_a_release_keeps_the_kinematic_bound() {
         let (mut world, route) =
