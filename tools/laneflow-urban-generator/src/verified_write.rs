@@ -355,7 +355,13 @@ fn remove_residual(
     attempt: u32,
     residual: &mut bool,
 ) {
-    let failed = io.remove_file(path).is_err() && path.exists();
+    // 仅 `NotFound` 视为「已确认不存在」；其余删除错误一律按残留上浮——
+    // 元数据查询同样失败时 `Path::exists()` 会误报不存在，不能充当删除已确认的证据。
+    let failed = match io.remove_file(path) {
+        Ok(()) => false,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(_) => true,
+    };
     *residual = failed;
     if failed {
         emit_probe(format_args!(
@@ -719,5 +725,15 @@ mod tests {
             "residual surfaced in io error"
         );
         assert!(path.exists(), "rejected bytes remain on disk");
+    }
+
+    #[test]
+    fn confirmed_absence_is_not_reported_as_residual() {
+        let directory = tempdir().expect("tempdir");
+        let path = directory.path().join("missing.bin");
+        let io = FaultyIo::new(Corruption::Truncate);
+        let mut residual = false;
+        remove_residual(&io, &path, "missing.bin", 1, &mut residual);
+        assert!(!residual, "not-found is confirmed absence");
     }
 }
