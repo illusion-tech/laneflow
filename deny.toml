@@ -12,8 +12,8 @@ targets = [
 unmaintained = "workspace"
 unsound = "all"
 ignore = [
-    # #935 ruzstd 0.8.3 解压炸弹（仅 DoS）。来源：laneflow-bevy `native-example` → bevy 0.19
-    # `3d_api` 固定启用的 `zstd_rust` → bevy_image（要求 ruzstd ^0.8，0.20 亦然）。只用于解码
+    # #935 ruzstd 0.8.3 解压炸弹（仅 DoS）。来源：laneflow-bevy `native-example` → bevy 0.20
+    # `3d_api` 固定启用的 `zstd_rust` → bevy_image 0.20.0（仍要求 ruzstd ^0.8，#912 升级时复核）。只用于解码
     # Bevy 编译进二进制的 KTX2 LUT；LaneFlow 不经 AssetServer 加载外部资源，默认特性不含该依赖。
     # 替代方案（改用 zstd_c、放弃 3d_api、patch 上游）代价高于收益。
     # 机器约束：[bans] 只允许 bevy_image 直接依赖 ruzstd，新增依赖路径即失败。依赖图中不再有
