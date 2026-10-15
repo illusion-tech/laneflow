@@ -263,13 +263,11 @@ impl Artifacts {
 }
 
 /// 工件摘要失配现场探针（#794 症状③）：输出清单期望值与读回实际值的长度差、摘要
-/// 差异、读回头部 32 字节及二次回读稳定性；另输出全文件 64 等分块摘要，供仅 load
+/// 差异、读回头部 32 字节及流式二次回读对照；另输出全文件 64 等分块摘要，供仅 load
 /// 路径命中（写后回读干净、无内容参考）时与健康参考离线逐块对照定位失真块。
 /// 仅诊断输出：命中不改变 `Artifacts::load` 的失败语义与错误文案。
 fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readback: &[u8]) {
-    let reread = fs::read(path).ok();
-    let reread_same = reread.as_deref() == Some(readback);
-    let reread_sha = reread.as_deref().map(sha256);
+    let (reread_same, reread_sha) = stream_reread(path, readback);
     eprintln!(
         "[digest-probe] site=artifact-load name={name} expected_bytes={} expected_sha={} readback_bytes={} readback_sha={} len_delta={} head32={:02x?} reread_same={} reread_sha={}",
         expected.bytes,
@@ -279,7 +277,7 @@ fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readb
         readback.len() as i64 - expected.bytes as i64,
         &readback[..readback.len().min(32)],
         reread_same,
-        reread_sha.as_deref().unwrap_or("unreadable"),
+        reread_sha,
     );
     let block_count = 64_usize;
     let block_len = readback.len().div_ceil(block_count).max(1);
@@ -288,4 +286,37 @@ fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readb
         "[digest-probe] site=artifact-load name={name} block_len={block_len} block_shas={}",
         block_shas.join(","),
     );
+}
+
+/// 流式二次回读（#953 审阅）：与首次读回逐窗口比对并累计摘要，不整体持有第二份
+/// 副本（100k 档工件达数百 MiB，失败瞬间的额外整份分配可自致 OOM）。
+fn stream_reread(path: &Path, first: &[u8]) -> (bool, String) {
+    use sha2::{Digest, Sha256};
+    const WINDOW: usize = 64 * 1024;
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return (false, "unreadable".to_owned()),
+    };
+    let mut hasher = Sha256::new();
+    let mut window = [0_u8; WINDOW];
+    let mut offset = 0_usize;
+    let mut same = true;
+    loop {
+        let read = match std::io::Read::read(&mut file, &mut window) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(_) => return (false, "unreadable".to_owned()),
+        };
+        hasher.update(&window[..read]);
+        if offset + read > first.len() || first[offset..offset + read] != window[..read] {
+            same = false;
+        }
+        offset += read;
+    }
+    let sha = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    (same && offset == first.len(), sha)
 }

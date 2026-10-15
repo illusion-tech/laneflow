@@ -18,6 +18,7 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use stats_alloc::{Stats, StatsAlloc};
 
 use crate::{
@@ -540,13 +541,17 @@ struct StreamCompare {
     differing_bytes: usize,
     /// 回读到的总字节数。
     read_len: u64,
+    /// 回读内容摘要：留作首次观测锚点，供跨次读回一致性判定
+    /// （区分稳定损坏 / 首读瞬时失真 / 内容游移，#953 审阅）。
+    digest: [u8; 32],
 }
 
-/// 以 64 KiB 窗口把 `reader` 与 `written` 逐字节对照；内存占用与文件大小无关
-/// （工件可达数百 MiB，禁止整体持有回读副本，#953 审阅）。
+/// 以 64 KiB 窗口把 `reader` 与 `written` 逐字节对照并累计回读摘要；内存占用与
+/// 文件大小无关（工件可达数百 MiB，禁止整体持有回读副本，#953 审阅）。
 fn compare_stream<R: Read>(reader: &mut R, written: &[u8]) -> std::io::Result<StreamCompare> {
     const WINDOW: usize = 64 * 1024;
     let mut window = [0_u8; WINDOW];
+    let mut hasher = Sha256::new();
     let mut offset = 0_usize;
     let mut first_diff_offset = None;
     let mut differing_bytes = 0_usize;
@@ -555,6 +560,7 @@ fn compare_stream<R: Read>(reader: &mut R, written: &[u8]) -> std::io::Result<St
         if read == 0 {
             break;
         }
+        hasher.update(&window[..read]);
         for (index, byte) in window[..read].iter().enumerate() {
             let index = offset + index;
             if index < written.len() && written[index] != *byte {
@@ -568,6 +574,7 @@ fn compare_stream<R: Read>(reader: &mut R, written: &[u8]) -> std::io::Result<St
         first_diff_offset,
         differing_bytes,
         read_len: offset as u64,
+        digest: hasher.finalize().into(),
     })
 }
 
@@ -602,28 +609,14 @@ fn fill(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> {
     Ok(filled)
 }
 
-/// 双流逐窗口等价判定（二次回读稳定性自检用），内存限界。
-fn streams_equal(left: &mut impl Read, right: &mut impl Read) -> std::io::Result<bool> {
-    const WINDOW: usize = 64 * 1024;
-    let mut left_window = [0_u8; WINDOW];
-    let mut right_window = [0_u8; WINDOW];
-    loop {
-        let left_read = fill(left, &mut left_window)?;
-        let right_read = fill(right, &mut right_window)?;
-        if left_read != right_read || left_window[..left_read] != right_window[..right_read] {
-            return Ok(false);
-        }
-        if left_read == 0 {
-            return Ok(true);
-        }
-    }
-}
-
 /// 写后回读裁决探针（#794 症状③）：`fs::write` 之后立即流式回读逐字节对照，分歧时
-/// 输出首个分歧偏移、分歧形态、长度差、写入摘要及二次回读稳定性，供
+/// 输出首个分歧偏移、分歧形态、长度差、写入摘要及二次回读对照，供
 /// `artifact digest mismatch` / `DigestMismatch` 现场判别写侧丢失或错位、读侧不稳定
 /// 与位级损坏。仅诊断输出：命中前零日志，命中不改变 `write` 的成功/失败语义；
-/// 对照、摘要与稳定性自检全部限界内存，失真现场细节只在命中后取回。
+/// 对照、摘要与二次回读全部限界内存，失真现场细节只在命中后取回。二次回读同时
+/// 对照写入内容与首次观测摘要：`reread_same=false` 且 `reread_matches_written=true`
+/// 为首读瞬时失真（读侧不稳定），两者皆 false 为内容游移，`reread_same=true` 且
+/// `reread_matches_written=false` 为落盘稳定损坏。
 fn probe_write_readback(path: &Path, name: &str, written: &[u8]) {
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
@@ -632,14 +625,14 @@ fn probe_write_readback(path: &Path, name: &str, written: &[u8]) {
             return;
         }
     };
-    let compare = match compare_stream(&mut file, written) {
+    let first = match compare_stream(&mut file, written) {
         Ok(compare) => compare,
         Err(error) => {
             eprintln!("[digest-probe] site=write-readback name={name} read-error={error}");
             return;
         }
     };
-    let Some(divergence) = readback_divergence(compare, written.len() as u64) else {
+    let Some(divergence) = readback_divergence(first, written.len() as u64) else {
         return;
     };
     let mut diff_head32 = None;
@@ -650,22 +643,25 @@ fn probe_write_readback(path: &Path, name: &str, written: &[u8]) {
         let filled = fill(&mut file, &mut head).unwrap_or(0);
         diff_head32 = Some(head[..filled].to_vec());
     }
-    let reread_same = (|| {
-        let mut first = fs::File::open(path)?;
-        let mut second = fs::File::open(path)?;
-        streams_equal(&mut first, &mut second)
-    })()
-    .unwrap_or(false);
+    let reread = fs::File::open(path).and_then(|mut reread| compare_stream(&mut reread, written));
+    let (reread_same, reread_matches_written) = match reread {
+        Ok(reread) => (
+            reread.digest == first.digest,
+            readback_divergence(reread, written.len() as u64).is_none(),
+        ),
+        Err(_) => (false, false),
+    };
     eprintln!(
-        "[digest-probe] site=write-readback name={name} written_bytes={} readback_bytes={} shape={} first_diff_offset={:?} differing_bytes={} len_delta={} written_sha={} reread_same={} diff_head32={:02x?}",
+        "[digest-probe] site=write-readback name={name} written_bytes={} readback_bytes={} shape={} first_diff_offset={:?} differing_bytes={} len_delta={} written_sha={} reread_same={} reread_matches_written={} diff_head32={:02x?}",
         written.len(),
-        compare.read_len,
+        first.read_len,
         divergence.shape.as_str(),
         divergence.first_diff_offset,
         divergence.differing_bytes,
         divergence.len_delta,
         source::digest(written),
         reread_same,
+        reread_matches_written,
         diff_head32,
     );
 }
@@ -831,19 +827,10 @@ mod tests {
     }
 
     #[test]
-    fn streams_equal_detects_divergence() {
-        assert!(
-            streams_equal(&mut &b"abcde"[..], &mut &b"abcde"[..]).expect("compare"),
-            "equal"
-        );
-        assert!(
-            !streams_equal(&mut &b"abcde"[..], &mut &b"abcdX"[..]).expect("compare"),
-            "differ"
-        );
-        assert!(
-            !streams_equal(&mut &b"abcde"[..], &mut &b"abcd"[..]).expect("compare"),
-            "length"
-        );
+    fn compare_stream_digest_matches_content_digest() {
+        let compare = compare_stream(&mut Cursor::new(b"abcde"), b"abcde").expect("stream compare");
+        let expected: [u8; 32] = Sha256::digest(b"abcde").into();
+        assert_eq!(compare.digest, expected, "digest");
     }
 
     #[test]
