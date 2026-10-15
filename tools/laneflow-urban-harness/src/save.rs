@@ -208,7 +208,7 @@ pub(crate) fn write_save(
             verified_write::WritePolicy::DEFAULT,
         )
         .map(|_| ())
-        .map_err(|error| invalid(format!("save write-readback: {error}")))
+        .map_err(|error| invalid(format!("save write-readback {}: {error}", path.display())))
     };
     write_verified(partial.join(WORLD_FILE), &world)?;
     write_verified(partial.join(CALLER_FILE), &caller)?;
