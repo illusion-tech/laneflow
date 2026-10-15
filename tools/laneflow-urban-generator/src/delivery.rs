@@ -1,6 +1,7 @@
 use std::alloc::System;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Instant;
 
@@ -530,61 +531,140 @@ struct ReadbackDivergence {
     len_delta: i64,
 }
 
-/// 比对写入字节与回读字节；完全一致时返回 `None`。
-fn readback_divergence(written: &[u8], readback: &[u8]) -> Option<ReadbackDivergence> {
-    let common = written.len().min(readback.len());
-    let first_diff_offset = (0..common).find(|&index| written[index] != readback[index]);
-    let differing_bytes = (0..common)
-        .filter(|&index| written[index] != readback[index])
-        .count();
-    let len_delta = readback.len() as i64 - written.len() as i64;
-    if first_diff_offset.is_none() && len_delta == 0 {
+/// 流式回读比对统计量（不整体持有回读内容）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StreamCompare {
+    /// 公共前缀内首个分歧字节偏移；公共前缀完整一致时为 `None`。
+    first_diff_offset: Option<usize>,
+    /// 公共前缀内分歧字节数。
+    differing_bytes: usize,
+    /// 回读到的总字节数。
+    read_len: u64,
+}
+
+/// 以 64 KiB 窗口把 `reader` 与 `written` 逐字节对照；内存占用与文件大小无关
+/// （工件可达数百 MiB，禁止整体持有回读副本，#953 审阅）。
+fn compare_stream<R: Read>(reader: &mut R, written: &[u8]) -> std::io::Result<StreamCompare> {
+    const WINDOW: usize = 64 * 1024;
+    let mut window = [0_u8; WINDOW];
+    let mut offset = 0_usize;
+    let mut first_diff_offset = None;
+    let mut differing_bytes = 0_usize;
+    loop {
+        let read = reader.read(&mut window)?;
+        if read == 0 {
+            break;
+        }
+        for (index, byte) in window[..read].iter().enumerate() {
+            let index = offset + index;
+            if index < written.len() && written[index] != *byte {
+                differing_bytes += 1;
+                first_diff_offset.get_or_insert(index);
+            }
+        }
+        offset += read;
+    }
+    Ok(StreamCompare {
+        first_diff_offset,
+        differing_bytes,
+        read_len: offset as u64,
+    })
+}
+
+/// 由流式比对统计量构造分歧现场；完全一致时返回 `None`。
+fn readback_divergence(compare: StreamCompare, written_len: u64) -> Option<ReadbackDivergence> {
+    let len_delta = compare.read_len as i64 - written_len as i64;
+    if compare.first_diff_offset.is_none() && len_delta == 0 {
         return None;
     }
-    let shape = match (first_diff_offset, len_delta) {
+    let shape = match (compare.first_diff_offset, len_delta) {
         (None, ..) if len_delta < 0 => ReadbackShape::TruncatedTail,
         (None, ..) => ReadbackShape::ExtendedTail,
         (Some(_), _) => ReadbackShape::ContentMismatch,
     };
     Some(ReadbackDivergence {
         shape,
-        first_diff_offset,
-        differing_bytes,
+        first_diff_offset: compare.first_diff_offset,
+        differing_bytes: compare.differing_bytes,
         len_delta,
     })
 }
 
-/// 写后回读裁决探针（#794 症状③）：`fs::write` 之后立即回读逐字节对照，分歧时输出
-/// 首个分歧偏移、分歧形态、长度差、写入与回读摘要及二次回读稳定性，供
+/// 读满 `buffer` 或到 EOF，返回实际读取字节数。
+fn fill(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0_usize;
+    while filled < buffer.len() {
+        match reader.read(&mut buffer[filled..])? {
+            0 => break,
+            read => filled += read,
+        }
+    }
+    Ok(filled)
+}
+
+/// 双流逐窗口等价判定（二次回读稳定性自检用），内存限界。
+fn streams_equal(left: &mut impl Read, right: &mut impl Read) -> std::io::Result<bool> {
+    const WINDOW: usize = 64 * 1024;
+    let mut left_window = [0_u8; WINDOW];
+    let mut right_window = [0_u8; WINDOW];
+    loop {
+        let left_read = fill(left, &mut left_window)?;
+        let right_read = fill(right, &mut right_window)?;
+        if left_read != right_read || left_window[..left_read] != right_window[..right_read] {
+            return Ok(false);
+        }
+        if left_read == 0 {
+            return Ok(true);
+        }
+    }
+}
+
+/// 写后回读裁决探针（#794 症状③）：`fs::write` 之后立即流式回读逐字节对照，分歧时
+/// 输出首个分歧偏移、分歧形态、长度差、写入摘要及二次回读稳定性，供
 /// `artifact digest mismatch` / `DigestMismatch` 现场判别写侧丢失或错位、读侧不稳定
-/// 与位级损坏。仅诊断输出：命中前零日志，命中不改变 `write` 的成功/失败语义。
+/// 与位级损坏。仅诊断输出：命中前零日志，命中不改变 `write` 的成功/失败语义；
+/// 对照、摘要与稳定性自检全部限界内存，失真现场细节只在命中后取回。
 fn probe_write_readback(path: &Path, name: &str, written: &[u8]) {
-    let readback = match fs::read(path) {
-        Ok(readback) => readback,
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
         Err(error) => {
             eprintln!("[digest-probe] site=write-readback name={name} read-error={error}");
             return;
         }
     };
-    let Some(divergence) = readback_divergence(written, &readback) else {
+    let compare = match compare_stream(&mut file, written) {
+        Ok(compare) => compare,
+        Err(error) => {
+            eprintln!("[digest-probe] site=write-readback name={name} read-error={error}");
+            return;
+        }
+    };
+    let Some(divergence) = readback_divergence(compare, written.len() as u64) else {
         return;
     };
-    let reread_same = fs::read(path)
-        .map(|reread| reread == readback)
-        .unwrap_or(false);
-    let diff_head32 = divergence
-        .first_diff_offset
-        .map(|offset| &readback[offset..(offset + 32).min(readback.len())]);
+    let mut diff_head32 = None;
+    if let Some(offset) = divergence.first_diff_offset
+        && file.seek(SeekFrom::Start(offset as u64)).is_ok()
+    {
+        let mut head = [0_u8; 32];
+        let filled = fill(&mut file, &mut head).unwrap_or(0);
+        diff_head32 = Some(head[..filled].to_vec());
+    }
+    let reread_same = (|| {
+        let mut first = fs::File::open(path)?;
+        let mut second = fs::File::open(path)?;
+        streams_equal(&mut first, &mut second)
+    })()
+    .unwrap_or(false);
     eprintln!(
-        "[digest-probe] site=write-readback name={name} written_bytes={} readback_bytes={} shape={} first_diff_offset={:?} differing_bytes={} len_delta={} written_sha={} readback_sha={} reread_same={} diff_head32={:02x?}",
+        "[digest-probe] site=write-readback name={name} written_bytes={} readback_bytes={} shape={} first_diff_offset={:?} differing_bytes={} len_delta={} written_sha={} reread_same={} diff_head32={:02x?}",
         written.len(),
-        readback.len(),
+        compare.read_len,
         divergence.shape.as_str(),
         divergence.first_diff_offset,
         divergence.differing_bytes,
         divergence.len_delta,
         source::digest(written),
-        source::digest(&readback),
         reread_same,
         diff_head32,
     );
@@ -682,18 +762,24 @@ fn table_counts(view: ValueCheckedObjectView<'_>, kind: PortableObjectKind) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    fn divergence(written: &[u8], readback: &[u8]) -> Option<ReadbackDivergence> {
+        let compare = compare_stream(&mut Cursor::new(readback), written).expect("stream compare");
+        readback_divergence(compare, written.len() as u64)
+    }
 
     #[test]
     fn readback_divergence_is_none_for_identical_bytes() {
         assert!(
-            readback_divergence(b"abcde", b"abcde").is_none(),
+            divergence(b"abcde", b"abcde").is_none(),
             "identical bytes diverge"
         );
     }
 
     #[test]
     fn readback_divergence_classifies_truncated_tail() {
-        let divergence = readback_divergence(b"abcde", b"abc").expect("truncated tail diverges");
+        let divergence = divergence(b"abcde", b"abc").expect("truncated tail diverges");
         assert_eq!(divergence.shape, ReadbackShape::TruncatedTail, "shape");
         assert_eq!(divergence.first_diff_offset, None, "prefix intact");
         assert_eq!(divergence.differing_bytes, 0, "no prefix diff");
@@ -702,7 +788,7 @@ mod tests {
 
     #[test]
     fn readback_divergence_classifies_extended_tail() {
-        let divergence = readback_divergence(b"abc", b"abcde").expect("extended tail diverges");
+        let divergence = divergence(b"abc", b"abcde").expect("extended tail diverges");
         assert_eq!(divergence.shape, ReadbackShape::ExtendedTail, "shape");
         assert_eq!(divergence.first_diff_offset, None, "prefix intact");
         assert_eq!(divergence.differing_bytes, 0, "no prefix diff");
@@ -711,8 +797,7 @@ mod tests {
 
     #[test]
     fn readback_divergence_classifies_content_mismatch() {
-        let divergence =
-            readback_divergence(b"abcde", b"abXde").expect("content mismatch diverges");
+        let divergence = divergence(b"abcde", b"abXde").expect("content mismatch diverges");
         assert_eq!(divergence.shape, ReadbackShape::ContentMismatch, "shape");
         assert_eq!(divergence.first_diff_offset, Some(2), "first diff offset");
         assert_eq!(divergence.differing_bytes, 1, "one differing byte");
@@ -721,11 +806,44 @@ mod tests {
 
     #[test]
     fn readback_divergence_keeps_content_mismatch_when_length_also_differs() {
-        let divergence = readback_divergence(b"abcde", b"abX").expect("mixed divergence");
+        let divergence = divergence(b"abcde", b"abX").expect("mixed divergence");
         assert_eq!(divergence.shape, ReadbackShape::ContentMismatch, "shape");
         assert_eq!(divergence.first_diff_offset, Some(2), "first diff offset");
         assert_eq!(divergence.differing_bytes, 1, "one differing byte");
         assert_eq!(divergence.len_delta, -2, "len delta");
+    }
+
+    #[test]
+    fn compare_stream_locates_divergence_beyond_one_window() {
+        let mut written = vec![7_u8; 200_000];
+        written[150_000] = 8;
+        let mut readback = written.clone();
+        readback[150_000] = 9;
+        let compare =
+            compare_stream(&mut Cursor::new(&readback), &written).expect("stream compare");
+        assert_eq!(
+            compare.first_diff_offset,
+            Some(150_000),
+            "first diff offset"
+        );
+        assert_eq!(compare.differing_bytes, 1, "one differing byte");
+        assert_eq!(compare.read_len, 200_000, "read length");
+    }
+
+    #[test]
+    fn streams_equal_detects_divergence() {
+        assert!(
+            streams_equal(&mut &b"abcde"[..], &mut &b"abcde"[..]).expect("compare"),
+            "equal"
+        );
+        assert!(
+            !streams_equal(&mut &b"abcde"[..], &mut &b"abcdX"[..]).expect("compare"),
+            "differ"
+        );
+        assert!(
+            !streams_equal(&mut &b"abcde"[..], &mut &b"abcd"[..]).expect("compare"),
+            "length"
+        );
     }
 
     #[test]

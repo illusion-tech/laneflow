@@ -263,8 +263,9 @@ impl Artifacts {
 }
 
 /// 工件摘要失配现场探针（#794 症状③）：输出清单期望值与读回实际值的长度差、摘要
-/// 差异、读回头部 32 字节及二次回读稳定性，供判别写侧丢失或错位、读侧不稳定与位级
-/// 损坏。仅诊断输出：命中不改变 `Artifacts::load` 的失败语义与错误文案。
+/// 差异、读回头部 32 字节及二次回读稳定性；另输出全文件 64 等分块摘要，供仅 load
+/// 路径命中（写后回读干净、无内容参考）时与健康参考离线逐块对照定位失真块。
+/// 仅诊断输出：命中不改变 `Artifacts::load` 的失败语义与错误文案。
 fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readback: &[u8]) {
     let reread = fs::read(path).ok();
     let reread_same = reread.as_deref() == Some(readback);
@@ -279,5 +280,12 @@ fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readb
         &readback[..readback.len().min(32)],
         reread_same,
         reread_sha.as_deref().unwrap_or("unreadable"),
+    );
+    let block_count = 64_usize;
+    let block_len = readback.len().div_ceil(block_count).max(1);
+    let block_shas: Vec<String> = readback.chunks(block_len).map(sha256).collect();
+    eprintln!(
+        "[digest-probe] site=artifact-load name={name} block_len={block_len} block_shas={}",
+        block_shas.join(","),
     );
 }
