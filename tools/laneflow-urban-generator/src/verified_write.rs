@@ -80,8 +80,13 @@ pub struct VerifiedWrite {
 /// 写后读回校验与重写的失败。
 #[derive(Debug)]
 pub enum VerifiedWriteError {
-    /// 文件 I/O 失败；残件已尽力删除。
-    Io(io::Error),
+    /// 文件 I/O 失败。
+    Io {
+        /// 底层 I/O 错误。
+        error: io::Error,
+        /// 残件是否删除失败（可能残留于路径）。
+        residual: bool,
+    },
     /// 源缓冲在登记后被损坏（与登记摘要不符）：不重试，失败关闭。
     SourceCorrupted {
         /// 登记时刻摘要。
@@ -125,7 +130,11 @@ impl fmt::Display for VerifiedWriteError {
             }
         };
         match self {
-            Self::Io(error) => write!(formatter, "写入 I/O 失败：{error}"),
+            Self::Io { error, residual } => write!(
+                formatter,
+                "写入 I/O 失败：{error}{}",
+                residual_note(residual)
+            ),
             Self::SourceCorrupted {
                 registered,
                 actual,
@@ -162,7 +171,7 @@ impl fmt::Display for VerifiedWriteError {
 impl std::error::Error for VerifiedWriteError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
+            Self::Io { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -256,7 +265,7 @@ fn write_verified_with(
         let attempt = rewrites + 1;
         if let Err(error) = io.write_file(path, source) {
             remove_residual(io, path, &name, attempt, &mut residual);
-            return Err(VerifiedWriteError::Io(error));
+            return Err(VerifiedWriteError::Io { error, residual });
         }
         // 读回 A：写后立即，窗口流式，增量哈希 + 增量分歧统计。
         let mut first_hasher = Sha256::new();
@@ -268,7 +277,7 @@ fn write_verified_with(
         let first_sha: [u8; 32] = first_hasher.finalize().into();
         io.sync(path).map_err(|error| {
             remove_residual(io, path, &name, attempt, &mut residual);
-            VerifiedWriteError::Io(error)
+            VerifiedWriteError::Io { error, residual }
         })?;
         // 读回 B：flush 后独立重新打开，窗口流式，增量哈希 + 增量分歧统计
         // （分歧现场必须同时量到 B 路，否则指纹被 A-vs-源的全零统计掩盖）。
@@ -280,7 +289,9 @@ fn write_verified_with(
         })?;
         let second_sha: [u8; 32] = second_hasher.finalize().into();
         if first_sha != second_sha {
-            std::eprintln!(
+            // 清理先于诊断：探针输出不可用时也不阻断失败关闭路径。
+            remove_residual(io, path, &name, attempt, &mut residual);
+            emit_probe(format_args!(
                 "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} first_sha={} second_sha={} a_first_diff_offset={:?} a_differing_bytes={} a_len_delta={} b_first_diff_offset={:?} b_differing_bytes={} b_len_delta={} reason=divergent-readback action=fail-closed",
                 registration.hex(),
                 hex(&first_sha),
@@ -291,8 +302,7 @@ fn write_verified_with(
                 second_divergence.first_diff_offset,
                 second_divergence.differing_bytes(),
                 second_divergence.len_delta(),
-            );
-            remove_residual(io, path, &name, attempt, &mut residual);
+            ));
             return Err(VerifiedWriteError::ReadbackDivergent {
                 attempt,
                 first_sha: hex(&first_sha),
@@ -308,15 +318,15 @@ fn write_verified_with(
         } else {
             "retry"
         };
-        std::eprintln!(
+        remove_residual(io, path, &name, attempt, &mut residual);
+        emit_probe(format_args!(
             "[digest-probe] site=write-readback name={name} attempt={attempt} registered_sha={} readback_sha={} first_diff_offset={:?} differing_bytes={} len_delta={} reread_same=true reason=consistent-mismatch action={action}",
             registration.hex(),
             hex(&first_sha),
             first_divergence.first_diff_offset,
             first_divergence.differing_bytes(),
             first_divergence.len_delta(),
-        );
-        remove_residual(io, path, &name, attempt, &mut residual);
+        ));
         if rewrites >= policy.max_rewrites {
             return Err(VerifiedWriteError::ReadbackMismatch {
                 rewrites,
@@ -329,7 +339,15 @@ fn write_verified_with(
     }
 }
 
-/// 删除残件；删除失败经 `[digest-probe]` 现场行与 `residual` 标志显式上浮，不静默丢弃。
+/// 尽力输出探针现场行：stderr 不可写（如管道被读端关闭）时静默跳过，
+/// 诊断绝不 panic、不阻断失败关闭路径（#956 审阅）。
+fn emit_probe(line: std::fmt::Arguments<'_>) {
+    use std::io::Write as _;
+    let _ = io::stderr().write_fmt(format_args!("{line}\n"));
+}
+
+/// 删除残件并把结果写入 `residual`：删除失败经 `[digest-probe]` 现场行显式上浮，
+/// 不静默丢弃；删除成功则清除残留标记（状态以末次清理结果为准）。
 fn remove_residual(
     io: &dyn ArtifactIo,
     path: &Path,
@@ -337,11 +355,12 @@ fn remove_residual(
     attempt: u32,
     residual: &mut bool,
 ) {
-    if io.remove_file(path).is_err() && path.exists() {
-        *residual = true;
-        std::eprintln!(
+    let failed = io.remove_file(path).is_err() && path.exists();
+    *residual = failed;
+    if failed {
+        emit_probe(format_args!(
             "[digest-probe] site=write-readback name={name} attempt={attempt} reason=cleanup-failed action=fail-closed"
-        );
+        ));
     }
 }
 
@@ -355,7 +374,10 @@ fn stream_or_clean(
 ) -> Result<(), VerifiedWriteError> {
     io.stream_file(path, sink).map_err(|error| {
         remove_residual(io, path, name, attempt, residual);
-        VerifiedWriteError::Io(error)
+        VerifiedWriteError::Io {
+            error,
+            residual: *residual,
+        }
     })
 }
 
@@ -422,6 +444,7 @@ mod tests {
         corrupt_writes: Cell<u32>,
         corruption: Corruption,
         divergent_read_b: Cell<bool>,
+        fail_write: Cell<bool>,
         fail_remove: Cell<bool>,
         writes: Cell<u32>,
         streams: Cell<u32>,
@@ -433,6 +456,7 @@ mod tests {
                 corrupt_writes: Cell::new(0),
                 corruption,
                 divergent_read_b: Cell::new(false),
+                fail_write: Cell::new(false),
                 fail_remove: Cell::new(false),
                 writes: Cell::new(0),
                 streams: Cell::new(0),
@@ -443,6 +467,9 @@ mod tests {
     impl ArtifactIo for FaultyIo {
         fn write_file(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
             self.writes.set(self.writes.get() + 1);
+            if self.fail_write.get() {
+                return Err(io::Error::other("injected write failure"));
+            }
             let mut bytes = bytes.to_vec();
             if self.corrupt_writes.get() > 0 {
                 self.corrupt_writes.set(self.corrupt_writes.get() - 1);
@@ -668,5 +695,29 @@ mod tests {
             error.to_string().contains("残件删除失败"),
             "display stays honest"
         );
+    }
+
+    #[test]
+    fn io_error_reports_residual_when_cleanup_fails() {
+        let directory = tempdir().expect("tempdir");
+        let path = directory.path().join("artifact.bin");
+        fs::write(&path, b"stale bytes").expect("stale artifact");
+        let io = FaultyIo::new(Corruption::Truncate);
+        io.fail_write.set(true);
+        io.fail_remove.set(true);
+        let source = source();
+        let error = write_verified_with(
+            &io,
+            &path,
+            &source,
+            &SourceRegistration::of(&source),
+            WritePolicy::DEFAULT,
+        )
+        .expect_err("write failure");
+        assert!(
+            matches!(error, VerifiedWriteError::Io { residual: true, .. }),
+            "residual surfaced in io error"
+        );
+        assert!(path.exists(), "rejected bytes remain on disk");
     }
 }
