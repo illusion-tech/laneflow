@@ -106,6 +106,11 @@ fn sanitize_git_env(command: &mut Command) {
 /// git 来源读取：默认环境 + git 卫生；`--work-tree` 显式压住仓库本地 config 的
 /// core.worktree，cwd 之外被配置指向别的 checkout 时读取不跑题。
 fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
+    git_output_stdin(args, cwd, None)
+}
+
+/// 带 stdin 的 git 来源读取：批量 hash-object 等以 stdin 喂清单的调用走这里。
+fn git_output_stdin(args: &[&str], cwd: &Path, input: Option<&str>) -> Result<String, String> {
     let mut command = Command::new("git");
     command
         .arg("--work-tree")
@@ -120,7 +125,7 @@ fn git_output(args: &[&str], cwd: &Path) -> Result<String, String> {
             placeholder: "<worktree>",
         })
         .collect();
-    finish_output(command, "git", args, &roots)
+    finish_output(command, "git", args, &roots, input)
 }
 
 fn finish_output(
@@ -128,10 +133,31 @@ fn finish_output(
     program: &str,
     args: &[&str],
     roots: &[RemapRoot],
+    input: Option<&str>,
 ) -> Result<String, String> {
-    let output = command
-        .output()
-        .map_err(|e| format!("无法执行 {program}: {e}"))?;
+    let output = match input {
+        None => command
+            .output()
+            .map_err(|e| format!("无法执行 {program}: {e}"))?,
+        Some(input) => {
+            // 子进程边读边处理（hash-object --stdin-paths 逐行消费），
+            // 同步写入不会撑满管道。
+            command
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = command
+                .spawn()
+                .map_err(|e| format!("无法执行 {program}: {e}"))?;
+            let mut stdin = child.stdin.take().expect("stdin 已接管");
+            std::io::Write::write_all(&mut stdin, input.as_bytes())
+                .map_err(|e| format!("无法向 {program} 写入 stdin: {e}"))?;
+            drop(stdin);
+            child
+                .wait_with_output()
+                .map_err(|e| format!("无法等待 {program}: {e}"))?
+        }
+    };
     if !output.status.success() {
         // 失败日志可留存为证据：子进程 stderr 常带绝对路径（git fatal、cargo
         // 配置诊断），与正式构建失败日志同规则先脱敏再入错误串。
@@ -193,7 +219,7 @@ impl ToolEnv {
                 .map(move |from| RemapRoot { from, placeholder })
         })
         .collect();
-        finish_output(command, program, args, &roots)
+        finish_output(command, program, args, &roots, None)
     }
 }
 
@@ -675,6 +701,76 @@ fn write_receipt(path: &Path, value: &serde_json::Value) -> Result<(), String> {
         .map_err(|e| format!("回执必须写入新路径: {e}"))
 }
 
+/// `git ls-files -s -z` 的一条索引记录：`mode SP sha SP stage TAB path`。
+struct IndexEntry<'a> {
+    mode: &'a str,
+    blob: &'a str,
+    path: &'a str,
+}
+
+fn parse_index_entries(text: &str) -> Result<Vec<IndexEntry<'_>>, String> {
+    let mut entries = Vec::new();
+    for record in text.split('\0') {
+        if record.is_empty() {
+            continue;
+        }
+        let (meta, path) = record
+            .split_once('\t')
+            .ok_or("git ls-files 输出缺少 TAB 分隔")?;
+        let mut meta = meta.split(' ');
+        let mode = meta.next().ok_or("git ls-files 输出缺少 mode")?;
+        let blob = meta.next().ok_or("git ls-files 输出缺少 blob 摘要")?;
+        entries.push(IndexEntry { mode, blob, path });
+    }
+    Ok(entries)
+}
+
+/// 干净判定的字节层：gitattributes 的 text/eol 转换与 filter.clean 都会让
+/// status 在转换后的视图上判净（本仓库 `* text=auto eol=lf`，编辑器残留
+/// CRLF 即隐身），而 Cargo 编译的是工作树原始字节。`hash-object
+/// --no-filters` 绕过全部转换与过滤器，与索引 blob 逐文件比对；gitlink
+/// 无文件内容，跳过。
+fn check_tree_matches_index(repo: &Path) -> Result<(), String> {
+    let ls_files_s = git_output(&["ls-files", "-s", "-z"], repo)?;
+    let entries = parse_index_entries(&ls_files_s)?;
+    let mut paths = Vec::new();
+    let mut blobs = Vec::new();
+    for entry in &entries {
+        if entry.mode == "160000" {
+            continue;
+        }
+        if entry.path.contains('\n') {
+            return Err("文件名含换行，批量哈希不可判定；干净判定 fail closed".into());
+        }
+        paths.push(entry.path);
+        blobs.push(entry.blob);
+    }
+    let input = paths.join("\n");
+    let hashed = git_output_stdin(
+        &["hash-object", "--stdin-paths", "--no-filters"],
+        repo,
+        Some(&input),
+    )?;
+    let actuals: Vec<&str> = hashed.lines().collect();
+    if actuals.len() != paths.len() {
+        return Err("git hash-object 输出条数与索引不符；干净判定 fail closed".into());
+    }
+    let mismatched: Vec<&str> = actuals
+        .iter()
+        .zip(blobs.iter())
+        .zip(paths.iter())
+        .filter_map(|((actual, blob), path)| (actual != blob).then_some(*path))
+        .collect();
+    if !mismatched.is_empty() {
+        return Err(format!(
+            "工作树原始字节与索引 blob 不一致（{} 个文件，text/eol 或 filter 转换遮蔽）：{}；请以未转换字节重新检出",
+            mismatched.len(),
+            mismatched.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 /// `build-measurement [ --receipt <path> ] [ --evidence-root <dir> ] [ --extra-root <dir> ]...`
 pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     let mut receipt_path = None;
@@ -706,10 +802,11 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     check_cargo_config(&cargo_home, &repo)?;
     check_dependency_roots(&tool_env, &repo, &cargo_home)?;
     // 正式测量二进制必须来自干净 checkout：构建提交与树写入回执，运行侧
-    // provenance 在测量窗口两端复查干净状态。
-    // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all；
-    // skip-worktree/assume-unchanged 索引位让被改的 tracked 文件在 status
-    // 里隐身，ls-files -v 的小写标签或 S 即 fail closed。
+    // provenance 在测量窗口两端复查干净状态。干净判定三层互补：
+    // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all，抓
+    // 未跟踪/删除/真实编辑；skip-worktree/assume-unchanged 索引位让被改的
+    // tracked 文件在 status 里隐身，ls-files -v 的小写标签或 S 即 fail closed；
+    // text/eol 与 filter.clean 的转换遮蔽由字节层比对收口。
     let git_status =
         |repo: &Path| git_output(&["status", "--porcelain", "--untracked-files=all"], repo);
     let source_commit = git_output(&["rev-parse", "HEAD"], &repo)?;
@@ -724,6 +821,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     {
         return Err("检出含 skip-worktree/assume-unchanged 条目；干净判定不可信".into());
     }
+    check_tree_matches_index(&repo)?;
 
     // 唯一映射表：实际 flag 与归一化记录同源于此，二者不可能漂移。
     // 每个逻辑根登记词法与规范两种拼写（共模失效闭合）；归一化记录仍按三个
@@ -884,13 +982,15 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         "binary": scan["binary"].clone(),
         "scan": scan,
     });
-    // 构建与扫描完成后复核源码树未漂移（构建期间的改动不得进入已封存二进制）。
+    // 构建与扫描完成后复核源码树未漂移（构建期间的改动不得进入已封存二进制）；
+    // 字节层比对同构建前口径。
     if git_output(&["rev-parse", "HEAD"], &repo)? != source_commit
         || git_output(&["rev-parse", "HEAD^{tree}"], &repo)? != source_tree
         || !git_status(&repo)?.is_empty()
     {
         return Err("构建期间源码树发生漂移；回执未写出".into());
     }
+    check_tree_matches_index(&repo)?;
     write_receipt(&receipt_path, &receipt)?;
     // 控制台输出遵循占位符约定：路径一律以 <worktree> 形式出现。
     let display = display_placeholder(&repo, &receipt_path);
@@ -1061,6 +1161,18 @@ mod tests {
             "日志 <u> 失败"
         );
         assert_eq!(replace_ascii_ci("无命中", "x:\\y", "<p>"), "无命中");
+    }
+
+    #[test]
+    fn parse_index_entries_reads_ls_files_z_records() {
+        let text = "100644 abc123 0\tcrates/x/src/lib.rs\x00160644 def456 0\tREADME.md\x00";
+        let entries = parse_index_entries(text).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].mode, "100644");
+        assert_eq!(entries[0].blob, "abc123");
+        assert_eq!(entries[0].path, "crates/x/src/lib.rs");
+        assert_eq!(entries[1].path, "README.md");
+        assert!(parse_index_entries("100644 abc123 0\n").is_err());
     }
 
     #[test]
