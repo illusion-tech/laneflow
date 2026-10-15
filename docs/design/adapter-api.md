@@ -4,7 +4,7 @@
 
 **最后更新**: 2026-08-31（#541 typed parking lifecycle）
 
-**适用范围**: 交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
+**适用范围**: 交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 `bevy-reference-adapter.md`
 
 **关联文档**:
 

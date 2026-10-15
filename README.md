@@ -50,7 +50,7 @@ cargo +1.98.0 test --workspace --locked
 | 静态路网工具链     | 编译并检查 LFCA，构建可跨世界共享的 `SharedNetworkRevision`   |
 | Traffic Runtime    | 固定步进推进跟驰与信号；停车状态转换由宿主命令驱动            |
 | Spatial            | 可选地将规范进度采样为引擎无关位姿                            |
-| Reference Adapter  | 提供 Bevy 0.19 接入、无窗口测试与信号化走廊集成夹具           |
+| Reference Adapter  | 提供 Bevy 0.20 接入、无窗口测试与信号化走廊集成夹具           |
 | Reference Scenario | 提供 catalog 0.4 与 prepare 绑定；要求显式 `policy_selection` |
 
 宿主负责交通需求、出发计划、路线选择策略，以及引擎生命周期与最终表现。
@@ -78,7 +78,7 @@ SharedNetworkRevision
 ## 当前边界
 
 - 当前唯一可运行特化是道路机动车。
-- 当前唯一已交付 Adapter 是 Bevy 0.19 Reference Adapter。
+- 当前唯一已交付 Adapter 是 Bevy 0.20 Reference Adapter。
 - 原生示例是集成验证壳，不是完成的可视化演示。
 - LaneFlow 不内置交通需求、路线选择或专业交通工程分析。
 
