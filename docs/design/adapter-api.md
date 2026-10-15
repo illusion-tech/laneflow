@@ -61,7 +61,9 @@
 宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
 `Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受该
-根 `Arc`，**不**从 Runtime 发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
+根 `Arc`（完整性开启时为共享根绑定聚合：根 `Arc` + 共享根完整性租约 + 构建方旁车
+基线，#955 G1；租约显示根级失效时 `bind` 与位姿提取失败关闭），**不**从 Runtime
+发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
 同时持有 world 与 session 的 Adapter 必须 `Arc::ptr_eq`（或证明两者来自同一保留的根
 `Arc`）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
 或 LFCA table，不重建 Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决

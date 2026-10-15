@@ -190,6 +190,12 @@ pub struct SharedNetworkRevision {
 - component 的计数、typed handle/range 和批量 slice accessor。
 
 只有 `Arc<SharedNetworkRevision>` 是可独立保留、克隆和跨 worker 传递的共享所有权句柄。
+完整性开启时（#955 G1，见
+[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §3），跨边界的
+唯一句柄是**共享根绑定聚合**：`Arc<SharedNetworkRevision>` + 共享根完整性租约 +
+构建方旁车基线；`install` / `SpatialSession::bind` 以聚合为准，不得存在只传根、拿不到
+租约的第二条绑定路径。根本体语义不变——component 仍由根直接拥有，租约与旁车是根外
+对象，不构成 component、不进入根 payload。
 component 由根直接拥有；公共 accessor 只返回绑定根生命周期的共享借用，不返回 component
 `Arc`、owned component 或可重新组合的 token。component 不公开构造器或 `Clone`，调用方因此
 不能替换单个 component、延长单个 component 的所有权、修改数组或构造跨修订组合。若异步
@@ -345,13 +351,17 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 
 ## 8. 所有权、并发与切换接口
 
-一个 world 保存 `Arc<SharedNetworkRevision>`；Runtime worker 在 tick 开始前取得该修订的
+一个 world 保存共享根绑定聚合（#955 G1：`Arc<SharedNetworkRevision>` + 共享根完整性
+租约 + 构建方旁车基线句柄；租约恒定存在，校验关闭配置下为空操作）；Runtime worker 在
+tick 开始前取得该修订的
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
 该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。旧 snapshot 可以继续完成在途
 读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根，不能与新根的 component 配对。
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
-和执行计划全部 per world。
+和执行计划全部 per world。共享根完整性租约是**根外对象**，持有受保护的根级失效
+（poison）标记（双副本），供全部绑定消费者（世界与 Spatial）在读取 / 步进 / 位姿提取前
+核对；它不属于 component、不进入根 payload，也不给根本体引入可变性。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
 对象，并暴露：
@@ -441,7 +451,9 @@ kernel 冒充当前证据。
 - 发布构建的 LFCA + candidate arrays + scratch，以及可编辑切换的 current root + retained
   base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
-- 2/8/32 worlds 的新增 shared-control bytes；
+- 2/8/32 worlds 的新增 shared-control bytes；完整性开启时另报共享根旁车基线
+  （O(段数)，N 世界共享一份）与完整性租约（每根 O(1) 含双副本）的 retained bytes
+  随 2/8/32 worlds 的变化（#955 §6 账本口径）；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
 结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；
