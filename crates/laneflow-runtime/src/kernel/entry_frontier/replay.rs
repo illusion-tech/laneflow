@@ -1434,6 +1434,64 @@ mod tests {
         }
     }
 
+    /// 证明的每个绑定输入都必须逐项相同，拍号必须落在证明区间内。
+    #[test]
+    fn zero_proof_requires_every_bound_input() {
+        let (mut world, _) = cached_world(1);
+        let vehicle = world.state.committed.live_order[0];
+        let state = world.vehicle(vehicle).unwrap();
+        let proof = ZeroProof {
+            from_tick: 10,
+            wake_tick: 20,
+            position: (&state).into(),
+            speed_mm_s: state.speed_mm_s,
+            profile: state.profile,
+            reserved: false,
+            horizon_ms: 5_000,
+        };
+        let maintenance = &mut world.state.workspace.frontier_maintenance;
+        maintenance.set_proof(vehicle, Some(proof));
+        let holds = |maintenance: &FrontierMaintenance,
+                     state: &crate::VehicleState,
+                     reserved: bool,
+                     tick: u64,
+                     horizon: u64| {
+            maintenance.proof_holds(vehicle.index(), state, reserved, tick, horizon)
+        };
+        assert!(holds(maintenance, &state, false, 10, 5_000));
+        assert!(holds(maintenance, &state, false, 19, 5_000));
+        assert!(
+            !holds(maintenance, &state, false, 9, 5_000),
+            "time went back"
+        );
+        assert!(
+            !holds(maintenance, &state, false, 20, 5_000),
+            "wake tick re-evaluates"
+        );
+        assert!(!holds(maintenance, &state, true, 12, 5_000), "reservation");
+        assert!(!holds(maintenance, &state, false, 12, 4_999), "horizon");
+        let changed = |edit: &dyn Fn(&mut crate::VehicleState)| {
+            let mut changed = state;
+            edit(&mut changed);
+            changed
+        };
+        for (name, other) in [
+            ("progress", changed(&|state| state.progress_mm += 1)),
+            ("carry", changed(&|state| state.carry_um += 1)),
+            ("edge", changed(&|state| state.route_edge_index += 1)),
+            ("speed", changed(&|state| state.speed_mm_s += 1)),
+            (
+                "profile",
+                changed(&|state| state.profile = VehicleProfileOrdinal::from_raw(7)),
+            ),
+        ] {
+            assert!(!holds(maintenance, &other, false, 12, 5_000), "{name}");
+        }
+        // 重走或拆链接清掉证明。
+        maintenance.unlink(vehicle.index());
+        assert!(!holds(maintenance, &state, false, 12, 5_000));
+    }
+
     fn assert_matches_serial(
         reference: &mut TrafficWorld,
         pooled: &mut TrafficWorld,
