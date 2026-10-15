@@ -619,15 +619,48 @@ fn both_spellings(path: &Path) -> Vec<PathBuf> {
 
 /// 文本脱敏：把根目录的每种登记拼写（原生与 `/` 分隔符两种）替换为占位符。
 /// 正式构建失败日志与探测辅助的 stderr 共用同一实现，输出才可留存为证据。
+/// Windows 路径身份大小写不敏感（工具诊断的驱动器号/组件大小写可与注册根
+/// 分叉），替换按 ASCII 折叠大小写——与扫描针的 `ascii_lower` 折叠同级；
+/// 非 ASCII 的 Unicode 折叠出界。
 fn redact_roots(text: &str, roots: &[RemapRoot]) -> String {
     let mut out = text.to_owned();
     for root in roots {
         let from = root.from.to_string_lossy();
         let forward = from.replace('\\', "/");
-        out = out
-            .replace(from.as_ref(), root.placeholder)
-            .replace(&forward, root.placeholder);
+        out = replace_ascii_ci(&out, &from, root.placeholder);
+        if forward != from {
+            out = replace_ascii_ci(&out, &forward, root.placeholder);
+        }
     }
+    out
+}
+
+/// ASCII 大小写不敏感替换：命中区间取自原串，非路径文本（含非 ASCII）
+/// 原样保留；落在多字节字符内部的字节巧合命中跳过，不替换。
+fn replace_ascii_ci(haystack: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() {
+        return haystack.to_owned();
+    }
+    // to_ascii_lowercase 逐字节映射 A-Z，其余字节不动：折叠视图与原串
+    // 字节长度一致，命中区间可按字节位置切回原串。
+    let lowered = haystack.to_ascii_lowercase();
+    let needle = needle.to_ascii_lowercase();
+    let mut out = String::with_capacity(haystack.len());
+    let mut cursor = 0;
+    let mut search = 0;
+    while let Some(at) = lowered[search..].find(&needle) {
+        let start = search + at;
+        let end = start + needle.len();
+        if haystack.is_char_boundary(start) && haystack.is_char_boundary(end) {
+            out.push_str(&haystack[cursor..start]);
+            out.push_str(replacement);
+            cursor = end;
+            search = end;
+        } else {
+            search = start + 1;
+        }
+    }
+    out.push_str(&haystack[cursor..]);
     out
 }
 
@@ -1003,6 +1036,31 @@ mod tests {
             out,
             "fatal: cannot chdir to <worktree>; see <worktree>/config"
         );
+    }
+
+    #[test]
+    fn redact_roots_folds_ascii_case() {
+        let roots = vec![RemapRoot {
+            from: PathBuf::from("E:\\Work\\LaneFlow"),
+            placeholder: "<worktree>",
+        }];
+        // 工具诊断的大小写与注册根分叉（驱动器号/组件/8.3 短名）时仍须命中；
+        // 非路径文本原样保留。
+        let stderr = "fatal: e:\\work\\laneflow broken; E:/WORK/LANEFLOW missing; keep E:x literal";
+        let out = redact_roots(stderr, &roots);
+        assert_eq!(
+            out,
+            "fatal: <worktree> broken; <worktree> missing; keep E:x literal"
+        );
+    }
+
+    #[test]
+    fn replace_ascii_ci_preserves_non_path_text_and_utf8() {
+        assert_eq!(
+            replace_ascii_ci("日志 C:\\users\\ynh2 失败", "c:\\Users\\YNH2", "<u>"),
+            "日志 <u> 失败"
+        );
+        assert_eq!(replace_ascii_ci("无命中", "x:\\y", "<p>"), "无命中");
     }
 
     #[test]
