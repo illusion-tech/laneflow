@@ -1,9 +1,10 @@
 use std::alloc::System;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Instant;
+
+use crate::verified_write;
 
 use laneflow_compiler::{
     CompilationOutput, CompileLimits, PortableDiffBase, PortableEmissionProvenance,
@@ -18,7 +19,6 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use stats_alloc::{Stats, StatsAlloc};
 
 use crate::{
@@ -457,12 +457,23 @@ pub fn generate(
         parking_capacity_by_tile: catalog.parking_capacity_by_tile,
         checks,
     };
-    fs::write(
-        directory.join("manifest.toml"),
-        toml::to_string_pretty(&manifest)?,
-    )?;
-    fs::write(directory.join("measurements.toml"),toml::to_string_pretty(&Measurements {phases:recorder.phases,
-        memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared-root logical bytes are reported separately in manifest.".into()})?)?;
+    let manifest_bytes = toml::to_string_pretty(&manifest)?;
+    verified_write::write_verified(
+        &directory.join("manifest.toml"),
+        manifest_bytes.as_bytes(),
+        &verified_write::SourceRegistration::of(manifest_bytes.as_bytes()),
+        verified_write::WritePolicy::DEFAULT,
+    )
+    .map_err(|error| validation("write-readback", error))?;
+    let measurements_bytes = toml::to_string_pretty(&Measurements {phases:recorder.phases,
+        memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared-root logical bytes are reported separately in manifest.".into()})?;
+    verified_write::write_verified(
+        &directory.join("measurements.toml"),
+        measurements_bytes.as_bytes(),
+        &verified_write::SourceRegistration::of(measurements_bytes.as_bytes()),
+        verified_write::WritePolicy::DEFAULT,
+    )
+    .map_err(|error| validation("write-readback", error))?;
     Ok(manifest)
 }
 
@@ -487,8 +498,14 @@ fn write(
     files: &mut BTreeMap<String, FileDigest>,
 ) -> Result<()> {
     let path = directory.join(name);
-    fs::write(&path, bytes)?;
-    probe_write_readback(&path, name, bytes);
+    // 写前冻结登记摘要；写后读回校验、有界重写、耗尽删残件（#954）。
+    verified_write::write_verified(
+        &path,
+        bytes,
+        &verified_write::SourceRegistration::of(bytes),
+        verified_write::WritePolicy::DEFAULT,
+    )
+    .map_err(|error| validation("write-readback", error))?;
     files.insert(
         name.into(),
         FileDigest {
@@ -497,173 +514,6 @@ fn write(
         },
     );
     Ok(())
-}
-
-/// 写后回读分歧形态（#794 症状③ 取证分类）。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ReadbackShape {
-    /// 回读是写入内容的严格前缀：尾部字节丢失。
-    TruncatedTail,
-    /// 写入内容是回读的严格前缀：尾部多出字节。
-    ExtendedTail,
-    /// 公共前缀内存在分歧字节：内容错位或损坏。
-    ContentMismatch,
-}
-
-impl ReadbackShape {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::TruncatedTail => "truncated-tail",
-            Self::ExtendedTail => "extended-tail",
-            Self::ContentMismatch => "content-mismatch",
-        }
-    }
-}
-
-/// 写后回读与写入字节的分歧现场。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ReadbackDivergence {
-    shape: ReadbackShape,
-    /// 公共前缀内首个分歧字节偏移；公共前缀完整一致时为 `None`。
-    first_diff_offset: Option<usize>,
-    /// 公共前缀内分歧字节数。
-    differing_bytes: usize,
-    /// 回读长度减写入长度。
-    len_delta: i64,
-}
-
-/// 流式回读比对统计量（不整体持有回读内容）。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct StreamCompare {
-    /// 公共前缀内首个分歧字节偏移；公共前缀完整一致时为 `None`。
-    first_diff_offset: Option<usize>,
-    /// 公共前缀内分歧字节数。
-    differing_bytes: usize,
-    /// 回读到的总字节数。
-    read_len: u64,
-    /// 回读内容摘要：留作首次观测锚点，供跨次读回一致性判定
-    /// （区分稳定损坏 / 首读瞬时失真 / 内容游移，#953 审阅）。
-    digest: [u8; 32],
-}
-
-/// 以 64 KiB 窗口把 `reader` 与 `written` 逐字节对照并累计回读摘要；内存占用与
-/// 文件大小无关（工件可达数百 MiB，禁止整体持有回读副本，#953 审阅）。
-fn compare_stream<R: Read>(reader: &mut R, written: &[u8]) -> std::io::Result<StreamCompare> {
-    const WINDOW: usize = 64 * 1024;
-    let mut window = [0_u8; WINDOW];
-    let mut hasher = Sha256::new();
-    let mut offset = 0_usize;
-    let mut first_diff_offset = None;
-    let mut differing_bytes = 0_usize;
-    loop {
-        let read = reader.read(&mut window)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&window[..read]);
-        for (index, byte) in window[..read].iter().enumerate() {
-            let index = offset + index;
-            if index < written.len() && written[index] != *byte {
-                differing_bytes += 1;
-                first_diff_offset.get_or_insert(index);
-            }
-        }
-        offset += read;
-    }
-    Ok(StreamCompare {
-        first_diff_offset,
-        differing_bytes,
-        read_len: offset as u64,
-        digest: hasher.finalize().into(),
-    })
-}
-
-/// 由流式比对统计量构造分歧现场；完全一致时返回 `None`。
-fn readback_divergence(compare: StreamCompare, written_len: u64) -> Option<ReadbackDivergence> {
-    let len_delta = compare.read_len as i64 - written_len as i64;
-    if compare.first_diff_offset.is_none() && len_delta == 0 {
-        return None;
-    }
-    let shape = match (compare.first_diff_offset, len_delta) {
-        (None, ..) if len_delta < 0 => ReadbackShape::TruncatedTail,
-        (None, ..) => ReadbackShape::ExtendedTail,
-        (Some(_), _) => ReadbackShape::ContentMismatch,
-    };
-    Some(ReadbackDivergence {
-        shape,
-        first_diff_offset: compare.first_diff_offset,
-        differing_bytes: compare.differing_bytes,
-        len_delta,
-    })
-}
-
-/// 读满 `buffer` 或到 EOF，返回实际读取字节数。
-fn fill(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> {
-    let mut filled = 0_usize;
-    while filled < buffer.len() {
-        match reader.read(&mut buffer[filled..])? {
-            0 => break,
-            read => filled += read,
-        }
-    }
-    Ok(filled)
-}
-
-/// 写后回读裁决探针（#794 症状③）：`fs::write` 之后立即流式回读逐字节对照，分歧时
-/// 输出首个分歧偏移、分歧形态、长度差、写入摘要及二次回读对照，供
-/// `artifact digest mismatch` / `DigestMismatch` 现场判别写侧丢失或错位、读侧不稳定
-/// 与位级损坏。仅诊断输出：命中前零日志，命中不改变 `write` 的成功/失败语义；
-/// 对照、摘要与二次回读全部限界内存，失真现场细节只在命中后取回。二次回读同时
-/// 对照写入内容与首次观测摘要：`reread_same=false` 且 `reread_matches_written=true`
-/// 为首读瞬时失真（读侧不稳定），两者皆 false 为内容游移，`reread_same=true` 且
-/// `reread_matches_written=false` 为落盘稳定损坏。
-fn probe_write_readback(path: &Path, name: &str, written: &[u8]) {
-    let mut file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) => {
-            eprintln!("[digest-probe] site=write-readback name={name} read-error={error}");
-            return;
-        }
-    };
-    let first = match compare_stream(&mut file, written) {
-        Ok(compare) => compare,
-        Err(error) => {
-            eprintln!("[digest-probe] site=write-readback name={name} read-error={error}");
-            return;
-        }
-    };
-    let Some(divergence) = readback_divergence(first, written.len() as u64) else {
-        return;
-    };
-    let mut diff_head32 = None;
-    if let Some(offset) = divergence.first_diff_offset
-        && file.seek(SeekFrom::Start(offset as u64)).is_ok()
-    {
-        let mut head = [0_u8; 32];
-        let filled = fill(&mut file, &mut head).unwrap_or(0);
-        diff_head32 = Some(head[..filled].to_vec());
-    }
-    let reread = fs::File::open(path).and_then(|mut reread| compare_stream(&mut reread, written));
-    let (reread_same, reread_matches_written) = match reread {
-        Ok(reread) => (
-            reread.digest == first.digest,
-            readback_divergence(reread, written.len() as u64).is_none(),
-        ),
-        Err(_) => (false, false),
-    };
-    eprintln!(
-        "[digest-probe] site=write-readback name={name} written_bytes={} readback_bytes={} shape={} first_diff_offset={:?} differing_bytes={} len_delta={} written_sha={} reread_same={} reread_matches_written={} diff_head32={:02x?}",
-        written.len(),
-        first.read_len,
-        divergence.shape.as_str(),
-        divergence.first_diff_offset,
-        divergence.differing_bytes,
-        divergence.len_delta,
-        source::digest(written),
-        reread_same,
-        reread_matches_written,
-        diff_head32,
-    );
 }
 
 fn lir_counts(output: &CompilationOutput) -> BTreeMap<String, u64> {
@@ -753,102 +603,4 @@ fn table_counts(view: ValueCheckedObjectView<'_>, kind: PortableObjectKind) -> V
         }
     }
     output
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    fn divergence(written: &[u8], readback: &[u8]) -> Option<ReadbackDivergence> {
-        let compare = compare_stream(&mut Cursor::new(readback), written).expect("stream compare");
-        readback_divergence(compare, written.len() as u64)
-    }
-
-    #[test]
-    fn readback_divergence_is_none_for_identical_bytes() {
-        assert!(
-            divergence(b"abcde", b"abcde").is_none(),
-            "identical bytes diverge"
-        );
-    }
-
-    #[test]
-    fn readback_divergence_classifies_truncated_tail() {
-        let divergence = divergence(b"abcde", b"abc").expect("truncated tail diverges");
-        assert_eq!(divergence.shape, ReadbackShape::TruncatedTail, "shape");
-        assert_eq!(divergence.first_diff_offset, None, "prefix intact");
-        assert_eq!(divergence.differing_bytes, 0, "no prefix diff");
-        assert_eq!(divergence.len_delta, -2, "len delta");
-    }
-
-    #[test]
-    fn readback_divergence_classifies_extended_tail() {
-        let divergence = divergence(b"abc", b"abcde").expect("extended tail diverges");
-        assert_eq!(divergence.shape, ReadbackShape::ExtendedTail, "shape");
-        assert_eq!(divergence.first_diff_offset, None, "prefix intact");
-        assert_eq!(divergence.differing_bytes, 0, "no prefix diff");
-        assert_eq!(divergence.len_delta, 2, "len delta");
-    }
-
-    #[test]
-    fn readback_divergence_classifies_content_mismatch() {
-        let divergence = divergence(b"abcde", b"abXde").expect("content mismatch diverges");
-        assert_eq!(divergence.shape, ReadbackShape::ContentMismatch, "shape");
-        assert_eq!(divergence.first_diff_offset, Some(2), "first diff offset");
-        assert_eq!(divergence.differing_bytes, 1, "one differing byte");
-        assert_eq!(divergence.len_delta, 0, "len delta");
-    }
-
-    #[test]
-    fn readback_divergence_keeps_content_mismatch_when_length_also_differs() {
-        let divergence = divergence(b"abcde", b"abX").expect("mixed divergence");
-        assert_eq!(divergence.shape, ReadbackShape::ContentMismatch, "shape");
-        assert_eq!(divergence.first_diff_offset, Some(2), "first diff offset");
-        assert_eq!(divergence.differing_bytes, 1, "one differing byte");
-        assert_eq!(divergence.len_delta, -2, "len delta");
-    }
-
-    #[test]
-    fn compare_stream_locates_divergence_beyond_one_window() {
-        let mut written = vec![7_u8; 200_000];
-        written[150_000] = 8;
-        let mut readback = written.clone();
-        readback[150_000] = 9;
-        let compare =
-            compare_stream(&mut Cursor::new(&readback), &written).expect("stream compare");
-        assert_eq!(
-            compare.first_diff_offset,
-            Some(150_000),
-            "first diff offset"
-        );
-        assert_eq!(compare.differing_bytes, 1, "one differing byte");
-        assert_eq!(compare.read_len, 200_000, "read length");
-    }
-
-    #[test]
-    fn compare_stream_digest_matches_content_digest() {
-        let compare = compare_stream(&mut Cursor::new(b"abcde"), b"abcde").expect("stream compare");
-        let expected: [u8; 32] = Sha256::digest(b"abcde").into();
-        assert_eq!(compare.digest, expected, "digest");
-    }
-
-    #[test]
-    fn readback_shape_labels_are_stable() {
-        assert_eq!(
-            ReadbackShape::TruncatedTail.as_str(),
-            "truncated-tail",
-            "label"
-        );
-        assert_eq!(
-            ReadbackShape::ExtendedTail.as_str(),
-            "extended-tail",
-            "label"
-        );
-        assert_eq!(
-            ReadbackShape::ContentMismatch.as_str(),
-            "content-mismatch",
-            "label"
-        );
-    }
 }

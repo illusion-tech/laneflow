@@ -13,6 +13,7 @@ use std::{
 };
 
 use laneflow_runtime::*;
+use laneflow_urban_generator::verified_write;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -198,8 +199,19 @@ pub(crate) fn write_save(
     let encode_ns = elapsed_ns(started);
     let started = Instant::now();
     fs::create_dir(&partial)?;
-    fs::write(partial.join(WORLD_FILE), &world)?;
-    fs::write(partial.join(CALLER_FILE), &caller)?;
+    // 写后读回校验、有界重写、耗尽删残件（#954）；rename 是发布边界，其前全部校验完成。
+    let write_verified = |path: std::path::PathBuf, bytes: &[u8]| -> Result<()> {
+        verified_write::write_verified(
+            &path,
+            bytes,
+            &verified_write::SourceRegistration::of(bytes),
+            verified_write::WritePolicy::DEFAULT,
+        )
+        .map(|_| ())
+        .map_err(|error| invalid(format!("save write-readback: {error}")))
+    };
+    write_verified(partial.join(WORLD_FILE), &world)?;
+    write_verified(partial.join(CALLER_FILE), &caller)?;
     let manifest = SaveManifest {
         version: SAVE_VERSION.into(),
         tick,
@@ -218,7 +230,7 @@ pub(crate) fn write_save(
         artifact_files: harness.artifacts.files.clone(),
     };
     let manifest_bytes = toml::to_string_pretty(&manifest)?.into_bytes();
-    fs::write(partial.join(MANIFEST_FILE), &manifest_bytes)?;
+    write_verified(partial.join(MANIFEST_FILE), &manifest_bytes)?;
     fs::rename(&partial, &target)?;
     let write_ns = elapsed_ns(started);
     Ok((
