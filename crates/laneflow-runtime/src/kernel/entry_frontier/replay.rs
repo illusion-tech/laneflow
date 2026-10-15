@@ -95,8 +95,9 @@ pub(crate) struct ReplayScratch {
     /// 各计算分段把本段发出项的位置紧凑写在本段区间开头；按 cell 分段插入与
     /// 脏 cell 登记只读这些位置，不扫描未发出项。
     emitted_positions: Vec<u32>,
-    /// 与 `rows` 对齐：本拍零贡献的行建立的证明；完整消费后写回槽位。
-    proofs: Vec<Option<ZeroProof>>,
+    /// 与 `rows` 对齐：完整消费后要写回槽位的证明。外层 `None` 表示槽位不必改动
+    /// （没有新证明，原来也没有证明），协调器只写需要改动的槽位。
+    proofs: Vec<Option<Option<ZeroProof>>>,
     #[cfg(test)]
     fail_reserve: u8,
 }
@@ -228,9 +229,11 @@ pub(super) fn demanded(
     consume(step, scratch, computed, resources)?;
     // 完整消费后才写回证明；发出过的行清掉旧证明。
     for (row, proof) in scratch.rows.iter().zip(&scratch.proofs) {
-        step.workspace
-            .frontier_maintenance
-            .set_proof(row.input.vehicle, *proof);
+        if let Some(proof) = *proof {
+            step.workspace
+                .frontier_maintenance
+                .set_proof(row.input.vehicle, proof);
+        }
     }
     selected
 }
@@ -466,7 +469,7 @@ fn compute(
         cell_indices: &'a mut [u32],
         owners: &'a mut [(VehicleHandle, u32)],
         positions: &'a mut [u32],
-        proofs: &'a mut [Option<ZeroProof>],
+        proofs: &'a mut [Option<Option<ZeroProof>>],
         base: usize,
         emitted: usize,
         valid: bool,
@@ -526,7 +529,8 @@ fn compute(
             let owner = (row.input.vehicle, row.input.sequence);
             let row_start = part.base + offset;
             offset += row.cells;
-            let cells = &maintenance.slots[row.input.vehicle.index() as usize].cells;
+            let slot = &maintenance.slots[row.input.vehicle.index() as usize];
+            let cells = &slot.cells;
             let positions = &mut *part.positions;
             let emitted_before = part.emitted;
             let emitted = &mut part.emitted;
@@ -572,7 +576,7 @@ fn compute(
                 }
                 Ok(()) => None,
             };
-            part.proofs[index] = proof;
+            part.proofs[index] = (proof.is_some() || slot.proof.is_some()).then_some(proof);
         }
         #[cfg(test)]
         {
@@ -1842,7 +1846,7 @@ mod tests {
                         + scratch.cell_indices.capacity() * size_of::<u32>()
                         + scratch.owners.capacity() * size_of::<(VehicleHandle, u32)>()
                         + scratch.emitted_positions.capacity() * size_of::<u32>()
-                        + scratch.proofs.capacity() * size_of::<Option<ZeroProof>>())
+                        + scratch.proofs.capacity() * size_of::<Option<Option<ZeroProof>>>())
                         as u64
                 );
                 assert!(bytes > 0);
