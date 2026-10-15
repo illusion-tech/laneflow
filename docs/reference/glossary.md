@@ -580,7 +580,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 ### 7.6 运行时状态完整性与失真处置
 
 下列术语供 [运行时状态完整性校验与失真恢复（Accepted，#955 G1）](../design/traffic-runtime-state-integrity.md)
-与 [ADR 0031](../adr/0031-runtime-state-integrity-and-distortion-disposition-authority.md)
+与 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)
 使用。术语登记不证明校验能力已实现；恢复处置权威始终归宿主。
 
 | 中文规范术语   | 英文辅助名 / 精确标识符           | 中文规范含义                                                                                                                     |
@@ -595,7 +595,8 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 检测滞后上限   | maximum detection lag             | 从失真发生到校验结论产出的最大延迟合同值，由逻辑对拍间隔与物理轮转周期导出；校验不得以无限延迟形态存在。                         |
 | 漏检面         | missed-detection surface          | 显式声明的不可检集合：自愈性覆盖、tick 内工作区失真、未覆盖面（代码页/栈/宿主内存/设备内存）、登记表三层同击中、登记即错。      |
 | 失真指纹       | distortion fingerprint            | 失配现场的形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。           |
-| 校验窗         | verification window               | committed-state barrier 之外执行校验与期望值登记的拍后时间窗；不进入 P0–P8 任何阶段，不改变首错、事件与提交语义。                |
+| 校验窗         | verification window               | 宿主每 tick 链上的显式同步操作（`step` 返回后、输出交付前），执行校验、期望值登记与输出批次放行；不进入 P0–P8 任何阶段，不改变首错、事件与提交语义。 |
+| 根级失效       | shared-root poison                | 共享静态根失配触发的失效标记，传播给全部绑定消费者（所有世界与 Spatial）：任一消费者下次读取 / 步进 / 位姿提取前核对并失败关闭；处置只能是根重建。 |
 | 检查点锚       | checkpoint anchor                 | 检查点三元组 `(command_cursor, tick, deterministic_state_digest)` 在完整性维度的持久角色：宿主持久、Runtime 登记核对。          |
 | 判因           | distortion attribution            | 失配归因结论（逻辑对象 / 物理-热表 / 物理-工作区 / 物理-共享静态根 / 登记表 / 无法判因）；允许「无法判因」，不承诺唯一根因。     |
 
