@@ -94,7 +94,7 @@ Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `
 一致；根 `Arc::ptr_eq` 为必要条件），失败为 `RevisionMismatch`。完整性开启时（#955
 G1）校验窗是 `step` 之后、位姿提取 / 发布之前的**必经**操作（成功与失败尝试皆然）；
 其终止性结论经 `LaneFlowSession` 传播为 session 级终止——停止位姿提取与宿主发布，
-未放行的待决结果不进入提取 / 发布。
+未放行的待决结果不进入提取 / 发布；提取与发布全程持有**租约守卫**（#955 G1）。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
 `reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /

@@ -158,9 +158,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   `EditableDiffBase` 不入档。候选准备期的保存仍只捕获旧聚合（切换文档 §8）。
 - **保存的完整性门控（#955 G1，见
   [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.5）**：
-  `save_lfrs` 以**被序列化精确状态序列的完整性校验放行**为门控（或返回不透明待决
-  快照、放行后方可持久）；检出前的坏状态不得固化为检查点——坏检查点会在日后恢复时
-  成为「新可信基准」，粘滞失败收不回已持久制品。
+  门控作用于真实保存路径 `capture_snapshot` → `encode_lfrs(&CapturedSnapshot)`——
+  `capture_snapshot` 返回的 `CapturedSnapshot` 是**待决快照**，放行前不可
+  `encode_lfrs` / 不可持久（或 capture 以前置校验放行为条件）；`encode_lfrs` 只接受
+  已放行快照。检出前的坏状态不得固化为检查点——坏检查点会在日后恢复时成为
+  「新可信基准」，粘滞失败收不回已持久制品。
 - **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
   editable 从 committed `RoadEditingState` 重编译，published 经
   `PublishedLfcaReference` 重新认证。同修订判据 = `NetworkRevisionId` +
@@ -304,8 +306,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   不自动纠偏、不重启世界，处置归宿主。
 - **完整性接缝（#955 G1，见
   [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md)）**：
-  检查点三元组同时是完整性期望值的持久锚——宿主持久检查点锚，Runtime 在校验窗登记
-  同值锚并核对，分歧即校验过程不可信。完整性失配（页级内存失真检出）与失同步共用
+  检查点三元组同时是完整性期望值的持久锚——宿主持久检查点锚；检查点锚**随提交边界
+  原子发布登记**（与期望值同源发布，不在校验窗内登记），校验窗只**比对**锚，分歧即
+  校验过程不可信。完整性失配（页级内存失真检出）与失同步共用
   同一处置权威（归宿主），但停机语义不同：失同步状态仍是合法确定性状态，只诊断不停
   机；完整性失配的状态可信度已被破坏，Runtime **失败关闭**（停止推进、不自动纠偏 /
   回滚 / 重演 / 重启），宿主按检查点 + 输入命令序列处置。共享静态根不在 C(T) 内
