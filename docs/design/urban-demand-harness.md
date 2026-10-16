@@ -515,7 +515,7 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 
 | 文件          | 内容                                                                        |
 | ------------- | --------------------------------------------------------------------------- |
-| `world.lfrs`  | 第 T 拍提交后的 `encode_lfrs(capture_snapshot())`                           |
+| `world.lfrs`  | 第 T 拍提交后经校验窗放行的 `encode_lfrs(capture_snapshot())`（放行前不可 encode，#955 G1）      |
 | `caller.json` | 宿主耐久状态，载荷 `urban-save-caller-v1`                                   |
 | `save.toml`   | 清单 `urban-save-v1`：身份绑定、两份文件的字节数与 SHA-256、第 T 拍的核对值 |
 

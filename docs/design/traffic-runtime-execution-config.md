@@ -88,7 +88,8 @@ pub fn restore_lfrs(
 worker 1–16，请求更大 worker 数须返回执行能力错误；类型可表达不代表任意数量
 可执行。首版不增加猜测性 `Default`、旧构造器、弃用别名或转换入口。
 
-`step(&mut self, TickInput) -> Result<StepOutcome, StepError>` 保持同步；返回前完成
+`step(&mut self, TickInput) -> Result<PendingStepOutcome, StepError>`（#955 G1 起返回
+类型包为不透明待决结果）保持同步；返回前完成
 本次所有任务的 join。生命周期命令、观测和 Routing 仍消费完整已提交世界，Adapter
 不接收分区身份。宿主调用点须传执行配置，但不因此改变表现层数据协议。生命周期命令
 走到重叠检查或占用索引重建点时，可以借执行资源并行备好派生占用索引与生成重叠

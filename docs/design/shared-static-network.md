@@ -358,7 +358,7 @@ tick 开始前取得该修订的
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
 该根 `Arc` 的修订绑定只读 facade（`RuntimeRevisionSnapshot` 为占位名，标识符 G2 落定）
-借用；完整性开启时该 facade 必须保留并核对共享根完整性租约（#955 G1）。完整性开启时，一切修订
+借用；完整性开启时，一切修订
 绑定的 snapshot / facade 必须保留并核对共享根完整性租约（含失效世代，#955 G1）；只保留
 根 `Arc`、拿不到租约的 facade 不得作为消费路径。旧 snapshot 可以继续完成在途
 读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根，不能与新根的 component 配对。
