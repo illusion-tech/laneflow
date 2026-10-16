@@ -164,7 +164,7 @@ TrafficWorld::rebind_parking_route(vehicle, input) -> Result<ParkingCommandOutco
 TrafficWorld::spawn_parked_vehicle(input, target) -> Result<ParkedVehicleSpawnRecord, ParkingError>;
 TrafficWorld::despawn_vehicle(vehicle) -> Result<VehicleDespawnRecord, ParkingError>;
 
-TrafficWorld::step(input: TickInput) -> Result<PendingStepOutcome, StepError>;
+TrafficWorld::step(input: TickInput) -> PendingStepAttempt; // 不透明待决尝试（成功 = 待决结果、失败 = 暂定 StepError，放行后才暴露）
 // 不透明待决结果（#955 G1）：放行前不可消费，校验窗放行 API 归校验窗持有
 
 TrafficWorld::revision() -> SharedRootBinding; // 只裸根读取视图不构成消费路径（#955 G1）
@@ -322,9 +322,9 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 ### 4.4 步进与已提交查询
 
 ```text
-TrafficWorld::step(TickInput) -> Result<PendingStepOutcome, StepError>
-// 不透明待决结果（#955 G1）：放行前不可消费；失败路径同为不透明（PendingStepAttempt
-// 含暂定 StepError，校验窗放行后才暴露 Err）
+TrafficWorld::step(TickInput) -> PendingStepAttempt
+// 不透明待决尝试（#955 G1）：成功 = 待决结果、失败 = 暂定 StepError；两者放行前
+// 均不可消费，校验窗放行后才分别暴露（Err 臂亦不透明）
 ```
 
 - `TickInput.delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`，否则拒绝，

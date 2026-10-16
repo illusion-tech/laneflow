@@ -605,7 +605,8 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 共享根绑定聚合 | shared root binding aggregate     | 完整性开启时跨边界的唯一共享根句柄：`Arc<SharedNetworkRevision>` + 共享根完整性租约 + 构建方旁车基线；根本体保持不可变，租约 / 旁车是根外对象，`install` / `bind` 以聚合为准；完整性模式是聚合字段。 |
 | 租约守卫       | lease guard                       | 消费者入口取得、持有至**操作终态**（提交 / 发布 / 中止）才释放的守卫（世代快照 + 共享读）；poison 置位非阻塞单调推进、发布门点复核（毒标 ∨ 世代 ≠ 快照），杜绝 check-then-publish 竞态；公共共享根访问器经守卫外借。租约每根唯一（同根不同租约 = 绑定失败）；绑定 / 安装 / 恢复入口复核新租约未置位。 |
 | 耐久根内容前像 | durable root content preimage     | 共享根权威语义内容的规范序列化（`laneflow:shared-root-content:v1\0` + `NetworkRevisionId` + 版本轴；不含布局 / 派生表），SHA-256；耐久根内容基线即按本前像建立。 |
-| 耐久根内容基线 | durable root content baseline     | 共享根权威语义内容的规范前像（`laneflow:shared-root-content:v1\0`，不含布局 / 派生表），跨进程持久；与不持久的物理布局基线分离，安装 / 认证先核内容基线再建物理基线。 |
+| 耐久根内容基线 | durable root content baseline     | 共享根权威语义内容的规范前像（`laneflow:shared-root-content:v1\0`，不含布局 / 派生表），跨进程持久；与不持久的物理布局基线分离，安装 / 认证先核内容基线**并重算比对派生表**再建物理基线。 |
+| 检查点身份     | checkpoint identity               | 宿主签发的检查点标识，身份内容 = `(command_cursor, tick, digest)` 三元组；检查点锚按身份登记与比对（只在快照放行门点登记、不逐提交替换）。 |
 | 检查点锚       | checkpoint anchor                 | 检查点三元组 `(command_cursor, tick, deterministic_state_digest)` 在完整性维度的持久角色：宿主持久、Runtime 登记核对。          |
 | 判因           | distortion attribution            | 失配归因结论（逻辑对象 / 物理-热表 / 物理-工作区 / 物理-共享静态根 / 登记表 / 无法判因）；允许「无法判因」，不承诺唯一根因。     |
 
