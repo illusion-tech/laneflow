@@ -137,7 +137,7 @@ despawn-and-unbind，不得经 raw `world_mut()` 留下 stale 映射。
 
 ```rust
 TrafficWorld::install(
-    revision: Arc<SharedNetworkRevision>,
+    revision: SharedRootBinding, // 共享根绑定聚合：根 Arc + 完整性租约 + 旁车基线（#955 G1）
     config: WorldConfig,
     execution: ExecutionConfig,
     source: CommittedNetworkSource,
@@ -164,7 +164,7 @@ TrafficWorld::despawn_vehicle(vehicle) -> Result<VehicleDespawnRecord, ParkingEr
 
 TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
 
-TrafficWorld::revision() -> Arc<SharedNetworkRevision>;
+TrafficWorld::revision() -> SharedRootBinding; // 只裸根读取视图不构成消费路径（#955 G1）
 TrafficWorld::traffic() -> /* 共享根 Traffic 借用 */;
 TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
@@ -183,13 +183,17 @@ TrafficWorld::export_observation(
 ) -> Result<CommittedTrafficObservationBatch, ObservationError>;
 
 SpatialSession::bind(
-    revision: Arc<SharedNetworkRevision>,
+    revision: SharedRootBinding, // 共享根绑定聚合（#955 G1）
 ) -> Result<Option<SpatialSession>, SpatialBindError>;
 SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
     -> Result<CanonicalPoseBatch, PoseError>;
 ```
 
 `source` 是 #302 活动聚合的来源指名（修订标识须与根 origin 精确相等）。
+`SharedRootBinding` 是共享根绑定聚合（#955 G1：`Arc<SharedNetworkRevision>` + 共享根
+完整性租约 + 构建方旁车基线）：安装、绑定、恢复与切换输入一律携带聚合，聚合随
+事务原子更替（含租约与旁车）；完整性关闭配置下租约为空操作，根 `Arc` 语义不变。
+修订绑定的只读 facade 必须保留并核对同一租约，只裸根视图不构成消费路径。
 `world_id` 是宿主指定的世界身份：同一宿主进程内不得对多个世界复用同一
 `world_id`（切换描述符 `worldBinding` 以它做错误世界守卫；描述符签发者据此
 定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。Runtime 同时拥有
@@ -204,7 +208,7 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 
 ```rust
 TrafficWorld::cutover_same_revision(
-    target_revision: Arc<SharedNetworkRevision>,
+    target_revision: SharedRootBinding, // 聚合随切换事务原子更替：含租约与旁车基线（#955 G1）
     target_source: CommittedNetworkSource,
     descriptor: &NetworkRevisionCutoverDescriptor,
     limits: &CutoverPreflightLimits,

@@ -265,7 +265,8 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 
 同一安全边界原子替换（全或全不）：
 
-1. 活动聚合指向的新 `Arc<SharedNetworkRevision>`；
+1. 活动聚合指向的新共享根绑定聚合（根 `Arc` + 共享根完整性租约 + 构建方旁车基线，
+   #955 G1；租约与基线随切换事务原子更替）；
 2. 迁移后的每世界动态状态；
 3. 新 `CommittedNetworkSource`；
 4. editable 聚合的 `EditableDiffBase`——「target LFCA 成为下一次 LFSD 的
