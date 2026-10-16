@@ -323,7 +323,8 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 
 ```text
 TrafficWorld::step(TickInput) -> Result<PendingStepOutcome, StepError>
-// 不透明待决结果（#955 G1）：放行前不可消费
+// 不透明待决结果（#955 G1）：放行前不可消费；失败路径同为不透明（PendingStepAttempt
+// 含暂定 StepError，校验窗放行后才暴露 Err）
 ```
 
 - `TickInput.delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`，否则拒绝，
