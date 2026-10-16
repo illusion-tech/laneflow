@@ -43,7 +43,8 @@
    occurrence 写回共享根，也不把 `SharedIdentityIndex` 推进 steady tick。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
    **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
-   必须 `Arc::ptr_eq`（或两者来自同一保留的根 `Arc`）。pose 批次使用与 Runtime
+   必须按**共享根绑定聚合身份**配对（同一租约实例 + 同一旁车基线身份；根
+   `Arc::ptr_eq` 只是必要条件）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
 3. Runtime **禁止**依赖 Spatial、compiler、Serde、文件系统、`laneflow-core`。
 4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车 1-worker
@@ -248,7 +249,9 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   的 session。短期函数借用可以。
 - Runtime 可以只读转发 `revision()` / `traffic()`；**不**持有 `SpatialSession`，
   **不** `use` Spatial 类型。
-- 同时持有 world 与 session 的调用方必须 `Arc::ptr_eq`，或证明两者来自同一保留的
+- 同时持有 world 与 session 的调用方必须按**共享根绑定聚合身份**配对（同一租约
+  实例 + 同一旁车基线身份；根 `Arc::ptr_eq` 只是必要条件——分头 restore / rebind
+  准备出的两个聚合可共享根 Arc 却带不同租约），或证明两者来自同一保留的
   根 `Arc`。禁止只比较 `NetworkRevisionId`。
 - `extract_pose_batch` 使用 §3 的 `PoseRecordId` / frame 合同；混 frame 整批失败。
 
