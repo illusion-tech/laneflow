@@ -164,11 +164,11 @@ TrafficWorld::rebind_parking_route(vehicle, input) -> Result<ParkingCommandOutco
 TrafficWorld::spawn_parked_vehicle(input, target) -> Result<ParkedVehicleSpawnRecord, ParkingError>;
 TrafficWorld::despawn_vehicle(vehicle) -> Result<VehicleDespawnRecord, ParkingError>;
 
-TrafficWorld::step(input: TickInput) -> PendingStepAttempt; // 不透明待决尝试（成功 = 待决结果、失败 = 暂定 StepError，放行后才暴露）
-// 不透明待决结果（#955 G1）：放行前不可消费，校验窗放行 API 归校验窗持有
+TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
+// #955 G1：完整性开启时 P0 前执行共享根入口预检；完整性终止性错误轴归 G2 落定
 
 TrafficWorld::revision() -> SharedRootBinding; // 只裸根读取视图不构成消费路径（#955 G1）
-TrafficWorld::traffic() -> /* 共享根 Traffic 借用：经租约守卫 / 携约 facade（#955 G1，完整性开启时裸借用不外露） */;
+TrafficWorld::traffic() -> /* 共享根 Traffic 借用：经携约 facade、借用前核对租约（#955 G1，完整性开启时裸借用不外露） */;
 TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
 TrafficWorld::tick_index() -> u64;
@@ -322,14 +322,12 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 ### 4.4 步进与已提交查询
 
 ```text
-TrafficWorld::step(TickInput) -> PendingStepAttempt
-// 不透明待决尝试（#955 G1）：成功 = 待决结果、失败 = 暂定 StepError；两者放行前
-// 均不可消费，校验窗放行后才分别暴露（Err 臂亦不透明）
+TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 ```
 
 - `TickInput.delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`，否则拒绝，
   不推进。`tick_index` 与 `time_ms` 用 checked 加法；任一溢出则 `StepError`，世界
-  不变。校验窗放行后的 `StepOutcome` 载荷含 `tick_index` 与 `time_ms`；`tick_index()` /
+  不变。成功 `StepOutcome` 含 `tick_index` 与 `time_ms`；`tick_index()` /
   `time_ms()` 与之一致。不得回绕后当作合法时间去推信号 snapshot。
 - 时序沿用 `signal-system.md`：运动、跟车、信号遵守、占用判断都读已提交状态
   **T**；算完再原子提交 **T + D**（时间、pose、占用、信号 snapshot）。同 tick 内

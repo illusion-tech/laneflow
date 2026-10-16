@@ -198,7 +198,7 @@ pub struct SharedNetworkRevision {
 对象，不构成 component、不进入根 payload。
 component 由根直接拥有；公共 accessor 只返回绑定根生命周期的共享借用，不返回 component
 `Arc`、owned component 或可重新组合的 token。完整性开启时（#955 G1）公共 accessor
-经租约守卫 / 携约 facade 外借（返回形态归 G2 落定），裸 component 借用不外露。component 不公开构造器或 `Clone`，调用方因此
+经携约 facade 外借、借用前核对租约（返回形态归 G2 落定），裸 component 借用不外露。component 不公开构造器或 `Clone`，调用方因此
 不能替换单个 component、延长单个 component 的所有权、修改数组或构造跨修订组合。若异步
 Spatial/诊断任务需要延长生命周期，必须克隆根 `Arc`，再从该根借用对应 component。
 
@@ -353,7 +353,7 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 ## 8. 所有权、并发与切换接口
 
 一个 world 保存共享根绑定聚合（#955 G1：`Arc<SharedNetworkRevision>` + 共享根完整性
-租约 + 构建方旁车基线句柄；租约恒定存在，校验关闭配置下为空操作）；Runtime worker 在
+租约 + 构建方旁车基线句柄 + 根校验器；租约恒定存在，校验关闭配置下为空操作）；Runtime worker 在
 tick 开始前取得该修订的
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
@@ -365,15 +365,16 @@ component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #3
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
 和执行计划全部 per world。共享根完整性租约是**根外对象**，持有受保护的根级失效
 （poison）标记（双副本）与单调失效世代，供全部绑定消费者（世界与 Spatial）核对：
-消费者入口取得**租约守卫**（世代快照 + 共享读）持有至操作终态释放，提交 / 发布门点
-复核（**毒标已置 ∨ 世代 ≠ 守卫快照**；poison 置位非阻塞单调推进，#955 §3）；**租约
+消费者在每次消费操作入口记录世代快照，提交 / 发布点之前复核（**毒标已置 ∨ 世代 ≠
+入口快照**；poison 置位非阻塞单调推进，#955 §3）；**租约
 每根唯一**（同根不同租约 = 绑定失败，同一性断言），绑定 / 安装 / 恢复入口复核**新
 租约未置位**；它不属于 component、不进入根
 payload，也不给根本体引入可变性。共享根旁车基线分两层（#955 G1）：**耐久内容基线**
 （布局无关的分段内容摘要，跨进程持久）与**物理布局基线**（页序绑定、不持久）；每次
 构建 / 加载后以耐久根内容基线认证新根**并从已认证权威内容确定性重算派生表与
 当前 backing 比对**，全部通过才建立新的物理布局基线，重启 / 重载
-不得沿用旧物理基线。
+不得沿用旧物理基线。根校验器挂在聚合上（每根一份），由消费操作入口预检推进轮转校验
+（#955 §4.2），只读根 backing，不给根本体引入可变性。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
 对象，并暴露：
