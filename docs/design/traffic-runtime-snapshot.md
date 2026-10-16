@@ -156,6 +156,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 
 - 保存只接受活动聚合的 `CommittedNetworkSource`；working / candidate 与
   `EditableDiffBase` 不入档。候选准备期的保存仍只捕获旧聚合（切换文档 §8）。
+- **保存的完整性门控（#955 G1，见
+  [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.5）**：
+  `save_lfrs` 以**被序列化精确状态序列的完整性校验放行**为门控（或返回不透明待决
+  快照、放行后方可持久）；检出前的坏状态不得固化为检查点——坏检查点会在日后恢复时
+  成为「新可信基准」，粘滞失败收不回已持久制品。
 - **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
   editable 从 committed `RoadEditingState` 重编译，published 经
   `PublishedLfcaReference` 重新认证。同修订判据 = `NetworkRevisionId` +

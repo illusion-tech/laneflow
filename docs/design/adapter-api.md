@@ -64,8 +64,10 @@
 根 `Arc`（完整性开启时为共享根绑定聚合：根 `Arc` + 共享根完整性租约 + 构建方旁车
 基线，#955 G1；租约显示根级失效时 `bind` 与位姿提取失败关闭），**不**从 Runtime
 发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
-同时持有 world 与 session 的 Adapter 必须 `Arc::ptr_eq`（或证明两者来自同一保留的根
-`Arc`）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
+同时持有 world 与 session 的 Adapter 必须按**共享根绑定聚合身份**配对——同一租约
+实例 + 同一旁车基线身份；根 `Arc::ptr_eq` 只是必要条件，不是充分条件（两个聚合可以
+共享同一根 `Arc` 却带不同租约，例如分头 restore / rebind 准备；只比根指针会让一方
+置位的根级失效漏过另一方）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
 或 LFCA table，不重建 Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决
 行为或单独替换 component。pose 使用与 Runtime 无关的 `PoseRecordId`，见
 `traffic-runtime-shared-consumption.md`。
@@ -82,12 +84,17 @@ current 路径：
   -> 建立 PoseRecordId 与宿主实体的绑定
   -> 在 LaneFlowFixedSet::Lifecycle 经 world_mut 提交生命周期命令
   -> TrafficWorld::step
+  -> 完整性校验窗（放行 / 截留；#955 G1，必经）
   -> LaneFlowSession::extract_committed_pose_batch（受控封闭提取，§9）
   -> 提交宿主生命周期、变换和表现结果
 ```
 
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
-`LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
+`LaneFlowSession::new` 在提供 Spatial 时强制共享根绑定聚合身份配对（租约 + 旁车基线
+一致；根 `Arc::ptr_eq` 为必要条件），失败为 `RevisionMismatch`。完整性开启时（#955
+G1）校验窗是 `step` 之后、位姿提取 / 发布之前的**必经**操作（成功与失败尝试皆然）；
+其终止性结论经 `LaneFlowSession` 传播为 session 级终止——停止位姿提取与宿主发布，
+未放行的待决结果不进入提取 / 发布。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
 `reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /
