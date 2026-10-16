@@ -163,10 +163,11 @@ TrafficWorld::rebind_parking_route(vehicle, input) -> Result<ParkingCommandOutco
 TrafficWorld::spawn_parked_vehicle(input, target) -> Result<ParkedVehicleSpawnRecord, ParkingError>;
 TrafficWorld::despawn_vehicle(vehicle) -> Result<VehicleDespawnRecord, ParkingError>;
 
-TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
+TrafficWorld::step(input: TickInput) -> Result<PendingStepOutcome, StepError>;
+// 不透明待决结果（#955 G1）：放行前不可消费，校验窗放行 API 归校验窗持有
 
 TrafficWorld::revision() -> SharedRootBinding; // 只裸根读取视图不构成消费路径（#955 G1）
-TrafficWorld::traffic() -> /* 共享根 Traffic 借用 */;
+TrafficWorld::traffic() -> /* 共享根 Traffic 借用：经租约守卫 / 携约 facade（#955 G1，完整性开启时裸借用不外露） */;
 TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
 TrafficWorld::tick_index() -> u64;
@@ -193,7 +194,9 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 `source` 是 #302 活动聚合的来源指名（修订标识须与根 origin 精确相等）。
 `SharedRootBinding` 是共享根绑定聚合（#955 G1：`Arc<SharedNetworkRevision>` + 共享根
 完整性租约 + 构建方旁车基线）：安装、绑定、恢复与切换输入一律携带聚合，聚合随
-事务原子更替（含租约与旁车）；完整性关闭配置下租约为空操作，根 `Arc` 语义不变。
+事务原子更替（含租约与旁车）；完整性模式是**聚合字段**（每根一份、绑定时冻结、不可变、显式提供不猜默认）；全部
+消费者共享同一模式，混合模式消费者拒绝（绑定失败）；关闭配置下租约为空操作，根
+`Arc` 语义不变。
 修订绑定的只读 facade 必须保留并核对同一租约，只裸根视图不构成消费路径。
 `world_id` 是宿主指定的世界身份：同一宿主进程内不得对多个世界复用同一
 `world_id`（切换描述符 `worldBinding` 以它做错误世界守卫；描述符签发者据此
@@ -251,8 +254,7 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   **不** `use` Spatial 类型。
 - 同时持有 world 与 session 的调用方必须按**共享根绑定聚合身份**配对（同一租约
   实例 + 同一旁车基线身份；根 `Arc::ptr_eq` 只是必要条件——分头 restore / rebind
-  准备出的两个聚合可共享根 Arc 却带不同租约），或证明两者来自同一保留的
-  根 `Arc`。禁止只比较 `NetworkRevisionId`。
+  准备出的两个聚合可共享根 Arc 却带不同租约）；**不存在裸根配对的替代路径**。禁止只比较 `NetworkRevisionId`。
 - `extract_pose_batch` 使用 §3 的 `PoseRecordId` / frame 合同；混 frame 整批失败。
 
 ### 4.2 路线与车辆
