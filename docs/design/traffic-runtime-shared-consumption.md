@@ -250,7 +250,8 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   切换的参数形态；根 `Arc` 与 component 语义不变。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
 - 有 Spatial 但无 `lane_pose()`：不得走车辆 pose 采样。
-- `bind` 的长期所有权只认根 `Arc`，不把 `&SharedSpatialNetwork` 提升为可独立持有
+- `bind` 的长期所有权只认共享根绑定聚合（根 `Arc` + 租约 + 旁车，#955 G1），不把
+  `&SharedSpatialNetwork` 提升为可独立持有
   的 session。短期函数借用可以。
 - Runtime 可以只读转发 `revision()` / `traffic()`；**不**持有 `SpatialSession`，
   **不** `use` Spatial 类型。

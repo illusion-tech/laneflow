@@ -274,7 +274,7 @@ Population 的 seed、portal/lane 抽样、pending/retry queue 仍是 engine-neu
 
 ```rust
 LaneFlowSession::cross_revision_cutover(
-    target_revision: Arc<SharedNetworkRevision>,
+    target_revision: SharedRootBinding, // #955 G1：共享根绑定聚合（签名调整归实现切片）
     target_source: CommittedNetworkSource,
     semantic_diff: &[u8],
     diff_binding: SemanticDiffOriginBinding,
@@ -284,7 +284,7 @@ LaneFlowSession::cross_revision_cutover(
 ) -> Result<LaneFlowCutoverRecord, LaneFlowAdapterError>
 
 LaneFlowSession::same_revision_restore(
-    target_revision: Arc<SharedNetworkRevision>,
+    target_revision: SharedRootBinding, // #955 G1：共享根绑定聚合（签名调整归实现切片）
     target_source: CommittedNetworkSource,
     target_spatial: LaneFlowTargetSpatial,
     preflight_limits: &CutoverPreflightLimits,

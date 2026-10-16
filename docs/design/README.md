@@ -7,7 +7,7 @@
 ## 当前可运行路径
 
 - `traffic-runtime-shared-consumption.md`：`TrafficWorld` 安装共享静态路网，
-  Spatial 只 bind 同一根 `Arc`，current Core/JSON 入口已拆除。路线入口只留
+  Spatial 只 bind 共享根绑定聚合，current Core/JSON 入口已拆除。路线入口只留
   `register_route`（ADR 0029）。
 - `traffic-runtime-phase-protocol.md`：串行 P0～P8、内部状态五分区、窄视图与
   `CommitPlan` 的设计；领域算法继续由 Waiting/Conflict 等合同定义，
@@ -21,7 +21,7 @@
 - `traffic-runtime-snapshot.md`：版本化运行时快照容器、保存/恢复合同、回放与
   跨修订迁移入口（#302 G1；G2 起实现）。
 - `traffic-runtime-state-integrity.md`：运行时状态完整性校验与失真恢复——可信期望值
-  与两类分层五类前像、失败关闭 + 宿主处置的恢复权威边界、校验间隔与漏检面、遥测与性能协议
+  与两层分立的五类前像、失败关闭 + 宿主处置的恢复权威边界、校验间隔与漏检面、遥测与性能协议
   （#955 G1；配套 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)）。
 - `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2

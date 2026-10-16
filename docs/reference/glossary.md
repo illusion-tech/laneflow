@@ -579,7 +579,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 
 ### 7.6 运行时状态完整性与失真处置
 
-下列术语供 [运行时状态完整性校验与失真恢复（Accepted，#955 G1）](../design/traffic-runtime-state-integrity.md)
+下列术语供 [运行时状态完整性校验与失真恢复（Review，#955 G1）](../design/traffic-runtime-state-integrity.md)
 与 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)
 使用。术语登记不证明校验能力已实现；恢复处置权威始终归宿主。
 
@@ -597,13 +597,14 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 检测滞后上限   | maximum detection lag             | 从失真发生到校验结论产出的最大延迟合同值，由记录与结构轮转 `M_rec`、物理轮转 `M_phys` / `M_phys_root` 与独立复核 `M_rev` 加窗余量导出（全量共因核对 `N_L` 不承担检测界）；校验不得以无限延迟形态存在。 |
 | 漏检面         | missed-detection surface          | 显式声明的不可检集合（穷尽清单见完整性设计 §5「显式漏检面（总表）」，含自愈性覆盖、工作区消费前失真、登记即错、未覆盖面、三层同击中等）。 |
 | 失真指纹       | distortion fingerprint            | 失配现场的形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。           |
-| 校验窗         | verification window               | 宿主每 tick 链上的显式同步操作（`step` 返回后、输出放行前；**每次 `step` 尝试含失败尝试皆必经**），执行**只读比对**、校验器控制状态推进与输出批次放行；**不做期望值登记**（登记随 P7 原子发布）；输出载荷为放行前不可消费的待决结果。不进入 P0–P8 任何阶段，不改变首错、事件与提交语义。 |
+| 校验窗         | verification window               | 宿主每 tick 链上的显式同步操作（`step` 返回后、输出放行前；**每次 `step` 尝试含失败尝试皆必经**），执行**只读比对**、校验器控制状态推进与输出批次放行；**不做期望值登记**（逻辑 / 输出 / 锚登记随 P7 原子发布，物理层期望值随写增量）；输出载荷为放行前不可消费的待决结果。不进入 P0–P8 任何阶段，不改变首错、事件与提交语义。 |
 | 不透明待决结果 | opaque pending result             | `step` 移交的放行前不可消费载荷（事件 / 观测 / StepOutcome）；校验窗放行（含租约门点复核）后方可读取 / 施用；失配即作废并失败关闭。 |
 | 待决快照       | pending snapshot                  | `capture_snapshot` 返回、放行前不可 `encode_lfrs` / 持久的快照；`encode_lfrs` 只接受已放行快照，防坏状态固化为可信锚。 |
 | 根校验器       | shared-root verifier              | 挂共享根绑定聚合（每根一份、非每世界）的共享根轮转校验器，期望值与轮转游标随旁车基线 / 租约携带，随消费摊销推进；无校验器的根消费者不存在。 |
 | 根级失效       | shared-root poison                | 共享静态根失配（聚合侧任何 `Mismatch` / `Untrusted`）触发的失效状态，由共享根完整性租约（独立对象，不写入不可变共享根）承载并传播给全部绑定消费者：**经租约守卫传播**（入口取守卫、持有至操作终态；poison 置位非阻塞单调推进世代，提交 / 发布门点复核，不一致即不提交 / 不放行并失败关闭），不等各自 scrub；处置只能是根重建。 |
 | 共享根绑定聚合 | shared root binding aggregate     | 完整性开启时跨边界的唯一共享根句柄：`Arc<SharedNetworkRevision>` + 共享根完整性租约 + 构建方旁车基线；根本体保持不可变，租约 / 旁车是根外对象，`install` / `bind` 以聚合为准；完整性模式是聚合字段。 |
-| 租约守卫       | lease guard                       | 消费者入口取得、跨越整个操作直到提交 / 发布完成才释放的守卫（世代快照 + 共享读）；poison 置位与守卫互斥，杜绝 check-then-publish 竞态；公共共享根访问器经守卫外借。 |
+| 租约守卫       | lease guard                       | 消费者入口取得、持有至**操作终态**（提交 / 发布 / 中止）才释放的守卫（世代快照 + 共享读）；poison 置位非阻塞单调推进、发布门点复核（毒标 ∨ 世代 ≠ 快照），杜绝 check-then-publish 竞态；公共共享根访问器经守卫外借。 |
+| 耐久根内容前像 | durable root content preimage     | 共享根权威语义内容的规范序列化（`laneflow:shared-root-content:v1\0` + `NetworkRevisionId` + 版本轴；不含布局 / 派生表），SHA-256；耐久根内容基线即按本前像建立。 |
 | 耐久根内容基线 | durable root content baseline     | 共享根权威语义内容的规范前像（`laneflow:shared-root-content:v1\0`，不含布局 / 派生表），跨进程持久；与不持久的物理布局基线分离，安装 / 认证先核内容基线再建物理基线。 |
 | 检查点锚       | checkpoint anchor                 | 检查点三元组 `(command_cursor, tick, deterministic_state_digest)` 在完整性维度的持久角色：宿主持久、Runtime 登记核对。          |
 | 判因           | distortion attribution            | 失配归因结论（逻辑对象 / 物理-热表 / 物理-工作区 / 物理-共享静态根 / 登记表 / 无法判因）；允许「无法判因」，不承诺唯一根因。     |
