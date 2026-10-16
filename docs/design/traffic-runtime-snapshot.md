@@ -161,8 +161,8 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   门控作用于真实保存路径 `capture_snapshot` → `encode_lfrs(&CapturedSnapshot)`——
   `capture_snapshot` 返回的 `CapturedSnapshot` 是**待决快照**，放行前不可
   `encode_lfrs` / 不可持久；`encode_lfrs` 只接受
-  已放行快照。检出前的坏状态不得固化为检查点——坏检查点会在日后恢复时成为
-  「新可信基准」，粘滞失败收不回已持久制品。恢复 staging 期完整性登记表建立失败
+  已放行快照。**检出后**的坏状态不得固化为检查点；**检出前（检测滞后内）的固化仍
+  不可免**（完整性设计 §5 漏检面第 9 条），兜底为宿主锚对拍与处置丢弃。恢复 staging 期完整性登记表建立失败
   同理：零部分恢复、不发布 world。
 - **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
   editable 从 committed `RoadEditingState` 重编译，published 经
@@ -207,7 +207,8 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
   上限 → size prefix / file identifier → 有界 FlatBuffers verifier → 版本/绑定/配置与
   表基数预检 → 标识、引用、排列、停车和值不变量 lowering → 局部 world 路线/车辆/
-  占用重建 → 执行能力校验。任一失败只丢弃 staging；成功才返回 world 与快照局部路线/车辆 ID 到新
+  占用重建 → 执行能力校验。任一失败只丢弃 staging；world **发布前**复核共享根租约
+  （毒标 ∨ 世代，#955 发布门），不一致 = 零部分恢复、不发布 world；成功才返回 world 与快照局部路线/车辆 ID 到新
   句柄的映射。fresh restore 从初始 `WorldGeneration` / 初始观测 stream 建立；调用方
   不得让同一 `world_id` 的旧 world 或旧 session 并存。Published 目标允许同修订
   重发布的 digest / length 不同，但目标 source 与目标根、快照 source 与快照根各自的
