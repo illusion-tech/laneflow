@@ -197,7 +197,8 @@ pub struct SharedNetworkRevision {
 租约的第二条绑定路径。根本体语义不变——component 仍由根直接拥有，租约与旁车是根外
 对象，不构成 component、不进入根 payload。
 component 由根直接拥有；公共 accessor 只返回绑定根生命周期的共享借用，不返回 component
-`Arc`、owned component 或可重新组合的 token。component 不公开构造器或 `Clone`，调用方因此
+`Arc`、owned component 或可重新组合的 token。完整性开启时（#955 G1）公共 accessor
+经租约守卫 / 携约 facade 外借（返回形态归 G2 落定），裸 component 借用不外露。component 不公开构造器或 `Clone`，调用方因此
 不能替换单个 component、延长单个 component 的所有权、修改数组或构造跨修订组合。若异步
 Spatial/诊断任务需要延长生命周期，必须克隆根 `Arc`，再从该根借用对应 component。
 
@@ -356,14 +357,16 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 tick 开始前取得该修订的
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
-该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。完整性开启时，一切修订
+该根 `Arc` 的修订绑定只读 facade（`RuntimeRevisionSnapshot` 为占位名，标识符 G2 落定）
+借用；完整性开启时该 facade 必须保留并核对共享根完整性租约（#955 G1）。完整性开启时，一切修订
 绑定的 snapshot / facade 必须保留并核对共享根完整性租约（含失效世代，#955 G1）；只保留
 根 `Arc`、拿不到租约的 facade 不得作为消费路径。旧 snapshot 可以继续完成在途
 读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根，不能与新根的 component 配对。
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
 和执行计划全部 per world。共享根完整性租约是**根外对象**，持有受保护的根级失效
 （poison）标记（双副本）与单调失效世代，供全部绑定消费者（世界与 Spatial）核对：
-操作入口取世代快照、提交 / 发布出口复核（#955 §3）；它不属于 component、不进入根
+消费者入口取得**租约守卫**（世代快照 + 共享读）持有至操作终态释放，提交 / 发布门点
+复核世代（poison 置位非阻塞单调推进，#955 §3）；它不属于 component、不进入根
 payload，也不给根本体引入可变性。共享根旁车基线分两层（#955 G1）：**耐久内容基线**
 （布局无关的分段内容摘要，跨进程持久）与**物理布局基线**（页序绑定、不持久）；每次
 构建 / 加载后以耐久内容基线认证新根，认证通过才建立新的物理布局基线，重启 / 重载
