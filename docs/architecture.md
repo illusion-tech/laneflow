@@ -382,7 +382,8 @@ ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或�
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
 `Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只 `bind` 同一根 `Arc`，不依赖
 Runtime，也不从 Runtime 发布的 snapshot/facade 借用。同时持有 world 与 session 的 Adapter
-必须 `Arc::ptr_eq`。不存在独立 component 安装或重新组合 API。#302 若发布
+必须按共享根绑定聚合身份配对（同一租约 + 旁车基线；根 `Arc::ptr_eq` 仅为必要条件，
+#955 G1）。不存在独立 component 安装或重新组合 API。#302 若发布
 revision-bound 只读 facade，必须内部保留同一根 `Arc`，不得把 Spatial 绑到 Runtime 类型。
 Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则或单独替换 component。
 它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或

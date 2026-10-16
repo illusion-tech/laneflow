@@ -42,7 +42,8 @@
    **并**读本世界已提交/已编译表（车辆、占用、动态 Route occurrence）；不把动态
    occurrence 写回共享根，也不把 `SharedIdentityIndex` 推进 steady tick。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
-   **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
+   **不**依赖 Runtime。`SpatialSession::bind` 只接受共享根绑定聚合（#955 G1；模式是
+   聚合字段）。world 与 session 配对
    必须按**共享根绑定聚合身份**配对（同一租约实例 + 同一旁车基线身份；根
    `Arc::ptr_eq` 只是必要条件）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
@@ -243,9 +244,10 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   不支持的值在完整交通准备后返回 `ExecutionInit`，不静默降级。恢复的执行错误位于
   完整逻辑状态与派生索引重建之后，见[执行配置合同](traffic-runtime-execution-config.md)。
 - 失败原子：失败不留下可观察的半个 world / session。
-- 多世界：再次 `install`，只克隆根 `Arc`。完整性开启时 `install` / `bind` 接收共享根
-  绑定聚合（根 `Arc` + 共享根完整性租约 + 构建方旁车基线，#955 G1），克隆聚合即共享
-  同一租约与旁车；根 `Arc` 与 component 语义不变。
+- 多世界：再次 `install`，只克隆聚合（根 `Arc` + 共享根完整性租约 + 构建方旁车
+  基线，#955 G1），克隆聚合即共享同一租约与旁车。`install` / `bind` 输入**恒为**
+  共享根绑定聚合（完整性模式是聚合字段、关闭配置下租约为空操作），不存在按模式
+  切换的参数形态；根 `Arc` 与 component 语义不变。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
 - 有 Spatial 但无 `lane_pose()`：不得走车辆 pose 采样。
 - `bind` 的长期所有权只认根 `Arc`，不把 `&SharedSpatialNetwork` 提升为可独立持有
@@ -319,12 +321,13 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 ### 4.4 步进与已提交查询
 
 ```text
-TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
+TrafficWorld::step(TickInput) -> Result<PendingStepOutcome, StepError>
+// 不透明待决结果（#955 G1）：放行前不可消费
 ```
 
 - `TickInput.delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`，否则拒绝，
   不推进。`tick_index` 与 `time_ms` 用 checked 加法；任一溢出则 `StepError`，世界
-  不变。成功 `StepOutcome` 含 `tick_index` 与 `time_ms`；`tick_index()` /
+  不变。校验窗放行后的 `StepOutcome` 载荷含 `tick_index` 与 `time_ms`；`tick_index()` /
   `time_ms()` 与之一致。不得回绕后当作合法时间去推信号 snapshot。
 - 时序沿用 `signal-system.md`：运动、跟车、信号遵守、占用判断都读已提交状态
   **T**；算完再原子提交 **T + D**（时间、pose、占用、信号 snapshot）。同 tick 内

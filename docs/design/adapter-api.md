@@ -60,9 +60,10 @@
 
 宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受该
-根 `Arc`（完整性开启时为共享根绑定聚合：根 `Arc` + 共享根完整性租约 + 构建方旁车
-基线，#955 G1；租约显示根级失效时 `bind` 与位姿提取失败关闭），**不**从 Runtime
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受
+共享根绑定聚合（根 `Arc` + 共享根完整性租约 + 构建方旁车基线，#955 G1；完整性
+模式是聚合字段、关闭配置下租约为空操作；租约显示根级失效时 `bind` 与位姿提取
+失败关闭），**不**从 Runtime
 发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
 同时持有 world 与 session 的 Adapter 必须按**共享根绑定聚合身份**配对——同一租约
 实例 + 同一旁车基线身份；根 `Arc::ptr_eq` 只是必要条件，不是充分条件（两个聚合可以
@@ -79,8 +80,8 @@ current 路径：
 ```text
 读取引擎资源
   -> 加载认证 LFCP v2 / 已提交道路状态，构建 Arc<SharedNetworkRevision>
-  -> TrafficWorld::install(同一根 Arc)
-  -> SpatialSession::bind(同一根 Arc)；配对 Arc::ptr_eq
+  -> TrafficWorld::install(共享根绑定聚合)
+  -> SpatialSession::bind(共享根绑定聚合)；按聚合身份配对（同一租约 + 旁车基线；根 Arc::ptr_eq 仅为必要条件）
   -> 建立 PoseRecordId 与宿主实体的绑定
   -> 在 LaneFlowFixedSet::Lifecycle 经 world_mut 提交生命周期命令
   -> TrafficWorld::step
@@ -300,7 +301,8 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
 失效与消费资格语义（切换合同 §7 的 Adapter 承载面）：
 
 - `SpatialSession` 仅绑定不可变共享根，不持有世界身份或世界世代。Adapter 的当前
-  Spatial 配对必须与活动 `TrafficWorld` 使用同一根 `Arc`；封闭提取路径每批做一次
+  Spatial 配对必须与活动 `TrafficWorld` 按**共享根绑定聚合身份**配对（同一租约实例 +
+  旁车基线身份；根 `Arc::ptr_eq` 仅为必要条件）；封闭提取路径每批做一次
   固定 O(1) 配对检查（与车辆数无关），失配失败关闭。Adapter 不提供绕过配对检查的
   裸可变 Spatial 访问。
 - 成功修订切换后，先前的 Adapter 消费上下文过期；当前消费资格由世界身份、世界
