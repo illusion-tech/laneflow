@@ -42,8 +42,10 @@
    **并**读本世界已提交/已编译表（车辆、占用、动态 Route occurrence）；不把动态
    occurrence 写回共享根，也不把 `SharedIdentityIndex` 推进 steady tick。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
-   **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
-   必须 `Arc::ptr_eq`（或两者来自同一保留的根 `Arc`）。pose 批次使用与 Runtime
+   **不**依赖 Runtime。`SpatialSession::bind` 只接受共享根绑定聚合（#955 G1；模式是
+   聚合字段）。world 与 session 配对
+   必须按**共享根绑定聚合身份**配对（同一租约实例 + 同一旁车基线身份；根
+   `Arc::ptr_eq` 只是必要条件）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
 3. Runtime **禁止**依赖 Spatial、compiler、Serde、文件系统、`laneflow-core`。
 4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车 1-worker
@@ -137,7 +139,7 @@ despawn-and-unbind，不得经 raw `world_mut()` 留下 stale 映射。
 
 ```rust
 TrafficWorld::install(
-    revision: Arc<SharedNetworkRevision>,
+    revision: SharedRootBinding, // 共享根绑定聚合：根 Arc + 完整性租约 + 旁车基线（#955 G1）
     config: WorldConfig,
     execution: ExecutionConfig,
     source: CommittedNetworkSource,
@@ -163,9 +165,10 @@ TrafficWorld::spawn_parked_vehicle(input, target) -> Result<ParkedVehicleSpawnRe
 TrafficWorld::despawn_vehicle(vehicle) -> Result<VehicleDespawnRecord, ParkingError>;
 
 TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
+// #955 G1：完整性开启时 P0 前执行共享根入口预检；完整性终止性错误轴归 G2 落定
 
-TrafficWorld::revision() -> Arc<SharedNetworkRevision>;
-TrafficWorld::traffic() -> /* 共享根 Traffic 借用 */;
+TrafficWorld::revision() -> SharedRootBinding; // 只裸根读取视图不构成消费路径（#955 G1）
+TrafficWorld::traffic() -> /* 共享根 Traffic 借用：经携约 facade、借用前核对租约（#955 G1，完整性开启时裸借用不外露） */;
 TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
 TrafficWorld::tick_index() -> u64;
@@ -183,13 +186,19 @@ TrafficWorld::export_observation(
 ) -> Result<CommittedTrafficObservationBatch, ObservationError>;
 
 SpatialSession::bind(
-    revision: Arc<SharedNetworkRevision>,
+    revision: SharedRootBinding, // 共享根绑定聚合（#955 G1）
 ) -> Result<Option<SpatialSession>, SpatialBindError>;
 SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
     -> Result<CanonicalPoseBatch, PoseError>;
 ```
 
 `source` 是 #302 活动聚合的来源指名（修订标识须与根 origin 精确相等）。
+`SharedRootBinding` 是共享根绑定聚合（#955 G1：`Arc<SharedNetworkRevision>` + 共享根
+完整性租约 + 构建方旁车基线）：安装、绑定、恢复与切换输入一律携带聚合，聚合随
+事务原子更替（含租约与旁车）；完整性模式是**聚合字段**（每根一份、绑定时冻结、不可变、显式提供不猜默认）；全部
+消费者共享同一模式，混合模式消费者拒绝（绑定失败）；关闭配置下租约为空操作，根
+`Arc` 语义不变。
+修订绑定的只读 facade 必须保留并核对同一租约，只裸根视图不构成消费路径。
 `world_id` 是宿主指定的世界身份：同一宿主进程内不得对多个世界复用同一
 `world_id`（切换描述符 `worldBinding` 以它做错误世界守卫；描述符签发者据此
 定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。Runtime 同时拥有
@@ -204,7 +213,7 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 
 ```rust
 TrafficWorld::cutover_same_revision(
-    target_revision: Arc<SharedNetworkRevision>,
+    target_revision: SharedRootBinding, // 聚合随切换事务原子更替：含租约与旁车基线（#955 G1）
     target_source: CommittedNetworkSource,
     descriptor: &NetworkRevisionCutoverDescriptor,
     limits: &CutoverPreflightLimits,
@@ -235,15 +244,20 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   不支持的值在完整交通准备后返回 `ExecutionInit`，不静默降级。恢复的执行错误位于
   完整逻辑状态与派生索引重建之后，见[执行配置合同](traffic-runtime-execution-config.md)。
 - 失败原子：失败不留下可观察的半个 world / session。
-- 多世界：再次 `install`，只克隆根 `Arc`。
+- 多世界：再次 `install`，只克隆聚合（根 `Arc` + 共享根完整性租约 + 构建方旁车
+  基线，#955 G1），克隆聚合即共享同一租约与旁车。`install` / `bind` 输入**恒为**
+  共享根绑定聚合（完整性模式是聚合字段、关闭配置下租约为空操作），不存在按模式
+  切换的参数形态；根 `Arc` 与 component 语义不变。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
 - 有 Spatial 但无 `lane_pose()`：不得走车辆 pose 采样。
-- `bind` 的长期所有权只认根 `Arc`，不把 `&SharedSpatialNetwork` 提升为可独立持有
+- `bind` 的长期所有权只认共享根绑定聚合（根 `Arc` + 租约 + 旁车，#955 G1），不把
+  `&SharedSpatialNetwork` 提升为可独立持有
   的 session。短期函数借用可以。
 - Runtime 可以只读转发 `revision()` / `traffic()`；**不**持有 `SpatialSession`，
   **不** `use` Spatial 类型。
-- 同时持有 world 与 session 的调用方必须 `Arc::ptr_eq`，或证明两者来自同一保留的
-  根 `Arc`。禁止只比较 `NetworkRevisionId`。
+- 同时持有 world 与 session 的调用方必须按**共享根绑定聚合身份**配对（同一租约
+  实例 + 同一旁车基线身份；根 `Arc::ptr_eq` 只是必要条件——分头 restore / rebind
+  准备出的两个聚合可共享根 Arc 却带不同租约）；**不存在裸根配对的替代路径**。禁止只比较 `NetworkRevisionId`。
 - `extract_pose_batch` 使用 §3 的 `PoseRecordId` / frame 合同；混 frame 整批失败。
 
 ### 4.2 路线与车辆

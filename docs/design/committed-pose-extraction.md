@@ -44,7 +44,8 @@ Iterator 与单项查询的最终 Rust 类型名由该实现切片冻结。删�
 `LaneFlowSession::extract_committed_pose_batch` 保留全量语义。Session 拥有可复用的
 PoseInput 和候选 VehicleHandle 缓冲；调用方拥有可复用的完整输出。一次 `&mut self`
 内完成根配对、来源采集、Spatial 采样和输出提交，不向调用方暴露可跨切换重放的
-中间输入。绑定完整根的 `Arc::ptr_eq` 检查仍为每批固定 O(1)。
+中间输入。绑定完整根的聚合身份配对检查（同一租约 + 旁车基线；根 `Arc::ptr_eq` 仅为
+必要条件，#955 G1）仍为每批固定 O(1)。
 
 Spatial 在自有 scratch 中完成逐项采样和首错检查；全部成功后交换 scratch 与
 `output.records` 的 Vec 所有权，再写入修订、frame 和 placement token。交换不会改变

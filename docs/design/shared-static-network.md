@@ -190,8 +190,15 @@ pub struct SharedNetworkRevision {
 - component 的计数、typed handle/range 和批量 slice accessor。
 
 只有 `Arc<SharedNetworkRevision>` 是可独立保留、克隆和跨 worker 传递的共享所有权句柄。
+完整性开启时（#955 G1，见
+[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §3），跨边界的
+唯一句柄是**共享根绑定聚合**：`Arc<SharedNetworkRevision>` + 共享根完整性租约 +
+构建方旁车基线；`install` / `SpatialSession::bind` 以聚合为准，不得存在只传根、拿不到
+租约的第二条绑定路径。根本体语义不变——component 仍由根直接拥有，租约与旁车是根外
+对象，不构成 component、不进入根 payload。
 component 由根直接拥有；公共 accessor 只返回绑定根生命周期的共享借用，不返回 component
-`Arc`、owned component 或可重新组合的 token。component 不公开构造器或 `Clone`，调用方因此
+`Arc`、owned component 或可重新组合的 token。完整性开启时（#955 G1）公共 accessor
+经携约 facade 外借、借用前核对租约（返回形态归 G2 落定），裸 component 借用不外露。component 不公开构造器或 `Clone`，调用方因此
 不能替换单个 component、延长单个 component 的所有权、修改数组或构造跨修订组合。若异步
 Spatial/诊断任务需要延长生命周期，必须克隆根 `Arc`，再从该根借用对应 component。
 
@@ -345,13 +352,29 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 
 ## 8. 所有权、并发与切换接口
 
-一个 world 保存 `Arc<SharedNetworkRevision>`；Runtime worker 在 tick 开始前取得该修订的
+一个 world 保存共享根绑定聚合（#955 G1：`Arc<SharedNetworkRevision>` + 共享根完整性
+租约 + 构建方旁车基线句柄 + 根校验器；租约恒定存在，校验关闭配置下为空操作）；Runtime worker 在
+tick 开始前取得该修订的
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
-该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。旧 snapshot 可以继续完成在途
+该根 `Arc` 的修订绑定只读 facade（`RuntimeRevisionSnapshot` 为占位名，标识符 G2 落定）
+借用；完整性开启时，一切修订
+绑定的 snapshot / facade 必须保留并核对共享根完整性租约（含失效世代，#955 G1）；只保留
+根 `Arc`、拿不到租约的 facade 不得作为消费路径。旧 snapshot 可以继续完成在途
 读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根，不能与新根的 component 配对。
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
-和执行计划全部 per world。
+和执行计划全部 per world。共享根完整性租约是**根外对象**，持有受保护的根级失效
+（poison）标记（双副本）与单调失效世代，供全部绑定消费者（世界与 Spatial）核对：
+消费者在每次消费操作入口记录世代快照，提交 / 发布点之前复核（**毒标已置 ∨ 世代 ≠
+入口快照**；poison 置位非阻塞单调推进，#955 §3）；**租约
+每根唯一**（同根不同租约 = 绑定失败，同一性断言），绑定 / 安装 / 恢复入口复核**新
+租约未置位**；它不属于 component、不进入根
+payload，也不给根本体引入可变性。共享根旁车基线分两层（#955 G1）：**耐久内容基线**
+（布局无关的分段内容摘要，跨进程持久）与**物理布局基线**（页序绑定、不持久）；每次
+构建 / 加载后以耐久根内容基线认证新根**并从已认证权威内容确定性重算派生表与
+当前 backing 比对**，全部通过才建立新的物理布局基线，重启 / 重载
+不得沿用旧物理基线。根校验器挂在聚合上（每根一份），由消费操作入口预检推进轮转校验
+（#955 §4.2），只读根 backing，不给根本体引入可变性。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
 对象，并暴露：
@@ -441,7 +464,9 @@ kernel 冒充当前证据。
 - 发布构建的 LFCA + candidate arrays + scratch，以及可编辑切换的 current root + retained
   base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
-- 2/8/32 worlds 的新增 shared-control bytes；
+- 2/8/32 worlds 的新增 shared-control bytes；完整性开启时另报共享根旁车基线
+  （O(段数)，N 世界共享一份）与完整性租约（每根 O(1) 含双副本）的 retained bytes
+  随 2/8/32 worlds 的变化（#955 §6 账本口径）；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
 结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；
