@@ -552,6 +552,7 @@ impl<'a> Harness<'a> {
             last_step_ns: 0,
             last_command_ns: 0,
             last_observation_ns: 0,
+            observation: Default::default(),
             pool: observation_pool(execution)?,
         };
         harness.check_restored(&manifest)?;
