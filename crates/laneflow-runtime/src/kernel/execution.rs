@@ -828,9 +828,9 @@ impl ExecutionResources {
         compute: F,
     ) {
         assert!(chunk_size > 0, "nonzero chunk size");
+        // 分段输出可能是原位改写的常驻表，不计物化字节。
         #[cfg(feature = "execution-evidence")]
-        let probe =
-            super::execution_evidence::dispatch(matches!(self, Self::Caller), size_of_val(output));
+        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller));
         #[cfg(feature = "execution-evidence")]
         let compute = |index: usize, chunk: &mut [T]| probe.block(|| compute(index, chunk));
         match self {
@@ -985,7 +985,7 @@ impl ExecutionResources {
         #[cfg(test)]
         let counters = DispatchCounters::default();
         #[cfg(feature = "execution-evidence")]
-        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller), 0);
+        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller));
         let run = |(start, item)| {
             #[cfg(test)]
             {
@@ -1097,7 +1097,7 @@ impl ExecutionResources {
             return DispatchStats::default();
         }
         #[cfg(feature = "execution-evidence")]
-        let probe = super::execution_evidence::dispatch(false, 0);
+        let probe = super::execution_evidence::dispatch(false);
         note_work();
         resources.pool.install(|| {
             split_join(output, 0, chunks, chunk_size, &|index, chunk| {
@@ -1144,7 +1144,7 @@ impl ExecutionResources {
         #[cfg(test)]
         let counters = DispatchCounters::default();
         #[cfg(feature = "execution-evidence")]
-        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller), 0);
+        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller));
         match self {
             Self::Caller => {
                 for (start, (chunk, scratch)) in work {
