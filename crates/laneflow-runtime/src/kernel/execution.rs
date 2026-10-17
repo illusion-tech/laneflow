@@ -185,7 +185,8 @@ pub(crate) struct DispatchStats {
     pub(crate) extra_work_chunks: usize,
     /// 实际参与本调用的不同线程数（非同时运行峰值）。
     pub(crate) participating_threads: usize,
-    /// 成功领取票据的次数；物理列分发的一张票据可以覆盖多个块（cfg(test)）。
+    /// 领取工作单元的次数（cfg(test)）：票据分发为成功领取票据数，物理列分发的
+    /// 一张票据可以覆盖多个块；二分 `join` 分发为叶子块数。
     pub(crate) ticket_grabs: usize,
 }
 
@@ -488,6 +489,17 @@ impl Drop for SplitDepth {
     }
 }
 
+/// 测试专用：让可能被其他池线程执行的并行任务带上发起线程的完整求值 oracle 开关；
+/// 否则执行者的线程本地开关取决于调度。
+#[cfg(test)]
+fn carry_oracle<R>(job: impl FnOnce() -> R) -> impl FnOnce() -> R {
+    let full_scan = super::conflict_tick::full_conflict_scan_enabled();
+    move || {
+        let _full_scan = super::conflict_tick::inherit_full_conflict_scan(full_scan);
+        job()
+    }
+}
+
 /// `output` 恰好覆盖从 `first` 起的 `chunks` 个块（末块可短）；逐块调用一次 `leaf`。
 fn split_join<T: Send, L: Fn(usize, &mut [T]) + Sync>(
     output: &mut [T],
@@ -503,10 +515,10 @@ fn split_join<T: Send, L: Fn(usize, &mut [T]) + Sync>(
     }
     let left = chunks / 2;
     let (head, tail) = output.split_at_mut(left * chunk_size);
-    rayon_core::join(
-        || split_join(head, first, left, chunk_size, leaf),
-        || split_join(tail, first + left, chunks - left, chunk_size, leaf),
-    );
+    let stolen = || split_join(tail, first + left, chunks - left, chunk_size, leaf);
+    #[cfg(test)]
+    let stolen = carry_oracle(stolen);
+    rayon_core::join(|| split_join(head, first, left, chunk_size, leaf), stolen);
 }
 
 /// 拍内并行段计数：派发方在压入任务前递增，`run_awake` 的清醒线程据此在
@@ -555,7 +567,7 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
         } else {
             // 尚未进入清醒循环就窃取了 `join` 子树的线程，会在等待子树另一半时
             // 调起本作业；此时自旋到拍尾会让拍体永远等不到这棵子树。直接返回，
-            // 本拍少一个清醒线程。
+            // 本拍少一个清醒线程；测试 oracle 开关由各并行任务自带，不靠这里继承。
             if SPLIT_DEPTH.with(std::cell::Cell::get) > 0 {
                 return;
             }
@@ -719,7 +731,13 @@ impl ExecutionResources {
                         let compute = &compute;
                         #[cfg(test)]
                         note_injections(1);
+                        #[cfg(not(test))]
                         scope.spawn(move |_| compute(view, index, chunk));
+                        #[cfg(test)]
+                        {
+                            let job = carry_oracle(move || compute(view, index, chunk));
+                            scope.spawn(move |_| job());
+                        }
                     }
                     if let Some((index, chunk)) = first {
                         compute(view, index, chunk);
@@ -956,7 +974,13 @@ impl ExecutionResources {
                 note_work();
                 resources.pool.in_place_scope(|scope| {
                     for _ in 1..threads {
+                        #[cfg(not(test))]
                         scope.spawn(|_| drain());
+                        #[cfg(test)]
+                        {
+                            let job = carry_oracle(&drain);
+                            scope.spawn(move |_| job());
+                        }
                     }
                     drain();
                 });
@@ -1089,8 +1113,13 @@ impl ExecutionResources {
                             chunks.lock().expect("dispatch ticket chunks").next()
                         };
                     }
+                    #[cfg(test)]
+                    let full_scan = super::conflict_tick::full_conflict_scan_enabled();
                     for _ in 0..auxiliaries {
                         scope.spawn(move |_| {
+                            #[cfg(test)]
+                            let _full_scan =
+                                super::conflict_tick::inherit_full_conflict_scan(full_scan);
                             loop {
                                 let Some((start, (chunk, scratch))) = claim_chunk!() else {
                                     break;
