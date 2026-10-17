@@ -450,9 +450,8 @@ pub(crate) fn guided_ticket(total: usize, claimed: usize, threads: usize, cap: u
         .clamp(1, cap.max(1))
 }
 
-/// 互斥输出分块：`broadcast` 一次唤醒池内全部线程，各线程从共享队列逐块领取
-/// 并计算，先醒的线程多做。作业表由 Rayon 内部分配（执行配置 §3 豁免），
-/// 大小只随线程数固定，与块数和车辆数无关。
+/// 互斥输出分块：按块边界二分，`join` 的右半留给空闲线程窃取。不唤醒、不等待
+/// 用不上的线程，无共享队列锁；作业在栈上，不分配。
 fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
     output: &mut [T],
     chunk_size: usize,
@@ -465,23 +464,49 @@ fn split_parts<T: Send, F: Fn(usize, &mut [T]) + Sync>(
         }
         return;
     }
-    let queue = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
-    let drain = || {
-        loop {
-            let next = queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .next();
-            let Some((index, chunk)) = next else {
-                break;
-            };
-            compute(index, chunk);
-        }
-    };
-    #[cfg(test)]
-    COORDINATOR_BROADCASTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     note_work();
-    rayon_core::broadcast(|_| drain());
+    split_join(output, 0, chunks, chunk_size, compute);
+}
+
+std::thread_local! {
+    /// 本线程正在执行的 `split_join` 层数；`run_awake` 据此识别嵌套调起。
+    static SPLIT_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+struct SplitDepth;
+
+impl SplitDepth {
+    fn enter() -> Self {
+        SPLIT_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+}
+
+impl Drop for SplitDepth {
+    fn drop(&mut self) {
+        SPLIT_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+}
+
+/// `output` 恰好覆盖从 `first` 起的 `chunks` 个块（末块可短）；逐块调用一次 `leaf`。
+fn split_join<T: Send, L: Fn(usize, &mut [T]) + Sync>(
+    output: &mut [T],
+    first: usize,
+    chunks: usize,
+    chunk_size: usize,
+    leaf: &L,
+) {
+    let _depth = SplitDepth::enter();
+    if chunks <= 1 {
+        leaf(first, output);
+        return;
+    }
+    let left = chunks / 2;
+    let (head, tail) = output.split_at_mut(left * chunk_size);
+    rayon_core::join(
+        || split_join(head, first, left, chunk_size, leaf),
+        || split_join(tail, first + left, chunks - left, chunk_size, leaf),
+    );
 }
 
 /// 拍内并行段计数：派发方在压入任务前递增，`run_awake` 的清醒线程据此在
@@ -528,6 +553,12 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
         } else {
+            // 尚未进入清醒循环就窃取了 `join` 子树的线程，会在等待子树另一半时
+            // 调起本作业；此时自旋到拍尾会让拍体永远等不到这棵子树。直接返回，
+            // 本拍少一个清醒线程。
+            if SPLIT_DEPTH.with(std::cell::Cell::get) > 0 {
+                return;
+            }
             #[cfg(test)]
             let _full_scan = super::conflict_tick::inherit_full_conflict_scan(full_scan);
             let mut seen = WORK_EPOCH.load(Ordering::Acquire);
@@ -718,7 +749,7 @@ impl ExecutionResources {
     }
 
     /// 不读取交通视图的互斥分块：每块独占一段输出，完整 join 后返回。
-    /// 在池内 `broadcast` 全部线程逐块领取；作业表属 Rayon 内部分配（§3 豁免）；
+    /// 在池内按块二分 `join`，空闲线程窃取另一半；作业在栈上，不分配。
     /// 拍内协调线程已在池上，直接参与计算。供派生索引重建这类协调器工作使用。
     pub(crate) fn for_each_part<T: Send, F: Fn(usize, &mut [T]) + Sync>(
         &self,
@@ -945,9 +976,9 @@ impl ExecutionResources {
     /// 但任务逐个槽位回报值或完整领域错误。`first_error` 由调用方以
     /// `usize::MAX` 初始化；任务遇错把该槽逻辑下标 min-store 进该原子；
     /// 更晚任务在开始执行时先查已错位置，整块晚于已错位置的输出整块标记
-    /// `Skipped` 跳过计算。错误不取消其他已分发任务：Rayon scope 在传播
-    /// panic 前等待全部任务结束，领域错误也等完整 join 后由调用方按逻辑
-    /// 顺序消费首错。协调线程与池任务票据式认领块。统计只在测试构建登记；
+    /// `Skipped` 跳过计算。错误不取消其他已分发任务：`join` 在传播 panic
+    /// 前等待两半都结束，领域错误也等完整 join 后由调用方按逻辑顺序消费
+    /// 首错。块按边界二分，空闲线程窃取右半。统计只在测试构建登记；
     /// 生产构建返回默认值、无统计锁无统计分配（票据队列是分发本身的设施）。
     pub(crate) fn try_for_each_chunk<T, F>(
         &self,
@@ -962,15 +993,48 @@ impl ExecutionResources {
         F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
     {
         assert!(chunk_size > 0, "nonzero chunk size");
-        self.try_for_each_work(
-            view,
-            output
-                .chunks_mut(chunk_size)
-                .enumerate()
-                .map(|(index, chunk)| (index * chunk_size, (chunk, ()))),
-            first_error,
-            |view, start, chunk, ()| compute(view, start, chunk),
-        )
+        let Self::Pool(resources) = self else {
+            return self.try_for_each_work(
+                view,
+                output
+                    .chunks_mut(chunk_size)
+                    .enumerate()
+                    .map(|(index, chunk)| (index * chunk_size, (chunk, ()))),
+                first_error,
+                |view, start, chunk, ()| compute(view, start, chunk),
+            );
+        };
+        #[cfg(test)]
+        let counters = DispatchCounters::default();
+        let chunks = output.len().div_ceil(chunk_size);
+        if chunks == 0 {
+            return DispatchStats::default();
+        }
+        note_work();
+        resources.pool.install(|| {
+            split_join(output, 0, chunks, chunk_size, &|index, chunk| {
+                #[cfg(test)]
+                counters.note_ticket_grab();
+                run_dispatch_chunk(
+                    &|view, start, chunk: &mut [DispatchSlot<T>], ()| compute(view, start, chunk),
+                    view,
+                    first_error,
+                    #[cfg(test)]
+                    &counters,
+                    index * chunk_size,
+                    chunk,
+                    (),
+                );
+            });
+        });
+        #[cfg(test)]
+        {
+            counters.stats()
+        }
+        #[cfg(not(test))]
+        {
+            DispatchStats::default()
+        }
     }
 
     /// 把独占结果块与独占暂存配对分发；暂存不参与首错选择，全部借用在 join 后归还。
