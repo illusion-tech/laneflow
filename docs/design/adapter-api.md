@@ -92,7 +92,7 @@ current 路径：
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
 `LaneFlowSession::new` 在提供 Spatial 时强制共享根绑定聚合身份配对（租约 + 旁车基线
 一致；根 `Arc::ptr_eq` 为必要条件），失败为 `RevisionMismatch`。完整性开启时（#955
-G1）`step` 与位姿提取在入口执行共享根预检并核对租约，交付前复核租约；完整性终止性
+G1）`step`、生命周期命令、观测导出与位姿提取在入口执行共享根预检并核对租约，提交 / 交付前复核租约；完整性终止性
 错误经 `LaneFlowSession` 传播为 session 级终止——停止位姿提取与宿主发布。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
