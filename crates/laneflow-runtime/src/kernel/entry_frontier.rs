@@ -1512,7 +1512,7 @@ fn vehicle_from_slot(
 /// 少于此车数时串行收集；两遍分发的固定开销大于收益。
 /// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
 #[cfg(not(test))]
-const TARGETS_PARALLEL_ROWS: usize = 1_024;
+const TARGETS_PARALLEL_ROWS: usize = 256;
 #[cfg(test)]
 const TARGETS_PARALLEL_ROWS: usize = 1;
 /// 并行收集的段数上限；段统计与输出切片都放在栈上。

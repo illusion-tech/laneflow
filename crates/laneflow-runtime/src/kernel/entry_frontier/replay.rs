@@ -13,7 +13,7 @@ use crate::{ApproachEstimate, ConflictPassageAddress, StepError, VehicleHandle, 
 use laneflow_static_contract::VehicleProfileOrdinal;
 
 #[cfg(not(test))]
-const PARALLEL_ROWS: usize = 1_024;
+const PARALLEL_ROWS: usize = 256;
 #[cfg(test)]
 const PARALLEL_ROWS: usize = 1;
 const MAX_PARTS: usize = 128;
