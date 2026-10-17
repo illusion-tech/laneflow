@@ -23,12 +23,15 @@ impl Window {
         })
     }
 
-    pub(crate) fn finish(self, world: &mut Host, to_tick: u64) -> Result<Value> {
+    /// `completed_tick` 是最后一个完整记账的拍；步进或其后记账失败时，账本已含
+    /// 那次尝试，尝试边界按步进次数另报。
+    pub(crate) fn finish(self, world: &mut Host, completed_tick: u64) -> Result<Value> {
         let evidence = world.take_execution_evidence()?;
         Ok(json!({
             "purpose": "instrumented-evidence-not-performance-certification",
             "after_tick": self.from_tick,
-            "through_tick": to_tick,
+            "completed_through_tick": completed_tick,
+            "attempted_through_tick": self.from_tick.saturating_add(evidence.steps),
             "schedule": schedule(&evidence),
             "resources": {
                 "window_start": resources(&self.resources_at_start),
@@ -57,7 +60,7 @@ fn schedule(evidence: &ExecutionEvidence) -> Value {
                 "extra_work_blocks": dispatch.extra_work_blocks,
                 "thread_slots": dispatch.thread_slots,
                 "busy_ns": dispatch.busy_ns,
-                "longest_block_ns": dispatch.longest_block_ns,
+                "critical_path_ns": dispatch.critical_path_ns,
                 "max_block_ns": dispatch.max_block_ns,
                 "output_bytes": dispatch.output_bytes,
             })
@@ -77,7 +80,8 @@ fn resources(resources: &ResourceEvidence) -> Value {
     json!({
         "workers": resources.workers,
         "pool_threads": resources.pool_threads,
-        "worker_stack_reserved_bytes": resources.worker_stack_reserved_bytes,
+        "worker_stack_requested_bytes": resources.worker_stack_requested_bytes,
+        "worker_stack_reserved_bytes": null,
         "worker_stack_committed_bytes": null,
         "shared_network_bytes": resources.shared_network_bytes,
         "binding_bytes": resources.binding_bytes,

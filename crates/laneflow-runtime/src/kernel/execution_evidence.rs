@@ -91,7 +91,7 @@ struct DispatchTotals {
     extra_work_blocks: u64,
     thread_slots: u64,
     busy_ns: u64,
-    longest_block_ns: u64,
+    critical_path_ns: u64,
     max_block_ns: u64,
     output_bytes: u64,
 }
@@ -137,7 +137,7 @@ impl Ledger {
                         extra_work_blocks: totals.dispatch.extra_work_blocks,
                         thread_slots: totals.dispatch.thread_slots,
                         busy_ns: totals.dispatch.busy_ns,
-                        longest_block_ns: totals.dispatch.longest_block_ns,
+                        critical_path_ns: totals.dispatch.critical_path_ns,
                         max_block_ns: totals.dispatch.max_block_ns,
                         output_bytes: totals.dispatch.output_bytes,
                     },
@@ -255,8 +255,9 @@ pub(crate) struct DispatchProbe {
     skipped: AtomicU64,
     extra: AtomicU64,
     threads: AtomicU64,
-    busy_ns: AtomicU64,
-    longest_ns: AtomicU64,
+    /// 按执行线程（池序号，池外调用线程记末位）累计的块计算时间。
+    thread_busy_ns: [AtomicU64; 64],
+    max_block_ns: AtomicU64,
 }
 
 pub(crate) fn dispatch(inline: bool, output_bytes: usize) -> DispatchProbe {
@@ -268,8 +269,8 @@ pub(crate) fn dispatch(inline: bool, output_bytes: usize) -> DispatchProbe {
         skipped: AtomicU64::new(0),
         extra: AtomicU64::new(0),
         threads: AtomicU64::new(0),
-        busy_ns: AtomicU64::new(0),
-        longest_ns: AtomicU64::new(0),
+        thread_busy_ns: [const { AtomicU64::new(0) }; 64],
+        max_block_ns: AtomicU64::new(0),
     }
 }
 
@@ -285,8 +286,8 @@ impl DispatchProbe {
         let bit = rayon_core::current_thread_index().map_or(63, |index| index.min(63));
         self.threads.fetch_or(1 << bit, Ordering::Relaxed);
         self.blocks.fetch_add(1, Ordering::Relaxed);
-        self.busy_ns.fetch_add(ns, Ordering::Relaxed);
-        self.longest_ns.fetch_max(ns, Ordering::Relaxed);
+        self.thread_busy_ns[bit].fetch_add(ns, Ordering::Relaxed);
+        self.max_block_ns.fetch_max(ns, Ordering::Relaxed);
         result
     }
 
@@ -318,7 +319,14 @@ impl Drop for DispatchProbe {
             return;
         };
         let wall = elapsed_ns(started);
-        let longest = *self.longest_ns.get_mut();
+        // 关键路径取单线程块时间之和的最大者：同一线程连续执行的块不算等待。
+        let (busy, critical) = self
+            .thread_busy_ns
+            .iter_mut()
+            .map(|busy| *busy.get_mut())
+            .fold((0_u64, 0_u64), |(sum, max), busy| {
+                (sum.saturating_add(busy), max.max(busy))
+            });
         let totals = DispatchTotals {
             dispatches: 1,
             inline_dispatches: u64::from(self.inline),
@@ -328,9 +336,9 @@ impl Drop for DispatchProbe {
             skipped_blocks: *self.skipped.get_mut(),
             extra_work_blocks: *self.extra.get_mut(),
             thread_slots: u64::from(self.threads.get_mut().count_ones()),
-            busy_ns: *self.busy_ns.get_mut(),
-            longest_block_ns: longest,
-            max_block_ns: longest,
+            busy_ns: busy,
+            critical_path_ns: critical,
+            max_block_ns: *self.max_block_ns.get_mut(),
             output_bytes: *self.output_bytes.get_mut(),
         };
         with_active(|ledger| {
@@ -345,7 +353,7 @@ impl Drop for DispatchProbe {
             sum.extra_work_blocks += totals.extra_work_blocks;
             sum.thread_slots += totals.thread_slots;
             sum.busy_ns = sum.busy_ns.saturating_add(totals.busy_ns);
-            sum.longest_block_ns = sum.longest_block_ns.saturating_add(totals.longest_block_ns);
+            sum.critical_path_ns = sum.critical_path_ns.saturating_add(totals.critical_path_ns);
             sum.max_block_ns = sum.max_block_ns.max(totals.max_block_ns);
             sum.output_bytes = sum.output_bytes.saturating_add(totals.output_bytes);
         });
@@ -380,8 +388,9 @@ pub struct StageEvidence {
     pub dispatch: DispatchEvidence,
 }
 
-/// 分发统计合计。屏障等待按每次分发的 `墙钟 − 最长块` 求和，即
-/// `wall_ns − longest_block_ns`；实际并发为 `busy_ns / wall_ns`。
+/// 分发统计合计。关键路径是每次分发中单个线程块计算时间之和的最大者；
+/// 屏障与调度等待按每次分发的 `墙钟 − 关键路径` 求和，即
+/// `wall_ns − critical_path_ns`；实际并发为 `busy_ns / wall_ns`。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DispatchEvidence {
     /// 分发次数（含单线程执行器上的内联执行）。
@@ -402,8 +411,8 @@ pub struct DispatchEvidence {
     pub thread_slots: u64,
     /// 各块计算时间合计。
     pub busy_ns: u64,
-    /// 每次分发最长块之和。
-    pub longest_block_ns: u64,
+    /// 每次分发关键路径（单线程块时间之和的最大者）之和。
+    pub critical_path_ns: u64,
     /// 单块最长时间。
     pub max_block_ns: u64,
     /// 分发写入的输出缓冲字节（物化）；原位写入存储的分发不计。
@@ -428,15 +437,15 @@ pub struct RouteEvidence {
 }
 
 /// 调用时刻的资源账。容量按 `capacity × 元素大小` 计，不含分配器开销；
-/// 线程栈只报告保留字节，提交字节不在此列。
+/// 线程栈只报告请求的栈大小，平台实际保留与提交字节不在此列。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResourceEvidence {
     /// 已安装执行配置的 worker 数。
     pub workers: u32,
     /// 辅助池线程数（单 worker 不创建线程，为 0）。
     pub pool_threads: u32,
-    /// 池线程栈保留字节合计。
-    pub worker_stack_reserved_bytes: u64,
+    /// 池线程请求的栈大小合计；平台可能向上取整，实际保留不小于此值。
+    pub worker_stack_requested_bytes: u64,
     /// 共享静态根（跨世界共享，相加时去重）。
     pub shared_network_bytes: u64,
     /// 世界绑定（来源、策略、编译表）。
@@ -513,9 +522,13 @@ mod tests {
             // 跳过的块不计执行线程：证据只数真正算过块的线程。
             assert!((1..=stats.participating_threads as u64).contains(&unstaged.thread_slots));
             assert_eq!(unstaged.output_bytes, size_of_val(output.as_slice()) as u64);
-            assert!(unstaged.longest_block_ns <= unstaged.wall_ns);
-            assert!(unstaged.max_block_ns <= unstaged.longest_block_ns);
-            assert!(unstaged.busy_ns >= unstaged.longest_block_ns);
+            assert!(unstaged.critical_path_ns <= unstaged.wall_ns);
+            assert!(unstaged.max_block_ns <= unstaged.critical_path_ns);
+            assert!(unstaged.busy_ns >= unstaged.critical_path_ns);
+            if workers == 1 {
+                // 单线程内联：关键路径就是全部块时间。
+                assert_eq!(unstaged.critical_path_ns, unstaged.busy_ns);
+            }
             let again = world.take_execution_evidence();
             assert_eq!(
                 again
@@ -569,7 +582,7 @@ mod tests {
             let pool_threads = if workers == 1 { 0 } else { workers };
             assert_eq!(resources.pool_threads, pool_threads);
             assert_eq!(
-                resources.worker_stack_reserved_bytes,
+                resources.worker_stack_requested_bytes,
                 u64::from(pool_threads) * 2 * 1_024 * 1_024
             );
             assert!(resources.committed_bytes > 0);

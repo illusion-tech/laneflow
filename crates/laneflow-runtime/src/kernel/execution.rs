@@ -1327,7 +1327,7 @@ impl WorldExecution {
         crate::ResourceEvidence {
             workers: self.config.worker_count().get(),
             pool_threads: u32::try_from(pool_threads).unwrap_or(u32::MAX),
-            worker_stack_reserved_bytes: (pool_threads * WORKER_STACK_BYTES) as u64,
+            worker_stack_requested_bytes: (pool_threads * WORKER_STACK_BYTES) as u64,
             shared_network_bytes: memory.shared_network,
             binding_bytes: memory.partitions[0],
             committed_bytes: memory.partitions[1],
