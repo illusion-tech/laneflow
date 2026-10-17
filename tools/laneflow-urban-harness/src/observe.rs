@@ -74,6 +74,50 @@ const OBSERVATION_BLOCK: usize = 4096;
 /// 逐拍状态摘要的编码版本；存档清单记录它，续跑要求相同。
 pub(crate) const OBSERVATION_VERSION: &str = "urban-observation-v3";
 
+/// 车身区间：(边 raw, 车尾 µm, 车头 µm, 个体)。
+type Body = (u32, u64, u64, IndividualId);
+
+/// 逐拍观测的跨拍缓冲区：每个固定块一份，各阶段依次复用；只保留容量，
+/// 内容逐拍清空，不参与摘要与检查语义。
+#[derive(Default)]
+pub(crate) struct ObservationScratch {
+    blocks: Vec<std::sync::Mutex<BlockBuffers>>,
+    bodies: Vec<Body>,
+    merge: Vec<Body>,
+    runs: Vec<usize>,
+    claims: Vec<(IndividualId, u32)>,
+    zone_owners: FastMap<u32, IndividualId>,
+}
+
+#[derive(Default)]
+struct BlockBuffers {
+    bytes: Vec<u8>,
+    json: Vec<u8>,
+    bodies: Vec<Body>,
+    states: Vec<Option<VehicleState>>,
+}
+
+impl ObservationScratch {
+    /// 保证至少 `len` 个块缓冲区（只增不减）。
+    fn blocks(&mut self, len: usize, block_size: usize) -> &[std::sync::Mutex<BlockBuffers>] {
+        let count = len.div_ceil(block_size);
+        if self.blocks.len() < count {
+            self.blocks.resize_with(count, Default::default);
+        }
+        &self.blocks
+    }
+}
+
+fn block_buffers(
+    blocks: &[std::sync::Mutex<BlockBuffers>],
+    from: usize,
+    block_size: usize,
+) -> std::sync::MutexGuard<'_, BlockBuffers> {
+    blocks[from / block_size]
+        .lock()
+        .expect("observation block buffers mutex poisoned")
+}
+
 /// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/json 完全相同。
 /// v3 中每块字节在块线程内各自 SHA-256 成叶摘要，主线程按块序把叶摘要
 /// 送入根哈希（有单元测试比对）。
@@ -83,11 +127,29 @@ struct BlockHash {
 }
 
 impl BlockHash {
+    #[cfg(test)]
     fn with_capacity(capacity: usize) -> Self {
         Self {
             bytes: Vec::with_capacity(capacity),
             scratch: Vec::new(),
         }
+    }
+    /// 取块缓冲区编码：清空后复用上一拍容量，逐拍不再新分配块字节。
+    fn reuse(buffers: &mut BlockBuffers, capacity: usize) -> Self {
+        let mut bytes = std::mem::take(&mut buffers.bytes);
+        bytes.clear();
+        bytes.reserve(capacity);
+        Self {
+            bytes,
+            scratch: std::mem::take(&mut buffers.json),
+        }
+    }
+    /// 取叶摘要并把缓冲区还给块缓冲区。
+    fn finish_into(self, buffers: &mut BlockBuffers) -> [u8; 32] {
+        let digest = self.digest();
+        buffers.bytes = self.bytes;
+        buffers.json = self.scratch;
+        digest
     }
     fn n(&mut self, value: impl Into<u64>) {
         self.bytes.extend_from_slice(&value.into().to_le_bytes());
@@ -388,16 +450,23 @@ pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
         scratch_red: &h.scratch_red,
     };
     let n = h.individuals.len();
+    let buffers = h.observation.blocks(n, OBSERVATION_BLOCK);
     let blocks = run_blocks(h.pool.as_ref(), n, OBSERVATION_BLOCK, |from, to| {
-        Ok(pre_step_block(&view, from, to, warm))
+        let mut buffers = block_buffers(buffers, from, OBSERVATION_BLOCK);
+        Ok(pre_step_block(&view, from, to, warm, &mut buffers.states))
     });
     h.step_before.clear();
     h.step_before.reserve(n);
     let mut intent = 0;
-    for block in blocks {
-        let mut block = block.expect("pre_step block encoding is infallible");
+    for (index, block) in blocks.into_iter().enumerate() {
+        let block = block.expect("pre_step block encoding is infallible");
         intent += block.intent;
-        h.step_before.append(&mut block.states);
+        h.step_before.extend_from_slice(
+            &buffers[index]
+                .lock()
+                .expect("observation block buffers mutex poisoned")
+                .states,
+        );
         for red in block.red {
             h.red_waiters.insert(red);
         }
@@ -405,20 +474,26 @@ pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
     intent
 }
 
-/// pre_step 的只读块产出：槽位区间的车辆快照、intent 计数与 red_waiter
-/// 候选（主线程求并集，与串行插入得到的集合相同）。
+/// pre_step 的只读块产出：intent 计数与 red_waiter 候选（主线程求并集，
+/// 与串行插入得到的集合相同）；槽位区间的车辆快照写入块缓冲区 `states`。
 struct PreBlock {
-    states: Vec<Option<VehicleState>>,
     intent: usize,
     red: Vec<(IndividualId, u32)>,
 }
 
-fn pre_step_block(view: &StateView<'_>, from: usize, to: usize, warm: bool) -> PreBlock {
+fn pre_step_block(
+    view: &StateView<'_>,
+    from: usize,
+    to: usize,
+    warm: bool,
+    states: &mut Vec<Option<VehicleState>>,
+) -> PreBlock {
     let mut out = PreBlock {
-        states: Vec::with_capacity(to - from),
         intent: 0,
         red: Vec::new(),
     };
+    states.clear();
+    states.reserve(to - from);
     for i in from..to {
         let state = view.individuals[i]
             .handle
@@ -446,7 +521,7 @@ fn pre_step_block(view: &StateView<'_>, from: usize, to: usize, warm: bool) -> P
                 }
             }
         }
-        out.states.push(state);
+        states.push(state);
     }
     out
 }
@@ -479,28 +554,42 @@ fn conflict_reason_name(reason: ConflictNoGrantReason) -> &'static str {
     }
 }
 
-fn passage(
+/// 通行位置的 JSON 数组字段：元组序列化与 `json!([...])` 字节相同，
+/// 逐拍摘要直接编码元组，不为每条决策构造 `Value`。
+fn passage_fields(
     route_table: &crate::route_table::RouteTable,
     p: ConflictPassageOccurrenceLocator,
-) -> Value {
-    json!([
+) -> impl serde::Serialize + '_ {
+    (
         route_table.key_of(p.route()),
         p.maneuver_occurrence_index(),
         p.admission_gate_hop(),
         p.conflict_occurrence_index(),
         p.address().zone().raw(),
         p.address().stream().raw(),
-        p.address().passage_local_index()
-    ])
+        p.address().passage_local_index(),
+    )
+}
+fn passage(
+    route_table: &crate::route_table::RouteTable,
+    p: ConflictPassageOccurrenceLocator,
+) -> Value {
+    json!(passage_fields(route_table, p))
 }
 fn range(route_table: &crate::route_table::RouteTable, r: ConflictPassageRange) -> Value {
-    json!([
+    json!(range_fields(route_table, r))
+}
+fn range_fields(
+    route_table: &crate::route_table::RouteTable,
+    r: ConflictPassageRange,
+) -> impl serde::Serialize + '_ {
+    (
         route_table.key_of(r.route()),
         r.maneuver_occurrence_index(),
         r.admission_gate_hop(),
         r.first_conflict_occurrence_index(),
-        r.passage_count()
-    ])
+        r.passage_count(),
+    )
 }
 
 // Match an actual tick-start claim to this subject's declared yield target. Generic
@@ -584,8 +673,13 @@ fn occupied_yield_pulse(
 
 /// 决策批编码的只读块：块字节与 v2 顺序流对应切片逐字节一致；v3 取块
 /// 字节的叶摘要，主线程按块序送入根哈希。
-fn waiting_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Result<[u8; 32]> {
-    let mut hash = BlockHash::with_capacity((to - from) * 64);
+fn waiting_decision_block(
+    view: &StateView<'_>,
+    from: usize,
+    to: usize,
+    buffers: &mut BlockBuffers,
+) -> Result<[u8; 32]> {
+    let mut hash = BlockHash::reuse(buffers, (to - from) * 64);
     for d in &view.world.latest_waiting_decisions()[from..to] {
         let id = view
             .stable_individual(d.vehicle())
@@ -610,11 +704,16 @@ fn waiting_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Resul
         hash.n(tag);
         hash.n(reason);
     }
-    Ok(hash.digest())
+    Ok(hash.finish_into(buffers))
 }
 
-fn conflict_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Result<[u8; 32]> {
-    let mut hash = BlockHash::with_capacity((to - from) * 96);
+fn conflict_decision_block(
+    view: &StateView<'_>,
+    from: usize,
+    to: usize,
+    buffers: &mut BlockBuffers,
+) -> Result<[u8; 32]> {
+    let mut hash = BlockHash::reuse(buffers, (to - from) * 96);
     for d in &view.world.latest_conflict_decisions()[from..to] {
         let id = view
             .stable_individual(d.vehicle())
@@ -624,7 +723,7 @@ fn conflict_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Resu
         hash.text(view.route_table.key_of(d.anchor().route()));
         hash.n(d.anchor().maneuver_occurrence_index());
         hash.n(d.anchor().hop());
-        hash.json(&d.passage().map(|p| passage(view.route_table, p)))?;
+        hash.json(&d.passage().map(|p| passage_fields(view.route_table, p)))?;
         let (tag, reason) = match d.outcome() {
             ConflictDecisionOutcome::NotEvaluated => (0_u32, 0),
             ConflictDecisionOutcome::NotRequired => (1, 0),
@@ -634,7 +733,7 @@ fn conflict_decision_block(view: &StateView<'_>, from: usize, to: usize) -> Resu
         hash.n(tag);
         hash.n(reason);
     }
-    Ok(hash.digest())
+    Ok(hash.finish_into(buffers))
 }
 
 pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
@@ -660,22 +759,38 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         };
         let waiting_len = view.world.latest_waiting_decisions().len();
         decisions.n(waiting_len.div_ceil(OBSERVATION_BLOCK) as u64);
+        let buffers = h.observation.blocks(waiting_len, OBSERVATION_BLOCK);
         for leaf in run_blocks(
             h.pool.as_ref(),
             waiting_len,
             OBSERVATION_BLOCK,
-            |from, to| waiting_decision_block(&view, from, to),
+            |from, to| {
+                waiting_decision_block(
+                    &view,
+                    from,
+                    to,
+                    &mut block_buffers(buffers, from, OBSERVATION_BLOCK),
+                )
+            },
         ) {
             decisions.bytes(&leaf?);
         }
         decisions.text("conflict");
         let conflict_len = view.world.latest_conflict_decisions().len();
         decisions.n(conflict_len.div_ceil(OBSERVATION_BLOCK) as u64);
+        let buffers = h.observation.blocks(conflict_len, OBSERVATION_BLOCK);
         for leaf in run_blocks(
             h.pool.as_ref(),
             conflict_len,
             OBSERVATION_BLOCK,
-            |from, to| conflict_decision_block(&view, from, to),
+            |from, to| {
+                conflict_decision_block(
+                    &view,
+                    from,
+                    to,
+                    &mut block_buffers(buffers, from, OBSERVATION_BLOCK),
+                )
+            },
         ) {
             decisions.bytes(&leaf?);
         }
@@ -948,7 +1063,6 @@ struct BlockOutcome {
     live: usize,
     status_counts: (usize, usize, usize),
     bindings: FastMap<ParkingTarget, (u64, u64)>,
-    bodies: Vec<(u32, u64, u64, IndividualId)>,
     waiting: BTreeMap<u32, u32>,
     lifecycle: Vec<Value>,
     crossed: Vec<usize>,
@@ -975,14 +1089,21 @@ impl StateView<'_> {
     }
 }
 
-fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Result<BlockOutcome> {
-    let mut hash = BlockHash::with_capacity((to - from) * 192);
+/// 块车身区间写入块缓冲区 `bodies`（块内已排序），由主线程按块序归并。
+fn state_block(
+    view: &StateView<'_>,
+    from: usize,
+    to: usize,
+    tick: u64,
+    buffers: &mut BlockBuffers,
+) -> Result<BlockOutcome> {
+    let mut hash = BlockHash::reuse(buffers, (to - from) * 192);
+    buffers.bodies.clear();
     let mut out = BlockOutcome {
         digest: [0; 32],
         live: 0,
         status_counts: (0, 0, 0),
         bindings: FastMap::default(),
-        bodies: Vec::new(),
         waiting: BTreeMap::new(),
         lifecycle: Vec::new(),
         crossed: Vec::new(),
@@ -1108,7 +1229,7 @@ fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Resul
         }
         if let Some(r) = view.world.conflict_reservation(handle) {
             hash.n(1_u32);
-            hash.json(&range(view.route_table, r.passage_range()))?;
+            hash.json(&range_fields(view.route_table, r.passage_range()))?;
             hash.id(view
                 .stable_individual(r.downstream_owner())
                 .ok_or_else(|| invalid("unknown claim owner"))?);
@@ -1139,7 +1260,7 @@ fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Resul
             loop {
                 let back = front.saturating_sub(remaining);
                 if front > back {
-                    out.bodies.push((
+                    buffers.bodies.push((
                         view.route_table.edge_raw(route, cursor),
                         back,
                         front,
@@ -1155,8 +1276,8 @@ fn state_block(view: &StateView<'_>, from: usize, to: usize, tick: u64) -> Resul
             }
         }
     }
-    out.bodies.sort_unstable();
-    out.digest = hash.digest();
+    buffers.bodies.sort_unstable();
+    out.digest = hash.finish_into(buffers);
     Ok(out)
 }
 
@@ -1164,32 +1285,58 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     state_impl(h, OBSERVATION_BLOCK)
 }
 
-/// 资源声明（`claims`）不变量的只读块检查：逐条核对预约持有方，持有方校验结果与
-/// (zone, id) 按原 map 迭代序成对返回；块闭包不失败，Err 以第三元组分量
-/// 带回，由主线程按块序归并后先插入 zone_owners 再判定，触发点与串行逐条
-/// （zone 独占冲突先于持有方缺失）一致。
+/// 资源声明（`claims`）不变量的只读块检查：按原 map 迭代序逐条核对预约持有方，
+/// 返回块内首个缺失持有方的位置；主线程按块序取全局首个位置，再按 map 序
+/// 逐条先插入 zone_owners 再判定，触发点与串行逐条（zone 独占冲突先于持有方
+/// 缺失）一致。
 fn claims_block(
     world: &TrafficWorld,
     individuals: &[crate::runner::Individual],
-    claims: &[(&(IndividualId, u32, u32), &u32)],
-) -> Vec<(u32, IndividualId, Result<()>)> {
-    claims
-        .iter()
-        .map(|((id, _, _), zone)| {
-            let individual = &individuals[id.tile as usize * 1_000 + id.slot as usize];
-            let owner = if individual.id != *id
-                || individual
-                    .handle
-                    .and_then(|handle| world.conflict_reservation(handle))
-                    .is_none()
-            {
-                Err(invalid("claim has no current reservation owner"))
-            } else {
-                Ok(())
-            };
-            (**zone, *id, owner)
-        })
-        .collect()
+    claims: &[(IndividualId, u32)],
+) -> Option<usize> {
+    claims.iter().position(|(id, _)| {
+        let individual = &individuals[id.tile as usize * 1_000 + id.slot as usize];
+        individual.id != *id
+            || individual
+                .handle
+                .and_then(|handle| world.conflict_reservation(handle))
+                .is_none()
+    })
+}
+
+/// 把相邻的已排序段（界为 `runs`，首元 0、末元总长）两两归并到 `aux`
+/// 并交换，直到只剩一段；与全量排序得到同一总序（元组全序）。
+fn merge_sorted_runs(data: &mut Vec<Body>, runs: &mut Vec<usize>, aux: &mut Vec<Body>) {
+    while runs.len() > 2 {
+        aux.clear();
+        let mut write = 1;
+        let mut i = 0;
+        while i + 2 < runs.len() {
+            let (left, right) = (&data[runs[i]..runs[i + 1]], &data[runs[i + 1]..runs[i + 2]]);
+            let (mut a, mut b) = (0, 0);
+            while a < left.len() && b < right.len() {
+                if left[a] <= right[b] {
+                    aux.push(left[a]);
+                    a += 1;
+                } else {
+                    aux.push(right[b]);
+                    b += 1;
+                }
+            }
+            aux.extend_from_slice(&left[a..]);
+            aux.extend_from_slice(&right[b..]);
+            runs[write] = runs[i + 2];
+            write += 1;
+            i += 2;
+        }
+        if i + 1 < runs.len() {
+            aux.extend_from_slice(&data[runs[i]..runs[i + 1]]);
+            runs[write] = runs[i + 1];
+            write += 1;
+        }
+        runs.truncate(write);
+        std::mem::swap(data, aux);
+    }
 }
 
 /// v3 树形摘要：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
@@ -1206,27 +1353,43 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     hash.n(h.world.command_cursor());
     hash.n(h.world.event_cursor());
     // 资源声明不变量按固定块并行核对：块线程只读校验预约持有方，
-    // 主线程按块序（= 原 map 迭代序）逐对插入 zone_owners 再判定持有方，
-    // 报错触发点与串行逐条一致；`claims` 借用与块结果在下方可变借用前消费完。
-    let mut zone_owners = FastMap::default();
+    // 主线程按 map 序逐条插入 zone_owners 再判定持有方，报错触发点与串行
+    // 逐条一致。声明副本与 zone_owners 复用跨拍缓冲区。
     {
-        let claims: Vec<_> = h.claims.iter().collect();
+        let scratch = &mut h.observation;
+        scratch.claims.clear();
+        scratch
+            .claims
+            .extend(h.claims.iter().map(|((id, _, _), zone)| (*id, *zone)));
+        let claims = &scratch.claims;
         // adapter feature 下 Host 含 bevy App（非 Sync）：闭包只捕获解引用后的
         // &TrafficWorld 与 &individuals，与 StateView 的共享方式一致。
         let world: &TrafficWorld = &h.world;
         let individuals: &[crate::runner::Individual] = &h.individuals;
-        let checks = run_blocks(
+        let missing_owner = run_blocks(
             h.pool.as_ref(),
             claims.len(),
             OBSERVATION_BLOCK,
             |from, to| Ok(claims_block(world, individuals, &claims[from..to])),
-        );
-        for check in checks {
-            for (zone, id, owner) in check? {
-                if zone_owners.insert(zone, id).is_some_and(|old| old != id) {
-                    return Err(invalid("committed conflict claims are not exclusive"));
-                }
-                owner?;
+        )
+        .into_iter()
+        .enumerate()
+        .find_map(|(block, check)| {
+            check
+                .expect("claims block check is infallible")
+                .map(|index| block * OBSERVATION_BLOCK + index)
+        });
+        scratch.zone_owners.clear();
+        for (index, (id, zone)) in claims.iter().enumerate() {
+            if scratch
+                .zone_owners
+                .insert(*zone, *id)
+                .is_some_and(|old| old != *id)
+            {
+                return Err(invalid("committed conflict claims are not exclusive"));
+            }
+            if missing_owner == Some(index) {
+                return Err(invalid("claim has no current reservation owner"));
             }
         }
     }
@@ -1246,15 +1409,27 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
         scratch_red: &h.scratch_red,
     };
     hash.n(n.div_ceil(block_size) as u64);
+    let mut bodies = std::mem::take(&mut h.observation.bodies);
+    bodies.clear();
+    bodies.reserve(n);
+    let mut runs = std::mem::take(&mut h.observation.runs);
+    runs.clear();
+    runs.push(0);
+    let buffers = h.observation.blocks(n, block_size);
     let outcomes = run_blocks(h.pool.as_ref(), n, block_size, |from, to| {
-        state_block(&view, from, to, tick)
+        state_block(
+            &view,
+            from,
+            to,
+            tick,
+            &mut block_buffers(buffers, from, block_size),
+        )
     });
-    let mut bodies = Vec::with_capacity(n);
     let mut waiting = BTreeMap::<u32, u32>::new();
     let mut status_counts = (0_usize, 0_usize, 0_usize);
     let mut live = 0_usize;
     let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
-    for outcome in outcomes {
+    for (index, outcome) in outcomes.into_iter().enumerate() {
         let outcome = outcome?;
         hash.bytes(&outcome.digest);
         live += outcome.live;
@@ -1266,7 +1441,13 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
             entry.0 += count.0;
             entry.1 += count.1;
         }
-        bodies.extend(outcome.bodies);
+        bodies.extend_from_slice(
+            &buffers[index]
+                .lock()
+                .expect("observation block buffers mutex poisoned")
+                .bodies,
+        );
+        runs.push(bodies.len());
         for (zone, count) in outcome.waiting {
             *waiting.entry(zone).or_default() += count;
         }
@@ -1286,9 +1467,10 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     if expected_live < 0 || live != expected_live as usize {
         return Err(invalid("birth/removal identity conservation failed"));
     }
-    // 各块 bodies 已在块线程内有序；主线程用运行自适应的稳定排序归并，
+    // 各块 bodies 已在块线程内有序；主线程按块界两两归并（复用跨拍缓冲区），
     // 总序与全量 sort_unstable 相同（元组全序，稳定性无关）。
-    bodies.sort();
+    let mut merge = std::mem::take(&mut h.observation.merge);
+    merge_sorted_runs(&mut bodies, &mut runs, &mut merge);
     for pair in bodies.windows(2) {
         if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
             return Err(invalid(format!(
@@ -1300,6 +1482,9 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
             )));
         }
     }
+    h.observation.bodies = bodies;
+    h.observation.merge = merge;
+    h.observation.runs = runs;
     for raw in 0..h
         .artifacts
         .revision
@@ -1388,6 +1573,62 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tuple_fields_encode_like_the_json_array() {
+        // passage_fields / range_fields 以元组代替 json!([...])：摘要字节必须相同。
+        let key = "r-7";
+        for (a, b, c) in [(0_u32, 0_u32, 0_u16), (1, u32::MAX, u16::MAX), (42, 7, 3)] {
+            let mut tuple = BlockHash::with_capacity(0);
+            tuple.json(&Some((key, a, b, c))).unwrap();
+            tuple.json(&None::<(&str, u32)>).unwrap();
+            let mut value = BlockHash::with_capacity(0);
+            value.json(&Some(json!([key, a, b, c]))).unwrap();
+            value.json(&None::<Value>).unwrap();
+            assert_eq!(tuple.bytes, value.bytes);
+        }
+    }
+
+    #[test]
+    fn merged_runs_match_a_full_sort() {
+        let id = |slot| IndividualId {
+            tile: 0,
+            slot,
+            incarnation: 0,
+        };
+        let mut state = 0x9E37_79B9_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let (mut merge, mut runs) = (Vec::new(), Vec::new());
+        for lens in [
+            vec![],
+            vec![0, 0],
+            vec![5],
+            vec![3, 0, 4],
+            vec![2, 7, 1, 9, 4, 0, 6],
+        ] {
+            let mut data = Vec::new();
+            runs.clear();
+            runs.push(0);
+            for len in lens {
+                let start = data.len();
+                for _ in 0..len {
+                    let r = next();
+                    data.push(((r % 3) as u32, r % 5, r % 11, id((r % 4) as u32)));
+                }
+                data[start..].sort_unstable();
+                runs.push(data.len());
+            }
+            let mut expected = data.clone();
+            expected.sort_unstable();
+            merge_sorted_runs(&mut data, &mut runs, &mut merge);
+            assert_eq!(data, expected);
+        }
+    }
 
     #[test]
     fn batched_observation_hash_preserves_the_exact_encoding() {

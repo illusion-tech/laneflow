@@ -268,6 +268,8 @@ pub struct Harness<'a> {
     pub(crate) last_step_ns: u64,
     pub(crate) last_command_ns: u64,
     pub(crate) last_observation_ns: u64,
+    /// 逐拍观测的跨拍块缓冲区（只保留容量）。
+    pub(crate) observation: crate::observe::ObservationScratch,
     /// 观测块并行用的常驻池；workers==1 时为 None，全部观测在调用线程上跑。
     pub(crate) pool: Option<rayon_core::ThreadPool>,
 }
@@ -386,6 +388,7 @@ impl<'a> Harness<'a> {
             last_step_ns: 0,
             last_command_ns: 0,
             last_observation_ns: 0,
+            observation: Default::default(),
             pool,
         };
         for b in &plan.departures {
