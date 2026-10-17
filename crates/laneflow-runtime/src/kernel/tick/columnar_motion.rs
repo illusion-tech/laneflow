@@ -1127,6 +1127,23 @@ pub(super) fn prepare(
             counts.fused += 1;
         }
     });
+    #[cfg(feature = "execution-evidence")]
+    crate::kernel::execution_evidence::route(
+        crate::kernel::execution_evidence::Phase::Motion,
+        if fallback {
+            crate::kernel::execution_evidence::Route::ScratchFallback
+        } else if dispatched {
+            crate::kernel::execution_evidence::Route::Dispatched
+        } else {
+            crate::kernel::execution_evidence::fused(
+                matches!(
+                    execution,
+                    Some(crate::kernel::execution::ExecutionResources::Pool(_))
+                ),
+                workload,
+            )
+        },
+    );
     let execution = (dispatched && !fallback).then_some(execution).flatten();
     let desired_chunk = extent
         .div_ceil(execution.map_or(1, |resources| {

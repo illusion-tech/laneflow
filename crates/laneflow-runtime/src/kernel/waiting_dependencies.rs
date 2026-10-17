@@ -424,7 +424,7 @@ impl WaitingDependencies {
     }
 
     /// 测试用：台账持有的逻辑字节数。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             graph,

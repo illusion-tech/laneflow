@@ -853,7 +853,7 @@ impl FrontierMaintenance {
             .is_some_and(|seen| *seen == self.seen_gen)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             identity: _,
@@ -873,9 +873,17 @@ impl FrontierMaintenance {
             scratch_addresses,
             seen,
             seen_gen: _,
+            #[cfg(test)]
             full_walked,
+            #[cfg(test)]
             insertions,
         } = self;
+        // 测试专用诊断字段只在测试构建存在。
+        #[cfg(test)]
+        let diagnostics = crate::kernel::state::vec_bytes(full_walked)
+            + crate::kernel::state::vec_bytes(insertions);
+        #[cfg(not(test))]
+        let diagnostics = 0;
         crate::kernel::state::vec_bytes(slots)
             + slots
                 .iter()
@@ -900,8 +908,7 @@ impl FrontierMaintenance {
             + crate::kernel::state::vec_bytes(scratch_demanded)
             + crate::kernel::state::vec_bytes(scratch_addresses)
             + crate::kernel::state::vec_bytes(seen)
-            + crate::kernel::state::vec_bytes(full_walked)
-            + crate::kernel::state::vec_bytes(insertions)
+            + diagnostics
     }
 }
 
@@ -1589,6 +1596,13 @@ pub(crate) struct TargetPart {
     error: Option<StepError>,
     /// 段缓冲扩容失败：本次改走两遍收集。
     full: bool,
+}
+
+#[cfg(feature = "execution-evidence")]
+impl TargetPart {
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        crate::kernel::state::vec_bytes(&self.targets)
+    }
 }
 
 /// 一遍并行收集：每段写进自己的池缓冲，join 后按段序拼接。目标随后排序去重，

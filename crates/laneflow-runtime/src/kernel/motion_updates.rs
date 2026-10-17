@@ -1015,7 +1015,7 @@ impl MotionUpdates {
             .map_err(|_| StepError::VehicleStorageAllocFailed)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         use super::state::vec_bytes;
         let Self {

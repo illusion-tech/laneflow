@@ -610,10 +610,18 @@ pub fn run_with_options(
     let mut observation_times = Vec::new();
     let mut active_samples = Vec::new();
     let mut intent_samples = Vec::new();
+    #[cfg(feature = "execution-evidence")]
+    let mut evidence_window = crate::execution_evidence::Window::start(&mut harness.world, start)?;
     let run: Result<()> = (|| {
         for _ in start..until {
             let tick_started = diagnostics.is_enabled().then(Instant::now);
             let record = harness.advance()?;
+            // 预热结束时清零：调度证据只覆盖观察窗口。
+            #[cfg(feature = "execution-evidence")]
+            if record.tick == plan.window.warm_up_ticks {
+                evidence_window =
+                    crate::execution_evidence::Window::start(&mut harness.world, record.tick)?;
+            }
             if let Some(logs) = &mut logs {
                 logs.write_tick(&record, &harness.commands, &harness.events)?;
             }
@@ -844,10 +852,10 @@ pub fn run_with_options(
             )
             .copied()
     };
+    #[cfg(feature = "execution-evidence")]
+    let execution_evidence = evidence_window.finish(&mut harness.world, result.completed_ticks)?;
     let diagnostics_path = output.join("diagnostics.json");
-    write_json(
-        &diagnostics_path,
-        &json!({"purpose":if plan.window.purpose == "performance" {"execution-metadata; formal timings are in measurements.toml"} else {"diagnostic-only-not-performance-certification"}, "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
+    let diagnostics_json = json!({"purpose":if plan.window.purpose == "performance" {"execution-metadata; formal timings are in measurements.toml"} else {"diagnostic-only-not-performance-certification"}, "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
         "window_steps":window_step_times.len(), "window_step_ns_p50":window_percentile(50), "window_step_ns_p95":window_percentile(95), "window_step_ns_p99":window_percentile(99),
         "window_step_ns_max":window_percentile(100), "window_step_samples_ns":window_step_times,
@@ -859,8 +867,14 @@ pub fn run_with_options(
         "invocation":std::env::args().collect::<Vec<_>>(), "memory_measurement":null,
         "diagnostics_enabled":diagnostics.is_enabled(), "saves":save_timings,
         "git_commit_at_run":command_output("git", &["rev-parse", "HEAD"]),
-        "git_status_at_run":command_output("git", &["status", "--porcelain", "--untracked-files=all"])}),
-    )?;
+        "git_status_at_run":command_output("git", &["status", "--porcelain", "--untracked-files=all"])});
+    #[cfg(feature = "execution-evidence")]
+    let diagnostics_json = {
+        let mut diagnostics_json = diagnostics_json;
+        diagnostics_json["execution_evidence"] = execution_evidence;
+        diagnostics_json
+    };
+    write_json(&diagnostics_path, &diagnostics_json)?;
     result
         .files
         .insert("diagnostics.json".into(), digest_file(&diagnostics_path)?);

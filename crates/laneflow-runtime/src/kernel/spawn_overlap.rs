@@ -296,7 +296,7 @@ impl SpawnOverlapIndex {
     }
 
     /// 测试用：索引持有的逻辑字节数。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self { buckets, stale: _ } = self;
         crate::kernel::state::vec_bytes(buckets)

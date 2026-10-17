@@ -75,6 +75,10 @@ mod placement_admission_tests;
 #[path = "tests/motion_backend_equivalence.rs"]
 mod motion_backend_equivalence;
 
+/// #972 证据构建的调度统计与资源账；普通构建不编译。
+#[cfg(feature = "execution-evidence")]
+pub(crate) mod execution_evidence;
+
 /// 测试构建中的批次阶段墙钟剖析；无生产 feature、API 或状态字段。
 #[cfg(test)]
 pub(crate) mod performance_profile;

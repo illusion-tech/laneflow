@@ -70,6 +70,8 @@ path = "src/kernel/tests/route_query/wall.rs"
 placement-fixtures = []
 # 证据构建仅在安装时选择数值后端；普通构建不读取此环境变量、不插桩。
 motion-kernel-evidence = []
+# 证据构建登记调度统计并开放资源账（#707 验收 4/5）；普通构建不插桩。
+execution-evidence = []
 
 [dependencies]
 laneflow-motion-kernel = { version = "0.0.0", path = "../laneflow-motion-kernel" }

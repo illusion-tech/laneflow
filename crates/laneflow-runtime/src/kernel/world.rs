@@ -2715,8 +2715,37 @@ impl TrafficWorld {
     pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         self.execution.assert_usable();
         self.execution.run(&mut self.state, |state, resources| {
+            #[cfg(feature = "execution-evidence")]
+            let _step = crate::kernel::execution_evidence::step();
             state.step(input, Some(resources))
         })
+    }
+
+    /// 取走自上次调用以来本世界执行作用域内累计的调度证据。
+    ///
+    /// 只在证据构建（`execution-evidence` feature）中存在。计时含插桩开销，
+    /// 不作为性能认证。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[cfg(feature = "execution-evidence")]
+    pub fn take_execution_evidence(&mut self) -> crate::ExecutionEvidence {
+        self.execution.assert_usable();
+        self.execution.take_evidence()
+    }
+
+    /// 当前资源账快照；遍历全部自有存储，开销与世界规模成正比。
+    ///
+    /// 只在证据构建（`execution-evidence` feature）中存在。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[cfg(feature = "execution-evidence")]
+    pub fn resource_evidence(&self) -> crate::ResourceEvidence {
+        self.execution.assert_usable();
+        self.execution.resource_evidence(&self.state)
     }
 
     /// 稳定顺序（live 顺序）的已提交 pose 源惰性迭代器。

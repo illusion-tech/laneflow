@@ -46,7 +46,7 @@ pub(crate) struct WorldPolicyBinding {
     frontier_proof_horizon_ms: Option<u64>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl WorldPolicyBinding {
     /// 测试用：策略绑定持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {

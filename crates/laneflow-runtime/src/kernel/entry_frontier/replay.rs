@@ -103,8 +103,8 @@ pub(crate) struct ReplayScratch {
 }
 
 impl ReplayScratch {
-    #[cfg(test)]
-    fn retained_bytes(&self) -> u64 {
+    #[cfg(any(test, feature = "execution-evidence"))]
+    pub(crate) fn retained_bytes(&self) -> u64 {
         let Self {
             select_parts,
             rows,
@@ -113,7 +113,8 @@ impl ReplayScratch {
             owners,
             emitted_positions,
             proofs,
-            fail_reserve: _,
+            #[cfg(test)]
+                fail_reserve: _,
         } = self;
         crate::kernel::state::vec_bytes(select_parts)
             + select_parts

@@ -560,7 +560,15 @@ pub(crate) struct OccupancyPart {
     error: Option<StepError>,
 }
 
-#[cfg(test)]
+#[cfg(feature = "execution-evidence")]
+impl OccupancyPart {
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        use crate::kernel::state::vec_bytes;
+        vec_bytes(&self.records) + vec_bytes(&self.grouped) + vec_bytes(&self.group_ends)
+    }
+}
+
+#[cfg(any(test, feature = "execution-evidence"))]
 impl OccupancyScratch {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
@@ -571,14 +579,20 @@ impl OccupancyScratch {
             upstream_generation: _,
             upstream_seen,
             upstream_distance,
+            #[cfg(test)]
             exact_pending,
         } = self;
+        // 测试专用诊断字段只在测试构建存在。
+        #[cfg(test)]
+        let diagnostics = crate::kernel::state::vec_bytes(exact_pending);
+        #[cfg(not(test))]
+        let diagnostics = 0;
         crate::kernel::state::vec_bytes(positions)
             + crate::kernel::state::vec_bytes(maneuver_upstream_offsets)
             + crate::kernel::state::vec_bytes(maneuver_upstream_sources)
             + crate::kernel::state::vec_bytes(upstream_seen)
             + crate::kernel::state::vec_bytes(upstream_distance)
-            + crate::kernel::state::vec_bytes(exact_pending)
+            + diagnostics
     }
 }
 
@@ -727,7 +741,7 @@ impl OccupancyScratch {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl OccupancyIndex {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
@@ -743,8 +757,10 @@ impl OccupancyIndex {
             ahead_epoch: _,
             ahead_last: _,
             fronts,
-            inspections: _,
-            occurrence_walks: _,
+            #[cfg(test)]
+                inspections: _,
+            #[cfg(test)]
+                occurrence_walks: _,
         } = self;
         crate::kernel::state::vec_bytes(spans)
             + crate::kernel::state::vec_bytes(records)

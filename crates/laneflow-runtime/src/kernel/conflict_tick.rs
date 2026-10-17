@@ -606,7 +606,7 @@ impl ConflictSchedule {
     }
 
     /// 测试专用：调度暂存按容量计的存续逻辑字节数。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> usize {
         let Self {
             ready,
@@ -696,7 +696,7 @@ impl ConflictTableWrites {
         self.next.complete = false;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_bytes(&self) -> u64 {
         crate::kernel::state::vec_bytes(&self.motion.slots)
             + crate::kernel::state::vec_bytes(&self.next.slots)
@@ -740,6 +740,14 @@ pub(crate) struct FinalizePart {
     transitions: Vec<ConflictPassageTransition>,
     /// 本段资源行上已提交 reservation 的通行段数之和，用于落账前预留。
     reservation_passages: usize,
+}
+
+#[cfg(feature = "execution-evidence")]
+impl FinalizePart {
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        use crate::kernel::state::vec_bytes;
+        vec_bytes(&self.rows) + vec_bytes(&self.decisions) + vec_bytes(&self.transitions)
+    }
 }
 
 /// 资源行上已提交 reservation 的通行段数之和。
@@ -1460,6 +1468,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         } else {
             #[cfg(test)]
             count_conflict_path(|counts| counts.fused += 1);
+            #[cfg(feature = "execution-evidence")]
+            crate::kernel::execution_evidence::route(
+                crate::kernel::execution_evidence::Phase::ConflictCandidates,
+                crate::kernel::execution_evidence::Route::FusedSerialExecutor,
+            );
         }
         if !dispatched {
             // 与分发发现序同序的非有限注入计数（cfg(test)，融合参考臂同样
@@ -1564,6 +1577,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         if inputs.try_reserve(projected).is_err() || input_injected {
             #[cfg(test)]
             count_conflict_path(|counts| counts.slot_fallback += 1);
+            #[cfg(feature = "execution-evidence")]
+            crate::kernel::execution_evidence::route(
+                crate::kernel::execution_evidence::Phase::ConflictCandidates,
+                crate::kernel::execution_evidence::Route::ScratchFallback,
+            );
             return Ok(false);
         }
         if execution.coordinator_parallel()
@@ -1581,6 +1599,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if !discovered {
                 #[cfg(test)]
                 count_conflict_path(|counts| counts.slot_fallback += 1);
+                #[cfg(feature = "execution-evidence")]
+                crate::kernel::execution_evidence::route(
+                    crate::kernel::execution_evidence::Phase::ConflictCandidates,
+                    crate::kernel::execution_evidence::Route::ScratchFallback,
+                );
                 return Ok(false);
             }
         } else {
@@ -1618,6 +1641,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         if workload == 0 {
             #[cfg(test)]
             count_conflict_path(|counts| counts.fused += 1);
+            #[cfg(feature = "execution-evidence")]
+            crate::kernel::execution_evidence::route(
+                crate::kernel::execution_evidence::Phase::ConflictCandidates,
+                crate::kernel::execution_evidence::Route::FusedEmpty,
+            );
             return Ok(true);
         }
         #[cfg(test)]
@@ -1627,6 +1655,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         if workload < CONFLICT_DISPATCH_MIN_ACTIVE && !(forced && workload > 0) {
             #[cfg(test)]
             count_conflict_path(|counts| counts.fused += 1);
+            #[cfg(feature = "execution-evidence")]
+            crate::kernel::execution_evidence::route(
+                crate::kernel::execution_evidence::Phase::ConflictCandidates,
+                crate::kernel::execution_evidence::Route::FusedBelowThreshold,
+            );
             return Ok(false);
         }
         // 槽位不复位清空：闭包逐槽以本拍报告替换上拍报告并回收其段 Vec
@@ -1646,12 +1679,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         {
             #[cfg(test)]
             count_conflict_path(|counts| counts.slot_fallback += 1);
+            #[cfg(feature = "execution-evidence")]
+            crate::kernel::execution_evidence::route(
+                crate::kernel::execution_evidence::Phase::ConflictCandidates,
+                crate::kernel::execution_evidence::Route::ScratchFallback,
+            );
             return Ok(false);
         }
         // 调度统计在可选槽位预留成功后才登记：回退拍只计 slot_fallback，
         // 与 dispatched/fused 互斥。
         #[cfg(test)]
         count_conflict_path(|counts| counts.dispatched += 1);
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::ConflictCandidates,
+            crate::kernel::execution_evidence::Route::Dispatched,
+        );
         slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
         // 块数 = 线程数 × 2 与候选工作集取较小者；语义中立（与 P5 同默认值）。
         let chunk_count = execution
@@ -6418,7 +6461,7 @@ impl CandidateReport {
     /// 五个变体全部计入（与 into_scratch 同款穷尽匹配）——失败后未消费
     /// 的 None/Staged/Failed 持有非空 backing 不再被计为零；消费后回收
     /// 不减少计账口径下的 backing——复用是容量语义，不是释放。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> usize {
         fn scratch_bytes(scratch: &CandidateScratch) -> usize {
             scratch

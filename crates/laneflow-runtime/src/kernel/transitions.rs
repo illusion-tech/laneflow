@@ -696,6 +696,13 @@ pub(crate) struct TransitionPart {
     cursor_end: usize,
 }
 
+#[cfg(feature = "execution-evidence")]
+impl TransitionPart {
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        crate::kernel::state::vec_bytes(&self.events)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

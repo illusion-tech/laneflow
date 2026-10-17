@@ -105,7 +105,7 @@ impl MotionBlock {
         grow_column(&mut self.carry_um, rows, 0)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_columns_bytes(&self) -> u64 {
         use crate::kernel::state::vec_bytes;
         vec_bytes(&self.route_cursor)
@@ -147,7 +147,7 @@ impl ContextBlock {
         grow_column(&mut self.rows, rows, None)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     fn retained_columns_bytes(&self) -> u64 {
         use crate::kernel::state::vec_bytes;
         vec_bytes(&self.rows)
@@ -832,7 +832,7 @@ impl VehicleStore {
         self.get_mut(index).expect("vehicle slot in range")
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         use crate::kernel::state::vec_bytes;
         vec_bytes(&self.directory)

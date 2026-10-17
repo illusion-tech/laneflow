@@ -11,6 +11,8 @@ build = false
 
 [features]
 motion-kernel-evidence = ["laneflow-runtime/motion-kernel-evidence"]
+# 诊断输出附带观察窗口的调度统计与资源账（#972）；计时含插桩，不作为认证。
+execution-evidence = ["laneflow-runtime/execution-evidence"]
 adapter = ["dep:bevy_app", "dep:bevy_ecs", "dep:bevy_math", "dep:bevy_time", "dep:bevy_transform", "dep:laneflow-bevy", "dep:laneflow-spatial"]
 allocation = ["adapter", "dep:stats_alloc"]
 pose-profiling = ["adapter", "laneflow-bevy/pose-profiling"]

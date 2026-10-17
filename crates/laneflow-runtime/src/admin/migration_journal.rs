@@ -681,7 +681,7 @@ pub(crate) struct MigrationDeltaJournal {
     open_tick_conflict_lags: u32,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl MigrationDeltaJournal {
     /// 返回日志保留的逻辑字节数（仅测试用）。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
