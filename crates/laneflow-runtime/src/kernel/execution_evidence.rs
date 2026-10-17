@@ -7,7 +7,8 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-/// 拍内阶段；`Unstaged` 收纳阶段之外的分发（生命周期命令、阶段间隙）。
+/// 拍内阶段；`Unstaged` 收纳执行作用域内阶段之外的时间与分发（生命周期命令、
+/// 阶段间隙）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Stage {
     Unstaged,
@@ -111,6 +112,8 @@ pub(crate) struct Ledger {
     stages: [StageTotals; STAGE_COUNT],
     routes: [[u64; 5]; PHASE_COUNT],
     current: Option<Stage>,
+    /// 当前执行作用域内各阶段墙钟之和；作用域结束时余下部分记入 `unstaged`。
+    staged_in_scope_ns: u64,
 }
 
 impl Ledger {
@@ -188,10 +191,27 @@ pub(crate) fn scoped<R>(slot: &mut Option<Box<Ledger>>, run: impl FnOnce() -> R)
             *self.0 = ACTIVE.with(RefCell::take);
         }
     }
+    /// 作用域墙钟扣除阶段覆盖的部分记入 `unstaged`：阶段之外的分发（生命周期
+    /// 命令、阶段间隙）都落在这段时间内，串行时间 = 墙钟 − 分发墙钟不为负。
+    struct Unstaged(Instant);
+    impl Drop for Unstaged {
+        fn drop(&mut self) {
+            let ns = elapsed_ns(self.0);
+            with_active(|ledger| {
+                let totals = &mut ledger.stages[Stage::Unstaged as usize];
+                totals.calls += 1;
+                totals.wall_ns = totals
+                    .wall_ns
+                    .saturating_add(ns.saturating_sub(ledger.staged_in_scope_ns));
+                ledger.staged_in_scope_ns = 0;
+            });
+        }
+    }
     let ledger = slot.take().unwrap_or_default();
     let previous = ACTIVE.with(|active| active.replace(Some(ledger)));
     assert!(previous.is_none(), "execution evidence scope nested");
     let _restore = Restore(slot);
+    let _unstaged = Unstaged(Instant::now());
     run()
 }
 
@@ -234,6 +254,7 @@ impl Drop for StageSpan {
                 let totals = &mut ledger.stages[stage as usize];
                 totals.calls += 1;
                 totals.wall_ns = totals.wall_ns.saturating_add(ns);
+                ledger.staged_in_scope_ns = ledger.staged_in_scope_ns.saturating_add(ns);
                 ledger.current = None;
             });
         }
@@ -260,11 +281,11 @@ pub(crate) struct DispatchProbe {
     max_block_ns: AtomicU64,
 }
 
-pub(crate) fn dispatch(inline: bool, output_bytes: usize) -> DispatchProbe {
+pub(crate) fn dispatch(inline: bool) -> DispatchProbe {
     DispatchProbe {
         started: active().then(Instant::now),
         inline,
-        output_bytes: AtomicU64::new(output_bytes as u64),
+        output_bytes: AtomicU64::new(0),
         blocks: AtomicU64::new(0),
         skipped: AtomicU64::new(0),
         extra: AtomicU64::new(0),
@@ -284,6 +305,12 @@ impl DispatchProbe {
         let result = run();
         let ns = elapsed_ns(started);
         let bit = rayon_core::current_thread_index().map_or(63, |index| index.min(63));
+        const {
+            assert!(
+                crate::kernel::config::MAX_SUPPORTED_WORKERS < 64,
+                "池线程序号与池外调用线程须各占一个线程槽"
+            );
+        }
         self.threads.fetch_or(1 << bit, Ordering::Relaxed);
         self.blocks.fetch_add(1, Ordering::Relaxed);
         self.thread_busy_ns[bit].fetch_add(ns, Ordering::Relaxed);
@@ -369,7 +396,7 @@ pub struct ExecutionEvidence {
     pub steps: u64,
     /// 这些步进在执行作用域内的墙钟合计。
     pub step_wall_ns: u64,
-    /// 按拍内阶段固定顺序列出；`unstaged` 收纳阶段之外的分发。
+    /// 按拍内阶段固定顺序列出；`unstaged` 收纳执行作用域内阶段之外的时间与分发。
     pub stages: Vec<StageEvidence>,
     /// 有融合 / 分发 / 回退决策的独立计算段，各自的路径次数。
     pub routes: Vec<RouteEvidence>,
@@ -415,7 +442,8 @@ pub struct DispatchEvidence {
     pub critical_path_ns: u64,
     /// 单块最长时间。
     pub max_block_ns: u64,
-    /// 分发写入的输出缓冲字节（物化）；原位写入存储的分发不计。
+    /// 保序分发写入的结果槽位字节（物化）；分段缓冲与原位写入存储的分发不计，
+    /// 分段缓冲的容量见资源账的协调器分段缓冲。
     pub output_bytes: u64,
 }
 
@@ -522,6 +550,8 @@ mod tests {
             // 跳过的块不计执行线程：证据只数真正算过块的线程。
             assert!((1..=stats.participating_threads as u64).contains(&unstaged.thread_slots));
             assert_eq!(unstaged.output_bytes, size_of_val(output.as_slice()) as u64);
+            // 作用域墙钟覆盖其中的分发：串行时间不为负。
+            assert!(stage(&evidence, "unstaged").wall_ns >= unstaged.wall_ns);
             assert!(unstaged.critical_path_ns <= unstaged.wall_ns);
             assert!(unstaged.max_block_ns <= unstaged.critical_path_ns);
             assert!(unstaged.busy_ns >= unstaged.critical_path_ns);
@@ -554,7 +584,10 @@ mod tests {
             let evidence = world.take_execution_evidence();
             assert_eq!(evidence.steps, 3);
             let staged: u64 = evidence.stages.iter().map(|stage| stage.wall_ns).sum();
-            assert!(staged <= evidence.step_wall_ns);
+            assert!(staged >= evidence.step_wall_ns);
+            for stage in &evidence.stages {
+                assert!(stage.wall_ns >= stage.dispatch.wall_ns, "{}", stage.stage);
+            }
             for name in [
                 "preflight",
                 "occupancy",

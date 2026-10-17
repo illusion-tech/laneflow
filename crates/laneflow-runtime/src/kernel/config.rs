@@ -72,7 +72,7 @@ pub struct ExecutionConfig {
 
 /// 当前后端支持的最大 worker 数，对应并行执行 §8 实验矩阵 1/2/4/8/16 上限
 /// （#705 开放 P2 运动/前视预览的真实多 worker 分发）。
-const MAX_SUPPORTED_WORKERS: u32 = 16;
+pub(crate) const MAX_SUPPORTED_WORKERS: u32 = 16;
 
 impl ExecutionConfig {
     /// 指定一次同步操作参与计算的线程数上限。
