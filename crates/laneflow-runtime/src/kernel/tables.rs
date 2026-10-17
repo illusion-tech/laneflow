@@ -140,7 +140,7 @@ pub(crate) struct CompiledRoute {
     pub hops: Vec<RouteHop>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl CompiledRoute {
     /// 测试用：编译路线持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -307,7 +307,7 @@ pub(crate) fn compiled_route_for_handle(
     slot.compiled.as_ref()
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl RouteSlot {
     /// 测试用：槽位内编译路线持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {

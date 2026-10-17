@@ -111,6 +111,13 @@ pub(crate) struct NonEntryPart {
     status: NonEntryStatus,
 }
 
+#[cfg(feature = "execution-evidence")]
+impl NonEntryPart {
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        crate::kernel::state::vec_bytes(&self.decisions)
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn count_waiting_work(update: impl FnOnce(&mut WaitingWorkCounts)) {
     WAITING_WORK_COUNTS.with(|counts| {
@@ -2156,6 +2163,11 @@ fn prepare_waiting_previews_dispatched(
             counts.slot_fallback += 1;
             counts.fused += 1;
         });
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::WaitingPreview,
+            crate::kernel::execution_evidence::Route::ScratchFallback,
+        );
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     #[cfg(test)]
@@ -2189,6 +2201,11 @@ fn prepare_waiting_previews_dispatched(
     if workload < WAITING_PREVIEW_DISPATCH_MIN_ACTIVE && !(forced && workload > 0) {
         #[cfg(test)]
         count_preview_path(|counts| counts.fused += 1);
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::WaitingPreview,
+            crate::kernel::execution_evidence::fused(true, workload),
+        );
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     #[cfg(test)]
@@ -2203,6 +2220,11 @@ fn prepare_waiting_previews_dispatched(
         // 可选并行暂存预留失败：退回同一领域原语的融合求值，不新增领域错误。
         #[cfg(test)]
         count_preview_path(|counts| counts.slot_fallback += 1);
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::WaitingPreview,
+            crate::kernel::execution_evidence::Route::ScratchFallback,
+        );
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
@@ -2225,6 +2247,11 @@ fn prepare_waiting_previews_dispatched(
     {
         #[cfg(test)]
         count_preview_path(|counts| counts.slot_fallback += 1);
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::WaitingPreview,
+            crate::kernel::execution_evidence::Route::ScratchFallback,
+        );
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     if bases.len() < chunk_count {
@@ -2241,6 +2268,11 @@ fn prepare_waiting_previews_dispatched(
     {
         #[cfg(test)]
         count_preview_path(|counts| counts.slot_fallback += 1);
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::WaitingPreview,
+            crate::kernel::execution_evidence::Route::ScratchFallback,
+        );
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     if payloads.len() < chunk_count {
@@ -2253,8 +2285,18 @@ fn prepare_waiting_previews_dispatched(
     if !reserved {
         #[cfg(test)]
         count_preview_path(|counts| counts.slot_fallback += 1);
+        #[cfg(feature = "execution-evidence")]
+        crate::kernel::execution_evidence::route(
+            crate::kernel::execution_evidence::Phase::WaitingPreview,
+            crate::kernel::execution_evidence::Route::ScratchFallback,
+        );
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
+    #[cfg(feature = "execution-evidence")]
+    crate::kernel::execution_evidence::route(
+        crate::kernel::execution_evidence::Phase::WaitingPreview,
+        crate::kernel::execution_evidence::Route::Dispatched,
+    );
     let first_error = AtomicUsize::new(usize::MAX);
     // 块级诊断记录槽：与输出块对齐，每块一个 u64 nanos，任务独占写入
     // （无竞争、无共享锁）；仅在诊断启用时分配，热态非诊断构建零成本。
@@ -2615,6 +2657,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             _ => {
                 #[cfg(test)]
                 count_preview_path(|counts| counts.fused += 1);
+                #[cfg(feature = "execution-evidence")]
+                crate::kernel::execution_evidence::route(
+                    crate::kernel::execution_evidence::Phase::WaitingPreview,
+                    crate::kernel::execution_evidence::Route::FusedSerialExecutor,
+                );
                 prepare_waiting_previews_fused(self.workspace, view, delta_s, cache_limit)?
             }
         }

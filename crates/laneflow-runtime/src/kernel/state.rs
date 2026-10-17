@@ -181,7 +181,7 @@ impl CommittedCheck {
         self.stamp = None;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_bytes(&self) -> u64 {
         crate::kernel::state::vec_bytes(&self.slots)
     }
@@ -736,7 +736,7 @@ impl SpawnConflictContenders {
         self.ensure_scratch()?.lazy.get_mut().ok()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         vec_bytes(&self.best)
             + self.best.iter().map(vec_bytes).sum::<u64>()
@@ -884,7 +884,7 @@ impl TickWorkspace {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl WorldBindingState {
     /// 测试用：绑定状态持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -900,7 +900,7 @@ impl WorldBindingState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl CommittedWorldState {
     /// 测试用：已提交状态持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -947,7 +947,7 @@ impl CommittedWorldState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl DerivedIndexes {
     /// 测试用：派生索引持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -974,7 +974,7 @@ impl DerivedIndexes {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl TickWorkspace {
     /// 测试用：步进工作区持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -1092,20 +1092,20 @@ impl TickWorkspace {
 }
 
 /// 测试用：`Vec` 逻辑字节数（capacity × 元素大小）。
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 pub(crate) fn vec_bytes<T>(values: &Vec<T>) -> u64 {
     (values.capacity() * core::mem::size_of::<T>()) as u64
 }
 
 /// 测试用：切片逻辑字节数。
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 pub(crate) fn slice_bytes<T>(values: &[T]) -> u64 {
     core::mem::size_of_val(values) as u64
 }
 
 /// 实例自有 backing 的唯一总账；共享根另列，跨世界相加时按 Arc 去重。
 /// `Vec` 与切片按元素 `capacity` 或长度计字节，不把分配器开销冒充逻辑存储。
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 #[derive(Debug)]
 pub(crate) struct WorldMemoryLedger {
     pub(crate) shared_network: u64,
@@ -1120,7 +1120,7 @@ impl WorldMemoryLedger {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl crate::kernel::state::WorldState {
     /// 汇总世界五类私有状态与共享根的存续内存总账。
     pub(crate) fn retained_memory(&self) -> WorldMemoryLedger {

@@ -115,7 +115,7 @@ impl LiveOrderIndex {
             .map(|position| u32::try_from(position).expect("live rank fits vehicle capacity")))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         super::state::vec_bytes(&self.positions)
     }

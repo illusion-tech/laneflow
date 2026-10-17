@@ -193,10 +193,21 @@ jobs:
         shell: bash
         run: cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
 
+      # 证据构建 feature 默认关闭；单独检查，防止 cfg 链在默认构建之外失修。
+      - name: Check execution evidence lints
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.98.0 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
+
       - name: Run workspace tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.98.0 nextest run --workspace --locked
+
+      - name: Run execution evidence tests
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.98.0 nextest run -p laneflow-runtime --locked --features execution-evidence -E 'test(execution_evidence)'
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests

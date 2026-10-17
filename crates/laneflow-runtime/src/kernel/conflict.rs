@@ -1752,7 +1752,7 @@ pub(crate) struct ConflictCommittedState {
     committed_owners: Vec<ConflictReservation>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl ConflictCommittedState {
     /// 测试专用：统计已提交分区保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -1860,7 +1860,7 @@ impl ConflictCellLookup {
         (addresses.get(index) == Some(&address)).then_some(index)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     fn retained_logical_bytes(&self) -> u64 {
         let Self {
             stream_offsets,
@@ -1915,7 +1915,7 @@ pub(crate) struct ConflictDerivedIndexes {
     vehicle_capacity: usize,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl ConflictDerivedIndexes {
     /// 测试专用：统计派生索引保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -1975,7 +1975,7 @@ impl ConflictWorkspace {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl ConflictWorkspace {
     pub(crate) fn set_serial_for_test(&mut self, serial: u64) {
         self.next_serial = serial;
@@ -2317,7 +2317,7 @@ impl ConflictArbiter {
     }
 
     /// 测试专用：统计仲裁器三个分区保留的逻辑字节总数。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         self.read().retained_logical_bytes()
     }
@@ -3391,7 +3391,7 @@ impl<'a> ConflictRead<'a> {
     }
 
     /// 测试专用：统计三个分区保留的逻辑字节总数。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(self) -> u64 {
         self.committed.retained_logical_bytes()
             + self.derived.retained_logical_bytes()
@@ -4615,7 +4615,7 @@ impl WaitingCycleScratch {
     }
 
     /// 测试专用：统计 wait-for 图 scratch 保留的逻辑字节数。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             nodes,
@@ -4640,7 +4640,7 @@ impl WaitingCycleScratch {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 fn retained_vec_bytes<T>(values: &Vec<T>) -> u64 {
     u64::try_from(
         values
@@ -4651,7 +4651,7 @@ fn retained_vec_bytes<T>(values: &Vec<T>) -> u64 {
     .expect("retained byte count fits u64")
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 fn retained_slice_bytes<T>(values: &[T]) -> u64 {
     u64::try_from(
         values

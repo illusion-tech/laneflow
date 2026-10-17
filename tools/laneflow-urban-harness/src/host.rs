@@ -157,6 +157,18 @@ impl Host {
             Self::Adapter(app) => adapter::step(app, input),
         }
     }
+
+    /// 取走 Runtime 的调度证据；只支持无头宿主。
+    #[cfg(feature = "execution-evidence")]
+    pub(crate) fn take_execution_evidence(
+        &mut self,
+    ) -> Result<laneflow_runtime::ExecutionEvidence> {
+        match self {
+            Self::Headless(world) => Ok(world.take_execution_evidence()),
+            #[cfg(feature = "adapter")]
+            Self::Adapter(_) => Err(crate::invalid("execution evidence needs the headless host")),
+        }
+    }
 }
 
 fn nanos(duration: std::time::Duration) -> u64 {

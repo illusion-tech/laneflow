@@ -1597,6 +1597,9 @@ impl crate::kernel::state::WorldState {
         #[cfg(test)]
         let preflight_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Preflight);
+        #[cfg(feature = "execution-evidence")]
+        let preflight_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::Preflight);
         let expected = self.binding.config.fixed_delta_time_ms();
         if input.delta_time_ms != expected {
             return Err(StepError::DeltaMismatch {
@@ -1637,12 +1640,19 @@ impl crate::kernel::state::WorldState {
         let delta_s = expected as f32 / 1_000.0;
         #[cfg(test)]
         drop(preflight_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(preflight_evidence);
         #[cfg(test)]
         let occupancy_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Occupancy);
+        #[cfg(feature = "execution-evidence")]
+        let occupancy_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::Occupancy);
         self.rebuild_occupancy_index_with(execution)?;
         #[cfg(test)]
         drop(occupancy_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(occupancy_evidence);
         let plan = self.step_workspace().prepare_commit(
             delta_s,
             tick_index,
@@ -1744,9 +1754,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let waiting_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingPrepare);
+        #[cfg(feature = "execution-evidence")]
+        let waiting_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::WaitingPrepare);
         self.prepare_waiting_step(delta_s, execution)?;
         #[cfg(test)]
         drop(waiting_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(waiting_evidence);
         let serial_checkpoint = self.workspace.conflict.serial_checkpoint();
         let mut updates = std::mem::take(&mut self.workspace.motion_next);
         updates.clear();
@@ -1790,6 +1805,9 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         #[cfg(test)]
         let _commit_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Commit);
+        #[cfg(feature = "execution-evidence")]
+        let _commit_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::Commit);
         // W5-B：P7 分配窗口计量（cfg(test)，生产构建无此代码）。
         #[cfg(test)]
         let _p7_alloc_window = begin_commit_alloc_window();
@@ -4895,15 +4913,23 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let conflict_timer =
             super::performance_profile::begin(super::performance_profile::Stage::ConflictPrepare);
+        #[cfg(feature = "execution-evidence")]
+        let conflict_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::ConflictPrepare);
         self.prepare_conflict_step(delta_s, tick_index, execution)?;
         #[cfg(test)]
         drop(conflict_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(conflict_evidence);
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterGrants)?;
         let mut parking_arrivals = Vec::new();
         #[cfg(test)]
         let motion_timer =
             super::performance_profile::begin(super::performance_profile::Stage::MotionLoop);
+        #[cfg(feature = "execution-evidence")]
+        let motion_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::MotionLoop);
         // 与 read_view 相同的字段级只读投影：持有 committed/derived 借用期间
         // 仍可独占 workspace 字段完成发现、槽位写入与规范消费。
         let read = crate::kernel::phase::StepReadView {
@@ -4922,19 +4948,34 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )?;
         #[cfg(test)]
         drop(motion_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(motion_evidence);
         // Frontier 分类只读本拍运动结果（路线、游标、进度、速度、状态），后续收尾步骤
         // 只改控制记录且保持状态不变；紧接 P5 执行，池线程仍在空转窗口内，不必冷唤醒。
+        #[cfg(feature = "execution-evidence")]
+        let frontier_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::FrontierClassify);
         crate::kernel::entry_frontier::classify_pending(self, delta_s, updates, execution)?;
+        #[cfg(feature = "execution-evidence")]
+        drop(frontier_evidence);
         #[cfg(test)]
         let waiting_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingFinalize);
+        #[cfg(feature = "execution-evidence")]
+        let waiting_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::WaitingFinalize);
         self.finalize_waiting_step(updates)?;
         #[cfg(test)]
         drop(waiting_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(waiting_evidence);
         // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
         #[cfg(test)]
         let signal_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Signals);
+        #[cfg(feature = "execution-evidence")]
+        let signal_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::Signals);
         crate::kernel::world::fill_signal_aspects(
             &self.binding.revision,
             time_ms,
@@ -4942,22 +4983,37 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         );
         #[cfg(test)]
         drop(signal_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(signal_evidence);
         #[cfg(test)]
         let conflict_timer =
             super::performance_profile::begin(super::performance_profile::Stage::ConflictFinalize);
+        #[cfg(feature = "execution-evidence")]
+        let conflict_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::ConflictFinalize);
         self.complete_resource_rows(updates);
         self.finalize_conflict_step_with(updates, execution)?;
         #[cfg(test)]
         drop(conflict_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(conflict_evidence);
         #[cfg(test)]
         let output_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
+        #[cfg(feature = "execution-evidence")]
+        let output_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index, execution)?;
         self.workspace.clear_motion_cache();
         #[cfg(test)]
         drop(output_timer);
+        #[cfg(feature = "execution-evidence")]
+        drop(output_evidence);
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterTransitions)?;
+        #[cfg(feature = "execution-evidence")]
+        let _validate_evidence =
+            super::execution_evidence::stage(super::execution_evidence::Stage::Validate);
         updates.freeze_controls();
         updates.validate_with(&self.committed.vehicles, execution)?;
         self.committed.prepare_vehicle_storage(updates)?;

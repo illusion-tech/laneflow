@@ -610,7 +610,7 @@ pub(crate) struct ParkingRuntimeState {
     bindings: Vec<ParkingBindingSlot>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl ParkingRuntimeState {
     /// 估算停车运行时状态保留的逻辑字节数（测试专用）。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {

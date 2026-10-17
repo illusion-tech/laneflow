@@ -14,7 +14,7 @@ pub(crate) struct AdministrativeState {
     pub(crate) migration_epoch: u64,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl AdministrativeState {
     /// 返回管理数据保留的逻辑字节数（仅测试用）。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {

@@ -5,6 +5,8 @@ mod allocation;
 mod artifacts;
 #[cfg(feature = "adapter")]
 mod evidence;
+#[cfg(feature = "execution-evidence")]
+mod execution_evidence;
 mod fastmap;
 mod host;
 mod observe;

@@ -94,7 +94,7 @@ impl ExecutionPlan {
         );
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "execution-evidence"))]
     pub(crate) fn retained_bytes(&self) -> usize {
         size_of::<Self>() + self.ranges.capacity() * size_of::<Range<usize>>()
     }
@@ -143,6 +143,39 @@ pub(crate) struct PoolResources {
     transition_parts: std::sync::Mutex<Vec<super::transitions::TransitionPart>>,
     /// Frontier 让行目标的分段输出；join 后按段序拼接，随池跨拍保留容量。
     target_parts: std::sync::Mutex<Vec<super::entry_frontier::TargetPart>>,
+}
+
+#[cfg(feature = "execution-evidence")]
+impl PoolResources {
+    /// 协调器分段缓冲的保留字节（含各段内缓冲容量）；不在执行作用域内调用。
+    fn coordinator_scratch_bytes(&self) -> u64 {
+        fn held<T>(buffer: &std::sync::Mutex<T>, bytes: impl FnOnce(&T) -> u64) -> u64 {
+            bytes(
+                &buffer
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            )
+        }
+        fn parts<T>(parts: &Vec<T>, inner: impl Fn(&T) -> u64) -> u64 {
+            (parts.capacity() * size_of::<T>()) as u64 + parts.iter().map(inner).sum::<u64>()
+        }
+        held(&self.occupancy_parts, |p| {
+            parts(p, super::occupancy::OccupancyPart::retained_bytes)
+        }) + held(&self.finalize_parts, |p| {
+            parts(p, super::conflict_tick::FinalizePart::retained_bytes)
+        }) + held(&self.sparse_indices, |p| {
+            (p.capacity() * size_of::<u32>()) as u64
+        }) + held(
+            &self.frontier_replay,
+            super::entry_frontier::ReplayScratch::retained_bytes,
+        ) + held(&self.non_entry_parts, |p| {
+            parts(p, super::waiting::NonEntryPart::retained_bytes)
+        }) + held(&self.transition_parts, |p| {
+            parts(p, super::transitions::TransitionPart::retained_bytes)
+        }) + held(&self.target_parts, |p| {
+            parts(p, super::entry_frontier::TargetPart::retained_bytes)
+        })
+    }
 }
 
 #[derive(Default)]
@@ -609,11 +642,19 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
 /// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
 /// `compute` 遇错时须把该槽逻辑下标 min-store 进共享原子并提前返回，
 /// 已完成前缀槽位保持 `Done(Ok(_))`，同块后缀保持 `Pending`。
+#[cfg_attr(
+    all(test, feature = "execution-evidence"),
+    expect(
+        clippy::too_many_arguments,
+        reason = "测试计数与证据探针各占一个 cfg 参数"
+    )
+)]
 fn run_dispatch_chunk<T, S, F>(
     compute: &F,
     view: super::phase::StepReadView<'_>,
     first_error: &AtomicUsize,
     #[cfg(test)] counters: &DispatchCounters,
+    #[cfg(feature = "execution-evidence")] probe: &super::execution_evidence::DispatchProbe,
     start: usize,
     chunk: &mut [DispatchSlot<T>],
     scratch: S,
@@ -622,6 +663,8 @@ fn run_dispatch_chunk<T, S, F>(
 {
     #[cfg(test)]
     counters.note_thread();
+    #[cfg(feature = "execution-evidence")]
+    probe.note_output(size_of_val(chunk));
     let failed_at = first_error.load(Ordering::Relaxed);
     if start > failed_at {
         for slot in chunk.iter_mut() {
@@ -629,7 +672,13 @@ fn run_dispatch_chunk<T, S, F>(
         }
         #[cfg(test)]
         counters.skipped.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "execution-evidence")]
+        probe.note_skipped();
         return;
+    }
+    #[cfg(feature = "execution-evidence")]
+    if failed_at != usize::MAX {
+        probe.note_extra_work();
     }
     #[cfg(test)]
     {
@@ -638,6 +687,9 @@ fn run_dispatch_chunk<T, S, F>(
         }
         counters.dispatched.fetch_add(1, Ordering::Relaxed);
     }
+    #[cfg(feature = "execution-evidence")]
+    probe.block(|| compute(view, start, chunk, scratch));
+    #[cfg(not(feature = "execution-evidence"))]
     compute(view, start, chunk, scratch);
     #[cfg(test)]
     if chunk
@@ -776,6 +828,11 @@ impl ExecutionResources {
         compute: F,
     ) {
         assert!(chunk_size > 0, "nonzero chunk size");
+        #[cfg(feature = "execution-evidence")]
+        let probe =
+            super::execution_evidence::dispatch(matches!(self, Self::Caller), size_of_val(output));
+        #[cfg(feature = "execution-evidence")]
+        let compute = |index: usize, chunk: &mut [T]| probe.block(|| compute(index, chunk));
         match self {
             Self::Caller => {
                 for (index, chunk) in output.chunks_mut(chunk_size).enumerate() {
@@ -927,12 +984,17 @@ impl ExecutionResources {
         );
         #[cfg(test)]
         let counters = DispatchCounters::default();
+        #[cfg(feature = "execution-evidence")]
+        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller), 0);
         let run = |(start, item)| {
             #[cfg(test)]
             {
                 counters.note_thread();
                 counters.dispatched.fetch_add(1, Ordering::Relaxed);
             }
+            #[cfg(feature = "execution-evidence")]
+            probe.block(|| compute(view, start, item));
+            #[cfg(not(feature = "execution-evidence"))]
             compute(view, start, item);
             #[cfg(test)]
             counters.completed.fetch_add(1, Ordering::Relaxed);
@@ -1034,6 +1096,8 @@ impl ExecutionResources {
         if chunks == 0 {
             return DispatchStats::default();
         }
+        #[cfg(feature = "execution-evidence")]
+        let probe = super::execution_evidence::dispatch(false, 0);
         note_work();
         resources.pool.install(|| {
             split_join(output, 0, chunks, chunk_size, &|index, chunk| {
@@ -1045,6 +1109,8 @@ impl ExecutionResources {
                     first_error,
                     #[cfg(test)]
                     &counters,
+                    #[cfg(feature = "execution-evidence")]
+                    &probe,
                     index * chunk_size,
                     chunk,
                     (),
@@ -1077,6 +1143,8 @@ impl ExecutionResources {
     {
         #[cfg(test)]
         let counters = DispatchCounters::default();
+        #[cfg(feature = "execution-evidence")]
+        let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller), 0);
         match self {
             Self::Caller => {
                 for (start, (chunk, scratch)) in work {
@@ -1086,6 +1154,8 @@ impl ExecutionResources {
                         first_error,
                         #[cfg(test)]
                         &counters,
+                        #[cfg(feature = "execution-evidence")]
+                        &probe,
                         start,
                         chunk,
                         scratch,
@@ -1107,6 +1177,8 @@ impl ExecutionResources {
                     let compute = &compute;
                     #[cfg(test)]
                     let counters = &counters;
+                    #[cfg(feature = "execution-evidence")]
+                    let probe = &probe;
                     let chunks = &chunks;
                     macro_rules! claim_chunk {
                         () => {
@@ -1132,6 +1204,8 @@ impl ExecutionResources {
                                     first_error,
                                     #[cfg(test)]
                                     counters,
+                                    #[cfg(feature = "execution-evidence")]
+                                    probe,
                                     start,
                                     chunk,
                                     scratch,
@@ -1151,6 +1225,8 @@ impl ExecutionResources {
                             first_error,
                             #[cfg(test)]
                             counters,
+                            #[cfg(feature = "execution-evidence")]
+                            probe,
                             start,
                             chunk,
                             scratch,
@@ -1176,6 +1252,9 @@ pub(crate) struct WorldExecution {
     pub(crate) active_plan: ExecutionPlan,
     attempt_epoch: u64,
     usable: bool,
+    /// 证据账本：首次进入执行作用域时创建，作用域内挂到协调线程上。
+    #[cfg(feature = "execution-evidence")]
+    evidence: Option<Box<super::execution_evidence::Ledger>>,
 }
 
 pub(crate) enum ExecutionPreparationError {
@@ -1207,6 +1286,8 @@ impl WorldExecution {
             active_plan,
             attempt_epoch: 0,
             usable: true,
+            #[cfg(feature = "execution-evidence")]
+            evidence: None,
         })
     }
 
@@ -1223,6 +1304,41 @@ impl WorldExecution {
         assert!(self.usable, "traffic world invalidated by execution panic");
     }
 
+    /// 取走自上次以来的调度证据。
+    #[cfg(feature = "execution-evidence")]
+    pub(crate) fn take_evidence(&mut self) -> crate::ExecutionEvidence {
+        self.evidence.as_mut().map_or_else(
+            || super::execution_evidence::Ledger::default().take(),
+            |ledger| ledger.take(),
+        )
+    }
+
+    /// 执行资源一侧的资源账：worker、线程栈、活动计划与协调器分段缓冲。
+    #[cfg(feature = "execution-evidence")]
+    pub(crate) fn resource_evidence(&self, state: &WorldState) -> crate::ResourceEvidence {
+        let memory = state.retained_memory();
+        let (pool_threads, coordinator_scratch_bytes) = match &self.resources {
+            ExecutionResources::Caller => (0, 0),
+            ExecutionResources::Pool(resources) => (
+                resources.pool.current_num_threads(),
+                resources.coordinator_scratch_bytes(),
+            ),
+        };
+        crate::ResourceEvidence {
+            workers: self.config.worker_count().get(),
+            pool_threads: u32::try_from(pool_threads).unwrap_or(u32::MAX),
+            worker_stack_reserved_bytes: (pool_threads * WORKER_STACK_BYTES) as u64,
+            shared_network_bytes: memory.shared_network,
+            binding_bytes: memory.partitions[0],
+            committed_bytes: memory.partitions[1],
+            derived_bytes: memory.partitions[2],
+            workspace_bytes: memory.partitions[3],
+            administrative_bytes: memory.partitions[4],
+            active_plan_bytes: self.active_plan.retained_bytes() as u64,
+            coordinator_scratch_bytes,
+        }
+    }
+
     /// 整个作用域在池内运行：每拍只跨池边界一次，拍内各并行段从池线程直接
     /// 派发，不再各自经全局注入队列往返并阻塞调用线程。调用线程只等待。
     pub(crate) fn run<R: Send>(
@@ -1237,6 +1353,13 @@ impl WorldExecution {
             .attempt_epoch
             .checked_add(1)
             .expect("execution attempt epoch exhausted");
+        #[cfg(feature = "execution-evidence")]
+        let operation = {
+            let evidence = &mut self.evidence;
+            move |state: &mut WorldState, resources: &ExecutionResources| {
+                super::execution_evidence::scoped(evidence, || operation(state, resources))
+            }
+        };
         match catch_unwind(AssertUnwindSafe(|| {
             self.active_plan.assert_binding(state);
             self.active_plan

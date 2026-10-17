@@ -64,6 +64,10 @@ pub use kernel::error::{
     ExecutionPlanError, InstallError, ParkingError, ReplaceError, RouteError, SpawnError,
     StepError,
 };
+#[cfg(feature = "execution-evidence")]
+pub use kernel::execution_evidence::{
+    DispatchEvidence, ExecutionEvidence, ResourceEvidence, RouteEvidence, StageEvidence,
+};
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,

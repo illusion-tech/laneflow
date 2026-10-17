@@ -25,7 +25,7 @@ pub struct PublishedLfcaReference {
     network_revision: NetworkRevisionId,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl PublishedLfcaReference {
     /// 测试专用：asset key 缓冲实际保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
@@ -134,7 +134,7 @@ pub enum CommittedNetworkSource {
     },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "execution-evidence"))]
 impl CommittedNetworkSource {
     /// 测试专用：来源实际保留的逻辑字节数，按变体透传到引用。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
