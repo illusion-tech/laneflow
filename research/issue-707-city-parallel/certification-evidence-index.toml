@@ -28,6 +28,8 @@ sha256 = "0231045ee0fb33394ff9dba6fa6e86af1540182882553c92a5783c3602683347"
 [[assets]]
 name = "SHA256SUMS"
 group = "上述三资产的合并摘要"
+bytes = 298
+sha256 = "0094affb6a973558aa47fe5a886ad283e13fffc93f977b06e99c82273c4e7147"
 
 [format]
 codec = "tar + zstd（--ultra -22 --long=28 -T0，CLI 1.5.7）"
@@ -36,6 +38,7 @@ unpacked_total_bytes = 3043909632
 
 [verify]
 steps = [
+  "先做外部核对：sha256sum <资产>.tar.zst 须与本索引 [[assets]] 登记一致（本索引经 Git 仓库认证，为信任锚；发布页 SHA256SUMS 资产本体另按其登记的 bytes/sha256 核对）",
   "zstd -d --long=28 <资产>.tar.zst -o <资产>.tar",
   "mkdir <组名> && tar -xf <资产>.tar -C <组名>",
   "cd <组名> && sha256sum -c SHA256SUMS",
