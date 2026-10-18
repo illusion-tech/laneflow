@@ -25,8 +25,9 @@ Core（`TrafficWorld::step`）p95 按同条件三轮中位数全部在产品预�
 - **R0 / R1 未测，原因见第 4 节。** 因此算法收益（R0/R1）和架构开销（P1/R1）没有结论；
   本报告只给出 P1/Pp 的并行收益。
 
-**证据尚未归档。** 第 9 节所列证据目前只在采集机上，在 #975 归档并补齐下载索引之前，
-不能从仓库或制品独立复核本报告的数字。
+**证据已归档发布。** 第 9 节所列证据已按 #975 精简归档为 Research Evidence 预发布制品
+（事件/命令日志原件仍仅存采集机，摘要经各 run `result.json` 登记可核对）；下载地址、
+字节数、SHA-256 与复核方法见 [certification-evidence-index.toml](certification-evidence-index.toml)。
 
 **这不是 #707 的整体结论。** 首版功能已经交付；性能认证只在本机硬件角色、16 worker
 的条件下成立。几项资源维度仍未测（第 7 节）。
@@ -344,8 +345,11 @@ Active 100k 6.01 倍，活动衰减 100k 5.05 倍。
 | 活动衰减 10k     | `9f1733799708b764e78b609dbdea21d199d918fb4183ffeee6309b9c8c03e3f9` |
 | 活动衰减 100k    | `79faa63ee52b8afffead26165989f96cfd2f20702092723d75c701c185bc5693` |
 
-以上证据目前只保存在采集机上，尚未上传外部制品存储，没有下载地址。本报告是结论
-报告，不是归档索引。#975 负责精简归档内容、替换本机路径并发布可下载制品，再补上绑定下载地址、
-字节数与 SHA-256 的索引；#707 在此之后再关闭。
+上表目录在采集机 `<evidence-root>/issue-707/` 下。三组证据已按 #975 精简归档并发布为
+Research Evidence 预发布制品 `research-evidence-707-certification-10c625ae`（事件/命令日志
+与 #857 输入原包不在制品内，其摘要与身份经各 run `result.json` 登记可核对）。下载地址、
+字节数、SHA-256 与复核方法见
+[certification-evidence-index.toml](certification-evidence-index.toml)。本报告是结论报告；
+逐文件全量清单随制品内 `archive-manifest.json` 交付，不进入源码树。
 
 相关 PR：#970、#971（性能），#973（证据入口）。

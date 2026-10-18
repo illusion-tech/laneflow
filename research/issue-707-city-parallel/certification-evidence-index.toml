@@ -1,0 +1,57 @@
+# #707 认证测量证据索引（#975）。完整逐文件清单随制品内 archive-manifest.json 交付，
+# 本索引只登记下载地址、字节数、SHA-256 与复核方法，不含全量清单。
+
+release = "research-evidence-707-certification-10c625ae"
+url = "https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-certification-10c625ae"
+source_commit = "10c625ae655609fb54c0f429195d3598f1a47051"
+evidence_build_commit = "ff113a1c"
+published_at = "2026-10-18"
+
+[[assets]]
+name = "formal-20261018-10c625ae.tar.zst"
+group = "三轮正式认证（4 负载 × 3 轮，12 次运行）"
+bytes = 37657213
+sha256 = "80add4f5eb1b8f7411139a611c30ce81604f9a374dbc994829594a22c34fa542"
+
+[[assets]]
+name = "sweep-20261018-10c625ae.tar.zst"
+group = "worker 数扫描（16 次运行）"
+bytes = 39659952
+sha256 = "d8069fcefef0db479307d8014620ff4142c9d8013c3175d7b29c3ca39db50c71"
+
+[[assets]]
+name = "evidence-20261018-ff113a1c.tar.zst"
+group = "证据构建（4 次运行，diagnostics.json 含 execution_evidence）"
+bytes = 30232169
+sha256 = "0231045ee0fb33394ff9dba6fa6e86af1540182882553c92a5783c3602683347"
+
+[[assets]]
+name = "SHA256SUMS"
+group = "上述三资产的合并摘要"
+
+[format]
+codec = "tar + zstd（--ultra -22 --long=28 -T0，CLI 1.5.7）"
+decompress = "zstd -d --long=28（需 zstd >= 1.3.0；解压窗口内存 256 MB）"
+unpacked_total_bytes = 3043909632
+
+[verify]
+steps = [
+  "zstd -d --long=28 <资产>.tar.zst -o <资产>.tar",
+  "mkdir <组名> && tar -xf <资产>.tar -C <组名>",
+  "cd <组名> && sha256sum -c SHA256SUMS",
+  "archive-manifest.json 为逐文件清单：未替换文件的 SHA-256 与各 run result.json 登记逐项一致；替换文件另记替换前摘要，替换前摘要与登记一致；excluded_from_archive 转录 events/commands 的登记摘要（原件仅存采集机）。",
+]
+replacement = "仅把采集机路径前缀替换为占位符（<evidence-root>/<worktree>/<checkout>/<cargo-home>，定义见 research/README.md），其余字节不变"
+exceptions = [
+  "laneflow-urban-harness.exe 字节冻结（formal/sweep 组 SHA-256 25d60a3b…，证据构建组 664c96ad…），内嵌编译期 cargo registry 路径字符串按例外记录于清单",
+  "run-one.ps1 引用的厂商控制中心位于 Program Files 标准安装位置，按 research/README.md 豁免",
+]
+
+[scope]
+included_per_run = ["result.json", "measurements.toml", "diagnostics.json", "timings.jsonl", "ticks.jsonl", "resolved-plan.toml"]
+excluded = [
+  "runs/*/events.jsonl、runs/*/commands.jsonl（摘要经 result.json 登记可核对，原件仅存采集机）",
+  "plans/（与各 run resolved-plan.toml 逐字节重复，计划 SHA-256 见认证报告 §2）",
+  "aborted/",
+]
+inputs_note = "不含 #857 冻结输入原包；输入身份见认证报告 §2 与各组 measurement-freeze.json"
