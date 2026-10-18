@@ -28,6 +28,10 @@ r1 的 execution ID、计划/结果/测量/诊断身份和观察窗统计见
 [`formal-r1-evidence.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json)。r1 完成不改变 r2/r3、
 三轮聚合及 #707 最终认证仍待完成的状态。
 
+> **已取代**（2026-10-18）：上表 r2/r3 不再执行。正式三轮改在 main `10c625ae` 以
+> 16 worker 完成，1/2/4/8 worker 扫描与证据构建另行运行，结论见
+> [认证报告](certification-report.md)。
+
 ## 正式窗口公式（以 plan 生成为准）
 
 - K = 最长信号周期 / Δt；warm-up = max(4K, 512)；observe = max(8K, 4096)。
