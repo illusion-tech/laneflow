@@ -34,7 +34,7 @@ const TRANSACTION: CutoverTransactionLimits = CutoverTransactionLimits {
     max_records_per_pump: 4_096,
 };
 
-fn spatial(root: &Arc<SharedNetworkRevision>) -> Result<SpatialSession> {
+pub(crate) fn spatial(root: &Arc<SharedNetworkRevision>) -> Result<SpatialSession> {
     checked(
         "transition Spatial bind",
         SpatialSession::bind(root.clone()),
@@ -42,7 +42,7 @@ fn spatial(root: &Arc<SharedNetworkRevision>) -> Result<SpatialSession> {
     .ok_or_else(|| invalid("transition geometry absent"))
 }
 
-fn target_source(root: &SharedNetworkRevision) -> Result<CommittedNetworkSource> {
+pub(crate) fn target_source(root: &SharedNetworkRevision) -> Result<CommittedNetworkSource> {
     let origin = root.canonical_origin();
     Ok(CommittedNetworkSource::Published {
         reference: checked(
@@ -59,21 +59,17 @@ fn target_source(root: &SharedNetworkRevision) -> Result<CommittedNetworkSource>
 
 /// 存档与续跑共用同一条序列化与重绑路径（设计 §7.7）：写出存档目录，丢弃旧世界后
 /// 从文件恢复并核对，再接回 Adapter 宿主。运行时句柄不作为耐久身份。
-fn restore<'a>(harness: Harness<'a>, output: &Path, state_digest: &str) -> Result<Harness<'a>> {
+pub(crate) fn restore<'a>(
+    harness: Harness<'a>,
+    output: &Path,
+    state_digest: &str,
+    source: crate::save::SaveSource,
+    bind_adapter: bool,
+) -> Result<Harness<'a>> {
     let (artifacts, plan) = (harness.artifacts, harness.plan);
     let plan_digest = plan.digest()?;
-    let (record, _) = crate::save::write_save(
-        output,
-        &harness,
-        state_digest,
-        &plan_digest,
-        crate::save::SaveSource {
-            execution_id: "transition-replay".into(),
-            git_commit: None,
-            binary_sha256: None,
-            workers: 1,
-        },
-    )?;
+    let (record, _) =
+        crate::save::write_save(output, &harness, state_digest, &plan_digest, source)?;
     let digest = harness.checkpoint()?;
     drop(harness);
     let save = crate::save::load_save(&output.join(&record.path), artifacts, &plan_digest)?;
@@ -83,21 +79,25 @@ fn restore<'a>(harness: Harness<'a>, output: &Path, state_digest: &str) -> Resul
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         save,
     )?;
-    let restored = restored.into_adapter(spatial(artifacts.revision())?)?;
+    let restored = if bind_adapter {
+        restored.into_adapter(spatial(artifacts.revision())?)?
+    } else {
+        restored
+    };
     if restored.checkpoint()? != digest {
         return Err(invalid("save/restore digest differs"));
     }
     Ok(restored)
 }
 
-fn native<'h>(harness: &'h mut Harness<'_>) -> Result<&'h mut TrafficWorld> {
+pub(crate) fn native<'h>(harness: &'h mut Harness<'_>) -> Result<&'h mut TrafficWorld> {
     match &mut harness.world {
         Host::Headless(world) => Ok(world),
         Host::Adapter(_) => Err(invalid("online witness requires native host")),
     }
 }
 
-fn selected_counts(harness: &Harness<'_>, variant: &CapacityVariant) -> Result<Value> {
+pub(crate) fn selected_counts(harness: &Harness<'_>, variant: &CapacityVariant) -> Result<Value> {
     let ordinal = harness
         .world
         .revision()
@@ -120,7 +120,7 @@ fn selected_counts(harness: &Harness<'_>, variant: &CapacityVariant) -> Result<V
     Ok(json!({"occupied":occupied,"reserved":reserved}))
 }
 
-fn retained_state(harness: &Harness<'_>) -> String {
+pub(crate) fn retained_state(harness: &Harness<'_>) -> String {
     // Used only within a single cutover, whose contract preserves these handles.
     let vehicles: Vec<_> = harness
         .world
@@ -142,7 +142,7 @@ fn retained_state(harness: &Harness<'_>) -> String {
     crate::sha256(format!("{vehicles:?}/{routes:?}").as_bytes())
 }
 
-fn extract(harness: &mut Harness<'_>) -> Result<LaneFlowCommittedPoseBatch> {
+pub(crate) fn extract(harness: &mut Harness<'_>) -> Result<LaneFlowCommittedPoseBatch> {
     let mut batch = LaneFlowCommittedPoseBatch::new();
     checked(
         "cutover pose capture",
@@ -267,7 +267,7 @@ fn adapter_cutover(
     )
 }
 
-fn trial(
+pub(crate) fn trial(
     artifacts: &Artifacts,
     reloaded: &Artifacts,
     plan: &ResolvedPlan,
@@ -298,7 +298,18 @@ fn trial(
         if tick == SAVE_TICK {
             save_digest = harness.checkpoint()?;
             if mode == "restore" {
-                harness = restore(harness, output, &state_digest)?;
+                harness = restore(
+                    harness,
+                    output,
+                    &state_digest,
+                    crate::save::SaveSource {
+                        execution_id: "transition-replay".into(),
+                        git_commit: None,
+                        binary_sha256: None,
+                        workers: 1,
+                    },
+                    true,
+                )?;
                 presentation = Presentation::default();
             }
         }

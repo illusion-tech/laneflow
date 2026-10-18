@@ -146,6 +146,107 @@ pub fn prepare_capacity_variant(base_directory: &Path, output: &Path) -> Result<
     ] {
         fs::write(output.join(name), bytes)?;
     }
+    // #538：变体目录同时是完整工件目录——catalog 与 manifest 按目标修订和目标
+    // 摘要重建，其余交付件从基座逐字节复制，使 `variant` 可链式构造第二轮变体，
+    // 供多轮切换端到端使用。完成后自检加载，保证目录可被 `Artifacts::load_spatial`
+    // 消费（也是对重建 manifest/catalog 一致性的强校验）。
+    let digest_entry = |bytes: &[u8]| -> toml::value::Table {
+        let mut entry = toml::value::Table::new();
+        entry.insert("bytes".into(), toml::Value::Integer(bytes.len() as i64));
+        entry.insert("sha256".into(), toml::Value::String(crate::sha256(bytes)));
+        entry
+    };
+    let target_revision = format!("{:x}", target.network_revision().as_digest());
+    let mut catalog: toml::Value =
+        toml::from_str(&fs::read_to_string(base_directory.join("routes.toml"))?)
+            .map_err(|error| invalid(format!("base catalog parse: {error}")))?;
+    {
+        let table = catalog
+            .as_table_mut()
+            .ok_or_else(|| invalid("base catalog is not a table"))?;
+        table.insert(
+            "network_revision".into(),
+            toml::Value::String(target_revision.clone()),
+        );
+        let pools = table
+            .get_mut("parking")
+            .and_then(|parking| parking.as_array_mut())
+            .ok_or_else(|| invalid("base catalog has no parking table"))?;
+        let mut updated = false;
+        for pool in pools {
+            let matched = pool
+                .get("key")
+                .and_then(|key| key.as_str())
+                .map(|key| key == catalog_target.key)
+                .unwrap_or(false);
+            if matched {
+                let entry = pool
+                    .as_table_mut()
+                    .ok_or_else(|| invalid("catalog parking entry is not a table"))?;
+                match entry.get_mut("capacity") {
+                    Some(value) => *value = toml::Value::Integer(i64::from(capacity + 1)),
+                    None => return Err(invalid("catalog parking entry has no capacity")),
+                }
+                updated = true;
+            }
+        }
+        if !updated {
+            return Err(invalid("selected facility absent from rebuilt catalog"));
+        }
+    }
+    let routes_bytes = toml::to_string_pretty(&catalog)?;
+    fs::write(output.join("routes.toml"), &routes_bytes)?;
+    for name in ["config.toml", "genesis.lfsd", "measurements.toml"] {
+        fs::copy(base_directory.join(name), output.join(name))?;
+    }
+    let mut manifest: toml::Value =
+        toml::from_str(&fs::read_to_string(base_directory.join("manifest.toml"))?)
+            .map_err(|error| invalid(format!("base manifest parse: {error}")))?;
+    {
+        let table = manifest
+            .as_table_mut()
+            .ok_or_else(|| invalid("base manifest is not a table"))?;
+        table.insert(
+            "network_revision".into(),
+            toml::Value::String(target_revision.clone()),
+        );
+        let files = table
+            .get_mut("files")
+            .and_then(|files| files.as_table_mut())
+            .ok_or_else(|| invalid("base manifest has no files table"))?;
+        files.insert(
+            "network.lfca".into(),
+            toml::Value::Table(digest_entry(candidate.canonical_artifact().bytes())),
+        );
+        files.insert(
+            "source-map.lfsm".into(),
+            toml::Value::Table(digest_entry(candidate.source_map().bytes())),
+        );
+        files.insert(
+            "routes.toml".into(),
+            toml::Value::Table(digest_entry(routes_bytes.as_bytes())),
+        );
+        // 容量增量合法改变 topology（parking 表住在其中）；common 经逐字节校验相等。
+        // manifest 条目一律按实际写入字节重建，不沿用基座摘要。
+        files.insert(
+            "topology.lfre".into(),
+            toml::Value::Table(digest_entry(variant.topology.as_bytes())),
+        );
+        files.insert(
+            "common.lfre".into(),
+            toml::Value::Table(digest_entry(variant.common.as_bytes())),
+        );
+    }
+    fs::write(
+        output.join("manifest.toml"),
+        toml::to_string_pretty(&manifest)?,
+    )?;
+    let completed = Artifacts::load_spatial(output)?;
+    if completed.catalog().network_revision != target_revision
+        || completed.revision().network_revision() != target.network_revision()
+    {
+        return Err(invalid("completed variant directory identity mismatch"));
+    }
     let mut files = BTreeMap::new();
     for name in [
         "common.lfre",

@@ -23,6 +23,11 @@ mod scenario;
 mod transitions;
 #[cfg(feature = "adapter")]
 pub use transitions::run_transition_evidence;
+
+#[cfg(feature = "adapter")]
+mod gate;
+#[cfg(feature = "adapter")]
+pub use gate::run_gate_evidence;
 #[cfg(feature = "adapter")]
 mod variant;
 
