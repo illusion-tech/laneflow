@@ -7,6 +7,8 @@
 
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+> 认证测量的三组证据（32 次运行）已按 #975 发布为可下载制品，
+> 见[认证证据索引](certification-evidence-index.toml)。
 
 最新的[准入贡献融合结果](admission-contributions-results.md)记录同一十万车辆负载下的
 三组普通发布构建对照、完整宿主阶段诊断、语义等价与资源覆盖边界；#707 认证继续开放。
