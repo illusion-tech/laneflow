@@ -39,11 +39,11 @@ const RETRY_COMMIT: u64 = 24;
 const REJECT_TICK: u64 = 4;
 const END_TICK: u64 = 160;
 const PREFLIGHT: CutoverPreflightLimits = CutoverPreflightLimits::new(2_147_483_648);
-/// 常规窗口限额：日志预算取 8 MiB——`transitions` 的 128 KiB 只覆盖 tick 0-8 的
-/// 早期命令量，本见证的武装窗口落在需求峰段（MIXED-PEAK 峰值拍单拍命令记录即可
-/// 超出 128 KiB），按见证参数放宽并登记进回执。
+/// 常规窗口限额：日志预算须对被测规模非绑定（只在失败场景故意压小）。10k 城市
+/// 峰段的单拍命令记录即可超出 8 MiB，取 256 MiB 并登记进回执；`transitions` 的
+/// 128 KiB 只覆盖其 tick 0-8 早期窗口。
 const TRANSACTION: CutoverTransactionLimits = CutoverTransactionLimits {
-    max_journal_bytes: 8 * 1_024 * 1_024,
+    max_journal_bytes: 256 * 1_024 * 1_024,
     max_catch_up_lag_ticks: 8,
     max_records_per_pump: 4_096,
 };
@@ -55,7 +55,7 @@ const TINY_JOURNAL: CutoverTransactionLimits = CutoverTransactionLimits {
 };
 /// 追赶滞后上界压到停泵数拍即超限。
 const TINY_LAG: CutoverTransactionLimits = CutoverTransactionLimits {
-    max_journal_bytes: 8 * 1_024 * 1_024,
+    max_journal_bytes: 256 * 1_024 * 1_024,
     max_catch_up_lag_ticks: 2,
     max_records_per_pump: 4_096,
 };
@@ -973,7 +973,7 @@ pub fn run_gate_evidence(
         &artifacts,
         &plan,
         &v1,
-        &output.join("chained"),
+        &output.join("chained-bound"),
         save_source,
     )?;
     assert_peer_identity(
