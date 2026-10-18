@@ -1,5 +1,10 @@
 # #707 城市并行性能对照（第二切片：harness 入口验证与带暖机 pilot）
 
+> **最新结论**：[认证报告](certification-report.md)（2026-10-18）。main `10c625ae` 在
+> 16 worker 下，四种负载的 Core p95 三轮中位数均在预算内；报告逐条给出验收标准
+> 1–6 的结论、worker 扫描、证据构建与未测项。本文及下文“已完成 / 待完成”中关于
+> 正式窗口、三轮聚合与认证仍待完成的状态，已由该报告取代。
+
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
 
@@ -192,8 +197,10 @@ laneflow-urban-harness.exe compare <pilot>/<scale>-w1-r1 <pilot>/<scale>-w4-r1 <
 - [x] WP B 入口验证（10k/100k smoke 双工 + compare，逐臂核查）
 - [x] WP C 带暖机 pilot（10k/100k × w1/w4 + compare）
 - [x] 基线清单核查（P1/Pp 实测；B-P2/R0/R1 登记不可比原因）
-- [ ] WP D 正式观察窗（r1/r2/r3 交错，每臂同 worker 三轮）——D1/D2 r1 已完成；r2/r3 与三轮聚合待完成
-- [ ] WP E 城市级结论与预算判定——r1 两档均未达原预算；完整四基线、稳定 Active、资源成本及认证仍待完成
+- [x] WP D 正式观察窗——原 1w/4w 交错的 r2/r3 不再执行；正式三轮改在 main `10c625ae`
+  以 16 worker 完成，见[认证报告](certification-report.md)
+- [x] WP E 城市级结论与预算判定——见[认证报告](certification-report.md)；R0/R1、切换
+  场景与部分资源维度登记为未测或部分
 
 ## 进入正式窗口（WP D）的判断
 
