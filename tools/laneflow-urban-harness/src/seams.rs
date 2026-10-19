@@ -309,6 +309,7 @@ values do not extrapolate to standard installs"},
 byte length are timing-only synthetic values; validation/registration paths do not read \
 their content truth"},
         "inputs":{"artifact_files":serde_json::to_value(&artifacts.files)?,
+            "artifact_manifest_digest":artifacts.manifest_digest.clone(),
             "plan_digest":plan_digest},
         "elapsed_ms":started.elapsed().as_millis()}),
     )
@@ -330,6 +331,7 @@ pub fn run_seam_evidence(
     if crate::evidence::source()? != provenance
         || crate::ResolvedPlan::read(plan_path)?.digest()? != plan.digest()?
         || Artifacts::load(artifact_directory)?.files != artifacts.files
+        || Artifacts::load(artifact_directory)?.manifest_digest != artifacts.manifest_digest
     {
         return Err(invalid("seam inputs/source changed"));
     }
