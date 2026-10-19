@@ -58,6 +58,7 @@ pub(crate) fn source() -> Result<Value> {
         return Err(invalid("evidence requires a frozen clean source checkout"));
     }
     Ok(json!({"commit":commit,"git_status":status,
+        "build_profile":if cfg!(debug_assertions) {"debug;debug-assertions=on"} else {"release;debug-assertions=off"},
         "tree":read("git", &["rev-parse", "HEAD^{tree}"])?,
         "cargo_lock":digest_file(Path::new("Cargo.lock"))?,
         "workspace_manifest":digest_file(Path::new("Cargo.toml"))?,

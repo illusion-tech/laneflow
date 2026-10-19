@@ -213,6 +213,15 @@ crossing/tick 接线。
 恢复容量错误新增 `RouteConflictOccurrences` dimension，与现行 routes、vehicles 和
 route-edge-occurrences 一样分别报告 snapshot 配置、target 配置与实际重建计数。
 
+### 5.x 容量余量助手（#538 验证/测量专用）
+
+`WorldConfig::with_added_route_capacity(extra_routes, extra_edge_occurrences,
+extra_conflict_occurrences)` 对三项路线容量族一次性加余量（饱和算术），供验证与
+测量入口在目录路线之外预留注册余量。三项捆绑是刻意的：拆开会允许"加槽不加边/
+冲突占用"的半预算配置。余量装机与标准装机**不同身份**（容量进入快照与确定性
+摘要，见上节），因此该助手只在自含测量世界使用，不进入生产装载路径；生产
+`WorldConfig` 继续由工件目录派生。
+
 ## 6. 正式 Conflict interior authority 边界
 
 ### 6.1 不变量与判定
