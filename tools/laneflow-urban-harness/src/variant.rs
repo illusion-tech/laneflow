@@ -146,10 +146,13 @@ pub fn prepare_capacity_variant(base_directory: &Path, output: &Path) -> Result<
     ] {
         fs::write(output.join(name), bytes)?;
     }
-    // #538：变体目录同时是完整工件目录——catalog 与 manifest 按目标修订和目标
-    // 摘要重建，其余交付件从基座逐字节复制，使 `variant` 可链式构造第二轮变体，
-    // 供多轮切换端到端使用。完成后自检加载，保证目录可被 `Artifacts::load_spatial`
-    // 消费（也是对重建 manifest/catalog 一致性的强校验）。
+    // #538：变体目录同时是可加载的完整工件目录——catalog 与 manifest 按目标修订
+    // 和实际写入字节重建，供 gate 的未切换变体基线直接 `Artifacts::load_spatial`
+    // 安装；完成后自检加载（也是对重建一致性的强校验）。
+    // 边界：不承诺链式构造（生成器只产 ordinary+1 的增量源，可复现性校验按
+    // ordinary 固定输入，对变体目录再跑 `variant` 会在复现检查处被拒）；也不作
+    // 发布工件包——genesis.lfsd 仍绑定基座制品、manifest 的编译统计字段仍是
+    // 基座描述值，仅 harness 加载与测量使用。
     let digest_entry = |bytes: &[u8]| -> toml::value::Table {
         let mut entry = toml::value::Table::new();
         entry.insert("bytes".into(), toml::Value::Integer(bytes.len() as i64));
@@ -258,6 +261,7 @@ pub fn prepare_capacity_variant(base_directory: &Path, output: &Path) -> Result<
         files.insert(name, digest_file(&output.join(name))?);
     }
     let result = json!({"version":"urban-capacity-variant-v1","scale":base.catalog().scale,
+        "bundle_scope":"harness-loadable measurement artifacts; not chainable (generator is ordinary+1 only); not a publication bundle (genesis binding and compile statistics remain base-descriptive)",
         "facility_key":catalog_target.facility,"facility_stable_id":selected_hex,
         "base_capacity":capacity,"target_capacity":capacity+1,
         "base_lfca":digest_file(&base_directory.join("network.lfca"))?,
