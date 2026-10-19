@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.16s
+     Running tests\snapshot_peak_evidence.rs (target\release\deps\snapshot_peak_evidence-71e3d068b7326774.exe)
+
+running 1 test
+test published_restore_peak_heap_baseline ... snapshot-peak-evidence workload=signalized-corridor-v1 routes=28 vehicles=2 lfrs_exact_bytes=3312 restore_total_blocks=574 restore_total_bytes=50944 restore_peak_increment_bytes=45472 restore_peak_blocks=418 restore_return_live_bytes=44152 restore_return_live_blocks=412 classification=descriptive-initial-not-product-pass
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

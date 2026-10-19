@@ -1,0 +1,13 @@
+$ cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
+
+running 1 test
+snapshot-wall-clock-evidence workload=signalized-corridor-v1 lfca_exact=425418 artifact_digest=8baf0f01cd66bee898058605958d9a4d9606699f9542c197dbcbc9933007a164 network_revision=2de4820d35bee0ef71374cae49036fbef75155a2a587cbd13b351d5f7655ad27 routes=28 vehicles=2 tick=64 command_cursor=30 lfrs_exact_bytes=3312 samples=31 capture_main_thread_ns_median=1600 encode_background_ns_median=2900 published_load_restore_ns_median=32400 tick_samples=128 baseline_tick_ns_median=1200 background_encodes=4096 contended_tick_ns_median=2700 tick_interference_ppm=2250000 classification=descriptive-initial-not-product-pass
+test snapshot_side_wall_clock_baseline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running tests\snapshot_wall_clock_evidence.rs (target\release\deps\snapshot_wall_clock_evidence-d0f980b353dfae06.exe)
+
+exit=0

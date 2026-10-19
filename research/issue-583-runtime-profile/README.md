@@ -34,17 +34,28 @@ Rust 1.98.0，release 默认配置，增量编译关闭，Windows 平衡电源�
 `--offline` 可在已有完整依赖缓存时追加，本次使用了该选项。
 
 ```powershell
-cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --lib --test runtime_profile_evidence --test runtime_profile_allocation --test cutover_scale_evidence --no-run
-cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --test runtime_profile_evidence runtime_profile_wall_clock -- --ignored --nocapture --test-threads=1
-cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --lib runtime_profile_stages -- --ignored --nocapture --test-threads=1
-cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --test runtime_profile_allocation -- --ignored --nocapture --test-threads=1
+# 当时命令（冻结基线 298da8a8，2026-09-06 实际运行所用；该提交上 placement-fixtures
+# feature 尚不存在，以下命令在那个提交上按原样可用）
+cargo +1.98.0 test --release --locked -p laneflow-runtime --lib --test runtime_profile_evidence --test runtime_profile_allocation --test cutover_scale_evidence --no-run
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test runtime_profile_evidence runtime_profile_wall_clock -- --ignored --nocapture --test-threads=1
+cargo +1.98.0 test --release --locked -p laneflow-runtime --lib runtime_profile_stages -- --ignored --nocapture --test-threads=1
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test runtime_profile_allocation -- --ignored --nocapture --test-threads=1
 cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_scale_evidence -- --ignored --nocapture --test-threads=1
 python research/issue-583-runtime-profile/analyze.py
 ```
 
-runtime_profile 三件须带 `--features placement-fixtures`（#742 起 CI 同款）：cb3bca94
-之后新鲜摆放在门线处按停车约束失败关闭，Waiting/Conflict 场景要靠该特性放入
-"已经在路上"的车辆；旧命令在当前 head 会确定性失败。cutover_scale 不受影响。
+当时实际直接运行 `--no-run` 生成的四个 exe，过滤参数与上述当时命令相同。
+[`evidence/`](evidence/) 保存完整测试输出；[`analyze.py`](analyze.py) 只读取这些固定记录，
+校验数量、各轮次/入口的最终摘要和日志字节、owner 总账、阶段调用次数及耗时包含关系，
+输出 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-583-runtime-profile/summary.json)。脚本不运行基准、不引入依赖或 CI 耗时阈值。
+
+**在当前 head 复现（2026-10-20 注，#537）**：cb3bca94（2026-09-26，Refs #742）之后
+新鲜摆放在门线处按停车约束失败关闭，Conflict 场景（摆放在流边界）必须改用测试特性里的
+已有摆放——runtime_profile 三件在当前 head 须加 `--features placement-fixtures`
+（#742 起 CI 即用该 feature；Waiting 场景两种形态均可跑通，Conflict 不加该特性确定性
+`StopConstraintUnsatisfiable`）；cutover_scale 不受影响。带 feature 与不带 feature 的
+预编译产物是不同二进制，须按组分别 `--no-run`。当前 head 的完整 12 件命令清单见
+`research/issue-537-target-path-baseline/README.md` §6。
 
 本次实际直接运行 `--no-run` 生成的四个 exe，过滤参数与上述命令相同。
 [`evidence/`](evidence/) 保存完整测试输出；[`analyze.py`](analyze.py) 只读取这些固定记录，

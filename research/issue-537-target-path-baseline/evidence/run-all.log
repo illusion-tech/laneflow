@@ -1,0 +1,18 @@
+2026-10-19T14:53:45.886Z === run-all start; runs=12 ===
+2026-10-19T14:53:48.658Z RUN b1-shared-network-wall start
+2026-10-19T14:53:49.626Z RUN b1-shared-network-wall exit=0 elapsed_ms=968
+2026-10-19T14:53:51.902Z RUN b1-snapshot-wall start
+2026-10-19T14:53:52.185Z RUN b1-snapshot-wall exit=0 elapsed_ms=282
+2026-10-19T14:53:54.417Z RUN b1-cutover-wall start
+2026-10-19T14:53:54.727Z RUN b1-cutover-wall exit=0 elapsed_ms=310
+2026-10-19T14:53:56.958Z RUN b1-cutover-cross-wall start
+2026-10-19T14:53:57.225Z RUN b1-cutover-cross-wall exit=0 elapsed_ms=266
+2026-10-19T14:53:59.496Z RUN b1-instrumented-calibrate start
+2026-10-19T14:53:59.754Z RUN b1-instrumented-calibrate exit=0 elapsed_ms=258
+2026-10-19T14:54:02.034Z RUN b2-cutover-scale-wall start
+2026-10-19T14:54:03.663Z RUN b2-cutover-scale-wall exit=0 elapsed_ms=1628
+2026-10-19T14:54:05.884Z RUN b2-cutover-scale-alloc start
+2026-10-19T14:54:06.461Z RUN b2-cutover-scale-alloc exit=0 elapsed_ms=576
+2026-10-19T14:54:08.710Z RUN b2-runtime-profile-wall start
+2026-10-19T14:54:10.740Z RUN b2-runtime-profile-wall exit=101 elapsed_ms=2030
+2026-10-19T14:54:10.740Z STOP：b2-runtime-profile-wall 非零退出，按停止条件停止扩大测量

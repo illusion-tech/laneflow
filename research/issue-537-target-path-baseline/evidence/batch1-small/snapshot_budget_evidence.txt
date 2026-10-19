@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.16s
+     Running tests\snapshot_budget_evidence.rs (target\release\deps\snapshot_budget_evidence-b16babd69f9513f8.exe)
+
+running 1 test
+test snapshot_side_budget_baseline ... snapshot-budget-evidence workload=signalized-corridor-v1 lfca_exact=425418 artifact_digest=8baf0f01cd66bee898058605958d9a4d9606699f9542c197dbcbc9933007a164 network_revision=2de4820d35bee0ef71374cae49036fbef75155a2a587cbd13b351d5f7655ad27 routes=28 vehicles=2 tick=64 command_cursor=30 lfrs_exact_bytes=3312 steady_ticks=32 steady_before=Ledger { allocations: 0, reallocations: 0, allocated_bytes: 0, deallocated_bytes: 0, reallocated_bytes: 0, live_delta_bytes: 0 } steady_after=Ledger { allocations: 0, reallocations: 0, allocated_bytes: 0, deallocated_bytes: 0, reallocated_bytes: 0, live_delta_bytes: 0 } capture=Ledger { allocations: 37, reallocations: 0, allocated_bytes: 5391, deallocated_bytes: 1828, reallocated_bytes: 0, live_delta_bytes: 3563 } encode=Ledger { allocations: 34, reallocations: 13, allocated_bytes: 9672, deallocated_bytes: 6360, reallocated_bytes: 4328, live_delta_bytes: 7640 } restore=Ledger { allocations: 562, reallocations: 12, allocated_bytes: 50368, deallocated_bytes: 6216, reallocated_bytes: -192, live_delta_bytes: 43960 } classification=descriptive-initial-not-product-pass
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

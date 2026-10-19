@@ -1,0 +1,39 @@
+$ cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_scale_evidence -- --ignored --nocapture --test-threads=1
+
+running 1 test
+test cutover_scale_evidence ... cutover count=1000 active=1000 edges=16 routes=16 mode=online sample=0 prepare_us=1441 pump_us=115 commit_us=1408 digest_us=640 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=16 routes=16 mode=online sample=1 prepare_us=745 pump_us=107 commit_us=1388 digest_us=240 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=16 routes=16 mode=online sample=2 prepare_us=735 pump_us=105 commit_us=1627 digest_us=263 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=256 routes=256 mode=online sample=0 prepare_us=492 pump_us=106 commit_us=1266 digest_us=309 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=256 routes=256 mode=online sample=1 prepare_us=553 pump_us=107 commit_us=1067 digest_us=295 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=256 routes=256 mode=online sample=2 prepare_us=530 pump_us=106 commit_us=1562 digest_us=294 paused_us=0 journal_bytes=156074
+cutover count=4000 active=4000 edges=16 routes=16 mode=online sample=0 prepare_us=6498 pump_us=459 commit_us=9164 digest_us=1358 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=16 routes=16 mode=online sample=1 prepare_us=6646 pump_us=459 commit_us=9223 digest_us=1241 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=16 routes=16 mode=online sample=2 prepare_us=6558 pump_us=431 commit_us=9494 digest_us=1230 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=256 routes=256 mode=online sample=0 prepare_us=1595 pump_us=431 commit_us=4528 digest_us=1254 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=256 routes=256 mode=online sample=1 prepare_us=1689 pump_us=436 commit_us=4586 digest_us=1072 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=256 routes=256 mode=online sample=2 prepare_us=1889 pump_us=427 commit_us=4289 digest_us=1199 paused_us=0 journal_bytes=624074
+cutover count=10000 active=10000 edges=16 routes=16 mode=online sample=0 prepare_us=36797 pump_us=1114 commit_us=44604 digest_us=2653 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=16 routes=16 mode=online sample=1 prepare_us=36476 pump_us=1216 commit_us=43816 digest_us=2936 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=16 routes=16 mode=online sample=2 prepare_us=37556 pump_us=1078 commit_us=43397 digest_us=2837 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=online sample=0 prepare_us=5128 pump_us=1091 commit_us=12464 digest_us=2935 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=online sample=1 prepare_us=5032 pump_us=1091 commit_us=11749 digest_us=2852 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=online sample=2 prepare_us=5265 pump_us=1112 commit_us=11840 digest_us=2930 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=10000 mode=online sample=0 prepare_us=11270 pump_us=1197 commit_us=20043 digest_us=4896 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=10000 mode=online sample=1 prepare_us=10464 pump_us=1153 commit_us=19886 digest_us=4854 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=10000 mode=online sample=2 prepare_us=11394 pump_us=1460 commit_us=19991 digest_us=4994 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=drain sample=0 prepare_us=5387 pump_us=0 commit_us=13618 digest_us=3130 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=drain sample=1 prepare_us=5298 pump_us=0 commit_us=13626 digest_us=3226 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=drain sample=2 prepare_us=5843 pump_us=0 commit_us=13881 digest_us=3118 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=paused sample=0 prepare_us=5386 pump_us=0 commit_us=12417 digest_us=2655 paused_us=17803 journal_bytes=0
+cutover count=10000 active=10000 edges=256 routes=256 mode=paused sample=1 prepare_us=5496 pump_us=0 commit_us=11616 digest_us=2839 paused_us=17112 journal_bytes=0
+cutover count=10000 active=10000 edges=256 routes=256 mode=paused sample=2 prepare_us=5122 pump_us=0 commit_us=11805 digest_us=2948 paused_us=16928 journal_bytes=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running src\kernel\tests\performance_profile\cutover_scale_evidence.rs (target\release\deps\cutover_scale_evidence-db7a33100204f0f0.exe)
+
+exit=0

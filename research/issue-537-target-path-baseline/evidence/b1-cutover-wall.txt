@@ -1,0 +1,13 @@
+$ cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_wall_clock_evidence -- --ignored --nocapture
+
+running 1 test
+cutover-wall-clock-evidence corridor cutover_borrow_samples=14 cutover_wall_ns_median_borrow=23150 cutover_reclaim_samples=9 cutover_wall_ns_median_reclaim=39100 root_drop_samples=9 root_drop_ns_median=8300
+test cutover_side_wall_clock_baseline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests\cutover_wall_clock_evidence.rs (target\release\deps\cutover_wall_clock_evidence-49981f3c0e24f193.exe)
+
+exit=0

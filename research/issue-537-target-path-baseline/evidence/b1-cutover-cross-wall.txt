@@ -1,0 +1,16 @@
+$ cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_cross_wall_clock_evidence -- --ignored --nocapture
+
+running 1 test
+prepare median: 0.025 ms
+quiescent commit median (tail already pumped; rebuild + revalidate + digest + swap): 0.032 ms
+quiescent commit median (draining full 64-tick journal tail in one call): 0.060 ms
+maintenance pause full median (prepare + drain + commit, no steps): 0.082 ms
+test cross_revision_cutover_wall_clock_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running tests\cutover_cross_wall_clock_evidence.rs (target\release\deps\cutover_cross_wall_clock_evidence-35754c64e1e79185.exe)
+
+exit=0

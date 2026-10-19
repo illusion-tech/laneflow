@@ -1,0 +1,12 @@
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests\cutover_cross_budget_evidence.rs (target\release\deps\cutover_cross_budget_evidence-798b2de994adb302.exe)
+
+running 1 test
+test cross_revision_cutover_budget_evidence ... journal: 10576 bytes over 16 ticks (661 B/tick, 8 vehicles)
+prepare ledger: Ledger { allocations: 204, reallocations: 6, allocated_bytes: 8409372, deallocated_bytes: 6338, live_delta_bytes: 8403034 }
+coexistence: journal_written=10576 arena_reserved=8388608 target_root_retained=3424 lfsd_bytes=2041
+drain+commit ledger: Ledger { allocations: 58, reallocations: 16, allocated_bytes: 18938, deallocated_bytes: 8422778, live_delta_bytes: -8403840 }
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,11 @@
+source: 2666 ms
+compile: 229631 ms
+emit: 26727 ms
+post-emission: 2901 ms
+headless-build: 309 ms
+spatial-build: 482 ms
+headless-install: 71 ms
+spatial-install: 68 ms
+routes-and-topology: 198 ms
+LF-CN-URBAN 100k: 1000 cells, 100 tiles, revision 8b7409429083877f019ffdd9d7111cd55329c51b9b03315bfb322d7af242c875
+Artifacts and validation report: E:/projects/laneflow-evidence/issue-537/6cf90563/cn-urban-100k

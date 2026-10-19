@@ -1,0 +1,37 @@
+# 原始失败记录（确定性复现）：#583 旧命令在 HEAD 失败
+# 成因=cb3bca94 新鲜摆放在门线处失败关闭；正确命令须 --features placement-fixtures
+# 旧命令原文：cargo +1.98.0 test --release --locked -p laneflow-runtime --test runtime_profile_evidence runtime_profile_wall_clock -- --ignored --nocapture --test-threads=1
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running src\kernel\tests\performance_profile\runtime_profile_evidence.rs (target\release\deps\runtime_profile_evidence-522666293a3492c3.exe)
+
+running 1 test
+test runtime_profile_wall_clock ... profile-tick scene=lane-1000-256-journal-false round=0 steps=64 delta_ms=100 individual=1000 active=1000 intent=1000 presented=0 aggregate=0 p50_ns=119400 p95_ns=132800 p99_ns=221700 max_ns=221700 sum_ns=7894600 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-tick scene=lane-1000-256-journal-false round=1 steps=64 delta_ms=100 individual=1000 active=1000 intent=1000 presented=0 aggregate=0 p50_ns=119700 p95_ns=132200 p99_ns=181000 max_ns=181000 sum_ns=7862200 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-tick scene=lane-1000-256-journal-false round=2 steps=64 delta_ms=100 individual=1000 active=1000 intent=1000 presented=0 aggregate=0 p50_ns=120500 p95_ns=132300 p99_ns=151000 max_ns=151000 sum_ns=7841600 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-tick scene=lane-10000-256-journal-false round=0 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1243700 p95_ns=1314700 p99_ns=1329300 max_ns=1329300 sum_ns=80196300 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-tick scene=lane-10000-256-journal-false round=1 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1223700 p95_ns=1300400 p99_ns=1343100 max_ns=1343100 sum_ns=79072500 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-tick scene=lane-10000-256-journal-false round=2 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1234200 p95_ns=1305700 p99_ns=1319600 max_ns=1319600 sum_ns=79480700 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-tick scene=lane-10000-16-journal-false round=0 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1235800 p95_ns=1320400 p99_ns=1558300 max_ns=1558300 sum_ns=80182600 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-tick scene=lane-10000-16-journal-false round=1 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1228000 p95_ns=1292600 p99_ns=1308400 max_ns=1308400 sum_ns=79091300 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-tick scene=lane-10000-16-journal-false round=2 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1229700 p95_ns=1274700 p99_ns=1311600 max_ns=1311600 sum_ns=78965600 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-tick scene=lane-10000-256-journal-true round=0 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1571400 p95_ns=1628000 p99_ns=1659200 max_ns=1659200 sum_ns=100938400 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-tick scene=lane-10000-256-journal-true round=1 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1569200 p95_ns=1624400 p99_ns=1634600 max_ns=1634600 sum_ns=100569900 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-tick scene=lane-10000-256-journal-true round=2 steps=64 delta_ms=100 individual=10000 active=10000 intent=10000 presented=0 aggregate=0 p50_ns=1574400 p95_ns=1670700 p99_ns=1742200 max_ns=1742200 sum_ns=101462100 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-tick scene=waiting-membership-1 round=0 steps=16 delta_ms=4 individual=1 active=1 intent=1 presented=0 aggregate=0 p50_ns=1100 p95_ns=3500 p99_ns=3500 max_ns=3500 sum_ns=19700 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+profile-tick scene=waiting-membership-1 round=1 steps=16 delta_ms=4 individual=1 active=1 intent=1 presented=0 aggregate=0 p50_ns=1100 p95_ns=1500 p99_ns=1500 max_ns=1500 sum_ns=17300 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+profile-tick scene=waiting-membership-1 round=2 steps=16 delta_ms=4 individual=1 active=1 intent=1 presented=0 aggregate=0 p50_ns=1000 p95_ns=1200 p99_ns=1200 max_ns=1200 sum_ns=16900 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+
+thread 'runtime_profile_wall_clock' (17168) panicked at crates\laneflow-runtime\src\kernel\tests\performance_profile\runtime_profile.rs:229:26:
+called `Result::unwrap()` on an `Err` value: StopConstraintUnsatisfiable
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    runtime_profile_wall_clock
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 1.75s
+
+error: test failed, to rerun pass `-p laneflow-runtime --test runtime_profile_evidence`
+exit=101

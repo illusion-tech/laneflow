@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283；Waiting #282）<br>
-**最后更新**: 2026-09-17<br>
+**最后更新**: 2026-10-20<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -348,18 +348,22 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 | 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享根/source 在 profiler 前准备，不重复计入增量                                                                                     |
 | 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
 
-### 2026-10-19 再登记（#537，exact head `6cf90563`，v6）
+### 2026-10-19 再登记（#537，exact head `6cf9056365dcf106bedeba85035863c4fda5a8c1`，v6）
 
 同机 LF-P100-REF-01、rustc 1.98.0、Windows build 29683；夹具为当前 corridor
 （LFCA exact `425,418 B`，28 路线、2 车、4 ms 步进），故与切片 B 初值（v1、`420,332 B`）
 不作回归比较，本节为 v6 当前基线。未插桩墙钟中位：`capture_snapshot` 主线程
-`0.0016 ms`；后台 `encode_lfrs` `0.0029 ms`；published `restore_lfrs` 整次
+`0.0016 ms`；`encode_lfrs` 无竞争主线程中位 `0.0029 ms`（后台化可行性沿 §8 初值节
+口径，竞争影响由竞争 tick 行覆盖）；published `restore_lfrs` 整次
 `0.0324 ms`；基线 tick `0.0012 ms` / 后台 4,096 次 encode 竞争下 `0.0027 ms`。
 账本：capture `37` 次分配 / `5,391 B`（净 live `3,563`）；encode `34` 次分配 + `13` 次
 重分配 / `9,672 B`（净 `7,640`）；restore `562+12` / `50,368 B`（净 `43,960`）。DHAT 恢复
 增量同时存续峰值 `45,472 B / 418 blocks`、返回 live `44,152 B / 412 blocks`。LFRS
-exact `3,312 B`。保存前后稳态 tick 账本相等（均 0/0）的硬断言与全部 §9 义务随 CI 保持。
-editable load 停顿仍沿 #529 未覆盖。完整记录见 `research/issue-537-target-path-baseline/`。
+exact `3,312 B`。保存前后稳态 tick 账本**相等**的硬断言通过（实测两侧均 `0/0`；
+断言对象是相等性，不是 0 值本身）。已实现的 §9 义务的回归面随 CI 保持；本节未新增
+覆盖——Editable 来源仍未覆盖（见 §9 表），墙钟类证据为手动取证。editable load
+停顿仍沿 #529 未覆盖。完整记录、原始输出与复现命令见
+`research/issue-537-target-path-baseline/`（结果表为数值权威）。
 
 ## 9. Runtime Snapshot v6 的 G2 边界与必测义务
 

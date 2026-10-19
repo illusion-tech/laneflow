@@ -1,0 +1,16 @@
+    Finished `release` profile [optimized] target(s) in 0.14s
+     Running tests\shared_network_allocation_evidence.rs (target\release\deps\shared_network_allocation_evidence-85913b1079c61df3.exe)
+
+running 1 test
+test allocation_ledgers_and_per_world_live_bytes ... shared-static-network-evidence allocation scene=min-headless spatial=RetainAvailable allocations=2 reallocations=0 allocated_bytes=2844 deallocated_bytes=4 reallocated_delta_bytes=0 live_bytes=2840 retained=2824 lfca_exact=1231
+shared-static-network-evidence allocation scene=full-spatial-omit spatial=Omit allocations=247 reallocations=18 allocated_bytes=12797 deallocated_bytes=4978 reallocated_delta_bytes=88 live_bytes=7819 retained=7803 lfca_exact=31677
+shared-static-network-evidence allocation scene=full-lane-spatial spatial=RetainAvailable allocations=255 reallocations=18 allocated_bytes=13361 deallocated_bytes=4726 reallocated_delta_bytes=88 live_bytes=8635 retained=8619 lfca_exact=31677
+shared-static-network-evidence allocation scene=corridor spatial=RetainAvailable allocations=241 reallocations=58 allocated_bytes=119038 deallocated_bytes=26687 reallocated_delta_bytes=2048 live_bytes=92351 retained=92335 lfca_exact=425418
+shared-static-network-evidence allocation coexistence-held current_retained=92335 candidate_live=92351 candidate_retained=92335 reallocations=58 reallocated_delta_bytes=2048 target_lfca=425418 target_lfsm=117278 target_lfsd=421295
+shared-static-network-evidence allocation worlds count=2 live_bytes=32744 live_per_world=16372 reallocations=0 reallocated_delta_bytes=0 static_retained=92335
+shared-static-network-evidence allocation worlds count=8 live_bytes=130976 live_per_world=16372 reallocations=0 reallocated_delta_bytes=0 static_retained=92335
+shared-static-network-evidence allocation worlds count=32 live_bytes=523904 live_per_world=16372 reallocations=0 reallocated_delta_bytes=0 static_retained=92335
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
