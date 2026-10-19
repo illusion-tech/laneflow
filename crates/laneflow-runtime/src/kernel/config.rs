@@ -41,6 +41,28 @@ impl WorldConfig {
         self.route_capacity
     }
 
+    /// 返回路线槽、边占用与冲突占用容量各加余量的配置副本；供验证/测量入口
+    /// 在目录路线之外预留注册余量。容量进入快照与逻辑摘要：余量装机与标准
+    /// 装机不同身份，仅在自含测量世界使用。
+    #[must_use]
+    pub const fn with_added_route_capacity(
+        self,
+        extra_routes: u32,
+        extra_edge_occurrences: u64,
+        extra_conflict_occurrences: u64,
+    ) -> Self {
+        Self {
+            route_capacity: self.route_capacity.saturating_add(extra_routes),
+            route_edge_occurrence_capacity: self
+                .route_edge_occurrence_capacity
+                .saturating_add(extra_edge_occurrences),
+            route_conflict_occurrence_capacity: self
+                .route_conflict_occurrence_capacity
+                .saturating_add(extra_conflict_occurrences),
+            ..self
+        }
+    }
+
     /// 全部存活动态路线 `edges.len()` 的总和；重复边按 occurrence 计数。
     #[must_use]
     pub const fn route_edge_occurrence_capacity(self) -> u64 {
