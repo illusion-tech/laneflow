@@ -133,7 +133,11 @@ pub(crate) fn retained_state(harness: &Harness<'_>) -> String {
         .live_routes()
         .map(|h| (h, harness.world.route_edges(h).map(|v| v.to_vec())))
         .collect();
-    crate::sha256(format!("{vehicles:?}/{routes:?}").as_bytes())
+    // 信号相位与等待区成员一并入摘要：切换窗口前后比对由此覆盖已提交状态的
+    // 全部公开维度（与逐拍观察摘要同面，宽于 runtime 单测恒等 oracle）。
+    let signals = harness.world.committed_signal_groups();
+    let waiting = harness.world.waiting_zone_members();
+    crate::sha256(format!("{vehicles:?}/{routes:?}/{signals:?}/{waiting:?}").as_bytes())
 }
 
 pub(crate) fn extract(harness: &mut Harness<'_>) -> Result<LaneFlowCommittedPoseBatch> {
