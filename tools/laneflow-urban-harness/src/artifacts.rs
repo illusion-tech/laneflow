@@ -153,16 +153,43 @@ impl Artifacts {
         })
     }
 
-    pub(crate) fn install(
+    /// #538 起装机统一走 `install_with_route_slack`（标准路径传 0）；路线槽在
+    /// 目录基础上留 `extra_routes` 余量，供 candidate / admitted 注册采样；其余
+    /// 容量与语义不变。
+    pub(crate) fn install_with_route_slack(
         &self,
         execution: laneflow_runtime::ExecutionConfig,
+        extra_routes: u32,
     ) -> Result<TrafficWorld> {
         let pin: RightOfWayPolicySetId = crate::catalog_id(&self.catalog.policy_id)?;
+        let mut config = self.world_config()?;
+        // 余量按目录路线的最大边数/冲突占用放：每条额外注册按最坏路线计。
+        let max_edges = self
+            .catalog
+            .routes
+            .iter()
+            .map(|r| r.edge_keys.len() as u64)
+            .max()
+            .unwrap_or(0);
+        let passages = self.conflict_passages_per_edge();
+        let max_conflict = self
+            .catalog
+            .routes
+            .iter()
+            .flat_map(|r| r.edge_keys.iter().filter_map(|k| self.edges.get(k)))
+            .filter_map(|edge| passages.get(edge).copied())
+            .max()
+            .unwrap_or(0);
+        config = config.with_added_route_capacity(
+            extra_routes,
+            u64::from(extra_routes) * max_edges,
+            u64::from(extra_routes) * max_conflict,
+        );
         let world = checked(
             "world install",
             TrafficWorld::install(
                 self.revision.clone(),
-                self.world_config()?,
+                config,
                 execution,
                 self.committed_source()?,
                 544,
@@ -173,8 +200,8 @@ impl Artifacts {
         Ok(world)
     }
 
-    /// 安装与续跑恢复共用的世界容量配置。
-    pub(crate) fn world_config(&self) -> Result<WorldConfig> {
+    /// 每条 LaneEdge 的冲突占用数（participant stream 的 passages 计入其路径边）。
+    fn conflict_passages_per_edge(&self) -> BTreeMap<LaneEdgeOrdinal, u64> {
         let mut passages = BTreeMap::new();
         for raw in 0..self
             .revision
@@ -194,6 +221,12 @@ impl Artifacts {
                 .expect("checked path");
             passages.insert(path.edges()[1], stream.passages().len() as u64);
         }
+        passages
+    }
+
+    /// 安装与续跑恢复共用的世界容量配置。
+    pub(crate) fn world_config(&self) -> Result<WorldConfig> {
+        let passages = self.conflict_passages_per_edge();
         let edge_capacity = self
             .catalog
             .routes

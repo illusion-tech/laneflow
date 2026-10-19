@@ -285,8 +285,18 @@ impl<'a> Harness<'a> {
         plan: &'a ResolvedPlan,
         execution: laneflow_runtime::ExecutionConfig,
     ) -> Result<Self> {
+        Self::install_with_route_slack(artifacts, plan, execution, 0)
+    }
+
+    /// #538 接缝测量装机：路线槽在目录基础上留 `extra_routes` 余量。
+    pub fn install_with_route_slack(
+        artifacts: &'a Artifacts,
+        plan: &'a ResolvedPlan,
+        execution: laneflow_runtime::ExecutionConfig,
+        extra_routes: u32,
+    ) -> Result<Self> {
         plan.validate(artifacts)?;
-        let mut world = artifacts.install(execution)?;
+        let mut world = artifacts.install_with_route_slack(execution, extra_routes)?;
         let mut routes = BTreeMap::new();
         let mut route_table = crate::route_table::RouteTable::default();
         let lengths = artifacts.revision.traffic().lane_lengths_millimetres();

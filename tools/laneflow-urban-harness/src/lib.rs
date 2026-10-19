@@ -27,7 +27,11 @@ pub use transitions::run_transition_evidence;
 #[cfg(feature = "adapter")]
 mod gate;
 #[cfg(feature = "adapter")]
+mod seams;
+#[cfg(feature = "adapter")]
 pub use gate::run_gate_evidence;
+#[cfg(feature = "adapter")]
+pub use seams::run_seam_evidence;
 #[cfg(feature = "adapter")]
 mod variant;
 

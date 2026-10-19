@@ -25,6 +25,15 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             println!("{}", report["status"]);
         }
         #[cfg(feature = "adapter")]
+        Some("seams") if args.len() == 4 => {
+            let report = laneflow_urban_harness::run_seam_evidence(
+                Path::new(&args[1]),
+                Path::new(&args[2]),
+                Path::new(&args[3]),
+            )?;
+            println!("{}", report["status"]);
+        }
+        #[cfg(feature = "adapter")]
         Some("gate") if args.len() == 5 => {
             let report = laneflow_urban_harness::run_gate_evidence(
                 Path::new(&args[1]),
@@ -222,5 +231,5 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] [--save-at T]... [--until-tick E] [--resume <save-dir>] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | gate <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] [--save-at T]... [--until-tick E] [--resume <save-dir>] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | gate <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | seams <artifacts> <plan.toml> <new-output>"
 }
