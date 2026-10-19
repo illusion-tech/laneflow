@@ -1,0 +1,25 @@
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests\shared_network_resource_evidence.rs (target\release\deps\shared_network_resource_evidence-afc945daa9233054.exe)
+
+running 7 tests
+test failure_and_cancel_do_not_return_a_root ... ok
+test frame_only_spatial_variant_records_facility_geometry_as_uncovered ... shared-static-network-evidence ledger scene=profile-frame-only spatial=RetainAvailable lfca_exact=1656 artifact_digest=f83cdd65e16102139969a6d6c7d4a03b67802ecafcd7fc249c491c4359ac8892 network_revision=9d1ca1c57defa8fa6a5d14279f981924b673d54e0bc58fb65f05927a8339cd4b lfsm_exact=1797 lfsd_exact=1075 traffic_retained=0 identity_retained=40 hints_retained=0 policy_retained=0 spatial_retained=0 root_retained=2864 scratch_required=24 facility_geometry_count=0 lane_pose=false identity_round_trips=1
+shared-static-network-evidence uncovered facility-only-lfca facility_geometry_count full_spatial=1 corridor=0
+ok
+test frozen_fixtures_match_g1_and_print_ledgers ... shared-static-network-evidence ledger scene=min-headless spatial=RetainAvailable lfca_exact=1231 artifact_digest=385739f2485c5265df5da990610ff0b90b1ad9150adeaf336a3e4220b400b19a network_revision=f1a1510b31c9068b72d2e87bf5d19224a3eb49f71485b50ac9bdfa302c18a86b lfsm_exact=not-checked-in lfsd_exact=not-checked-in traffic_retained=0 identity_retained=0 hints_retained=0 policy_retained=0 spatial_retained=0 root_retained=2824 scratch_required=4 facility_geometry_count=0 lane_pose=false identity_round_trips=0
+shared-static-network-evidence ledger scene=full-spatial-omit spatial=Omit lfca_exact=31677 artifact_digest=be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9 network_revision=1fcba5e09b89d1df470ce2f2e0f4ebcc9ea19e3022c2096fe656332aafaec7c1 lfsm_exact=43181 lfsd_exact=27576 traffic_retained=1821 identity_retained=2400 hints_retained=36 policy_retained=530 spatial_retained=0 root_retained=7803 scratch_required=1696 facility_geometry_count=0 lane_pose=false identity_round_trips=56
+shared-static-network-evidence ledger scene=full-lane-spatial spatial=RetainAvailable lfca_exact=31677 artifact_digest=be0d39f44feb802fdb9697c7b5ad7522d367ab086803c8320cc5199f496991b9 network_revision=1fcba5e09b89d1df470ce2f2e0f4ebcc9ea19e3022c2096fe656332aafaec7c1 lfsm_exact=43181 lfsd_exact=27576 traffic_retained=1821 identity_retained=2400 hints_retained=36 policy_retained=530 spatial_retained=816 root_retained=8619 scratch_required=1696 facility_geometry_count=1 lane_pose=true identity_round_trips=56
+shared-static-network-evidence ledger scene=corridor spatial=RetainAvailable lfca_exact=425418 artifact_digest=8baf0f01cd66bee898058605958d9a4d9606699f9542c197dbcbc9933007a164 network_revision=2de4820d35bee0ef71374cae49036fbef75155a2a587cbd13b351d5f7655ad27 lfsm_exact=not-checked-in lfsd_exact=not-checked-in traffic_retained=12774 identity_retained=12120 hints_retained=264 policy_retained=3345 spatial_retained=60720 root_retained=92335 scratch_required=9960 facility_geometry_count=0 lane_pose=true identity_round_trips=302
+ok
+test production_kernel_keeps_two_lane_poses ... ok
+test publish_and_editable_coexistence_terms_are_held ... shared-static-network-evidence coexistence scene=full-spatial current_retained=8619 base_lfca=31677 target_lfca=31677 target_lfsm=43181 target_lfsd=27576 candidate_retained=8619 scratch=1696 publish_terms=41992 editable_terms=153045 post_emission=102434 same_root=false
+shared-static-network-evidence coexistence scene=corridor current_retained=92335 base_lfca=425418 target_lfca=425418 target_lfsm=117278 target_lfsd=421295 candidate_retained=92335 scratch=9960 publish_terms=527713 editable_terms=1584039 post_emission=963991 same_root=false
+ok
+test wall_clock_build_identity_and_kernel ... ignored, manual release wall-clock evidence; CI 不当墙钟基线
+test worlds_2_8_32_share_one_static_root ... shared-static-network-evidence worlds count=2 ptr_eq=true static_retained=92335 signal_groups=8 parking_spaces=0 vehicle_capacity=8 per_world_live_bytes=allocation-binary
+shared-static-network-evidence worlds count=8 ptr_eq=true static_retained=92335 signal_groups=8 parking_spaces=0 vehicle_capacity=8 per_world_live_bytes=allocation-binary
+shared-static-network-evidence worlds count=32 ptr_eq=true static_retained=92335 signal_groups=8 parking_spaces=0 vehicle_capacity=8 per_world_live_bytes=allocation-binary
+ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

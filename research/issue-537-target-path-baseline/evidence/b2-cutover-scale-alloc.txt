@@ -1,0 +1,24 @@
+$ cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_scale_allocation -- --ignored --nocapture --test-threads=1
+
+running 1 test
+test cutover_scale_allocation ... allocation count=1000 edges=256 routes=256 phase=digest allocs=1517 reallocs=778 allocated_bytes=396768 deallocated_bytes=396768 reallocated_bytes=259926
+allocation count=1000 edges=256 routes=256 phase=prepare allocs=2924 reallocs=0 allocated_bytes=9809175 deallocated_bytes=200096 reallocated_bytes=0
+allocation count=1000 edges=256 routes=256 phase=commit allocs=3572 reallocs=1556 allocated_bytes=1973798 deallocated_bytes=11619449 reallocated_bytes=519852
+allocation count=10000 edges=16 routes=16 phase=digest allocs=10037 reallocs=168 allocated_bytes=4248896 deallocated_bytes=4248896 reallocated_bytes=3166934
+allocation count=10000 edges=16 routes=16 phase=prepare allocs=923 reallocs=128 allocated_bytes=21235903 deallocated_bytes=1960256 reallocated_bytes=130560
+allocation count=10000 edges=16 routes=16 phase=commit allocs=20132 reallocs=336 allocated_bytes=19550438 deallocated_bytes=39557697 reallocated_bytes=6333868
+allocation count=10000 edges=256 routes=256 phase=digest allocs=10517 reallocs=1548 allocated_bytes=4473536 deallocated_bytes=4473536 reallocated_bytes=3364694
+allocation count=10000 edges=256 routes=256 phase=prepare allocs=3563 reallocs=1024 allocated_bytes=21361663 deallocated_bytes=1964096 reallocated_bytes=122880
+allocation count=10000 edges=256 routes=256 phase=commit allocs=21572 reallocs=3096 allocated_bytes=20046758 deallocated_bytes=40175937 reallocated_bytes=6729388
+allocation count=10000 edges=256 routes=10000 phase=digest allocs=30005 reallocs=10014 allocated_bytes=5585280 deallocated_bytes=5585280 reallocated_bytes=3385110
+allocation count=10000 edges=256 routes=10000 phase=prepare allocs=101003 reallocs=1024 allocated_bytes=26467519 deallocated_bytes=2120000 reallocated_bytes=122880
+allocation count=10000 edges=256 routes=10000 phase=commit allocs=80036 reallocs=20028 allocated_bytes=24057126 deallocated_bytes=49136257 reallocated_bytes=6770220
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+
+    Finished `release` profile [optimized] target(s) in 0.16s
+     Running src\kernel\tests\performance_profile\cutover_scale_allocation.rs (target\release\deps\cutover_scale_allocation-7556dda845eaef4d.exe)
+
+exit=0

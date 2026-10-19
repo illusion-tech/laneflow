@@ -1,0 +1,21 @@
+$ cargo +1.98.0 test --release --locked -p laneflow-runtime --test shared_network_resource_evidence -- --ignored wall_clock_build_identity_and_kernel --nocapture --test-threads=1
+
+running 1 test
+test wall_clock_build_identity_and_kernel ... shared-static-network-evidence calibrate instant_noop_ns min=0 median=0 max=100
+shared-static-network-evidence wallclock kind=build scene=min-headless min_ns=11500 median_ns=11700 max_ns=44900
+shared-static-network-evidence wallclock kind=identity scene=min-headless lookups=0 min_ns=0 median_ns=0 max_ns=100
+shared-static-network-evidence wallclock kind=build scene=full-lane-spatial min_ns=107300 median_ns=108600 max_ns=159700
+shared-static-network-evidence wallclock kind=identity scene=full-lane-spatial lookups=56 min_ns=600 median_ns=700 max_ns=700
+shared-static-network-evidence wallclock kind=build scene=corridor min_ns=1171500 median_ns=1227800 max_ns=1461800
+shared-static-network-evidence wallclock kind=identity scene=corridor lookups=302 min_ns=7100 median_ns=7200 max_ns=7200
+shared-static-network-evidence wallclock kind=kernel scene=full-lane-spatial steps=1024 min_ns=1402200 median_ns=1424400 max_ns=1531000 below_timer_floor=false
+shared-static-network-evidence wallclock kind=kernel scene=corridor steps=1024 min_ns=1273300 median_ns=1291700 max_ns=1414600 below_timer_floor=false
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.06s
+
+
+    Finished `release` profile [optimized] target(s) in 0.75s
+     Running tests\shared_network_resource_evidence.rs (target\release\deps\shared_network_resource_evidence-afc945daa9233054.exe)
+
+exit=0

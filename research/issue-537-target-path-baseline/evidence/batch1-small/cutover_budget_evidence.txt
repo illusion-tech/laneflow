@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests\cutover_budget_evidence.rs (target\release\deps\cutover_budget_evidence-f24ff6998e2f0a7c.exe)
+
+running 1 test
+test cutover_side_budget_baseline ... cutover-budget-evidence corridor lfca_exact=425418 artifact_digest=8baf0f01cd66bee898058605958d9a4d9606699f9542c197dbcbc9933007a164 network_revision=2de4820d35bee0ef71374cae49036fbef75155a2a587cbd13b351d5f7655ad27 steady_ticks=32 steady_allocations=0 steady_allocated_bytes=0 cutover_samples_per_round=7 cutover_rounds=2 cutover_allocations=456 cutover_reallocations=0 cutover_allocated_bytes=30936 cutover_deallocated_bytes=30961 cutover_live_delta_bytes=-25 coexistence_logical_bytes=184670
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

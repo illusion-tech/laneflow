@@ -1,0 +1,11 @@
+source: 243 ms
+compile: 2826 ms
+emit: 2554 ms
+post-emission: 288 ms
+headless-build: 28 ms
+spatial-build: 45 ms
+headless-install: 5 ms
+spatial-install: 4 ms
+routes-and-topology: 16 ms
+LF-CN-URBAN 10k: 100 cells, 10 tiles, revision d5a65b252b83ae6966abbf1acbc24f6b6b2318f955bbf14775f8745a64112b64
+Artifacts and validation report: E:/projects/laneflow-evidence/issue-537/6cf90563/cn-urban-10k

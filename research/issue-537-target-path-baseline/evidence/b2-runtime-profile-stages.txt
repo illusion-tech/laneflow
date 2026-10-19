@@ -1,0 +1,224 @@
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running unittests src\lib.rs (target\release\deps\laneflow_runtime-2527723e7310d951.exe)
+
+running 1 test
+test kernel::performance_profile::tests::runtime_profile_stages ... profile-memory scene=lane-1000-256-journal-false round=0 source_world_owned=1609523 shared_root=29580 binding=23 committed=429136 derived=171672 workspace=1008692 administrative=0 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-stage scene=lane-1000-256-journal-false round=0 stage=whole_step calls=64 ns=11059900
+profile-stage scene=lane-1000-256-journal-false round=0 stage=preflight calls=64 ns=2200
+profile-stage scene=lane-1000-256-journal-false round=0 stage=occupancy calls=64 ns=1116900
+profile-stage scene=lane-1000-256-journal-false round=0 stage=waiting_prepare calls=64 ns=932700
+profile-stage scene=lane-1000-256-journal-false round=0 stage=conflict_prepare calls=64 ns=818200
+profile-stage scene=lane-1000-256-journal-false round=0 stage=motion_loop calls=64 ns=6905900
+profile-stage scene=lane-1000-256-journal-false round=0 stage=waiting_finalize calls=64 ns=70000
+profile-stage scene=lane-1000-256-journal-false round=0 stage=signals calls=64 ns=1700
+profile-stage scene=lane-1000-256-journal-false round=0 stage=conflict_finalize calls=64 ns=935400
+profile-stage scene=lane-1000-256-journal-false round=0 stage=waiting_outputs calls=64 ns=2700
+profile-stage scene=lane-1000-256-journal-false round=0 stage=commit calls=64 ns=156300
+profile-memory scene=lane-1000-256-journal-false round=1 source_world_owned=1609523 shared_root=29580 binding=23 committed=429136 derived=171672 workspace=1008692 administrative=0 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-stage scene=lane-1000-256-journal-false round=1 stage=whole_step calls=64 ns=11042800
+profile-stage scene=lane-1000-256-journal-false round=1 stage=preflight calls=64 ns=1600
+profile-stage scene=lane-1000-256-journal-false round=1 stage=occupancy calls=64 ns=1129700
+profile-stage scene=lane-1000-256-journal-false round=1 stage=waiting_prepare calls=64 ns=970200
+profile-stage scene=lane-1000-256-journal-false round=1 stage=conflict_prepare calls=64 ns=823400
+profile-stage scene=lane-1000-256-journal-false round=1 stage=motion_loop calls=64 ns=6809800
+profile-stage scene=lane-1000-256-journal-false round=1 stage=waiting_finalize calls=64 ns=70400
+profile-stage scene=lane-1000-256-journal-false round=1 stage=signals calls=64 ns=1900
+profile-stage scene=lane-1000-256-journal-false round=1 stage=conflict_finalize calls=64 ns=952900
+profile-stage scene=lane-1000-256-journal-false round=1 stage=waiting_outputs calls=64 ns=2100
+profile-stage scene=lane-1000-256-journal-false round=1 stage=commit calls=64 ns=152500
+profile-memory scene=lane-1000-256-journal-false round=2 source_world_owned=1609523 shared_root=29580 binding=23 committed=429136 derived=171672 workspace=1008692 administrative=0 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-stage scene=lane-1000-256-journal-false round=2 stage=whole_step calls=64 ns=11059000
+profile-stage scene=lane-1000-256-journal-false round=2 stage=preflight calls=64 ns=1500
+profile-stage scene=lane-1000-256-journal-false round=2 stage=occupancy calls=64 ns=1110600
+profile-stage scene=lane-1000-256-journal-false round=2 stage=waiting_prepare calls=64 ns=965100
+profile-stage scene=lane-1000-256-journal-false round=2 stage=conflict_prepare calls=64 ns=839100
+profile-stage scene=lane-1000-256-journal-false round=2 stage=motion_loop calls=64 ns=6848500
+profile-stage scene=lane-1000-256-journal-false round=2 stage=waiting_finalize calls=64 ns=70200
+profile-stage scene=lane-1000-256-journal-false round=2 stage=signals calls=64 ns=1000
+profile-stage scene=lane-1000-256-journal-false round=2 stage=conflict_finalize calls=64 ns=946000
+profile-stage scene=lane-1000-256-journal-false round=2 stage=waiting_outputs calls=64 ns=2100
+profile-stage scene=lane-1000-256-journal-false round=2 stage=commit calls=64 ns=155100
+profile-memory scene=lane-10000-256-journal-false round=0 source_world_owned=15085371 shared_root=29580 binding=23 committed=3120792 derived=1997592 workspace=9966964 administrative=0 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-stage scene=lane-10000-256-journal-false round=0 stage=whole_step calls=64 ns=116691600
+profile-stage scene=lane-10000-256-journal-false round=0 stage=preflight calls=64 ns=2200
+profile-stage scene=lane-10000-256-journal-false round=0 stage=occupancy calls=64 ns=10791800
+profile-stage scene=lane-10000-256-journal-false round=0 stage=waiting_prepare calls=64 ns=9712500
+profile-stage scene=lane-10000-256-journal-false round=0 stage=conflict_prepare calls=64 ns=8395900
+profile-stage scene=lane-10000-256-journal-false round=0 stage=motion_loop calls=64 ns=74958500
+profile-stage scene=lane-10000-256-journal-false round=0 stage=waiting_finalize calls=64 ns=680200
+profile-stage scene=lane-10000-256-journal-false round=0 stage=signals calls=64 ns=3300
+profile-stage scene=lane-10000-256-journal-false round=0 stage=conflict_finalize calls=64 ns=9688400
+profile-stage scene=lane-10000-256-journal-false round=0 stage=waiting_outputs calls=64 ns=2700
+profile-stage scene=lane-10000-256-journal-false round=0 stage=commit calls=64 ns=1505400
+profile-memory scene=lane-10000-256-journal-false round=1 source_world_owned=15085371 shared_root=29580 binding=23 committed=3120792 derived=1997592 workspace=9966964 administrative=0 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-stage scene=lane-10000-256-journal-false round=1 stage=whole_step calls=64 ns=117252000
+profile-stage scene=lane-10000-256-journal-false round=1 stage=preflight calls=64 ns=1700
+profile-stage scene=lane-10000-256-journal-false round=1 stage=occupancy calls=64 ns=10986900
+profile-stage scene=lane-10000-256-journal-false round=1 stage=waiting_prepare calls=64 ns=9769200
+profile-stage scene=lane-10000-256-journal-false round=1 stage=conflict_prepare calls=64 ns=8447900
+profile-stage scene=lane-10000-256-journal-false round=1 stage=motion_loop calls=64 ns=75297500
+profile-stage scene=lane-10000-256-journal-false round=1 stage=waiting_finalize calls=64 ns=700900
+profile-stage scene=lane-10000-256-journal-false round=1 stage=signals calls=64 ns=2700
+profile-stage scene=lane-10000-256-journal-false round=1 stage=conflict_finalize calls=64 ns=9597800
+profile-stage scene=lane-10000-256-journal-false round=1 stage=waiting_outputs calls=64 ns=3200
+profile-stage scene=lane-10000-256-journal-false round=1 stage=commit calls=64 ns=1513600
+profile-memory scene=lane-10000-256-journal-false round=2 source_world_owned=15085371 shared_root=29580 binding=23 committed=3120792 derived=1997592 workspace=9966964 administrative=0 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-stage scene=lane-10000-256-journal-false round=2 stage=whole_step calls=64 ns=116925200
+profile-stage scene=lane-10000-256-journal-false round=2 stage=preflight calls=64 ns=2100
+profile-stage scene=lane-10000-256-journal-false round=2 stage=occupancy calls=64 ns=10736800
+profile-stage scene=lane-10000-256-journal-false round=2 stage=waiting_prepare calls=64 ns=9755100
+profile-stage scene=lane-10000-256-journal-false round=2 stage=conflict_prepare calls=64 ns=8359600
+profile-stage scene=lane-10000-256-journal-false round=2 stage=motion_loop calls=64 ns=75159800
+profile-stage scene=lane-10000-256-journal-false round=2 stage=waiting_finalize calls=64 ns=731300
+profile-stage scene=lane-10000-256-journal-false round=2 stage=signals calls=64 ns=2600
+profile-stage scene=lane-10000-256-journal-false round=2 stage=conflict_finalize calls=64 ns=9711600
+profile-stage scene=lane-10000-256-journal-false round=2 stage=waiting_outputs calls=64 ns=3200
+profile-stage scene=lane-10000-256-journal-false round=2 stage=commit calls=64 ns=1487000
+profile-memory scene=lane-10000-16-journal-false round=0 source_world_owned=14962491 shared_root=29580 binding=23 committed=2998872 derived=1996632 workspace=9966964 administrative=0 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-stage scene=lane-10000-16-journal-false round=0 stage=whole_step calls=64 ns=123878300
+profile-stage scene=lane-10000-16-journal-false round=0 stage=preflight calls=64 ns=2200
+profile-stage scene=lane-10000-16-journal-false round=0 stage=occupancy calls=64 ns=10081900
+profile-stage scene=lane-10000-16-journal-false round=0 stage=waiting_prepare calls=64 ns=10052300
+profile-stage scene=lane-10000-16-journal-false round=0 stage=conflict_prepare calls=64 ns=8430400
+profile-stage scene=lane-10000-16-journal-false round=0 stage=motion_loop calls=64 ns=82498000
+profile-stage scene=lane-10000-16-journal-false round=0 stage=waiting_finalize calls=64 ns=701800
+profile-stage scene=lane-10000-16-journal-false round=0 stage=signals calls=64 ns=2400
+profile-stage scene=lane-10000-16-journal-false round=0 stage=conflict_finalize calls=64 ns=9628900
+profile-stage scene=lane-10000-16-journal-false round=0 stage=waiting_outputs calls=64 ns=3300
+profile-stage scene=lane-10000-16-journal-false round=0 stage=commit calls=64 ns=1538700
+profile-memory scene=lane-10000-16-journal-false round=1 source_world_owned=14962491 shared_root=29580 binding=23 committed=2998872 derived=1996632 workspace=9966964 administrative=0 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-stage scene=lane-10000-16-journal-false round=1 stage=whole_step calls=64 ns=121266400
+profile-stage scene=lane-10000-16-journal-false round=1 stage=preflight calls=64 ns=2000
+profile-stage scene=lane-10000-16-journal-false round=1 stage=occupancy calls=64 ns=9918100
+profile-stage scene=lane-10000-16-journal-false round=1 stage=waiting_prepare calls=64 ns=9454400
+profile-stage scene=lane-10000-16-journal-false round=1 stage=conflict_prepare calls=64 ns=8351700
+profile-stage scene=lane-10000-16-journal-false round=1 stage=motion_loop calls=64 ns=80974300
+profile-stage scene=lane-10000-16-journal-false round=1 stage=waiting_finalize calls=64 ns=688500
+profile-stage scene=lane-10000-16-journal-false round=1 stage=signals calls=64 ns=1800
+profile-stage scene=lane-10000-16-journal-false round=1 stage=conflict_finalize calls=64 ns=9455700
+profile-stage scene=lane-10000-16-journal-false round=1 stage=waiting_outputs calls=64 ns=3400
+profile-stage scene=lane-10000-16-journal-false round=1 stage=commit calls=64 ns=1460400
+profile-memory scene=lane-10000-16-journal-false round=2 source_world_owned=14962491 shared_root=29580 binding=23 committed=2998872 derived=1996632 workspace=9966964 administrative=0 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-stage scene=lane-10000-16-journal-false round=2 stage=whole_step calls=64 ns=126066000
+profile-stage scene=lane-10000-16-journal-false round=2 stage=preflight calls=64 ns=2500
+profile-stage scene=lane-10000-16-journal-false round=2 stage=occupancy calls=64 ns=10243000
+profile-stage scene=lane-10000-16-journal-false round=2 stage=waiting_prepare calls=64 ns=9948900
+profile-stage scene=lane-10000-16-journal-false round=2 stage=conflict_prepare calls=64 ns=8650600
+profile-stage scene=lane-10000-16-journal-false round=2 stage=motion_loop calls=64 ns=84148800
+profile-stage scene=lane-10000-16-journal-false round=2 stage=waiting_finalize calls=64 ns=737300
+profile-stage scene=lane-10000-16-journal-false round=2 stage=signals calls=64 ns=2200
+profile-stage scene=lane-10000-16-journal-false round=2 stage=conflict_finalize calls=64 ns=9804200
+profile-stage scene=lane-10000-16-journal-false round=2 stage=waiting_outputs calls=64 ns=5400
+profile-stage scene=lane-10000-16-journal-false round=2 stage=commit calls=64 ns=1520200
+profile-memory scene=lane-10000-256-journal-true round=0 source_world_owned=82194235 shared_root=29580 binding=23 committed=3120792 derived=1997592 workspace=9966964 administrative=67108864 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-stage scene=lane-10000-256-journal-true round=0 stage=whole_step calls=64 ns=140038200
+profile-stage scene=lane-10000-256-journal-true round=0 stage=preflight calls=64 ns=2300
+profile-stage scene=lane-10000-256-journal-true round=0 stage=occupancy calls=64 ns=10730900
+profile-stage scene=lane-10000-256-journal-true round=0 stage=waiting_prepare calls=64 ns=9798100
+profile-stage scene=lane-10000-256-journal-true round=0 stage=conflict_prepare calls=64 ns=8355200
+profile-stage scene=lane-10000-256-journal-true round=0 stage=motion_loop calls=64 ns=76244600
+profile-stage scene=lane-10000-256-journal-true round=0 stage=waiting_finalize calls=64 ns=739600
+profile-stage scene=lane-10000-256-journal-true round=0 stage=signals calls=64 ns=2900
+profile-stage scene=lane-10000-256-journal-true round=0 stage=conflict_finalize calls=64 ns=9820000
+profile-stage scene=lane-10000-256-journal-true round=0 stage=waiting_outputs calls=64 ns=3400
+profile-stage scene=lane-10000-256-journal-true round=0 stage=commit calls=64 ns=23378600
+profile-memory scene=lane-10000-256-journal-true round=1 source_world_owned=82194235 shared_root=29580 binding=23 committed=3120792 derived=1997592 workspace=9966964 administrative=67108864 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-stage scene=lane-10000-256-journal-true round=1 stage=whole_step calls=64 ns=142454800
+profile-stage scene=lane-10000-256-journal-true round=1 stage=preflight calls=64 ns=2500
+profile-stage scene=lane-10000-256-journal-true round=1 stage=occupancy calls=64 ns=11078000
+profile-stage scene=lane-10000-256-journal-true round=1 stage=waiting_prepare calls=64 ns=10124300
+profile-stage scene=lane-10000-256-journal-true round=1 stage=conflict_prepare calls=64 ns=8367000
+profile-stage scene=lane-10000-256-journal-true round=1 stage=motion_loop calls=64 ns=77491000
+profile-stage scene=lane-10000-256-journal-true round=1 stage=waiting_finalize calls=64 ns=746000
+profile-stage scene=lane-10000-256-journal-true round=1 stage=signals calls=64 ns=4900
+profile-stage scene=lane-10000-256-journal-true round=1 stage=conflict_finalize calls=64 ns=9790100
+profile-stage scene=lane-10000-256-journal-true round=1 stage=waiting_outputs calls=64 ns=8000
+profile-stage scene=lane-10000-256-journal-true round=1 stage=commit calls=64 ns=23900000
+profile-memory scene=lane-10000-256-journal-true round=2 source_world_owned=82194235 shared_root=29580 binding=23 committed=3120792 derived=1997592 workspace=9966964 administrative=67108864 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-stage scene=lane-10000-256-journal-true round=2 stage=whole_step calls=64 ns=140250400
+profile-stage scene=lane-10000-256-journal-true round=2 stage=preflight calls=64 ns=2300
+profile-stage scene=lane-10000-256-journal-true round=2 stage=occupancy calls=64 ns=10809500
+profile-stage scene=lane-10000-256-journal-true round=2 stage=waiting_prepare calls=64 ns=9717300
+profile-stage scene=lane-10000-256-journal-true round=2 stage=conflict_prepare calls=64 ns=8346400
+profile-stage scene=lane-10000-256-journal-true round=2 stage=motion_loop calls=64 ns=76560300
+profile-stage scene=lane-10000-256-journal-true round=2 stage=waiting_finalize calls=64 ns=735400
+profile-stage scene=lane-10000-256-journal-true round=2 stage=signals calls=64 ns=2700
+profile-stage scene=lane-10000-256-journal-true round=2 stage=conflict_finalize calls=64 ns=9636300
+profile-stage scene=lane-10000-256-journal-true round=2 stage=waiting_outputs calls=64 ns=3300
+profile-stage scene=lane-10000-256-journal-true round=2 stage=commit calls=64 ns=23460200
+profile-memory scene=waiting-membership-1 round=0 source_world_owned=33187 shared_root=7803 binding=23 committed=5450 derived=1520 workspace=26194 administrative=0 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+profile-stage scene=waiting-membership-1 round=0 stage=whole_step calls=16 ns=31900
+profile-stage scene=waiting-membership-1 round=0 stage=preflight calls=16 ns=200
+profile-stage scene=waiting-membership-1 round=0 stage=occupancy calls=16 ns=3100
+profile-stage scene=waiting-membership-1 round=0 stage=waiting_prepare calls=16 ns=4500
+profile-stage scene=waiting-membership-1 round=0 stage=conflict_prepare calls=16 ns=3800
+profile-stage scene=waiting-membership-1 round=0 stage=motion_loop calls=16 ns=5900
+profile-stage scene=waiting-membership-1 round=0 stage=waiting_finalize calls=16 ns=700
+profile-stage scene=waiting-membership-1 round=0 stage=signals calls=16 ns=600
+profile-stage scene=waiting-membership-1 round=0 stage=conflict_finalize calls=16 ns=1800
+profile-stage scene=waiting-membership-1 round=0 stage=waiting_outputs calls=16 ns=1400
+profile-stage scene=waiting-membership-1 round=0 stage=commit calls=16 ns=2200
+profile-memory scene=waiting-membership-1 round=1 source_world_owned=33187 shared_root=7803 binding=23 committed=5450 derived=1520 workspace=26194 administrative=0 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+profile-stage scene=waiting-membership-1 round=1 stage=whole_step calls=16 ns=28100
+profile-stage scene=waiting-membership-1 round=1 stage=preflight calls=16 ns=500
+profile-stage scene=waiting-membership-1 round=1 stage=occupancy calls=16 ns=2800
+profile-stage scene=waiting-membership-1 round=1 stage=waiting_prepare calls=16 ns=3700
+profile-stage scene=waiting-membership-1 round=1 stage=conflict_prepare calls=16 ns=3000
+profile-stage scene=waiting-membership-1 round=1 stage=motion_loop calls=16 ns=4900
+profile-stage scene=waiting-membership-1 round=1 stage=waiting_finalize calls=16 ns=800
+profile-stage scene=waiting-membership-1 round=1 stage=signals calls=16 ns=600
+profile-stage scene=waiting-membership-1 round=1 stage=conflict_finalize calls=16 ns=1600
+profile-stage scene=waiting-membership-1 round=1 stage=waiting_outputs calls=16 ns=1400
+profile-stage scene=waiting-membership-1 round=1 stage=commit calls=16 ns=2000
+profile-memory scene=waiting-membership-1 round=2 source_world_owned=33187 shared_root=7803 binding=23 committed=5450 derived=1520 workspace=26194 administrative=0 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+profile-stage scene=waiting-membership-1 round=2 stage=whole_step calls=16 ns=27800
+profile-stage scene=waiting-membership-1 round=2 stage=preflight calls=16 ns=400
+profile-stage scene=waiting-membership-1 round=2 stage=occupancy calls=16 ns=2800
+profile-stage scene=waiting-membership-1 round=2 stage=waiting_prepare calls=16 ns=3900
+profile-stage scene=waiting-membership-1 round=2 stage=conflict_prepare calls=16 ns=3000
+profile-stage scene=waiting-membership-1 round=2 stage=motion_loop calls=16 ns=5100
+profile-stage scene=waiting-membership-1 round=2 stage=waiting_finalize calls=16 ns=600
+profile-stage scene=waiting-membership-1 round=2 stage=signals calls=16 ns=500
+profile-stage scene=waiting-membership-1 round=2 stage=conflict_finalize calls=16 ns=1700
+profile-stage scene=waiting-membership-1 round=2 stage=waiting_outputs calls=16 ns=1300
+profile-stage scene=waiting-membership-1 round=2 stage=commit calls=16 ns=2100
+profile-memory scene=conflict-reservation-retry-2 round=0 source_world_owned=33907 shared_root=7803 binding=23 committed=6174 derived=1744 workspace=25966 administrative=0 journal_bytes=0 digest=39cf8c259608d71a9b8ef3c0ab9cb316644795a4efeae55535ae5d217269baa0
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=whole_step calls=16 ns=39400
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=preflight calls=16 ns=900
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=occupancy calls=16 ns=2800
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=waiting_prepare calls=16 ns=4700
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=conflict_prepare calls=16 ns=6100
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=motion_loop calls=16 ns=9100
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=waiting_finalize calls=16 ns=300
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=signals calls=16 ns=500
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=conflict_finalize calls=16 ns=3600
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=waiting_outputs calls=16 ns=2700
+profile-stage scene=conflict-reservation-retry-2 round=0 stage=commit calls=16 ns=2000
+profile-memory scene=conflict-reservation-retry-2 round=1 source_world_owned=33907 shared_root=7803 binding=23 committed=6174 derived=1744 workspace=25966 administrative=0 journal_bytes=0 digest=39cf8c259608d71a9b8ef3c0ab9cb316644795a4efeae55535ae5d217269baa0
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=whole_step calls=16 ns=40600
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=preflight calls=16 ns=1200
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=occupancy calls=16 ns=3000
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=waiting_prepare calls=16 ns=4800
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=conflict_prepare calls=16 ns=5900
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=motion_loop calls=16 ns=9000
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=waiting_finalize calls=16 ns=400
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=signals calls=16 ns=600
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=conflict_finalize calls=16 ns=3400
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=waiting_outputs calls=16 ns=2300
+profile-stage scene=conflict-reservation-retry-2 round=1 stage=commit calls=16 ns=3800
+profile-memory scene=conflict-reservation-retry-2 round=2 source_world_owned=33907 shared_root=7803 binding=23 committed=6174 derived=1744 workspace=25966 administrative=0 journal_bytes=0 digest=39cf8c259608d71a9b8ef3c0ab9cb316644795a4efeae55535ae5d217269baa0
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=whole_step calls=16 ns=39000
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=preflight calls=16 ns=900
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=occupancy calls=16 ns=2900
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=waiting_prepare calls=16 ns=4800
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=conflict_prepare calls=16 ns=6000
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=motion_loop calls=16 ns=9000
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=waiting_finalize calls=16 ns=400
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=signals calls=16 ns=500
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=conflict_finalize calls=16 ns=3500
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=waiting_outputs calls=16 ns=2400
+profile-stage scene=conflict-reservation-retry-2 round=2 stage=commit calls=16 ns=1800
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 2.35s
+
