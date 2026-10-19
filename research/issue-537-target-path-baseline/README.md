@@ -241,5 +241,7 @@ target/release/laneflow-urban-generator --config examples/config/cn-urban.toml -
 
 注意：带 `--features placement-fixtures` 的预编译产物与不带 feature 的 `cutover_scale_*`
 是不同二进制——预编译须按组分别进行（`--no-run`），避免测量前重编译。本轮流水的
-编排脚本与逐件门禁见 `evidence/run-all.mjs`（历史原样，其中 runtime_profile 行仍是
-会失败的旧命令；续跑以本节命令为准）。
+编排脚本（Node）为采集机侧工具，**未入仓**——非 Rust 代码入仓须先过
+[代码语言立项审查](../../docs/governance/code-language-policy.md)，本项未申请；
+其运行记录见 `evidence/run-all.log`（脚本内 runtime_profile 行是会失败的旧命令，
+续跑以本节命令为准）。
