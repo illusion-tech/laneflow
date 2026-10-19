@@ -154,7 +154,10 @@ fn trial_result(
     command_records: usize,
     transition: &Value,
     output: &Path,
+    log: &mut BufWriter<fs::File>,
 ) -> Result<Value> {
+    // 摘要必须覆盖完整文件：先冲刷缓冲再取 digest（transitions 先例）。
+    log.flush()?;
     let result = json!({"mode":mode,"ticks":END_TICK,"save_tick":SAVE_TICK,
         "initial_selected_bindings":initial_bindings,
         "final_selected_bindings":selected_counts(harness, variant)?,
@@ -245,6 +248,7 @@ fn workflow_trial(
         commands,
         &transition,
         output,
+        &mut log,
     )
 }
 
@@ -406,6 +410,7 @@ fn failure_trial(
         commands,
         &transition,
         output,
+        &mut log,
     )
 }
 
@@ -439,11 +444,24 @@ fn reject_trial(
             let cursor = harness.world.event_cursor();
             let base_origin = *native(&mut harness)?.revision().canonical_origin();
             let binding = native(&mut harness)?.world_binding();
-            // 策略拒绝须先通过描述符校验：SameRevision 形态取两侧同 origin、
-            // 不携带语义 diff 绑定，使跨修订入口精确落到 PolicyMismatch。
+            let base_root = native(&mut harness)?.revision().clone();
+            let target_source_of_base = CommittedNetworkSource::Published {
+                reference: checked(
+                    "base target source",
+                    PublishedLfcaReference::new(
+                        "urban://capacity-increment-v1",
+                        base_origin.canonical_artifact_digest(),
+                        base_origin.canonical_artifact_byte_length(),
+                        base_origin.network_revision(),
+                    ),
+                )?,
+            };
+            // 策略拒绝须先通过描述符校验：两侧 origin 都取世界（base）origin、
+            // target 传 base 根、不携带语义 diff 绑定——描述符以同修订形态通过
+            // 校验后，跨修订入口按策略精确落到 PolicyMismatch。
             let wrong_policy = NetworkRevisionCutoverDescriptor::new(
-                LfcaOriginBinding::from_canonical_origin(*variant.root.canonical_origin()),
-                LfcaOriginBinding::from_canonical_origin(*variant.root.canonical_origin()),
+                LfcaOriginBinding::from_canonical_origin(base_origin),
+                LfcaOriginBinding::from_canonical_origin(base_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
                 binding,
@@ -489,7 +507,7 @@ fn reject_trial(
                 Option<CommittedNetworkSource>,
                 &str,
             ); 4] = [
-                ("policy", wrong_policy, None, "Descriptor"),
+                ("policy", wrong_policy, None, "PolicyMismatch"),
                 (
                     "source_revision",
                     descriptor_for(
@@ -516,16 +534,22 @@ fn reject_trial(
                 ),
             ];
             for (name, descriptor, source_override, expected) in attempts {
-                let source = match source_override {
-                    Some(source) => source,
-                    None => target_source(&variant.root)?,
+                // policy 尝试以 base 根为目标（同修订形态描述符），其余以变体根为目标。
+                let (target_root, diff, source) = if name == "policy" {
+                    (base_root.clone(), Vec::new(), target_source_of_base.clone())
+                } else {
+                    let source = match source_override {
+                        Some(source) => source,
+                        None => target_source(&variant.root)?,
+                    };
+                    (variant.root.clone(), variant.diff.clone(), source)
                 };
                 let error = native(&mut harness)?
                     .prepare_cross_revision_cutover(
-                        variant.root.clone(),
+                        target_root,
                         source,
                         &descriptor,
-                        &variant.diff,
+                        &diff,
                         &PREFLIGHT,
                         &TRANSACTION,
                     )
@@ -534,7 +558,7 @@ fn reject_trial(
                         invalid(format!("prepare reject {name}: unexpectedly succeeded"))
                     })?;
                 let matched = match expected {
-                    "Descriptor" => matches!(error, CutoverError::Descriptor(_)),
+                    "PolicyMismatch" => matches!(error, CutoverError::PolicyMismatch),
                     "TargetSourceRevisionMismatch" => {
                         matches!(error, CutoverError::TargetSourceRevisionMismatch)
                     }
@@ -604,6 +628,7 @@ fn reject_trial(
         commands,
         &transition,
         output,
+        &mut log,
     )
 }
 
@@ -737,13 +762,16 @@ fn multi_trial(
         commands,
         &transition,
         output,
+        &mut log,
     )
 }
 
 /// 计划解析按「容量 1000 的虚拟设施」锚定车库出口（plan.rs 每案例每 tile 无条件
-/// 查找）。变体选中该设施时 +1 即破坏锚点，变体基线（未切换 v1 世界）不可解析，
-/// 终态逻辑面 oracle 退化为场景不变量并在回执登记；大规模输入选中非车库设施时
-/// 自动恢复。
+/// 查找）。变体选中该设施时 +1 即破坏锚点，变体基线（未切换 v1 世界）不可解析。
+/// 该分支下提交后区段没有独立参照，由另两层承担：提交窗口前后的 retained_state
+/// （逐车全量 VehicleState——进度/速度/状态/路线游标——加绑定）比对，以及同事件
+/// 编排组内全窗逐拍相等；skip 说明如实登记。非车库设施成为首个合格选择的输入
+/// 走变体基线分支（计划从变体工件展开）。
 fn selected_is_garage_anchor(artifacts: &Artifacts, variant: &CapacityVariant) -> bool {
     artifacts
         .revision()
@@ -845,12 +873,17 @@ fn gate_witness(
     // 锚定车库、无法在 v1 上解析，该案例不建变体基线（场景不受影响：它们装在
     // base 上、计划从 base 解析），终态逻辑面以场景不变量承担并登记。
     let variant_baseline = if selected_is_garage_anchor(artifacts, v1) {
-        json!({"skipped": "variant increments the garage (capacity 1000 anchor keyed by plan resolution); no unswitched v1 baseline is resolvable for this input"})
+        json!({"skipped": "variant increments the garage (capacity 1000 anchor keyed by plan resolution); no unswitched v1 baseline is resolvable for this input. Post-commit evolution is then covered by commit-window identity and peer determinism only."})
     } else {
+        // 计划身份绑定展开它的工件：变体基线必须用从变体工件重新展开的计划
+        // （需求源自相同的 config/genesis，语义等价；validate 才能通过）。
+        let variant_plan =
+            ResolvedPlan::for_case(variant1_artifacts, case, Window::probe(END_TICK)?)?;
+        variant_plan.write(&output.join("variant-resolved-plan.toml"))?;
         trial(
             variant1_artifacts,
             reloaded,
-            &plan,
+            &variant_plan,
             v1,
             "baseline",
             &output.join("variant-baseline"),
@@ -991,13 +1024,23 @@ pub fn run_gate_evidence(
             != v1.root.network_revision()
         || Artifacts::load_spatial(artifact_directory)?.files != artifacts.files
         || Artifacts::load_spatial(variant_directory)?.files != variant1_artifacts.files
+        || Artifacts::load_spatial(artifact_directory)?.manifest_digest != artifacts.manifest_digest
+        || Artifacts::load_spatial(variant_directory)?.manifest_digest
+            != variant1_artifacts.manifest_digest
     {
         return Err(invalid("gate inputs/source changed"));
     }
     report["command"] = json!(command);
     report["source"] = provenance;
     report["inputs"] = json!({"artifact_files":serde_json::to_value(&artifacts.files)?,
-        "variant_manifest":serde_json::to_value(manifest1)?});
+        "artifact_manifest_digest":serde_json::to_value(artifacts.manifest_digest.clone())?,
+        "variant_artifacts_manifest_digest":serde_json::to_value(
+            variant1_artifacts.manifest_digest.clone(),
+        )?,
+        "variant_manifest":serde_json::to_value(manifest1)?,
+        "resolved_plan_digest":serde_json::to_value(digest_file(
+            &output.join("resolved-plan.toml"),
+        )?)?});
     report["elapsed_ms"] = json!(started.elapsed().as_millis());
     write_json(&output.join("gate.json"), &report)?;
     Ok(report)

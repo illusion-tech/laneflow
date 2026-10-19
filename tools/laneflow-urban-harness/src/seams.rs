@@ -183,10 +183,25 @@ fn seam_witness(artifacts: &Artifacts, plan: &crate::ResolvedPlan, output: &Path
         {
             Ok(_) => candidate_ns.push(candidate_started.elapsed().as_nanos()),
             Err(error) => {
-                // 路线槽按计划目录尺寸预留，累积注册会到达容量边界；截断并如实登记。
+                // 仅容量族错误允许截断采样（余量按目录最坏值放，正常不触发）；
+                // 其余任何错误（稳定 ID 解析、绑定失配、分配失败等）都是测量
+                // 缺陷，直接失败而不是以零/部分样本冒充通过。
+                let is_capacity = matches!(
+                    error,
+                    CandidateRouteError::Route(RouteError::CapacityExceeded)
+                        | CandidateRouteError::Route(RouteError::EdgeOccurrenceCapacityExceeded)
+                        | CandidateRouteError::Route(
+                            RouteError::ConflictOccurrenceCapacityExceeded { .. },
+                        )
+                );
+                if !is_capacity {
+                    return Err(invalid(format!(
+                        "candidate registration failed at sample {sample}: {error:?}"
+                    )));
+                }
                 registration_capacity_note = json!({"stopped_at_sample": sample,
                     "error": format!("{error:?}"),
-                    "note": "route capacity sized for catalog routes; registration sampling truncated"});
+                    "note": "capacity family only; registration sampling truncated"});
                 break;
             }
         }
