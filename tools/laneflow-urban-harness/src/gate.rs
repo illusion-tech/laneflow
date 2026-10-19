@@ -93,14 +93,17 @@ fn commit_window(
     let generation = harness.world.world_generation().get();
     let cursor = harness.world.event_cursor();
     let journal_before = format!("{:?}", harness.world.migration_journal_stats());
+    let world = native(harness)?;
     let started = Instant::now();
     let commit = checked(
         "gate commit",
         transaction
             .take()
             .ok_or_else(|| invalid("missing transaction"))?
-            .commit(native(harness)?),
+            .commit(world),
     )?;
+    // 计时只覆盖提交调用本身；后续 O(N) 不变量验证在窗外。
+    let commit_ns = started.elapsed().as_nanos();
     if retained_state(harness) != before
         || selected_counts(harness, variant)? != bindings
         || commit.events.as_slice().len() != 1
@@ -120,7 +123,7 @@ fn commit_window(
         )));
     }
     Ok(
-        json!({"round":round,"commit_tick":tick,"commit_ns":started.elapsed().as_nanos(),
+        json!({"round":round,"commit_tick":tick,"commit_ns":commit_ns,
             "events":format!("{:?}", commit.events),"final_command_cursor":commit.final_command_cursor,
             "journal_before_commit":journal_before,"selected_binding_counts":bindings}),
     )
@@ -719,10 +722,11 @@ fn multi_trial(
             let bindings = selected_counts(&harness, v1_reloaded)?;
             let generation = harness.world.world_generation().get();
             let cursor = harness.world.event_cursor();
+            let world = native(&mut harness)?;
             let started = Instant::now();
             let events = checked(
                 "gate same-revision cutover",
-                native(&mut harness)?.cutover_same_revision(
+                world.cutover_same_revision(
                     v1_reloaded.root.clone(),
                     target_source(&v1_reloaded.root)?,
                     &descriptor,
@@ -902,11 +906,13 @@ the 100/1000 capacity sentinels, so the plan cannot expand on v1 (see gate.rs or
     assert_peer_identity("overflow", "lag", &failures["overflow"], &failures["lag"])?;
     Ok(json!({"status":"gate-witness-pass","case":case.as_str(),
         "scale":artifacts.catalog().scale,"end_tick":END_TICK,
+        "variant_target_revision":format!("{:x}", v1.root.network_revision().into_digest()),
         "scope":"snapshot/online-cutover correctness witness for the listed scenarios only; \
 >=2-round cross-revision chains and ABA round trips are unit/integration covered \
 (runtime continuous re-cutover, bevy ABA), not certified here; observation/routing seam \
 costs live in the seams witness; timings below are single-shot wall-clock references, \
 not product evidence; Editable-source restore is deferred to #529",
+        "artifacts_note":"per-trial directories are authoritative except 'chained' (witness-stage saves with unbound provenance; the receipt binds the 'chained-bound' rerun)",
         "timing_basis":"single-shot Instant-based wall clock around the named call only; \
 not comparable across machines; percentiles are not additive",
         "transaction_limits":{"journal_bytes":TRANSACTION.max_journal_bytes,
