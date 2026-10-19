@@ -288,8 +288,10 @@ impl<'a> Harness<'a> {
         Self::install_with_route_slack(artifacts, plan, execution, 0)
     }
 
-    /// #538 接缝测量装机：路线槽在目录基础上留 `extra_routes` 余量。
-    pub fn install_with_route_slack(
+    /// #538 接缝测量装机：路线槽/边占用/冲突占用三容量在目录基础上加余量。
+    /// 容量进入快照与逻辑摘要——余量装机与标准装机不同身份，仅自含测量世界
+    /// 使用（见 kernel `WorldConfig::with_added_route_capacity`）。
+    pub(crate) fn install_with_route_slack(
         artifacts: &'a Artifacts,
         plan: &'a ResolvedPlan,
         execution: laneflow_runtime::ExecutionConfig,

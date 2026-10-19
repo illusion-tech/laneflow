@@ -153,9 +153,10 @@ impl Artifacts {
         })
     }
 
-    /// #538 起装机统一走 `install_with_route_slack`（标准路径传 0）；路线槽在
-    /// 目录基础上留 `extra_routes` 余量，供 candidate / admitted 注册采样；其余
-    /// 容量与语义不变。
+    /// #538 起装机统一走 `install_with_route_slack`（标准路径传 0）；路线槽、
+    /// 边占用与冲突占用三项容量在目录基础上按 `extra_routes` 条最坏路线同步加
+    /// 余量，供 candidate / admitted 注册采样；vehicle_capacity 与固定步长不变。
+    /// 容量进入快照与逻辑摘要：余量装机与标准装机不同身份，仅自含测量世界使用。
     pub(crate) fn install_with_route_slack(
         &self,
         execution: laneflow_runtime::ExecutionConfig,
@@ -163,23 +164,23 @@ impl Artifacts {
     ) -> Result<TrafficWorld> {
         let pin: RightOfWayPolicySetId = crate::catalog_id(&self.catalog.policy_id)?;
         let mut config = self.world_config()?;
-        // 余量按目录路线的最大边数/冲突占用放：每条额外注册按最坏路线计。
-        let max_edges = self
-            .catalog
-            .routes
-            .iter()
-            .map(|r| r.edge_keys.len() as u64)
-            .max()
-            .unwrap_or(0);
+        // 余量按最坏路线计：边占用取目录路线的最大边数；冲突占用取目录路线的
+        // 逐边 passages 之和的最大值（与 world_config 的路线级累加同口径——注册
+        // 一条路线的冲突消耗是其全部 hop 的 passages 之和，不是单边最大值）。
         let passages = self.conflict_passages_per_edge();
-        let max_conflict = self
-            .catalog
-            .routes
-            .iter()
-            .flat_map(|r| r.edge_keys.iter().filter_map(|k| self.edges.get(k)))
-            .filter_map(|edge| passages.get(edge).copied())
-            .max()
-            .unwrap_or(0);
+        let mut max_edges = 0_u64;
+        let mut max_conflict = 0_u64;
+        for route in &self.catalog.routes {
+            let edges = route.edge_keys.len() as u64;
+            max_edges = max_edges.max(edges);
+            let mut route_conflict = 0_u64;
+            for key in &route.edge_keys {
+                if let Some(edge) = self.edges.get(key) {
+                    route_conflict += passages.get(edge).copied().unwrap_or(0);
+                }
+            }
+            max_conflict = max_conflict.max(route_conflict);
+        }
         config = config.with_added_route_capacity(
             extra_routes,
             u64::from(extra_routes) * max_edges,

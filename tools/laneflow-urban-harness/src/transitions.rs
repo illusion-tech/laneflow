@@ -64,7 +64,6 @@ pub(crate) fn restore<'a>(
     output: &Path,
     state_digest: &str,
     source: crate::save::SaveSource,
-    bind_adapter: bool,
 ) -> Result<Harness<'a>> {
     let (artifacts, plan) = (harness.artifacts, harness.plan);
     let plan_digest = plan.digest()?;
@@ -79,11 +78,6 @@ pub(crate) fn restore<'a>(
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         save,
     )?;
-    let restored = if bind_adapter {
-        restored.into_adapter(spatial(artifacts.revision())?)?
-    } else {
-        restored
-    };
     if restored.checkpoint()? != digest {
         return Err(invalid("save/restore digest differs"));
     }
@@ -298,6 +292,7 @@ pub(crate) fn trial(
         if tick == SAVE_TICK {
             save_digest = harness.checkpoint()?;
             if mode == "restore" {
+                let artifacts = harness.artifacts;
                 harness = restore(
                     harness,
                     output,
@@ -308,8 +303,8 @@ pub(crate) fn trial(
                         binary_sha256: None,
                         workers: 1,
                     },
-                    true,
-                )?;
+                )?
+                .into_adapter(spatial(artifacts.revision())?)?;
                 presentation = Presentation::default();
             }
         }

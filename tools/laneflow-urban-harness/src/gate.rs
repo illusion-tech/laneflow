@@ -1,14 +1,17 @@
 //! #538 快照与在线切换 Gate 端到端见证。
 //!
 //! 在 `transitions` 试用机械上补齐 #538 登记的认证缺口面：
-//! - 跨切换逐拍逻辑恒等：`identity`（在线切换整窗与 baseline 的 tick 摘要逐位相等）；
+//! - 跨切换逻辑恒等：`identity`（在线切换的事件前缀逐拍摘要与 baseline 逐位相等；
+//!   整窗恒等由 identity↔chained 同事件编排组内全等承担——观察摘要含事件游标，
+//!   交付事件后全窗对 baseline 相等既不可能也非合同义务）；
 //! - 完整工作流串联：`chained`（保存→恢复→重放→在线切换→续跑）；
 //! - 可驱动失败面的零发布：`prepare-reject`（策略/来源修订/世界身份/基线游标四类
 //!   前置拒绝）与 `overflow`/`lag`（追赶段日志字节与滞后超限），失败后世界继续
 //!   推进、无部分发布，且可重试成功；
-//! - 多轮跨修订切换：`multi`（base→v1→v2 两轮在线切换）。
+//! - 多轮切换：`multi`（base→v1 跨修订在线切换 + v1→v1 新根同修订换根两轮串联）。
 //!
-//! 执行回执（`gate.json`）绑定 exact head、命令、输入身份与逐场景结果。
+//! 执行回执（`gate.json`）绑定 exact head、命令、输入身份与逐场景结果；scope 与
+//! timing_basis 字段声明本见证不覆盖的范围与计时口径。
 
 use std::{
     fs,
@@ -149,6 +152,7 @@ fn trial_result(
     harness: &Harness<'_>,
     variant: &CapacityVariant,
     initial_bindings: &Value,
+    save_tick: u64,
     save_digest: &str,
     hashes: &[String],
     command_records: usize,
@@ -158,7 +162,7 @@ fn trial_result(
 ) -> Result<Value> {
     // 摘要必须覆盖完整文件：先冲刷缓冲再取 digest（transitions 先例）。
     log.flush()?;
-    let result = json!({"mode":mode,"ticks":END_TICK,"save_tick":SAVE_TICK,
+    let result = json!({"mode":mode,"ticks":END_TICK,"save_tick":save_tick,
         "initial_selected_bindings":initial_bindings,
         "final_selected_bindings":selected_counts(harness, variant)?,
         "save_digest":save_digest,"final_digest":harness.checkpoint()?,
@@ -200,7 +204,7 @@ fn workflow_trial(
         if tick == SAVE_TICK {
             save_digest = harness.checkpoint()?;
             if restore_at_save {
-                harness = restore(harness, output, &state_digest, source.clone(), false)?;
+                harness = restore(harness, output, &state_digest, source.clone())?;
             }
         }
         if tick == PREPARE_TICK {
@@ -229,7 +233,7 @@ fn workflow_trial(
                 "prepare_command_cursor":prepare_cursor});
         }
         if tick == COMMIT_TICK {
-            let commit = commit_window(&mut harness, transaction.take(), variant, tick, "chained")?;
+            let commit = commit_window(&mut harness, transaction.take(), variant, tick, mode)?;
             let object = transition.as_object_mut().unwrap();
             object.insert("commit".into(), commit);
         }
@@ -243,6 +247,7 @@ fn workflow_trial(
         &harness,
         variant,
         &initial_bindings,
+        SAVE_TICK,
         &save_digest,
         &hashes,
         commands,
@@ -405,6 +410,7 @@ fn failure_trial(
         &harness,
         variant,
         &initial_bindings,
+        0,
         &save_digest,
         &hashes,
         commands,
@@ -623,6 +629,7 @@ fn reject_trial(
         &harness,
         variant,
         &initial_bindings,
+        REJECT_TICK,
         &save_digest,
         &hashes,
         commands,
@@ -634,8 +641,9 @@ fn reject_trial(
 
 /// `multi`：两轮切换串联——轮 1 跨修订在线切换（base→v1，日志/追赶/静默提交），
 /// 轮 2 同修订换根（v1→v1 新根实例，`cutover_same_revision`）。两轮各推进一次
-/// 世代与事件；逐拍摘要仍须与 baseline 逐位相等。≥2 轮跨修订链与 ABA 往返在
-/// 单测层覆盖（cutover_migration 重复迁移、bevy ABA），端到端随变体工具泛化再补。
+/// 世代与事件；逐拍 oracle 为事件前缀（至轮 1 提交 tick）对 baseline 相等，轮 2
+/// 后无逐拍 oracle，由场景不变量承担。≥2 轮跨修订链与 ABA 往返在单测/集成层
+/// 覆盖（runtime 连续 re-cutover 集成测试、bevy ABA），不经本见证认证。
 fn multi_trial(
     artifacts: &Artifacts,
     plan: &ResolvedPlan,
@@ -757,6 +765,7 @@ fn multi_trial(
         &harness,
         v1,
         &initial_bindings,
+        0,
         &save_digest,
         &hashes,
         commands,
@@ -766,34 +775,18 @@ fn multi_trial(
     )
 }
 
-/// 计划解析按「容量 1000 的虚拟设施」锚定车库出口（plan.rs 每案例每 tile 无条件
-/// 查找）。变体选中该设施时 +1 即破坏锚点，变体基线（未切换 v1 世界）不可解析。
-/// 该分支下提交后区段没有独立参照，由另两层承担：提交窗口前后的 retained_state
-/// （逐车全量 VehicleState——进度/速度/状态/路线游标——加绑定）比对，以及同事件
-/// 编排组内全窗逐拍相等；skip 说明如实登记。非车库设施成为首个合格选择的输入
-/// 走变体基线分支（计划从变体工件展开）。
-fn selected_is_garage_anchor(artifacts: &Artifacts, variant: &CapacityVariant) -> bool {
-    artifacts
-        .revision()
-        .identity()
-        .ordinal(variant.selected)
-        .and_then(|ordinal| {
-            artifacts
-                .revision()
-                .traffic()
-                .relations()
-                .parking_facility(ordinal)
-        })
-        .is_some_and(|facility| facility.virtual_capacity() == 1_000)
-}
-
 /// 观察摘要含命令/事件游标：切换按合同交付事件（event_cursor +1），全窗对
 /// baseline 的逐拍相等在跨切换场景下既不可能也非合同义务（单测恒等 oracle 比的
-/// 是逻辑面）。本见证采用三层 oracle：
-/// 1. 事件前缀：首个事件 tick 之前的逐拍摘要与 baseline 逐位相等——证明恢复、
-///    前置拒绝、失败放弃与日志武装对世界零扰动；
-/// 2. 同事件编排组内全等：事件落在同一 tick 的场景整窗摘要彼此相等；
-/// 3. 终态逻辑面：final_selected_bindings 与 final_retained_state 与 baseline 相等。
+/// 是逻辑面）。本见证采用两层逐拍 oracle 加场景级终态不变量：其一，事件前缀
+/// （首个事件 tick 之前的逐拍摘要与 baseline 逐位相等——证明恢复、前置拒绝、
+/// 失败放弃与日志武装对世界零扰动）；其二，同事件编排组内全等（事件落在同一
+/// tick 的场景整窗摘要彼此相等）；终态由场景不变量承担（commit_window 在每次
+/// 切换前后比对逐车全量 VehicleState，终态字段逐场景落盘供人工比对）。
+/// 「未切换变体基线」（同一需求装在 v1 根上）在当前输入族不可构造：生成器
+/// 家族中 virtual-only 设施仅有车库（t{tile}.underground，容量 1000），变体必选
+/// 车库；而计划解析按容量 100/1000 字面哨兵锚定车库并派生初始停车人口
+/// （plan.rs），容量 +1 后计划在 v1 上不可展开。构造该基线需要生成器提供
+/// virtual-only 非车库设施或显式人口规格，属后续输入设计，不在本见证。
 fn assert_prefix_identity(
     mode: &str,
     candidate: &Value,
@@ -834,22 +827,10 @@ fn assert_peer_identity(
     Ok(())
 }
 
-fn assert_final_logical_identity(mode: &str, candidate: &Value, baseline: &Value) -> Result<()> {
-    for field in ["final_selected_bindings", "final_retained_state"] {
-        if candidate[field] != baseline[field] {
-            return Err(invalid(format!(
-                "{mode} final logical state differs on {field}"
-            )));
-        }
-    }
-    Ok(())
-}
-
 /// 场景主体（无 provenance 绑定，供测试与公开入口共用）。
 fn gate_witness(
     artifacts: &Artifacts,
     reloaded: &Artifacts,
-    variant1_artifacts: &Artifacts,
     v1: &CapacityVariant,
     v1_reloaded: &CapacityVariant,
     case: UrbanCase,
@@ -866,29 +847,12 @@ fn gate_witness(
         "baseline",
         &output.join("baseline"),
     )?;
-    // 变体基线：同一需求程序直接装在 v1 根上的未切换世界。容量 +1 是变体的
-    // 语义效果，终态逻辑面（停车行为可在近满设施处分岔）只能对它比较——这是
-    // 单测「identity against unswitched world」的端到端化。变体在 fixture 规模
-    // 选中车库（唯一有 tick-0 占用的虚拟设施），GARAGE-EGRESS 计划按容量 1000
-    // 锚定车库、无法在 v1 上解析，该案例不建变体基线（场景不受影响：它们装在
-    // base 上、计划从 base 解析），终态逻辑面以场景不变量承担并登记。
-    let variant_baseline = if selected_is_garage_anchor(artifacts, v1) {
-        json!({"skipped": "variant increments the garage (capacity 1000 anchor keyed by plan resolution); no unswitched v1 baseline is resolvable for this input. Post-commit evolution is then covered by commit-window identity and peer determinism only."})
-    } else {
-        // 计划身份绑定展开它的工件：变体基线必须用从变体工件重新展开的计划
-        // （需求源自相同的 config/genesis，语义等价；validate 才能通过）。
-        let variant_plan =
-            ResolvedPlan::for_case(variant1_artifacts, case, Window::probe(END_TICK)?)?;
-        variant_plan.write(&output.join("variant-resolved-plan.toml"))?;
-        trial(
-            variant1_artifacts,
-            reloaded,
-            &variant_plan,
-            v1,
-            "baseline",
-            &output.join("variant-baseline"),
-        )?
-    };
+    // 未切换变体基线：不可构造（见上方 oracle 注释——变体必选车库，容量哨兵
+    // 使计划在 v1 上不可展开），回执登记该约束，终态由场景不变量承担。
+    let variant_baseline = json!({"skipped": "unswitched v1 baseline is not constructible in the \
+current input family: the generator's only virtual-only facility is the garage (capacity 1000), \
+which the variant necessarily selects, and plan resolution anchors garage/parking populations on \
+the 100/1000 capacity sentinels, so the plan cannot expand on v1 (see gate.rs oracle notes)"});
     let save_source = crate::save::SaveSource {
         execution_id: "gate-538".into(),
         git_commit: None,
@@ -920,7 +884,8 @@ fn gate_witness(
         failures.insert(kind.into(), failure);
     }
     let multi = multi_trial(artifacts, &plan, v1, v1_reloaded, &output.join("multi"))?;
-    // 三层 oracle：事件前缀对 baseline、同编排组内全等、终态逻辑面对 baseline。
+    // 两层逐拍 oracle：事件前缀对 baseline、同事件编排组内全等；终态由场景
+    // 不变量承担（commit_window 前后 retained_state 比对，终态字段逐场景落盘）。
     assert_prefix_identity("identity", &identity, &baseline, COMMIT_TICK)?;
     assert_prefix_identity("chained", &chained, &baseline, COMMIT_TICK)?;
     assert_prefix_identity("prepare-reject", &rejects, &baseline, RETRY_COMMIT)?;
@@ -935,20 +900,15 @@ fn gate_witness(
         &failures["overflow"],
     )?;
     assert_peer_identity("overflow", "lag", &failures["overflow"], &failures["lag"])?;
-    if !selected_is_garage_anchor(artifacts, v1) {
-        for (mode, value) in [
-            ("identity", &identity),
-            ("chained", &chained),
-            ("prepare-reject", &rejects),
-            ("overflow", &failures["overflow"]),
-            ("lag", &failures["lag"]),
-            ("multi", &multi),
-        ] {
-            assert_final_logical_identity(mode, value, &variant_baseline)?;
-        }
-    }
     Ok(json!({"status":"gate-witness-pass","case":case.as_str(),
         "scale":artifacts.catalog().scale,"end_tick":END_TICK,
+        "scope":"snapshot/online-cutover correctness witness for the listed scenarios only; \
+>=2-round cross-revision chains and ABA round trips are unit/integration covered \
+(runtime continuous re-cutover, bevy ABA), not certified here; observation/routing seam \
+costs live in the seams witness; timings below are single-shot wall-clock references, \
+not product evidence; Editable-source restore is deferred to #529",
+        "timing_basis":"single-shot Instant-based wall clock around the named call only; \
+not comparable across machines; percentiles are not additive",
         "transaction_limits":{"journal_bytes":TRANSACTION.max_journal_bytes,
             "lag_ticks":TRANSACTION.max_catch_up_lag_ticks,
             "records_per_pump":TRANSACTION.max_records_per_pump},
@@ -956,9 +916,42 @@ fn gate_witness(
             "prepare-reject":RETRY_COMMIT,"overflow":RETRY_COMMIT,"lag":RETRY_COMMIT,
             "multi":ROUND1_COMMIT},
             "peer_groups":[["identity","chained"],["prepare-reject","overflow","lag"]],
-            "final_logical_fields":["final_selected_bindings","final_retained_state"]},
+            "final_logical":"scenario invariants (retained_state across each commit window) \
+plus per-scenario final fields; unswitched variant baseline not constructible (see \
+variant-baseline note)"},
         "scenarios":{"identity":identity,"chained":chained,"prepare-reject":rejects,
             "failures":failures,"multi":multi,"variant-baseline":variant_baseline}}))
+}
+
+/// 运行前后输入身份复核（纯比较，供单测覆盖公开入口的绑定链语义）。
+#[allow(clippy::too_many_arguments)]
+fn verify_gate_inputs(
+    source_after: &Value,
+    source_before: &Value,
+    variant_manifest_after: &crate::artifacts::FileDigest,
+    variant_manifest_before: &crate::artifacts::FileDigest,
+    variant_revision_after: laneflow_static_contract::NetworkRevisionId,
+    variant_revision_before: laneflow_static_contract::NetworkRevisionId,
+    artifact_files_after: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
+    artifact_files_before: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
+    variant_files_after: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
+    variant_files_before: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
+    artifact_manifest_after: &str,
+    artifact_manifest_before: &str,
+    variant_manifest_digest_after: &str,
+    variant_manifest_digest_before: &str,
+) -> Result<()> {
+    if source_after != source_before
+        || variant_manifest_after != variant_manifest_before
+        || variant_revision_after != variant_revision_before
+        || artifact_files_after != artifact_files_before
+        || variant_files_after != variant_files_before
+        || artifact_manifest_after != artifact_manifest_before
+        || variant_manifest_digest_after != variant_manifest_digest_before
+    {
+        return Err(invalid("gate inputs/source changed"));
+    }
+    Ok(())
 }
 
 /// # Errors
@@ -983,15 +976,7 @@ pub fn run_gate_evidence(
     let manifest1 = digest_file(&variant_directory.join("variant.json"))?;
     fs::create_dir(output)?;
     let variant1_artifacts = Artifacts::load_spatial(variant_directory)?;
-    let mut report = gate_witness(
-        &artifacts,
-        &reloaded,
-        &variant1_artifacts,
-        &v1,
-        &v1_reloaded,
-        case,
-        output,
-    )?;
+    let mut report = gate_witness(&artifacts, &reloaded, &v1, &v1_reloaded, case, output)?;
     // 正式入口下重跑链式场景，使存档绑定 exact head 与二进制摘要。
     let plan = ResolvedPlan::for_case(&artifacts, case, Window::probe(END_TICK)?)?;
     let save_source = crate::save::SaveSource {
@@ -1016,20 +1001,24 @@ pub fn run_gate_evidence(
         &report["scenarios"]["chained"],
     )?;
     report["scenarios"]["chained"] = bound_chained;
-    if crate::evidence::source()? != provenance
-        || digest_file(&variant_directory.join("variant.json"))? != manifest1
-        || load_variant(&artifacts, variant_directory)?
+    verify_gate_inputs(
+        &crate::evidence::source()?,
+        &provenance,
+        &digest_file(&variant_directory.join("variant.json"))?,
+        &manifest1,
+        load_variant(&artifacts, variant_directory)?
             .root
-            .network_revision()
-            != v1.root.network_revision()
-        || Artifacts::load_spatial(artifact_directory)?.files != artifacts.files
-        || Artifacts::load_spatial(variant_directory)?.files != variant1_artifacts.files
-        || Artifacts::load_spatial(artifact_directory)?.manifest_digest != artifacts.manifest_digest
-        || Artifacts::load_spatial(variant_directory)?.manifest_digest
-            != variant1_artifacts.manifest_digest
-    {
-        return Err(invalid("gate inputs/source changed"));
-    }
+            .network_revision(),
+        v1.root.network_revision(),
+        &Artifacts::load_spatial(artifact_directory)?.files,
+        &artifacts.files,
+        &Artifacts::load_spatial(variant_directory)?.files,
+        &variant1_artifacts.files,
+        &Artifacts::load_spatial(artifact_directory)?.manifest_digest,
+        &artifacts.manifest_digest,
+        &Artifacts::load_spatial(variant_directory)?.manifest_digest,
+        &variant1_artifacts.manifest_digest,
+    )?;
     report["command"] = json!(command);
     report["source"] = provenance;
     report["inputs"] = json!({"artifact_files":serde_json::to_value(&artifacts.files)?,
@@ -1062,22 +1051,59 @@ mod tests {
         crate::prepare_capacity_variant(&base, &v1_dir).unwrap();
         let artifacts = Artifacts::load_spatial(&base).unwrap();
         let reloaded = Artifacts::load_spatial(&base).unwrap();
-        let variant1_artifacts = Artifacts::load_spatial(&v1_dir).unwrap();
         let v1 = load_variant(&artifacts, &v1_dir).unwrap();
         let v1_reloaded = load_variant(&artifacts, &v1_dir).unwrap();
         for case in [UrbanCase::MixedPeak, UrbanCase::GarageEgress] {
             let out = temp.path().join(case.as_str());
             fs::create_dir(&out).unwrap();
-            gate_witness(
-                &artifacts,
-                &reloaded,
-                &variant1_artifacts,
-                &v1,
-                &v1_reloaded,
-                case,
-                &out,
-            )
-            .unwrap();
+            gate_witness(&artifacts, &reloaded, &v1, &v1_reloaded, case, &out).unwrap();
         }
+    }
+
+    #[test]
+    fn verify_gate_inputs_rejects_each_drift() {
+        let files = std::collections::BTreeMap::new();
+        let revision = v1_revision_of_fixture();
+        let manifest = crate::artifacts::FileDigest {
+            bytes: 1,
+            sha256: String::new(),
+        };
+        let check = |source_after: &Value,
+                     variant_manifest_after: &crate::artifacts::FileDigest| {
+            verify_gate_inputs(
+                source_after,
+                &json!({"commit": "c"}),
+                variant_manifest_after,
+                &manifest,
+                revision,
+                revision,
+                &files,
+                &files,
+                &files,
+                &files,
+                "am",
+                "am",
+                "vm",
+                "vm",
+            )
+            .is_ok()
+        };
+        let same = json!({"commit": "c"});
+        assert!(check(&same, &manifest.clone()));
+        assert!(!check(&json!({"commit": "other"}), &manifest.clone()));
+        assert!(!check(
+            &same,
+            &crate::artifacts::FileDigest {
+                bytes: 2,
+                sha256: String::new()
+            }
+        ));
+    }
+
+    fn v1_revision_of_fixture() -> laneflow_static_contract::NetworkRevisionId {
+        // 合成修订标识即可：该单测只比较"同值/异值"，不依赖真实网络。
+        laneflow_static_contract::NetworkRevisionId::from_digest(
+            laneflow_static_contract::Sha256Digest::from_bytes([7; 32]),
+        )
     }
 }

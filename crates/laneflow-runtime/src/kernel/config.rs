@@ -175,3 +175,24 @@ impl StepOutcome {
         &self.parking_arrivals
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_added_route_capacity_saturates_and_identity() {
+        let base = WorldConfig::new(1, 2, 3, 4, 5);
+        assert_eq!(base.with_added_route_capacity(0, 0, 0), base);
+        assert_eq!(
+            base.with_added_route_capacity(1, 1, 1),
+            WorldConfig::new(1, 3, 4, 5, 5)
+        );
+        let full = WorldConfig::new(u32::MAX, u32::MAX, u64::MAX, u64::MAX, 5);
+        assert_eq!(
+            full.with_added_route_capacity(1, 1, 1),
+            WorldConfig::new(u32::MAX, u32::MAX, u64::MAX, u64::MAX, 5),
+            "capacity additions saturate instead of overflowing"
+        );
+    }
+}
