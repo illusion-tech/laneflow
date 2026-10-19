@@ -34,13 +34,17 @@ Rust 1.98.0，release 默认配置，增量编译关闭，Windows 平衡电源�
 `--offline` 可在已有完整依赖缓存时追加，本次使用了该选项。
 
 ```powershell
-cargo +1.98.0 test --release --locked -p laneflow-runtime --lib --test runtime_profile_evidence --test runtime_profile_allocation --test cutover_scale_evidence --no-run
-cargo +1.98.0 test --release --locked -p laneflow-runtime --test runtime_profile_evidence runtime_profile_wall_clock -- --ignored --nocapture --test-threads=1
-cargo +1.98.0 test --release --locked -p laneflow-runtime --lib runtime_profile_stages -- --ignored --nocapture --test-threads=1
-cargo +1.98.0 test --release --locked -p laneflow-runtime --test runtime_profile_allocation -- --ignored --nocapture --test-threads=1
+cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --lib --test runtime_profile_evidence --test runtime_profile_allocation --test cutover_scale_evidence --no-run
+cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --test runtime_profile_evidence runtime_profile_wall_clock -- --ignored --nocapture --test-threads=1
+cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --lib runtime_profile_stages -- --ignored --nocapture --test-threads=1
+cargo +1.98.0 test --release --locked -p laneflow-runtime --features placement-fixtures --test runtime_profile_allocation -- --ignored --nocapture --test-threads=1
 cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_scale_evidence -- --ignored --nocapture --test-threads=1
 python research/issue-583-runtime-profile/analyze.py
 ```
+
+runtime_profile 三件须带 `--features placement-fixtures`（#742 起 CI 同款）：cb3bca94
+之后新鲜摆放在门线处按停车约束失败关闭，Waiting/Conflict 场景要靠该特性放入
+"已经在路上"的车辆；旧命令在当前 head 会确定性失败。cutover_scale 不受影响。
 
 本次实际直接运行 `--no-run` 生成的四个 exe，过滤参数与上述命令相同。
 [`evidence/`](evidence/) 保存完整测试输出；[`analyze.py`](analyze.py) 只读取这些固定记录，
