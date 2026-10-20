@@ -626,9 +626,40 @@ Runtime 内**无轮转、无抽样、无增量**。共享根的检测滞后 = �
 ## 11. G2 落定清单（实现内容，不属 G1 冻结）
 
 - **候选根比对的实现形态**：逐 component / 表按值比对的遍历顺序、分段与早停策略；
-  候选根构建复用现行 builder，不另设第二套构建路径。
-- **类型盘点**：根 backing 中不满足任意位模式有效的元素类型清单（§2.5）。
-- **API 标识符**：根认证入口、结论与判因类型、遥测句柄。
+  候选根构建复用现行 builder，不另设第二套构建路径。切片 A 落定（#959）：origin
+  先与期望值逐字段比对（字节身份字段除外），随后按 Traffic → Identity →
+  PlanningHints → Conflict → Policy → Spatial 顺序逐表比对（Maneuver 与 Relations
+  作为 Traffic 内子结构随其后），每列首失配早停。
+- **类型盘点**（切片 A 已盘点，#959）：根 backing 中不满足任意位模式有效、失真
+  可能在认证前崩溃或触发未定义行为的元素类型（§2.5）：
+  - 根与 component 头部的 `Option`：`Option<SharedSpatialNetwork>`、
+    `Option<LanePoseNetwork>`、`Option<ManeuverGateOrdinal>`（transition candidate）、
+    `OptionalColumn<T>` 全部 7 列（`Box<[Option<T>]>`：authoring group、edge 的
+    authoring lane / junction / stop line、gate 的 signal group、parking space 的
+    facility、class 的 parent）、`Option<Box<str>>`（policy 的 jurisdiction source、
+    evidence description）与 `Option<u32>`（stream 规则的 gap 下标）；
+  - 枚举判别值列：`EntityKind`（identity reverse）、`CorridorElement`、
+    `FacilityKind`（含 `bool` 字段 `lane_bearing`）、`AccessTarget`、`AccessEffect`、
+    `AccessCell`、`SignalAspect`、`PolicyLocalMemberKind`、`GateInterpretation`、
+    `GateProhibition`、`ConflictPathAnchor`、`PolicyOwnerIndex`（Dense / Sparse 判别）；
+  - `Box<str>`（relations intern、policy 冷数据字符串）与全部 `Box<[T]>` 列的
+    fat pointer（指针与长度）；
+  - `f32` / `f64` 列任意位模式皆有效（NaN payload 合法），不属本清单。
+- **API 标识符**（切片 A 已落定，#959）：核心入口
+  `laneflow-static-network::attest_shared_network_revision`（输入被认证根、LFCA
+  来源、`RootAttestationExpectation`、`FormatLimits`、`SharedNetworkBuildOptions`、
+  可选遥测 sink）；宿主门面
+  `laneflow-runtime::attest_published_shared_network_revision`（从
+  `PublishedLfcaReference` 组装期望值）。结论类型 `AttestationOutcome`
+  （`Concluded(AttestationReport)` / `OperationFailed`）、判因 `AttestationCause`
+  （`Source` / `SharedStaticRoot` / `Indeterminate`）、失配证据 `MismatchEvidence`
+  / `MismatchSite`、来源审计诊断 `SourceAuditNote`、操作失败
+  `OperationFailure` / `OperationFailureKind`、遥测 `AttestationTelemetry` /
+  `AttestationEvent`（L0 Trace 仅向 sink 发、默认关，L1–L3 结构化携带于报告）。
+  错误映射：reader 的 `ObjectSource`、`LimitExceeded`（含 `Format` 内限额类）与
+  builder 的 `BudgetExceeded`、`AllocationFailure`、`Cancelled` 属操作失败，其余
+  （含 builder `ArithmeticOverflow`——「计数 / 范围溢出」列属来源内容失败，§2.4）
+  属来源准备阶段失败。
 - **直算摘要路径**：#302 摘要不经 `capture_snapshot` 的实现形态与归一化 scratch 的
   限额参数，以逐字节一致的回归测试守住前像；不变量破坏的错误变体标识。
 - **审计结果类型**：`CompleteMatch` / `Diverged` / `Incomplete` 的标识符与 `Incomplete`

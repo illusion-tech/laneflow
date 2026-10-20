@@ -29,10 +29,10 @@ pub enum ConflictPathAnchor {
 /// 某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConflictPassage {
-    conflict_zone: ConflictZoneOrdinal,
-    entry: ConflictPathAnchor,
-    exit: ConflictPathAnchor,
-    admission_gate: ManeuverGateOrdinal,
+    pub(crate) conflict_zone: ConflictZoneOrdinal,
+    pub(crate) entry: ConflictPathAnchor,
+    pub(crate) exit: ConflictPathAnchor,
+    pub(crate) admission_gate: ManeuverGateOrdinal,
 }
 
 impl ConflictPassage {
@@ -112,19 +112,19 @@ impl<'a> ParticipantStreamView<'a> {
 
 /// 冲突区、参与者流、owner-local passage 与派生 zone-stream CSR。
 pub struct SharedConflictNetwork {
-    zone_junctions: Box<[JunctionOrdinal]>,
-    junction_zone_ranges: Box<[RangeU32]>,
-    junction_zones: Box<[ConflictZoneOrdinal]>,
-    zone_stream_ranges: Box<[RangeU32]>,
-    zone_streams: Box<[ParticipantStreamOrdinal]>,
-    stream_junctions: Box<[JunctionOrdinal]>,
-    junction_stream_ranges: Box<[RangeU32]>,
-    junction_streams: Box<[ParticipantStreamOrdinal]>,
-    stream_paths: Box<[ManeuverPathOrdinal]>,
-    path_stream_ranges: Box<[RangeU32]>,
-    path_streams: Box<[ParticipantStreamOrdinal]>,
-    stream_passage_ranges: Box<[RangeU32]>,
-    passages: Box<[ConflictPassage]>,
+    pub(crate) zone_junctions: Box<[JunctionOrdinal]>,
+    pub(crate) junction_zone_ranges: Box<[RangeU32]>,
+    pub(crate) junction_zones: Box<[ConflictZoneOrdinal]>,
+    pub(crate) zone_stream_ranges: Box<[RangeU32]>,
+    pub(crate) zone_streams: Box<[ParticipantStreamOrdinal]>,
+    pub(crate) stream_junctions: Box<[JunctionOrdinal]>,
+    pub(crate) junction_stream_ranges: Box<[RangeU32]>,
+    pub(crate) junction_streams: Box<[ParticipantStreamOrdinal]>,
+    pub(crate) stream_paths: Box<[ManeuverPathOrdinal]>,
+    pub(crate) path_stream_ranges: Box<[RangeU32]>,
+    pub(crate) path_streams: Box<[ParticipantStreamOrdinal]>,
+    pub(crate) stream_passage_ranges: Box<[RangeU32]>,
+    pub(crate) passages: Box<[ConflictPassage]>,
 }
 
 impl SharedConflictNetwork {

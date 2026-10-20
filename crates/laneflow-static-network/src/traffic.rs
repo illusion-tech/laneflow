@@ -12,8 +12,8 @@ const ENTITY_KIND_COUNT: usize = EntityKind::ALL.len();
 /// 连续 flat payload 中的受检 `u32` 区间。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RangeU32 {
-    start: u32,
-    len: u32,
+    pub(crate) start: u32,
+    pub(crate) len: u32,
 }
 
 impl RangeU32 {
@@ -56,16 +56,16 @@ impl RangeU32 {
 /// 23 个可构造实体种类的致密表基数。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EntityCounts {
-    counts: [u32; ENTITY_KIND_COUNT],
+    pub(crate) counts: [u32; ENTITY_KIND_COUNT],
 }
 
 /// 一条 Runtime 可执行 transition 对应的机动路径上下文。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ManeuverTransitionCandidate {
-    successor: LaneEdgeOrdinal,
-    maneuver_path: ManeuverPathOrdinal,
-    transition_index: u32,
-    maneuver_gate: Option<ManeuverGateOrdinal>,
+    pub(crate) successor: LaneEdgeOrdinal,
+    pub(crate) maneuver_path: ManeuverPathOrdinal,
+    pub(crate) transition_index: u32,
+    pub(crate) maneuver_gate: Option<ManeuverGateOrdinal>,
 }
 
 impl ManeuverTransitionCandidate {
@@ -146,15 +146,15 @@ impl<'a> ManeuverPathView<'a> {
 
 /// 路口机动路径、transition candidate 与 gate/waiting 引用的共享静态数据。
 pub struct SharedManeuverNetwork {
-    movements: Box<[MovementOrdinal]>,
-    edge_ranges: Box<[RangeU32]>,
-    edges: Box<[LaneEdgeOrdinal]>,
-    maneuver_gate_ranges: Box<[RangeU32]>,
-    maneuver_gates: Box<[ManeuverGateOrdinal]>,
-    waiting_zone_ranges: Box<[RangeU32]>,
-    waiting_zones: Box<[WaitingZoneOrdinal]>,
-    candidate_ranges: Box<[RangeU32]>,
-    candidates: Box<[ManeuverTransitionCandidate]>,
+    pub(crate) movements: Box<[MovementOrdinal]>,
+    pub(crate) edge_ranges: Box<[RangeU32]>,
+    pub(crate) edges: Box<[LaneEdgeOrdinal]>,
+    pub(crate) maneuver_gate_ranges: Box<[RangeU32]>,
+    pub(crate) maneuver_gates: Box<[ManeuverGateOrdinal]>,
+    pub(crate) waiting_zone_ranges: Box<[RangeU32]>,
+    pub(crate) waiting_zones: Box<[WaitingZoneOrdinal]>,
+    pub(crate) candidate_ranges: Box<[RangeU32]>,
+    pub(crate) candidates: Box<[ManeuverTransitionCandidate]>,
 }
 
 impl SharedManeuverNetwork {
@@ -284,15 +284,15 @@ impl EntityCounts {
 /// gate/waiting 引用的路口机动候选；后继 #440 实现切片继续加入其余静态关系，但不会改变
 /// 根唯一共享所有权。
 pub struct SharedTrafficNetwork {
-    entity_counts: EntityCounts,
-    lane_lengths_millimetres: Box<[u32]>,
-    lane_speed_limits_millimetres_per_second: Box<[u32]>,
-    successor_ranges: Box<[RangeU32]>,
-    successors: Box<[LaneEdgeOrdinal]>,
-    predecessor_ranges: Box<[RangeU32]>,
-    predecessors: Box<[LaneEdgeOrdinal]>,
-    maneuvers: SharedManeuverNetwork,
-    relations: crate::SharedRelationClosure,
+    pub(crate) entity_counts: EntityCounts,
+    pub(crate) lane_lengths_millimetres: Box<[u32]>,
+    pub(crate) lane_speed_limits_millimetres_per_second: Box<[u32]>,
+    pub(crate) successor_ranges: Box<[RangeU32]>,
+    pub(crate) successors: Box<[LaneEdgeOrdinal]>,
+    pub(crate) predecessor_ranges: Box<[RangeU32]>,
+    pub(crate) predecessors: Box<[LaneEdgeOrdinal]>,
+    pub(crate) maneuvers: SharedManeuverNetwork,
+    pub(crate) relations: crate::SharedRelationClosure,
 }
 
 impl SharedTrafficNetwork {
@@ -388,7 +388,7 @@ impl SharedTrafficNetwork {
 
 /// 从规范 LaneEdge 关系确定性派生、与 worker 数无关的非语义规划提示。
 pub struct PartitionPlanningHints {
-    edge_boundary_weights: Box<[u32]>,
+    pub(crate) edge_boundary_weights: Box<[u32]>,
 }
 
 impl PartitionPlanningHints {

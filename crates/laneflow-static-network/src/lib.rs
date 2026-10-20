@@ -1,6 +1,8 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
+mod attestation;
+mod attestation_compare;
 mod builder;
 mod conflict;
 mod error;
@@ -17,8 +19,17 @@ mod traffic;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod attestation_tests;
+
 use std::sync::Arc;
 
+pub use attestation::{
+    AttestationCause, AttestationEvent, AttestationOutcome, AttestationReport, AttestationStage,
+    AttestationTelemetry, AttestationVerdict, Disposition, MismatchEvidence, MismatchSite,
+    OperationFailure, OperationFailureKind, OriginField, RootAttestationExpectation, RootComponent,
+    SourceAuditNote, SourceFailureDetail, TraceStep, attest_shared_network_revision,
+};
 pub use builder::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
