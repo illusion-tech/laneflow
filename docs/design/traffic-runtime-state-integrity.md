@@ -86,16 +86,29 @@
 
 **根来源期望值（穷尽；任何期望值都不得取自被认证根自身的 `origin`）**：
 
-| `origin` 字段                                                                                   | 期望值的独立来源                                                                          |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `NetworkRevisionId`（发布来源）                                                                 | `PublishedLfcaReference` 中的 revision，按同修订判据比对（§4.2 第 2 步）                  |
-| LFCA digest / exact length（发布来源）                                                          | 对宿主提供的 LFCA 字节重新计算；引用中的 digest / length 只承担来源审计，不进入结论       |
-| `NetworkRevisionId`、LFCA digest / exact length（编辑来源）                                     | 从已提交 `RoadEditingState` 重编译得到的候选根 `origin`（§4.2 第 2 步）                   |
-| `networkRevisionDerivationVersion`、六轴静态契约版本、`partitionPlanningHintsDerivationVersion` | 运行中二进制的编译期常量：reader / builder 本就只接受一组精确版本，这些值不需要也不应持久 |
+| `origin` 字段                                                                                   | 期望值的独立来源                                                                                                |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `NetworkRevisionId`（发布来源）                                                                 | `PublishedLfcaReference` 中的 revision，按同修订判据比对（§4.2 第 2 步）                                        |
+| LFCA digest / exact length（发布来源）                                                          | 宿主本次提供的字节，或根所绑定的 `PublishedLfcaReference`，与二者之一相等即通过（见下文「发布来源的字节身份」） |
+| `NetworkRevisionId`、LFCA digest / exact length（编辑来源）                                     | 从已提交 `RoadEditingState` 重编译得到的候选根 `origin`（§4.2 第 2 步）                                         |
+| `networkRevisionDerivationVersion`、六轴静态契约版本、`partitionPlanningHintsDerivationVersion` | 运行中二进制的编译期常量：reader / builder 本就只接受一组精确版本，这些值不需要也不应持久                       |
+
+**发布来源的字节身份**：根 `origin` 的 LFCA digest / exact length 记录的是**根构建时
+所用字节**。期望值取两个独立来源之一：宿主本次提供的字节（恢复、安装与切换之前，
+根由这份字节构建），或根所绑定的 `PublishedLfcaReference`（在用根审计时取活动聚合
+`CommittedNetworkSource` 中的引用，根由该引用指名的字节构建）。与其中一方相等即通过，
+与两方都不等判 `Mismatch`（判因 `共享静态根`）；二者本身不同（同语义重发布）只记来源
+审计诊断。两个期望值都不取自被认证根；失真恰好把字节身份改成另一方值的情形按 §4.5
+残余风险定性声明。
 
 编辑来源的 `CommittedNetworkSource` 只有 `RoadEditingState`，不持久 revision；以重编译
 结果作为期望值不违反「不取自被认证根」：期望值来自宿主持有的 `RoadEditingState` 与
 二进制常量，与被认证根相互独立。
+
+**构建选项与限额**：宿主同时提供 builder 资源限额 `SharedNetworkBuildLimits`（retained /
+scratch / policy-work 上限，即宿主构建这类根时使用的同一组限额；根不保留构建时的
+限额）与可选的取消标志，认证原样传给 builder（`SharedNetworkBuildOptions`）。限额不
+进入期望值：超限是操作失败（§2.4），不是失配。
 
 **构建选项期望值**：空间保留构建选项 `SpatialBuildOption`（`Omit` / `RetainAvailable`）
 不进入 LFCA、存档与发布对象，却决定根的 Spatial component 是 `None` 还是
@@ -144,7 +157,7 @@ length 值对）——全部相同 = `Mismatch`；任一项不同（含一次失
 操作失败不判因、不触发停用，也不宣称 `Pass`。投入使用之前遇到操作失败时，该根不
 投入使用（与 snapshot §5「资产缺失、重编译失败……失败关闭」一致），宿主可按原因
 重试；在用根审计遇到操作失败时，该次审计无结论，根照常使用，宿主可重试。取消只由
-调用方发起。builder 的输入内容类错误（input kind / binding / contract 失配、Spatial
+调用方发起：只有宿主提供了取消标志，结果才可能是已取消。builder 的输入内容类错误（input kind / binding / contract 失配、Spatial
 presence 与表矛盾、计数 / 范围溢出、引用 / 身份 / 次序 / 闭合失配）说明来源字节与其
 已认证绑定不一致，按 §4.2 第 2 步失配处理（判因 `来源`，经复算确认），不属操作失败。
 
@@ -250,9 +263,10 @@ presence 与表矛盾、计数 / 范围溢出、引用 / 身份 / 次序 / 闭�
 
 ### 4.2 共享根认证
 
-- **输入**：被认证的共享根；宿主提供的来源；宿主提供的 `SpatialBuildOption`（§2.2）。
-  发布来源为 `PublishedLfcaReference`（恢复时取存档中的引用，安装与切换前取宿主本次
-  资产认证形成的引用）与宿主经资产认证取得的 LFCA 字节：宿主解析不透明 asset key、
+- **输入**：被认证的共享根；宿主提供的来源；宿主提供的 `SpatialBuildOption`、
+  `SharedNetworkBuildLimits` 与可选取消标志（§2.2）。发布来源为 `PublishedLfcaReference`
+  （恢复时取存档中的引用，安装与切换前取宿主本次资产认证形成的引用，在用根审计时
+  取活动聚合 `CommittedNetworkSource` 中的引用）与宿主经资产认证取得的 LFCA 字节：宿主解析不透明 asset key、
   完成发布加载认证（ADR 0025：LFCP v2 / manifest 绑定）后把字节借给认证入口，Runtime
   与 `laneflow-static-network` 不解析 asset key、不做文件 I/O。编辑来源为已提交
   `RoadEditingState`（实现随 #529，§10）。期望值的版本字段取自运行中二进制常量。
@@ -267,9 +281,11 @@ presence 与表矛盾、计数 / 范围溢出、引用 / 身份 / 次序 / 闭�
      （同语义重发布），不进入结论，引用的刷新归恢复 / 切换路径，认证不写任何对象。
      通过后以同一 builder 确定性构建候选根；编辑来源从已提交 `RoadEditingState` 重编译
      （snapshot §5「恢复对称原则」），以重编译产出的完整 `origin` 作为第 1 步的期望值，
-     并构建候选根。两种来源都按宿主提供的 `SpatialBuildOption` 构建；
+     并构建候选根。两种来源都按宿主提供的 `SpatialBuildOption`、限额与取消标志构建；
   3. 候选根与当前根逐 component / 表**按值**比对（含派生表与 Spatial component 是否
-     存在；不按布局或地址取字节）。比较算子冻结为：整数、句柄、ID 与范围按值相等；
+     存在；不按布局或地址取字节）。`origin` 的字节身份字段（LFCA digest / exact length）
+     不在本步比对——同语义重发布时候选根与当前根的字节身份合法地不同——只按第 1 步
+     的口径核对。比较算子冻结为：整数、句柄、ID 与范围按值相等；
      `f32` / `f64` 字段按 `to_bits()` **位相等**，不得用 `PartialEq` 比较浮点——否则
      `+0.0` 被打成 `-0.0` 时判相等，NaN 位模式时判不等。健康根的浮点值来自已拒绝
      负零与非有限值的 LFCA（`portable-canonical-artifact.md` §2.1），由同一二进制的
