@@ -105,10 +105,17 @@
 结果作为期望值不违反「不取自被认证根」：期望值来自宿主持有的 `RoadEditingState` 与
 二进制常量，与被认证根相互独立。
 
-**构建选项与限额**：宿主同时提供 builder 资源限额 `SharedNetworkBuildLimits`（retained /
-scratch / policy-work 上限，即宿主构建这类根时使用的同一组限额；根不保留构建时的
-限额）与可选的取消标志，认证原样传给 builder（`SharedNetworkBuildOptions`）。限额不
-进入期望值：超限是操作失败（§2.4），不是失配（首次根侧失配之后的复算超限除外，§2.2）。
+**调用的现有 API 与限额（穷尽）**：认证只调用以下现有入口，各自的必选参数全部由宿主
+提供，即宿主加载 / 构建这类根时使用的同一组策略值（根不保留这些值）：
+
+| 调用                                                                     | 宿主提供的参数                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `laneflow-format::check_canonical_network_input(lfca, limits)`           | LFCA 来源（`laneflow-format` 提供的 `BoundedReReadableObjectSource` 实现，宿主经资产认证取得）；`FormatLimits`（wire hard limit 之外的调用方对象、chunk、输出、scratch 与 peak 预算，`shared-static-network.md` §3） |
+| `laneflow-static-network::build_shared_network_revision(input, options)` | `SharedNetworkBuildOptions`：`SpatialBuildOption`、`SharedNetworkBuildLimits`（retained / scratch / policy-work 上限）、可选取消标志                                                                                 |
+| 编辑来源重编译（随 #529）                                                | 届时以现行编译入口的必选参数为准，同样由宿主提供                                                                                                                                                                     |
+
+限额不进入期望值：超出宿主 `FormatLimits` 或 `SharedNetworkBuildLimits` 的拒绝是操作
+失败（§2.4），不是失配（首次根侧失配之后的复算超限除外，§2.2）。
 
 **构建选项期望值**：空间保留构建选项 `SpatialBuildOption`（`Omit` / `RetainAvailable`）
 不进入 LFCA、存档与发布对象，却决定根的 Spatial component 是 `None` 还是
@@ -159,6 +166,9 @@ length 值对）——全部相同 = `Mismatch`；任一项不同（含一次失
 另有操作失败一类，穷尽为：
 
 - 候选根缓冲预留失败；
+- reader 超出宿主 `FormatLimits`（`CanonicalNetworkInputError::LimitExceeded` 及按限额
+  维度报告的格式拒绝）；LFCA 来源无法建立字节视图（`ObjectSource`，与宿主未能提供
+  来源同类）；
 - builder 的调用方预算超限、取消与分配失败，以及调用方要求的 lane-pose capability
   不可用（`shared-static-network.md` §7.3）；编辑来源重编译的同类资源失败与取消；
 - 宿主未能提供来源：asset 缺失、宿主资产认证失败（属宿主资产准入，Runtime 不判因）。
@@ -295,8 +305,9 @@ presence 与表矛盾、计数 / 范围溢出、引用 / 身份 / 次序 / 闭�
 
 ### 4.2 共享根认证
 
-- **输入**：被认证的共享根；宿主提供的来源；宿主提供的 `SpatialBuildOption`、`SharedNetworkBuildLimits` 与可选取消标志
-  （§2.2）。发布来源为 `PublishedLfcaReference`
+- **输入**：被认证的共享根；宿主提供的来源；宿主提供的 `FormatLimits`、
+  `SpatialBuildOption`、`SharedNetworkBuildLimits` 与可选取消标志（§2.2「调用的现有
+  API 与限额」）。发布来源为 `PublishedLfcaReference`
   （恢复时取存档中的引用，安装与切换前取宿主本次资产认证形成的引用，在用根审计时
   取活动聚合 `CommittedNetworkSource` 中的引用）与宿主经资产认证取得的 LFCA 字节：宿主解析不透明 asset key、
   完成发布加载认证（ADR 0025：LFCP v2 / manifest 绑定）后把字节借给认证入口，Runtime
@@ -466,12 +477,18 @@ Runtime 内**无轮转、无抽样、无增量**。共享根的检测滞后 = �
 `Untrusted` 才可能要求停用，且按调用时机与判因处置（§3）：投入使用前任何非 `Pass`
 都不投入使用；在用根审计判因 `来源` 时不停用根。二者不得混同。
 
-**判因轴**：`来源`（§4.2 第 1 步失配：宿主提供的字节、引用或重编译输入）/ `共享静态根`
-（第 2、3 步失配）/ `无法判因`。两种情形例外，判 `无法判因`：编辑来源的
-`NetworkRevisionId` 失配——期望值由 `RoadEditingState` 重编译产出，`RoadEditingState`
-失真与根失真无法区分（`NetworkRevisionId` 一致而派生表失配仍判 `共享静态根`）；
-Spatial component 是否存在失配——宿主提供的 `SpatialBuildOption` 有误与根失真无法
-区分。C(T) 的判因归宿主审计重放，不在 Runtime 判因轴内。
+**判因轴**（不依赖「根 ↔ 来源」绑定；现行合同允许同修订重绑，该绑定没有独立持久）：
+
+- §4.2 **第 1 步失配** → `来源`：来源自身验证不过（reader 内容类拒绝、制品内修订声明
+  不一致、与 `PublishedLfcaReference` 的同修订判据不符，或重编译输入失败）；
+- **第 2 步失配** → `无法判因`：来源已自洽，但根 `origin` 的 revision 或版本与之不符，
+  无法区分是根被打中，还是宿主提供了另一份自洽的来源（来源被替换或配错）；编辑来源
+  的 `RoadEditingState` 失真同属此类；
+- **第 3 步失配**（revision 已相等）→ `共享静态根`：同 revision 的根在逻辑上应当相同
+  （现行同修订换根的前提，`cutover.rs` 测试 `same_revision_cutover_is_logically_identity`），
+  候选根无论来自哪份同修订字节都应与当前根逐表相等，失配只能落在根侧。例外：
+  Spatial component 是否存在失配判 `无法判因`——宿主提供的 `SpatialBuildOption` 有误
+  与根失真无法区分。C(T) 的判因归宿主审计重放，不在 Runtime 判因轴内。
 
 **失配位置**：第 3 步按值比对时报告首个不等的逻辑位置（component、表、元素序号与
 字段）与期望 vs 实际值；来源摘要失配只能判对象级。按值比对不能证明失真起于页边界、
