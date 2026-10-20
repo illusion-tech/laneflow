@@ -17,6 +17,15 @@ use attributes::test_only;
 type ModulePath = Vec<String>;
 type Imports = BTreeMap<ModulePath, ModulePath>;
 
+/// 管理层（admin / facade）可引用的格式公开契约类型：它们是 reader 调用方
+/// 签名的参数类型（限额与字节来源抽象），本身不解析格式。格式解析能力
+/// （reader、preflight、wire 访问）仍收口于唯一格式入口
+/// `admin/format_admission.rs`；kernel 对一切格式符号保持全禁。
+const FORMAT_CONTRACT_TYPES: [&[&str]; 2] = [
+    &["laneflow_format", "BoundedReReadableObjectSource"],
+    &["laneflow_format", "FormatLimits"],
+];
+
 fn ident_name(ident: &syn::Ident) -> String {
     ident.unraw().to_string()
 }
@@ -343,12 +352,21 @@ impl SourceCheck<'_> {
             .name
             .first()
             .is_some_and(|name| name == "kernel");
+        // 契约类型只对管理层放行；kernel 全禁，解析能力仍收口格式入口。
+        let contract_type = !kernel
+            && FORMAT_CONTRACT_TYPES.iter().any(|prefix| {
+                path.len() >= prefix.len()
+                    && path
+                        .iter()
+                        .zip(prefix.iter())
+                        .all(|(segment, expected)| segment == expected)
+            });
         let admin_operation = path.first().is_some_and(|name| name == "admin")
             && !matches!(
                 path.get(1).map(String::as_str),
                 Some("migration_journal" | "state")
             );
-        if (raw_format && !admission) || (kernel && admin_operation) {
+        if (raw_format && !admission && !contract_type) || (kernel && admin_operation) {
             self.error.get_or_insert_with(|| {
                 format!(
                     "禁止依赖 {}（解析为 {}）",
