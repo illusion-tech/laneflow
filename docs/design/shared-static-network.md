@@ -354,16 +354,11 @@ component 内没有锁、原子字段或 interior mutability；运行时可变 a
 和执行计划全部 per world。
 
 共享根认证（#955 G1，见
-[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）是对根的
-只读入口：输入根、宿主提供的来源（发布来源为宿主经资产认证取得的 LFCA 字节与
-`PublishedLfcaReference`；本 crate 不解析 asset key、不做文件 I/O）与宿主提供的
-`SpatialBuildOption`、`SharedNetworkBuildLimits` 及可选取消标志，把 `origin` 与独立来源的期望值逐字段比对，
-先验证来源并推出期望值，再按来源重建候选根（发布来源按复用 `NetworkRevisionIdV1` 的耐久前像重算摘要并按同修订
-判据比对，编辑来源重编译并以其结果作为 `origin` 期望值），并与根逐 component / 表按值比对
-（浮点字段按 `to_bits()` 位相等）。它不改变根的所有权、句柄与 accessor 形状，不给根引入可变状态；宿主在
-安装、恢复与切换之前及审计时调用。builder 的预算、取消与分配失败（§7.3）在认证中
-属操作失败，不是完整性结论；首次根侧失配之后的复算失败除外，按完整性设计 §2.2 判
-`Untrusted`。
+[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）是宿主在
+安装、恢复与切换之前及审计时调用的只读入口：它调用本 crate 现有的
+`build_shared_network_revision` 重建候选根并与根逐表比对，不改变根的所有权、句柄与
+accessor 形状，不给根引入可变状态，本 crate 不解析 asset key、不做文件 I/O。输入、步骤、
+比较算子、判因与失败分类只以完整性设计 §2.2、§2.4、§4.2、§7 为准，本文不复述。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
 对象，并暴露：
@@ -454,8 +449,7 @@ kernel 冒充当前证据。
   base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
 - 2/8/32 worlds 的新增 shared-control bytes；共享根认证（#955 G1）的认证墙钟与认证峰值
-  单列报告：峰值分报**增量**（来源字节 + 候选根 + builder scratch，编辑来源另含重编译
-  scratch）与**共存总量**（增量再加始终存活的被认证根），稳态保留新增为零；
+  按完整性设计 §6 / §8 的口径单列报告，稳态保留新增为零；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
 结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；
