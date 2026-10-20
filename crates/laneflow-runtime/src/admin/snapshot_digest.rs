@@ -82,11 +82,28 @@ impl SnapshotDigestLimits {
 }
 
 /// 直算路径的归一化 scratch 预算器（结构性预留与字节累计的单一记账点）。
-struct NormalizationBudget {
+pub(crate) struct NormalizationBudget {
     remaining: u64,
 }
 
 impl NormalizationBudget {
+    /// 无限预算（capture 路径专用：预算记账只属直算路径的调用方限额）。
+    pub(crate) fn unlimited() -> Self {
+        Self {
+            remaining: u64::MAX,
+        }
+    }
+
+    /// 按元素大小与计数预留前入账（capture 助手内部 scratch 用）。
+    pub(crate) fn charge_bytes_for_reserve(
+        &mut self,
+        element_size: usize,
+        count: usize,
+    ) -> Result<(), SnapshotDigestError> {
+        let bytes = (element_size as u64).saturating_mul(u64::try_from(count).unwrap_or(u64::MAX));
+        self.charge(bytes)
+    }
+
     fn charge(&mut self, bytes: u64) -> Result<(), SnapshotDigestError> {
         if bytes > self.remaining {
             return Err(SnapshotDigestError::LimitExceeded);
@@ -729,7 +746,7 @@ impl crate::kernel::state::WorldState {
             let snapshot_route_id = FIRST_SNAPSHOT_ID + route_records.len() as u64;
             route_ids.push((handle.generation(), handle.index(), snapshot_route_id));
             let route = self
-                .captured_route_at(identity, slot_index, snapshot_route_id)
+                .captured_route_at(identity, &mut budget, slot_index, snapshot_route_id)
                 .transpose()
                 .expect("live route slot yields captured route")
                 .map_err(direct_capture_error)?;
@@ -788,6 +805,7 @@ impl crate::kernel::state::WorldState {
                     identity,
                     &conflict_view,
                     &route_id_for_capture,
+                    &mut budget,
                     slot_index,
                     snapshot_vehicle_id,
                 )
@@ -986,6 +1004,9 @@ fn direct_capture_error(
     match error {
         crate::admin::snapshot::SnapshotCaptureError::ReservationFailed => {
             SnapshotDigestError::ReservationFailed
+        }
+        crate::admin::snapshot::SnapshotCaptureError::LimitExceeded => {
+            SnapshotDigestError::LimitExceeded
         }
         crate::admin::snapshot::SnapshotCaptureError::ConflictInvariantViolation => {
             SnapshotDigestError::InvariantViolation(
@@ -1298,15 +1319,27 @@ mod tests {
     }
 
     /// 直算路径的容量预留失败沿用 `ReservationFailed`（注入点与捕获/摘要轴
-    /// 共用同一快照轴计数器），重试成功。
+    /// 共用同一快照轴计数器），重试成功；fail_after 循环覆盖全部预留点，
+    /// 含 live 顺序命中标记数组（先可失败预留、再初始化）。
     #[test]
     fn direct_digest_reservation_failure_fails_closed_and_is_retryable() {
         let (world, _, _) = world_with_vehicle(true);
-        crate::admin::snapshot::with_snapshot_allocation_failure_after(1, || {
-            world.direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
-        })
-        .map(|_| ())
-        .expect_err("injected failure surfaces");
+        let limits = SnapshotDigestLimits::new(64 * 1024 * 1024);
+        for fail_after in 1..=12 {
+            let failed =
+                crate::admin::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
+                    world.direct_state_digest(limits)
+                });
+            assert_eq!(
+                failed,
+                Err(SnapshotDigestError::ReservationFailed),
+                "fail_after={fail_after}"
+            );
+            assert!(
+                world.direct_state_digest(limits).is_ok(),
+                "注入清零后重试成功（fail_after={fail_after}）"
+            );
+        }
         let captured = world.capture_snapshot().expect("capture after retry");
         assert_eq!(
             world
