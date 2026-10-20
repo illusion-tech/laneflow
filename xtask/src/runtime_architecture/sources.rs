@@ -26,6 +26,21 @@ const FORMAT_CONTRACT_TYPES: [&[&str]; 2] = [
     &["laneflow_format", "FormatLimits"],
 ];
 
+/// 已知的格式契约类型重导出路径（`laneflow-static-network` 随认证公共签名
+/// 重导出；重导出不建立新的类型边界）。检查在判定前把已知重导出路径
+/// 归一化回 `laneflow_format` 原路径，使 kernel 经重导出路径或别名引用
+/// 这些类型与直接引用同一拒绝，管理层的引用与直接引用同一放行。
+const FORMAT_CONTRACT_TYPE_REEXPORTS: [(&[&str], &[&str]); 2] = [
+    (
+        &["laneflow_static_network", "BoundedReReadableObjectSource"],
+        &["laneflow_format", "BoundedReReadableObjectSource"],
+    ),
+    (
+        &["laneflow_static_network", "FormatLimits"],
+        &["laneflow_format", "FormatLimits"],
+    ),
+];
+
 fn ident_name(ident: &syn::Ident) -> String {
     ident.unraw().to_string()
 }
@@ -341,7 +356,14 @@ impl SourceCheck<'_> {
         if original.is_empty() {
             return;
         }
-        let path = resolve_path(&self.module.name, self.imports, self.externals, &original);
+        let mut path = resolve_path(&self.module.name, self.imports, self.externals, &original);
+        // 已知契约类型重导出路径归一化回原路径：同一符号的不同入口适用同一规则。
+        for (reexport, origin) in FORMAT_CONTRACT_TYPE_REEXPORTS {
+            if path.as_slice() == reexport {
+                path = origin.iter().map(|segment| (*segment).to_owned()).collect();
+                break;
+            }
+        }
         let admission = self.module.name == ["admin", "format_admission"]
             && self.module.file == self.admission_file;
         let raw_format = path

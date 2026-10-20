@@ -193,6 +193,9 @@ pub enum MismatchSite {
         component: RootComponent,
         /// 表名。
         table: &'static str,
+        /// 按 `EntityKind` 展开的表（identity 正向索引）所属实体种类；
+        /// 其他表为 `None`。进入证据身份：失配移到另一个 kind 即不同证据。
+        entity_kind: Option<laneflow_static_contract::EntityKind>,
         /// 元素序号。
         index: u32,
         /// 字段名。
@@ -208,6 +211,8 @@ pub enum MismatchSite {
         component: RootComponent,
         /// 表名。
         table: &'static str,
+        /// 按 `EntityKind` 展开的表所属实体种类；其他表为 `None`。
+        entity_kind: Option<laneflow_static_contract::EntityKind>,
         /// 期望长度（候选根）。
         expected_len: u32,
         /// 实际长度（被认证根）。
@@ -285,12 +290,15 @@ pub enum OperationFailureKind {
 }
 
 /// 一条操作失败（不进入三值结论）。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OperationFailure {
     /// 稳定分类。
     pub kind: OperationFailureKind,
     /// 完整错误变体与载荷的文本（按原因重试的诊断输入）。
     pub detail: String,
+    /// 操作失败前已收集的来源审计诊断（含首次 / 复算证据与字节身份差异；
+    /// 设计 §2.2 复算归类表的证据不因操作失败丢失）。
+    pub source_audit: Vec<SourceAuditNote>,
 }
 
 /// 判因对应的处置提示（L3，完整性设计 §7；宿主按调用时机取用）。
@@ -489,7 +497,11 @@ where
             Disposition::None,
             source_audit,
         ),
-        AttemptOutcome::OperationFailed(failure) => AttestationOutcome::OperationFailed(failure),
+        AttemptOutcome::OperationFailed(mut failure) => {
+            // 操作失败保留已收集的来源审计诊断（字节身份差异等）。
+            failure.source_audit = source_audit;
+            AttestationOutcome::OperationFailed(failure)
+        }
         AttemptOutcome::Failed(FirstFailure::RootCompare(evidence)) => {
             if matches!(evidence.site, MismatchSite::Panicked { .. }) {
                 // 根比较阶段 panic 直接判 Untrusted（设计 §2.4），不进复算。
@@ -556,6 +568,7 @@ where
             return AttestationOutcome::OperationFailed(OperationFailure {
                 kind: OperationFailureKind::ObjectSourceFailure,
                 detail: format!("{error:?}"),
+                source_audit,
             });
         }
         Ok(recheck) => match prepared_identity {
@@ -665,20 +678,8 @@ where
             Err(error) => return Err(map_reader_error(error)),
         };
         trace.push(TraceStep::ReaderAccepted);
-        if checked.network_revision() != expectation.network_revision() {
-            return Err(AttemptOutcome::Failed(FirstFailure::Source(
-                MismatchEvidence {
-                    stage: AttestationStage::SourcePreparation,
-                    site: MismatchSite::SourceFailure {
-                        detail: SourceFailureDetail::RevisionCriterion {
-                            reference: expectation.network_revision(),
-                            recomputed: checked.network_revision(),
-                        },
-                    },
-                },
-            )));
-        }
-        // 字节身份不进入结论，只作来源审计诊断（同修订重发布合法）。
+        // 字节身份在受检身份可用后立即记录：同修订判据失配的提前返回
+        // 不得吞掉字节差异诊断（诊断不进入结论，设计 §2.2）。
         let digest = checked.canonical_artifact_digest();
         let length = checked.canonical_artifact_byte_length();
         if digest != expectation.reference_digest() || length != expectation.reference_byte_length()
@@ -692,6 +693,19 @@ where
         }
         if let Some(slot) = prepared_identity {
             *slot = Some((digest, length));
+        }
+        if checked.network_revision() != expectation.network_revision() {
+            return Err(AttemptOutcome::Failed(FirstFailure::Source(
+                MismatchEvidence {
+                    stage: AttestationStage::SourcePreparation,
+                    site: MismatchSite::SourceFailure {
+                        detail: SourceFailureDetail::RevisionCriterion {
+                            reference: expectation.network_revision(),
+                            recomputed: checked.network_revision(),
+                        },
+                    },
+                },
+            )));
         }
         trace.push(TraceStep::SameRevisionCriterionChecked);
         match build_shared_network_revision(checked, build_options) {
@@ -719,24 +733,23 @@ where
 /// reader 错误映射：限额与来源视图失败属操作失败；内容类拒绝属来源失败
 /// （设计 §2.4；reader 只证明 framing、直接值域与 revision 绑定）。
 fn map_reader_error(error: CanonicalNetworkInputError) -> AttemptOutcome {
+    // 此处的操作失败尚无本阶段来源审计诊断；外层出口把已收集诊断附加进结果。
+    let operational = |kind| {
+        AttemptOutcome::OperationFailed(OperationFailure {
+            kind,
+            detail: format!("{error:?}"),
+            source_audit: Vec::new(),
+        })
+    };
     match &error {
         CanonicalNetworkInputError::ObjectSource(_) => {
-            AttemptOutcome::OperationFailed(OperationFailure {
-                kind: OperationFailureKind::ObjectSourceFailure,
-                detail: format!("{error:?}"),
-            })
+            operational(OperationFailureKind::ObjectSourceFailure)
         }
         CanonicalNetworkInputError::LimitExceeded { .. } => {
-            AttemptOutcome::OperationFailed(OperationFailure {
-                kind: OperationFailureKind::ReaderLimitExceeded,
-                detail: format!("{error:?}"),
-            })
+            operational(OperationFailureKind::ReaderLimitExceeded)
         }
         CanonicalNetworkInputError::Format(FormatError::LimitExceeded { .. }) => {
-            AttemptOutcome::OperationFailed(OperationFailure {
-                kind: OperationFailureKind::ReaderLimitExceeded,
-                detail: format!("{error:?}"),
-            })
+            operational(OperationFailureKind::ReaderLimitExceeded)
         }
         _ => AttemptOutcome::Failed(FirstFailure::Source(MismatchEvidence {
             stage: AttestationStage::SourcePreparation,
@@ -750,19 +763,21 @@ fn map_reader_error(error: CanonicalNetworkInputError) -> AttemptOutcome {
 /// builder 错误映射：预算 / 分配 / 取消属操作失败；输入内容类错误（含
 /// 计数 / 范围溢出，设计 §2.4 把「计数 / 范围溢出」列属来源内容失败）属来源失败。
 fn map_builder_error(error: BuildError) -> AttemptOutcome {
+    let operational = |kind| {
+        AttemptOutcome::OperationFailed(OperationFailure {
+            kind,
+            detail: format!("{error:?}"),
+            source_audit: Vec::new(),
+        })
+    };
     match &error {
-        BuildError::BudgetExceeded { .. } => AttemptOutcome::OperationFailed(OperationFailure {
-            kind: OperationFailureKind::BuilderBudgetExceeded,
-            detail: format!("{error:?}"),
-        }),
-        BuildError::AllocationFailure { .. } => AttemptOutcome::OperationFailed(OperationFailure {
-            kind: OperationFailureKind::BuilderAllocationFailure,
-            detail: format!("{error:?}"),
-        }),
-        BuildError::Cancelled => AttemptOutcome::OperationFailed(OperationFailure {
-            kind: OperationFailureKind::Cancelled,
-            detail: format!("{error:?}"),
-        }),
+        BuildError::BudgetExceeded { .. } => {
+            operational(OperationFailureKind::BuilderBudgetExceeded)
+        }
+        BuildError::AllocationFailure { .. } => {
+            operational(OperationFailureKind::BuilderAllocationFailure)
+        }
+        BuildError::Cancelled => operational(OperationFailureKind::Cancelled),
         _ => AttemptOutcome::Failed(FirstFailure::Source(MismatchEvidence {
             stage: AttestationStage::SourcePreparation,
             site: MismatchSite::SourceFailure {
@@ -825,6 +840,7 @@ pub(crate) fn classify_confirmed_failure(
                     return AttestationOutcome::OperationFailed(OperationFailure {
                         kind: OperationFailureKind::RecomputeIncomplete,
                         detail: failure.detail,
+                        source_audit,
                     });
                 }
                 AttemptOutcome::Failed(failure) => failure,
@@ -849,6 +865,7 @@ pub(crate) fn classify_confirmed_failure(
                         AttestationOutcome::OperationFailed(OperationFailure {
                             kind: OperationFailureKind::SourceEvidenceUnstable,
                             detail,
+                            source_audit,
                         })
                     }
                 }
@@ -939,36 +956,46 @@ fn emit_telemetry(
     let Some(sink) = sink else {
         return;
     };
-    let report = match outcome {
-        AttestationOutcome::Concluded(report) => Some(report),
-        AttestationOutcome::OperationFailed(_) => None,
-    };
     let emit = |sink: &mut dyn AttestationTelemetry, event: AttestationEvent<'_>| {
         let _ = catch_unwind(AssertUnwindSafe(|| sink.emit(event)));
     };
     for step in trace {
         emit(sink, AttestationEvent::Trace(*step));
     }
-    if let Some(report) = report {
-        emit(
-            sink,
-            AttestationEvent::Verdict {
-                verdict: report.verdict,
-                cause: report.cause,
-                completed_at: report.completed_at,
-            },
-        );
-        if let Some(evidence) = &report.mismatch {
-            emit(sink, AttestationEvent::Mismatch(evidence));
+    match outcome {
+        AttestationOutcome::Concluded(report) => {
+            emit(
+                sink,
+                AttestationEvent::Verdict {
+                    verdict: report.verdict,
+                    cause: report.cause,
+                    completed_at: report.completed_at,
+                },
+            );
+            if let Some(evidence) = &report.mismatch {
+                emit(sink, AttestationEvent::Mismatch(evidence));
+            }
+            emit(
+                sink,
+                AttestationEvent::Disposition {
+                    disposition: report.disposition,
+                    pre_use: report.disposition.pre_use_guidance(),
+                    in_use: report.disposition.in_use_guidance(),
+                },
+            );
         }
-        emit(
-            sink,
-            AttestationEvent::Disposition {
-                disposition: report.disposition,
-                pre_use: report.disposition.pre_use_guidance(),
-                in_use: report.disposition.in_use_guidance(),
-            },
-        );
+        // 操作失败不进入三值结论（不伪造 Verdict），但 L3 重试处置照发
+        // （设计 §7：调用方可能依赖遥测通道取得处置提示）。
+        AttestationOutcome::OperationFailed(_) => {
+            emit(
+                sink,
+                AttestationEvent::Disposition {
+                    disposition: Disposition::Retry,
+                    pre_use: Disposition::Retry.pre_use_guidance(),
+                    in_use: Disposition::Retry.in_use_guidance(),
+                },
+            );
+        }
     }
 }
 
