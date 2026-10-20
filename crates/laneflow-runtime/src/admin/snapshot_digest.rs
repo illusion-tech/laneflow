@@ -14,15 +14,86 @@ pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 7;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
-/// 状态摘要规范化失败（#532 摘要轴错误族）。
+/// 状态摘要规范化失败（#532 摘要轴错误族；直算路径错误边界见 #960）。
 ///
-/// 摘要只读已捕获快照，唯一失败模式是规范化缓冲或分组表的容量预留
-/// 失败；失败无副作用，宿主清点后可直接重试。
+/// 全部失败模式无副作用：预留 / 限额失败宿主清点后可直接重试；不变量
+/// 破坏说明 C(T) 已不可规范化，该比较点按 `Incomplete` 记录，不得跳过
+/// 坏记录、补默认值或签发看似有效的摘要（完整性设计 §4.3）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum SnapshotDigestError {
     /// 规范化缓冲或分组表容量预留失败。
     #[error("状态摘要容量预留失败")]
     ReservationFailed,
+    /// 直算摘要的归一化 scratch 超出调用方限额。
+    #[error("直算摘要归一化 scratch 超出限额")]
+    LimitExceeded,
+    /// 已提交状态破坏摘要前置不变量（与资源不足分开报告）。
+    #[error("已提交状态破坏摘要前置不变量: {0}")]
+    InvariantViolation(StateInvariantViolation),
+}
+
+/// 直算摘要前置的已提交状态不变量（完整性设计 §4.3；与资源不足分开）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum StateInvariantViolation {
+    /// 车辆引用的路线槽位不在 live 集内（悬空路线句柄）。
+    #[error("车辆引用悬空路线句柄")]
+    DanglingRouteHandle,
+    /// live 顺序引用的车辆槽位不在 live 集内（悬空 live-order 引用）。
+    #[error("live 顺序引用悬空车辆句柄")]
+    DanglingLiveOrderEntry,
+    /// 已提交 Conflict authority 与 reservation 级证明不一致。
+    #[error("已提交 Conflict authority 与证明不一致")]
+    ConflictAuthorityMismatch,
+    /// 直算过程 unwind，按不变量破坏上报（不套用根认证停用政策）。
+    #[error("直算摘要过程 panic: {0}")]
+    Panicked(&'static str),
+}
+
+/// 直算摘要的归一化 scratch 调用方限额（#960）。
+///
+/// 覆盖直算路径的结构性 scratch 估算（排序记录表、句柄映射表、conflict
+/// 视图与 canonical 字节缓冲），按「计数 × 元素大小 + 字节数」累计；
+/// 超限返回 `SnapshotDigestError::LimitExceeded`，无副作用可重试。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SnapshotDigestLimits {
+    max_normalization_bytes: u64,
+}
+
+impl SnapshotDigestLimits {
+    /// 组装限额；`max_normalization_bytes` 为归一化 scratch 累计字节上限。
+    #[must_use]
+    pub const fn new(max_normalization_bytes: u64) -> Self {
+        Self {
+            max_normalization_bytes,
+        }
+    }
+
+    /// 归一化 scratch 累计字节上限。
+    #[must_use]
+    pub const fn max_normalization_bytes(self) -> u64 {
+        self.max_normalization_bytes
+    }
+}
+
+/// 直算路径的归一化 scratch 预算器（结构性预留与字节累计的单一记账点）。
+struct NormalizationBudget {
+    remaining: u64,
+}
+
+impl NormalizationBudget {
+    fn charge(&mut self, bytes: u64) -> Result<(), SnapshotDigestError> {
+        if bytes > self.remaining {
+            return Err(SnapshotDigestError::LimitExceeded);
+        }
+        self.remaining -= bytes;
+        Ok(())
+    }
+
+    fn charge_elements<T>(&mut self, count: usize) -> Result<(), SnapshotDigestError> {
+        let bytes = (core::mem::size_of::<T>() as u64)
+            .saturating_mul(u64::try_from(count).unwrap_or(u64::MAX));
+        self.charge(bytes)
+    }
 }
 
 /// 固定前缀的最大字节数（一次预留）。后续计数字段与记录各自走
@@ -124,57 +195,22 @@ pub fn deterministic_state_digest(
     let route_groups = canonical_route_groups(&vehicle_records, &route_records)?;
 
     let mut canonical = Vec::new();
-    digest_try_reserve_exact(&mut canonical, canonical_prefix_len())?;
-    canonical.extend_from_slice(RUNTIME_STATE_DIGEST_DOMAIN);
-    push_u16(&mut canonical, RUNTIME_STATE_DIGEST_VERSION);
-    push_u16(&mut canonical, crate::RUNTIME_STATE_VERSION);
-    push_u64(&mut canonical, snapshot.world_id);
-    canonical.extend_from_slice(snapshot.origin.network_revision().as_digest().as_bytes());
-    let contracts = snapshot.origin.static_contract_versions();
-    push_u16(&mut canonical, contracts.canonical_format_version());
-    push_u16(&mut canonical, contracts.identity_encoding_version());
-    push_u16(&mut canonical, contracts.identity_registry_revision());
-    push_u16(
+    push_canonical_header(
         &mut canonical,
-        contracts.network_revision_derivation_version(),
-    );
-    push_u16(&mut canonical, contracts.constraint_contract_version());
-    push_u16(
-        &mut canonical,
-        contracts.static_execution_contract_version(),
-    );
-    push_u32(&mut canonical, snapshot.config.vehicle_capacity());
-    push_u32(&mut canonical, snapshot.config.route_capacity());
-    push_u64(
-        &mut canonical,
-        snapshot.config.route_edge_occurrence_capacity(),
-    );
-    push_u64(
-        &mut canonical,
-        snapshot.config.route_conflict_occurrence_capacity(),
-    );
-    push_u64(&mut canonical, snapshot.config.fixed_delta_time_ms());
-    push_u64(&mut canonical, snapshot.tick);
-    push_u64(&mut canonical, snapshot.time_ms);
-    push_u64(&mut canonical, snapshot.command_cursor);
-    push_u64(&mut canonical, snapshot.event_cursor);
-    match snapshot.policy_selection {
-        crate::WorldPolicySelection::NotRequired => canonical.push(0),
-        crate::WorldPolicySelection::Pinned(pin) => {
-            canonical.push(1);
-            canonical.extend_from_slice(pin.policy.as_untyped().as_bytes());
-        }
-    }
+        snapshot.world_id,
+        &snapshot.origin,
+        &snapshot.config,
+        snapshot.tick,
+        snapshot.time_ms,
+        snapshot.command_cursor,
+        snapshot.event_cursor,
+        &snapshot.policy_selection,
+    )?;
 
     let mut waiting_zone_records = Vec::new();
     digest_try_reserve_exact(&mut waiting_zone_records, snapshot.waiting_zones.len())?;
     for state in &snapshot.waiting_zones {
-        let mut record = Vec::new();
-        digest_try_reserve_exact(&mut record, 16 + 4 + 8)?;
-        record.extend_from_slice(state.waiting_zone.as_bytes());
-        push_u32(&mut record, state.occupancy);
-        push_u64(&mut record, state.next_admission_sequence);
-        waiting_zone_records.push(record);
+        waiting_zone_records.push(canonical_waiting_zone_record(state)?);
     }
     waiting_zone_records.sort_unstable();
     try_push_u64(
@@ -191,17 +227,7 @@ pub fn deterministic_state_digest(
         snapshot.conflict_lag_states.len(),
     )?;
     for state in &snapshot.conflict_lag_states {
-        let mut record = Vec::new();
-        digest_try_reserve_exact(&mut record, 32 + 1 + 8)?;
-        push_conflict_locator(&mut record, state.passage);
-        let (tag, time) = match state.reference {
-            crate::ConflictLagReference::NoHistory => (0, 0),
-            crate::ConflictLagReference::ActualClear(time) => (1, time),
-            crate::ConflictLagReference::CutoverFloor(time) => (2, time),
-        };
-        record.push(tag);
-        push_u64(&mut record, time);
-        conflict_lag_records.push(record);
+        conflict_lag_records.push(canonical_conflict_lag_record(state)?);
     }
     conflict_lag_records.sort_unstable();
     try_push_u64(
@@ -517,6 +543,400 @@ fn push_u64(target: &mut Vec<u8>, value: u64) {
     target.extend_from_slice(&value.to_le_bytes());
 }
 
+/// 单条等待区状态的 canonical 记录（现行捕获路径与直算路径共用）。
+fn canonical_waiting_zone_record(
+    state: &crate::CapturedWaitingZoneState,
+) -> Result<Vec<u8>, SnapshotDigestError> {
+    let mut record = Vec::new();
+    digest_try_reserve_exact(&mut record, 16 + 4 + 8)?;
+    record.extend_from_slice(state.waiting_zone.as_bytes());
+    push_u32(&mut record, state.occupancy);
+    push_u64(&mut record, state.next_admission_sequence);
+    Ok(record)
+}
+
+/// 单条冲突滞后状态的 canonical 记录（现行捕获路径与直算路径共用）。
+fn canonical_conflict_lag_record(
+    state: &crate::admin::snapshot::CapturedConflictLagState,
+) -> Result<Vec<u8>, SnapshotDigestError> {
+    let mut record = Vec::new();
+    digest_try_reserve_exact(&mut record, 32 + 1 + 8)?;
+    push_conflict_locator(&mut record, state.passage);
+    let (tag, time) = match state.reference {
+        crate::ConflictLagReference::NoHistory => (0, 0),
+        crate::ConflictLagReference::ActualClear(time) => (1, time),
+        crate::ConflictLagReference::CutoverFloor(time) => (2, time),
+    };
+    record.push(tag);
+    push_u64(&mut record, time);
+    Ok(record)
+}
+
+/// 写入 canonical 固定前缀（现行捕获路径与直算路径共用；逐字节一致）。
+#[allow(clippy::too_many_arguments)]
+fn push_canonical_header(
+    canonical: &mut Vec<u8>,
+    world_id: u64,
+    origin: &laneflow_static_network::CanonicalNetworkOrigin,
+    config: &crate::WorldConfig,
+    tick: u64,
+    time_ms: u64,
+    command_cursor: u64,
+    event_cursor: u64,
+    policy_selection: &crate::WorldPolicySelection,
+) -> Result<(), SnapshotDigestError> {
+    digest_try_reserve_exact(canonical, canonical_prefix_len())?;
+    digest_try_reserve_exact(canonical, canonical_prefix_len())?;
+    canonical.extend_from_slice(RUNTIME_STATE_DIGEST_DOMAIN);
+    push_u16(canonical, RUNTIME_STATE_DIGEST_VERSION);
+    push_u16(canonical, crate::RUNTIME_STATE_VERSION);
+    push_u64(canonical, world_id);
+    canonical.extend_from_slice(origin.network_revision().as_digest().as_bytes());
+    let contracts = origin.static_contract_versions();
+    push_u16(canonical, contracts.canonical_format_version());
+    push_u16(canonical, contracts.identity_encoding_version());
+    push_u16(canonical, contracts.identity_registry_revision());
+    push_u16(canonical, contracts.network_revision_derivation_version());
+    push_u16(canonical, contracts.constraint_contract_version());
+    push_u16(canonical, contracts.static_execution_contract_version());
+    push_u32(canonical, config.vehicle_capacity());
+    push_u32(canonical, config.route_capacity());
+    push_u64(canonical, config.route_edge_occurrence_capacity());
+    push_u64(canonical, config.route_conflict_occurrence_capacity());
+    push_u64(canonical, config.fixed_delta_time_ms());
+    push_u64(canonical, tick);
+    push_u64(canonical, time_ms);
+    push_u64(canonical, command_cursor);
+    push_u64(canonical, event_cursor);
+    match policy_selection {
+        crate::WorldPolicySelection::NotRequired => canonical.push(0),
+        crate::WorldPolicySelection::Pinned(pin) => {
+            canonical.push(1);
+            canonical.extend_from_slice(pin.policy.as_untyped().as_bytes());
+        }
+    }
+    Ok(())
+}
+
+impl crate::kernel::state::WorldState {
+    /// 直算确定性状态摘要：不经 `capture_snapshot` 的整份快照拷贝，从已提交
+    /// 状态逐记录抽取并立即归一化（完整性设计 §4.3；#960）。
+    ///
+    /// 字节与现行 `deterministic_state_digest(&CapturedSnapshot)` 逐字节一致
+    ///（digest 7 / runtime state 5 不变）；局部 ID 按 capture 语义由 live 槽位序
+    /// 分配。归一化 scratch 由 `limits` 约束；预留 / 限额失败无副作用可重试。
+    /// 读取真实触达已提交字节，不给结论保留缓存。
+    ///
+    /// # Panics
+    ///
+    /// 不向调用方传播：抽取过程中引用无法解析等 unwind 被入口捕获并按
+    /// [`StateInvariantViolation::Panicked`] 上报。
+    pub(crate) fn direct_state_digest(
+        &self,
+        limits: SnapshotDigestLimits,
+    ) -> Result<Sha256Digest, SnapshotDigestError> {
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.direct_state_digest_inner(limits)
+        }));
+        match attempt {
+            Ok(result) => result,
+            Err(payload) => Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::Panicked(
+                    payload
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .unwrap_or("opaque direct-digest panic"),
+                ),
+            )),
+        }
+    }
+
+    fn direct_state_digest_inner(
+        &self,
+        limits: SnapshotDigestLimits,
+    ) -> Result<Sha256Digest, SnapshotDigestError> {
+        use crate::admin::snapshot::FIRST_SNAPSHOT_ID;
+        let mut budget = NormalizationBudget {
+            remaining: limits.max_normalization_bytes,
+        };
+        let identity = self.binding.revision.identity();
+
+        // Conflict 视图（与 capture 同一构造路径；重建失败即不变量破坏）。
+        let conflict_index_len = self.binding.config.vehicle_capacity() as usize;
+        budget.charge_elements::<Option<crate::kernel::conflict::CommittedConflictIndexEntry>>(
+            conflict_index_len,
+        )?;
+        let mut conflict_index = Vec::new();
+        digest_try_reserve_exact(&mut conflict_index, conflict_index_len)?;
+        conflict_index.resize(conflict_index_len, None);
+        let conflict_view = self
+            .conflict_read()
+            .persistence_view(&mut conflict_index)
+            .ok_or(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::ConflictAuthorityMismatch,
+            ))?;
+
+        // 路线：live 槽位序分配局部 ID，单条物化立即归一化后丢弃。
+        let route_capacity = usize::try_from(self.committed.live_route_count).unwrap_or(0);
+        budget.charge_elements::<(u64, Vec<u8>)>(route_capacity)?;
+        budget.charge_elements::<(u32, u32, u64)>(route_capacity)?;
+        let mut route_records: Vec<(u64, Vec<u8>)> = Vec::new();
+        let mut route_ids: Vec<(u32, u32, u64)> = Vec::new();
+        digest_try_reserve_exact(&mut route_records, route_capacity)?;
+        digest_try_reserve_exact(&mut route_ids, route_capacity)?;
+        for (slot_index, slot) in self.committed.routes.iter().enumerate() {
+            if slot.compiled.is_none() {
+                continue;
+            }
+            let handle = crate::RouteHandle::new(
+                u32::try_from(slot_index).expect("route index fits u32"),
+                slot.generation,
+            );
+            let snapshot_route_id = FIRST_SNAPSHOT_ID + route_records.len() as u64;
+            route_ids.push((handle.generation(), handle.index(), snapshot_route_id));
+            let route = self
+                .captured_route_at(identity, slot_index, snapshot_route_id)
+                .transpose()
+                .expect("live route slot yields captured route")
+                .map_err(direct_capture_error)?;
+            let record = canonical_route_record(&route)?;
+            budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
+            route_records.push((snapshot_route_id, record));
+        }
+        route_records.sort_unstable_by_key(|entry| entry.0);
+        route_ids.sort_unstable();
+        let route_id_for = |generation: u32, index: u32| -> Option<u64> {
+            route_ids
+                .binary_search_by_key(&(generation, index), |entry| (entry.0, entry.1))
+                .ok()
+                .map(|position| route_ids[position].2)
+        };
+
+        // 车辆：live 槽位序分配局部 ID；悬空路线句柄显式报告不变量破坏。
+        let vehicle_capacity = self.committed.live_order.len();
+        budget.charge_elements::<(u64, Vec<u8>, u64)>(vehicle_capacity)?;
+        budget.charge_elements::<(u32, u32, u64)>(vehicle_capacity)?;
+        let mut vehicle_records: Vec<(u64, Vec<u8>, u64)> = Vec::new();
+        let mut vehicle_ids: Vec<(u32, u32, u64)> = Vec::new();
+        digest_try_reserve_exact(&mut vehicle_records, vehicle_capacity)?;
+        digest_try_reserve_exact(&mut vehicle_ids, vehicle_capacity)?;
+        for (slot_index, slot) in self.committed.vehicles.iter().enumerate() {
+            if slot.state.is_none() {
+                continue;
+            }
+            let generation = slot.generation;
+            let snapshot_vehicle_id = FIRST_SNAPSHOT_ID + vehicle_records.len() as u64;
+            vehicle_ids.push((
+                generation,
+                u32::try_from(slot_index).expect("vehicle index fits u32"),
+                snapshot_vehicle_id,
+            ));
+            let state = slot
+                .state
+                .as_ref()
+                .expect("checked vehicle slot holds state");
+            let snapshot_route_id = route_id_for(state.route.generation(), state.route.index())
+                .ok_or(SnapshotDigestError::InvariantViolation(
+                    StateInvariantViolation::DanglingRouteHandle,
+                ))?;
+            let route_id_for_capture = |generation: u32, index: u32| -> u64 {
+                route_id_for(generation, index)
+                    .expect("direct digest vehicle route resolves to snapshot route id")
+            };
+            let vehicle = self
+                .captured_vehicle_at(
+                    identity,
+                    &conflict_view,
+                    &route_id_for_capture,
+                    slot_index,
+                    snapshot_vehicle_id,
+                )
+                .transpose()
+                .expect("live vehicle slot yields captured vehicle")
+                .map_err(direct_capture_error)?;
+            let record = canonical_vehicle_record(&vehicle)?;
+            budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
+            vehicle_records.push((snapshot_vehicle_id, record, snapshot_route_id));
+        }
+        vehicle_records.sort_unstable_by_key(|entry| entry.0);
+        vehicle_ids.sort_unstable();
+
+        let route_groups = canonical_route_groups(&vehicle_records, &route_records)?;
+        budget.charge_elements::<Vec<u8>>(route_groups.len())?;
+        for group in &route_groups {
+            budget.charge(u64::try_from(group.len()).unwrap_or(u64::MAX))?;
+        }
+
+        // canonical 组装：前缀 + 等待区 + 冲突滞后 + 路线分组 + live 序。
+        budget.charge(u64::try_from(canonical_prefix_len()).unwrap_or(u64::MAX))?;
+        let mut canonical = Vec::new();
+        push_canonical_header(
+            &mut canonical,
+            self.binding.world_id,
+            self.binding.revision.canonical_origin(),
+            &self.binding.config,
+            self.committed.tick_index,
+            self.committed.time_ms,
+            self.committed.command_cursor,
+            self.committed.event_cursor,
+            &self.policy_selection(),
+        )?;
+
+        let mut waiting_zone_records = Vec::new();
+        let waiting_state_count = self
+            .committed
+            .waiting_zones
+            .iter()
+            .filter(|state| state.occupancy != 0 || state.next_admission_sequence != 0)
+            .count();
+        budget.charge_elements::<Vec<u8>>(waiting_state_count)?;
+        digest_try_reserve_exact(&mut waiting_zone_records, waiting_state_count)?;
+        for (index, state) in self.committed.waiting_zones.iter().copied().enumerate() {
+            if state.occupancy == 0 && state.next_admission_sequence == 0 {
+                continue;
+            }
+            let zone = laneflow_static_contract::WaitingZoneOrdinal::from_raw(
+                u32::try_from(index).expect("WaitingZone index fits u32"),
+            );
+            let captured = crate::CapturedWaitingZoneState {
+                waiting_zone: *identity
+                    .stable_id(zone)
+                    .expect("WaitingZone resolves stable id")
+                    .as_untyped(),
+                occupancy: state.occupancy,
+                next_admission_sequence: state.next_admission_sequence,
+            };
+            let record = canonical_waiting_zone_record(&captured)?;
+            budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
+            waiting_zone_records.push(record);
+        }
+        waiting_zone_records.sort_unstable();
+        try_push_u64(
+            &mut canonical,
+            u64::try_from(waiting_zone_records.len()).expect("WaitingZone count fits u64"),
+        )?;
+        for record in &waiting_zone_records {
+            try_push_record(&mut canonical, record)?;
+        }
+
+        let conflict_lag_count = self.conflict_read().persisted_lag_rows().count();
+        budget.charge_elements::<Vec<u8>>(conflict_lag_count)?;
+        let mut conflict_lag_records = Vec::new();
+        digest_try_reserve_exact(&mut conflict_lag_records, conflict_lag_count)?;
+        for (address, reference) in self.conflict_read().persisted_lag_rows() {
+            let locator = self
+                .conflict_passage_locator(address)
+                .expect("installed conflict address resolves stable locator");
+            let captured = crate::admin::snapshot::CapturedConflictLagState {
+                passage: crate::admin::snapshot::CapturedConflictPassageLocator {
+                    participant_stream: *locator.participant_stream_stable_id().as_untyped(),
+                    conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
+                },
+                reference,
+            };
+            let record = canonical_conflict_lag_record(&captured)?;
+            budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
+            conflict_lag_records.push(record);
+        }
+        conflict_lag_records.sort_unstable();
+        try_push_u64(
+            &mut canonical,
+            u64::try_from(conflict_lag_records.len()).expect("Conflict lag count fits u64"),
+        )?;
+        for record in &conflict_lag_records {
+            try_push_record(&mut canonical, record)?;
+        }
+
+        try_push_u64(
+            &mut canonical,
+            u64::try_from(route_groups.len()).expect("route group count fits u64"),
+        )?;
+        for group in &route_groups {
+            try_push_record(&mut canonical, group)?;
+        }
+        try_push_u64(
+            &mut canonical,
+            u64::try_from(self.committed.live_order.len()).expect("live order count fits u64"),
+        )?;
+        let vehicle_id_for = |generation: u32, index: u32| -> Option<u64> {
+            vehicle_ids
+                .binary_search_by_key(&(generation, index), |entry| (entry.0, entry.1))
+                .ok()
+                .map(|position| vehicle_ids[position].2)
+        };
+        let vehicle_index = |snapshot_vehicle_id: u64| -> usize {
+            vehicle_records
+                .binary_search_by_key(&snapshot_vehicle_id, |entry| entry.0)
+                .expect("direct live order closes over direct vehicles")
+        };
+        let route_index = |snapshot_route_id: u64| -> usize {
+            route_records
+                .binary_search_by_key(&snapshot_route_id, |entry| entry.0)
+                .expect("direct vehicle route closes over direct routes")
+        };
+        for handle in &self.committed.live_order {
+            let snapshot_vehicle_id = vehicle_id_for(handle.generation(), handle.index()).ok_or(
+                SnapshotDigestError::InvariantViolation(
+                    StateInvariantViolation::DanglingLiveOrderEntry,
+                ),
+            )?;
+            let index = vehicle_index(snapshot_vehicle_id);
+            let snapshot_route_id = vehicle_records[index].2;
+            try_push_record(&mut canonical, &vehicle_records[index].1)?;
+            let route_bytes = &route_records[route_index(snapshot_route_id)].1;
+            try_push_record(&mut canonical, route_bytes)?;
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(&canonical);
+        Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
+    }
+}
+
+/// capture 助手错误到直算错误的映射（Conflict authority 不变量 → 显式变体）。
+fn direct_capture_error(
+    error: crate::admin::snapshot::SnapshotCaptureError,
+) -> SnapshotDigestError {
+    match error {
+        crate::admin::snapshot::SnapshotCaptureError::ReservationFailed => {
+            SnapshotDigestError::ReservationFailed
+        }
+        crate::admin::snapshot::SnapshotCaptureError::ConflictInvariantViolation => {
+            SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::ConflictAuthorityMismatch,
+            )
+        }
+    }
+}
+
+impl crate::TrafficWorld {
+    /// 直算确定性状态摘要（完整性设计 §4.3；#960）：直接从已提交状态计算，
+    /// 不经 `capture_snapshot` 的整份快照拷贝，字节与现行捕获路径逐字节一致。
+    /// 只读已提交状态，不改变世界、不推进游标；归一化 scratch 由 `limits` 约束，
+    /// 预留 / 限额失败无副作用、宿主清点后可直接重试。
+    ///
+    /// # Errors
+    ///
+    /// 预留失败返回 [`SnapshotDigestError::ReservationFailed`]；scratch 超出
+    /// `limits` 返回 [`SnapshotDigestError::LimitExceeded`]；已提交状态破坏
+    /// 摘要前置不变量（悬空路线句柄、悬空 live-order 引用、Conflict
+    /// authority 与证明不一致、抽取过程 unwind）返回
+    /// [`SnapshotDigestError::InvariantViolation`]，该比较点按 `Incomplete` 记录，
+    /// 不签发摘要。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    /// 摘要过程自身的 unwind 被入口捕获，按不变量破坏上报，不向调用方传播。
+    pub fn direct_state_digest(
+        &self,
+        limits: SnapshotDigestLimits,
+    ) -> Result<Sha256Digest, SnapshotDigestError> {
+        self.execution.assert_usable();
+        self.state.direct_state_digest(limits)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,6 +1133,112 @@ mod tests {
         );
     }
 
+    /// 直算摘要与现行 capture + digest 路径在既有夹具上逐字节一致（#960 验收）。
+    #[test]
+    fn direct_digest_matches_capture_path_bytes() {
+        let digest_limits = SnapshotDigestLimits::new(64 * 1024 * 1024);
+        // ① install 后未 step：空 live 集。
+        {
+            let (world, _, _) = world_with_vehicle(true);
+            let captured = world.capture_snapshot().expect("capture");
+            assert_eq!(
+                world.direct_state_digest(digest_limits).expect("direct"),
+                deterministic_state_digest(&captured).expect("legacy"),
+                "fresh world: 直算与捕获路径逐字节一致"
+            );
+        }
+        // ② step 后：车辆携带 eligibility / lag / live 序推进。
+        {
+            let (mut world, _, _) = world_with_vehicle(true);
+            world.step(crate::TickInput::new(100)).expect("step");
+            let captured = world.capture_snapshot().expect("capture");
+            assert_eq!(
+                world.direct_state_digest(digest_limits).expect("direct"),
+                deterministic_state_digest(&captured).expect("legacy"),
+                "stepped world: 直算与捕获路径逐字节一致"
+            );
+        }
+        // ③ 追加 parked 车辆：路线绑定多重集覆盖 parking 绑定变体。
+        {
+            let (mut world, route, _) = world_with_vehicle(true);
+            world.step(crate::TickInput::new(100)).expect("step");
+            let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+            world
+                .spawn_parked_vehicle(
+                    crate::ParkedVehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        1_000,
+                    ),
+                    crate::ParkingTarget::ExplicitSpace(space),
+                )
+                .expect("spawn parked");
+            let captured = world.capture_snapshot().expect("capture");
+            assert_eq!(
+                world.direct_state_digest(digest_limits).expect("direct"),
+                deterministic_state_digest(&captured).expect("legacy"),
+                "parked world: 直算与捕获路径逐字节一致"
+            );
+        }
+    }
+
+    /// 限额不足返回 `LimitExceeded` 且无副作用：同一世界放宽限额后重试，
+    /// 字节与捕获路径一致。
+    #[test]
+    fn direct_digest_limit_exceeded_is_retryable_without_side_effects() {
+        let (world, _, _) = world_with_vehicle(true);
+        let tiny = SnapshotDigestLimits::new(16);
+        assert_eq!(
+            world.direct_state_digest(tiny),
+            Err(SnapshotDigestError::LimitExceeded),
+            "冲突视图或记录表的 scratch 即超过 16 字节"
+        );
+        let captured = world.capture_snapshot().expect("capture after retry");
+        assert_eq!(
+            world
+                .direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
+                .expect("retry with sufficient limits"),
+            deterministic_state_digest(&captured).expect("legacy"),
+            "限额失败无副作用，重试结果仍逐字节一致"
+        );
+    }
+
+    /// 直算路径的容量预留失败沿用 `ReservationFailed`（注入点与捕获/摘要轴
+    /// 共用同一快照轴计数器），重试成功。
+    #[test]
+    fn direct_digest_reservation_failure_fails_closed_and_is_retryable() {
+        let (world, _, _) = world_with_vehicle(true);
+        crate::admin::snapshot::with_snapshot_allocation_failure_after(1, || {
+            world.direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
+        })
+        .map(|_| ())
+        .expect_err("injected failure surfaces");
+        let captured = world.capture_snapshot().expect("capture after retry");
+        assert_eq!(
+            world
+                .direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
+                .expect("retry after clearing injection"),
+            deterministic_state_digest(&captured).expect("legacy"),
+        );
+    }
+
+    /// capture 助手错误映射：Conflict 不变量破坏进显式变体，预留失败保持
+    /// 资源不足类。
+    #[test]
+    fn direct_capture_error_mapping_separates_invariant_from_reservation() {
+        use crate::admin::snapshot::SnapshotCaptureError;
+        assert_eq!(
+            direct_capture_error(SnapshotCaptureError::ReservationFailed),
+            SnapshotDigestError::ReservationFailed
+        );
+        assert_eq!(
+            direct_capture_error(SnapshotCaptureError::ConflictInvariantViolation),
+            SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::ConflictAuthorityMismatch
+            )
+        );
+    }
     #[test]
     fn digest_distinguishes_vehicle_binding_across_identical_routes() {
         // 两条内容相同的路线：车辆绑定分布不同 => 逻辑状态不同（remove 语义
