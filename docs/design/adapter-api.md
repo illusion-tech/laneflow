@@ -60,15 +60,10 @@
 
 宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受
-共享根绑定聚合（根 `Arc` + 共享根完整性租约 + 构建方旁车基线，#955 G1；完整性
-模式是聚合字段、关闭配置下租约为空操作；租约显示根级失效时 `bind` 与位姿提取
-失败关闭），**不**从 Runtime
-发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
-同时持有 world 与 session 的 Adapter 必须按**共享根绑定聚合身份**配对——同一租约
-实例 + 同一旁车基线身份；根 `Arc::ptr_eq` 只是必要条件，不是充分条件（两个聚合可以
-共享同一根 `Arc` 却带不同租约，例如分头 restore / rebind 准备；只比根指针会让一方
-置位的根级失效漏过另一方）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受该
+根 `Arc`，**不**从 Runtime 发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
+同时持有 world 与 session 的 Adapter 必须 `Arc::ptr_eq`（或证明两者来自同一保留的根
+`Arc`）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
 或 LFCA table，不重建 Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决
 行为或单独替换 component。pose 使用与 Runtime 无关的 `PoseRecordId`，见
 `traffic-runtime-shared-consumption.md`。
@@ -80,20 +75,17 @@ current 路径：
 ```text
 读取引擎资源
   -> 加载认证 LFCP v2 / 已提交道路状态，构建 Arc<SharedNetworkRevision>
-  -> TrafficWorld::install(共享根绑定聚合)
-  -> SpatialSession::bind(共享根绑定聚合)；按聚合身份配对（同一租约 + 旁车基线；根 Arc::ptr_eq 仅为必要条件）
+  -> TrafficWorld::install(同一根 Arc)
+  -> SpatialSession::bind(同一根 Arc)；配对 Arc::ptr_eq
   -> 建立 PoseRecordId 与宿主实体的绑定
   -> 在 LaneFlowFixedSet::Lifecycle 经 world_mut 提交生命周期命令
-  -> TrafficWorld::step（完整性开启时含共享根入口预检，#955 G1）
+  -> TrafficWorld::step
   -> LaneFlowSession::extract_committed_pose_batch（受控封闭提取，§9）
   -> 提交宿主生命周期、变换和表现结果
 ```
 
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
-`LaneFlowSession::new` 在提供 Spatial 时强制共享根绑定聚合身份配对（租约 + 旁车基线
-一致；根 `Arc::ptr_eq` 为必要条件），失败为 `RevisionMismatch`。完整性开启时（#955
-G1）`step`、生命周期命令、观测导出与位姿提取在入口执行共享根预检并核对租约，提交 / 交付前复核租约；完整性终止性
-错误经 `LaneFlowSession` 传播为 session 级终止——停止位姿提取与宿主发布。
+`LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
 `reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /
@@ -272,7 +264,7 @@ Population 的 seed、portal/lane 抽样、pending/retry queue 仍是 engine-neu
 
 ```rust
 LaneFlowSession::cross_revision_cutover(
-    target_revision: SharedRootBinding, // #955 G1：共享根绑定聚合（签名调整归实现切片）
+    target_revision: Arc<SharedNetworkRevision>,
     target_source: CommittedNetworkSource,
     semantic_diff: &[u8],
     diff_binding: SemanticDiffOriginBinding,
@@ -282,7 +274,7 @@ LaneFlowSession::cross_revision_cutover(
 ) -> Result<LaneFlowCutoverRecord, LaneFlowAdapterError>
 
 LaneFlowSession::same_revision_restore(
-    target_revision: SharedRootBinding, // #955 G1：共享根绑定聚合（签名调整归实现切片）
+    target_revision: Arc<SharedNetworkRevision>,
     target_source: CommittedNetworkSource,
     target_spatial: LaneFlowTargetSpatial,
     preflight_limits: &CutoverPreflightLimits,
@@ -299,8 +291,7 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
 失效与消费资格语义（切换合同 §7 的 Adapter 承载面）：
 
 - `SpatialSession` 仅绑定不可变共享根，不持有世界身份或世界世代。Adapter 的当前
-  Spatial 配对必须与活动 `TrafficWorld` 按**共享根绑定聚合身份**配对（同一租约实例 +
-  旁车基线身份；根 `Arc::ptr_eq` 仅为必要条件）；封闭提取路径每批做一次
+  Spatial 配对必须与活动 `TrafficWorld` 使用同一根 `Arc`；封闭提取路径每批做一次
   固定 O(1) 配对检查（与车辆数无关），失配失败关闭。Adapter 不提供绕过配对检查的
   裸可变 Spatial 访问。
 - 成功修订切换后，先前的 Adapter 消费上下文过期；当前消费资格由世界身份、世界

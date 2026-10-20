@@ -1222,9 +1222,8 @@ Spatial 只在 `SharedNetworkRevision` 含 Spatial component 时借用
 才与 Traffic edge ordinal 完整对齐；facility/profile/frame-only component 不能启动车辆
 pose sampling。可用 pose 路径不再建立 `HashMap<EdgeHandle, slot>` 或按 external ID join，
 并继续遵守 ADR 0015 的 canonical f32、frame token、稳定顺序、零分配和失败原子性。
-headless 构建不创建 Spatial runtime。Spatial session 只 `bind` 共享根绑定聚合
-`SharedRootBinding`（目标形状（#955 G1）；现行实现仍收 `Arc<SharedNetworkRevision>`），不依赖
-`laneflow-runtime`；同修订由组合根与
+headless 构建不创建 Spatial runtime。Spatial session 只
+`bind(Arc<SharedNetworkRevision>)`，不依赖 `laneflow-runtime`；同修订由组合根与
 pose 批次上的 `NetworkRevisionId` 保证。详细契约见
 `traffic-runtime-shared-consumption.md`。
 

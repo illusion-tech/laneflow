@@ -59,12 +59,11 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
   coverage。缺少 lane geometry 时 lane-pose capability 明确不可用；
 - Spatial 直接读取 immutable geometry/sampling tables，不再按 external edge ID
   join 两个 JSON package，也不重建 `HashMap<EdgeHandle, slot>`；
-- 多个 world/Adapter session 可共享同一共享根绑定聚合（同一根 `Arc` + 同一租约），只保留各自 pose
+- 多个 world/Adapter session 可共享同一根 `Arc<SharedNetworkRevision>`，只保留各自 pose
   scratch/output 和 placement lifecycle；Spatial 不独立安装 component。
 
 本章 §3 的 JSON Traffic/Spatial/Manifest 三制品只描述已拆除的 current 路径。
-生产入口是 `SpatialSession::bind`，目标形状（#955 G1）只接受共享根绑定聚合 `SharedRootBinding`
-（现行实现仍收 `Arc<SharedNetworkRevision>`，由 #959 迁移），车道进度为
+生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`，车道进度为
 `progress_mm`。`laneflow-core` 已拆除。无 Spatial 的 headless Traffic Runtime 仍合法。
 
 ## 2. 坐标框架

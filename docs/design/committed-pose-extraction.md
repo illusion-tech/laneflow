@@ -12,8 +12,8 @@
 ## 1. 范围与权威
 
 Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事件权威。是否表现以及表现
-哪些车辆由宿主决定；减少采样或 Transform 写入只计作表现收益。Spatial 只绑定携带完整
-不可变根的共享根绑定聚合 `SharedRootBinding`（#955 G1），不依赖 Runtime、车辆句柄或 ECS。
+哪些车辆由宿主决定；减少采样或 Transform 写入只计作表现收益。Spatial 只绑定完整
+不可变根 `Arc<SharedNetworkRevision>`，不依赖 Runtime、车辆句柄或 ECS。
 
 本设计区分三件事：复用来源存储、取消成功批次的再次复制、按显式选择减少采样。
 三者可分别取证，不把其中一项的收益当作完整链路收益。停车位缓存不是首批交付要求。
@@ -44,8 +44,7 @@ Iterator 与单项查询的最终 Rust 类型名由该实现切片冻结。删�
 `LaneFlowSession::extract_committed_pose_batch` 保留全量语义。Session 拥有可复用的
 PoseInput 和候选 VehicleHandle 缓冲；调用方拥有可复用的完整输出。一次 `&mut self`
 内完成根配对、来源采集、Spatial 采样和输出提交，不向调用方暴露可跨切换重放的
-中间输入。绑定完整根的聚合身份配对检查（同一租约 + 旁车基线；根 `Arc::ptr_eq` 仅为
-必要条件，#955 G1）仍为每批固定 O(1)。
+中间输入。绑定完整根的 `Arc::ptr_eq` 检查仍为每批固定 O(1)。
 
 Spatial 在自有 scratch 中完成逐项采样和首错检查；全部成功后交换 scratch 与
 `output.records` 的 Vec 所有权，再写入修订、frame 和 placement token。交换不会改变
