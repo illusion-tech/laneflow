@@ -355,9 +355,10 @@ component 内没有锁、原子字段或 interior mutability；运行时可变 a
 
 共享根认证（#955 G1，见
 [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）是对根的
-只读入口：输入根与宿主持久的来源引用，把 `origin` 与独立来源的期望值逐字段比对，
+只读入口：输入根、宿主持有的来源与宿主提供的 `SpatialBuildOption`，把 `origin` 与独立来源的期望值逐字段比对，
 按来源重建候选根（发布来源重读 LFCA 并按复用 `NetworkRevisionIdV1` 的耐久前像重算
-摘要，编辑来源重编译），并与根逐 component / 表按值比对。它不改变根的所有权、句柄与 accessor 形状，不给根引入可变状态；宿主在
+摘要，编辑来源重编译并以其结果作为 `origin` 期望值），并与根逐 component / 表按值比对
+（浮点字段按 `to_bits()` 位相等）。它不改变根的所有权、句柄与 accessor 形状，不给根引入可变状态；宿主在
 安装、恢复与切换之前及审计时调用。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
