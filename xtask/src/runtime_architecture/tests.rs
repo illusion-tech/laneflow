@@ -374,11 +374,14 @@ pub(crate) mod root_attestation;
         let fixture = SourceFixture::new(source, "");
         assert!(fixture.check().unwrap_err().contains("禁止依赖"));
     }
-    // kernel 经已知重导出路径或其别名引用契约类型同样拒绝。
+    // kernel 经已知重导出路径、其别名或关联项引用契约类型同样拒绝。
     for source in [
         "use laneflow_static_network::FormatLimits; pub(crate) fn f(limits: FormatLimits) {}",
         "pub(crate) fn g<S: laneflow_static_network::BoundedReReadableObjectSource>(lfca: S) {}",
         "use laneflow_static_network as sn; pub(crate) fn h(limits: sn::FormatLimits) {}",
+        "pub(crate) fn i() { let _ = laneflow_static_network::FormatLimits::HARD; }",
+        "pub(crate) fn j() { let _ = laneflow_static_network::BoundedReReadableObjectSource::SOMETHING; }",
+        "use laneflow_static_network::FormatLimits as Limits; pub(crate) fn k() { let _ = Limits::HARD; }",
     ] {
         let fixture = SourceFixture::new(source, "");
         assert!(fixture.check().unwrap_err().contains("禁止依赖"));

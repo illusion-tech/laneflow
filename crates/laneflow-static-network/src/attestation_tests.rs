@@ -33,6 +33,9 @@ const PROVENANCE_BASE: &[u8] = include_bytes!(
 const PROVENANCE_BUILD: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
 );
+const POLICY_FULL_SPATIAL: &[u8] = include_bytes!(
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+);
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1024 * 1024, 16 * 1024 * 1024);
@@ -755,6 +758,7 @@ fn classify_recompute_table_source_side() {
             kind: OperationFailureKind::Cancelled,
             detail: "cancelled".to_string(),
             source_audit: Vec::new(),
+            telemetry_dropped: 0,
         }),
         Vec::new(),
     );
@@ -824,6 +828,7 @@ fn classify_recompute_table_root_side() {
             kind: OperationFailureKind::Cancelled,
             detail: "cancelled".to_string(),
             source_audit: Vec::new(),
+            telemetry_dropped: 0,
         }),
         Vec::new(),
     ));
@@ -1195,6 +1200,40 @@ fn telemetry_sink_panic_is_absorbed() {
     );
     let report = concluded(outcome);
     assert_eq!(report.verdict, AttestationVerdict::Pass);
+    assert!(
+        report.telemetry_dropped > 0,
+        "sink panic 记为遥测丢失并随结果返回，不经故障 sink 报告"
+    );
+}
+
+/// gates / targets 复合记录失配报告具名字段（rule / passage_local_index），
+/// 不再统一为 "value"。
+#[test]
+fn gate_policy_and_yield_target_report_named_members() {
+    let mut root = build(POLICY_FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
+    distort(&mut root, |revision| {
+        assert!(
+            !revision.policy.gates.is_empty(),
+            "fixture must carry resolved gate policies"
+        );
+        revision.policy.gates[0].rule = revision.policy.gates[0].rule.wrapping_add(1);
+    });
+    let report = concluded(attest(
+        &root,
+        POLICY_FULL_SPATIAL,
+        expectation_from(root.canonical_origin()),
+        SpatialBuildOption::RetainAvailable,
+    ));
+    assert_eq!(report.verdict, AttestationVerdict::Mismatch);
+    assert!(matches!(
+        report.mismatch.as_ref().expect("evidence").site,
+        MismatchSite::TableValue {
+            component: RootComponent::Policy,
+            table: "gates",
+            field: "rule",
+            ..
+        }
+    ));
 }
 
 /// 认证无常驻状态：同一根连续两次认证结论一致（L1 不跨调用保留状态）。

@@ -357,10 +357,22 @@ impl SourceCheck<'_> {
             return;
         }
         let mut path = resolve_path(&self.module.name, self.imports, self.externals, &original);
-        // 已知契约类型重导出路径归一化回原路径：同一符号的不同入口适用同一规则。
+        // 已知契约类型重导出路径按前缀归一化回原路径（含关联项与嵌套路径，
+        // 如 `laneflow_static_network::FormatLimits::HARD`）：同一符号的不同
+        // 入口——直接引用、别名、重导出、关联项——适用同一规则。
         for (reexport, origin) in FORMAT_CONTRACT_TYPE_REEXPORTS {
-            if path.as_slice() == reexport {
-                path = origin.iter().map(|segment| (*segment).to_owned()).collect();
+            let prefix_match = path.len() >= reexport.len()
+                && path
+                    .iter()
+                    .zip(reexport.iter())
+                    .all(|(segment, expected)| segment == expected);
+            if prefix_match {
+                let suffix = path[reexport.len()..].to_vec();
+                path = origin
+                    .iter()
+                    .map(|segment| (*segment).to_owned())
+                    .chain(suffix)
+                    .collect();
                 break;
             }
         }
