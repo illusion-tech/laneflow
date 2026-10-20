@@ -261,6 +261,12 @@ pub enum SourceAuditNote {
         /// 首次失配证据。
         evidence: Box<MismatchEvidence>,
     },
+    /// 首次来源侧失配后复算未完成（取消、预留 / 分配失败、限额超限）：
+    /// 首次证据保留供重试对照，但**不得**记为瞬时恢复——复算没有通过。
+    SourceRecomputeIncomplete {
+        /// 首次失配证据。
+        evidence: Box<MismatchEvidence>,
+    },
     /// 首次来源侧失配后复算证据不同（来源证据不稳定）。
     SourceEvidenceUnstable {
         /// 首次失配证据。
@@ -834,7 +840,9 @@ pub(crate) fn classify_confirmed_failure(
                     );
                 }
                 AttemptOutcome::OperationFailed(failure) => {
-                    source_audit.push(SourceAuditNote::TransientSourceFailure {
+                    // 复算未完成不是瞬时恢复：首次证据保留，标签独立记录，
+                    // 不得混入 TransientSourceFailure（其语义是复算完整通过）。
+                    source_audit.push(SourceAuditNote::SourceRecomputeIncomplete {
                         evidence: Box::new(first_evidence),
                     });
                     return AttestationOutcome::OperationFailed(OperationFailure {
