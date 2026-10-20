@@ -355,9 +355,9 @@ component 内没有锁、原子字段或 interior mutability；运行时可变 a
 
 共享根认证（#955 G1，见
 [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）是对根的
-只读入口：输入根与宿主持久的来源引用，按复用 `NetworkRevisionIdV1` 的耐久前像重算
-语义载荷摘要、从已认证语义内容重算派生表并与根比对、把 `origin` 与独立来源的期望值
-逐字段比对。它不改变根的所有权、句柄与 accessor 形状，不给根引入可变状态；宿主在
+只读入口：输入根与宿主持久的来源引用，把 `origin` 与独立来源的期望值逐字段比对，
+按来源重建候选根（发布来源重读 LFCA 并按复用 `NetworkRevisionIdV1` 的耐久前像重算
+摘要，编辑来源重编译），并与根逐 component / 表按值比对。它不改变根的所有权、句柄与 accessor 形状，不给根引入可变状态；宿主在
 安装、恢复与切换之前及审计时调用。
 
 `laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
@@ -449,7 +449,7 @@ kernel 冒充当前证据。
   base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
 - 2/8/32 worlds 的新增 shared-control bytes；共享根认证（#955 G1）的认证墙钟与认证峰值
-  按两条语义载荷取得路径分报，稳态保留新增为零；
+  （来源字节 + 候选根）单列报告，稳态保留新增为零；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
 结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；
