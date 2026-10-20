@@ -355,7 +355,7 @@ component 内没有锁、原子字段或 interior mutability；运行时可变 a
 
 共享根认证（#955 G1，见
 [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）是宿主在
-安装、恢复与切换之前及审计时调用的只读入口：它调用本 crate 现有的
+安装、恢复、Spatial 绑定与切换之前及审计时调用的只读入口：它调用本 crate 现有的
 `build_shared_network_revision` 重建候选根并与根逐表比对，不改变根的所有权、句柄与
 accessor 形状，不给根引入可变状态，本 crate 不解析 asset key、不做文件 I/O。输入、步骤、
 比较算子、判因与失败分类只以完整性设计 §2.2、§2.4、§4.2、§7 为准，本文不复述。
