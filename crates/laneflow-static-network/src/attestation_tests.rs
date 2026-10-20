@@ -12,7 +12,7 @@ use crate::attestation::{
     self, AttemptOutcome, AttestationCause, AttestationEvent, AttestationOutcome,
     AttestationTelemetry, AttestationVerdict, Disposition, FirstFailure, MismatchEvidence,
     MismatchSite, OperationFailureKind, OriginField, RootAttestationExpectation, RootComponent,
-    SourceAuditNote, SourceFailureDetail, attest_shared_network_revision,
+    SourceAuditNote, SourceFailureDetail, TelemetryDeliveryError, attest_shared_network_revision,
 };
 use crate::builder::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -1131,7 +1131,7 @@ struct RecordingSink {
 }
 
 impl AttestationTelemetry for RecordingSink {
-    fn emit(&mut self, event: AttestationEvent<'_>) {
+    fn emit(&mut self, event: AttestationEvent<'_>) -> Result<(), TelemetryDeliveryError> {
         let label = match event {
             AttestationEvent::Trace(_) => "trace",
             AttestationEvent::Verdict { .. } => "verdict",
@@ -1139,6 +1139,7 @@ impl AttestationTelemetry for RecordingSink {
             AttestationEvent::Disposition { .. } => "disposition",
         };
         self.events.push(label);
+        Ok(())
     }
 }
 
@@ -1179,8 +1180,63 @@ fn telemetry_event_sequence_l0_to_l3() {
 
 struct PanickingSink;
 
+#[derive(Default)]
+struct RejectingDispositionSink {
+    accepted: u32,
+    rejected: u32,
+    disposition: Option<Disposition>,
+}
+
+impl AttestationTelemetry for RejectingDispositionSink {
+    fn emit(&mut self, event: AttestationEvent<'_>) -> Result<(), TelemetryDeliveryError> {
+        if let AttestationEvent::Disposition { disposition, .. } = event {
+            self.rejected += 1;
+            self.disposition = Some(disposition);
+            Err(TelemetryDeliveryError)
+        } else {
+            self.accepted += 1;
+            Ok(())
+        }
+    }
+}
+
+#[test]
+fn telemetry_delivery_error_is_counted_without_changing_outcome() {
+    let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
+    for cancel in [false, true] {
+        let cancelled = AtomicBool::new(cancel);
+        let mut sink = RejectingDispositionSink::default();
+        let outcome = attest_shared_network_revision(
+            &root,
+            MIN_HEADLESS,
+            expectation_from(root.canonical_origin()),
+            FormatLimits::HARD,
+            SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS)
+                .with_cancellation(&cancelled),
+            Some(&mut sink),
+        );
+        assert!(sink.accepted > 0);
+        assert_eq!(sink.rejected, 1);
+        if cancel {
+            let AttestationOutcome::OperationFailed(failure) = outcome else {
+                panic!("expected cancellation");
+            };
+            assert_eq!(failure.kind, OperationFailureKind::Cancelled);
+            assert_eq!(failure.telemetry_dropped, 1);
+            assert_eq!(sink.disposition, Some(Disposition::Retry));
+        } else {
+            let report = concluded(outcome);
+            assert_eq!(report.verdict, AttestationVerdict::Pass);
+            assert_eq!(report.cause, None);
+            assert_eq!(report.disposition, Disposition::None);
+            assert_eq!(report.telemetry_dropped, 1);
+            assert_eq!(sink.disposition, Some(Disposition::None));
+        }
+    }
+}
+
 impl AttestationTelemetry for PanickingSink {
-    fn emit(&mut self, _event: AttestationEvent<'_>) {
+    fn emit(&mut self, _event: AttestationEvent<'_>) -> Result<(), TelemetryDeliveryError> {
         panic!("telemetry sink failure");
     }
 }

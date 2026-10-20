@@ -568,6 +568,11 @@ Runtime 内**无轮转、无抽样、无增量**。共享根的检测滞后 = �
 由遥测边界自行吸收并记为遥测丢失，不改变、不替换已确定的认证结论，也不被归类为认证
 结果。
 
+`AttestationTelemetry::emit` 返回 `Result<(), TelemetryDeliveryError>`：正常返回错误与
+捕获到的 panic 均按每次失败调用计入返回结果的 `telemetry_dropped`，成功调用不计数。
+异步 sink 返回成功只表示接收或入队；后续后台投递失败由 sink 自行观测，不纳入本次认证
+返回的计数。未配置 sink 不计为遥测丢失。
+
 ## 8. 认证成本报告口径
 
 **tick 路径**：完整性不增加每拍工作（合同值），Traffic Runtime 与 Spatial+Adapter 的 p95 主行

@@ -438,8 +438,25 @@ pub enum AttestationEvent<'a> {
 /// 不改变、不替换已确定的认证结论（完整性设计 §7）。
 pub trait AttestationTelemetry {
     /// 接收一次认证遥测事件；不得依赖被调用。
-    fn emit(&mut self, event: AttestationEvent<'_>);
+    /// 异步 sink 的成功仅表示已接收或入队，后续投递失败由 sink 自行观测。
+    ///
+    /// # Errors
+    ///
+    /// 无法接收事件（如队列已满或同步写入失败）时返回 [`TelemetryDeliveryError`]。
+    fn emit(&mut self, event: AttestationEvent<'_>) -> Result<(), TelemetryDeliveryError>;
 }
+
+/// sink 未能接收本次遥测事件；后端诊断由宿主保留，不参与认证结论。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TelemetryDeliveryError;
+
+impl std::fmt::Display for TelemetryDeliveryError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("遥测事件接收失败")
+    }
+}
+
+impl std::error::Error for TelemetryDeliveryError {}
 
 /// 首次认证尝试（或复算）中一次阶段运行的结局。
 #[derive(Debug)]
@@ -986,7 +1003,10 @@ fn emit_telemetry(
     };
     let mut dropped = 0_u32;
     let mut emit = |sink: &mut dyn AttestationTelemetry, event: AttestationEvent<'_>| {
-        if catch_unwind(AssertUnwindSafe(|| sink.emit(event))).is_err() {
+        if !matches!(
+            catch_unwind(AssertUnwindSafe(|| sink.emit(event))),
+            Ok(Ok(()))
+        ) {
             // 遥测丢失计数不经故障 sink 报告，随认证结果返回（设计 §7）。
             dropped += 1;
         }
