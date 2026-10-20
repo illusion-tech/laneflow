@@ -450,7 +450,7 @@ kernel 冒充当前证据。
   base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
 - 2/8/32 worlds 的新增 shared-control bytes；共享根认证（#955 G1）的认证墙钟与认证峰值
-  （来源字节 + 候选根）单列报告，稳态保留新增为零；
+  （来源字节 + 候选根 + builder scratch）单列报告，稳态保留新增为零；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
 结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；

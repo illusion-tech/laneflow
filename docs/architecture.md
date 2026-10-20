@@ -380,7 +380,9 @@ Adapter 不再从 current JSON 安装可运行世界；它消费 `TrafficWorld` 
 
 ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只 `bind` 同一根 `Arc`，不依赖
+`Arc<SharedNetworkRevision>`。宿主在安装、恢复、Spatial 绑定与切换之前调用共享根认证
+（#955 G1，ADR 0032；只读，不改变这些入口的签名），认证非 `Pass` 的根不投入使用。
+Runtime 安装完整根；Spatial 只 `bind` 同一根 `Arc`，不依赖
 Runtime，也不从 Runtime 发布的 snapshot/facade 借用。同时持有 world 与 session 的 Adapter
 必须 `Arc::ptr_eq`。不存在独立 component 安装或重新组合 API。#302 若发布
 revision-bound 只读 facade，必须内部保留同一根 `Arc`，不得把 Spatial 绑到 Runtime 类型。
