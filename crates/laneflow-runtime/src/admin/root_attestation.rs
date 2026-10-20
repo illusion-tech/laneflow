@@ -5,9 +5,8 @@
 //! 文件 I/O。宿主在安装、恢复、Spatial 绑定与切换之前及在用根审计时调用；
 //! 编辑来源（committed `RoadEditingState`）分支随 #529 落地。
 
-use laneflow_format::{BoundedReReadableObjectSource, FormatLimits};
 use laneflow_static_network::{
-    AttestationOutcome, AttestationTelemetry, RootAttestationExpectation,
+    AttestationOutcome, AttestationTelemetry, FormatLimits, RootAttestationExpectation,
     SharedNetworkBuildOptions, SharedNetworkRevision, attest_shared_network_revision,
 };
 
@@ -29,17 +28,14 @@ use crate::PublishedLfcaReference;
 ///
 /// 认证过程按阶段以 `catch_unwind` 包住，panic 不向宿主传播（设计 §2.4）；
 /// `panic=abort` 构建下按进程终止语义处理。
-pub fn attest_published_shared_network_revision<S>(
+pub fn attest_published_shared_network_revision(
     root: &SharedNetworkRevision,
     reference: &PublishedLfcaReference,
-    lfca: S,
+    lfca: &[u8],
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
     telemetry: Option<&mut dyn AttestationTelemetry>,
-) -> AttestationOutcome
-where
-    S: BoundedReReadableObjectSource,
-{
+) -> AttestationOutcome {
     let expectation = RootAttestationExpectation::new(
         reference.network_revision(),
         reference.canonical_artifact_digest(),

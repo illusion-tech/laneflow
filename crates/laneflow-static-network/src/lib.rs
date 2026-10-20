@@ -30,6 +30,8 @@ pub use attestation::{
     OperationFailure, OperationFailureKind, OriginField, RootAttestationExpectation, RootComponent,
     SourceAuditNote, SourceFailureDetail, TraceStep, attest_shared_network_revision,
 };
+// 认证入口公共签名携带 reader 限额类型；re-export 使宿主无需直接依赖
+// `laneflow-format`（runtime 架构检查禁止其生产源码直接 import 该 crate）。
 pub use builder::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -40,6 +42,7 @@ pub use conflict::{
 };
 pub use error::{BuildError, BuildErrorClass, BuildStructure, PolicyBuildViolation};
 pub use identity::SharedIdentityIndex;
+pub use laneflow_format::FormatLimits;
 pub use origin::{
     CanonicalNetworkOrigin, PARTITION_PLANNING_HINTS_DERIVATION_VERSION, StaticContractVersions,
 };
