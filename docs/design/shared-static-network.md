@@ -190,9 +190,9 @@ pub struct SharedNetworkRevision {
 - component 的计数、typed handle/range 和批量 slice accessor。
 
 只有 `Arc<SharedNetworkRevision>` 是可独立保留、克隆和跨 worker 传递的共享所有权句柄。
-完整性开启时（#955 G1，见
-[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §3），跨边界的
-唯一句柄是**共享根绑定聚合**：`Arc<SharedNetworkRevision>` + 共享根完整性租约 +
+跨边界的唯一句柄是**共享根绑定聚合**（#955 G1，见
+[`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §3；完整性模式
+是聚合字段，关闭配置下租约为空操作，聚合仍须传递）：`Arc<SharedNetworkRevision>` + 共享根完整性租约 +
 构建方旁车基线；`install` / `SpatialSession::bind` 以聚合为准，不得存在只传根、拿不到
 租约的第二条绑定路径。根本体语义不变——component 仍由根直接拥有，租约与旁车是根外
 对象，不构成 component、不进入根 payload。
@@ -370,7 +370,8 @@ component 内没有锁、原子字段或 interior mutability；运行时可变 a
 每根唯一**（同根不同租约 = 绑定失败，同一性断言），绑定 / 安装 / 恢复入口复核**新
 租约未置位**；它不属于 component、不进入根
 payload，也不给根本体引入可变性。共享根旁车基线分两层（#955 G1）：**耐久内容基线**
-（布局无关的分段内容摘要，跨进程持久）与**物理布局基线**（页序绑定、不持久）；每次
+（复用 `NetworkRevisionIdV1` 前像的根来源值，跨进程持久；载入后为双副本根来源锚，并与
+根 `origin` 逐字段比对）与**物理布局基线**（页序绑定、不持久）；每次
 构建 / 加载后以耐久根内容基线认证新根**并从已认证权威内容确定性重算派生表与
 当前 backing 比对**，全部通过才建立新的物理布局基线，重启 / 重载
 不得沿用旧物理基线。根校验器挂在聚合上（每根一份），由消费操作入口预检推进轮转校验

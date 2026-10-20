@@ -37,7 +37,7 @@
 
 冻结句：
 
-1. 新建 `laneflow-runtime`。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，
+1. 新建 `laneflow-runtime`。`TrafficWorld` 安装携带完整根的共享根绑定聚合 `SharedRootBinding`（#955 G1），
    只分配每世界可变状态与 1-worker 执行计划。热路径借共享根静态连续 accessor，
    **并**读本世界已提交/已编译表（车辆、占用、动态 Route occurrence）；不把动态
    occurrence 写回共享根，也不把 `SharedIdentityIndex` 推进 steady tick。
