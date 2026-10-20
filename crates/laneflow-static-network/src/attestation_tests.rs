@@ -1033,6 +1033,85 @@ fn revision_and_byte_identity_mismatch_both_retained() {
     );
 }
 
+/// 相同期望值、相同损坏值、不同分量轴必须是不同证据（tangent 与 up 各
+/// 覆盖）：首次 y 分量失配、复算 z 分量失配且数值相同时，证据因字段身份
+/// 不同而不等，复算归类必须返回 Untrusted 而非确认 Mismatch。
+#[test]
+fn same_value_distortion_on_distinct_vector_axes_is_untrusted() {
+    use crate::attestation::FirstFailure;
+    let evidence_with = |axis: usize, corrupt: fn(&mut crate::spatial::SegmentGeometry)| {
+        let mut root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
+        distort(&mut root, |revision| {
+            let pose = revision
+                .spatial
+                .as_mut()
+                .expect("spatial")
+                .lane_pose
+                .as_mut()
+                .expect("lane pose");
+            assert!(!pose.segments.is_empty(), "fixture must carry segments");
+            corrupt(&mut pose.segments[0]);
+        });
+        let report = concluded(attest(
+            &root,
+            FULL_SPATIAL,
+            expectation_from(root.canonical_origin()),
+            SpatialBuildOption::RetainAvailable,
+        ));
+        assert_eq!(report.verdict, AttestationVerdict::Mismatch);
+        let evidence = report.mismatch.expect("evidence");
+        let _ = axis;
+        evidence
+    };
+    type Corrupt = fn(&mut crate::spatial::SegmentGeometry);
+    let cases: &[(&str, &str, Corrupt, Corrupt)] = &[
+        (
+            "tangent[1]",
+            "tangent[2]",
+            (|segment: &mut crate::spatial::SegmentGeometry| {
+                segment.tangent[1] = 2.0;
+            }) as Corrupt,
+            (|segment: &mut crate::spatial::SegmentGeometry| {
+                segment.tangent[2] = 2.0;
+            }) as Corrupt,
+        ),
+        (
+            "up[1]",
+            "up[2]",
+            (|segment: &mut crate::spatial::SegmentGeometry| {
+                segment.up[1] = 2.0;
+            }) as Corrupt,
+            (|segment: &mut crate::spatial::SegmentGeometry| {
+                segment.up[2] = 2.0;
+            }) as Corrupt,
+        ),
+    ];
+    for (field_y, field_z, corrupt_y, corrupt_z) in cases {
+        let first = evidence_with(1, *corrupt_y);
+        let second = evidence_with(2, *corrupt_z);
+        assert_ne!(first, second, "不同分量轴的失配是不同证据");
+        assert!(matches!(
+            (&first.site, &second.site),
+            (
+                MismatchSite::TableValue { field: first_field, .. },
+                MismatchSite::TableValue { field: second_field, .. }
+            ) if *first_field == *field_y && *second_field == *field_z
+        ));
+        let outcome = attestation::classify_confirmed_failure(
+            FirstFailure::RootCompare(first),
+            AttemptOutcome::Failed(FirstFailure::RootCompare(second)),
+            Vec::new(),
+        );
+        match outcome {
+            AttestationOutcome::Concluded(report) => {
+                assert_eq!(report.verdict, AttestationVerdict::Untrusted);
+                assert_eq!(report.cause, Some(AttestationCause::Indeterminate));
+            }
+            other => panic!("expected Untrusted, got {other:?}"),
+        }
+    }
+}
+
 #[derive(Default)]
 struct RecordingSink {
     events: Vec<&'static str>,
