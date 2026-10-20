@@ -162,8 +162,12 @@ pub enum SourceFailureDetail {
     SourceBytesChanged {
         /// 来源准备阶段读取的摘要。
         prepared_digest: Sha256Digest,
+        /// 来源准备阶段读取的精确字节长度。
+        prepared_byte_length: u64,
         /// 复核重算的摘要。
         recheck_digest: Sha256Digest,
+        /// 复核重算的精确字节长度。
+        recheck_byte_length: u64,
     },
     /// 来源准备阶段 panic（按来源失败归类，设计 §2.4）。
     Panic(String),
@@ -305,6 +309,9 @@ pub struct OperationFailure {
     /// 操作失败前已收集的来源审计诊断（含首次 / 复算证据与字节身份差异；
     /// 设计 §2.2 复算归类表的证据不因操作失败丢失）。
     pub source_audit: Vec<SourceAuditNote>,
+    /// 遥测边界吸收的 sink 失败 / panic 次数（记为遥测丢失，设计 §7；
+    /// 不改变结论，也不经故障 sink 自身报告）。
+    pub telemetry_dropped: u32,
 }
 
 /// 判因对应的处置提示（L3，完整性设计 §7；宿主按调用时机取用）。
@@ -387,10 +394,13 @@ pub struct AttestationReport {
     pub disposition: Disposition,
     /// 来源审计诊断（有界，仅在对应事件发生时记录）。
     pub source_audit: Vec<SourceAuditNote>,
+    /// 遥测边界吸收的 sink 失败 / panic 次数（记为遥测丢失，设计 §7）。
+    pub telemetry_dropped: u32,
 }
 
 /// 认证结果：三值结论或操作失败（操作失败不进三值，设计 §2.4）。
 #[derive(Clone, Debug)]
+#[must_use = "丢弃认证结果会静默丢弃结论、判因与处置提示（编译器警告，不构成处置强制）"]
 pub enum AttestationOutcome {
     /// 认证完成，携带三值结论与 L1–L3 报告。
     Concluded(AttestationReport),
@@ -495,7 +505,7 @@ where
         &mut source_audit,
         &mut trace,
     );
-    let outcome = match first {
+    let mut outcome = match first {
         AttemptOutcome::Concluded => concluded(
             AttestationVerdict::Pass,
             None,
@@ -548,7 +558,7 @@ where
             classify_confirmed_failure(FirstFailure::Source(evidence), recompute, source_audit)
         }
     };
-    emit_telemetry(telemetry, &outcome, &trace);
+    emit_telemetry(telemetry, &mut outcome, &trace);
     outcome
 }
 
@@ -575,6 +585,7 @@ where
                 kind: OperationFailureKind::ObjectSourceFailure,
                 detail: format!("{error:?}"),
                 source_audit,
+                telemetry_dropped: 0,
             });
         }
         Ok(recheck) => match prepared_identity {
@@ -583,12 +594,16 @@ where
             {
                 // 来源字节在验证之后改变：候选根不由已验证字节构建，
                 // 按来源准备阶段失败处理（设计 §4.2；复算归类表 §2.2）。
+                // 证据保留完整的 digest / length 差异（复核比较的是二者
+                // 的元组，证据不得只携带 digest）。
                 FirstFailure::Source(MismatchEvidence {
                     stage: AttestationStage::SourcePreparation,
                     site: MismatchSite::SourceFailure {
                         detail: SourceFailureDetail::SourceBytesChanged {
                             prepared_digest,
+                            prepared_byte_length: prepared_length.get(),
                             recheck_digest: recheck.0,
+                            recheck_byte_length: recheck.1.get(),
                         },
                     },
                 })
@@ -745,6 +760,7 @@ fn map_reader_error(error: CanonicalNetworkInputError) -> AttemptOutcome {
             kind,
             detail: format!("{error:?}"),
             source_audit: Vec::new(),
+            telemetry_dropped: 0,
         })
     };
     match &error {
@@ -774,6 +790,7 @@ fn map_builder_error(error: BuildError) -> AttemptOutcome {
             kind,
             detail: format!("{error:?}"),
             source_audit: Vec::new(),
+            telemetry_dropped: 0,
         })
     };
     match &error {
@@ -849,6 +866,7 @@ pub(crate) fn classify_confirmed_failure(
                         kind: OperationFailureKind::RecomputeIncomplete,
                         detail: failure.detail,
                         source_audit,
+                        telemetry_dropped: 0,
                     });
                 }
                 AttemptOutcome::Failed(failure) => failure,
@@ -874,6 +892,7 @@ pub(crate) fn classify_confirmed_failure(
                             kind: OperationFailureKind::SourceEvidenceUnstable,
                             detail,
                             source_audit,
+                            telemetry_dropped: 0,
                         })
                     }
                 }
@@ -951,6 +970,7 @@ fn concluded(
         mismatch,
         disposition,
         source_audit,
+        telemetry_dropped: 0,
     })
 }
 
@@ -958,14 +978,18 @@ fn concluded(
 /// sink 的失败或 panic 由本边界吸收，不改变结论（设计 §7）。
 fn emit_telemetry(
     sink: Option<&mut (dyn AttestationTelemetry + '_)>,
-    outcome: &AttestationOutcome,
+    outcome: &mut AttestationOutcome,
     trace: &[TraceStep],
-) {
+) -> u32 {
     let Some(sink) = sink else {
-        return;
+        return 0;
     };
-    let emit = |sink: &mut dyn AttestationTelemetry, event: AttestationEvent<'_>| {
-        let _ = catch_unwind(AssertUnwindSafe(|| sink.emit(event)));
+    let mut dropped = 0_u32;
+    let mut emit = |sink: &mut dyn AttestationTelemetry, event: AttestationEvent<'_>| {
+        if catch_unwind(AssertUnwindSafe(|| sink.emit(event))).is_err() {
+            // 遥测丢失计数不经故障 sink 报告，随认证结果返回（设计 §7）。
+            dropped += 1;
+        }
     };
     for step in trace {
         emit(sink, AttestationEvent::Trace(*step));
@@ -1005,6 +1029,11 @@ fn emit_telemetry(
             );
         }
     }
+    match outcome {
+        AttestationOutcome::Concluded(report) => report.telemetry_dropped = dropped,
+        AttestationOutcome::OperationFailed(failure) => failure.telemetry_dropped = dropped,
+    }
+    dropped
 }
 
 /// panic 载荷的稳定文本（证据身份的一部分；不可 downcast 的载荷记为不透明）。

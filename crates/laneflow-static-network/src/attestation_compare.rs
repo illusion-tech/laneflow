@@ -445,6 +445,43 @@ fn cmp_policy_owner(
     None
 }
 
+fn cmp_resolved_gate_policy(
+    expected: &crate::policy::ResolvedGatePolicy,
+    actual: &crate::policy::ResolvedGatePolicy,
+) -> FieldDiff {
+    if expected.class != actual.class {
+        return named("class", &expected.class, &actual.class);
+    }
+    if expected.rule != actual.rule {
+        return Some(("rule", expected.rule.to_string(), actual.rule.to_string()));
+    }
+    if expected.interpretation != actual.interpretation {
+        return named(
+            "interpretation",
+            &expected.interpretation,
+            &actual.interpretation,
+        );
+    }
+    named("prohibition", &expected.prohibition, &actual.prohibition)
+}
+
+fn cmp_yield_target_cell(
+    expected: &crate::policy::YieldTargetCell,
+    actual: &crate::policy::YieldTargetCell,
+) -> FieldDiff {
+    if expected.stream != actual.stream {
+        return named("stream", &expected.stream, &actual.stream);
+    }
+    if expected.passage_local_index != actual.passage_local_index {
+        return Some((
+            "passage_local_index",
+            expected.passage_local_index.to_string(),
+            actual.passage_local_index.to_string(),
+        ));
+    }
+    None
+}
+
 fn cmp_resolved_stream_policy(
     expected: &crate::policy::ResolvedStreamPolicy,
     actual: &crate::policy::ResolvedStreamPolicy,
@@ -1123,7 +1160,7 @@ fn compare_policy(
         &expected.stream_owners,
         &actual.stream_owners,
     )?;
-    cmp_column!(component, expected, actual, gates, whole);
+    cmp_column!(component, expected, actual, gates, cmp_resolved_gate_policy);
     cmp_column!(
         component,
         expected,
@@ -1132,7 +1169,7 @@ fn compare_policy(
         cmp_resolved_stream_policy
     );
     cmp_column!(component, expected, actual, target_ranges, cmp_target_range);
-    cmp_column!(component, expected, actual, targets, whole);
+    cmp_column!(component, expected, actual, targets, cmp_yield_target_cell);
     Ok(())
 }
 
