@@ -47,6 +47,12 @@ pub enum StateInvariantViolation {
     /// 直算过程 unwind，按不变量破坏上报（不套用根认证停用政策）。
     #[error("直算摘要过程 panic: {0}")]
     Panicked(&'static str),
+    /// live 顺序与存活车辆不一一对应（遗漏或重复）。
+    #[error("live 顺序与存活车辆不一一对应")]
+    IncompleteLiveOrder,
+    /// committed 的 live 路线计数与实际存活路线数不一致。
+    #[error("live 路线计数与实际存活路线数不一致")]
+    LiveRouteCountMismatch,
 }
 
 /// 直算摘要的归一化 scratch 调用方限额（#960）。
@@ -192,7 +198,11 @@ pub fn deterministic_state_digest(
             .expect("captured vehicle route closes over captured routes")
     };
 
-    let route_groups = canonical_route_groups(&vehicle_records, &route_records)?;
+    let mut legacy_budget = NormalizationBudget {
+        remaining: u64::MAX,
+    };
+    let route_groups =
+        canonical_route_groups(&vehicle_records, &route_records, &mut legacy_budget)?;
 
     let mut canonical = Vec::new();
     push_canonical_header(
@@ -268,12 +278,14 @@ pub fn deterministic_state_digest(
 fn canonical_route_groups(
     vehicle_records: &[(u64, Vec<u8>, u64)],
     route_records: &[(u64, Vec<u8>)],
+    budget: &mut NormalizationBudget,
 ) -> Result<Vec<Vec<u8>>, SnapshotDigestError> {
     // 路线实例分组：路线内容 + 绑定其上的车辆记录多重集。内容相同但绑定
     // 不同的实例因此可区分（remove 语义不同）；内容与绑定均相同的实例
     // 可交换（全部后续命令行为一致），保持摘要相等。
     // 一次按路线实例与车辆记录字节排序；不对每条路线重扫整个车辆表。
     let mut members: Vec<(u64, usize)> = Vec::new();
+    budget.charge_elements::<(u64, usize)>(vehicle_records.len())?;
     digest_try_reserve_exact(&mut members, vehicle_records.len())?;
     for (index, (_, _, route_id)) in vehicle_records.iter().enumerate() {
         members.push((*route_id, index));
@@ -284,6 +296,7 @@ fn canonical_route_groups(
             .then_with(|| vehicle_records[left.1].1.cmp(&vehicle_records[right.1].1))
     });
     let mut route_groups: Vec<Vec<u8>> = Vec::new();
+    budget.charge_elements::<Vec<u8>>(route_records.len())?;
     digest_try_reserve_exact(&mut route_groups, route_records.len())?;
     let mut start = 0;
     for (route_id, route_bytes) in route_records {
@@ -298,6 +311,14 @@ fn canonical_route_groups(
             end += 1;
         }
         let bound = &members[start..end];
+        // 分组字节在构造前精确入账：路线记录 + 车辆计数 + 逐成员长度前缀记录。
+        let mut group_bytes = u64::try_from(route_bytes.len()).unwrap_or(u64::MAX) + 8;
+        for (_, index) in bound {
+            group_bytes = group_bytes.saturating_add(8u64.saturating_add(
+                u64::try_from(vehicle_records[*index].1.len()).unwrap_or(u64::MAX),
+            ));
+        }
+        budget.charge(group_bytes)?;
         let mut group = Vec::new();
         digest_try_reserve_exact(&mut group, route_bytes.len() + 8)?;
         group.extend_from_slice(route_bytes);
@@ -676,8 +697,21 @@ impl crate::kernel::state::WorldState {
                 StateInvariantViolation::ConflictAuthorityMismatch,
             ))?;
 
-        // 路线：live 槽位序分配局部 ID，单条物化立即归一化后丢弃。
-        let route_capacity = usize::try_from(self.committed.live_route_count).unwrap_or(0);
+        // 路线：live 槽位序分配局部 ID，单条物化立即归一化后丢弃。容量取
+        // 实测存活路线数并核对 committed 计数器——失真计数不得经隐式扩容
+        // 绕过预算与预留（完整性设计 §4.3：直算不假设输入结构闭合）。
+        let route_capacity = self
+            .committed
+            .routes
+            .iter()
+            .filter(|slot| slot.compiled.is_some())
+            .count();
+        if route_capacity != usize::try_from(self.committed.live_route_count).unwrap_or(usize::MAX)
+        {
+            return Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::LiveRouteCountMismatch,
+            ));
+        }
         budget.charge_elements::<(u64, Vec<u8>)>(route_capacity)?;
         budget.charge_elements::<(u32, u32, u64)>(route_capacity)?;
         let mut route_records: Vec<(u64, Vec<u8>)> = Vec::new();
@@ -713,7 +747,13 @@ impl crate::kernel::state::WorldState {
         };
 
         // 车辆：live 槽位序分配局部 ID；悬空路线句柄显式报告不变量破坏。
-        let vehicle_capacity = self.committed.live_order.len();
+        // 容量取实测存活车辆数（live 顺序完整性随后单独核对）。
+        let vehicle_capacity = self
+            .committed
+            .vehicles
+            .iter()
+            .filter(|slot| slot.state.is_some())
+            .count();
         budget.charge_elements::<(u64, Vec<u8>, u64)>(vehicle_capacity)?;
         budget.charge_elements::<(u32, u32, u64)>(vehicle_capacity)?;
         let mut vehicle_records: Vec<(u64, Vec<u8>, u64)> = Vec::new();
@@ -761,11 +801,7 @@ impl crate::kernel::state::WorldState {
         vehicle_records.sort_unstable_by_key(|entry| entry.0);
         vehicle_ids.sort_unstable();
 
-        let route_groups = canonical_route_groups(&vehicle_records, &route_records)?;
-        budget.charge_elements::<Vec<u8>>(route_groups.len())?;
-        for group in &route_groups {
-            budget.charge(u64::try_from(group.len()).unwrap_or(u64::MAX))?;
-        }
+        let route_groups = canonical_route_groups(&vehicle_records, &route_records, &mut budget)?;
 
         // canonical 组装：前缀 + 等待区 + 冲突滞后 + 路线分组 + live 序。
         budget.charge(u64::try_from(canonical_prefix_len()).unwrap_or(u64::MAX))?;
@@ -811,6 +847,7 @@ impl crate::kernel::state::WorldState {
             waiting_zone_records.push(record);
         }
         waiting_zone_records.sort_unstable();
+        charge_canonical_segment(&mut budget, &waiting_zone_records)?;
         try_push_u64(
             &mut canonical,
             u64::try_from(waiting_zone_records.len()).expect("WaitingZone count fits u64"),
@@ -839,6 +876,7 @@ impl crate::kernel::state::WorldState {
             conflict_lag_records.push(record);
         }
         conflict_lag_records.sort_unstable();
+        charge_canonical_segment(&mut budget, &conflict_lag_records)?;
         try_push_u64(
             &mut canonical,
             u64::try_from(conflict_lag_records.len()).expect("Conflict lag count fits u64"),
@@ -847,6 +885,7 @@ impl crate::kernel::state::WorldState {
             try_push_record(&mut canonical, record)?;
         }
 
+        charge_canonical_segment(&mut budget, &route_groups)?;
         try_push_u64(
             &mut canonical,
             u64::try_from(route_groups.len()).expect("route group count fits u64"),
@@ -854,10 +893,6 @@ impl crate::kernel::state::WorldState {
         for group in &route_groups {
             try_push_record(&mut canonical, group)?;
         }
-        try_push_u64(
-            &mut canonical,
-            u64::try_from(self.committed.live_order.len()).expect("live order count fits u64"),
-        )?;
         let vehicle_id_for = |generation: u32, index: u32| -> Option<u64> {
             vehicle_ids
                 .binary_search_by_key(&(generation, index), |entry| (entry.0, entry.1))
@@ -874,12 +909,49 @@ impl crate::kernel::state::WorldState {
                 .binary_search_by_key(&snapshot_route_id, |entry| entry.0)
                 .expect("direct vehicle route closes over direct routes")
         };
-        for handle in &self.committed.live_order {
+        // live 顺序必须是存活车辆的完整无重复排列：长度先核（遗漏直接暴露），
+        // 写入时以命中标记核对唯一性——只验证句柄可解析不足以拒绝失真状态。
+        let live_order = &self.committed.live_order;
+        if live_order.len() != vehicle_capacity {
+            return Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::IncompleteLiveOrder,
+            ));
+        }
+        budget.charge_elements::<bool>(live_order.len())?;
+        let mut seen = vec![false; vehicle_capacity];
+        digest_try_reserve_exact(&mut seen, 0)?;
+        let mut live_segment_bytes = 8_u64;
+        for handle in live_order {
             let snapshot_vehicle_id = vehicle_id_for(handle.generation(), handle.index()).ok_or(
                 SnapshotDigestError::InvariantViolation(
                     StateInvariantViolation::DanglingLiveOrderEntry,
                 ),
             )?;
+            let index = vehicle_index(snapshot_vehicle_id);
+            if seen[index] {
+                return Err(SnapshotDigestError::InvariantViolation(
+                    StateInvariantViolation::IncompleteLiveOrder,
+                ));
+            }
+            seen[index] = true;
+            let snapshot_route_id = vehicle_records[index].2;
+            live_segment_bytes = live_segment_bytes
+                .saturating_add(8)
+                .saturating_add(u64::try_from(vehicle_records[index].1.len()).unwrap_or(u64::MAX))
+                .saturating_add(8)
+                .saturating_add(
+                    u64::try_from(route_records[route_index(snapshot_route_id)].1.len())
+                        .unwrap_or(u64::MAX),
+                );
+        }
+        budget.charge(live_segment_bytes)?;
+        try_push_u64(
+            &mut canonical,
+            u64::try_from(live_order.len()).expect("live order count fits u64"),
+        )?;
+        for handle in live_order {
+            let snapshot_vehicle_id =
+                vehicle_id_for(handle.generation(), handle.index()).expect("verified handle");
             let index = vehicle_index(snapshot_vehicle_id);
             let snapshot_route_id = vehicle_records[index].2;
             try_push_record(&mut canonical, &vehicle_records[index].1)?;
@@ -891,6 +963,20 @@ impl crate::kernel::state::WorldState {
         hasher.update(&canonical);
         Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
     }
+}
+
+/// canonical 一段追加（计数 u64 + 逐记录长度前缀）在写入前整体入账。
+fn charge_canonical_segment(
+    budget: &mut NormalizationBudget,
+    records: &[Vec<u8>],
+) -> Result<(), SnapshotDigestError> {
+    let mut bytes = 8_u64;
+    for record in records {
+        bytes = bytes
+            .saturating_add(8)
+            .saturating_add(u64::try_from(record.len()).unwrap_or(u64::MAX));
+    }
+    budget.charge(bytes)
 }
 
 /// capture 助手错误到直算错误的映射（Conflict authority 不变量 → 显式变体）。
@@ -1061,7 +1147,14 @@ mod tests {
             route_records.sort_unstable_by_key(|record| record.0);
             vehicle_records.reverse();
             assert_eq!(
-                canonical_route_groups(&vehicle_records, &route_records).unwrap(),
+                canonical_route_groups(
+                    &vehicle_records,
+                    &route_records,
+                    &mut NormalizationBudget {
+                        remaining: u64::MAX,
+                    },
+                )
+                .unwrap(),
                 expected
             );
         }
@@ -1237,6 +1330,100 @@ mod tests {
             SnapshotDigestError::InvariantViolation(
                 StateInvariantViolation::ConflictAuthorityMismatch
             )
+        );
+    }
+    /// 限额边界单调：存在精确临界值——恰好在阈值成功、少一字节即
+    /// `LimitExceeded`（预算覆盖全部归一化分配，含成员表与 canonical 追加）。
+    #[test]
+    fn direct_digest_limit_boundary_is_exact_and_monotonic() {
+        let (world, _, _) = world_with_vehicle(true);
+        let high = SnapshotDigestLimits::new(1024 * 1024);
+        assert!(world.direct_state_digest(high).is_ok(), "宽松限额必须成功");
+        let mut low = 0_u64;
+        let mut high_bytes = high.max_normalization_bytes();
+        while high_bytes - low > 1 {
+            let middle = low + (high_bytes - low) / 2;
+            match world.direct_state_digest(SnapshotDigestLimits::new(middle)) {
+                Ok(_) => high_bytes = middle,
+                Err(SnapshotDigestError::LimitExceeded) => low = middle,
+                Err(other) => panic!("二分中只允许限额错误，得到 {other:?}"),
+            }
+        }
+        assert_eq!(
+            world.direct_state_digest(SnapshotDigestLimits::new(high_bytes)),
+            world.direct_state_digest(SnapshotDigestLimits::new(high_bytes)),
+            "临界值稳定成功"
+        );
+        assert_eq!(
+            world.direct_state_digest(SnapshotDigestLimits::new(high_bytes - 1)),
+            Err(SnapshotDigestError::LimitExceeded),
+            "临界值减一字节必须超限（预算覆盖全部实际分配）"
+        );
+    }
+
+    /// live 顺序清空（保留存活车辆）不得签发摘要：完整性检查拒绝。
+    #[test]
+    fn direct_digest_rejects_cleared_live_order() {
+        let (mut world, _, _) = world_with_vehicle(true);
+        world.state.committed.live_order.clear();
+        assert_eq!(
+            world.direct_state_digest(SnapshotDigestLimits::new(1024 * 1024)),
+            Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::IncompleteLiveOrder,
+            )),
+            "遗漏的 live 顺序按不变量破坏拒绝，不签发摘要"
+        );
+    }
+
+    /// live 顺序长度相符但含重复条目：唯一性标记拒绝。
+    #[test]
+    fn direct_digest_rejects_duplicated_live_order() {
+        let (mut world, _, _) = world_with_vehicle(true);
+        let first = laneflow_static_contract::LaneEdgeOrdinal::from_raw(0);
+        let successors: &[laneflow_static_contract::LaneEdgeOrdinal] =
+            world.traffic().successors(first).unwrap_or(&[]);
+        let edges = if let Some(second) = successors.first() {
+            vec![first, *second]
+        } else {
+            vec![first]
+        };
+        let second = world
+            .register_route(crate::RouteRegisterInput::new(edges))
+            .expect("second route");
+        // parked spawn 不占车道：与现有 Active 车辆位置无冲突。
+        let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+        world
+            .spawn_parked_vehicle(
+                crate::ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    second,
+                    0,
+                    1_000,
+                ),
+                crate::ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("second vehicle");
+        // 两辆车、live 顺序替换为同一句柄两次：长度相符但重复。
+        let duplicated = world.state.committed.live_order[0];
+        world.state.committed.live_order[1] = duplicated;
+        assert_eq!(
+            world.direct_state_digest(SnapshotDigestLimits::new(1024 * 1024)),
+            Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::IncompleteLiveOrder,
+            )),
+        );
+    }
+
+    /// committed 的 live 路线计数失真：与实测存活路线数核对后拒绝。
+    #[test]
+    fn direct_digest_rejects_distorted_route_count() {
+        let (mut world, _, _) = world_with_vehicle(true);
+        world.state.committed.live_route_count += 1;
+        assert_eq!(
+            world.direct_state_digest(SnapshotDigestLimits::new(1024 * 1024)),
+            Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::LiveRouteCountMismatch,
+            )),
         );
     }
     #[test]
