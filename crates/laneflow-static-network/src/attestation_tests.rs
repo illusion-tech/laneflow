@@ -959,8 +959,9 @@ fn same_value_mismatch_across_entity_kinds_is_distinct_evidence() {
     ));
 }
 
-/// 来源复算未完成：操作失败结果保留首次证据（TransientSourceFailure 入
-/// source_audit），遥测仍发出 L3 Retry 处置（不伪造三值结论）。
+/// 来源复算未完成：操作失败结果保留首次证据（SourceRecomputeIncomplete
+/// 入 source_audit，不得记为瞬时恢复），遥测仍发出 L3 Retry 处置（不伪造
+/// 三值结论）。
 #[test]
 fn recompute_incomplete_retains_first_evidence_and_emits_retry() {
     let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
@@ -984,8 +985,15 @@ fn recompute_incomplete_retains_first_evidence_and_emits_retry() {
                 failure
                     .source_audit
                     .iter()
+                    .any(|note| matches!(note, SourceAuditNote::SourceRecomputeIncomplete { .. })),
+                "首次来源失配证据以未完成复算标签保留在操作失败结果中"
+            );
+            assert!(
+                !failure
+                    .source_audit
+                    .iter()
                     .any(|note| matches!(note, SourceAuditNote::TransientSourceFailure { .. })),
-                "首次来源失配证据保留在操作失败结果中"
+                "复算未完成不得记为瞬时恢复（复算没有通过）"
             );
         }
         other => panic!("expected operation failure, got {other:?}"),
