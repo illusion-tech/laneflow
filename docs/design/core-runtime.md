@@ -5,8 +5,7 @@
 **适用范围**: 说明 v0.1 `CoreWorld` 运行时基线已被替换
 
 `laneflow-core` / `CoreWorld` 已随 #301 拆除。可运行交通世界是
-`laneflow-runtime` / `TrafficWorld`，安装共享根绑定聚合 `SharedRootBinding`（目标形状（#955 G1）；
-现行实现仍收 `Arc<SharedNetworkRevision>`）。
+`laneflow-runtime` / `TrafficWorld`，安装 `Arc<SharedNetworkRevision>`。
 
 tick、确定性与失败原子性的长期决策仍以
 [`../adr/0003-runtime-tick-and-determinism.md`](../adr/0003-runtime-tick-and-determinism.md)

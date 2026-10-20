@@ -62,7 +62,7 @@ impl ExecutionConfig {
 
 impl TrafficWorld {
     pub fn install(
-        revision: SharedRootBinding, // 共享根绑定聚合（#955 G1）
+        revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
         execution: ExecutionConfig,
         source: CommittedNetworkSource,
@@ -76,7 +76,7 @@ impl TrafficWorld {
 
 pub fn restore_lfrs(
     bytes: &[u8],
-    revision: SharedRootBinding, // 共享根绑定聚合（#955 G1）
+    revision: Arc<SharedNetworkRevision>,
     source: CommittedNetworkSource,
     target_config: WorldConfig,
     execution: ExecutionConfig,

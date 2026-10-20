@@ -97,9 +97,9 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享根重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 停车状态    | 保存 `Reserved \| Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                                                                                                                                                                                                                                                |
+| 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                                                                                                                                                                                                                                                |
 | Waiting     | 每车保存可选 maneuver traversal 与 semantic membership；每个有逻辑历史的 zone 保存 `WaitingZone StableId128`、occupancy 与单调 `nextAdmissionSequence`。queue link、tick-local claim 与 latest output batch 不入档                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Conflict    | 每车保存可选 exact Gate occurrence eligibility（含 `firstEligibleTick`），或 `Clearing` Gate marker 与该车的 reservation wire row（acquired tick、passage stable locator/route occurrence 证明、committed downstream 物理区间并集）；restore 后 eligibility 必须同时满足 exact locator/位置与所选 policy 在已恢复时刻对 admission Gate 的 `Candidate` 决策，`DenyAndStop` 整体拒绝；完整 reservation 只安装进 `ConflictArbiter`，vehicle 不保留副本。每个非 `NoHistory` cell 保存 tagged `ActualClear \| CutoverFloor` 与时间。occupant/cleared、profile 派生的跟车间隙、frontier、tick-local grant 和内部 serial 不入档 |
+| Conflict    | 每车保存可选 exact Gate occurrence eligibility（含 `firstEligibleTick`），或 `Clearing` Gate marker 与该车的 reservation wire row（acquired tick、passage stable locator/route occurrence 证明、committed downstream 物理区间并集）；restore 后 eligibility 必须同时满足 exact locator/位置与所选 policy 在已恢复时刻对 admission Gate 的 `Candidate` 决策，`DenyAndStop` 整体拒绝；完整 reservation 只安装进 `ConflictArbiter`，vehicle 不保留副本。每个非 `NoHistory` cell 保存 tagged `ActualClear | CutoverFloor` 与时间。occupant/cleared、profile 派生的跟车间隙、frontier、tick-local grant 和内部 serial 不入档 |
 | live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -156,13 +156,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 
 - 保存只接受活动聚合的 `CommittedNetworkSource`；working / candidate 与
   `EditableDiffBase` 不入档。候选准备期的保存仍只捕获旧聚合（切换文档 §8）。
-- **完整性（#955 G1，见
-  [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.4/§7）**：
-  完整性失败关闭的世界拒绝保存，返回完整性终止性错误；共享租约已被其他消费者置位时
-  同样拒绝——`capture_snapshot` 在入口核对租约、交付前复核（只读租约，不对 C(T) 作
-  校验）。正常世界的保存路径不加完整性门控。检测滞后内被保存的检查点可能包含坏状态（完整性设计 §5 漏检面第 7 条），兜底
-  为宿主审计重放与处置丢弃。恢复期共享根绑定聚合的认证或基线建立失败同理：零部分
-  恢复、不发布 world。
+- **共享根认证（#955 G1，见
+  [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）**：
+  宿主在恢复与跨修订迁移把重建 / 重新认证的根投入使用之前执行共享根认证；结论非
+  `Pass` 时不恢复、不发布 world。保存路径不加完整性门控；检测滞后内被保存的检查点
+  可能包含坏状态（完整性设计 §5 第 7 条），兜底为宿主审计重放与处置丢弃。
 - **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
   editable 从 committed `RoadEditingState` 重编译，published 经
   `PublishedLfcaReference` 重新认证。同修订判据 = `NetworkRevisionId` +
@@ -206,8 +204,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
   上限 → size prefix / file identifier → 有界 FlatBuffers verifier → 版本/绑定/配置与
   表基数预检 → 标识、引用、排列、停车和值不变量 lowering → 局部 world 路线/车辆/
-  占用重建 → 执行能力校验。任一失败只丢弃 staging；world **发布前**复核共享根租约
-  （毒标 ∨ 世代，#955 发布门），不一致 = 零部分恢复、不发布 world；成功才返回 world 与快照局部路线/车辆 ID 到新
+  占用重建 → 执行能力校验。任一失败只丢弃 staging；成功才返回 world 与快照局部路线/车辆 ID 到新
   句柄的映射。fresh restore 从初始 `WorldGeneration` / 初始观测 stream 建立；调用方
   不得让同一 `world_id` 的旧 world 或旧 session 并存。Published 目标允许同修订
   重发布的 digest / length 不同，但目标 source 与目标根、快照 source 与快照根各自的
@@ -308,15 +305,12 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - **完整性接缝（#955 G1，见
   [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md)）**：
   C(T) 的完整性检测由宿主承担：宿主检查点对拍与审计重放（在独立世界、独立进程或
-  另一台机器上从较早检查点重放并比对三元组）覆盖 C(T) 与热状态失真，换机器重放可
-  区分环境失真与确定性缺陷；Runtime 不登记检查点锚或命令摘要。Runtime 内检测只覆盖
-  共享静态根。完整性失配（页级内存失真检出）与失同步共用
-  同一处置权威（归宿主），但停机语义不同：失同步状态仍是合法确定性状态，只诊断不停
-  机；完整性失配的状态可信度已被破坏，Runtime **失败关闭**（停止推进、不自动纠偏 /
-  回滚 / 重演 / 重启），宿主按检查点 + 输入命令序列处置。共享静态根不在 C(T) 内
-  （ADR 0030），其失配不属回滚 / 重演可修复面，只能根重建。完整性校验不进入
-  committed-state barrier；根基线表是进程内诊断状态，不进入本快照、不进入确定性
-  状态摘要前像，digest 7 / runtime state 5 版本轴不变。
+  另一台机器上从较早检查点重放并比对三元组）覆盖进入 C(T) 的失真；换机器重放是判因
+  证据，不单独构成判因。Runtime 不登记检查点锚或命令摘要。完整性失配与失同步共用同一
+  处置权威（归宿主），区别只在是否停用：失同步状态仍是合法确定性状态，只诊断不停用；
+  完整性失配的对象可信度已被破坏，宿主先停用再按检查点 + 输入命令序列处置。共享静态根
+  不在 C(T) 内（ADR 0030），其失配不属回滚 / 重演可修复面，只能根重建。完整性不进入
+  本快照、确定性状态摘要前像与 tick 路径，digest 7 / runtime state 5 版本轴不变。
 
 ## 7. 跨修订迁移入口
 

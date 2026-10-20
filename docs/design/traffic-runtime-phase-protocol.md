@@ -435,13 +435,6 @@ P7 内允许按现行依赖先提交 Conflict 转移、移除 Waiting 旧 member
 观察载荷在 P5 准备，P8 移交已经准备好的载荷；不因本设计改动它的 API。
 宿主另行请求的 full/delta observation export 仍由原有 session 管理，不自动每拍导出。
 
-**完整性入口预检在阶段协议之外（#955 G1）**：完整性开启时，`step` 在 P0 之前执行
-共享根入口预检（见 [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md)
-§4.2/§4.4）：只读不可变共享根与根校验器自有状态，不读写 C(T)；失败时 P0 不开始、
-以完整性终止性错误返回，不改变 P0–P8 的首错、事件与提交语义，不增加可恢复
-`StepError`。P7 开始前复核共享根完整性租约（毒标 ∨ 世代变化即不提交并失败关闭）。
-本节 P7/P8 规则不因完整性改变；完整性不在 P7 内新增计算或期望值发布。
-
 ### 5.3 游标和管理数据
 
 - 普通 successful step 增加 `tick_index`、`time_ms` 和

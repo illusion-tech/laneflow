@@ -316,10 +316,8 @@ partition plan 不进入快照。ADR 0028 把那些可变状态中的一维几�
 [`traffic-observation-and-routing-integration.md`](design/traffic-observation-and-routing-integration.md)。
 
 历史 `InitialTrafficData` 只表示 Core 时代可用于初始化 world 的已验证静态 JSON
-输入。#301 后可运行世界由 `TrafficWorld::install` 安装，不再从 current JSON /
-`InitialTrafficData` 构造；目标形状（#955 G1）输入是共享根绑定聚合 `SharedRootBinding`（根 `Arc` +
-共享根完整性租约 + 构建方旁车基线），现行实现仍收 `Arc<SharedNetworkRevision>`，由 #959
-迁移，不保留只传根的入口。
+输入。#301 后可运行世界由 `TrafficWorld::install(Arc<SharedNetworkRevision>)`
+安装，不再从 current JSON / `InitialTrafficData` 构造。
 
 Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、
@@ -382,11 +380,9 @@ Adapter 不再从 current JSON 安装可运行世界；它消费 `TrafficWorld` 
 
 ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只 `bind` 共享根绑定聚合
-（#955 G1），不依赖
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只 `bind` 同一根 `Arc`，不依赖
 Runtime，也不从 Runtime 发布的 snapshot/facade 借用。同时持有 world 与 session 的 Adapter
-必须按共享根绑定聚合身份配对（同一租约 + 旁车基线；根 `Arc::ptr_eq` 仅为必要条件，
-#955 G1）。不存在独立 component 安装或重新组合 API。#302 若发布
+必须 `Arc::ptr_eq`。不存在独立 component 安装或重新组合 API。#302 若发布
 revision-bound 只读 facade，必须内部保留同一根 `Arc`，不得把 Spatial 绑到 Runtime 类型。
 Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则或单独替换 component。
 它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或
