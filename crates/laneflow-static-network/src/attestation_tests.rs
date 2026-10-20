@@ -1136,6 +1136,7 @@ impl AttestationTelemetry for RecordingSink {
             AttestationEvent::Trace(_) => "trace",
             AttestationEvent::Verdict { .. } => "verdict",
             AttestationEvent::Mismatch(_) => "mismatch",
+            AttestationEvent::SourceAudit(_) => "source_audit",
             AttestationEvent::Disposition { .. } => "disposition",
         };
         self.events.push(label);
@@ -1260,6 +1261,127 @@ fn telemetry_sink_panic_is_absorbed() {
         report.telemetry_dropped > 0,
         "sink panic 记为遥测丢失并随结果返回，不经故障 sink 报告"
     );
+}
+
+/// 保留的来源审计诊断经 SourceAudit 事件进入遥测（L2 补充），覆盖瞬时
+/// 恢复与复算未完成两条真实路径；证据不稳定经 emit_telemetry 直测；新事件
+/// 投递失败计入 telemetry_dropped 且不改变结论。
+#[test]
+fn source_audit_notes_reach_telemetry_on_both_paths() {
+    // 瞬时恢复：首次来源失败、复算通过 → Pass 仍携带 SourceAudit 事件。
+    let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
+    test_injection::arm_source_preparation_panic_once();
+    let mut sink = RecordingSink::default();
+    let outcome = attest_shared_network_revision(
+        &root,
+        MIN_HEADLESS,
+        expectation_from(root.canonical_origin()),
+        FormatLimits::HARD,
+        SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
+        Some(&mut sink),
+    );
+    test_injection::reset();
+    let report = concluded(outcome);
+    assert_eq!(report.verdict, AttestationVerdict::Pass);
+    assert!(
+        sink.events.contains(&"source_audit"),
+        "Pass 携带来源诊断事件"
+    );
+    assert!(
+        !sink.events.contains(&"mismatch"),
+        "来源诊断不冒充 Mismatch 事件"
+    );
+
+    // 复算未完成：操作失败路径同样发出保留诊断。
+    let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
+    test_injection::arm_source_preparation_panic_once();
+    arm_allocation_failure_injection(1);
+    let mut sink = RecordingSink::default();
+    let outcome = attest_shared_network_revision(
+        &root,
+        MIN_HEADLESS,
+        expectation_from(root.canonical_origin()),
+        FormatLimits::HARD,
+        SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
+        Some(&mut sink),
+    );
+    test_injection::reset();
+    reset_allocation_failure_injection();
+    assert!(matches!(
+        outcome,
+        AttestationOutcome::OperationFailed(ref failure)
+            if failure.kind == OperationFailureKind::RecomputeIncomplete
+    ));
+    assert!(
+        sink.events.contains(&"source_audit"),
+        "操作失败路径发出 SourceRecomputeIncomplete 诊断事件"
+    );
+
+    // 证据不稳定（操作失败）：emit_telemetry 直测——真实路径无法构造两次
+    // 不同的来源失败证据。
+    let unstable = AttestationOutcome::OperationFailed(crate::attestation::OperationFailure {
+        kind: OperationFailureKind::SourceEvidenceUnstable,
+        detail: "unstable".to_string(),
+        source_audit: vec![SourceAuditNote::SourceEvidenceUnstable {
+            first: Box::new(MismatchEvidence {
+                stage: attestation::AttestationStage::SourcePreparation,
+                site: MismatchSite::SourceFailure {
+                    detail: SourceFailureDetail::Panic("a".to_string()),
+                },
+            }),
+            recompute: Box::new(MismatchEvidence {
+                stage: attestation::AttestationStage::SourcePreparation,
+                site: MismatchSite::SourceFailure {
+                    detail: SourceFailureDetail::Panic("b".to_string()),
+                },
+            }),
+        }],
+        telemetry_dropped: 0,
+    });
+    let mut unstable = unstable;
+    let mut sink = RecordingSink::default();
+    let dropped = attestation::emit_telemetry(Some(&mut sink), &mut unstable, &[]);
+    assert_eq!(dropped, 0);
+    assert!(sink.events.contains(&"source_audit"));
+
+    // 新事件投递失败：计入 telemetry_dropped，不改变结论。
+    let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
+    test_injection::arm_source_preparation_panic_once();
+    let mut sink = RejectingSourceAuditSink::default();
+    let outcome = attest_shared_network_revision(
+        &root,
+        MIN_HEADLESS,
+        expectation_from(root.canonical_origin()),
+        FormatLimits::HARD,
+        SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
+        Some(&mut sink),
+    );
+    test_injection::reset();
+    let report = concluded(outcome);
+    assert_eq!(
+        report.verdict,
+        AttestationVerdict::Pass,
+        "投递失败不改变结论"
+    );
+    assert_eq!(report.telemetry_dropped, 1, "SourceAudit 投递失败计入丢失");
+    assert_eq!(sink.rejected, 1);
+}
+
+#[derive(Default)]
+struct RejectingSourceAuditSink {
+    rejected: u32,
+}
+
+impl AttestationTelemetry for RejectingSourceAuditSink {
+    fn emit(&mut self, event: AttestationEvent<'_>) -> Result<(), TelemetryDeliveryError> {
+        match event {
+            AttestationEvent::SourceAudit(_) => {
+                self.rejected += 1;
+                Err(TelemetryDeliveryError)
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// gates / targets 复合记录失配报告具名字段（rule / passage_local_index），

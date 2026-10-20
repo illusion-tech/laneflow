@@ -107,8 +107,14 @@ cargo +1.98.0 run --locked -p xtask -- check-runtime-architecture
   宏调用、导入/转导出和宏 token 路径保留 `include` 名称，规范化末段为该名称时保守拒绝，
   包含限定路径、显式别名和同名自定义对象；不额外解析宏命名空间。
   `include_str!` / `include_bytes!` 读取数据文件，继续允许。
-  除唯一 `admin/format_admission.rs` 外，生产模块不得显式引用格式依赖；kernel
-  的显式路径也不得指向 §1 所列管理操作模块。对入口同时核对逻辑名和物理文件。
+  格式符号分两类判定（#959 架构裁定）：**格式解析能力**（reader、preflight、
+  wire 访问等）只允许出现在唯一 `admin/format_admission.rs`；**公开契约类型**
+  （`FormatLimits`、`BoundedReReadableObjectSource`——reader 调用方签名的
+  参数类型，本身不解析格式）允许出现在 `admin/` 与 `facade/` 管理层签名中。
+  kernel 对一切格式符号保持全禁；检查把已知契约类型重导出路径
+  （经 `laneflow-static-network`）按前缀归一化回原路径，使直接引用、别名、
+  重导出与关联项路径得到一致判定。kernel 的显式路径也不得指向 §1 所列
+  管理操作模块。对入口同时核对逻辑名和物理文件。
 - 按 §2 核对格式入口的三个具体函数及可见声明，不能只检查部分语法节点后推断
   所有出口安全。对额外可见 trait 等声明直接拒绝，不为其实现通用类型解析。
 

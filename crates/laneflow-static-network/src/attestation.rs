@@ -423,6 +423,10 @@ pub enum AttestationEvent<'a> {
     },
     /// L2：失配现场。
     Mismatch(&'a MismatchEvidence),
+    /// L2 补充：保留的来源审计诊断（同修订重发布的字节身份差异、瞬时恢复、
+    /// 复算未完成与来源证据不稳定）。不冒充最终 `Mismatch`——`Pass` 结论
+    /// 也会携带这些诊断事件（完整性设计 §7）。
+    SourceAudit(&'a SourceAuditNote),
     /// L3：判因与处置提示（同时给出两种调用时机，宿主按所处时机取用）。
     Disposition {
         /// 判因对应的处置类别。
@@ -993,7 +997,7 @@ fn concluded(
 
 /// 遥测在结论确定之后、认证阶段的 `catch_unwind` 边界之外单独发出；
 /// sink 的失败或 panic 由本边界吸收，不改变结论（设计 §7）。
-fn emit_telemetry(
+pub(crate) fn emit_telemetry(
     sink: Option<&mut (dyn AttestationTelemetry + '_)>,
     outcome: &mut AttestationOutcome,
     trace: &[TraceStep],
@@ -1027,6 +1031,9 @@ fn emit_telemetry(
             if let Some(evidence) = &report.mismatch {
                 emit(sink, AttestationEvent::Mismatch(evidence));
             }
+            for note in &report.source_audit {
+                emit(sink, AttestationEvent::SourceAudit(note));
+            }
             emit(
                 sink,
                 AttestationEvent::Disposition {
@@ -1037,8 +1044,12 @@ fn emit_telemetry(
             );
         }
         // 操作失败不进入三值结论（不伪造 Verdict），但 L3 重试处置照发
-        // （设计 §7：调用方可能依赖遥测通道取得处置提示）。
-        AttestationOutcome::OperationFailed(_) => {
+        // （设计 §7：调用方可能依赖遥测通道取得处置提示）；保留的来源
+        // 审计诊断（复算未完成 / 证据不稳定的首次证据）同路径发出。
+        AttestationOutcome::OperationFailed(failure) => {
+            for note in &failure.source_audit {
+                emit(sink, AttestationEvent::SourceAudit(note));
+            }
             emit(
                 sink,
                 AttestationEvent::Disposition {
