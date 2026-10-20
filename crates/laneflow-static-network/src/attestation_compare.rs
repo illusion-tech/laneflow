@@ -57,13 +57,26 @@ fn f32_text(value: f32) -> String {
 
 /// 向量浮点证据：取首个位不等的分量并报告其值与位模式（不同 NaN payload
 /// 因此产生不同证据文本，复算判等不会把不同失配误认成同一证据）。
-fn vec3_text(expected: &[f32; 3], actual: &[f32; 3]) -> (String, String) {
+/// 分量级字段名：证据必须携带完整逻辑位置（分量轴），同值失配移到
+/// 另一分量是不同证据（复算归类据此判 Untrusted 而非确认 Mismatch）。
+const TANGENT_FIELDS: [&str; 3] = ["tangent[0]", "tangent[1]", "tangent[2]"];
+const UP_FIELDS: [&str; 3] = ["up[0]", "up[1]", "up[2]"];
+
+fn vec3_text(
+    fields: [&'static str; 3],
+    expected: &[f32; 3],
+    actual: &[f32; 3],
+) -> (&'static str, String, String) {
     let axis = expected
         .iter()
         .zip(actual)
         .position(|(expected, actual)| expected.to_bits() != actual.to_bits())
         .unwrap_or(0);
-    (f32_text(expected[axis]), f32_text(actual[axis]))
+    (
+        fields[axis],
+        f32_text(expected[axis]),
+        f32_text(actual[axis]),
+    )
 }
 
 fn f32_whole(expected: &f32, actual: &f32) -> FieldDiff {
@@ -606,12 +619,13 @@ fn cmp_segment(
         ));
     }
     if expected.tangent.map(f32::to_bits) != actual.tangent.map(f32::to_bits) {
-        let (expected_text, actual_text) = vec3_text(&expected.tangent, &actual.tangent);
-        return Some(("tangent", expected_text, actual_text));
+        let (field, expected_text, actual_text) =
+            vec3_text(TANGENT_FIELDS, &expected.tangent, &actual.tangent);
+        return Some((field, expected_text, actual_text));
     }
     if expected.up.map(f32::to_bits) != actual.up.map(f32::to_bits) {
-        let (expected_text, actual_text) = vec3_text(&expected.up, &actual.up);
-        return Some(("up", expected_text, actual_text));
+        let (field, expected_text, actual_text) = vec3_text(UP_FIELDS, &expected.up, &actual.up);
+        return Some((field, expected_text, actual_text));
     }
     None
 }
