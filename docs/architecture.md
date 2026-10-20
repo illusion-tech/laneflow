@@ -316,8 +316,10 @@ partition plan 不进入快照。ADR 0028 把那些可变状态中的一维几�
 [`traffic-observation-and-routing-integration.md`](design/traffic-observation-and-routing-integration.md)。
 
 历史 `InitialTrafficData` 只表示 Core 时代可用于初始化 world 的已验证静态 JSON
-输入。#301 后可运行世界由 `TrafficWorld::install(Arc<SharedNetworkRevision>)`
-安装，不再从 current JSON / `InitialTrafficData` 构造。
+输入。#301 后可运行世界由 `TrafficWorld::install` 安装，不再从 current JSON /
+`InitialTrafficData` 构造；目标形状（#955 G1）输入是共享根绑定聚合 `SharedRootBinding`（根 `Arc` +
+共享根完整性租约 + 构建方旁车基线），现行实现仍收 `Arc<SharedNetworkRevision>`，由 #959
+迁移，不保留只传根的入口。
 
 Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、
