@@ -21,7 +21,7 @@ pub const SNAPSHOT_FORMAT_VERSION: u32 = 6;
 pub const RUNTIME_STATE_VERSION: u16 = 5;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
-const FIRST_SNAPSHOT_ID: u64 = 1;
+pub(crate) const FIRST_SNAPSHOT_ID: u64 = 1;
 
 /// 快照捕获失败（#532 capture 轴错误族；`SnapshotRestoreError` 的保存侧对偶）。
 ///
@@ -624,23 +624,11 @@ impl crate::kernel::state::WorldState {
             );
             let snapshot_route_id = FIRST_SNAPSHOT_ID + routes.len() as u64;
             route_ids.push((slot.generation, handle.index(), snapshot_route_id));
-            let edge_ordinals = self
-                .route_edges(handle)
-                .expect("live route slot resolves edges");
-            let mut edges: Vec<ContractStableId128> = Vec::new();
-            capture_try_reserve_exact(&mut edges, edge_ordinals.len())?;
-            for ordinal in edge_ordinals {
-                edges.push(
-                    identity
-                        .stable_id(*ordinal)
-                        .map(|stable| *stable.as_untyped())
-                        .expect("live edge ordinal resolves to stable id"),
-                );
-            }
-            routes.push(CapturedRoute {
-                snapshot_route_id,
-                edges,
-            });
+            routes.push(
+                self.captured_route_at(identity, slot_index, snapshot_route_id)
+                    .transpose()
+                    .expect("live route slot yields captured route")?,
+            );
         }
         let mut route_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
             std::collections::HashMap::new();
@@ -660,325 +648,26 @@ impl crate::kernel::state::WorldState {
         capture_try_reserve_exact(&mut vehicles, self.committed.live_order.len())?;
         capture_try_reserve_exact(&mut vehicle_ids, self.committed.live_order.len())?;
         for (slot_index, slot) in self.committed.vehicles.iter().enumerate() {
-            let Some(state) = slot.state.as_ref() else {
+            if slot.state.is_none() {
                 continue;
-            };
+            }
             let snapshot_vehicle_id = FIRST_SNAPSHOT_ID + vehicles.len() as u64;
             vehicle_ids.push((
                 slot.generation,
                 u32::try_from(slot_index).expect("vehicle index fits u32"),
                 snapshot_vehicle_id,
             ));
-            let parking = self.committed.parking.binding(state.handle).map(|binding| {
-                let captured_target = |target: ParkingTarget| match target {
-                    ParkingTarget::ExplicitSpace(space) => CapturedParkingTarget::ExplicitSpace(
-                        *identity
-                            .stable_id(space)
-                            .expect("parking space ordinal resolves to stable id")
-                            .as_untyped(),
-                    ),
-                    ParkingTarget::VirtualPool(facility) => CapturedParkingTarget::VirtualPool(
-                        *identity
-                            .stable_id(facility)
-                            .expect("parking facility ordinal resolves to stable id")
-                            .as_untyped(),
-                    ),
-                };
-                match binding {
-                    ParkingBinding::Reserved(reservation) => {
-                        let virtual_entry = match reservation.target() {
-                            ParkingTarget::ExplicitSpace(_) => None,
-                            ParkingTarget::VirtualPool(facility) => {
-                                let selector = reservation
-                                    .virtual_entry_selector()
-                                    .expect("virtual reservation has selector");
-                                let facility_view = self
-                                    .binding
-                                    .revision
-                                    .traffic()
-                                    .relations()
-                                    .parking_facility(facility)
-                                    .expect("bound parking facility exists");
-                                let anchor = facility_view
-                                    .virtual_entries()
-                                    .get(selector.index())
-                                    .expect("bound virtual selector exists");
-                                Some(CapturedVirtualParkingEntry {
-                                    lane_edge: *identity
-                                        .stable_id(anchor.lane_edge())
-                                        .expect("parking anchor edge resolves to stable id")
-                                        .as_untyped(),
-                                    progress_mm: anchor.progress_mm(),
-                                })
-                            }
-                        };
-                        CapturedParkingBinding::Reserved {
-                            target: captured_target(reservation.target()),
-                            entry_route_occurrence: reservation.entry_route_occurrence(),
-                            virtual_entry,
-                        }
-                    }
-                    ParkingBinding::Occupied(target) => CapturedParkingBinding::Occupied {
-                        target: captured_target(target),
-                    },
-                }
-            });
-            let maneuver_traversal = state.maneuver_traversal.map(|traversal| {
-                let compiled = self
-                    .compiled_route(state.route)
-                    .expect("live traversal route exists");
-                let maneuver = compiled
-                    .maneuvers
-                    .get(traversal.maneuver_occurrence_index as usize)
-                    .expect("live traversal occurrence exists");
-                let (phase, phase_hop) = match traversal.phase {
-                    crate::ManeuverTraversalPhase::PreGate { next_gate_hop } => {
-                        (CapturedManeuverTraversalPhase::PreGate, next_gate_hop)
-                    }
-                    crate::ManeuverTraversalPhase::Committed {
-                        last_crossed_gate_hop,
-                    } => (
-                        CapturedManeuverTraversalPhase::Committed,
-                        last_crossed_gate_hop,
-                    ),
-                    crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
-                        (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
-                    }
-                    crate::ManeuverTraversalPhase::Clearing { admission_gate_hop } => {
-                        (CapturedManeuverTraversalPhase::Clearing, admission_gate_hop)
-                    }
-                };
-                let gate = compiled
-                    .hop_gate
-                    .get(phase_hop as usize)
-                    .copied()
-                    .flatten()
-                    .expect("traversal phase hop resolves Gate");
-                CapturedManeuverTraversal {
-                    maneuver_occurrence_index: traversal.maneuver_occurrence_index,
-                    maneuver_path: *identity
-                        .stable_id(maneuver.path)
-                        .expect("maneuver path resolves stable id")
-                        .as_untyped(),
-                    phase,
-                    phase_gate: *identity
-                        .stable_id(gate)
-                        .expect("maneuver Gate resolves stable id")
-                        .as_untyped(),
-                }
-            });
-            let waiting_membership = state.waiting_membership.map(|membership| {
-                let traversal = state
-                    .maneuver_traversal
-                    .expect("Waiting membership has traversal");
-                let compiled = self
-                    .compiled_route(state.route)
-                    .expect("live membership route exists");
-                let occurrence = compiled
-                    .waiting
-                    .iter()
-                    .find(|occurrence| {
-                        occurrence.maneuver_index == traversal.maneuver_occurrence_index
-                            && occurrence.zone == membership.waiting_zone
-                            && occurrence.release_hop == membership.release_hop
-                    })
-                    .expect("Waiting membership resolves occurrence");
-                let entry_gate = compiled.hop_gate[occurrence.entry_hop as usize]
-                    .expect("Waiting entry hop resolves Gate");
-                let release_gate = compiled.hop_gate[occurrence.release_hop as usize]
-                    .expect("Waiting release hop resolves Gate");
-                CapturedWaitingMembership {
-                    waiting_zone: *identity
-                        .stable_id(membership.waiting_zone)
-                        .expect("WaitingZone resolves stable id")
-                        .as_untyped(),
-                    maneuver_occurrence_index: traversal.maneuver_occurrence_index,
-                    entry_gate: *identity
-                        .stable_id(entry_gate)
-                        .expect("Waiting entry Gate resolves stable id")
-                        .as_untyped(),
-                    release_gate: *identity
-                        .stable_id(release_gate)
-                        .expect("Waiting release Gate resolves stable id")
-                        .as_untyped(),
-                    admission_sequence: membership.admission_sequence,
-                }
-            });
-            let stable_passage =
-                |locator: crate::ConflictPassageLocator| CapturedConflictPassageLocator {
-                    participant_stream: *locator.participant_stream_stable_id().as_untyped(),
-                    conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
-                };
-            let conflict_eligibility = self
-                .committed
-                .conflict_eligibility
-                .get(slot_index)
-                .copied()
-                .flatten()
-                .map(|eligibility| {
-                    let locator = eligibility.locator();
-                    let compiled = self
-                        .compiled_route(state.route)
-                        .expect("eligible vehicle route exists");
-                    let maneuver = compiled
-                        .maneuvers
-                        .get(locator.maneuver_occurrence_index() as usize)
-                        .expect("eligible maneuver occurrence exists");
-                    let gate = compiled
-                        .hop_gate
-                        .get(locator.admission_gate_hop() as usize)
-                        .copied()
-                        .flatten()
-                        .expect("eligible admission hop resolves Gate");
-                    CapturedConflictEligibility {
-                        maneuver_occurrence_index: locator.maneuver_occurrence_index(),
-                        maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
-                        admission_gate: *identity
-                            .stable_id(gate)
-                            .expect("eligible Gate resolves stable id")
-                            .as_untyped(),
-                        conflict_occurrence_index: locator.conflict_occurrence_index(),
-                        passage: stable_passage(locator.stable_locator()),
-                        first_eligible_tick: eligibility.first_eligible_tick(),
-                    }
-                });
-            let conflict_reservation = match conflict_view.authority(state.handle) {
-                None => None,
-                Some(authority) => {
-                    let reservation = authority.reservation;
-                    let compiled = self
-                        .compiled_route(state.route)
-                        .expect("reservation route exists");
-                    let range = reservation.passage_range();
-                    let maneuver = compiled
-                        .maneuvers
-                        .get(range.maneuver_occurrence_index() as usize)
-                        .expect("reservation maneuver occurrence exists");
-                    let gate = compiled
-                        .hop_gate
-                        .get(range.admission_gate_hop() as usize)
-                        .copied()
-                        .flatten()
-                        .expect("reservation admission hop resolves Gate");
-                    let mut passages = Vec::new();
-                    capture_try_reserve_exact(
-                        &mut passages,
-                        usize::try_from(range.passage_count()).expect("passage count fits usize"),
-                    )?;
-                    let passage_end = range
-                        .first_conflict_occurrence_index()
-                        .checked_add(range.passage_count())
-                        .expect("validated reservation passage range");
-                    for conflict_occurrence_index in
-                        range.first_conflict_occurrence_index()..passage_end
-                    {
-                        let occurrence = compiled
-                            .conflicts
-                            .get(conflict_occurrence_index as usize)
-                            .expect("reservation occurrence exists");
-                        let locator = self
-                            .conflict_passage_occurrence_locator(
-                                state.route,
-                                conflict_occurrence_index,
-                            )
-                            .expect("reservation occurrence resolves locator");
-                        passages.push(CapturedConflictPassage {
-                            conflict_occurrence_index,
-                            passage: stable_passage(locator.stable_locator()),
-                            entry_route_edge_index: occurrence.entry.route_edge_index,
-                            entry_progress_mm: occurrence.entry.progress_mm,
-                            clearance_route_edge_index: occurrence.clearance.route_edge_index,
-                            clearance_progress_mm: occurrence.clearance.progress_mm,
-                        });
-                    }
-                    let mut downstream_intervals = Vec::new();
-                    capture_try_reserve_exact(
-                        &mut downstream_intervals,
-                        usize::try_from(reservation.downstream_claim_count())
-                            .expect("downstream count fits usize"),
-                    )?;
-                    let mut committed_downstream = Vec::new();
-                    capture_try_reserve_exact(
-                        &mut committed_downstream,
-                        reservation.downstream_claim_count() as usize,
-                    )?;
-                    let follower_min_gap_mm = self
-                        .binding
-                        .revision
-                        .traffic()
-                        .relations()
-                        .vehicle_profile(state.profile)
-                        .expect("committed vehicle profile resolves")
-                        .min_gap_mm();
-                    for claim in authority.downstream_claims() {
-                        if claim.follower_min_gap_mm != follower_min_gap_mm {
-                            return Err(SnapshotCaptureError::ConflictInvariantViolation);
-                        }
-                        committed_downstream.push(claim.interval);
-                    }
-                    let mut derived_downstream = Vec::new();
-                    let downstream_plan = self
-                        .reservation_downstream_claim_plan(range, state.length_mm)
-                        .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
-                    capture_try_reserve_exact(
-                        &mut derived_downstream,
-                        downstream_plan.raw_interval_capacity(),
-                    )?;
-                    self.derive_reservation_downstream_claims_from_plan(
-                        downstream_plan,
-                        &mut derived_downstream,
-                    )
-                    .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
-                    if committed_downstream != derived_downstream {
-                        return Err(SnapshotCaptureError::ConflictInvariantViolation);
-                    }
-                    for interval in committed_downstream {
-                        downstream_intervals.push(CapturedConflictDownstreamInterval {
-                            lane_edge: *identity
-                                .stable_id(interval.edge())
-                                .expect("downstream edge resolves stable id")
-                                .as_untyped(),
-                            start_mm: interval.start_mm(),
-                            end_mm: interval.end_mm(),
-                        });
-                    }
-                    downstream_intervals
-                        .sort_unstable_by_key(|row| (row.lane_edge, row.start_mm, row.end_mm));
-                    Some(CapturedConflictReservation {
-                        acquired_tick: reservation.acquired_tick(),
-                        maneuver_occurrence_index: range.maneuver_occurrence_index(),
-                        maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
-                        admission_gate: *identity
-                            .stable_id(gate)
-                            .expect("reservation Gate resolves stable id")
-                            .as_untyped(),
-                        passages,
-                        downstream_intervals,
-                    })
-                }
-            };
-            vehicles.push(CapturedVehicle {
-                snapshot_vehicle_id,
-                snapshot_route_id: route_id_for(state.route.generation(), state.route.index()),
-                route_edge_index: state.route_edge_index,
-                progress_mm: state.progress_mm,
-                carry_um: state.carry_um,
-                speed_mm_s: state.speed_mm_s,
-                status: state.status,
-                profile: *identity
-                    .stable_id(state.profile)
-                    .expect("live profile ordinal resolves to stable id")
-                    .as_untyped(),
-                class: *identity
-                    .stable_id(state.class)
-                    .expect("live class ordinal resolves to stable id")
-                    .as_untyped(),
-                parking,
-                maneuver_traversal,
-                waiting_membership,
-                conflict_eligibility,
-                conflict_reservation,
-            });
+            vehicles.push(
+                self.captured_vehicle_at(
+                    identity,
+                    &conflict_view,
+                    &route_id_for,
+                    slot_index,
+                    snapshot_vehicle_id,
+                )
+                .transpose()
+                .expect("live vehicle slot yields captured vehicle")?,
+            );
         }
         let mut vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
             std::collections::HashMap::new();
@@ -1063,6 +752,378 @@ impl crate::kernel::state::WorldState {
             waiting_zones,
             conflict_lag_states,
         })
+    }
+
+    /// 从 live 路线槽位构造单条捕获记录（`capture_snapshot` 与直算摘要共用；
+    /// 局部 ID 由调用方按 live 槽位序分配）。槽位无编译路线时返回 `None`。
+    pub(crate) fn captured_route_at(
+        &self,
+        identity: &laneflow_static_network::SharedIdentityIndex,
+        slot_index: usize,
+        snapshot_route_id: u64,
+    ) -> Result<Option<CapturedRoute>, SnapshotCaptureError> {
+        let Some(slot) = self.committed.routes.get(slot_index) else {
+            return Ok(None);
+        };
+        if slot.compiled.is_none() {
+            return Ok(None);
+        }
+        let handle = crate::RouteHandle::new(
+            u32::try_from(slot_index).expect("route index fits u32"),
+            slot.generation,
+        );
+        let edge_ordinals = self
+            .route_edges(handle)
+            .expect("live route slot resolves edges");
+        let mut edges: Vec<ContractStableId128> = Vec::new();
+        capture_try_reserve_exact(&mut edges, edge_ordinals.len())?;
+        for ordinal in edge_ordinals {
+            edges.push(
+                identity
+                    .stable_id(*ordinal)
+                    .map(|stable| *stable.as_untyped())
+                    .expect("live edge ordinal resolves to stable id"),
+            );
+        }
+        Ok(Some(CapturedRoute {
+            snapshot_route_id,
+            edges,
+        }))
+    }
+
+    /// 从 live 车辆槽位构造单条捕获记录（`capture_snapshot` 与直算摘要共用；
+    /// 局部 ID 由调用方按 live 槽位序分配，`route_id_for` 解析所属路线的局部 ID，
+    /// 其命中语义由调用方保证）。槽位无车辆时返回 `Ok(None)`；Conflict
+    /// authority 不变量破坏原样透传 [`SnapshotCaptureError::ConflictInvariantViolation`]。
+    ///
+    /// # Panics
+    ///
+    /// 与 `capture_snapshot` 相同：live 状态引用的路线 / 路由 / 稳定标识无法解析时 panic
+    /// （capture 合同的前提，直算摘要入口以 `catch_unwind` 兜底为不变量破坏）。
+    pub(crate) fn captured_vehicle_at(
+        &self,
+        identity: &laneflow_static_network::SharedIdentityIndex,
+        conflict_view: &crate::kernel::conflict::ConflictPersistenceView<'_>,
+        route_id_for: &dyn Fn(u32, u32) -> u64,
+        slot_index: usize,
+        snapshot_vehicle_id: u64,
+    ) -> Result<Option<CapturedVehicle>, SnapshotCaptureError> {
+        let Some(slot) = self.committed.vehicles.get(slot_index) else {
+            return Ok(None);
+        };
+        if slot.state.is_none() {
+            return Ok(None);
+        }
+        let Some(state) = slot.state.as_ref() else {
+            return Ok(None);
+        };
+        let parking = self.committed.parking.binding(state.handle).map(|binding| {
+            let captured_target = |target: ParkingTarget| match target {
+                ParkingTarget::ExplicitSpace(space) => CapturedParkingTarget::ExplicitSpace(
+                    *identity
+                        .stable_id(space)
+                        .expect("parking space ordinal resolves to stable id")
+                        .as_untyped(),
+                ),
+                ParkingTarget::VirtualPool(facility) => CapturedParkingTarget::VirtualPool(
+                    *identity
+                        .stable_id(facility)
+                        .expect("parking facility ordinal resolves to stable id")
+                        .as_untyped(),
+                ),
+            };
+            match binding {
+                ParkingBinding::Reserved(reservation) => {
+                    let virtual_entry = match reservation.target() {
+                        ParkingTarget::ExplicitSpace(_) => None,
+                        ParkingTarget::VirtualPool(facility) => {
+                            let selector = reservation
+                                .virtual_entry_selector()
+                                .expect("virtual reservation has selector");
+                            let facility_view = self
+                                .binding
+                                .revision
+                                .traffic()
+                                .relations()
+                                .parking_facility(facility)
+                                .expect("bound parking facility exists");
+                            let anchor = facility_view
+                                .virtual_entries()
+                                .get(selector.index())
+                                .expect("bound virtual selector exists");
+                            Some(CapturedVirtualParkingEntry {
+                                lane_edge: *identity
+                                    .stable_id(anchor.lane_edge())
+                                    .expect("parking anchor edge resolves to stable id")
+                                    .as_untyped(),
+                                progress_mm: anchor.progress_mm(),
+                            })
+                        }
+                    };
+                    CapturedParkingBinding::Reserved {
+                        target: captured_target(reservation.target()),
+                        entry_route_occurrence: reservation.entry_route_occurrence(),
+                        virtual_entry,
+                    }
+                }
+                ParkingBinding::Occupied(target) => CapturedParkingBinding::Occupied {
+                    target: captured_target(target),
+                },
+            }
+        });
+        let maneuver_traversal = state.maneuver_traversal.map(|traversal| {
+            let compiled = self
+                .compiled_route(state.route)
+                .expect("live traversal route exists");
+            let maneuver = compiled
+                .maneuvers
+                .get(traversal.maneuver_occurrence_index as usize)
+                .expect("live traversal occurrence exists");
+            let (phase, phase_hop) = match traversal.phase {
+                crate::ManeuverTraversalPhase::PreGate { next_gate_hop } => {
+                    (CapturedManeuverTraversalPhase::PreGate, next_gate_hop)
+                }
+                crate::ManeuverTraversalPhase::Committed {
+                    last_crossed_gate_hop,
+                } => (
+                    CapturedManeuverTraversalPhase::Committed,
+                    last_crossed_gate_hop,
+                ),
+                crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
+                    (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
+                }
+                crate::ManeuverTraversalPhase::Clearing { admission_gate_hop } => {
+                    (CapturedManeuverTraversalPhase::Clearing, admission_gate_hop)
+                }
+            };
+            let gate = compiled
+                .hop_gate
+                .get(phase_hop as usize)
+                .copied()
+                .flatten()
+                .expect("traversal phase hop resolves Gate");
+            CapturedManeuverTraversal {
+                maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                maneuver_path: *identity
+                    .stable_id(maneuver.path)
+                    .expect("maneuver path resolves stable id")
+                    .as_untyped(),
+                phase,
+                phase_gate: *identity
+                    .stable_id(gate)
+                    .expect("maneuver Gate resolves stable id")
+                    .as_untyped(),
+            }
+        });
+        let waiting_membership = state.waiting_membership.map(|membership| {
+            let traversal = state
+                .maneuver_traversal
+                .expect("Waiting membership has traversal");
+            let compiled = self
+                .compiled_route(state.route)
+                .expect("live membership route exists");
+            let occurrence = compiled
+                .waiting
+                .iter()
+                .find(|occurrence| {
+                    occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                        && occurrence.zone == membership.waiting_zone
+                        && occurrence.release_hop == membership.release_hop
+                })
+                .expect("Waiting membership resolves occurrence");
+            let entry_gate = compiled.hop_gate[occurrence.entry_hop as usize]
+                .expect("Waiting entry hop resolves Gate");
+            let release_gate = compiled.hop_gate[occurrence.release_hop as usize]
+                .expect("Waiting release hop resolves Gate");
+            CapturedWaitingMembership {
+                waiting_zone: *identity
+                    .stable_id(membership.waiting_zone)
+                    .expect("WaitingZone resolves stable id")
+                    .as_untyped(),
+                maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                entry_gate: *identity
+                    .stable_id(entry_gate)
+                    .expect("Waiting entry Gate resolves stable id")
+                    .as_untyped(),
+                release_gate: *identity
+                    .stable_id(release_gate)
+                    .expect("Waiting release Gate resolves stable id")
+                    .as_untyped(),
+                admission_sequence: membership.admission_sequence,
+            }
+        });
+        let stable_passage =
+            |locator: crate::ConflictPassageLocator| CapturedConflictPassageLocator {
+                participant_stream: *locator.participant_stream_stable_id().as_untyped(),
+                conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
+            };
+        let conflict_eligibility = self
+            .committed
+            .conflict_eligibility
+            .get(slot_index)
+            .copied()
+            .flatten()
+            .map(|eligibility| {
+                let locator = eligibility.locator();
+                let compiled = self
+                    .compiled_route(state.route)
+                    .expect("eligible vehicle route exists");
+                let maneuver = compiled
+                    .maneuvers
+                    .get(locator.maneuver_occurrence_index() as usize)
+                    .expect("eligible maneuver occurrence exists");
+                let gate = compiled
+                    .hop_gate
+                    .get(locator.admission_gate_hop() as usize)
+                    .copied()
+                    .flatten()
+                    .expect("eligible admission hop resolves Gate");
+                CapturedConflictEligibility {
+                    maneuver_occurrence_index: locator.maneuver_occurrence_index(),
+                    maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
+                    admission_gate: *identity
+                        .stable_id(gate)
+                        .expect("eligible Gate resolves stable id")
+                        .as_untyped(),
+                    conflict_occurrence_index: locator.conflict_occurrence_index(),
+                    passage: stable_passage(locator.stable_locator()),
+                    first_eligible_tick: eligibility.first_eligible_tick(),
+                }
+            });
+        let conflict_reservation = match conflict_view.authority(state.handle) {
+            None => None,
+            Some(authority) => {
+                let reservation = authority.reservation;
+                let compiled = self
+                    .compiled_route(state.route)
+                    .expect("reservation route exists");
+                let range = reservation.passage_range();
+                let maneuver = compiled
+                    .maneuvers
+                    .get(range.maneuver_occurrence_index() as usize)
+                    .expect("reservation maneuver occurrence exists");
+                let gate = compiled
+                    .hop_gate
+                    .get(range.admission_gate_hop() as usize)
+                    .copied()
+                    .flatten()
+                    .expect("reservation admission hop resolves Gate");
+                let mut passages = Vec::new();
+                capture_try_reserve_exact(
+                    &mut passages,
+                    usize::try_from(range.passage_count()).expect("passage count fits usize"),
+                )?;
+                let passage_end = range
+                    .first_conflict_occurrence_index()
+                    .checked_add(range.passage_count())
+                    .expect("validated reservation passage range");
+                for conflict_occurrence_index in
+                    range.first_conflict_occurrence_index()..passage_end
+                {
+                    let occurrence = compiled
+                        .conflicts
+                        .get(conflict_occurrence_index as usize)
+                        .expect("reservation occurrence exists");
+                    let locator = self
+                        .conflict_passage_occurrence_locator(state.route, conflict_occurrence_index)
+                        .expect("reservation occurrence resolves locator");
+                    passages.push(CapturedConflictPassage {
+                        conflict_occurrence_index,
+                        passage: stable_passage(locator.stable_locator()),
+                        entry_route_edge_index: occurrence.entry.route_edge_index,
+                        entry_progress_mm: occurrence.entry.progress_mm,
+                        clearance_route_edge_index: occurrence.clearance.route_edge_index,
+                        clearance_progress_mm: occurrence.clearance.progress_mm,
+                    });
+                }
+                let mut downstream_intervals = Vec::new();
+                capture_try_reserve_exact(
+                    &mut downstream_intervals,
+                    usize::try_from(reservation.downstream_claim_count())
+                        .expect("downstream count fits usize"),
+                )?;
+                let mut committed_downstream = Vec::new();
+                capture_try_reserve_exact(
+                    &mut committed_downstream,
+                    reservation.downstream_claim_count() as usize,
+                )?;
+                let follower_min_gap_mm = self
+                    .binding
+                    .revision
+                    .traffic()
+                    .relations()
+                    .vehicle_profile(state.profile)
+                    .expect("committed vehicle profile resolves")
+                    .min_gap_mm();
+                for claim in authority.downstream_claims() {
+                    if claim.follower_min_gap_mm != follower_min_gap_mm {
+                        return Err(SnapshotCaptureError::ConflictInvariantViolation);
+                    }
+                    committed_downstream.push(claim.interval);
+                }
+                let mut derived_downstream = Vec::new();
+                let downstream_plan = self
+                    .reservation_downstream_claim_plan(range, state.length_mm)
+                    .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
+                capture_try_reserve_exact(
+                    &mut derived_downstream,
+                    downstream_plan.raw_interval_capacity(),
+                )?;
+                self.derive_reservation_downstream_claims_from_plan(
+                    downstream_plan,
+                    &mut derived_downstream,
+                )
+                .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
+                if committed_downstream != derived_downstream {
+                    return Err(SnapshotCaptureError::ConflictInvariantViolation);
+                }
+                for interval in committed_downstream {
+                    downstream_intervals.push(CapturedConflictDownstreamInterval {
+                        lane_edge: *identity
+                            .stable_id(interval.edge())
+                            .expect("downstream edge resolves stable id")
+                            .as_untyped(),
+                        start_mm: interval.start_mm(),
+                        end_mm: interval.end_mm(),
+                    });
+                }
+                downstream_intervals
+                    .sort_unstable_by_key(|row| (row.lane_edge, row.start_mm, row.end_mm));
+                Some(CapturedConflictReservation {
+                    acquired_tick: reservation.acquired_tick(),
+                    maneuver_occurrence_index: range.maneuver_occurrence_index(),
+                    maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
+                    admission_gate: *identity
+                        .stable_id(gate)
+                        .expect("reservation Gate resolves stable id")
+                        .as_untyped(),
+                    passages,
+                    downstream_intervals,
+                })
+            }
+        };
+        Ok(Some(CapturedVehicle {
+            snapshot_vehicle_id,
+            snapshot_route_id: route_id_for(state.route.generation(), state.route.index()),
+            route_edge_index: state.route_edge_index,
+            progress_mm: state.progress_mm,
+            carry_um: state.carry_um,
+            speed_mm_s: state.speed_mm_s,
+            status: state.status,
+            profile: *identity
+                .stable_id(state.profile)
+                .expect("live profile ordinal resolves to stable id")
+                .as_untyped(),
+            class: *identity
+                .stable_id(state.class)
+                .expect("live class ordinal resolves to stable id")
+                .as_untyped(),
+            parking,
+            maneuver_traversal,
+            waiting_membership,
+            conflict_eligibility,
+            conflict_reservation,
+        }))
     }
 }
 
