@@ -374,6 +374,15 @@ pub(crate) mod root_attestation;
         let fixture = SourceFixture::new(source, "");
         assert!(fixture.check().unwrap_err().contains("禁止依赖"));
     }
+    // kernel 经已知重导出路径或其别名引用契约类型同样拒绝。
+    for source in [
+        "use laneflow_static_network::FormatLimits; pub(crate) fn f(limits: FormatLimits) {}",
+        "pub(crate) fn g<S: laneflow_static_network::BoundedReReadableObjectSource>(lfca: S) {}",
+        "use laneflow_static_network as sn; pub(crate) fn h(limits: sn::FormatLimits) {}",
+    ] {
+        let fixture = SourceFixture::new(source, "");
+        assert!(fixture.check().unwrap_err().contains("禁止依赖"));
+    }
     let fixture = SourceFixture::new("", "");
     fixture
         .directory
@@ -383,6 +392,16 @@ pub(crate) mod root_attestation;
         "use laneflow_format::preflight_object_values; pub(crate) fn f() { preflight_object_values(); }",
     );
     assert!(fixture.check().unwrap_err().contains("禁止依赖"));
+    // 管理层经重导出路径引用契约类型与直接引用同一放行。
+    let fixture = SourceFixture::new("", "");
+    fixture
+        .directory
+        .write("admin/mod.rs", ADMIN_WITH_ATTESTATION);
+    fixture.directory.write(
+        "admin/root_attestation.rs",
+        "use laneflow_static_network::{BoundedReReadableObjectSource, FormatLimits}; pub(crate) fn f<S: BoundedReReadableObjectSource>(lfca: S, limits: FormatLimits) {}",
+    );
+    fixture.check().unwrap();
 }
 
 #[test]

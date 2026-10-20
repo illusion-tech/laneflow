@@ -375,11 +375,13 @@ fn traffic_table_distortion_reports_first_unequal_location() {
         MismatchSite::TableValue {
             component,
             table,
+            entity_kind,
             index,
             field,
             expected,
             actual,
         } => {
+            assert_eq!(entity_kind, None);
             assert_eq!(component, RootComponent::Traffic);
             assert_eq!(table, "lane_lengths_millimetres");
             assert_eq!(index, 0);
@@ -731,6 +733,7 @@ fn classify_recompute_table_source_side() {
         site: MismatchSite::TableValue {
             component: RootComponent::Traffic,
             table: "successors",
+            entity_kind: None,
             index: 0,
             field: "value",
             expected: "1".to_string(),
@@ -751,6 +754,7 @@ fn classify_recompute_table_source_side() {
         AttemptOutcome::OperationFailed(crate::attestation::OperationFailure {
             kind: OperationFailureKind::Cancelled,
             detail: "cancelled".to_string(),
+            source_audit: Vec::new(),
         }),
         Vec::new(),
     );
@@ -773,6 +777,7 @@ fn classify_recompute_table_root_side() {
             site: MismatchSite::TableValue {
                 component: RootComponent::PlanningHints,
                 table: "edge_boundary_weights",
+                entity_kind: None,
                 index,
                 field: "value",
                 expected: "1".to_string(),
@@ -818,6 +823,7 @@ fn classify_recompute_table_root_side() {
         AttemptOutcome::OperationFailed(crate::attestation::OperationFailure {
             kind: OperationFailureKind::Cancelled,
             detail: "cancelled".to_string(),
+            source_audit: Vec::new(),
         }),
         Vec::new(),
     ));
@@ -841,6 +847,190 @@ fn classify_recompute_table_root_side() {
     ));
     assert_eq!(report.verdict, AttestationVerdict::Mismatch);
     assert_eq!(report.cause, Some(AttestationCause::Indeterminate));
+}
+
+/// 不同 NaN payload 必须识别为不同证据：tangent 注入两个仅 payload 不同的
+/// NaN，两次认证的失配证据不得相等（复算归类依赖证据判等，证据相等性
+/// 不得因 Debug 展示相同而误判）。
+#[test]
+fn distinct_nan_payloads_produce_distinct_evidence() {
+    let first = {
+        let mut root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
+        distort(&mut root, |revision| {
+            let pose = revision
+                .spatial
+                .as_mut()
+                .expect("spatial")
+                .lane_pose
+                .as_mut()
+                .expect("lane pose");
+            assert!(!pose.segments.is_empty(), "fixture must carry segments");
+            pose.segments[0].tangent[0] = f32::from_bits(0x7FC0_0000);
+        });
+        let report = concluded(attest(
+            &root,
+            FULL_SPATIAL,
+            expectation_from(root.canonical_origin()),
+            SpatialBuildOption::RetainAvailable,
+        ));
+        assert_eq!(report.verdict, AttestationVerdict::Mismatch);
+        report.mismatch.expect("evidence")
+    };
+    let second = {
+        let mut root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
+        distort(&mut root, |revision| {
+            let pose = revision
+                .spatial
+                .as_mut()
+                .expect("spatial")
+                .lane_pose
+                .as_mut()
+                .expect("lane pose");
+            pose.segments[0].tangent[0] = f32::from_bits(0x7FC0_0001);
+        });
+        let report = concluded(attest(
+            &root,
+            FULL_SPATIAL,
+            expectation_from(root.canonical_origin()),
+            SpatialBuildOption::RetainAvailable,
+        ));
+        assert_eq!(report.verdict, AttestationVerdict::Mismatch);
+        report.mismatch.expect("evidence")
+    };
+    assert_ne!(first, second, "不同 NaN payload 的证据必须不同");
+}
+
+/// 相同数值失配从一种 EntityKind 移到另一种必须判为不同位置：identity
+/// 正向索引按 kind 展开为多张表，kind 进入证据身份。
+#[test]
+fn same_value_mismatch_across_entity_kinds_is_distinct_evidence() {
+    let kinds = {
+        let root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
+        let identity = root.identity();
+        let non_empty: Vec<_> = laneflow_static_contract::EntityKind::ALL
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !identity.forward[*index].is_empty())
+            .map(|(index, kind)| (index, *kind))
+            .collect();
+        assert!(
+            non_empty.len() >= 2,
+            "fixture must carry at least two non-empty identity kinds"
+        );
+        non_empty
+    };
+    let (first_index, first_kind) = kinds[0];
+    let (second_index, second_kind) = kinds[1];
+    let truncate_at = |root: &mut Arc<SharedNetworkRevision>, index: usize| {
+        distort(root, |revision| {
+            let column = &mut revision.identity.forward[index];
+            let mut values = column.to_vec();
+            values.truncate(values.len() - 1);
+            *column = values.into_boxed_slice();
+        });
+    };
+    let evidence_for = |index: usize| {
+        let mut root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
+        truncate_at(&mut root, index);
+        let report = concluded(attest(
+            &root,
+            FULL_SPATIAL,
+            expectation_from(root.canonical_origin()),
+            SpatialBuildOption::RetainAvailable,
+        ));
+        assert_eq!(report.verdict, AttestationVerdict::Mismatch);
+        report.mismatch.expect("evidence")
+    };
+    let first = evidence_for(first_index);
+    let second = evidence_for(second_index);
+    assert_ne!(first, second, "失配移到另一个 kind 的表是不同证据");
+    assert!(matches!(
+        (&first.site, &second.site),
+        (
+            MismatchSite::TableLength {
+                entity_kind: Some(a),
+                ..
+            },
+            MismatchSite::TableLength {
+                entity_kind: Some(b),
+                ..
+            }
+        ) if a == &first_kind && b == &second_kind
+    ));
+}
+
+/// 来源复算未完成：操作失败结果保留首次证据（TransientSourceFailure 入
+/// source_audit），遥测仍发出 L3 Retry 处置（不伪造三值结论）。
+#[test]
+fn recompute_incomplete_retains_first_evidence_and_emits_retry() {
+    let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
+    test_injection::arm_source_preparation_panic_once();
+    arm_allocation_failure_injection(1);
+    let mut sink = RecordingSink::default();
+    let outcome = attest_shared_network_revision(
+        &root,
+        MIN_HEADLESS,
+        expectation_from(root.canonical_origin()),
+        FormatLimits::HARD,
+        SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
+        Some(&mut sink),
+    );
+    test_injection::reset();
+    reset_allocation_failure_injection();
+    match outcome {
+        AttestationOutcome::OperationFailed(failure) => {
+            assert_eq!(failure.kind, OperationFailureKind::RecomputeIncomplete);
+            assert!(
+                failure
+                    .source_audit
+                    .iter()
+                    .any(|note| matches!(note, SourceAuditNote::TransientSourceFailure { .. })),
+                "首次来源失配证据保留在操作失败结果中"
+            );
+        }
+        other => panic!("expected operation failure, got {other:?}"),
+    }
+    assert!(sink.events.contains(&"disposition"), "L3 Retry 处置照发");
+    assert!(
+        !sink.events.contains(&"verdict"),
+        "操作失败不伪造三值结论事件"
+    );
+}
+
+/// revision 与字节身份同时不一致：同修订判据失配判来源，字节身份差异
+/// 诊断仍被记录（记录先于 revision 提前返回）。
+#[test]
+fn revision_and_byte_identity_mismatch_both_retained() {
+    let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
+    let healthy = *root.canonical_origin();
+    let mut flipped_digest = healthy.canonical_artifact_digest().as_bytes().to_owned();
+    flipped_digest[0] ^= 0xFF;
+    let mismatched = RootAttestationExpectation::new(
+        flip_revision(healthy.network_revision()),
+        Sha256Digest::from_bytes(flipped_digest),
+        healthy.canonical_artifact_byte_length(),
+    );
+    let report = concluded(attest(
+        &root,
+        MIN_HEADLESS,
+        mismatched,
+        SpatialBuildOption::RetainAvailable,
+    ));
+    assert_eq!(report.verdict, AttestationVerdict::Mismatch);
+    assert_eq!(report.cause, Some(AttestationCause::Source));
+    assert!(matches!(
+        report.mismatch.as_ref().expect("evidence").site,
+        MismatchSite::SourceFailure {
+            detail: SourceFailureDetail::RevisionCriterion { .. },
+        }
+    ));
+    assert!(
+        report.source_audit.iter().any(|note| matches!(
+            note,
+            SourceAuditNote::ByteIdentityDiffersFromReference { .. }
+        )),
+        "revision 失配的提前返回不得吞掉字节身份诊断"
+    );
 }
 
 #[derive(Default)]

@@ -55,6 +55,17 @@ fn f32_text(value: f32) -> String {
     format!("{value:?} (bits 0x{:08X})", value.to_bits())
 }
 
+/// 向量浮点证据：取首个位不等的分量并报告其值与位模式（不同 NaN payload
+/// 因此产生不同证据文本，复算判等不会把不同失配误认成同一证据）。
+fn vec3_text(expected: &[f32; 3], actual: &[f32; 3]) -> (String, String) {
+    let axis = expected
+        .iter()
+        .zip(actual)
+        .position(|(expected, actual)| expected.to_bits() != actual.to_bits())
+        .unwrap_or(0);
+    (f32_text(expected[axis]), f32_text(actual[axis]))
+}
+
 fn f32_whole(expected: &f32, actual: &f32) -> FieldDiff {
     (expected.to_bits() != actual.to_bits())
         .then(|| ("value", f32_text(*expected), f32_text(*actual)))
@@ -64,6 +75,11 @@ fn f32_whole(expected: &f32, actual: &f32) -> FieldDiff {
 /// 这些类型不含浮点，`PartialEq` 与按值相等一致）。
 fn whole<T: PartialEq + Debug>(expected: &T, actual: &T) -> FieldDiff {
     (expected != actual).then(|| ("value", format!("{expected:?}"), format!("{actual:?}")))
+}
+
+/// 具名字段按值比较（复合记录的成员；报告字段身份而非统一的 "value"）。
+fn named<T: PartialEq + Debug>(field: &'static str, expected: &T, actual: &T) -> FieldDiff {
+    (expected != actual).then(|| (field, format!("{expected:?}"), format!("{actual:?}")))
 }
 
 /// 文本列比较（intern token 与策略冷数据字符串，按字节相等）。
@@ -83,6 +99,7 @@ fn diff_column<T>(
         return Err(evidence(MismatchSite::TableLength {
             component,
             table,
+            entity_kind: None,
             expected_len: u32_len(expected),
             actual_len: u32_len(actual),
         }));
@@ -92,6 +109,7 @@ fn diff_column<T>(
             return Err(evidence(MismatchSite::TableValue {
                 component,
                 table,
+                entity_kind: None,
                 index: u32::try_from(index).expect("column index fits u32"),
                 field,
                 expected: expected_text,
@@ -133,10 +151,14 @@ fn cmp_maneuver_candidate(
     actual: &crate::traffic::ManeuverTransitionCandidate,
 ) -> FieldDiff {
     if expected.successor != actual.successor {
-        return whole(&expected.successor, &actual.successor);
+        return named("successor", &expected.successor, &actual.successor);
     }
     if expected.maneuver_path != actual.maneuver_path {
-        return whole(&expected.maneuver_path, &actual.maneuver_path);
+        return named(
+            "maneuver_path",
+            &expected.maneuver_path,
+            &actual.maneuver_path,
+        );
     }
     if expected.transition_index != actual.transition_index {
         return Some((
@@ -145,7 +167,11 @@ fn cmp_maneuver_candidate(
             actual.transition_index.to_string(),
         ));
     }
-    whole(&expected.maneuver_gate, &actual.maneuver_gate)
+    named(
+        "maneuver_gate",
+        &expected.maneuver_gate,
+        &actual.maneuver_gate,
+    )
 }
 
 fn cmp_range(expected: &crate::traffic::RangeU32, actual: &crate::traffic::RangeU32) -> FieldDiff {
@@ -167,10 +193,10 @@ fn cmp_identity_reverse_entry(
     actual: &crate::identity::IdentityReverseEntry,
 ) -> FieldDiff {
     if expected.entity_kind != actual.entity_kind {
-        return whole(&expected.entity_kind, &actual.entity_kind);
+        return named("entity_kind", &expected.entity_kind, &actual.entity_kind);
     }
     if expected.stable_id != actual.stable_id {
-        return whole(&expected.stable_id, &actual.stable_id);
+        return named("stable_id", &expected.stable_id, &actual.stable_id);
     }
     if expected.ordinal != actual.ordinal {
         return Some((
@@ -187,7 +213,11 @@ fn cmp_conflict_passage(
     actual: &crate::conflict::ConflictPassage,
 ) -> FieldDiff {
     if expected.conflict_zone != actual.conflict_zone {
-        return whole(&expected.conflict_zone, &actual.conflict_zone);
+        return named(
+            "conflict_zone",
+            &expected.conflict_zone,
+            &actual.conflict_zone,
+        );
     }
     if expected.entry != actual.entry {
         return Some((
@@ -203,7 +233,11 @@ fn cmp_conflict_passage(
             format!("{:?}", actual.exit),
         ));
     }
-    whole(&expected.admission_gate, &actual.admission_gate)
+    named(
+        "admission_gate",
+        &expected.admission_gate,
+        &actual.admission_gate,
+    )
 }
 
 fn cmp_policy_record(
@@ -211,7 +245,7 @@ fn cmp_policy_record(
     actual: &crate::policy::PolicyRecord,
 ) -> FieldDiff {
     if expected.id != actual.id {
-        return whole(&expected.id, &actual.id);
+        return named("id", &expected.id, &actual.id);
     }
     if expected.jurisdiction != actual.jurisdiction {
         return Some((
@@ -263,10 +297,10 @@ fn cmp_rule_record(
     actual: &crate::policy::RuleRecord,
 ) -> FieldDiff {
     if expected.policy != actual.policy {
-        return whole(&expected.policy, &actual.policy);
+        return named("policy", &expected.policy, &actual.policy);
     }
     if expected.kind != actual.kind {
-        return whole(&expected.kind, &actual.kind);
+        return named("kind", &expected.kind, &actual.kind);
     }
     if expected.key != actual.key {
         return Some(("key", expected.key.to_string(), actual.key.to_string()));
@@ -360,6 +394,7 @@ fn cmp_owner_index(
         (expected, actual) => Err(evidence(MismatchSite::TableValue {
             component,
             table,
+            entity_kind: None,
             index: 0,
             field: "variant",
             expected: owner_index_kind(expected).to_string(),
@@ -402,7 +437,7 @@ fn cmp_resolved_stream_policy(
     actual: &crate::policy::ResolvedStreamPolicy,
 ) -> FieldDiff {
     if expected.class != actual.class {
-        return whole(&expected.class, &actual.class);
+        return named("class", &expected.class, &actual.class);
     }
     if expected.rule != actual.rule {
         return Some(("rule", expected.rule.to_string(), actual.rule.to_string()));
@@ -436,7 +471,7 @@ fn cmp_target_range(
     actual: &crate::policy::TargetRange,
 ) -> FieldDiff {
     if expected.zone != actual.zone {
-        return whole(&expected.zone, &actual.zone);
+        return named("zone", &expected.zone, &actual.zone);
     }
     if expected.targets != actual.targets {
         return Some((
@@ -453,7 +488,7 @@ fn cmp_parking_anchor(
     actual: &crate::relations::ParkingLaneAnchor,
 ) -> FieldDiff {
     if expected.lane_edge != actual.lane_edge {
-        return whole(&expected.lane_edge, &actual.lane_edge);
+        return named("lane_edge", &expected.lane_edge, &actual.lane_edge);
     }
     if expected.progress_mm != actual.progress_mm {
         return Some((
@@ -470,10 +505,18 @@ fn cmp_facility_entry(
     actual: &crate::spatial::FacilityGeometryEntry,
 ) -> FieldDiff {
     if expected.facility_band != actual.facility_band {
-        return whole(&expected.facility_band, &actual.facility_band);
+        return named(
+            "facility_band",
+            &expected.facility_band,
+            &actual.facility_band,
+        );
     }
     if expected.canonical_frame != actual.canonical_frame {
-        return whole(&expected.canonical_frame, &actual.canonical_frame);
+        return named(
+            "canonical_frame",
+            &expected.canonical_frame,
+            &actual.canonical_frame,
+        );
     }
     if expected.point_range != actual.point_range {
         return Some((
@@ -490,10 +533,18 @@ fn cmp_conflict_region_entry(
     actual: &crate::spatial::ConflictZoneRegionEntry,
 ) -> FieldDiff {
     if expected.conflict_zone != actual.conflict_zone {
-        return whole(&expected.conflict_zone, &actual.conflict_zone);
+        return named(
+            "conflict_zone",
+            &expected.conflict_zone,
+            &actual.conflict_zone,
+        );
     }
     if expected.canonical_frame != actual.canonical_frame {
-        return whole(&expected.canonical_frame, &actual.canonical_frame);
+        return named(
+            "canonical_frame",
+            &expected.canonical_frame,
+            &actual.canonical_frame,
+        );
     }
     if expected.min_y.to_bits() != actual.min_y.to_bits() {
         return Some(("min_y", f32_text(expected.min_y), f32_text(actual.min_y)));
@@ -555,18 +606,12 @@ fn cmp_segment(
         ));
     }
     if expected.tangent.map(f32::to_bits) != actual.tangent.map(f32::to_bits) {
-        return Some((
-            "tangent",
-            format!("{:?}", expected.tangent),
-            format!("{:?}", actual.tangent),
-        ));
+        let (expected_text, actual_text) = vec3_text(&expected.tangent, &actual.tangent);
+        return Some(("tangent", expected_text, actual_text));
     }
     if expected.up.map(f32::to_bits) != actual.up.map(f32::to_bits) {
-        return Some((
-            "up",
-            format!("{:?}", expected.up),
-            format!("{:?}", actual.up),
-        ));
+        let (expected_text, actual_text) = vec3_text(&expected.up, &actual.up);
+        return Some(("up", expected_text, actual_text));
     }
     None
 }
@@ -684,6 +729,7 @@ fn compare_traffic(
             return Err(evidence(MismatchSite::TableValue {
                 component,
                 table: "entity_counts",
+                entity_kind: Some(*kind),
                 index: u32::try_from(index).expect("entity kind index fits u32"),
                 field: "count",
                 expected: format!("{kind:?}={expected_count}"),
@@ -931,6 +977,7 @@ fn compare_relations(
         return Err(evidence(MismatchSite::TableValue {
             component,
             table: "access_class_count",
+            entity_kind: None,
             index: 0,
             field: "count",
             expected: expected.access_class_count.to_string(),
@@ -953,15 +1000,37 @@ fn compare_identity(
     expected: &crate::identity::SharedIdentityIndex,
     actual: &crate::identity::SharedIdentityIndex,
 ) -> Result<(), MismatchEvidence> {
+    use laneflow_static_contract::EntityKind;
     let component = RootComponent::Identity;
-    for kind in 0..expected.forward.len() {
-        diff_column(
-            component,
-            "forward",
-            &expected.forward[kind],
-            &actual.forward[kind],
-            whole,
-        )?;
+    // forward 按 EntityKind 展开为多张表；kind 进入证据身份——同一失配移到
+    // 另一个 kind 的表是不同证据（复算归类不得判为同一失配）。
+    for (kind_index, kind) in EntityKind::ALL.iter().enumerate() {
+        let expected_column = &expected.forward[kind_index];
+        let actual_column = &actual.forward[kind_index];
+        if expected_column.len() != actual_column.len() {
+            return Err(evidence(MismatchSite::TableLength {
+                component,
+                table: "forward",
+                entity_kind: Some(*kind),
+                expected_len: u32_len(expected_column),
+                actual_len: u32_len(actual_column),
+            }));
+        }
+        for (index, (expected_id, actual_id)) in
+            expected_column.iter().zip(actual_column).enumerate()
+        {
+            if expected_id != actual_id {
+                return Err(evidence(MismatchSite::TableValue {
+                    component,
+                    table: "forward",
+                    entity_kind: Some(*kind),
+                    index: u32::try_from(index).expect("column index fits u32"),
+                    field: "stable_id",
+                    expected: format!("{expected_id:?}"),
+                    actual: format!("{actual_id:?}"),
+                }));
+            }
+        }
     }
     diff_column(
         component,
@@ -1071,6 +1140,7 @@ fn compare_spatial(
         return Err(evidence(MismatchSite::TableValue {
             component,
             table: "direction_profile",
+            entity_kind: None,
             index: 0,
             field: "value",
             expected: expected.direction_profile().to_string(),
@@ -1086,6 +1156,7 @@ fn compare_spatial(
             return Err(evidence(MismatchSite::TableValue {
                 component,
                 table: "lane_pose",
+                entity_kind: None,
                 index: 0,
                 field: "presence",
                 expected: format!("{:?}", expected_pose.is_some()),
