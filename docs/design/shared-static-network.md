@@ -465,9 +465,12 @@ kernel 冒充当前证据。
 - 发布构建的 LFCA + candidate arrays + scratch，以及可编辑切换的 current root + retained
   base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
-- 2/8/32 worlds 的新增 shared-control bytes；完整性开启时另报共享根旁车基线
-  （O(段数)，N 世界共享一份）与完整性租约（每根 O(1) 含双副本）的 retained bytes
-  随 2/8/32 worlds 的变化（#955 §6 账本口径）；
+- 2/8/32 worlds 的新增 shared-control bytes；完整性开启时按 #955 §6 账本**逐项**另报
+  稳态保留，不得省略任何一项：根基线表主副本与复核副本（各 O(根保护页数)，每页一个
+  128 位前像值，两份合计约为根 backing 的 0.8%）、根来源锚（每根 O(1)，约 2 页）、
+  完整性租约与根校验器控制状态（每根 O(1)，约 4–6 页）、每世界失败关闭状态（每世界
+  O(1)）；共享部分 N 世界共享一份，报告随 2/8/32 worlds 的变化。全量重认证缓冲按认证
+  峰值单列，不并入稳态；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
 结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；
