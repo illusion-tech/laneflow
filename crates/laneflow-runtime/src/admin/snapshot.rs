@@ -34,6 +34,10 @@ pub enum SnapshotCaptureError {
     /// 已提交 Conflict authority 不能由 reservation 级证明精确重建。
     #[error("已提交 Conflict authority 与路线证明不一致")]
     ConflictInvariantViolation,
+    /// 直算摘要经 capture 助手的归一化 scratch 超出限额（仅直算路径透传；
+    /// capture 路径预算无限，不会产生本变体）。
+    #[error("直算摘要归一化 scratch 超出限额")]
+    LimitExceeded,
 }
 
 #[cfg(test)]
@@ -599,6 +603,7 @@ impl crate::kernel::state::WorldState {
     /// [`SnapshotCaptureError::ConflictInvariantViolation`]。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
         let identity = self.binding.revision.identity();
+        let mut capture_budget = crate::admin::snapshot_digest::NormalizationBudget::unlimited();
         let conflict_index_len = self.binding.config.vehicle_capacity() as usize;
         let mut conflict_index = Vec::new();
         capture_try_reserve_exact(&mut conflict_index, conflict_index_len)?;
@@ -625,9 +630,14 @@ impl crate::kernel::state::WorldState {
             let snapshot_route_id = FIRST_SNAPSHOT_ID + routes.len() as u64;
             route_ids.push((slot.generation, handle.index(), snapshot_route_id));
             routes.push(
-                self.captured_route_at(identity, slot_index, snapshot_route_id)
-                    .transpose()
-                    .expect("live route slot yields captured route")?,
+                self.captured_route_at(
+                    identity,
+                    &mut capture_budget,
+                    slot_index,
+                    snapshot_route_id,
+                )
+                .transpose()
+                .expect("live route slot yields captured route")?,
             );
         }
         let mut route_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
@@ -662,6 +672,7 @@ impl crate::kernel::state::WorldState {
                     identity,
                     &conflict_view,
                     &route_id_for,
+                    &mut capture_budget,
                     slot_index,
                     snapshot_vehicle_id,
                 )
@@ -759,6 +770,7 @@ impl crate::kernel::state::WorldState {
     pub(crate) fn captured_route_at(
         &self,
         identity: &laneflow_static_network::SharedIdentityIndex,
+        budget: &mut crate::admin::snapshot_digest::NormalizationBudget,
         slot_index: usize,
         snapshot_route_id: u64,
     ) -> Result<Option<CapturedRoute>, SnapshotCaptureError> {
@@ -776,6 +788,12 @@ impl crate::kernel::state::WorldState {
             .route_edges(handle)
             .expect("live route slot resolves edges");
         let mut edges: Vec<ContractStableId128> = Vec::new();
+        budget
+            .charge_bytes_for_reserve(
+                core::mem::size_of::<ContractStableId128>(),
+                edge_ordinals.len(),
+            )
+            .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
         capture_try_reserve_exact(&mut edges, edge_ordinals.len())?;
         for ordinal in edge_ordinals {
             edges.push(
@@ -805,6 +823,7 @@ impl crate::kernel::state::WorldState {
         identity: &laneflow_static_network::SharedIdentityIndex,
         conflict_view: &crate::kernel::conflict::ConflictPersistenceView<'_>,
         route_id_for: &dyn Fn(u32, u32) -> u64,
+        budget: &mut crate::admin::snapshot_digest::NormalizationBudget,
         slot_index: usize,
         snapshot_vehicle_id: u64,
     ) -> Result<Option<CapturedVehicle>, SnapshotCaptureError> {
@@ -1009,6 +1028,12 @@ impl crate::kernel::state::WorldState {
                     .flatten()
                     .expect("reservation admission hop resolves Gate");
                 let mut passages = Vec::new();
+                budget
+                    .charge_bytes_for_reserve(
+                        core::mem::size_of::<CapturedConflictPassage>(),
+                        usize::try_from(range.passage_count()).expect("passage count fits usize"),
+                    )
+                    .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
                 capture_try_reserve_exact(
                     &mut passages,
                     usize::try_from(range.passage_count()).expect("passage count fits usize"),
@@ -1037,12 +1062,25 @@ impl crate::kernel::state::WorldState {
                     });
                 }
                 let mut downstream_intervals = Vec::new();
+                budget
+                    .charge_bytes_for_reserve(
+                        core::mem::size_of::<crate::DownstreamInterval>(),
+                        usize::try_from(reservation.downstream_claim_count())
+                            .expect("downstream count fits usize"),
+                    )
+                    .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
                 capture_try_reserve_exact(
                     &mut downstream_intervals,
                     usize::try_from(reservation.downstream_claim_count())
                         .expect("downstream count fits usize"),
                 )?;
                 let mut committed_downstream = Vec::new();
+                budget
+                    .charge_bytes_for_reserve(
+                        core::mem::size_of::<crate::DownstreamInterval>(),
+                        reservation.downstream_claim_count() as usize,
+                    )
+                    .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
                 capture_try_reserve_exact(
                     &mut committed_downstream,
                     reservation.downstream_claim_count() as usize,
@@ -1065,6 +1103,12 @@ impl crate::kernel::state::WorldState {
                 let downstream_plan = self
                     .reservation_downstream_claim_plan(range, state.length_mm)
                     .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
+                budget
+                    .charge_bytes_for_reserve(
+                        core::mem::size_of::<crate::DownstreamInterval>(),
+                        downstream_plan.raw_interval_capacity(),
+                    )
+                    .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
                 capture_try_reserve_exact(
                     &mut derived_downstream,
                     downstream_plan.raw_interval_capacity(),
