@@ -130,4 +130,13 @@ impl CanonicalNetworkOrigin {
     pub const fn partition_planning_hints_derivation_version(self) -> u16 {
         self.partition_planning_hints_derivation_version
     }
+
+    /// 测试专用：改写分区规划提示派生版本（失真注入；#959 认证测试）。
+    #[cfg(test)]
+    pub(crate) const fn test_with_partition_hints_version(self, version: u16) -> Self {
+        Self {
+            partition_planning_hints_derivation_version: version,
+            ..self
+        }
+    }
 }

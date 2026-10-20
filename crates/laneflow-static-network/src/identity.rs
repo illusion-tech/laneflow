@@ -26,8 +26,8 @@ impl IdentityReverseEntry {
 
 /// 所有稳定实体的 typed ordinal ↔ StableId128 冷双向索引。
 pub struct SharedIdentityIndex {
-    forward: [Box<[StableId128]>; ENTITY_KIND_COUNT],
-    reverse: Box<[IdentityReverseEntry]>,
+    pub(crate) forward: [Box<[StableId128]>; ENTITY_KIND_COUNT],
+    pub(crate) reverse: Box<[IdentityReverseEntry]>,
 }
 
 impl SharedIdentityIndex {

@@ -78,12 +78,12 @@ impl<'a> LaneGeometryView<'a> {
 
 /// 完整覆盖 LaneEdge ordinal 的位姿采样静态数据。
 pub struct LanePoseNetwork {
-    canonical_frames: Box<[CanonicalFrameOrdinal]>,
-    arc_lengths_meters: Box<[f32]>,
-    point_ranges: Box<[RangeU32]>,
-    points: Box<[CanonicalPoint]>,
-    segment_ranges: Box<[RangeU32]>,
-    segments: Box<[SegmentGeometry]>,
+    pub(crate) canonical_frames: Box<[CanonicalFrameOrdinal]>,
+    pub(crate) arc_lengths_meters: Box<[f32]>,
+    pub(crate) point_ranges: Box<[RangeU32]>,
+    pub(crate) points: Box<[CanonicalPoint]>,
+    pub(crate) segment_ranges: Box<[RangeU32]>,
+    pub(crate) segments: Box<[SegmentGeometry]>,
 }
 
 impl LanePoseNetwork {
@@ -206,12 +206,12 @@ impl<'a> FacilityGeometryView<'a> {
 
 /// 可选的共享规范空间数据；presence 不自动授予 lane-pose capability。
 pub struct SharedSpatialNetwork {
-    direction_profile: u8,
-    lane_pose: Option<LanePoseNetwork>,
-    facility_entries: Box<[FacilityGeometryEntry]>,
-    facility_points: Box<[CanonicalPoint]>,
-    conflict_region_entries: Box<[ConflictZoneRegionEntry]>,
-    conflict_region_points: Box<[CanonicalPointXZ]>,
+    pub(crate) direction_profile: u8,
+    pub(crate) lane_pose: Option<LanePoseNetwork>,
+    pub(crate) facility_entries: Box<[FacilityGeometryEntry]>,
+    pub(crate) facility_points: Box<[CanonicalPoint]>,
+    pub(crate) conflict_region_entries: Box<[ConflictZoneRegionEntry]>,
+    pub(crate) conflict_region_points: Box<[CanonicalPointXZ]>,
 }
 
 impl SharedSpatialNetwork {

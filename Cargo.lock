@@ -3269,6 +3269,7 @@ version = "0.0.0"
 dependencies = [
  "laneflow-format",
  "laneflow-static-contract",
+ "sha2",
 ]
 
 [[package]]

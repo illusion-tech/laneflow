@@ -3678,12 +3678,49 @@ pub(crate) fn checked_field<'a>(
 
 /// 按格式计数精确预分配 Vec；容量不足时报 AllocationFailure。
 pub(crate) fn allocate_vec<T>(count: u32, structure: BuildStructure) -> Result<Vec<T>, BuildError> {
+    #[cfg(test)]
+    if inject_allocation_failure() {
+        return Err(BuildError::AllocationFailure { structure });
+    }
     let capacity = usize::try_from(count).expect("u32 format count fits usize");
     let mut values = Vec::new();
     values
         .try_reserve_exact(capacity)
         .map_err(|_| BuildError::AllocationFailure { structure })?;
     Ok(values)
+}
+
+// 分配失败注入倒计数（0 = 关闭；#959 认证测试）。
+#[cfg(test)]
+thread_local! {
+    static ALLOCATION_FAILURE_COUNTDOWN: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// 测试注入：按计数预留失败的确定性钩子（#959 认证测试；真实内存压力
+/// 无法在单测中稳定构造）。倒计数归零的那一次分配报失败；0 表示关闭。
+#[cfg(test)]
+fn inject_allocation_failure() -> bool {
+    ALLOCATION_FAILURE_COUNTDOWN.with(|countdown| {
+        let current = countdown.get();
+        if current == 0 {
+            false
+        } else {
+            countdown.set(current - 1);
+            current == 1
+        }
+    })
+}
+
+/// 武装分配失败注入：此后第 `count` 次 `allocate_vec` 报 `AllocationFailure`。
+#[cfg(test)]
+pub(crate) fn arm_allocation_failure_injection(count: u32) {
+    ALLOCATION_FAILURE_COUNTDOWN.with(|countdown| countdown.set(count));
+}
+
+/// 复位分配失败注入。
+#[cfg(test)]
+pub(crate) fn reset_allocation_failure_injection() {
+    arm_allocation_failure_injection(0);
 }
 
 fn allocate_if_retained<T>(
