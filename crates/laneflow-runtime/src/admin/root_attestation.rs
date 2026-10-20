@@ -5,8 +5,9 @@
 //! 文件 I/O。宿主在安装、恢复、Spatial 绑定与切换之前及在用根审计时调用；
 //! 编辑来源（committed `RoadEditingState`）分支随 #529 落地。
 
+use laneflow_format::{BoundedReReadableObjectSource, FormatLimits};
 use laneflow_static_network::{
-    AttestationOutcome, AttestationTelemetry, FormatLimits, RootAttestationExpectation,
+    AttestationOutcome, AttestationTelemetry, RootAttestationExpectation,
     SharedNetworkBuildOptions, SharedNetworkRevision, attest_shared_network_revision,
 };
 
@@ -19,6 +20,11 @@ use crate::PublishedLfcaReference;
 /// 不取自被认证根自身的 `origin`。`format_limits` 与 `build_options`
 /// 原样传给 reader / builder（宿主加载 / 构建此根时使用的同一组策略值）。
 ///
+/// `lfca` 是宿主经资产认证取得、借给认证入口的字节来源：连续切片、
+/// staged 对象或映射视图皆可（`BoundedReReadableObjectSource` 的既有实现），
+/// 认证在受检读取、来源复核与复算中重复读取同一份来源，不复制制品；
+/// 来源视图的建立（含 staged 来源首次映射）由宿主在调用前完成。
+///
 /// 调用时机与处置按完整性设计 §3 / §7：投入使用之前任何非 `Pass` 都不
 /// 投入使用；在用根审计判因 `来源` 不停用根，判因 `共享静态根` /
 /// `无法判因` 停用并重建；操作失败不判因、不触发停用。详细失败语义见
@@ -28,14 +34,17 @@ use crate::PublishedLfcaReference;
 ///
 /// 认证过程按阶段以 `catch_unwind` 包住，panic 不向宿主传播（设计 §2.4）；
 /// `panic=abort` 构建下按进程终止语义处理。
-pub fn attest_published_shared_network_revision(
+pub fn attest_published_shared_network_revision<S>(
     root: &SharedNetworkRevision,
     reference: &PublishedLfcaReference,
-    lfca: &[u8],
+    lfca: S,
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
     telemetry: Option<&mut dyn AttestationTelemetry>,
-) -> AttestationOutcome {
+) -> AttestationOutcome
+where
+    S: BoundedReReadableObjectSource,
+{
     let expectation = RootAttestationExpectation::new(
         reference.network_revision(),
         reference.canonical_artifact_digest(),

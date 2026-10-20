@@ -336,6 +336,56 @@ fn explicit_format_paths_and_management_reexports_are_rejected() {
 }
 
 #[test]
+fn management_modules_may_reference_format_contract_types_but_kernel_may_not() {
+    // 契约类型（限额与字节来源抽象）允许出现在 admin / facade 签名中；
+    // kernel 对一切格式符号全禁；解析能力仍只属唯一格式入口。
+    const ADMIN_WITH_ATTESTATION: &str = r#"
+pub(crate) mod format_admission;
+pub(crate) mod cutover { pub struct SemanticDiffOriginBinding; pub struct CutoverDescriptorError; }
+pub(crate) mod snapshot { pub struct CapturedSnapshot; impl crate::TrafficWorld { pub fn capture_snapshot(&self) {} } }
+pub(crate) mod snapshot_restore { pub struct RestoredSnapshot; pub struct SnapshotRestoreError; pub struct SnapshotRestoreLimits; }
+pub(crate) mod root_attestation;
+"#;
+    for source in [
+        "use laneflow_format::FormatLimits; pub(crate) fn f(limits: FormatLimits) {}",
+        "use laneflow_format::BoundedReReadableObjectSource as Source; pub(crate) fn g<S: Source>(lfca: S) {}",
+        "pub(crate) fn h(limits: laneflow_format::FormatLimits) {}",
+    ] {
+        let fixture = SourceFixture::new("", "");
+        fixture
+            .directory
+            .write("admin/mod.rs", ADMIN_WITH_ATTESTATION);
+        fixture.directory.write("admin/root_attestation.rs", source);
+        fixture.check().unwrap();
+    }
+    let fixture = SourceFixture::new("", "");
+    fixture
+        .directory
+        .write(
+            "facade/mod.rs",
+            "pub struct TrafficWorld; pub(crate) mod source { pub struct CommittedNetworkSource; } pub(crate) fn f(limits: laneflow_format::FormatLimits) {}",
+        );
+    fixture.check().unwrap();
+
+    for source in [
+        "use laneflow_format::FormatLimits; pub(crate) fn f(limits: FormatLimits) {}",
+        "pub(crate) fn g<S: laneflow_format::BoundedReReadableObjectSource>(lfca: S) {}",
+    ] {
+        let fixture = SourceFixture::new(source, "");
+        assert!(fixture.check().unwrap_err().contains("禁止依赖"));
+    }
+    let fixture = SourceFixture::new("", "");
+    fixture
+        .directory
+        .write("admin/mod.rs", ADMIN_WITH_ATTESTATION);
+    fixture.directory.write(
+        "admin/root_attestation.rs",
+        "use laneflow_format::preflight_object_values; pub(crate) fn f() { preflight_object_values(); }",
+    );
+    assert!(fixture.check().unwrap_err().contains("禁止依赖"));
+}
+
+#[test]
 fn test_only_fixtures_are_excluded_and_unknown_production_cfg_is_checked() {
     let fixture = SourceFixture::new(
         "#[cfg(test)] mod tests { use laneflow_format::*; } #[cfg(all(test, feature = \"extra\"))] mod missing;",
