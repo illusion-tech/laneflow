@@ -1064,7 +1064,7 @@ impl crate::kernel::state::WorldState {
                 let mut downstream_intervals = Vec::new();
                 budget
                     .charge_bytes_for_reserve(
-                        core::mem::size_of::<crate::DownstreamInterval>(),
+                        core::mem::size_of::<CapturedConflictDownstreamInterval>(),
                         usize::try_from(reservation.downstream_claim_count())
                             .expect("downstream count fits usize"),
                     )

@@ -1394,6 +1394,76 @@ mod tests {
         );
     }
 
+    #[test]
+    fn captured_downstream_budget_matches_allocated_types_at_boundary() {
+        use crate::admin::snapshot::{
+            CapturedConflictDownstreamInterval, CapturedConflictPassage, SnapshotCaptureError,
+        };
+        let (world, vehicle) =
+            crate::admin::format_admission::tests::world_with_conflict_reservation();
+        let state = &world.state;
+        let mut index = vec![None; state.binding.config.vehicle_capacity() as usize];
+        let view = state.conflict_read().persistence_view(&mut index).unwrap();
+        let reservation = view.authority(vehicle).unwrap().reservation;
+        let vehicle_state = state.vehicle_state(vehicle).unwrap();
+        let plan = state
+            .reservation_downstream_claim_plan(reservation.passage_range(), vehicle_state.length_mm)
+            .unwrap();
+        let claims = reservation.downstream_claim_count() as usize;
+        assert!(claims > 0, "fixture must contain downstream claims");
+        // 按实际四个 Vec 的元素类型独立计算，不从被测预算器反推阈值。
+        let expected_bytes = (core::mem::size_of::<CapturedConflictPassage>()
+            * reservation.passage_range().passage_count() as usize
+            + core::mem::size_of::<CapturedConflictDownstreamInterval>() * claims
+            + core::mem::size_of::<crate::DownstreamInterval>() * claims
+            + core::mem::size_of::<crate::DownstreamInterval>() * plan.raw_interval_capacity())
+            as u64;
+        let capture = |budget: &mut NormalizationBudget| {
+            state.captured_vehicle_at(
+                state.binding.revision.identity(),
+                &view,
+                &|_, _| 1,
+                budget,
+                vehicle.index() as usize,
+                1,
+            )
+        };
+        let mut exact = NormalizationBudget {
+            remaining: expected_bytes,
+        };
+        let captured = capture(&mut exact).unwrap().unwrap();
+        assert_eq!(
+            captured
+                .conflict_reservation
+                .unwrap()
+                .downstream_intervals
+                .len(),
+            claims
+        );
+        assert_eq!(
+            exact.remaining, 0,
+            "all allocated element bytes must be charged"
+        );
+        let mut short = NormalizationBudget {
+            remaining: expected_bytes - 1,
+        };
+        assert!(matches!(
+            capture(&mut short),
+            Err(SnapshotCaptureError::LimitExceeded)
+        ));
+        let mut retry = NormalizationBudget {
+            remaining: expected_bytes,
+        };
+        assert!(capture(&mut retry).unwrap().is_some());
+        let snapshot = world.capture_snapshot().unwrap();
+        assert_eq!(
+            world
+                .direct_state_digest(SnapshotDigestLimits::new(1_048_576))
+                .unwrap(),
+            deterministic_state_digest(&snapshot).unwrap(),
+        );
+    }
+
     /// live 顺序清空（保留存活车辆）不得签发摘要：完整性检查拒绝。
     #[test]
     fn direct_digest_rejects_cleared_live_order() {
