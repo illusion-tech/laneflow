@@ -1542,9 +1542,20 @@ mod tests {
             !world.state.committed.waiting_zones.is_empty(),
             "fixture must carry waiting zones"
         );
-        let original = world.state.committed.waiting_zones[0];
-        // 失真窗口：占用被直改（非命令、不动游标）。
-        world.state.committed.waiting_zones[0].occupancy = original.occupancy.wrapping_add(1);
+        // 注入字段取语义自洽的 next_admission_sequence（单调历史计数器，
+        // 与成员计数无一致性约束）：直改 occupancy 会造出成员表脱钩的
+        // 无效等待聚合，不属 §5.13 的合法瞬态（审阅意见）。
+        let zone = world
+            .state
+            .committed
+            .waiting_zones
+            .iter()
+            .position(|zone| zone.occupancy == 0)
+            .expect("fixture must carry an empty waiting zone");
+        let original = world.state.committed.waiting_zones[zone];
+        // 失真窗口：历史计数被直改（非命令、不动游标、不破坏聚合不变量）。
+        world.state.committed.waiting_zones[zone].next_admission_sequence =
+            original.next_admission_sequence.wrapping_add(1);
         let inside = world
             .direct_state_digest(limits)
             .expect("digest inside window");
@@ -1553,7 +1564,7 @@ mod tests {
             "窗口内的失真改变摘要（对照：检查点落入窗口可见）"
         );
         // 窗口收敛：还原直改，检查点时刻摘要回到干净值。
-        world.state.committed.waiting_zones[0] = original;
+        world.state.committed.waiting_zones[zone] = original;
         assert_eq!(
             world
                 .direct_state_digest(limits)
