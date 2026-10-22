@@ -393,7 +393,7 @@ Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则�
 
 ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从 `TrafficWorld::committed_pose_sources()` 构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
-v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.20 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 占位 API 已删除，不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。最小证据为 `runtime_min` 与无窗口 smoke。Adapter 边界见 `design/bevy-reference-adapter.md`。
+v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.20 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 占位 API 已删除，不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。最小证据为 `quickstart` 与无窗口 smoke。Adapter 边界见 `design/bevy-reference-adapter.md`。
 
 v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `TrafficWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Runtime 不提供人口 controller。走廊编制与 catalog 绑定由 [#472](https://github.com/illusion-tech/laneflow/issues/472) 迁到 `TrafficWorld`；50–200 原子替换见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。静态制品不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`。
 

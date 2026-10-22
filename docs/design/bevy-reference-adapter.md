@@ -171,7 +171,7 @@ Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose 
 `LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
 
 上两段同属 v0.7 历史冻结的 presentation 规范目标（见 §6 实现状态说明），不是当前
-baseline 的已交付能力；`runtime_min` / `signalized_corridor` 现行示例由宿主系统
+baseline 的已交付能力；`quickstart` / `signalized_corridor` 现行示例由宿主系统
 在 `Observe` 后调用受控提取并自行写入 Transform。
 
 ## 8. 可选调试可视化
@@ -206,11 +206,22 @@ opt-in。渲染、文本与模型的耗时不得混作 Runtime 性能。
 
 ## 9. 最小 native example
 
-现行最小 native example 是 `runtime_min`：安装 `TrafficWorld` 与可选 `SpatialSession`，用 compiler 夹具 `lfca-full-spatial`，不读取 campus JSON，也不构造 `CoreWorld`。
+现行最小 native example 是 `quickstart`：从带策略的 compiler 空间夹具安装
+`TrafficWorld` 与配对 `SpatialSession`，以相机、灯光和同根 Spatial 中心线生成的
+车道 ribbon 展示两辆车。所有车辆通过 `bind_vehicle_entity` 绑定；宿主按
+`vehicles()` 与 pose records 的对应顺序同步位置和朝向，Bevy forward 对应切向量。
+模型尺寸、抬升与车头标记位于代理的表现子实体，不修改规范位姿。
+
+GUI 与 `quickstart_smoke` 共用 `quickstart_scene.rs` 初始化和
+`quickstart_presentation.rs` 绑定/同步路径。同步在 `PostUpdate`、Transform 传播前运行；
+提取失败、绑定缺失、Transform 不可用或非有限变换都会记录结构化错误，并保留整批旧变换。
+无窗口测试覆盖全部车辆的绑定、移动与完整朝向，以及失败时不产生半批更新。
+本例不扩展 Runtime 或 Adapter API，也不承担持续人口回流或性能认证。
 
 ```powershell
-cargo +1.99.1 check --locked -p laneflow-bevy --example runtime_min --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test runtime_min_smoke
+cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
+cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --features native-example
+cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
 ```
 
 `native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
