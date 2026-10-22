@@ -21,7 +21,7 @@ cargo +1.99.1 test --offline -p laneflow-scenario --test signalized_corridor_pop
 ```
 
 `policy_selection` 是 catalog 顶层必填的闭合选择。`pinned` 仅携带规范 policy StableId
-文本，`not_required` 不带其他字段。绑定阶段拒绝未知身份以及带 Gate 根上的
+文本，`not_required` 不带其他字段。绑定阶段拒绝未知身份以及带 Gate 的共享静态路网上
 `not_required`。生成器明确编制 `protected-entry`，工程法域 `engineering`、
 版本 `protected-entry-1`、依据 `repository:corridor/protected-entry-1`；
 示例声明只表示受保护信号组准入，不宣称覆盖现实道路法规全集。

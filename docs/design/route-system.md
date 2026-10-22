@@ -83,7 +83,7 @@ ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go �
 状态：已接受。
 
 路线是有限、显式、有序的车道图边序列。生产入口是
-`TrafficWorld::register_route([e0, e1, …])`，输入为共享根 `LaneEdgeOrdinal`。
+`TrafficWorld::register_route([e0, e1, …])`，输入为共享静态路网 `LaneEdgeOrdinal`。
 
 调用方（场景 catalog、规划器）自己持有 `route_id` 或边键；Runtime 热表只有
 `RouteHandle { index, generation }`。
@@ -135,7 +135,7 @@ R1: [A, B, A]
 注册 route 时必须校验：
 
 - route edge sequence 非空。
-- 序列中的边都是当前共享根上的合法 `LaneEdgeOrdinal`。
+- 序列中的边都是当前共享静态路网上的合法 `LaneEdgeOrdinal`。
 - 任意相邻 edge pair 都存在车道后继或机动转移候选。
 - route edge sequence 的长度可以用 `usize` 索引，且不会造成实现中的计数溢出。
 - Runtime **不**校验 external / catalog route ID，也不按字符串去重。
@@ -157,7 +157,7 @@ v0.2 Core runtime 支持运行时 register / remove route definition。
 
 规则（ADR 0029；取代 v0.2 把 external route ID 写进 Runtime 的合同）：
 
-- `register_route` 只接收共享根 `LaneEdgeOrdinal` 有序非空序列，不接收 external
+- `register_route` 只接收共享静态路网 `LaneEdgeOrdinal` 有序非空序列，不接收 external
   route ID。catalog / 调用方若有 `route_id`，自己持有并交叉引用句柄。
 - `TrafficWorld` 不按字符串做路线去重；同一边序列注册两次得到两个句柄。
 - `register_route` 成功后返回 active `RouteHandle`。
@@ -270,7 +270,7 @@ VehicleState
 
 现行 `TrafficWorld` API（ADR 0029）：
 
-- route input 使用共享根 `LaneEdgeOrdinal` 序列，不使用 external route ID。
+- route input 使用共享静态路网 `LaneEdgeOrdinal` 序列，不使用 external route ID。
 - route registry 成功后返回 `RouteHandle`。
 - vehicle spawn input 使用 `RouteHandle`；runtime state 只持句柄。
 - route query / event payload / vehicle runtime state 使用 handle。

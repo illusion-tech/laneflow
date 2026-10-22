@@ -350,7 +350,7 @@ manifest。未来若 LaneFlow 自建并发内容寻址仓库，必须单开设�
 本设计保留三种互不混同的原子性：
 
 1. bundle 检查失败时不返回 `PostEmissionCheckedBundle`，也不触发 LFCP 构造或共享静态构建；
-2. `SharedNetworkRevision` 构建失败时不返回部分 Traffic/Identity/Hints/Spatial 根；
+2. `SharedNetworkRevision` 构建失败时不返回部分 Traffic/Identity/Hints/Spatial 根对象；
 3. Runtime 激活时整份活动修订一次替换，不能独立切换 Traffic 与 Spatial；该提交点由 #302
    定义，不属于文件安装。
 
@@ -393,7 +393,7 @@ Product Pass；仓库不要求不存在的专用 benchmark/harness。
 | revision   | LFCA declared revision 单独篡改后稳定失败                                                        |
 | source map | LFCA digest/length/revision/compiler/source binding 任一错配                                     |
 | diff       | Genesis 非零 base；Artifact base 或 target 的派生版本/revision/digest/length 任一错配            |
-| 原子性     | 任一 check/build failure 不返回受检 bundle或部分共享根                                           |
+| 原子性     | 任一 check/build failure 不返回受检 bundle或部分共享静态路网                                     |
 | LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在；只从 checked capability 构造                 |
 | backing    | safe code 不能为可变来源实现 sealed trait；slice 零复制；staged finish 后无 LaneFlow 写能力      |
 | staging    | 同一 backing 发射、重复检查和共享静态构建；identity/length/bytes 漂移失败；无完整对象级复制      |
@@ -410,7 +410,7 @@ Product Pass；仓库不要求不存在的专用 benchmark/harness。
 - `crates/laneflow-format`：bundle checker、hash、capability、错误和测试；
 - `crates/laneflow-static-contract`：LFCP 当前版本与 v2 registry；
 - `crates/laneflow-compiler`：file-backed emission、expected base binding、LFCP v2、删除 receipt；
-- `crates/laneflow-static-network`：直接消费 checked backing 并构造不借输入的共享根；
+- `crates/laneflow-static-network`：直接消费 checked backing 并构造不借输入的共享静态路网；
 - portable exact-byte fixtures/workflow；
 - #282/#283/#541 的直接消费证据与 #302 原子切换边界说明。
 

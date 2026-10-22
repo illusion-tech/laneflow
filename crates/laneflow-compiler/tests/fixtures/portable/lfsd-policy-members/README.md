@@ -6,8 +6,8 @@ gap 数值、stream priority 和 gate prohibition；四个保留 K 各产生一�
 
 固定长度为 2,266 bytes，SHA-256 为
 `648eeee21dac67ce40f761152615627bba715e86075fde33813dd2089caa0454`。
-base/target 是 writer 工程夹具，未经过正式策略前端或共享根规则覆盖验证，不代表
+base/target 是 writer 工程夹具，未经过正式策略前端或共享静态路网规则覆盖验证，不代表
 法规语义，也未配套 LFSM，不能作为发布候选。
 
 设 `DUMP_PORTABLE=1` 后运行 `policy_diff_fixed_bytes_cover_all_four_complete_member_values`
-测试可重建。修改锚点前须从两根的稳定身份和字段独立重建规范成员值，不能只重算摘要。
+测试可重建。修改锚点前须从两份修订的稳定身份和字段独立重建规范成员值，不能只重算摘要。

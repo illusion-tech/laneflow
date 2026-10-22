@@ -204,7 +204,7 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 ### 4.4 Crate 与 loader 边界
 
 现行生产路径是编译器发射 LFCA，再由 `laneflow-format` / `laneflow-static-network`
-构建共享根。`laneflow-data` / `laneflow-core` JSON loader 已拆除。Runtime 不依赖
+构建共享静态路网。`laneflow-data` / `laneflow-core` JSON loader 已拆除。Runtime 不依赖
 Serde、JSON 或文件系统。
 
 public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以
@@ -353,7 +353,7 @@ OccupancyRecord
 ### 7.4 道路准入候选索引
 
 `spawn_vehicle`、`replace_completed_vehicle`、`leave_parking` 与跨修订重验证使用独立的
-`SpawnOverlapIndex`，归属 `DerivedIndexes`。它按共享根物理边 ordinal 保存有车身
+`SpawnOverlapIndex`，归属 `DerivedIndexes`。它按共享静态路网物理边 ordinal 保存有车身
 或零进度前杠入口点的 Active 句柄；查询只访问候选覆盖的桶，再用已提交车辆的完整车身区间
 验证。路线起点截断、非空区间和端点相接规则统一来自 `for_each_occupancy_interval`，
 不使用未截断的同边保险杠捷径。查询不复制路线、不分配临时区间容器。
@@ -376,7 +376,7 @@ OccupancyRecord
 重叠的边；同边取对方重叠区间终点、起点最大者（离前杠最近）；区间完全相同时取
 `live_order` 靠前者。选择只读已提交状态，与槽位分配、generation 和桶顺序无关，快照
 恢复前后一致（快照 §6 恢复等价）；不为 opaque handle 增加公共排序 API。找到第一条
-重叠边即结束查询，不再访问其余边。快照、摘要和共享静态根不保存这个缓存。
+重叠边即结束查询，不再访问其余边。快照、摘要和共享静态路网不保存这个缓存。
 
 设物理边数为 `E`、活动车辆数为 `A`、全部车身片段及入口点数为 `K`。冷重建为
 `O(E + A + K)`，保留内存为外层边桶加各桶句柄容量的高水位。热查询成本由所访问桶

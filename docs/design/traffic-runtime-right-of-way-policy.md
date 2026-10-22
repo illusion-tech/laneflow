@@ -26,7 +26,7 @@
   是策略集的局部成员，不为每个组合派生稳定实体。
 - 每个世界只显式选择一份策略集；策略内容由所安装的路网修订固定。
 - 信号解释产生候选，`ConflictArbiter` 决定车辆实际放行。Controller 继续只推进灯态。
-- 编译器和共享根持有只读解析表；world 持有时钟相关阈值、车辆意图和可变资源。
+- 编译器和共享静态路网持有只读解析表；world 持有时钟相关阈值、车辆意图和可变资源。
 - 新能力、存档与切换闭环、旧保护移除一次性交付；不会单独发布提前放开保护的中间态。
 
 ## 2. 来源、身份与值域
@@ -84,7 +84,7 @@ locator；两者同时缺失即编译失败。仅在策略中存在未被规则�
 固定步进的模拟时长仍用于运动、信号相位与间隙计算，不能替代业务日期或由墙钟隐式推进。
 
 局部 key 使用现行编制 key 值域、不做 Unicode 归一化；各成员种类内 key 唯一。
-`(policy StableId, member kind, member key)` 是持久归因地址，dense ordinal 只在当前根内
+`(policy StableId, member kind, member key)` 是持久归因地址，dense ordinal 只在当前修订内
 有效。参考间隙参数另有必填 `parameterVersion`，与法规版本分开。
 
 ### 2.3 成员输入
@@ -127,12 +127,12 @@ UTurn=3`；缺字段表示未声明，不能推断为直行或右转。方向是
 方向灯是该 Gate 的受检解释声明，SignalGroup 仍只提供 indication；引用同一 group
 不等于可以把不适用该方向的箭头灯指定为右转解释。
 
-灯型声明在同一静态根的整个 Gate 范围内必须一致，不能按 policy 或车型改变物理事实。
+灯型声明在同一共享静态路网的整个 Gate 范围内必须一致，不能按 policy 或车型改变物理事实。
 编译器汇总所有策略中指向该 Gate 的门规则，代码 3 声明圆形灯，代码 4/5 声明右转
 方向灯；两类声明并存即拒绝，即使分属不同 class、策略或被 specificity 遮蔽。
 代码 1/2 不声明灯型，也不能覆盖已有声明；代码 0 与 Group 绑定不相容，仍按绑定
 检查拒绝。Protected/Permissive 与车型禁令可以不同，均不改变 Gate 的物理灯型。
-该校验独立于 protected coherence，在共同编译管线及受检 LFCA 的共享根构建中执行；
+该校验独立于 protected coherence，在共同编译管线及受检 LFCA 的共享静态路网构建中执行；
 不新增灯具实体或另一份可与规则矛盾的持久化灯型表。
 
 `CnCircularRightTurn` 是本轮已核实红灯右转规则的有限解释类型，不声称完整中国
@@ -176,7 +176,7 @@ Waiting、ParkingStop、RouteEnd 或 no-overlap 约束。
 规则配置的 priority/yield 集必须满足这一受测拓扑的相容性；provenance 标签不是法律
 正确性的自动证明。没有建模的行人、非机动车仍是支持边界，不能伪造为零冲突输入。
 
-## 4. LFCA 与共享根
+## 4. LFCA 与共享静态路网
 
 ### 4.1 唯一线格式增量
 
@@ -194,7 +194,7 @@ Waiting、ParkingStop、RouteEnd 或 no-overlap 约束。
 
 `evidenceKeys` 的唯一 child row 为 `{tag1 key:Utf8}`，不嵌套 RecordVector。空 yield /
 evidence 集必须编码为空向量，不能用缺字段代替；evidence 为空仅在满足 §2.2 策略级
-来源继承时合法。gap 的条件存在性按 §2.3 额外验证。共同编译管线与受检 LFCA 的共享根
+来源继承时合法。gap 的条件存在性按 §2.3 额外验证。共同编译管线与受检 LFCA 的共享静态路网
 构建均检查这些跨表约束，不因线格式允许空向量而跳过规则来源验证。
 实体表按 typed ordinal，局部表按 `(policy ordinal, key 的 UTF-8 字节序)` 排序。
 跨 chunk 延续同一全局顺序和唯一性，引用可以跨 chunk，不能以 chunk 为语义边界。
@@ -219,12 +219,12 @@ tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表
 3. MIR：收集实际使用类别并计算可准入集合，选择门规则/stream 规则；验证 totality、specificity、
    yield、priority cycle、protected coherence 和法规来源相容性。
 4. LIR：冻结规范表、稳定排序和来源映射；发射 LFCA/LFSM/LFSD，并执行完整后发射检查。
-5. 共享根构建：从受检 LFCA 重建只读解析表和 exact passage target ranges，完成当前
+5. 共享静态路网构建：从受检 LFCA 重建只读解析表和 exact passage target ranges，完成当前
    builder 的语义闭合后一次 seal。Runtime 不读 compiler IR 或源码。
 
 解析结果以 `(policy ordinal, owner ordinal, class ordinal)` 唯一定位，owner 在门表
 中是 Gate、在流表中是 stream；规则 payload 先按 policy 划分，再按 owner 划分 class 行。
-各策略的 owner/class 排列相同，因此共享根对门、流各保存一份策略内相对定位，
+各策略的 owner/class 排列相同，因此共享静态路网对门、流各保存一份策略内相对定位，
 不复制每策略 owner 范围表。密集/适度稀疏域使用直接 CSR 偏移，极稀疏域使用排序
 范围；按实际 backing 字节成本选择，详见共享静态路网设计 §3。此表示不增加未准入
 类别的规则单元，不改变 `PolicyView` 的类别查询与借用边界。
@@ -236,9 +236,9 @@ tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表
 route 数组。循环生成、内存预留、来源和派生计数均 checked，按实际解析行、CSR 和
 target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意提高一百万静态
 实体基线的格式上限。不同世界不复制这些静态表。LFCA 保存声明语义，builder 只派生
-当前根的执行表，不存在同时持久化一份可与声明不一致的 resolved 副本。
+当前修订的执行表，不存在同时持久化一份可与声明不一致的 resolved 副本。
 
-共享根的 `PolicyView` 查询、规则归因及让行目标查询接受 `ParticipantClassOrdinal`；
+共享静态路网的 `PolicyView` 查询、规则归因及让行目标查询接受 `ParticipantClassOrdinal`；
 `gate_classes` / `stream_classes` 返回按类别排序的解析行，行的 `class()` 返回所属
 类别。Runtime 从现有 `VehicleProfileParticipantClass` 关系取得类别，不新增每世界
 策略表或逐配置展开副本。车辆配置与快照仍保存原有身份，LFCA 声明格式不变。
@@ -256,7 +256,7 @@ target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意�
 类别夹具验证这一边界，并复跑已发现问题的容量样本，不新增任意输入组合穷举。
 
 coverage-min 是后续候选仲裁的排序值，不是与 Gate 声明作优先级比较的静态合法性
-规则。编译器证明各实际准入流的规则唯一、让行优先级合法，并发射声明；共享根
+规则。编译器证明各实际准入流的规则唯一、让行优先级合法，并发射声明；共享静态路网
 与候选消费负责按实际 coverage 聚合最小值，纯 Waiting 保持 absent。
 
 | 持有者                  | 持有内容                                                                                                           |
@@ -266,7 +266,7 @@ coverage-min 是后续候选仲裁的排序值，不是与 Gate 声明作优先�
 | `TrafficWorld`          | 选定策略、依 fixedDelta 派生的阈值、firstEligibleTick、reservation、occupancy、last-clear、ledger、frontier 和输出 |
 
 同一根可被不同 fixedDelta 的 world 共享。`requiredLeadMs` 和 proof horizon 必须在
-world 安装时 checked 派生，不能把某个世界的步长写进共享根。world 只保留选中策略的
+world 安装时 checked 派生，不能把某个世界的步长写进共享静态路网。world 只保留选中策略的
 派生阈值，不复制静态规则表。
 
 ### 4.3 LFSD 4 策略局部成员变更
@@ -295,7 +295,7 @@ O 的存在性由后表唯一决定，不接受额外 local index、fieldTag 或
 | 6   | `afterValue`          | Bytes       | O；完整规范成员值 RowV1                                 |
 
 成员键 `K = (ownerPolicyStableId, memberKind, memberKey)` 不包含内容摘要、来源位置或
-根内 ordinal。key 使用原始 UTF-8 字节，不做大小写折叠或 Unicode 归一化；编码为
+修订内 ordinal。key 使用原始 UTF-8 字节，不做大小写折叠或 Unicode 归一化；编码为
 普通 Utf8 FieldV1，其 byte length 来自字段头，不增加第二个字符串长度前缀。
 memberKind 是本节自有封闭代码，不能拿 LFSM role 33–36 当它的 wire 值。
 
@@ -342,7 +342,7 @@ count=0 的向量，gap 的条件存在性及来源继承按 §2.2–§2.3 检�
 
 所有整数小端，字段 tag 严格递增；字符串、向量和引用均只采用以上规范形式。
 字节投影包含证据描述、参数版本及规则全部语义字段；只改变 locator、gap 数值或
-prohibition 也必须能观察到。语义引用相同但两根 ordinal 排列不同，投影字节必须相同。
+prohibition 也必须能观察到。语义引用相同但两份修订 ordinal 排列不同，投影字节必须相同。
 
 #### 4.3.3 与既有变更表的排他分工
 
@@ -386,7 +386,7 @@ Movement 的方向 Modify。方向缺失、显式零和其他合法值不能彼�
    独立投影与扫描 scratch 计入既有编译/后发射预算，包括同时存活的 base/target
    Identity/实体索引与局部引用索引；各步骤共用累计预算，在分配前计量并允许分配失败。
    索引借用原始身份载荷，不逐条复制前像。Runtime tick 不读取 LFSD 表。
-   未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标根仍由完整 LFCA
+   未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标修订仍由完整 LFCA
    重建，差异表本身不授予迁移权限。
 
 ### 4.4 LFSM 4 来源编码与闭合
@@ -529,7 +529,7 @@ Movement 的新方向属性存在时，RoadEditing 的贡献来源增加同一 D
 ## 5. 世界和场景绑定
 
 `TrafficWorld::install` 的单一入口在现行参数后增加 `WorldPolicySelection`，不提供
-安装后 setter。保留 `CommittedNetworkSource` 与共享根的修订一致性检查：
+安装后 setter。保留 `CommittedNetworkSource` 与共享路网修订的修订一致性检查：
 
 ```text
 install(revision, config, source, world_id, policy_selection)
@@ -537,8 +537,8 @@ WorldPolicySelection = NotRequired | Pinned(PolicyPin)
 PolicyPin { policy: RightOfWayPolicySetId }
 ```
 
-`RightOfWayPolicySetId` 是 policy StableId 的有类型包装，不是根内 dense handle。
-`PolicyPin` 构造器不接受未经验证的 ordinal 或可执行 closure。install 用给定根解析
+`RightOfWayPolicySetId` 是 policy StableId 的有类型包装，不是修订内 dense handle。
+`PolicyPin` 构造器不接受未经验证的 ordinal 或可执行 closure。install 用给定修订解析
 StableId，验证版本、法规来源相容性、完整解析表和依 fixedDelta 的 gap 加法。
 所有检查在 world 发布前完成，失败不返回半安装世界。现有唯一 install 签名直接修改，
 不保留旧签名或隐式 protected-only 默认。
@@ -578,7 +578,7 @@ bundle；frontier 使用静态 passage cell 的 top-two distinct owners，不随
 的唯一创建路径；restore/rebind 只迁移可验证的既有 authority。
 
 运行时仍使用 #559 的 `(ParticipantStreamOrdinal, passageLocalIndex)` 地址；该地址
-仅在当前根有效，不写入存档或原样用于跨修订匹配。冲突通行段持久定位值
+仅在当前修订有效，不写入存档或原样用于跨修订匹配。冲突通行段持久定位值
 （`ConflictPassageLocator`）固定为两个 `StableId128`：
 
 ```text
@@ -588,7 +588,7 @@ ConflictPassageLocator { participantStreamStableId, conflictZoneStableId }
 LFCA 已保证同一 `(ParticipantStream, ConflictZone)` 至多一条 passage，因此 locator
 能在绑定根中唯一找到既有局部关系；它不是新增实体或第二个运行时地址。快照的 LFCA
 origin 固定其完整 entry/exit 与所属路径。restore 先解析两种 StableId 并验证关系
-确实存在，再派生当前根的 local index，不从几何或局部下标猜测另一条 passage。
+确实存在，再派生当前修订的 local index，不从几何或局部下标猜测另一条 passage。
 eligibility 的恢复还必须复算 exact admission Gate 在已恢复时刻、所选 policy 与车辆
 profile 下的决策；只有 `Candidate` 可提交，`DenyAndStop` 即使 locator 与位置仍成立也
 必须以 `InvalidConflictAuthority` 失败关闭。aggregate 校验、restore、cross-revision
@@ -602,7 +602,7 @@ live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 
 不能区分循环路线中的重复出现。downstream 热状态和 wire 只保存规范化的
 `(LaneEdge StableId, startMm, endMm)` 物理区间并集；同一物理边的重叠 route
 occurrence 合并，因此单个合并区间没有唯一可保存的 route hop。reservation 级
-route/Gate/passages、车辆全长和当前根边长才是可复现证明：capture、restore 和
+route/Gate/passages、车辆全长和当前修订边长才是可复现证明：capture、restore 和
 cutover 均从该证明重新推导整个物理并集并精确比较，不能按 edge 搜索猜测 occurrence。
 wire owner 由所属车辆记录给出；恢复后 reservation 只由 `ConflictArbiter` 持有，车辆
 `Clearing` 只保存 Gate route anchor。跟车最小间隙由该车 profile 派生，不在每个区间重复持久化。
@@ -634,7 +634,7 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 
 冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数；
 downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。wire 按 edge
-StableId/start/end 排序，lowering 后再按当前根 ordinal 规范化；两种顺序不能混作同一判据。
+StableId/start/end 排序，lowering 后再按当前修订 ordinal 规范化；两种顺序不能混作同一判据。
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
 `acquiredTick × fixedDeltaTimeMs`；缺行、过早时间或 `CutoverFloor` 都不能证明真实 tail-clear。
@@ -654,7 +654,7 @@ downstream claim 与 lag history 变化，在线切换不需要重新执行全�
 
 ### 6.2 修订切换
 
-same-revision 保持 pin 及全部逻辑历史。cross-revision 仍以 LFSD 和现有完整根
+same-revision 保持 pin 及全部逻辑历史。cross-revision 仍以 LFSD 和现有完整修订
 事务切换；目标必须保留同一个被选 policy StableId 和法域/法规版本。
 若需更换 policy identity，首版通过新建世界显式完成，
 不增加独立 policy hot-swap 命令。
@@ -718,7 +718,7 @@ reservation、清 eligibility 并写真实 clear history。静默提交只排空
 
 以上目标规范化扩展现有描述符的迁移语义，因此描述符版本升级为 2，kind 名称仍为
 `same_revision_restore` 和 `cross_revision_direct`；字段形状不新增暗含 policy 选择的
-自由 JSON。晋升之前旧根、旧 pin、world/tick/time、命令游标和输出保持不变。
+自由 JSON。晋升之前旧修订、旧 pin、world/tick/time、命令游标和输出保持不变。
 
 ## 7. 参考参数与实测口径
 
@@ -731,7 +731,7 @@ reservation、清 eligibility 并写真实 clear history。静默提交只排空
 
 在 100 ms 固定步长下，world 安装派生 `requiredLeadMs=5600` 与
 `requiredLagMs=2500`。该 profile 通过普通 Road Editing policy source builder 编制并经
-compiler → LFCA → shared root → 正式 Runtime solver 使用；Runtime 没有同名常量、fallback
+compiler → LFCA → shared static network → 正式 Runtime solver 使用；Runtime 没有同名常量、fallback
 或安装后 setter。算法单测继续使用显式人工 profile 覆盖 equality、+1 ms 等边界，不把
 测试参数冒充推荐参数。
 
@@ -797,7 +797,7 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 ## 8. 原子版本矩阵
 
 下表记录实施前基线与完整 #284 的唯一切换组合。现行 writer/reader 共同实现右列
-版本；共享根完整校验和解析策略实体、局部成员表与 Movement 方向属性，正式世界
+版本；共享静态路网完整校验和解析策略实体、局部成员表与 Movement 方向属性，正式世界
 安装、固定步进、快照和切换共同消费这些输入。不得拆分版本组合或恢复分阶段能力
 保护；普通生命周期命令仍须证明 interior authority，不能凭位置伪造 reservation。
 
@@ -849,9 +849,9 @@ runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒�
 
 必须补以下定向验收，不扩展成全字段穷举矩阵：
 
-- 同 Gate 的不同车型、不同策略声明圆形/方向灯冲突时，两前端及共享根构建均拒绝；
+- 同 Gate 的不同车型、不同策略声明圆形/方向灯冲突时，两前端及共享静态路网构建均拒绝；
   相同灯型下的车型禁令差异合法。
-- 同根两个世界选择不同策略，对相同 Gate/stream/profile 得到各自门结果、priority、
+- 同修订两个世界选择不同策略，对相同 Gate/stream/profile 得到各自门结果、priority、
   yield targets 和 gap；颠倒声明或安装顺序不改变结果，缺项不从另一策略补齐。
 - passage 插入导致的局部下标重排可保持原 reservation；同键锚点/路径改变不能误绑；
   同一路线重复 occurrence 不合并，悬空 locator 拒绝。

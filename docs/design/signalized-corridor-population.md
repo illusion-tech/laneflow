@@ -95,8 +95,8 @@ policy = "lfid1_right-of-way-policy-set_ca2119927067c9918fce95996b8b5792"
 ```
 
 `pinned` 的 `policy` 必须是规范 `RightOfWayPolicySetId` 字符串，且该策略必须存在于
-绑定的共享根中。另一合法形状为 `[policy_selection]` 下仅含
-`kind = "not_required"`；只有共享根不含 Gate、ConflictZone、ParticipantStream 时
+绑定的共享静态路网中。另一合法形状为 `[policy_selection]` 下仅含
+`kind = "not_required"`；只有共享静态路网不含 Gate、ConflictZone、ParticipantStream 时
 才可使用，因此不能用于受保护走廊。没有默认策略或安装后的策略 setter。
 策略身份不要求真实公历日期，宿主可以是游戏、数字孪生或其他仿真产品。
 
@@ -140,7 +140,7 @@ apply pending lifecycle commands
 
 `consume_world` 与 `pending_spawn_input` 先校验传入世界的 `NetworkRevisionId` 和
 `WorldPolicySelection` 均与 catalog bind 一致。`apply_pending` 对宿主显式传入的
-同一组上下文执行相同校验。同一共享根上的不同策略世界必须被拒绝；拒绝发生在
+同一组上下文执行相同校验。同一共享路网修订上的不同策略世界必须被拒绝；拒绝发生在
 消费 completion、修改队列或调用 host callback 之前。世界实例与局部句柄的对应
 关系仍由宿主保证（见两阶段启动）。
 `consume_world` 再要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：

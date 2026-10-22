@@ -155,7 +155,7 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 | ---------------------------------------- | ---------------------------- |
 | vehicle state、identity、overlap、route  | TrafficWorld                 |
 | 目标人口、seed、portal/lane/route 决策   | caller policy（走廊为 #475） |
-| lane graph、限速、Signals 静态输入       | 共享静态路网修订             |
+| lane graph、限速、Signals 静态输入       | 共享静态路网                 |
 | 中心线和 pose sampling                   | Spatial                      |
 | VehicleHandle/Entity 部分双射与 schedule | Adapter                      |
 | proxy、model、Transform、灯具            | Adapter / Presentation       |

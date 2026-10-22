@@ -83,7 +83,7 @@ laneflow-spatial -> laneflow-static-contract  (共享静态空间数值边界)
 laneflow-runtime -X-> laneflow-spatial
 ```
 
-#301 后 Spatial 绑定共享根 `Arc`，不再依赖已拆除的 `laneflow-core`。Spatial 拥有有界 local canonical frame、中心线、弧长与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误，以及绑定 `SharedNetworkRevision` 的 `SpatialSession` 批量提取。
+#301 后 Spatial 绑定共享路网修订 `Arc`，不再依赖已拆除的 `laneflow-core`。Spatial 拥有有界 local canonical frame、中心线、弧长与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误，以及绑定 `SharedNetworkRevision` 的 `SpatialSession` 批量提取。
 
 ### 2.1 #291 目标静态编译分层
 
@@ -131,9 +131,9 @@ component 可选。headless 构建不保留 geometry；稳定身份索引不进�
 但任何构建模式都不得删除它。Spatial component 可以是 facility/profile/frame-only；只有
 非空 LaneEdge geometry 才形成完整 lane-pose sampling capability。共享结果拥有自己的连续
 数组且不借用 LFCA backing。runtime-only 世界可以在构建后释放 LFCA；可编辑 session 为
-后续 LFSD 保留的 exact base LFCA 由 editor/#302 独立拥有，不进入共享根。#300 v1 不定义
+后续 LFSD 保留的 exact base LFCA 由 editor/#302 独立拥有，不进入共享路网修订。#300 v1 不定义
 静态镜像 descriptor、integrity manifest、SharedNetwork mmap ABI、磁盘 cache 或
-target/profile 文件变体；#551 的私有 staged backing 只读映射不是共享根布局或持久化缓存。
+target/profile 文件变体；#551 的私有 staged backing 只读映射不是共享静态路网布局或持久化缓存。
 
 LFCA 的规范关系保存编译器派生的静态执行约束事实（Static Execution Constraint
 Facts）；LFCA 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
@@ -154,7 +154,7 @@ Graph，Condensation DAG）与稳定合并证明归约工作量/跨度（Reducti
 Journal）记录已提交动态状态/生命周期变化及命令/事件游标，并让候选重解释这条
 已提交变更流；最后在安全边界的静默提交窗口（Quiescent Commit Window）排空日志尾
 并把新共享修订/状态绑定与规范排序的切换事件批次原子地只发布一次。候选不得重新执行
-输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧修订。
+输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧根对象。
 语义差异不能自行授予迁移决定，必须由对象外可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
 稳定身份索引完成引用翻译。Accepted ADR 0024 的 compiler 后发射检查从目标无关规范路网语义载荷
@@ -216,7 +216,7 @@ Traffic Data Layer 保存可被编译器和共享静态路网消费的静态交�
 数据格式应尽量保持引擎无关。
 
 当前生产路径不经过 JSON loader。静态交通数据由编译器从受检编制来源产出 LFCA，
-`laneflow-static-network` 构建 `SharedNetworkRevision`，`TrafficWorld` 安装该共享根。
+`laneflow-static-network` 构建 `SharedNetworkRevision`，`TrafficWorld` 安装该共享路网修订。
 `laneflow-data`、`laneflow-current-source` 与 current JSON Schema（Traffic v0.10、
 Spatial v0.1、Scenario Manifest v0.1）已随 #301 拆除。走廊生成器写出 catalog 0.4 与
 LFCA（路线边序列在 catalog，不进 LFCA；ADR 0029）；可运行世界只安装 LFCA 构建的共享路网修订。50–200 确定性回流见
@@ -295,7 +295,7 @@ Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWor
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
 授予随机权威时才拥有相应随机流。
 路线出现项只在 `TrafficWorld::register_route` 编进每世界表；steady tick
-继续只使用 typed dense handle，不读共享根路线表（ADR 0029）。
+继续只使用 typed dense handle，不读共享静态路网路线表（ADR 0029）。
 
 运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。Accepted ADR 0025 要求
 #302 使用版本化路网修订标识、LFCA origin digest/length、静态契约版本、world identity、
@@ -380,9 +380,9 @@ Adapter 不再从 current JSON 安装可运行世界；它消费 `TrafficWorld` 
 
 ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。宿主在安装、恢复、Spatial 绑定与切换之前调用共享根认证
-（#955 G1，ADR 0032；只读，不改变这些入口的签名），认证非 `Pass` 的根不投入使用。
-Runtime 安装完整根；Spatial 只 `bind` 同一根 `Arc`，不依赖
+`Arc<SharedNetworkRevision>`。宿主在安装、恢复、Spatial 绑定与切换之前调用共享路网修订认证
+（#955 G1，ADR 0032；只读，不改变这些入口的签名），认证非 `Pass` 的修订不投入使用。
+Runtime 安装完整修订；Spatial 只 `bind` 同一根 `Arc`，不依赖
 Runtime，也不从 Runtime 发布的 snapshot/facade 借用。同时持有 world 与 session 的 Adapter
 必须 `Arc::ptr_eq`。不存在独立 component 安装或重新组合 API。#302 若发布
 revision-bound 只读 facade，必须内部保留同一根 `Arc`，不得把 Spatial 绑到 Runtime 类型。

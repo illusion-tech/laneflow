@@ -38,7 +38,7 @@ Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和�
 当前生产基线已经统一为：
 
 - 受检 LFCA 构造唯一 `SharedNetworkRevision`；
-- `TrafficWorld` 消费该共享根并拥有唯一动态交通 authority；
+- `TrafficWorld` 消费该共享路网修订并拥有唯一动态交通 authority；
 - 已提交一维运动使用整数毫米、`mm/s` 与 `carry_um`；
 - `ParkingBinding`、停驻/离场生命周期已经存在；
 - `ConflictPassageOccurrence`、正式 `ConflictArbiter`、组合资源 ledger、持久化和
@@ -235,7 +235,7 @@ reservation 与车尾清空状态。
 
 ### 9. 容量与性能边界
 
-WaitingZone 状态按共享静态根中的 zone 数量稠密构造，不新增调用方 WaitingZone
+WaitingZone 状态按共享静态路网中的 zone 数量稠密构造，不新增调用方 WaitingZone
 capacity 配置轴。per-member link 与每车最早新 claim 受 `vehicle_capacity` 约束；
 临时批次使用 actual checked count，不用理论全路线笛卡尔积常驻预留。
 
@@ -289,7 +289,7 @@ entry/release Gate crossing 与提交事务改变。
 
 ### 为 WaitingZone 增加调用方容量参数
 
-拒绝。zone 数来自静态共享根，member/link 来自 `vehicle_capacity`，临时工作量来自
+拒绝。zone 数来自共享静态路网，member/link 来自 `vehicle_capacity`，临时工作量来自
 checked exact count；额外轴只会制造错误配置和常驻浪费。
 
 ### 为开发期快照保留兼容层

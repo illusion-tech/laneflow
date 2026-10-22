@@ -25,11 +25,11 @@ remove_route(handle)
 spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 ```
 
-`RouteHandle` 只有槽位下标与 generation。没有静态种类、没有共享根序号别名。
+`RouteHandle` 只有槽位下标与 generation。没有静态种类、没有共享静态路网序号别名。
 `remove_route` 不再区分「静态句柄」；stale / in-use / 容量仍然失败关闭。
 
 注册期编译器（`compile_route`）是**唯一**出现项编译器。
-输入是共享根交通视图 + 边序号切片；输出只进入本世界表。共享根不保存路线。
+输入是共享静态路网交通视图 + 边序号切片；输出只进入本世界表。共享静态路网不保存路线。
 
 匹配规则与现行动态路径相同，且必须覆盖现行静态 seal 已接受的语义：
 
@@ -44,12 +44,12 @@ spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 | 路口内部边无出现项覆盖                    | 机动不匹配 |
 | 出现项 hop 区间相交                       | 机动不匹配 |
 
-hop 是否受控：用已编译机动出现项定位 path，再在共享根
+hop 是否受控：用已编译机动出现项定位 path，再在共享静态路网
 `transition_candidates(from)` 上找 `successor == to && path && transition_index`
 对应的门。无门则该 hop 不受信号限制。禁止再读已删除的
 `StaticRoute.transitionGates`。
 
-`register_route` 必须在本世界 compiled 表物化下列 **tick 索引**（不进共享根、不进
+`register_route` 必须在本世界 compiled 表物化下列 **tick 索引**（不进共享静态路网、不进
 磁盘快照；切修订原地重编译时一并重生；形状与现行
 `RouteDistanceIndexView` 相同）：
 
@@ -65,14 +65,14 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
   **拓扑链**（下一盏有信号的门），不是「当前红灯」。信号停车沿该链走到第一盏
   **当前**限制的门；不得扫全部剩余 hop，也不得在槽位里存相位相关的红灯列。
 - hop → 门：按 hop 下标定位，不得对机动出现项线性扫描。
-- 限速下降转换：与现行共享根 `speed_limit_transitions` 同形（`from` / 目标边 /
-  目标限速）。tick 读该列做下游制动包络，不得扫剩余边。边限速**值**仍读共享根
+- 限速下降转换：与现行共享静态路网 `speed_limit_transitions` 同形（`from` / 目标边 /
+  目标限速）。tick 读该列做下游制动包络，不得扫剩余边。边限速**值**仍读共享静态路网
   边热列。
 
 等待区出现项按所属机动出现项 + 入口门在注册时物化到本世界表。等待运行时行为仍
 归独立能力；现行路线注册不得把「静态有、动态无」的出现项缺口留在生产路径。
 
-共享根不再为路线预计算 `distance_to_end`、`next_controlled_transition` 或
+共享静态路网不再为路线预计算 `distance_to_end`、`next_controlled_transition` 或
 `speed_limit_transitions`。这些索引改由本世界 compiled 在 `register_route` 时物化。
 
 编制 `StaticRoute.canvas_selection` 随 table 删除，不迁入 Runtime。走廊生成器停止
@@ -190,7 +190,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 - 生成器写 catalog 边键，不写 LFCA 路线，不在编制来源声明路线。
 
 封闭规模不变：6 个 portal、32 条 ManeuverPath、28 条路线。路线仍是有限显式边
-序列；受保护转向覆盖由注册期编译器证明，不靠共享根预编译出现项。
+序列；受保护转向覆盖由注册期编译器证明，不靠共享静态路网预编译出现项。
 
 `quickstart` / 集成夹具同样改为显式边序号 + `register_route`。`lfca-full-spatial`
 不再含静态路线行。
@@ -199,7 +199,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 
 三者不是同一份布局。
 
-**内存热表**（tick 只读这一套 + 共享根机动/信号/边长）：
+**内存热表**（tick 只读这一套 + 共享静态路网机动/信号/边长）：
 
 ```text
 slot.generation: u32
@@ -263,7 +263,7 @@ controller 校验的是 `(NetworkRevisionId, WorldPolicySelection)`，宿主保�
   索引是分段 `u32` + 后缀 `BoundedDistance`，不上 `u64`。
 - 信号停车沿受控 hop 链走到第一盏当前限制的门，不扫全部剩余 hop，也不在 compiled
   里存当前红灯。
-- 下游限速下降读本世界 `speed_limit_drop`，不扫剩余边；限速值仍读共享根边热列。
+- 下游限速下降读本世界 `speed_limit_drop`，不扫剩余边；限速值仍读共享静态路网边热列。
 - 同一修订上两个 `TrafficWorld` 各自 `register_route`；catalog / scenario 校验
   修订与策略，宿主保持 controller 与 world 的一对一绑定。`RouteHandle` 只有槽位
   与 generation，不编码 world。spawn 只查本世界表。跨 world 把句柄塞进另一个

@@ -1,4 +1,4 @@
-# ADR 0025：受检规范路网与共享静态路网修订
+# ADR 0025：受检规范路网与共享静态路网
 
 **状态**: Accepted<br>
 **日期**: 2026-08-18<br>
@@ -53,7 +53,7 @@ SoA/CSR、密集句柄、预计算索引和热冷分离；这些收益不要求�
 因此 #300 把“目标静态镜像”拆成两个不同问题：
 
 1. LFCA 继续承担持久化、可移植、规范发布和来源审计；
-2. 新的共享静态路网修订只承担进程内 Runtime/Spatial 性能数据和多世界共享。
+2. 新的共享静态路网只承担进程内 Runtime/Spatial 性能数据和多世界共享。
 
 ## 决策
 
@@ -139,7 +139,7 @@ SharedNetworkRevision
 ```
 
 Traffic、Identity、Planning Hints 和 Spatial 可以在 builder 内物理独立分配，但最终由
-同一根修订直接拥有并绑定同一个 `NetworkRevisionId`。公共 API 只允许从根借用 component；
+同一根对象直接拥有并绑定同一个 `NetworkRevisionId`。公共 API 只允许从根借用 component；
 不返回可独立保留、克隆或重新组合的 component 所有权句柄。Spatial 缺失是合法的无图形
 构建模式；Spatial 存在不保证 LaneEdge geometry 存在。只有非空 LaneEdge geometry 才必须
 完整覆盖规范 edge/frame，并与 Traffic 使用同一 typed ordinal；facility-only、profile-only
@@ -169,7 +169,7 @@ v1 的默认物理策略是：
 - 不形成每实体一个 heap object/`Arc`/trait object 的对象图。
 
 共享边界只使用 `Arc<SharedNetworkRevision>`；根直接拥有 Traffic/Identity/Hints/Spatial
-component，component 再独占其内部数组。每个 world 或异步读任务只克隆共享根，随后从
+component，component 再独占其内部数组。每个 world 或异步读任务只克隆共享路网修订，随后从
 同一根借用 component 和 slices/ranges，不执行逐 component 或逐元素引用计数。Runtime、
 Spatial 与 Adapter 的安装 API 不接受独立 component handle；#302 必须从单一活动修订
 aggregate 发布绑定同一根的只读 snapshot/facade，避免旧 Traffic 与新 Spatial 组合。
@@ -194,7 +194,7 @@ aggregate 发布绑定同一根的只读 snapshot/facade，避免旧 Traffic 与
 失败、取消或预算不足不返回部分 component、不修改现有 world、不写磁盘，也不保留
 builder registry。成功结果不借用 LFCA/LFSM/LFSD backing；runtime-only 调用方可以在构建
 完成后释放 LFCA。可编辑 session 为下一次 `PortableDiffBase::Artifact` 保留的 exact LFCA
-由 editor/#302 单独拥有，不进入共享根。
+由 editor/#302 单独拥有，不进入共享静态路网。
 
 构建期允许同时存在输入 LFCA、最终 component arrays 和有界 scratch，不建立第二棵完整
 owned LFCA/LIR 对象图。安全 Rust 实现不得为了“精确一次分配”引入手写 `unsafe`；容量、
@@ -230,9 +230,9 @@ committed network source，并由上层 Save Manifest 绑定同一时点的 Runt
 
 发布资产若要启用道路编辑，宿主必须同时提供对应的 committed `RoadEditingState`，重新编译
 后以 `NetworkRevisionId`/contract closure 证明语义相符，再由 #302 用该 exact LFCA 构建
-新根并执行同修订来源 rebase：root/source/diff-base binding 原子替换、动态状态保持不变。
+新根对象并执行同修订来源 rebase：root/source/diff-base binding 原子替换、动态状态保持不变。
 成功前不得启用编辑，也不得从 LFCA 逆向猜测 authoring-only 曲线。editable 活动 aggregate
-在 editor/#302 侧保留与当前根 origin 精确一致的 LFCA 作为 `EditableDiffBase`；下一候选用它
+在 editor/#302 侧保留与当前修订 origin 精确一致的 LFCA 作为 `EditableDiffBase`；下一候选用它
 发射 LFSD，提交后 target LFCA 原子成为新 base，失败继续保留旧 base。存档不保存该 base；
 加载 RoadEditingState 时先重编译并建立新 session 的根/base，再恢复同 revision snapshot。
 候选或 working draft 尚未进入 Runtime 时，保存继续捕获旧 committed 来源；退出不会恢复
@@ -254,8 +254,8 @@ committed 道路状态重编译后，只要 `NetworkRevisionId` 与 #302 冻结�
 - LFCA/LFSM/LFSD candidate exact bytes、各 component logical/retained bytes；
 - count/build/closure 墙钟与累计分配；
 - builder 成功后不借用三对象，runtime-only LFCA 可释放；
-- 发布构建的 LFCA + candidate arrays + scratch 峰值，以及可编辑构建的 current root +
-  retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 峰值；
+- 发布构建的 LFCA + candidate arrays + scratch 峰值，以及可编辑构建的 current 共享静态路网 +
+  retained base LFCA + target LFCA/LFSM/LFSD + candidate 共享静态路网 + scratch 峰值；
 - 最小 headless、facility-only、profile/frame-only、full lane Spatial 和当前最大合法产品场景；
 - 2/8/32 worlds 的 shared-static 增量；
 - identity 双向 lookup 与 Runtime-facing 连续 range traversal 的描述性成本。

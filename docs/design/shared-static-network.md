@@ -112,7 +112,7 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 查询接受类别 ordinal，Runtime 从既有车辆配置关系取类别；保留稳定规则归因、逐流优先级、依据、原始间隙参数与
 逐 subject passage 的精确让行目标。缺规则、规则歧义、目标优先级、法规相容性、
 信号绑定、明确右转方向、跨策略灯型和保护冲突均由 builder 独立检查；`Omit` 与
-`RetainAvailable` 使用同一套策略闭合。世界固定步长和间隙派生值不进入共享根。
+`RetainAvailable` 使用同一套策略闭合。世界固定步长和间隙派生值不进入共享静态路网。
 
 各策略共用 Access 与实际类别产生的 owner/class 排列，门与流各只保留一份所有者
 定位索引（owner index）；范围使用策略内部相对偏移，规则单元仍按策略分别保存。
@@ -208,7 +208,7 @@ Traffic component 必须提供以下 Runtime 静态事实：
 - LaneEdge/owner/member/topology 和 successor/predecessor ranges；
 - Junction/Movement/ManeuverPath/Gate/WaitingZone/StopLine 静态关系；
 - speed、access、vehicle profile、signal/parking 等已支持静态规则；
-- 机动路径、门、等待区及其转移候选（路线出现项不进共享根，由
+- 机动路径、门、等待区及其转移候选（路线出现项不进共享静态路网，由
   `register_route` 编进每世界表；ADR 0029）；
 - Runtime 需要的反向关系、candidate ranges 与 worker-count-neutral execution constraints；
 - Traffic/Spatial 共用的 edge/frame ordinal contract。
@@ -349,14 +349,14 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
 该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。旧 snapshot 可以继续完成在途
-读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根，不能与新根的 component 配对。
+读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧修订，不能与新修订的 component 配对。
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
 和执行计划全部 per world。
 
-共享根认证（#955 G1，见
+共享路网修订认证（#955 G1，见
 [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）是宿主在
 安装、恢复、Spatial 绑定与切换之前及审计时调用的只读入口：它调用本 crate 现有的
-`build_shared_network_revision` 重建候选根并与根逐表比对，不改变根的所有权、句柄与
+`build_shared_network_revision` 重建候选修订并与修订逐表比对，不改变根的所有权、句柄与
 accessor 形状，不给根引入可变状态，本 crate 不解析 asset key、不做文件 I/O。输入、步骤、
 比较算子、判因与失败分类只以完整性设计 §2.2、§2.4、§4.2、§7 为准，本文不复述。
 
@@ -371,7 +371,7 @@ accessor 形状，不给根引入可变状态，本 crate 不解析 asset key、
 `CommittedNetworkSource` 和 editable 来源必需的 optional `EditableDiffBase` binding 作为一个
 活动修订 aggregate 原子替换；玩家确认建造时该 source 是 committed `RoadEditingState`，
 发布修订更新时可以是 `PublishedLfcaReference`。它只从该 aggregate 发布 revision-bound
-snapshot/facade，并负责事件恰一次和旧修订退休；旧修订在最后一个 Runtime/Spatial/Adapter
+snapshot/facade，并负责事件恰一次和旧根对象退休；旧根对象在最后一个 Runtime/Spatial/Adapter
 根 borrow/`Arc` 退出后释放。
 
 ## 9. 道路编辑与保存
@@ -401,10 +401,10 @@ CommittedRoadNetwork {
   key 不充当信任锚，存档不复制 LFCA，加载必须重新认证现有资产；
 - 发布资产若要启用道路编辑，宿主必须同时提供对应的 committed `RoadEditingState`，重新
   编译后以 `NetworkRevisionId`/contract closure 证明语义相符，再由 #302 执行同修订来源
-  rebase：从重编译 exact LFCA 构建新根，原子替换 root/source/diff-base binding，而动态状态
+  rebase：从重编译 exact LFCA 构建新根对象，原子替换 root/source/diff-base binding，而动态状态
   保持不变。rebase 成功前不得启用编辑，也不允许从 LFCA 逆向猜测 authoring curve/source
   state；
-- editable 活动 aggregate 在 editor/#302 侧保留与当前根 `CanonicalNetworkOrigin` 精确一致的
+- editable 活动 aggregate 在 editor/#302 侧保留与当前修订 `CanonicalNetworkOrigin` 精确一致的
   `EditableDiffBase` LFCA bytes。下一次发射必须把它传给 `PortableDiffBase::Artifact`；候选
   提交后 target LFCA 原子成为新 diff base，失败则继续保留旧 base。缺失或 origin 错配时
   不得发射/提交 LFSD；
@@ -445,10 +445,10 @@ kernel 冒充当前证据。
 - count、allocate/fill、closure 与总 build 墙钟；
 - allocation/reallocation count 与累计字节；
 - scratch peak、builder 成功后不借用三对象、失败 retained 为零；
-- 发布构建的 LFCA + candidate arrays + scratch，以及可编辑切换的 current root + retained
-  base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
+- 发布构建的 LFCA + candidate arrays + scratch，以及可编辑切换的 current 共享静态路网 + retained
+  base LFCA + target LFCA/LFSM/LFSD + candidate 共享静态路网 + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
-- 2/8/32 worlds 的新增 shared-control bytes；共享根认证（#955 G1）的认证墙钟与认证峰值
+- 2/8/32 worlds 的新增 shared-control bytes；共享路网修订认证（#955 G1）的认证墙钟与认证峰值
   按完整性设计 §6 / §8 的口径单列报告，稳态保留新增为零；
 - Identity lookup 和至少一个 production contiguous traversal kernel。
 
@@ -468,7 +468,7 @@ kernel 冒充当前证据。
 | 资源         | caller limit、失败无 retained、三对象真实 lifetime、editable base + target bundle + 双 root 峰值                                             |
 | 共享         | 2/8/32 worlds 不复制 component payload；per-world mutable arrays 仍独立                                                                      |
 | 修订绑定     | accessor 只返回根生命周期借用；无 owned/Clone component；Runtime/Spatial facade 保留同一根                                                   |
-| 保存来源     | editable RoadEditingState 与 published LFCA reference 均只绑定活动根；缺失/错配来源失败关闭                                                  |
+| 保存来源     | editable RoadEditingState 与 published LFCA reference 均只绑定活动修订；缺失/错配来源失败关闭                                                |
 | 差异基线     | published→editable 同修订 rebase；exact base LFCA 与 root origin 一致；提交成功/失败时 base 原子更替/保留                                    |
 | 并发         | `Send + Sync`、多 reader、tick/snapshot 内单 revision；无内部 mutation                                                                       |
 | 性能         | SoA/CSR baseline 与 production access kernel；AoS/AoSoA 变更需比较证据                                                                       |
@@ -638,9 +638,9 @@ Traffic retained 标量/向量；
 不得在成功对象上保留哈希表、字符串、全表扫描或重复验证。准入查询对越界 ordinal 返回
 缺失，`Unconstrained` 只表示本修订内无适用规则。派生执行索引里，**相位累计边界**
 必须从 owner-local slice 在 seal 时计算。路线距离、下一受控门与限速下降转换不在
-共享根，由 `register_route` 写入本世界 compiled 表（ADR 0029）。有界距离使用
+共享静态路网，由 `register_route` 写入本世界 compiled 表（ADR 0029）。有界距离使用
 `Finite(u32)` / `BeyondFinite`，不得把溢出写成非有限浮点。构建期 intern 可用有序表；
-成功对象只保留冷 intern 列。失败不返回部分根。
+成功对象只保留冷 intern 列。失败不返回部分修订。
 
 共享准入平面与规则表一起在 seal 前闭合：同一 LFCA 的 `(edge, class)` / `(path, class)`
 裁决必须与现行准入合同在 **以 LFCA AccessRule ordinal 为声明序** 时的
@@ -655,9 +655,9 @@ unconstrained/decided 语义一致，包括胜者 rule 归因。平面是共享�
   `partition_point` 解析活动相位；末相位 `end_offset_ms` 必须等于 controller
   `cycle_duration_ms`。只留 `duration_ms` 会迫使每 tick 前缀求和或每 world 重建。
 
-路线执行索引 **不**由 seal 生成，也 **不**进入共享根。`register_route` 在本世界
+路线执行索引 **不**由 seal 生成，也 **不**进入共享静态路网。`register_route` 在本世界
 compiled 表物化分段前缀、后缀距离、受控 hop 链与限速下降转换（ADR 0029）。tick 读
-本世界索引，边长 / 门 / 限速值仍读共享根热列。有界距离同型（`Finite(u32)` /
+本世界索引，边长 / 门 / 限速值仍读共享静态路网热列。有界距离同型（`Finite(u32)` /
 `BeyondFinite`）。
 
 `PartitionPlanningHints` 默认保持边邻接度数公式。若实现要把路口
@@ -682,7 +682,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 - 信号 program：controller offset/cycle、phase duration、group aspect 与门绑定
   往返相等；累计 `end_offset_ms` 与 `partition_point` 相位边界精确等于现行 Runtime；
   不得出现冲突裁决字段；
-- 路线执行索引：共享根不含路线；`register_route` 后的距离/受控门查询由每世界
+- 路线执行索引：共享静态路网不含路线；`register_route` 后的距离/受控门查询由每世界
   compiled 边序号证明（ADR 0029）；
 - 停车：关系加几何标量在 headless 下可绑定；取消/失败不留根；
 - 合法 UTF-8 冷字段（approach key、`regulation`、原文 `kind_id`）存在于 LFCA 但不出现在
@@ -710,4 +710,4 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 - 必须把来源声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
   才能完成 v0.10 切换；
 - 固定时制相位解析必须每 tick 扫描/累加 `duration_ms`，或每 world 重建累计边界；
-- 必须把路线边序列或出现项写回共享根才能完成 tick 或 #302 快照。
+- 必须把路线边序列或出现项写回共享静态路网才能完成 tick 或 #302 快照。

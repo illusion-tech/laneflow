@@ -80,7 +80,7 @@ HIR 闭合模块和 owner-qualified 引用，MIR 按静态 Access 实际允许�
 检查覆盖全部策略与全部声明规则，不允许被车型选择或遮蔽规则掩盖。临时解析行和
 索引在分配前计量；未命中的候选查询和关系遍历也累计受现有关系上限约束。
 让行目标按流/冲突区查找，保护一致性按绿灯相位成员检查，法规只比较 HIR 已统一的
-Access 身份。LIR/LFCA 只冻结策略声明，运行时解析表由共享根构建阶段重建。Gate coverage 的最低优先级用于后续候选
+Access 身份。LIR/LFCA 只冻结策略声明，运行时解析表由共享静态路网构建阶段重建。Gate coverage 的最低优先级用于后续候选
 仲裁；门声明没有可与之比较的优先级，编译器不计算并丢弃该派生值。
 
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
@@ -99,12 +99,12 @@ LFCA 5 策略引用在最终目标字节和 Artifact base 上另行核对：四�
 gap/evidence key 只能解析到同一 policy。每条规则须继承策略级来源或具有已解析依据，
 已有来源也不豁免显式依据引用。evidence/gap 的借用键索引先按完整逻辑行数计量，再分配，
 受 `StageScratchBytes` 约束并在检查结束后释放；跨 chunk 不改变 owner、key 或引用语义。
-该检查与编译器 MIR 的规则选择、覆盖性和灯型检查独立执行。共享根消费继续按路权
+该检查与编译器 MIR 的规则选择、覆盖性和灯型检查独立执行。共享静态路网消费继续按路权
 实施合同交付，编译成功不会自行启用运行时 Conflict 执行。
 
 LFSD 4 第七节按策略 StableId、成员种类和 key 配对完整成员，生成 Add/Remove/Modify；
 Genesis 与整个策略增删均逐项产生成员记录，纯 ordinal 重排不改变局部成员值。
-`check_portable_policy_diff` 从实际两根独立重建并核对最终差异，检查漏行、错侧、
+`check_portable_policy_diff` 从实际两份修订独立重建并核对最终差异，检查漏行、错侧、
 错误载荷与原 Entity/StaticRule 表的排他分工。该检查在返回候选前执行，不复用 emitter
 的配对和编码器；新增投影/扫描缓冲计入 `StageScratchBytes`。LFSM 4 来源闭合仍按实施合同交付。
 

@@ -1,12 +1,12 @@
 # laneflow_spatial
 
-LaneFlow 引擎无关的标准空间类型与共享根位姿采样 crate。
+LaneFlow 引擎无关的标准空间类型与共享静态路网位姿采样 crate。
 
 当前入口：
 
 - 拥有稳定字符串身份的 `CanonicalFrameId`；
 - 使用 `f32`、字段私有且只允许受检构造的 canonical 点、向量与单位方向；
-- `SpatialSession::bind(Arc<SharedNetworkRevision>)` 绑定共享根；无 Spatial
+- `SpatialSession::bind(Arc<SharedNetworkRevision>)` 绑定共享路网修订；无 Spatial
   component 时返回 `Ok(None)`；有 Spatial 但无 `lane_pose` 时返回
   `Err(SpatialBindError::MissingLanePose)`；
 - pose 批次使用不透明 `PoseRecordId`、`PoseSource` 与 `PoseInput`，不导入 Runtime handle；

@@ -38,12 +38,12 @@
 冻结句：
 
 1. 新建 `laneflow-runtime`。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，
-   只分配每世界可变状态与 1-worker 执行计划。热路径借共享根静态连续 accessor，
+   只分配每世界可变状态与 1-worker 执行计划。热路径借共享静态路网静态连续 accessor，
    **并**读本世界已提交/已编译表（车辆、占用、动态 Route occurrence）；不把动态
-   occurrence 写回共享根，也不把 `SharedIdentityIndex` 推进 steady tick。
+   occurrence 写回共享静态路网，也不把 `SharedIdentityIndex` 推进 steady tick。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
    **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
-   必须 `Arc::ptr_eq`（或两者来自同一保留的根 `Arc`）。pose 批次使用与 Runtime
+   必须 `Arc::ptr_eq`（或两者来自同一保留的根对象 `Arc`）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
 3. Runtime **禁止**依赖 Spatial、compiler、Serde、文件系统、`laneflow-core`。
 4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车 1-worker
@@ -93,10 +93,10 @@ Adapter / 示例 ─────────────────> laneflow-s
 （Adapter 生产 graph 不直接依赖 laneflow-static-contract；停车序号由 Runtime 再导出。）
 ```
 
-| 包                 | 拥有                                                                                    | 禁止                                                                                                                                                                            |
-| ------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划   | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 切片 C；LFCA 解析仍由 static-network builder 承担） |
-| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle                                                                                                                         |
+| 包                 | 拥有                                                                                          | 禁止                                                                                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划         | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 切片 C；LFCA 解析仍由 static-network builder 承担） |
+| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享静态路网序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle                                                                                                                         |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，
 session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用一份
@@ -106,13 +106,13 @@ pose 记录身份（不承诺最终 Rust 拼写）：
 
 - `PoseRecordId`：调用方分配的不透明 `u32`。Spatial 不解释为车辆、也不导入
   Runtime/Core handle。
-- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度 `progress_mm: u32`。
-- `PoseSource::Parking`：共享根上的停车位序号。
+- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享静态路网边长同域的进度 `progress_mm: u32`。
+- `PoseSource::Parking`：共享静态路网上的停车位序号。
 - virtual Parked 不生成 `PoseSource`；这不是 despawn，Adapter 必须结合
   Runtime committed status/binding 处理隐藏与重现。显式泊位仍使用 `PoseSource::Parking`。
 - 一批必须同一 canonical frame；混 frame 整批失败。
 - 批次头保存：`bind` 所用 `Arc` 的 `NetworkRevisionId`、该批 `CanonicalFrameId`
-  （或共享根 `CanonicalFrameOrdinal`）与调用方 `FramePlacementToken`。Spatial
+  （或共享静态路网 `CanonicalFrameOrdinal`）与调用方 `FramePlacementToken`。Spatial
   原样回显 token；Adapter 提交宿主变换前复核。不把 frame 身份逐条写入 record。
 
 Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止 Spatial 依赖
@@ -165,7 +165,7 @@ TrafficWorld::despawn_vehicle(vehicle) -> Result<VehicleDespawnRecord, ParkingEr
 TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
 
 TrafficWorld::revision() -> Arc<SharedNetworkRevision>;
-TrafficWorld::traffic() -> /* 共享根 Traffic 借用 */;
+TrafficWorld::traffic() -> /* 共享静态路网 Traffic 借用 */;
 TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
 TrafficWorld::tick_index() -> u64;
@@ -216,7 +216,7 @@ TrafficWorld::world_binding() -> WorldBinding;
 入口认证顺序：描述符一致性验证（含 origin 四联认证，先于策略与世界绑定
 判据）→ `worldBinding` 世界身份/世代比对 → 策略门（仅
 `same_revision_restore`）→ target 来源绑定 → 同修订不变量预检 → 下一世代
-checked 预计算 → 暂存（逐路线对 target 根重编译 +
+checked 预计算 → 暂存（逐路线对 target 修订重编译 +
 占用索引纯构造，可失败且失败关闭）→ 原子晋升（根 / 逐槽 compiled /
 来源 / 信号重导出 / 占用索引 / 世界世代 / 观测状态序号重置，全部不可失败换绑）。当期
 `RouteHandle` / `VehicleHandle` 跨换根保持有效；任一失败旧世界原样继续。
@@ -249,19 +249,19 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 ### 4.2 路线与车辆
 
 路线按 ADR 0017 匹配规则编译出现项。路网制品不声明路线（ADR 0029）。`install` 后世界没有
-路线；调用方用共享根边序号 `register_route`。
+路线；调用方用共享静态路网边序号 `register_route`。
 
-- `register_route`：输入为共享根 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
-  字符串 ID）；按共享根连通校验（车道后继或机动转移候选），把 occurrence 编进
+- `register_route`：输入为共享静态路网 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
+  字符串 ID）；按共享静态路网连通校验（车道后继或机动转移候选），把 occurrence 编进
   **本世界**表，返回代际感知 `RouteHandle`。首边或末边不得落在路口内部边上，末边
   不得带 StopLine；occurrence 覆盖必须达到现行静态 seal 已证明的机动/门/等待语义，
   且 hop 半开区间 `[entry, exit)` 不得相交。非法序列失败，不留下半条路线。不做
   准入判断（ADR 0018：Route 无 class 上下文）。
 - `remove_route`：移除本世界路线。仍有 live 车辆引用则失败；成功后旧句柄 stale。
-- 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
+- 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享静态路网车辆
   profile 序号、已有 `RouteHandle`、**路线序列下标**（ADR 0017 `routeEdgeIndex`：该
-  `RouteHandle` 边序列上的 occurrence 位置，不是共享根 `LaneEdgeOrdinal`；`[A, B, A]`
-  的两个 A 靠下标区分）、该 occurrence 对应边上与共享根边长同域的进度、初速。
+  `RouteHandle` 边序列上的 occurrence 位置，不是共享静态路网 `LaneEdgeOrdinal`；`[A, B, A]`
+  的两个 A 靠下标区分）、该 occurrence 对应边上与共享静态路网边长同域的进度、初速。
   进度与初速为 `progress_mm` / `speed_mm_s`，新车 `carry_um = 0`，进度
   `0..=length_mm`，初速 `<=` 当前边限速且 `<= 100_000` mm/s；禁止未文档化的
   米→毫米量化。下标必须落在 `0..len`，越界失败、不留车。tick 内部车辆状态继续
@@ -327,7 +327,7 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
   停车用停车位序号。已完成或已移除车辆不出现。Adapter 映射为 `PoseRecordId`
   再交给 Spatial；Spatial 在边界把 mm 换成弧长比例，不得把米制当权威。
 - `committed_signal_groups()`：稳定按组序号的当前 aspect，由已提交 `time_ms` +
-  共享根 program + offset 导出。`install` 成功后 time 0 已有有效 snapshot；成功
+  共享静态路网 program + offset 导出。`install` 成功后 time 0 已有有效 snapshot；成功
   `step` 之后查询到的是 T + D。初始化不发事件。
 - 上述查询只读已提交状态；`step` 失败时与失败前一致。不冻完整 snapshot/event
   套件，也不把 Spatial 绑到这些查询类型。
@@ -341,11 +341,11 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 公开推进入口是 `TrafficWorld::step`（§4.4）。`TrafficWorld` 的 1-worker 车辆 tick
 读取：
 
-- 共享根 `SharedTrafficNetwork` 的连续 slice（后继 CSR、准入 resolved 表、机动
+- 共享静态路网 `SharedTrafficNetwork` 的连续 slice（后继 CSR、准入 resolved 表、机动
   路径/门/等待区、信号 program、停车静态关系）；
 - **本世界**已提交/已编译表（车辆列、车道与停车占用、已注册 Route occurrence）。
 
-不得把动态 occurrence 写回共享根。`SharedIdentityIndex` 不进入 steady tick；只用于
+不得把动态 occurrence 写回共享静态路网。`SharedIdentityIndex` 不进入 steady tick；只用于
 install 核对、`register_route` 重建，以及后继 #302 快照/修订切换（合同见
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md) 与
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)）。禁止：
@@ -387,7 +387,7 @@ Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同�
 - 测试 crate 不链接 `laneflow-core`。
 
 不要求：完整停车离场状态机、红灯停止线的独立故事夹具、多 worker、走廊规模人口、
-与任何历史 Core 轨迹相等。S1 是共享根集成证据，**不能**单独替代下列 Runtime
+与任何历史 Core 轨迹相等。S1 是共享路网修订集成证据，**不能**单独替代下列 Runtime
 原生覆盖。
 
 ### 6.3 最小 Bevy 示例
@@ -436,7 +436,7 @@ CI 必须同时：
 空实现若只过 S1 两车推进/pose 不得视为完成。停车 lifecycle 已由 #541 独立切片交付；
 受保护转向走廊、50–200 辆人口及其余历史变体仍按各自 Issue 收口。
 
-这些测试只链接 `laneflow-runtime`（及共享根/format/compiler 夹具），不链接
+这些测试只链接 `laneflow-runtime`（及共享静态路网/format/compiler 夹具），不链接
 `laneflow-core`。
 
 ## 7. 拆除（合入 `main` 的完成定义）
@@ -451,7 +451,7 @@ CI 必须同时：
   `laneflow-scenario-manifest-v0.1`（本完成 PR 已删除文件）。不得删除 `schemas/road-editing/`。
   走廊生成器不再构造 current JSON；编制走 compiler，检入 catalog 与 LFCA；
 - `laneflow-compiler-test-support` 的 LIR→Core 投影；
-- `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享根 bind）；
+- `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享路网修订 bind）；
 - `laneflow-bevy`、`laneflow-scenario`、`laneflow-corridor-generator` 以及
   campus / `native_reference` / `signalized_corridor` 中任何 `CoreWorld` /
   `InitialTrafficData` 构造。campus / native 接得上 S1 就改接，接不上就删除。

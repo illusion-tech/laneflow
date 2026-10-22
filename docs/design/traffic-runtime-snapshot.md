@@ -44,7 +44,7 @@ downstream authority 与 lag history 的持久化、同/跨修订迁移和生产
 - **保存逻辑状态，不保存机器**：持久的是稳定引用、快照局部标识与整数毫米值
   （ADR 0028）；进程句柄、槽位、generation、密集序号、数组布局不持久，恢复
   时新分配句柄。
-- **派生即不存**：凡确定性派生的状态不入快照——信号灯色由 `time_ms` 与共享根
+- **派生即不存**：凡确定性派生的状态不入快照——信号灯色由 `time_ms` 与共享静态路网
   program 派生，车道占用索引每 tick 从已提交状态重建。
 - **单一时点**：保存在固定步进安全边界原子捕获一个快照点，编码只读该不可变
   捕获，世界随后可恢复步进；不存在跨提交状态的混合捕获。
@@ -66,7 +66,7 @@ revision）不混用单一数字；未知版本值失败关闭。
 `WorldConfig` 与 `WorldPolicySelection`。必填 `world_policy` 使用封闭 tag：
 `NotRequired = 1` 且无 policy，或 `Pinned = 2` 且带 policy StableId；0、未知 tag、
 缺失/多余身份及未知 table 字段都拒绝。恢复把选择传入与安装共用的交通准备入口，
-拒绝根内未知策略与不合法 NotRequired；规则内容及法规来源由绑定的 LFCA 确定，
+拒绝修订内未知策略与不合法 NotRequired；规则内容及法规来源由绑定的 LFCA 确定，
 不保存 dense ordinal、解析表或步长派生间隙。
 
 `WorldConfig` 只保存行为语义配置：`fixed_delta_time_ms` 必须精确匹配，vehicle、
@@ -95,7 +95,7 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 
 | 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享根重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享路网修订重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                                                                                                                                                                                                                                                |
 | Waiting     | 每车保存可选 maneuver traversal 与 semantic membership；每个有逻辑历史的 zone 保存 `WaitingZone StableId128`、occupancy 与单调 `nextAdmissionSequence`。queue link、tick-local claim 与 latest output batch 不入档                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -156,9 +156,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 
 - 保存只接受活动聚合的 `CommittedNetworkSource`；working / candidate 与
   `EditableDiffBase` 不入档。候选准备期的保存仍只捕获旧聚合（切换文档 §8）。
-- **共享根认证（#955 G1，见
+- **共享路网修订认证（#955 G1，见
   [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）**：
-  宿主在恢复与跨修订迁移把重建 / 重新认证的根投入使用之前执行共享根认证；结论非
+  宿主在恢复与跨修订迁移把重建 / 重新认证的修订投入使用之前执行共享路网修订认证；结论非
   `Pass` 时不恢复、不发布 world。保存路径不加完整性门控；检测滞后内被保存的检查点
   可能包含坏状态（完整性设计 §5 第 7 条），兜底为宿主审计重放与处置丢弃。
 - **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
@@ -207,7 +207,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   占用重建 → 执行能力校验。任一失败只丢弃 staging；成功才返回 world 与快照局部路线/车辆 ID 到新
   句柄的映射。fresh restore 从初始 `WorldGeneration` / 初始观测 stream 建立；调用方
   不得让同一 `world_id` 的旧 world 或旧 session 并存。Published 目标允许同修订
-  重发布的 digest / length 不同，但目标 source 与目标根、快照 source 与快照根各自的
+  重发布的 digest / length 不同，但目标 source 与目标修订、快照 source 与快照修订各自的
   `NetworkRevisionId` 必须闭合。
 
 ## 6. 回放与确定性状态摘要
@@ -311,8 +311,8 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   改变摘要等价类的失真（同一等价类内的归属置换见上文「等价类边界」，由宿主身份映射
   比对承接）；换机器重放是判因证据，不单独构成判因，原始分歧在判因前按失同步诊断。Runtime 不登记检查点锚或命令摘要。完整性失配与失同步共用同一
   处置权威（归宿主），区别只在是否停用：失同步状态仍是合法确定性状态，只诊断不停用；
-  完整性失配的对象可信度已被破坏，宿主先停用再按检查点 + 输入命令序列处置。共享静态根
-  不在 C(T) 内（ADR 0030），其失配不属回滚 / 重演可修复面，只能根重建。完整性不进入
+  完整性失配的对象可信度已被破坏，宿主先停用再按检查点 + 输入命令序列处置。共享路网修订
+  不在 C(T) 内（ADR 0030），其失配不属回滚 / 重演可修复面，只能修订重建。完整性不进入
   本快照、确定性状态摘要前像与 tick 路径，digest 7 / runtime state 5 版本轴不变。
 
 ## 7. 跨修订迁移入口
@@ -362,7 +362,7 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 | save 主线程停顿      | 边界 `capture_snapshot` 中位 `0.002 ms`；账本 34 次分配 / 3,435 bytes，返回时净 live `2,955` bytes。随后 `encode_lfrs` 可移到后台，中位 `0.0072 ms`；账本 34 次分配 + 12 次重分配 / 9,480 allocated bytes，返回时净 live `7,448` bytes          |
 | published load 停顿  | 目标 Published 根/source 已由调用方取得后，`restore_lfrs` 内绑定认证 + verifier + 语义 lowering + fresh world 重建整次中位 `0.063 ms`；账本 386 次分配 + 13 次重分配 / 23,240 allocated bytes，返回时净 live `18,256` bytes                     |
 | editable load 停顿   | **尚未登记，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；随该类型落地后单列重编译与恢复，不用 published 数值代替                                                                                                         |
-| 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享根/source 在 profiler 前准备，不重复计入增量                                                                                     |
+| 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享路网修订/source 在 profiler 前准备，不重复计入增量                                                                               |
 | 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
 
 ### 2026-10-19 再登记（#537，exact head `6cf9056365dcf106bedeba85035863c4fda5a8c1`，v6）
@@ -407,7 +407,7 @@ Completed 不经过瞬时 Active。捕获与摘要的预留失败注入须证明
 Conflict downstream 区间不是 route occurrence 的第二份持久索引。writer 先从
 reservation 的 exact route/Gate/passages、车辆全长与当前边长重建物理区间并集，要求与
 committed 热状态相等，再按 `(edge StableId, startMm, endMm)` 写入。reader 先检查这一
-wire 规范序，解析到当前根后按 ordinal 排序，再从 reservation 证明独立重建并逐项比较。
+wire 规范序，解析到当前修订后按 ordinal 排序，再从 reservation 证明独立重建并逐项比较。
 循环路线中同一物理边的重叠 occurrence 可以合并；合并区间没有唯一 route hop，禁止用
 “Gate 后第一个同边 occurrence”补造来源。wire owner 由所属车辆记录给出；恢复后完整
 reservation 只由 `ConflictArbiter` 持有，车辆 `Clearing` 只保存 Gate route anchor。

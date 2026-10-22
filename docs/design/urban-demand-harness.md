@@ -44,7 +44,7 @@ diagnostics），不属于 urban-demand-v3 交通需求协议本身：计划摘�
 完整展开计划携带实际 `route_edges`；包括角色使用的局部目录路线，不只依赖路线名称。
 seed 属于调用方；不改 LFCA 或 TrafficWorld 的规则。所有选择使用目录 key 的 UTF-8
 字节序，禁止依赖哈希表迭代、墙钟或平台随机数。实体绑定使用目录 StableId，安装后
-通过共享根得到 typed ordinal；虚拟入口/出口使用目录中的实际 anchor selector。
+通过共享静态路网得到 typed ordinal；虚拟入口/出口使用目录中的实际 anchor selector。
 
 每 tile 固定 1000 个初始个体，编号为 `(tile, slot, incarnation)`，初始 incarnation
 为 0；按此元组升序提交初态。后续请求另有递增的序号，成功原子替换 Completed 个体时
@@ -525,7 +525,7 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
   （无车辆为空）。车辆标识取自同一次捕获的 `live_vehicles()` 与 `live_order()` 一一对应。
 - 路线表：目录路线 key 与 `snapshot_route_id` 的对应。`route_table` 的路线序号按目录
   key 升序注册，由制品重建而不入档；`claims` 中的路线以该序号表示，因此恢复后序号含义
-  不变。停车目标、profile 由共享根的稳定标识重建，不入档；`transition_gates` 由制品
+  不变。停车目标、profile 由共享静态路网的稳定标识重建，不入档；`transition_gates` 由制品
   重建。
 - 需求：`schedule` 中每个未执行请求的全部字段（到期拍、原到期拍、槽位、序号、尝试次数、
   重试策略和命令），`RequestLedger` 的在途条目（结束的请求已移出）、下一编号、登记
