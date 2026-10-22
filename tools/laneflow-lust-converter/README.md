@@ -45,7 +45,28 @@ cargo +1.98.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip
 基线——与比对测试并行竞争，漂移基线会被覆写后门检失效。regenerate 只在
 更新基线时显式单独运行（见 `evidence/README.md` 更新流程）。
 
-配置示例：
+### 精确十进制渲染回归与局部测量
+
+`sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference` 先通过
+固定源集校验，再逐项比较参考实现与当前实现的字符串及 binary64 位模式。
+输入覆盖全网 lane 的 length/speed/shape、精确投影与重定中心、相邻点和相对首点
+差分、信号时长、车辆参数及全部 DUE 出发时间；普通测试另覆盖 i128 边界与
+重复求中点产生的高精度小数。
+
+设置 `LUST_SOURCE_DIR` 后，上面的全量集成命令包含这项回归。局部性能测量还需
+设置 `LUST_DECIMAL_BENCH=1`，然后单独运行：
+
+```text
+cargo +1.98.1 test --release --locked -p laneflow-lust-converter --lib sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference -- --exact --ignored --nocapture
+```
+
+测量先验证等价性、预热两条路径，再交替先后顺序各取 10 个样本；每个样本遍历
+同一输入集两遍，分别输出纯渲染和渲染后解析 binary64 的毫秒数组。源校验、XML
+解析和输入集构造不计时。这是固定真实输入分布下的十进制局部微基准，不能据此
+宣称全量转换或 Traffic Runtime 的端到端加速。完成后清除 `LUST_DECIMAL_BENCH`，
+避免普通 ignored 回归意外进入 release 专用测量。
+
+### 转换配置
 
 ```toml
 source_dir = "E:/data/LuSTScenario"
