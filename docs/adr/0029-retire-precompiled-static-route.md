@@ -272,7 +272,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 - 生产路径无 `StaticRoute` / `static_route`；旧 LFCA 含该实体或版本不匹配当前登记
   则失败关闭。
-- 走廊、Bevy smoke、`runtime_min`、替换/回流测试只通过 `register_route` 放车，
+- 走廊、Bevy smoke、`quickstart`、替换/回流测试只通过 `register_route` 放车，
   受保护转向覆盖不弱于现行静态夹具。
 - tick 热路径只有一套已编译边序列与出现项。
 - catalog 带边键（本 ADR 首次定义为 `0.3`；现行 `0.4` 另必填策略选择）；生成器不再往 LFCA 写路线。

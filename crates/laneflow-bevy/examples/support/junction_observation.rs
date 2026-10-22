@@ -1,7 +1,7 @@
 //! `LaneFlowSession::junction_observation` 借用视图的行为测试（#285 复杂路口观测 G1 §3）。
 
-#[path = "runtime_min_scene.rs"]
-mod runtime_min_scene;
+#[path = "quickstart_scene.rs"]
+mod quickstart_scene;
 
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
@@ -21,7 +21,7 @@ use laneflow_runtime::{EntityKind, WaitingZoneOrdinal, WorldGeneration};
 
 #[test]
 fn context_matches_world_getters_at_install() {
-    let session = runtime_min_scene::session().expect("native example initialization");
+    let session = quickstart_scene::session().expect("native example initialization");
     let world = session.world();
     let context = session.junction_observation().context();
     assert_eq!(context.world_id(), world.world_id());
@@ -44,7 +44,7 @@ fn context_matches_world_getters_at_install() {
 
 #[test]
 fn vehicles_follow_live_order_with_committed_state() {
-    let session = runtime_min_scene::session().expect("native example initialization");
+    let session = quickstart_scene::session().expect("native example initialization");
     let world = session.world();
     let rows: Vec<_> = session.junction_observation().vehicles().collect();
     assert_eq!(rows.len(), world.live_vehicles().len());
@@ -64,7 +64,7 @@ fn vehicles_follow_live_order_with_committed_state() {
 
 #[test]
 fn waiting_zones_cover_fixture_zones_in_ordinal_order() {
-    let session = runtime_min_scene::session().expect("native example initialization");
+    let session = quickstart_scene::session().expect("native example initialization");
     let world = session.world();
     let zone_count = world
         .traffic()
@@ -84,7 +84,7 @@ fn waiting_zones_cover_fixture_zones_in_ordinal_order() {
 
 #[test]
 fn borrowed_batches_match_world_getters() {
-    let session = runtime_min_scene::session().expect("native example initialization");
+    let session = quickstart_scene::session().expect("native example initialization");
     let world = session.world();
     let view = session.junction_observation();
     assert_eq!(view.waiting_zone_members(), world.waiting_zone_members());
@@ -104,7 +104,7 @@ fn borrowed_batches_match_world_getters() {
 
 #[test]
 fn route_gate_matches_world_direct_lookup() {
-    let session = runtime_min_scene::session().expect("native example initialization");
+    let session = quickstart_scene::session().expect("native example initialization");
     let world = session.world();
     let view = session.junction_observation();
     let route = world.live_routes().next().expect("fixture live route");
@@ -126,7 +126,7 @@ fn route_gate_matches_world_direct_lookup() {
 #[test]
 fn headless_session_exposes_domain_observation() {
     // 无 Spatial 配对的 headless Session；领域观察不依赖 Spatial 配对。
-    let world = runtime_min_scene::world().expect("fixture world");
+    let world = quickstart_scene::world().expect("fixture world");
     let config = LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"));
     let session = LaneFlowSession::new(world, None, config).expect("headless session");
     let world = session.world();
@@ -182,7 +182,7 @@ fn collect_observation(session: Res<LaneFlowSession>, mut observed: ResMut<Obser
 
 #[test]
 fn observe_set_collects_every_fixed_tick() {
-    let session = runtime_min_scene::session().expect("native example initialization");
+    let session = quickstart_scene::session().expect("native example initialization");
     let mut app = App::new();
     app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
