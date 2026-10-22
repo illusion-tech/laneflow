@@ -180,7 +180,7 @@ LFCA 与 catalog 0.4；先把 catalog 绑到共享根，显式使用绑定的策
 再按 catalog 边键 `register_route` 并 spawn 少数车辆。运行命令为：
 
 ```powershell
-cargo +1.98.1 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
+cargo +1.99.1 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
 ```
 
 #475 交付 headless `TrafficWorld` 上的 `50..=200` caller-owned 回流、原子替换和
@@ -320,8 +320,8 @@ authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA
 同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
 
 ```powershell
-cargo +1.98.1 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.10-signalized-corridor.toml
-cargo +1.98.1 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
+cargo +1.99.1 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.10-signalized-corridor.toml
+cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
 `check` 不写文件。catalog 与 LFCA 字节对拍由 `laneflow-corridor-generator` 测试覆盖，随

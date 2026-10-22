@@ -395,7 +395,7 @@ mod tests {
 
         let build_input = BuildProvenanceInput {
             converter_commit: "abc123".to_owned(),
-            rust_version: "1.98.1",
+            rust_version: "1.99.1",
             cargo_lock_sha256: "deadbeef".to_owned(),
             config_digest: "sha256:00".to_owned(),
             semantic_provenance_digest: "sha256:11".to_owned(),

@@ -9,13 +9,13 @@
 从仓库根目录生成 checked-in 默认制品：
 
 ```powershell
-cargo +1.98.1 run --locked -p laneflow-junction-generator -- generate --config examples/config/v0.1-complex-junction.toml
+cargo +1.99.1 run --locked -p laneflow-junction-generator -- generate --config examples/config/v0.1-complex-junction.toml
 ```
 
 只检查当前制品是否与配置逐字节一致：
 
 ```powershell
-cargo +1.98.1 run --locked -p laneflow-junction-generator -- check --config examples/config/v0.1-complex-junction.toml
+cargo +1.99.1 run --locked -p laneflow-junction-generator -- check --config examples/config/v0.1-complex-junction.toml
 ```
 
 `check` 不写文件。两个命令比较 catalog 与 LFCA 字节，并做 catalog cross-reference 校验。
@@ -91,7 +91,7 @@ cargo +1.98.1 run --locked -p laneflow-junction-generator -- check --config exam
 ## 依赖与分发
 
 - `toml 1.1.3+spec-1.1.0` 只解析/序列化仓库内部配置与 catalog，许可证为 MIT OR
-  Apache-2.0，MSRV 低于 workspace 1.98.1。
+  Apache-2.0，MSRV 低于 workspace 1.99.1。
 - 工具离线运行，不进入 Runtime fixed-step 或 Adapter 热路径，不引入网络、引擎或
   copyleft 依赖。
 
