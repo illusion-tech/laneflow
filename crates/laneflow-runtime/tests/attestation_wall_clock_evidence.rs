@@ -48,7 +48,7 @@ fn build_tier(stable_entities: u32) -> TierFixture {
     let unit = build_mixed_network(WorkloadShape::for_stable_entities(stable_entities), false);
     let output = Compiler::new().compile(unit).expect("compile");
     let provenance =
-        PortableEmissionProvenance::try_new(format!("git:#987-evidence-{stable_entities}"))
+        PortableEmissionProvenance::try_new(format!("laneflow-987-evidence-{stable_entities}"))
             .unwrap();
     let candidate = laneflow_compiler::emit_portable_candidate(
         &output,
@@ -188,8 +188,11 @@ fn concurrent_attest_tick_interference_evidence() {
     )
     .expect("install");
     let input = TickInput::new(100);
+    // 每段含 16 步暖机；影子世界与被测世界走完全相同的总步数（无并发），
+    // 其摘要作 tick 语义不受并发认证影响的确定性参照。
+    const WARMUP_TICKS: usize = 16;
     let tick_clocks = |world: &mut TrafficWorld, ticks: usize| -> Vec<u128> {
-        for _ in 0..16 {
+        for _ in 0..WARMUP_TICKS {
             world.step(input).expect("warmup step");
         }
         let mut clocks = Vec::with_capacity(ticks);
@@ -202,9 +205,6 @@ fn concurrent_attest_tick_interference_evidence() {
     };
     let baseline = tick_clocks(&mut world, CONCURRENT_TICKS);
     let baseline_median = median(&baseline);
-    let before = world
-        .direct_state_digest(SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES))
-        .unwrap();
     // 并发段：认证线程循环认证，主线程同步 tick 计时。
     let (contended, worker_cycles) = std::thread::scope(|scope| {
         let stamp = Arc::new(std::sync::Barrier::new(2));
@@ -234,15 +234,35 @@ fn concurrent_attest_tick_interference_evidence() {
     let after = world
         .direct_state_digest(SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES))
         .unwrap();
+    let mut shadow = TrafficWorld::install(
+        Arc::clone(&fixture.root),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        CommittedNetworkSource::Published {
+            reference: fixture.reference.clone(),
+        },
+        987_100,
+        test_policy::selection(&fixture.root),
+    )
+    .expect("install shadow");
+    for _ in 0..(2 * (WARMUP_TICKS + CONCURRENT_TICKS)) {
+        shadow.step(input).expect("shadow step");
+    }
+    let reference = shadow
+        .direct_state_digest(SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES))
+        .unwrap();
     assert_eq!(
-        before, after,
-        "并发认证不得改变确定性摘要（同一状态的两次直算）"
+        after, reference,
+        "并发认证不得改变 tick 语义（与同程无并发参照世界的摘要一致）"
     );
     println!(
         "#987-evidence concurrent-interference tier={tier} ticks={CONCURRENT_TICKS} \
          baseline_median_ns={baseline_median} contended_median_ns={contended_median} \
          interference_ppm={} attest_cycles={worker_cycles}",
-        contended_median.saturating_mul(1_000_000) / baseline_median.max(1),
+        contended_median
+            .saturating_sub(baseline_median)
+            .saturating_mul(1_000_000)
+            / baseline_median.max(1),
     );
 }
 
