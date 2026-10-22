@@ -243,8 +243,10 @@ mod tests {
             .and_then(|row| row.field_by_tag(tag))
             .unwrap()
             .value_bytes();
-        let start = value.as_ptr() as usize - bytes.as_ptr() as usize;
-        start..start + value.len()
+        let range = bytes
+            .subslice_range(value)
+            .expect("field value belongs to object bytes");
+        range.start..range.end
     }
 
     fn owned_value(row: &OwnedRow, tag: u16) -> &OwnedValue {

@@ -294,8 +294,10 @@ mod tests {
                     .field_by_tag(3)
                     .unwrap()
                     .value_bytes();
-                let start = value.as_ptr() as usize - duplicate_stable_id.as_ptr() as usize;
-                start..start + value.len()
+                let range = duplicate_stable_id
+                    .subslice_range(value)
+                    .expect("stable id belongs to object bytes");
+                range.start..range.end
             };
             (value_range(0), value_range(1))
         };

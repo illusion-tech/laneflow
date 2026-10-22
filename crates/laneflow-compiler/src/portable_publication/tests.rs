@@ -67,10 +67,10 @@ fn field_range(bytes: &[u8], kind: PortableObjectKind, section: u32, tag: u16) -
         .field_by_tag(tag)
         .unwrap()
         .value_bytes();
-    let start = (value.as_ptr() as usize)
-        .checked_sub(bytes.as_ptr() as usize)
-        .unwrap();
-    start..start + value.len()
+    let range = bytes
+        .subslice_range(value)
+        .expect("field value belongs to object bytes");
+    range.start..range.end
 }
 
 fn mutate_field(bytes: &mut [u8], kind: PortableObjectKind, section: u32, tag: u16) {

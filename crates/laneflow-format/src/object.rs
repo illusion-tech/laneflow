@@ -1602,7 +1602,10 @@ mod tests {
                 crate::preflight_object_framing(&original, kind, FormatLimits::HARD).unwrap();
             for ordinal in 0..framing.section_count() {
                 let section = framing.section(ordinal).unwrap();
-                let offset = section.bytes().as_ptr() as usize - original.as_ptr() as usize;
+                let offset = original
+                    .subslice_range(section.bytes())
+                    .expect("section belongs to object bytes")
+                    .start;
                 let mut corrupted = original.clone();
                 corrupted[offset] ^= 1;
                 assert!(

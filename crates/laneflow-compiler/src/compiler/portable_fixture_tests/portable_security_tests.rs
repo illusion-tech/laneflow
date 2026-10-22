@@ -20,7 +20,10 @@ fn assert_each_section_bit_change_breaks_digest(
     for ordinal in 0..framing.section_count() {
         let section = framing.section(ordinal).unwrap();
         assert!(!section.bytes().is_empty());
-        let offset = section.bytes().as_ptr() as usize - bytes.as_ptr() as usize;
+        let offset = bytes
+            .subslice_range(section.bytes())
+            .expect("section belongs to object bytes")
+            .start;
         let mut corrupted = bytes.to_vec();
         corrupted[offset] ^= 1;
         let corrupted_digest: [u8; 32] = Sha256::digest(&corrupted).into();
