@@ -46,9 +46,13 @@ pub(crate) struct WorkloadShape {
 
 impl WorkloadShape {
     pub(crate) fn for_stable_entities(stable_entities: u32) -> Self {
+        // 策略集自身占 1 个稳定实体（install 要求 pinned 策略），从合成侧预留，
+        // 使三档的稳定实体总数恰为档位目标值、不越 single_network_1m_v2 限额。
+        const POLICY_SET_ENTITIES: u32 = 1;
         let conflict_tiles = stable_entities / 800;
         let conflict_entities = conflict_tiles * 31;
-        let synthetic_entities = stable_entities - conflict_entities - SHARED_ACCESS_ENTITIES;
+        let synthetic_entities =
+            stable_entities - conflict_entities - SHARED_ACCESS_ENTITIES - POLICY_SET_ENTITIES;
         Self {
             stable_entities,
             synthetic_tiles: synthetic_entities / SYNTHETIC_TILE_ENTITIES,
@@ -60,6 +64,10 @@ impl WorkloadShape {
 
 fn key(prefix: &str, ordinal: u32, suffix: &str) -> String {
     format!("{prefix}{ordinal:07}-{suffix}")
+}
+
+fn leak_str(value: String) -> &'static str {
+    Box::leak(value.into_boxed_str())
 }
 
 fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32) {
@@ -651,6 +659,103 @@ pub(crate) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
         .unwrap();
 
     let conflicts = build_conflict_module(&limits, shape.conflict_tiles, permuted);
+    // 显式声明策略集：合成网带 Gate/Conflict，生产 Runtime 无默认策略（install 要求 pinned 策略）。
+    // 策略集须解释全部准入门与冲突参与者流，缺任何一个门/流的规则都会 MissingRule：
+    // - 合成 tile 的门为模块级声明且绑定信号组 → ProtectedGroup；
+    // - 冲突 tile 的门为跨模块 owner-scoped 声明且无信号 → Uncontrolled；
+    // - 冲突 tile 的两条参与者流为空让行的兜底规则。
+    const CONFLICT_MODULE: &str = "city/portable-resource-conflicts";
+    let span = module.policy_source_span();
+    let source = laneflow_compiler::PolicyInputSource {
+        primary: &span,
+        contributing: &[],
+    };
+    module.add_import(CONFLICT_MODULE).unwrap();
+    let mut gate_rules =
+        Vec::with_capacity((shape.synthetic_tiles * 2 + shape.conflict_tiles * 2) as usize);
+    for ordinal in 0..shape.synthetic_tiles {
+        for suffix in ["gate-entry", "gate-release"] {
+            let gate_key = leak_str(key("t", ordinal, suffix));
+            gate_rules.push(laneflow_compiler::PolicyGateRuleInput {
+                rule_key: leak_str(format!("rule-{gate_key}")),
+                gate: laneflow_compiler::OwnerQualifiedReference {
+                    target: laneflow_compiler::ManeuverGateReference::local(gate_key),
+                    owner_keys: &[],
+                },
+                participant_classes: None,
+                interpretation: laneflow_compiler::GateInterpretation::ProtectedGroup,
+                prohibition: laneflow_compiler::GateProhibition::None,
+                evidence_keys: &[],
+                source,
+            });
+        }
+    }
+    for ordinal in 0..shape.conflict_tiles {
+        for side in ["a", "b"] {
+            let owners: &'static [&'static str] = Box::leak(
+                vec![
+                    leak_str(key("c", ordinal, "junction")),
+                    leak_str(format!("movement-{side}")),
+                    "path",
+                ]
+                .into_boxed_slice(),
+            );
+            gate_rules.push(laneflow_compiler::PolicyGateRuleInput {
+                rule_key: leak_str(format!("rule-c{ordinal:07}-admission-{side}")),
+                gate: laneflow_compiler::OwnerQualifiedReference {
+                    target: laneflow_compiler::ManeuverGateReference::imported(
+                        CONFLICT_MODULE,
+                        "admission",
+                    ),
+                    owner_keys: owners,
+                },
+                participant_classes: None,
+                interpretation: laneflow_compiler::GateInterpretation::Uncontrolled,
+                prohibition: laneflow_compiler::GateProhibition::None,
+                evidence_keys: &[],
+                source,
+            });
+        }
+    }
+    let mut stream_rules = Vec::with_capacity((shape.conflict_tiles * 2) as usize);
+    for ordinal in 0..shape.conflict_tiles {
+        for side in ["a", "b"] {
+            let owners: &'static [&'static str] =
+                Box::leak(vec![leak_str(key("c", ordinal, "junction"))].into_boxed_slice());
+            stream_rules.push(laneflow_compiler::PolicyStreamRuleInput {
+                rule_key: leak_str(format!("rule-c{ordinal:07}-stream-{side}")),
+                stream: laneflow_compiler::OwnerQualifiedReference {
+                    target: laneflow_compiler::EntityReference::imported(
+                        CONFLICT_MODULE,
+                        leak_str(format!("stream-{side}")),
+                    ),
+                    owner_keys: owners,
+                },
+                participant_classes: None,
+                priority: 0,
+                yield_to_streams: &[],
+                gap_profile_key: None,
+                evidence_keys: &[],
+                source,
+            });
+        }
+    }
+    module
+        .add_right_of_way_policy_set(laneflow_compiler::RightOfWayPolicySetInput {
+            policy_set_key: "runtime-fixture-policy/fixture-policy",
+            regulation: laneflow_compiler::RegulationIdentity {
+                jurisdiction: "engineering",
+                version: "fixture-1",
+                source: Some("repository:runtime-fixture-1"),
+            },
+            evidence: &[],
+            gap_profiles: &[],
+            stream_rules: &stream_rules,
+            gate_rules: &gate_rules,
+            source,
+        })
+        .unwrap();
+
     let mut unit = CompilationUnitBuilder::new(limits);
     let synthetic = module.finish().unwrap();
     let add_conflicts =

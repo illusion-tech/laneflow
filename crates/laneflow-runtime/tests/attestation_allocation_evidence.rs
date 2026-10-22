@@ -15,7 +15,7 @@ use std::alloc::System;
 use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use laneflow_compiler::{Compiler, PortableEmissionProvenance};
 use laneflow_format::FormatLimits;
@@ -55,7 +55,7 @@ fn build_tier(stable_entities: u32) -> (Vec<u8>, std::sync::Arc<SharedNetworkRev
     );
     let output = Compiler::new().compile(unit).expect("compile");
     let provenance =
-        PortableEmissionProvenance::try_new(format!("git:#987-evidence-{stable_entities}"))
+        PortableEmissionProvenance::try_new(format!("laneflow-987-evidence-{stable_entities}"))
             .unwrap();
     let candidate = laneflow_compiler::emit_portable_candidate(
         &output,
@@ -114,11 +114,7 @@ fn attestation_allocation_evidence() {
             let running = &running;
             let peak = &peak;
             scope.spawn(move || {
-                let started = Instant::now();
-                while running.load(Ordering::Relaxed) || started.elapsed() < Duration::ZERO {
-                    if !running.load(Ordering::Relaxed) {
-                        break;
-                    }
+                while running.load(Ordering::Relaxed) {
                     peak.fetch_max(allocator_live_bytes(), Ordering::Relaxed);
                     thread::sleep(Duration::from_millis(1));
                 }
@@ -144,10 +140,10 @@ fn attestation_allocation_evidence() {
             let _ = attest();
             let _ = region.change();
             let outcome = attest();
+            running.store(false, Ordering::Relaxed);
             assert!(matches!(outcome, AttestationOutcome::Concluded(report)
                 if report.verdict == AttestationVerdict::Pass));
         });
-        running.store(false, Ordering::Relaxed);
         let stats = region.change();
         let coexist_delta = allocator_live_bytes().saturating_sub(coexist_before);
         let _ = &region; // Region 析构前读取完成
