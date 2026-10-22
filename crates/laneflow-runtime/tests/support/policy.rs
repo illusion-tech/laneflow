@@ -6,6 +6,10 @@ use laneflow_static_network::SharedNetworkRevision;
 pub fn selection(revision: &SharedNetworkRevision) -> WorldPolicySelection {
     for (namespace, key) in [
         ("runtime-fixture-policy", "fixture-policy"),
+        (
+            "city/portable-resource-probe",
+            "runtime-fixture-policy/fixture-policy",
+        ),
         ("city/waiting-scale", "waiting-policy"),
         ("city/runtime-coverage", "signal-policy"),
         ("city/runtime-conflict", "conflict-policy"),
