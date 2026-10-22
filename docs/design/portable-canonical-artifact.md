@@ -21,7 +21,7 @@
 LFCA 5 的策略表和机动方向按
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §4.1 登记。
 该实施合同 §4.3、§4.4、§8 还约束 LFSD 4、LFSM 4 与运行时的整体升级；单个格式
-登记不代表策略编制、共享根或冲突裁决已经交付，完整组合必须按该合同原子发布。
+登记不代表策略编制、共享静态路网或冲突裁决已经交付，完整组合必须按该合同原子发布。
 
 对象集合只有四种。LFCA、LFSM 与 LFSD 使用同一套分块节格式；LFCP 继续使用
 非分块 singleton 节：
@@ -785,7 +785,7 @@ virtual pool。
 
 `ParticipantStream.passages` 不保存 admission Gate；compiler、checker 与
 `SharedNetworkRevision` 必须从 entry anchor 和同一路径 Gate sequence 独立导出并逐值
-一致。共享根可以保存派生 Gate coverage 与 zone-stream CSR，但这些不是第二份 LFCA
+一致。共享静态路网可以保存派生 Gate coverage 与 zone-stream CSR，但这些不是第二份 LFCA
 authority。
 
 ### 3.7 其余 LFCA 表
@@ -820,12 +820,12 @@ PolicyStreamRule.evidenceKeys / PolicyGateRule.evidenceKeys:
 
 四张策略局部表均按 `(policy typedOrdinal, key bytes)` 严格递增；局部 key 使用编制
 ASCII token 值域和 53-byte 上限，不能重复。`locator` 与 `parameterVersion` 非空。
-间隙时长是 `u64` 毫秒，允许零；固定步长换算的溢出检查属于共享根构建。
+间隙时长是 `u64` 毫秒，允许零；固定步长换算的溢出检查属于共享静态路网构建。
 `classes` 缺失表示 fallback，存在时不得为空；classes/yield 集合按被引用稳定身份
 排序且无重复，不能把 typed ordinal 的整数顺序当作稳定身份顺序。`yieldToStreams` 非空时必须有 `gapProfileKey`，为空时
 必须省略。`evidenceKeys` 按局部 key bytes 严格递增，允许空向量。
 `interpretation` 的闭合值为 `0..=5`，`prohibition` 为 `0..=2`，含义见实施合同 §3。
-目标、引用集合的排序去重、局部引用及法规来源继承的完整闭合由共同编译管线和共享根构建按 §2–§4 检查；
+目标、引用集合的排序去重、局部引用及法规来源继承的完整闭合由共同编译管线和共享静态路网构建按 §2–§4 检查；
 格式预检不把合法 ordinal 或空 evidence 向量当作引用与来源已经闭合的证明。
 
 编译器在最终目标制品及 Artifact 差异基线上独立读取 LFCA 行，复用已核对的
@@ -835,7 +835,7 @@ Identity/实体索引验证策略引用，不从 LIR 或 LFSD 自报值推断引
 同名成员不能跨 policy 或成员种类借用。规则没有策略级来源且 evidence 为空时拒绝，
 有策略级来源时仍逐项核对显式 evidence 引用。检查使用跨 chunk 的逻辑表行序，
 新增的 evidence/gap 借用键索引按行数先计量后分配，并在检查后释放。
-完整规则选择、覆盖性及共享根语义验证继续服从实施合同，不能由这项引用检查替代。
+完整规则选择、覆盖性及共享静态路网语义验证继续服从实施合同，不能由这项引用检查替代。
 
 `CanonicalSpatialTables(0x0005)`：
 
@@ -1561,7 +1561,7 @@ compiler 的 `check_portable_policy_diff` 从实际 LFCA base/target 重建完�
 全集完备性，并核对 policy 实体增删、保留属性以及 Movement 方向在原表中的排他分工。
 新增排序索引与 emitter 的成员值、返回行缓冲按同时存活量计入 `StageScratchBytes`；
 checker 借用载荷，不复制完整 before/after。候选发射结束前必须通过该检查。
-此能力不替代其他既有领域的完整差异语义、LFSM 来源真实性或共享根运行时语义。
+此能力不替代其他既有领域的完整差异语义、LFSM 来源真实性或共享静态路网运行时语义。
 
 ### 5.1 两端绑定
 
@@ -1978,7 +1978,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 6. ParkingFacility 与 ConflictZone/ParticipantStream/ConflictZoneRegion 的 known vectors、
    来源投影、语义差异、规范排序扰动和旧 LFCA 版本 rejection 定向反例；
 7. `10000`/`100000`/`1000000` 单修订证据、真实 round-trip、bundle 失败零受检能力与
-   SharedNetworkRevision 构建失败零部分根验证。
+   SharedNetworkRevision 构建失败零部分修订验证。
    三档均使用 `LF-COMP-SINGLE-NETWORK-1M-v2`，一百万档不得在 emission 前由较小 P100
    profile 拒绝；
 
@@ -2011,7 +2011,7 @@ worker 数、两个 fresh process、不同 hash seed/分配地址，以及无 Sp
 单 bit 损坏、未知/重复/乱序、gap/overlap、chunk digest、length/digest/revision/source-map/
 base-target 错配和所有 hard-limit `+1`。staging 矩阵在 write、patch、flush、finish、不可变映射
 与 backing identity/length/bytes 漂移的失败点证明不返回受检 bundle；共享静态构建失败时不
-返回部分根。规模证据与 exact-byte 分支证据按风险组合，不建立无意义的全轴笛卡尔积。
+返回部分修订。规模证据与 exact-byte 分支证据按风险组合，不建立无意义的全轴笛卡尔积。
 
 领域 Runtime 行为不属于本公共格式合同；实现不得顺带引入 Waiting admission、
 ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订权威设计，

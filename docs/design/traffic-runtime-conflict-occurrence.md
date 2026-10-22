@@ -34,7 +34,7 @@
    Conflict authority；
 5. 快照恢复与路网修订切换只保存稳定路线输入并重新编译派生出现项，不持久化热表。
 
-静态根与含冲突路线可以正常 build、install、register、保存和加载。#284 W7 已直接消费
+共享静态路网与含冲突路线可以正常 build、install、register、保存和加载。#284 W7 已直接消费
 这些出现项和 Gate range：fixed tick 通过所选 policy 产生候选，经 gap、Conflict 与
 downstream 组合仲裁后提交 grant/reservation/Clearing/tail-clear。低频生命周期入口仍不
 临时停车，也不伪造 grant、reservation 或通行权。
@@ -51,14 +51,14 @@ ConflictPassageAddress =
   (ParticipantStreamOrdinal, passageLocalIndex: u32)
 ```
 
-`passageLocalIndex` 是共享根中该 stream 的规范 slice 下标。`ConflictZoneOrdinal`、
+`passageLocalIndex` 是共享静态路网中该 stream 的规范 slice 下标。`ConflictZoneOrdinal`、
 admission Gate 与 route position 可以缓存为执行操作数，但都不能成为第二套 passage
 身份。#284 必须复用这一地址，不能从几何或 `(zone, path)` 重新猜测 passage。
 
 #284 的快照与跨修订定位合同见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6
 （Accepted）：使用 stream/zone 的稳定引用定位已有唯一局部关系，核验 LFSD 与路径语义后
-重建本节地址；不把当前根 ordinal/local index 写成跨修订身份，也不新增 passage 实体。
+重建本节地址；不把当前修订 ordinal/local index 写成跨修订身份，也不新增 passage 实体。
 
 ### 2.2 每路线保留数据
 
@@ -233,7 +233,7 @@ extra_conflict_occurrences)` 对三项路线容量族一次性加余量（饱和
 > route-local 车尾已经清除该 Gate 完整 coverage 的最远 clearance。
 
 车尾位置由候选 front cursor、`carry_um` 与实际 `VehicleProfile.length_mm` 沿同一
-compiled route occurrence sequence 向后计算。跨边时使用共享根整数边长；重复
+compiled route occurrence sequence 向后计算。跨边时使用共享静态路网整数边长；重复
 `LaneEdgeOrdinal` 仍按各自 route occurrence 处理。若车身伸到路线起点之前，车尾为
 `BeforeRouteStart`，小于任何 passage clearance；有限车尾位置也必须执行 §3 的边界
 规范化，不能把前一边末端与后一边零进度当成两个位置。
@@ -253,18 +253,18 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 
 ### 6.2 必须覆盖的入口
 
-| 入口                         | 行为                                                       |
-| ---------------------------- | ---------------------------------------------------------- |
-| build/install 含冲突的共享根 | 允许；新 world 尚无车辆                                    |
-| 任意路线注册入口             | 允许；完整编译出现项并收费                                 |
-| `spawn_vehicle`              | 候选 `Active` 车辆执行保护                                 |
-| `replace_completed_vehicle`  | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
-| `leave_parking`              | `Parked -> Active` 的候选 exit cursor 执行保护             |
-| `rebind_parking_route`       | 拒绝已有 Conflict authority；检查候选路线与完整车身        |
-| `spawn_parked_vehicle`       | 允许；不创建 Active，离场时再检查                          |
-| snapshot restore             | 路线重编译后重建并验证完整 authority；任一失败零发布       |
-| same/cross-revision cutover  | target 路线重编译后验证迁移 authority；任一失败保留旧聚合  |
-| fixed tick                   | 在 Gate lookahead 内正式求值并取得组合 grant 后才 crossing |
+| 入口                               | 行为                                                       |
+| ---------------------------------- | ---------------------------------------------------------- |
+| build/install 含冲突的共享静态路网 | 允许；新 world 尚无车辆                                    |
+| 任意路线注册入口                   | 允许；完整编译出现项并收费                                 |
+| `spawn_vehicle`                    | 候选 `Active` 车辆执行保护                                 |
+| `replace_completed_vehicle`        | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
+| `leave_parking`                    | `Parked -> Active` 的候选 exit cursor 执行保护             |
+| `rebind_parking_route`             | 拒绝已有 Conflict authority；检查候选路线与完整车身        |
+| `spawn_parked_vehicle`             | 允许；不创建 Active，离场时再检查                          |
+| snapshot restore                   | 路线重编译后重建并验证完整 authority；任一失败零发布       |
+| same/cross-revision cutover        | target 路线重编译后验证迁移 authority；任一失败保留旧聚合  |
+| fixed tick                         | 在 Gate lookahead 内正式求值并取得组合 grant 后才 crossing |
 
 `park_vehicle`、despawn 与 Completed 转换只减少 Active 集，不需要把已经安全的路线重新
 判为不安全。Parked / Completed 可以保留含冲突路线；再次变为 Active 时必须经过上表
@@ -283,12 +283,12 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 
 - capture 仍只保存路线边稳定标识序列；
 - 现行 LFRS 6 保存 `WorldConfig` 容量并把它纳入 deterministic digest 7；
-- restore 使用目标根的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
+- restore 使用目标修订的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
   再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
   才发布 world；
 - 恢复目标容量可以放大，但必须容纳快照内重建出的 exact 出现项总数；精确回放对拍
   仍要求两个语义容量与原配置一致；
-- cutover prepare 在 target 根上重编译全部路线并累计 exact conflict count；容量、
+- cutover prepare 在 target 修订上重编译全部路线并累计 exact conflict count；容量、
   allocation 或任一 Active 车辆 authority 证明失败都放弃整个 target；
 - migration journal 和 cutover descriptor 继续记录稳定路线输入，不复制派生热表。
 
@@ -301,7 +301,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
   临时保护。
 - #542 可以生成场景路线或显式 conflict authoring，但路线最终仍进入同一 Runtime
   编译器；场景 catalog 不保存另一份 occurrence 权威。
-- Spatial 与 Adapter 只消费共享根的可选区域或只读 Runtime 结果，不参与路线
+- Spatial 与 Adapter 只消费共享静态路网的可选区域或只读 Runtime 结果，不参与路线
   occurrence 编译和 Conflict authority 判定。
 
 ## 9. 验证与现实规模
@@ -321,7 +321,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 - 10,000 冲突路线出现项产品档与 100,000 scaling 档的注册时间、retained logical
   bytes 和近线性比例。它们是路线元数据，不等于活动车辆数。
 
-一百万静态实体、LFCA file-backed 路径和共享根内存已由静态制品合同验证；#283 不
+一百万静态实体、LFCA file-backed 路径和共享静态路网内存已由静态制品合同验证；#283 不
 重复构造第二套百万静态基准。它只证明新增 Runtime 元数据与实际出现项数量近线性，
 不宣称 #285 fixed-tick 产品性能已完成。
 

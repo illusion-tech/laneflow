@@ -27,7 +27,7 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
   `sha256/<64 lowercase hex>` 同对象摘要绑定。
 - LFSD 4 的第七节及四类完整成员 RowV1：Bytes 内部也执行字段/字符串/向量计量，
   两侧载荷共同收费并参与规范分块；检查稳定引用编码、成员 K 的跨 chunk 顺序和全局
-  唯一性。真实两根的策略差异完备性由 compiler 的独立检查入口证明。
+  唯一性。真实两份修订的策略差异完备性由 compiler 的独立检查入口证明。
 - 无分配的 `check_post_emission_bundle`：从三份最终字节重算 digest、length 与 LFCA
   `NetworkRevisionId`，并闭合 LFSM provenance/artifact binding 以及 LFSD 显式 base/target
   binding；成功后只返回字段私有的借用型发布能力。它不重跑完整路网语义或验证 LFSD

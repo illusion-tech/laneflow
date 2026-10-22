@@ -21,7 +21,7 @@
 - `traffic-runtime-snapshot.md`：版本化运行时快照容器、保存/恢复合同、回放与
   跨修订迁移入口（#302 G1；G2 起实现）。
 - `traffic-runtime-state-integrity.md`：运行时状态完整性校验与失真恢复——Runtime 侧只在
-  投入使用前与宿主审计时认证共享根（不进 tick 路径），C(T) 由宿主审计重放覆盖；停用 +
+  投入使用前与宿主审计时认证共享路网修订（不进 tick 路径），C(T) 由宿主审计重放覆盖；停用 +
   宿主处置的恢复权威边界、漏检面、遥测与认证成本口径
   （#955 G1；配套 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)）。
 - `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
@@ -70,7 +70,7 @@
   anchor selector、reserve/park/leave、原子 despawn、无 pose 停驻与迁移合同（#541 起实现）。
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
 - `waiting-zone-conflict-right-of-way.md`：#282 G1 Accepted 的 Waiting 本地边界与 #284
-  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，正式仲裁、持久化、
+  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享静态路网文档，正式仲裁、持久化、
   修订迁移与生产 fixed tick 共同实现。
 - [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)：#284
   已接受实施合同，细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与

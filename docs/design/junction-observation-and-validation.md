@@ -59,12 +59,12 @@ RouteGateObservation {
 }
 ```
 
-- 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享根整数毫米边长。
+- 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享静态路网整数毫米边长。
   Gate 在该 hop 的 from-edge 末端；不在 Adapter 重跑 route normalization。
 - stale route、越界 hop 或该 hop 没有 Gate 时返回 `None`，不就近选择另一道 Gate。
-- `route` 与 `hop` 一起标识本世界中的出现位置；`gate` 是当前共享根内的静态序号。
+- `route` 与 `hop` 一起标识本世界中的出现位置；`gate` 是当前共享静态路网内的静态序号。
   它们不得跨世界／世代／修订直接复用。跨独立运行的比较使用调用方路线身份、hop 和
-  从相应根解析的静态稳定身份，不比较 raw handle 字面值。
+  从相应修订解析的静态稳定身份，不比较 raw handle 字面值。
 - 读取为 O(1)、无 heap allocation、不改变世界或摘要。不得向路线增加重复缓存表。
 - 这是位置观察，不是通行许可、停止原因或下一步预测。当前 pose 仍通过 Session 的
   封闭提取入口获得；Gate 几何只能用于静态调试标记。
@@ -86,9 +86,9 @@ headless Session 也能读取领域观察；几何绘制另外要求有效 Spati
 | 内容                        | 来源与顺序                                                                            |
 | --------------------------- | ------------------------------------------------------------------------------------- |
 | 读取上下文                  | 当前世界身份、世代、修订、tick、command cursor、event cursor；从同一个 world 取得     |
-| 静态根                      | 活动 Session 的同一共享根；只借用或克隆根 `Arc`，不复制静态表                         |
+| 共享路网修订                | 活动 Session 的同一共享路网修订；只借用或克隆根 `Arc`，不复制静态表                   |
 | live 车辆行                 | 沿 `live_vehicles()` 顺序，返回句柄、现有 `VehicleState` 与可选 `ConflictReservation` |
-| Waiting 区计数              | 按当前根 WaitingZone ordinal 升序遍历 `waiting_zone()`                                |
+| Waiting 区计数              | 按当前修订 WaitingZone ordinal 升序遍历 `waiting_zone()`                              |
 | Waiting member              | 原样借用 `waiting_zone_members()`，保持 zone／admission sequence 顺序                 |
 | 最近 Waiting／Conflict 决策 | 原样借用各自 `latest_*_decisions()`，保留完整 anchor、outcome 与原顺序                |
 | 最近 transition             | 原样借用 `latest_transition_events()`，不重排、不丢失同 tick 多事件                   |
@@ -133,7 +133,7 @@ LFCA／catalog 摘要。复用现有编译器、scenario prepare、Session、车
 区域，以及选定车辆的 phase、最近决策原因和当前预约摘要。绘制可以使用已有 Bevy
 mesh／文本能力，不为了恢复历史 Gizmos API 增加兼容层。
 
-- 静态几何从同一根的 lane geometry、Gate 位置与可选 `ConflictZoneRegion` 读取。
+- 静态几何从同一修订的 lane geometry、Gate 位置与可选 `ConflictZoneRegion` 读取。
   Waiting 用 entry/release Gate 之间的规范路径表示；不新造 Waiting polygon authority。
 - 缺少区域几何时显示有身份的文字／标记并注明无区域，不计算几何相交来补冲突事实。
 - 多次经过同一 Gate 的车辆显示各自 route/hop。重复标记的合并仅属画面去重，不能
@@ -146,7 +146,7 @@ mesh／文本能力，不为了恢复历史 Gizmos API 增加兼容层。
 ### 4.1 当前状态与交付证据
 
 阶段二已交付（`junction_debug` native example + `junction_debug_smoke` 无窗口
-smoke，均基于检入 catalog 0.1 + LFCA 与固定四车 spawn 计划）：同根几何生成的连续
+smoke，均基于检入 catalog 0.1 + LFCA 与固定四车 spawn 计划）：同修订几何生成的连续
 道路、相切路缘、同向双车道回流与车辆 box 表现；四车从环路末段的固定槽位出发。
 F2 默认关闭的调试 overlay（静态 Gate 标记、Waiting 区间 ribbon、Conflict
 区域 ring 描边／无区域文字标记、选定车辆面板、信号状态点）、静态缓存按
@@ -170,12 +170,12 @@ ASCII 字体限制使用精确英文标识符；实现与纪律见
 | 生命周期与失败         | route replace、despawn、completion、同修订恢复和跨修订迁移；失败状态／tick／输出不变，历史决策不冒充当前预约 |
 | 展示与重放             | headless／调试开关结果一致，独立同输入 state/event digest 一致，catch-up 每成功 tick 不漏读                  |
 
-错误与极限边界专项复用现有 Waiting/Conflict、snapshot/cutover 和 shared-root 测试；
+错误与极限边界专项复用现有 Waiting/Conflict、snapshot/cutover 和 共享路网修订测试；
 静态声明、proposal/reducer 与 raw-handle permutation 在小型可解释场景中验证其权威
 不变量。只有已确认的现实缺陷才扩大矩阵。raw-handle permutation 比较按逻辑身份
 归一化的结果，不要求本来含不同句柄的序列化载荷逐字节相等。
 
-制品闭合验证覆盖编制→后发射检查→LFCA→共享根→Runtime/Spatial。相同来源重建的
+制品闭合验证覆盖编制→后发射检查→LFCA→共享静态路网→Runtime/Spatial。相同来源重建的
 规范制品必须逐字节一致；不同声明顺序比较按现行制品合同定义的语义／来源范围，
 不得把来源映射字节变化误报为 Runtime 非确定性。发布认证复用当前 LFCP v2 合同。
 
@@ -198,12 +198,12 @@ runner 按剩余时间与剩余档数分配进程时间，子进程预留收尾�
 三轮重复性、额外 allocation／组件账本运行与产品认证不属于该有界交付。统一产品
 性能基线及其工作负载合同保持原义，不能用本专项的短窗口宣称产品认证。
 
-| 证据                       | 拥有范围与复用方式                                                                                                                                                                                   |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 证据                       | 拥有范围与复用方式                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | 复杂路口专项（#285）       | 只读观测、参考场景、调试验证、§5 已有有限行为回归及一万／十万有界 integrated run；报告实际窗口、组件延迟、资源活动与进程峰值 |
-| 城市无界面（#544）         | 七个 case × 两档真实需求、逐 tick 校验和独立重放；复用其程序、冻结输入和适用证据，不在 #285 再造需求或 oracle                                                                                        |
-| 城市跨层（#545）           | 消费 #285 的已交付观测；按城市合同运行有限 Runtime/Spatial/Adapter、保存恢复与切换矩阵，不重复领域 API                                                                                               |
-| 统一产品认证（#539／#305） | 三套工作负载的统一 Gate 与最终产品状态；#285／#545 的局部证据不能替代它                                                                                                                              |
+| 城市无界面（#544）         | 七个 case × 两档真实需求、逐 tick 校验和独立重放；复用其程序、冻结输入和适用证据，不在 #285 再造需求或 oracle                |
+| 城市跨层（#545）           | 消费 #285 的已交付观测；按城市合同运行有限 Runtime/Spatial/Adapter、保存恢复与切换矩阵，不重复领域 API                       |
+| 统一产品认证（#539／#305） | 三套工作负载的统一 Gate 与最终产品状态；#285／#545 的局部证据不能替代它                                                      |
 
 Waiting/Conflict 的持有、申请、事件与候选数量按实际窗口报告；短窗口未出现的行为
 记为零或未观察到，不添加最小持续时长与重复申请门槛，也不外推高并发或长时间行为。

@@ -9,7 +9,7 @@ wire 格式。项目从未发布这些 JSON；#301 已删除对应 schema 与加
 
 当前静态交通数据由编译器发射可移植规范制品（LFCA），再由
 `laneflow-static-network` 构建 `SharedNetworkRevision`。可运行世界由
-`TrafficWorld::install` 安装共享根，不从 JSON 创建。
+`TrafficWorld::install` 安装共享静态路网，不从 JSON 创建。
 
 道路编辑生产来源是未发布的 FlatBuffers B1，见
 `road-editing-source-and-geometry-frontend.md`。走廊生成器仍可能写出同名 JSON

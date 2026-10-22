@@ -209,10 +209,10 @@ ownership 分离不重新打开这些算法选择。#282 的本地 Waiting reduc
 - Adapter、Scenario、SignalController、Spatial 与 caller 只能读取 committed decision、
   state 和 event，不能注入 winner、grant 或 reservation。
 
-当前静态根仍是受检 LFCA / `SharedNetworkRevision`，route conflict operands 来自 #559
+当前共享静态路网仍是受检 LFCA / `SharedNetworkRevision`，route conflict operands 来自 #559
 已经交付的 `ConflictPassageOccurrence`、Gate ranges 与
 `route_conflict_occurrence_capacity`。regulation/policy source 由两个官方前端经唯一
-compiler/LFCA/shared-root 路径引入；不得恢复 current JSON 或让 `TrafficWorld` 解析文件。
+compiler/LFCA/shared static network 路径引入；不得恢复 current JSON 或让 `TrafficWorld` 解析文件。
 具体来源、世界绑定与唯一原子版本组合见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §2–§8；
 该合同与正式 Runtime state/digest 共同实现。
@@ -300,7 +300,7 @@ policy 安装还必须对全部 steady signal phase 做 protected coherence：�
 - 同车道前车正在等候放行时，右转车辆依次等候；没有方向指示灯时还须表达转弯让直行、
   相对方向右转让左转。前方路口交通阻塞时不得进入。这些分别由编译的让行关系、
   Waiting/leader 顺序和 mandatory downstream-clearance 共同落实。
-- source 必须明确表示适用的灯态解释、机动方向和禁令条件，经唯一 compiler/LFCA/shared-root
+- source 必须明确表示适用的灯态解释、机动方向和禁令条件，经唯一 compiler/LFCA/shared static network
   路径规范化。`signalControl:none` 不是“没有右转专用灯”的别名：普通圆形灯仍有真实
   信号组绑定。缺失或含糊的输入不能当成圆形灯，也不能推断不存在禁令。
 - `SignalAspect::Red` 本身不预先生成不可撤销的 deny；先由已 pin 的地区策略解释灯态，
@@ -752,7 +752,7 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
 - 不保留旧 reader、双写、迁移 shim 或 feature flag；可恢复、可切换能力与生产接线、
   journal 增量和临时保护移除共同实现。
 
-容量按现实 retained payload 收费：static frontier cell/top-two 按共享根 passage cell 数，
+容量按现实 retained payload 收费：static frontier cell/top-two 按共享静态路网 passage cell 数，
 route occurrences 继续由独立 route conflict capacity 约束；reservation/owner 由
 `vehicle_capacity` 约束；entitlement 与 wait-for node/edge scratch 按 actual checked
 request/dependency count 扩至 high-water mark，不保留 `O(V²)` 邻接矩阵。dynamic
@@ -845,7 +845,7 @@ same-tick enter+leave、shared boundary 与 traversal completion 都可能增加
 
 ## 9. 正式 Conflict authority 边界
 
-静态根与含冲突路线可以正常 build、install、register、保存和加载；正式 fixed tick
+共享静态路网与含冲突路线可以正常 build、install、register、保存和加载；正式 fixed tick
 通过 policy、gap 与组合资源证明取得 grant/reservation。`ConflictRuntimeUnavailable`
 临时失败保护已移除，不保留独立绕过入口。
 
@@ -867,7 +867,7 @@ restore 与 same/cross-revision cutover 则须重建并验证完整 reservation�
 
 只保留当前 writer/reader；旧版本快照明确失败关闭，不保留双读、双写或迁移 shim。
 策略选择随快照恢复，并在跨修订时验证稳定身份、法域和法规版本连续性；步长派生
-间隙按目标根重建。组合 reservation、冲突滞后历史、passage locator 与 downstream
+间隙按目标修订重建。组合 reservation、冲突滞后历史、passage locator 与 downstream
 物理 claim 已由 #284 保存、恢复并迁移。
 
 持久化保存 vehicle traversal/membership、zone occupancy、next admission counter 与稳定

@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-09-23<br>
+**最后更新**: 2026-10-22<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案、交通基础设施与宿主边界
 
@@ -30,9 +30,33 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 9. 尚未接受的词条统一使用“提案中（Proposed；#议题号）”标记；“目标态”只描述
    已经由对应 G1/ADR 接受、但尚未完成生产切换的设计，不得用“目标态提案中”混合
    两种状态。词条进入本表只统一命名和定义，不自动表示其实现或数值已经被接受。
+10. 现行文档用词按“用词判定与旧称治理”（§1.1）四类判定；本表 §9「已废弃旧称」
+    是禁用旧称的唯一事实源。
 
 “中文为权威”不改变代码标识符的精确拼写，也不翻译第三方商标、算法专名或必须按
 协议匹配的字面量。
+
+### 1.1 用词判定与旧称治理
+
+现行文档、Agent 工作流与代码注释中的用词问题按下列四类判定。每类只有三种处置：
+改用本表规范词、补入本表定义（含英文辅助名）、或确认为规范用法予以保留并在
+本表或该文档内注明理由。
+
+1. **未定义简称**：本表无独立词条的缩略称呼（如「共享根」曾用作
+   `Arc<SharedNetworkRevision>` 的简称，字面无法推知所指）。处置：改用本表已有的
+   规范名词，或补词条并给出英文辅助名。
+2. **实验室行话与口语**：内部习惯或口语用词进入公开文本（如「打中」「兜底」）。
+   处置：改用规范中文表述；确属领域概念的补词条。
+3. **直译外语**：外语逐字转写、没有形成规范中文名的用词。处置：确立中文规范名与
+   英文辅助名后替换。
+4. **同物异名**：同一概念有多个称呼（如同一 `SharedNetworkRevision` 曾同时被称为
+   「共享路网修订」「共享根」「共享静态根」）。处置：只保留本表登记的规范名为唯一
+   称呼，其余登记进 §9「已废弃旧称」。
+
+「已废弃旧称」（§9）登记旧称、取代词、适用范围与登记 issue，是禁用词的单一事实源。
+历史处置遵循“法不纠过往”：已关闭 issue / PR 的正文与 Git 历史不改；
+`research/` 等标注为历史证据的测量与调查记录目录整体豁免，不清理其中旧称。豁免只
+免除旧称清理，不豁免新写正文的用词；引用历史证据时不得把旧称带回现行正文。
 
 ## 2. 状态、治理与迁移
 
@@ -287,7 +311,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | Routing 准入会话     | routing admission session              | `RoutingAdmissionSession`          | Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世界/世代/修订与 `CostModelKey`；不进快照。                                                                                                                         |
 | 候选路线             | candidate route                        | `CandidateRouteInput`              | #303：Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验证后成为普通路线。                                                                                                                                     |
 | 已准入路线注册命令   | admitted route registration command    | `AdmittedRouteRegisterInput`       | #303：候选成功后进入宿主输入命令序列的规范化耐久记录；宿主记录耐久路线 ID，Runtime 输入只含修订绑定和有序边稳定标识，不重放观测/成本/admission provenance。                                                               |
-| 路线边出现项容量     | route edge occurrence capacity         | `route_edge_occurrence_capacity`   | #303 G1 已接受：`WorldConfig` 对全部存活动态路线边序列 occurrence 总数的语义容量；重复边重复计数，所有路线入口共用，不等于共享根物理边数。                                                                                |
+| 路线边出现项容量     | route edge occurrence capacity         | `route_edge_occurrence_capacity`   | #303 G1 已接受：`WorldConfig` 对全部存活动态路线边序列 occurrence 总数的语义容量；重复边重复计数，所有路线入口共用，不等于共享静态路网物理边数。                                                                          |
 | 路径规划服务         | routing service                        | —                                  | 从静态路网和已提交动态成本快照生成候选路径、但不拥有交通参与单元固定步进的服务。                                                                                                                                          |
 | 出行编排层           | trip orchestration layer               | —                                  | 拥有出行需求、候选路线选择、收费/政策偏好和调用方随机流，并以显式边界驱动 LaneFlow 的上层系统。                                                                                                                           |
 | 出行需求             | travel demand                          | —                                  | 描述谁在何时为何出发的上层输入；不由交通运行时隐藏生成。                                                                                                                                                                  |
@@ -359,14 +383,14 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 格式硬上限         | format hard limit                | —                              | 由格式版本冻结、任何读取器都不得提高或禁用的安全天花板；用于在 hash、分配和建立受检视图前限制对象、计数、字符串、向量和累计暂存规模，不是性能目标。                                                       |
 | 调用方运行上限     | caller runtime limit             | —                              | 调用方针对一次读取或发射显式提供、可以低于但不得高于格式硬上限的资源预算；改变它不改变 wire version，也不授权扩大格式安全边界。                                                                           |
 | 共享静态路网       | shared static network            | `laneflow-static-network`      | Accepted ADR 0025 / #300 G1 冻结的进程内静态层；从受检 LFCA 有界构建性能优先、不可变、可由多个 world 共享的连续类型化数据，不是文件、ABI、存档或发布对象。                                                |
-| 共享路网修订       | shared network revision          | `SharedNetworkRevision`        | 逻辑绑定同一 `NetworkRevisionId` 的 Traffic、Identity、Planning Hints 与可选 Spatial component 根对象；component 不得独立切换。                                                                           |
+| 共享路网修订       | shared network revision          | `SharedNetworkRevision`        | 逻辑绑定同一 `NetworkRevisionId` 的 Traffic、Identity、Planning Hints 与可选 Spatial component 根对象；component 不得独立切换。运行时状态完整性语境中可简称“修订”（如修订认证、修订审计）。               |
 | 共享交通路网       | shared traffic network           | `SharedTrafficNetwork`         | 共享路网修订中面向 Traffic Runtime 的必选性能数据；采用类型化密集句柄、连续 hot/cold columns、CSR/range 与预计算 occurrence/constraints。                                                                 |
 | 共享空间路网       | shared spatial network           | `SharedSpatialNetwork`         | 共享路网修订中可选的规范空间数据；可以只有 facility/profile/frame，非空 LaneEdge geometry 才提供 lane-pose sampling；不得与其他修订的 Traffic component 混用。                                            |
 | 空间保留构建选项   | spatial retention build option   | `SpatialBuildOption`           | #300 进程内 builder 调用选项；仅允许 `Omit` 或 `RetainAvailable`，不进入 LFCA、存档、发布对象或 target/profile 文件矩阵。                                                                                 |
-| 规范路网来源绑定   | canonical network origin         | `CanonicalNetworkOrigin`       | 共享根保存的 LFCA digest/length、`NetworkRevisionId` 与静态契约版本；用于恢复/切换核对，不是可序列化 descriptor 或发布信任锚。                                                                            |
+| 规范路网来源绑定   | canonical network origin         | `CanonicalNetworkOrigin`       | 共享路网修订保存的 LFCA digest/length、`NetworkRevisionId` 与静态契约版本；用于恢复/切换核对，不是可序列化 descriptor 或发布信任锚。                                                                      |
 | 已发布 LFCA 引用   | published LFCA reference         | `PublishedLfcaReference`       | runtime-only 存档中的不透明宿主持久 asset key 与 LFCA digest/length/revision 绑定；不复制 LFCA，也不替代加载时的资产认证。                                                                                |
 | 已提交路网来源     | committed network source         | `CommittedNetworkSource`       | 已进入活动 Runtime 修订的可重建来源：可编辑世界为 committed `RoadEditingState`，runtime-only 发布世界为不透明 asset key + LFCA digest/length/revision 的 `PublishedLfcaReference`。                       |
-| 可编辑差异基线     | editable diff base               | `EditableDiffBase`             | 可编辑 session 在共享根外内存保留、与当前 LFCA origin 精确一致并供下一次 `PortableDiffBase::Artifact` 使用的 LFCA；提交时原子更替，不进入存档。                                                           |
+| 可编辑差异基线     | editable diff base               | `EditableDiffBase`             | 可编辑 session 在共享路网修订外内存保留、与当前 LFCA origin 精确一致并供下一次 `PortableDiffBase::Artifact` 使用的 LFCA；提交时原子更替，不进入存档。                                                     |
 | 已提交道路路网     | committed road network           | `CommittedRoadNetwork`         | `CommittedNetworkSource`、对应 `Arc<SharedNetworkRevision>` 与 editable session optional exact diff-base binding 的逻辑聚合；working/candidate 不属于该对象，#302 负责与动态状态原子晋升。                |
 | 目标静态镜像       | target static image              | `StaticNetworkImage`           | ADR 0020/0021 的历史目标：按目标、布局和配置档生成的持久性能制品；Accepted ADR 0025 / #300 G1 已取消其文件、ABI 和发布边界。                                                                              |
 | 静态镜像           | static image                     | —                              | 仅用于描述 ADR 0020/0021 历史方案；当前 #300 G1 目标术语是“共享静态路网”，不得用本词指代进程内 `SharedNetworkRevision`。                                                                                  |
@@ -511,7 +535,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 通行流路权规则       | `StreamRightOfWayRule`   | 针对参与者流及类别，选择法规优先级、让行目标和间隙参数的规则；不覆盖本地物理先后顺序。                                                                    |
 | 间隙接受参数         | `GapAcceptanceProfile`   | 具名且版本化的最小领先间隙、最小滞后间隙和清空缓冲；属于策略集局部成员。                                                                                  |
 | 策略绑定             | `PolicyPin`              | 世界显式选择的策略稳定身份；策略正文和版本由安装路网修订固定，不绑定真实公历。                                                                            |
-| 世界策略选择         | `WorldPolicySelection`   | 显式选择策略绑定，或在整个根没有门与冲突输入时声明不需要策略；不存在隐式默认策略。                                                                        |
+| 世界策略选择         | `WorldPolicySelection`   | 显式选择策略绑定，或在整个共享静态路网没有门与冲突输入时声明不需要策略；不存在隐式默认策略。                                                              |
 | 已解析门策略单元     | `ResolvedGatePolicyCell` | 编译后对应一份策略、一个门与实际使用的可准入参与者类别的只读解释结果；同类车辆配置共享，并保留稳定规则归因。                                              |
 | 已解析通行流规则     | `ResolvedStreamRule`     | 编译后对应一份策略、一个流与实际使用的可准入参与者类别的唯一规则及让行目标范围；同类车辆配置共享。                                                        |
 | 冲突通行段持久定位值 | `ConflictPassageLocator` | stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一局部关系；不是独立实体或新的运行时地址。                                                         |
@@ -529,7 +553,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 中文规范术语   | 英文辅助名 / 精确标识符                  | 中文规范含义                                                                                                               |
 | -------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 串行阶段协议   | Serial Phase Protocol                    | 一次固定步进的逻辑阶段、数据依赖、读写权限、确定性顺序与失败边界；允许单工作线程融合执行，不要求通用任务图或物理屏障。     |
-| 世界绑定状态   | `WorldBindingState`                      | 活动共享根、已提交来源、世界身份与世代、配置及策略选择的统一绑定；固定步进只读，安装、恢复或切换按各自事务更新。           |
+| 世界绑定状态   | `WorldBindingState`                      | 活动共享路网修订、已提交来源、世界身份与世代、配置及策略选择的统一绑定；固定步进只读，安装、恢复或切换按各自事务更新。     |
 | 已提交世界状态 | `CommittedWorldState`                    | 当前世界的车辆、路线、资源权威、时钟和游标，以及成功提交后可查询的发布批次；内部归属不等同于快照保存范围。                 |
 | 派生索引       | `DerivedIndexes`                         | 从当前绑定与已提交状态重建的查询、执行顺序和定位结构；不独立授予交通权利，重建不得改变语义顺序。                           |
 | 步进工作区     | `TickWorkspace`                          | 单次步进的意图、资源暂存、下一状态和待发布结果及其复用存储；失败丢弃本次结果，不清空上次成功发布的批次。                   |
@@ -583,20 +607,20 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 与 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)
 使用。术语登记不证明校验能力已实现；停用与恢复处置权威始终归宿主。
 
-| 中文规范术语   | 英文辅助名 / 精确标识符            | 中文规范含义                                                                                                                                                                                                                                                                  |
-| -------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 页级内存失真   | page-level memory distortion       | #794 归因收口确认的环境失真：内存压力下物理页被整页替换、置零或按页整数倍位移；非恶意、不可由软件根除，指纹见验证矩阵。                                                                                                                                                       |
-| 逻辑摘要前像   | logical digest preimage            | #302 确定性状态摘要的规范化前像，布局无关、只覆盖 C(T)；SHA-256，不替换。完整性维度用于宿主检查点对拍与审计重放。                                                                                                                                                             |
-| 耐久根内容前像 | durable root content preimage      | 复用 `NetworkRevisionIdV1` 的前像：规范路网语义载荷 `canonicalNetworkSemanticPayloadV1`（LFCA 语义节规范组帧；不含布局 / 派生表），SHA-256；不另设编码。                                                                                                                      |
-| 耐久根内容基线 | durable root content baseline      | 构建方产出、宿主随来源跨进程持久的根内容依据（发布来源的 `NetworkRevisionId`；编辑来源的已提交 `RoadEditingState`）；共享根认证的期望值来源之一。字段与用法以完整性设计 §2.2 为准。                                                                                           |
-| 共享根认证     | shared-root authentication         | 宿主在共享根投入使用之前（安装、恢复、Spatial 绑定、切换）与审计时调用的只读入口：先完成来源准备（reader、引用互证与候选根完整构建），再做根比较（`origin` 与逐表），最后确认与处置；不进入 tick 路径，不持有常驻状态。输入、步骤、比较算子与判因以完整性设计 §4.2、§7 为准。 |
-| 认证操作失败   | authentication operational failure | 共享根认证在 `Pass` / `Mismatch` / `Untrusted` 之外的结果（资源、限额、取消与来源不可得类失败）；不判因、不停用、不宣称 `Pass`。穷尽清单与例外以完整性设计 §2.4 为准。                                                                                                        |
-| 可信基准       | trusted baseline                   | 经独立核验成立的期望值集合及其绑定闭合；期望值不得取自被校验对象自身；无法建立时不得宣称检测或恢复成功。                                                                                                                                                                      |
-| 停用           | integrity disablement              | 检测判定失真对象失配后停止使用的阶段一语义：不自动纠偏、回滚、重演或重启，已发布结果不撤销；由宿主执行，Runtime 不持有失效状态。共享根的触发条件与停止边界以完整性设计 §3 为准。                                                                                              |
-| 宿主审计重放   | host audit replay                  | 宿主在独立世界（被审计世界仍在运行时为独立进程或另一台机器）从较早检查点重放输入命令并比对检查点三元组；结果分 `CompleteMatch` / `Diverged` / `Incomplete`，未完成区间不计入覆盖。前提、覆盖边界与首版不跨管理边界的范围以完整性设计 §4.3 为准。                              |
-| 漏检面         | missed-detection surface           | 显式声明的不可检集合（穷尽清单见完整性设计 §5，含热状态、输出批次、Rust 有效性破坏、两次认证之间的根失真、检出前固化、未覆盖面等）。                                                                                                                                          |
-| 失真指纹       | distortion fingerprint             | 失配现场的页级形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。共享根认证只报告逻辑位置，不输出页级指纹。                                                                                                          |
-| 判因           | distortion attribution             | 失配归因结论（共享静态根 / 来源 / 无法判因）；允许「无法判因」，不承诺唯一根因。共享根认证的判因规则以完整性设计 §7 为准。                                                                                                                                                    |
+| 中文规范术语     | 英文辅助名 / 精确标识符                | 中文规范含义                                                                                                                                                                                                                                                                                                          |
+| ---------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 页级内存失真     | page-level memory distortion           | #794 归因收口确认的环境失真：内存压力下物理页被整页替换、置零或按页整数倍位移；非恶意、不可由软件根除，指纹见验证矩阵。                                                                                                                                                                                               |
+| 逻辑摘要前像     | logical digest preimage                | #302 确定性状态摘要的规范化前像，布局无关、只覆盖 C(T)；SHA-256，不替换。完整性维度用于宿主检查点对拍与审计重放。                                                                                                                                                                                                     |
+| 耐久修订内容前像 | durable revision content preimage      | 复用 `NetworkRevisionIdV1` 的前像：规范路网语义载荷 `canonicalNetworkSemanticPayloadV1`（LFCA 语义节规范组帧；不含布局 / 派生表），SHA-256；不另设编码。                                                                                                                                                              |
+| 耐久修订内容基线 | durable revision content baseline      | 构建方产出、宿主随来源跨进程持久的修订内容依据（发布来源的 `NetworkRevisionId`；编辑来源的已提交 `RoadEditingState`）；共享路网修订认证的期望值来源之一。字段与用法以完整性设计 §2.2 为准。                                                                                                                           |
+| 共享路网修订认证 | shared network revision authentication | 宿主在共享路网修订投入使用之前（安装、恢复、Spatial 绑定、切换）与审计时调用的只读入口：先完成来源准备（reader、引用互证与候选修订完整构建），再做修订比较（`origin` 与逐表），最后确认与处置；不进入 tick 路径，不持有常驻状态。输入、步骤、比较算子与判因以完整性设计 §4.2、§7 为准。正文首次出现后可写“修订认证”。 |
+| 认证操作失败     | authentication operational failure     | 共享路网修订认证在 `Pass` / `Mismatch` / `Untrusted` 之外的结果（资源、限额、取消与来源不可得类失败）；不判因、不停用、不宣称 `Pass`。穷尽清单与例外以完整性设计 §2.4 为准。                                                                                                                                          |
+| 可信基准         | trusted baseline                       | 经独立核验成立的期望值集合及其绑定闭合；期望值不得取自被校验对象自身；无法建立时不得宣称检测或恢复成功。                                                                                                                                                                                                              |
+| 停用             | integrity disablement                  | 检测判定失真对象失配后停止使用的阶段一语义：不自动纠偏、回滚、重演或重启，已发布结果不撤销；由宿主执行，Runtime 不持有失效状态。共享路网修订的触发条件与停止边界以完整性设计 §3 为准。                                                                                                                                |
+| 宿主审计重放     | host audit replay                      | 宿主在独立世界（被审计世界仍在运行时为独立进程或另一台机器）从较早检查点重放输入命令并比对检查点三元组；结果分 `CompleteMatch` / `Diverged` / `Incomplete`，未完成区间不计入覆盖。前提、覆盖边界与首版不跨管理边界的范围以完整性设计 §4.3 为准。                                                                      |
+| 漏检面           | missed-detection surface               | 显式声明的不可检集合（穷尽清单见完整性设计 §5，含热状态、输出批次、Rust 有效性破坏、两次认证之间的修订失真、检出前固化、未覆盖面等）。                                                                                                                                                                                |
+| 失真指纹         | distortion fingerprint                 | 失配现场的页级形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。共享路网修订认证只报告逻辑位置，不输出页级指纹。                                                                                                                                            |
+| 判因             | distortion attribution                 | 失配归因结论（共享路网修订 / 来源 / 无法判因）；允许「无法判因」，不承诺唯一根因。共享路网修订认证的判因规则以完整性设计 §7 为准；代码标识符 `AttestationCause::SharedStaticRoot` 按公开 API 不变保留原文。                                                                                                           |
 
 ## 8. 静态路网领域标识符
 
@@ -634,3 +658,28 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 路径锚点       | `PathAnchor`                                               | 以机动门、路径边界或边内整数毫米位置精确标识机动路径位置的闭合联合。                                            |
 | 冲突区空间区域 | `ConflictZoneRegion`                                       | 与冲突区配对的可选 2.5D 简单 XZ 多边形及高度范围；只服务验证、调试和表现，不拥有冲突行为。                      |
 | 路口组         | `JunctionGroup`                                            | 组织多个路口的更高层静态组合；尚未进入标识 v1（Identity v1）。                                                  |
+
+
+## 9. 已废弃旧称
+
+本节是禁用旧称的单一事实源：现行文档、Agent 工作流与代码注释不得再使用下列旧称；
+历史证据目录（`research/` 等，法不纠过往）、已关闭 issue / PR 正文与 Git 历史除外。
+取代词一律指向本表已登记的规范术语。登记一行旧称即表示其全部派生复合词（如「共享根」
+含「共享根认证」）一并废弃，除非另立一行说明。
+
+| 旧称                                                                       | 取代词                                                                 | 适用范围                                                                                                                                                    | 登记 |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| 共享根                                                                     | 共享静态路网（指层或内容）/ 共享路网修订（指实例）                     | 曾用作 `Arc<SharedNetworkRevision>` 的简称；“根”表达的是 Rust 所有权视角，字面无法推知所指                                                                  | #985 |
+| 共享静态根                                                                 | 共享路网修订（判因取值）/ 共享静态路网（指层）                         | 与「共享根」同义的另一异名，含判因取值文字面                                                                                                                | #985 |
+| 共享根认证                                                                 | 共享路网修订认证（shared network revision authentication）             | 对某一份共享路网修订的认证操作；正文可写“修订认证”                                                                                                          | #985 |
+| 根（作“共享路网修订”简称：根认证、根审计、根比较、候选根、该根、根重建等） | 修订（修订认证、修订审计、修订比较、候选修订、该修订、修订重建等）     | 运行时状态完整性与失真处置语境的省略形                                                                                                                      | #985 |
+| shared root / shared-root（中英散文、注释、英文别名，指层或内容）          | shared static network                                                  | 与中文「共享根」同一二分：数据、布局、数量、度量与内容归属语义（本批英文散文同样按层/实例二分换名）                                                         | #985 |
+| shared root / shared-root（中英散文、注释、英文别名，指实例）              | shared network revision                                                | 生命周期、身份、绑定、认证、审计与处置语义；公开 API 标识符不改                                                                                             | #985 |
+| shared_root（内部与测试标识符）                                            | shared_network_revision（指实例）/ shared_static_network（指层或度量） | 测试模块、测试函数名与私有标识符按同一层/实例二分改名                                                                                                       | #985 |
+| shared_root（机器可读度量键与 CSV 表头）                                   | shared_static_network                                                  | 内存计账判层；`profile-memory` / `exact-pair` 日志键与 `junction-ledger` CSV 表头随批改名并同步读取端；历史证据文件保留旧键（法不纠过往），读取脚本兼容两键 | #985 |
+| 耐久根内容前像                                                             | 耐久修订内容前像（durable revision content preimage）                  | 已登记词条成对改名（中英文同步）：「根内容」是 Rust 所有权视角措辞，字面无法推知其指修订语义载荷前像                                                        | #985 |
+| 耐久根内容基线                                                             | 耐久修订内容基线（durable revision content baseline）                  | 同上；定义内「根内容依据」一并改「修订内容依据」                                                                                                            | #985 |
+
+说明：「根对象」「根 `Arc`」「从根借用」「根共享」「根配对 / 配错根」「换根 / 同修订
+换根」（描述 ADR 0025 所有权结构与根对象更替）不在废弃范围；wire 格式根表、分类树根、Merkle 根、文件系统根等同形
+异义词不属本词簇。

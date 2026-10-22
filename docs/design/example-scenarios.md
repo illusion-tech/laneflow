@@ -176,7 +176,7 @@ yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 
 
 现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.4
 （必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 5
-LFCA 与 catalog 0.4；先把 catalog 绑到共享根，显式使用绑定的策略安装世界，
+LFCA 与 catalog 0.4；先把 catalog 绑到共享路网修订，显式使用绑定的策略安装世界，
 再按 catalog 边键 `register_route` 并 spawn 少数车辆。运行命令为：
 
 ```powershell
@@ -309,8 +309,8 @@ generator 写出 `v0.2-signalized-corridor.catalog.toml` 与
 `v0.2-signalized-corridor.lfca`（文件名是场景制品名，不是 catalog 格式号）。
 catalog 0.4 必填 `policy_selection`，并记录每条路线的非空有序 `laneEdgeKey`、ordered PortalLane、weighted
 RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical slot
-cross-reference。`pinned` 必须携带当前共享根中存在的规范策略 StableId；
-`not_required` 仅用于没有 Gate、ConflictZone、ParticipantStream 的根。受保护走廊
+cross-reference。`pinned` 必须携带当前共享静态路网中存在的规范策略 StableId；
+`not_required` 仅用于没有 Gate、ConflictZone、ParticipantStream 的共享静态路网。受保护走廊
 显式选择生成器声明的 `protected-entry`，省略字段或旧版 catalog 均拒绝。
 完整 TOML 形状与启动绑定见[人口设计 §3](signalized-corridor-population.md#3-catalog-契约)。
 authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA

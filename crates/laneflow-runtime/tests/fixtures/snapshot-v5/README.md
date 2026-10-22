@@ -3,7 +3,7 @@
 这些字节由 `a29eaa4441fd8273e8a7768bfb931048fcc32753` 的生产 `encode_lfrs` 生成。
 输入为 `admin::cutover::tests::transaction_tests::world_with_vehicle(true)` 的捕获结果，
 仅将保存配置的 worker 字段分别设为 0、1、99，保留四项容量及 100 ms 固定步长。
-生成时逐份用该提交的生产 `restore_lfrs`、原世界配置/根/来源完成恢复，三份均通过；
+生成时逐份用该提交的生产 `restore_lfrs`、原世界配置/修订/来源完成恢复，三份均通过；
 worker 0 因 FlatBuffers 缺省编码而没有 worker 槽。它们是拒绝测试输入，不是兼容 reader。
 
 当前测试直接读取这些固定字节，并只改根 `format_version` 为 6 再验证拒绝；不使用

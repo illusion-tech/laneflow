@@ -808,12 +808,12 @@ SharedNetworkRevision
   optional SharedSpatialNetwork
 ```
 
-根对象及 component 字段私有、不可变且 `Send + Sync`；一个 world 只共享根 `Arc`，
+根对象及 component 字段私有、不可变且 `Send + Sync`；一个 world 只共享根对象的 `Arc`，
 内层热路径从该根借用连续 component/slices/ranges，不逐 component 或逐实体引用计数。
 Traffic/Identity/Hints/Spatial 物理拆分但由根直接拥有并逻辑绑定同一修订；公共 API 不返回
 独立 component 所有权句柄，也不能独立替换。构建成功后输出不借用 LFCA/LFSM/LFSD
 backing；runtime-only 调用方可释放 LFCA，可编辑 session 所需 exact base LFCA 由 editor/
-#302 在共享根外单独拥有。失败、取消或预算不足不返回部分 component、不修改现有 world
+#302 在共享路网修订外单独拥有。失败、取消或预算不足不返回部分 component、不修改现有 world
 且不写磁盘。
 
 发布加载先完成 LFCP v2 / manifest admission；玩家确认建造则从
@@ -1202,7 +1202,7 @@ ADR 0025 已取消 image binding；缺少完整切换输入时，
 - grant/reservation/waiting/parking occupancy；
 - command/event/snapshot buffers；
 - dynamic Route occurrence metadata；
-- world identity、输入命令游标、从共享根取得的当前路网修订绑定；
+- world identity、输入命令游标、从共享路网修订取得的当前路网修订绑定；
 - 每世界运行时执行计划、边界交换缓冲与调度统计。
 
 当前首个 projection 仍使用 vehicles、dynamic Route 与 parking occupancy；这些
@@ -1554,7 +1554,7 @@ identity/constraint/execution-constraint versions 是同修订恢复的静态语
 关闭；revision 不同必须进入 §9.6。发布资产若要支持道路编辑，必须另带可重编译到同一
 修订/contract closure 的 committed `RoadEditingState`，不能从 LFCA 恢复 authoring-only
 曲线。#302 必须先用重编译 exact LFCA 构建 sibling root，并以同修订 source rebase 原子更新
-root/source/diff-base origin；动态状态不变，成功后才启用编辑。editable session 在共享根外
+root/source/diff-base origin；动态状态不变，成功后才启用编辑。editable session 在共享路网修订外
 内存保留与当前 origin 精确一致的 `EditableDiffBase` LFCA，下一次发射以
 `PortableDiffBase::Artifact` 使用它；提交成功后 target LFCA 成为新 base，失败继续保留旧
 base。存档不保存该 base。保存时只能捕获已经成功进入 Runtime 的 committed source 与同一
@@ -1575,7 +1575,7 @@ Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 
 交通参与单元的 fixed-tick 内全图寻路。当前车辆域使用 Route，未来执行域由其 G1
 冻结等价通行定义。成本快照和候选通行定义必须绑定路网修订、观测 tick 与
 成本模型版本；路网修订标识必须来自当前 `SharedNetworkRevision` 或已
-提交交通观测快照，不能由 Routing 调用方自报。Runtime 将其与当前共享 root binding
+提交交通观测快照，不能由 Routing 调用方自报。Runtime 将其与当前共享路网修订绑定
 做精确相等比较，并继续逐项验证候选稳定引用/拓扑；修订标识相等只证明缓存一致性，
 不替代候选内容验证。Runtime 对 revision mismatch 失败关闭；观测合同包含状态序号，
 并把候选时效冻结为 `[observationTick, validThroughTick]` 的
@@ -1617,7 +1617,7 @@ LIR→LFCA 投影测试继续承担生产语义正确性。
   owned layout、闭合、资源和共享边界；不定义文件 ABI、descriptor、mmap 或独立 oracle；
 - #302 必须绑定 base/target revision、LFCA origin、LFSD、迁移策略和原子切换提交点，
   但不得假设存在 `revision-cutover-v1` receipt；
-- Runtime 仍不得信任 LFSD 或调用方自报 revision；revision 来自受检 LFCA 及共享根，
+- Runtime 仍不得信任 LFSD 或调用方自报 revision；revision 来自受检 LFCA 及共享路网修订，
   激活决定来自 #302 的可信切换输入。
 
 验证职责按交付切片拆分：
@@ -1752,8 +1752,8 @@ kernel 时虚构绝对 SLA。Gate 至少覆盖：
 - LFCA/LFSM/LFSD candidate exact bytes、count/build/closure 墙钟、累计分配、各 component logical/
   retained bytes、scratch peak，以及 builder 成功后不借用三对象；
 - headless、facility-only、profile/frame-only、full lane Spatial 和当前最大合法产品场景，
-  并分别记录发布构建的 LFCA + candidate arrays + scratch，及可编辑构建的 current root +
-  retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 共存峰值；
+  并分别记录发布构建的 LFCA + candidate arrays + scratch，及可编辑构建的 current 共享静态路网 +
+  retained base LFCA + target LFCA/LFSM/LFSD + candidate 共享静态路网 + scratch 共存峰值；
 - `SharedIdentityIndex` 双向 lookup 与至少一个 #301 production contiguous traversal
   kernel；
 - 2/8/32 worlds 的 shared-static scaling；

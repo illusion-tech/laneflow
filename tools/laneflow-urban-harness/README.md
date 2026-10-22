@@ -365,7 +365,7 @@ Vec 元素大小用于容量字节账，Hash 表容量单位仍是元素；交�
 每帧 `applied_digest` 按稳定个体身份及实际 Transform 数值生成，配对运行须逐帧一致；
 `requested` 表示提取需求（全量模式为 live 数），`host_selected` 另列宿主选择数量。
 
-`adapter` feature 使用真实 `LaneFlowPlugin`、`LaneFlowSession` 和同根 `SpatialSession`。
+`adapter` feature 使用真实 `LaneFlowPlugin`、`LaneFlowSession` 和同修订 `SpatialSession`。
 每次 Bevy update 必须恰好提交一个固定步进且无积压。性能中的 Adapter `step` 是 Bevy
 Step 阶段（含调度边界），headless `step` 是公共 `TrafficWorld::step` 调用，报告分别标明。
 全量位姿提取、稳定身份排序与实体绑定、Transform 写入分别计时；逐帧校验和日志开销单列，

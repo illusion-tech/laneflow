@@ -44,7 +44,7 @@ Iterator 与单项查询的最终 Rust 类型名由该实现切片冻结。删�
 `LaneFlowSession::extract_committed_pose_batch` 保留全量语义。Session 拥有可复用的
 PoseInput 和候选 VehicleHandle 缓冲；调用方拥有可复用的完整输出。一次 `&mut self`
 内完成根配对、来源采集、Spatial 采样和输出提交，不向调用方暴露可跨切换重放的
-中间输入。绑定完整根的 `Arc::ptr_eq` 检查仍为每批固定 O(1)。
+中间输入。绑定完整根对象的 `Arc::ptr_eq` 检查仍为每批固定 O(1)。
 
 Spatial 在自有 scratch 中完成逐项采样和首错检查；全部成功后交换 scratch 与
 `output.records` 的 Vec 所有权，再写入修订、frame 和 placement token。交换不会改变
@@ -115,10 +115,10 @@ Runtime fixed tick、交通数量、意图更新数或观察日志。
 ## 5. 切换、缓存与表现生命周期
 
 - 成功跨修订切换或同修订恢复后，旧选择上下文和旧批次消费资格失效。旧 Arc 的
-  存活不授予在新活动世界提交的资格。失败切换继续使用旧根、旧上下文和旧输出。
-- Spatial 缓冲仅保存待提交/旧输出记录，不把它当新根的缓存命中；新 Session
-  只绑定新根。复用缓冲容量可以作为纯存储优化，但每次新批次必须重新填充。
-- placement token 仍由宿主颁发且在应用 Transform 前复核；重放置可以不改根，
+  存活不授予在新活动世界提交的资格。失败切换继续使用旧根对象、旧上下文和旧输出。
+- Spatial 缓冲仅保存待提交/旧输出记录，不把它当新根对象的缓存命中；新 Session
+  只绑定新根对象。复用缓冲容量可以作为纯存储优化，但每次新批次必须重新填充。
+- placement token 仍由宿主颁发且在应用 Transform 前复核；重放置可以不换根，
   但必须换 token。缓存 canonical pose 也不能绕过这个检查。
 - 暂时未选中、Completed 或 virtual Parked 不等于 despawn。宿主保留个体身份与
   代际绑定，隐藏/去掉 Transform；真正移除或 replacement 使用既有 typed 事务。
@@ -127,9 +127,9 @@ Runtime fixed tick、交通数量、意图更新数或观察日志。
   全量 live HashMap 的重建可以研究替换，但持续映射仍须核对生命周期与身份；
   单纯查询 K 个已绑定句柄不能证明完整维护等价。
 
-显式泊位的 canonical pose 只由根内不可变几何与 ParkingSpaceOrdinal 决定，理论上
+显式泊位的 canonical pose 只由修订内不可变几何与 ParkingSpaceOrdinal 决定，理论上
 可缓存；缓存值不含 PoseRecordId、车辆、frame placement 或 world generation。
-若后续采用缓存，必须由绑定根的 Spatial owner 持有，根替换时清空/换 owner；另定
+若后续采用缓存，必须由绑定修订的 Spatial owner 持有，修订替换时清空/换 owner；另定
 有限容量、冷启动成本、稀疏访问和多 Session retained bytes，避免按全部静态泊位
 无条件分配。本次只测热重复采样与缓存复制下界，不据此交付缓存。
 

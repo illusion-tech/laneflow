@@ -1,7 +1,7 @@
 # laneflow-runtime
 
 目标交通运行时。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
-可变状态；热路径借用共享根静态 accessor，并读本世界已提交表。`WorldConfig` 只含
+可变状态；热路径借用共享静态路网静态 accessor，并读本世界已提交表。`WorldConfig` 只含
 四类容量和固定步长，安装/恢复还须显式传入 `ExecutionConfig::new(NonZeroU32::MIN)`。
 执行配置不进入快照、逻辑摘要或交通身份；支持 worker 1–16，完整交通准备后才
 拒绝不支持的执行请求。活动 facade 独占私有执行资源；候选只拥有 `WorldState`
@@ -14,7 +14,7 @@ P3/P5 仍由协调器串行（#706）。执行器 panic 在 join 后使世界失
 [`traffic-runtime-module-boundary.md`](../../docs/design/traffic-runtime-module-boundary.md)。
 
 安装的第六个必填参数为 `WorldPolicySelection`。宿主以 `Pinned(PolicyPin)` 指定策略
-稳定标识；仅当整个共享根没有门、冲突区或参与者流时可用 `NotRequired`。不推断默认
+稳定标识；仅当整个共享静态路网没有门、冲突区或参与者流时可用 `NotRequired`。不推断默认
 策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
 `policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
 

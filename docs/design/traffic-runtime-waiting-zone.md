@@ -218,7 +218,7 @@ WaitingZoneState
 - `occupancy` 等于全部 active semantic memberships 的数量；
 - `nextAdmissionSequence` 是该 world、该 zone 的 checked `u64` 单调 counter；
 - head/tail 和 per-member link 是运行时稠密索引，不是持久 identity；
-- zone 数来自共享静态根，不新增 caller 配置的 WaitingZone capacity 轴。
+- zone 数来自共享静态路网，不新增 caller 配置的 WaitingZone capacity 轴。
 
 ### 4.2 每车辆状态
 
@@ -621,7 +621,7 @@ Waiting 是逻辑状态，必须进入 `CapturedSnapshot` / LFRS：
 
 跨修订成功切换使源修订 latest decision/event batch 的 route/zone anchors 失效，原子
 置空这两批临时输出；需要历史记录的调用方必须在 commit 前消费。不同于生命周期命令，
-跨修订不把旧 ordinal 当成新修订引用，也不为历史输出保留旧 root、强制重绑已删除路线或
+跨修订不把旧 ordinal 当成新修订引用，也不为历史输出保留旧根对象、强制重绑已删除路线或
 增加新的迁移失败条件。同修订切换保留批次；失败或放弃切换保留源批次。恢复后的批次为空。
 
 restore 解析稳定 identity 后重建稠密索引，并拒绝 unknown zone、route occurrence

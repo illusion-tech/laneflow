@@ -235,14 +235,14 @@ cargo +1.99.1 check --locked -p laneflow-bevy --example junction_debug --feature
 cargo +1.99.1 test --locked -p laneflow-bevy --test junction_debug_smoke
 ```
 
-道路表面由 `examples/support/junction_road.rs` 消费同根车道几何生成：路口为连续
+道路表面由 `examples/support/junction_road.rs` 消费同修订车道几何生成：路口为连续
 铺装，四角路缘与人行道相切；外围成对同向车道共用一幅路面，足宽处画分隔虚线，
 直线汇合/分流处连续收窄，环路两侧均铺设人行道。内侧接臂道人行道，外侧经
 中央分隔带末端的步行连接面衔接；主路端外侧步道收至 2 m，避免相邻两条步道重叠。
 道路分隔带设圆头，过街区域保留连续铺装。臂道边界按
 世界横坐标去重，车道导向按同次穿越的进口与出口方向显示；表现不更改规范轨迹。
 
-西进口的一条左转路径采用待转区。两侧白色短虚线从对应进口车道边界沿同根
+西进口的一条左转路径采用待转区。两侧白色短虚线从对应进口车道边界沿同修订
 转入路径连续延伸至 release，线宽 0.15 m、实线段与间隔均为 0.5 m；箭头位于
 entry→release 储车区间。连接、储车与驶出由同一条左转圆弧分段，储车段本身
 随左转方向弯曲，不横移后拉直为 S 弯。标线按实际 WaitingZone 路径逐条生成，
@@ -451,7 +451,7 @@ Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同
   backlog。
 
 端到端验收矩阵（存活 Session 跨修订与同修订换根、几何真值、旧输入/旧结果拒绝、
-配错根失败关闭、ABA 回旧根、失败原子性与重试、旧根借用完成与回收、零步进与
+配错根失败关闭、ABA 回旧根对象、失败原子性与重试、旧根对象借用完成与回收、零步进与
 catch-up 调度、显式 headless）见 `crates/laneflow-bevy/tests/revision_cutover.rs`；
 夹具为同键同长、中心线平移的两条边，几何真值按平移量精确判别。语义权威见
 `adapter-api.md` §9 与切换合同 §7。

@@ -74,7 +74,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0025`: 从受检 LFCA 构建性能优先、不可变、进程内共享的
   `SharedNetworkRevision`；Traffic/Identity/Spatial 物理拆分并绑定同一修订，不交付
   静态镜像文件/ABI、descriptor/完整性清单、mmap 或磁盘缓存，保存只接受已进入
-  Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享根外
+  Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享路网修订外
   保留 exact LFCA diff base，但不把它写入存档（Accepted；LFCA 百万级分块输入已纳入现行权威）
 - `0026`: 推倒旧自然语言门禁，改为原生 PullRequestReview Check、Merge Queue
   盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务；
@@ -97,7 +97,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   规范首错与资源/计划寿命、LFRS 独立版本轴（Accepted；配置/格式交付不等于生产多线程已实现）。
 - [`0032`](0032-runtime-state-integrity-and-distortion-disposition-authority.md)：运行时状态完整性
   失真的检测权、停用与宿主处置的单一权威政策；Runtime 侧检测范围分期（本期只在投入
-  使用前与审计时认证共享根，运行中检测进二期）、共享静态根独立失败语义、无可信基准
+  使用前与审计时认证共享路网修订，运行中检测进二期）、共享路网修订独立失败语义、无可信基准
   不作宣称（Accepted；#955 G1；机制见
   运行时状态完整性设计）。
 

@@ -52,17 +52,17 @@
 | 关注点                               | 权威层                | 适配器职责                                        |
 | ------------------------------------ | --------------------- | ------------------------------------------------- |
 | 固定步长、车辆、路线、信号和停车状态 | Traffic Runtime       | 调度 `TrafficWorld::step`，读取已提交 pose / 信号 |
-| 中心线、弧长和位姿采样               | Spatial               | 绑定同一共享根，消费 pose 批次                    |
+| 中心线、弧长和位姿采样               | Spatial               | 绑定同一共享路网修订，消费 pose 批次              |
 | 交通与空间制品的解析                 | 编译器 / 共享静态路网 | 提供已构建的 `Arc<SharedNetworkRevision>`         |
 | 实体、预制体、变换、动画和细节层次   | Adapter/Presentation  | 作为唯一的宿主表现事实源                          |
 
-适配器不得把宿主变换（Transform）反写为 Runtime 进度，也不得用引擎样条曲线长度覆盖共享根 / Spatial 的长度绑定。
+适配器不得把宿主变换（Transform）反写为 Runtime 进度，也不得用引擎样条曲线长度覆盖共享静态路网 / Spatial 的长度绑定。
 
 宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受该
+`Arc<SharedNetworkRevision>`。Runtime 安装完整修订。`SpatialSession::bind` 只接受该
 根 `Arc`，**不**从 Runtime 发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
-同时持有 world 与 session 的 Adapter 必须 `Arc::ptr_eq`（或证明两者来自同一保留的根
+同时持有 world 与 session 的 Adapter 必须 `Arc::ptr_eq`（或证明两者来自同一保留的根对象
 `Arc`）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
 或 LFCA table，不重建 Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决
 行为或单独替换 component。pose 使用与 Runtime 无关的 `PoseRecordId`，见
@@ -115,10 +115,10 @@ PoseInput {
 ```
 
 - 行驶中或停止中的车道车辆使用 `Lane`；显式泊位中的已停放车辆使用 `Parking`。位置权威判别由 source enum 表达，不增加可互相矛盾的 status 字段。
-- lane 进度与共享根边长同域；parking 用共享根停车位序号。
+- lane 进度与共享静态路网边长同域；parking 用共享静态路网停车位序号。
 - 已完成或已移除车辆不出现在 `committed_pose_sources`，由调用方决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
-- 一批必须同一 canonical frame；批次头带共享根 `NetworkRevisionId`、
+- 一批必须同一 canonical frame；批次头带共享路网修订 `NetworkRevisionId`、
   `CanonicalFrameOrdinal` 与 `FramePlacementToken`，混 frame 整批失败。
 
 #540 合同增加一种“live 但不可表现”的已提交状态，而不是给 `PoseInput` 增加
@@ -188,7 +188,7 @@ Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
 - 全部 records 先写 scratch；只有全部成功后才写入 `output` 并更新 placement
   token。失败时旧 `output` 的 frame、token 和 records 逐项不变，scratch 清空但保留容量。
 - 调用方可跨 tick 复用 `output` 与 session scratch；稳定容量下不要求每批新分配。
-- canonical frame 与宿主坐标之间的转换不得修改 `TrafficWorld`、`SpatialSession` 或共享根。
+- canonical frame 与宿主坐标之间的转换不得修改 `TrafficWorld`、`SpatialSession` 或共享路网修订。
 - 单记录查询可以用于调试，但不能作为当前道路机动车执行域一万或十万车辆运行单元的
   默认同步路径。
 
@@ -290,7 +290,7 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
 
 失效与消费资格语义（切换合同 §7 的 Adapter 承载面）：
 
-- `SpatialSession` 仅绑定不可变共享根，不持有世界身份或世界世代。Adapter 的当前
+- `SpatialSession` 仅绑定不可变共享路网修订，不持有世界身份或世界世代。Adapter 的当前
   Spatial 配对必须与活动 `TrafficWorld` 使用同一根 `Arc`；封闭提取路径每批做一次
   固定 O(1) 配对检查（与车辆数无关），失配失败关闭。Adapter 不提供绕过配对检查的
   裸可变 Spatial 访问。
@@ -298,7 +298,7 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
   世代与根配对检查共同保证。世代复用 Runtime 签发的 `(world_id, WorldGeneration)`，
   不建立第二套切换计数器，也不挪用含双基线游标的完整切换描述符作长期位姿绑定
   令牌。
-- 旧根借用可以继续完成（Arc 存活语义；换出的旧 `SpatialSession` 由
+- 旧根对象借用可以继续完成（Arc 存活语义；换出的旧 `SpatialSession` 由
   `LaneFlowCutoverRecord::retired_spatial` 交还宿主），但其输入或结果不得未经当前
   消费上下文验证进入新世界的表现提交。
 - 世界相关有效性检查由 Adapter 承担，不下沉到 Spatial。

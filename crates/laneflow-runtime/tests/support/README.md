@@ -26,7 +26,7 @@ busy、dropped 四阶段原生线程数，以及新增辅助线程的栈地址�
 字节数。guard 是 committed 的子集，不能重复相加；配置的栈大小不能替代实际读数。
 
 Rust marker 中的 `active_plan_bytes` 包含计划结构和范围向量容量；
-`thread_registration_bytes` 是 JoinHandle 向量容量。它们不包含共享根的被引用内容。
+`thread_registration_bytes` 是 JoinHandle 向量容量。它们不包含共享静态路网的被引用内容。
 `observed_heap_net_bytes_since_baseline` 是同一独立进程从 baseline 起累计分配减去释放
 的净差，包含 Rayon registry、队列、登记、计划变化和探针自身开销，不能当作纯队列
 字节或精确峰值。baseline 时交通世界已存在，因此 dropped 的净差可以为负，不能据此

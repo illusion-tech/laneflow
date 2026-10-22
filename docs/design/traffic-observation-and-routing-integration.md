@@ -45,7 +45,7 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 | Routing service（宿主实现） | 观测消费、成本模型、动态成本快照、候选边序列       | 参与单元 fixed tick、Runtime 路线表 |
 | Traffic Runtime             | 已提交观测事实、候选内容验证/注册、路线与车辆执行  | 全图寻路、成本政策、需求与选择策略  |
 
-`register_route` 仍是唯一出现项编译器：场景 catalog 可继续把同修订共享根边序号
+`register_route` 仍是唯一出现项编译器：场景 catalog 可继续把同修订共享静态路网边序号
 直接交给它；Routing 候选入口只是在它之前增加稳定标识解析和来源绑定校验，不得
 复制第二套连通、机动、门、等待区或准入编译器。
 
@@ -281,7 +281,7 @@ Runtime 按下列顺序失败关闭，任一失败不占路线槽、不留下 co
 3. 按 §3 比较当前已提交 tick 与 `[observationTick, validThroughTick]`；在同一活动
    世界世代/stream 内，无论 tick 是否相等，都拒绝大于当前值的
    `observationStateSequence`。
-4. 用当前根 `SharedIdentityIndex` 把每个 `LaneEdge StableId128` 解析成当前 dense ordinal；
+4. 用当前修订 `SharedIdentityIndex` 把每个 `LaneEdge StableId128` 解析成当前 dense ordinal；
    未知标识或错误 kind 拒绝。修订相等不能跳过这一步。
 5. 把解析后的有序序列交给现有唯一 `compile_route` / `register_route` 路径，重做连通、
    机动 occurrence、门/等待区、端点与溢出不变量。
@@ -310,7 +310,7 @@ candidate、cutover target 重绑、snapshot restore 与 replay 一视同仁。`
 成功后释放对应计数；注册失败、移除失败和切换放弃都不改变计数。恢复时快照路线总
 occurrence 超过恢复配置则整次恢复失败关闭。
 
-该容量不是共享根物理边数，不是单条路线的产品长度政策，也不恢复已删除静态路线
+该容量不是共享静态路网物理边数，不是单条路线的产品长度政策，也不恢复已删除静态路线
 出现项的 `1920` 历史预算。单条路线只要不超过本世界剩余 occurrence 容量，仍可合法
 重复边；G2 必须在同一共享路径实现 max/max+1、checked 溢出与分配失败零部分提交，
 并以具名 Routing 工作负载登记配置值和 retained memory 证据。
@@ -329,15 +329,15 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 切片已将 compiled-route 的所有已知长度热表改为 `try_reserve_exact` 预留；任一预留失败
 统一返回 `RouteError::AllocationFailed`，并由确定性失败注入覆盖「首次预留」与「部分热表
 已物化」两个边界；两者都不提交路线槽、活动路线数、边 occurrence 计数或空闲表。
-同修订 cutover 对 target 根重编译路线时复用同一 `compile_route`；其热表预留失败映射为
-`CutoverError::StagingAllocFailed`，并以确定性失败注入验证旧根、来源、路线、车辆与
+同修订 cutover 对 target 修订重编译路线时复用同一 `compile_route`；其热表预留失败映射为
+`CutoverError::StagingAllocFailed`，并以确定性失败注入验证旧修订、来源、路线、车辆与
 占用保持可继续步进的原子放弃状态。
 
 ## 5. 与 #302 切换、快照和回放的接缝
 
 - **切换准备期**：对外观测只来自仍活动的旧聚合。候选世界不可见，不导出“新修订
   预览观测”。在旧世界成功注册的候选路线已经成为路线生命周期变更，必须进入 #302
-  迁移增量日志并在 target 根重绑/重验证；失败则整个切换失败关闭。
+  迁移增量日志并在 target 修订重绑/重验证；失败则整个切换失败关闭。
 - **切换提交**：成功原子切换后，世界世代递增、观测 stream 与其
   `observationStateSequence` 同界重建；旧观测/admission session、未注册候选及旧修订
   成本绑定全部 stale。调用方须在新修订开新 session 并先取 full。已经注册的
@@ -359,7 +359,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
   `SharedIdentityIndex` 解析稳定标识、消费 §4.1 同一容量并进入唯一
   `compile_route`/`register_route` 路径，把新 `RouteHandle` 回映到耐久调用方 ID；
   不重新执行 Routing，也不把已 stale 的成本绑定伪重绑到新世代。跨修订恢复若命令
-  绑定与当前根不同，只能经 #302 受信任迁移策略显式迁移稳定引用，否则失败关闭。
+  绑定与当前修订不同，只能经 #302 受信任迁移策略显式迁移稳定引用，否则失败关闭。
 
   G2 的 Runtime 实现接缝是
   `register_admitted_route(AdmittedRouteRegisterInput) -> Result<RouteHandle, ...>`：输入只含
@@ -406,7 +406,7 @@ seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、war
 
 实现级安全上限必须在读取调用方可变长度数据前从 `WorldConfig`/接收端容量合同取得；
 至少覆盖 selection rows、输出 rows、成本 `entryCount/exactByteLength`、全部路线入口
-共用的 `route_edge_occurrence_capacity` 和所有乘加溢出。共享根物理 LaneEdge 数不得
+共用的 `route_edge_occurrence_capacity` 和所有乘加溢出。共享静态路网物理 LaneEdge 数不得
 冒充路线 occurrence 上限。G2 回写配置值、max、max+1 与不可达值证明。
 
 观测导出与候选注册都是 step 之间的显式调用；允许它们延迟下一 tick，但不允许与
@@ -511,7 +511,7 @@ G2 也已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计
 
 G2 已进一步落定 `ObservationSetBinding`、`DynamicCostSnapshotBinding`、字段私有的
 `RoutingAdmissionSession`、`CandidateRouteInput` 与规范化
-`AdmittedRouteRegisterInput`；candidate/replay 都先把稳定标识解析为当前根 ordinal，
+`AdmittedRouteRegisterInput`；candidate/replay 都先把稳定标识解析为当前修订 ordinal，
 最终仍调用唯一 `register_route_edges`，不复制路线编译器。`open_routing_admission`
 因无失败原因按事实落为无分配、不可失败入口；candidate/admitted Rust 输入也不新增
 无事实依据的独立版本轴。
