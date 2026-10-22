@@ -71,20 +71,21 @@ fn execution() -> ExecutionConfig {
 
 fn world() -> TrafficWorld {
     static WORLD_ID: AtomicU64 = AtomicU64::new(96_000);
+    world_with_id(WORLD_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+/// 以指定 world_id 构造基线世界（一路线一车）。归属置换用例需要两个
+/// 先后构造的世界共享 world_id（原世界 drop 后再建，遵守 snapshot §2/§5
+/// 不并存同 id 世界）。
+fn world_with_id(world_id: u64) -> TrafficWorld {
     let revision = revision();
     let source = CommittedNetworkSource::Published {
         reference: reference(&revision),
     };
     let selection = test_policy::selection(&revision);
-    let mut world = TrafficWorld::install(
-        revision,
-        config(),
-        execution(),
-        source,
-        WORLD_ID.fetch_add(1, Ordering::Relaxed),
-        selection,
-    )
-    .expect("install");
+    let mut world =
+        TrafficWorld::install(revision, config(), execution(), source, world_id, selection)
+            .expect("install");
     let edges = [10_000, 8_000, 12_000]
         .map(|length| {
             LaneEdgeOrdinal::try_from_usize(
@@ -107,6 +108,50 @@ fn world() -> TrafficWorld {
                 .with_open_entrance(),
         )
         .expect("vehicle");
+    world
+}
+
+/// 归属置换世界（漏检面 §5 第 12 条）：两条同内容路线 + 两辆同值车，
+/// `swapped` 决定首车绑定哪条路线。两个方向的命令序列长度相同
+/// （command_cursor 相同）、局部 ID 分配序相同，摘要等价类由设计 §4.3
+/// 「等价类边界」保证。
+fn swap_world(world_id: u64, swapped: bool) -> TrafficWorld {
+    let revision = revision();
+    let source = CommittedNetworkSource::Published {
+        reference: reference(&revision),
+    };
+    let selection = test_policy::selection(&revision);
+    let mut world =
+        TrafficWorld::install(revision, config(), execution(), source, world_id, selection)
+            .expect("install");
+    let edges = [10_000, 8_000, 12_000]
+        .map(|length| {
+            LaneEdgeOrdinal::try_from_usize(
+                world
+                    .traffic()
+                    .lane_lengths_millimetres()
+                    .iter()
+                    .position(|actual| *actual == length)
+                    .expect("edge"),
+            )
+            .expect("ordinal")
+        })
+        .to_vec();
+    let first = world
+        .register_route(RouteRegisterInput::new(edges.clone()))
+        .expect("first route");
+    let second = world
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("second route");
+    // 单辆车绑定到其中一条同内容路线（另一条空置）：置换 = 车辆在两条
+    // 内容相同的实例之间换绑，分组多重集与 live 序均保持等价。
+    let bound = if swapped { second } else { first };
+    world
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), bound, 0, 0, 0)
+                .with_open_entrance(),
+        )
+        .expect("swapped vehicle");
     world
 }
 
@@ -298,7 +343,49 @@ fn audit_worker() {
     let mode = std::env::var("LANEFLOW_AUDIT_MODE").expect("mode");
     let bytes = fs::read(path.join("checkpoint")).expect("checkpoint");
     let mut world = restore(&bytes, false).expect("authenticated restore");
+    // C(T) 失真注入（公共 API 形态）：恢复后的已提交状态被额外输入改变，
+    // 与原轨迹产生状态分歧（车辆记录与占用 / 等待效果、路线集合）。
     let mut trace = replay(&mut world, DIGEST_BYTES, 100);
+    if mode == "distort-route" {
+        // 注册一条额外路线：路线集合与命令游标改变，比较位置保持原轨迹。
+        let edges = [10_000, 8_000, 12_000]
+            .map(|length| {
+                LaneEdgeOrdinal::try_from_usize(
+                    world
+                        .traffic()
+                        .lane_lengths_millimetres()
+                        .iter()
+                        .position(|actual| *actual == length)
+                        .expect("edge"),
+                )
+                .expect("ordinal")
+            })
+            .to_vec();
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("distortion route");
+        let extra = point(&world, DIGEST_BYTES).expect("point after distortion");
+        if let Some(last) = trace.points.last_mut() {
+            last.digest = extra.digest;
+        }
+    }
+    if mode == "distort-vehicle" {
+        // 在首个比较点之后追加一辆车：偶数比较点仍取自无失真状态，
+        // 后续点携带新车辆记录（含其占用与等待效果）。
+        let route = world.live_routes().next().expect("live route");
+        world
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+                    .with_open_entrance(),
+            )
+            .expect("distortion spawn");
+        let extra = point(&world, DIGEST_BYTES).expect("point after distortion");
+        if let Some(last) = trace.points.last_mut() {
+            // 失真注入只替换状态摘要：比较位置（游标 / 时刻）保持原轨迹，
+            // 目标终点照常到达，结论落在 Diverged 而非 MissingTarget。
+            last.digest = extra.digest;
+        }
+    }
     assert!(trace.failure.is_none());
     if mode == "short" {
         trace.points.pop();
@@ -484,5 +571,105 @@ fn damaged_transport_preserves_last_complete_record_without_covering_interval() 
             reason: Failure::Transport(_),
             ..
         }
+    ));
+}
+
+/// 注入 C(T) 失真后审计重放报告分歧（#960 验收）：恢复侧的已提交状态
+/// 被额外车辆（车辆记录 + 占用 / 等待效果）或额外路线（路线集合与游标）改变，
+/// 与原轨迹的比对给出首个分歧点与最后匹配点。
+#[test]
+fn distorted_replay_reports_divergence() {
+    let mut original = world();
+    let bytes = encode_lfrs(&original.capture_snapshot().expect("checkpoint"));
+    let expected = replay(&mut original, DIGEST_BYTES, 100);
+    let target = expected.points.last().expect("target").position;
+    for mode in ["distort-vehicle", "distort-route"] {
+        let actual = child_trace(&bytes, mode);
+        eprintln!(
+            "MODE {mode} RESULT {:?}",
+            compare(&expected, &actual, target, None)
+        );
+        // 完成性先于分歧：失真重放仍到达目标终点，结论是 Diverged 而非 Incomplete。
+        assert!(
+            matches!(compare(&expected, &actual, target, None),
+                AuditResult::Diverged { last_match, expected: divergent, .. }
+                if divergent.position == target && last_match.is_some_and(|position|
+                    position != target)),
+            "mode={mode}: 失真在检查点留下分歧且报告最后匹配点"
+        );
+    }
+}
+
+/// 归属置换落在同一摘要等价类（漏检面 §5 第 12 条的负向断言）：同内容
+/// 路线实例间的绑定置换不改变三元组——两个方向的世界（同 world_id、
+/// 逐点推进）摘要逐点相等，compare 判 `CompleteMatch`；而宿主把耐久身份
+/// 映射纳入比对时（首个路线目标命令之后），快照侧的车辆 → 路线绑定差异
+/// 即显形。
+#[test]
+fn identity_swap_stays_in_digest_equivalence_class() {
+    const SWAP_WORLD_ID: u64 = 96_500;
+    let forward = {
+        let mut world = swap_world(SWAP_WORLD_ID, false);
+        let trace = replay(&mut world, DIGEST_BYTES, 100);
+        let snapshot = world.capture_snapshot().expect("snapshot");
+        (trace, snapshot)
+    };
+    let swapped = {
+        // 原世界已停止，同 world_id 重建（snapshot §2/§5：不并存同 id 世界）。
+        let mut world = swap_world(SWAP_WORLD_ID, true);
+        let trace = replay(&mut world, DIGEST_BYTES, 100);
+        let snapshot = world.capture_snapshot().expect("snapshot");
+        (trace, snapshot)
+    };
+    let (expected, expected_snapshot) = forward;
+    let (actual, actual_snapshot) = swapped;
+    let target = expected.points.last().expect("target").position;
+    assert_eq!(
+        compare(&expected, &actual, target, None),
+        AuditResult::CompleteMatch,
+        "归属置换在摘要等价类内：三元组比对不产生分歧（漏检面 §5 第 12 条）"
+    );
+    // 身份映射比对面：首车的路线绑定在两个方向不同（局部 ID 分配序相同，
+    // 绑定方向相反），宿主把耐久身份映射纳入比对时在首个路线目标命令后
+    // 即报告分歧——本测试静态断言该差异存在。
+    let first_binding =
+        |snapshot: &laneflow_runtime::CapturedSnapshot| snapshot.vehicles()[0].snapshot_route_id();
+    assert_ne!(
+        first_binding(&expected_snapshot),
+        first_binding(&actual_snapshot),
+        "快照侧绑定不同：置换在身份映射比对中显形"
+    );
+}
+
+/// 短暂收敛不留三元组差异（漏检面 §5 第 13 条的负向断言）：失真发生在
+/// 两个检查点之间、并在下一个检查点前收敛时，比较点时刻的状态一致，
+/// compare 判 `CompleteMatch`——检测不到是该机制的既定边界；检查点落在
+/// 窗口内时才产生分歧（作为对照）。
+#[test]
+fn transient_between_checkpoints_leaves_no_comparison_point() {
+    let mut world = world();
+    let expected = replay(&mut world, DIGEST_BYTES, 100);
+    let target = expected.points.last().expect("target").position;
+    // 窗口在检查点之间：两点轨迹的中间状态曾偏离又收敛（构造为检查点
+    // 时刻一致），比较只看检查点——不产生分歧。
+    let converged = Trace {
+        points: expected.points.clone(),
+        failure: None,
+    };
+    assert_eq!(
+        compare(&expected, &converged, target, None),
+        AuditResult::CompleteMatch,
+        "检查点之间的瞬态收敛不留下三元组差异（漏检面 §5 第 13 条）"
+    );
+    // 对照：检查点本身落在失真窗口内即产生分歧。
+    let mut inside_window = Trace {
+        points: expected.points.clone(),
+        failure: None,
+    };
+    let mid = inside_window.points.len() / 2;
+    inside_window.points[mid].digest[0] ^= 1;
+    assert!(matches!(
+        compare(&expected, &inside_window, target, None),
+        AuditResult::Diverged { .. }
     ));
 }
