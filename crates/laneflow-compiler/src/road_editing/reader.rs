@@ -1332,10 +1332,9 @@ mod tests {
             let verified = verify_source(input, &limits, 0, 0, 0).expect("valid source");
             let controller = verified.root().signal_controllers().get(0);
             let reference = controller.signal_groups().get(0);
-            bytes
-                .subslice_range(reference.as_bytes())
+            (reference.as_ptr() as usize)
+                .checked_sub(bytes.as_ptr() as usize)
                 .expect("reference belongs to source buffer")
-                .start
         };
         assert_eq!(
             &bytes[reference_offset..reference_offset + "signal-group".len()],
@@ -1575,10 +1574,9 @@ mod tests {
                 .expect("fixture edge");
             let successor = edge.successors().get(1);
             assert_eq!(successor, "edge-c");
-            bytes
-                .subslice_range(successor.as_bytes())
+            (successor.as_ptr() as usize)
+                .checked_sub(bytes.as_ptr() as usize)
                 .expect("successor belongs to source buffer")
-                .start
         };
         bytes[successor_offset..successor_offset + "edge-c".len()].copy_from_slice(b"edge-b");
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");

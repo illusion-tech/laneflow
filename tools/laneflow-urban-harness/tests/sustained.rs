@@ -60,22 +60,12 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
             "0c3aca5eef8cf89d6b2f84d75882795b18cacc1396b4d8f6e14917da115cb1ad",
         ),
     ] {
-        let mut plan = ResolvedPlan::for_case(
+        let plan = ResolvedPlan::for_case(
             &artifacts,
             case,
             Window::probe_after(cycle, 2 * cycle).unwrap(),
         )
         .unwrap();
-        plan.validate(&artifacts).unwrap();
-        // #819 只校准 compiler_controlled_peak_bytes，但完整 manifest 摘要随之改变。
-        // 保持 PR #815 的旧计划摘要不动：比较角色/路线/请求时仅恢复当时的报告绑定。
-        // 生产校验仍要求新计划绑定当前 manifest；归一化后的比较副本不可用于执行。
-        let current_manifest_digest = plan.manifest_digest.clone();
-        plan.manifest_digest =
-            "4ec17200ec09c682124ec08d85e59e3fcaeccbd4611899998021fdbf0211b3ee".into();
-        if current_manifest_digest != plan.manifest_digest {
-            assert!(plan.validate(&artifacts).is_err());
-        }
         let bytes = toml::to_string_pretty(&plan).unwrap();
         let observed = Sha256::digest(bytes.as_bytes())
             .iter()

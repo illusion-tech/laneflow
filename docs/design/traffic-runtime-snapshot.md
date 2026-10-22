@@ -351,9 +351,9 @@ workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
 release 墙钟中位和后台编码竞争。复现命令：
 
 ```text
-cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_budget_evidence -- --nocapture
-cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_peak_evidence -- --nocapture
-cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_budget_evidence -- --nocapture
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_peak_evidence -- --nocapture
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
 ```
 
 | 维度                 | 切片 B 初值（release，LF-P100-REF-01）                                                                                                                                                                                                          |

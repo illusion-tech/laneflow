@@ -27,7 +27,7 @@ mod timing;
 // 按同一映射表写出实际 CARGO_ENCODED_RUSTFLAGS 与归一化（占位符）记录
 // 各一份，测量 provenance 逐项校验；后者永不携带本机路径。
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v5";
-const BUILD_PARAMETERS: &str = "cargo +1.99.1 run --locked -p xtask -- build-measurement";
+const BUILD_PARAMETERS: &str = "cargo +1.98.0 run --locked -p xtask -- build-measurement";
 const BUILD_RUSTFLAGS: &str = match option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS") {
     Some(value) => value,
     None => "",
@@ -261,7 +261,7 @@ impl MeasurementProvenance {
             command_output(program, args)
                 .ok_or_else(|| invalid(format!("unavailable provenance: {program}")))
         };
-        let rustc = read("rustc", &["+1.99.1", "-Vv"])?;
+        let rustc = read("rustc", &["+1.98.0", "-Vv"])?;
         let target = rustc
             .lines()
             .find_map(|line| line.strip_prefix("host: "))
@@ -295,7 +295,7 @@ impl MeasurementProvenance {
             git_commit: read_git(&["rev-parse", "HEAD"])?,
             git_status,
             rustc,
-            cargo: read("cargo", &["+1.99.1", "-V"])?,
+            cargo: read("cargo", &["+1.98.0", "-V"])?,
             target,
             build_parameters: BUILD_PARAMETERS.into(),
             build_rustflags: BUILD_RUSTFLAGS.into(),
@@ -337,8 +337,8 @@ impl MeasurementProvenance {
         }
         if self.git_commit.len() != 40
             || !self.git_commit.bytes().all(|b| b.is_ascii_hexdigit())
-            || !self.rustc.starts_with("rustc 1.99.1 ")
-            || !self.cargo.starts_with("cargo 1.99.1 ")
+            || !self.rustc.starts_with("rustc 1.98.0 ")
+            || !self.cargo.starts_with("cargo 1.98.0 ")
             || self
                 .rustc
                 .lines()
@@ -1822,8 +1822,8 @@ mod tests {
         json!({
             "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
             "git_commit":"a".repeat(40), "git_status":"",
-            "rustc":"rustc 1.99.1 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 23.1.1",
-            "cargo":"cargo 1.99.1 (fixture)", "target":"x86_64-pc-windows-msvc",
+            "rustc":"rustc 1.98.0 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 22.1.8",
+            "cargo":"cargo 1.98.0 (fixture)", "target":"x86_64-pc-windows-msvc",
             "build_parameters":BUILD_PARAMETERS, "os":"windows", "architecture":"x86_64",
             "build_rustflags":EXPECTED_BUILD_RUSTFLAGS, "build_profile":EXPECTED_BUILD_PROFILE,
             "build_commit":"a".repeat(40),
@@ -2358,9 +2358,9 @@ mod tests {
             ("git_status", json!(" M source.rs")),
             (
                 "rustc",
-                json!("rustc 1.99.1 (different)\nhost: x86_64-pc-windows-msvc"),
+                json!("rustc 1.98.0 (different)\nhost: x86_64-pc-windows-msvc"),
             ),
-            ("cargo", json!("cargo 1.99.1 (different)")),
+            ("cargo", json!("cargo 1.98.0 (different)")),
             ("target", json!("aarch64-unknown-linux-gnu")),
             ("build_parameters", json!("debug build")),
             (

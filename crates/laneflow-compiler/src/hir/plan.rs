@@ -3,9 +3,10 @@
 //! [`HirBuildPlan::analyze`] 在任何与记录数成正比的阶段分配前，一次性统计编译单元的
 //! 公共基础计数与七个领域实体计数，并把持久表、lookup 预算与互斥阶段暂存区聚合为
 //! [`HirMemoryPlan`]；[`HirBuildPlan::check_limits`] 在 base 构造前按所选资源配置档
-//! 预检限额维度。persistent 与 lookup 跨领域求和，互斥 scratch 取峰值；所有计量
-//! 均使用饱和算术。冲突阶段的有类型查找表按实际实体类别计数；哈希桶仍保留保守
-//! 上界。本计划不是 #374 所讨论的完整分配器账本，也不报告进程内存峰值。
+//! 预检限额维度。各分量算术逐点复制自拆分前 `build_hir` 的资源统计段：persistent 与
+//! lookup 跨领域求和，互斥 scratch 取峰值；saturating 加法与 max 均可交换结合，分组
+//! 聚合与拆分前的单链求值逐字节等价。#374 已记录的估算与实际分配偏差不作修正，
+//! 原样保留并在对应位置注释。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -81,7 +82,8 @@ impl HirBuildPlan {
     /// 统计全部计数并聚合内存计划；不分配任何与记录数成正比的集合。
     pub(super) fn analyze(unit: &CompilationUnit) -> HirBuildPlan {
         let module_count = u64::try_from(unit.modules.len()).unwrap_or(u64::MAX);
-        // 先装配计数，再以各领域预算回填内存计划。
+        // 先装配计数，再以各领域预算回填内存计划；各分量公式逐点复制自拆分前
+        // `build_hir` 的资源统计段。
         let mut plan = HirBuildPlan {
             lane_edge_count: lane_edge_count(unit),
             lane_edge_reference_count: lane_edge_reference_count(unit),
@@ -145,13 +147,7 @@ impl HirBuildPlan {
             &plan.junction,
         );
         let signal = signal_budget(unit, module_count, &plan.signal);
-        let conflict = conflict_budget(
-            unit,
-            module_count,
-            &plan.conflict,
-            &plan.junction,
-            &plan.control,
-        );
+        let conflict = conflict_budget(unit, module_count, &plan.conflict);
         let parking = parking_budget(unit, module_count, &plan.parking);
         let spatial = spatial_budget(
             unit,
@@ -640,8 +636,6 @@ fn conflict_budget(
     unit: &CompilationUnit,
     module_count: u64,
     counts: &ConflictCounts,
-    junction: &JunctionCounts,
-    control: &ControlCounts,
 ) -> DomainBudget {
     let lookup_module_count = if counts.entity_count() == 0 {
         0
@@ -679,20 +673,18 @@ fn conflict_budget(
             .saturating_add(requested_bytes::<
                 HashMap<TypedAstEntityAddress, HirManeuverGateKey>,
             >(lookup_module_count))
-            // 与 build_conflict_hir 的三张 typed 表一致；其他种类声明只参与上面的
-            // 声明排序视图，不占用这些查找表的桶。
             .saturating_add(requested_hash_table_bytes::<
                 TypedAstEntityAddress,
                 HirJunctionKey,
-            >(junction.junctions))
+            >(unit.declaration_count))
             .saturating_add(requested_hash_table_bytes::<
                 TypedAstEntityAddress,
                 super::HirManeuverPathKey,
-            >(junction.maneuver_paths))
+            >(unit.declaration_count))
             .saturating_add(requested_hash_table_bytes::<
                 TypedAstEntityAddress,
                 HirManeuverGateKey,
-            >(control.maneuver_gates))
+            >(unit.declaration_count))
     };
     DomainBudget {
         persistent_bytes: requested_bytes::<HirConflictZone>(counts.zones)
@@ -1428,45 +1420,4 @@ fn requested_hash_table_bytes<K, V>(entry_count: u64) -> u64 {
         .saturating_mul(8)
         .saturating_mul(bucket_bytes)
         .saturating_add(16)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{CompilationUnitBuilder, CompileLimits};
-
-    #[test]
-    fn unrelated_declarations_only_grow_the_conflict_sort_view() {
-        let mut unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1())
-            .build()
-            .unwrap();
-        let counts = ConflictCounts {
-            zones: 1,
-            ..Default::default()
-        };
-        let junction = JunctionCounts {
-            junctions: 2,
-            maneuver_paths: 3,
-            ..Default::default()
-        };
-        let control = ControlCounts {
-            maneuver_gates: 4,
-            ..Default::default()
-        };
-        let before = conflict_budget(&unit, 1, &counts, &junction, &control);
-        unit.declaration_count += 1_000;
-        let after = conflict_budget(&unit, 1, &counts, &junction, &control);
-        assert_eq!(after.persistent_bytes, before.persistent_bytes);
-        assert_eq!(after.lookup_bytes, before.lookup_bytes);
-        assert_eq!(
-            after.scratch_bytes - before.scratch_bytes,
-            requested_bytes::<usize>(1_000)
-        );
-
-        let empty = conflict_budget(&unit, 1, &ConflictCounts::default(), &junction, &control);
-        assert_eq!(
-            empty.scratch_bytes, 0,
-            "absent conflict domain allocates no lookup tables"
-        );
-    }
 }

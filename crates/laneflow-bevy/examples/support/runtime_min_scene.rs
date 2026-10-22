@@ -1,4 +1,4 @@
-//! quickstart 与无窗口 smoke 共用的完整初始化路径。
+//! runtime_min 与无窗口 smoke 共用的完整初始化路径。
 use std::{error::Error, num::NonZeroU32};
 
 use laneflow_bevy::LaneFlowSession;
@@ -34,7 +34,7 @@ pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
     );
     let mut world = scene_loader::install_world(
         &revision,
-        "scenario://quickstart",
+        "scenario://runtime-min",
         WorldConfig::new(8, 4, 1_024, 1_024, 100),
         WorldPolicySelection::Pinned(PolicyPin { policy }),
     )?;

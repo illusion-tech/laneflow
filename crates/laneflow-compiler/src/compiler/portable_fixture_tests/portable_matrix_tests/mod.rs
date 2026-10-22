@@ -47,10 +47,8 @@ fn field_value_range(
         .field_by_tag(tag)
         .unwrap()
         .value_bytes();
-    let range = bytes
-        .subslice_range(value)
-        .expect("field value belongs to object bytes");
-    range.start..range.end
+    let start = value.as_ptr() as usize - bytes.as_ptr() as usize;
+    start..start + value.len()
 }
 
 fn copy_field_value(
@@ -140,19 +138,12 @@ fn remove_field(
     let table = section.table(table_ordinal).unwrap();
     let row = table.row(row_ordinal).unwrap();
     let value = row.field_by_tag(tag).unwrap().value_bytes();
-    let section_start = bytes
-        .subslice_range(section.bytes())
-        .expect("section belongs to object bytes")
-        .start;
-    let row_start = bytes
-        .subslice_range(row.bytes())
-        .expect("row belongs to object bytes")
-        .start;
-    let value_range = bytes
-        .subslice_range(value)
-        .expect("field value belongs to object bytes");
-    let field_start = value_range.start - FIELD_HEADER_BYTES;
-    let field_end = value_range.end;
+    let object_start = bytes.as_ptr() as usize;
+    let section_start = section.bytes().as_ptr() as usize - object_start;
+    let row_start = row.bytes().as_ptr() as usize - object_start;
+    let value_start = value.as_ptr() as usize - object_start;
+    let field_start = value_start - FIELD_HEADER_BYTES;
+    let field_end = value_start + value.len();
     let removed = u64::try_from(field_end - field_start).unwrap();
     let (chunk_entry, chunk_payload) = chunk_containing(bytes, kind, row_start);
     let table_start = chunk_payload.start;

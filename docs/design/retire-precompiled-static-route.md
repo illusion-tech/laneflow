@@ -192,7 +192,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 封闭规模不变：6 个 portal、32 条 ManeuverPath、28 条路线。路线仍是有限显式边
 序列；受保护转向覆盖由注册期编译器证明，不靠共享根预编译出现项。
 
-`quickstart` / 集成夹具同样改为显式边序号 + `register_route`。`lfca-full-spatial`
+`runtime_min` / 集成夹具同样改为显式边序号 + `register_route`。`lfca-full-spatial`
 不再含静态路线行。
 
 ## 5. 每世界热表、磁盘快照与在线切换

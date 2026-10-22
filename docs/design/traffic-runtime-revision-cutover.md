@@ -343,7 +343,7 @@ candidate root、scratch、旧/候选动态双份、迁移增量日志与未提�
 跨轮确定性、切换前后稳态 tick 账本相等为硬断言，随 CI 运行）；
 `cutover_wall_clock_evidence.rs`（未插桩，`#[ignore]`）出墙钟中位，
 复现命令
-`cargo +1.99.1 test --release --locked -p laneflow-runtime --test cutover_wall_clock_evidence -- --ignored --nocapture`
+`cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_wall_clock_evidence -- --ignored --nocapture`
 ——墙钟初值为 release profile 手动运行值（rustc 1.96.0 测得；复现命令
 钉版随 #495 升为 1.98.0，数值重测属再登记），dev profile 计时不得登记。
 中位数对偶数样本取中间两值平均。本表初值只覆盖同修订换根路径；跨修订
@@ -368,7 +368,7 @@ candidate root、scratch、旧/候选动态双份、迁移增量日志与未提�
 （随 CI 运行，武装期干扰不变量与日志字节算术为硬断言）；
 `cutover_cross_wall_clock_evidence.rs`（未插桩 `#[ignore]`）出墙钟中位，
 复现命令
-`cargo +1.99.1 test --release --locked -p laneflow-runtime --test cutover_cross_wall_clock_evidence -- --ignored --nocapture`
+`cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_cross_wall_clock_evidence -- --ignored --nocapture`
 （rustc 1.98.0 测得；dev profile 计时不得登记）。初值只覆盖小夹具投影：
 绝对值随世界规模线性/二次伸缩，结构性口径（字节算术、武装期零新增分配）
 与规模无关。

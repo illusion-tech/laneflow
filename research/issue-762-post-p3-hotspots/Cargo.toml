@@ -2,8 +2,7 @@
 name = "laneflow-post-p3-research"
 version = "0.0.0"
 edition.workspace = true
-# 历史证据复算保留 Rust 1.98.0 构建下限（#762），不继承现行 workspace MSRV。
-rust-version = "1.98.0"
+rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 publish = false

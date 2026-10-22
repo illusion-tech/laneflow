@@ -31,18 +31,18 @@ jobs:
 
       - name: Install Rust MSRV toolchain for commit message checks
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies for commit message checks
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.99.1-commit-message
+          shared-key: laneflow-msrv-1.98.0-commit-message
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Check commit messages
         shell: bash
-        run: cargo +1.99.1 run --locked -p xtask -- check-commit-messages
+        run: cargo +1.98.0 run --locked -p xtask -- check-commit-messages
 
   markdown-tables:
     name: Markdown tables
@@ -53,12 +53,12 @@ jobs:
 
       - name: Install Rust MSRV toolchain for markdown table checks
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies for markdown table checks
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.99.1-markdown-tables
+          shared-key: laneflow-msrv-1.98.0-markdown-tables
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo +1.99.1 run --locked -p xtask -- format-md-tables --check \
+          cargo +1.98.0 run --locked -p xtask -- format-md-tables --check \
             README.md AGENTS.md CONTRIBUTING.md crates docs research schemas .github .agents .cursor
           status=$?
           set -e
@@ -145,13 +145,13 @@ jobs:
       - name: Install Rust MSRV toolchain
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
 
       - name: Cache Rust dependencies
         if: needs.changes.outputs.rust == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.99.1-rust
+          shared-key: laneflow-msrv-1.98.0-rust
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -180,47 +180,47 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustc +1.99.1 --version
-          cargo +1.99.1 --version
+          rustc +1.98.0 --version
+          cargo +1.98.0 --version
 
       - name: Check formatting
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 fmt --all -- --check
+        run: cargo +1.98.0 fmt --all -- --check
 
       - name: Check clippy lints
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
 
       # 证据构建 feature 默认关闭；单独检查，防止 cfg 链在默认构建之外失修。
       - name: Check execution evidence lints
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
+        run: cargo +1.98.0 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
 
       - name: Run workspace tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 nextest run --workspace --locked
+        run: cargo +1.98.0 nextest run --workspace --locked
 
       - name: Run execution evidence tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 nextest run -p laneflow-runtime --locked --features execution-evidence -E 'test(execution_evidence)'
+        run: cargo +1.98.0 nextest run -p laneflow-runtime --locked --features execution-evidence -E 'test(execution_evidence)'
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 test --workspace --doc --locked
+        run: cargo +1.98.0 test --workspace --doc --locked
 
       - name: Check wire toolchain audit
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         env:
           # hermetic 子进程经 rustup shim 解析 rustc；固定 MSRV，避免 runner 默认工具链漂移。
-          RUSTUP_TOOLCHAIN: 1.99.1
+          RUSTUP_TOOLCHAIN: 1.98.0
         run: |
           set -euo pipefail
           # 审计器自身引导必须免疫仓库 cargo 配置：`[target.*] runner` 可让
@@ -231,24 +231,24 @@ jobs:
           # 仓库根），直接执行二进制（不经 cargo run，runner 不适用）。
           # 仓库 config 的 [env]/runner/rustc* 键由审计自身在源头禁绝。
           bootstrap_dir="$(mktemp -d)"
-          (cd "$bootstrap_dir" && cargo +1.99.1 build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask)
+          (cd "$bootstrap_dir" && cargo +1.98.0 build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask)
           "$GITHUB_WORKSPACE/target/debug/xtask" check-wire-audit
 
       - name: Check runtime architecture
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         env:
-          RUSTUP_TOOLCHAIN: 1.99.1
+          RUSTUP_TOOLCHAIN: 1.98.0
         run: |
-          cargo +1.99.1 fetch --locked
+          cargo +1.98.0 fetch --locked
           "$GITHUB_WORKSPACE/target/debug/xtask" check-runtime-architecture
 
       - name: Compile Bevy native examples
         if: needs.changes.outputs.bevy == 'true'
         shell: bash
         run: >-
-          cargo +1.99.1 check --locked -p laneflow-bevy
-          --example quickstart --example signalized_corridor --example junction_debug
+          cargo +1.98.0 check --locked -p laneflow-bevy
+          --example runtime_min --example signalized_corridor --example junction_debug
           --features native-example
 
       - name: Skip heavy Rust checks for non-Rust paths
@@ -284,13 +284,13 @@ jobs:
       - name: Install Rust MSRV toolchain
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal --component clippy
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy
 
       - name: Cache Rust dependencies
         if: needs.changes.outputs.rust == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.99.1-placement-fixtures
+          shared-key: laneflow-msrv-1.98.0-placement-fixtures
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -318,17 +318,17 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: |
-          cargo +1.99.1 clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -- -D warnings
-          cargo +1.99.1 clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -- -D warnings
-          cargo +1.99.1 clippy -p laneflow-junction-generator --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo +1.98.0 clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo +1.98.0 clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo +1.98.0 clippy -p laneflow-junction-generator --all-targets --locked --features placement-fixtures -- -D warnings
 
       - name: Run placement fixture tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: |
-          cargo +1.99.1 nextest run -p laneflow-runtime --locked --features placement-fixtures
-          cargo +1.99.1 nextest run -p laneflow-scenario --locked --features placement-fixtures
-          cargo +1.99.1 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
+          cargo +1.98.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
+          cargo +1.98.0 nextest run -p laneflow-scenario --locked --features placement-fixtures
+          cargo +1.98.0 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
 
       - name: Skip placement fixture tests for non-Rust paths
         if: needs.changes.outputs.rust != 'true'
@@ -360,13 +360,13 @@ jobs:
       - name: Install Rust MSRV toolchain
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies
         if: needs.changes.outputs.rust == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.99.1-rust-urban
+          shared-key: laneflow-msrv-1.98.0-rust-urban
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -393,7 +393,7 @@ jobs:
       - name: Run urban Adapter harness tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 nextest run --locked -p laneflow-urban-harness --features adapter
+        run: cargo +1.98.0 nextest run --locked -p laneflow-urban-harness --features adapter
 
       - name: Skip urban harness tests for non-Rust paths
         if: needs.changes.outputs.rust != 'true'
@@ -412,8 +412,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install 1.99.1 --profile minimal
-          rustup default 1.99.1
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup default 1.98.0
 
       - name: Install cargo-deny 0.20.2
         shell: bash

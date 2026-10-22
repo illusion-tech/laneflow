@@ -119,6 +119,7 @@ impl<K: EntityKindMarker> RoadEditingReference<K> {
     }
 
     /// 返回从模块根 owner 到直接 parent 的完整 key 链。
+    #[must_use]
     pub fn owner_keys(&self) -> impl ExactSizeIterator<Item = &str> {
         self.owner_keys.iter().map(AsRef::as_ref)
     }
@@ -437,6 +438,7 @@ impl RoadEditingModuleHeader {
     }
 
     /// 按声明顺序返回显式导入的模块命名空间。
+    #[must_use]
     pub fn imports(&self) -> impl ExactSizeIterator<Item = &str> {
         self.imports.iter().map(AsRef::as_ref)
     }

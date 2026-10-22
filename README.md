@@ -24,24 +24,21 @@ LaneFlow 把受检静态路网转换为可共享修订，并在宿主控制下�
 
 ## 快速开始
 
-需要 Git、[rustup](https://rustup.rs/) 和 Rust 1.99.1：
+需要 Git、[rustup](https://rustup.rs/) 和 Rust 1.98：
 
 ```powershell
 git clone https://github.com/illusion-tech/laneflow.git
 cd laneflow
-cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
+cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
-窗口中可以看到两辆车沿车道移动，浅色车头标记显示行驶朝向；关闭窗口结束。
-车道来自同一共享路网修订的 Spatial 中心线，车辆通过 Session 绑定并同步完整位姿。
-这是有限路线夹具：车辆会等待信号，行程结束后不回流；重新运行可重播。
+这个无窗口测试会走通 LFCA、`TrafficWorld`、位姿采样与 Bevy `Transform` 同步。
 
 <details>
-<summary>无窗口验证与完整 workspace 检查</summary>
+<summary>运行完整 workspace 检查</summary>
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
-cargo +1.99.1 test --workspace --locked
+cargo +1.98.0 test --workspace --locked
 ```
 
 </details>
@@ -82,7 +79,7 @@ SharedNetworkRevision
 
 - 当前唯一可运行特化是道路机动车。
 - 当前唯一已交付 Adapter 是 Bevy 0.20 Reference Adapter。
-- 原生示例提供最小可视入门与复杂路口诊断。
+- 原生示例是集成验证壳，不是完成的可视化演示。
 - LaneFlow 不内置交通需求、路线选择或专业交通工程分析。
 
 > 交通参与单元与交通执行域是长期抽象方向，不代表已经支持其他执行域，

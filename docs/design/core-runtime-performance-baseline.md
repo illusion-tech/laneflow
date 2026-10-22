@@ -703,7 +703,7 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 - 每个 case 运行 3 个独立 fresh-process rounds；candidate 顺序跨 round 轮换。
 - 固定 commit、release binary、seed、workload configuration 与 deterministic
   outer-frame input sequence。Rust 工具链采用受检提交 `.github/workflows/ci.yml` 中
-  `Rust checks` 固定的完整版本（当前 `1.99.1`），并满足 workspace MSRV；结果记录
+  `Rust checks` 固定的完整版本（当前 `1.98.0`），并满足 workspace MSRV；结果记录
   `rustc -Vv`、`cargo -V` 与 target triple。
 - 同一次性能比较的 baseline/candidate 使用相同工具链与构建参数。工具链变更后，
   用于该次比较或产品判定的行须在新工具链上重跑全部三个轮次；旧测量保留实际版本，

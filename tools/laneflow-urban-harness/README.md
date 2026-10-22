@@ -30,7 +30,7 @@ storage 拒绝，也要求终点脉冲实际 Completed 且无残留占用；时�
 详见 [生成器](../laneflow-urban-generator/README.md)。以下命令从仓库根执行：
 
 ```text
-cargo +1.99.1 build -p laneflow-urban-harness --release --locked
+cargo +1.98.0 build -p laneflow-urban-harness --release --locked
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml>
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --case GARAGE-EGRESS
 target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-a> --diagnostics
@@ -156,12 +156,12 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 作为公开证据制品发布：
 
 ```text
-cargo +1.99.1 run --locked -p xtask -- build-measurement
+cargo +1.98.0 run --locked -p xtask -- build-measurement
 ```
 
 该 xtask 命令在隔离目标目录 `target/release-measurement-quarantine/`（产物位于其下
 `<target-triple>/release/`，目标三元组钉住为主机值）执行冻结的
-`cargo +1.99.1 build -p laneflow-urban-harness --release --locked`，附加固定顺序的
+`cargo +1.98.0 build -p laneflow-urban-harness --release --locked`，附加固定顺序的
 `--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、rustup
 工具链→`<rustup-toolchain>`）；嵌套构建走环境白名单（采集机的编译器/链接器/
 CC 家族/代理等未列出变量一律缺席），release profile 与工具链内 rustc 钉住，
@@ -176,7 +176,7 @@ CC 家族/代理等未列出变量一律缺席），release profile 与工具链
 显式指定的根不存在的本机路径也照扫不误）：
 
 ```text
-cargo +1.99.1 run --locked -p xtask -- check-binary-paths <binary>
+cargo +1.98.0 run --locked -p xtask -- check-binary-paths <binary>
 ```
 
 正式性能计划允许 Mixed 与持续 Active 的 10k/100k 制品（正式窗口命令使用测量
@@ -324,7 +324,7 @@ Mixed 正式行要求每 tile 在观察窗口中实际完成跨 tile 行程、�
 可供 Runtime 修复直接复用；step、恢复错误或游标越界均使程序非零退出：
 
 ```text
-cargo +1.99.1 run -p laneflow-urban-harness --release --example boundary_probe -- <10k-artifact-directory>
+cargo +1.98.0 run -p laneflow-urban-harness --release --example boundary_probe -- <10k-artifact-directory>
 ```
 
 ## 跨层有限证据
@@ -372,7 +372,7 @@ Step 阶段（含调度边界），headless `step` 是公共 `TrafficWorld::step
 分位数不相加冒充帧时间。此入口未启动 GPU 渲染器，Transform 应用数不是实际绘制数。
 
 ```text
-cargo +1.99.1 build -p laneflow-urban-harness --features adapter --release --locked
+cargo +1.98.0 build -p laneflow-urban-harness --features adapter --release --locked
 target/release/laneflow-urban-harness evidence <artifacts> <correctness-plan.toml> <new-output> adapter
 target/release/laneflow-urban-harness variant <artifacts> <new-variant-directory>
 target/release/laneflow-urban-harness transitions <artifacts> <variant-directory> MIXED-PEAK <new-output>

@@ -65,18 +65,14 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 
 二者均在 `deny.toml` 允许的 SPDX 分支内，无 copyleft，不新增 crates.io 之外的来源。已知漏洞由 CI `Dependency policy`（cargo-deny advisories）把关。
 
-最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
-`examples/support/quickstart_scene.rs`，从同一带策略的空间夹具显式绑定
+最小 Bevy 证据是 `runtime_min`；它与 `runtime_min_smoke` 共用
+`examples/support/runtime_min_scene.rs`，从同一带策略的空间夹具显式绑定
 `runtime-fixture-policy / fixture-policy`，再创建车辆和配对 Spatial session。
-相机与灯光显示同根 Spatial 中心线生成的车道和两辆车；浅色车头标记沿车辆前方向。
-`quickstart_presentation.rs` 是 GUI 与无窗口测试共用的车辆绑定、整批提取与同步路径：
-所有车辆使用 Session 映射，按批次句柄同步位置与朝向，整批预检失败时保留旧变换并记录
-结构化错误。无窗口测试验证全部车辆的位姿以及缺失 Transform、无 Spatial 的失败路径。
+无窗口测试执行这条初始化路径并验证固定步进与 Transform 位移。
 走廊最小路径是 `signalized_corridor`：
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
-cargo +1.99.1 test --locked -p laneflow-bevy --test signalized_corridor_smoke
-cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --example signalized_corridor --features native-example
+cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
+cargo +1.98.0 test --locked -p laneflow-bevy --test signalized_corridor_smoke
+cargo +1.98.0 check --locked -p laneflow-bevy --example runtime_min --example signalized_corridor --features native-example
 ```

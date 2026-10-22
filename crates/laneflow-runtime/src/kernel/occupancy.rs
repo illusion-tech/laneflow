@@ -899,7 +899,7 @@ impl OccupancyIndex {
     fn note_inspection(&self) {
         #[cfg(test)]
         self.inspections
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 Some(value.saturating_add(1))
             })
             .expect("counter update");
@@ -908,7 +908,7 @@ impl OccupancyIndex {
     fn note_occurrence_walk(&self) {
         #[cfg(test)]
         self.occurrence_walks
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 Some(value.saturating_add(1))
             })
             .expect("counter update");
