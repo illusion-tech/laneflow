@@ -763,6 +763,19 @@ wire view、裸 Typed AST、可伪造 module descriptor 或绕过 builder 余额
 schema/writer 物化相同来源缓冲区，再进入此唯一编译路径；是否持久化由产品事务决定，
 但可发布编译必须保存实际接受的 bytes 与来源沿袭。
 
+前端的受控结构字节按实际拥有型存储分类预收：外层 `TypedAstDeclaration` 数组、
+owner-local lane / phase、引用与策略成员数组、独立 `SourceLocation` Box / 数组，以及
+冲突区域的 `f64` ring。内嵌引用、来源位置和 Box / Arc handle 已包含在其拥有者尺寸内，
+不再按每条 verifier table / 引用 / 关系重复预留一个最大声明 enum。预收费直接遍历
+已验证的借用 wire view，不先分配候选树；开发构建再与实际 lowering 后的 slice / Box
+backing 核对。字符串 payload、共享 owner 地址和位置 context 仍分别保留原有上界。
+
+几何编译前的 live base 还包含 alignment 临时树和显式 edge 曲线的段数组、cubic 点
+来源 Box；编译后的 `f32` 点表与来源范围另计。临时曲线释放后不计入最终 retained，
+但仍计入准入峰值。输入 ring 的 `f64` 点与输出折线的 `f32` 点分别按真实类型计量。
+这属于编译器控制的保守资源预算校准，不是分配器峰值或 OS 工作集测量；不改变
+`CompileLimits` 配置档、失败原子性、来源语义或制品格式。
+
 `laneflow_compiler::road_editing` 还必须公开以下第一方 Rust **编制模型与
 writer**；它们是程序化生成器/编辑器可使用的 production API，但不是编译器 Typed AST。
 production **编译输入**仍只有上面的借用 bytes，generated wire adapter 和验证后
