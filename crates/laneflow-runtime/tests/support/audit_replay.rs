@@ -79,6 +79,14 @@ pub fn compare(
     {
         return incomplete(Failure::MissingTarget);
     }
+    // 比较位置（游标 / 时刻）时间表先于摘要比对：中间点错位、重复或重排
+    // 说明宿主要求的比较点没有按计划取得（设计 §4.3「全部比较点都已取得
+    // 且一致」），属未完成而非状态分歧——不得误报为 Diverged。
+    for (expected, actual) in expected.points.iter().zip(&actual.points) {
+        if expected.position != actual.position {
+            return incomplete(Failure::MissingPoints);
+        }
+    }
     let mut last_match = None;
     for (expected, actual) in expected.points.iter().zip(&actual.points) {
         if expected != actual {
