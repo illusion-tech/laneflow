@@ -5572,7 +5572,7 @@ fn speed_limit_path_envelope_from(
 }
 
 #[allow(clippy::too_many_arguments)]
-/// 本世界限速下降转换。不扫剩余边；限速值写在 drop 列，与共享根边热列同形。
+/// 本世界限速下降转换。不扫剩余边；限速值写在 drop 列，与共享静态路网边热列同形。
 fn constrain_upcoming_speed_limits(
     current_speed: f32,
     mut next_speed: f32,

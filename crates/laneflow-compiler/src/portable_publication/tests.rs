@@ -356,7 +356,7 @@ fn lfcp_bindings_and_both_checked_inputs_reach_the_same_shared_origin() {
     let bytes = descriptor.bytes();
 
     // 宿主必须先认证描述符，再将这些 binding 与收到的 exact bytes 比较。
-    // 本测试只闭合仓库提供的 binding；格式预检和共享根不证明发布真实性。
+    // 本测试只闭合仓库提供的 binding；格式预检和共享静态路网不证明发布真实性。
     let loaded =
         check_canonical_network_input(candidate.canonical_artifact().bytes(), FormatLimits::HARD)
             .unwrap();

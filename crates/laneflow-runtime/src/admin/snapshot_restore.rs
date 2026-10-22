@@ -130,14 +130,14 @@ pub enum SnapshotRestoreError {
     /// Published asset key 为空。
     #[error("LFRS Published asset key 不能为空")]
     EmptyAssetKey,
-    /// 快照来源修订与快照根修订不一致。
-    #[error("LFRS Published 来源与快照根的路网修订不一致")]
+    /// 快照来源修订与快照根对象的路网修订不一致。
+    #[error("LFRS Published 来源与快照根对象的路网修订不一致")]
     SnapshotSourceRevisionMismatch,
-    /// 快照修订与目标根不一致。
-    #[error("LFRS 路网修订与目标根不一致")]
+    /// 快照修订与目标修订不一致。
+    #[error("LFRS 路网修订与目标修订不一致")]
     NetworkRevisionMismatch,
-    /// 任一静态契约版本轴与目标根不一致。
-    #[error("LFRS 静态契约版本集与目标根不一致")]
+    /// 任一静态契约版本轴与目标修订不一致。
+    #[error("LFRS 静态契约版本集与目标修订不一致")]
     StaticContractVersionsMismatch,
     /// 保存配置的时钟关系损坏或溢出。
     #[error("LFRS 时钟不满足 time_ms == tick * fixed_delta_time_ms")]
@@ -209,13 +209,13 @@ pub enum SnapshotRestoreError {
         /// 原始枚举值。
         actual: u8,
     },
-    /// 车辆 profile 稳定标识在目标根中未知或 kind 不匹配。
+    /// 车辆 profile 稳定标识在目标修订中未知或 kind 不匹配。
     #[error("车辆 {snapshot_vehicle_id} 的 profile 稳定标识未知")]
     UnknownVehicleProfile {
         /// 车辆 ID。
         snapshot_vehicle_id: u64,
     },
-    /// 车辆 class 稳定标识在目标根中未知或 kind 不匹配。
+    /// 车辆 class 稳定标识在目标修订中未知或 kind 不匹配。
     #[error("车辆 {snapshot_vehicle_id} 的 class 稳定标识未知")]
     UnknownParticipantClass {
         /// 车辆 ID。
@@ -227,13 +227,13 @@ pub enum SnapshotRestoreError {
         /// 车辆 ID。
         snapshot_vehicle_id: u64,
     },
-    /// 停车位稳定标识在目标根中未知或 kind 不匹配。
+    /// 停车位稳定标识在目标修订中未知或 kind 不匹配。
     #[error("车辆 {snapshot_vehicle_id} 的停车位稳定标识未知")]
     UnknownParkingSpace {
         /// 车辆 ID。
         snapshot_vehicle_id: u64,
     },
-    /// 停车设施稳定标识在目标根中未知或 kind 不匹配。
+    /// 停车设施稳定标识在目标修订中未知或 kind 不匹配。
     #[error("车辆 {snapshot_vehicle_id} 的停车设施稳定标识未知")]
     UnknownParkingFacility {
         /// 车辆 ID。
@@ -420,7 +420,7 @@ impl RestoredSnapshot {
     }
 }
 
-/// verifier-first 读取 `LFRS`，核对目标根/来源/配置并原子构造一个新 world。
+/// verifier-first 读取 `LFRS`，核对目标修订/来源/配置并原子构造一个新 world。
 ///
 /// fresh restore 从 [`crate::WorldGeneration::INITIAL`] 建立新观测 stream；调用方不得让
 /// 同一 `world_id` 的旧 world 或旧 session 与返回值并存。任一失败只丢弃局部 staging，
@@ -431,7 +431,7 @@ impl RestoredSnapshot {
 /// 输入命中读取/配置/verifier 上限、LFRS framing 截断或 size prefix 不一致、
 /// file identifier 或格式/状态版本不匹配、FlatBuffers verifier 拒绝结构、
 /// 必需字段缺席、封闭 schema/元数据校验失败（未知字段槽、策略绑定形状、
-/// source kind 或空 asset key）、来源/修订/静态契约版本/时钟/配置与目标根
+/// source kind 或空 asset key）、来源/修订/静态契约版本/时钟/配置与目标修订
 /// 不一致、结构合法但
 /// 逻辑内容非法（路线/车辆/权威重建失败）时返回相应 [`SnapshotRestoreError`]；
 /// 绑定校验通过后、staging 构造起点处的目标世界安装还会以 `Install`

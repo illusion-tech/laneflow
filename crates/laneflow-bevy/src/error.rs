@@ -77,7 +77,7 @@ pub enum LaneFlowAdapterError {
         /// Runtime 切换错误。
         source: CutoverError,
     },
-    /// 目标 `SpatialSession` 与目标根不是同一 `Arc`。
+    /// 目标 `SpatialSession` 与目标根对象不是同一 `Arc`。
     TargetSpatialRevisionMismatch,
     /// headless Session（无 Spatial 配对）不支持位姿提取。
     PoseExtractionWithoutSpatial,
@@ -160,8 +160,9 @@ impl fmt::Display for LaneFlowAdapterError {
             Self::Cutover { source } => {
                 write!(formatter, "维护暂停式切换失败：{source}")
             }
-            Self::TargetSpatialRevisionMismatch => formatter
-                .write_str("目标 SpatialSession 必须与目标根绑定同一 SharedNetworkRevision Arc"),
+            Self::TargetSpatialRevisionMismatch => formatter.write_str(
+                "目标 SpatialSession 必须与目标根对象绑定同一 SharedNetworkRevision Arc",
+            ),
             Self::PoseExtractionWithoutSpatial => {
                 formatter.write_str("headless Session 不支持位姿提取")
             }

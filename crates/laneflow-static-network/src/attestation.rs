@@ -1,12 +1,12 @@
-//! 共享根认证（#959 切片 A；`traffic-runtime-state-integrity.md` §4.2）。
+//! 共享路网修订认证（#959 切片 A；`traffic-runtime-state-integrity.md` §4.2）。
 //!
-//! 宿主在安装、恢复、Spatial 绑定与切换之前及在用根审计时调用的只读入口：
-//! ① 来源准备——reader 受检、同修订判据、按同一 builder 完整构建候选根
-//! （不读取被认证根）；② 根比较——`origin` 逐字段与期望值比对、候选根与
-//! 被认证根逐 component / 表按值比对；③ 确认与处置——来源复核与按首次失配
-//! 位置归类的复算确认（设计 §2.2 复算归类表）。认证只读不可变根，不进入
-//! tick 路径，不给根引入可变状态或常驻完整性状态；结论只覆盖每个字节
-//! 被读取的时刻，不声称结论交付时刻整根无损（设计 §4.2 观测时刻）。
+//! 宿主在安装、恢复、Spatial 绑定与切换之前及在用修订审计时调用的只读入口：
+//! ① 来源准备——reader 受检、同修订判据、按同一 builder 完整构建候选修订
+//! （不读取被认证修订）；② 修订比较——`origin` 逐字段与期望值比对、候选修订与
+//! 被认证修订逐 component / 表按值比对；③ 确认与处置——来源复核与按首次失配
+//! 位置归类的复算确认（设计 §2.2 复算归类表）。认证只读不可变修订，不进入
+//! tick 路径，不给修订引入可变状态或常驻完整性状态；结论只覆盖每个字节
+//! 被读取的时刻，不声称结论交付时刻整份修订无损（设计 §4.2 观测时刻）。
 
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -24,7 +24,7 @@ use crate::attestation_compare::{compare_origin, compare_revisions_by_value};
 use crate::builder::{SharedNetworkBuildOptions, build_shared_network_revision};
 use crate::{BuildError, SharedNetworkRevision};
 
-/// 根认证三值结论（完整性设计 §7）。
+/// 修订认证三值结论（完整性设计 §7）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestationVerdict {
     /// 本次认证覆盖的内容在各自被读取时一致；不外推到读取时刻之外。
@@ -35,27 +35,27 @@ pub enum AttestationVerdict {
     Untrusted,
 }
 
-/// 失配判因（完整性设计 §7 判因轴；不依赖「根 ↔ 来源」绑定）。
+/// 失配判因（完整性设计 §7 判因轴；不依赖「修订 ↔ 来源」绑定）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestationCause {
-    /// 来源准备阶段失败：坏的是审计输入，不是根。
+    /// 来源准备阶段失败：坏的是审计输入，不是修订。
     Source,
-    /// 根比较阶段逐表失配（revision 已相等且来源复核确认字节未变）。
+    /// 修订比较阶段逐表失配（revision 已相等且来源复核确认字节未变）。
     SharedStaticRoot,
-    /// 无法判因：根头部失配、Spatial 存在性失配或认证过程不可信。
+    /// 无法判因：修订头部失配、Spatial 存在性失配或认证过程不可信。
     Indeterminate,
 }
 
 /// 认证阶段（设计 §4.2 三段边界中可失败的两段）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestationStage {
-    /// 来源准备：reader、同修订判据与候选根完整构建。
+    /// 来源准备：reader、同修订判据与候选修订完整构建。
     SourcePreparation,
-    /// 根比较：`origin` 与期望值、候选根与被认证根逐表比对。
+    /// 修订比较：`origin` 与期望值、候选修订与被认证修订逐表比对。
     RootComparison,
 }
 
-/// 根来源期望值（完整性设计 §2.2；任何值不得取自被认证根自身的 `origin`）。
+/// 修订来源期望值（完整性设计 §2.2；任何值不得取自被认证修订自身的 `origin`）。
 ///
 /// 发布来源由宿主随 [`crate::CanonicalNetworkOrigin`] 之外的
 /// `PublishedLfcaReference` 持久：`NetworkRevisionId` 参与同修订判据；
@@ -204,9 +204,9 @@ pub enum MismatchSite {
         index: u32,
         /// 字段名。
         field: &'static str,
-        /// 期望值文本（候选根）。
+        /// 期望值文本（候选修订）。
         expected: String,
-        /// 实际值文本（被认证根）。
+        /// 实际值文本（被认证修订）。
         actual: String,
     },
     /// 表长度失配（元素序号不适用）。
@@ -217,19 +217,19 @@ pub enum MismatchSite {
         table: &'static str,
         /// 按 `EntityKind` 展开的表所属实体种类；其他表为 `None`。
         entity_kind: Option<laneflow_static_contract::EntityKind>,
-        /// 期望长度（候选根）。
+        /// 期望长度（候选修订）。
         expected_len: u32,
-        /// 实际长度（被认证根）。
+        /// 实际长度（被认证修订）。
         actual_len: u32,
     },
-    /// Spatial component 存在性失配（判因 `无法判因`：构建选项与根失真不可区分）。
+    /// Spatial component 存在性失配（判因 `无法判因`：构建选项与修订失真不可区分）。
     SpatialPresence {
-        /// 期望存在性（候选根）。
+        /// 期望存在性（候选修订）。
         expected: bool,
-        /// 实际存在性（被认证根）。
+        /// 实际存在性（被认证修订）。
         actual: bool,
     },
-    /// 根比较阶段 panic（直接判 `Untrusted`，设计 §2.4）。
+    /// 修订比较阶段 panic（直接判 `Untrusted`，设计 §2.4）。
     Panicked {
         /// panic 载荷文本。
         payload: String,
@@ -319,12 +319,12 @@ pub struct OperationFailure {
 pub enum Disposition {
     /// 认证通过：无处置义务（`Pass` 不外推到读取时刻之外）。
     None,
-    /// 根不得投入或继续使用：判因 `共享静态根` / `无法判因` 的 `Mismatch`
+    /// 修订不得投入或继续使用：判因 `共享路网修订` / `无法判因` 的 `Mismatch`
     /// 与全部 `Untrusted`；在用时按宿主侧停止边界停用并重建。
     DisableRoot,
-    /// 判因 `来源`：坏的是审计输入，根未被证伪；不停用、不重建根。
+    /// 判因 `来源`：坏的是审计输入，修订未被证伪；不停用、不重建修订。
     IsolateSource,
-    /// 操作失败：不判因；按原因重试认证，根照常使用。
+    /// 操作失败：不判因；按原因重试认证，修订照常使用。
     Retry,
 }
 
@@ -335,27 +335,27 @@ impl Disposition {
         match self {
             Self::None => "认证通过；结论只覆盖本次认证各字节被读取的时刻。",
             Self::DisableRoot => {
-                "该根不得投入使用；在用根按停止边界停用并重建：不再发起新调用，在途同步调用正常返回，结论后返回的结果按已发布结果处置。"
+                "该修订不得投入使用；在用修订按停止边界停用并重建：不再发起新调用，在途同步调用正常返回，结论后返回的结果按已发布结果处置。"
             }
             Self::IsolateSource => {
-                "该根不投入使用；隔离或重新加载来源后重新认证（失配属来源侧，根未被证伪）。"
+                "该修订不投入使用；隔离或重新加载来源后重新认证（失配属来源侧，修订未被证伪）。"
             }
-            Self::Retry => "该根不投入使用；按操作失败原因重试认证。",
+            Self::Retry => "该修订不投入使用；按操作失败原因重试认证。",
         }
     }
 
-    /// 在用根审计时的处置提示。
+    /// 在用修订审计时的处置提示。
     #[must_use]
     pub const fn in_use_guidance(self) -> &'static str {
         match self {
             Self::None => "认证通过；结论只覆盖本次认证各字节被读取的时刻。",
             Self::DisableRoot => {
-                "停用该根的全部消费者（所有世界与 Spatial 会话）并重建：不再发起新调用，在途同步调用正常返回，结论后返回的结果按已发布结果处置。"
+                "停用该修订的全部消费者（所有世界与 Spatial 会话）并重建：不再发起新调用，在途同步调用正常返回，结论后返回的结果按已发布结果处置。"
             }
             Self::IsolateSource => {
-                "根未被证伪：不停用、不重建；隔离或重新加载来源后重试审计，该次审计对根无结论。"
+                "修订未被证伪：不停用、不重建；隔离或重新加载来源后重试审计，该次审计对修订无结论。"
             }
-            Self::Retry => "该次审计无结论；按操作失败原因重试，根照常使用，不停用。",
+            Self::Retry => "该次审计无结论；按操作失败原因重试，修订照常使用，不停用。",
         }
     }
 }
@@ -369,9 +369,9 @@ pub enum TraceStep {
     ReaderAccepted,
     /// 同修订判据通过。
     SameRevisionCriterionChecked,
-    /// 候选根构建完成。
+    /// 候选修订构建完成。
     CandidateRootBuilt,
-    /// 根比较开始。
+    /// 修订比较开始。
     RootComparisonStarted,
     /// 来源复核开始（只在失配路径）。
     SourceRecheckStarted,
@@ -433,7 +433,7 @@ pub enum AttestationEvent<'a> {
         disposition: Disposition,
         /// 投入使用前提示。
         pre_use: &'static str,
-        /// 在用根审计提示。
+        /// 在用修订审计提示。
         in_use: &'static str,
     },
 }
@@ -465,9 +465,9 @@ impl std::error::Error for TelemetryDeliveryError {}
 /// 首次认证尝试（或复算）中一次阶段运行的结局。
 #[derive(Debug)]
 pub(crate) enum AttemptOutcome {
-    /// 来源准备与根比较全部通过。
+    /// 来源准备与修订比较全部通过。
     Concluded,
-    /// 失配候选（来源准备失败或根比较失配），待复算确认。
+    /// 失配候选（来源准备失败或修订比较失配），待复算确认。
     Failed(FirstFailure),
     /// 操作失败（不进三值结论）。
     OperationFailed(OperationFailure),
@@ -478,19 +478,19 @@ pub(crate) enum AttemptOutcome {
 pub(crate) enum FirstFailure {
     /// 来源准备阶段失败（含该阶段的 panic）。
     Source(MismatchEvidence),
-    /// 根比较阶段失配（含该阶段的 panic）。
+    /// 修订比较阶段失配（含该阶段的 panic）。
     RootCompare(MismatchEvidence),
 }
 
-/// 认证共享静态路网根（完整性设计 §4.2；术语表：shared-root authentication）。
+/// 认证共享路网修订（完整性设计 §4.2；术语表：shared network revision authentication）。
 ///
-/// 三段边界：来源准备（reader、同修订判据、候选根完整构建，不读取被认证根）→
-/// 根比较（`origin` 与期望值逐字段、候选根与被认证根逐表按值）→ 确认与处置
-/// （来源复核、按首次失配位置归类的复算确认）。候选根构建复用现行
-/// [`build_shared_network_revision`]，候选根缓冲与 builder scratch 沿用其
+/// 三段边界：来源准备（reader、同修订判据、候选修订完整构建，不读取被认证修订）→
+/// 修订比较（`origin` 与期望值逐字段、候选修订与被认证修订逐表按值）→ 确认与处置
+/// （来源复核、按首次失配位置归类的复算确认）。候选修订构建复用现行
+/// [`build_shared_network_revision`]，候选修订缓冲与 builder scratch 沿用其
 /// 按计数可失败预留与调用方限额（设计 §2.3）；预留失败属操作失败。
 ///
-/// 本入口只读不可变根，可与在用世界的 `step` 并发执行，不加锁、不阻塞；
+/// 本入口只读不可变修订，可与在用世界的 `step` 并发执行，不加锁、不阻塞；
 /// 不改变 `TrafficWorld::install`、`restore_lfrs`、`SpatialSession::bind`
 /// 与切换入口的签名与语义。限额不进入期望值：reader / builder 的限额拒绝
 /// 是操作失败，不是失配。同修订判据之外，宿主字节与引用的 LFCA
@@ -499,7 +499,7 @@ pub(crate) enum FirstFailure {
 /// # Panics
 ///
 /// 认证过程按阶段以 `catch_unwind` 包住，panic 不向宿主传播：来源准备阶段
-/// panic 按来源失败归类（复算确认），根比较阶段 panic 直接判 `Untrusted`
+/// panic 按来源失败归类（复算确认），修订比较阶段 panic 直接判 `Untrusted`
 /// （设计 §2.4）；`panic=abort` 构建下按进程终止语义处理。reader / builder
 /// 中不可失败分配的 OOM 同属进程终止，不在认证结果集合内。
 pub fn attest_shared_network_revision<S>(
@@ -541,7 +541,7 @@ where
         }
         AttemptOutcome::Failed(FirstFailure::RootCompare(evidence)) => {
             if matches!(evidence.site, MismatchSite::Panicked { .. }) {
-                // 根比较阶段 panic 直接判 Untrusted（设计 §2.4），不进复算。
+                // 修订比较阶段 panic 直接判 Untrusted（设计 §2.4），不进复算。
                 concluded(
                     AttestationVerdict::Untrusted,
                     Some(AttestationCause::Indeterminate),
@@ -583,7 +583,7 @@ where
     outcome
 }
 
-/// 根比较失配路径：来源复核 + 复算 + 归类（设计 §4.2 第 ③ 段）。
+/// 修订比较失配路径：来源复核 + 复算 + 归类（设计 §4.2 第 ③ 段）。
 #[allow(clippy::too_many_arguments)]
 fn confirm_root_mismatch<S>(
     root: &SharedNetworkRevision,
@@ -613,7 +613,7 @@ where
             Some((prepared_digest, prepared_length))
                 if recheck != (prepared_digest, prepared_length) =>
             {
-                // 来源字节在验证之后改变：候选根不由已验证字节构建，
+                // 来源字节在验证之后改变：候选修订不由已验证字节构建，
                 // 按来源准备阶段失败处理（设计 §4.2；复算归类表 §2.2）。
                 // 证据保留完整的 digest / length 差异（复核比较的是二者
                 // 的元组，证据不得只携带 digest）。
@@ -646,7 +646,7 @@ where
     classify_confirmed_failure(first, recompute, source_audit)
 }
 
-/// 单次完整认证尝试：来源准备（含 panic 边界）→ 根比较（含 panic 边界）。
+/// 单次完整认证尝试：来源准备（含 panic 边界）→ 修订比较（含 panic 边界）。
 #[allow(clippy::too_many_arguments)]
 fn run_attempt<S>(
     root: &SharedNetworkRevision,
@@ -695,8 +695,8 @@ where
     }
 }
 
-/// 来源准备阶段：reader 受检 → 同修订判据 → 候选根完整构建。
-/// 本阶段不读取被认证根（设计 §4.2）；panic 按来源失败归类。
+/// 来源准备阶段：reader 受检 → 同修订判据 → 候选修订完整构建。
+/// 本阶段不读取被认证修订（设计 §4.2）；panic 按来源失败归类。
 #[allow(clippy::too_many_arguments)]
 fn run_source_preparation<S>(
     lfca: &S,
@@ -917,7 +917,7 @@ pub(crate) fn classify_confirmed_failure(
                         })
                     }
                 }
-                // 复算改在根比较阶段失配：出现未确认的根侧证据（设计 §2.2）。
+                // 复算改在修订比较阶段失配：出现未确认的修订侧证据（设计 §2.2）。
                 FirstFailure::RootCompare(recompute_evidence) => concluded(
                     AttestationVerdict::Untrusted,
                     Some(AttestationCause::Indeterminate),
@@ -928,7 +928,7 @@ pub(crate) fn classify_confirmed_failure(
             }
         }
         (FirstFailure::RootCompare(first_evidence), recompute) => {
-            // 根侧证据不能被复算阶段的操作失败撤销（设计 §2.2）：复算未完成、
+            // 修订侧证据不能被复算阶段的操作失败撤销（设计 §2.2）：复算未完成、
             // 证据不同（含复算通过、复算改判来源失败）一律 Untrusted，保留首次证据。
             let same_evidence = matches!(
                 recompute,
@@ -963,7 +963,7 @@ pub(crate) fn classify_confirmed_failure(
     }
 }
 
-/// 根比较阶段失配的判因（完整性设计 §7 判因轴）。
+/// 修订比较阶段失配的判因（完整性设计 §7 判因轴）。
 fn cause_for_root_evidence(evidence: &MismatchEvidence) -> AttestationCause {
     match &evidence.site {
         MismatchSite::OriginField { .. } | MismatchSite::SpatialPresence { .. } => {
@@ -1107,7 +1107,7 @@ pub(crate) mod test_injection {
         persistent || once
     }
 
-    /// 武装根比较阶段 panic。
+    /// 武装修订比较阶段 panic。
     pub(crate) fn arm_root_comparison_panic() {
         ROOT_COMPARISON_PANIC.with(|flag| flag.set(true));
     }

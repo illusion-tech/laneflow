@@ -44,7 +44,7 @@ pub enum StateInvariantViolation {
     /// 已提交 Conflict authority 与 reservation 级证明不一致。
     #[error("已提交 Conflict authority 与证明不一致")]
     ConflictAuthorityMismatch,
-    /// 直算过程 unwind，按不变量破坏上报（不套用根认证停用政策）。
+    /// 直算过程 unwind，按不变量破坏上报（不套用修订认证停用政策）。
     #[error("直算摘要过程 panic: {0}")]
     Panicked(&'static str),
     /// live 顺序与存活车辆不一一对应（遗漏或重复）。

@@ -6,14 +6,14 @@ use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, SignalGroup
 pub enum PoseSource {
     /// 车道上的进度。
     Lane {
-        /// 共享根边序号。
+        /// 共享静态路网边序号。
         edge: LaneEdgeOrdinal,
         /// 当前边上的毫米进度。
         progress_mm: u32,
     },
     /// 停车位。
     Parking {
-        /// 共享根停车位序号。
+        /// 共享静态路网停车位序号。
         space: ParkingSpaceOrdinal,
     },
 }

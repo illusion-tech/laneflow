@@ -27,9 +27,9 @@ const EDGE_A0: LaneEdgeOrdinal = LaneEdgeOrdinal::from_raw(0);
 const EDGE_A1: LaneEdgeOrdinal = LaneEdgeOrdinal::from_raw(1);
 /// frame 1 内的边（长 12000 mm）。
 const EDGE_B0: LaneEdgeOrdinal = LaneEdgeOrdinal::from_raw(3);
-/// 共享根内不存在的边。
+/// 共享静态路网内不存在的边。
 const EDGE_UNKNOWN: LaneEdgeOrdinal = LaneEdgeOrdinal::from_raw(999);
-/// 共享根内唯一的显式停车位。
+/// 共享静态路网内唯一的显式停车位。
 const PARKING0: ParkingSpaceOrdinal = ParkingSpaceOrdinal::from_raw(0);
 
 fn revision() -> Arc<SharedNetworkRevision> {
@@ -99,7 +99,7 @@ fn input_lane(record: u32, edge: LaneEdgeOrdinal, progress_mm: u32) -> PoseInput
 
 /// S01：正常非空批次的修订、frame、token、记录数量、身份、顺序与位姿基线。
 #[test]
-fn s01_nonempty_batch_matches_shared_root_baseline() {
+fn s01_nonempty_batch_matches_shared_static_network_baseline() {
     let revision = revision();
     let mut session = SpatialSession::bind(Arc::clone(&revision))
         .expect("bind")
@@ -132,7 +132,7 @@ fn s01_nonempty_batch_matches_shared_root_baseline() {
             PoseRecordId::new(3)
         ]
     );
-    // 位姿基线来自共享根公开几何：进度 0 落在首点，满进度落在末点。
+    // 位姿基线来自共享静态路网公开几何：进度 0 落在首点，满进度落在末点。
     let geometry = revision
         .spatial()
         .and_then(|spatial| spatial.lane_pose())

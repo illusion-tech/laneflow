@@ -1,8 +1,8 @@
 //! #512 published fresh restore 增量堆峰值证据。
 //!
-//! 单测试独立 integration binary 遵循 DHAT heap-usage testing 的隔离要求：目标根、
+//! 单测试独立 integration binary 遵循 DHAT heap-usage testing 的隔离要求：目标修订、
 //! source、配置和 LFRS 输入在 profiler 启动前准备；profiler 生命周期只包围一次
-//! `restore_lfrs`，因此 `max_bytes` 是恢复调用新增堆块的实际高水位，不把原有共享根
+//! `restore_lfrs`，因此 `max_bytes` 是恢复调用新增堆块的实际高水位，不把原有共享静态路网
 //! 或输入制品常驻内存重复记入。数值为同机描述性初值，不是产品 Pass 阈值。
 
 use std::hint::black_box;

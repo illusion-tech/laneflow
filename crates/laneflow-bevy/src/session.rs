@@ -97,7 +97,7 @@ impl LaneFlowSession {
     ///
     /// # Errors
     ///
-    /// 提供的 `spatial` 与 world 活动根不满足 `Arc::ptr_eq` 时返回
+    /// 提供的 `spatial` 与 world 活动根对象不满足 `Arc::ptr_eq` 时返回
     /// [`LaneFlowAdapterError::RevisionMismatch`]。
     pub fn new(
         world: TrafficWorld,
@@ -198,7 +198,7 @@ impl LaneFlowSession {
     /// # Errors
     ///
     /// 当前没有配对 Spatial（[`LaneFlowAdapterError::PoseExtractionWithoutSpatial`]）、
-    /// Spatial 与世界活动根 `Arc::ptr_eq` 失配（[`LaneFlowAdapterError::RevisionMismatch`]）
+    /// Spatial 与世界活动根对象 `Arc::ptr_eq` 失配（[`LaneFlowAdapterError::RevisionMismatch`]）
     /// 或 Spatial 批次提取失败（[`LaneFlowAdapterError::SpatialPoseExtraction`]）时返回；
     /// 失败不产生部分批次。
     pub fn extract_committed_pose_batch(
@@ -361,7 +361,7 @@ impl LaneFlowSession {
     /// 单次 `&mut self` 内完成 Runtime `prepare` → `commit`，无步进交错。
     /// 目标 Spatial 的全部可失败验证在 Runtime `prepare` 之前完成；
     /// Runtime `commit` 成功后只剩不可失败的配对替换。成功返回时当前
-    /// 配对已指向目标根，不存在生产可见的「新世界 + 旧 Spatial」中间态。
+    /// 配对已指向目标根对象，不存在生产可见的「新世界 + 旧 Spatial」中间态。
     /// 事务对象由本方法独占持有，任一失败路径都不会遗留在途事务
     /// （`commit` 按值消耗并无条件解除武装）。
     ///
@@ -370,7 +370,7 @@ impl LaneFlowSession {
     ///
     /// # Errors
     ///
-    /// 目标 Spatial 与目标根 `Arc::ptr_eq` 失配时返回
+    /// 目标 Spatial 与目标根对象 `Arc::ptr_eq` 失配时返回
     /// [`LaneFlowAdapterError::TargetSpatialRevisionMismatch`]（先于 Runtime `prepare`）；
     /// Runtime `prepare`/`commit` 失败包装为 [`LaneFlowAdapterError::Cutover`] 返回。任一
     /// 失败当前配对保持不变，不存在半切换状态。
@@ -413,12 +413,12 @@ impl LaneFlowSession {
     /// 同步维护暂停式同修订换根（`same_revision_restore`；#534 G1 冻结形态）。
     ///
     /// 修订号不变、根 `Arc` 换新、世代递增；配对语义与跨修订入口一致：
-    /// 成功返回时已完成新配对。目标根必须与当前根修订号相同，否则由
+    /// 成功返回时已完成新配对。目标根对象必须与当前修订修订号相同，否则由
     /// Runtime 描述符认证失败关闭。
     ///
     /// # Errors
     ///
-    /// 目标 Spatial 与目标根 `Arc::ptr_eq` 失配时返回
+    /// 目标 Spatial 与目标根对象 `Arc::ptr_eq` 失配时返回
     /// [`LaneFlowAdapterError::TargetSpatialRevisionMismatch`]（先于 Runtime 调用）；
     /// Runtime 同修订换根失败包装为 [`LaneFlowAdapterError::Cutover`] 返回。任一失败
     /// 当前配对保持不变，不存在半切换状态。
@@ -758,11 +758,11 @@ impl LaneFlowWorldMut<'_> {
 
 /// 切换目标的 Spatial 配对方式（#534 G1 冻结）。
 ///
-/// `Rebind` 携带已绑定目标根的 `SpatialSession`，入口校验其与目标根
+/// `Rebind` 携带已绑定目标根对象的 `SpatialSession`，入口校验其与目标根对象
 /// `Arc::ptr_eq`；`Headless` 是宿主对「切换后无表现」的显式选择——枚举
 /// 形态保证不存在把 `Some(Spatial)` 静默降级为 `None` 的路径。
 pub enum LaneFlowTargetSpatial {
-    /// 按目标根重绑表现；`SpatialSession::bind(target_root)` 的产物。
+    /// 按目标根对象重绑表现；`SpatialSession::bind(target_root)` 的产物。
     Rebind(SpatialSession),
     /// 宿主显式选择切换后 headless。
     Headless,
@@ -770,7 +770,7 @@ pub enum LaneFlowTargetSpatial {
 
 /// 一次成功切换的结果。
 ///
-/// `retired_spatial` 是换出的旧 `SpatialSession`：它对旧根的历史读取仍
+/// `retired_spatial` 是换出的旧 `SpatialSession`：它对旧根对象的历史读取仍
 /// 合法（在途借用可完成），但其结果不得作为当前世界的表现提交。
 ///
 /// `#[must_use]` 继承 Runtime 对 `CutoverCommit` / `CutoverEventBatch` 的
@@ -871,7 +871,7 @@ impl LaneFlowCommittedPoseBatch {
         Self::default()
     }
 
-    /// 提取出的共享根位姿批次。
+    /// 提取出的已提交位姿批次。
     #[must_use]
     pub const fn batch(&self) -> &CanonicalPoseBatch {
         &self.batch

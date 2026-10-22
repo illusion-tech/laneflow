@@ -60,7 +60,7 @@ fn junction_reference_ledger() {
     .unwrap();
     let mut world = restored.into_world();
     let mut csv = std::io::BufWriter::new(fs::File::create_new(output).unwrap());
-    writeln!(csv, "observation_tick,shared_root,binding,committed,derived,scratch,admin,conflict_retained,top_two_cells,top_two_bytes,candidates,passage_visits,frontier_updates,cell_claim_queries,downstream_claim_queries,downstream_interval_visits,collision_rejections,commit_resource_visits,wait_for_nodes,wait_for_edges,wait_for_visits").unwrap();
+    writeln!(csv, "observation_tick,shared_static_network,binding,committed,derived,scratch,admin,conflict_retained,top_two_cells,top_two_bytes,candidates,passage_visits,frontier_updates,cell_claim_queries,downstream_claim_queries,downstream_interval_visits,collision_rejections,commit_resource_visits,wait_for_nodes,wait_for_edges,wait_for_visits").unwrap();
     let mut peak = [0_u64; 5];
     for tick in 1..=4096 {
         reset_conflict_work_counts();
@@ -86,7 +86,7 @@ fn junction_reference_ledger() {
     }
     csv.flush().unwrap();
     eprintln!(
-        "junction-ledger world_owned_peak_partition_sum={} (not process peak; shared root counted separately)",
+        "junction-ledger world_owned_peak_partition_sum={} (not process peak; shared static network counted separately)",
         peak.iter().sum::<u64>()
     );
 }

@@ -254,7 +254,7 @@ fn seeded(artifact: &Artifact, key: &str) -> Seeded {
     }
 }
 
-/// 独立旧根消费者：与 Session 无共享可变状态，模拟跨提交边界的旧根借用。
+/// 独立旧根对象消费者：与 Session 无共享可变状态，模拟跨提交边界的旧根对象借用。
 fn old_root_consumer(artifact: &Fixture) -> laneflow_spatial::SpatialSession {
     laneflow_spatial::SpatialSession::bind(Arc::clone(&artifact.r1.root))
         .expect("bind")
@@ -461,7 +461,7 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
         view.vehicles()
             .any(|row| row.vehicle() == vehicle && row.state().route() == route)
     );
-    // 恰一次事件交付；换出的旧 Spatial 与根同源。
+    // 恰一次事件交付；换出的旧 Spatial 与修订同源。
     assert!(!record.events().is_empty());
     let retired = record.retired_spatial().expect("retired spatial");
     assert!(Arc::ptr_eq(&retired.revision(), &fixture.r1.root));
@@ -643,7 +643,7 @@ fn target_spatial_mismatch_fails_closed_leaving_session_intact() {
         .expect_err("配错根必须失败关闭");
     assert_eq!(error, LaneFlowAdapterError::TargetSpatialRevisionMismatch);
 
-    // 世界与配对原样：根、世代、无在途事务、提取照常。
+    // 世界与配对原样：修订、世代、无在途事务、提取照常。
     assert!(Arc::ptr_eq(&session.world().revision(), &fixture.r1.root));
     assert_eq!(session.world().world_generation(), generation);
     assert!(session.world().migration_journal_stats().is_none());
@@ -738,7 +738,7 @@ fn aba_return_to_first_root_rejects_stale_contexts() {
     assert!(!record.events().is_empty());
     let context_r2 = extract_once(&mut session).context();
 
-    // 回切到 R1 内容（以 R2 为 diff base 的制品；目标根 Arc 是新分配）。
+    // 回切到 R1 内容（以 R2 为 diff base 的制品；目标根对象 Arc 是新分配）。
     let back = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r1_again.root))
         .expect("bind")
         .expect("spatial");
@@ -834,7 +834,7 @@ fn failed_prepare_settles_and_retry_succeeds() {
     );
 }
 
-/// 旧根借用完成与回收：独立旧根消费者跨提交边界完成读取；持有者退出后引用释放。
+/// 旧根对象借用完成与回收：独立旧根对象消费者跨提交边界完成读取；持有者退出后引用释放。
 #[test]
 fn old_root_borrow_completes_after_cutover() {
     let fixture = fixture();
@@ -858,7 +858,7 @@ fn old_root_borrow_completes_after_cutover() {
     let retired = record.retired_spatial().expect("retired");
     let references_after_cutover = Arc::strong_count(&fixture.r1.root);
 
-    // 旧根在途借用可完成，且 stamp 旧修订。
+    // 旧根对象在途借用可完成，且 stamp 旧修订。
     let mut batch = CanonicalPoseBatch::new();
     let inputs = [PoseInput::lane(
         PoseRecordId::new(0),
@@ -879,7 +879,7 @@ fn old_root_borrow_completes_after_cutover() {
     drop(old_consumer);
     assert!(
         Arc::strong_count(&fixture.r1.root) < references_after_cutover,
-        "最后合法持有者退出后旧根引用释放"
+        "最后合法持有者退出后旧根对象引用释放"
     );
 }
 

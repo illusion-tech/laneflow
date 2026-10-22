@@ -474,7 +474,7 @@ pub struct ResourceEvidence {
     pub pool_threads: u32,
     /// 池线程请求的栈大小合计；平台可能向上取整，实际保留不小于此值。
     pub worker_stack_requested_bytes: u64,
-    /// 共享静态根（跨世界共享，相加时去重）。
+    /// 共享静态路网（跨世界共享，相加时去重）。
     pub shared_network_bytes: u64,
     /// 世界绑定（来源、策略、编译表）。
     pub binding_bytes: u64,

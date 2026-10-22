@@ -140,7 +140,7 @@ pub struct CapturedSnapshot {
     pub(crate) config: WorldConfig,
     /// 显式策略选择；规则内容由 LFCA origin 绑定。
     pub(crate) policy_selection: crate::WorldPolicySelection,
-    /// 被绑定共享根的 LFCA origin。
+    /// 被绑定共享路网修订的 LFCA origin。
     pub(crate) origin: CanonicalNetworkOrigin,
     /// 已提交路网来源。
     pub(crate) source: CommittedNetworkSource,
@@ -550,7 +550,7 @@ impl CapturedSnapshot {
         self.config
     }
 
-    /// 被绑定共享根的 LFCA origin。
+    /// 被绑定共享路网修订的 LFCA origin。
     #[must_use]
     pub const fn origin(&self) -> CanonicalNetworkOrigin {
         self.origin

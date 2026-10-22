@@ -1,4 +1,4 @@
-//! 示例道路表面：同根车道几何决定边界，表现网格不改变运行时路径。
+//! 示例道路表面：同修订车道几何决定边界，表现网格不改变运行时路径。
 use std::collections::BTreeMap;
 
 use bevy::{mesh::Indices, prelude::*};

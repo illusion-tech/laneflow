@@ -1,4 +1,4 @@
-//! 世界无关的路权解析表。局部下标只在保留本根时有效。
+//! 世界无关的路权解析表。局部下标只在保留本修订时有效。
 use laneflow_static_contract::{
     ConflictZoneOrdinal, GateInterpretation, GateProhibition, ManeuverGateOrdinal,
     ParticipantClassOrdinal, ParticipantStreamOrdinal, PolicyLocalMemberKind,
@@ -18,7 +18,7 @@ pub struct PolicyRuleAttribution<'a> {
     pub key: &'a str,
 }
 
-/// 单份路权策略集的内部记录；区间字段指向共享根的连续 payload。
+/// 单份路权策略集的内部记录；区间字段指向共享静态路网的连续 payload。
 pub(crate) struct PolicyRecord {
     pub(crate) id: RightOfWayPolicySetId,
     pub(crate) jurisdiction: Box<str>,
@@ -37,7 +37,7 @@ pub(crate) struct RuleRecord {
     pub(crate) evidence: RangeU32,
 }
 
-/// 一份规则的可追溯依据；冷数据由共享根拥有。
+/// 一份规则的可追溯依据；冷数据由共享路网修订拥有。
 pub struct PolicyEvidence {
     pub(crate) key: Box<str>,
     pub(crate) locator: Box<str>,
@@ -221,7 +221,7 @@ pub(crate) struct TargetRange {
     pub(crate) targets: RangeU32,
 }
 
-/// 按策略分隔规则、跨策略共用 owner 定位的连续 CSR。唯一所有者是共享根。
+/// 按策略分隔规则、跨策略共用 owner 定位的连续 CSR。唯一所有者是共享路网修订。
 pub struct SharedPolicyNetwork {
     pub(crate) policies: Box<[PolicyRecord]>,
     pub(crate) rules: Box<[RuleRecord]>,
@@ -236,7 +236,7 @@ pub struct SharedPolicyNetwork {
     pub(crate) targets: Box<[YieldTargetCell]>,
 }
 
-/// 绑定共享根生命周期的单策略视图。
+/// 绑定共享路网修订生命周期的单策略视图。
 #[derive(Clone, Copy)]
 pub struct PolicyView<'a> {
     pub(crate) network: &'a SharedPolicyNetwork,
@@ -244,7 +244,7 @@ pub struct PolicyView<'a> {
 }
 
 impl SharedPolicyNetwork {
-    /// 构造不含任何策略的空共享根。
+    /// 构造空策略网络（不含任何策略）。
     pub(crate) fn empty() -> Self {
         Self {
             policies: Box::new([]),
@@ -270,7 +270,7 @@ impl SharedPolicyNetwork {
         })
     }
 
-    /// 本共享根保留的逻辑字节数（含字符串冷数据）。
+    /// 本策略网络保留的逻辑字节数（含字符串冷数据）。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         fn bytes<T>(v: &[T]) -> u64 {
@@ -403,7 +403,7 @@ impl<'a> PolicyView<'a> {
     ) -> Option<PolicyRuleAttribution<'a>> {
         Some(self.attribution(self.stream(stream, class)?.rule))
     }
-    /// 用 owner/class 查询，避免把另一共享根的解析 cell 混入此根。
+    /// 用 owner/class 查询，避免把另一共享路网修订的解析 cell 混入此修订。
     #[must_use]
     pub fn yield_targets(
         self,

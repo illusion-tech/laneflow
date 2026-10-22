@@ -23,7 +23,7 @@ pub(crate) fn compile_junction(
     compile_cells(config, std::slice::from_ref(topology))
 }
 
-/// 一个正式编制模块、一个策略集合和一个共享根内的路口实例。
+/// 一个正式编制模块、一个策略集合和一个共享静态路网内的路口实例。
 pub(crate) fn compile_cells(
     config: &JunctionConfig,
     cells: &[TopologyBuild],

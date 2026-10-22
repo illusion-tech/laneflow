@@ -2053,7 +2053,7 @@ fn rebuild_occupancy_index(
 pub(crate) mod exact_candidate;
 
 impl crate::kernel::state::WorldState {
-    /// 针对给定根与 staged 路线纯构造一份占用索引（不触及活动状态）。
+    /// 针对给定修订与 staged 路线纯构造一份占用索引（不触及活动状态）。
     ///
     /// 供切换事务在 Prepare 段完成可失败的重建（#302 切换合同 §4：
     /// 全部可失败步骤先于换绑），commit 段只做不可失败的替换。

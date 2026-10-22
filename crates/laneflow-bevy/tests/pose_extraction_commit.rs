@@ -775,7 +775,7 @@ fn retry_after_mixed_frame_failure_matches_clean_extraction() {
     assert_eq!(output.batch().records()[1].record().raw(), 1);
     assert!(session.consumption_context_is_current(output.context()));
 
-    // 干净会话对拍：同根同布局、无 stray 车辆的成功提取逐字段一致。
+    // 干净会话对拍：同修订同布局、无 stray 车辆的成功提取逐字段一致。
     let clean_revision = root();
     let mut clean = install_session(&clean_revision);
     let clean_main = main_route(&mut clean);

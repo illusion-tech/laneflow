@@ -599,7 +599,7 @@ mod tests {
         assert_eq!(presentation.previous, visible);
         assert_eq!(harness.checkpoint().unwrap(), before);
 
-        // 换成合法 headless 根后故意提取失败；零选择尚未提交，不能隐藏旧实体。
+        // 换成合法 headless 修订后故意提取失败；零选择尚未提交，不能隐藏旧实体。
         let old_context = presentation.poses.context();
         let old_vehicles = presentation.poses.vehicles().to_vec();
         let old_records = presentation.poses.batch().records().to_vec();

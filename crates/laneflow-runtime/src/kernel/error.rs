@@ -52,15 +52,15 @@ pub enum InstallError {
     /// 交通准备完成后，必需执行计划无法建立。
     #[error("执行计划准备失败: {0}")]
     ExecutionPlan(ExecutionPlanError),
-    /// 共享根含门、冲突区或参与者流，必须显式固定路权策略（`install`；跨修订
+    /// 共享静态路网含门、冲突区或参与者流，必须显式固定路权策略（`install`；跨修订
     /// cutover 以 `PolicyInstall` 内嵌同样可达）。
-    #[error("共享根含门、冲突区或参与者流，必须显式固定路权策略")]
+    #[error("共享静态路网含门、冲突区或参与者流，必须显式固定路权策略")]
     PolicyRequired,
-    /// 共享根中不存在指定的路权策略（`install` 的策略绑定解析；跨修订 cutover 以
+    /// 共享静态路网中不存在指定的路权策略（`install` 的策略绑定解析；跨修订 cutover 以
     /// `PolicyInstall` 内嵌同样可达）。
-    #[error("共享根中不存在指定路权策略 {policy:?}")]
+    #[error("共享静态路网中不存在指定路权策略 {policy:?}")]
     UnknownPolicy {
-        /// 共享根中不存在的路权策略集稳定身份。
+        /// 共享静态路网中不存在的路权策略集稳定身份。
         policy: laneflow_static_contract::RightOfWayPolicySetId,
     },
     /// 策略间隙参数的步长派生超出可移植毫秒值域（`install`；跨修订 cutover 以
@@ -109,12 +109,12 @@ pub enum InstallError {
     /// 信号 controller 的 cycle 非法。
     #[error("信号 controller cycle 必须为正且含 phase")]
     InvalidSignalProgram,
-    /// 已提交来源的修订标识与共享根不一致。
-    #[error("已提交来源的修订标识与共享根不一致")]
+    /// 已提交来源的修订标识与共享路网修订不一致。
+    #[error("已提交来源的修订标识与共享路网修订不一致")]
     SourceRevisionMismatch {
         /// 来源指名的修订标识。
         source_revision: NetworkRevisionId,
-        /// 共享根 origin 的修订标识。
+        /// 共享路网修订 origin 的修订标识。
         installed_revision: NetworkRevisionId,
     },
 }
@@ -180,10 +180,10 @@ pub enum RouteError {
     /// 边序列为空。
     #[error("路线边序列不能为空")]
     EmptySequence,
-    /// 边序号越出共享根。
+    /// 边序号越出共享静态路网。
     #[error("路线含未知 LaneEdge")]
     UnknownEdge,
-    /// 相邻边在共享根车道后继或机动转移中都不连通。
+    /// 相邻边在共享静态路网车道后继或机动转移中都不连通。
     #[error("路线边序列不连通")]
     Disconnected,
     /// 路线数量达到 world 容量。
@@ -448,7 +448,7 @@ pub enum ParkingError {
     /// 停车设施目标在当前修订中不存在（目标解析阶段）。
     #[error("未知停车设施")]
     UnknownFacility,
-    /// 车辆 profile 序号越出共享根（`spawn_parked_vehicle`）。
+    /// 车辆 profile 序号越出共享静态路网（`spawn_parked_vehicle`）。
     #[error("未知车辆 profile")]
     UnknownProfile,
     /// 路线句柄无效或不属于当前世界（reserve/leave/rebind/spawn_parked 的路线解析）。

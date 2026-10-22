@@ -19,7 +19,7 @@ const WORKER_STACK_BYTES: usize = 2 * 1_024 * 1_024;
 #[path = "tests/execution_memory.rs"]
 mod memory_tests;
 
-/// 持有根的实际内存身份，不能只凭相同 NetworkRevisionId 复用。
+/// 持有根对象的实际内存身份，不能只凭相同 NetworkRevisionId 复用。
 pub(crate) struct ExecutionPlan {
     root: Arc<SharedNetworkRevision>,
     generation: WorldGeneration,

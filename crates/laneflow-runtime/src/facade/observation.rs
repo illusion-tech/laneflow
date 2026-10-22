@@ -210,7 +210,7 @@ impl CommittedTrafficObservationBatch {
         self.stream
     }
 
-    /// 当前共享根的路网修订标识。
+    /// 当前共享路网修订的路网修订标识。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
@@ -371,7 +371,7 @@ pub enum ObservationError {
     /// session 属于其它世界或已失效世界世代。
     #[error("观测 session 的世界身份或活动世代已失效")]
     StreamBindingMismatch,
-    /// session 绑定的路网修订与当前根不一致。
+    /// session 绑定的路网修订与当前修订不一致。
     #[error("观测 session 的路网修订绑定已失效")]
     NetworkRevisionMismatch,
     /// 新 session 第一次导出必须是 full。
@@ -412,7 +412,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 选择为空、超过上限、未按严格升序去重排序，或包含共享根未知的 lane edge
+    /// 选择为空、超过上限、未按严格升序去重排序，或包含共享静态路网未知的 lane edge
     /// 稳定 ID 时返回相应 [`ObservationError`]；选择集结构预留失败返回
     /// [`ObservationError::AllocationFailed`]、选择计数换算溢出返回
     /// [`ObservationError::ArithmeticOverflow`]；失败不留下任何隐式状态。
@@ -737,7 +737,7 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 选择为空、超过上限、未按严格升序去重排序，或包含共享根未知的 lane edge
+    /// 选择为空、超过上限、未按严格升序去重排序，或包含共享静态路网未知的 lane edge
     /// 稳定 ID 时返回相应 [`ObservationError`]；选择集结构预留失败返回
     /// [`ObservationError::AllocationFailed`]、选择计数换算溢出返回
     /// [`ObservationError::ArithmeticOverflow`]；失败不留下任何隐式状态。

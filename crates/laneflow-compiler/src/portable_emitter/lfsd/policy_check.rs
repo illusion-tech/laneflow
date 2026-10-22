@@ -1,4 +1,4 @@
-//! 从真实两根独立重建局部成员全集；不调用 emitter 的配对或规范值编码器。
+//! 从真实两份修订独立重建局部成员全集；不调用 emitter 的配对或规范值编码器。
 
 use super::base::{
     checked_ordinal_vector_with, checked_stable_id_with, checked_u8_with, checked_u16_with,
@@ -98,7 +98,7 @@ pub fn check_portable_policy_diff(
         }
     }
     let mut source = reserved::<SourceMember<'_>>(count, &mut scratch)?;
-    // K 来自两根完整局部表，不由实际差异行反推扫描范围。
+    // K 来自两份修订完整局部表，不由实际差异行反推扫描范围。
     for (side, index) in indices.iter().enumerate() {
         let Some(index) = index else {
             continue;

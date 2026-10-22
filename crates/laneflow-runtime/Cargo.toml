@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
-description = "LaneFlow 交通运行时：消费共享静态路网修订的每世界可变状态与固定步进。"
+description = "LaneFlow 交通运行时：消费共享静态路网的每世界可变状态与固定步进。"
 publish = false
 
 [lib]

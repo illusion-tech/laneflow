@@ -689,7 +689,7 @@ fn validate_policy_fields(table: u16, row: RowRef<'_>, stable: bool) -> Result<(
 
 fn policy_reference_count(field: FieldRef<'_>, stable: bool) -> Result<u32, FormatError> {
     // 稳定引用的排序和去重需要对应实体表，不能把 ordinal 的整数大小冒充 StableId 顺序。
-    // 本层只检查向量基数与 gap 的同行存在性；引用全集由 compiler/shared root 闭合。
+    // 本层只检查向量基数与 gap 的同行存在性；引用全集由 compiler / 共享静态路网闭合。
     let count = field.u32()?;
     if field.value.len() as u64 != 4 + u64::from(count) * if stable { 18 } else { 4 } {
         return Err(noncanonical(field));
@@ -2497,7 +2497,7 @@ mod tests {
     }
 
     #[test]
-    fn access_regulation_is_optional_singleton_before_shared_root() {
+    fn access_regulation_is_optional_singleton_before_shared_network_revision() {
         use PortableFieldType::{I32, OrdinalVectorU32, RecordVector, StableId128, U8, U32, Utf8};
         let regulation = |jurisdiction: &[u8], version: &[u8]| {
             row_bytes(&[
@@ -2548,7 +2548,7 @@ mod tests {
                     result.unwrap_err().class(),
                     FormatErrorClass::BindingMismatch
                 );
-                // 正式共享根入口所需的不可伪造输入能力也无法取得。
+                // 正式共享静态路网构建入口所需的不可伪造输入能力也无法取得。
                 assert!(matches!(
                     crate::check_canonical_network_input(bytes.as_slice(), FormatLimits::HARD),
                     Err(crate::CanonicalNetworkInputError::Format(error))

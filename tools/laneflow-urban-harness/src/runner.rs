@@ -1625,7 +1625,7 @@ pub(crate) type CatalogBindings = (
     BTreeMap<String, VehicleProfileOrdinal>,
 );
 
-/// 停车目标与 profile 由共享根的稳定标识解析；安装与续跑恢复共用。
+/// 停车目标与 profile 由共享静态路网的稳定标识解析；安装与续跑恢复共用。
 pub(crate) fn catalog_bindings(artifacts: &Artifacts) -> Result<CatalogBindings> {
     let mut targets = BTreeMap::new();
     let mut target_keys = crate::fastmap::FastMap::default();

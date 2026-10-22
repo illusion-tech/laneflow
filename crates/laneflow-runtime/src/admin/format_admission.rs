@@ -560,7 +560,7 @@ const fn encode_vehicle_status(status: VehicleStatus) -> wire::VehicleStatusKind
     }
 }
 
-/// verifier-first 读取 `LFRS`，核对目标根/来源/配置并原子构造一个新 world。
+/// verifier-first 读取 `LFRS`，核对目标修订/来源/配置并原子构造一个新 world。
 ///
 /// fresh restore 从 [`crate::WorldGeneration::INITIAL`] 建立新观测 stream；调用方不得让
 /// 同一 `world_id` 的旧 world 或旧 session 与返回值并存。任一失败只丢弃局部 staging，

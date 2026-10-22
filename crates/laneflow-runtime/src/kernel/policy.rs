@@ -1,4 +1,4 @@
-//! 显式世界策略绑定；共享规则只借用共享根，步长派生表由世界独占。
+//! 显式世界策略绑定；共享规则只借用共享静态路网，步长派生表由世界独占。
 use crate::InstallError;
 use laneflow_static_contract::{EntityKind, RightOfWayPolicySetId, RightOfWayPolicySetOrdinal};
 use laneflow_static_network::{PolicyView, SharedNetworkRevision};
@@ -13,9 +13,9 @@ pub struct PolicyPin {
 /// 唯一安装入口的必填选择；没有默认策略或安装后 setter。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WorldPolicySelection {
-    /// 整个共享根没有 Gate、ConflictZone、ParticipantStream 时才合法。
+    /// 整个共享静态路网没有 Gate、ConflictZone、ParticipantStream 时才合法。
     NotRequired,
-    /// 宿主钉定的路权策略；安装时按稳定身份在共享根中解析。
+    /// 宿主钉定的路权策略；安装时按稳定身份在共享静态路网中解析。
     Pinned(PolicyPin),
 }
 
@@ -61,7 +61,7 @@ impl WorldPolicyBinding {
 }
 
 impl WorldPolicyBinding {
-    /// 安装策略绑定：校验选择与共享根，按步长派生保守间隙表。
+    /// 安装策略绑定：校验选择与共享静态路网，按步长派生保守间隙表。
     pub(crate) fn install(
         revision: &SharedNetworkRevision,
         selection: WorldPolicySelection,

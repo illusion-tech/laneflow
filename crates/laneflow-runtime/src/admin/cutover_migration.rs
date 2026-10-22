@@ -540,7 +540,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     .map_err(CutoverError::PolicyInstall)?;
     let target_traffic = target_revision.traffic();
 
-    // 路线：逐槽位重绑边序数并对 target 根重编译（等价重执行 register_route
+    // 路线：逐槽位重绑边序数并对 target 修订重编译（等价重执行 register_route
     // 的编译检查）。
     let mut routes = Vec::new();
     routes
@@ -1798,7 +1798,7 @@ pub(crate) fn migrate_conflict_state(
 }
 
 /// 静默点只把 Prepare 已登记的新/不连续 cell 推迟到最终 `T_commit`。
-/// 地址集合由目标静态根决定，循环量与本次新增/不连续 cell 数成正比。
+/// 地址集合由目标共享静态路网决定，循环量与本次新增/不连续 cell 数成正比。
 pub(crate) fn finalize_conflict_cutover_floors(
     target: &mut WorldState,
     plan: &ConflictCutoverFinalizationPlan,
@@ -1831,7 +1831,7 @@ pub(crate) fn finalize_conflict_cutover_floors(
     Ok(())
 }
 
-/// 从来源世界和目标静态根独立构造 digest 期望的 Conflict 语义。
+/// 从来源世界和目标共享静态路网独立构造 digest 期望的 Conflict 语义。
 /// 该路径不读取候选 arbiter/reservation 内容，用于发现候选重建偏差。
 pub(crate) fn project_expected_conflict(
     source: &WorldState,
@@ -4974,7 +4974,7 @@ pub(crate) mod tests {
             candidate.committed_parking_occupant(mapped_space),
             Some(parked)
         );
-        // 候选在新根上继续确定性步进。
+        // 候选在新修订上继续确定性步进。
         let mut candidate = candidate;
         candidate
             .step(TickInput::new(100), None)

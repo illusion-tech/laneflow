@@ -130,13 +130,13 @@ impl<'a> LaneFlowJunctionObservation<'a> {
         }
     }
 
-    /// 活动 Session 的同一共享根；只克隆根 `Arc`，不复制静态表。
+    /// 活动 Session 的同一共享路网修订；只克隆根 `Arc`，不复制静态表。
     #[must_use]
     pub fn revision(&self) -> Arc<SharedNetworkRevision> {
         self.world.revision()
     }
 
-    /// 活动 Session 同一共享根的 Traffic component 借用。
+    /// 活动 Session 同一共享路网修订的 Traffic component 借用。
     #[must_use]
     pub fn traffic(&self) -> &'a SharedTrafficNetwork {
         self.world.traffic()
@@ -159,7 +159,7 @@ impl<'a> LaneFlowJunctionObservation<'a> {
         })
     }
 
-    /// 按当前根 WaitingZone ordinal 升序的已提交计数；遍历为 O(N_zone)。
+    /// 按当前修订 WaitingZone ordinal 升序的已提交计数；遍历为 O(N_zone)。
     pub fn waiting_zones(&self) -> impl Iterator<Item = WaitingZoneSnapshot> + 'a {
         let world = self.world;
         let zone_count = world

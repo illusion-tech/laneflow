@@ -10,19 +10,19 @@ use crate::{
     FramePlacementToken, PoseRecordId, SpatialError,
 };
 
-/// 共享根上的位姿来源。
+/// 共享静态路网上的位姿来源。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PoseSource {
     /// 车道进度。
     Lane {
-        /// 共享根边序号。
+        /// 共享静态路网边序号。
         edge: LaneEdgeOrdinal,
         /// 当前边上的毫米进度。
         progress_mm: u32,
     },
     /// 停车位。
     Parking {
-        /// 共享根停车位序号。
+        /// 共享静态路网停车位序号。
         space: ParkingSpaceOrdinal,
     },
 }
@@ -90,7 +90,7 @@ impl SpatialSession {
     ///
     /// # Errors
     ///
-    /// 根不含 Spatial 包时返回 `Ok(None)`（headless 根，不是错误）；存在
+    /// 修订不含 Spatial 包时返回 `Ok(None)`（headless 修订，不是错误）；存在
     /// Spatial 包但缺少 lane-pose 数据时返回
     /// [`SpatialBindError::MissingLanePose`]。
     pub fn bind(revision: Arc<SharedNetworkRevision>) -> Result<Option<Self>, SpatialBindError> {
@@ -106,13 +106,13 @@ impl SpatialSession {
         }
     }
 
-    /// 绑定所用根。
+    /// 绑定所用的共享路网修订。
     #[must_use]
     pub fn revision(&self) -> Arc<SharedNetworkRevision> {
         Arc::clone(&self.revision)
     }
 
-    /// 根修订身份。
+    /// 路网修订身份。
     #[must_use]
     pub fn network_revision(&self) -> NetworkRevisionId {
         self.revision.network_revision()
@@ -297,7 +297,7 @@ impl SpatialSession {
     }
 }
 
-/// 共享根 pose 批次。
+/// 规范 pose 批次。
 #[derive(Clone, Debug, PartialEq)]
 pub struct CanonicalPoseBatch {
     network_revision: Option<NetworkRevisionId>,
@@ -350,7 +350,7 @@ impl CanonicalPoseBatch {
     }
 }
 
-/// 单条共享根 pose 记录。
+/// 单条规范 pose 记录。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPoseRecord {
     record: PoseRecordId,

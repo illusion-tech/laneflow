@@ -10,7 +10,7 @@ use std::sync::Arc;
 mod movements;
 mod owners;
 
-mod shared_root;
+mod shared_network_revision;
 
 #[test]
 fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner() {

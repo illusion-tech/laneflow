@@ -1284,7 +1284,7 @@ pub(crate) fn relation_retained_floor(
     counts: &EntityCounts,
     payloads: RelationPayloads,
 ) -> Result<u64, BuildError> {
-    // 闭合对象内联在 SharedNetworkRevision 中，对象头已计入根 size_of。
+    // 闭合对象内联在 SharedNetworkRevision 中，对象头已计入根对象 size_of。
     let mut total = 0_u64;
     let corridor = counts.count(EntityKind::RoadCorridor);
     let section = counts.count(EntityKind::RoadSection);

@@ -283,14 +283,14 @@ fn allocation_ledgers_and_per_world_live_bytes() {
         // 占用索引、compiled 路线表、Waiting scratch 与 W7 Conflict fixed-step
         // authority/scratch 在每世界上；Conflict cell/claim payload 按首次实际仲裁
         // 延迟扩展。8 车空世界用独立的 16 KiB 预算约束动态表，避免用世界数量
-        // 乘静态根大小来掩盖单世界增长。编译路线按游标另存一行运动输入
+        // 乘共享静态路网大小来掩盖单世界增长。编译路线按游标另存一行运动输入
         // （每出现项约 52 字节），预算由 15 KiB 放宽到 16 KiB。
         const EMPTY_WORLD_LIVE_BUDGET: usize = 16 * 1_024;
         assert!(
             live_per < EMPTY_WORLD_LIVE_BUDGET,
             "per-world live {live_per} must stay below {EMPTY_WORLD_LIVE_BUDGET} bytes ({count} worlds, static retained {static_retained})"
         );
-        // 8 车 world 仍须显著小于共享 corridor 根；1/5 门覆盖必要的 W7 动态
+        // 8 车 world 仍须显著小于 corridor 共享静态路网；1/5 门覆盖必要的 W7 动态
         // authority 与编译路线的逐游标运动输入，同时继续阻止把静态路网表复制进
         // 每个 world。
         assert!(

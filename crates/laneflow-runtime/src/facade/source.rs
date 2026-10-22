@@ -145,7 +145,7 @@ impl CommittedNetworkSource {
 }
 
 impl CommittedNetworkSource {
-    /// 来源指向的路网修订标识；与活动根的一致性由安装/切换路径验证。
+    /// 来源指向的路网修订标识；与活动修订的一致性由安装/切换路径验证。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         match self {

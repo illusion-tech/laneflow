@@ -71,7 +71,7 @@ impl StaticContractVersions {
     }
 }
 
-/// 共享根对其 LFCA 来源与静态契约的只读进程内绑定。
+/// 共享路网修订对其 LFCA 来源与静态契约的只读进程内绑定。
 ///
 /// 该值不是可序列化 descriptor，也不建立发布真实性。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
