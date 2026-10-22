@@ -561,7 +561,11 @@ fn malformed_lfre_policy_is_rejected_and_admission_can_retry() {
     // 原始重复 key；writer 排序和构造器检查不能代替 reader 的共同准入检查。
     let mut duplicate = valid.as_bytes().to_vec();
     let key = policy.stream_rules().get(1).rule_key();
-    let at = key.as_ptr() as usize - valid.as_bytes().as_ptr() as usize;
+    let at = valid
+        .as_bytes()
+        .subslice_range(key.as_bytes())
+        .expect("rule key belongs to source buffer")
+        .start;
     duplicate[at] = b'a';
     cases.push(duplicate);
     // 合法 framing/vtable，附带当前合同未登记的字段。
@@ -798,7 +802,11 @@ fn duplicate_policy_key_fails_during_raw_admission_and_can_retry() {
     let a = root.right_of_way_policy_sets().get(0).policy_set_key();
     let b = root.right_of_way_policy_sets().get(1).policy_set_key();
     assert_eq!(a.len(), b.len());
-    let at = b.as_ptr() as usize - source.as_bytes().as_ptr() as usize;
+    let at = source
+        .as_bytes()
+        .subslice_range(b.as_bytes())
+        .expect("policy key belongs to source buffer")
+        .start;
     let mut bytes = source.as_bytes().to_vec();
     bytes[at..at + a.len()].copy_from_slice(a.as_bytes());
     let mut builder = CompilationUnitBuilder::new(limits);

@@ -176,13 +176,10 @@ fn artifact_view(bytes: &[u8]) -> laneflow_format::RegistryCheckedObjectView<'_>
 }
 
 fn field_offset(object: &[u8], value: &[u8]) -> usize {
-    let object_start = object.as_ptr() as usize;
-    let value_start = value.as_ptr() as usize;
-    let offset = value_start
-        .checked_sub(object_start)
-        .expect("field value is borrowed from object bytes");
-    assert!(offset + value.len() <= object.len());
-    offset
+    object
+        .subslice_range(value)
+        .expect("field value is borrowed from object bytes")
+        .start
 }
 
 fn claim_bytes(bytes: &[u8]) -> &[u8] {
