@@ -79,11 +79,14 @@ pub fn compare(
     {
         return incomplete(Failure::MissingTarget);
     }
-    // 比较位置（游标 / 时刻）时间表先于摘要比对：中间点错位、重复或重排
-    // 说明宿主要求的比较点没有按计划取得（设计 §4.3「全部比较点都已取得
-    // 且一致」），属未完成而非状态分歧——不得误报为 Diverged。
+    // 检查点计划身份 = tick 序列（宿主采样 cadence），先于摘要比对：
+    // tick 序列失配（缺失、重排或计划时刻错乱）说明宿主要求的比较点没有
+    // 按计划取得（设计 §4.3「全部比较点都已取得且一致」），属未完成而非
+    // 状态分歧。tick 序列一致时，游标或摘要的分歧是计划内的执行结果分歧
+    // （状态依赖命令一成一败等），按设计 §4.3 归 Diverged，由下方逐点
+    // 比较承载——中间游标暂时分歧而终点对齐的轨迹不被误报为未完成。
     for (expected, actual) in expected.points.iter().zip(&actual.points) {
-        if expected.position != actual.position {
+        if expected.position.tick != actual.position.tick {
             return incomplete(Failure::MissingPoints);
         }
     }
