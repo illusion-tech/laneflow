@@ -923,7 +923,7 @@ Rust 绑定含 `unsafe`——并选择 A；仍须以绝对 workload 证明资源
 - [rkyv 文档：schema/format option 兼容边界](https://docs.rs/rkyv/latest/rkyv/#compatibility)
 
 Rust runtime 固定为 crates.io `flatbuffers = 25.12.19`：Apache-2.0、MSRV 1.51，满足
-本仓库 Rust 1.98.1；只启用默认 `std`，不启用 `serde`/`serialize` 或 reflection 依赖。
+本仓库 Rust 1.99.1；只启用默认 `std`，不启用 `serde`/`serialize` 或 reflection 依赖。
 该 crate 的 `.cargo_vcs_info.json` 与官方 annotated tag `v25.12.19` 都解析到 commit
 `7e163021e59cca4f8e1e35a7c828b5c6b7915953`，因此 codegen 也固定该 tag 的 `flatc`，不
 使用同版本号但来自其他 commit 的后继 release。生成 Rust 源码提交仓库，正常

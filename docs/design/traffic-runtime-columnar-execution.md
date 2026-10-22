@@ -75,7 +75,7 @@ Scalar、AVX2、AVX-512 共用私有来源计数函数；普通 Direct 的无统
 
 保持每车表达式顺序，禁止 FMA、fast-math、近似倒数和半精度。`u32` 不截为 `i32`；跨 hop gap 为 `i64`；瞬时 SI 为 `f32`；受检量化为 `f64`。长路线保留分段坐标和 `BoundedDistance`，Finite/BeyondFinite/unknown/absent 不混为一个 bool。后端不改变舍入模式，不要求跨平台位级承诺。
 
-AMD 官方规格支持 9955HX 的 AVX2/AVX512；实际进程可用性仍以运行时检测为准。Rust 1.89 已稳定相关 AVX-512 target features/intrinsics，使用仓库 Rust 1.98.1。资料：[AMD](https://www.amd.com/en/products/processors/laptop/ryzen/9000-series/amd-ryzen-9-9955hx.html)、[Rust 发布说明](https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/)、[ISPC 数据布局指南](https://ispc.github.io/perfguide.html#use-structure-of-arrays-layout-when-possible)。资料支持可行性，不替代本项目性能证据。
+AMD 官方规格支持 9955HX 的 AVX2/AVX512；实际进程可用性仍以运行时检测为准。Rust 1.89 已稳定相关 AVX-512 target features/intrinsics，使用仓库 Rust 1.99.1。资料：[AMD](https://www.amd.com/en/products/processors/laptop/ryzen/9000-series/amd-ryzen-9-9955hx.html)、[Rust 发布说明](https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/)、[ISPC 数据布局指南](https://ispc.github.io/perfguide.html#use-structure-of-arrays-layout-when-possible)。资料支持可行性，不替代本项目性能证据。
 
 ## 4. 独占输出、首错与提交
 

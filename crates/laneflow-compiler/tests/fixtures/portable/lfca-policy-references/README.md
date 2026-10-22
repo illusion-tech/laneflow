@@ -11,5 +11,5 @@
 测试同时构造悬空 owner/目标、跨 owner key、重复及乱序集合、来源继承和跨 chunk 反例。
 
 可在进程环境设置 `DUMP_PORTABLE=1` 后运行
-`cargo +1.98.1 test --locked -p laneflow-compiler --lib policy_reference_fixture_matches_frozen_bytes`
+`cargo +1.99.1 test --locked -p laneflow-compiler --lib policy_reference_fixture_matches_frozen_bytes`
 重建，再取消该环境变量运行测试。更新固定锚点前须独立复核字段登记、摘要和引用顺序。

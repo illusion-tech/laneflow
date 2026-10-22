@@ -22,12 +22,12 @@ jobs:
 
       - name: Install Rust MSRV toolchain
         shell: bash
-        run: rustup toolchain install 1.98.1 --profile minimal
+        run: rustup toolchain install 1.99.1 --profile minimal
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.98.1-evidence
+          shared-key: laneflow-msrv-1.99.1-evidence
 
       - name: Install cargo-nextest 0.9.145
         shell: bash
@@ -51,7 +51,7 @@ jobs:
       - name: Run evidence tests
         shell: bash
         run: >-
-          cargo +1.98.1 nextest run --workspace --locked --run-ignored ignored-only
+          cargo +1.99.1 nextest run --workspace --locked --run-ignored ignored-only
           --test-threads 1 --no-capture
           -E 'test(journal_ab_windows_match_frozen_digests) |
           test(cpu_sampling_windows_match_frozen_digests) |

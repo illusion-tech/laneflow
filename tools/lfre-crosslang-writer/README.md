@@ -58,8 +58,8 @@ C# 运行时不使用 NuGet `Google.FlatBuffers`（其上最新版落后于钉�
      crates/laneflow-compiler/tests/fixtures/lfre-crosslang/csharp_writer.lfre
    ```
 
-5. 验收：`cargo +1.98.1 run --locked -p xtask -- check-wire-audit` 与
-   `cargo +1.98.1 test --locked -p laneflow-compiler --test crosslang_lfre_fixtures` 必须通过。
+5. 验收：`cargo +1.99.1 run --locked -p xtask -- check-wire-audit` 与
+   `cargo +1.99.1 test --locked -p laneflow-compiler --test crosslang_lfre_fixtures` 必须通过。
 
 CI（`.github/workflows/schema-codegen.yml` 的 `crosslang-fixture` job）按同一钉版流程重新生成
 两份 bytes 并与 golden fixture 逐字节比对；writer 源码、fixture 或 schema 变更都会触发。

@@ -28,16 +28,16 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 
 ```text
 # 本地需先 checkout 精确 commit c4bd5bd3751d426d42a9a1749c815e47ea188549
-cargo +1.98.1 run -p laneflow-lust-converter -- verify-source --source-dir <LuSTScenario根目录>
+cargo +1.99.1 run -p laneflow-lust-converter -- verify-source --source-dir <LuSTScenario根目录>
 
-cargo +1.98.1 run -p laneflow-lust-converter -- convert --config <toml>
+cargo +1.99.1 run -p laneflow-lust-converter -- convert --config <toml>
 ```
 
 可选全量集成（默认 `cargo test` 跳过）：
 
 ```text
 set LUST_SOURCE_DIR=<LuSTScenario根目录>
-cargo +1.98.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip regenerate
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip regenerate
 ```
 
 `--skip regenerate` 不可省略：`--ignored` 会并发跑全部 ignored 测试，其中
@@ -57,7 +57,7 @@ cargo +1.98.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip
 设置 `LUST_DECIMAL_BENCH=1`，然后单独运行：
 
 ```text
-cargo +1.98.1 test --release --locked -p laneflow-lust-converter --lib sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference -- --exact --ignored --nocapture
+cargo +1.99.1 test --release --locked -p laneflow-lust-converter --lib sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference -- --exact --ignored --nocapture
 ```
 
 测量先验证等价性、预热两条路径，再交替先后顺序各取 10 个样本；每个样本遍历

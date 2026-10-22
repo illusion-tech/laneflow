@@ -81,8 +81,8 @@ LFRS 6 删除执行字段，交通校验的相对首错顺序、未知字段拒�
 运行：
 
 ```powershell
-cargo +1.98.1 fetch --locked
-cargo +1.98.1 run --locked -p xtask -- check-runtime-architecture
+cargo +1.99.1 fetch --locked
+cargo +1.99.1 run --locked -p xtask -- check-runtime-architecture
 ```
 
 依赖准备与检查分开：`fetch` 准备锁文件中的包，检查命令用 `--locked --offline`
