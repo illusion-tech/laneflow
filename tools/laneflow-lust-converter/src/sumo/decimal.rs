@@ -1,5 +1,6 @@
 //! Exact decimal rationals for LuST coordinate transforms (§3.2).
 
+use core::fmt::NumBuffer;
 use std::{cmp::Ordering, fmt, str::FromStr};
 
 use crate::{Error, Result};
@@ -159,21 +160,29 @@ impl ExactDecimal {
 
     fn to_plain_string(self) -> String {
         if self.scale == 0 {
-            return self.digits.to_string();
+            return self.digits.format_into(&mut NumBuffer::new()).to_owned();
         }
+        let mut buffer = NumBuffer::new();
         let negative = self.digits < 0;
-        let mut digits = self.digits.unsigned_abs().to_string();
-        while digits.len() <= self.scale as usize {
-            digits.insert(0, '0');
-        }
-        let split = digits.len() - self.scale as usize;
-        let mut text = String::new();
+        let digits = self.digits.unsigned_abs().format_into(&mut buffer);
+        let scale = self.scale as usize;
+        let split = digits.len().saturating_sub(scale);
+        let mut text =
+            String::with_capacity(digits.len().max(scale + 1) + 1 + usize::from(negative));
         if negative {
             text.push('-');
         }
-        text.push_str(&digits[..split]);
-        text.push('.');
-        text.push_str(&digits[split..]);
+        if split == 0 {
+            text.push_str("0.");
+            for _ in digits.len()..scale {
+                text.push('0');
+            }
+            text.push_str(digits);
+        } else {
+            text.push_str(&digits[..split]);
+            text.push('.');
+            text.push_str(&digits[split..]);
+        }
         text
     }
 }
@@ -242,26 +251,4 @@ fn pow10(exponent: u32) -> Result<i128> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn simplified_lust_origin_subtraction_matches_contract() {
-        let sx = ExactDecimal::from_str("6806.88").expect("sx");
-        let sy = ExactDecimal::from_str("5727.52").expect("sy");
-        let ox = ExactDecimal::from_str("6806.88").expect("ox");
-        let oz = ExactDecimal::from_str("5727.52").expect("oz");
-        assert_eq!(sx.checked_sub(ox).expect("x").to_f64().expect("xf"), 0.0);
-        assert_eq!(sy.checked_sub(oz).expect("z").to_f64().expect("zf"), 0.0);
-    }
-
-    #[test]
-    fn negative_zero_normalizes_to_positive_zero() {
-        let value = ExactDecimal::from_str("-0.00")
-            .expect("parse")
-            .to_f64()
-            .expect("f64");
-        assert_eq!(value, 0.0);
-        assert!(value.is_sign_positive());
-    }
-}
+mod tests;
