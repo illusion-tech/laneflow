@@ -66,12 +66,12 @@ jobs:
 
       - name: Install Rust MSRV toolchain
         shell: bash
-        run: rustup toolchain install 1.98.0 --profile minimal
+        run: rustup toolchain install 1.98.1 --profile minimal
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.98.0-road-editing-codegen-${{ runner.os }}
+          shared-key: laneflow-msrv-1.98.1-road-editing-codegen-${{ runner.os }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -138,16 +138,16 @@ jobs:
           set -euo pipefail
           flatc_path="${LINUX_FLATC:-${WINDOWS_FLATC:-}}"
           test -n "$flatc_path"
-          cargo +1.98.0 run --locked -p xtask -- \
+          cargo +1.98.1 run --locked -p xtask -- \
             check-road-editing-codegen --flatc "$flatc_path"
-          cargo +1.98.0 run --locked -p xtask -- \
+          cargo +1.98.1 run --locked -p xtask -- \
             check-runtime-snapshot-codegen --flatc "$flatc_path"
 
       - name: Compile generated Rust bindings
         shell: bash
         run: |
-          cargo +1.98.0 test --locked -p laneflow-road-editing-wire
-          cargo +1.98.0 test --locked -p laneflow-runtime-snapshot-wire
+          cargo +1.98.1 test --locked -p laneflow-road-editing-wire
+          cargo +1.98.1 test --locked -p laneflow-runtime-snapshot-wire
 
   crosslang-fixture:
     name: Cross-language LFRE writer fixtures

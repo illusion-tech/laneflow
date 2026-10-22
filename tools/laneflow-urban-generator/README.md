@@ -13,7 +13,7 @@
 
 ```powershell
 New-Item -ItemType Directory -Force target/urban | Out-Null
-cargo +1.98.0 build --release --locked -p laneflow-urban-generator
+cargo +1.98.1 build --release --locked -p laneflow-urban-generator
 target/release/laneflow-urban-generator --config examples/config/cn-urban.toml --scale 10k --output target/urban/10k-a
 target/release/laneflow-urban-generator --config examples/config/cn-urban.toml --scale 10k --output target/urban/10k-b
 target/release/laneflow-urban-generator compare target/urban/10k-a target/urban/10k-b

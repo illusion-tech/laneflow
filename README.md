@@ -24,12 +24,12 @@ LaneFlow 把受检静态路网转换为可共享修订，并在宿主控制下�
 
 ## 快速开始
 
-需要 Git、[rustup](https://rustup.rs/) 和 Rust 1.98：
+需要 Git、[rustup](https://rustup.rs/) 和 Rust 1.98.1：
 
 ```powershell
 git clone https://github.com/illusion-tech/laneflow.git
 cd laneflow
-cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
+cargo +1.98.1 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
 这个无窗口测试会走通 LFCA、`TrafficWorld`、位姿采样与 Bevy `Transform` 同步。
@@ -38,7 +38,7 @@ cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 <summary>运行完整 workspace 检查</summary>
 
 ```powershell
-cargo +1.98.0 test --workspace --locked
+cargo +1.98.1 test --workspace --locked
 ```
 
 </details>
