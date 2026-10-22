@@ -824,3 +824,24 @@ fn same_tick_checkpoint_omission_is_incomplete_via_ordinals() {
         }
     ));
 }
+
+/// tick 相同、中间命令游标分歧而终点对齐的轨迹判 `Diverged`（序数一致
+/// 时游标 / 摘要分歧是计划内执行结果分歧，设计 §4.3；防回退覆盖——
+/// 序数化改版时该用例曾被误删）。
+#[test]
+fn cursor_divergence_with_aligned_target_is_diverged_not_incomplete() {
+    let mut world = world();
+    let expected = replay(&mut world, DIGEST_BYTES, 100);
+    let target = expected.points.last().expect("target").position;
+    let mut actual = Trace {
+        points: expected.points.clone(),
+        failure: None,
+    };
+    // 中间点序数与 tick 不变、游标 +1：计划键一致，命令结果分歧。
+    let mid = actual.points.len() / 2;
+    actual.points[mid].position.command_cursor += 1;
+    assert!(matches!(
+        compare(&expected, &actual, target, None),
+        AuditResult::Diverged { .. }
+    ));
+}
