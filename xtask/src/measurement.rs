@@ -21,10 +21,10 @@ use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-const TOOLCHAIN_ARG: &str = "+1.98.0";
+const TOOLCHAIN_ARG: &str = "+1.98.1";
 /// 冻结的 cargo 构建命令（测量 provenance 的 build_parameters 记录本 xtask 入口，
 /// 本常量记录脚本内部实际执行的命令）。
-const CARGO_COMMAND: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
+const CARGO_COMMAND: &str = "cargo +1.98.1 build -p laneflow-urban-harness --release --locked";
 /// 固定 profile 钉值：覆盖采集机可能配置的环境或 config 覆盖。
 const PROFILE_PINS: [(&str, &str); 10] = [
     ("CARGO_PROFILE_RELEASE_OPT_LEVEL", "3"),
@@ -1038,7 +1038,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
 
     let receipt = json!({
         "version": "urban-measurement-build-v1",
-        "build_parameters": "cargo +1.98.0 run --locked -p xtask -- build-measurement",
+        "build_parameters": "cargo +1.98.1 run --locked -p xtask -- build-measurement",
         "cargo_command": format!("{CARGO_COMMAND} --target {host}"),
         "source_commit": source_commit,
         "source_tree": source_tree,
@@ -1265,11 +1265,11 @@ mod tests {
                 placeholder: "<rustup-home>",
             },
             RemapRoot {
-                from: PathBuf::from("E:/rustup/toolchains/1.98.0-x86_64"),
+                from: PathBuf::from("E:/rustup/toolchains/1.98.1-x86_64"),
                 placeholder: "<rustup-toolchain>",
             },
         ];
-        let log = "error: E:\\rustup\\toolchains\\1.98.0-x86_64\\lib missing; E:/rustup/x";
+        let log = "error: E:\\rustup\\toolchains\\1.98.1-x86_64\\lib missing; E:/rustup/x";
         assert_eq!(
             redact_roots(log, &roots),
             "error: <rustup-toolchain>\\lib missing; <rustup-home>/x"

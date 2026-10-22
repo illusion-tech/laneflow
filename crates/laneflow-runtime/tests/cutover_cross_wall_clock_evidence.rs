@@ -5,7 +5,7 @@
 //! 运行，复现命令：
 //!
 //! ```text
-//! cargo +1.98.0 test --release --locked -p laneflow-runtime \
+//! cargo +1.98.1 test --release --locked -p laneflow-runtime \
 //!   --test cutover_cross_wall_clock_evidence -- --ignored --nocapture
 //! ```
 //!

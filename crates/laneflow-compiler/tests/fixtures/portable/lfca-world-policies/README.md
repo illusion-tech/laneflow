@@ -9,7 +9,7 @@
 信号 Gate 及两个无信号 conflict Gate/stream，并与原 Access 的合成测试法规身份
 `CN-test / 2026-01` 相容。该字符串是不透明的测试版本，不是 Runtime 公历或真实法规依据。
 
-在环境变量 `DUMP_W3_POLICY=1` 下运行 `cargo +1.98.0 test -p laneflow-compiler --lib
---locked w3_shared_policy` 与 `cargo +1.98.0 test -p laneflow-compiler --lib --locked
+在环境变量 `DUMP_W3_POLICY=1` 下运行 `cargo +1.98.1 test -p laneflow-compiler --lib
+--locked w3_shared_policy` 与 `cargo +1.98.1 test -p laneflow-compiler --lib --locked
 runtime_full_spatial_policy_fixture` 可重生成；取消变量后测试核对检入字节。
 Synthetic 贡献来源包含调用行列，修改来源后应先格式化再生成。

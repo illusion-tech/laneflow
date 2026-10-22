@@ -333,7 +333,7 @@ exact 计数与逻辑字节账本是可复现约束。具体运行结果属于 P
 长期设计。复现命令：
 
 ```text
-cargo +1.98.0 test --release --locked -p laneflow-runtime --test compiled_networks conflict_route_registration_10k_100k_wall_clock_evidence -- --exact --ignored --nocapture
+cargo +1.98.1 test --release --locked -p laneflow-runtime --test compiled_networks conflict_route_registration_10k_100k_wall_clock_evidence -- --exact --ignored --nocapture
 ```
 
 ## 10. 非目标与返回 G1 条件

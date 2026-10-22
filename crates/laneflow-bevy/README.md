@@ -72,7 +72,7 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 走廊最小路径是 `signalized_corridor`：
 
 ```powershell
-cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
-cargo +1.98.0 test --locked -p laneflow-bevy --test signalized_corridor_smoke
-cargo +1.98.0 check --locked -p laneflow-bevy --example runtime_min --example signalized_corridor --features native-example
+cargo +1.98.1 test --locked -p laneflow-bevy --test runtime_min_smoke
+cargo +1.98.1 test --locked -p laneflow-bevy --test signalized_corridor_smoke
+cargo +1.98.1 check --locked -p laneflow-bevy --example runtime_min --example signalized_corridor --features native-example
 ```

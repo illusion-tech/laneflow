@@ -2499,7 +2499,7 @@ mod tests {
         assert!(RUST_TOOLCHAIN_TOML.contains("[toolchain]"));
         assert_eq!(
             pinned_rust_toolchain_channel().expect("channel"),
-            "1.98.0",
+            "1.98.1",
             "记录值必须与仓库 pin 同步（升 MSRV 时同步本断言）"
         );
     }
