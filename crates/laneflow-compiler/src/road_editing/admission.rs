@@ -2,6 +2,9 @@
 
 use std::sync::Arc;
 
+mod structure;
+use structure::StructureSizing;
+
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use sha2::{Digest, Sha256};
 
@@ -39,11 +42,6 @@ use crate::{
 const ROAD_EDITING_FRONTEND_VERSION: u32 = 4;
 const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 1;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
-// 每个 verifier table 对应的 retained Typed AST 请求上界。它覆盖外层 enum、嵌套 record、
-// Box/Arc handle 与来源位置；字符串 payload、共享 context 和最终 f32 点表另行精确计量。
-// G3 allocator evidence 会验证实际请求不超过该保守上界。
-const RETAINED_TYPED_AST_RECORD_UPPER_BOUND_BYTES: u64 =
-    core::mem::size_of::<TypedAstDeclaration>() as u64;
 const ARC_ALLOCATION_HEADER_BYTES: u64 = (core::mem::size_of::<usize>() as u64).saturating_mul(2);
 // v1 闭合属性路径表小于 512 项、每项最多四步。固定部分和输入相关的唯一
 // string/canvas slots 分开，为 context 分配前的失败关闭预收费提供上界。
@@ -58,6 +56,8 @@ struct GeometryScratchAllowance {
 
 #[derive(Clone, Copy)]
 struct RoadEditingAdmissionSizing {
+    structure: StructureSizing,
+    import_count: u64,
     frontend_scratch_upper_bound: u64,
     frontend_dynamic_live_upper_bound: u64,
     alignment_input_scratch_bytes: u64,
@@ -65,15 +65,19 @@ struct RoadEditingAdmissionSizing {
 }
 
 impl RoadEditingAdmissionSizing {
-    fn from_root(root: wire::RoadEditingSource<'_>, import_count: u64) -> Self {
+    fn from_root(root: wire::RoadEditingSource<'_>, counts: RoadEditingPreflightCounts) -> Self {
         // Lowering 直接追加到最终 declarations；额外工作集只剩一次存续的 root 或
         // owner-local 排序 view。按实际 wire view 类型和具体集合最大长度精确推导，避免
         // 用全模块引用总数制造不必要的提前拒绝。
         let lowering = lowering_sort_scratch_bytes(root);
+        let structure = StructureSizing::from_root(root, counts);
+        let import_count = u64::try_from(root.module_header().imports().len()).unwrap_or(u64::MAX);
         let alignment_input_scratch_bytes = alignment_input_scratch_bytes_from_root(root);
         let import_sort = size_bytes::<&str>(import_count);
         let frontend_dynamic_live_upper_bound = lowering.max(import_sort);
         Self {
+            structure,
+            import_count,
             // alignment 临时树从本阶段第一次 lowering 一直存续到几何编译结束；它与
             // 每个后续 lowering sort view 共存，但已在 geometry live 的候选 base 中预收费。
             frontend_scratch_upper_bound: alignment_input_scratch_bytes
@@ -321,7 +325,7 @@ fn precheck_accumulated_counts(
     }
     let import_count =
         u64::try_from(verified.root().module_header().imports().len()).unwrap_or(u64::MAX);
-    let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), import_count);
+    let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), counts);
 
     for (dimension, delta) in [
         (CompileLimitDimension::ModuleCount, 1),
@@ -400,7 +404,7 @@ fn precheck_accumulated_counts(
         ));
     }
     let candidate_live_upper =
-        preallocation_live_upper_bound(counts, display_items, display_bytes, import_count);
+        preallocation_live_upper_bound(counts, display_items, display_bytes, &sizing);
     let observed_live = builder
         .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
         .saturating_add(candidate_live_upper)
@@ -426,13 +430,13 @@ fn geometry_scratch_allowance(
     let display_items = u64::from(display_source.is_some());
     let display_bytes =
         display_source.map_or(0, |value| u64::try_from(value.len()).unwrap_or(u64::MAX));
-    let import_count =
-        u64::try_from(verified.root().module_header().imports().len()).unwrap_or(u64::MAX);
+    let sizing =
+        RoadEditingAdmissionSizing::from_root(verified.root(), verified.preflight_counts());
     let candidate_live_upper = preallocation_live_upper_bound(
         verified.preflight_counts(),
         display_items,
         display_bytes,
-        import_count,
+        &sizing,
     );
     let live_bytes_before_scratch = builder
         .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
@@ -474,8 +478,7 @@ fn lower_verified_source(
 ) -> Result<AdmittedOfficialModule, DiagnosticBundle> {
     let root = verified.root();
     let counts = verified.preflight_counts();
-    let import_count = u64::try_from(root.module_header().imports().len()).unwrap_or(u64::MAX);
-    let admission_sizing = RoadEditingAdmissionSizing::from_root(root, import_count);
+    let admission_sizing = RoadEditingAdmissionSizing::from_root(root, counts);
     let locations = RoadEditingLocationFactory::from_verified_root(root);
     let profiles = geometry_profiles(root);
     let shared_namespace: Arc<str> = Arc::from(root.module_header().authoring_namespace_id());
@@ -505,6 +508,13 @@ fn lower_verified_source(
     lower_aggregate_declarations(root, &locations, &shared_namespace, &mut declarations);
     lower_policy_declarations(root, &locations, &shared_namespace, &mut declarations)?;
     debug_assert_eq!(declarations.len(), top_level_declaration_count);
+    #[cfg(debug_assertions)]
+    structure::assert_matches_lowered(
+        admission_sizing.structure,
+        &declarations,
+        &alignments,
+        &conflict_zone_regions,
+    );
 
     let namespace = root.module_header().authoring_namespace_id();
     let geometry_usage = compile_authoring_geometry(
@@ -535,10 +545,10 @@ fn lower_verified_source(
         .output_point_count
         .saturating_add(counts.conflict_region_point_count());
     let geometry_source_range_count = geometry_usage.output_source_range_count;
-    let geometry_output_bytes = size_bytes::<CanonicalPoint3F32Input>(geometry_point_count)
-        .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
-            geometry_source_range_count,
-        ));
+    let geometry_output_bytes =
+        size_bytes::<CanonicalPoint3F32Input>(geometry_usage.output_point_count).saturating_add(
+            size_bytes::<CompiledGeometrySourceRange>(geometry_source_range_count),
+        );
     let post_geometry_import_peak =
         geometry_output_bytes.saturating_add(admission_sizing.import_sort_bytes);
     if post_geometry_import_peak > geometry_scratch_allowance.live_headroom {
@@ -618,12 +628,12 @@ fn lower_verified_source(
         .map_or(0, |value| u64::try_from(value.len()).unwrap_or(u64::MAX));
     let controlled_live_bytes = controlled_live_bytes(
         counts,
-        geometry_point_count,
+        geometry_usage.output_point_count,
         geometry_source_range_count,
         locations.controlled_live_bytes(),
         display_string_items,
         display_string_bytes,
-        u64::try_from(imports.len()).unwrap_or(u64::MAX),
+        &admission_sizing,
     );
     let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
     debug_assert_eq!(
@@ -634,7 +644,7 @@ fn lower_verified_source(
         counts,
         display_string_items,
         display_string_bytes,
-        import_count,
+        &admission_sizing,
     );
     let admission_peak_live_bytes = preallocation_live_bytes
         .saturating_add(
@@ -729,12 +739,12 @@ fn controlled_live_bytes(
     location_context_bytes: u64,
     display_string_items: u64,
     display_string_bytes: u64,
-    import_count: u64,
+    sizing: &RoadEditingAdmissionSizing,
 ) -> u64 {
     let string_items = counts
         .string_item_count()
         .saturating_add(display_string_items);
-    retained_structure_upper_bound(counts)
+    retained_structure_upper_bound(counts, sizing.structure)
         // Typed AST/descriptor 与来源地址 backing 最多各拥有一份同一语义字符串。
         .saturating_add(
             counts
@@ -756,15 +766,15 @@ fn controlled_live_bytes(
         ))
         .saturating_add(location_context_bytes)
         .saturating_add(size_bytes::<SourceDocumentDescriptor>(1))
-        .saturating_add(size_bytes::<ImportRecord>(import_count))
-        .saturating_add(size_bytes::<Arc<str>>(import_count))
+        .saturating_add(size_bytes::<ImportRecord>(sizing.import_count))
+        .saturating_add(size_bytes::<Arc<str>>(sizing.import_count))
 }
 
 fn preallocation_live_upper_bound(
     counts: RoadEditingPreflightCounts,
     display_string_items: u64,
     display_string_bytes: u64,
-    import_count: u64,
+    sizing: &RoadEditingAdmissionSizing,
 ) -> u64 {
     let string_items = counts
         .string_item_count()
@@ -772,7 +782,9 @@ fn preallocation_live_upper_bound(
     let string_bytes = counts
         .total_string_bytes()
         .saturating_add(display_string_bytes);
-    retained_structure_upper_bound(counts)
+    retained_structure_upper_bound(counts, sizing.structure)
+        // alignment 临时树和显式 edge 曲线在几何编译期间与 retained 候选共存。
+        .saturating_add(sizing.structure.authoring_curve_bytes)
         // Typed AST/descriptor payload 与 context 唯一 token payload 各一份。
         .saturating_add(string_bytes.saturating_mul(2))
         // Typed AST Arc allocation，加 context Arc slot 与 allocation。
@@ -792,21 +804,21 @@ fn preallocation_live_upper_bound(
         )
         .saturating_add(LOCATION_CONTEXT_FIXED_UPPER_BOUND_BYTES)
         .saturating_add(size_bytes::<SourceDocumentDescriptor>(1))
-        .saturating_add(size_bytes::<ImportRecord>(import_count))
-        .saturating_add(size_bytes::<Arc<str>>(import_count))
+        .saturating_add(size_bytes::<ImportRecord>(sizing.import_count))
+        .saturating_add(size_bytes::<Arc<str>>(sizing.import_count))
 }
 
-fn retained_structure_upper_bound(counts: RoadEditingPreflightCounts) -> u64 {
-    let out_of_line_occurrences = counts
-        .typed_ast_record_count()
-        .saturating_add(counts.reference_count())
-        .saturating_add(counts.relation_occurrence_count());
+fn retained_structure_upper_bound(
+    counts: RoadEditingPreflightCounts,
+    structure: StructureSizing,
+) -> u64 {
     let owner_slice_allocations = counts
         .declaration_count()
         .saturating_add(counts.reference_count())
         .saturating_mul(ARC_ALLOCATION_HEADER_BYTES);
-    out_of_line_occurrences
-        .saturating_mul(RETAINED_TYPED_AST_RECORD_UPPER_BOUND_BYTES)
+    structure
+        .retained_bytes
+        // 共享 owner 地址 backing 继续使用 occurrence 上界；字符串本体在调用方计量。
         .saturating_add(owner_slice_allocations)
         .saturating_add(size_bytes::<Arc<str>>(counts.string_item_count()))
 }
@@ -1773,9 +1785,10 @@ mod tests {
         let counts =
             super::super::preflight::preflight_source(verified.root(), &limits, "road-editing", 0)
                 .unwrap();
-        let without_ranges = controlled_live_bytes(counts, 6, 0, 0, 0, 0, 0);
+        let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), counts);
+        let without_ranges = controlled_live_bytes(counts, 6, 0, 0, 0, 0, &sizing);
         let range_count = 3;
-        let with_ranges = controlled_live_bytes(counts, 6, range_count, 0, 0, 0, 0);
+        let with_ranges = controlled_live_bytes(counts, 6, range_count, 0, 0, 0, &sizing);
 
         assert_eq!(
             with_ranges - without_ranges,
@@ -1834,14 +1847,14 @@ mod tests {
         let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
         let display_items = 0;
         let display_bytes = 0;
-        let import_count = u64::try_from(verified.root().module_header().imports().len()).unwrap();
+        let sizing =
+            RoadEditingAdmissionSizing::from_root(verified.root(), verified.preflight_counts());
         let base = preallocation_live_upper_bound(
             verified.preflight_counts(),
             display_items,
             display_bytes,
-            import_count,
+            &sizing,
         );
-        let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), import_count);
         assert!(sizing.import_sort_bytes > 0);
 
         let admitted = lower_verified_source(
@@ -1893,7 +1906,7 @@ mod tests {
         assert!(output_bytes > 0, "fixture must retain compiled geometry");
         assert_eq!(
             admitted.typed_ast().imports.len(),
-            usize::try_from(import_count).unwrap()
+            usize::try_from(sizing.import_count).unwrap()
         );
 
         let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
@@ -2060,7 +2073,7 @@ mod tests {
         )
         .unwrap();
         let root = verified.root();
-        let sizing = RoadEditingAdmissionSizing::from_root(root, 0);
+        let sizing = RoadEditingAdmissionSizing::from_root(root, verified.preflight_counts());
         let expected = alignment_input_scratch_bytes_from_root(root)
             .saturating_add(lowering_sort_scratch_bytes(root));
         assert_eq!(sizing.frontend_scratch_upper_bound, expected);
