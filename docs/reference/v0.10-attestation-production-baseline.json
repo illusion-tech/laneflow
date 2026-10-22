@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "LF-ATTEST-P100-PRODUCTION-R0-v1",
+  "workloadId": "LF-ATTEST-MIXED-SYNTHETIC-TIERS-v1",
+  "compileLimitsProfile": "LF-COMP-SINGLE-NETWORK-1M-v2",
+  "attestationImplementationRevision": "与本证据同一提交",
+  "issue": 987,
+  "measuredAt": "2026-10-23",
+  "environment": {
+    "hardwareId": "LF-P100-REF-01",
+    "hardwareIdentityScheme": "laneflow-p100-hardware-identity-v2",
+    "hardwareIdentitySha256": "be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20",
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "physicalCoreCount": 16,
+    "logicalProcessorCount": 32,
+    "physicalMemoryBytes": 66232508416,
+    "operatingSystem": "Microsoft Windows 11 专业版 Insider Preview",
+    "operatingSystemBuild": "29683.1000",
+    "targetTriple": "x86_64-pc-windows-msvc",
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+    "llvm": "22.1.8",
+    "powerSource": "交流电",
+    "powerPlan": "平衡"
+  },
+  "measurement": {
+    "timingBoundary": "attest_published_shared_network_revision 单次调用全链（来源准备 + 根比较 + 确认与处置）；LFCA 生成与共享根构建另列，不计入认证墙钟",
+    "warmupRunsPerTier": 2,
+    "formalSampleCountPerTier": 5,
+    "processCount": 1,
+    "workerCount": 1,
+    "rawSamplesPersisted": false,
+    "timingGranularityNote": "direct_state_digest 样本处于 Windows QPC 100 ns 粒度下限（每样本 3-29 个计时单位），仅作量级参照",
+    "stabilityRepeat": "同窗口内全套复跑一次，认证墙钟中位差 1.1% / 7.7% / 1.1%（一万/十万/一百万），并发干扰 ppm 0 与 5010，直算摘要中位差在 QPC 粒度内",
+    "tiers": [
+      {
+        "stableEntities": 10000,
+        "lfcaBytes": 4449321,
+        "sharedRootRetainedLogicalBytes": 923251,
+        "rootBuildWallClockNs": 228797600,
+        "attestationWallClockNs": {
+          "min": 12025500,
+          "median": 12107700,
+          "max": 12305000
+        },
+        "attestationAllocBytes": 4676685,
+        "attestationDeallocBytes": 4676685,
+        "attestationCoexistLiveBeforeBytes": 5419053,
+        "attestationPeakIncrementBytes": 1010089,
+        "attestationCoexistPeakSampledBytes": 6429142,
+        "steadyStateRetainedDeltaBytes": 0,
+        "directStateDigestWallClockNs": {
+          "min": 600,
+          "median": 700,
+          "max": 900
+        },
+        "directDigestScratchBoundBytes": 906,
+        "directDigestAllocBytes": 2088,
+        "legacyCaptureDigestAllocBytes": 3152
+      },
+      {
+        "stableEntities": 100000,
+        "lfcaBytes": 44481655,
+        "sharedRootRetainedLogicalBytes": 9211333,
+        "rootBuildWallClockNs": 2475293000,
+        "attestationWallClockNs": {
+          "min": 130204900,
+          "median": 135217100,
+          "max": 143572600
+        },
+        "attestationAllocBytes": 47715624,
+        "attestationDeallocBytes": 47715624,
+        "attestationCoexistLiveBeforeBytes": 54173429,
+        "attestationPeakIncrementBytes": 10105501,
+        "attestationCoexistPeakSampledBytes": 64278930,
+        "steadyStateRetainedDeltaBytes": 0,
+        "directStateDigestWallClockNs": {
+          "min": 700,
+          "median": 900,
+          "max": 1100
+        },
+        "directDigestScratchBoundBytes": 906,
+        "directDigestAllocBytes": 2088,
+        "legacyCaptureDigestAllocBytes": 3153
+      },
+      {
+        "stableEntities": 1000000,
+        "lfcaBytes": 444792209,
+        "sharedRootRetainedLogicalBytes": 92088415,
+        "rootBuildWallClockNs": 27442262200,
+        "attestationWallClockNs": {
+          "min": 1215251700,
+          "median": 1225537800,
+          "max": 1248669000
+        },
+        "attestationAllocBytes": 471565887,
+        "attestationDeallocBytes": 471565887,
+        "attestationCoexistLiveBeforeBytes": 541700935,
+        "attestationPeakIncrementBytes": 101054689,
+        "attestationCoexistPeakSampledBytes": 642755624,
+        "steadyStateRetainedDeltaBytes": 0,
+        "directStateDigestWallClockNs": {
+          "min": 2400,
+          "median": 2600,
+          "max": 2900
+        },
+        "directDigestScratchBoundBytes": 906,
+        "directDigestAllocBytes": 2088,
+        "legacyCaptureDigestAllocBytes": 3154
+      }
+    ],
+    "concurrentInterference": {
+      "tierStableEntities": 100000,
+      "contendedTicks": 2048,
+      "warmupTicksPerPhase": 16,
+      "attestWorkerWindow": "30 s Pass-only loop",
+      "shadowWorldDigestMatches": true,
+      "runs": [
+        {
+          "baselineMedianNs": 96000,
+          "contendedMedianNs": 95500,
+          "baselineP95Ns": 98500,
+          "contendedP95Ns": 114600,
+          "interferenceMedianPpm": 0,
+          "interferenceP95Ppm": 163451,
+          "attestCycles": 254
+        },
+        {
+          "baselineMedianNs": 95100,
+          "contendedMedianNs": 95700,
+          "baselineP95Ns": 97400,
+          "contendedP95Ns": 98700,
+          "interferenceMedianPpm": 6309,
+          "interferenceP95Ppm": 13347,
+          "attestCycles": 253
+        },
+        {
+          "baselineMedianNs": 94700,
+          "contendedMedianNs": 95000,
+          "baselineP95Ns": 98400,
+          "contendedP95Ns": 97800,
+          "interferenceMedianPpm": 3167,
+          "interferenceP95Ppm": 0,
+          "attestCycles": 255
+        },
+        {
+          "baselineMedianNs": 95500,
+          "contendedMedianNs": 94400,
+          "baselineP95Ns": 98900,
+          "contendedP95Ns": 109500,
+          "interferenceMedianPpm": 0,
+          "interferenceP95Ppm": 107178,
+          "attestCycles": 250
+        }
+      ],
+      "medianInterferencePpmRange": [0, 6309],
+      "p95InterferencePpmRange": [0, 163451],
+      "medianOnlyPreliminaryRuns": [
+        {
+          "baselineMedianNs": 95800,
+          "contendedMedianNs": 95800,
+          "interferencePpm": 0,
+          "attestCycles": 246
+        },
+        {
+          "baselineMedianNs": 99800,
+          "contendedMedianNs": 100300,
+          "interferencePpm": 5010,
+          "attestCycles": 250
+        }
+      ]
+    }
+  }
+}

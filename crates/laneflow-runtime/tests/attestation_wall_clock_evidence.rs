@@ -255,14 +255,21 @@ fn concurrent_attest_tick_interference_evidence() {
         after, reference,
         "并发认证不得改变 tick 语义（与同程无并发参照世界的摘要一致）"
     );
+    let baseline_p95 = percentile95(&baseline);
+    let contended_p95 = percentile95(&contended);
     println!(
         "#987-evidence concurrent-interference tier={tier} ticks={CONCURRENT_TICKS} \
          baseline_median_ns={baseline_median} contended_median_ns={contended_median} \
-         interference_ppm={} attest_cycles={worker_cycles}",
+         baseline_p95_ns={baseline_p95} contended_p95_ns={contended_p95} \
+         interference_ppm={} interference_p95_ppm={} attest_cycles={worker_cycles}",
         contended_median
             .saturating_sub(baseline_median)
             .saturating_mul(1_000_000)
             / baseline_median.max(1),
+        contended_p95
+            .saturating_sub(baseline_p95)
+            .saturating_mul(1_000_000)
+            / baseline_p95.max(1),
     );
 }
 
@@ -270,4 +277,10 @@ fn median(values: &[u128]) -> u128 {
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
     sorted[sorted.len() / 2]
+}
+
+fn percentile95(values: &[u128]) -> u128 {
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    sorted[(sorted.len() * 95) / 100]
 }

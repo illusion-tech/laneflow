@@ -147,16 +147,20 @@ fn attestation_allocation_evidence() {
         let stats = region.change();
         let coexist_delta = allocator_live_bytes().saturating_sub(coexist_before);
         let _ = &region; // Region 析构前读取完成
+        // 增量峰值 = sampled_peak − coexist_before（来源字节 + 候选根 + scratch
+        // 在峰值的共存超出部分）；共存总量即 sampled_peak 绝对值。
         println!(
             "#987-evidence allocation tier={tier} lfca_bytes={} root_retained_bytes={} \
              attest_alloc_bytes={} attest_dealloc_bytes={} \
-             sampled_peak_live_bytes={} coexist_delta_bytes={coexist_delta} \
-             steady_delta_bytes={steady_delta}",
+             coexist_live_before_bytes={coexist_before} \
+             sampled_peak_live_bytes={} increment_peak_bytes={} \
+             coexist_delta_bytes={coexist_delta} steady_delta_bytes={steady_delta}",
             lfca.len(),
             root.retained_logical_bytes(),
             stats.bytes_allocated,
             stats.bytes_deallocated,
             peak.load(Ordering::Relaxed),
+            peak.load(Ordering::Relaxed).saturating_sub(coexist_before),
         );
         assert_eq!(steady_delta, 0, "稳态保留新增须实测为零");
     }
