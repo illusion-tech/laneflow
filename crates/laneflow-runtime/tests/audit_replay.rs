@@ -31,7 +31,7 @@ use laneflow_static_network::{
 const LFCA: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
-const POINT_BYTES: usize = 48;
+const POINT_BYTES: usize = 52;
 const POINT_COUNT: usize = 4;
 const DIGEST_BYTES: u64 = 16 * 1_024 * 1_024;
 
@@ -155,11 +155,12 @@ fn swap_world(world_id: u64, swapped: bool) -> TrafficWorld {
     world
 }
 
-fn point(world: &TrafficWorld, budget: u64) -> Result<Point, Failure> {
+fn point(world: &TrafficWorld, budget: u64, ordinal: u32) -> Result<Point, Failure> {
     let digest = world
         .direct_state_digest(SnapshotDigestLimits::new(budget))
         .map_err(|error| Failure::Digest(format!("{error:?}")))?;
     Ok(Point {
+        ordinal,
         position: Position {
             command_cursor: world.command_cursor(),
             tick: world.tick_index(),
@@ -180,7 +181,7 @@ fn replay(world: &mut TrafficWorld, budget: u64, delta_ms: u64) -> Trace {
             trace.failure = Some(Failure::Execution(format!("{error:?}")));
             break;
         }
-        match point(world, budget) {
+        match point(world, budget, index as u32) {
             Ok(point) => trace.points.push(point),
             Err(error) => {
                 trace.failure = Some(error);
@@ -252,6 +253,8 @@ impl Drop for Exchange {
 fn write_points(path: &Path, points: &[Point]) {
     let mut file = fs::File::create(path).expect("output");
     for point in points {
+        file.write_all(&point.ordinal.to_le_bytes())
+            .expect("ordinal");
         file.write_all(&point.position.command_cursor.to_le_bytes())
             .expect("cursor");
         file.write_all(&point.position.tick.to_le_bytes())
@@ -282,11 +285,12 @@ fn read_points(path: &Path) -> Trace {
         .iter()
         .take(POINT_COUNT)
         .map(|bytes| Point {
+            ordinal: u32::from_le_bytes(bytes[..4].try_into().expect("fixed record")),
             position: Position {
-                command_cursor: u64::from_le_bytes(bytes[..8].try_into().expect("fixed record")),
-                tick: u64::from_le_bytes(bytes[8..16].try_into().expect("fixed record")),
+                command_cursor: u64::from_le_bytes(bytes[4..12].try_into().expect("fixed record")),
+                tick: u64::from_le_bytes(bytes[12..20].try_into().expect("fixed record")),
             },
-            digest: bytes[16..].try_into().expect("fixed record"),
+            digest: bytes[20..].try_into().expect("fixed record"),
         })
         .collect();
     Trace { points, failure }
@@ -364,7 +368,7 @@ fn audit_worker() {
         world
             .register_route(RouteRegisterInput::new(edges))
             .expect("distortion route");
-        let extra = point(&world, DIGEST_BYTES).expect("point after distortion");
+        let extra = point(&world, DIGEST_BYTES, u32::MAX).expect("point after distortion");
         if let Some(last) = trace.points.last_mut() {
             last.digest = extra.digest;
         }
@@ -379,7 +383,7 @@ fn audit_worker() {
                     .with_open_entrance(),
             )
             .expect("distortion spawn");
-        let extra = point(&world, DIGEST_BYTES).expect("point after distortion");
+        let extra = point(&world, DIGEST_BYTES, u32::MAX).expect("point after distortion");
         if let Some(last) = trace.points.last_mut() {
             // 失真注入只替换状态摘要：比较位置（游标 / 时刻）保持原轨迹，
             // 目标终点照常到达，结论落在 Diverged 而非 MissingTarget。
@@ -739,28 +743,30 @@ fn distortion_is_detected_independent_of_command_cursor() {
     );
 }
 
-/// 中间比较点错位 / 重复 / 重排判 `Incomplete` 而非 `Diverged`（审阅意见：
-/// 宿主要求的比较点没有按计划取得时未完成目标审计，不冒充状态分歧）。
+/// 检查点序数失配（省略、复制顶替或重排——含同 tick 多检查点之间的同类
+/// 错乱）判 `Incomplete` 而非 `Diverged`：宿主要求的比较点没有按计划
+/// 取得，不冒充状态分歧；序数一致时的位置分歧归 `Diverged`（见
+/// cursor_divergence 用例）。
 #[test]
-fn misaligned_intermediate_checkpoints_are_incomplete_not_diverged() {
+fn ordinal_mismatch_is_incomplete_not_diverged() {
     let mut world = world();
     let expected = replay(&mut world, DIGEST_BYTES, 100);
     let target = expected.points.last().expect("target").position;
-    // 中间点错位（tick 偏移，记录数与目标终点不变）。
-    let mut misaligned = Trace {
+    // 序数被顶替（第 2 个点携带序数 3）：计划键失配。
+    let mut substituted = Trace {
         points: expected.points.clone(),
         failure: None,
     };
-    let mid = misaligned.points.len() / 2;
-    misaligned.points[mid].position.tick += 1;
+    let mid = substituted.points.len() / 2;
+    substituted.points[mid].ordinal += 1;
     assert!(matches!(
-        compare(&expected, &misaligned, target, None),
+        compare(&expected, &substituted, target, None),
         AuditResult::Incomplete {
             reason: Failure::MissingPoints,
             ..
         }
     ));
-    // 中间两点重排（position 随记录交换）。
+    // 重排（两条非末位记录连同序数交换）：序数序列失配。
     let mut reordered = Trace {
         points: expected.points.clone(),
         failure: None,
@@ -775,23 +781,46 @@ fn misaligned_intermediate_checkpoints_are_incomplete_not_diverged() {
     ));
 }
 
-/// tick 序列一致、中间命令游标分歧而终点对齐的轨迹判 `Diverged`（审阅
-/// 意见：状态依赖命令一成一败时执行结果不同，设计 §4.3 归 Diverged，
-/// 不因游标暂时失配被时间表检查误报为未完成）。
+/// 同 tick 多检查点之间的省略 / 复制顶替由序数失配暴露（审阅意见：tick
+/// 作计划身份时同 tick 检查点被别名化）：两个同 tick、不同游标的必需
+/// 检查点，其中一个被省略、另一个复制顶替后记录数与终点不变，序数
+/// 序列失配 → `Incomplete`，不误报为 `Diverged`。
 #[test]
-fn cursor_divergence_with_aligned_target_is_diverged_not_incomplete() {
-    let mut world = world();
-    let expected = replay(&mut world, DIGEST_BYTES, 100);
-    let target = expected.points.last().expect("target").position;
-    let mut actual = Trace {
-        points: expected.points.clone(),
+fn same_tick_checkpoint_omission_is_incomplete_via_ordinals() {
+    // 构造两个同 tick、不同游标的必需检查点（宿主一 tick 内多次命令采样）。
+    let same_tick_a = Point {
+        ordinal: 10,
+        position: Position {
+            command_cursor: 5,
+            tick: 7,
+        },
+        digest: [1; 32],
+    };
+    let same_tick_b = Point {
+        ordinal: 11,
+        position: Position {
+            command_cursor: 6,
+            tick: 7,
+        },
+        digest: [2; 32],
+    };
+    let expected = Trace {
+        points: vec![same_tick_a, same_tick_b],
         failure: None,
     };
-    // 中间点游标 +1（tick 不变）：计划时刻一致，命令结果分歧。
-    let mid = actual.points.len() / 2;
-    actual.points[mid].position.command_cursor += 1;
+    let target = same_tick_b.position;
+    // 省略 B、复制 A 顶替：记录数与终点游标 / tick 保持，序数失配。
+    let mut omitted = Trace {
+        points: vec![same_tick_a, same_tick_a],
+        failure: None,
+    };
+    omitted.points[1].position = same_tick_b.position;
+    omitted.points[1].digest = same_tick_b.digest;
     assert!(matches!(
-        compare(&expected, &actual, target, None),
-        AuditResult::Diverged { .. }
+        compare(&expected, &omitted, target, None),
+        AuditResult::Incomplete {
+            reason: Failure::MissingPoints,
+            ..
+        }
     ));
 }
