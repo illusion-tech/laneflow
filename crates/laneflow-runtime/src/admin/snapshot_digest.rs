@@ -1529,6 +1529,40 @@ mod tests {
             )),
         );
     }
+    /// 瞬态失真（检查点之间被打中、下一个检查点前还原）不留摘要差异
+    /// （漏检面 §5 第 13 条的真实注入）：直改 committed 的等待区占用后还原，
+    /// 检查点时刻的摘要与干净状态一致；未还原的失真改变摘要（对照）。
+    /// 集成测试只有公共 API，命令会永久改变游标，无法构造本场景。
+    #[test]
+    fn transient_distortion_between_checkpoints_leaves_digest_unchanged() {
+        let (mut world, _, _) = world_with_vehicle(true);
+        let limits = SnapshotDigestLimits::new(64 * 1024 * 1024);
+        let clean = world.direct_state_digest(limits).expect("clean digest");
+        assert!(
+            !world.state.committed.waiting_zones.is_empty(),
+            "fixture must carry waiting zones"
+        );
+        let original = world.state.committed.waiting_zones[0];
+        // 失真窗口：占用被直改（非命令、不动游标）。
+        world.state.committed.waiting_zones[0].occupancy = original.occupancy.wrapping_add(1);
+        let inside = world
+            .direct_state_digest(limits)
+            .expect("digest inside window");
+        assert_ne!(
+            inside, clean,
+            "窗口内的失真改变摘要（对照：检查点落入窗口可见）"
+        );
+        // 窗口收敛：还原直改，检查点时刻摘要回到干净值。
+        world.state.committed.waiting_zones[0] = original;
+        assert_eq!(
+            world
+                .direct_state_digest(limits)
+                .expect("digest after restore"),
+            clean,
+            "检查点之间的瞬态收敛不留摘要差异（漏检面 §5 第 13 条）"
+        );
+    }
+
     #[test]
     fn digest_distinguishes_vehicle_binding_across_identical_routes() {
         // 两条内容相同的路线：车辆绑定分布不同 => 逻辑状态不同（remove 语义
