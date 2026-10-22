@@ -4564,7 +4564,7 @@ pub(crate) mod tests {
     }
 
     /// 从既有修订安装 multi-gate 世界并注册全部路线、生成 `spawned` 辆车；
-    /// 同一制品可构建两个等价根供同修订切换测试使用。
+    /// 同一制品可构建两个等价根对象供同修订切换测试使用。
     fn install_multi_gate(
         revision: &Arc<laneflow_static_network::SharedNetworkRevision>,
         count: usize,
@@ -7925,7 +7925,7 @@ pub(crate) mod tests {
     }
 
     /// 同修订切换后首拍（#705 审阅：小场景关键组合移入 lib）：同一制品构建
-    /// 两个等价根，换根重编译全部路线后继续步进；切换后逐步 digest/决策/
+    /// 两个等价根对象，换根重编译全部路线后继续步进；切换后逐步 digest/决策/
     /// 事件与 worker=1 参考一致，多 worker 臂经强制分发每拍真实走 P2 分发。
     #[test]
     fn dispatch_matches_after_same_revision_cutover_first_tick() {

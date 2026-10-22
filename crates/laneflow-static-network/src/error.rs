@@ -1,6 +1,6 @@
 use laneflow_static_contract::{EntityKind, StableId128};
 
-/// 共享根独立闭合策略失败的原因。
+/// 共享静态路网独立闭合策略失败的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyBuildViolation {
     /// 策略局部表（evidence/gap/stream/gate）的行序未按 `(policy, key)` 严格递增

@@ -439,10 +439,10 @@ impl NetworkRevisionCutoverDescriptor {
 }
 
 /// 切换事务失败（#302 切换合同 §8）。任一失败路径都保持旧世界原样
-/// 继续：旧修订、旧动态状态、旧来源、旧占用与信号语义不变。
+/// 继续：旧根对象、旧动态状态、旧来源、旧占用与信号语义不变。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum CutoverError {
-    /// 首次根突变前，目标执行计划准备失败；旧根和资源保持。
+    /// 首次换根前，目标执行计划准备失败；旧根对象和资源保持。
     #[error("执行计划准备失败: {0}")]
     ExecutionPlan(crate::ExecutionPlanError),
     /// 相同策略身份必须保留法域和法规版本。
@@ -486,9 +486,9 @@ pub enum CutoverError {
     /// 世界级恢复入口调用时无在途切换可放弃。
     #[error("无在途切换事务")]
     NoInFlightTransaction,
-    /// 候选构造失败：某条已注册路线对 target 根重编译失败（同修订下
+    /// 候选构造失败：某条已注册路线对 target 修订重编译失败（同修订下
     /// 属防御深度，语义上不可达）。
-    #[error("路线对 target 根重编译失败")]
+    #[error("路线对 target 修订重编译失败")]
     RouteRevalidationFailed,
     /// 晋升后占用索引重建失败（同修订不变量下语义上不可达）。
     #[error("占用索引重建失败")]
@@ -496,7 +496,7 @@ pub enum CutoverError {
     /// 暂存结构或路线编译缓冲容量预留失败。
     ///
     /// 切换候选表和每条 compiled-route 热表都在提交前可失败预留；
-    /// 任一失败保持旧根、旧来源、旧路线和旧占用不变。
+    /// 任一失败保持旧根对象、旧来源、旧路线和旧占用不变。
     #[error("切换暂存容量预留失败")]
     StagingAllocFailed,
     /// 引用不存在：base 侧车道边在 target 修订无稳定对应（#513 切片 C；
@@ -712,16 +712,16 @@ impl TrafficWorld {
     /// 成功返回切换事件批次（恰一次交付）；世界事件游标同界递增。
     ///
     /// 在固定步进安全边界（生命周期命令只能在两次 `step` 之间调用）以
-    /// 原子方式把活动根换为同修订重发布/重编译制品：动态状态原样保留，
-    /// 每条已注册路线的 compiled 表对 target 根原地重编译（当期
+    /// 原子方式把活动修订换为同修订重发布/重编译制品：动态状态原样保留，
+    /// 每条已注册路线的 compiled 表对 target 修订原地重编译（当期
     /// `RouteHandle` / `VehicleHandle` 保持有效，ADR 0029 §6），信号灯色
-    /// 与占用索引按 target 根重建。任一验证或构造失败都失败关闭：旧
+    /// 与占用索引按 target 修订重建。任一验证或构造失败都失败关闭：旧
     /// 世界原样继续、零可观察变化。
     ///
     /// 事务边界说明（v1 同步形态）：基准捕获与「日志武装」在同一次调用
     /// 内完成——同修订换根不改变动态状态，迁移增量日志退化为空路径；
     /// 在途唯一性由同步入口保证（不存在并发候选）；世代复核由入口处对
-    /// base 绑定的认证承担。旧修订回收由 `Arc` 引用计数自然承担（最后
+    /// base 绑定的认证承担。旧根对象回收由 `Arc` 引用计数自然承担（最后
     /// 借用退出即回收）。
     ///
     /// # Errors
@@ -800,14 +800,14 @@ impl TrafficWorld {
             return Err(CutoverError::RouteRevalidationFailed);
         }
         // 世代耗尽必须在任何候选暂存/分配之前失败关闭；成功值只在
-        // Quiescent Commit 与根、来源和动态派生状态同界写入。
+        // Quiescent Commit 与修订、来源和动态派生状态同界写入。
         let next_world_generation = self
             .state
             .binding
             .world_generation
             .checked_next()
             .ok_or(CutoverError::WorldGenerationExhausted)?;
-        // Prepare（staging，失败不触及旧世界）：逐路线对 target 根重编译。
+        // Prepare（staging，失败不触及旧世界）：逐路线对 target 修订重编译。
         let mut staged: Vec<(usize, CompiledRoute)> = Vec::new();
         staged
             .try_reserve(self.state.committed.routes.len())
@@ -858,7 +858,7 @@ impl TrafficWorld {
                 staged.push((index, staged_route));
             }
         }
-        // Prepare（续）：针对 target 根与 staged 路线在暂存区完成可失败的
+        // Prepare（续）：针对 target 修订与 staged 路线在暂存区完成可失败的
         // 占用索引重建；commit 段只剩不可失败换绑（#302 切换合同 §4）。
         let (staged_occupancy, staged_occupancy_scratch) = self
             .state
@@ -1419,7 +1419,7 @@ pub(crate) mod tests {
                 .cutover_same_revision(Arc::clone(&target), target_source, &descriptor, &limits())
                 .expect("same-revision cutover");
 
-            // 根与来源已换绑；句柄继续寻址同一逻辑实体，动态状态逐字段不变。
+            // 修订与来源已换绑；句柄继续寻址同一逻辑实体，动态状态逐字段不变。
             assert_eq!(
                 world
                     .revision()

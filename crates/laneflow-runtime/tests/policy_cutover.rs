@@ -68,7 +68,7 @@ fn candidate(
     };
     builder.add_right_of_way_policy_set(policy).unwrap();
     if extra {
-        // 明确挑选排序在所选身份之前的独立策略，迫使目标根 ordinal 改变。
+        // 明确挑选排序在所选身份之前的独立策略，迫使目标修订 ordinal 改变。
         let extra_key = (0..100)
             .map(|n| format!("other-{n}"))
             .find(|key| id(key) < id("selected"))

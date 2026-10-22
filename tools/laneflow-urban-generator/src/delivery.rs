@@ -469,7 +469,7 @@ pub fn generate(
         detail: format!("manifest.toml: {error}"),
     })?;
     let measurements_bytes = toml::to_string_pretty(&Measurements {phases:recorder.phases,
-        memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared-root logical bytes are reported separately in manifest.".into()})?;
+        memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared static network logical bytes are reported separately in manifest.".into()})?;
     verified_write::write_verified(
         &directory.join("measurements.toml"),
         measurements_bytes.as_bytes(),

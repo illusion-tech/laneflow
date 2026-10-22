@@ -15,6 +15,10 @@ def records(filename, prefix):
             continue
         fields = line.split(prefix + " ", 1)[1].split()
         row = dict(field.split("=", 1) for field in fields)
+        # 兼容两键（#985 改名）：新输出为 `shared_static_network`，历史证据为 `shared_root`；
+        # 统一读作 `shared_root`，输出键与既有汇总格式保持一致。
+        if "shared_static_network" in row:
+            row["shared_root"] = row.pop("shared_static_network")
         result.append({key: int(value) if value.isdecimal() else value for key, value in row.items()})
     return result
 

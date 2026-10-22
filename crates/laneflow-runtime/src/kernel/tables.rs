@@ -28,7 +28,7 @@ pub(crate) struct NextControlled {
     pub distance_from_hop_start: BoundedDistance,
 }
 
-/// 限速下降转换：与共享根 `speed_limit_transitions` 同形。
+/// 限速下降转换：与共享静态路网 `speed_limit_transitions` 同形。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SpeedLimitDrop {
     pub from_route_edge_index: u32,

@@ -8,7 +8,7 @@
 //! - 可驱动失败面的零发布：`prepare-reject`（策略/来源修订/世界身份/基线游标四类
 //!   前置拒绝）与 `overflow`/`lag`（追赶段日志字节与滞后超限），失败后世界继续
 //!   推进、无部分发布，且可重试成功；
-//! - 多轮切换：`multi`（base→v1 跨修订在线切换 + v1→v1 新根同修订换根两轮串联）。
+//! - 多轮切换：`multi`（base→v1 跨修订在线切换 + v1→v1 换新根对象的同修订换根两轮串联）。
 //!
 //! 执行回执（`gate.json`）绑定 exact head、命令、输入身份与逐场景结果；scope 与
 //! timing_basis 字段声明本见证不覆盖的范围与计时口径。
@@ -643,7 +643,7 @@ fn reject_trial(
 }
 
 /// `multi`：两轮切换串联——轮 1 跨修订在线切换（base→v1，日志/追赶/静默提交），
-/// 轮 2 同修订换根（v1→v1 新根实例，`cutover_same_revision`）。两轮各推进一次
+/// 轮 2 同修订换根（v1→v1 新根对象，`cutover_same_revision`）。两轮各推进一次
 /// 世代与事件；逐拍 oracle 为事件前缀（至轮 1 提交 tick）对 baseline 相等，轮 2
 /// 后无逐拍 oracle，由场景不变量承担。≥2 轮跨修订链与 ABA 往返在单测/集成层
 /// 覆盖（runtime 连续 re-cutover 集成测试、bevy ABA），不经本见证认证。

@@ -122,7 +122,7 @@ mod tests {
                 assert!(nanos.iter().skip(1).sum::<u128>() <= nanos[0]);
                 let memory = harness.world.state.retained_memory();
                 println!(
-                    "profile-memory scene={} round={round} source_world_owned={} shared_root={} binding={} committed={} derived={} workspace={} administrative={} journal_bytes={} digest={}",
+                    "profile-memory scene={} round={round} source_world_owned={} shared_static_network={} binding={} committed={} derived={} workspace={} administrative={} journal_bytes={} digest={}",
                     scene.name(),
                     memory.world_owned_bytes(),
                     memory.shared_network,

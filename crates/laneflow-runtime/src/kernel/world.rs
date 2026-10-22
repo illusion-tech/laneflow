@@ -157,9 +157,9 @@ impl WorldGeneration {
 ///
 /// 这是位置观察，不是通行许可、停止原因或下一步预测；当前 pose 仍通过
 /// Session 的封闭提取入口获得，Gate 几何只能用于静态调试标记。`route` 与
-/// `hop` 一起标识本世界中的路线出现位置；`gate` 是当前共享根内的静态
+/// `hop` 一起标识本世界中的路线出现位置；`gate` 是当前共享静态路网内的静态
 /// 序号。它们不得跨世界、世代或修订直接复用；跨独立运行的比较使用调用方
-/// 路线身份、hop 和从相应根解析的静态稳定身份，不比较 raw handle 字面值。
+/// 路线身份、hop 和从相应修订解析的静态稳定身份，不比较 raw handle 字面值。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RouteGateObservation {
     route: RouteHandle,
@@ -182,7 +182,7 @@ impl RouteGateObservation {
         self.hop
     }
 
-    /// 当前共享根内的静态机动门序号。
+    /// 当前共享静态路网内的静态机动门序号。
     #[must_use]
     pub const fn gate(self) -> ManeuverGateOrdinal {
         self.gate
@@ -194,7 +194,7 @@ impl RouteGateObservation {
         self.edge
     }
 
-    /// Gate 在 from-edge 上的整数毫米进度（即该边的共享根全长）。
+    /// Gate 在 from-edge 上的整数毫米进度（即该边的共享静态路网全长）。
     #[must_use]
     pub const fn progress_mm(self) -> u32 {
         self.progress_mm
@@ -460,7 +460,7 @@ impl crate::kernel::state::WorldState {
         self.binding.policy_binding.selection()
     }
 
-    /// 当前世界唯一所选策略，借用同一个共享根。
+    /// 当前世界唯一所选策略，借用同一个共享路网修订。
     #[must_use]
     pub fn policy(&self) -> Option<laneflow_static_network::PolicyView<'_>> {
         self.read_view().policy()
@@ -472,7 +472,7 @@ impl crate::kernel::state::WorldState {
         self.binding.policy_binding.gaps()
     }
 
-    /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
+    /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     #[must_use]
     pub fn conflict_passage_locator(
         &self,
@@ -495,7 +495,7 @@ impl crate::kernel::state::WorldState {
             .conflict_passage_occurrence_locator(route, conflict_occurrence_index)
     }
 
-    /// 当前共享根中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
+    /// 当前共享静态路网中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
     #[must_use]
     pub fn conflict_passage_cell_count(&self) -> usize {
         self.conflict_read().cell_count()
@@ -874,7 +874,7 @@ impl crate::kernel::state::WorldState {
     /// 从 reservation 级 exact route/Gate/passage 证明重建 downstream 物理资源并集。
     ///
     /// committed claim 只保留热路径需要的物理区间；snapshot/restore/cutover
-    /// 必须调用本入口证明这些区间仍是当前根与整车长度的唯一推导结果。
+    /// 必须调用本入口证明这些区间仍是当前修订与整车长度的唯一推导结果。
     #[cfg(test)]
     pub(crate) fn derive_reservation_downstream_claims(
         &self,
@@ -902,7 +902,7 @@ impl crate::kernel::state::WorldState {
         self.binding.world_generation
     }
 
-    /// 共享根。
+    /// 共享路网修订。
     #[must_use]
     pub fn revision(&self) -> Arc<SharedNetworkRevision> {
         Arc::clone(&self.binding.revision)
@@ -963,7 +963,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 边序列为空、序号越出共享根、相邻边不连通或机动转移无法唯一匹配（
+    /// 边序列为空、序号越出共享静态路网、相邻边不连通或机动转移无法唯一匹配（
     /// `ManeuverMismatch` / `AmbiguousManeuver`）、等待区本地存储跨度无法表示
     /// （`WaitingStorageSpanUnbounded`）、命令游标耗尽（
     /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
@@ -2009,7 +2009,7 @@ impl crate::kernel::state::WorldState {
 
     /// 本世界已注册路线在 `hop` 处的机动门只读定位（#285 复杂路口观测 G1 §2）。
     ///
-    /// 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享根整数毫米
+    /// 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享静态路网整数毫米
     /// 边长；Gate 在该 hop 的 from-edge 末端，不在调用方重跑 route
     /// normalization。stale route、越界 hop 或该 hop 没有 Gate 时返回
     /// `None`，不就近选择另一道 Gate。读取为 O(1)、无堆分配，不改变世界或
@@ -2207,16 +2207,16 @@ impl crate::kernel::state::WorldState {
 }
 
 impl TrafficWorld {
-    /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
+    /// 安装完整共享路网修订并指名已提交来源（#302 活动聚合）。失败不留下
     /// 可观察的半个 world。
     ///
-    /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
+    /// 来源的 `NetworkRevisionId` 必须与共享路网修订 origin 精确相等；digest /
     /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
     ///
     /// # Errors
     ///
-    /// 来源修订号与共享根 origin 不一致、
-    /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享根
+    /// 来源修订号与共享路网修订 origin 不一致、
+    /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享静态路网
     /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
     /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /
     /// `PolicyCapacityOverflow` / `PolicyAllocationFailed`），或冲突仲裁器容量、
@@ -2284,7 +2284,7 @@ impl TrafficWorld {
         self.state.policy_selection()
     }
 
-    /// 当前世界唯一所选策略，借用同一个共享根。
+    /// 当前世界唯一所选策略，借用同一个共享路网修订。
     ///
     /// # Panics
     ///
@@ -2306,7 +2306,7 @@ impl TrafficWorld {
         self.state.policy_gap_profiles()
     }
 
-    /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
+    /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     ///
     /// # Panics
     ///
@@ -2339,7 +2339,7 @@ impl TrafficWorld {
             .conflict_passage_occurrence_locator(route, conflict_occurrence_index)
     }
 
-    /// 当前共享根中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
+    /// 当前共享静态路网中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
     ///
     /// # Panics
     ///
@@ -2386,7 +2386,7 @@ impl TrafficWorld {
         self.state.world_generation()
     }
 
-    /// 共享根。
+    /// 共享路网修订。
     ///
     /// # Panics
     ///
@@ -2494,7 +2494,7 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 边序列为空、序号越出共享根、相邻边不连通或机动转移无法唯一匹配（
+    /// 边序列为空、序号越出共享静态路网、相邻边不连通或机动转移无法唯一匹配（
     /// `ManeuverMismatch` / `AmbiguousManeuver`）、等待区本地存储跨度无法表示
     /// （`WaitingStorageSpanUnbounded`）、命令游标耗尽（
     /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
@@ -2950,7 +2950,7 @@ impl TrafficWorld {
 
     /// 本世界已注册路线在 `hop` 处的机动门只读定位（#285 复杂路口观测 G1 §2）。
     ///
-    /// 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享根整数毫米
+    /// 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享静态路网整数毫米
     /// 边长；Gate 在该 hop 的 from-edge 末端，不在调用方重跑 route
     /// normalization。stale route、越界 hop 或该 hop 没有 Gate 时返回
     /// `None`，不就近选择另一道 Gate。读取为 O(1)、无堆分配，不改变世界或
@@ -2967,13 +2967,13 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
-    /// 当前世界唯一所选策略，借用同一个共享根。
+    /// 当前世界唯一所选策略，借用同一个共享路网修订。
     #[must_use]
     pub(crate) fn policy(self) -> Option<laneflow_static_network::PolicyView<'a>> {
         self.binding.policy_binding.policy(&self.binding.revision)
     }
 
-    /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
+    /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     #[must_use]
     pub(crate) fn conflict_passage_locator(
         self,
@@ -3786,7 +3786,7 @@ mod source_tests {
     fn install_binds_matching_revision() {
         let revision = revision();
         let origin = *revision.canonical_origin();
-        // digest / length 与根 origin 不同（重发布语义），同修订判据只比对修订标识。
+        // digest / length 与修订 origin 不同（重发布语义），同修订判据只比对修订标识。
         let reference = reference_for(origin.network_revision());
         let world = TrafficWorld::install(
             revision.clone(),

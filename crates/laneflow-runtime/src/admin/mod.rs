@@ -9,7 +9,7 @@ pub(crate) mod cutover_transaction;
 pub(crate) mod format_admission;
 /// 迁移增量日志：已提交变更流的有界物化。
 pub(crate) mod migration_journal;
-/// 发布来源的共享根认证门面（#959 切片 A）。
+/// 发布来源的共享路网修订认证门面（#959 切片 A）。
 pub(crate) mod root_attestation;
 /// 运行时快照的保存路径。
 pub(crate) mod snapshot;

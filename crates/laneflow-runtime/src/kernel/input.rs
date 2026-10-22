@@ -2,7 +2,7 @@ use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 
 use crate::RouteHandle;
 
-/// 路线注册输入：共享根边序号的有序非空序列。
+/// 路线注册输入：共享静态路网边序号的有序非空序列。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RouteRegisterInput {
     edges: Box<[LaneEdgeOrdinal]>,
@@ -17,7 +17,7 @@ impl RouteRegisterInput {
         }
     }
 
-    /// 路线的共享根边序号序列。
+    /// 路线的共享静态路网边序号序列。
     #[must_use]
     pub fn edges(&self) -> &[LaneEdgeOrdinal] {
         &self.edges

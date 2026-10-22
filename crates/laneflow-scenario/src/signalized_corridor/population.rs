@@ -361,8 +361,8 @@ impl CorridorPopulationPrepare {
     ///
     /// # Errors
     ///
-    /// catalog 与共享根绑定不一致（[`CorridorPopulationError::BoundWorldCatalogMismatch`]）、
-    /// 车辆 profile 不在共享根、catalog 路线缺少入口边或生成槽位不足
+    /// catalog 与共享路网修订绑定不一致（[`CorridorPopulationError::BoundWorldCatalogMismatch`]）、
+    /// 车辆 profile 不在共享静态路网、catalog 路线缺少入口边或生成槽位不足
     /// （[`CorridorPopulationError::InsufficientSpawnSlots`]）时返回相应
     /// [`CorridorPopulationError`]；失败不创建 `TrafficWorld`。
     pub fn prepare(
@@ -373,7 +373,7 @@ impl CorridorPopulationPrepare {
     ) -> Result<Self, CorridorPopulationError> {
         if catalog.network_revision != revision.network_revision() {
             return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
-                detail: "catalog NetworkRevisionId 与共享根不一致".to_owned(),
+                detail: "catalog NetworkRevisionId 与共享路网修订不一致".to_owned(),
             });
         }
         let view = revision

@@ -282,7 +282,7 @@ impl EntityCounts {
 ///
 /// 当前基线冻结所有实体基数、LaneEdge 热列/完整可执行 CSR，以及携带路径、transition、
 /// gate/waiting 引用的路口机动候选；后继 #440 实现切片继续加入其余静态关系，但不会改变
-/// 根唯一共享所有权。
+/// 根对象唯一共享所有权。
 pub struct SharedTrafficNetwork {
     pub(crate) entity_counts: EntityCounts,
     pub(crate) lane_lengths_millimetres: Box<[u32]>,
@@ -296,7 +296,7 @@ pub struct SharedTrafficNetwork {
 }
 
 impl SharedTrafficNetwork {
-    /// 由预构建的实体基数、车道列与机动/关系数据组装共享根。
+    /// 由预构建的实体基数、车道列与机动/关系数据组装共享交通路网。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         entity_counts: EntityCounts,
@@ -372,7 +372,7 @@ impl SharedTrafficNetwork {
         &self.relations
     }
 
-    /// 本共享根保留的逻辑字节数（含机动与关系数据）。
+    /// 本共享交通路网保留的逻辑字节数（含机动与关系数据）。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<u32>(self.lane_lengths_millimetres.len())

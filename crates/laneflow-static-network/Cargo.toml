@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
-description = "从受检 LFCA 构建 LaneFlow 进程内共享静态路网修订。"
+description = "从受检 LFCA 构建 LaneFlow 进程内共享静态路网。"
 publish = false
 
 [lib]

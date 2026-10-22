@@ -57,7 +57,7 @@ pub fn install_world(
     )?)
 }
 
-/// 用世界自身的共享根绑定 Spatial，组成配对 Session。
+/// 用世界自身的共享路网修订绑定 Spatial，组成配对 Session。
 pub fn paired_session(
     world: TrafficWorld,
     max_catch_up_steps: NonZeroU32,

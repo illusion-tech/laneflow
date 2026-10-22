@@ -67,7 +67,7 @@ pub use traffic::{
     SharedManeuverNetwork, SharedTrafficNetwork,
 };
 
-/// 一个不可变、同修订绑定的共享静态路网根。
+/// 一个不可变、同修订绑定的共享路网修订。
 ///
 /// component 由根直接拥有且不实现 `Clone`；调用方只应克隆外层 `Arc`。
 pub struct SharedNetworkRevision {
@@ -129,7 +129,7 @@ impl SharedNetworkRevision {
         self.spatial.as_ref()
     }
 
-    /// 返回共享根及全部 component 的保留内存逻辑字节总数。
+    /// 返回共享路网修订及全部 component 的保留内存逻辑字节总数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         u64::try_from(core::mem::size_of::<Self>()).expect("root type size fits u64")

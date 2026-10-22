@@ -6406,7 +6406,7 @@ pub(crate) fn drop_conflict_slot_at(position: usize) -> ConflictSlotGapGuard {
 }
 
 /// P3 冻结任务视图（D2 显式字段表）：
-/// - `read`：拍初 C(T) 车辆/路线（静态根编译表、policy、拍初信号）+
+/// - `read`：拍初 C(T) 车辆/路线（共享静态路网编译表、policy、拍初信号）+
 ///   derived occupancy（leader_gap 只读）；
 /// - `conflict`：三腿 ConflictRead（committed+derived+workspace）。discard_staged
 ///   后 reservation/owner 读的是拍初 committed 语义；`cell_workspace` 的

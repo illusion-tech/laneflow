@@ -1,4 +1,4 @@
-//! 共享根认证测试（#959 切片 A；按 Issue #959 验收标准逐项覆盖）。
+//! 共享路网修订认证测试（#959 切片 A；按 Issue #959 验收标准逐项覆盖）。
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -47,7 +47,7 @@ fn build(bytes: &[u8], spatial: SpatialBuildOption) -> Arc<SharedNetworkRevision
         .expect("shared network revision")
 }
 
-/// 从「同字节健康根」的 origin 组装期望值（测试夹具无独立引用文件；
+/// 从「同字节健康修订」的 origin 组装期望值（测试夹具无独立引用文件；
 /// 生产路径宿主从 `PublishedLfcaReference` 取值）。
 fn expectation_from(origin: &CanonicalNetworkOrigin) -> RootAttestationExpectation {
     RootAttestationExpectation::new(
@@ -150,7 +150,7 @@ fn retain_option_on_omitted_root_mismatches_indeterminate() {
     assert_eq!(report.disposition, Disposition::DisableRoot);
 }
 
-/// 同修订重发布：恢复前（根由新字节构建）与在用根审计（根与同修订的另一份
+/// 同修订重发布：恢复前（修订由新字节构建）与在用修订审计（修订与同修订的另一份
 /// 引用配对）两种情形都判 `Pass`，字节与引用的 digest / length 差异记来源
 /// 审计诊断（设计 §2.2「发布来源的字节身份」；Issue #959 验收）。
 #[test]
@@ -162,7 +162,7 @@ fn republished_same_revision_passes_with_byte_identity_audit() {
         build_root.network_revision(),
         "fixture pair must share one revision"
     );
-    // 恢复前：根由重发布（build）字节构建，宿主本次字节与存档引用（base）不同份。
+    // 恢复前：修订由重发布（build）字节构建，宿主本次字节与存档引用（base）不同份。
     let report = concluded(attest(
         &build_root,
         PROVENANCE_BUILD,
@@ -177,7 +177,7 @@ fn republished_same_revision_passes_with_byte_identity_audit() {
         )),
         "字节（build）与引用（base）digest 不同 → 记来源审计诊断"
     );
-    // 在用根审计：根与活动引用均为 base，宿主本次资产认证拿到重发布字节。
+    // 在用修订审计：修订与活动引用均为 base，宿主本次资产认证拿到重发布字节。
     let report = concluded(attest(
         &base_root,
         PROVENANCE_BUILD,
@@ -190,9 +190,9 @@ fn republished_same_revision_passes_with_byte_identity_audit() {
             note,
             SourceAuditNote::ByteIdentityDiffersFromReference { .. }
         )),
-        "在用根（base 构建）与另一份同修订来源配对仍判 Pass 并记诊断"
+        "在用修订（base 构建）与另一份同修订来源配对仍判 Pass 并记诊断"
     );
-    // 根 digest 记录构建字节，不进入任何比对：base 根配 build 字节也 Pass。
+    // 修订 digest 记录构建字节，不进入任何比对：base 修订配 build 字节也 Pass。
     let report = concluded(attest(
         &base_root,
         PROVENANCE_BUILD,
@@ -206,8 +206,8 @@ fn republished_same_revision_passes_with_byte_identity_audit() {
     );
 }
 
-/// 根 `origin` 字节身份字段在任何调用时机都不比对（漏检面 §5 第 15 条）：
-/// 篡改根 origin 的 digest 后认证仍 Pass。
+/// 修订 `origin` 字节身份字段在任何调用时机都不比对（漏检面 §5 第 15 条）：
+/// 篡改修订 origin 的 digest 后认证仍 Pass。
 #[test]
 fn root_origin_byte_identity_distortion_is_not_compared() {
     let mut root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
@@ -323,7 +323,7 @@ fn root_planning_hints_version_distortion_is_indeterminate() {
 }
 
 /// 单张派生表失真（来源通过、比对确认失配）判 `Mismatch` 判因
-/// `共享静态根`，而不是 `Untrusted`。
+/// `共享路网修订`，而不是 `Untrusted`。
 #[test]
 fn derived_table_distortion_is_shared_static_root() {
     let mut root = build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable);
@@ -446,8 +446,8 @@ fn float_bit_pattern_distortions_mismatch() {
     assert_eq!(report.verdict, AttestationVerdict::Mismatch);
 }
 
-/// 来源字节损坏：reader 内容类拒绝 → `Mismatch` 判因 `来源`（在用根审计
-/// 场景下不停用根——停用是宿主按判因执行的处置，结论类型即边界）。
+/// 来源字节损坏：reader 内容类拒绝 → `Mismatch` 判因 `来源`（在用修订审计
+/// 场景下不停用修订——停用是宿主按判因执行的处置，结论类型即边界）。
 #[test]
 fn corrupted_source_bytes_are_source_cause() {
     let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
@@ -471,7 +471,7 @@ fn corrupted_source_bytes_are_source_cause() {
     ));
 }
 
-/// 绑定引用损坏（引用 revision 与字节不符）：失配判给来源而非根。
+/// 绑定引用损坏（引用 revision 与字节不符）：失配判给来源而非修订。
 #[test]
 fn corrupted_reference_revision_is_source_cause() {
     let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
@@ -497,7 +497,7 @@ fn corrupted_reference_revision_is_source_cause() {
     ));
 }
 
-/// 来源被替换为另一份自洽来源（revision 不同）：来源完整闭合后根 origin
+/// 来源被替换为另一份自洽来源（revision 不同）：来源完整闭合后修订 origin
 /// revision 失配判 `无法判因`（设计 §7）。
 #[test]
 fn different_revision_source_pairing_is_indeterminate() {
@@ -608,7 +608,7 @@ fn allocation_failure_is_operational_failure() {
 }
 
 /// 来源准备阶段 panic 按来源失败归类：复算不再 panic 时完整通过 →
-/// `Pass`，首次失配记为来源审计诊断（在用根不停用）。
+/// `Pass`，首次失配记为来源审计诊断（在用修订不停用）。
 #[test]
 fn source_preparation_panic_recovers_to_pass_with_audit() {
     test_injection::arm_source_preparation_panic_once();
@@ -655,7 +655,7 @@ fn source_preparation_panic_recompute_same_evidence_mismatches() {
     ));
 }
 
-/// 根比较阶段 panic 转为 `Untrusted`，不向宿主传播。
+/// 修订比较阶段 panic 转为 `Untrusted`，不向宿主传播。
 #[test]
 fn root_comparison_panic_is_untrusted() {
     test_injection::arm_root_comparison_panic();
@@ -679,7 +679,7 @@ fn root_comparison_panic_is_untrusted() {
     assert_eq!(report.disposition, Disposition::DisableRoot);
 }
 
-/// §2.2 复算归类表 · 来源侧（穷举：同证据 / 证据不同 / 复算通过 / 转根侧 / 未完成）。
+/// §2.2 复算归类表 · 来源侧（穷举：同证据 / 证据不同 / 复算通过 / 转修订侧 / 未完成）。
 #[test]
 fn classify_recompute_table_source_side() {
     let reader_failure = |error| {
@@ -730,7 +730,7 @@ fn classify_recompute_table_source_side() {
         Some(SourceAuditNote::TransientSourceFailure { .. })
     ));
 
-    // 复算改在根比较阶段失配 → Untrusted（出现未确认的根侧证据）。
+    // 复算改在修订比较阶段失配 → Untrusted（出现未确认的修订侧证据）。
     let root_side = FirstFailure::RootCompare(MismatchEvidence {
         stage: attestation::AttestationStage::RootComparison,
         site: MismatchSite::TableValue {
@@ -770,7 +770,7 @@ fn classify_recompute_table_source_side() {
     }
 }
 
-/// §2.2 复算归类表 · 根侧（同证据 → Mismatch 按判因；任一项不同（含复算
+/// §2.2 复算归类表 · 修订侧（同证据 → Mismatch 按判因；任一项不同（含复算
 /// 通过）或复算未完成 → Untrusted 且保留首次证据；两次失配位置不同的情形
 /// 即「证据不同」分支）。
 #[test]
@@ -790,7 +790,7 @@ fn classify_recompute_table_root_side() {
         })
     };
 
-    // 同一证据 → Mismatch 判因共享静态根。
+    // 同一证据 → Mismatch 判因共享路网修订。
     let report = concluded(attestation::classify_confirmed_failure(
         table_evidence(3),
         AttemptOutcome::Failed(table_evidence(3)),
@@ -813,7 +813,7 @@ fn classify_recompute_table_root_side() {
         MismatchSite::TableValue { index: 3, .. }
     ));
 
-    // 复算通过 → Untrusted（根侧证据不可复现）。
+    // 复算通过 → Untrusted（修订侧证据不可复现）。
     let report = concluded(attestation::classify_confirmed_failure(
         table_evidence(3),
         AttemptOutcome::Concluded,
@@ -821,7 +821,7 @@ fn classify_recompute_table_root_side() {
     ));
     assert_eq!(report.verdict, AttestationVerdict::Untrusted);
 
-    // 复算未完成 → Untrusted（取消不能撤销根侧证据）。
+    // 复算未完成 → Untrusted（取消不能撤销修订侧证据）。
     let report = concluded(attestation::classify_confirmed_failure(
         table_evidence(3),
         AttemptOutcome::OperationFailed(crate::attestation::OperationFailure {
@@ -1414,7 +1414,7 @@ fn gate_policy_and_yield_target_report_named_members() {
     ));
 }
 
-/// 认证无常驻状态：同一根连续两次认证结论一致（L1 不跨调用保留状态）。
+/// 认证无常驻状态：同一修订连续两次认证结论一致（L1 不跨调用保留状态）。
 #[test]
 fn attestation_is_stateless_across_calls() {
     let root = build(MIN_HEADLESS, SpatialBuildOption::RetainAvailable);
@@ -1449,15 +1449,15 @@ fn disposition_guidance_differs_by_cause_and_timing() {
         assert!(!pre_use.is_empty());
         assert!(!in_use.is_empty());
     }
-    // 判因来源的提示不指向根重建；停用类提示指向停用并重建。
+    // 判因来源的提示不指向修订重建；停用类提示指向停用并重建。
     assert!(
         Disposition::IsolateSource
             .in_use_guidance()
             .contains("不停用"),
-        "来源判因在用提示不停用根"
+        "来源判因在用提示不停用修订"
     );
     assert!(
         Disposition::DisableRoot.in_use_guidance().contains("重建"),
-        "停用类处置指向根重建"
+        "停用类处置指向修订重建"
     );
 }

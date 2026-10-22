@@ -8,9 +8,9 @@
 //!   调用内释放、其替身由调用方在测量区间外构造，稳态净差为负是预期形态）；
 //! - 在线准备干扰不变量的 v1 可测形式：切换前后稳态 tick 的分配账本相等
 //!   （「稳态 tick 不因准备新增分配」）；账本跨轮确定性为硬断言；
-//! - 候选共存峰值输入：双根并存期间的 `retained_logical_bytes`。
+//! - 候选共存峰值输入：双根对象并存期间的 `retained_logical_bytes`。
 //!
-//! 墙钟维度（整次调用与旧根析构中位）在 `cutover_wall_clock_evidence`
+//! 墙钟维度（整次调用与旧根对象析构中位）在 `cutover_wall_clock_evidence`
 //! 的未插桩二进制中采样：沿 #441 先例，计数分配器的原子记账会污染墙钟，
 //! 两个维度不得混在同一进程测量。本文件沿 #441
 //! `shared_network_allocation_evidence` 的纪律：独立 integration test
@@ -273,7 +273,7 @@ fn cutover_side_budget_baseline() {
         "steady tick ledger must not grow allocations across cutover"
     );
 
-    // 候选共存峰值输入：双根并存逻辑字节（两根同 origin，各自完整保留）。
+    // 候选共存峰值输入：双根对象并存逻辑字节（双根对象同 origin，各自完整保留）。
     let root_a = build(SpatialBuildOption::RetainAvailable);
     let root_b = build(SpatialBuildOption::RetainAvailable);
     let coexistence_logical_bytes =

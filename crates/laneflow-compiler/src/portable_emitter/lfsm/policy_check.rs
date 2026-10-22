@@ -270,7 +270,7 @@ pub fn check_portable_policy_sources(
     let provenance = table(canonical.registry_view(), 6, 0)?
         .row(0)
         .ok_or(MISMATCH)?;
-    // compiler ID 和来源摘要必须同时属于这份 LFCA，不能仅把 LFSM 重新绑定到别的根。
+    // compiler ID 和来源摘要必须同时属于这份 LFCA，不能仅把 LFSM 重新绑定到别的修订。
     if provenance.field_by_tag(1).ok_or(MISMATCH)?.value_bytes()
         != bindings.field_by_tag(6).ok_or(MISMATCH)?.value_bytes()
         || provenance.field_by_tag(3).ok_or(MISMATCH)?.value_bytes()

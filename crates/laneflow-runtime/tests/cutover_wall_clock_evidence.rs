@@ -1,13 +1,13 @@
 //! #511 切换侧预算基线（corridor 夹具，同机描述性）——墙钟面（未插桩）。
 //!
 //! 整次同修订换根调用（v1 同步形态下即静默提交窗口的显式上界：含全部
-//! Prepare，Quiescent Commit 段为无分配原地换绑）与旧修订回收（同构根
+//! Prepare，Quiescent Commit 段为无分配原地换绑）与旧根对象回收（同构根对象
 //! 最后借用退出后的析构）的墙钟中位。本二进制不安装全局分配器：沿
 //! #441 先例，分配账本（`cutover_budget_evidence`）与墙钟分文件测量，
 //! 计数分配器的原子记账会污染墙钟，两个维度不得混在同一进程。
 //!
-//! 调用墙钟按两种宿主持有形态分别采样：外部借用保持（宿主保留旧根
-//! `Arc`，调用内不发生旧根回收）与世界持有最后强引用（交换时旧根在
+//! 调用墙钟按两种宿主持有形态分别采样：外部借用保持（宿主保留旧根对象
+//! `Arc`，调用内不发生旧根对象回收）与世界持有最后强引用（交换时旧根对象在
 //! 调用内同步析构，是整次调用的上界口径）。中位数对偶数样本取中间
 //! 两值平均。数字为描述性输出（登记进合同 §9 初值表）；硬断言只覆盖
 //! 行为有效性（切换成功、位姿保持）。
@@ -185,9 +185,9 @@ fn median(values: &mut [u128]) -> u128 {
 #[test]
 #[ignore = "manual release wall-clock evidence; CI 不当墙钟基线"]
 fn cutover_side_wall_clock_baseline() {
-    // 口径一：外部借用保持——宿主保留双根 Arc，交换时调用内不发生旧根
+    // 口径一：外部借用保持——宿主保留双根对象的 Arc，交换时调用内不发生旧根对象
     // 回收。作用域结束后本地引用与 targets 迭代器全部释放，世界成为
-    // 当前根唯一持有者，为口径二铺路。
+    // 当前根对象唯一持有者，为口径二铺路。
     let borrow_median;
     let mut world;
     {
@@ -224,7 +224,7 @@ fn cutover_side_wall_clock_baseline() {
         borrow_median = median(&mut clocks);
     }
 
-    // 口径二：世界持有最后强引用——目标根按值移入调用，交换时旧根在
+    // 口径二：世界持有最后强引用——目标根对象按值移入调用，交换时旧根对象在
     // 调用内同步析构；这是整次调用的上界口径。
     let mut reclaim_clocks = Vec::with_capacity(IN_CALL_RECLAIM_SAMPLES);
     let source_base = source_for("fixture://corridor-root-a");
@@ -251,7 +251,7 @@ fn cutover_side_wall_clock_baseline() {
     assert_two_lane_poses(&world);
     let reclaim_median = median(&mut reclaim_clocks);
 
-    // 旧修订回收延迟：同构根最后借用退出后的孤立析构墙钟（隔离析构
+    // 旧根对象回收延迟：同构根对象最后借用退出后的孤立析构墙钟（隔离析构
     // 成本，与口径二的调用内混合形态互补）。
     let mut drop_clocks = Vec::with_capacity(ROOT_DROP_SAMPLES);
     for index in 0..(ROOT_DROP_WARMUP + ROOT_DROP_SAMPLES) {

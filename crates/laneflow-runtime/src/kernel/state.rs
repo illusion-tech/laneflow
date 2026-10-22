@@ -196,7 +196,7 @@ pub(crate) struct WorldState {
     pub(crate) admin: crate::admin::state::AdministrativeState,
 }
 
-/// 同一活动根、来源、世界身份与配置；步进只读。
+/// 同一活动修订、来源、世界身份与配置；步进只读。
 pub(crate) struct WorldBindingState {
     pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) source: CommittedNetworkSource,
@@ -1103,7 +1103,7 @@ pub(crate) fn slice_bytes<T>(values: &[T]) -> u64 {
     core::mem::size_of_val(values) as u64
 }
 
-/// 实例自有 backing 的唯一总账；共享根另列，跨世界相加时按 Arc 去重。
+/// 实例自有 backing 的唯一总账；共享静态路网另列，跨世界相加时按 Arc 去重。
 /// `Vec` 与切片按元素 `capacity` 或长度计字节，不把分配器开销冒充逻辑存储。
 #[cfg(any(test, feature = "execution-evidence"))]
 #[derive(Debug)]
@@ -1114,7 +1114,7 @@ pub(crate) struct WorldMemoryLedger {
 
 #[cfg(test)]
 impl WorldMemoryLedger {
-    /// 五个分区自有字节合计（不含共享根）。
+    /// 五个分区自有字节合计（不含共享静态路网）。
     pub(crate) fn world_owned_bytes(&self) -> u64 {
         self.partitions.iter().sum()
     }
@@ -1122,7 +1122,7 @@ impl WorldMemoryLedger {
 
 #[cfg(any(test, feature = "execution-evidence"))]
 impl crate::kernel::state::WorldState {
-    /// 汇总世界五类私有状态与共享根的存续内存总账。
+    /// 汇总世界五类私有状态与共享静态路网的存续内存总账。
     pub(crate) fn retained_memory(&self) -> WorldMemoryLedger {
         let Self {
             binding,

@@ -209,7 +209,7 @@ fn compiler_fan_in_candidate_builds_exact_reverse_csr() {
 }
 
 #[test]
-fn compiler_artifact_base_file_backing_reaches_shared_root() {
+fn compiler_artifact_base_file_backing_reaches_shared_network_revision() {
     let revision = build_compiler_output(
         |module| {
             module

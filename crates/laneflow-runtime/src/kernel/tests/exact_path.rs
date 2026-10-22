@@ -446,7 +446,7 @@ fn occupancy_exact_paired_windows() {
                         |percent: usize| samples[(samples.len() * percent).div_ceil(100) - 1];
                     let memory = harness.world().state.retained_memory();
                     println!(
-                        "exact-pair scene={} candidate={candidate} round={round} position={position} steps=64 active={} p50_ns={} p95_ns={} p99_ns={} max_ns={} sum_ns={} records={records} inspections={inspections} occurrence_walks={walks} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} reallocated_bytes={} source_world_owned={} shared_root={} binding={} committed={} derived={} workspace={} administrative={} pending_bytes={} digest={digest}",
+                        "exact-pair scene={} candidate={candidate} round={round} position={position} steps=64 active={} p50_ns={} p95_ns={} p99_ns={} max_ns={} sum_ns={} records={records} inspections={inspections} occurrence_walks={walks} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} reallocated_bytes={} source_world_owned={} shared_static_network={} binding={} committed={} derived={} workspace={} administrative={} pending_bytes={} digest={digest}",
                         scene.name(),
                         scene.count(),
                         percentile(50),

@@ -42,9 +42,9 @@ type ManeuverCandidateIndex = (Box<[RangeU32]>, Box<[ManeuverTransitionCandidate
 /// Spatial retained-data 构建选择；它不进入 LFCA 或持久化配置档。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpatialBuildOption {
-    /// 即使 LFCA 携带 spatial payload 也不保留进共享根；几何连通仍校验。
+    /// 即使 LFCA 携带 spatial payload 也不保留进共享静态路网；几何连通仍校验。
     Omit,
-    /// LFCA 携带 spatial payload 时把全部 Spatial 数据保留进共享根。
+    /// LFCA 携带 spatial payload 时把全部 Spatial 数据保留进共享静态路网。
     RetainAvailable,
 }
 
@@ -232,7 +232,7 @@ impl TopologyPlan {
     }
 }
 
-/// 从受检 LFCA 构建完全拥有、不可变的共享静态路网根。
+/// 从受检 LFCA 构建完全拥有、不可变的共享路网修订。
 ///
 /// # Errors
 ///
@@ -242,7 +242,7 @@ impl TopologyPlan {
 /// （`SpatialPresenceMismatch`；无 Spatial payload 的 headless LFCA 是合法输入）
 /// 或几何非法、访问规则歧义（同类别深度/目标具体度/优先级的规则对同一单元
 /// 与参与者类别同时给出 allow 与 deny）、构建预算超限、算术溢出、容量预留失败
-/// 或构建被取消时返回相应 [`BuildError`]；失败不产出共享根。
+/// 或构建被取消时返回相应 [`BuildError`]；失败不产出共享静态路网。
 pub fn build_shared_network_revision<S>(
     input: CheckedCanonicalNetworkInput<S>,
     options: SharedNetworkBuildOptions<'_>,

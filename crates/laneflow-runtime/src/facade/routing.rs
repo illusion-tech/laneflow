@@ -1,7 +1,7 @@
 //! 宿主 Routing 与 Traffic Runtime 的纯契约边界（#303 G2）。
 //!
 //! Runtime 不接收、保存或解释动态成本 payload。它只验证候选复制的绑定，
-//! 将 LaneEdge 稳定标识解析为当前根 ordinal，并进入唯一的路线注册/编译路径。
+//! 将 LaneEdge 稳定标识解析为当前修订 ordinal，并进入唯一的路线注册/编译路径。
 
 use laneflow_static_contract::{
     LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, Sha256Digest, StableId128,
@@ -369,7 +369,7 @@ impl RoutingAdmissionSession {
     }
 }
 
-/// Routing 提交的候选路线；稳定标识在准入时解析到当前共享根。
+/// Routing 提交的候选路线；稳定标识在准入时解析到当前共享静态路网。
 #[derive(Debug, Eq, PartialEq)]
 pub struct CandidateRouteInput {
     cost_snapshot: DynamicCostSnapshotBinding,
@@ -423,11 +423,11 @@ pub enum CandidateRouteError {
     /// （`register_candidate_route`）。
     #[error("动态成本绑定的世界身份或世代已失效")]
     CostWorldBindingMismatch,
-    /// 准入会话打开时绑定的路网修订或派生版本与当前根不一致
+    /// 准入会话打开时绑定的路网修订或派生版本与当前修订不一致
     /// （`register_candidate_route`）。
     #[error("Routing admission session 的路网修订已失效")]
     AdmissionRevisionMismatch,
-    /// 动态成本观测集合的路网修订或派生版本与当前根不一致
+    /// 动态成本观测集合的路网修订或派生版本与当前修订不一致
     /// （`register_candidate_route`）。
     #[error("动态成本绑定的路网修订已失效")]
     CostRevisionMismatch,
@@ -509,8 +509,8 @@ pub enum AdmittedRouteRegisterError {
     /// （`register_admitted_route`）。
     #[error(transparent)]
     Route(#[from] RouteError),
-    /// 输入的路网修订标识或修订派生版本与当前根不一致（`register_admitted_route`）。
-    #[error("已准入路线的路网修订绑定与当前根不一致")]
+    /// 输入的路网修订标识或修订派生版本与当前修订不一致（`register_admitted_route`）。
+    #[error("已准入路线的路网修订绑定与当前修订不一致")]
     NetworkRevisionMismatch,
     /// 输入的 LaneEdge 稳定标识无法解析到当前修订，或其 kind 不是 LaneEdge
     /// （`register_admitted_route`）。
@@ -628,7 +628,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 网络修订与当前世界不匹配时返回
     /// [`AdmittedRouteRegisterError::NetworkRevisionMismatch`]；稳定 ID 无法在
-    /// 当前根解析或 kind 不符时直接返回
+    /// 当前修订解析或 kind 不符时直接返回
     /// [`AdmittedRouteRegisterError::UnknownLaneEdge`]；其余失败由路线边注册路径
     /// （[`RouteError`] 族）承接，失败不留下半条路线。
     pub fn register_admitted_route(
@@ -722,7 +722,7 @@ impl TrafficWorld {
     ///
     /// 网络修订与当前世界不匹配时返回
     /// [`AdmittedRouteRegisterError::NetworkRevisionMismatch`]；稳定 ID 无法在
-    /// 当前根解析或 kind 不符时直接返回
+    /// 当前修订解析或 kind 不符时直接返回
     /// [`AdmittedRouteRegisterError::UnknownLaneEdge`]；其余失败由路线边注册路径
     /// （[`RouteError`] 族）承接，失败不留下半条路线。
     ///

@@ -193,7 +193,7 @@ fn replay(world: &mut TrafficWorld, budget: u64, delta_ms: u64) -> Trace {
 }
 
 fn restore(bytes: &[u8], reject_root: bool) -> Result<TrafficWorld, Failure> {
-    // 独立可信夹具给出期望；被认证候选根不能给自己签发来源期望。
+    // 独立可信夹具给出期望；被认证候选修订不能给自己签发来源期望。
     let trusted = revision();
     let reference = reference(&trusted);
     let root = revision();

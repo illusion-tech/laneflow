@@ -85,10 +85,13 @@ def summarize():
                 else:
                     assert all(row["samples"] == (row["calls"] + row["round"] * 19 - 1) // 67 - (row["round"] * 19 - 1) // 67 for row in measured)
                 by_stage[name] = {"sampled_mean_ns": median(row["ns"] / row["samples"] for row in measured), "calls_per_tick": measured[0]["calls"] / 64}
+            # 兼容两键：当前测试输出 `shared_static_network`（#985 改名），
+            # 历史证据文件仍为 `shared_root`；输出键保持 `shared_root` 以兼容既有汇总格式。
+            shared_key = "shared_static_network" if "shared_static_network" in rows[0] else "shared_root"
             variants[variant] = {
                 "median_round_ms": {key[:-3]: median(row[key] for row in rows) / 1_000_000 for key in timing},
                 "max_ms": max(row["max_ns"] for row in rows) / 1_000_000,
-                "retained_bytes": {key: rows[0][key] for key in ["source_world_owned", "shared_root", *owners, "pending_bytes"]},
+                "retained_bytes": {key: rows[0][shared_key if key == "shared_root" else key] for key in ["source_world_owned", "shared_root", *owners, "pending_bytes"]},
                 "allocation": {key: rows[0][key] for key in allocation},
                 "stages": by_stage,
             }

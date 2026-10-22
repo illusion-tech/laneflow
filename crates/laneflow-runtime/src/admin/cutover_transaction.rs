@@ -7,7 +7,7 @@
 //! 确定性摘要复核（期望值 = 旧世界静默点捕获的头部替换形式：`origin`
 //! 换为 target，仅首次 Waiting 覆盖的零历史 PreGate 按目标静态定义初始化；取样必须先于
 //! 摘要——双游标是摘要输入）→ 不可失败原地晋升（世代 checked+1、观测
-//! 序号同界重置）。任一失败整体放弃：旧修订、旧动态状态、旧来源原样
+//! 序号同界重置）。任一失败整体放弃：旧根对象、旧动态状态、旧来源原样
 //! 生效、零事件。
 
 use std::sync::Arc;
@@ -117,11 +117,11 @@ pub struct CutoverCommit {
 #[must_use = "未以 commit 或 abandon 结算的切换事务会使其来源世界保持在途锁定"]
 pub struct CutoverTransaction {
     /// 直移候选：`None` ⟺ 已结算（失败收尾整体丢弃，成功提交随事务
-    /// 消耗析构）——已结算事务不滞留新旧根的任何 Arc 与动态表。
+    /// 消耗析构）——已结算事务不滞留新旧根对象的任何 Arc 与动态表。
     candidate: Option<crate::kernel::execution::PreparedWorldState>,
     rebinding: CrossRevisionRebinding,
-    /// 目标根 origin 小值捕获：事件与摘要只需修订号与 origin，失败结算
-    /// 后事务不滞留目标根的任何 Arc（骨架换绑回旧世界根共享）。
+    /// 目标根对象 origin 小值捕获：事件与摘要只需修订号与 origin，失败结算
+    /// 后事务不滞留目标根对象的任何 Arc（骨架换绑回旧世界根共享）。
     target_origin: CanonicalNetworkOrigin,
     limits: CutoverTransactionLimits,
     next_world_generation: WorldGeneration,
@@ -328,7 +328,7 @@ impl CutoverTransaction {
     }
 
     /// 失败路径的统一收尾：解除世界日志武装、标记结算并**整体丢弃候选**
-    /// （新旧根的任何 Arc、动态表与重绑表全部归还；已结算事务只剩
+    /// （新旧根对象的任何 Arc、动态表与重绑表全部归还；已结算事务只剩
     /// Copy 字段，宿主保留事务变量不滞留净新增内存）。旧世界原样继续。
     fn settle_failure(&mut self, world: &mut TrafficWorld) {
         self.settled = true;
@@ -2080,7 +2080,7 @@ mod tests {
                 &CutoverTransactionLimits::default(),
             );
             tx.pump(&mut world).unwrap();
-            // 在途 tick 追赶：候选随世界一起步进，仍在旧根上。
+            // 在途 tick 追赶：候选随世界一起步进，仍在旧根对象上。
             world.step(TickInput::new(100)).unwrap();
             records.push(tick_record(&world));
             let _commit = tx.commit(&mut world).unwrap();
@@ -4244,7 +4244,7 @@ mod tests {
             tx.pump(&mut cut).unwrap_err(),
             CutoverError::JournalOverflow
         );
-        // 失败结算后目标根的全部 Arc 释放（骨架已换绑回旧世界根共享）。
+        // 失败结算后目标根对象的全部 Arc 释放（骨架已换绑回旧世界根共享）。
         assert!(
             target_weak.upgrade().is_none(),
             "settled transaction must not retain the target root"
@@ -4441,7 +4441,7 @@ mod tests {
             tx.pump(&mut cut).unwrap_err(),
             CutoverError::JournalOverflow
         );
-        // 宿主丢弃世界、只保留已结算事务：旧根不得经事务残留。
+        // 宿主丢弃世界、只保留已结算事务：旧根对象不得经事务残留。
         drop(cut);
         assert!(
             old_root.upgrade().is_none(),
@@ -4975,7 +4975,7 @@ mod tests {
         );
         cut.step(TickInput::new(100)).expect("step");
         plain.step(TickInput::new(100)).expect("plain step");
-        // 准备期保存：只捕获旧修订与旧动态状态，事务不受影响（§8 行）。
+        // 准备期保存：只捕获旧根对象与旧动态状态，事务不受影响（§8 行）。
         let captured = cut.capture_snapshot().expect("capture");
         assert_eq!(
             captured.origin.network_revision(),

@@ -1,4 +1,4 @@
-//! 共享根认证的根比较阶段：`origin` 逐字段与期望值比对、候选根与被认证根
+//! 共享路网修订认证的修订比较阶段：`origin` 逐字段与期望值比对、候选修订与被认证修订
 //! 逐 component / 表按值比对（完整性设计 §4.2；比较算子冻结为整数 / 句柄 / ID /
 //! 范围按值相等，`f32` 按 `to_bits()` 位相等，不使用浮点 `PartialEq`）。
 //!
@@ -19,7 +19,7 @@ use crate::spatial::{LanePoseNetwork, SharedSpatialNetwork};
 use crate::traffic::{SharedManeuverNetwork, SharedTrafficNetwork};
 
 /// 二进制常量组装的期望版本轴：reader / builder 只接受这一组精确版本
-/// （完整性设计 §2.2，任何期望值不得取自被认证根）。
+/// （完整性设计 §2.2，任何期望值不得取自被认证修订）。
 pub(crate) fn expected_static_contract_versions() -> crate::origin::StaticContractVersions {
     use laneflow_static_contract::{
         CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, IDENTITY_ENCODING_VERSION,
@@ -754,7 +754,7 @@ pub(crate) fn compare_origin(
     Ok(())
 }
 
-/// 候选根（期望侧）与被认证根（实际侧）逐 component / 表按值比对。
+/// 候选修订（期望侧）与被认证修订（实际侧）逐 component / 表按值比对。
 pub(crate) fn compare_revisions_by_value(
     candidate: &SharedNetworkRevision,
     root: &SharedNetworkRevision,

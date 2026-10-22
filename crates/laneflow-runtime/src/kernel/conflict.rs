@@ -1769,7 +1769,7 @@ impl ConflictCommittedState {
     }
 }
 
-/// 当前根内 stream/local 地址到规范 cell 槽位的置换；不拥有静态 passage 语义。
+/// 当前修订内 stream/local 地址到规范 cell 槽位的置换；不拥有静态 passage 语义。
 #[derive(Default)]
 struct ConflictCellLookup {
     stream_offsets: Box<[u32]>,
@@ -1784,14 +1784,14 @@ impl ConflictCellLookup {
         let offset_count = stream_count
             .checked_add(1)
             .ok_or(ConflictInstallError::CapacityOverflow)?;
-        // 受检共享根的每个 stream 至少有一条 passage；不用地址最大键扩张分配。
+        // 受检共享静态路网的每个 stream 至少有一条 passage；不用地址最大键扩张分配。
         if stream_count > addresses.len() {
             return Err(ConflictInstallError::InvalidNetwork);
         }
         if addresses.is_empty() {
             return Ok(Self::default());
         }
-        // 共享根的 passage backing 已采用 u32 range，沿用同一可表示范围。
+        // 共享静态路网的 passage backing 已采用 u32 range，沿用同一可表示范围。
         u32::try_from(addresses.len()).map_err(|_| ConflictInstallError::CapacityOverflow)?;
         let mut offsets = Self::allocate_column(offset_count, 0)?;
         for address in addresses {
@@ -2039,7 +2039,7 @@ pub(crate) struct ConflictWrite<'a> {
 pub(crate) struct ConflictResolution<'a>(ConflictWrite<'a>);
 
 impl ConflictArbiter {
-    /// 从共享静态路网修订冷安装仲裁器，枚举全部流的 passage 地址并校验唯一性。
+    /// 从共享静态路网冷安装仲裁器，枚举全部流的 passage 地址并校验唯一性。
     pub(crate) fn install(
         revision: &laneflow_static_network::SharedNetworkRevision,
         vehicle_capacity: usize,
@@ -2089,7 +2089,7 @@ impl ConflictArbiter {
         Self::from_sorted_unique_addresses(addresses, vehicle_capacity, stream_count as usize)
     }
 
-    /// 测试夹具沿用共享根的密集 stream/local 形状；不提供第二个生产安装入口。
+    /// 测试夹具沿用共享静态路网的密集 stream/local 形状；不提供第二个生产安装入口。
     #[cfg(test)]
     pub(crate) fn new(
         mut addresses: Vec<ConflictPassageAddress>,
@@ -2552,7 +2552,7 @@ impl<'a> ConflictRead<'a> {
         )
     }
 
-    /// 按当前根的规范 address 序返回非 `NoHistory` 行。调用方在
+    /// 按当前修订的规范 address 序返回非 `NoHistory` 行。调用方在
     /// 持久化前将 address 解析为稳定 locator 并按 locator 字节重排。
     pub(crate) fn persisted_lag_rows(
         self,

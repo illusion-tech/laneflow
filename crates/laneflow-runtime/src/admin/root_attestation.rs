@@ -1,8 +1,8 @@
-//! 发布来源的共享根认证门面（#959 切片 A；完整性设计 §4.2）。
+//! 发布来源的共享路网修订认证门面（#959 切片 A；完整性设计 §4.2）。
 //!
-//! 从宿主持有的 [`PublishedLfcaReference`] 组装根来源期望值并调用
+//! 从宿主持有的 [`PublishedLfcaReference`] 组装修订来源期望值并调用
 //! `laneflow-static-network` 的认证核心；本 crate 不解析 asset key、不做
-//! 文件 I/O。宿主在安装、恢复、Spatial 绑定与切换之前及在用根审计时调用；
+//! 文件 I/O。宿主在安装、恢复、Spatial 绑定与切换之前及在用修订审计时调用；
 //! 编辑来源（committed `RoadEditingState`）分支随 #529 落地。
 
 use laneflow_format::{BoundedReReadableObjectSource, FormatLimits};
@@ -13,12 +13,12 @@ use laneflow_static_network::{
 
 use crate::PublishedLfcaReference;
 
-/// 认证发布来源的共享静态路网根（术语表：shared-root authentication）。
+/// 认证发布来源的共享路网修订（术语表：shared network revision authentication）。
 ///
 /// 期望值组装自 `PublishedLfcaReference`（revision 参与同修订判据；LFCA
 /// digest / exact length 只作来源审计诊断）与运行中二进制常量，任何值都
-/// 不取自被认证根自身的 `origin`。`format_limits` 与 `build_options`
-/// 原样传给 reader / builder（宿主加载 / 构建此根时使用的同一组策略值）。
+/// 不取自被认证修订自身的 `origin`。`format_limits` 与 `build_options`
+/// 原样传给 reader / builder（宿主加载 / 构建此修订时使用的同一组策略值）。
 ///
 /// `lfca` 是宿主经资产认证取得、借给认证入口的字节来源：连续切片、
 /// staged 对象或映射视图皆可（`BoundedReReadableObjectSource` 的既有实现），
@@ -26,7 +26,7 @@ use crate::PublishedLfcaReference;
 /// 来源视图的建立（含 staged 来源首次映射）由宿主在调用前完成。
 ///
 /// 调用时机与处置按完整性设计 §3 / §7：投入使用之前任何非 `Pass` 都不
-/// 投入使用；在用根审计判因 `来源` 不停用根，判因 `共享静态根` /
+/// 投入使用；在用修订审计判因 `来源` 不停用修订，判因 `共享路网修订` /
 /// `无法判因` 停用并重建；操作失败不判因、不触发停用。详细失败语义见
 /// `laneflow-static-network` 认证入口文档。
 ///
@@ -135,7 +135,7 @@ mod tests {
         }
     }
 
-    /// 在用根审计：根（base 构建）与同修订另一份引用（build）配对 → Pass
+    /// 在用修订审计：修订（base 构建）与同修订另一份引用（build）配对 → Pass
     /// 并记来源审计诊断（Issue #959 验收）。
     #[test]
     fn facade_republished_pairing_passes_with_audit() {
@@ -154,7 +154,7 @@ mod tests {
         }
     }
 
-    /// 引用 revision 损坏：同修订判据失配判给来源而非根。
+    /// 引用 revision 损坏：同修订判据失配判给来源而非修订。
     #[test]
     fn facade_reference_revision_corruption_is_source_cause() {
         let root = build(FULL_SPATIAL);
