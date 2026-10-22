@@ -774,3 +774,24 @@ fn misaligned_intermediate_checkpoints_are_incomplete_not_diverged() {
         }
     ));
 }
+
+/// tick 序列一致、中间命令游标分歧而终点对齐的轨迹判 `Diverged`（审阅
+/// 意见：状态依赖命令一成一败时执行结果不同，设计 §4.3 归 Diverged，
+/// 不因游标暂时失配被时间表检查误报为未完成）。
+#[test]
+fn cursor_divergence_with_aligned_target_is_diverged_not_incomplete() {
+    let mut world = world();
+    let expected = replay(&mut world, DIGEST_BYTES, 100);
+    let target = expected.points.last().expect("target").position;
+    let mut actual = Trace {
+        points: expected.points.clone(),
+        failure: None,
+    };
+    // 中间点游标 +1（tick 不变）：计划时刻一致，命令结果分歧。
+    let mid = actual.points.len() / 2;
+    actual.points[mid].position.command_cursor += 1;
+    assert!(matches!(
+        compare(&expected, &actual, target, None),
+        AuditResult::Diverged { .. }
+    ));
+}
