@@ -30,8 +30,9 @@ Refs #762。固定主干 `37c5e1af3c72b0f60cf2dd889bbf6713b2a77054`，只交付�
 
 ## Rust 工具
 
-需要 Rust 1.98.0、Git 和系统 `tar`。以下命令均从仓库根目录执行。
-先运行 `cargo build --locked -p laneflow-post-p3-research`，得到
+需要 Rust 1.98.0、Git 和系统 `tar`。本研究包独立声明 Rust 1.98.0 下限，保留历史
+证据复算的构建合同；现行 workspace 的工具链升级不改变此合同。以下命令均从仓库根目录执行。
+先运行 `cargo +1.98.0 build --locked -p laneflow-post-p3-research`，得到
 `target/debug/laneflow-post-p3-research`（Windows 加 `.exe`）。下文简称该程序为 `TOOL`。
 
 | 子命令    | 参数                                                        | 用途                            |
@@ -80,8 +81,8 @@ stages/detail 分别使用自己的导出目录和 `target/hotspot-stages-build`
 [Rust 迁移记录](migration.md)。
 
 工具作为 workspace 成员参与 Rust CI。局部验证使用
-`cargo test --locked -p laneflow-post-p3-research` 和
-`cargo clippy --locked -p laneflow-post-p3-research --all-targets -- -D warnings`。
+`cargo +1.98.0 test --locked -p laneflow-post-p3-research` 和
+`cargo +1.98.0 clippy --locked -p laneflow-post-p3-research --all-targets -- -D warnings`。
 
 原始运行包、二进制和导出源码保存在独立工作树的 `target/`，不纳入 Git；远程复核需要
 对应外部包及冻结输入。源码索引和原始文件清单用于核对身份，不表示外部证据已随 Git 发布。

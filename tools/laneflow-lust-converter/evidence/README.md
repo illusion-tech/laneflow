@@ -16,7 +16,7 @@
 
 ```text
 set LUST_SOURCE_DIR=<pinned c4bd5bd3 的 LuSTScenario 根目录>
-cargo +1.98.0 test --locked -p laneflow-lust-converter --lib -- --ignored --skip regenerate
+cargo +1.98.1 test --locked -p laneflow-lust-converter --lib -- --ignored --skip regenerate
 ```
 
 - `--skip regenerate` 不可省略：`--ignored` 会并发跑全部 ignored 测试，其中
@@ -45,7 +45,7 @@ cargo +1.98.0 test --locked -p laneflow-lust-converter --lib -- --ignored --skip
 
 1. 跑上方命令两次，核对两次落盘逐字节一致并记录新 SHA-256；
 2. 以新生成内容更新本目录对应文件（manifest 显式单独跑
-   `cargo +1.98.0 test --locked -p laneflow-lust-converter --lib regenerate_lust_stub_weld_candidates_manifest -- --ignored`，
+   `cargo +1.98.1 test --locked -p laneflow-lust-converter --lib regenerate_lust_stub_weld_candidates_manifest -- --ignored`，
    survey 取 `target/issue253-infeasible-survey.md`）；
 3. commit message 记录新 digest 与漂移原因；G1 授权域（manifest 候选集合）
    变化须先回 #253 走 G1。
