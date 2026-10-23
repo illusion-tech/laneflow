@@ -16,7 +16,7 @@ use std::{
 
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
-    CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
+    ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
     attest_published_shared_network_revision,
 };
 use laneflow_static_contract::{ExactByteLength, NetworkRevisionId, Sha256Digest};
@@ -44,11 +44,26 @@ struct SourceIdentity {
 
 impl SourceIdentity {
     fn pin(artifacts: &Artifacts) -> Result<Self> {
-        let CommittedNetworkSource::Published { reference } = artifacts.committed_source()?;
+        // 期望来自已核对的发布目录与文件登记，不从被认证修订的 origin 反向提取。
+        let file = artifacts
+            .files
+            .get("network.lfca")
+            .ok_or_else(|| invalid("缺少 LFCA 文件登记"))?;
+        let decode = |value: &str| -> Result<[u8; 32]> {
+            if value.len() != 64 || !value.is_ascii() {
+                return Err(invalid("发布身份不是 32 字节十六进制值"));
+            }
+            let mut bytes = [0; 32];
+            for (index, byte) in bytes.iter_mut().enumerate() {
+                *byte = u8::from_str_radix(&value[2 * index..2 * index + 2], 16)
+                    .map_err(|error| invalid(format!("发布身份解析失败：{error}")))?;
+            }
+            Ok(bytes)
+        };
         Ok(Self {
-            revision: *reference.network_revision().as_digest().as_bytes(),
-            digest: *reference.canonical_artifact_digest().as_bytes(),
-            length: reference.canonical_artifact_byte_length().get(),
+            revision: decode(&artifacts.catalog.network_revision)?,
+            digest: decode(&file.sha256)?,
+            length: file.bytes,
         })
     }
 
