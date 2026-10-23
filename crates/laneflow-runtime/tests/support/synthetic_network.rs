@@ -8,6 +8,23 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+/// 小规模模式只验证 harness，不产生生产基线证据。
+pub(crate) fn evidence_tiers() -> Vec<u32> {
+    if smoke_mode() {
+        vec![1_000]
+    } else {
+        vec![10_000, 100_000, 1_000_000]
+    }
+}
+
+pub(crate) fn smoke_mode() -> bool {
+    match std::env::var("LF_ATTEST_SMOKE") {
+        Ok(value) if value == "1" => true,
+        Err(std::env::VarError::NotPresent) => false,
+        other => panic!("invalid LF_ATTEST_SMOKE: {other:?}"),
+    }
+}
+
 use laneflow_compiler::road_editing as editing;
 use laneflow_compiler::{
     AccessEffect, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
@@ -73,7 +90,7 @@ fn leak_str(value: String) -> &'static str {
 /// 给世界装载动态记录：车辆 i 绑定 tile `i % routes` 的三边链路线、占用
 /// 边下标 `(i / routes) % 3`（entry 10 m → middle 8 m → exit 12 m），同路线
 /// 每条边至多一辆车，spawn 的重叠检查天然通过；三档 `vehicles ≤ 3 × tiles`
-/// 保证容纳。tile 边 ordinal 按 3t/3t+1/3t+2 布局，以长度断言自校验。
+/// 保证容纳。tile 链按实际后继与长度发现，不假定 ordinal 与声明顺序一致。
 /// 世界容量须已在 `WorldConfig` 预留（车辆、路线、边占用）。装载后走两拍
 /// 让运动状态落账（车长 4.5 m、初速 0，两拍位移可忽略，无人驶离路线）。
 pub(crate) fn populate(world: &mut laneflow_runtime::TrafficWorld, vehicles: u32, tiles: u32) {
@@ -142,7 +159,9 @@ pub(crate) fn populate(world: &mut laneflow_runtime::TrafficWorld, vehicles: u32
             .expect("vehicle");
     }
     for _ in 0..2 {
-        world.step(TickInput::new(100)).expect("settle step");
+        world
+            .step(TickInput::new(world.config().fixed_delta_time_ms()))
+            .expect("settle step");
     }
 }
 
