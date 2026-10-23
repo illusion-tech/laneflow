@@ -337,14 +337,16 @@ fn canonical_route_groups(
         }
         budget.charge(group_bytes)?;
         let mut group = Vec::new();
-        digest_try_reserve_exact(&mut group, route_bytes.len() + 8)?;
+        let group_len =
+            usize::try_from(group_bytes).map_err(|_| SnapshotDigestError::ReservationFailed)?;
+        digest_try_reserve_exact(&mut group, group_len)?;
         group.extend_from_slice(route_bytes);
         push_u64(
             &mut group,
             u64::try_from(bound.len()).expect("vehicle count fits u64"),
         );
         for (_, index) in bound {
-            try_push_record(&mut group, &vehicle_records[*index].1)?;
+            push_record(&mut group, &vehicle_records[*index].1);
         }
         route_groups.push(group);
         start = end;
