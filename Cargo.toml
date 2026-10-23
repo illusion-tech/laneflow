@@ -13,6 +13,7 @@ members = [
     "crates/laneflow-static-contract",
     "crates/laneflow-static-network",
     "research/issue-762-post-p3-hotspots",
+    "tools/laneflow-audit-test-support",
     "tools/laneflow-corridor-generator",
     "tools/laneflow-junction-generator",
     "tools/laneflow-lust-converter",

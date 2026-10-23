@@ -1,8 +1,6 @@
 //! #960 宿主审计基础切片：独立进程、认证后恢复、完成性优先的三值报告。
 //! 测试传输是本文件私有的定长记录，不是产品协议或可信日志存储。
 
-#[path = "support/audit_replay.rs"]
-mod audit;
 #[path = "support/policy.rs"]
 mod test_policy;
 
@@ -15,7 +13,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use audit::{AuditResult, Boundary, Failure, Point, Position, Trace, compare};
+use laneflow_audit_test_support::{
+    AuditResult, Boundary, Failure, Point, Position, Trace, compare,
+};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, RouteRegisterInput,
