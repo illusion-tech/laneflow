@@ -1027,7 +1027,7 @@ fn segments_cross(
 #[test]
 fn loop_pairs_stay_separated_outside_taper_and_never_cross() {
     // 回归 #285 环路几何缺陷：同角两条环路必须全段横向分离（平行偏移一个
-    // 车道宽），且任何位置不相交。单车道臂强制 2↔1 汇合/分流的共点端
+    // 车道宽），且任何位置不相交。双向各一车道的外部道路强制 2↔1 汇合/分流的共点端
     // 45 m 直线锥形区内允许单调收敛，区外
     // 最小间距必须 ≥ 3.4 m（平行偏移实测恰为车道宽 3.5 m，留采样余量）。
     const TAPER_METERS: f64 = 45.0;
@@ -1176,7 +1176,7 @@ fn loop_lane_tapers_finish_before_the_first_bend() {
 
 #[test]
 fn loop_endpoints_weld_to_arm_lane_ports() {
-    // 每条环路端点逐位等于其臂道车道端口（LaneEdge 焊接约束）：
+    // 每条环路端点逐位等于其外部道路的车道端口（LaneEdge 焊接约束）：
     // 出发端 = 本环出口车道外端，到达端 = 到达入口车道外端；同角两条环路在
     // 分离侧端点不共点（间距恰为一个车道宽 3.5 m），共点侧端点重合。
     let prepared = loop_geometry();
@@ -1220,7 +1220,7 @@ fn loop_endpoints_weld_to_arm_lane_ports() {
         }
     }
 
-    // (loop key, 出口臂, 出口车道, 入口臂, 入口车道)
+    // (loop key, 出口道路, 出口车道, 进口道路, 入口车道)
     let welds: [(&str, &str, usize, &str, usize); 8] = [
         ("loop-es-i0", "e", 0, "s", 0),
         ("loop-es-i1", "e", 1, "s", 0),

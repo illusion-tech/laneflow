@@ -183,7 +183,7 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
     )
     .unwrap();
     assert_eq!(compare_runs(&first, &second).unwrap().interval, (500, 600));
-    // 第二臂的存档来自 first，而不是 full：full 只到计划终点，终点不同也拒绝。
+    // 第二次运行的存档来自 first，而不是 full：full 只到计划终点，终点不同也拒绝。
     assert!(compare_runs(&full, &second).is_err());
 
     // 两个从第 0 拍起跑的分段：比较初始检查点。
@@ -209,7 +209,7 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         ("segment-match", (0, 300))
     );
 
-    // 用同计划另一次执行写出的存档续跑：存档不在完整臂的 saves 中，拒绝比较。
+    // 用同计划另一次执行写出的存档续跑：存档不在从第 0 拍起跑的运行的 saves 中，拒绝比较。
     let other = temp.path().join("other");
     run(
         &artifacts,

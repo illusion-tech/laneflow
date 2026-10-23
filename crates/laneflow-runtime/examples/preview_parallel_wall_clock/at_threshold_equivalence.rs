@@ -5,7 +5,7 @@
 //! 补员保持稳态），worker 1（融合）与 2/4（真实分发，自然跨过阈值，无
 //! cfg(test) 强制入口——集成测试链接的库不带 lib 私有旋钮）逐拍比较
 //! digest、最新 Waiting/Conflict 决策与统一事件批次、tick/时间游标。
-//! 每拍定步前断言 Active 不低于生产阈值，证明多 worker 臂确实走在分发路径。
+//! 每拍定步前断言 Active 不低于生产阈值，证明多 worker 配置下的运行确实走在分发路径。
 
 mod multi_gate_scene;
 

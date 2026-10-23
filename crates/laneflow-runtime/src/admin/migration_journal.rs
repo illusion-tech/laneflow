@@ -2299,7 +2299,7 @@ mod tests {
         );
         world.state.disarm_migration_journal();
 
-        // 溢出臂：上界只够一条 TICK 头；首拍溢出后 arena 容量仍不变。
+        // 溢出测试分组：上界只够一条 TICK 头；首拍溢出后 arena 容量仍不变。
         let mut tiny = make_world();
         let route = preview_route(&mut tiny);
         tiny.spawn_vehicle(

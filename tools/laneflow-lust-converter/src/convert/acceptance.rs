@@ -482,7 +482,7 @@ fn generic_xml_entry_stub_weld_blocked_outside_approved_domain() {
 
 /// L1 端到端验收（真实 pinned）：`convert` CLI 在 pinned 输入上首次完整
 /// 跑通——诊断交付物 survey（字节 = evidence）、manifest 单配对 survey、
-/// report 含 K6/K7/K4a 健康事实（parking 175 / phase 1,298 / 声明臂
+/// report 含 K6/K7/K4a 健康事实（parking 175 / phase 1,298 / 声明的相位状态位置
 /// -13968 缺 index 9）、population 计数保留、不产 network.lfca /
 /// lust-static.tar / routes.toml。
 #[test]

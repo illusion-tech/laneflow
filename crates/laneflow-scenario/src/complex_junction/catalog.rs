@@ -29,7 +29,7 @@ pub const PORTAL_IDS: [&str; 4] = [
     "portal-loop-to-s",
 ];
 
-/// 各 portal 的 lane 数，与 `PORTAL_IDS` 同序；每个臂出口侧环路有两条回连边
+/// 各 portal 的 lane 数，与 `PORTAL_IDS` 同序；每条外部道路出口侧环路有两条回连边
 /// （环路一对一连接出口车道与入口车道，每条回连边即一条 portal lane）。
 pub const PORTAL_LANE_COUNTS: [usize; 4] = [2, 2, 2, 2];
 

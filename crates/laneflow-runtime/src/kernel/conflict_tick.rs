@@ -1475,7 +1475,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             );
         }
         if !dispatched {
-            // 与分发发现序同序的非有限注入计数（cfg(test)，融合参考臂同样
+            // 与分发发现序同序的非有限注入计数（cfg(test)，融合参考路径同样
             // 按 live×gate 发现位点火；生产构建零开销）。
             #[cfg(test)]
             let mut workload_index = 0_usize;

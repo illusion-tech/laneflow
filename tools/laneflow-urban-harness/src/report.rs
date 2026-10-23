@@ -155,11 +155,11 @@ pub struct ComparedRun {
     pub execution_id: String,
     pub workers: u32,
     pub result: crate::artifacts::FileDigest,
-    /// 本臂起点：0，或续跑存档拍号。
+    /// 本次运行的起点：0，或续跑存档拍号。
     pub start: u64,
-    /// 本臂终点 E。
+    /// 本次运行的终点 E。
     pub end: u64,
-    /// 续跑臂的存档清单 SHA-256。
+    /// 续跑运行的存档清单 SHA-256。
     pub resumed_from: Option<String>,
 }
 
@@ -1063,7 +1063,7 @@ struct ReadRun {
     envelope: Option<MeasurementProvenance>,
 }
 
-/// 逐臂独立校验：版本与状态、文件摘要、计划摘要、逐拍日志连续、计时与正式测量。
+/// 逐次运行独立校验：版本与状态、文件摘要、计划摘要、逐拍日志连续、计时与正式测量。
 fn read_run(dir: &Path) -> Result<ReadRun> {
     let bytes = fs::read(dir.join("result.json"))?;
     let result: RunResult = serde_json::from_slice(&bytes)?;
@@ -1106,7 +1106,7 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         timing::FILE_NAME,
     ];
     if performance {
-        // 正式臂的测量封套同样纳入本臂文件摘要自校验。
+        // 正式运行的测量封套同样纳入本次运行的文件摘要自校验。
         expected_files.push("measurements.toml");
     }
     for name in expected_files {
@@ -1138,9 +1138,9 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
     if tick != result.completed_ticks {
         return Err(invalid("tick log is incomplete"));
     }
-    // 正式臂逐臂独立校验测量封套：版本、执行编号与目录一致、worker
+    // 各次正式运行独立校验测量封套：版本、执行编号与目录一致、worker
     // 合法、固定协议 provenance 通过、样本数与观测窗一致。封套内容
-    // 本身不参与跨臂相等（计时与执行编号按定义不同）。
+    // 本身不参与跨运行的相等比较（计时与执行编号按定义不同）。
     let envelope = if performance {
         let measurement: RetainedMeasurements = toml::from_str(
             std::str::from_utf8(&fs::read(dir.join("measurements.toml"))?)
@@ -1186,12 +1186,12 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
 }
 
 /// 比较两份运行：两份正式运行（从第 0 拍跑到计划终点）逐项比较完整回执；
-/// 任一臂为续跑或分段时按设计 §7.5 在共有推进区间 `(T, E]` 上分段比较，
+/// 任一次运行为续跑或分段运行时按设计 §7.5 在共有推进区间 `(T, E]` 上分段比较，
 /// 通过状态为 `segment-match`，不是正确性、正式性能或认证证据。
 ///
 /// # Errors
 ///
-/// 任一臂未完成、文件被改动、计划不同、出发状态未绑定、检查点缺失或不等、
+/// 任一次运行未完成、文件被改动、计划不同、出发状态未绑定、检查点缺失或不等、
 /// 终点核对值不等，或逐行日志不同时返回错误。
 pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if fs::canonicalize(left)? == fs::canonicalize(right)? {
@@ -1204,7 +1204,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     }
     let a = read_run(left)?;
     let b = read_run(right)?;
-    // workers 在两臂摘要校验之后读取（证据封套绑定）。
+    // workers 在两次运行的摘要校验之后读取（证据封套绑定）。
     let left_workers = read_diagnostics_workers(left)?;
     let right_workers = read_diagnostics_workers(right)?;
     if a.result.plan_digest != b.result.plan_digest {
@@ -1267,7 +1267,7 @@ fn compare_complete(
                     "performance arm worker records disagree between measurements and diagnostics",
                 ));
             }
-            // 跨臂 A/B 只用于不同 worker 的执行配置对照；同 worker 的
+            // 跨运行 A/B 只用于不同 worker 的执行配置对照；同 worker 的
             // 重复运行不是跨 worker 证据，应走同 worker 三轮聚合
             // （compare <a> <b> <c>）。probe/correctness 路径不受此限制
             // （同 worker replay/确定性对拍是合法用途）。
@@ -1277,7 +1277,7 @@ fn compare_complete(
                 ));
             }
             // 本切片只支持同源码、同工具链、同硬件/电源条件、仅 worker
-            // 不同的 A/B：两臂 provenance 除 workers 外必须全等。
+            // 不同的 A/B：两次运行的 provenance 除 workers 外必须全等。
             let mut left = left.clone();
             let mut right = right.clone();
             left.workers = 0;
@@ -1295,12 +1295,12 @@ fn compare_complete(
             ));
         }
     }
-    // 语义比较排除已逐臂独立验证的执行封套文件：measurements.toml 测量
+    // 语义比较排除已逐次运行独立验证的执行封套文件：measurements.toml 测量
     // 封套与 diagnostics.json 执行元数据（计时、执行编号、workers 的载体；
-    // 其摘要已在逐臂 files 校验中与各臂自身内容绑定）。probe/correctness
-    // 臂无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
+    // 其摘要已在逐次运行的 files 校验中与各次运行自身内容绑定）。probe/correctness
+    // 运行无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
     // 计数、plan 摘要、逐拍日志摘要、终点核对值）全部保留比较。
-    // timings.jsonl 只保存非确定性的逐拍耗时，其摘要也已逐臂核对；存档记录
+    // timings.jsonl 只保存非确定性的逐拍耗时，其摘要也已逐次运行核对；存档记录
     // 不改变语义（正式运行只有非 performance 计划可以带存档）。
     let semantic = |run: &RunResult| {
         let mut run = run.clone();
@@ -1332,7 +1332,7 @@ fn compare_complete(
     Ok(())
 }
 
-/// 分段比较（设计 §7.5）：两臂终点相同、出发状态绑定、区间内计划规定的全部
+/// 分段比较（设计 §7.5）：两次运行的终点相同、出发状态绑定、区间内计划规定的全部
 /// 周期检查点与终点核对值相等，三份日志在 `(T, E]` 上按所属推进逐行相同。
 fn compare_segments(left: &Path, a: &RunResult, right: &Path, b: &RunResult) -> Result<(u64, u64)> {
     if a.segment_end != b.segment_end {
@@ -1340,8 +1340,8 @@ fn compare_segments(left: &Path, a: &RunResult, right: &Path, b: &RunResult) -> 
     }
     let end = a.segment_end;
     let start = a.start_tick().max(b.start_tick());
-    // 出发状态：两臂都从第 0 拍起跑时比较初始检查点；续跑臂的存档必须由另一臂
-    // 写出，或两臂来自同一存档。
+    // 出发状态：两次运行都从第 0 拍起跑时比较初始检查点；续跑运行的存档必须由另一次运行
+    // 写出，或两次运行来自同一存档。
     let saved_by = |full: &RunResult, resumed: &ResumedFrom| {
         full.saves.iter().any(|save| {
             save.tick == resumed.tick && save.manifest.sha256 == resumed.manifest_sha256
@@ -1852,7 +1852,7 @@ mod tests {
         }
     }
 
-    /// 三轮聚合：全 4 接受（新合法域真正被接受）、1/4/1 混臂拒绝、
+    /// 三轮聚合：全 4 接受（新合法域真正被接受）、混用 worker 数的 1/4/1 组合拒绝、
     /// 全 0 / 全 17 因 worker 合法性拒绝（封套摘要已重算，拒绝来自
     /// validate 而非旧摘要不匹配）。
     #[test]
@@ -1869,7 +1869,7 @@ mod tests {
         let result = compare_performance_runs([&a, &b, &c]).unwrap();
         assert_eq!(result.rounds.len(), 3);
         assert_eq!(result.workers, 4, "聚合报告记录三轮共同 worker 数");
-        // 混臂拒绝（a/c=4，b=1）。
+        // 混用 worker 数的组合拒绝（a/c=4，b=1）。
         let mut mixed = measurement_fixture();
         mixed["workers"] = json!(1);
         write_round(&b, "b", mixed);
@@ -1888,7 +1888,7 @@ mod tests {
         }
     }
 
-    /// 线程 A：跨臂 A/B 只接受不同 worker 的 performance 臂——4v4 语义
+    /// 线程 A：跨运行 A/B 只接受不同 worker 的 performance 运行——4v4 语义
     /// 相同也拒绝（同 worker 重复运行不是跨 worker 证据）；1v4 接受
     /// （既有用例）；probe 1v1 接受由 tests/harness.rs 的 replay 对拍
     /// 覆盖（同 worker 确定性对拍是合法用途）。
@@ -1904,11 +1904,11 @@ mod tests {
         }
         assert!(
             compare_runs(&four_a, &four_b).is_err(),
-            "同 worker 的 performance 臂必须拒绝并指向三轮聚合"
+            "同 worker 的 performance 运行必须拒绝并指向三轮聚合"
         );
     }
 
-    /// 线程 C：三轮聚合逐臂交叉核对 diagnostics↔measurements worker——
+    /// 线程 C：三轮聚合逐次运行交叉核对 diagnostics↔measurements worker——
     /// 矛盾记录即使各摘要已一致重算也拒绝。
     #[test]
     fn performance_aggregation_rejects_contradictory_worker_records() {
@@ -1921,7 +1921,7 @@ mod tests {
             fixture["workers"] = json!(4);
             write_round(path, id, fixture);
         }
-        // b 臂：diagnostics 改写为 workers=1 并一致重算 result.json 摘要，
+        // 运行 b：diagnostics 改写为 workers=1 并一致重算 result.json 摘要，
         // 使拒绝来自交叉核对而非摘要失配。
         let diagnostics = b.join("diagnostics.json");
         write_json(
@@ -1965,7 +1965,7 @@ mod tests {
         assert!(super::read_diagnostics_workers(&dir).is_err());
     }
 
-    /// 正式 performance 跨臂 A/B：同源码/工具链/硬件电源、仅 worker 不同、
+    /// 正式 performance 跨运行 A/B：同源码/工具链/硬件电源、仅 worker 不同、
     /// 语义逐拍一致、计时样本不同 → 接受；日志/检查点不同（摘要已重算）
     /// → 拒绝；diagnostics 与 measurements 的 worker 记录矛盾 → 拒绝。
     #[test]
@@ -2279,7 +2279,7 @@ mod tests {
         assert!(compare_runs(&a, &four).is_err());
         assert!(compare_performance_runs([&a, &b, &c]).is_err());
         fs::write(&diagnostics_path, &diagnostics_bytes).unwrap();
-        // 非 SUSTAINED 的正式臂同样要求 measurements 与逐拍计时一致。
+        // 非 SUSTAINED 的正式运行同样要求 measurements 与逐拍计时一致。
         let measurements_path = a.join("measurements.toml");
         let measurements_bytes = fs::read(&measurements_path).unwrap();
         let mut altered: toml::Value =

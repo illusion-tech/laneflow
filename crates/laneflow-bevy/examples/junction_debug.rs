@@ -716,8 +716,8 @@ fn spawn_stop_lines(
     }
 }
 
-/// 斑马线：只在臂道进口车道（`-in` 边）的信号停止线处画，向路口一侧 2 m、
-/// 横跨整个车行道（双向）的条纹带；中心投影到道路轴线上，同一臂口的多条
+/// 斑马线：只在路口外部道路的进口车道（`-in` 边）的信号停止线处画，向路口一侧 2 m、
+/// 横跨整个车行道（双向）的条纹带；中心投影到道路轴线上，同一进口的多条
 /// 进口车道去重为一条斑马线。
 fn spawn_crosswalks(
     commands: &mut Commands,
@@ -781,7 +781,7 @@ fn spawn_crosswalks(
                     + CROSSWALK_SETBACK_METERS
                     + CROSSWALK_LENGTH_METERS * 0.5);
         center -= lateral * lateral.dot(center);
-        // 同一臂口的多条进口车道共享一条斑马线：按 0.5 m 量化去重。
+        // 同一进口的多条进口车道共享一条斑马线：按 0.5 m 量化去重。
         let key = (
             (center.x * 2.0).round() as i32,
             (center.z * 2.0).round() as i32,
@@ -835,7 +835,7 @@ fn spawn_lane_arrows(
         name_by_ordinal.insert(ordinal.raw(), name.as_str());
     }
     // 每条进口车道边的机动方向集合：bit0 直行、bit1 左转、bit2 右转。
-    // 路线边序是 环路→进口臂→内部→出口臂→环路（环路车还会多次过路口），
+    // 路线边序是 环路→进口道路→内部→出口道路→环路（环路车还会多次过路口），
     // 相切转向在入口处与直行同向，须比较本次穿越的进口/出口切向。
     let mut moves: HashMap<u32, u8> = HashMap::new();
     for route in world.live_routes() {

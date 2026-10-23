@@ -2030,7 +2030,7 @@ mod tests {
     }
 
     /// 跨修订切换（prepare → 在途 tick 追赶 → commit）后首拍（#705 审阅：
-    /// 小场景关键组合移入 lib）：多 worker 臂经强制分发在关键拍真实走
+    /// 小场景关键组合移入 lib）：多 worker 配置下的运行经强制分发在关键拍真实走
     /// P2 分发（`WaitingPreviewPathCounts` 证明），切换前后逐步 digest/
     /// 决策/事件与 worker=1 参考一致。
     #[test]

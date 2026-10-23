@@ -63,7 +63,7 @@ subscriber，`RUST_LOG` 通过 `EnvFilter` 控制文本级别，缺省为本 cra
 库不安装全局 subscriber；文本过滤不删减开启后的规范机器记录。
 
 worker 属于执行配置：不进计划文件、不改变计划摘要、世界逻辑摘要或快照内容。
-同一计划可用不同 worker 各跑一轮后做跨臂语义对拍：
+同一计划可用不同 worker 各跑一轮后做跨运行语义对拍：
 
 ```text
 target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-1w> --workers 1 --diagnostics
@@ -71,14 +71,14 @@ target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-
 target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json>
 ```
 
-双目录 `compare` 支持 probe、correctness 与正式 performance 臂（status
-`performance-match`）。performance 跨臂只接受同源码、同工具链、同硬件/电源
-角色、仅 worker 不同的两臂：每臂先独立校验完成状态、文件摘要、测量封套
+双目录 `compare` 支持 probe、correctness 与正式 performance 运行（status
+`performance-match`）。performance 跨运行比较只接受同源码、同工具链、同硬件/电源
+角色、仅 worker 不同的两次运行：每次运行先独立校验完成状态、文件摘要、测量封套
 版本、执行编号、样本数与观测窗、worker 合法性及固定协议 provenance，再比较
 除 `measurements.toml` 测量封套外的完整交通语义（计划摘要、逐拍日志、检查点、
-角色见证与计数精确相等）；两臂 provenance 除 workers 外必须全等，diagnostics
+角色见证与计数精确相等）；两次运行的 provenance 除 workers 外必须全等，diagnostics
 与 measurements 的 worker 记录矛盾即拒绝。比较报告在 `ComparedRun.workers`
-记录两臂各自 worker（自本切片起）。比较成功只表示跨臂语义匹配与来源条件
+记录两次运行各自的 worker（自本切片起）。比较成功只表示跨运行语义匹配与来源条件
 成立，不代表性能达标；正式性能结论仍以同 worker 三轮聚合
 （`compare <performance-a> <performance-b> <performance-c>`，provenance 全等
 含 workers）为准。
@@ -112,7 +112,7 @@ p50/p95/p99/max、样本数，以及各自低于初始目标的拍数。车辆�
 正式持续负载使用最长信号周期的四周期暖机、八周期观察，并保留现行最小拍数；
 与 Mixed 分别生成计划。观察期每拍 step 前的实际 Active 必须等于一万/十万目标，
 step 后真实下降另列。未达到负载门槛时仍保存全部日志和正式测量，状态为
-`performance-load-failed`、CLI 非零退出；双臂比较与三轮聚合拒绝此类回执。
+`performance-load-failed`、CLI 非零退出；两次运行比较与三轮聚合拒绝此类回执。
 比较时重新核对完整计划、周期检查点、逐拍负载与测量样本及回收计数，不只读取汇总值。
 末尾 Pending 和耗尽请求均须为零；成功回收必须有完整的 `replace` 记录、新个体身份
 和正确代次，不能由其他成功生命周期命令充当。
@@ -133,11 +133,11 @@ step 后真实下降另列。未达到负载门槛时仍保存全部日志和正
 最终序列化、刷盘与摘要。三个分量之和不是整拍耗时，分位数也不能相加。
 记录空间在循环开始前按计划拍数预分配（计入进程峰值），循环结束后批量输出。关闭诊断时不生成该文件，
 不分配记录空间或读取整拍时钟。旧冻结记录没有逐拍关联，仍只能做分布分析。
-双臂比较与三轮聚合都要求该文件及其在 `result.files` 中的摘要；缺失即拒绝，
+两次运行比较与三轮聚合都要求该文件及其在 `result.files` 中的摘要；缺失即拒绝，
 不把没有逐拍计时的旧回执当作当前证据。两条比较路径共用同一个计时校验：
 `diagnostics.json` 声明的计时版本、每个完成拍恰好一行且 tick 连续、整拍耗时
 不小于三个分量之和、观察窗三个分量与 `diagnostics.json` 原始样本逐项相等，
-正式臂（任何 case）的 `measurements.toml` 样本也与逐拍值一致。
+正式运行（任何 case）的 `measurements.toml` 样本也与逐拍值一致。
 这些检查用于发现 harness 自身错误和数据间不一致，不防刻意伪造；威胁模型见
 [设计文档](../../docs/design/urban-demand-harness.md)。
 
@@ -233,9 +233,9 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 `(tile, slot, incarnation)`，profile 比例为 30:60:10。离场、入场保持身份，Completed
 原子替换及显式 spawn 使用该槽位递增的新 incarnation，与请求序号独立。
 
-两名入场角色使用 slot 741/743，对应 `c08.bay1` 与 `c09.mixed`。先在实际入口臂上
+两名入场角色使用 slot 741/743，对应 `c08.bay1` 与 `c09.mixed`。先在实际进口道路上
 取小于停车锚点的最大候选位置，分别为 `c08.e.out` 的 66500 mm 与 `c09.w.out`
-的 32500 mm，路线使用该入口目录中的实际 occurrence。角色前方在同一臂上的候选
+的 32500 mm，路线使用该入口目录中的实际 occurrence。角色前方在同一进口道路上的候选
 位置留空，其余 748 个 Active 按 `(位置层, edge key)` 补齐，保持每 tile 750 Active。
 
 角色在边界 0 reserve；实际 arrival 后，park 在下一边界与预定最早边界两者的较晚者
@@ -281,7 +281,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
 - `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v3`（记录比较
-  区间 `(T, E]` 与两臂各自的起点、终点、续跑存档清单摘要和 worker 数；旧报告不转换），
+  区间 `(T, E]` 与两次运行各自的起点、终点、续跑存档清单摘要和 worker 数；旧报告不转换），
   记录 `case-pass`、`probe-match`、`performance-match` 或 `segment-match`、case/scale、
   计划摘要，以及两个执行编号和两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；
   失败比较不生成通过报告。

@@ -10,7 +10,7 @@ use crate::Error;
 use crate::config::{JunctionConfig, VEHICLE_WIDTH_ENVELOPE_METERS};
 use crate::topology::{Point, TopologyBuild, envelopes_overlap};
 
-/// catalog 槽位总量上限：超出即配置错误，防止畸形配置（过长臂长 × 过小
+/// catalog 槽位总量上限：超出即配置错误，防止畸形配置（路口中心至道路外端距离过大 × 过小
 /// pitch/车长）在编译限制介入前产出无界 catalog。
 const TOTAL_SPAWN_SLOT_LIMIT: usize = 4_096;
 
