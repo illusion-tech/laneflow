@@ -1,82 +1,575 @@
 {
   "schemaVersion": 1,
   "baselineId": "LF-ATTEST-P100-PRODUCTION-R0-v1",
+  "status": "measured",
+  "issue": 987,
   "workloadId": "LF-ATTEST-MIXED-SYNTHETIC-TIERS-v1",
   "compileLimitsProfile": "LF-COMP-SINGLE-NETWORK-1M-v2",
-  "attestationImplementationRevision": "6885bc025131bb5898b2094b577c41d9b2f29d33",
-  "issue": 987,
   "measuredAt": "2026-10-23",
+  "measurementSourceRevision": "06f239c39b3983efd8d39ecb0820131bc140fd77",
+  "measurementSourceTree": "8baca1ea0204b2fdb6a47f48bfd55a406d10777d",
   "environment": {
-    "hardwareId": "LF-P100-REF-01",
-    "hardwareIdentityScheme": "laneflow-p100-hardware-identity-v2",
-    "hardwareIdentitySha256": "be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20",
-    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
-    "physicalCoreCount": 16,
-    "logicalProcessorCount": 32,
-    "physicalMemoryBytes": 66232508416,
-    "operatingSystem": "Microsoft Windows 11 专业版 Insider Preview",
-    "operatingSystemBuild": "29683.1000",
-    "targetTriple": "x86_64-pc-windows-msvc",
-    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
-    "llvm": "22.1.8",
-    "powerSource": "交流电",
-    "powerPlan": "平衡"
-  },
-  "dynamicLoad": {
-    "definition": "每档装载静态实体 1/10 的车辆；三边链（10 m/8 m/12 m）路线轮转分配，同路线每边一车（spawn 重叠检查通过），装载后两拍落账；世界容量随装载预留（容量进入快照与摘要）",
-    "vehiclesPerTier": [
-      1000,
-      10000,
-      100000
+    "sourceRevision": "06f239c39b3983efd8d39ecb0820131bc140fd77",
+    "sourceTree": "8baca1ea0204b2fdb6a47f48bfd55a406d10777d",
+    "capturedAtUtc": "2026-10-23T11:16:53.5242836Z",
+    "processor": [
+      {
+        "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+        "NumberOfCores": 16,
+        "NumberOfLogicalProcessors": 32
+      }
     ],
-    "routesPerTier": [
-      437,
-      4369,
-      43693
-    ]
+    "system": {
+      "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+      "Version": "10.0.29683",
+      "BuildNumber": "29683",
+      "TotalVisibleMemorySize": 64680184,
+      "FreePhysicalMemory": 34994160
+    },
+    "memory": {
+      "TotalPhysicalMemory": 66232508416
+    },
+    "initialCpu": {
+      "PercentProcessorTime": 7
+    },
+    "battery": [
+      {
+        "BatteryStatus": 2,
+        "EstimatedChargeRemaining": 100
+      }
+    ],
+    "powerPlan": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\r\nbinary: rustc\r\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\r\ncommit-date: 2026-08-18\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.98.0\r\nLLVM version: 22.1.8",
+    "windowsRevision": 1000
   },
   "measurement": {
-    "timingBoundary": "单次 attest_published_shared_network_revision；其他受影响成本项待修正 harness 的正式重测",
-    "rawSamplesPersisted": false,
-    "formalSampleCountPerTier": 5,
-    "status": "historical-attestation-wall-clock-only",
+    "timingWarmupRunsPerTier": 2,
+    "timingSamplesPerTierPerRun": 5,
+    "timingRunCount": 2,
+    "allocationRunCount": 2,
+    "heapRunCount": 2,
+    "allocationAndHeapRepeatsExactlyMatch": true,
+    "attestationAndDigestTimingSamplesPersisted": true,
+    "fullStdoutArchivedInRepository": false,
+    "timingBoundary": "认证单次调用；现行摘要每样本连续 capture → digest，同时计两段和端到端，快照析构在计时区外",
+    "allocationBoundary": "stats_alloc 独立 Region 单次调用；分配字节含 realloc 净增长",
+    "heapBoundary": "DHAT 独立 profiler 的堆请求字节峰值；合同增量含宿主 LFCA，共存总量另含被认证根实测保留堆字节；不含 RSS、栈及分配器/分析器内部开销",
     "tiers": [
       {
         "stableEntities": 10000,
-        "lfcaBytes": 4449321,
-        "attestationWallClockNs": {
-          "min": 12025500,
-          "median": 12107700,
-          "max": 12305000
+        "vehicles": 1000,
+        "routes": 437,
+        "timingRuns": [
+          {
+            "run": "timing-1",
+            "fixturePrepareNs": 212833000,
+            "attestationSamplesSortedNs": [
+              11742500,
+              11753900,
+              11767700,
+              11822400,
+              11898300
+            ],
+            "directSamplesNs": [
+              380000,
+              375800,
+              374300,
+              378000,
+              378100
+            ],
+            "captureSamplesNs": [
+              61800,
+              61100,
+              60700,
+              61100,
+              60900
+            ],
+            "capturedDigestSamplesNs": [
+              224500,
+              222800,
+              427000,
+              226100,
+              221200
+            ],
+            "captureDigestTotalSamplesNs": [
+              286300,
+              283900,
+              487800,
+              287200,
+              282200
+            ]
+          },
+          {
+            "run": "timing-2",
+            "fixturePrepareNs": 211985000,
+            "attestationSamplesSortedNs": [
+              11765300,
+              11827500,
+              11847800,
+              11866400,
+              11877600
+            ],
+            "directSamplesNs": [
+              372400,
+              379100,
+              372300,
+              371900,
+              374800
+            ],
+            "captureSamplesNs": [
+              63000,
+              62200,
+              61600,
+              61400,
+              62100
+            ],
+            "capturedDigestSamplesNs": [
+              223600,
+              223600,
+              223100,
+              221500,
+              221300
+            ],
+            "captureDigestTotalSamplesNs": [
+              286600,
+              286000,
+              284700,
+              283000,
+              283600
+            ]
+          }
+        ],
+        "allocation": {
+          "sourceBytes": 4449321,
+          "rootRetainedLogicalBytes": 923251,
+          "rootRetainedHeapBytes": 923267,
+          "attestationAllocatedBytes": 1558839,
+          "attestationDeallocatedBytes": 1558839,
+          "steadyRetainedBytes": 0,
+          "attestationAdditionalHeapPeakBytes": 1009945,
+          "attestationContractIncrementPeakBytes": 5459266,
+          "attestationContractCoexistPeakBytes": 6382533,
+          "directAllocatedBytes": 749944,
+          "captureDigestAllocatedBytes": 1198500,
+          "directScratchBudgetBoundaryBytes": 593546,
+          "directHeapPeakBytes": 712968,
+          "captureDigestHeapPeakBytes": 1027956
         }
       },
       {
         "stableEntities": 100000,
-        "lfcaBytes": 44481655,
-        "attestationWallClockNs": {
-          "min": 130204900,
-          "median": 135217100,
-          "max": 143572600
+        "vehicles": 10000,
+        "routes": 4369,
+        "timingRuns": [
+          {
+            "run": "timing-1",
+            "fixturePrepareNs": 2319731700,
+            "attestationSamplesSortedNs": [
+              119178800,
+              119628200,
+              120634700,
+              120939900,
+              121192000
+            ],
+            "directSamplesNs": [
+              4861800,
+              4829400,
+              4915100,
+              4854600,
+              4832500
+            ],
+            "captureSamplesNs": [
+              1124600,
+              1053700,
+              1060000,
+              1052300,
+              1043300
+            ],
+            "capturedDigestSamplesNs": [
+              2845100,
+              2817600,
+              2844100,
+              2895100,
+              2813000
+            ],
+            "captureDigestTotalSamplesNs": [
+              3970200,
+              3871400,
+              3904200,
+              3947500,
+              3856300
+            ]
+          },
+          {
+            "run": "timing-2",
+            "fixturePrepareNs": 2366106100,
+            "attestationSamplesSortedNs": [
+              119066500,
+              119887700,
+              120092500,
+              120549600,
+              122160700
+            ],
+            "directSamplesNs": [
+              5059300,
+              4852600,
+              4916900,
+              5293500,
+              4853700
+            ],
+            "captureSamplesNs": [
+              1061500,
+              1072400,
+              1272600,
+              1058000,
+              1049200
+            ],
+            "capturedDigestSamplesNs": [
+              2890600,
+              2925300,
+              2913900,
+              3111500,
+              2830000
+            ],
+            "captureDigestTotalSamplesNs": [
+              3952300,
+              3997700,
+              4186500,
+              4169600,
+              3879400
+            ]
+          }
+        ],
+        "allocation": {
+          "sourceBytes": 44481655,
+          "rootRetainedLogicalBytes": 9211333,
+          "rootRetainedHeapBytes": 9211349,
+          "attestationAllocatedBytes": 15905152,
+          "attestationDeallocatedBytes": 15905152,
+          "steadyRetainedBytes": 0,
+          "attestationAdditionalHeapPeakBytes": 10105357,
+          "attestationContractIncrementPeakBytes": 54587012,
+          "attestationContractCoexistPeakBytes": 63798361,
+          "directAllocatedBytes": 6802688,
+          "captureDigestAllocatedBytes": 11270341,
+          "directScratchBudgetBoundaryBytes": 5933330,
+          "directHeapPeakBytes": 6432976,
+          "captureDigestHeapPeakBytes": 9582613
         }
       },
       {
         "stableEntities": 1000000,
-        "lfcaBytes": 444792209,
-        "attestationWallClockNs": {
-          "min": 1215251700,
-          "median": 1225537800,
-          "max": 1248669000
+        "vehicles": 100000,
+        "routes": 43693,
+        "timingRuns": [
+          {
+            "run": "timing-1",
+            "fixturePrepareNs": 24579573200,
+            "attestationSamplesSortedNs": [
+              1203347600,
+              1204232300,
+              1206728700,
+              1208284700,
+              1213648700
+            ],
+            "directSamplesNs": [
+              80485000,
+              78768100,
+              85355700,
+              78895400,
+              82970300
+            ],
+            "captureSamplesNs": [
+              17664800,
+              17130400,
+              17231000,
+              17170400,
+              17493800
+            ],
+            "capturedDigestSamplesNs": [
+              48272100,
+              52323200,
+              47714500,
+              48243700,
+              48892200
+            ],
+            "captureDigestTotalSamplesNs": [
+              65937000,
+              69453700,
+              64945800,
+              65414500,
+              66386300
+            ]
+          },
+          {
+            "run": "timing-2",
+            "fixturePrepareNs": 24598810500,
+            "attestationSamplesSortedNs": [
+              1207979600,
+              1212282300,
+              1215949500,
+              1243027800,
+              1243856900
+            ],
+            "directSamplesNs": [
+              90248100,
+              91606100,
+              88371200,
+              86053800,
+              84776400
+            ],
+            "captureSamplesNs": [
+              19053900,
+              19852500,
+              18243600,
+              18126900,
+              23659500
+            ],
+            "capturedDigestSamplesNs": [
+              53388400,
+              58484900,
+              53751300,
+              52056100,
+              54883500
+            ],
+            "captureDigestTotalSamplesNs": [
+              72442700,
+              78337600,
+              71995300,
+              70183300,
+              78543400
+            ]
+          }
+        ],
+        "allocation": {
+          "sourceBytes": 444792209,
+          "rootRetainedLogicalBytes": 92088415,
+          "rootRetainedHeapBytes": 92088431,
+          "attestationAllocatedBytes": 157188573,
+          "attestationDeallocatedBytes": 157188573,
+          "steadyRetainedBytes": 0,
+          "attestationAdditionalHeapPeakBytes": 101054545,
+          "attestationContractIncrementPeakBytes": 545846754,
+          "attestationContractCoexistPeakBytes": 637935185,
+          "directAllocatedBytes": 62457616,
+          "captureDigestAllocatedBytes": 106298182,
+          "directScratchBudgetBoundaryBytes": 59332418,
+          "directHeapPeakBytes": 58760352,
+          "captureDigestHeapPeakBytes": 90256726
         }
       }
     ],
-    "pending": [
-      "attestation-allocation",
-      "contract-increment-and-coexist-heap-peak",
-      "steady-state-retained",
-      "populated-concurrent-interference",
-      "paired-direct-versus-capture-digest-timing",
-      "direct-scratch-budget-and-heap-peak"
+    "concurrentInterference": [
+      {
+        "kind": "concurrent-interference",
+        "smoke": false,
+        "tier": 100000,
+        "vehicles": 10000,
+        "routes": 4369,
+        "ticks": 256,
+        "tick_ms": 4,
+        "overlap_ns": 384207300,
+        "overlap_cycles": 3,
+        "total_cycles": 4,
+        "baseline_median_ns": 1492000,
+        "contended_median_ns": 1491500,
+        "baseline_p95_ns": 1606700,
+        "contended_p95_ns": 1529900,
+        "interference_ppm": -335,
+        "interference_p95_ppm": -47799,
+        "run": "timing-1"
+      },
+      {
+        "kind": "concurrent-interference",
+        "smoke": false,
+        "tier": 100000,
+        "vehicles": 10000,
+        "routes": 4369,
+        "ticks": 256,
+        "tick_ms": 4,
+        "overlap_ns": 398433500,
+        "overlap_cycles": 3,
+        "total_cycles": 4,
+        "baseline_median_ns": 1508900,
+        "contended_median_ns": 1516700,
+        "baseline_p95_ns": 1544100,
+        "contended_p95_ns": 1746100,
+        "interference_ppm": 5169,
+        "interference_p95_ppm": 130820,
+        "run": "timing-2"
+      },
+      {
+        "kind": "concurrent-interference",
+        "smoke": false,
+        "tier": 100000,
+        "vehicles": 10000,
+        "routes": 4369,
+        "ticks": 256,
+        "tick_ms": 4,
+        "overlap_ns": 400724700,
+        "overlap_cycles": 3,
+        "total_cycles": 4,
+        "baseline_median_ns": 1502200,
+        "contended_median_ns": 1512900,
+        "baseline_p95_ns": 1535100,
+        "contended_p95_ns": 1762400,
+        "interference_ppm": 7122,
+        "interference_p95_ppm": 148068,
+        "run": "concurrent-3"
+      },
+      {
+        "kind": "concurrent-interference",
+        "smoke": false,
+        "tier": 100000,
+        "vehicles": 10000,
+        "routes": 4369,
+        "ticks": 256,
+        "tick_ms": 4,
+        "overlap_ns": 397359300,
+        "overlap_cycles": 3,
+        "total_cycles": 4,
+        "baseline_median_ns": 1487100,
+        "contended_median_ns": 1511500,
+        "baseline_p95_ns": 1549200,
+        "contended_p95_ns": 1705800,
+        "interference_ppm": 16407,
+        "interference_p95_ppm": 101084,
+        "run": "concurrent-4"
+      }
+    ],
+    "runs": [
+      {
+        "name": "timing-1",
+        "startedAtUtc": "2026-10-23T11:16:55.5369775Z",
+        "elapsedSeconds": 69.9957528,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "852B4D0E2819C02A4BEBAC3C1A82C957E36AA6314C1E290EFDFCA02C72872C3E",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "stdoutSha256": "7dc1b4d5118bdc2d901f44f6b58d622466dbe3eaf35bdb06676b13b354baba78",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "timing-2",
+        "startedAtUtc": "2026-10-23T11:18:05.5872575Z",
+        "elapsedSeconds": 70.3691465,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "852B4D0E2819C02A4BEBAC3C1A82C957E36AA6314C1E290EFDFCA02C72872C3E",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "stdoutSha256": "98b68a6244907d62b90d954080f4f09ee966f647c50c57283d5cb77112fab2ee",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "concurrent-3",
+        "startedAtUtc": "2026-10-23T11:19:15.9710374Z",
+        "elapsedSeconds": 3.3544895,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "852B4D0E2819C02A4BEBAC3C1A82C957E36AA6314C1E290EFDFCA02C72872C3E",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "concurrent_attest_tick_interference_evidence"
+        ],
+        "stdoutSha256": "a4514b6a8d57cc28c6e2c9f2cfcc0dca79d79c2c1e4ae4fcde720d3121027454",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "concurrent-4",
+        "startedAtUtc": "2026-10-23T11:19:19.3368512Z",
+        "elapsedSeconds": 3.4547791,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "852B4D0E2819C02A4BEBAC3C1A82C957E36AA6314C1E290EFDFCA02C72872C3E",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "concurrent_attest_tick_interference_evidence"
+        ],
+        "stdoutSha256": "d2fcc16e4ebb3aa4809d341f4e27ad656d2e5fc93fe76fdbe34b4f98bad73f4d",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "allocation-1",
+        "startedAtUtc": "2026-10-23T11:19:30.1800234Z",
+        "elapsedSeconds": 63.1247685,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "AAB2EAC61FE251713717DC90915F3808FBE62559C7781C64358495941A5B752D",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "stdoutSha256": "095f7f812ad7ef4776000780eaed942860a53f725c06fb8948fae58ea0a4e9f2",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "heap-1",
+        "startedAtUtc": "2026-10-23T11:20:33.3608627Z",
+        "elapsedSeconds": 29.9979836,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "7DD2AE889B236B37D84CB415837E05AACB38B0F30BFE3E183320BEACF55FC369",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "stdoutSha256": "fc7f00eeee9b58d0ed466b5ef670af11aa9fc97e7e29697d4cc56d67200dc934",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "allocation-2",
+        "startedAtUtc": "2026-10-23T11:21:03.3725324Z",
+        "elapsedSeconds": 63.0016594,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "AAB2EAC61FE251713717DC90915F3808FBE62559C7781C64358495941A5B752D",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "stdoutSha256": "465356d2f2b13ada6300fb39b462983dc077f59eee7090e9c41cee21a939f7b4",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "heap-2",
+        "startedAtUtc": "2026-10-23T11:22:06.3860674Z",
+        "elapsedSeconds": 29.8740005,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "binarySha256": "7DD2AE889B236B37D84CB415837E05AACB38B0F30BFE3E183320BEACF55FC369",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "stdoutSha256": "4448011120467fa61c2674a21f1f51698af47a4e04d3e29d226361c72762ebb6",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
     ]
-  },
-  "status": "pending-remeasurement"
+  }
 }
