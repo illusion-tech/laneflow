@@ -3,7 +3,7 @@
   "baselineId": "LF-ATTEST-P100-PRODUCTION-R0-v1",
   "workloadId": "LF-ATTEST-MIXED-SYNTHETIC-TIERS-v1",
   "compileLimitsProfile": "LF-COMP-SINGLE-NETWORK-1M-v2",
-  "attestationImplementationRevision": "与本证据同一提交",
+  "attestationImplementationRevision": "6885bc025131bb5898b2094b577c41d9b2f29d33",
   "issue": 987,
   "measuredAt": "2026-10-23",
   "environment": {
@@ -24,196 +24,59 @@
   },
   "dynamicLoad": {
     "definition": "每档装载静态实体 1/10 的车辆；三边链（10 m/8 m/12 m）路线轮转分配，同路线每边一车（spawn 重叠检查通过），装载后两拍落账；世界容量随装载预留（容量进入快照与摘要）",
-    "vehiclesPerTier": [1000, 10000, 100000],
-    "routesPerTier": [437, 4369, 43693]
+    "vehiclesPerTier": [
+      1000,
+      10000,
+      100000
+    ],
+    "routesPerTier": [
+      437,
+      4369,
+      43693
+    ]
   },
   "measurement": {
-    "timingBoundary": "attest_published_shared_network_revision 单次调用全链（来源准备 + 根比较 + 确认与处置）；LFCA 生成与共享根构建另列，不计入认证墙钟。直算摘要与现行路径对照在动态记录世界上计时：direct_state_digest 单次调用；现行路径按 capture_snapshot 与 deterministic_state_digest 两段分别计时、合计作对照",
-    "warmupRunsPerTier": 2,
-    "formalSampleCountPerTier": 5,
-    "processCount": 1,
-    "workerCount": 1,
+    "timingBoundary": "单次 attest_published_shared_network_revision；其他受影响成本项待修正 harness 的正式重测",
     "rawSamplesPersisted": false,
-    "stabilityRepeat": "同窗口内复跑：认证墙钟中位差 1.1% / 7.7% / 1.1%（一万/十万/一百万）；直算/现行合计之比两轮 +6% ~ +21%；并发干扰 ppm 见 concurrentInterference",
+    "formalSampleCountPerTier": 5,
+    "status": "historical-attestation-wall-clock-only",
     "tiers": [
       {
         "stableEntities": 10000,
-        "vehicles": 1000,
-        "routes": 437,
         "lfcaBytes": 4449321,
-        "sharedRootRetainedLogicalBytes": 923251,
-        "rootBuildWallClockNs": 228797600,
         "attestationWallClockNs": {
           "min": 12025500,
           "median": 12107700,
           "max": 12305000
-        },
-        "attestationAllocBytes": 4676685,
-        "attestationDeallocBytes": 4676685,
-        "attestationCoexistLiveBeforeBytes": 5419053,
-        "attestationPeakIncrementBytes": 1010089,
-        "attestationCoexistPeakSampledBytes": 6429142,
-        "steadyStateRetainedDeltaBytes": 0,
-        "directStateDigestWallClockNs": {
-          "min": 540400,
-          "median": 568600,
-          "max": 591300
-        },
-        "captureWallClockNs": {
-          "min": 191700,
-          "median": 206500,
-          "max": 237700
-        },
-        "legacyDigestWallClockNs": {
-          "min": 260300,
-          "median": 286600,
-          "max": 346600
-        },
-        "directDigestScratchBoundBytes": 593546,
-        "directDigestAllocBytes": 1499888,
-        "legacyCaptureDigestAllocBytes": 2698388
+        }
       },
       {
         "stableEntities": 100000,
-        "vehicles": 10000,
-        "routes": 4369,
         "lfcaBytes": 44481655,
-        "sharedRootRetainedLogicalBytes": 9211333,
-        "rootBuildWallClockNs": 2475293000,
         "attestationWallClockNs": {
           "min": 130204900,
           "median": 135217100,
           "max": 143572600
-        },
-        "attestationAllocBytes": 47715624,
-        "attestationDeallocBytes": 47715624,
-        "attestationCoexistLiveBeforeBytes": 54173429,
-        "attestationPeakIncrementBytes": 10105501,
-        "attestationCoexistPeakSampledBytes": 64278930,
-        "steadyStateRetainedDeltaBytes": 0,
-        "directStateDigestWallClockNs": {
-          "min": 5580800,
-          "median": 5831200,
-          "max": 6050000
-        },
-        "captureWallClockNs": {
-          "min": 1090800,
-          "median": 1182300,
-          "max": 1267500
-        },
-        "legacyDigestWallClockNs": {
-          "min": 3755400,
-          "median": 3876500,
-          "max": 4162400
-        },
-        "directDigestScratchBoundBytes": 5933330,
-        "directDigestAllocBytes": 13605376,
-        "legacyCaptureDigestAllocBytes": 24875717
+        }
       },
       {
         "stableEntities": 1000000,
-        "vehicles": 100000,
-        "routes": 43693,
         "lfcaBytes": 444792209,
-        "sharedRootRetainedLogicalBytes": 92088415,
-        "rootBuildWallClockNs": 27442262200,
         "attestationWallClockNs": {
           "min": 1215251700,
           "median": 1225537800,
           "max": 1248669000
-        },
-        "attestationAllocBytes": 471565887,
-        "attestationDeallocBytes": 471565887,
-        "attestationCoexistLiveBeforeBytes": 541700935,
-        "attestationPeakIncrementBytes": 101054689,
-        "attestationCoexistPeakSampledBytes": 642755624,
-        "steadyStateRetainedDeltaBytes": 0,
-        "directStateDigestWallClockNs": {
-          "min": 84889000,
-          "median": 86984200,
-          "max": 95110900
-        },
-        "captureWallClockNs": {
-          "min": 21935000,
-          "median": 22211700,
-          "max": 22662700
-        },
-        "legacyDigestWallClockNs": {
-          "min": 54080500,
-          "median": 59595800,
-          "max": 60126000
-        },
-        "directDigestScratchBoundBytes": 59332418,
-        "directDigestAllocBytes": 124915232,
-        "legacyCaptureDigestAllocBytes": 231213414
+        }
       }
     ],
-    "directDigestStabilityRepeat": {
-      "directMedianNs": [592000, 6234600, 85215200],
-      "captureMedianNs": [191100, 1413500, 21559400],
-      "legacyDigestMedianNs": [297900, 3969200, 55245000],
-      "directVersusLegacyTotalPercent": [21.1, 15.8, 10.9]
-    },
-    "concurrentInterference": {
-      "tierStableEntities": 100000,
-      "contendedTicks": 2048,
-      "warmupTicksPerPhase": 16,
-      "attestWorkerWindow": "30 s Pass-only loop",
-      "shadowWorldDigestMatches": true,
-      "runs": [
-        {
-          "baselineMedianNs": 96000,
-          "contendedMedianNs": 95500,
-          "baselineP95Ns": 98500,
-          "contendedP95Ns": 114600,
-          "interferenceMedianPpm": 0,
-          "interferenceP95Ppm": 163451,
-          "attestCycles": 254
-        },
-        {
-          "baselineMedianNs": 95100,
-          "contendedMedianNs": 95700,
-          "baselineP95Ns": 97400,
-          "contendedP95Ns": 98700,
-          "interferenceMedianPpm": 6309,
-          "interferenceP95Ppm": 13347,
-          "attestCycles": 253
-        },
-        {
-          "baselineMedianNs": 94700,
-          "contendedMedianNs": 95000,
-          "baselineP95Ns": 98400,
-          "contendedP95Ns": 97800,
-          "interferenceMedianPpm": 3167,
-          "interferenceP95Ppm": 0,
-          "attestCycles": 255
-        },
-        {
-          "baselineMedianNs": 95500,
-          "contendedMedianNs": 94400,
-          "baselineP95Ns": 98900,
-          "contendedP95Ns": 109500,
-          "interferenceMedianPpm": 0,
-          "interferenceP95Ppm": 107178,
-          "attestCycles": 250
-        }
-      ],
-      "medianInterferencePpmRange": [0, 6309],
-      "p95InterferencePpmRange": [0, 163451],
-      "medianOnlyPreliminaryRuns": [
-        {
-          "baselineMedianNs": 95800,
-          "contendedMedianNs": 95800,
-          "interferencePpm": 0,
-          "attestCycles": 246
-        },
-        {
-          "baselineMedianNs": 99800,
-          "contendedMedianNs": 100300,
-          "interferencePpm": 5010,
-          "attestCycles": 250
-        }
-      ]
-    }
-  }
+    "pending": [
+      "attestation-allocation",
+      "contract-increment-and-coexist-heap-peak",
+      "steady-state-retained",
+      "populated-concurrent-interference",
+      "paired-direct-versus-capture-digest-timing",
+      "direct-scratch-budget-and-heap-peak"
+    ]
+  },
+  "status": "pending-remeasurement"
 }

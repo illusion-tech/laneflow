@@ -1,7 +1,7 @@
-//! #987 计数段证据：认证峰值（增量 / 共存分报）、直算摘要 scratch 与
+//! #987 计数段证据：认证、直算摘要 scratch 预算边界与
 //! 分配计数、稳态保留实测为零。
 //!
-//! 单测试文件纪律（Region 是进程级计数器，一文件一测试）。正式测量在
+//! Region 是进程级计数器；本文件只有一个测试，避免 libtest 跨测试报告污染。正式测量在
 //! 安静窗口以
 //! `cargo +1.98.0 test --release --locked -p laneflow-runtime --test attestation_allocation_evidence -- --ignored --nocapture --test-threads=1`
 //! 运行。
@@ -13,9 +13,6 @@ mod test_policy;
 
 use std::alloc::System;
 use std::hint::black_box;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::thread;
-use std::time::Duration;
 
 use laneflow_compiler::{Compiler, PortableEmissionProvenance};
 use laneflow_format::FormatLimits;
@@ -32,8 +29,6 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
-/// 证据测试档位（#380 账本口径的稳定静态实体数）。
-const TIERS: [u32; 3] = [10_000, 100_000, 1_000_000];
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024);
 const DIGEST_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
@@ -48,7 +43,7 @@ fn allocator_live_bytes() -> u64 {
     .unwrap_or(u64::MAX)
 }
 
-fn build_tier(stable_entities: u32) -> (Vec<u8>, std::sync::Arc<SharedNetworkRevision>) {
+fn build_tier(stable_entities: u32) -> (Vec<u8>, std::sync::Arc<SharedNetworkRevision>, u64) {
     let unit = synthetic_network::build_mixed_network(
         synthetic_network::WorkloadShape::for_stable_entities(stable_entities),
         false,
@@ -65,23 +60,30 @@ fn build_tier(stable_entities: u32) -> (Vec<u8>, std::sync::Arc<SharedNetworkRev
     )
     .expect("emit candidate");
     let lfca: Vec<u8> = candidate.canonical_artifact().bytes().to_vec();
+    let root_before = allocator_live_bytes();
     let root = build_shared_network_revision(
         laneflow_format::check_canonical_network_input(lfca.as_slice(), FormatLimits::HARD)
             .unwrap(),
         SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
     )
     .expect("build root");
-    (lfca, root)
+    let root_live_bytes = allocator_live_bytes()
+        .checked_sub(root_before)
+        .expect("root live bytes");
+    (lfca, root, root_live_bytes)
 }
 
-/// 认证峰值分报（设计 §6：增量 = 来源字节 + 候选根 + builder scratch；
-/// 共存总量 = 增量 + 被认证根）与认证期分配字节；稳态保留实测为零
-/// （认证前后 live-bytes 差为 0）。
+/// 认证期分配与稳态保留；峰值由独立 DHAT 二进制记录。
 #[test]
 #[ignore = "manual single-thread release allocation evidence; run inside a quiet window"]
 fn attestation_allocation_evidence() {
-    for tier in TIERS {
-        let (lfca, root) = build_tier(tier);
+    measure_attestation_allocation();
+    direct_digest_scratch_and_allocation_evidence();
+}
+
+fn measure_attestation_allocation() {
+    for tier in synthetic_network::evidence_tiers() {
+        let (lfca, root, root_live_bytes) = build_tier(tier);
         let origin = root.canonical_origin();
         let reference = PublishedLfcaReference::new(
             format!("fixture://#987/{tier}"),
@@ -101,66 +103,36 @@ fn attestation_allocation_evidence() {
             SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
             None,
         );
-        let steady_delta = allocator_live_bytes().saturating_sub(steady_before);
+        let steady_delta = i128::from(allocator_live_bytes()) - i128::from(steady_before);
         assert!(matches!(outcome, AttestationOutcome::Concluded(report)
             if report.verdict == AttestationVerdict::Pass));
 
-        // 认证期增量与共存：Region 记账 + 采样峰值（共存放开头读数）。
+        // 分配计数单独测一次，暖机不进入 Region。
+        let attest = || {
+            black_box(attest_published_shared_network_revision(
+                &root,
+                &reference,
+                lfca.as_slice(),
+                FormatLimits::HARD,
+                SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
+                None,
+            ))
+        };
+        let _ = attest();
         let region = Region::new(GLOBAL);
-        let coexist_before = allocator_live_bytes();
-        let running = AtomicBool::new(true);
-        let peak = AtomicU64::new(0);
-        thread::scope(|scope| {
-            let running = &running;
-            let peak = &peak;
-            scope.spawn(move || {
-                while running.load(Ordering::Relaxed) {
-                    peak.fetch_max(allocator_live_bytes(), Ordering::Relaxed);
-                    thread::sleep(Duration::from_millis(1));
-                }
-            });
-            let region = &region;
-            let root = &root;
-            let reference = &reference;
-            let lfca = &lfca;
-            let attest = || {
-                black_box(attest_published_shared_network_revision(
-                    root,
-                    reference,
-                    lfca.as_slice(),
-                    FormatLimits::HARD,
-                    SharedNetworkBuildOptions::new(
-                        SpatialBuildOption::RetainAvailable,
-                        BUILD_LIMITS,
-                    ),
-                    None,
-                ))
-            };
-            let _ = attest();
-            let _ = attest();
-            let _ = region.change();
-            let outcome = attest();
-            running.store(false, Ordering::Relaxed);
-            assert!(matches!(outcome, AttestationOutcome::Concluded(report)
-                if report.verdict == AttestationVerdict::Pass));
-        });
+        let outcome = attest();
         let stats = region.change();
-        let coexist_delta = allocator_live_bytes().saturating_sub(coexist_before);
-        let _ = &region; // Region 析构前读取完成
-        // 增量峰值 = sampled_peak − coexist_before（来源字节 + 候选根 + scratch
-        // 在峰值的共存超出部分）；共存总量即 sampled_peak 绝对值。
+        assert!(matches!(outcome, AttestationOutcome::Concluded(report)
+            if report.verdict == AttestationVerdict::Pass));
+        assert_eq!(stats.bytes_allocated, stats.bytes_deallocated);
+
         println!(
-            "#987-evidence allocation tier={tier} lfca_bytes={} root_retained_bytes={} \
-             attest_alloc_bytes={} attest_dealloc_bytes={} \
-             coexist_live_before_bytes={coexist_before} \
-             sampled_peak_live_bytes={} increment_peak_bytes={} \
-             coexist_delta_bytes={coexist_delta} steady_delta_bytes={steady_delta}",
+            "#987-evidence allocation smoke={} tier={tier} lfca_bytes={} root_retained_logical_bytes={} root_live_bytes={root_live_bytes} attest_alloc_bytes={} attest_dealloc_bytes={} steady_delta_bytes={steady_delta}",
+            synthetic_network::smoke_mode(),
             lfca.len(),
             root.retained_logical_bytes(),
             stats.bytes_allocated,
             stats.bytes_deallocated,
-            peak.load(Ordering::Relaxed),
-            peak.load(Ordering::Relaxed).saturating_sub(coexist_before),
         );
         assert_eq!(steady_delta, 0, "稳态保留新增须实测为零");
     }
@@ -169,11 +141,9 @@ fn attestation_allocation_evidence() {
 /// 直算摘要归一化 scratch 上界（限额二分）与分配计数：限额单调卡点即
 /// 归一化 scratch 精确上界（切片①的边界测试在生产档的延伸），对照
 /// 现行 capture + digest 路径的分配字节。
-#[test]
-#[ignore = "manual single-thread release allocation evidence; run inside a quiet window"]
 fn direct_digest_scratch_and_allocation_evidence() {
-    for tier in TIERS {
-        let (lfca, root) = build_tier(tier);
+    for tier in synthetic_network::evidence_tiers() {
+        let (lfca, root, _) = build_tier(tier);
         let origin = root.canonical_origin();
         let reference = PublishedLfcaReference::new(
             format!("fixture://#987/{tier}"),
@@ -212,23 +182,39 @@ fn direct_digest_scratch_and_allocation_evidence() {
             }
         }
         let scratch_bound_bytes = high;
+        assert!(
+            world
+                .direct_state_digest(SnapshotDigestLimits::new(high))
+                .is_ok()
+        );
+        assert!(matches!(
+            world.direct_state_digest(SnapshotDigestLimits::new(high - 1)),
+            Err(laneflow_runtime::SnapshotDigestError::LimitExceeded)
+        ));
 
         // 分配计数：直算 vs 现行 capture + digest。
-        let region = Region::new(GLOBAL);
         let limits = SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES);
         world.direct_state_digest(limits).expect("warm");
-        let _ = region.change();
+        let region = Region::new(GLOBAL);
         let digest = world.direct_state_digest(limits).expect("direct");
         let direct_alloc = region.change().bytes_allocated;
-        let _ = region.change();
+        // 同一输入的独立计数必须一致，防止暖机或前一路径混入区间。
+        let repeat_region = Region::new(GLOBAL);
+        assert_eq!(
+            digest,
+            world.direct_state_digest(limits).expect("repeat direct")
+        );
+        assert_eq!(direct_alloc, repeat_region.change().bytes_allocated);
+        let region = Region::new(GLOBAL);
         let captured = world.capture_snapshot().expect("capture");
         let legacy = laneflow_runtime::deterministic_state_digest(&captured).expect("legacy");
         let legacy_alloc = region.change().bytes_allocated;
         assert_eq!(digest, legacy, "直算与捕获路径逐字节一致");
         println!(
-            "#987-evidence direct-scratch tier={tier} vehicles={vehicles} routes={routes} \
+            "#987-evidence direct-scratch smoke={} tier={tier} vehicles={vehicles} routes={routes} \
              scratch_bound_bytes={scratch_bound_bytes} direct_alloc_bytes={direct_alloc} \
              legacy_alloc_bytes={legacy_alloc} lfca_bytes={}",
+            synthetic_network::smoke_mode(),
             lfca.len(),
         );
     }
