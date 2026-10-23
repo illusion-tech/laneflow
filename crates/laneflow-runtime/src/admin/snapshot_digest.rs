@@ -1235,7 +1235,7 @@ mod tests {
     fn digest_reservation_failure_is_retryable_and_byte_stable() {
         // #532：规范化的每个预留注入点都失败关闭（无副作用），清点后
         // 重试得到同一摘要；排序表替换 BTreeMap 不改变输出字节（由上方
-        // known-vector 与等价类测试兜底）。
+        // known-vector 与等价类测试验证）。
         let (mut world, _, _) = world_with_vehicle(true);
         world.step(TickInput::new(100)).expect("step");
         let snapshot = world.capture_snapshot().expect("capture");

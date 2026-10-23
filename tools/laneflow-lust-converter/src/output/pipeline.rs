@@ -598,7 +598,7 @@ fn txn_name(output_dir: &Path) -> String {
 /// remove_dir_all 一起删掉，symlink 更会把事务写去 output_dir 之外。
 /// 入口的恢复与清理已清掉本 converter 的带标记残留，走到这里的同名
 /// 路径必是外来物。symlink_metadata 预检给出明确报错；create_dir 的
-/// AlreadyExists 兜底预检之后的 TOCTOU 窗口。
+/// AlreadyExists 错误用于拒绝预检之后、创建之前出现的同名路径。
 fn create_dir_exclusive(path: &Path, stage: &'static str) -> Result<()> {
     if path.symlink_metadata().is_ok() {
         return Err(Error::Validation {
@@ -2222,7 +2222,7 @@ mod tests {
     fn txn_name_bounds_long_names() {
         // 合法长名经 % 三倍膨胀后可能顶破组件上限（84 个 % → 252 字节，
         // 加 .lock- 前缀 258 > 255，ENAMETOOLONG）：超预算截断 + 摘要
-        // 兜底，截断点不得落在 %25 三元组中间，同前缀不同尾部仍可区分。
+        // 后缀区分原始名称，截断点不得落在 %25 三元组中间，同前缀不同尾部仍可区分。
         let long = format!("/some/{}", "%".repeat(84));
         let name = txn_name(Path::new(&long));
         assert!(name.len() <= 128, "{name} len {}", name.len());
@@ -2349,7 +2349,7 @@ mod tests {
     #[test]
     fn publish_rejects_symlinked_backup_path() {
         // #253：备份路径是指向无关目录的 symlink——find_stale_backups 的
-        // file_type 不穿透 symlink（进不了恢复列表），排他新建在此兜底：
+        // file_type 不穿透 symlink（进不了恢复列表），排他新建在此拒绝已存在的备份路径：
         // fail-closed 于任何 rename 之前，symlink 目标零触碰。
         let root = std::env::temp_dir().join(format!("lust-backup-symlink-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

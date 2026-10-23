@@ -229,13 +229,13 @@ pub enum CatalogError {
         /// 为空的编制键字段名。
         field: &'static str,
     },
-    /// slot progress 非有限或为负（`validate`；毫米级落边由 `bind` 兜底）。
+    /// slot progress 非有限或为负（`validate`；取整到毫米后是否越出边界由 `bind` 检查）。
     InvalidProgress {
         /// 进度非有限或为负的 spawn slot ID。
         slot_id: String,
     },
     /// 两个 slot 的 (edge_id, progress) 去重键相同——比较前 `0.0`/`-0.0` 规范化为
-    /// `+0.0`（`validate`；毫米级重合无 bind 侧兜底）。
+    /// `+0.0`（`validate`；bind 侧不检查毫米级重合）。
     DuplicatePosition {
         /// 与他 slot 位置重复的 spawn slot ID。
         slot_id: String,

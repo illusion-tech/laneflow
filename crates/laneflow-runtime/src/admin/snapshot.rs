@@ -817,7 +817,7 @@ impl crate::kernel::state::WorldState {
     /// # Panics
     ///
     /// 与 `capture_snapshot` 相同：live 状态引用的路线 / 路由 / 稳定标识无法解析时 panic
-    /// （capture 合同的前提，直算摘要入口以 `catch_unwind` 兜底为不变量破坏）。
+    /// （capture 合同的前提，直算摘要入口以 `catch_unwind` 捕获该 panic 并报告不变量破坏）。
     pub(crate) fn captured_vehicle_at(
         &self,
         identity: &laneflow_static_network::SharedIdentityIndex,

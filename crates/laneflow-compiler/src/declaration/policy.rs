@@ -67,7 +67,7 @@ pub struct PolicyStreamRuleInput<'a> {
     pub rule_key: &'a str,
     /// 规则针对的目标参与者流。
     pub stream: OwnerQualifiedReference<'a, ParticipantStreamKind>,
-    /// 可选的准入参与者类别过滤；缺省为兜底规则（rank 0）——与显式命中
+    /// 可选的准入参与者类别过滤；缺省为默认规则（rank 0）——与显式命中
     /// 选择器并存时后者胜出，并非等同「全部类别」过滤器。
     pub participant_classes: Option<&'a [EntityReference<'a, ParticipantClassKind>]>,
     /// 法规优先级；输入语义由来源法定义，LaneFlow 裁决固定按数值更大者更强。
@@ -89,7 +89,7 @@ pub struct PolicyGateRuleInput<'a> {
     pub rule_key: &'a str,
     /// 规则针对的目标机动门。
     pub gate: OwnerQualifiedReference<'a, ManeuverGateKind>,
-    /// 可选的准入参与者类别过滤；缺省为兜底规则（rank 0）——与显式命中
+    /// 可选的准入参与者类别过滤；缺省为默认规则（rank 0）——与显式命中
     /// 选择器并存时后者胜出，并非等同「全部类别」过滤器。
     pub participant_classes: Option<&'a [EntityReference<'a, ParticipantClassKind>]>,
     /// 该门与类别的封闭灯态解释声明。
@@ -162,7 +162,7 @@ pub(crate) struct PolicyStreamRuleDeclaration {
     pub key: Arc<str>,
     /// 规则针对的目标参与者流。
     pub stream: OwnedEntityReference<ParticipantStreamKind>,
-    /// 可选的准入参与者类别过滤；缺省为兜底规则（rank 0）——与显式命中
+    /// 可选的准入参与者类别过滤；缺省为默认规则（rank 0）——与显式命中
     /// 选择器并存时后者胜出，并非等同「全部类别」过滤器。
     pub classes: Option<Box<[OwnedEntityReference<ParticipantClassKind>]>>,
     /// 法规优先级；输入语义由来源法定义，LaneFlow 裁决固定按数值更大者更强。
@@ -182,7 +182,7 @@ pub(crate) struct PolicyGateRuleDeclaration {
     pub key: Arc<str>,
     /// 规则针对的目标机动门。
     pub gate: OwnedEntityReference<ManeuverGateKind>,
-    /// 可选的准入参与者类别过滤；缺省为兜底规则（rank 0）——与显式命中
+    /// 可选的准入参与者类别过滤；缺省为默认规则（rank 0）——与显式命中
     /// 选择器并存时后者胜出，并非等同「全部类别」过滤器。
     pub classes: Option<Box<[OwnedEntityReference<ParticipantClassKind>]>>,
     /// 该门与类别的封闭灯态解释声明。

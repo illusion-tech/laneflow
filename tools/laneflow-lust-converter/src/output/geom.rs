@@ -178,7 +178,7 @@ pub(crate) fn classify_infeasible(
     }
 }
 
-/// 诊断模式兜底：为不可发射的 lane 构造首末点直连的占位程序，保持 LaneEdge
+/// 诊断模式的占位输出：为不可发射的 lane 构造首末点直连的占位程序，保持 LaneEdge
 /// 全数在场、下游计数不级联。占位曲线不进入 compiler 验收（诊断模式下
 /// compiler 阶段被跳过）；预检算术本身未被削弱，失败以上述诊断记录为准。
 pub(crate) fn survey_fallback_program(points: &[Vec3]) -> Result<re::RoadEditingCurveProgram> {
@@ -1125,7 +1125,7 @@ const SAMPLE_MAX_SAGITTA_METERS: f64 = 0.01;
 /// 采样弦长下限（米）：0.105。HIR 冻结拒绝长度 ≤ 0.1 m 的规范段
 /// （`DegenerateSegment`，严格小于等于），f32 量化对弦长的扰动 ≤ 0.7mm，
 /// 0.105 留出 25 倍余量。细分到该弦长仍未满足转角/矢高标准时按原样验收
-/// （继续细分只会让量化噪声吃掉方向预算），由发射时的量化 weld 校验兜底。
+/// （继续细分只会让量化噪声吃掉方向预算），由发射时的量化 weld 校验检查量化后的方向预算。
 const SAMPLE_MIN_CHORD_METERS: f64 = 0.105;
 /// 发射时量化 weld 校验的方向预算（弧度）：1.95°，compiler 全角 2° 之下仅留
 /// 0.05° 余量（覆盖 acos 与 cos² 比较在最后一位上的判定差）。取值依据：
@@ -1581,7 +1581,7 @@ struct BezierSpan {
 /// 逐次减半）会跨过"弦长下限 0.105m 与 weld 全角预算夹出的可行窗口"——
 /// 例如 r=4.5m 倒圆的可行弦长窗口 (0.1, ~0.14]m，二分序列 …0.397 → 0.199
 /// → 0.099 恰好全部落在窗外。等 n 切分可命中任意窗口；非均匀曲率造成的
-/// 单片超差由递归重估（每片重新走一遍 sample_cubic，含一轮等角回溯）兜底。
+/// 单片超差由递归重估（每片重新走一遍 sample_cubic，含一轮等角回溯）处理。
 fn emit_uniform_pieces(span: &BezierSpan, n: u32, sink: &mut EmissionSink) -> Result<()> {
     let mut rem = (span.a, span.c1, span.c2, span.dir_a);
     for k in 1..n {

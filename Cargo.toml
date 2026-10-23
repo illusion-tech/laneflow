@@ -55,7 +55,7 @@ debug = true
 incremental = true
 
 # 完整调试信息不会抵消 dev 档为测试速度开出的 opt-level = 2：优化后局部变量可能
-# 被优化掉或重排，与「变量级调试兜底」的定位冲突，故在本档重置为 0。
+# 被优化掉或重排，与支持变量级调试的定位冲突，故在本档重置为 0。
 [profile.debugging.package.laneflow-compiler]
 opt-level = 0
 [profile.debugging.package.laneflow-format]

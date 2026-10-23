@@ -243,13 +243,13 @@ pub enum CatalogError {
         /// 为空的编制键字段名。
         field: &'static str,
     },
-    /// slot progress 非有限或为负（`validate`；毫米级落边由 `bind` 兜底）。
+    /// slot progress 非有限或为负（`validate`；取整到毫米后是否越出边界由 `bind` 检查）。
     InvalidProgress {
         /// 进度非有限或为负的 spawn slot ID。
         slot_id: String,
     },
     /// 两个 slot 的 (edge_id, progress) 去重键相同——比较前 `0.0`/`-0.0` 规范化为
-    /// `+0.0`（`validate`；毫米级重复由 `bind` 的 `DuplicateSlotPosition` 兜底）。
+    /// `+0.0`（`validate`；毫米级重复由 `bind` 检查并报 `DuplicateSlotPosition`）。
     DuplicatePosition {
         /// 与他 slot 位置重复的 spawn slot ID。
         slot_id: String,
@@ -576,7 +576,7 @@ pub fn validate(catalog: &JunctionCatalog) -> Result<(), CatalogError> {
             });
         }
         // 米制 f64 bit 级去重只是 catalog 静态层；绑定四舍五入到毫米后的
-        // (edge, progress_mm) 去重由 `bind` 兜底。
+        // (edge, progress_mm) 去重由 `bind` 执行。
         let progress_bits = if slot.progress == 0.0 {
             0.0_f64.to_bits()
         } else {

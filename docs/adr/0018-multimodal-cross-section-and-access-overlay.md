@@ -118,7 +118,7 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   occurrence 语义保留在绑定期查表）。跨平面合取：任一平面 deny 即 deny。
 - 平面内组合按字典序裁决：**参与者 specificity 优先于 target specificity**
   （身份豁免是主导模式），然后显式 priority；经三步仍在 allow/deny 间并列的
-  是 authoring 歧义，normalization 直接拒绝——不设 deny-overrides 兜底，否则
+  是 authoring 歧义，normalization 直接拒绝——不以 deny-overrides 消解残留歧义，否则
   歧义拒绝永远不可达，authoring 错误会变成不可见的运行时行为。
 - `regulation` 是 provenance/审计字段，v1 不参与计算语义；同一 package 内
   所有声明 regulation 的规则必须共享同一 `(jurisdiction, version)`，
@@ -268,9 +268,9 @@ Issue 保持独立 G1，以 `cross-section-access.md` §14 的冻结消费契约
 公交专用道模式（deny motorVehicle、allow bus）在纯 priority/deny-overrides 下
 失败，迫使所有例外都靠手工 priority 编号，不可审计，因此拒绝。
 
-### deny-overrides 作为最终兜底
+### 以 deny-overrides 消解残留歧义
 
-会让"残留 allow/deny 歧义 = normalization 拒绝"永远不可达：兜底先裁决，歧义
+会让"残留 allow/deny 歧义 = normalization 拒绝"永远不可达：deny-overrides 先裁决，歧义
 检查成为死代码，authoring 错误被静默吞掉，因此拒绝；三步裁决后仍并列即拒绝
 载入。
 

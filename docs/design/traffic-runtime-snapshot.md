@@ -160,7 +160,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）**：
   宿主在恢复与跨修订迁移把重建 / 重新认证的修订投入使用之前执行共享路网修订认证；结论非
   `Pass` 时不恢复、不发布 world。保存路径不加完整性门控；检测滞后内被保存的检查点
-  可能包含坏状态（完整性设计 §5 第 7 条），兜底为宿主审计重放与处置丢弃。
+  可能包含坏状态（完整性设计 §5 第 7 条），由宿主通过审计重放检测，并负责处置丢弃。
 - **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
   editable 从 committed `RoadEditingState` 重编译，published 经
   `PublishedLfcaReference` 重新认证。同修订判据 = `NetworkRevisionId` +

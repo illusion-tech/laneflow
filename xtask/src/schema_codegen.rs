@@ -564,7 +564,7 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
                 source.display()
             ));
         }
-        // 词法精确兜底：任何真实 path 属性（含 `# [` trivia 变体）一律拒绝，
+        // 补充词法检查：任何真实 path 属性（含 `# [` trivia 变体）一律拒绝，
         // 编译器可达源码全集收敛为包内 .rs 扫描面。
         check_path_attribute_values(
             &text,

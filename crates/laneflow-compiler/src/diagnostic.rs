@@ -4810,7 +4810,7 @@ impl DiagnosticBundle {
         }
     }
 
-    /// 为缺少主要位置的诊断补入兜底主要来源位置。
+    /// 为缺少主要位置的诊断补入给定的主要来源位置。
     pub(crate) fn with_fallback_primary_location(mut self, location: SourceLocation) -> Self {
         for diagnostic in &mut self.diagnostics {
             if diagnostic.primary_span.is_none() {
