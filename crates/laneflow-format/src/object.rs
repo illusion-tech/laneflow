@@ -1137,7 +1137,7 @@ fn preflight_chunked_section(
                 &chunk[..chunk.len().min(32)]
             );
             #[cfg(feature = "std")]
-            dump_digest_probe_chunk(entry, byte_offset, chunk);
+            dump_digest_probe_chunk(entry, byte_offset, chunk, &expected_digest, &actual_digest);
             return Err(FormatError::DigestMismatch {
                 structure: FormatStructure::ChunkDirectoryEntry,
             });
@@ -1275,18 +1275,92 @@ fn check_source_location_rows(
 /// 摘要失配失真转储探针（#794）：把失真 chunk 字节落盘并回读比对，供与确定性
 /// 健康工件逐字节对照定位损坏范围；回读与内存字节不一致时说明转储写盘路径本身
 /// 也失真（环境层证据）。仅诊断输出，只在失配分支执行，不改变失败语义。
-/// 转储按需启用：仅当设置 `LANEFLOW_DIGEST_PROBE_DIR` 时落盘（未设置不产生任何
-/// 文件，避免失败路径向共享临时目录累积大文件）；文件名含 pid/entry/offset，
-/// 同名重复落盘为覆盖语义，不累积。
+/// 转储目录取 `LANEFLOW_DIGEST_PROBE_DIR`；未设置时，仅当当前可执行文件位于 cargo
+/// target 目录（含 `CACHEDIR.TAG`）之下才默认落到其中的 `digest-probe`，覆盖
+/// `cargo test` / `cargo run`，安装到别处的二进制不写盘，也不把构建路径编入二进制。
+/// 文件名含 pid/entry/offset，同名重复落盘为覆盖语义；目录内转储达
+/// `DIGEST_PROBE_DUMP_CAP` 份后跳过并输出现场行，留待判读后人工清理。
+/// 同名 `.probe` 旁文件记录 entry、offset、长度与双摘要，供
+/// xtask `classify-digest-probe` 离线判读（`validation-matrix.md` §8.1）。
 #[cfg(feature = "std")]
-fn dump_digest_probe_chunk(entry: u64, byte_offset: u64, chunk: &[u8]) {
-    let Some(directory) = std::env::var_os("LANEFLOW_DIGEST_PROBE_DIR") else {
-        return;
+fn dump_digest_probe_chunk(
+    entry: u64,
+    byte_offset: u64,
+    chunk: &[u8],
+    expected_digest: &[u8; 32],
+    actual_digest: &[u8; 32],
+) {
+    let directory = match std::env::var_os("LANEFLOW_DIGEST_PROBE_DIR") {
+        Some(directory) => std::path::PathBuf::from(directory),
+        None => {
+            let Some(target) = std::env::current_exe().ok().and_then(|exe| {
+                exe.ancestors()
+                    .find(|directory| directory.join("CACHEDIR.TAG").is_file())
+                    .map(std::path::Path::to_path_buf)
+            }) else {
+                return;
+            };
+            target.join("digest-probe")
+        }
     };
-    let path = std::path::PathBuf::from(directory).join(std::format!(
+    write_digest_probe_dump(
+        &directory,
+        entry,
+        byte_offset,
+        chunk,
+        expected_digest,
+        actual_digest,
+    );
+}
+
+#[cfg(feature = "std")]
+const DIGEST_PROBE_DUMP_CAP: usize = 16;
+
+#[cfg(feature = "std")]
+fn write_digest_probe_dump(
+    directory: &std::path::Path,
+    entry: u64,
+    byte_offset: u64,
+    chunk: &[u8],
+    expected_digest: &[u8; 32],
+    actual_digest: &[u8; 32],
+) {
+    if let Err(error) = std::fs::create_dir_all(directory) {
+        std::eprintln!(
+            "[digest-probe] dump failed path={} error={error}",
+            directory.display()
+        );
+        return;
+    }
+    let existing = std::fs::read_dir(directory).map_or(0, |entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "bin"))
+            .count()
+    });
+    if existing >= DIGEST_PROBE_DUMP_CAP {
+        std::eprintln!(
+            "[digest-probe] dump skipped path={} existing={existing} cap={DIGEST_PROBE_DUMP_CAP}",
+            directory.display()
+        );
+        return;
+    }
+    let path = directory.join(std::format!(
         "laneflow-digest-probe-{}-{entry}-{byte_offset}.bin",
         std::process::id()
     ));
+    let metadata = std::format!(
+        "entry={entry}\noffset={byte_offset}\nlen={}\nexpected={}\nactual={}\n",
+        chunk.len(),
+        hex_digest(expected_digest),
+        hex_digest(actual_digest),
+    );
+    if let Err(error) = std::fs::write(path.with_extension("probe"), metadata) {
+        std::eprintln!(
+            "[digest-probe] dump metadata-failed path={} error={error}",
+            path.display()
+        );
+    }
     match std::fs::write(&path, chunk) {
         Ok(()) => match std::fs::read(&path) {
             Ok(readback) => {
@@ -1314,6 +1388,16 @@ fn dump_digest_probe_chunk(entry: u64, byte_offset: u64, chunk: &[u8]) {
     }
 }
 
+#[cfg(feature = "std")]
+fn hex_digest(digest: &[u8; 32]) -> std::string::String {
+    use core::fmt::Write as _;
+    let mut text = std::string::String::with_capacity(64);
+    for byte in digest {
+        let _ = write!(text, "{byte:02x}");
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
@@ -1331,6 +1415,44 @@ mod tests {
     use crate::{
         FormatErrorClass, FormatLimitConfig, LimitDimension, table::preflight_table_with_registry,
     };
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn digest_probe_dump_writes_sidecar_and_respects_cap() {
+        let directory = std::env::temp_dir().join(std::format!(
+            "laneflow-digest-probe-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        let chunk = [7_u8; 100];
+        write_digest_probe_dump(&directory, 72, 290, &chunk, &[0xab; 32], &[0x01; 32]);
+        let dump = directory.join(std::format!(
+            "laneflow-digest-probe-{}-72-290.bin",
+            std::process::id()
+        ));
+        assert_eq!(std::fs::read(&dump).unwrap(), chunk);
+        let probe = std::fs::read_to_string(dump.with_extension("probe")).unwrap();
+        let expected = std::format!(
+            "entry=72\noffset=290\nlen=100\nexpected={}\nactual={}\n",
+            "ab".repeat(32),
+            "01".repeat(32)
+        );
+        assert_eq!(probe, expected);
+
+        for index in 1..DIGEST_PROBE_DUMP_CAP {
+            std::fs::write(directory.join(std::format!("filler-{index}.bin")), b"x").unwrap();
+        }
+        write_digest_probe_dump(&directory, 0, 88, &chunk, &[0xab; 32], &[0x01; 32]);
+        assert!(
+            !directory
+                .join(std::format!(
+                    "laneflow-digest-probe-{}-0-88.bin",
+                    std::process::id()
+                ))
+                .exists()
+        );
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
 
     fn default_value(field: &PortableFieldSchema) -> Vec<u8> {
         match field.field_type {

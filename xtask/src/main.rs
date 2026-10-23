@@ -1,4 +1,5 @@
 mod commit_messages;
+mod digest_probe;
 mod markdown_tables;
 mod measurement;
 mod runtime_architecture;
@@ -36,9 +37,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("check-runtime-architecture") => runtime_architecture::run(),
         Some("build-measurement") => measurement::build_measurement(&args[1..]),
         Some("check-binary-paths") => measurement::check_binary_paths(&args[1..]),
+        Some("classify-digest-probe") => digest_probe::run(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
                 .to_string(),
         ),
     }
