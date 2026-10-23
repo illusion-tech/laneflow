@@ -413,8 +413,8 @@ impl LaneFlowSession {
     /// 同步维护暂停式同修订换根（`same_revision_restore`；#534 G1 冻结形态）。
     ///
     /// 修订号不变、根 `Arc` 换新、世代递增；配对语义与跨修订入口一致：
-    /// 成功返回时已完成新配对。目标根对象必须与当前修订修订号相同，否则由
-    /// Runtime 描述符认证失败关闭。
+    /// 成功返回时已完成新配对。目标根对象的 `NetworkRevisionId` 必须与当前活动根对象的
+    /// `NetworkRevisionId` 相同，否则由 Runtime 描述符认证失败关闭。
     ///
     /// # Errors
     ///

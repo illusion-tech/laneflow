@@ -129,7 +129,8 @@ Runtime fixed tick、交通数量、意图更新数或观察日志。
 
 显式泊位的 canonical pose 只由修订内不可变几何与 ParkingSpaceOrdinal 决定，理论上
 可缓存；缓存值不含 PoseRecordId、车辆、frame placement 或 world generation。
-若后续采用缓存，必须由绑定修订的 Spatial owner 持有，修订替换时清空/换 owner；另定
+若后续采用缓存，必须由绑定根对象的 Spatial owner 持有，根对象替换时清空/换 owner
+（包括修订号不变的同修订换根）；另定
 有限容量、冷启动成本、稀疏访问和多 Session retained bytes，避免按全部静态泊位
 无条件分配。本次只测热重复采样与缓存复制下界，不据此交付缓存。
 
