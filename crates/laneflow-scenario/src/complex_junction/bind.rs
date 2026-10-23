@@ -128,7 +128,7 @@ pub enum BindError {
         slot_id: String,
     },
     /// 两个 slot 的米制 f64 值互异但取整后落在同一边同一毫米位置（`bind`；
-    /// validate 按 f64 bit 去重后的毫米级兜底）。
+    /// validate 按 f64 bit 去重后，在此补充毫米级去重检查）。
     DuplicateSlotPosition {
         /// 取整到毫米后与他 slot 同边同位重合的 spawn slot ID。
         slot_id: String,

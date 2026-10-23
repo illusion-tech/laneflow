@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// 受控 link。字段声明序即 Ord 序（#253 U6：契约要求 group id 按成员
-/// connection 词法序派生，linkIndex 仅作兜底——pinned 探针 87/201
+/// connection 词法序派生，linkIndex 仅在前序字段均相同时用于排序——pinned 探针 87/201
 /// controller 的 group 编号因此改变；group id 只进入 fail-fast 产物
 /// network.lfca，诊断/计数产物不含其字节，锁定数字零漂移）。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -550,7 +550,7 @@ mod tests {
 
     #[test]
     fn group_ids_follow_connection_lexicographic_order() {
-        // #253 U6：group id 按成员 connection 词法序派生（linkIndex 兜底）。
+        // #253 U6：group id 按成员 connection 词法序派生（前序字段均相同时按 linkIndex 排序）。
         // aaa(linkIndex 5, G) 与 bbb(linkIndex 2, R) 两个 group：旧
         // linkIndex 优先序会让 bbb 拿 group-0，新词法序让 aaa 拿 group-0。
         let net = r#"<?xml version="1.0" encoding="UTF-8"?>

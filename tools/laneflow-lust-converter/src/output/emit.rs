@@ -93,7 +93,7 @@ pub fn compile_network_lfca(
     compile_network_lfca_inner(traffic, spatial, None, &[], internal_lanes)
 }
 
-/// 诊断清单模式：不可行的 lane 记录诊断后以占位程序兜底继续，不产出
+/// 诊断清单模式：不可行的 lane 记录诊断后使用占位程序继续处理，不产出
 /// `network_lfca`，交付物为 `TopologyArtifacts::infeasibility_report`
 /// （#253 验收重划，见 G1 补充记录）。`source` 声明实际转换输入的字节摘要
 /// 与独立校验状态，随清单渲染，不得声称与输入不符的基线。`survey_base`
@@ -181,7 +181,7 @@ fn compile_network_lfca_inner(
     add_junctions(&mut builder, traffic)?;
     add_signals(&mut builder, traffic)?;
 
-    // 诊断清单模式：compiler 阶段跳过（兜底占位曲线不进入验收），交付
+    // 诊断清单模式：compiler 阶段跳过（诊断用占位曲线不进入验收），交付
     // 确定性渲染的诊断清单。`diagnostics` 为本次转换局部收集器，此处随
     // 返回消费；错误路径由调用方整体丢弃，无残留。
     if let Some((source, survey_base)) = report {
@@ -332,7 +332,7 @@ fn add_profiles(
 /// edge carries explicit centerline geometry directly.
 ///
 /// `diagnostics` 为 `Some` 时发射失败的 lane 记录进该收集器（本次转换
-/// 局部）并以首末点直连的占位程序兜底继续（compiler 阶段由调用方跳过）；
+/// 局部）并使用首末点直连的占位程序继续处理（compiler 阶段由调用方跳过）；
 /// `None` 为 fail-fast，路径逐字节不变。
 fn add_edges(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,

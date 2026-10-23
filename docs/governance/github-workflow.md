@@ -300,7 +300,7 @@ cargo +1.99.1 nextest run -p laneflow-scenario --locked --features placement-fix
 cargo +1.99.1 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
 ```
 
-`cargo test --workspace --locked`（libtest）可作兜底，但行为不同：同进程线程模型下
+`cargo test --workspace --locked`（libtest）可作备用测试方式，但行为不同：同进程线程模型下
 `laneflow-runtime` 的 `RESOURCE_TEST_LOCK` 会把资源探针类测试串行化，套件墙钟显著变长。
 该锁保留——libtest 路径的测试正确性依赖它；本地并行口径以 nextest 为准。
 

@@ -454,7 +454,7 @@ band 准入语义（可能引入参与者 category/capability 字段）由 #236 
 2. **target specificity**：仅 edge 平面，按 §6.2 排序，更具体的 target 获胜；
 3. **显式 priority**：数值更高者获胜；
 4. 经过 1–3 仍在 allow/deny 间并列的，属于 authoring 歧义，normalization 返回
-   结构化错误，拒绝载入。**不设 deny-overrides 兜底**——静默的保守裁决会把
+   结构化错误，拒绝载入。**不以 deny-overrides 消解残留歧义**——静默的保守裁决会把
    authoring 错误变成不可见的运行时行为，与可审计目标冲突。歧义检查按
    **(time segment, target 展开单元, class)** 进行：永不同时适用的规则
    （如仅早高峰的 allow 与仅晚高峰的 deny）不构成歧义；always-active segment
@@ -802,7 +802,7 @@ no-allocation 测试矩阵。
 - ParticipantClass 数据声明、单继承、Core 无内置类；VehicleProfile 单引用；
 - AccessRule 五元（target/effect/参与者/时间/法规 provenance）+ 双平面
   （edge / path occurrence）求值 + 参与者优先的确定性三步裁决与残留歧义
-  拒绝（无 deny-overrides 兜底）+ 跨平面合取；
+  拒绝（不以 deny-overrides 消解残留歧义）+ 跨平面合取；
 - 准入 overlay 只引用、不复制 ManeuverPath，保持 ADR 0017 全局 traversal
   coherence；
 - edge/path 两平面组合裁决都在 normalization 期消解为 resolved effect 表
