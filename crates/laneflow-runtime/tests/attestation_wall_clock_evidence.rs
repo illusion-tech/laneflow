@@ -1,7 +1,7 @@
-//! #987 计时段证据：共享根认证墙钟、直算摘要耗时与并发 step 干扰。
+//! #987 计时段证据：共享路网修订认证墙钟、直算摘要耗时与并发 step 干扰。
 //!
 //! 全部 `#[ignore]`——正式测量在安静窗口内以
-//! `cargo +1.98.0 test --release --locked -p laneflow-runtime --test attestation_wall_clock_evidence -- --ignored --nocapture --test-threads=1`
+//! `cargo +1.99.1 test --release --locked -p laneflow-runtime --test attestation_wall_clock_evidence -- --ignored --nocapture --test-threads=1`
 //! 运行；输出为 `#987-evidence wall-clock ...` 行，供回填设计 §8 与
 //! `docs/reference/` 基线对。无窗口时只用万档以下做功能验证。
 
@@ -33,7 +33,7 @@ const WARMUP: usize = 2;
 const SAMPLES: usize = 5;
 const CONCURRENT_TICKS: usize = 256;
 
-/// 合成一档 LFCA 字节并构建共享根与引用（生成属重负载，窗口内调用）。
+/// 合成一档 LFCA 字节并构建共享路网修订与引用（生成属重负载，窗口内调用）。
 struct TierFixture {
     lfca: Vec<u8>,
     root: Arc<SharedNetworkRevision>,
@@ -192,7 +192,7 @@ fn direct_digest_wall_clock_evidence() {
     }
 }
 
-/// 在用根审计对并发 step 的干扰：主线程 tick 计时（无审计基线 vs
+/// 在用修订审计对并发 step 的干扰：主线程 tick 计时（无审计基线 vs
 /// 认证工作线程并发），对照模板取自 snapshot 干扰证据测试；末尾以
 /// 确定性摘要断言并发不改变 tick 语义。
 #[test]

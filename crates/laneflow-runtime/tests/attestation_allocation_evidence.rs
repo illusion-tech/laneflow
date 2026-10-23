@@ -3,7 +3,7 @@
 //!
 //! Region 是进程级计数器；本文件只有一个测试，避免 libtest 跨测试报告污染。正式测量在
 //! 安静窗口以
-//! `cargo +1.98.0 test --release --locked -p laneflow-runtime --test attestation_allocation_evidence -- --ignored --nocapture --test-threads=1`
+//! `cargo +1.99.1 test --release --locked -p laneflow-runtime --test attestation_allocation_evidence -- --ignored --nocapture --test-threads=1`
 //! 运行。
 
 #[path = "support/synthetic_network.rs"]
@@ -138,8 +138,8 @@ fn measure_attestation_allocation() {
     }
 }
 
-/// 直算摘要归一化 scratch 上界（限额二分）与分配计数：限额单调卡点即
-/// 归一化 scratch 精确上界（切片①的边界测试在生产档的延伸），对照
+/// 直算摘要归一化 scratch 预算边界（限额二分）与分配计数：最小成功限额即
+/// 归一化存储预算边界（切片①的边界测试在生产档的延伸），对照
 /// 现行 capture + digest 路径的分配字节。
 fn direct_digest_scratch_and_allocation_evidence() {
     for tier in synthetic_network::evidence_tiers() {
