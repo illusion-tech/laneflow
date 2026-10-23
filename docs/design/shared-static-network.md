@@ -349,7 +349,7 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 借用，整个 tick 只访问同一个 revision。Runtime、Spatial 与 Adapter 不接受可独立安装的
 component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #302 发布的、内部保留
 该根 `Arc` 的 `RuntimeRevisionSnapshot`/等价只读 facade 借用。旧 snapshot 可以继续完成在途
-读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧修订，不能与新修订的 component 配对。
+读取，但其动态状态、Traffic 与 Spatial 始终绑定自己的旧根对象，不能与新根对象的 component 配对。
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
 和执行计划全部 per world。
 
