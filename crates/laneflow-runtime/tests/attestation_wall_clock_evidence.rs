@@ -26,21 +26,19 @@ use laneflow_static_network::{
 };
 use synthetic_network::{WorkloadShape, build_mixed_network};
 
-/// 证据测试三档（#380 账本口径的稳定静态实体数）。
-pub(crate) const TIERS: [u32; 3] = [10_000, 100_000, 1_000_000];
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024);
 const DIGEST_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 const WARMUP: usize = 2;
 const SAMPLES: usize = 5;
-const CONCURRENT_TICKS: usize = 2_048;
+const CONCURRENT_TICKS: usize = 256;
 
 /// 合成一档 LFCA 字节并构建共享根与引用（生成属重负载，窗口内调用）。
 struct TierFixture {
     lfca: Vec<u8>,
     root: Arc<SharedNetworkRevision>,
     reference: PublishedLfcaReference,
-    root_build_ns: u128,
+    fixture_prepare_ns: u128,
 }
 
 fn build_tier(stable_entities: u32) -> TierFixture {
@@ -76,7 +74,7 @@ fn build_tier(stable_entities: u32) -> TierFixture {
         lfca,
         root,
         reference,
-        root_build_ns: started.elapsed().as_nanos(),
+        fixture_prepare_ns: started.elapsed().as_nanos(),
     }
 }
 
@@ -93,11 +91,11 @@ fn attest_once(fixture: &TierFixture) -> AttestationOutcome {
 
 /// 认证墙钟（四时机语义同一入口；这里测「认证调用」本身的墙钟，安装 /
 /// 恢复 / 绑定 / 切换前的停顿 = 该墙钟计入各自流程）。输出每档的
-/// root 构建（生成+构建）与认证样本 min/median/max。
+/// 夹具准备（生成、编译、发射、构建）与认证样本 min/median/max。
 #[test]
 #[ignore = "manual single-thread release wall-clock evidence; run inside a quiet window"]
 fn attestation_wall_clock_evidence() {
-    for tier in TIERS {
+    for tier in synthetic_network::evidence_tiers() {
         let fixture = build_tier(tier);
         // 健康性：Pass 才有测量意义。
         assert!(
@@ -118,10 +116,11 @@ fn attestation_wall_clock_evidence() {
         samples.sort_unstable();
         let median = samples[samples.len() / 2];
         println!(
-            "#987-evidence wall-clock tier={tier} entities={tier} \
-             lfca_bytes={} root_build_ns={} attest_samples={:?} attest_median_ns={median}",
+            "#987-evidence wall-clock smoke={} tier={tier} entities={tier} \
+             lfca_bytes={} fixture_prepare_ns={} attest_samples={:?} attest_median_ns={median}",
+            synthetic_network::smoke_mode(),
             fixture.lfca.len(),
-            fixture.root_build_ns,
+            fixture.fixture_prepare_ns,
             samples,
         );
     }
@@ -134,7 +133,7 @@ fn attestation_wall_clock_evidence() {
 #[test]
 #[ignore = "manual single-thread release wall-clock evidence; run inside a quiet window"]
 fn direct_digest_wall_clock_evidence() {
-    for tier in TIERS {
+    for tier in synthetic_network::evidence_tiers() {
         let vehicles = tier / 10;
         let routes = vehicles.min(WorkloadShape::for_stable_entities(tier).synthetic_tiles);
         let fixture = build_tier(tier);
@@ -153,42 +152,42 @@ fn direct_digest_wall_clock_evidence() {
         let limits = SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES);
         for _ in 0..WARMUP {
             black_box(world.direct_state_digest(limits).unwrap());
+            let captured = world.capture_snapshot().expect("capture warmup");
+            black_box(laneflow_runtime::deterministic_state_digest(&captured).unwrap());
         }
         let mut direct: Vec<u128> = Vec::with_capacity(SAMPLES);
+        let mut capture: Vec<u128> = Vec::with_capacity(SAMPLES);
+        let mut legacy_digest: Vec<u128> = Vec::with_capacity(SAMPLES);
+        let mut legacy_total: Vec<u128> = Vec::with_capacity(SAMPLES);
         for _ in 0..SAMPLES {
             let started = Instant::now();
             let digest = world.direct_state_digest(limits).expect("direct digest");
             direct.push(started.elapsed().as_nanos());
-            // 与现行路径逐字节一致（健康性）。
+            // 同一样本连续 capture → digest，快照析构不计入任一段。
+            let total_started = Instant::now();
             let captured = world.capture_snapshot().expect("capture");
+            let capture_ns = total_started.elapsed().as_nanos();
+            let digest_started = Instant::now();
             let legacy = laneflow_runtime::deterministic_state_digest(&captured).expect("legacy");
+            let digest_ns = digest_started.elapsed().as_nanos();
+            let total_ns = total_started.elapsed().as_nanos();
+            assert!(total_ns >= capture_ns + digest_ns);
+            capture.push(capture_ns);
+            legacy_digest.push(digest_ns);
+            legacy_total.push(total_ns);
             assert_eq!(digest, legacy);
-        }
-        // 现行路径分段计时：capture 单段、digest(captured) 单段。
-        let _ = world.capture_snapshot().expect("capture warmup");
-        let mut capture: Vec<u128> = Vec::with_capacity(SAMPLES);
-        for _ in 0..SAMPLES {
-            let started = Instant::now();
-            black_box(world.capture_snapshot().expect("capture"));
-            capture.push(started.elapsed().as_nanos());
-        }
-        let snapshot = world.capture_snapshot().expect("capture");
-        let mut legacy_digest: Vec<u128> = Vec::with_capacity(SAMPLES);
-        for _ in 0..SAMPLES {
-            let started = Instant::now();
-            black_box(
-                laneflow_runtime::deterministic_state_digest(&snapshot).expect("legacy digest"),
-            );
-            legacy_digest.push(started.elapsed().as_nanos());
         }
         let direct_median = median(&direct);
         let capture_median = median(&capture);
         let legacy_digest_median = median(&legacy_digest);
+        let legacy_total_median = median(&legacy_total);
         println!(
-            "#987-evidence direct-digest tier={tier} entities={tier} vehicles={vehicles} \
+            "#987-evidence direct-digest smoke={} tier={tier} entities={tier} vehicles={vehicles} \
              routes={routes} direct_median_ns={direct_median} capture_median_ns={capture_median} \
              legacy_digest_median_ns={legacy_digest_median} direct_samples={direct:?} \
-             capture_samples={capture:?} legacy_digest_samples={legacy_digest:?}",
+             capture_samples={capture:?} legacy_digest_samples={legacy_digest:?} \
+             legacy_total_median_ns={legacy_total_median} legacy_total_samples={legacy_total:?}",
+            synthetic_network::smoke_mode(),
         );
     }
 }
@@ -199,102 +198,114 @@ fn direct_digest_wall_clock_evidence() {
 #[test]
 #[ignore = "manual single-thread release wall-clock evidence; run inside a quiet window"]
 fn concurrent_attest_tick_interference_evidence() {
-    let tier = 100_000;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let tier = if synthetic_network::smoke_mode() {
+        1_000
+    } else {
+        100_000
+    };
+    let vehicles = tier / 10;
+    let routes = vehicles.min(WorkloadShape::for_stable_entities(tier).synthetic_tiles);
     let fixture = build_tier(tier);
-    let mut world = TrafficWorld::install(
-        Arc::clone(&fixture.root),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
-            reference: fixture.reference.clone(),
-        },
-        987_100,
-        test_policy::selection(&fixture.root),
-    )
-    .expect("install");
-    let input = TickInput::new(100);
-    // 每段含 16 步暖机；影子世界与被测世界走完全相同的总步数（无并发），
-    // 其摘要作 tick 语义不受并发认证影响的确定性参照。
-    const WARMUP_TICKS: usize = 16;
-    let tick_clocks = |world: &mut TrafficWorld, ticks: usize| -> Vec<u128> {
-        for _ in 0..WARMUP_TICKS {
-            world.step(input).expect("warmup step");
-        }
-        let mut clocks = Vec::with_capacity(ticks);
-        for _ in 0..ticks {
+    let make_world = || {
+        let mut world = TrafficWorld::install(
+            Arc::clone(&fixture.root),
+            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 4),
+            ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            CommittedNetworkSource::Published {
+                reference: fixture.reference.clone(),
+            },
+            987_100,
+            test_policy::selection(&fixture.root),
+        )
+        .expect("install");
+        synthetic_network::populate(&mut world, vehicles, routes);
+        world
+    };
+    let mut baseline_world = make_world();
+    let mut contended_world = make_world();
+    // 4 ms 步长避免短链车辆在测量期间全部离场；两世界同初态、同输入、同拍数。
+    let input = TickInput::new(4);
+    for _ in 0..16 {
+        baseline_world.step(input).expect("warmup");
+        contended_world.step(input).expect("warmup");
+    }
+    let tick_clocks = |world: &mut TrafficWorld| {
+        let mut clocks = Vec::with_capacity(CONCURRENT_TICKS);
+        for _ in 0..CONCURRENT_TICKS {
             let started = Instant::now();
             world.step(input).expect("step");
             clocks.push(started.elapsed().as_nanos());
         }
         clocks
     };
-    let baseline = tick_clocks(&mut world, CONCURRENT_TICKS);
-    let baseline_median = median(&baseline);
-    // 并发段：认证线程循环认证，主线程同步 tick 计时。
-    let (contended, worker_cycles) = std::thread::scope(|scope| {
-        let stamp = Arc::new(std::sync::Barrier::new(2));
-        let worker = {
-            let stamp = Arc::clone(&stamp);
-            let fixture = &fixture;
-            scope.spawn(move || {
-                stamp.wait();
-                let started = Instant::now();
-                let mut cycles = 0_u64;
-                while started.elapsed().as_secs() < 30 {
-                    assert!(
-                        matches!(attest_once(fixture), AttestationOutcome::Concluded(report)
-                        if report.verdict == AttestationVerdict::Pass)
-                    );
-                    cycles += 1;
-                }
-                cycles
-            })
-        };
-        stamp.wait();
-        let clocks = tick_clocks(&mut world, CONCURRENT_TICKS);
-        let cycles = worker.join().expect("attest worker");
-        (clocks, cycles)
+    let baseline = tick_clocks(&mut baseline_world);
+    let stop = AtomicBool::new(false);
+    let cycles = AtomicU64::new(0);
+    let barrier = std::sync::Barrier::new(2);
+    let (contended, overlap_ns, overlap_cycles, total_cycles) = std::thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            barrier.wait();
+            while !stop.load(Ordering::Acquire) {
+                assert!(
+                    matches!(attest_once(&fixture), AttestationOutcome::Concluded(report)
+                    if report.verdict == AttestationVerdict::Pass)
+                );
+                cycles.fetch_add(1, Ordering::Release);
+            }
+        });
+        barrier.wait();
+        // unwind 时同样通知工作线程退出，避免 scope join 永久等待。
+        struct StopOnDrop<'a>(&'a AtomicBool);
+        impl Drop for StopOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        let guard = StopOnDrop(&stop);
+        let started = Instant::now();
+        let clocks = tick_clocks(&mut contended_world);
+        let overlap_ns = started.elapsed().as_nanos();
+        let overlap_cycles = cycles.load(Ordering::Acquire);
+        drop(guard);
+        worker.join().expect("attest worker");
+        (
+            clocks,
+            overlap_ns,
+            overlap_cycles,
+            cycles.load(Ordering::Acquire),
+        )
     });
-    let contended_median = median(&contended);
-    let after = world
-        .direct_state_digest(SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES))
-        .unwrap();
-    let mut shadow = TrafficWorld::install(
-        Arc::clone(&fixture.root),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
-            reference: fixture.reference.clone(),
-        },
-        987_100,
-        test_policy::selection(&fixture.root),
-    )
-    .expect("install shadow");
-    for _ in 0..(2 * (WARMUP_TICKS + CONCURRENT_TICKS)) {
-        shadow.step(input).expect("shadow step");
-    }
-    let reference = shadow
-        .direct_state_digest(SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES))
-        .unwrap();
-    assert_eq!(
-        after, reference,
-        "并发认证不得改变 tick 语义（与同程无并发参照世界的摘要一致）"
+    assert!(
+        overlap_cycles > 0,
+        "no complete attestation during tick window"
     );
+    let limits = SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES);
+    assert_eq!(
+        baseline_world.direct_state_digest(limits).unwrap(),
+        contended_world.direct_state_digest(limits).unwrap()
+    );
+    let remaining = contended_world.capture_snapshot().unwrap().vehicles().len();
+    assert_eq!(
+        remaining, vehicles as usize,
+        "measured population must remain loaded"
+    );
+    let baseline_median = median(&baseline);
+    let contended_median = median(&contended);
     let baseline_p95 = percentile95(&baseline);
     let contended_p95 = percentile95(&contended);
+    let signed_ppm = |measured: u128, reference: u128| {
+        (measured as i128 - reference as i128) * 1_000_000 / reference.max(1) as i128
+    };
     println!(
-        "#987-evidence concurrent-interference tier={tier} ticks={CONCURRENT_TICKS} \
+        "#987-evidence concurrent-interference smoke={} tier={tier} vehicles={vehicles} routes={routes} \
+         ticks={CONCURRENT_TICKS} tick_ms=4 overlap_ns={overlap_ns} overlap_cycles={overlap_cycles} total_cycles={total_cycles} \
          baseline_median_ns={baseline_median} contended_median_ns={contended_median} \
          baseline_p95_ns={baseline_p95} contended_p95_ns={contended_p95} \
-         interference_ppm={} interference_p95_ppm={} attest_cycles={worker_cycles}",
-        contended_median
-            .saturating_sub(baseline_median)
-            .saturating_mul(1_000_000)
-            / baseline_median.max(1),
-        contended_p95
-            .saturating_sub(baseline_p95)
-            .saturating_mul(1_000_000)
-            / baseline_p95.max(1),
+         interference_ppm={} interference_p95_ppm={}",
+        synthetic_network::smoke_mode(),
+        signed_ppm(contended_median, baseline_median),
+        signed_ppm(contended_p95, baseline_p95),
     );
 }
 
