@@ -63,9 +63,10 @@
 - 不实现多 worker / 分区算法，不把最终 partition 写入共享静态路网。
 - 不把城市经济、出行需求或路线选择策略放进 Runtime。
 - 不做完整 Adapter 生产接线或 corridor 规模人口；最小 Bevy 只证明同一根上的
-  tick + pose 能驱动代理位移。`signalized_corridor` 现行最小路径由
+  tick + pose 能驱动代理位移。历史 `signalized_corridor` 最小路径由
   [#472](https://github.com/illusion-tech/laneflow/issues/472) 交付；50–200 原子替换见
-  [#475](https://github.com/illusion-tech/laneflow/issues/475)。
+  [#475](https://github.com/illusion-tech/laneflow/issues/475)。当前持续车流宿主是
+  `corridor_traffic`，契约见 [Bevy 设计 §13](bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)。
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
 - #301 当时未恢复独立 `despawn`，回流只由 #475 原子替换交付；#540 已显式修订该边界，
@@ -403,7 +404,7 @@ CI 必须同时：
 `cargo check` 不能单独作为完成证据。这是「新的端到端示例」，不是 corridor 规模
 演示。
 
-`signalized_corridor` 薄路径、catalog 绑定与走廊 LFCA 由
+历史 `signalized_corridor` 薄路径、catalog 绑定与走廊 LFCA 由
 [#472](https://github.com/illusion-tech/laneflow/issues/472) 交付。50–200 原子替换见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。#301 只要求它们不再以
 `CoreWorld` 为可运行入口。

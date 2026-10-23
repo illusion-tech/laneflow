@@ -72,11 +72,20 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 `quickstart_presentation.rs` 是 GUI 与无窗口测试共用的车辆绑定、整批提取与同步路径：
 所有车辆使用 Session 映射，按批次句柄同步位置与朝向，整批预检失败时保留旧变换并记录
 结构化错误。无窗口测试验证全部车辆的位姿以及缺失 Transform、无 Spatial 的失败路径。
-走廊最小路径是 `signalized_corridor`：
+持续车流入口是 `corridor_traffic`：默认 `100` 车、seed `0`，支持 `--vehicles 50..=200`
+与十进制 `u64` 的 `--seed`。全部车辆与独立 proxy 绑定，完成后按每拍
+Lifecycle → Step → Observe 在同一 Entity 回流；灯具读取 Runtime 已提交信号组，
+HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移、右键绕焦点旋转。
+启动、人口链、整批位姿、静态绑定和摘要与 headless 共用；旧走廊 target 不保留别名。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
 cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
-cargo +1.99.1 test --locked -p laneflow-bevy --test signalized_corridor_smoke
-cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --example signalized_corridor --features native-example
+cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
+cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
+cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
+cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --example corridor_traffic --features native-example
 ```
+
+完整 C01–C13 验收、确定性出图与独立 headless 摘要对照见
+[Bevy 设计 §15](../../docs/design/bevy-reference-adapter.md#15-corridor_traffic-验收矩阵)。

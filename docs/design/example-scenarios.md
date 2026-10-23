@@ -175,26 +175,25 @@ through/right yellow -> all red` 依次服务 main 与 secondary active set，�
 
 ### 6.1 Native runtime 参数
 
-设计基线中的走廊 Bevy 最小路径不提供 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.4
-（必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 5
-LFCA 与 catalog 0.4；先把 catalog 绑到共享路网修订，显式使用绑定的策略安装世界，
-再按 catalog 边键 `register_route` 并 spawn 少数车辆。运行命令为：
+走廊 Bevy 入口 `corridor_traffic` 使用 `50..=200` 人口，默认 `100` 车、seed `0`。
+权威 catalog 是 0.4（必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。
+仓库夹具为 format 5 LFCA 与 catalog 0.4；先把 catalog 绑到共享路网修订并准备人口计划，
+显式使用绑定的策略安装世界，再注册路线并生成初始人口。运行命令为：
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
+cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
 ```
 
 #475 交付 headless `TrafficWorld` 上的 `50..=200` caller-owned 回流、原子替换和
 Adapter 同一 Entity 换绑；不把 `--vehicles` / HUD / 灯具 / orbit camera 作为完成条件。
 非法车辆数、未知 portal/route 或无足够 spawn slots 必须在第一个 `TrafficWorld`
-step 前失败，不能静默 clamp。`signalized_corridor` 继续复用 opt-in `native-example`。
+step 前失败，不能静默 clamp。`corridor_traffic` 复用 opt-in `native-example`。
 车辆 pose 仍以车辆前保险杠为原点。
 
-`corridor_traffic` 的目标是替换上述最小走廊入口，组合现有 caller-owned 人口与
-Adapter 事务，交付持续车流、灯具、HUD 和相机；该宿主设计不改变本文件的场景、
-PRNG 或制品契约。启动参数、当前/目标边界和可执行验收以
+`corridor_traffic` 组合现有 caller-owned 人口与 Adapter 事务，提供持续车流、灯具、
+HUD 和相机；宿主不改变本文件的场景、PRNG 或制品契约。启动参数、宿主边界和可执行验收以
 [Bevy 设计 §13–§15](bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)
-为唯一权威；设计稿不表示新 target 已存在，历史 native 验证不能作其交付证据。
+为唯一权威；历史 native 验证不能作当前宿主实现的交付证据。
 
 ### 6.2 Stable spawn-slot catalog
 

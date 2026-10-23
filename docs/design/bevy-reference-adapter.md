@@ -1,6 +1,6 @@
 # Bevy Reference Adapter
 
-**文档状态**: Accepted；§13–§15 为 `corridor_traffic` 的 G1 设计评审稿
+**文档状态**: Accepted
 
 **最后更新**: 2026-10-23（走廊持续车流宿主与验收契约）
 
@@ -171,7 +171,7 @@ Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose 
 `LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
 
 上两段同属 v0.7 历史冻结的 presentation 规范目标（见 §6 实现状态说明），不是当前
-baseline 的已交付能力；`quickstart` / `signalized_corridor` 现行示例由宿主系统
+baseline 的已交付能力；`quickstart` / `corridor_traffic` 现行示例由宿主系统
 在 `Observe` 后调用受控提取并自行写入 Transform。
 
 ## 8. 可选调试可视化
@@ -337,12 +337,11 @@ Spatial batch extract
 
 ### 13.1 现状、目标与权威
 
-本节至 §15 定义 [#928](https://github.com/illusion-tech/laneflow/issues/928) 的实现目标，
-不是已交付能力或测试结果。设计基线中的 `signalized_corridor` 只安装两辆车、提取
-第一条 pose 并更新一个裸 `Transform`；没有人口 controller、逐车 Entity 绑定、道路/
-车辆 mesh、灯具、HUD 或相机。现行可见最小入口是 `quickstart`。实现时以
-`corridor_traffic` 替换 `signalized_corridor` 的 Cargo target、源码、关联 smoke 和
-入口文档，不保留别名或第二套持续车流示例。
+本节至 §15 定义 `corridor_traffic` 的宿主契约与验收边界。该示例由
+`examples/support/corridor_scene.rs`、`corridor_host.rs` 与独立 GUI 模块组合；
+全部人口使用一对一 proxy、逐拍回流与整批位姿同步。`corridor_traffic` 已替换旧走廊
+Cargo target、源码、关联 smoke 和入口文档，不保留别名或第二套持续车流示例。
+最小可见入口仍为 `quickstart`；本节不把该最小示例或历史验证算作持续车流证据。
 
 `laneflow-scenario` 已拥有 catalog 0.4、`50..=200` 人口、seed、PRNG、冻结回流计划与
 FIFO retry；其权威仍在[人口设计](signalized-corridor-population.md)。Runtime 拥有
@@ -354,9 +353,9 @@ FIFO retry；其权威仍在[人口设计](signalized-corridor-population.md)。
 
 GUI 和 headless 使用同一个 example-local bootstrap，顺序为：
 
-1. 解析 §14.1 参数；从检入 LFCA 经现行受检 loader 构建共享根，解析 catalog 0.4。
-2. `bind` catalog 到该共享根，解析车辆 profile；以 config、bound catalog、共享根和
-   profile 调用 `CorridorPopulationPrepare::prepare`。此时尚未注册世界局部路线。
+1. 解析 §14.1 参数；从检入 LFCA 经现行受检 loader 构建共享路网修订，解析 catalog 0.4。
+2. `bind` catalog 到该修订，解析车辆 profile；以 config、bound catalog、共享路网修订
+   和 profile 调用 `CorridorPopulationPrepare::prepare`。此时尚未注册世界局部路线。
 3. 使用 bound catalog 的显式 `policy_selection` 安装唯一 `TrafficWorld`；容量必须
    容纳目标人口与全部 catalog 路线，fixed quantum 为 `16 ms`。
 4. `spawn_initial_vehicles` 在同一世界注册路线并生成初始人口，再把返回的车辆和路线
@@ -432,7 +431,7 @@ old。失败快照标记失败阶段，不作为满足人口不变量的成功 H
 （十进制 `u64`，默认 `0`）。`--help` 显示范围和默认值后成功退出；未知、重复、缺值、
 溢出或越界参数在创建窗口及首拍之前失败，不静默 clamp。人口在一次运行中固定。
 
-实现后的目标命令如下；本设计 PR 不注册或宣称已提供该 target：
+运行命令：
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
@@ -466,8 +465,9 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --feature
 不做字符串查找，也不凭路线或车辆状态猜灯色。
 
 相机初始 focus 和可见范围从 Spatial bounds 派生，保证默认窗口能看到两个路口与
-车辆；支持滚轮缩放、左键水平平移和右键绕 focus 旋转。角度、距离限位保持有限值，
-按时间或输入增量更新，不能因帧率改变控制速度。模型、灯具、相机和 UI 全部只属于
+车辆；支持滚轮缩放、左键水平平移和右键绕 focus 旋转。未锁定指针的拖拽使用本窗口
+逻辑像素增量，忽略其他窗口的输入。角度、距离限位保持有限值，按输入增量更新，
+不能因帧率改变控制速度。模型、灯具、相机和 UI 全部只属于
 example；不添加动态人口滑块、FPS/CPU 性能面板或新的 Adapter 调试 API。
 
 ### 14.3 HUD 与同帧摘要
@@ -492,7 +492,7 @@ headless 验证消费同一个摘要构造函数。零步进帧仍建立报告�
 
 ### 15.1 执行边界
 
-下表是实现必须提供的验收，不是本设计 PR 的测试结果。headless harness 必须复用
+下表是实现必须提供的验收，实际运行结果记录在交付证据中。headless harness 必须复用
 §13 bootstrap、生命周期系统、presentation 和摘要构造，在真实 Bevy `App` 中安装
 `TimePlugin`、`TransformPlugin`、`LaneFlowPlugin`，但不创建窗口或 renderer。几何/灯具
 绑定、proxy Transform 和 HUD 文本可以无 GPU 核对，mesh/material/window 安装留在 GUI
@@ -543,12 +543,31 @@ C09 是有界性验收，不是吞吐、堆峰值或长期稳定性认证。
 
 ### 15.2 复现与证据
 
-实现应把共享宿主测试接入 `corridor_traffic` example 的测试模块，提供下列入口；
-在实现该 target 前此命令不可运行，本设计只运行文档检查：
+共享宿主验收同时接入无 GPU 的 `corridor_traffic_smoke` 与 native example 测试；
+后者还验证真实 `Text`、灯具材质和相机输入系统。两者不创建窗口或 renderer：
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --test-threads=2
+cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
+cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
 ```
+
+C13 的自动出图使用 example-local `corridor_replay.rs`：先输入 120 个零 delta 帧，
+再循环微秒输入 `[0, 500, 15500, 128000, 128000, 160000, 0]`，在目标 Tick 截断总时间，
+排空 backlog 后以零步进帧捕获。GUI 的 HUD 更新排在 UI layout 前；截图请求同时
+核对实际 `Text` 和灯具状态，并写出同名 TOML 摘要。以下环境变量仅供验收出图，
+不增加运行时人口参数；输出目录须已存在，默认目标为 `12000` Tick，上限 `50000`：
+
+```powershell
+$env:CORRIDOR_TRAFFIC_CAPTURE = 'C:\evidence\corridor.png'
+$env:CORRIDOR_TRAFFIC_CAPTURE_TICK = '12000'
+cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
+$env:CORRIDOR_TRAFFIC_REFERENCE = 'C:\evidence\headless.toml'
+cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke c13_independent_headless_capture_reference -- --test-threads=2
+```
+
+默认 `100 / seed 0` 下，GUI 生成的 `corridor.toml` 应与独立测试的 `headless.toml`
+逐字节相同；两者含 LFCA/catalog SHA-256、frame/Tick、原始 Duration、信号与 HUD 文本。
+相机手工操作另行验证，截图不替代逐拍身份或事务断言。
 
 验收记录必须列出实际 commit、工具链/平台、LFCA/catalog 标识、参数、frame-delta
 输入和已完成用例。C13 的自动出图核对使用同一确定性 frame-delta 脚本分别驱动 GUI

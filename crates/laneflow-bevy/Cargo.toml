@@ -55,7 +55,7 @@ name = "quickstart"
 required-features = ["native-example"]
 
 [[example]]
-name = "signalized_corridor"
+name = "corridor_traffic"
 required-features = ["native-example"]
 
 [[example]]
@@ -67,8 +67,8 @@ name = "quickstart_smoke"
 path = "examples/support/quickstart_smoke.rs"
 
 [[test]]
-name = "signalized_corridor_smoke"
-path = "examples/support/signalized_corridor_smoke.rs"
+name = "corridor_traffic_smoke"
+path = "examples/support/corridor_traffic_smoke.rs"
 
 [[test]]
 name = "junction_observation"
