@@ -339,7 +339,28 @@ fn run(output: &Path, seconds: u64, pace: bool) -> Result<()> {
     if seconds == 0 || seconds > MAX_SECONDS || output.exists() {
         return Err(invalid("require fresh output and 1..=1800 seconds"));
     }
-    fs::create_dir_all(output)?;
+    if let Some(parent) = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    // 原子取得新目录后才有权写失败记录；预检失败与同名目录竞争都不得改写已有证据。
+    fs::create_dir(output)?;
+    let result = run_in_created_directory(output, seconds, pace);
+    if let Err(error) = &result {
+        let _ = write(
+            &output.join("failure.json"),
+            &serde_json::to_vec_pretty(&serde_json::json!({
+                "status": "Incomplete", "reason": error.to_string(),
+            }))
+            .expect("failure JSON"),
+        );
+    }
+    result
+}
+
+fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<()> {
     let source = output.join("source");
     let config = crate::checked(
         "city config",
@@ -466,6 +487,42 @@ fn run(output: &Path, seconds: u64, pace: bool) -> Result<()> {
 }
 
 #[test]
+fn rejected_output_and_duration_preserve_existing_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("existing");
+    fs::create_dir(&output).unwrap();
+    let failure_path = output.join("failure.json");
+    let original = b"previous run failure evidence";
+    fs::write(&failure_path, original).unwrap();
+    for seconds in [0, 1, MAX_SECONDS + 1] {
+        assert!(run(&output, seconds, false).is_err());
+        assert_eq!(fs::read(&failure_path).unwrap(), original);
+        assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
+    }
+    // 覆盖实际命令行入口，避免它在 run 拒绝目录后另行覆写 failure.json。
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--ignored", "--exact", "integrity_soak::bounded_soak"])
+        .env("LF_SOAK_OUTPUT", &output)
+        .env("LF_SOAK_SECONDS", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    assert!(!command.status().unwrap().success());
+    assert_eq!(fs::read(&failure_path).unwrap(), original);
+    assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
+    for seconds in [0, MAX_SECONDS + 1] {
+        let fresh = temp.path().join(format!("invalid-{seconds}"));
+        assert!(run(&fresh, seconds, false).is_err());
+        assert!(!fresh.exists());
+    }
+}
+
+#[test]
 fn short_chain_replays_in_an_independent_process() {
     let temp = tempfile::tempdir().unwrap();
     let output = temp.path().join("short");
@@ -498,15 +555,5 @@ fn bounded_soak() {
         .expect("seconds")
         .parse()
         .expect("integer seconds");
-    let result = run(&output, seconds, true);
-    if let Err(error) = &result {
-        let _ = write(
-            &output.join("failure.json"),
-            &serde_json::to_vec_pretty(&serde_json::json!({
-                "status": "Incomplete", "reason": error.to_string(),
-            }))
-            .expect("failure JSON"),
-        );
-    }
-    result.expect("bounded soak");
+    run(&output, seconds, true).expect("bounded soak");
 }
