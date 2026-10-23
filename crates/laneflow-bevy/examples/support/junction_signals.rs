@@ -2,10 +2,76 @@
 use std::collections::BTreeMap;
 
 use bevy::{mesh::Indices, prelude::*};
-use laneflow_static_contract::ManeuverPathOrdinal;
+use laneflow_bevy::LaneFlowSession;
+use laneflow_static_contract::{ManeuverPathOrdinal, SignalAspect};
 use laneflow_static_network::SharedNetworkRevision;
 
-use super::{LampKind, TrafficLamp, junction_road::RoadLayout, lamp_material};
+use super::junction_road::RoadLayout;
+
+/// 常规场景交通灯的一枚灯盘（红/黄/绿之一）；`lit` 变化时才重写独立材质。
+#[derive(Component)]
+pub(super) struct TrafficLamp {
+    group: u32,
+    kind: LampKind,
+    material: Handle<StandardMaterial>,
+    lit: bool,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum LampKind {
+    Red,
+    Yellow,
+    Green,
+}
+
+/// 灯盘材质：亮 = 同色自发光，灭 = 深灰。
+fn lamp_material(lit: bool, kind: LampKind) -> StandardMaterial {
+    let color = match kind {
+        LampKind::Red => Color::srgb(0.95, 0.1, 0.08),
+        LampKind::Yellow => Color::srgb(0.95, 0.8, 0.1),
+        LampKind::Green => Color::srgb(0.1, 0.85, 0.25),
+    };
+    if lit {
+        StandardMaterial {
+            base_color: color,
+            emissive: LinearRgba::from(color) * 6.0,
+            ..default()
+        }
+    } else {
+        StandardMaterial {
+            base_color: Color::srgb(0.1, 0.1, 0.1),
+            ..default()
+        }
+    }
+}
+
+/// 每拍按 committed_signal_groups() 更新灯盘点亮状态（仅状态翻转时重写材质）。
+pub(super) fn update_traffic_lights(
+    session: Res<LaneFlowSession>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut lamps: Query<&mut TrafficLamp>,
+) {
+    let signals = session.world().committed_signal_groups();
+    for mut lamp in &mut lamps {
+        let aspect = signals
+            .as_slice()
+            .iter()
+            .find(|(group, _)| group.raw() == lamp.group)
+            .map(|(_, aspect)| *aspect);
+        let lit = matches!(
+            (aspect, lamp.kind),
+            (Some(SignalAspect::Red), LampKind::Red)
+                | (Some(SignalAspect::Yellow), LampKind::Yellow)
+                | (Some(SignalAspect::Green), LampKind::Green)
+        );
+        if lit != lamp.lit {
+            lamp.lit = lit;
+            if let Some(mut material) = materials.get_mut(&lamp.material) {
+                *material = lamp_material(lit, lamp.kind);
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum Turn {
