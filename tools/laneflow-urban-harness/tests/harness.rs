@@ -42,7 +42,7 @@ fn fixture_plan(artifacts: &Artifacts) -> ResolvedPlan {
 /// --workers 贯通执行配置三层（probe 窗口）：世界以 4 worker 安装
 /// （runtime 公开 execution_config 见证）、diagnostics.json 记录实际
 /// worker 数。measurements.toml provenance.workers 的 performance 协议
-/// 正路径由 report.rs 封套测试（measurement_provenance_accepts_workers_
+/// 正路径由 report.rs 测量记录校验测试（measurement_provenance_accepts_workers_
 /// in_legal_range_only 等）覆盖，本测试不重复展开正式窗口。
 #[test]
 fn run_workers_parameter_reaches_execution_and_provenance() {
@@ -137,7 +137,7 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     assert!(compare_runs(&one, &mixed).is_err());
 }
 
-/// 线程 1 回归：diagnostics.json 纳入 result.files 完整性封套后，篡改
+/// 线程 1 回归：diagnostics.json 纳入 result.files 文件摘要清单后，篡改
 /// 其 workers 字段（不重算摘要）必须被 compare 拒绝；合法 1w/4w probe
 /// 跨运行比较不受影响。
 #[test]
@@ -616,9 +616,9 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     )
     .unwrap();
     assert_eq!(first.status, "probe-complete", "{:?}", first.error);
-    // 确定性断言覆盖语义字段：diagnostics.json/measurements.toml 是执行
-    // 封套（执行编号、计时、workers 的载体，v5 起纳入各自 files 完整性
-    // 封套），按定义随运行不同，不进入跨运行相等。
+    // 确定性断言覆盖语义字段：diagnostics.json/measurements.toml 是诊断/测量
+    // 记录（执行编号、计时、workers 的载体，v5 起各文件摘要纳入相应 result.files 清单），
+    // 按定义随运行不同，不进入跨运行相等。
     let semantic = |mut result: laneflow_urban_harness::RunResult| {
         result.files.remove("diagnostics.json");
         result.files.remove("measurements.toml");

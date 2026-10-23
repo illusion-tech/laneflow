@@ -36,7 +36,7 @@ Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事
 - 两个读取入口共用一处生命周期/来源判定；不得让 Adapter 重写停车和道路规则。
 
 Iterator 与单项查询的最终 Rust 类型名由该实现切片冻结。删除当前仅为按值 Vec
-封套的 `CommittedPoseSourceBatch`，同时迁移全部调用点、测试和正式文档。Runtime
+包装类型的 `CommittedPoseSourceBatch`，同时迁移全部调用点、测试和正式文档。Runtime
 不存 Adapter 缓冲，不改变快照、交通配置、执行配置或状态摘要。
 
 ## 3. 全量封闭提取与缓冲所有权

@@ -428,7 +428,7 @@ fn line(file: &mut impl Write, value: &impl Serialize) -> Result<()> {
 }
 
 /// 运行一个全新世界；受控步进失败保留最后提交的拍和已有观测。
-/// correctness/probe 的计时只作诊断，正式 performance 计划另行输出测量封套。
+/// correctness/probe 的计时只作诊断，正式 performance 计划另行输出测量记录。
 ///
 /// # Errors
 ///
@@ -831,8 +831,8 @@ pub fn run_with_options(
             .files
             .insert("failure.json".into(), digest_file(&path)?);
     }
-    // diagnostics.json 的摘要纳入 result.files 完整性封套（worker 计数
-    // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
+    // diagnostics.json 的摘要纳入 result.files 文件摘要清单，绑定其中的 worker 计数：
+    // 先写 diagnostics、登记摘要，再写 result.json。
     let mut sorted_times = times.clone();
     let mut sorted_window_step_times = window_step_times.clone();
     sorted_times.sort_unstable();
@@ -1100,13 +1100,13 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         "ticks.jsonl",
         "commands.jsonl",
         "events.jsonl",
-        // worker 计数的证据封套：摘要失配（复制/篡改）先于 workers 读取拒绝。
+        // 保存 worker 计数的诊断记录：摘要失配（复制/篡改）先于 workers 读取拒绝。
         "diagnostics.json",
         // 详细诊断必然生成逐拍计时；缺失即拒绝，不把旧回执当作当前证据。
         timing::FILE_NAME,
     ];
     if performance {
-        // 正式运行的测量封套同样纳入本次运行的文件摘要自校验。
+        // 正式运行的测量记录同样纳入本次运行的文件摘要自校验。
         expected_files.push("measurements.toml");
     }
     for name in expected_files {
@@ -1138,8 +1138,8 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
     if tick != result.completed_ticks {
         return Err(invalid("tick log is incomplete"));
     }
-    // 各次正式运行独立校验测量封套：版本、执行编号与目录一致、worker
-    // 合法、固定协议 provenance 通过、样本数与观测窗一致。封套内容
+    // 各次正式运行独立校验测量记录：版本、执行编号与目录一致、worker
+    // 合法、固定协议 provenance 通过、样本数与观测窗一致。测量记录内容
     // 本身不参与跨运行的相等比较（计时与执行编号按定义不同）。
     let envelope = if performance {
         let measurement: RetainedMeasurements = toml::from_str(
@@ -1204,7 +1204,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     }
     let a = read_run(left)?;
     let b = read_run(right)?;
-    // workers 在两次运行的摘要校验之后读取（证据封套绑定）。
+    // workers 在两次运行的摘要校验之后读取（先核对诊断记录的文件摘要）。
     let left_workers = read_diagnostics_workers(left)?;
     let right_workers = read_diagnostics_workers(right)?;
     if a.result.plan_digest != b.result.plan_digest {
@@ -1251,7 +1251,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     })
 }
 
-/// 两份正式运行：除执行封套与存档记录外逐项相等。
+/// 两份正式运行：除测量记录、诊断记录、逐拍计时日志与存档记录外逐项相等。
 fn compare_complete(
     left: &Path,
     a: &ReadRun,
@@ -1295,8 +1295,8 @@ fn compare_complete(
             ));
         }
     }
-    // 语义比较排除已逐次运行独立验证的执行封套文件：measurements.toml 测量
-    // 封套与 diagnostics.json 执行元数据（计时、执行编号、workers 的载体；
+    // 语义比较排除已逐次运行独立验证的测量记录文件 measurements.toml
+    // 与诊断记录文件 diagnostics.json（计时、执行编号、workers 的载体；
     // 其摘要已在逐次运行的 files 校验中与各次运行自身内容绑定）。probe/correctness
     // 运行无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
     // 计数、plan 摘要、逐拍日志摘要、终点核对值）全部保留比较。
@@ -1611,7 +1611,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             return Err(invalid("performance rounds use different plans"));
         }
         identity.get_or_insert(current);
-        // 三类计时/执行封套均已核对各轮自身摘要，其余语义轨迹完整比较。
+        // 测量记录、诊断记录与逐拍计时日志均已核对各轮自身摘要，其余语义轨迹完整比较。
         let mut semantic = result.clone();
         semantic.files.remove("measurements.toml");
         semantic.files.remove("diagnostics.json");
@@ -1719,7 +1719,9 @@ fn require_diagnostics_marker(directory: &Path) -> Result<()> {
     let diagnostics: serde_json::Value =
         serde_json::from_slice(&fs::read(directory.join("diagnostics.json"))?)?;
     if diagnostics["diagnostics_enabled"].as_bool() != Some(true) {
-        return Err(invalid("执行封套的诊断标记缺失、关闭或与结果回执不符"));
+        return Err(invalid(
+            "diagnostics.json 的诊断标记缺失、关闭或与结果回执不符",
+        ));
     }
     Ok(())
 }
@@ -1853,7 +1855,7 @@ mod tests {
     }
 
     /// 三轮聚合：全 4 接受（新合法域真正被接受）、混用 worker 数的 1/4/1 组合拒绝、
-    /// 全 0 / 全 17 因 worker 合法性拒绝（封套摘要已重算，拒绝来自
+    /// 全 0 / 全 17 因 worker 合法性拒绝（测量记录文件摘要已重算，拒绝来自
     /// validate 而非旧摘要不匹配）。
     #[test]
     fn performance_aggregation_validates_workers_range_and_uniformity() {
@@ -1991,7 +1993,7 @@ mod tests {
         assert_eq!(report.right.workers, 4);
 
         // 负路径：检查点不同（重算自身 result.json 摘要后仍必须拒绝——
-        // 语义差异不能被测量封套排除规则掩盖）。
+        // 语义差异不能被测量记录排除规则掩盖）。
         let divergent = temp.path().join("divergent");
         let mut fixture = measurement_fixture();
         fixture["workers"] = json!(4);

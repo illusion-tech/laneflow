@@ -316,7 +316,7 @@ memberKind 是本节自有封闭代码，不能拿 LFSM role 33–36 当它的 w
 #### 4.3.2 四种完整规范成员值
 
 每个 before/after Bytes 精确包含一个 RowV1，包括标准 rowByteLength、fieldCount
-及零 reserved，不包含 TableV1 或其他封套，无尾随字节。使用下表唯一 schema；
+及零 reserved，不包含 TableV1 或其他外层编码结构，无尾随字节。使用下表唯一 schema；
 tag 沿用 LFCA 局部行的 `3..`，省略原 tag 1 的 policy ordinal 和 tag 2 的 key，
 二者由外层 K 表达。类型名称均为现有 FieldV1 登记，`?` 表示可选，其余必需。
 
