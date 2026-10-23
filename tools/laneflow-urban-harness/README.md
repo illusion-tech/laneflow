@@ -73,9 +73,9 @@ target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json
 
 双目录 `compare` 支持 probe、correctness 与正式 performance 运行（status
 `performance-match`）。performance 跨运行比较只接受同源码、同工具链、同硬件/电源
-角色、仅 worker 不同的两次运行：每次运行先独立校验完成状态、文件摘要、测量封套
+角色、仅 worker 不同的两次运行：每次运行先独立校验完成状态、文件摘要、测量记录
 版本、执行编号、样本数与观测窗、worker 合法性及固定协议 provenance，再比较
-除 `measurements.toml` 测量封套外的完整交通语义（计划摘要、逐拍日志、检查点、
+除 `measurements.toml` 测量记录外的完整交通语义（计划摘要、逐拍日志、检查点、
 角色见证与计数精确相等）；两次运行的 provenance 除 workers 外必须全等，diagnostics
 与 measurements 的 worker 记录矛盾即拒绝。比较报告在 `ComparedRun.workers`
 记录两次运行各自的 worker（自本切片起）。比较成功只表示跨运行语义匹配与来源条件
@@ -202,8 +202,8 @@ target/release-measurement/<triple>/release/laneflow-urban-harness compare <perf
 ```
 
 三轮还须保持相同完整语义轨迹：除 `measurements.toml`、`diagnostics.json` 与 `timings.jsonl` 三个
-执行封套外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。三个执行
-封套均已逐轮独立校验后才排除（摘要绑定入各轮 `result.files`，worker 计数做
+文件外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。这三个文件
+均已逐轮独立校验后才排除（摘要绑定入各轮 `result.files`，worker 计数做
 measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要但彼此轨迹不同，
 仍拒绝合并。运行目录应使用 Git 忽略的 `target/` 或 checkout 外目录；未来输出目录
 若会使工作树变脏，在世界初始化前拒绝，不到长测结束才发现。
@@ -275,7 +275,7 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   绑定详细日志开关；v8 起记录续跑来源 `resumed_from`、存档 `saves`、终点 `segment_end`、
   观察窗与推进区间的交集 `observed_ticks`，以及终点核对值 `endpoint`（第 E 拍完整检查点
   与宿主状态摘要 `urban-caller-digest-v1`）。incarnation 与请求序号独立，sustained 显式报告实际 Active；
-  `diagnostics.json` 摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套。
+  `diagnostics.json` 的摘要纳入 `result.files` 文件摘要清单，绑定其中记录的 worker 计数。
   诊断关闭的 probe 仅表示运行完成，完整比较拒绝该回执；旧载荷拒绝、不转换；
   Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交

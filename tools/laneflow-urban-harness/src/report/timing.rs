@@ -68,7 +68,7 @@ struct Envelope {
 
 /// 两次运行比较与三轮合并共用的唯一计时一致性校验。
 ///
-/// 威胁模型见 `docs/design/urban-demand-harness.md`：摘要封套与这里的交叉核对
+/// 威胁模型见 `docs/design/urban-demand-harness.md`：文件摘要清单与这里的交叉核对
 /// 用于发现 harness 自身的错误和数据之间的不一致，不防有意伪造。逐项要求：
 /// diagnostics 声明当前计时版本；本次推进区间 (T, E] 的每个完成拍恰好一行且 tick 连续；整拍耗时不小于
 /// 其中三段互不重叠的分量之和；观察窗三个分量与 diagnostics 原始样本逐项相等；

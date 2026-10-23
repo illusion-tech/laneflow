@@ -479,7 +479,7 @@ mod tests {
     use serde_json::json;
     use std::{fs, io::Write};
 
-    // 封套校验夹具，无交通求值或正式性能证明；真实运行另用冻结的城市制品。
+    // 运行记录校验夹具，无交通求值或正式性能证明；真实运行另用冻结的城市制品。
     fn packet(directory: &Path, execution: &str, workers: u32) {
         let target = 10_000;
         let cycle = 128;
