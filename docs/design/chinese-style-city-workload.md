@@ -126,7 +126,7 @@ completed 数量；名义规模不能由车辆容量配置、空停车容量或�
 许可左转、主支路让行 T 形路口、错位双 T、混合停车设施、地下多门车库及真实可见泊位。
 各模板通过公共干支路连接；不得把信号、Waiting 与 Conflict 夹具摆在互不连通的小岛上。
 
-闭合模板标识是 `cn-urban-template-v2`，配置标识是 `connected-cn-urban-v2`。它替换
+固定模板集的标识是 `cn-urban-template-v2`，配置标识是 `connected-cn-urban-v2`。它替换
 单车道模板，不保留并行模板或开关。旧制品以配置和 manifest 中的模板版本拒绝。
 tile、cell 的数量和 `2 × 5` 排布不变。东西为干路，南北为支路。
 

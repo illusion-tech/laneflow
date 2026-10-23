@@ -226,7 +226,7 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
     let root = PathBuf::from(source_dir);
     // R2 第四轮：正式诊断入口的准备函数——verify_source_dir（revision + 全部
-    // pinned digest）→ 三份输入消费时重哈希绑定（TOCTOU 闭合）→ verified
+    // pinned digest）→ 三份输入消费时重哈希绑定→ verified
     // 来源声明（crate 内受控构造器，调用方无法自行声明已验证）。本测试单跑
     // 时此准备段照样执行：验证前置内建于主生成路径，不依赖任何其他测试。
     let prepared = prepare_verified_lust_inputs(&root).expect("prepare verified Lust inputs");
@@ -672,7 +672,7 @@ fn verified_record_matching_nonpinned_bytes_fails_closed() {
 fn full_lust_source_verification_precedes_diagnostic_convert() {
     // R2 第四轮：本测试断言的是主测试调用的**同一个准备函数**
     // （prepare_verified_lust_inputs）——验证（revision + 全部 pinned digest）、
-    // 消费时绑定（TOCTOU 闭合）与 verified 来源声明都在准备函数内部完成，
+    // 消费时摘要绑定与 verified 来源声明都在准备函数内部完成，
     // 任何拒绝天然发生在 normalize/转换之前。
     let source_dir = std::env::var("LUST_SOURCE_DIR").expect("LUST_SOURCE_DIR");
     let root = PathBuf::from(&source_dir);
@@ -906,7 +906,7 @@ fn convert_topology_from_xml_with_tll_and_vtypes(
 /// revision + pinned digest）的调用方传入 `verified = true` 与 pinned 校验
 /// 得到的摘要（#253 R2：先验证、再绑定、后转换）。
 ///
-/// R8 残留缺口闭合：本入口分别接收 XML 与 ReportSource，调用方可能错配
+/// R8 来源与消费字节错配检查：本入口分别接收 XML 与 ReportSource，调用方可能错配
 /// 「旧记录 + 改动后字节」套取 0.5 m 删焊例外——verified 时对**本次实际
 /// 消费字节**重算 SHA-256（解析/转换之前）：net 摘要须等于记录摘要，三份
 /// 均须命中 pinned 条目；任一失配 fail-closed（不降级、不静默继续）。

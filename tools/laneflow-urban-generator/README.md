@@ -52,7 +52,7 @@ manifest 与摘要基线。正式两档的报告在 `fixtures/v1/10k`、`fixture
 夹具和本节一起替换单车道模板，不保留旧模板开关。
 
 `examples/config/cn-urban.toml` 将固定 `connected-cn-urban-v2`、十个模板槽、按车道序号的
-相邻连接和边界端口规则。`cn-urban-template-v2` 是闭合模板集；更改固定规则须修改版本与
+相邻连接和边界端口规则。`cn-urban-template-v2` 是固定模板集；更改固定规则须修改版本与
 本说明，不能靠未生效的自由配置制造新路网。250 m cells 按每 tile 两列五行排列；tile
 列数是满足 `columns² >= 2 × tile_count` 的最小整数，逐行铺设实际 tile，末行空位不物化。
 10k 为 100 cells / 10 tiles / 5 列，100k 为 1,000 cells / 100 tiles / 15 列。

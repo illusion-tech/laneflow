@@ -66,7 +66,7 @@
 //!    的 fuzz/ 树）不经 `cargo metadata --no-deps` 显形，其
 //!    proc-macro/build.rs/源码完全逃逸本审计，fail closed——编译器可达
 //!    源码全集即本扫描的 .rs 全集。proc-macro target 一律 fail closed
-//!    （宏展开期任意构造 token，文本扫描与单平台 check 编译都无法闭合）。
+//!    （宏展开期任意构造 token，文本扫描与单平台 check 编译都无法覆盖这种逃逸）。
 //! 7. laneflow-format-mmap 的例外边界在本审计内闭合：manifest 卫生（与 wire
 //!    同构——auto* 四键关闭、[target] 段与自动发现目录禁绝，[dependencies]
 //!    恰好 memmap2/tempfile 两条钉版，resolved source/checksum 由第 1 条闭合）；
@@ -821,7 +821,7 @@ fn lexically_normalized(path: &Path, label: &str) -> Result<PathBuf, String> {
 /// 编译 target。每个 target 的 src_path 必须是 .rs 扩展名（非 .rs 源逃逸
 /// forbid 文本扫描，fail closed）；custom-build 不可单独编译，记录到
 /// has_build_script 后跳过；proc-macro 一律 fail closed（宏展开期任意构造
-/// token，文本扫描与单平台 check 编译都无法闭合）；lib/bin/test/bench/example
+/// token，文本扫描与单平台 check 编译都无法覆盖这种逃逸）；lib/bin/test/bench/example
 /// 全部纳入 hermetic 编译；未知 kind fail closed。
 fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPackage>, String> {
     let packages = metadata
@@ -897,7 +897,7 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
             }
             // proc-macro 在宏展开期任意构造 token：unsafe 可由字符串残片拼出
             // 文本扫描面，再经 cfg 门控避开 check 配置（debug_assertions 开）
-            // 的 lint——文本扫描与单平台 check 编译都无法闭合。本 workspace
+            // 的 lint——文本扫描与单平台 check 编译都无法覆盖这种逃逸。本 workspace
             // 没有合法 proc-macro，一律 fail closed；引入需先改设计并更新
             // 本审计。
             if kinds.contains(&"proc-macro") {
@@ -1914,7 +1914,7 @@ mod tests {
         )
         .unwrap();
         check_forbid_textual_boundary(&members, &classified).unwrap();
-        // allow 级成员不参与文本扫描（wire/mmap 由各自边界闭合）。
+        // allow 级成员不参与文本扫描（wire/mmap 由各自的边界检查覆盖）。
         let classified_allow = vec![("demo".to_string(), UnsafeLevel::Allow)];
         fs::write(root.join("src/lib.rs"), "unsafe fn allowed_here() {}\n").unwrap();
         check_forbid_textual_boundary(&members, &classified_allow).unwrap();
@@ -2166,7 +2166,7 @@ mod tests {
             }]
         });
         // proc-macro 在宏展开期任意构造 token，文本扫描与单平台 check 编译
-        // 都无法闭合：fail closed。
+        // 都无法覆盖这种逃逸：fail closed。
         let error = parse_workspace_members(&proc_macro).unwrap_err();
         assert!(error.contains("proc-macro"), "{error}");
     }

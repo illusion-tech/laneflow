@@ -663,8 +663,8 @@ fn absolute_lexical(path: PathBuf) -> Result<PathBuf, String> {
 }
 
 /// 派生根的词法与规范两种拼写：junction/subst 盘/8.3 短名会让工具链嵌入的
-/// 拼写与词法值分叉；两种都进 remap 表与 needle，共模失效（remap 漏映射且
-/// 扫描漏扫）才闭合。
+/// 拼写与词法值分叉；两种都进 remap 表与 needle，以覆盖这两种拼写下
+/// remap 漏映射且扫描漏扫的共模失效。
 fn both_spellings(path: &Path) -> Vec<PathBuf> {
     let mut out = vec![path.to_path_buf()];
     if let Ok(canonical) = fs::canonicalize(path) {
@@ -868,7 +868,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     check_tree_matches_index(&repo)?;
 
     // 唯一映射表：实际 flag 与归一化记录同源于此，二者不可能漂移。
-    // 每个逻辑根登记词法与规范两种拼写（共模失效闭合）；归一化记录仍按三个
+    // 每个逻辑根登记词法与规范两种拼写（避免这两种拼写在 remap 与扫描中同时遗漏）；归一化记录仍按三个
     // 逻辑根各一条——它描述映射语义，不是逐 flag 回放配方。
     let logical = [
         (repo.clone(), "<worktree>"),

@@ -599,7 +599,7 @@ final_gap >= g_floor
 
 ADR 0028 的 `hard_room_mm` **不**实现本节 `leader_final_travel`：
 它与现行 `advance_active_vehicle` 同构，只用 T 时刻 occupancy 快照的 `min_gap` 后空隙。
-current `TrafficWorld` 也尚未做前向后传播；整数毫米切片不在本轴闭合该差距，也不取代
+current `TrafficWorld` 也尚未做前向后传播；整数毫米切片不在本轴弥补该差距，也不取代
 本节作为跟车投影的设计目标。
 
 Leader graph 中每个 vehicle 至多指向一个 leader：
