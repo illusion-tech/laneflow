@@ -102,7 +102,7 @@ pub(crate) fn populate(world: &mut laneflow_runtime::TrafficWorld, vehicles: u32
     );
     let routes = vehicles.min(tiles);
     let lengths = world.traffic().lane_lengths_millimetres().to_vec();
-    // 共享根按规范身份排序，边 ordinal 不等于声明序；按实际后继结构找
+    // 共享路网修订按规范身份排序，边 ordinal 不等于声明序；按实际后继结构找
     // tile 链：10 m 入边 → 8 m 中边 → 12 m 出边（合成 tile 独有长度组合）。
     let mut found: Vec<[LaneEdgeOrdinal; 3]> = Vec::with_capacity(routes as usize);
     for entry in 0..lengths.len() {
@@ -758,7 +758,7 @@ pub(crate) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
     // 策略集须解释全部准入门与冲突参与者流，缺任何一个门/流的规则都会 MissingRule：
     // - 合成 tile 的门为模块级声明且绑定信号组 → ProtectedGroup；
     // - 冲突 tile 的门为跨模块 owner-scoped 声明且无信号 → Uncontrolled；
-    // - 冲突 tile 的两条参与者流为空让行的兜底规则。
+    // - 冲突 tile 的两条参与者流使用空让行集合。
     const CONFLICT_MODULE: &str = "city/portable-resource-conflicts";
     let span = module.policy_source_span();
     let source = laneflow_compiler::PolicyInputSource {
