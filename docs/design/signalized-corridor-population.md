@@ -1,7 +1,7 @@
 # Signalized Corridor Population
 
 **文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
-**最后更新**: 2026-09-23<br>
+**最后更新**: 2026-10-23<br>
 **适用范围**: current v0.10 signalized-corridor catalog 0.4 人口/回流 policy；
 caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
 （#472）；50–200 原子替换由 #475 交付。
@@ -151,7 +151,8 @@ apply pending lifecycle commands
 
 任一校验失败时，batch 不更新 logical state、PRNG、pending queue 或 last consumed tick。
 
-验证通过后按 event 原始顺序处理。每个完成车辆固定消费三个 logical draw site：
+验证通过后按已提交世界的 `live_vehicles()` 稳定顺序处理；这里不是 Bevy outer-frame
+事件聚合。每个完成车辆固定消费三个 logical draw site：
 先从排除原出口的 5 个 portal 中均匀抽取目标 portal，再从目标 portal 的 2 或 3 条
 PortalLane 中均匀抽取 lane，最后按该 lane 完整、规范化的正整数权重 cumulative
 选择 Route。它不对全部 28 条 Route 直接均匀抽样。
@@ -183,6 +184,14 @@ Pending(old, frozen route plan)
 
 一个 lifecycle boundary 只尝试进入 boundary 时已存在的 pending 数量，因此每个 plan 最多尝试一次。`Blocked` 和 `Retryable` 都不 draw、不改 plan，且不会阻止其他 pending plan。
 
+上下文预检失败不会调用 callback；typed replacement 失败不修改该次调用前的世界，
+但同一 boundary 中前序成功替换不会回滚。
+callback 返回成功后才发现 old/new identity 不一致时，宿主世界可能已经改变；不能
+把 policy error 当成整批原子失败，也不能按旧句柄自动重试。具体宿主的失败停止由
+调用方负责。`corridor_traffic` 的设计选择是报告并终止，不自动降速或改变冻结计划；
+其 Bevy outcome 转换、逐 set 守卫和验收见
+[Bevy 设计 §13](bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)。
+
 ## 7. 有界状态与分配
 
 controller 在 bind 时按目标人口预留所有 steady containers。completion validation 使用复用的 slot-index/seen scratch；pending 使用有界 FIFO；logical state、plan 和 PRNG state 都是定长数据。
@@ -199,6 +208,10 @@ controller 在 bind 时按目标人口预留所有 steady containers。completio
 ```powershell
 cargo +1.99.1 test --offline -p laneflow-scenario --test signalized_corridor_population soak_50_cars_10000_replacements -- --ignored --exact
 ```
+
+宿主 HUD 读取 `counts()`，不通过分配式 `pending_vehicles()` 重建人口；后者只用于
+测试/诊断明细。新增 Bevy 实例的有界持续运行和回放必须单独取证，不能沿用上述
+headless world 结果；目标矩阵见 [Bevy 设计 §15](bevy-reference-adapter.md#15-corridor_traffic-验收矩阵)。
 
 ## 8. Replay 与兼容性
 

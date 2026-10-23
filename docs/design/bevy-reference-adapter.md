@@ -1,8 +1,8 @@
 # Bevy Reference Adapter
 
-**文档状态**: Accepted
+**文档状态**: Accepted；§13–§15 为 `corridor_traffic` 的 G1 设计评审稿
 
-**最后更新**: 2026-10-13（#912：支持线迁至 Bevy 0.20）
+**最后更新**: 2026-10-23（走廊持续车流宿主与验收契约）
 
 **适用范围**: Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -333,95 +333,217 @@ Spatial batch extract
 
 插值、LOD/pooling、prefab/glTF、WASM、第二个 Engine Adapter 和 foreign-host boundary proof 保持后续独立范围，不是 v0.7 完成条件。
 
-## 13. v0.8 直行走廊 schedule 与 proxy 复用
+## 13. corridor_traffic 宿主生命周期
 
-现行 `signalized_corridor` 安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.4
-prepare 绑定车辆。#475 交付 `TrafficWorld::replace_completed_vehicle` 与 Session typed
-replace-and-rebind；薄示例仍可不启用 50–200 人口。不得再走已拆除的 JSON 运行时入口。
+### 13.1 现状、目标与权威
 
+本节至 §15 定义 [#928](https://github.com/illusion-tech/laneflow/issues/928) 的实现目标，
+不是已交付能力或测试结果。设计基线中的 `signalized_corridor` 只安装两辆车、提取
+第一条 pose 并更新一个裸 `Transform`；没有人口 controller、逐车 Entity 绑定、道路/
+车辆 mesh、灯具、HUD 或相机。现行可见最小入口是 `quickstart`。实现时以
+`corridor_traffic` 替换 `signalized_corridor` 的 Cargo target、源码、关联 smoke 和
+入口文档，不保留别名或第二套持续车流示例。
 
-`LaneFlowFixedSet::{Lifecycle, Step, Observe}` 的固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 `TrafficWorld`，调用方在 `Observe` 消费 committed result 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Runtime 决策。
+`laneflow-scenario` 已拥有 catalog 0.4、`50..=200` 人口、seed、PRNG、冻结回流计划与
+FIFO retry；其权威仍在[人口设计](signalized-corridor-population.md)。Runtime 拥有
+车辆身份和替换事务；Adapter 拥有 Session、固定调度及 Vehicle/Entity 映射。新增宿主
+代码只在 `laneflow-bevy` example/support 边界组合这些能力，不能进入 production
+依赖或公共 API。公开 API 若出现缺口，另立任务，不在示例里复制 Runtime 规则。
 
-车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Runtime/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Runtime error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
+### 13.2 启动与一对一绑定
 
-该边界提供 typed `despawn_vehicle`，并只在 Runtime removal 成功后清除 Vehicle/Entity
-映射；失败或 virtual Parked 无 pose 均保留映射。Session 还薄转发 typed
-reserve/cancel/park/leave/rebind/parked-spawn，不复制停车判据。Adapter-owned persistent
-queue/retry 或人口 controller 仍不提供；初始人口在创建 Session 前由调用方建立；seed、
-portal/lane 抽样与 retry policy 由 `laneflow-scenario` 的 engine-neutral caller policy 拥有。
+GUI 和 headless 使用同一个 example-local bootstrap，顺序为：
 
-## 14. v0.8 signalized-corridor native specialization
+1. 解析 §14.1 参数；从检入 LFCA 经现行受检 loader 构建共享根，解析 catalog 0.4。
+2. `bind` catalog 到该共享根，解析车辆 profile；以 config、bound catalog、共享根和
+   profile 调用 `CorridorPopulationPrepare::prepare`。此时尚未注册世界局部路线。
+3. 使用 bound catalog 的显式 `policy_selection` 安装唯一 `TrafficWorld`；容量必须
+   容纳目标人口与全部 catalog 路线，fixed quantum 为 `16 ms`。
+4. `spawn_initial_vehicles` 在同一世界注册路线并生成初始人口，再把返回的车辆和路线
+   句柄交给 prepare 的 `bind`。tick 0 必须满足 `Running = target, Pending = 0`。
+5. 将此世界与绑定同一根 `Arc` 的 `SpatialSession` 组成 `LaneFlowSession`，显式设置
+   `max_catch_up_steps = 8`；建立 target 个 proxy，并逐一 `bind_vehicle_entity`。
+6. 完成静态几何/灯具绑定、初始位姿预检及宿主资源安装后，才允许首个 fixed step 和
+   对外呈现。初始人口错误在启动窗口前返回；ECS/渲染启动错误也不得放行首拍。
 
-#189 在 `native-example` feature 下新增独立 `signalized_corridor` target，保留 v0.7
-`native_reference` 的最小边界。`laneflow-scenario`、TOML config projection 与测试依赖
-只进入 `laneflow-bevy` dev/example graph，不成为 Adapter production dependency 或
-public API。
+任一步失败都结束这次启动，丢弃尚未发布的世界/controller；保留原始错误，不把部分
+回滚失败当作空世界重试。controller、世界、Session 与 proxy 集合具有同一宿主生命
+周期；可复制的修订/策略值不是世界实例令牌，不能拿另一世界的同值上下文代替。
+本示例不执行存档恢复、换根或运行时调整人口。
 
-启动顺序固定为：
+### 13.3 每拍回流顺序与结果转换
 
-```text
-检入 catalog 0.4 + LFCA
-  -> SharedNetworkRevision::build + TrafficWorld::install
-  -> catalog bind（含 register_route）+ population prepare
-  -> spawn_vehicle batch
-  -> population bind
-  -> Session + 可选 proxy
-  -> 首个 fixed step
+`LaneFlowPlugin` 是唯一步进驱动。宿主在每一次 `LaneFlowFixed` 中依次执行：
+
+| 阶段        | 宿主动作                                                                                                                                            | 成功后的边界                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Lifecycle` | 从当前 Session 取修订/策略，调用 controller 的 `apply_pending`；回调调用自由函数 `laneflow_bevy::replace_completed_vehicle(&mut World, old, input)` | 每个进入本边界时已 pending 的计划最多尝试一次                                      |
+| `Step`      | 由 Adapter 推进一个 `16 ms` Tick                                                                                                                    | 只有提交成功才扣除 accumulator、记录 `StepResult`                                  |
+| `Observe`   | 恰好一次 `consume_world(session.world())`                                                                                                           | 消费该拍已提交世界，按稳定 live 顺序冻结新完成车辆的回流计划，留给下一 `Lifecycle` |
+
+`Lifecycle` 使用 exclusive system，在取出人口 Resource 的作用域内访问同一个 Bevy
+World；不能同时持有 Session 可变借用再调用组合事务。不得直接经 `world_mut()`
+调用 Runtime replace，也不得用 despawn + spawn 拼接回流。
+
+Adapter outcome 按原语义转换为 `CorridorReplaceAttemptOutcome`：
+
+- `Replaced(record)`：核对 `old` 和本示例必有的 `entity`，以 `VehicleReplaceRecord`
+  的 old/new 轮换 controller logical slot；原 Entity、模型 child 和最后 Transform
+  保留，入口位姿由本帧后续 presentation 提交。
+- `Blocked(block)`：入口重叠；原样传递 block，保留 Completed old、映射和 Transform。
+- `Retryable(error)`：当前停车或前后车暂不能接纳；对应现有
+  `StopConstraintUnsatisfiable`、`UnsafeLeader`、`UnsafeFollower`，转换为 policy 的
+  `Retryable`。与 Blocked 一样移到 FIFO 队尾，不重抽、不降速、不改计划，不阻止
+  其他 pending 计划。
+- Adapter/Runtime 错误及 policy contract 错误：进入 §13.4；不得把
+  `DownstreamSpeedUnsatisfiable` 或身份错误改报为可重试。
+
+`consume_world` 接收的是逐拍已提交世界，不是 `frame_step_results().last()`。
+它要求 `last_consumed_tick + 1`；同拍重复消费、跳过中间拍均为错误。零步进帧不运行
+人口链；多步 catch-up 帧逐拍重复完整链，不能在帧末合并消费。Completed 没有 pose
+record 不代表删除：其 Entity 和最后合法 Transform 必须一直保留至成功换绑。
+
+### 13.4 失败停止边界
+
+example-local 健康状态保留首个结构化失败（阶段、Tick、原始错误），不增加公共
+`LaneFlowAdapterError` 变体，也不假定存在公开 Session error setter。分别为
+`Lifecycle`、`Step`、`Observe` 增加读取该状态的 run condition：每个 set 到达时检查，
+不能只在整个 fixed schedule 入口检查一次。
+
+- `Lifecycle` 失败后，本拍 `Step`/`Observe` 和本帧后续 catch-up 不再提交。
+- `Step` 的 Adapter 错误由现有 Session 守卫阻止 `Observe` 与后续步进。
+- `Observe` 失败时，该拍 Runtime 已提交；不回滚它，也不继续后续 catch-up。
+- presentation 失败拒绝本轮 Transform 整批提交，并阻止下一帧步进。
+
+当前 Adapter 的 outer-frame 循环可能在 policy 失败后继续有限次检查空 schedule，
+但不得再提交 Tick。仅成功的 Tick 扣时间；剩余 backlog 原样保留，不清 accumulator
+或伪造成功报告。帧末统一读取 Session error 和宿主失败，输出诊断并以非零状态退出。
+不得依靠异步 `AppExit` 单独阻止同帧 catch-up，也不得清错后继续演示。
+
+事务原子性只覆盖单次 typed replacement。前序成功命令不跨命令回滚；callback 成功
+后发现 old/new/entity 不一致时，世界可能已经变化，须停止并报告，不能再次替换同一
+old。失败快照标记失败阶段，不作为满足人口不变量的成功 HUD/回放证据。
+
+## 14. corridor_traffic 参数与表现
+
+### 14.1 启动参数
+
+唯一人口参数是 `--vehicles N`（整数 `50..=200`，默认 `100`）和 `--seed S`
+（十进制 `u64`，默认 `0`）。`--help` 显示范围和默认值后成功退出；未知、重复、缺值、
+溢出或越界参数在创建窗口及首拍之前失败，不静默 clamp。人口在一次运行中固定。
+
+实现后的目标命令如下；本设计 PR 不注册或宣称已提供该 target：
+
+```powershell
+cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
 ```
 
-任一启动错误都在发布 window/App 前失败。example-local population Resource 在
-`Lifecycle` 调用 Adapter typed replacement，在 `Observe` 只消费本次 committed
-`frame_step_results().last()`；policy invariant failure 立即停止示例，不扩大公共
-Adapter error enum。成功 replacement 保持 Entity identity，blocked/pending 保持最后
-Transform。
+沿用 checked-in LFCA、catalog 0.4 与 authoring config 0.2；不重生成场景或改变 PRNG、
+槽位/路线顺序、权重和初始接纳规则。现有信号程序是 `12 phase / 84 s`、offset
+`[0, 42000] ms`，灯具必须消费 Runtime 提交状态，不能自己按墙钟模拟相位。
 
-表现层只消费已加载事实：
+### 14.2 位姿、灯具与相机
 
-- lane surfaces/markings 来自 Spatial centerlines 与 config lane width；
-- StopLine 与灯具 binding 来自 Core StopLine/ManeuverGate/SignalGroup registry；
-- lamp material 只由 committed `signal_group_state` 驱动；
-- camera/ground 从 Spatial bounds 派生；example-local orbit camera 支持滚轮缩放、
-  左键水平面平移和右键绕 focus 旋转；
-- 运行遥测由 Bevy UI 绘制在画面内，window title 保持稳定；
-- Core/Spatial vehicle pose 的 `edgeProgress`/translation 是前保险杠位置；built-in
-  vehicle child 沿 local `+Z` 向后延伸，proxy 原点不得作为车身中心；
-- built-in vehicle child mesh、颜色、键盘和 screenshot 只属于 example。
+宿主在 `PostUpdate`、`TransformSystems::Propagate` 之前最多提取/提交一次完整 batch：
 
-HUD 的 example-local 诊断不进入 Adapter public API。宿主 FPS/frame time 按约 1 秒
-outer-frame 采样窗口计算；LaneFlow step CPU 从 population `Lifecycle` 完成后开始，到
-`Observe` 消费 committed result 前结束，只包围既有 `LaneFlowFixedSet::Step`，并按同一
-窗口展示平均 `ms/frame` 与 `us/tick`。HUD 同时读取 `LaneFlowFrameReport` 的最近
-step/backlog/catch-up 状态，以及 #203 controller 的 target/running/pending 权威人口。
-wall-clock 样本不进入 Core input/state、PRNG 或 replay，不包含 renderer、截图和
-`PostUpdate` presentation，也不替代 #171 固定机 Adapter performance Gate。
+1. 用 `extract_committed_pose_batch` 填充复用缓冲；验证消费上下文仍属当前世界，
+   以及宿主自持的 `FramePlacementToken` 与当前 root 一致。
+2. 对所有记录按车辆句柄找到已绑定 proxy；验证 Entity、父子关系、root 单位缩放、
+   有限的 position/tangent/up 及转换后的 Transform，先全部暂存。
+3. 整批通过后统一写入 local Transform；任一失败保持所有目标旧值。当前生产插件
+   没有 §6–§7 的完整 presentation 系统，本例在 example-local 边界承担该提交，
+   不恢复不存在的公共 placement API。
 
-默认 authoring config 使用 `[0, 29000] ms` controller offsets，在 `58000 ms` cycle
-中提供可见半周期差；该 sample content 修正不改变 Traffic/Spatial/Manifest/catalog
-格式版本。dedicated example tests 覆盖 50/100/200 production bootstrap/headless
-运行、same-Entity recycle 与 outer-frame partition replay；GUI smoke 与截图仍是 G3/G4
-前独立的本机和产品验收证据。
+全部人口必须绑定，不接受第一条 pose 代表全部车辆或静默跳过缺失绑定。车头方向为
+`Transform::forward()` 的 `-Z`，up 来自 canonical pose；proxy 原点是前保险杠，
+车身 child 沿 local `+Z` 向后延伸，长度来自车辆 profile。不得从屏幕运动或两帧位置
+差反推朝向，也不得把表现 Transform 写回 Runtime。
 
-## 15. v0.9 protected-turning native specialization
+道路 mesh/标线来自同一 Spatial centerline，宽度取场景 authoring 配置的展示参数；
+不从 mesh 推导车道长度或占用。灯具在启动时由 StopLine → ManeuverGate → SignalGroup
+关系冻结绑定；共享 StopLine 只有在所有关联 Gate 指向同组时合并为一盏，缺失或歧义
+使启动失败。每帧只按 `committed_signal_groups()` 更新对应灯具材质，steady path
+不做字符串查找，也不凭路线或车辆状态猜灯色。
 
-#190 将 `signalized_corridor` 的 authoring/startup config clean-break 到 `0.2`，入口为
-`examples/config/v0.10-signalized-corridor.toml`；Traffic/Spatial/Manifest 继续使用
-`0.8/0.1/0.1`，scenario-local catalog 切换为 `0.2`。该切片只消费 #229 已有的
-Junction/Movement/ManeuverPath/ManeuverGate handles 和 Route occurrences，不改变
-production Adapter public API。
+相机初始 focus 和可见范围从 Spatial bounds 派生，保证默认窗口能看到两个路口与
+车辆；支持滚轮缩放、左键水平平移和右键绕 focus 旋转。角度、距离限位保持有限值，
+按时间或输入增量更新，不能因帧率改变控制速度。模型、灯具、相机和 UI 全部只属于
+example；不添加动态人口滑块、FPS/CPU 性能面板或新的 Adapter 调试 API。
 
-example-local observation 在启动期把 protected-left/right Movement external ID
-解析为 handles，再按每条 Route 的 compiled Maneuver occurrences 冻结
-`RouteHandle -> {ProtectedLeft, Straight, ProtectedRight}`。steady frame/tick 只读取
-handles；HUD、车辆材质和 recycle 后的 route 更新不做 external-ID lookup、path
-matching 或 geometry inference。共享 StopLine 的多个 Gate 只生成一个 lamp visual，
-且启动时必须证明它们引用同一 SignalGroup。
+### 14.3 HUD 与同帧摘要
 
-默认 controller program 为 12 phase/84 秒，offset `[0, 42000] ms`。headless tests
-覆盖三类 Route 进入 internal edge、SignalStop 后同 vehicle/route 跨同一 Gate 放行、
-共享 entry queue、有限 Adapter pose 和 same-Entity recycle identity。#190 G3 前仍
-要求 Windows 默认 100 车/seed 0 GUI smoke 与截图；50/100/200、stress seeds、
-clearance/performance 的扩大验证由 #191 拥有，独立收口由 #192 拥有。
+在 outer-frame Drive 完成、最后一次 Observe 成功后建立一个只读帧摘要，HUD 和
+headless 验证消费同一个摘要构造函数。零步进帧仍建立报告，人口计数沿用上次成功
+消费结果。画面内使用 ASCII 标签（内嵌字体边界），窗口标题保持稳定：
 
+| 字段                           | 唯一来源与显示口径                                                                                                    |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `vehicles / running / pending` | controller 的 `counts().target/running/pending`；成功边界始终 `running + pending = target`，不数 mesh 或 pose records |
+| `steps`                        | `LaneFlowFrameReport::steps_run()`，只计本 outer frame 成功提交的 Tick                                                |
+| `backlog_ms`                   | `LaneFlowFrameReport::backlog()`；显示毫秒小数点后 3 位，比较使用原始 Duration                                        |
+| `catch_up_limit`               | Session config 的上限 `8` 和 report 的 `catch_up_limit_reached()`；不能仅凭 `steps == 8` 猜测                         |
+| `tick / seed`                  | 当前世界已提交 Tick 与本次启动 seed，辅助截图/回放定位                                                                |
+
+摘要还保留 outer-frame 序号、输入 delta、simulation time 与信号组状态供验收定位；
+它不驱动交通决策。HUD 不遍历 `pending_vehicles()` 分配临时列表，不维护第二套计数。
+不把画面 FPS、构建耗时或短程运行当作性能结论。
+
+## 15. corridor_traffic 验收矩阵
+
+### 15.1 执行边界
+
+下表是实现必须提供的验收，不是本设计 PR 的测试结果。headless harness 必须复用
+§13 bootstrap、生命周期系统、presentation 和摘要构造，在真实 Bevy `App` 中安装
+`TimePlugin`、`TransformPlugin`、`LaneFlowPlugin`，但不创建窗口或 renderer。几何/灯具
+绑定、proxy Transform 和 HUD 文本可以无 GPU 核对，mesh/material/window 安装留在 GUI
+分支；不能另写一套人口或计数系统来充当 headless。仅手写
+`apply_pending → TrafficWorld::step → consume_world` 循环不能替代宿主调度验收。
+
+测试以 `TimeUpdateStrategy::ManualDuration` 提供 frame delta；明确处理首帧初始化，
+并控制虚拟时间上限，证明传给 LaneFlow 的实际 delta 等于测试输入。比较在相同已
+提交 Tick 且 backlog 排空的边界进行；原始 Entity 数值不要求跨 App 相同，要比较
+各 App 内 logical slot → Entity 的身份连续性。
+
+| ID               | 输入/操作                                                                                         | 可判定的通过条件                                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| C01 启动         | `50/100/200`，seed `0`、固定非零值及 `u64::MAX`；同参重建                                         | tick 0 人口准确、pending 0、无重叠，世界路线/句柄合法，target 个不同 proxy 全部绑定；同参初始计划及 PRNG 状态相同                               |
+| C02 拒绝启动     | `49/201`、缺值/重复/未知参数、seed 溢出；错误 catalog/策略/profile、不足槽位及接纳失败            | 无首拍、非零退出；非法参数不创建窗口；回滚不完整保留原错误并丢弃未发布实例，不以残余世界重试                                                    |
+| C03 固定调度     | 零 delta、亚毫秒余量、每帧 `1/4/8` 拍及超出 `8` 拍输入                                            | 零拍不调用人口链；每个成功 Tick 恰好一次 Lifecycle/Observe；超限保留 backlog，后续零 delta 帧可排空；report 数值与实际提交一致                  |
+| C04 完成与回流   | 默认夹具实际完成路线，观察 completion、pending 和下一边界 replacement                             | completion 不在同一 Observe 内替换；成功后 old stale/new live，同一 logical slot 始终复用原 proxy/model；无 despawn + spawn                     |
+| C05 可重试       | 构造入口 overlap 与三类 Retryable；同边界另有可成功计划，再解除约束                               | old/mapping/Transform、冻结输入和 PRNG 不变；每计划每边界一次、其他计划继续；恢复后相同计划成功且人口不减少                                     |
+| C06 失败边界     | Lifecycle host/policy 错误、Step 错误、Observe 错误；同帧仍有 catch-up 预算                       | 首个错误可诊断且非零退出；Lifecycle 错误无本拍提交，Observe 错误只保留已提交拍；剩余拍不提交、backlog 不丢；前序成功替换不回滚                  |
+| C07 错误结果     | 测试替身返回不匹配 old、已跟踪 new 或错误 Entity；跨世界/策略上下文误接                           | 前置不匹配不调用 callback；提交后不一致立即停止、不重试旧句柄；跳拍或重复 consume 明确失败                                                      |
+| C08 分帧回放     | `100` 车 / seed 0、相同输入；真实 App 使用 `1/4/8` 拍、含零帧/余量/超限的分块，至少 `12,000` Tick | 每拍比较 logical 句柄/车辆状态、pending FIFO 与输入、PRNG、已消费 Tick、信号和 replacement 顺序；最终 Tick/time/backlog 一致且确有回流          |
+| C09 有界持续运行 | `50` 和 `200` 车各运行，目标至少 `50` 次成功 replacement、上限 `50,000` Tick                      | 每个成功 Observe 后 running + pending = target；pending 不超 target；controller 预留容器容量、车辆 proxy/model 数不增长；达不到成功次数明确失败 |
+| C10 完整位姿     | 全人口、直行/左转/右转、Completed 等待；注入 stale Entity/token、非有限值或坏父子关系             | 每个有效记录的平移/朝向/up 正确；前保险杠原点正确；Completed 保留旧值；错误时整批零写入，不只验证首车                                           |
+| C11 信号         | 默认两个控制器跨完整 `84 s` 周期和各相位边界；缺失/歧义绑定                                       | 每盏灯与同 Tick committed group 一致，共享停止线不重复/误合并；错误绑定启动失败，外部墙钟与相机不影响信号                                       |
+| C12 HUD          | 零拍、正常帧、超限、存在 pending、回流后帧                                                        | UI 文本由同帧摘要格式化；数值与 controller/report 完全一致，Duration 仅在显示时舍入；错误帧不输出成功摘要                                       |
+| C13 GUI          | Windows 默认 `100 / seed 0` 出图；平移/旋转/缩放，观察回流                                        | 两路口、道路、完整车身、灯色和 HUD 可辨；朝向/前保险杠正确，Entity 连续；同帧截图与摘要核对，人工结论注明环境与限制                             |
+
+C07 的故障注入留在 example 测试边界，不增加生产 API。当前可复制修订/策略不能
+识别同修订、同策略的另一世界，故此项须同时验证宿主一对一资源装配，不能宣称已有
+不透明世界令牌自动拦截。C08 比较完整序列和末端，缺失、截短、失败或无实际回流
+均不得以共同前缀相同判为通过。已有 scenario 的短 soak、PRNG golden 和 10,000 次
+replacement ignored 测试继续作为底层证据，不冒充新增 Bevy 调度或 GUI 证据；
+C09 是有界性验收，不是吞吐、堆峰值或长期稳定性认证。
+
+### 15.2 复现与证据
+
+实现应把共享宿主测试接入 `corridor_traffic` example 的测试模块，提供下列入口；
+在实现该 target 前此命令不可运行，本设计只运行文档检查：
+
+```powershell
+cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --test-threads=2
+```
+
+验收记录必须列出实际 commit、工具链/平台、LFCA/catalog 标识、参数、frame-delta
+输入和已完成用例。C13 的自动出图核对使用同一确定性 frame-delta 脚本分别驱动 GUI
+与独立 headless App，保存截图帧的序号/Tick、摘要与显示文本；不能比较两个任意墙钟
+时刻的画面。手工相机操作另记，不改变交通输入。截图只证明可见结果，C04–C10 的
+身份/原子性/调度结论必须来自可断言的 headless 证据。
+
+构建和测试串行执行；本地默认 Cargo jobs、测试线程和 Rayon 各限制为 `2`，需要时
+继承受限 CPU affinity 与低优先级。设计验收不要求独占 CPU 或整套性能 Gate。
 
 ## 16. 修订绑定生命周期与维护暂停式切换（#534）
 
