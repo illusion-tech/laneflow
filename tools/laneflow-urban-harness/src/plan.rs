@@ -328,6 +328,11 @@ impl ResolvedPlan {
                 if window.warm_up_ticks <= cycle
                     && window.observation_ticks <= 3 * cycle
                     && window.end() > 0 => {}
+            #[cfg(test)]
+            "integrity-soak"
+                if case == UrbanCase::SustainedActive
+                    && window.warm_up_ticks == 0
+                    && (1..=200_000).contains(&window.observation_ticks) => {}
             _ => return Err(invalid("unsupported run window")),
         }
         let recipe = ScenarioRecipe::for_case(case);

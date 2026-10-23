@@ -9,6 +9,8 @@ mod evidence;
 mod execution_evidence;
 mod fastmap;
 mod host;
+#[cfg(test)]
+mod integrity_soak;
 mod observe;
 mod plan;
 #[cfg(feature = "adapter")]
