@@ -292,8 +292,8 @@ pub fn deterministic_state_digest(
     Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
 }
 
-fn canonical_route_groups(
-    vehicle_records: &[(u64, Vec<u8>, u64)],
+fn canonical_route_groups<V: AsRef<[u8]>>(
+    vehicle_records: &[(u64, V, u64)],
     route_records: &[(u64, Vec<u8>)],
     budget: &mut NormalizationBudget,
 ) -> Result<Vec<Vec<u8>>, SnapshotDigestError> {
@@ -308,9 +308,12 @@ fn canonical_route_groups(
         members.push((*route_id, index));
     }
     members.sort_unstable_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| vehicle_records[left.1].1.cmp(&vehicle_records[right.1].1))
+        left.0.cmp(&right.0).then_with(|| {
+            vehicle_records[left.1]
+                .1
+                .as_ref()
+                .cmp(vehicle_records[right.1].1.as_ref())
+        })
     });
     let mut route_groups: Vec<Vec<u8>> = Vec::new();
     budget.charge_elements::<Vec<u8>>(route_records.len())?;
@@ -332,7 +335,7 @@ fn canonical_route_groups(
         let mut group_bytes = u64::try_from(route_bytes.len()).unwrap_or(u64::MAX) + 8;
         for (_, index) in bound {
             group_bytes = group_bytes.saturating_add(8u64.saturating_add(
-                u64::try_from(vehicle_records[*index].1.len()).unwrap_or(u64::MAX),
+                u64::try_from(vehicle_records[*index].1.as_ref().len()).unwrap_or(u64::MAX),
             ));
         }
         budget.charge(group_bytes)?;
@@ -346,7 +349,7 @@ fn canonical_route_groups(
             u64::try_from(bound.len()).expect("vehicle count fits u64"),
         );
         for (_, index) in bound {
-            push_record(&mut group, &vehicle_records[*index].1);
+            push_record(&mut group, vehicle_records[*index].1.as_ref());
         }
         route_groups.push(group);
         start = end;
@@ -370,6 +373,14 @@ fn canonical_route_record(route: &CapturedRoute) -> Result<Vec<u8>, SnapshotDige
 }
 
 fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, SnapshotDigestError> {
+    let mut record = Vec::new();
+    append_canonical_vehicle_record(vehicle, &mut record)?;
+    Ok(record)
+}
+fn append_canonical_vehicle_record(
+    vehicle: &CapturedVehicle,
+    record: &mut Vec<u8>,
+) -> Result<(), SnapshotDigestError> {
     // 路线内容由所属实例分组承载，车辆记录不内嵌（内容相同的路线实例
     // 以其车辆绑定区分，见分组构造）。
     let parking_len = match vehicle.parking {
@@ -419,12 +430,12 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
         + waiting_len
         + eligibility_len
         + reservation_len;
-    let mut record = Vec::new();
-    digest_try_reserve_exact(&mut record, record_len)?;
-    push_u32(&mut record, vehicle.route_edge_index);
-    push_u32(&mut record, vehicle.progress_mm);
-    push_u16(&mut record, vehicle.carry_um);
-    push_u32(&mut record, vehicle.speed_mm_s);
+
+    digest_try_reserve(record, record_len)?;
+    push_u32(record, vehicle.route_edge_index);
+    push_u32(record, vehicle.progress_mm);
+    push_u16(record, vehicle.carry_um);
+    push_u32(record, vehicle.speed_mm_s);
     record.push(match vehicle.status {
         VehicleStatus::Active => 1,
         VehicleStatus::Parked => 2,
@@ -456,14 +467,14 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
                 }
             }
             if let Some(occurrence) = occurrence {
-                push_u32(&mut record, occurrence);
+                push_u32(record, occurrence);
             }
             match virtual_entry {
                 None => record.push(0),
                 Some(entry) => {
                     record.push(1);
                     record.extend_from_slice(entry.lane_edge.as_bytes());
-                    push_u32(&mut record, entry.progress_mm);
+                    push_u32(record, entry.progress_mm);
                 }
             }
         }
@@ -472,7 +483,7 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
         None => record.push(0),
         Some(traversal) => {
             record.push(1);
-            push_u32(&mut record, traversal.maneuver_occurrence_index);
+            push_u32(record, traversal.maneuver_occurrence_index);
             record.extend_from_slice(traversal.maneuver_path.as_bytes());
             record.push(match traversal.phase {
                 CapturedManeuverTraversalPhase::PreGate => 1,
@@ -488,57 +499,57 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
         Some(membership) => {
             record.push(1);
             record.extend_from_slice(membership.waiting_zone.as_bytes());
-            push_u32(&mut record, membership.maneuver_occurrence_index);
+            push_u32(record, membership.maneuver_occurrence_index);
             record.extend_from_slice(membership.entry_gate.as_bytes());
             record.extend_from_slice(membership.release_gate.as_bytes());
-            push_u64(&mut record, membership.admission_sequence);
+            push_u64(record, membership.admission_sequence);
         }
     }
     match vehicle.conflict_eligibility {
         None => record.push(0),
         Some(eligibility) => {
             record.push(1);
-            push_u32(&mut record, eligibility.maneuver_occurrence_index);
-            push_u32(&mut record, eligibility.maneuver_entry_route_edge_index);
+            push_u32(record, eligibility.maneuver_occurrence_index);
+            push_u32(record, eligibility.maneuver_entry_route_edge_index);
             record.extend_from_slice(eligibility.admission_gate.as_bytes());
-            push_u32(&mut record, eligibility.conflict_occurrence_index);
-            push_conflict_locator(&mut record, eligibility.passage);
-            push_u64(&mut record, eligibility.first_eligible_tick);
+            push_u32(record, eligibility.conflict_occurrence_index);
+            push_conflict_locator(record, eligibility.passage);
+            push_u64(record, eligibility.first_eligible_tick);
         }
     }
     match vehicle.conflict_reservation.as_ref() {
         None => record.push(0),
         Some(reservation) => {
             record.push(1);
-            push_u64(&mut record, reservation.acquired_tick);
-            push_u32(&mut record, reservation.maneuver_occurrence_index);
-            push_u32(&mut record, reservation.maneuver_entry_route_edge_index);
+            push_u64(record, reservation.acquired_tick);
+            push_u32(record, reservation.maneuver_occurrence_index);
+            push_u32(record, reservation.maneuver_entry_route_edge_index);
             record.extend_from_slice(reservation.admission_gate.as_bytes());
             push_u64(
-                &mut record,
+                record,
                 u64::try_from(reservation.passages.len()).expect("passage count fits u64"),
             );
             for passage in &reservation.passages {
-                push_u32(&mut record, passage.conflict_occurrence_index);
-                push_conflict_locator(&mut record, passage.passage);
-                push_u32(&mut record, passage.entry_route_edge_index);
-                push_u32(&mut record, passage.entry_progress_mm);
-                push_u32(&mut record, passage.clearance_route_edge_index);
-                push_u32(&mut record, passage.clearance_progress_mm);
+                push_u32(record, passage.conflict_occurrence_index);
+                push_conflict_locator(record, passage.passage);
+                push_u32(record, passage.entry_route_edge_index);
+                push_u32(record, passage.entry_progress_mm);
+                push_u32(record, passage.clearance_route_edge_index);
+                push_u32(record, passage.clearance_progress_mm);
             }
             push_u64(
-                &mut record,
+                record,
                 u64::try_from(reservation.downstream_intervals.len())
                     .expect("downstream count fits u64"),
             );
             for interval in &reservation.downstream_intervals {
                 record.extend_from_slice(interval.lane_edge.as_bytes());
-                push_u32(&mut record, interval.start_mm);
-                push_u32(&mut record, interval.end_mm);
+                push_u32(record, interval.start_mm);
+                push_u32(record, interval.end_mm);
             }
         }
     }
-    Ok(record)
+    Ok(())
 }
 
 fn push_conflict_locator(
@@ -772,18 +783,20 @@ impl crate::kernel::state::WorldState {
             .iter()
             .filter(|slot| slot.state.is_some())
             .count();
-        budget.charge_elements::<(u64, Vec<u8>, u64)>(vehicle_capacity)?;
+        budget.charge_elements::<(u64, core::ops::Range<usize>, u64)>(vehicle_capacity)?;
+        budget.charge_elements::<(u64, &[u8], u64)>(vehicle_capacity)?;
         budget.charge_elements::<(u32, u32, u64)>(vehicle_capacity)?;
-        let mut vehicle_records: Vec<(u64, Vec<u8>, u64)> = Vec::new();
+        let mut vehicle_ranges = Vec::new();
+        let mut vehicle_bytes = Vec::new();
         let mut vehicle_ids: Vec<(u32, u32, u64)> = Vec::new();
-        digest_try_reserve_exact(&mut vehicle_records, vehicle_capacity)?;
+        digest_try_reserve_exact(&mut vehicle_ranges, vehicle_capacity)?;
         digest_try_reserve_exact(&mut vehicle_ids, vehicle_capacity)?;
         for (slot_index, slot) in self.committed.vehicles.iter().enumerate() {
             if slot.state.is_none() {
                 continue;
             }
             let generation = slot.generation;
-            let snapshot_vehicle_id = FIRST_SNAPSHOT_ID + vehicle_records.len() as u64;
+            let snapshot_vehicle_id = FIRST_SNAPSHOT_ID + vehicle_ranges.len() as u64;
             vehicle_ids.push((
                 generation,
                 u32::try_from(slot_index).expect("vehicle index fits u32"),
@@ -811,11 +824,23 @@ impl crate::kernel::state::WorldState {
                 .transpose()
                 .expect("live vehicle slot yields captured vehicle")
                 .map_err(direct_capture_error)?;
-            let record = canonical_vehicle_record(&vehicle)?;
-            budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
-            vehicle_records.push((snapshot_vehicle_id, record, snapshot_route_id));
+            let start = vehicle_bytes.len();
+            append_canonical_vehicle_record(&vehicle, &mut vehicle_bytes)?;
+            budget.charge(u64::try_from(vehicle_bytes.len() - start).unwrap_or(u64::MAX))?;
+            vehicle_ranges.push((
+                snapshot_vehicle_id,
+                start..vehicle_bytes.len(),
+                snapshot_route_id,
+            ));
         }
         vehicle_ids.sort_unstable();
+
+        // 排序只移动借用视图；车辆规范字节在本次调用的连续缓冲内保持不动。
+        let mut vehicle_records = Vec::new();
+        digest_try_reserve_exact(&mut vehicle_records, vehicle_capacity)?;
+        for (id, range, route_id) in vehicle_ranges {
+            vehicle_records.push((id, &vehicle_bytes[range], route_id));
+        }
 
         let route_groups = canonical_route_groups(&vehicle_records, &route_records, &mut budget)?;
 
@@ -958,7 +983,7 @@ impl crate::kernel::state::WorldState {
                 .saturating_add(u64::try_from(vehicle_records[index].1.len()).unwrap_or(u64::MAX))
                 .saturating_add(u64::try_from(route_bytes.len()).unwrap_or(u64::MAX));
             budget.charge(record_bytes)?;
-            try_push_record(&mut canonical, &vehicle_records[index].1)?;
+            try_push_record(&mut canonical, vehicle_records[index].1)?;
             try_push_record(&mut canonical, route_bytes)?;
         }
 
