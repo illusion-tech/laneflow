@@ -2,7 +2,7 @@
 
 **状态**: Accepted<br>
 **日期**: 2026-07-22<br>
-**最后更新**: 2026-08-31（#541 原子移除与停车生命周期实现同步）<br>
+**最后更新**: 2026-10-23（对齐现行 replacement 错误分类与走廊宿主边界）<br>
 **适用范围**: Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换/移除命令、seeded 回流、Bevy proxy 复用与启动配置边界
 
 ## 背景
@@ -79,7 +79,17 @@ stale handle、状态不变量、预留或算术失败都保持 Runtime 完全�
 recycle 的第一步；需要保持人口并尝试新入口时，仍必须使用
 `replace_completed_vehicle`，不能拼成可失败的 despawn + spawn 两步事务。
 
-物理 overlap 是可重试的 typed `Blocked`，携带 old/blocker handle、前后关系和 bumper gap；其他 validation/invariant failure 返回致命 `ReplaceError`。任一失败结果都保持 `TrafficWorld` committed authority 不变。
+物理 overlap 是可重试的 typed `Blocked`，携带 old/blocker handle、前后关系和 bumper
+gap。当前停车约束与前后车暂不能接纳的 `StopConstraintUnsatisfiable`、`UnsafeLeader`、
+`UnsafeFollower` 仍由 Runtime 返回 typed `ReplaceError`，Bevy 组合事务将其分类为
+`LaneFlowVehicleReplaceOutcome::Retryable`；调用方保留冻结输入至下一边界。其余
+validation/invariant failure（包括 `DownstreamSpeedUnsatisfiable`）由该宿主视为
+致命错误，不能伪装成入口阻塞。任一失败结果都保持该次调用前的 `TrafficWorld`
+committed authority 不变，不回滚同一 boundary 中已经成功的其他命令。
+
+走廊人口 policy 的队列规则见[人口设计 §6](../design/signalized-corridor-population.md#6-pending-与-host-transaction)；
+`corridor_traffic` 的目标宿主集成与验收见 [Bevy 设计 §13–§15](../design/bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)。
+后者只组合已交付事务，不把人口或 retry policy 移进 Runtime/Adapter。
 
 成功后旧 `VehicleHandle` 立即 stale，新 vehicle 获得不同 generation 的 handle；public contract 不保证复用相同 slot index。replace 尽量保留旧车在 `live_order` 中的位置，不产生 tombstone；独立 spawn 仍追加到尾部。
 

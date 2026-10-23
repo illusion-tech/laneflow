@@ -1,7 +1,7 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-09-04<br>
+**最后更新**: 2026-10-23<br>
 **适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.4、人口和车辆回流策略。
 JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的复杂路口参考场景。
 
@@ -174,7 +174,7 @@ yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 
 
 ### 6.1 Native runtime 参数
 
-现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.4
+设计基线中的走廊 Bevy 最小路径不提供 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.4
 （必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 5
 LFCA 与 catalog 0.4；先把 catalog 绑到共享根，显式使用绑定的策略安装世界，
 再按 catalog 边键 `register_route` 并 spawn 少数车辆。运行命令为：
@@ -188,6 +188,12 @@ Adapter 同一 Entity 换绑；不把 `--vehicles` / HUD / 灯具 / orbit camera
 非法车辆数、未知 portal/route 或无足够 spawn slots 必须在第一个 `TrafficWorld`
 step 前失败，不能静默 clamp。`signalized_corridor` 继续复用 opt-in `native-example`。
 车辆 pose 仍以车辆前保险杠为原点。
+
+`corridor_traffic` 的目标是替换上述最小走廊入口，组合现有 caller-owned 人口与
+Adapter 事务，交付持续车流、灯具、HUD 和相机；该宿主设计不改变本文件的场景、
+PRNG 或制品契约。启动参数、当前/目标边界和可执行验收以
+[Bevy 设计 §13–§15](bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)
+为唯一权威；设计稿不表示新 target 已存在，历史 native 验证不能作其交付证据。
 
 ### 6.2 Stable spawn-slot catalog
 
@@ -230,7 +236,9 @@ Runtime 没有 external ID 字符串。每个 logical population slot 跟踪当�
 
 ### 7.2 Blocked retry
 
-入口 overlap 或其他可恢复容量条件阻止 replace 时：
+入口 overlap 返回 `Blocked`；当前停车约束或前后车暂不能接纳返回 `Retryable`。
+两者的 typed 区别以[人口设计 §6](signalized-corridor-population.md#6-pending-与-host-transaction)
+为准，共同遵守：
 
 - old vehicle 保持 Completed 且 handle 仍 live；
 - proxy 保留最后一次合法 Transform；
@@ -242,6 +250,7 @@ Runtime 没有 external ID 字符串。每个 logical population slot 跟踪当�
 成功后 TrafficWorld 原子使 old handle stale 并返回 new handle，Adapter 在同一公开事务中把同一 Entity 从 old handle 切换到 new handle。人口的 logical slot 数保持目标值，Bevy 不 despawn/respawn proxy 或 model。不得用退役后再 `spawn` 充当回流。
 
 不可恢复的配置或 invariant 错误进入明确 fatal/diagnostic 路径，不能无限伪装成入口阻塞。
+持续车流宿主不会自动降低 frozen replacement 初速或重抽路线来隐藏错误。
 
 ### 7.3 Fixed-step 顺序
 
@@ -255,6 +264,9 @@ apply pending lifecycle commands
 ```
 
 若一个 outer frame 运行多个 catch-up step，每个 step 间仍执行上述顺序。Presentation 每个 outer frame 最多提交一次，因此 frame chunking 不改变 Runtime/population 决策序列。
+
+现行 controller 通过 `consume_world(&TrafficWorld)` 逐拍消费已提交世界，不消费
+帧末聚合事件。Bevy 阶段挂接、错误停止与真实 App 分帧验收见上述宿主设计。
 
 ## 8. PRNG 契约
 
@@ -336,7 +348,7 @@ cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config exam
 | 目标人口、seed、portal/lane 决策与 blocked retry                         | `laneflow-scenario` reference policy | #475           |
 | typed lifecycle transaction 与 proxy binding                             | Bevy Reference Adapter               | #475           |
 | 场景 generator、固定时制配置与三类静态制品                               | Data/Authoring                       | #188           |
-| native UI/CLI、道路/车辆/灯具呈现与场景集成                              | Bevy Reference Adapter               | #189           |
+| `corridor_traffic` UI/CLI、道路/车辆/灯具呈现与宿主集成                  | Bevy example（不扩展生产 Adapter）   | #928           |
 | 独立审阅、性能/可视/回归证据                                             | Cross-layer closure                  | #195           |
 | protected profile artifacts、catalog 0.2、scenario/native 集成           | Cross-layer                          | #190           |
 | expanded clearance/replay/proxy/performance 证据                         | Cross-layer validation               | #191           |
@@ -350,6 +362,11 @@ VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只
 proxy/model/Transform/灯具和 route-class 视觉。
 
 ## 11. 验收矩阵
+
+以下是 current v0.10 场景的分层契约，不是所有能力已经在当前 Bevy 示例中通过的声明。
+`corridor_traffic` 的宿主完成条件、用例编号与 GUI/HUD 证据口径统一见
+[Bevy 设计 §15](bevy-reference-adapter.md#15-corridor_traffic-验收矩阵)；底层 Runtime /
+scenario 通过不能替代宿主调度、逐车呈现和 GUI 验收。
 
 current v0.10 至少验证：
 
