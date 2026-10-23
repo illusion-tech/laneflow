@@ -1102,34 +1102,43 @@ pub(crate) mod tests {
     #[test]
     fn origin_mismatches_fail_closed() {
         let origin = origin(FULL_SPATIAL, true);
-        let mutated = LfcaOriginBinding::new(
-            Sha256Digest::from_bytes([1; 32]),
-            origin.canonical_artifact_byte_length(),
-            origin.network_revision(),
-            NETWORK_REVISION_DERIVATION_VERSION,
-        );
-        let base = NetworkRevisionCutoverDescriptor::new(
-            mutated,
-            LfcaOriginBinding::from_canonical_origin(origin),
-            None,
-            MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
-        );
-        assert_eq!(
-            base.validate(origin, origin, &limits()),
-            Err(CutoverDescriptorError::BaseOriginMismatch)
-        );
-        let target = NetworkRevisionCutoverDescriptor::new(
-            LfcaOriginBinding::from_canonical_origin(origin),
-            mutated,
-            None,
-            MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
-        );
-        assert_eq!(
-            target.validate(origin, origin, &limits()),
-            Err(CutoverDescriptorError::TargetOriginMismatch)
-        );
+        // 认证不比较 origin 的字节身份（#963 声明漏检面），切换描述符仍严格绑定两轴。
+        for (digest_changed, length_changed) in [(true, false), (false, true), (true, true)] {
+            let mut digest = *origin.canonical_artifact_digest().as_bytes();
+            if digest_changed {
+                digest[0] ^= 0x80;
+            }
+            let mutated = LfcaOriginBinding::new(
+                Sha256Digest::from_bytes(digest),
+                ExactByteLength::new(
+                    origin.canonical_artifact_byte_length().get() + u64::from(length_changed),
+                ),
+                origin.network_revision(),
+                NETWORK_REVISION_DERIVATION_VERSION,
+            );
+            let base = NetworkRevisionCutoverDescriptor::new(
+                mutated,
+                LfcaOriginBinding::from_canonical_origin(origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            );
+            assert_eq!(
+                base.validate(origin, origin, &limits()),
+                Err(CutoverDescriptorError::BaseOriginMismatch)
+            );
+            let target = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(origin),
+                mutated,
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            );
+            assert_eq!(
+                target.validate(origin, origin, &limits()),
+                Err(CutoverDescriptorError::TargetOriginMismatch)
+            );
+        }
     }
 
     #[test]
