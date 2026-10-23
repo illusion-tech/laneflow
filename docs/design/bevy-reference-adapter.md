@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-10-23（走廊持续车流宿主与验收契约）
+**最后更新**: 2026-10-24（`junction_debug` 模块拆分与 overlay 出图开关）
 
 **适用范围**: Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -264,9 +264,18 @@ entry→release 储车区间。连接、储车与驶出由同一条左转圆弧�
 对应不同交通状态。预设为 `persp`、`topdown`、`close`、`merge`、`waiting`、`signals`；至少等待 150 个
 渲染帧让管线就绪。`--at-tick` 默认为 6_100，出图与每帧耗时不属于性能证据。
 图像转换或保存失败时返回非零进程退出码；成功退出才表示截图已保存。
+`--overlay`（或环境变量 `JUNCTION_DEBUG_OVERLAY=1`）让 §8 调试 overlay 启动即开启，
+出图包含诊断面板与静态标记；此后仍可用 F2 切换，默认关闭语义不变。
+
+示例入口只做装配，职责按 `examples/support/` 模块划分：`junction_cli`（参数与环境
+变量回退）、`junction_camera`（相机预设、天空与光照）、`junction_capture`（定 tick
+出图）、`junction_road` 与 `junction_surface`（路面铺装与标线）、`junction_signals`
+（灯具与灯态）、`junction_vehicles`（车辆表现与位姿同步）、`junction_overlay`
+（§8 调试 overlay）。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-close.png --camera close --at-tick 3500
+cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-overlay.png --camera close --at-tick 3500 --overlay
 cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-merge.png --camera merge --at-tick 0
 cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-waiting.png --camera waiting --at-tick 1600
 cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example junction_debug

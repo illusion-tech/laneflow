@@ -772,9 +772,9 @@ mod tests {
                 // 与实际模型一致：规范位姿是前保险杠，车身向后延伸一整车长。
                 for along in [0.0, -vehicle_length * 0.5, -vehicle_length] {
                     for side in [
-                        -super::super::VEHICLE_WIDTH_METERS * 0.5,
+                        -super::super::junction_vehicles::VEHICLE_WIDTH_METERS * 0.5,
                         0.0,
-                        super::super::VEHICLE_WIDTH_METERS * 0.5,
+                        super::super::junction_vehicles::VEHICLE_WIDTH_METERS * 0.5,
                     ] {
                         let edge = *point + normal * side + forward * along;
                         assert!(
