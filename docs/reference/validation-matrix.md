@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-10-12
+**最后更新**: 2026-10-24
 
 **适用范围**: LaneFlow 各切片类型在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
 **关联文档**:
@@ -107,18 +107,18 @@ PR 模板里，不进 commit 门禁。
 `../governance/github-workflow.md` 第 8.2 节。每行可反向索引追踪 issue，结论以追踪
 issue 为准，本表只做判读入口，不复制诊断结论。
 
-| 签名（断言 / 错误面）                                                                                               | 出处                                                                              | 匹配谓词                                                                                          | 判读方法                                                                                                                                                                                 | 状态 / 追踪                            |
-| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `Validation { stage: "file-backed emission", detail: "Format(DigestMismatch { structure: ChunkDirectoryEntry })" }` | urban-harness → `laneflow-format` 读回校验                                        | 待归因（无谓词，不具偶发裁决资格）                                                                | 读 `[digest-probe]` 行（entry/offset/长度、期望 vs 实际摘要、内容头 32 字节）；失真指纹（首坏偏移页对齐、整页替换、页整数倍位移、零页）命中即按环境对照裁决（独立写-读浸泡 A/B）         | 已归因（机器级页失真，非代码）· #794   |
-| `artifact digest mismatch: <name>`（实测 `Validation("artifact digest mismatch: network.lfca")`）                   | urban-harness `Artifacts::load` 对生成器刚写出工件的读回摘要核对                  | 待归因（无谓词，不具偶发裁决资格；长度与 SHA-256 可双失配）                                       | 读 `[digest-probe]` `site=write-readback` / `site=artifact-load` 行（写入 vs 回读长度与摘要、首个分歧偏移、分歧形态、二次回读稳定性）；失真指纹命中即按环境对照裁决（独立写-读浸泡 A/B） | 已归因（机器级页失真，非代码）· #794   |
-| 写后读回失配（`[digest-probe] site=write-readback` 行 / `save write-readback` 错误面）                              | urban-generator / urban-harness 写后读回校验（#954）                              | 重试恢复即命中（`action=retry` 后写入成功）                                                       | **重试成功不得作为偶发放行依据**：留档 `[digest-probe]` 现场行并按环境失真指纹判读；重试耗尽（`action=fail-closed`）为真实失败，修复后方可合入                                           | 已实施机制（#954）· 环境失真见指纹     |
-| `warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow: assertion failed: left: N`                          | `placement_admission` warm 重扫计数                                               | —（已修，任何命中即回归）                                                                         | 病因为并发测试污染进程全局 `MANEUVER_UPSTREAM_EDGE_VISITS`                                                                                                                               | 已修（#796，thread-local）· 再现即回归 |
-| `spawn_overlap_allocation.rs:123/124 assertion ... failed` 同 tid 双 panic                                          | `allocation_guard_rejects_real_heap_operations` 的 `catch_unwind` 预期失败 stderr | 该二进制 `test result: ok`，且双 panic 同 tid 成对出现                                            | 误报判别：看该二进制 `test result:` 行，`ok. 2 passed` 即非失败                                                                                                                          | 误报已撤销（#794 症状①）               |
-| `steady Waiting ticks allocated` / `repeated admission sample N allocated`                                          | `waiting_budget_evidence` 零分配窗口                                              | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 4 alloc / 0 realloc）                            | 读 `[tick-ledger]` 逐拍行与暖机余量，判别懒物化漂移 / 他面串扰 / 计量边界                                                                                                                | 未归因，探针就位（#893）· #794         |
-| `armed steady ticks must not allocate beyond unarmed steady ticks`                                                  | `cutover_cross_budget_evidence` 稳态账本不等                                      | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 unarmed 侧孤立 4 alloc / 900 B 对 armed 侧全 0） | 同上 `[tick-ledger]`；left=unarmed、right=armed                                                                                                                                          | 未归因，探针就位（#893）· #794         |
-| `per-world live N must stay below M bytes`                                                                          | `shared_network_allocation_evidence` 每世界预算                                   | 分支 diff 存在对应的每世界真实增长（如 +4 B/世界）即真超限，否则待裁决                            | 先对比分支 diff 是否真实增长（实测有 +4 B/世界的研究分支实例），再判串扰                                                                                                                 | 多为真预算超限 · #794                  |
-| `NonFiniteMotion` 家族偶发                                                                                          | `phase_equivalence` 等                                                            | —（已修，任何命中即回归）                                                                         | 故障注入跨武装世界引爆                                                                                                                                                                   | 已修（#795）· #792                     |
-| 取样脚本报 FAILED 但目标 `test result: ok`                                                                          | 自建循环取样脚本                                                                  | 目标二进制 `test result: ok` 即脚本误报                                                           | 检查匹配是否大小写不敏感、是否误计 `catch_unwind` 预期失败 stderr                                                                                                                        | 方法论教训（#794 iter 5）              |
+| 签名（断言 / 错误面）                                                                                               | 出处                                                                              | 匹配谓词                                                                                          | 判读方法                                                                                                                                                                                                                | 状态 / 追踪                            |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `Validation { stage: "file-backed emission", detail: "Format(DigestMismatch { structure: ChunkDirectoryEntry })" }` | urban-harness → `laneflow-format` 读回校验                                        | 待归因（无谓词，不具偶发裁决资格）                                                                | 读 `[digest-probe]` 行（entry/offset/长度、期望 vs 实际摘要、内容头 32 字节）与 `[digest-probe] dump` 转储，按 §8.1 离线页指纹判读；`page-fingerprint` 即按环境对照裁决（独立写-读浸泡 A/B），`code-suspect` 转代码嫌疑 | 已归因（机器级页失真，非代码）· #794   |
+| `artifact digest mismatch: <name>`（实测 `Validation("artifact digest mismatch: network.lfca")`）                   | urban-harness `Artifacts::load` 对生成器刚写出工件的读回摘要核对                  | 待归因（无谓词，不具偶发裁决资格；长度与 SHA-256 可双失配）                                       | 读 `[digest-probe]` `site=write-readback` / `site=artifact-load` 行（写入 vs 回读长度与摘要、首个分歧偏移、分歧形态、二次回读稳定性）；失真指纹命中即按环境对照裁决（独立写-读浸泡 A/B）                                | 已归因（机器级页失真，非代码）· #794   |
+| 写后读回失配（`[digest-probe] site=write-readback` 行 / `save write-readback` 错误面）                              | urban-generator / urban-harness 写后读回校验（#954）                              | 重试恢复即命中（`action=retry` 后写入成功）                                                       | **重试成功不得作为偶发放行依据**：留档 `[digest-probe]` 现场行并按环境失真指纹判读；重试耗尽（`action=fail-closed`）为真实失败，修复后方可合入                                                                          | 已实施机制（#954）· 环境失真见指纹     |
+| `warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow: assertion failed: left: N`                          | `placement_admission` warm 重扫计数                                               | —（已修，任何命中即回归）                                                                         | 病因为并发测试污染进程全局 `MANEUVER_UPSTREAM_EDGE_VISITS`                                                                                                                                                              | 已修（#796，thread-local）· 再现即回归 |
+| `spawn_overlap_allocation.rs:123/124 assertion ... failed` 同 tid 双 panic                                          | `allocation_guard_rejects_real_heap_operations` 的 `catch_unwind` 预期失败 stderr | 该二进制 `test result: ok`，且双 panic 同 tid 成对出现                                            | 误报判别：看该二进制 `test result:` 行，`ok. 2 passed` 即非失败                                                                                                                                                         | 误报已撤销（#794 症状①）               |
+| `steady Waiting ticks allocated` / `repeated admission sample N allocated`                                          | `waiting_budget_evidence` 零分配窗口                                              | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 4 alloc / 0 realloc）                            | 读 `[tick-ledger]` 逐拍行与暖机余量，判别懒物化漂移 / 他面串扰 / 计量边界                                                                                                                                               | 未归因，探针就位（#893）· #794         |
+| `armed steady ticks must not allocate beyond unarmed steady ticks`                                                  | `cutover_cross_budget_evidence` 稳态账本不等                                      | 待归因（无谓词，不具偶发裁决资格；已知一次实例为 unarmed 侧孤立 4 alloc / 900 B 对 armed 侧全 0） | 同上 `[tick-ledger]`；left=unarmed、right=armed                                                                                                                                                                         | 未归因，探针就位（#893）· #794         |
+| `per-world live N must stay below M bytes`                                                                          | `shared_network_allocation_evidence` 每世界预算                                   | 分支 diff 存在对应的每世界真实增长（如 +4 B/世界）即真超限，否则待裁决                            | 先对比分支 diff 是否真实增长（实测有 +4 B/世界的研究分支实例），再判串扰                                                                                                                                                | 多为真预算超限 · #794                  |
+| `NonFiniteMotion` 家族偶发                                                                                          | `phase_equivalence` 等                                                            | —（已修，任何命中即回归）                                                                         | 故障注入跨武装世界引爆                                                                                                                                                                                                  | 已修（#795）· #792                     |
+| 取样脚本报 FAILED 但目标 `test result: ok`                                                                          | 自建循环取样脚本                                                                  | 目标二进制 `test result: ok` 即脚本误报                                                           | 检查匹配是否大小写不敏感、是否误计 `catch_unwind` 预期失败 stderr                                                                                                                                                       | 方法论教训（#794 iter 5）              |
 
 放行裁决与收录机制：
 
@@ -133,3 +133,41 @@ issue 为准，本表只做判读入口，不复制诊断结论。
 - 收录机制：追踪 issue 完成时，把最终签名、匹配谓词与判读方法回写本表并在实现 PR 中
   索引；修复后保留行并标注「已修（`<PR>`）· 再现即回归」，不删行。新增签名未入表前
   一律按真回归处理。
+
+### 8.1 摘要失配转储的取证与离线判读
+
+`laneflow-format` 读回校验失配时，失配点只剩失真字节，原始字节已不在手；页指纹须以
+健康的确定性产物为金样本离线对照（#794）。
+
+1. **取证**：`cargo test` / `cargo run` 启动的进程（可执行文件位于含 `CACHEDIR.TAG`
+   的 cargo target 目录下）失配时默认落盘到该 target 目录的 `digest-probe/`：
+   `laneflow-digest-probe-<pid>-<entry>-<offset>.bin` 与同名 `.probe` 旁文件（entry、
+   offset、长度、期望与实际摘要），现场行为 `[digest-probe] dump path=...`。设置
+   `LANEFLOW_DIGEST_PROBE_DIR` 时改落该目录；安装到 target 之外的二进制不写盘。目录内
+   转储达 16 份后跳过并输出 `dump skipped`，判读留档后人工清空。只在失配分支写盘，
+   不改变失败语义。仓库 cargo 配置禁止 `[env]` 段（`check-wire-audit`），故不以环境
+   变量注入默认目录。
+2. **金样本**：用失败测试所用的配置与规模重新生成健康产物，例如 urban-harness 夹具：
+
+   ```powershell
+   cargo +1.99.1 run --locked -p laneflow-urban-generator -- --config examples/config/cn-urban.toml --scale fixture --output <新目录>
+   ```
+
+   产物逐字节确定。命令按目录项中的期望摘要定位 chunk 并以摘要自校验，找不到即说明
+   金样本配置不对，不得改用其他产物凑数。
+3. **判读**：
+
+   ```powershell
+   cargo +1.99.1 run --locked -p xtask -- classify-digest-probe --dump <target 目录>/digest-probe/<转储>.bin --golden <金样本目录>
+   ```
+
+   按 4 KiB 文件页输出首个分歧偏移、每页差异与页分类（`Zero` 零页、`Shifted(k)` 与
+   相距 k 页的金样本页逐字节相同、`Replaced` 差异铺满整页、`Partial` 差异只占页内一段）
+   及结论：`page-fingerprint`（全部差异页为前三类）→ 按环境失真裁决并跑环境对照；
+   `code-suspect`（存在 `Partial` 或长度不符）→ 转代码嫌疑；`identical` → 转储字节与
+   金样本一致，失真未进入转储。
+4. **留档**：把 `[digest-probe]` 现场行与判读输出原样贴回追踪 issue，再按本节放行口径
+   裁决。
+
+产物零字节较多，替换页与原页常有大量字节巧合相同：整页替换的差异字节可远低于 4 千、
+首个分歧也可能落在页内前几个字节。判读以页分类为准，`page_aligned` 只作参考。
