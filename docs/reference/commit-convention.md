@@ -74,7 +74,7 @@ Traffic Runtime；对应范围使用 `runtime`。历史提交保持原样，不�
 
 - `feat(runtime): 实现 fixed-step tick`
 - `fix(runtime): 拒绝非有限 edge length`
-- `refactor(static-network): 收口共享路网索引`
+- `refactor(static-network): 统一共享路网索引`
 - `feat(compiler): 接入新的编译遍`
 - `docs(governance): 对齐提交规范`
 - `ci(governance): 校验 PR commit 信息`

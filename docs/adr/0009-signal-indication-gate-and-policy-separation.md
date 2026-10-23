@@ -108,7 +108,7 @@ v0.4 固定使用 static fixed-time cyclic controller、explicit StopLine/Moveme
 - #95：fixed-time runtime、query 与 events，保持 guard。
 - #96：SignalStop、hard projection、permission-aware traversal 与 guard 解除。
 - #97：端到端 determinism/property/performance evidence。
-- #18：v0.4 最终全面审阅与收口。
+- #18：v0.4 最终全面审阅与验收。
 
 若未来让 SignalController 直接决定 jurisdiction/conflict、允许 Adapter 绕过 Core safety、改变 Gate/StopLine 分层或公开可替换的 policy/controller ABI，应新增或 supersede 本 ADR，不得静默改写。
 

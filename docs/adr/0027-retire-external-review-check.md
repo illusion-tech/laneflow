@@ -90,7 +90,7 @@ ADR 0026 将撤销 owner bypass 与启用 `External Review` 绑定；该启用�
 现有 `bypass_mode: always` 不由 #492 修改，其终态由独立 #493 评估。永久 bypass 不得
 被解释为 checks 已通过，也不得成为日常合并路径。
 
-### 6. #468 收口
+### 6. #468 完成条件
 
 #492 是 #468 的最终治理修订：#468 已交付的 G3/G4、Schema Publication、commit
 message、模板和五项机器门禁成果继续有效；其未完成的 `External Review required +

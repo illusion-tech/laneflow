@@ -146,4 +146,4 @@ CanonicalUnitVector3F32
 3. #135 已交付量化后折线校验、current-f64 零量化余量长度绑定、端点连续、basis 和确定性采样。
 4. #136 已交付 batch-level frame/placement 生命周期、批量位姿、Parking pose 与全批次失败原子性。
 5. #137 已交付性质、误差、内存、分配、一万/十万性能和伪 Adapter smoke。
-6. #138 对照本 ADR 和所有实施证据完成 Spatial 收口；不得用后续收口放宽本 ADR 的范围或性能 Gate。
+6. #138 对照本 ADR 和所有实施证据完成 Spatial 最终验收；不得用后续验收放宽本 ADR 的范围或性能 Gate。

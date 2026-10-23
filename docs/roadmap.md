@@ -35,7 +35,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：稳定车道图和路线系统。
 
-完成状态：2026-07-12 已完成。当时收口流水账见 git 历史；现行车道图与路线设计见 `design/lane-graph.md`、`design/route-system.md`。
+完成状态：2026-07-12 已完成。当时完成记录见 git 历史；现行车道图与路线设计见 `design/lane-graph.md`、`design/route-system.md`。
 
 范围：
 
@@ -49,11 +49,11 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：支持可信的前车避让和速度控制。
 
-完成状态：2026-07-14 已完成。当时收口流水账见 git 历史。现行设计见 [`design/vehicle-following.md`](design/vehicle-following.md) 与 [`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md)。
+完成状态：2026-07-14 已完成。当时完成记录见 git 历史。现行设计见 [`design/vehicle-following.md`](design/vehicle-following.md) 与 [`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md)。
 
 范围：
 
-- v0.3 schema、production loader 与 Vehicle Profile（历史收口事实；active current 已由 v0.4 替换）
+- v0.3 schema、production loader 与 Vehicle Profile（历史完成事实；active current 已由 v0.4 替换）
 - 纵向 VehicleState、occupancy index 与 leader detection
 - IIDM comfort control、emergency safe-speed 与 no-overlap projection
 - 平滑跟驰、停止与恢复
@@ -63,7 +63,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：支持基础红绿灯和路口通行规则。
 
-完成状态：2026-07-15 已完成。当时收口流水账见 git 历史。现行设计见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
+完成状态：2026-07-15 已完成。当时完成记录见 git 历史。现行设计见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
 
 范围：
 
@@ -81,7 +81,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：支持基础停车位进出和占用状态。
 
-完成状态：2026-07-17 已完成。当时收口流水账见 git 历史。现行设计见 [`design/parking-system.md`](design/parking-system.md) 与 [`adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)。
+完成状态：2026-07-17 已完成。当时完成记录见 git 历史。现行设计见 [`design/parking-system.md`](design/parking-system.md) 与 [`adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)。
 
 范围：
 
@@ -102,7 +102,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：在实现首个引擎适配器前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度与坐标权威，以及最小空间查询能力。
 
-完成状态：2026-07-21 已完成。当时收口流水账见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
+完成状态：2026-07-21 已完成。当时完成记录见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
 
 已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 5`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读器只承认 format 5。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
 
@@ -114,7 +114,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 - #123：Core 边长与几何弧长的权威职责、容差，以及交通和空间制品边界；
 - #141：10 km 产品上界、补偿残差感知 `f32` 目标权威、公共 API/Data 迁移、route 距离候选与生产收益闸口；
 - 适配器所需的最小只读空间查询或面向批量的位姿提取输入；
-- G1 后拆分 Core、Data 和 Spatial 实施、验证与性能，以及独立收口审阅。
+- G1 后拆分 Core、Data 和 Spatial 实施、验证与性能，以及独立最终审阅。
 
 不覆盖：
 
@@ -128,7 +128,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：以 Rust/Bevy 作为首个 Reference Adapter，完成可运行的引擎集成闭环，并用真实宿主验证 Adapter API；Bevy 不是跨 ABI、跨语言稳定性的唯一证明。
 
-完成状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#169-#173 已分别交付 Bevy 0.19.x 最小 production graph、fixed schedule、Entity/Transform 同步、headless/performance Gate、debug Gizmos 与 native reference example，#174 负责最终集成收口。长期设计见 `design/bevy-reference-adapter.md`。当时收口流水账见 git 历史。
+完成状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#169-#173 已分别交付 Bevy 0.19.x 最小 production graph、fixed schedule、Entity/Transform 同步、headless/performance Gate、debug Gizmos 与 native reference example，#174 负责最终集成验收。长期设计见 `design/bevy-reference-adapter.md`。当时完成记录见 git 历史。
 
 范围：
 
@@ -150,7 +150,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：交付首个可调、可持续运行的直行信号化走廊示例，把既有 Core、Signals、Spatial 与 Bevy Reference Adapter 串成一条可验证的产品路径。Milestone tracker 为 #193。
 
-完成状态：2026-07-24 已完成。当时收口流水账见 git 历史。现行场景设计见 `design/example-scenarios.md`。
+完成状态：2026-07-24 已完成。当时完成记录见 git 历史。现行场景设计见 `design/example-scenarios.md`。
 
 范围：
 
@@ -170,9 +170,9 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：在 v0.8 直行走廊之上，先建立显式 Junction/Movement/ManeuverPath/
 ManeuverGate 静态身份，再交付支持受保护左转、直行和右转的完整信号化走廊示例。
-Milestone tracker 为 #194；v0.8 已完成前置收口。
+Milestone tracker 为 #194；v0.8 已完成前置验收。
 
-完成状态：2026-07-26 已完成。当时收口流水账见 git 历史。现行设计见 `design/road-junction-model.md` 与 `design/signalized-corridor-protected-turning.md`。
+完成状态：2026-07-26 已完成。当时完成记录见 git 历史。现行设计见 `design/road-junction-model.md` 与 `design/signalized-corridor-protected-turning.md`。
 
 范围：
 
@@ -189,7 +189,7 @@ Milestone tracker 为 #194；v0.8 已完成前置收口。
 - 完成端到端安全、确定性、可配置性、native 可视化和独立 closure review。
 
 实施顺序为 `#228 -> #196 -> #229 -> #190 -> #191 -> #192`。在该 v0.9
-signalized-corridor 产品里程碑收口时，RoadSection、LaneGroup 与 JunctionGroup
+signalized-corridor 产品里程碑完成时，RoadSection、LaneGroup 与 JunctionGroup
 只冻结长期语义，不生产化；其后 #262 已按下节生产化前两者及相关横断面/准入模型。
 
 不覆盖：无保护左转、红灯右转、感应式或自适应信号、掉头、lane change、

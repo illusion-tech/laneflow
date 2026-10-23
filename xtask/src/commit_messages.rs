@@ -1053,7 +1053,7 @@ Refs: #12
     fn accepts_current_component_scopes_and_omitted_scope() {
         for title in [
             "feat(runtime): 实现 fixed-step tick",
-            "refactor(static-network): 收口共享路网索引",
+            "refactor(static-network): 统一共享路网索引",
             "feat(compiler): 接入新的编译遍",
             "docs(design): 冻结运行时契约",
             "docs(governance): 对齐提交规范",

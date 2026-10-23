@@ -115,7 +115,7 @@ Core、`laneflow-data` production loader、Adapter 与 hermetic runtime tests �
 成本与风险：
 
 - 仓库必须永久保留已发布 schema artifact 和对应 URL。
-- Pages/CD 成为需要维护的外部状态；部署失败必须在 G4 前收口。
+- Pages/CD 成为需要维护的外部状态；部署失败必须在 G4 前修复。
 - v0.2/v0.3 既有 Raw GitHub URL 的 media type 不是新版本的推荐基线，但修改 `$id` 会破坏已发布 identity，因此只记录历史例外。
 - 新格式采用两阶段 publication：先让 schema revision 进入 `main`，再固定 provenance 并发布。
 

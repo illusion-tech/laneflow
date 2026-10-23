@@ -317,7 +317,7 @@ Spatial batch extract
 
 每个子 Issue 使用自己的唯一 Delivery PR。#169-#173 的 PR 对父 #121 只使用 Related PR 语义，不得以 closing keyword 覆盖父 tracker。#174 的最终 integration PR 同时作为 #174 与 #121 的唯一 Delivery PR；所有子 Issue G4 后才允许 #121 进入最终 G3/G4。
 
-#174 的独立审阅没有发现需要回开生产实现、Adapter API 或 CI 契约的缺口。当时收口流水账见 git 历史。本节的剩余项继续是明确的后续非目标。
+#174 的独立审阅没有发现需要回开生产实现、Adapter API 或 CI 契约的缺口。当时完成记录见 git 历史。本节的剩余项继续是明确的后续非目标。
 
 ## 12. 兼容性与后续演进
 
@@ -582,7 +582,7 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke c13_i
 
 Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同一根
 `Arc`）由 Adapter 承担：构造时校验一次，且封闭提取路径每批复核——公开面不存在
-绕过配对检查的裸可变 Spatial 访问（`spatial_mut` 已收口移除）。
+绕过配对检查的裸可变 Spatial 访问（`spatial_mut` 已移除）。
 
 - `LaneFlowSession::{cross_revision_cutover, same_revision_restore}`：同步维护暂停式
   切换。目标 Spatial 的可失败验证前置于 Runtime 事务；`commit` 成功后不可失败地

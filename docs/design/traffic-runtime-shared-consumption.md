@@ -1,6 +1,6 @@
 # 交通运行时共享静态路网消费
 
-**文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
+**文档状态**: Accepted（#301 G1；#469 合入后完成）<br>
 **最后更新**: 2026-09-23<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
@@ -435,7 +435,7 @@ CI 必须同时：
 - `remove_route` 在有 live 车辆引用时失败；无静态句柄分支。
 
 空实现若只过 S1 两车推进/pose 不得视为完成。停车 lifecycle 已由 #541 独立切片交付；
-受保护转向走廊、50–200 辆人口及其余历史变体仍按各自 Issue 收口。
+受保护转向走廊、50–200 辆人口及其余历史变体仍按各自 Issue 完成验收。
 
 这些测试只链接 `laneflow-runtime`（及共享静态路网/format/compiler 夹具），不链接
 `laneflow-core`。
