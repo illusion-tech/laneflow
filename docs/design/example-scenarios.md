@@ -40,7 +40,7 @@ current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial 
 - 66 条 LaneEdge、24 个 Movement、32 条 lane-level ManeuverPath/Gate、28 条
   Route 和 44 个编译后 Maneuver occurrence；
 - 主干道 60 km/h、次干道 40 km/h 的 per-edge 限速；
-- 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
+- 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84,064 ms；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流（#475）；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Runtime 车辆句柄（#475）；
 - scenario-local catalog 0.4（28 条路线的有序 `laneEdgeKey` 由 catalog 拥有，不进 LFCA；ADR 0029）；
@@ -166,7 +166,8 @@ through/right yellow -> all red` 依次服务 main 与 secondary active set，�
 | secondary left          |   8 s |
 | secondary through/right |  20 s |
 
-yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 为 `84 s`；
+检入配置的 yellow 为 `3,008 ms`，每个 active set 后 all-red 为 `1,008 ms`，均对齐
+`16 ms` Tick；完整 cycle 为 `84,064 ms`（`5,254` Tick），不能按 `84 s` 截断验收。
 两个 controller offset 为 `[0, 42000] ms`。配置只在生成/启动时读取，不支持运行中
 热修改；完整 phase/aspect 表与安全矩阵由 protected-turning SSOT §7 拥有。
 

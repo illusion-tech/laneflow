@@ -439,7 +439,7 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --feature
 ```
 
 沿用 checked-in LFCA、catalog 0.4 与 authoring config 0.2；不重生成场景或改变 PRNG、
-槽位/路线顺序、权重和初始接纳规则。现有信号程序是 `12 phase / 84 s`、offset
+槽位/路线顺序、权重和初始接纳规则。现有信号程序是 `12 phase / 84,064 ms`、offset
 `[0, 42000] ms`，灯具必须消费 Runtime 提交状态，不能自己按墙钟模拟相位。
 
 ### 14.2 位姿、灯具与相机
@@ -504,21 +504,35 @@ headless 验证消费同一个摘要构造函数。零步进帧仍建立报告�
 提交 Tick 且 backlog 排空的边界进行；原始 Entity 数值不要求跨 App 相同，要比较
 各 App 内 logical slot → Entity 的身份连续性。
 
-| ID               | 输入/操作                                                                                         | 可判定的通过条件                                                                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| C01 启动         | `50/100/200`，seed `0`、固定非零值及 `u64::MAX`；同参重建                                         | tick 0 人口准确、pending 0、无重叠，世界路线/句柄合法，target 个不同 proxy 全部绑定；同参初始计划及 PRNG 状态相同                               |
-| C02 拒绝启动     | `49/201`、缺值/重复/未知参数、seed 溢出；错误 catalog/策略/profile、不足槽位及接纳失败            | 无首拍、非零退出；非法参数不创建窗口；回滚不完整保留原错误并丢弃未发布实例，不以残余世界重试                                                    |
-| C03 固定调度     | 零 delta、亚毫秒余量、每帧 `1/4/8` 拍及超出 `8` 拍输入                                            | 零拍不调用人口链；每个成功 Tick 恰好一次 Lifecycle/Observe；超限保留 backlog，后续零 delta 帧可排空；report 数值与实际提交一致                  |
-| C04 完成与回流   | 默认夹具实际完成路线，观察 completion、pending 和下一边界 replacement                             | completion 不在同一 Observe 内替换；成功后 old stale/new live，同一 logical slot 始终复用原 proxy/model；无 despawn + spawn                     |
-| C05 可重试       | 构造入口 overlap 与三类 Retryable；同边界另有可成功计划，再解除约束                               | old/mapping/Transform、冻结输入和 PRNG 不变；每计划每边界一次、其他计划继续；恢复后相同计划成功且人口不减少                                     |
-| C06 失败边界     | Lifecycle host/policy 错误、Step 错误、Observe 错误；同帧仍有 catch-up 预算                       | 首个错误可诊断且非零退出；Lifecycle 错误无本拍提交，Observe 错误只保留已提交拍；剩余拍不提交、backlog 不丢；前序成功替换不回滚                  |
-| C07 错误结果     | 测试替身返回不匹配 old、已跟踪 new 或错误 Entity；跨世界/策略上下文误接                           | 前置不匹配不调用 callback；提交后不一致立即停止、不重试旧句柄；跳拍或重复 consume 明确失败                                                      |
-| C08 分帧回放     | `100` 车 / seed 0、相同输入；真实 App 使用 `1/4/8` 拍、含零帧/余量/超限的分块，至少 `12,000` Tick | 每拍比较 logical 句柄/车辆状态、pending FIFO 与输入、PRNG、已消费 Tick、信号和 replacement 顺序；最终 Tick/time/backlog 一致且确有回流          |
-| C09 有界持续运行 | `50` 和 `200` 车各运行，目标至少 `50` 次成功 replacement、上限 `50,000` Tick                      | 每个成功 Observe 后 running + pending = target；pending 不超 target；controller 预留容器容量、车辆 proxy/model 数不增长；达不到成功次数明确失败 |
-| C10 完整位姿     | 全人口、直行/左转/右转、Completed 等待；注入 stale Entity/token、非有限值或坏父子关系             | 每个有效记录的平移/朝向/up 正确；前保险杠原点正确；Completed 保留旧值；错误时整批零写入，不只验证首车                                           |
-| C11 信号         | 默认两个控制器跨完整 `84 s` 周期和各相位边界；缺失/歧义绑定                                       | 每盏灯与同 Tick committed group 一致，共享停止线不重复/误合并；错误绑定启动失败，外部墙钟与相机不影响信号                                       |
-| C12 HUD          | 零拍、正常帧、超限、存在 pending、回流后帧                                                        | UI 文本由同帧摘要格式化；数值与 controller/report 完全一致，Duration 仅在显示时舍入；错误帧不输出成功摘要                                       |
-| C13 GUI          | Windows 默认 `100 / seed 0` 出图；平移/旋转/缩放，观察回流                                        | 两路口、道路、完整车身、灯色和 HUD 可辨；朝向/前保险杠正确，Entity 连续；同帧截图与摘要核对，人工结论注明环境与限制                             |
+| ID               | 输入/操作                                                                                                          | 可判定的通过条件                                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| C01 启动         | `50/100/200`，seed `0`、固定非零值及 `u64::MAX`；同参重建                                                          | tick 0 人口准确、pending 0、无重叠，世界路线/句柄合法，target 个不同 proxy 全部绑定；同参初始计划及 PRNG 状态相同                               |
+| C02 拒绝启动     | `49/201`、缺值/重复/未知参数、seed 溢出；错误 catalog/策略/profile、不足槽位及接纳失败                             | 无首拍、非零退出；非法参数不创建窗口；回滚不完整保留原错误并丢弃未发布实例，不以残余世界重试                                                    |
+| C03 固定调度     | 零 delta、亚毫秒余量、每帧 `1/4/8` 拍及超出 `8` 拍输入                                                             | 零拍不调用人口链；每个成功 Tick 恰好一次 Lifecycle/Observe；超限保留 backlog，后续零 delta 帧可排空；report 数值与实际提交一致                  |
+| C04 完成与回流   | 默认夹具实际完成路线，观察 completion、pending 和下一边界 replacement                                              | completion 不在同一 Observe 内替换；成功后 old stale/new live，同一 logical slot 始终复用原 proxy/model；无 despawn + spawn                     |
+| C05 可重试       | 构造入口 overlap 与三类 Retryable；同边界另有可成功计划，再解除约束                                                | old/mapping/Transform、冻结输入和 PRNG 不变；每计划每边界一次、其他计划继续；恢复后相同计划成功且人口不减少                                     |
+| C06 失败边界     | Lifecycle host/policy 与 Observe 错误时仍有 catch-up 预算；另测 Drive 前的 `MissingTimeResource`                   | 首个错误可诊断且非零退出；Lifecycle/缺失 Time 错误无本拍提交，Observe 错误只保留已提交拍；剩余拍不提交、已有 backlog 不丢；前序成功替换不回滚   |
+| C07 错误结果     | 测试替身返回不匹配 old、已跟踪 new 或错误 Entity；跨世界/策略上下文误接                                            | 前置不匹配不调用 callback；提交后不一致立即停止、不重试旧句柄；跳拍或重复 consume 明确失败                                                      |
+| C08 分帧回放     | `100` 车 / seed 0、相同输入；真实 App 使用 `1/4/8` 拍、含零帧/余量/超限的分块，至少 `12,000` Tick                  | 每拍比较 logical 句柄/车辆状态、pending FIFO 与输入、PRNG、已消费 Tick、信号和 replacement 顺序；最终 Tick/time/backlog 一致且确有回流          |
+| C09 有界持续运行 | `50` 和 `200` 车各运行，目标至少 `50` 次成功 replacement、上限 `50,000` Tick                                       | 每个成功 Observe 后 running + pending = target；pending 不超 target；controller 预留容器容量、车辆 proxy/model 数不增长；达不到成功次数明确失败 |
+| C10 完整位姿     | 全人口、直行/左转/右转、Completed 等待；注入 stale Entity/token、非有限值或坏父子关系                              | 每个有效记录的平移/朝向/up 正确；前保险杠原点正确；Completed 保留旧值；错误时整批零写入，不只验证首车                                           |
+| C11 信号         | 默认两个控制器运行至少 `5,254` 个 `16 ms` Tick，覆盖完整 `84,064 ms` 周期、回绕前后状态及各相位边界；缺失/歧义绑定 | 每盏灯与同 Tick committed group 一致，共享停止线不重复/误合并；错误绑定启动失败，外部墙钟与相机不影响信号                                       |
+| C12 HUD          | 零拍、正常帧、超限、存在 pending、回流后帧                                                                         | UI 文本由同帧摘要格式化；数值与 controller/report 完全一致，Duration 仅在显示时舍入；错误帧不输出成功摘要                                       |
+| C13 GUI          | Windows 默认 `100 / seed 0` 出图；平移/旋转/缩放，观察回流                                                         | 两路口、道路、完整车身、灯色和 HUD 可辨；朝向/前保险杠正确，Entity 连续；同帧截图与摘要核对，人工结论注明环境与限制                             |
+
+C06 的 Adapter 故障使用现有公开 schedule 触发：先正常初始化 headless App，并以
+超限帧建立非零 backlog；随后移除默认 `Time` resource，直接运行一次真实
+`LaneFlowOuterFrame`，再调用同一宿主失败收集/退出路径。移除后不先调用
+`App::update`，避免先执行 `TimePlugin` 的系统。断言 Session 报
+`MissingTimeResource`、`steps_run = 0`、Tick/世界状态/人口与已有 backlog 不变，且
+宿主记录失败并请求非零退出。这是 outer-frame 驱动错误，不是 Runtime `StepFailed`。
+
+§13.4 的真实 Step 失败停止语义仍适用，但 C06 不要求外部 example 强制制造它：
+Adapter 的 `step_world` 是私有实现且总是传入世界配置的 delta；Runtime 的
+`StepFailpoint` 仅供 crate 内部测试。Step 事务原子性由 Runtime 内部故障测试验证，
+不算作本 example 的端到端覆盖。本切片不新增测试钩子或公共 API；若后续要求真实
+`StepFailed` 穿过 Adapter 到宿主的注入验收，须另立测试接口设计，不能用缺失 Time
+或伪造错误枚举替代该路径的证据。
 
 C07 的故障注入留在 example 测试边界，不增加生产 API。当前可复制修订/策略不能
 识别同修订、同策略的另一世界，故此项须同时验证宿主一对一资源装配，不能宣称已有

@@ -1,7 +1,7 @@
 # Signalized Corridor Protected Turning Profile
 
 **文档状态**: Accepted（#196 G1）<br>
-**最后更新**: 2026-07-27<br>
+**最后更新**: 2026-10-23（默认相位时长对齐检入配置的 16 ms Tick）<br>
 **适用范围**: v0.9 双路口走廊的受保护左转、直行、右转、lane-level
 ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
 **实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
@@ -341,19 +341,21 @@ secondary-left（SL）、secondary-through-right（STR）：
 | phase ID                                      | duration | ML     | MTR    | SL     | STR    |
 | --------------------------------------------- | -------: | ------ | ------ | ------ | ------ |
 | `phase-main-left-green`                       | 10,000ms | green  | red    | red    | red    |
-| `phase-main-left-yellow`                      |  3,000ms | yellow | red    | red    | red    |
-| `phase-after-main-left-all-red`               |  1,000ms | red    | red    | red    | red    |
+| `phase-main-left-yellow`                      |  3,008ms | yellow | red    | red    | red    |
+| `phase-after-main-left-all-red`               |  1,008ms | red    | red    | red    | red    |
 | `phase-main-through-right-green`              | 30,000ms | red    | green  | red    | red    |
-| `phase-main-through-right-yellow`             |  3,000ms | red    | yellow | red    | red    |
-| `phase-after-main-through-right-all-red`      |  1,000ms | red    | red    | red    | red    |
+| `phase-main-through-right-yellow`             |  3,008ms | red    | yellow | red    | red    |
+| `phase-after-main-through-right-all-red`      |  1,008ms | red    | red    | red    | red    |
 | `phase-secondary-left-green`                  |  8,000ms | red    | red    | green  | red    |
-| `phase-secondary-left-yellow`                 |  3,000ms | red    | red    | yellow | red    |
-| `phase-after-secondary-left-all-red`          |  1,000ms | red    | red    | red    | red    |
+| `phase-secondary-left-yellow`                 |  3,008ms | red    | red    | yellow | red    |
+| `phase-after-secondary-left-all-red`          |  1,008ms | red    | red    | red    | red    |
 | `phase-secondary-through-right-green`         | 20,000ms | red    | red    | red    | green  |
-| `phase-secondary-through-right-yellow`        |  3,000ms | red    | red    | red    | yellow |
-| `phase-after-secondary-through-right-all-red` |  1,000ms | red    | red    | red    | red    |
+| `phase-secondary-through-right-yellow`        |  3,008ms | red    | red    | red    | yellow |
+| `phase-after-secondary-through-right-all-red` |  1,008ms | red    | red    | red    | red    |
 
-cycle 固定为 `84,000 ms`。`signal-controller-junction-1`、
+本表使用检入 authoring config 的默认时长；yellow 与 all-red 均对齐 `16 ms` Tick。
+cycle 为 `10000 + 30000 + 8000 + 20000 + 4 × 3008 + 4 × 1008 = 84,064 ms`，
+即 `5,254` Tick。`signal-controller-junction-1`、
 `signal-controller-junction-2` offsets 分别为 `0 ms`、`42,000 ms`。每个 phase
 必须完整列出四个 group aspect；任一时刻最多一个 group 为 green 或 yellow。
 
