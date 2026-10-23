@@ -169,7 +169,7 @@ v1 的默认物理策略是：
 - 不形成每实体一个 heap object/`Arc`/trait object 的对象图。
 
 共享边界只使用 `Arc<SharedNetworkRevision>`；根直接拥有 Traffic/Identity/Hints/Spatial
-component，component 再独占其内部数组。每个 world 或异步读任务只克隆共享路网修订，随后从
+component，component 再独占其内部数组。每个 world 或异步读任务只克隆外层 `Arc`，随后从
 同一根借用 component 和 slices/ranges，不执行逐 component 或逐元素引用计数。Runtime、
 Spatial 与 Adapter 的安装 API 不接受独立 component handle；#302 必须从单一活动修订
 aggregate 发布绑定同一根的只读 snapshot/facade，避免旧 Traffic 与新 Spatial 组合。
