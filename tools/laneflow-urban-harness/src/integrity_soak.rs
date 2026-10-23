@@ -1,10 +1,6 @@
 //! #963：有限城市浸泡仪器，只进入测试二进制。性能计时与产品保证不在本仪器范围内。
 //! 每段从已写后读回的宿主存档恢复；在用原世界留在父进程，恢复只发生于子进程。
 
-#[path = "../../../crates/laneflow-runtime/tests/support/audit_replay.rs"]
-#[allow(dead_code)]
-mod audit;
-
 use std::{
     fs,
     num::NonZeroU32,
@@ -14,6 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use laneflow_audit_test_support as audit;
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,

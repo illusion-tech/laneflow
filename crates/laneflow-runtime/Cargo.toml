@@ -85,6 +85,7 @@ thiserror = "2.0"
 
 [dev-dependencies]
 dhat = "=0.3.3"
+laneflow-audit-test-support = { version = "0.0.0", path = "../../tools/laneflow-audit-test-support" }
 laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-corridor-generator = { version = "0.0.0", path = "../../tools/laneflow-corridor-generator" }
 laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }

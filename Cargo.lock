@@ -3082,6 +3082,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-audit-test-support"
+version = "0.0.0"
+
+[[package]]
 name = "laneflow-bevy"
 version = "0.0.0"
 dependencies = [
@@ -3212,6 +3216,7 @@ name = "laneflow-runtime"
 version = "0.0.0"
 dependencies = [
  "dhat",
+ "laneflow-audit-test-support",
  "laneflow-compiler",
  "laneflow-corridor-generator",
  "laneflow-format",
@@ -3299,6 +3304,7 @@ dependencies = [
  "bevy_math",
  "bevy_time",
  "bevy_transform",
+ "laneflow-audit-test-support",
  "laneflow-bevy",
  "laneflow-compiler",
  "laneflow-format",

@@ -1,4 +1,5 @@
 //! #960 宿主审计判据；不属于 Runtime API，也不登记宿主检查点。
+//! 仅供工作区测试通过开发依赖复用，不是生产包、公共 API 或持久格式。
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Position {
