@@ -3,7 +3,7 @@
 **文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍）<br>
 **最后更新**: 2026-09-05<br>
 **适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
-**实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
+**实现状态**: #94-#97 已完成 v0.4 Signals 全链路实现与最终验收；#107 加入 Parking，
 #185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
 Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 并支持
 同一 ManeuverPath 多 Gate，既有 indication/SignalStop behavior 保持不变
@@ -39,7 +39,7 @@ v0.4 的目标是在 v0.3 fixed tick、route occurrence、Vehicle Following 和�
 - 红灯/限制性黄灯停车、排队、绿灯放行；
 - permission-aware route traversal；
 - 可供 Adapter/debug 使用的只读 query 与稀疏事件；
-- v0.4 schema/loader/Core normalization 的历史收口、确定性、失败原子性与性能证据。
+- v0.4 schema/loader/Core normalization 的历史验收、确定性、失败原子性与性能证据。
 
 本文是 #93 的 Accepted 设计输入，不是实现完成声明。实施切片为 #94、#95、#96、#97；只有它们分别完成 Gate 后，相应能力才成为 production 事实。
 
@@ -159,7 +159,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付
 - 当时的 production current 是 `formatVersion: "0.7"`；
 - `schemas/laneflow-data-v0.7.schema.json` 是当时的 active source schema；
 - 当时的 production loader 明确拒绝 v0.5、v0.6 及更早版本、未来版、旧字段与 JSON-LD；
-- static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 收口证据继续作为历史行为/性能基线。
+- static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 验收证据继续作为历史行为/性能基线。
 
 #229 随后把当时的 current package clean-break 到 v0.8；#262 迁移到 v0.9，
 #281 又迁移到 current Traffic v0.10 并解除 multi-Gate static guard。既有
@@ -548,7 +548,7 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
 - #95 交付 runtime/query/events，但不解除 guard。
 - #96 在完整车辆合规闭环通过后解除 guard。
 - #97 固化验证与性能证据。
-- #18 在所有子 Issue 完成后进行最终全面审阅和收口。
+- #18 在所有子 Issue 完成后进行最终全面审阅和验收。
 
 ## 16. 中国场景组合边界
 

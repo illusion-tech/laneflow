@@ -203,4 +203,4 @@ GitHub API 版本或返回结构变化时，应在验证脚本或命令中固定
 - organization ruleset、required workflow 或安全设置 API 返回 `403` / `404` 时，记录 plan / permission 限制和原始错误；不得把不可读取解释为零规则、零告警或能力已关闭，也不得据此覆盖现有 ruleset。
 - 降低或关闭本基线能力属于安全例外，必须在操作前记录原因、风险、到期条件和 Cleanup owner。
 - 临时 bypass 只处理被明确阻断的操作，不改变扫描结论；永久 bypass 授权也不能把失败、无分析或开放告警记为通过。
-- 收口前必须复核文档与 GitHub 实际设置一致，并确认未留下临时权限、临时 workflow 或未跟踪告警。
+- 结束本次治理工作前必须复核文档与 GitHub 实际设置一致，并确认未留下临时权限、临时 workflow 或未跟踪告警。

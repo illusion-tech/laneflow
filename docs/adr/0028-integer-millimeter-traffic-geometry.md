@@ -13,7 +13,7 @@
 规范 `f32` 折线；ADR 0003 的「不读墙钟、固定步进、可变 Δt 非法、跨 CPU 不承诺
 浮点位级确定性」。本 ADR **不**给已提交整数状态补一条跨 CPU / 跨机器位级承诺。<br>
 **关联 Issue**: [#496](https://github.com/illusion-tech/laneflow/issues/496)；
-编译器 IR 收口 [#500](https://github.com/illusion-tech/laneflow/issues/500)。
+编译器 IR 统一表示 [#500](https://github.com/illusion-tech/laneflow/issues/500)。
 #496 的已提交整数合同是 [#302](https://github.com/illusion-tech/laneflow/issues/302)
 快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。<br>
 **关联文档**:
@@ -347,7 +347,7 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 只冻车辆观察面，spawn / pose / 停车 / 替换间隙继续用米制作权威。
 - 把一维 mm 收进三维 `Point` / `Vector3<T>`（#354）。
 - 把规范折线点、段长、弧长或时间/`u64` 字节长度改成毫米权威（#354 / ADR 0015 /
-  0022 边界）。#500 把编译器 Typed AST / HIR / MIR / LIR **交通一维**收口为整数毫米，
+  0022 边界）。#500 把编译器 Typed AST / HIR / MIR / LIR **交通一维**统一为整数毫米，
   不再拒绝这一项。
 - 发 LFCA v2 却不单开 LFSM/LFSD 对象版本，或改写 LFSD v1「Genesis 只允许 v1 支持值」。
 - 为制动视距把 `Finite` 加宽成 `u64`，或允许 `comfort`/`emergency` 低于 `0.5 m/s²`。

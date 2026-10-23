@@ -850,7 +850,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     // git status 尊重用户/全局 showUntrackedFiles 配置，显式钉住 all，抓
     // 未跟踪/删除/真实编辑；skip-worktree/assume-unchanged 索引位让被改的
     // tracked 文件在 status 里隐身，ls-files -v 的小写标签或 S 即 fail closed；
-    // text/eol 与 filter.clean 的转换遮蔽由字节层比对收口。
+    // text/eol 与 filter.clean 的转换遮蔽由字节层比对检查。
     let git_status =
         |repo: &Path| git_output(&["status", "--porcelain", "--untracked-files=all"], repo);
     let source_commit = git_output(&["rev-parse", "HEAD"], &repo)?;

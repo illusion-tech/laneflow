@@ -6,7 +6,7 @@
 ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
 **实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
 `ManeuverGate`；#190-#192 已交付 production profile artifacts、当时 catalog 0.2、
-scenario policy、native example、扩大验证与独立收口；#262 已将相同 profile
+scenario policy、native example、扩大验证与独立最终审阅；#262 已将相同 profile
 artifact 迁移到 current Traffic v0.10 并保持 protected-turning behavior 不变
 
 **关联文档**:
@@ -473,5 +473,5 @@ reservation、RoadSection/LaneGroup/JunctionGroup runtime。
 #196 只交付 Accepted profile 及同步文档，不生产 Rust、schema、loader、generator、
 fixtures、artifacts 或 native example。#229 提供通用静态底座；#190 才拥有本文具体
 profile 的生成制品、catalog/runtime policy 和最小 native smoke。#191 扩大验证样本并
-承担 clearance/performance 证明，#192 只做独立收口；任一后续 Issue 都不得借验证或
+承担 clearance/performance 证明，#192 只做独立最终审阅；任一后续 Issue 都不得借验证或
 closure 名义新增 production 行为。

@@ -19,7 +19,7 @@ type Imports = BTreeMap<ModulePath, ModulePath>;
 
 /// 管理层（admin / facade）可引用的格式公开契约类型：它们是 reader 调用方
 /// 签名的参数类型（限额与字节来源抽象），本身不解析格式。格式解析能力
-/// （reader、preflight、wire 访问）仍收口于唯一格式入口
+/// （reader、preflight、wire 访问）仍限定于唯一格式入口
 /// `admin/format_admission.rs`；kernel 对一切格式符号保持全禁。
 const FORMAT_CONTRACT_TYPES: [&[&str]; 2] = [
     &["laneflow_format", "BoundedReReadableObjectSource"],
@@ -386,7 +386,7 @@ impl SourceCheck<'_> {
             .name
             .first()
             .is_some_and(|name| name == "kernel");
-        // 契约类型只对管理层放行；kernel 全禁，解析能力仍收口格式入口。
+        // 契约类型只对管理层放行；kernel 全禁，解析能力仍限定于格式入口。
         let contract_type = !kernel
             && FORMAT_CONTRACT_TYPES.iter().any(|prefix| {
                 path.len() >= prefix.len()
