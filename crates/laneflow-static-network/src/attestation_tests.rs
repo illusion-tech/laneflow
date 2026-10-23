@@ -3,6 +3,9 @@
 #[path = "attestation_matrix_tests.rs"]
 mod matrix;
 
+#[path = "attestation_source_timing_tests.rs"]
+mod source_timing;
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

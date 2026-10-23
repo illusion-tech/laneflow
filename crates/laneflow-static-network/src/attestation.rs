@@ -515,14 +515,12 @@ where
 {
     let mut source_audit = Vec::new();
     let mut trace = Vec::new();
-    let mut prepared_identity: Option<(Sha256Digest, ExactByteLength)> = None;
     let first = run_attempt(
         root,
         &lfca,
         &expectation,
         format_limits,
         build_options,
-        Some(&mut prepared_identity),
         &mut source_audit,
         &mut trace,
     );
@@ -557,7 +555,6 @@ where
                     format_limits,
                     build_options,
                     evidence,
-                    prepared_identity,
                     source_audit,
                     &mut trace,
                 )
@@ -574,7 +571,6 @@ where
                 &expectation,
                 format_limits,
                 build_options,
-                None,
                 &mut source_audit,
                 &mut trace,
             );
@@ -585,7 +581,7 @@ where
     outcome
 }
 
-/// 修订比较失配路径：来源复核 + 复算 + 归类（设计 §4.2 第 ③ 段）。
+/// 已经来源复核的修订比较失配：复算 + 归类（设计 §4.2 第 ③ 段）。
 #[allow(clippy::too_many_arguments)]
 fn confirm_root_mismatch<S>(
     root: &SharedNetworkRevision,
@@ -594,46 +590,12 @@ fn confirm_root_mismatch<S>(
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
     evidence: MismatchEvidence,
-    prepared_identity: Option<(Sha256Digest, ExactByteLength)>,
     mut source_audit: Vec<SourceAuditNote>,
     trace: &mut Vec<TraceStep>,
 ) -> AttestationOutcome
 where
     S: BoundedReReadableObjectSource,
 {
-    trace.push(TraceStep::SourceRecheckStarted);
-    let first = match recheck_source_identity(lfca) {
-        Err(error) => {
-            return AttestationOutcome::OperationFailed(OperationFailure {
-                kind: OperationFailureKind::ObjectSourceFailure,
-                detail: format!("{error:?}"),
-                source_audit,
-                telemetry_dropped: 0,
-            });
-        }
-        Ok(recheck) => match prepared_identity {
-            Some((prepared_digest, prepared_length))
-                if recheck != (prepared_digest, prepared_length) =>
-            {
-                // 来源字节在验证之后改变：候选修订不由已验证字节构建，
-                // 按来源准备阶段失败处理（设计 §4.2；复算归类表 §2.2）。
-                // 证据保留完整的 digest / length 差异（复核比较的是二者
-                // 的元组，证据不得只携带 digest）。
-                FirstFailure::Source(MismatchEvidence {
-                    stage: AttestationStage::SourcePreparation,
-                    site: MismatchSite::SourceFailure {
-                        detail: SourceFailureDetail::SourceBytesChanged {
-                            prepared_digest,
-                            prepared_byte_length: prepared_length.get(),
-                            recheck_digest: recheck.0,
-                            recheck_byte_length: recheck.1.get(),
-                        },
-                    },
-                })
-            }
-            _ => FirstFailure::RootCompare(evidence),
-        },
-    };
     trace.push(TraceStep::RecomputeStarted);
     #[cfg(test)]
     test_injection::before_recompute();
@@ -643,22 +605,19 @@ where
         expectation,
         format_limits,
         build_options,
-        None,
         &mut source_audit,
         trace,
     );
-    classify_confirmed_failure(first, recompute, source_audit)
+    classify_confirmed_failure(FirstFailure::RootCompare(evidence), recompute, source_audit)
 }
 
-/// 单次完整认证尝试：来源准备（含 panic 边界）→ 修订比较（含 panic 边界）。
-#[allow(clippy::too_many_arguments)]
+/// 单次完整认证尝试：来源准备 → 修订比较（均含 panic 边界）→ 失配路径来源复核。
 fn run_attempt<S>(
     root: &SharedNetworkRevision,
     lfca: &S,
     expectation: &RootAttestationExpectation,
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
-    prepared_identity: Option<&mut Option<(Sha256Digest, ExactByteLength)>>,
     source_audit: &mut Vec<SourceAuditNote>,
     trace: &mut Vec<TraceStep>,
 ) -> AttemptOutcome
@@ -675,18 +634,18 @@ where
             expectation,
             format_limits,
             build_options,
-            prepared_identity,
             source_audit,
             trace,
         );
     }
     trace.push(TraceStep::SourcePreparationStarted);
+    let mut prepared_identity = None;
     let candidate = match run_source_preparation(
         lfca,
         expectation,
         format_limits,
         build_options,
-        prepared_identity,
+        Some(&mut prepared_identity),
         source_audit,
         trace,
     ) {
@@ -712,7 +671,40 @@ where
     }));
     match comparison {
         Ok(Ok(())) => AttemptOutcome::Concluded,
-        Ok(Err(evidence)) => AttemptOutcome::Failed(FirstFailure::RootCompare(evidence)),
+        Ok(Err(evidence)) => {
+            // 每次尝试的比较失配都先复核本次来源；复算不能沿用首次准备的身份或跳过复核。
+            trace.push(TraceStep::SourceRecheckStarted);
+            #[cfg(test)]
+            let recheck = test_injection::recheck(lfca);
+            #[cfg(not(test))]
+            let recheck = recheck_source_identity(lfca);
+            match recheck {
+                Err(error) => AttemptOutcome::OperationFailed(OperationFailure {
+                    kind: OperationFailureKind::ObjectSourceFailure,
+                    detail: format!("{error:?}"),
+                    source_audit: Vec::new(),
+                    telemetry_dropped: 0,
+                }),
+                Ok(recheck) => match prepared_identity {
+                    Some((prepared_digest, prepared_length))
+                        if recheck != (prepared_digest, prepared_length) =>
+                    {
+                        AttemptOutcome::Failed(FirstFailure::Source(MismatchEvidence {
+                            stage: AttestationStage::SourcePreparation,
+                            site: MismatchSite::SourceFailure {
+                                detail: SourceFailureDetail::SourceBytesChanged {
+                                    prepared_digest,
+                                    prepared_byte_length: prepared_length.get(),
+                                    recheck_digest: recheck.0,
+                                    recheck_byte_length: recheck.1.get(),
+                                },
+                            },
+                        }))
+                    }
+                    _ => AttemptOutcome::Failed(FirstFailure::RootCompare(evidence)),
+                },
+            }
+        }
         Err(payload) => AttemptOutcome::Failed(FirstFailure::RootCompare(MismatchEvidence {
             stage: AttestationStage::RootComparison,
             site: MismatchSite::Panicked {
@@ -1111,6 +1103,13 @@ fn panic_payload_text(payload: Box<dyn Any + Send>) -> String {
 #[cfg(test)]
 pub(crate) mod test_injection {
     use crate::SharedNetworkRevision;
+    use laneflow_format::{
+        BoundedReReadableObjectSource, CheckedCanonicalNetworkInput, FormatLimits,
+        ValueCheckedObjectView, preflight_object_values,
+    };
+    use laneflow_static_contract::{
+        ExactByteLength, NetworkRevisionId, PortableObjectKind, Sha256Digest,
+    };
     use std::{
         cell::{Cell, RefCell},
         collections::VecDeque,
@@ -1122,6 +1121,61 @@ pub(crate) mod test_injection {
         Option<Arc<SharedNetworkRevision>>,
     );
 
+    #[derive(Clone)]
+    pub(crate) enum BuilderRead {
+        Bytes(Vec<u8>),
+        Panic { read: usize, payload: &'static str },
+    }
+
+    // reader 已核对的身份保持原值；只替换 builder 重读视图，不伪造 reader 能力或可变别名。
+    pub(crate) struct BuilderInput<S> {
+        input: CheckedCanonicalNetworkInput<S>,
+        injection: Option<BuilderRead>,
+        reads: Cell<usize>,
+    }
+
+    impl<S: BoundedReReadableObjectSource> BuilderInput<S> {
+        pub(crate) fn new(input: CheckedCanonicalNetworkInput<S>) -> Self {
+            Self {
+                input,
+                injection: BUILDER_READS.with(|slot| slot.borrow_mut().pop_front().flatten()),
+                reads: Cell::new(0),
+            }
+        }
+
+        pub(crate) fn value_checked_view(&self) -> ValueCheckedObjectView<'_> {
+            let read = self.reads.get() + 1;
+            self.reads.set(read);
+            match &self.injection {
+                Some(BuilderRead::Bytes(bytes)) => preflight_object_values(
+                    bytes,
+                    PortableObjectKind::CanonicalArtifact,
+                    FormatLimits::HARD,
+                )
+                .expect("injected builder view must retain framing and direct value domains"),
+                Some(BuilderRead::Panic {
+                    read: target,
+                    payload,
+                }) if read == *target => {
+                    panic!("{payload}");
+                }
+                _ => self.input.value_checked_view(),
+            }
+        }
+
+        pub(crate) fn canonical_artifact_digest(&self) -> Sha256Digest {
+            self.input.canonical_artifact_digest()
+        }
+
+        pub(crate) fn canonical_artifact_byte_length(&self) -> ExactByteLength {
+            self.input.canonical_artifact_byte_length()
+        }
+
+        pub(crate) fn network_revision(&self) -> NetworkRevisionId {
+            self.input.network_revision()
+        }
+    }
+
     thread_local! {
         static SOURCE_PREPARATION_PANIC: Cell<bool> = const { Cell::new(false) };
         static SOURCE_PREPARATION_PANIC_ONCE: Cell<bool> = const { Cell::new(false) };
@@ -1130,6 +1184,26 @@ pub(crate) mod test_injection {
         static SOURCES: RefCell<VecDeque<Vec<u8>>> = const { RefCell::new(VecDeque::new()) };
         static SOURCE_OVERRIDE_ACTIVE: Cell<bool> = const { Cell::new(false) };
         static RECOMPUTE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+        static BUILDER_READS: RefCell<VecDeque<Option<BuilderRead>>> = const { RefCell::new(VecDeque::new()) };
+        static RECHECK_SOURCES: RefCell<VecDeque<Vec<u8>>> = const { RefCell::new(VecDeque::new()) };
+    }
+
+    pub(crate) fn builder_reads(values: Vec<Option<BuilderRead>>) {
+        BUILDER_READS.with(|slot| *slot.borrow_mut() = values.into());
+    }
+
+    pub(crate) fn recheck_sources(values: Vec<Vec<u8>>) {
+        RECHECK_SOURCES.with(|slot| *slot.borrow_mut() = values.into());
+    }
+
+    pub(crate) fn recheck<S: BoundedReReadableObjectSource>(
+        source: &S,
+    ) -> Result<(Sha256Digest, ExactByteLength), laneflow_format::ObjectSourceError> {
+        let bytes = RECHECK_SOURCES.with(|slot| slot.borrow_mut().pop_front());
+        match bytes {
+            Some(bytes) => super::recheck_source_identity(&bytes.as_slice()),
+            None => super::recheck_source_identity(source),
+        }
     }
 
     // 提供阶段读取视图，安全地替换测试对象；不改写在用的不可变借用或模拟 OS 地址故障。
@@ -1202,5 +1276,7 @@ pub(crate) mod test_injection {
         SOURCES.with(|slot| slot.borrow_mut().clear());
         SOURCE_OVERRIDE_ACTIVE.with(|flag| flag.set(false));
         RECOMPUTE.with(|slot| *slot.borrow_mut() = None);
+        BUILDER_READS.with(|slot| slot.borrow_mut().clear());
+        RECHECK_SOURCES.with(|slot| slot.borrow_mut().clear());
     }
 }

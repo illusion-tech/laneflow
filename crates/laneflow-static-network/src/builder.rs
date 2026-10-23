@@ -250,6 +250,8 @@ pub fn build_shared_network_revision<S>(
 where
     S: BoundedReReadableObjectSource,
 {
+    #[cfg(test)]
+    let input = crate::attestation::test_injection::BuilderInput::new(input);
     check_cancelled(options)?;
     let mut counts = count_and_preflight(input.value_checked_view(), options)?;
     check_scratch_budget(counts, options)?;
