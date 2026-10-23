@@ -1,0 +1,1645 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "LF-DIRECT-DIGEST-RUST1991-R1-v1",
+  "status": "measured",
+  "measuredAt": "2026-10-23",
+  "pullRequest": 1008,
+  "parentIssue": 960,
+  "workloadId": "LF-ATTEST-MIXED-SYNTHETIC-TIERS-v1",
+  "digestAlgorithm": "SHA-256",
+  "digestVersion": 7,
+  "selectedVariant": "arena",
+  "variants": [
+    {
+      "id": "baseline",
+      "sourceRevision": "4be7eb26e4e3284f9a1d605601e7db0e2782bb56",
+      "description": "原始实现",
+      "snapshotDigestSourceSha256": "dda51915f60c7b0b7c11679beda310d3ab9a9b8bde07b79cf05b78b1964ca952"
+    },
+    {
+      "id": "step1",
+      "sourceRevision": "1e83e48f18fcbe51862868421e6788daf06479fa",
+      "description": "查找合并与直接索引优化，加路线分组完整预留",
+      "snapshotDigestSourceSha256": "b6926cb3fecff7c1457890d382f6a38f23b89af7a57ea33a7b9394b9f2d41324"
+    },
+    {
+      "id": "arena",
+      "sourceRevision": "35ced2a2b4cb2b91bc0ceb1e96f6977f02b11cd0",
+      "description": "step1 加车辆连续缓冲与借用视图",
+      "snapshotDigestSourceSha256": "168ac87f98904f40c27425840f74b50847e66b92048fa082cb61092ab2493cf1"
+    }
+  ],
+  "environment": {
+    "capturedAtUtc": "2026-10-23T14:12:56.7436391Z",
+    "rustc": [
+      "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "binary: rustc",
+      "commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67",
+      "commit-date: 2026-10-13",
+      "host: x86_64-pc-windows-msvc",
+      "release: 1.99.1",
+      "LLVM version: 23.1.1"
+    ],
+    "cpu": {
+      "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+      "NumberOfCores": 16,
+      "NumberOfLogicalProcessors": 32,
+      "LoadPercentage": 16
+    },
+    "os": {
+      "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+      "Version": "10.0.29683",
+      "BuildNumber": "29683"
+    },
+    "memoryBytes": 66232508416,
+    "powerPlan": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+    "battery": {
+      "BatteryStatus": 2,
+      "EstimatedChargeRemaining": 100
+    },
+    "currentHead": "1e83e48f18fcbe51862868421e6788daf06479fa",
+    "smoke": false,
+    "authorization": "User approved timing and allocation/heap windows; Rust 1.99.1 three variants",
+    "windowsRevision": 1000
+  },
+  "measurement": {
+    "timingWarmupsPerTierPerRun": 2,
+    "timingSamplesPerTierPerRun": 5,
+    "timingRunsPerVariant": 2,
+    "timingOrder": [
+      "baseline",
+      "step1",
+      "arena",
+      "arena",
+      "step1",
+      "baseline"
+    ],
+    "allocationProcessesPerVariant": 1,
+    "directAllocationIntervalsPerProcess": 2,
+    "heapProcessesPerVariant": 2,
+    "directAllocationIntervalsMatch": true,
+    "heapRepeatsExactlyMatch": true,
+    "timingWindow": {
+      "stage": "timing",
+      "elapsedSeconds": 176.8284473,
+      "completed": true,
+      "caseCount": 6,
+      "budgetSeconds": 300
+    },
+    "countingWindow": {
+      "stage": "counting",
+      "elapsedSeconds": 373.2933717,
+      "completed": true,
+      "caseCount": 9,
+      "budgetSeconds": 480
+    },
+    "timingBoundary": "单次 direct_state_digest 与连续 capture_snapshot + deterministic_state_digest；快照析构在计时区外；每对样本摘要相等",
+    "allocationBoundary": "stats_alloc 独立 Region，分配字节包含 realloc 净增长；直接路径两个独立区间相等",
+    "heapBoundary": "DHAT 独立 profiler 的堆请求字节峰值；不含 RSS、栈和分配器/分析器内部开销；每版本两个独立进程相等",
+    "aggregation": "每轮五个样本中位数；合并中位数由两轮十个原始样本计算，偶数取中间两数均值",
+    "limitations": [
+      "三个合成档位；不是城市运行质量或 step 性能证据",
+      "用户授权安静窗口，但未隔离操作系统；启动前全机 CPU 快照为 16%",
+      "镜像进程顺序减少单向漂移，不能消除频率、调度与缓存噪声；不是置信区间",
+      "每个计时样本固定先 direct 后 capture + digest；无额外运行顺序交叉",
+      "保留所有计时离群样本；不与 Rust 1.98.0 历史结果计算实现收益",
+      "只重测摘要性能；未重测认证墙钟或并发 tick 干扰"
+    ],
+    "fullStdoutArchivedInRepository": false,
+    "localArtifactDirectory": "target/pr1008-digest-1991-20261023-r1",
+    "rowsByRun": {
+      "arena-a": [
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 10000,
+          "entities": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "direct_median_ns": 434300,
+          "capture_median_ns": 133200,
+          "legacy_digest_median_ns": 326200,
+          "direct_samples": [
+            429500,
+            440100,
+            434300,
+            441700,
+            428700
+          ],
+          "capture_samples": [
+            133900,
+            122400,
+            133700,
+            131700,
+            133200
+          ],
+          "legacy_digest_samples": [
+            332900,
+            326200,
+            258600,
+            272700,
+            339000
+          ],
+          "legacy_total_median_ns": 448600,
+          "legacy_total_samples": [
+            466800,
+            448600,
+            392300,
+            404500,
+            472300
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 100000,
+          "entities": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "direct_median_ns": 4371900,
+          "capture_median_ns": 1587800,
+          "legacy_digest_median_ns": 3324300,
+          "direct_samples": [
+            4302900,
+            4295400,
+            4374300,
+            4464500,
+            4371900
+          ],
+          "capture_samples": [
+            1587800,
+            1432700,
+            1644700,
+            1680100,
+            1478300
+          ],
+          "legacy_digest_samples": [
+            3528500,
+            3198200,
+            3324300,
+            3247300,
+            3484000
+          ],
+          "legacy_total_median_ns": 4962300,
+          "legacy_total_samples": [
+            5116400,
+            4631100,
+            4969100,
+            4927400,
+            4962300
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 1000000,
+          "entities": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "direct_median_ns": 50818500,
+          "capture_median_ns": 17980900,
+          "legacy_digest_median_ns": 46910800,
+          "direct_samples": [
+            50818500,
+            50011300,
+            52541800,
+            51644400,
+            49668300
+          ],
+          "capture_samples": [
+            17980900,
+            17973600,
+            17950100,
+            18553300,
+            18099200
+          ],
+          "legacy_digest_samples": [
+            48353700,
+            49787900,
+            45294000,
+            46910800,
+            45813400
+          ],
+          "legacy_total_median_ns": 65464200,
+          "legacy_total_samples": [
+            66334900,
+            67761700,
+            63244300,
+            65464200,
+            63913000
+          ]
+        }
+      ],
+      "arena-allocation-a": [
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 10000,
+          "lfca_bytes": 4449321,
+          "root_retained_logical_bytes": 923251,
+          "root_live_bytes": 923267,
+          "attest_alloc_bytes": 1558839,
+          "attest_dealloc_bytes": 1558839,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 100000,
+          "lfca_bytes": 44481655,
+          "root_retained_logical_bytes": 9211333,
+          "root_live_bytes": 9211349,
+          "attest_alloc_bytes": 15905152,
+          "attest_dealloc_bytes": 15905152,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 1000000,
+          "lfca_bytes": 444792209,
+          "root_retained_logical_bytes": 92088415,
+          "root_live_bytes": 92088431,
+          "attest_alloc_bytes": 157188573,
+          "attest_dealloc_bytes": 157188573,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "scratch_bound_bytes": 617546,
+          "direct_alloc_bytes": 751288,
+          "legacy_alloc_bytes": 1174596,
+          "lfca_bytes": 4449321
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "scratch_bound_bytes": 6173330,
+          "direct_alloc_bytes": 7135808,
+          "legacy_alloc_bytes": 11031493,
+          "lfca_bytes": 44481655
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "scratch_bound_bytes": 61732418,
+          "direct_alloc_bytes": 64084304,
+          "legacy_alloc_bytes": 103909126,
+          "lfca_bytes": 444792209
+        }
+      ],
+      "arena-b": [
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 10000,
+          "entities": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "direct_median_ns": 451900,
+          "capture_median_ns": 138300,
+          "legacy_digest_median_ns": 311600,
+          "direct_samples": [
+            451900,
+            452500,
+            461400,
+            438400,
+            443700
+          ],
+          "capture_samples": [
+            135700,
+            141600,
+            138300,
+            130200,
+            148600
+          ],
+          "legacy_digest_samples": [
+            303500,
+            320400,
+            315100,
+            311600,
+            310500
+          ],
+          "legacy_total_median_ns": 453500,
+          "legacy_total_samples": [
+            439300,
+            462000,
+            453500,
+            441800,
+            459100
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 100000,
+          "entities": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "direct_median_ns": 4180800,
+          "capture_median_ns": 1592300,
+          "legacy_digest_median_ns": 3236400,
+          "direct_samples": [
+            4180800,
+            4137000,
+            4264000,
+            3706700,
+            4384000
+          ],
+          "capture_samples": [
+            1717900,
+            1412700,
+            1674100,
+            1592200,
+            1592300
+          ],
+          "legacy_digest_samples": [
+            3332300,
+            3152800,
+            3214500,
+            3236400,
+            3272300
+          ],
+          "legacy_total_median_ns": 4864600,
+          "legacy_total_samples": [
+            5050300,
+            4565600,
+            4888600,
+            4828600,
+            4864600
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 1000000,
+          "entities": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "direct_median_ns": 52368600,
+          "capture_median_ns": 18736100,
+          "legacy_digest_median_ns": 49266300,
+          "direct_samples": [
+            50711300,
+            53490300,
+            52206400,
+            52368600,
+            52933300
+          ],
+          "capture_samples": [
+            19116200,
+            18167700,
+            18736100,
+            19183700,
+            18621800
+          ],
+          "legacy_digest_samples": [
+            46419000,
+            46211300,
+            50642400,
+            49266300,
+            51598400
+          ],
+          "legacy_total_median_ns": 68450400,
+          "legacy_total_samples": [
+            65535600,
+            64379400,
+            69379000,
+            68450400,
+            70220700
+          ]
+        }
+      ],
+      "arena-heap-a": [
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "source_bytes": 4449321,
+          "root_heap_bytes": 923267,
+          "additional_peak_bytes": 1009945,
+          "contract_increment_peak_bytes": 5459266,
+          "contract_coexist_peak_bytes": 6382533,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 682312,
+          "legacy_heap_peak_bytes": 1004052
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "source_bytes": 44481655,
+          "root_heap_bytes": 9211349,
+          "additional_peak_bytes": 10105357,
+          "contract_increment_peak_bytes": 54587012,
+          "contract_coexist_peak_bytes": 63798361,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 6446096,
+          "legacy_heap_peak_bytes": 9343765
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "source_bytes": 444792209,
+          "root_heap_bytes": 92088431,
+          "additional_peak_bytes": 101054545,
+          "contract_increment_peak_bytes": 545846754,
+          "contract_coexist_peak_bytes": 637935185,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 57187040,
+          "legacy_heap_peak_bytes": 87867670
+        }
+      ],
+      "arena-heap-b": [
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "source_bytes": 4449321,
+          "root_heap_bytes": 923267,
+          "additional_peak_bytes": 1009945,
+          "contract_increment_peak_bytes": 5459266,
+          "contract_coexist_peak_bytes": 6382533,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 682312,
+          "legacy_heap_peak_bytes": 1004052
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "source_bytes": 44481655,
+          "root_heap_bytes": 9211349,
+          "additional_peak_bytes": 10105357,
+          "contract_increment_peak_bytes": 54587012,
+          "contract_coexist_peak_bytes": 63798361,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 6446096,
+          "legacy_heap_peak_bytes": 9343765
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "source_bytes": 444792209,
+          "root_heap_bytes": 92088431,
+          "additional_peak_bytes": 101054545,
+          "contract_increment_peak_bytes": 545846754,
+          "contract_coexist_peak_bytes": 637935185,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 57187040,
+          "legacy_heap_peak_bytes": 87867670
+        }
+      ],
+      "baseline-a": [
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 10000,
+          "entities": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "direct_median_ns": 594800,
+          "capture_median_ns": 163300,
+          "legacy_digest_median_ns": 383500,
+          "direct_samples": [
+            588300,
+            594800,
+            582300,
+            643200,
+            622300
+          ],
+          "capture_samples": [
+            159800,
+            169500,
+            165100,
+            163300,
+            162400
+          ],
+          "legacy_digest_samples": [
+            384000,
+            369100,
+            330700,
+            403500,
+            383500
+          ],
+          "legacy_total_median_ns": 543800,
+          "legacy_total_samples": [
+            543800,
+            538600,
+            495800,
+            567000,
+            546000
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 100000,
+          "entities": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "direct_median_ns": 6307200,
+          "capture_median_ns": 1567700,
+          "legacy_digest_median_ns": 4164000,
+          "direct_samples": [
+            6349100,
+            6307200,
+            6085600,
+            6170700,
+            6480300
+          ],
+          "capture_samples": [
+            1611000,
+            1567700,
+            1441500,
+            1569400,
+            1510600
+          ],
+          "legacy_digest_samples": [
+            4481900,
+            4189800,
+            4077100,
+            4164000,
+            4024000
+          ],
+          "legacy_total_median_ns": 5733500,
+          "legacy_total_samples": [
+            6093300,
+            5757700,
+            5518900,
+            5733500,
+            5534700
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 1000000,
+          "entities": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "direct_median_ns": 87449200,
+          "capture_median_ns": 19044100,
+          "legacy_digest_median_ns": 54778600,
+          "direct_samples": [
+            87449200,
+            88544000,
+            87659300,
+            86731600,
+            83957000
+          ],
+          "capture_samples": [
+            18599600,
+            18998700,
+            19404400,
+            19239300,
+            19044100
+          ],
+          "legacy_digest_samples": [
+            52445700,
+            54994400,
+            54304000,
+            54778600,
+            55349100
+          ],
+          "legacy_total_median_ns": 73993300,
+          "legacy_total_samples": [
+            71045700,
+            73993300,
+            73708700,
+            74018400,
+            74393500
+          ]
+        }
+      ],
+      "baseline-allocation-a": [
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 10000,
+          "lfca_bytes": 4449321,
+          "root_retained_logical_bytes": 923251,
+          "root_live_bytes": 923267,
+          "attest_alloc_bytes": 1558839,
+          "attest_dealloc_bytes": 1558839,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 100000,
+          "lfca_bytes": 44481655,
+          "root_retained_logical_bytes": 9211333,
+          "root_live_bytes": 9211349,
+          "attest_alloc_bytes": 15905152,
+          "attest_dealloc_bytes": 15905152,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 1000000,
+          "lfca_bytes": 444792209,
+          "root_retained_logical_bytes": 92088415,
+          "root_live_bytes": 92088431,
+          "attest_alloc_bytes": 157188573,
+          "attest_dealloc_bytes": 157188573,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "scratch_bound_bytes": 593546,
+          "direct_alloc_bytes": 749944,
+          "legacy_alloc_bytes": 1198500,
+          "lfca_bytes": 4449321
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "scratch_bound_bytes": 5933330,
+          "direct_alloc_bytes": 6802688,
+          "legacy_alloc_bytes": 11270341,
+          "lfca_bytes": 44481655
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "scratch_bound_bytes": 59332418,
+          "direct_alloc_bytes": 62457616,
+          "legacy_alloc_bytes": 106298182,
+          "lfca_bytes": 444792209
+        }
+      ],
+      "baseline-b": [
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 10000,
+          "entities": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "direct_median_ns": 605900,
+          "capture_median_ns": 150300,
+          "legacy_digest_median_ns": 368700,
+          "direct_samples": [
+            658500,
+            603500,
+            605900,
+            591700,
+            704300
+          ],
+          "capture_samples": [
+            172000,
+            150300,
+            154600,
+            140600,
+            125900
+          ],
+          "legacy_digest_samples": [
+            354200,
+            399900,
+            314800,
+            368700,
+            369200
+          ],
+          "legacy_total_median_ns": 509500,
+          "legacy_total_samples": [
+            526200,
+            550200,
+            469400,
+            509500,
+            495100
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 100000,
+          "entities": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "direct_median_ns": 6134900,
+          "capture_median_ns": 1356500,
+          "legacy_digest_median_ns": 3768300,
+          "direct_samples": [
+            6116900,
+            6120800,
+            6211800,
+            6134900,
+            6337700
+          ],
+          "capture_samples": [
+            1356500,
+            1401400,
+            1326600,
+            1343300,
+            1417000
+          ],
+          "legacy_digest_samples": [
+            3768300,
+            3673800,
+            3514900,
+            3811000,
+            3926200
+          ],
+          "legacy_total_median_ns": 5125200,
+          "legacy_total_samples": [
+            5125200,
+            5075400,
+            4841500,
+            5154400,
+            5343200
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 1000000,
+          "entities": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "direct_median_ns": 83423100,
+          "capture_median_ns": 18393600,
+          "legacy_digest_median_ns": 49868200,
+          "direct_samples": [
+            103037900,
+            83423100,
+            81666200,
+            84349300,
+            81897100
+          ],
+          "capture_samples": [
+            25588700,
+            18010000,
+            18610600,
+            18393600,
+            18160100
+          ],
+          "legacy_digest_samples": [
+            51130800,
+            48534100,
+            50884400,
+            49868200,
+            47861600
+          ],
+          "legacy_total_median_ns": 68261900,
+          "legacy_total_samples": [
+            76719800,
+            66544400,
+            69495000,
+            68261900,
+            66021900
+          ]
+        }
+      ],
+      "baseline-heap-a": [
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "source_bytes": 4449321,
+          "root_heap_bytes": 923267,
+          "additional_peak_bytes": 1009945,
+          "contract_increment_peak_bytes": 5459266,
+          "contract_coexist_peak_bytes": 6382533,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 712968,
+          "legacy_heap_peak_bytes": 1027956
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "source_bytes": 44481655,
+          "root_heap_bytes": 9211349,
+          "additional_peak_bytes": 10105357,
+          "contract_increment_peak_bytes": 54587012,
+          "contract_coexist_peak_bytes": 63798361,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 6432976,
+          "legacy_heap_peak_bytes": 9582613
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "source_bytes": 444792209,
+          "root_heap_bytes": 92088431,
+          "additional_peak_bytes": 101054545,
+          "contract_increment_peak_bytes": 545846754,
+          "contract_coexist_peak_bytes": 637935185,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 58760352,
+          "legacy_heap_peak_bytes": 90256726
+        }
+      ],
+      "baseline-heap-b": [
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "source_bytes": 4449321,
+          "root_heap_bytes": 923267,
+          "additional_peak_bytes": 1009945,
+          "contract_increment_peak_bytes": 5459266,
+          "contract_coexist_peak_bytes": 6382533,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 712968,
+          "legacy_heap_peak_bytes": 1027956
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "source_bytes": 44481655,
+          "root_heap_bytes": 9211349,
+          "additional_peak_bytes": 10105357,
+          "contract_increment_peak_bytes": 54587012,
+          "contract_coexist_peak_bytes": 63798361,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 6432976,
+          "legacy_heap_peak_bytes": 9582613
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "source_bytes": 444792209,
+          "root_heap_bytes": 92088431,
+          "additional_peak_bytes": 101054545,
+          "contract_increment_peak_bytes": 545846754,
+          "contract_coexist_peak_bytes": 637935185,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 58760352,
+          "legacy_heap_peak_bytes": 90256726
+        }
+      ],
+      "step1-a": [
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 10000,
+          "entities": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "direct_median_ns": 444600,
+          "capture_median_ns": 171800,
+          "legacy_digest_median_ns": 350400,
+          "direct_samples": [
+            444600,
+            433100,
+            456200,
+            447900,
+            436600
+          ],
+          "capture_samples": [
+            172300,
+            139800,
+            181600,
+            171800,
+            130700
+          ],
+          "legacy_digest_samples": [
+            398000,
+            337800,
+            353800,
+            350400,
+            346500
+          ],
+          "legacy_total_median_ns": 522300,
+          "legacy_total_samples": [
+            570400,
+            477600,
+            535500,
+            522300,
+            477400
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 100000,
+          "entities": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "direct_median_ns": 4204400,
+          "capture_median_ns": 1739300,
+          "legacy_digest_median_ns": 3229700,
+          "direct_samples": [
+            4470600,
+            3931400,
+            5282200,
+            4204400,
+            3905500
+          ],
+          "capture_samples": [
+            1686300,
+            1788000,
+            1845300,
+            1739300,
+            1411800
+          ],
+          "legacy_digest_samples": [
+            3296600,
+            3664500,
+            3229700,
+            3163000,
+            3082800
+          ],
+          "legacy_total_median_ns": 4983100,
+          "legacy_total_samples": [
+            4983100,
+            5452900,
+            5075200,
+            4902600,
+            4494600
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 1000000,
+          "entities": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "direct_median_ns": 63230300,
+          "capture_median_ns": 19255200,
+          "legacy_digest_median_ns": 53780000,
+          "direct_samples": [
+            60863300,
+            63019000,
+            63230300,
+            67173500,
+            67955900
+          ],
+          "capture_samples": [
+            19122400,
+            56764200,
+            18462000,
+            19283000,
+            19255200
+          ],
+          "legacy_digest_samples": [
+            49069800,
+            59595800,
+            52119300,
+            53816500,
+            53780000
+          ],
+          "legacy_total_median_ns": 73035500,
+          "legacy_total_samples": [
+            68192400,
+            116360500,
+            70581500,
+            73099800,
+            73035500
+          ]
+        }
+      ],
+      "step1-allocation-a": [
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 10000,
+          "lfca_bytes": 4449321,
+          "root_retained_logical_bytes": 923251,
+          "root_live_bytes": 923267,
+          "attest_alloc_bytes": 1558839,
+          "attest_dealloc_bytes": 1558839,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 100000,
+          "lfca_bytes": 44481655,
+          "root_retained_logical_bytes": 9211333,
+          "root_live_bytes": 9211349,
+          "attest_alloc_bytes": 15905152,
+          "attest_dealloc_bytes": 15905152,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "allocation",
+          "smoke": false,
+          "tier": 1000000,
+          "lfca_bytes": 444792209,
+          "root_retained_logical_bytes": 92088415,
+          "root_live_bytes": 92088431,
+          "attest_alloc_bytes": 157188573,
+          "attest_dealloc_bytes": 157188573,
+          "steady_delta_bytes": 0
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "scratch_bound_bytes": 593546,
+          "direct_alloc_bytes": 726040,
+          "legacy_alloc_bytes": 1174596,
+          "lfca_bytes": 4449321
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "scratch_bound_bytes": 5933330,
+          "direct_alloc_bytes": 6563840,
+          "legacy_alloc_bytes": 11031493,
+          "lfca_bytes": 44481655
+        },
+        {
+          "kind": "direct-scratch",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "scratch_bound_bytes": 59332418,
+          "direct_alloc_bytes": 60068560,
+          "legacy_alloc_bytes": 103909126,
+          "lfca_bytes": 444792209
+        }
+      ],
+      "step1-b": [
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 10000,
+          "entities": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "direct_median_ns": 492500,
+          "capture_median_ns": 159200,
+          "legacy_digest_median_ns": 333300,
+          "direct_samples": [
+            504300,
+            501500,
+            474800,
+            492500,
+            481000
+          ],
+          "capture_samples": [
+            161700,
+            166000,
+            132300,
+            125400,
+            159200
+          ],
+          "legacy_digest_samples": [
+            350800,
+            353500,
+            288100,
+            331200,
+            333300
+          ],
+          "legacy_total_median_ns": 492600,
+          "legacy_total_samples": [
+            512500,
+            519500,
+            420400,
+            456600,
+            492600
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 100000,
+          "entities": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "direct_median_ns": 4212400,
+          "capture_median_ns": 1536500,
+          "legacy_digest_median_ns": 3227300,
+          "direct_samples": [
+            3799900,
+            4212400,
+            4258300,
+            4327800,
+            3743200
+          ],
+          "capture_samples": [
+            1594900,
+            1581700,
+            1515900,
+            1519900,
+            1536500
+          ],
+          "legacy_digest_samples": [
+            3269800,
+            3400400,
+            3136100,
+            3227300,
+            3122600
+          ],
+          "legacy_total_median_ns": 4747300,
+          "legacy_total_samples": [
+            4864900,
+            4982200,
+            4652000,
+            4747300,
+            4659200
+          ]
+        },
+        {
+          "kind": "direct-digest",
+          "smoke": false,
+          "tier": 1000000,
+          "entities": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "direct_median_ns": 59842700,
+          "capture_median_ns": 18835300,
+          "legacy_digest_median_ns": 46970100,
+          "direct_samples": [
+            61742600,
+            59842700,
+            57770600,
+            62980900,
+            57741300
+          ],
+          "capture_samples": [
+            18530400,
+            18835300,
+            19197100,
+            19488200,
+            18271500
+          ],
+          "legacy_digest_samples": [
+            49004600,
+            45577500,
+            45467800,
+            46970100,
+            48454600
+          ],
+          "legacy_total_median_ns": 66458500,
+          "legacy_total_samples": [
+            67535500,
+            64413000,
+            64665100,
+            66458500,
+            66726300
+          ]
+        }
+      ],
+      "step1-heap-a": [
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "source_bytes": 4449321,
+          "root_heap_bytes": 923267,
+          "additional_peak_bytes": 1009945,
+          "contract_increment_peak_bytes": 5459266,
+          "contract_coexist_peak_bytes": 6382533,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 689064,
+          "legacy_heap_peak_bytes": 1004052
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "source_bytes": 44481655,
+          "root_heap_bytes": 9211349,
+          "additional_peak_bytes": 10105357,
+          "contract_increment_peak_bytes": 54587012,
+          "contract_coexist_peak_bytes": 63798361,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 6194128,
+          "legacy_heap_peak_bytes": 9343765
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "source_bytes": 444792209,
+          "root_heap_bytes": 92088431,
+          "additional_peak_bytes": 101054545,
+          "contract_increment_peak_bytes": 545846754,
+          "contract_coexist_peak_bytes": 637935185,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 56371296,
+          "legacy_heap_peak_bytes": 87867670
+        }
+      ],
+      "step1-heap-b": [
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 10000,
+          "vehicles": 1000,
+          "routes": 437,
+          "source_bytes": 4449321,
+          "root_heap_bytes": 923267,
+          "additional_peak_bytes": 1009945,
+          "contract_increment_peak_bytes": 5459266,
+          "contract_coexist_peak_bytes": 6382533,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 689064,
+          "legacy_heap_peak_bytes": 1004052
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 100000,
+          "vehicles": 10000,
+          "routes": 4369,
+          "source_bytes": 44481655,
+          "root_heap_bytes": 9211349,
+          "additional_peak_bytes": 10105357,
+          "contract_increment_peak_bytes": 54587012,
+          "contract_coexist_peak_bytes": 63798361,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 6194128,
+          "legacy_heap_peak_bytes": 9343765
+        },
+        {
+          "kind": "heap-peak",
+          "smoke": false,
+          "tier": 1000000,
+          "vehicles": 100000,
+          "routes": 43693,
+          "source_bytes": 444792209,
+          "root_heap_bytes": 92088431,
+          "additional_peak_bytes": 101054545,
+          "contract_increment_peak_bytes": 545846754,
+          "contract_coexist_peak_bytes": 637935185,
+          "steady_retained_bytes": 0,
+          "direct_heap_peak_bytes": 56371296,
+          "legacy_heap_peak_bytes": 87867670
+        }
+      ]
+    },
+    "runs": [
+      {
+        "name": "arena-a",
+        "variant": "arena",
+        "kind": "wall",
+        "startedAtUtc": "2026-10-23T14:13:58.2907959Z",
+        "elapsedSeconds": 29.2101748,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "direct_digest_wall_clock_evidence"
+        ],
+        "binarySha256": "7A4A8EA7733BE0B6AEBF1543EF682F3A4F729F3E13B176B4D3B116627D67A125",
+        "digestSourceSha256": "168AC87F98904F40C27425840F74B50847E66B92048FA082CB61092AB2493CF1",
+        "stdoutSha256": "E47590FFF5476DD902B452EE889CDA0F9B2272B63C160F969343B055EB92FCA6",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "arena-allocation-a",
+        "variant": "arena",
+        "kind": "allocation",
+        "startedAtUtc": "2026-10-23T14:19:11.3597209Z",
+        "elapsedSeconds": 62.5611913,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "748719119CAF6F1BC8E7DCC9E3ED7B92415F9B98D92EB37E921ADE7A146E5A03",
+        "digestSourceSha256": "168AC87F98904F40C27425840F74B50847E66B92048FA082CB61092AB2493CF1",
+        "stdoutSha256": "A7D21C25B69EA3C7545F8C3C2AADF2F0D94985901E52ABE9BD6A6C3D2E624175",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "arena-b",
+        "variant": "arena",
+        "kind": "wall",
+        "startedAtUtc": "2026-10-23T14:14:27.5127099Z",
+        "elapsedSeconds": 29.4089003,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "direct_digest_wall_clock_evidence"
+        ],
+        "binarySha256": "7A4A8EA7733BE0B6AEBF1543EF682F3A4F729F3E13B176B4D3B116627D67A125",
+        "digestSourceSha256": "168AC87F98904F40C27425840F74B50847E66B92048FA082CB61092AB2493CF1",
+        "stdoutSha256": "4187F0479D7705A85E2F5F86A8523D63D530E3AE8C4FAB8BF47106567E0DED81",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "arena-heap-a",
+        "variant": "arena",
+        "kind": "heap",
+        "startedAtUtc": "2026-10-23T14:20:13.9326253Z",
+        "elapsedSeconds": 30.1923334,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "9F5BF4A79FFE7EE5F76A33DCDF578FF9EF9628F5BF7D499ED7AF95E7A56BD012",
+        "digestSourceSha256": "168AC87F98904F40C27425840F74B50847E66B92048FA082CB61092AB2493CF1",
+        "stdoutSha256": "08E1C29421EEB6F0B554E060842F784AB4C1FE4D27DD155DC28C3EC4F6DA8F72",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "arena-heap-b",
+        "variant": "arena",
+        "kind": "heap",
+        "startedAtUtc": "2026-10-23T14:20:44.1368134Z",
+        "elapsedSeconds": 30.370934,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "9F5BF4A79FFE7EE5F76A33DCDF578FF9EF9628F5BF7D499ED7AF95E7A56BD012",
+        "digestSourceSha256": "168AC87F98904F40C27425840F74B50847E66B92048FA082CB61092AB2493CF1",
+        "stdoutSha256": "EC1C9CB35EDC8F7BE5C219B3089B8DAFFEF6A6FC0BE278B19A11DFA06F956E9C",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "baseline-a",
+        "variant": "baseline",
+        "kind": "wall",
+        "startedAtUtc": "2026-10-23T14:12:58.6629645Z",
+        "elapsedSeconds": 29.6072359,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "direct_digest_wall_clock_evidence"
+        ],
+        "binarySha256": "094C3348259C49B45AA80DA2B8BDD09D70FDE5D1D321FF50FF90F1A2D5B20CFA",
+        "digestSourceSha256": "DDA51915F60C7B0B7C11679BEDA310D3AB9A9B8BDE07B79CF05B78B1964CA952",
+        "stdoutSha256": "04C97AD07D826D3A5BC84D866B4B8D072BD73C9012516C1D35A2E40F3DE37D72",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "baseline-allocation-a",
+        "variant": "baseline",
+        "kind": "allocation",
+        "startedAtUtc": "2026-10-23T14:16:02.2564583Z",
+        "elapsedSeconds": 63.6404658,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "543FA43821F401BDED42371FFF7A68FFF5979EE1AF06E05E74D8368A603E4539",
+        "digestSourceSha256": "DDA51915F60C7B0B7C11679BEDA310D3AB9A9B8BDE07B79CF05B78B1964CA952",
+        "stdoutSha256": "7CE608DD232DF4483AD6FBBC671E48301E803C9278D64359F577E43C5995E4DC",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "baseline-b",
+        "variant": "baseline",
+        "kind": "wall",
+        "startedAtUtc": "2026-10-23T14:15:26.0719569Z",
+        "elapsedSeconds": 29.39952,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "direct_digest_wall_clock_evidence"
+        ],
+        "binarySha256": "094C3348259C49B45AA80DA2B8BDD09D70FDE5D1D321FF50FF90F1A2D5B20CFA",
+        "digestSourceSha256": "DDA51915F60C7B0B7C11679BEDA310D3AB9A9B8BDE07B79CF05B78B1964CA952",
+        "stdoutSha256": "E0A7B2B86DA0BCFF8AFB8A0AD87AB7DC3A2CCA032AC67252DC4418836E475934",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "baseline-heap-a",
+        "variant": "baseline",
+        "kind": "heap",
+        "startedAtUtc": "2026-10-23T14:17:05.9540328Z",
+        "elapsedSeconds": 30.6344843,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "48BC24B3E884ABA0D67EBD4F26F553A7E6661BB8DD7BBF79EF78F62BF3AAA22A",
+        "digestSourceSha256": "DDA51915F60C7B0B7C11679BEDA310D3AB9A9B8BDE07B79CF05B78B1964CA952",
+        "stdoutSha256": "FB4E39A6FA30B89734808ED9FD1768EDE3B3650900FF4C58165ACACA17376AF6",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "baseline-heap-b",
+        "variant": "baseline",
+        "kind": "heap",
+        "startedAtUtc": "2026-10-23T14:21:44.8129706Z",
+        "elapsedSeconds": 30.7185862,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "48BC24B3E884ABA0D67EBD4F26F553A7E6661BB8DD7BBF79EF78F62BF3AAA22A",
+        "digestSourceSha256": "DDA51915F60C7B0B7C11679BEDA310D3AB9A9B8BDE07B79CF05B78B1964CA952",
+        "stdoutSha256": "463F87BEEC8EC110D4EE2F3ECFEDBD5AEDFB30C34C01BCAB397BFB25B1E5BFDA",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "step1-a",
+        "variant": "step1",
+        "kind": "wall",
+        "startedAtUtc": "2026-10-23T14:13:28.3353418Z",
+        "elapsedSeconds": 29.9420382,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "direct_digest_wall_clock_evidence"
+        ],
+        "binarySha256": "633496F6E0EA08D3733B93D9348AC5D6590AA686CE80035A00B307895B70CBA0",
+        "digestSourceSha256": "B6926CB3FECFF7C1457890D382F6A38F23B89AF7A57EA33A7B9394B9F2D41324",
+        "stdoutSha256": "0165833062CEF4C15DB4C87DB4A756D4C6ACD83549E1788422E347184DE254DE",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "step1-allocation-a",
+        "variant": "step1",
+        "kind": "allocation",
+        "startedAtUtc": "2026-10-23T14:17:36.6016867Z",
+        "elapsedSeconds": 64.0368437,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "4375CD80039F2933CFB5695C3937714DE1423415E5CC5F5424795F8547034D26",
+        "digestSourceSha256": "B6926CB3FECFF7C1457890D382F6A38F23B89AF7A57EA33A7B9394B9F2D41324",
+        "stdoutSha256": "9AC14BBFCF7B1FD00F52117E5E85FE55BC23CD4F8BA7B216F3B371E14428B8BE",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "step1-b",
+        "variant": "step1",
+        "kind": "wall",
+        "startedAtUtc": "2026-10-23T14:14:56.9327524Z",
+        "elapsedSeconds": 29.1275313,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1",
+          "--exact",
+          "direct_digest_wall_clock_evidence"
+        ],
+        "binarySha256": "633496F6E0EA08D3733B93D9348AC5D6590AA686CE80035A00B307895B70CBA0",
+        "digestSourceSha256": "B6926CB3FECFF7C1457890D382F6A38F23B89AF7A57EA33A7B9394B9F2D41324",
+        "stdoutSha256": "8FE16CE145881F577454581090118F371B973707203F0FEEBBB1DFE1B68E3569",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "step1-heap-a",
+        "variant": "step1",
+        "kind": "heap",
+        "startedAtUtc": "2026-10-23T14:18:40.6511987Z",
+        "elapsedSeconds": 30.6972279,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "484238B5F0D48129663F8E1AD6372C67DE09AC215C42BB6EB5D612D667A27E2F",
+        "digestSourceSha256": "B6926CB3FECFF7C1457890D382F6A38F23B89AF7A57EA33A7B9394B9F2D41324",
+        "stdoutSha256": "F71E68C5679E5C6CE7E59B431CEA605F0FF12C904BEC0FEF96A2DFD17ADA579E",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      },
+      {
+        "name": "step1-heap-b",
+        "variant": "step1",
+        "kind": "heap",
+        "startedAtUtc": "2026-10-23T14:21:14.5192934Z",
+        "elapsedSeconds": 30.2826255,
+        "timedOut": false,
+        "exitCode": 0,
+        "smoke": false,
+        "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+        "arguments": [
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "binarySha256": "484238B5F0D48129663F8E1AD6372C67DE09AC215C42BB6EB5D612D667A27E2F",
+        "digestSourceSha256": "B6926CB3FECFF7C1457890D382F6A38F23B89AF7A57EA33A7B9394B9F2D41324",
+        "stdoutSha256": "46166CD7FBEDC2A509D6714A7F7AF4489E827DF9C1A4ECC63F03346A596440CC",
+        "stderrSha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+      }
+    ]
+  }
+}
