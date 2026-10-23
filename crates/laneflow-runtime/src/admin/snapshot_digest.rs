@@ -754,7 +754,6 @@ impl crate::kernel::state::WorldState {
             budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
             route_records.push((snapshot_route_id, record));
         }
-        route_records.sort_unstable_by_key(|entry| entry.0);
         route_ids.sort_unstable();
         let route_id_for = |generation: u32, index: u32| -> Option<u64> {
             route_ids
@@ -796,10 +795,8 @@ impl crate::kernel::state::WorldState {
                 .ok_or(SnapshotDigestError::InvariantViolation(
                     StateInvariantViolation::DanglingRouteHandle,
                 ))?;
-            let route_id_for_capture = |generation: u32, index: u32| -> u64 {
-                route_id_for(generation, index)
-                    .expect("direct digest vehicle route resolves to snapshot route id")
-            };
+            // 此槽位的路线句柄已解析；捕获助手只查询同一只读车辆的所属路线。
+            let route_id_for_capture = |_, _| snapshot_route_id;
             let vehicle = self
                 .captured_vehicle_at(
                     identity,
@@ -816,7 +813,6 @@ impl crate::kernel::state::WorldState {
             budget.charge(u64::try_from(record.len()).unwrap_or(u64::MAX))?;
             vehicle_records.push((snapshot_vehicle_id, record, snapshot_route_id));
         }
-        vehicle_records.sort_unstable_by_key(|entry| entry.0);
         vehicle_ids.sort_unstable();
 
         let route_groups = canonical_route_groups(&vehicle_records, &route_records, &mut budget)?;
@@ -917,15 +913,10 @@ impl crate::kernel::state::WorldState {
                 .ok()
                 .map(|position| vehicle_ids[position].2)
         };
-        let vehicle_index = |snapshot_vehicle_id: u64| -> usize {
-            vehicle_records
-                .binary_search_by_key(&snapshot_vehicle_id, |entry| entry.0)
-                .expect("direct live order closes over direct vehicles")
-        };
-        let route_index = |snapshot_route_id: u64| -> usize {
-            route_records
-                .binary_search_by_key(&snapshot_route_id, |entry| entry.0)
-                .expect("direct vehicle route closes over direct routes")
+        // 局部 ID 由上方逐条 push 生成，记录表不重排；它直接编码记录索引，
+        // 与可能稀疏、带世代且顺序不同的 Runtime 句柄无关。
+        let record_index = |snapshot_id: u64| -> usize {
+            usize::try_from(snapshot_id - FIRST_SNAPSHOT_ID).expect("local record index fits usize")
         };
         // live 顺序必须是存活车辆的完整无重复排列：长度先核（遗漏直接暴露），
         // 写入时以命中标记核对唯一性——只验证句柄可解析不足以拒绝失真状态。
@@ -936,16 +927,23 @@ impl crate::kernel::state::WorldState {
             ));
         }
         budget.charge_elements::<bool>(live_order.len())?;
-        let mut seen = vec![false; vehicle_capacity];
-        digest_try_reserve_exact(&mut seen, 0)?;
-        let mut live_segment_bytes = 8_u64;
+        let mut seen = Vec::new();
+        digest_try_reserve_exact(&mut seen, vehicle_capacity)?;
+        seen.resize(vehicle_capacity, false);
+        budget.charge(8)?;
+        try_push_u64(
+            &mut canonical,
+            u64::try_from(live_order.len()).expect("live order count fits u64"),
+        )?;
+        // 校验和编码共用一次句柄查找；每条先入账再写本地缓冲。
+        // 中途失配只丢弃本次缓冲，不修改世界，也不签发部分摘要。
         for handle in live_order {
             let snapshot_vehicle_id = vehicle_id_for(handle.generation(), handle.index()).ok_or(
                 SnapshotDigestError::InvariantViolation(
                     StateInvariantViolation::DanglingLiveOrderEntry,
                 ),
             )?;
-            let index = vehicle_index(snapshot_vehicle_id);
+            let index = record_index(snapshot_vehicle_id);
             if seen[index] {
                 return Err(SnapshotDigestError::InvariantViolation(
                     StateInvariantViolation::IncompleteLiveOrder,
@@ -953,27 +951,12 @@ impl crate::kernel::state::WorldState {
             }
             seen[index] = true;
             let snapshot_route_id = vehicle_records[index].2;
-            live_segment_bytes = live_segment_bytes
-                .saturating_add(8)
+            let route_bytes = &route_records[record_index(snapshot_route_id)].1;
+            let record_bytes = 16_u64
                 .saturating_add(u64::try_from(vehicle_records[index].1.len()).unwrap_or(u64::MAX))
-                .saturating_add(8)
-                .saturating_add(
-                    u64::try_from(route_records[route_index(snapshot_route_id)].1.len())
-                        .unwrap_or(u64::MAX),
-                );
-        }
-        budget.charge(live_segment_bytes)?;
-        try_push_u64(
-            &mut canonical,
-            u64::try_from(live_order.len()).expect("live order count fits u64"),
-        )?;
-        for handle in live_order {
-            let snapshot_vehicle_id =
-                vehicle_id_for(handle.generation(), handle.index()).expect("verified handle");
-            let index = vehicle_index(snapshot_vehicle_id);
-            let snapshot_route_id = vehicle_records[index].2;
+                .saturating_add(u64::try_from(route_bytes.len()).unwrap_or(u64::MAX));
+            budget.charge(record_bytes)?;
             try_push_record(&mut canonical, &vehicle_records[index].1)?;
-            let route_bytes = &route_records[route_index(snapshot_route_id)].1;
             try_push_record(&mut canonical, route_bytes)?;
         }
 
@@ -1318,6 +1301,91 @@ mod tests {
         );
     }
 
+    #[test]
+    fn direct_digest_matches_sparse_reused_slots_and_rejects_stale_handles() {
+        let (mut world, original_route, original_vehicle) = world_with_vehicle(true);
+        let edges = world.route_edges(original_route).unwrap().to_vec();
+        let empty_route = world
+            .register_route(crate::RouteRegisterInput::new(edges.clone()))
+            .unwrap();
+        let parked_route = world
+            .register_route(crate::RouteRegisterInput::new(edges.clone()))
+            .unwrap();
+        let parked = world
+            .spawn_parked_vehicle(
+                crate::ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    parked_route,
+                    0,
+                    1_000,
+                ),
+                crate::ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
+            )
+            .unwrap();
+        world.despawn_vehicle(original_vehicle).unwrap();
+        world.remove_route(original_route).unwrap();
+        world.remove_route(empty_route).unwrap();
+        let limits = SnapshotDigestLimits::new(1_048_576);
+        let assert_same = |world: &crate::TrafficWorld| {
+            assert_eq!(
+                world.direct_state_digest(limits).unwrap(),
+                deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+            );
+        };
+        assert_same(&world);
+        let reused_route = world
+            .register_route(crate::RouteRegisterInput::new(edges))
+            .unwrap();
+        let reused_vehicle = world
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    reused_route,
+                    0,
+                    4_500,
+                    0,
+                )
+                .with_open_entrance(),
+            )
+            .unwrap();
+        assert_eq!(reused_vehicle.index(), original_vehicle.index());
+        assert_ne!(reused_vehicle.generation(), original_vehicle.generation());
+        assert_eq!(
+            world.state.committed.live_order,
+            [parked.vehicle, reused_vehicle]
+        );
+        assert_same(&world);
+        world.state.committed.live_order.reverse();
+        assert_same(&world);
+
+        // 槽位相同而世代不同的旧句柄不能借助连续局部 ID 被误认成存活对象。
+        world.state.committed.live_order[0] = original_vehicle;
+        assert_eq!(
+            world.direct_state_digest(limits),
+            Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::DanglingLiveOrderEntry,
+            )),
+        );
+        world.state.committed.live_order[0] = reused_vehicle;
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(reused_vehicle.index() as usize)
+            .state
+            .as_mut()
+            .unwrap()
+            .route = empty_route;
+        assert_eq!(
+            world.direct_state_digest(limits),
+            Err(SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::DanglingRouteHandle,
+            )),
+        );
+    }
+
     /// 直算路径的容量预留失败沿用 `ReservationFailed`（注入点与捕获/摘要轴
     /// 共用同一快照轴计数器），重试成功；fail_after 循环覆盖全部预留点，
     /// 含 live 顺序命中标记数组（先可失败预留、再初始化）。
@@ -1325,11 +1393,17 @@ mod tests {
     fn direct_digest_reservation_failure_fails_closed_and_is_retryable() {
         let (world, _, _) = world_with_vehicle(true);
         let limits = SnapshotDigestLimits::new(64 * 1024 * 1024);
-        for fail_after in 1..=12 {
+        let expected = world.direct_state_digest(limits).unwrap();
+        let mut reached_success = false;
+        for fail_after in 0..256 {
             let failed =
                 crate::admin::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
                     world.direct_state_digest(limits)
                 });
+            if failed == Ok(expected) {
+                reached_success = true;
+                break;
+            }
             assert_eq!(
                 failed,
                 Err(SnapshotDigestError::ReservationFailed),
@@ -1340,6 +1414,7 @@ mod tests {
                 "注入清零后重试成功（fail_after={fail_after}）"
             );
         }
+        assert!(reached_success, "all reservation sites covered");
         let captured = world.capture_snapshot().expect("capture after retry");
         assert_eq!(
             world
