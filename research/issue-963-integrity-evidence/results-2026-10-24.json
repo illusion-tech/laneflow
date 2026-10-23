@@ -1,0 +1,876 @@
+{
+  "schema": "issue963-short-soak-v1",
+  "scope": "short-soak-chain-validation",
+  "status": "completed",
+  "source_commit": "445f75a4ba3415a0813b2c71c35f157491127ba1",
+  "binary_sha256": "4d588ca0f338d97b8c4d66d96bc87220d485e08f89de38f27cff96790e69641b",
+  "started_utc": "2026-10-23T16:31:31.9873545Z",
+  "ended_utc": "2026-10-23T17:01:34.1777135Z",
+  "requested_seconds": 1800,
+  "resident_window_seconds": 1800.8822751,
+  "outer_seconds": 1802.1898874,
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\r\nbinary: rustc\r\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\r\ncommit-date: 2026-10-13\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.99.1\r\nLLVM version: 23.1.1",
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29683",
+    "BuildNumber": "29683",
+    "TotalVisibleMemorySize": 64680184
+  },
+  "quiet_window": false,
+  "concurrent_activity": "not isolated; local compilation and tests observed; other desktop activity unrestricted",
+  "runtime_workers": 1,
+  "nominal_individuals": 2000,
+  "replacements": 6193,
+  "initial_uncovered_ticks": 1,
+  "final_tick": 102019,
+  "covered_ticks": 102018,
+  "complete_match_batches": 100,
+  "diverged_batches": 0,
+  "incomplete_batches": 0,
+  "compared_points_including_shared_endpoints": 1794,
+  "root_attestations_passed": 201,
+  "file_probe_rewrites": 0,
+  "nonempty_stderr_files": 0,
+  "memory": {
+    "sample_count": 1773,
+    "peak_sampled_working_set_bytes": 55836672.0,
+    "peak_sampled_private_bytes": 35545088.0,
+    "max_process_count": 2.0,
+    "sampling_seconds": 1,
+    "meaning": "sampled aggregate working-set and private-bytes stop threshold, not hard allocation cap",
+    "stop_threshold_bytes": 2147483648
+  },
+  "source_lfca_sha256": "910d0ce5598f213d652f37b786615530981b99fcc482f9712ce49afad12edb4c",
+  "source_lfca_bytes": 8868299,
+  "registered_revision": "1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd8819",
+  "plan_sha256": "428cd44a5d2f102b8a3eaaf391e4a32a94b89b6f178baf6a2ff02f30651aec1e",
+  "pin_provenance": "Measured binary captured the initial validated root reference once; every frozen digest, length and revision was subsequently verified against published artifact registration. Current driver pins directly from registration. Startup/root-construction fault detection is outside this run.",
+  "raw_evidence": {
+    "inventory_format": "UTF-8 without BOM; ordinal path order, relative path TAB lower-case SHA-256 TAB byte length LF",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "resources_sha256": "b0d22f4e6671883887f33bf4b4caf2c34b4e5c11efb78c9f94aaedab3b68be65",
+    "remote_archive_promised": false,
+    "local_only": true,
+    "files": 1111,
+    "stdout_sha256": "6936203982996955f36a3868588f39555e55802a64863d5be411efab66090a50",
+    "bytes": 116671718,
+    "inventory_sha256": "add7e27a4157491d50156ac4efca6268dec9de4b467de319b072f2f2d5c7ef3c"
+  },
+  "interpretation": "No mismatch observed in these complete audit intervals; not long-term fault-host acceptance, whole-heap integrity, or a performance result.",
+  "uncovered": [
+    "initial installation and first tick",
+    "physical root page replacement, displacement and aliasing",
+    "source mutation after validation and during builder consumption",
+    "mutation after scanned bytes",
+    "non-Pass audit overlapping an in-flight step",
+    "independent non-LaneFlow environment A/B attribution",
+    "long-term fault-host and anonymous-heap attribution"
+  ],
+  "batches": [
+    {
+      "batch": 0,
+      "start_tick": 1,
+      "target_tick": 1025,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 17.6956045
+    },
+    {
+      "batch": 1,
+      "start_tick": 1025,
+      "target_tick": 2049,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 35.6107894
+    },
+    {
+      "batch": 2,
+      "start_tick": 2049,
+      "target_tick": 3073,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 53.5179472
+    },
+    {
+      "batch": 3,
+      "start_tick": 3073,
+      "target_tick": 4097,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 71.4025729
+    },
+    {
+      "batch": 4,
+      "start_tick": 4097,
+      "target_tick": 5121,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 89.4642714
+    },
+    {
+      "batch": 5,
+      "start_tick": 5121,
+      "target_tick": 6145,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 107.4537797
+    },
+    {
+      "batch": 6,
+      "start_tick": 6145,
+      "target_tick": 7169,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 126.428751
+    },
+    {
+      "batch": 7,
+      "start_tick": 7169,
+      "target_tick": 8193,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 146.6790127
+    },
+    {
+      "batch": 8,
+      "start_tick": 8193,
+      "target_tick": 9217,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 165.0870702
+    },
+    {
+      "batch": 9,
+      "start_tick": 9217,
+      "target_tick": 10241,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 183.2490284
+    },
+    {
+      "batch": 10,
+      "start_tick": 10241,
+      "target_tick": 11265,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 201.3063325
+    },
+    {
+      "batch": 11,
+      "start_tick": 11265,
+      "target_tick": 12289,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 219.3381961
+    },
+    {
+      "batch": 12,
+      "start_tick": 12289,
+      "target_tick": 13313,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 237.3406567
+    },
+    {
+      "batch": 13,
+      "start_tick": 13313,
+      "target_tick": 14337,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 255.2611515
+    },
+    {
+      "batch": 14,
+      "start_tick": 14337,
+      "target_tick": 15361,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 273.3438289
+    },
+    {
+      "batch": 15,
+      "start_tick": 15361,
+      "target_tick": 16385,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 291.2727039
+    },
+    {
+      "batch": 16,
+      "start_tick": 16385,
+      "target_tick": 17409,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 309.2067199
+    },
+    {
+      "batch": 17,
+      "start_tick": 17409,
+      "target_tick": 18433,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 327.2547835
+    },
+    {
+      "batch": 18,
+      "start_tick": 18433,
+      "target_tick": 19457,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 345.2342477
+    },
+    {
+      "batch": 19,
+      "start_tick": 19457,
+      "target_tick": 20481,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 363.2740994
+    },
+    {
+      "batch": 20,
+      "start_tick": 20481,
+      "target_tick": 21505,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 381.2585311
+    },
+    {
+      "batch": 21,
+      "start_tick": 21505,
+      "target_tick": 22529,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 399.1635498
+    },
+    {
+      "batch": 22,
+      "start_tick": 22529,
+      "target_tick": 23553,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 417.038807
+    },
+    {
+      "batch": 23,
+      "start_tick": 23553,
+      "target_tick": 24577,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 435.0096145
+    },
+    {
+      "batch": 24,
+      "start_tick": 24577,
+      "target_tick": 25601,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 452.9765089
+    },
+    {
+      "batch": 25,
+      "start_tick": 25601,
+      "target_tick": 26625,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 470.9338391
+    },
+    {
+      "batch": 26,
+      "start_tick": 26625,
+      "target_tick": 27649,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 488.9107575
+    },
+    {
+      "batch": 27,
+      "start_tick": 27649,
+      "target_tick": 28673,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 506.9413002
+    },
+    {
+      "batch": 28,
+      "start_tick": 28673,
+      "target_tick": 29697,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 524.9459163
+    },
+    {
+      "batch": 29,
+      "start_tick": 29697,
+      "target_tick": 30721,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 542.955674
+    },
+    {
+      "batch": 30,
+      "start_tick": 30721,
+      "target_tick": 31745,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 561.0198079
+    },
+    {
+      "batch": 31,
+      "start_tick": 31745,
+      "target_tick": 32769,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 579.5945228
+    },
+    {
+      "batch": 32,
+      "start_tick": 32769,
+      "target_tick": 33793,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 597.6452873
+    },
+    {
+      "batch": 33,
+      "start_tick": 33793,
+      "target_tick": 34817,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 615.6847124
+    },
+    {
+      "batch": 34,
+      "start_tick": 34817,
+      "target_tick": 35841,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 633.7047638
+    },
+    {
+      "batch": 35,
+      "start_tick": 35841,
+      "target_tick": 36865,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 651.7032117
+    },
+    {
+      "batch": 36,
+      "start_tick": 36865,
+      "target_tick": 37889,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 669.6914044
+    },
+    {
+      "batch": 37,
+      "start_tick": 37889,
+      "target_tick": 38913,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 687.6168812
+    },
+    {
+      "batch": 38,
+      "start_tick": 38913,
+      "target_tick": 39937,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 705.5438447
+    },
+    {
+      "batch": 39,
+      "start_tick": 39937,
+      "target_tick": 40961,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 723.5502228
+    },
+    {
+      "batch": 40,
+      "start_tick": 40961,
+      "target_tick": 41985,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 741.4306014
+    },
+    {
+      "batch": 41,
+      "start_tick": 41985,
+      "target_tick": 43009,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 759.4089564
+    },
+    {
+      "batch": 42,
+      "start_tick": 43009,
+      "target_tick": 44033,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 777.4046959
+    },
+    {
+      "batch": 43,
+      "start_tick": 44033,
+      "target_tick": 45057,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 795.3616919
+    },
+    {
+      "batch": 44,
+      "start_tick": 45057,
+      "target_tick": 46081,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 813.248072
+    },
+    {
+      "batch": 45,
+      "start_tick": 46081,
+      "target_tick": 47105,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 831.1575474
+    },
+    {
+      "batch": 46,
+      "start_tick": 47105,
+      "target_tick": 48129,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 849.0888131
+    },
+    {
+      "batch": 47,
+      "start_tick": 48129,
+      "target_tick": 49153,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 867.0271163
+    },
+    {
+      "batch": 48,
+      "start_tick": 49153,
+      "target_tick": 50177,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 885.0134977
+    },
+    {
+      "batch": 49,
+      "start_tick": 50177,
+      "target_tick": 51201,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 902.9541527
+    },
+    {
+      "batch": 50,
+      "start_tick": 51201,
+      "target_tick": 52225,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 920.9545729
+    },
+    {
+      "batch": 51,
+      "start_tick": 52225,
+      "target_tick": 53249,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 939.0880495
+    },
+    {
+      "batch": 52,
+      "start_tick": 53249,
+      "target_tick": 54273,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 957.043685
+    },
+    {
+      "batch": 53,
+      "start_tick": 54273,
+      "target_tick": 55297,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 974.9800453
+    },
+    {
+      "batch": 54,
+      "start_tick": 55297,
+      "target_tick": 56321,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 992.9308616
+    },
+    {
+      "batch": 55,
+      "start_tick": 56321,
+      "target_tick": 57345,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1010.8615403
+    },
+    {
+      "batch": 56,
+      "start_tick": 57345,
+      "target_tick": 58369,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1028.9232164
+    },
+    {
+      "batch": 57,
+      "start_tick": 58369,
+      "target_tick": 59393,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1046.9271672
+    },
+    {
+      "batch": 58,
+      "start_tick": 59393,
+      "target_tick": 60417,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1064.9061353
+    },
+    {
+      "batch": 59,
+      "start_tick": 60417,
+      "target_tick": 61441,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1082.8545102
+    },
+    {
+      "batch": 60,
+      "start_tick": 61441,
+      "target_tick": 62465,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1100.7822665
+    },
+    {
+      "batch": 61,
+      "start_tick": 62465,
+      "target_tick": 63489,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1118.8314577
+    },
+    {
+      "batch": 62,
+      "start_tick": 63489,
+      "target_tick": 64513,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1136.769134
+    },
+    {
+      "batch": 63,
+      "start_tick": 64513,
+      "target_tick": 65537,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1154.8350115
+    },
+    {
+      "batch": 64,
+      "start_tick": 65537,
+      "target_tick": 66561,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1172.8560477
+    },
+    {
+      "batch": 65,
+      "start_tick": 66561,
+      "target_tick": 67585,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1190.8468169
+    },
+    {
+      "batch": 66,
+      "start_tick": 67585,
+      "target_tick": 68609,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1208.8425566
+    },
+    {
+      "batch": 67,
+      "start_tick": 68609,
+      "target_tick": 69633,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1226.7777813
+    },
+    {
+      "batch": 68,
+      "start_tick": 69633,
+      "target_tick": 70657,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1244.8197605
+    },
+    {
+      "batch": 69,
+      "start_tick": 70657,
+      "target_tick": 71681,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1262.7367989
+    },
+    {
+      "batch": 70,
+      "start_tick": 71681,
+      "target_tick": 72705,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1280.6922324
+    },
+    {
+      "batch": 71,
+      "start_tick": 72705,
+      "target_tick": 73729,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1298.6905823
+    },
+    {
+      "batch": 72,
+      "start_tick": 73729,
+      "target_tick": 74753,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1316.8933358
+    },
+    {
+      "batch": 73,
+      "start_tick": 74753,
+      "target_tick": 75777,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1334.8489382
+    },
+    {
+      "batch": 74,
+      "start_tick": 75777,
+      "target_tick": 76801,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1352.806787
+    },
+    {
+      "batch": 75,
+      "start_tick": 76801,
+      "target_tick": 77825,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1370.7267428
+    },
+    {
+      "batch": 76,
+      "start_tick": 77825,
+      "target_tick": 78849,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1388.7024495
+    },
+    {
+      "batch": 77,
+      "start_tick": 78849,
+      "target_tick": 79873,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1406.6203881
+    },
+    {
+      "batch": 78,
+      "start_tick": 79873,
+      "target_tick": 80897,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1424.6002071
+    },
+    {
+      "batch": 79,
+      "start_tick": 80897,
+      "target_tick": 81921,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1442.6242441
+    },
+    {
+      "batch": 80,
+      "start_tick": 81921,
+      "target_tick": 82945,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1460.5474991
+    },
+    {
+      "batch": 81,
+      "start_tick": 82945,
+      "target_tick": 83969,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1478.5374185
+    },
+    {
+      "batch": 82,
+      "start_tick": 83969,
+      "target_tick": 84993,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1496.774746
+    },
+    {
+      "batch": 83,
+      "start_tick": 84993,
+      "target_tick": 86017,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1515.164143
+    },
+    {
+      "batch": 84,
+      "start_tick": 86017,
+      "target_tick": 87041,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1533.1594487
+    },
+    {
+      "batch": 85,
+      "start_tick": 87041,
+      "target_tick": 88065,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1551.1886382
+    },
+    {
+      "batch": 86,
+      "start_tick": 88065,
+      "target_tick": 89089,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1569.2731873
+    },
+    {
+      "batch": 87,
+      "start_tick": 89089,
+      "target_tick": 90113,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1587.3180525
+    },
+    {
+      "batch": 88,
+      "start_tick": 90113,
+      "target_tick": 91137,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1605.3167367
+    },
+    {
+      "batch": 89,
+      "start_tick": 91137,
+      "target_tick": 92161,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1623.3194849
+    },
+    {
+      "batch": 90,
+      "start_tick": 92161,
+      "target_tick": 93185,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1641.4040142
+    },
+    {
+      "batch": 91,
+      "start_tick": 93185,
+      "target_tick": 94209,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1659.6083472
+    },
+    {
+      "batch": 92,
+      "start_tick": 94209,
+      "target_tick": 95233,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1677.6059048
+    },
+    {
+      "batch": 93,
+      "start_tick": 95233,
+      "target_tick": 96257,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1695.6254454
+    },
+    {
+      "batch": 94,
+      "start_tick": 96257,
+      "target_tick": 97281,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1715.8271012
+    },
+    {
+      "batch": 95,
+      "start_tick": 97281,
+      "target_tick": 98305,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1735.2796975
+    },
+    {
+      "batch": 96,
+      "start_tick": 98305,
+      "target_tick": 99329,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1753.4064139
+    },
+    {
+      "batch": 97,
+      "start_tick": 99329,
+      "target_tick": 100353,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1771.4527866
+    },
+    {
+      "batch": 98,
+      "start_tick": 100353,
+      "target_tick": 101377,
+      "points": 18,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1789.5093604
+    },
+    {
+      "batch": 99,
+      "start_tick": 101377,
+      "target_tick": 102019,
+      "points": 12,
+      "classification": "CompleteMatch",
+      "elapsed_seconds": 1800.8802503
+    }
+  ]
+}
