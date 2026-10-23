@@ -22,18 +22,24 @@
     "powerSource": "交流电",
     "powerPlan": "平衡"
   },
+  "dynamicLoad": {
+    "definition": "每档装载静态实体 1/10 的车辆；三边链（10 m/8 m/12 m）路线轮转分配，同路线每边一车（spawn 重叠检查通过），装载后两拍落账；世界容量随装载预留（容量进入快照与摘要）",
+    "vehiclesPerTier": [1000, 10000, 100000],
+    "routesPerTier": [437, 4369, 43693]
+  },
   "measurement": {
-    "timingBoundary": "attest_published_shared_network_revision 单次调用全链（来源准备 + 根比较 + 确认与处置）；LFCA 生成与共享根构建另列，不计入认证墙钟",
+    "timingBoundary": "attest_published_shared_network_revision 单次调用全链（来源准备 + 根比较 + 确认与处置）；LFCA 生成与共享根构建另列，不计入认证墙钟。直算摘要与现行路径对照在动态记录世界上计时：direct_state_digest 单次调用；现行路径按 capture_snapshot 与 deterministic_state_digest 两段分别计时、合计作对照",
     "warmupRunsPerTier": 2,
     "formalSampleCountPerTier": 5,
     "processCount": 1,
     "workerCount": 1,
     "rawSamplesPersisted": false,
-    "timingGranularityNote": "direct_state_digest 样本处于 Windows QPC 100 ns 粒度下限（每样本 3-29 个计时单位），仅作量级参照",
-    "stabilityRepeat": "同窗口内全套复跑一次，认证墙钟中位差 1.1% / 7.7% / 1.1%（一万/十万/一百万），并发干扰 ppm 0 与 5010，直算摘要中位差在 QPC 粒度内",
+    "stabilityRepeat": "同窗口内复跑：认证墙钟中位差 1.1% / 7.7% / 1.1%（一万/十万/一百万）；直算/现行合计之比两轮 +6% ~ +21%；并发干扰 ppm 见 concurrentInterference",
     "tiers": [
       {
         "stableEntities": 10000,
+        "vehicles": 1000,
+        "routes": 437,
         "lfcaBytes": 4449321,
         "sharedRootRetainedLogicalBytes": 923251,
         "rootBuildWallClockNs": 228797600,
@@ -49,16 +55,28 @@
         "attestationCoexistPeakSampledBytes": 6429142,
         "steadyStateRetainedDeltaBytes": 0,
         "directStateDigestWallClockNs": {
-          "min": 600,
-          "median": 700,
-          "max": 900
+          "min": 540400,
+          "median": 568600,
+          "max": 591300
         },
-        "directDigestScratchBoundBytes": 906,
-        "directDigestAllocBytes": 2088,
-        "legacyCaptureDigestAllocBytes": 3152
+        "captureWallClockNs": {
+          "min": 191700,
+          "median": 206500,
+          "max": 237700
+        },
+        "legacyDigestWallClockNs": {
+          "min": 260300,
+          "median": 286600,
+          "max": 346600
+        },
+        "directDigestScratchBoundBytes": 593546,
+        "directDigestAllocBytes": 1499888,
+        "legacyCaptureDigestAllocBytes": 2698388
       },
       {
         "stableEntities": 100000,
+        "vehicles": 10000,
+        "routes": 4369,
         "lfcaBytes": 44481655,
         "sharedRootRetainedLogicalBytes": 9211333,
         "rootBuildWallClockNs": 2475293000,
@@ -74,16 +92,28 @@
         "attestationCoexistPeakSampledBytes": 64278930,
         "steadyStateRetainedDeltaBytes": 0,
         "directStateDigestWallClockNs": {
-          "min": 700,
-          "median": 900,
-          "max": 1100
+          "min": 5580800,
+          "median": 5831200,
+          "max": 6050000
         },
-        "directDigestScratchBoundBytes": 906,
-        "directDigestAllocBytes": 2088,
-        "legacyCaptureDigestAllocBytes": 3153
+        "captureWallClockNs": {
+          "min": 1090800,
+          "median": 1182300,
+          "max": 1267500
+        },
+        "legacyDigestWallClockNs": {
+          "min": 3755400,
+          "median": 3876500,
+          "max": 4162400
+        },
+        "directDigestScratchBoundBytes": 5933330,
+        "directDigestAllocBytes": 13605376,
+        "legacyCaptureDigestAllocBytes": 24875717
       },
       {
         "stableEntities": 1000000,
+        "vehicles": 100000,
+        "routes": 43693,
         "lfcaBytes": 444792209,
         "sharedRootRetainedLogicalBytes": 92088415,
         "rootBuildWallClockNs": 27442262200,
@@ -99,15 +129,31 @@
         "attestationCoexistPeakSampledBytes": 642755624,
         "steadyStateRetainedDeltaBytes": 0,
         "directStateDigestWallClockNs": {
-          "min": 2400,
-          "median": 2600,
-          "max": 2900
+          "min": 84889000,
+          "median": 86984200,
+          "max": 95110900
         },
-        "directDigestScratchBoundBytes": 906,
-        "directDigestAllocBytes": 2088,
-        "legacyCaptureDigestAllocBytes": 3154
+        "captureWallClockNs": {
+          "min": 21935000,
+          "median": 22211700,
+          "max": 22662700
+        },
+        "legacyDigestWallClockNs": {
+          "min": 54080500,
+          "median": 59595800,
+          "max": 60126000
+        },
+        "directDigestScratchBoundBytes": 59332418,
+        "directDigestAllocBytes": 124915232,
+        "legacyCaptureDigestAllocBytes": 231213414
       }
     ],
+    "directDigestStabilityRepeat": {
+      "directMedianNs": [592000, 6234600, 85215200],
+      "captureMedianNs": [191100, 1413500, 21559400],
+      "legacyDigestMedianNs": [297900, 3969200, 55245000],
+      "directVersusLegacyTotalPercent": [21.1, 15.8, 10.9]
+    },
     "concurrentInterference": {
       "tierStableEntities": 100000,
       "contendedTicks": 2048,

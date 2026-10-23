@@ -127,16 +127,20 @@ fn attestation_wall_clock_evidence() {
     }
 }
 
-/// 直算摘要墙钟：装真实世界后测 `direct_state_digest`，并与现行
-/// capture + digest 路径逐字节核对（健康性）与对照耗时。
+/// 直算摘要墙钟（动态记录世界）：按档位 1/10 装载车辆（`populate`，三边链
+/// 路线轮转、同路线每边一车），测 `direct_state_digest`；现行路径按
+/// capture 与 digest 两段分别计时作对照；直算与现行路径逐字节核对
+/// （健康性）。
 #[test]
 #[ignore = "manual single-thread release wall-clock evidence; run inside a quiet window"]
 fn direct_digest_wall_clock_evidence() {
     for tier in TIERS {
+        let vehicles = tier / 10;
+        let routes = vehicles.min(WorkloadShape::for_stable_entities(tier).synthetic_tiles);
         let fixture = build_tier(tier);
-        let world = TrafficWorld::install(
+        let mut world = TrafficWorld::install(
             Arc::clone(&fixture.root),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 100),
             ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: fixture.reference.clone(),
@@ -145,25 +149,46 @@ fn direct_digest_wall_clock_evidence() {
             test_policy::selection(&fixture.root),
         )
         .expect("install");
+        synthetic_network::populate(&mut world, vehicles, routes);
         let limits = SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES);
         for _ in 0..WARMUP {
             black_box(world.direct_state_digest(limits).unwrap());
         }
-        let mut samples: Vec<u128> = Vec::with_capacity(SAMPLES);
+        let mut direct: Vec<u128> = Vec::with_capacity(SAMPLES);
         for _ in 0..SAMPLES {
             let started = Instant::now();
             let digest = world.direct_state_digest(limits).expect("direct digest");
-            samples.push(started.elapsed().as_nanos());
+            direct.push(started.elapsed().as_nanos());
             // 与现行路径逐字节一致（健康性）。
             let captured = world.capture_snapshot().expect("capture");
             let legacy = laneflow_runtime::deterministic_state_digest(&captured).expect("legacy");
             assert_eq!(digest, legacy);
         }
-        samples.sort_unstable();
-        let median = samples[samples.len() / 2];
+        // 现行路径分段计时：capture 单段、digest(captured) 单段。
+        let _ = world.capture_snapshot().expect("capture warmup");
+        let mut capture: Vec<u128> = Vec::with_capacity(SAMPLES);
+        for _ in 0..SAMPLES {
+            let started = Instant::now();
+            black_box(world.capture_snapshot().expect("capture"));
+            capture.push(started.elapsed().as_nanos());
+        }
+        let snapshot = world.capture_snapshot().expect("capture");
+        let mut legacy_digest: Vec<u128> = Vec::with_capacity(SAMPLES);
+        for _ in 0..SAMPLES {
+            let started = Instant::now();
+            black_box(
+                laneflow_runtime::deterministic_state_digest(&snapshot).expect("legacy digest"),
+            );
+            legacy_digest.push(started.elapsed().as_nanos());
+        }
+        let direct_median = median(&direct);
+        let capture_median = median(&capture);
+        let legacy_digest_median = median(&legacy_digest);
         println!(
-            "#987-evidence direct-digest tier={tier} entities={tier} samples={:?} median_ns={median}",
-            samples,
+            "#987-evidence direct-digest tier={tier} entities={tier} vehicles={vehicles} \
+             routes={routes} direct_median_ns={direct_median} capture_median_ns={capture_median} \
+             legacy_digest_median_ns={legacy_digest_median} direct_samples={direct:?} \
+             capture_samples={capture:?} legacy_digest_samples={legacy_digest:?}",
         );
     }
 }

@@ -182,9 +182,12 @@ fn direct_digest_scratch_and_allocation_evidence() {
             origin.network_revision(),
         )
         .unwrap();
-        let world = TrafficWorld::install(
+        let vehicles = tier / 10;
+        let routes = vehicles
+            .min(synthetic_network::WorkloadShape::for_stable_entities(tier).synthetic_tiles);
+        let mut world = TrafficWorld::install(
             std::sync::Arc::clone(&root),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 100),
             ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: reference.clone(),
@@ -193,6 +196,9 @@ fn direct_digest_scratch_and_allocation_evidence() {
             test_policy::selection(&root),
         )
         .expect("install");
+        // 与墙钟测试同口径的动态记录世界（档位 1/10 车辆），使 scratch 上界
+        // 与分配对照覆盖记录表规模，而不是空世界常量。
+        synthetic_network::populate(&mut world, vehicles, routes);
 
         // 限额二分：直算 scratch 精确上界。
         let mut low = 0_u64;
@@ -220,8 +226,9 @@ fn direct_digest_scratch_and_allocation_evidence() {
         let legacy_alloc = region.change().bytes_allocated;
         assert_eq!(digest, legacy, "直算与捕获路径逐字节一致");
         println!(
-            "#987-evidence direct-scratch tier={tier} scratch_bound_bytes={scratch_bound_bytes} \
-             direct_alloc_bytes={direct_alloc} legacy_alloc_bytes={legacy_alloc} lfca_bytes={}",
+            "#987-evidence direct-scratch tier={tier} vehicles={vehicles} routes={routes} \
+             scratch_bound_bytes={scratch_bound_bytes} direct_alloc_bytes={direct_alloc} \
+             legacy_alloc_bytes={legacy_alloc} lfca_bytes={}",
             lfca.len(),
         );
     }

@@ -39,7 +39,7 @@ pub(crate) const SHARED_ACCESS_ENTITIES: u32 = 3;
 
 pub(crate) struct WorkloadShape {
     stable_entities: u32,
-    synthetic_tiles: u32,
+    pub(crate) synthetic_tiles: u32,
     conflict_tiles: u32,
     filler_entities: u32,
 }
@@ -68,6 +68,82 @@ fn key(prefix: &str, ordinal: u32, suffix: &str) -> String {
 
 fn leak_str(value: String) -> &'static str {
     Box::leak(value.into_boxed_str())
+}
+
+/// 给世界装载动态记录：车辆 i 绑定 tile `i % routes` 的三边链路线、占用
+/// 边下标 `(i / routes) % 3`（entry 10 m → middle 8 m → exit 12 m），同路线
+/// 每条边至多一辆车，spawn 的重叠检查天然通过；三档 `vehicles ≤ 3 × tiles`
+/// 保证容纳。tile 边 ordinal 按 3t/3t+1/3t+2 布局，以长度断言自校验。
+/// 世界容量须已在 `WorldConfig` 预留（车辆、路线、边占用）。装载后走两拍
+/// 让运动状态落账（车长 4.5 m、初速 0，两拍位移可忽略，无人驶离路线）。
+pub(crate) fn populate(world: &mut laneflow_runtime::TrafficWorld, vehicles: u32, tiles: u32) {
+    use laneflow_runtime::{RouteRegisterInput, TickInput, VehicleSpawnInput};
+    use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
+    assert!(
+        vehicles <= 3 * tiles,
+        "vehicles={vehicles} exceed three-per-tile capacity of tiles={tiles}"
+    );
+    let routes = vehicles.min(tiles);
+    let lengths = world.traffic().lane_lengths_millimetres().to_vec();
+    // 共享根按规范身份排序，边 ordinal 不等于声明序；按实际后继结构找
+    // tile 链：10 m 入边 → 8 m 中边 → 12 m 出边（合成 tile 独有长度组合）。
+    let mut found: Vec<[LaneEdgeOrdinal; 3]> = Vec::with_capacity(routes as usize);
+    for entry in 0..lengths.len() {
+        if found.len() >= routes as usize {
+            break;
+        }
+        if lengths[entry] != 10_000 {
+            continue;
+        }
+        let entry_ord = LaneEdgeOrdinal::try_from_usize(entry).expect("ordinal");
+        let Some(middles) = world.traffic().successors(entry_ord) else {
+            continue;
+        };
+        for middle in middles {
+            if lengths[middle.index()] != 8_000 {
+                continue;
+            }
+            let Some(exits) = world.traffic().successors(*middle) else {
+                continue;
+            };
+            let Some(exit) = exits.iter().copied().find(|e| lengths[e.index()] == 12_000) else {
+                continue;
+            };
+            found.push([entry_ord, *middle, exit]);
+            break;
+        }
+    }
+    assert!(
+        found.len() >= routes as usize,
+        "chain discovery found {} < {routes} synthetic tile chains",
+        found.len()
+    );
+    let mut chains = Vec::with_capacity(routes as usize);
+    for chain in &found[..routes as usize] {
+        let route = world
+            .register_route(RouteRegisterInput::new(chain.to_vec()))
+            .expect("route");
+        chains.push(route);
+    }
+    for vehicle in 0..vehicles {
+        let route = chains[(vehicle % routes) as usize];
+        let route_edge_index = (vehicle / routes) % 3;
+        world
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    route_edge_index,
+                    0,
+                    0,
+                )
+                .with_open_entrance(),
+            )
+            .expect("vehicle");
+    }
+    for _ in 0..2 {
+        world.step(TickInput::new(100)).expect("settle step");
+    }
 }
 
 fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32) {
