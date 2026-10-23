@@ -44,26 +44,40 @@
 测试专用的阶段读取视图与复算前钩子。实际 reader、builder、比较、来源复核和分类继续执行。
 替换视图由测试独立拥有，不制造不可变借用的可变别名；不把这类逻辑注入说成真实 OS 页故障。
 
-| 场景                                     | 证据入口                                                                  | 本轮判据与边界                                                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `origin` 的六个静态契约版本轴            | `every_static_contract_origin_field_is_rejected`                          | 六轴分别失真均 `Mismatch / Indeterminate / DisableRoot`；修订号与分区提示派生版本由既有测试覆盖               |
-| `origin` digest、length 及二者同时失真   | `origin_digest_length_and_combined_distortions_are_declared_misses`       | 均 `Pass`，明确记为设计 §5 的声明漏检面                                                                       |
-| 切换描述符字节身份                       | Runtime `origin_mismatches_fail_closed`                                   | digest、length、二者同时失真，在 base/target 两侧均拒绝；与认证字节身份漏检按两个入口分别验证                 |
-| 修订瞬时失真、复算失配位置变化           | `transient_root_and_moving_mismatch_are_untrusted_through_real_recompute` | 真正执行两次比较，保留首次位置并判 `Untrusted`                                                                |
-| 修订失配后复算分配失败、取消             | `root_mismatch_is_not_erased_by_recompute_allocation_failure_or_cancel`   | 在复算前触发既有分配钩子或取消标志，均保留首次证据并判 `Untrusted`                                            |
-| 来源首次失败后恢复、复算证据变化         | `source_transient_and_different_failures_use_real_reader_results`         | 分别为带瞬时诊断的 `Pass` 与 `OperationFailed(SourceEvidenceUnstable)`                                        |
-| 两侧同值零列                             | `common_cause_equal_zero_columns_are_a_declared_comparison_miss`          | `Pass`，声明漏检；只证明比较器不能区分相同损坏内容，不证明物理共页已注入                                      |
-| 派生列零值、替换、截断                   | `zero_replaced_and_truncated_derived_columns_are_rejected`                | `Mismatch / SharedStaticRoot / DisableRoot`；列小于一页，不计真实 4 KiB 根页覆盖                              |
-| 发布来源零页、页替换、正负一页位移、截断 | `published_source_page_patterns_are_source_failures`                      | 30,400 B LFCA 上按 4,096 B 对象内偏移注入，五种均 `Mismatch / Source / IsolateSource`；不是内存地址页对齐证明 |
-| 安装/恢复前认证门禁与独立进程重放        | `short_chain_replays_in_an_independent_process`                           | 真正启动成功与错误引用两个子进程；错误引用在认证处退出，不产生成功响应                                        |
+[发布来源时序矩阵](../../crates/laneflow-static-network/src/attestation_source_timing_tests.rs)
+进一步在真实 reader 接受后替换 builder 的重读视图，并让来源复核对独立拥有的阶段字节
+真实计算 digest / exact length。builder 重读处的 panic 为受控阶段注入；闭合失败则使用
+重新登记 chunk 摘要与修订声明的 LFCA，经过真实 reader 与 builder，不直接构造失败结果。
+这些测试不证明 immutable backing 被实际改写，也不覆盖 OS 物理页故障。
+
+| 场景                                     | 证据入口                                                                                                                                                                                                      | 本轮判据与边界                                                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `origin` 的六个静态契约版本轴            | `every_static_contract_origin_field_is_rejected`                                                                                                                                                              | 六轴分别失真均 `Mismatch / Indeterminate / DisableRoot`；修订号与分区提示派生版本由既有测试覆盖                                      |
+| `origin` digest、length 及二者同时失真   | `origin_digest_length_and_combined_distortions_are_declared_misses`                                                                                                                                           | 均 `Pass`，明确记为设计 §5 的声明漏检面                                                                                              |
+| 切换描述符字节身份                       | Runtime `origin_mismatches_fail_closed`                                                                                                                                                                       | digest、length、二者同时失真，在 base/target 两侧均拒绝；与认证字节身份漏检按两个入口分别验证                                        |
+| 修订瞬时失真、复算失配位置变化           | `transient_root_and_moving_mismatch_are_untrusted_through_real_recompute`                                                                                                                                     | 真正执行两次比较，保留首次位置并判 `Untrusted`                                                                                       |
+| 修订失配后复算分配失败、取消             | `root_mismatch_is_not_erased_by_recompute_allocation_failure_or_cancel`                                                                                                                                       | 在复算前触发既有分配钩子或取消标志，均保留首次证据并判 `Untrusted`                                                                   |
+| 来源首次失败后恢复、复算证据变化         | `source_transient_and_different_failures_use_real_reader_results`                                                                                                                                             | 分别为带瞬时诊断的 `Pass` 与 `OperationFailed(SourceEvidenceUnstable)`                                                               |
+| 两侧同值零列                             | `common_cause_equal_zero_columns_are_a_declared_comparison_miss`                                                                                                                                              | `Pass`，声明漏检；只证明比较器不能区分相同损坏内容，不证明物理共页已注入                                                             |
+| 派生列零值、替换、截断                   | `zero_replaced_and_truncated_derived_columns_are_rejected`                                                                                                                                                    | `Mismatch / SharedStaticRoot / DisableRoot`；列小于一页，不计真实 4 KiB 根页覆盖                                                     |
+| 发布来源零页、页替换、正负一页位移、截断 | `published_source_page_patterns_are_source_failures`                                                                                                                                                          | 30,400 B LFCA 上按 4,096 B 对象内偏移注入，五种均 `Mismatch / Source / IsolateSource`；不是内存地址页对齐证明                        |
+| 安装/恢复前认证门禁与独立进程重放        | `short_chain_replays_in_an_independent_process`                                                                                                                                                               | 真正启动成功与错误引用两个子进程；错误引用在认证处退出，不产生成功响应                                                               |
+| 验证后、builder 重读前来源变化           | `repeated_post_validation_source_change_is_source_mismatch` / `transient_post_validation_source_change_passes_only_after_full_recompute` / `different_post_validation_changes_preserve_both_source_evidences` | 同证据为 `Mismatch / Source / IsolateSource`，瞬态完整恢复为带诊断 `Pass`，异证据为 `SourceEvidenceUnstable`；核对完整摘要与长度证据 |
+| 修订侧首次证据后，复算来源变化           | `established_root_evidence_survives_recompute_source_change`                                                                                                                                                  | 保留首次修订证据，`Untrusted / Indeterminate / DisableRoot`，不被后续来源问题撤销                                                    |
+| builder 消费期间受控 panic               | `panic_during_builder_reread_stays_on_source_side`                                                                                                                                                            | 在第 4 次重读处注入；同证据为 `Mismatch / Source / IsolateSource`，瞬态完整恢复为带诊断 `Pass`                                       |
+| reader 通过、builder 身份闭合失败        | `reader_accepted_builder_closure_failure_precedes_root_comparison`                                                                                                                                            | 真实 reader 接受，builder 报 `UnexpectedOrdinal`；来源失败优先于修订比较，健康与已失真修订两种输入均不停用修订                       |
 
 既有测试继续覆盖不同修订、自洽重发布、引用失真、reader 限额、builder 预算、首次分配失败、
 取消、来源准备/修订比较 panic、正负零、NaN、失配证据身份和遥测失败。
 #954 的写入注入矩阵继续在原模块执行；这里调用其交付能力，没有复制 `ArtifactIo` 注入机制。
 
-以下仍不作为已覆盖项：真实根 backing 的 4 KiB 替换/整数页位移与物理共页；已验证来源
-在 builder 重读前改变、builder 消费中受损 panic、reader 通过而 builder 闭合失败的完整输入链；
-扫描已读字节随后改变；非 `Pass` 审计与正在执行的 `step` 精确重叠时的宿主输出处置；
+时序矩阵发现并修复了复算中未再次复核来源的分类缺陷：每次尝试独立记录已准备的字节身份，
+每次修订比较失配都先复核本次来源，再按首次失败阶段归类。相同来源变化不再被复算中的
+修订比较失配误判为应停用修订的 `Untrusted`；已成立的首次修订侧证据仍保持失败关闭。
+
+以下仍不作为已覆盖项：真实根 backing 的 4 KiB 替换/整数页位移与物理共页，以及来源
+immutable backing 在验证期间被实际改写；扫描已读字节随后改变；
+非 `Pass` 审计与正在执行的 `step` 精确重叠时的宿主输出处置；
 故障机长期自然取样及匿名堆失真归因。编辑来源仍随 #529，未混入发布来源验收。
 
 ## 2026-10-24 首轮采集
