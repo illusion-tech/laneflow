@@ -163,12 +163,15 @@ issue 为准，本表只做判读入口，不复制诊断结论。
    cargo +1.99.1 run --locked -p xtask -- classify-digest-probe --dump <target 目录>/digest-probe/<转储>.bin --golden <金样本目录>
    ```
 
-   按 4 KiB 文件页输出首个分歧偏移、每页差异与页分类（`Zero` 零页、`Shifted(k)` 与
-   相距 k 页的金样本页逐字节相同、`Replaced` 页均分 16 段后至少 12 段有差异、`Partial`
-   差异只落在少数分段）
-   及结论：`page-fingerprint`（全部差异页为前三类）→ 按环境失真裁决并跑环境对照；
-   `code-suspect`（存在 `Partial` 或长度不符）→ 转代码嫌疑；`identical` → 转储字节与
-   金样本一致，失真未进入转储。
+   命令先以旁文件的 `actual` 核对转储摘要；不一致输出 `verdict=evidence-mismatch` 并以
+   失败退出，说明转储在落盘后已改变，不作判读，按无转储处理。核对通过后按 4 KiB 文件
+   页输出首个分歧偏移、每页差异与页分类：完整页为 `Zero` 零页、`Shifted(k)` 与相距
+   k 页的金样本页逐字节相同、`Replaced` 页均分 16 段后至少 12 段有差异、`Partial` 差异
+   只落在少数分段；chunk 首尾不满一页的残片一律为 `Fragment`，不作任何一方的证据。
+   结论：`code-suspect`（存在 `Partial` 或长度不符）→ 转代码嫌疑；否则
+   `page-fingerprint`（至少一个完整页为前三类）→ 按环境失真裁决并跑环境对照；
+   `inconclusive`（差异只落在残片上）→ 证据不足，保持待裁决；`identical` → 转储字节
+   与金样本一致，失真未进入转储。
 4. **留档**：把 `[digest-probe]` 现场行与判读输出原样贴回追踪 issue，再按本节放行口径
    裁决。
 

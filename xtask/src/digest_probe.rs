@@ -47,6 +47,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let probe = Probe::read(&dump)?;
     let corrupted =
         fs::read(&dump).map_err(|error| format!("读取转储 {} 失败: {error}", dump.display()))?;
+    // 判读对象本身可能在疑似失真的存储上受损：先以旁文件记录的实际摘要核对转储。
+    check_integrity(&probe, &corrupted)?;
     let mut files = Vec::new();
     for path in &golden {
         collect_files(path, &mut files)?;
@@ -75,6 +77,9 @@ struct Probe {
     len: u64,
     expected: [u8; 32],
     expected_hex: String,
+    /// 失配当时读回字节的摘要，用于核对转储未在落盘后改变。
+    actual: [u8; 32],
+    actual_hex: String,
 }
 
 impl Probe {
@@ -102,14 +107,31 @@ impl Probe {
         let expected_hex = field("expected")?.to_owned();
         let expected =
             parse_digest(&expected_hex).ok_or("探针旁文件 expected 不是 32 字节十六进制")?;
+        let actual_hex = field("actual")?.to_owned();
+        let actual = parse_digest(&actual_hex).ok_or("探针旁文件 actual 不是 32 字节十六进制")?;
         Ok(Self {
             entry: number("entry")?,
             offset: number("offset")?,
             len: number("len")?,
             expected,
             expected_hex,
+            actual,
+            actual_hex,
         })
     }
+}
+
+/// 转储摘要与旁文件 `actual` 不一致时不给出因果结论，按证据完整性失配单独报告。
+fn check_integrity(probe: &Probe, dump: &[u8]) -> Result<(), String> {
+    let digest: [u8; 32] = Sha256::digest(dump).into();
+    if digest == probe.actual {
+        return Ok(());
+    }
+    let dump_hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    Err(format!(
+        "verdict=evidence-mismatch 转储摘要 {dump_hex} 与旁文件 actual {} 不一致：转储在落盘后已改变，不作判读",
+        probe.actual_hex
+    ))
 }
 
 fn parse_digest(hex: &str) -> Option<[u8; 32]> {
@@ -167,6 +189,8 @@ enum PageKind {
     Replaced,
     /// 差异只占页内一段：不符合页级失真指纹。
     Partial,
+    /// chunk 首尾不满一页的残片：样本不足以判断整页形态，不作任何一方的证据。
+    Fragment,
 }
 
 #[derive(Debug)]
@@ -183,6 +207,7 @@ enum Verdict {
     Identical,
     PageFingerprint,
     CodeSuspect,
+    Inconclusive,
 }
 
 #[derive(Debug)]
@@ -233,17 +258,19 @@ impl Report {
                 .count()
         };
         text.push_str(&format!(
-            "summary differing_pages={} replaced={} zero={} shifted={} partial={}\n",
+            "summary differing_pages={} replaced={} zero={} shifted={} partial={} fragment={}\n",
             self.pages.len(),
             count(|kind| kind == PageKind::Replaced),
             count(|kind| kind == PageKind::Zero),
             count(|kind| matches!(kind, PageKind::Shifted(_))),
             count(|kind| kind == PageKind::Partial),
+            count(|kind| kind == PageKind::Fragment),
         ));
         text.push_str(match self.verdict {
             Verdict::Identical => "verdict=identical 转储与金样本一致：失真不在转储字节中（读回瞬时失真或转储前已恢复）\n",
             Verdict::PageFingerprint => "verdict=page-fingerprint 符合页级失真指纹：按环境失真裁决，并以独立写-读浸泡对照确认\n",
             Verdict::CodeSuspect => "verdict=code-suspect 存在非页对齐或页内局部差异：不符合页级失真指纹，转代码嫌疑\n",
+            Verdict::Inconclusive => "verdict=inconclusive 差异只落在 chunk 首尾不满一页的残片上：证据不足，保持待裁决\n",
         });
         text
     }
@@ -289,14 +316,19 @@ fn analyze(golden: &[u8], chunk_start: u64, chunk_len: u64, dump: &[u8]) -> Repo
     let len_delta = dump.len() as i64 - chunk_len as i64;
     let verdict = if first_diff.is_none() && len_delta == 0 {
         Verdict::Identical
+    } else if len_delta != 0
+        || pages
+            .iter()
+            .any(|finding| finding.kind == PageKind::Partial)
+    {
+        Verdict::CodeSuspect
     } else if pages
         .iter()
-        .all(|finding| finding.kind != PageKind::Partial)
-        && len_delta == 0
+        .any(|finding| finding.kind != PageKind::Fragment)
     {
         Verdict::PageFingerprint
     } else {
-        Verdict::CodeSuspect
+        Verdict::Inconclusive
     };
     Report {
         first_diff,
@@ -308,21 +340,22 @@ fn analyze(golden: &[u8], chunk_start: u64, chunk_len: u64, dump: &[u8]) -> Repo
 }
 
 fn classify_page(golden: &[u8], page: u64, from: u64, want: &[u8], got: &[u8]) -> PageKind {
+    // 页级形态只对完整页成立；首尾残片再小也可能凑出零页或「铺满」。
+    if from != page * PAGE || got.len() != PAGE as usize {
+        return PageKind::Fragment;
+    }
     if got.iter().all(|byte| *byte == 0) {
         return PageKind::Zero;
     }
-    // 只在整页对照时搜索位移；chunk 首尾的半页无法与整页金样本比较。
-    if from == page * PAGE && got.len() == PAGE as usize {
-        let found = (1..=MAX_SHIFT_PAGES).flat_map(|k| [k, -k]).find(|k| {
-            let Some(source) = (page as i64).checked_add(*k).filter(|source| *source >= 0) else {
-                return false;
-            };
-            let begin = source as usize * PAGE as usize;
-            golden.get(begin..begin + PAGE as usize) == Some(got)
-        });
-        if let Some(shift) = found {
-            return PageKind::Shifted(shift);
-        }
+    let found = (1..=MAX_SHIFT_PAGES).flat_map(|k| [k, -k]).find(|k| {
+        let Some(source) = (page as i64).checked_add(*k).filter(|source| *source >= 0) else {
+            return false;
+        };
+        let begin = source as usize * PAGE as usize;
+        golden.get(begin..begin + PAGE as usize) == Some(got)
+    });
+    if let Some(shift) = found {
+        return PageKind::Shifted(shift);
     }
     // 页均分为 REPLACEMENT_SEGMENTS 段，差异须覆盖其中至少 3/4 才算整页替换；
     // 只看首尾差异会把页两端的零散翻转误判为替换。
@@ -373,6 +406,9 @@ mod tests {
             len: chunk_len as u64,
             expected: digest,
             expected_hex: digest.iter().map(|byte| format!("{byte:02x}")).collect(),
+            // 判读测试直接调用 analyze，不经完整性核对；完整性另有专项测试。
+            actual: [0; 32],
+            actual_hex: "00".repeat(32),
         };
         (bytes, probe, (section + 88) as u64)
     }
@@ -541,5 +577,57 @@ mod tests {
         assert_eq!(report.pages[0].differing, 2);
         assert_eq!(report.pages[0].kind, PageKind::Partial);
         assert_eq!(report.verdict, Verdict::CodeSuspect);
+    }
+
+    #[test]
+    fn tail_fragment_alone_is_inconclusive() {
+        // 审阅反例：页对齐的 4,097 字节 chunk，只翻转最后一个字节（落在 1 字节残片上）。
+        let (bytes, probe, start) = golden(PAGE as usize - 88, PAGE as usize + 1);
+        assert_eq!(start % PAGE, 0);
+        let mut dump = dump_of(&bytes, start, probe.len);
+        *dump.last_mut().unwrap() ^= 0x01;
+        let report = analyze(&bytes, start, probe.len, &dump);
+        assert_eq!(report.pages.len(), 1);
+        assert_eq!(report.pages[0].kind, PageKind::Fragment);
+        assert_eq!(report.verdict, Verdict::Inconclusive);
+
+        // 残片上全零同样不足以判零页。
+        let mut dump = dump_of(&bytes, start, probe.len);
+        *dump.last_mut().unwrap() = 0;
+        if dump != dump_of(&bytes, start, probe.len) {
+            let report = analyze(&bytes, start, probe.len, &dump);
+            assert_eq!(report.pages[0].kind, PageKind::Fragment);
+        }
+    }
+
+    #[test]
+    fn fragment_does_not_mask_full_page_fingerprint() {
+        let (bytes, probe, start) = golden(PAGE as usize - 88, 3 * PAGE as usize + 100);
+        let mut dump = dump_of(&bytes, start, probe.len);
+        page_mut(&mut dump, start, 2).fill(0);
+        *dump.last_mut().unwrap() ^= 0x01;
+        let report = analyze(&bytes, start, probe.len, &dump);
+        let kinds: Vec<_> = report.pages.iter().map(|finding| finding.kind).collect();
+        assert_eq!(kinds, [PageKind::Zero, PageKind::Fragment]);
+        assert_eq!(report.verdict, Verdict::PageFingerprint);
+    }
+
+    #[test]
+    fn dump_must_match_recorded_actual_digest() {
+        let (bytes, mut probe, start) = aligned();
+        let mut dump = dump_of(&bytes, start, probe.len);
+        page_mut(&mut dump, start, 4).fill(0);
+        probe.actual = Sha256::digest(&dump).into();
+        probe.actual_hex = probe
+            .actual
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert!(check_integrity(&probe, &dump).is_ok());
+        // 审阅反例：旁文件记录的是零页失真，落盘后的转储却变成单字节翻转。
+        let mut altered = dump_of(&bytes, start, probe.len);
+        altered[100] ^= 0x01;
+        let error = check_integrity(&probe, &altered).unwrap_err();
+        assert!(error.starts_with("verdict=evidence-mismatch"), "{error}");
     }
 }
