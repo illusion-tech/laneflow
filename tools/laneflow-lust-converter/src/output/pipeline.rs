@@ -1197,7 +1197,7 @@ pub(crate) fn build_source_tar(
 ) -> Result<crate::output::provenance::VerifiedSourceTar> {
     let mut members = Vec::with_capacity(PINNED_SOURCE_FILES.len() + 2);
     for pinned in PINNED_SOURCE_FILES {
-        // read_verified 在消费时重哈希与验证记录比对（TOCTOU 闭合，#253 C2）：
+        // read_verified 在消费时重哈希与验证记录比对（#253 C2）：
         // 验证后、打包前被换的字节在此 fail-closed，不会静默进入 lust-source.tar。
         let contents = read_verified(verified, pinned.relative_path)?.into_bytes();
         members.push(TarMember {

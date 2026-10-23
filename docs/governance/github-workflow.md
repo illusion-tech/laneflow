@@ -302,14 +302,14 @@ cargo +1.99.1 nextest run -p laneflow-junction-generator --locked --features pla
 
 `cargo test --workspace --locked`（libtest）可作备用测试方式，但行为不同：同进程线程模型下
 `laneflow-runtime` 的 `RESOURCE_TEST_LOCK` 会把资源探针类测试串行化，套件墙钟显著变长。
-该锁保留——libtest 路径的测试正确性依赖它；本地并行口径以 nextest 为准。
+该锁保留——libtest 路径的测试正确性依赖它；本地并行测试使用 nextest。
 
 证据类测试不在本地常规运行；需要时按 `Evidence` workflow 的命令执行（钉版 nextest
 `--run-ignored ignored-only --test-threads 1 --no-capture` 加 `-E` 过滤）。
 
 ### 8.2 偶发失败 triage
 
-CI 失败不等于真回归，也不得默认当偶发放过。判读与处置按以下口径执行；签名判读
+CI 失败不等于真回归，也不得默认当偶发放过。判读与处置按以下规则执行；签名判读
 入口见 `../reference/validation-matrix.md` 第 8 节：
 
 1. **分诊**：先按签名对照表判读失败面，按三类处置：
@@ -327,7 +327,7 @@ CI 失败不等于真回归，也不得默认当偶发放过。判读与处置�
 3. **取证优先**：命中已探针覆盖的签名时，直接读探针现场数据（如 `[digest-probe]`、
    `[tick-ledger]`）归因，不再做无探针盲跑循环；探针不足时按 #797 / #893 范式补
    留置探针后转自然取样。
-4. **修复口径**：优先结构性隔离（#791 / #795 / #796 先例），不放缩真实断言、不为
+4. **修复要求**：优先结构性隔离（#791 / #795 / #796 先例），不放缩真实断言、不为
    偶发叠加双轨隔离。修复完成以「连续 ≥10 次全量全绿」为准，重跑通过不算修复。
 
 ## 9. Release 规则

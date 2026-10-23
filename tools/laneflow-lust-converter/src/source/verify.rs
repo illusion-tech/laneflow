@@ -564,7 +564,7 @@ pub fn recheck_source_revision(source_dir: &Path) -> Result<()> {
 ///    pinned digest 校验（文件失配、HEAD 错误、无仓库在此 fail-closed——
 ///    即任何 normalize/转换之前）。
 /// 2. 三份诊断输入逐份 `read_verified`：消费时重哈希与验证记录比对
-///    （TOCTOU 闭合），字节在验证后被换即拒绝。
+///    摘要失配即拒绝，避免消费验证后已被替换的输入。
 /// 3. 构造 `ReportSource::verified`（crate 内受控构造器，摘要为 net 消费字节）。
 ///
 /// 当前仅验收套件消费（生产 pipeline 经 `read_verified` 自行组装输入）。

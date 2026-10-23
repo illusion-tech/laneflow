@@ -1284,7 +1284,7 @@ pub(crate) fn relation_retained_floor(
     counts: &EntityCounts,
     payloads: RelationPayloads,
 ) -> Result<u64, BuildError> {
-    // 闭合对象内联在 SharedNetworkRevision 中，对象头已计入根对象 size_of。
+    // 关系闭合对象内联在 SharedNetworkRevision 中，对象头已计入根对象 size_of。
     let mut total = 0_u64;
     let corridor = counts.count(EntityKind::RoadCorridor);
     let section = counts.count(EntityKind::RoadSection);
@@ -1629,7 +1629,7 @@ mod builder_support {
         }
     }
 
-    /// 构造仅含指定车道图边数、其余关系全空的测试用闭合。
+    /// 构造仅含指定车道图边数、其余关系全空的测试用关系闭合对象。
     #[cfg(test)]
     pub(crate) fn empty_for_tests(lane_count: u32) -> SharedRelationClosure {
         let lane = usize::try_from(lane_count).expect("u32 fits");

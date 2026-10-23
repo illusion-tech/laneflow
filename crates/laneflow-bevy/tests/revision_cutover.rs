@@ -615,7 +615,7 @@ fn stale_consumption_context_rejected_after_cutover() {
     assert_eq!(pose_of_vehicle(&fresh, vehicle).position().y(), OFFSET_R2_Y);
 }
 
-/// 公开可变访问逃逸闭合：目标 Spatial 配错根在入口被拒，Session 与世界不变。
+/// 公开可变访问的配对检查：目标 Spatial 配错根在入口被拒，Session 与世界不变。
 #[test]
 fn target_spatial_mismatch_fails_closed_leaving_session_intact() {
     let fixture = fixture();

@@ -3,7 +3,7 @@
 //! 覆盖道路编辑（`LFRE`）与运行时快照（`LFRS`）两个私有 wire 家族；两者共用
 //! 固定 flatc 版本、Rust canonical bytes clean-regeneration 比对、C++/C# probe。
 //! unsafe 边界由 `check-wire-audit`（见 wire_audit.rs 模块文档）以 hermetic 编译
-//! 与钉版断言闭合。
+//! 与钉版断言检查。
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -119,7 +119,7 @@ pub(crate) fn run(family: &WireFamily, args: &[String]) -> Result<(), String> {
     require_generated_extension(&csharp_output, "cs")?;
 
     println!(
-        "{} codegen 已通过：{}；Rust canonical bytes clean，C++/C# probe 已生成，受审计 unsafe 边界已闭合",
+        "{} codegen 已通过：{}；Rust canonical bytes clean，C++/C# probe 已生成，受审计 unsafe 边界检查已通过",
         family.label,
         flatc.display()
     );
@@ -573,8 +573,8 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
         )?;
         // macro_rules 元变量间接（`$m:ident` → `load!(include)` 展开为
         // `include!`）可把加载指令藏出上面的文本扫描；本 crate 无合法宏定义
-        // 需求，禁 `macro_rules!` 定义即闭合该间接层。宏调用不受限。不另禁
-        // `macro` 定义：其需 #![feature]，stable 工具链编译即失败，自闭合。
+        // 需求，禁 `macro_rules!` 定义以阻断该间接加载途径。宏调用不受限。不另禁
+        // `macro` 定义：其需 #![feature]，stable 工具链编译即失败。
         if contains_bare_token(&code, "macro_rules") {
             return Err(format!(
                 "受审计 mmap package 内禁止 `macro_rules!` 宏定义（元变量间接可把 include! 藏出文本扫描）：`{}`",
