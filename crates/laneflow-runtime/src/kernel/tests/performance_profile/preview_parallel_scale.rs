@@ -132,11 +132,11 @@ fn run_arm(
     round: usize,
     force_dispatch: bool,
 ) -> ArmRow {
-    // 同一（规模, 轮）的所有臂共享世界身份：digest 跨臂可比（等价自检）；
+    // 同一（规模, 轮）的所有运行配置共享世界身份：digest 跨配置可比（等价自检）；
     // 探针无故障注入，不需要按 worker 隔离身份。
     let world_id = 705_500 + vehicles as u64 + round as u64;
     set_preview_chunk_multiplier(multiplier);
-    // 生产阈值保守（1_024 活动）；探针按臂选择强制分发，保证路径确定。
+    // 生产阈值保守（1_024 活动）；探针按运行配置选择是否强制分发，保证路径确定。
     let _force = force_dispatch.then(force_preview_dispatch);
     let (mut world, routes) =
         waiting::tests::multi_gate_world_partial(vehicles, vehicles, world_id);
@@ -236,14 +236,14 @@ fn run_arm(
 }
 
 /// 注入一次预览错误，记录完整 join 的调度统计（错误后多做工作）。
-/// 注入掩码按 u64 武装，错误臂用 64 车的同形场景，位置 32 恰在块边界
+/// 注入掩码按 u64 武装，错误注入测试用 64 车的同形场景，位置 32 恰在块边界
 /// （workers=4 时块大小 8）中段：更早块完成，更晚任务在开始执行时
 /// 查已错位置并整块跳过计算，scope 完整 join。
 fn run_error_arm() {
     const WORKERS: u32 = 4;
     const ERROR_VEHICLES: usize = 64;
     let world_id = 705_999;
-    // 64 车远低于生产阈值；错误臂观察分发调度统计，须强制真实分发。
+    // 64 车远低于生产阈值；错误注入测试观察分发调度统计，须强制真实分发。
     let _force = force_preview_dispatch();
     let (mut world, routes) =
         waiting::tests::multi_gate_world_partial(ERROR_VEHICLES, ERROR_VEHICLES, world_id);

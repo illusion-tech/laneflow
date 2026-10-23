@@ -90,8 +90,8 @@ fn run_workers_parameter_reaches_execution_and_provenance() {
     assert_eq!(diagnostics["workers"], 1);
 }
 
-/// 跨臂 A/B：仅 worker 不同（1 vs 4）、语义逐拍一致 → compare_runs
-/// 通过；报告体现两臂各自 worker 数；plan 不同的输入混用仍拒绝。
+/// 跨运行 A/B：仅 worker 不同（1 vs 4）、语义逐拍一致 → compare_runs
+/// 通过；报告体现两次运行各自 worker 数；plan 不同的输入混用仍拒绝。
 #[test]
 fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     let temp = tempfile::tempdir().unwrap();
@@ -139,7 +139,7 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
 
 /// 线程 1 回归：diagnostics.json 纳入 result.files 完整性封套后，篡改
 /// 其 workers 字段（不重算摘要）必须被 compare 拒绝；合法 1w/4w probe
-/// 跨臂比较不受影响。
+/// 跨运行比较不受影响。
 #[test]
 fn compare_runs_rejects_tampered_diagnostics_workers() {
     let temp = tempfile::tempdir().unwrap();

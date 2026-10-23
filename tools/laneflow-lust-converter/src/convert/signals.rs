@@ -62,7 +62,7 @@ pub(crate) fn validate_weld_signal_bindings(
     Ok(())
 }
 
-/// 「声明臂无受控 link」source-health 事实（#253 K4a）：相位状态向量中无任何
+/// 「声明的相位状态位置无受控 link」source-health 事实（#253 K4a）：相位状态向量中无任何
 /// connection 认领的位置（如 pinned controller `-13968` 缺 index 9）。不
 /// fail——按 G1 契约修订记入 conversion report（明列 controller id 与缺失
 /// index）。
@@ -73,7 +73,7 @@ pub struct UnclaimedSignalArm {
 }
 
 /// Build Signals from network controlled connections + static tll programs.
-/// 返回值附带「声明臂无受控 link」health 事实（可能为空）。
+/// 返回值附带「声明的相位状态位置无受控 link」health 事实（可能为空）。
 pub fn convert_signals(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
@@ -181,7 +181,7 @@ pub fn convert_signals(
             )));
         }
         validate_program_states(program, &links)?;
-        // K4a：相位向量中无受控 link 认领的位置（声明臂）不 fail，收集为
+        // K4a：相位向量中无受控 link 认领的位置（声明的相位状态位置）不 fail，收集为
         // health 事实（link 越界仍由 validate_program_states 严格拒绝）。
         // Q5：按 char 计数（与相位向量位置语义一致）。
         let state_len = program
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn unclaimed_signal_arm_becomes_health_fact_not_failure() {
-        // #253 K4a：相位向量中的声明臂（无受控 link 的位置）不 fail——转换
+        // #253 K4a：相位向量中的声明的相位状态位置（无受控 link 的位置）不 fail——转换
         // 成功并返回 health 事实（controller id + 缺失 index）。
         let net = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>

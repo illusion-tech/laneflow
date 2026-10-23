@@ -46,7 +46,7 @@ pub enum Arm {
 impl Arm {
     pub const ALL: [Self; 4] = [Self::West, Self::East, Self::North, Self::South];
 
-    /// 从路口中心指向本臂的单位向量。
+    /// 从路口中心指向本外部道路的单位向量。
     const fn delta(self) -> Point {
         match self {
             Self::West => [-1.0, 0.0],
@@ -69,7 +69,7 @@ impl Arm {
         matches!(self, Self::West | Self::East)
     }
 
-    /// 右侧通行车道中心到臂轴线的横向偏移；主路两车道、次路一车道。
+    /// 右侧通行车道中心到外部道路轴线的横向偏移；主路两车道、次路一车道。
     fn lane_offsets(self, config: &JunctionConfig) -> Vec<f64> {
         let center = config.geometry.center_offset_meters;
         let half = config.geometry.lane_width_meters / 2.0;
@@ -168,7 +168,7 @@ impl Curve {
     }
 
     /// 环路回连曲线：三段 90 度圆弧绕角 + 直线段。起止切向分别对齐
-    /// `from` 臂驶离方向与到达臂驶入方向，起止点与道路边端口逐位一致，
+    /// `from` 道路的驶离方向与到达道路的驶入方向，起止点与道路边端口逐位一致，
     /// 保证 LaneEdge 后继焊接。控制腿等长（`CIRCLE_CUBIC_FACTOR·radius`），
     /// 编译器自适应细分在良态控制多边形上不会产生退化弦。
     ///
@@ -225,7 +225,7 @@ impl Curve {
         // 直线 2：沿 -h0 推进 l2。
         let p4 = [end2[0] - l2 * h0[0], end2[1] - l2 * h0[1]];
         segments.push(Segment::Line { end: p4 });
-        // 圆弧 3：-h0 右转 90 度到 -right（即到达臂驶入方向）。
+        // 圆弧 3：-h0 右转 90 度到 -right（即到达道路的驶入方向）。
         let end3 = [
             p4[0] - radius * right[0] - radius * h0[0],
             p4[1] - radius * right[1] - radius * h0[1],
@@ -246,7 +246,7 @@ impl Curve {
     /// 中心侧，即 `rot90(tangent)` 方向）平行偏移 `offset`（取一个车道宽）。
     /// 三段圆弧等半径收缩、直线腿横向平移，两轨全段等距不交叉。
     ///
-    /// 单车道臂强制 2↔1 汇合/分流的共点端（出发端同点或到达端同点）按
+    /// 双向各一车道的外部道路强制 2↔1 汇合/分流的共点端（出发端同点或到达端同点）按
     /// `taper_meters` 长度把偏移量平滑收敛到零（三次 smoothstep，纯四则
     /// 运算保持跨平台字节一致），收敛端精确落在 `exact_end`（调用方给该环
     /// 路自己的车道端口），焊接位置与切向不变。`exact_end` 必须是偏移侧
@@ -267,7 +267,7 @@ impl Curve {
         let mut points = vec![sampled[0]];
         for (index, pair) in sampled.windows(2).enumerate() {
             // 只有首末 45 m 直线需要渐变采样；中间长直线保持两个端点。
-            // 大臂长错误配置也不能在槽位数量检查前按米申请无界点列。
+            // 路口中心至道路外端距离过大的错误配置也不能在槽位数量检查前按米申请无界点列。
             let divisions = if index == 0 || index + 2 == sampled.len() {
                 segment_length(pair[0], pair[1]).floor().max(1.0) as usize
             } else {
@@ -532,7 +532,7 @@ fn smoothstep(u: f64) -> f64 {
     u * u * (3.0 - 2.0 * u)
 }
 
-/// 环路共点端（单车道臂强制 2↔1 汇合/分流）的锥形段长度（米）：
+/// 环路共点端（双向各一车道的外部道路强制 2↔1 汇合/分流）的锥形段长度（米）：
 /// 偏移量在该长度内从全量平滑收敛到零，汇合一侧保持 ≥ 一个车道宽量级
 /// 的横向间距，避免两轨在近端重叠。
 pub(crate) const LOOP_TAPER_METERS: f64 = 45.0;
@@ -797,7 +797,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         });
     };
 
-    // 四个臂的驶入/驶出道路边；后继在路径链与环路登记时回写。
+    // 四个方向外部道路的驶入/驶出道路边；后继在路径链与环路登记时回写。
     for arm in Arm::ALL {
         let offsets = arm.lane_offsets(config);
         let speed = if arm.main() {
@@ -833,7 +833,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         }
     }
 
-    // 环路回连边：每条出口车道顺时针绕角接到下一条入口车道（单车道臂处
+    // 环路回连边：每条出口车道顺时针绕角接到下一条入口车道（双向各一车道的外部道路处
     // 强制 2↔1 汇合/分流，共点端锥形处理），提供车辆存储与成环路线。
     // 内侧环路几何见 `Curve::corner_loop`；同角第二条环路用
     // `Curve::corner_loop_wide` 平行偏移，全段横向分离、不交叉。
@@ -857,7 +857,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         let end = port(to, true, to_offsets[to_lane], arm_length);
         let curve = if wide {
             // 同角第二条环路：以内侧环路为基准向转弯中心侧平行偏移一个车道宽。
-            // 出发端同点（同臂同车道出发，单车道臂分流）时锥形在出发端、
+            // 出发端同点（同一外部道路同一车道出发，双向各一车道的外部道路分流）时锥形在出发端、
             // 精确端点取本环到达端口；否则锥形在到达端（2→1 汇合）、精确端点
             // 取本环出发端口。
             let i0_start = port(from, false, from_offsets[0], arm_length);

@@ -22,7 +22,7 @@ cargo +1.99.1 run --locked -p laneflow-junction-generator -- check --config exam
 
 ## 场景合同
 
-- 单四岔信号路口：主路东西向 2+2 车道，次路南北向 1+1 车道；臂长、路口半径、车道
+- 单四岔信号路口：主路东西向 2+2 车道，次路南北向 1+1 车道；路口中心至道路外端距离、路口半径、车道
   宽度等几何参数全部来自配置文件。
 - 中心信号路口有 7 条 Movement / 9 条 ManeuverPath：主路东西双向直行（每车道一条车道级路径）、
   两条对向主路保护左转（西进口带沿左转弧线的 12 m 待转区，三门 admission /
@@ -49,7 +49,7 @@ cargo +1.99.1 run --locked -p laneflow-junction-generator -- check --config exam
   空间后再入区。转入连接段不计入储车长度，Runtime 的实际车长、间距与占用检查
   仍是准入约束。每条采用待转组织的左转路径独立拥有待转区，不为直行车道施画。
 - 8 条环路把每条出口车道
-  接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；单车道臂强制 2↔1
+  接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；双向各一车道的外部道路强制 2↔1
   汇合/分流。首末各保留 45 m 相切直线，共点端在这条直线内平滑收敛，弯道
   全程保持两个平行车道，焊接端口不变。只对固定长度渐变段加密，长直线不按米
   扩张点列。同角第二条环路以
@@ -65,7 +65,7 @@ cargo +1.99.1 run --locked -p laneflow-junction-generator -- check --config exam
   39 条边、11 条 Movement、13 条 ManeuverPath、15 条 Gate、5 个 ConflictZone、
   8 条 ParticipantStream。默认 380 个门户槽位支持每单元 312/313 辆的规模计划。
 - 北进口右转由相切直线和四分之一圆弧编制，圆弧转换为同一三次 Bé塞尔来源；
-  起止切向与臂道对齐，避免任意控制柄让轨迹斜切街角。其他机动门、Waiting、
+  起止切向与外部道路对齐，避免任意控制柄让轨迹斜切街角。其他机动门、Waiting、
   信号相位与冲突关系保持原场景合同。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
   PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；spawn slot

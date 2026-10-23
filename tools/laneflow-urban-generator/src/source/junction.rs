@@ -100,7 +100,7 @@ fn is_protected(control: &str) -> bool {
     control == "ProtectedGroup" || control == "DirectionalRightProtected"
 }
 
-/// 缺臂后仍为空的车道改走仍存在的直行。支路没有直行时，原组合只剩下左转或右转。
+/// 路口某方向的外部道路缺失后仍为空的车道改走仍存在的直行。支路没有直行时，原组合只剩下左转或右转。
 fn approach_turns(cell: &Cell, entry: Direction) -> Result<Vec<Vec<ManeuverDirection>>> {
     let present = |kind: ManeuverDirection| {
         Direction::ALL

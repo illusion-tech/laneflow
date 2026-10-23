@@ -148,9 +148,9 @@ pub fn build() -> Result<JunctionDebugScene, Box<dyn Error>> {
     })
 }
 
-/// 全部编制边名（catalog 路线 edge_ids，含臂道/内部/环路）到共享静态路网序号的映射。
+/// 全部编制边名（catalog 路线 edge_ids，含路口外部道路/内部道路/环路）到共享静态路网序号的映射。
 ///
-/// `bind` 的序号表只覆盖 spawn slot 引用的边；臂道与内部边经
+/// `bind` 的序号表只覆盖 spawn slot 引用的边；路口外部道路边与内部边经
 /// `catalog.routes` 的 edge_ids 顺序与 `bound.routes` 边序号逐一对齐取得。
 pub fn edge_ordinals(
     revision: &laneflow_static_network::SharedNetworkRevision,

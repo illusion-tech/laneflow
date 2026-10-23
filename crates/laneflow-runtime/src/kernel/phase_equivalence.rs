@@ -8,8 +8,8 @@
 //! worker 1 融合路径，其 digest 管线已由 pre-refactor fixture
 //! `phase-protocol-e011745e.txt` 锚定。worker 档位与拍数经 #915 outcome 级
 //! 测量论证降档（车辆场景档位 [1,2,4,16]、signals [1,4,16]，拍数
-//! 64/12/320/360），恢复+续跑比较抽样于分区形状唯一的臂 workers∈{1,2,16}
-//! （续跑 digest 跨抽样臂对照）。
+//! 64/12/320/360），恢复+续跑比较抽样于分区形状唯一的运行配置 workers∈{1,2,16}
+//! （续跑 digest 跨抽样配置对照）。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
 use crate::{StepError, TickInput, TrafficWorld};
@@ -88,19 +88,19 @@ fn trace(world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u
 enum RestoreCheck {
     /// 续跑 digest 并入轨迹 digest（e011745e pre-refactor 锚定路径，行为冻结）。
     IntoDigest,
-    /// 恢复+续跑作臂内断言，不进轨迹 digest（worker 矩阵抽样臂），
-    /// 保持跨臂 digest 可比较；续跑 digest 随 [`TraceDigest`] 返回，
-    /// 由调用方跨抽样臂对照。
+    /// 恢复+续跑在各配置内独立断言，不进轨迹 digest（worker 矩阵中抽样的配置），
+    /// 保持跨配置 digest 可比较；续跑 digest 随 [`TraceDigest`] 返回，
+    /// 由调用方跨抽样配置对照。
     SideAssert,
-    /// 不执行（矩阵未抽样臂；恢复机制与 worker 数无关，抽样覆盖）。
+    /// 不执行（矩阵中未抽样的配置；恢复机制与 worker 数无关，抽样覆盖）。
     Skip,
 }
 
 /// `trace_with_workers` 的产物。
 struct TraceDigest {
-    /// 轨迹 digest：fixture 比较与跨臂相等的对象。
+    /// 轨迹 digest：fixture 比较与跨配置相等的对象。
     trace: String,
-    /// 恢复+续跑后的状态 digest；仅 [`RestoreCheck::SideAssert`] 臂产生。
+    /// 恢复+续跑后的状态 digest；仅 采用 [`RestoreCheck::SideAssert`] 的运行配置产生。
     continued: Option<String>,
 }
 
@@ -391,8 +391,8 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
         let mut baseline: Option<String> = None;
         let mut continued_baseline: Option<String> = None;
         // #915 档位论证：8 与 16 同构（超订细分块）裁去；16 保留——4 vCPU CI 上
-        // 超订臂调度扰动最强、最易暴露顺序依赖。车辆场景保留 2：预览发现
-        // parts=线程数×4 被车辆数 16 封顶，w=2 是唯一每段 2 车（span=2）的臂，
+        // 线程超订配置调度扰动最强、最易暴露顺序依赖。车辆场景保留 2：预览发现
+        // parts=线程数×4 被车辆数 16 封顶，w=2 是唯一每段 2 车（span=2）的配置，
         // 4/16 均退化为每段 1 车；signals 无车辆，2 无新分区形状。
         for &raw_workers in *tiers {
             let workers = NonZeroU32::new(raw_workers).expect("nonzero workers");
@@ -424,9 +424,9 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
                     "{name} must keep at least {DISPATCH_MIN_ACTIVE} active vehicles, got {active}"
                 );
             }
-            // 恢复+续跑比较抽样于分区形状唯一的臂：1=融合参考、2=span=2 多车段、
+            // 恢复+续跑比较抽样于分区形状唯一的配置：1=融合参考、2=span=2 多车段、
             // 16=span=1 超订；4 与 16 同形（span=1）跳过。比较不进轨迹 digest，
-            // 跨臂 digest 保持可比较；抽样臂的续跑 digest 跨臂对照（臂内断言
+            // 跨配置 digest 保持可比较；抽样配置的续跑 digest 跨配置对照（配置内断言
             // 观测不到恢复后首拍的跨 worker 发散）。
             let restore = if matches!(raw_workers, 1 | 2 | 16) {
                 RestoreCheck::SideAssert
@@ -527,7 +527,7 @@ fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
             "{scenario}: full resource and journal trace"
         );
         // 续跑拍同样跨模式对照：稀疏选择与全扫描若在恢复快照才暴露的 retained
-        // 状态上发散，唯一显形机会是续跑拍；臂内断言只覆盖各自模式内部。
+        // 状态上发散，唯一显形机会是续跑拍；配置内断言只覆盖各自模式内部。
         assert_eq!(
             selected.continued, full.continued,
             "{scenario}: full resource and journal continued state"

@@ -70,7 +70,7 @@ pub struct StaticConversionArtifacts {
     /// 选中记录的源序数（§4 契约：进转换报告，诊断模式亦不例外）。
     pub population_ordinals: Vec<crate::convert::population::PopulationOrdinal>,
     pub route_count: usize,
-    /// 「声明臂无受控 link」source-health 事实（#253 K4a；通常为 empty）。
+    /// 「声明的相位状态位置无受控 link」source-health 事实（#253 K4a；通常为 empty）。
     pub signal_health: Vec<crate::convert::signals::UnclaimedSignalArm>,
 }
 

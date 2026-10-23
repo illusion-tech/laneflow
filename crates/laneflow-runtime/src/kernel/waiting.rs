@@ -324,7 +324,7 @@ pub(crate) mod preview_stage {
 
     /// 前置检查与输入准备（协调器：成员校验、scratch 预留、输入发现）。
     pub(crate) const PREAMBLE: usize = 0;
-    /// 融合循环墙钟（仅融合臂；包住逐车 staging，与分发块计算边界不同）。
+    /// 融合循环墙钟（仅融合路径；包住逐车 staging，与分发块计算边界不同）。
     pub(crate) const FUSED_LOOP: usize = 1;
     /// 分发作用域墙钟（分发到 join 返回，含并行计算；不是纯调度开销）。
     pub(crate) const DISPATCH_SCOPE: usize = 2;
@@ -7531,7 +7531,7 @@ pub(crate) mod tests {
 
     /// 可选并行暂存预留失败回退融合：冷（首拍）与热（容量已建立）暂存都被
     /// 强制回退，输出与无故障融合逐字节一致且全部成功，不新增领域错误；
-    /// 计数证明分发臂与回退确实发生（#705 验收：可选 scratch 回退）。
+    /// 计数证明分发路径与回退确实发生（#705 验收：可选 scratch 回退）。
     #[test]
     fn preview_slot_reserve_failure_falls_back_to_fused() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -7564,9 +7564,9 @@ pub(crate) mod tests {
         assert_eq!(
             preview_path_counts(),
             WaitingPreviewPathCounts {
-                // warm/cold 各 6 拍全部进入分发臂。
+                // warm/cold 各 6 拍全部进入分发路径。
                 dispatched: 12,
-                // reference（worker=1）6 拍全融合；回退拍在分发臂内另行计数。
+                // reference（worker=1）6 拍全融合；回退拍在分发路径内另行计数。
                 fused: 6,
                 // cold 6 拍 + warm 后 4 拍。
                 slot_fallback: 10,
@@ -7854,7 +7854,7 @@ pub(crate) mod tests {
     }
 
     /// fresh restore 后首拍（#705 审阅：小场景关键组合移入 lib）：恢复前后
-    /// 逐步 digest/决策/事件与 worker=1 参考一致；多 worker 臂经强制分发在
+    /// 逐步 digest/决策/事件与 worker=1 参考一致；多 worker 配置下的运行经强制分发在
     /// 每拍真实走 P2 分发（`WaitingPreviewPathCounts` 证明），worker=1 走融合。
     #[test]
     fn dispatch_matches_after_fresh_restore_first_tick() {
@@ -7926,7 +7926,7 @@ pub(crate) mod tests {
 
     /// 同修订切换后首拍（#705 审阅：小场景关键组合移入 lib）：同一制品构建
     /// 两个等价根对象，换根重编译全部路线后继续步进；切换后逐步 digest/决策/
-    /// 事件与 worker=1 参考一致，多 worker 臂经强制分发每拍真实走 P2 分发。
+    /// 事件与 worker=1 参考一致，多 worker 配置下的运行经强制分发每拍真实走 P2 分发。
     #[test]
     fn dispatch_matches_after_same_revision_cutover_first_tick() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -8128,7 +8128,7 @@ pub(crate) mod tests {
 
     /// 首错稳定：NonFiniteMotion 注入首/中/尾 Active 位置 × worker 1/2/4：
     /// 公开同一个错误、失败后已提交状态与失败前一致、清注入重试与 w1 参考
-    /// 首拍一致；路径计数按臂互斥（worker=1 融合、>1 分发）。
+    /// 首拍一致；路径计数在各运行配置内互斥（worker=1 融合、>1 分发）。
     #[test]
     fn motion_first_error_is_stable_across_workers_and_positions() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -8169,7 +8169,7 @@ pub(crate) mod tests {
             fused: counts.fused - counts_before.fused,
             slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
         };
-        // 每 (position, workers) 臂 = 失败拍 + 重试拍 = 2 拍。
+        // 每组 (position, workers) 测试 = 失败拍 + 重试拍 = 2 拍。
         assert_eq!(
             delta,
             MotionPathCounts {
@@ -8185,7 +8185,7 @@ pub(crate) mod tests {
     /// 公开的都是 Active 序较小位置的同一个 NonFiniteMotion 首错、失败拍
     /// 状态不变。表述修正（R5）：两位移映射同一错误枚举，本测试证明的是
     /// 「书写顺序不影响公开首错」而非完成序区分；完成序的区分由
-    /// conflict_first_error 的双错误类别臂（NonFinite × downstream CIV）
+    /// conflict_first_error 的双错误类别测试分组（NonFinite × downstream CIV）
     /// 覆盖。
     #[test]
     fn motion_canonical_first_error_across_chunk_boundaries() {
@@ -8473,7 +8473,7 @@ pub(crate) mod tests {
     /// 核心反例（checkpoint-map §5 D4-1）：候选车 cells 段已物化成功（F2
     /// 位到达），且同车更晚 downstream 检查注入 ConflictInvariantViolation；
     /// F2 真实预留原位先于 downstream 检查 ⇒ 公开
-    /// `ConflictScratchAllocFailed` 而非 downstream 的 CIV。预演臂证明
+    /// `ConflictScratchAllocFailed` 而非 downstream 的 CIV。预演测试证明
     /// downstream 注入确实命中；失败拍状态不变；清注入同 tick 重试与
     /// fresh 世界同拍一致。
     #[test]
@@ -8494,7 +8494,7 @@ pub(crate) mod tests {
         assert_eq!(
             result,
             Err(crate::StepError::ConflictInvariantViolation),
-            "downstream CIV 注入必须命中（预演臂）"
+            "downstream CIV 注入必须命中（预演测试）"
         );
 
         let mut fresh =
@@ -8614,7 +8614,7 @@ pub(crate) mod tests {
             fused: counts.fused - counts_before.fused,
             slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
         };
-        // 每 (position, workers) 臂 = 失败拍 + 重试拍 = 2 拍。
+        // 每组 (position, workers) 测试 = 失败拍 + 重试拍 = 2 拍。
         assert_eq!(
             delta,
             ConflictPathCounts {
@@ -8754,7 +8754,7 @@ pub(crate) mod tests {
             );
         }
         let counts = conflict_path_counts();
-        // 每臂仅首拍有近门候选，后五拍为空；w1 始终融合。
+        // 每组运行配置仅首拍有近门候选，后五拍为空；w1 始终融合。
         assert_eq!(
             (
                 counts.dispatched - before.dispatched,
@@ -8798,7 +8798,7 @@ pub(crate) mod tests {
 
     /// 停车 + 下游净空小场景强制分发等价：两车同一路线（前车紧邻车位
     /// 入口、已预约），downstream 边界 NoGrant 折入 preflight 与零候选
-    /// 车辆路径都在分发臂下与融合逐拍一致。
+    /// 车辆路径都在分发路径下与融合逐拍一致。
     #[test]
     fn conflict_parking_scenario_matches_fused_reference() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -9280,7 +9280,7 @@ pub(crate) mod tests {
     }
 
     /// E1 组合矩阵（审阅者 §8.3）：P2/P3/P5 七个分发/融合组合 + 全融合
-    /// 参照，multi-gate 16 车 w4、每臂 4 拍。被要求分发的相位以各自路径
+    /// 参照，multi-gate 16 车 w4、每组配置运行 4 拍。被要求分发的相位以各自路径
     /// 计数确认真实分发（与 fused/slot_fallback 互斥），融合相位计 fused；
     /// 全部组合的公开记录 + 工作区语义池逐拍一致（分发不改变语义），且
     /// 失败注入语义在全分发组合下不回归（矩阵外由 D4/首错测试覆盖）。

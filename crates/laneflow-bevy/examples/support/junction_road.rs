@@ -236,7 +236,7 @@ fn loop_surface(
         separations.push(separation);
     }
     asphalt.strip(&left, &right);
-    // 转弯中心侧接各臂外侧人行道，端口处保持同宽、同高、同一条路缘。
+    // 转弯中心侧接各外部道路的外侧人行道，端口处保持同宽、同高、同一条路缘。
     sidewalk.strip(
         &offset(&right, 0.16, WALK_Y),
         &offset(&right, WALK_WIDTH, WALK_Y),
@@ -505,7 +505,7 @@ pub fn build(revision: &SharedNetworkRevision) -> RoadMeshes {
         curb(&mut edging, &edge, outside);
     }
     asphalt.fan(Vec3::Y * ROAD_Y, &outline);
-    // 同一臂以世界横坐标/纵坐标区分边界，不随车辆行驶方向翻转去重键。
+    // 同一外部道路以世界横坐标/纵坐标区分边界，不随车辆行驶方向翻转去重键。
     let mut boundaries = BTreeMap::new();
     for (name, points) in &edges {
         if name.contains('.') || name.starts_with("loop-") {

@@ -12,7 +12,7 @@ use crate::{
     source::{LUST_COMMIT, LUST_REPOSITORY, LUST_TAG},
 };
 
-/// 「声明臂无受控 link」report 序列化视图（#253 K4a）。
+/// 「声明的相位状态位置无受控 link」report 序列化视图（#253 K4a）。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ReportUnclaimedArm {
@@ -45,7 +45,7 @@ pub struct ConversionReportInput {
     pub parking_polygon_count: u64,
     /// §3.3 信号相位计数（与其他信号对象计数并列；pinned 基线 1,298，#253 K7）。
     pub signal_phase_count: u64,
-    /// 「声明臂无受控 link」health 事实（#253 K4a；通常为 empty）。
+    /// 「声明的相位状态位置无受控 link」health 事实（#253 K4a；通常为 empty）。
     pub unclaimed_signal_arms: Vec<crate::convert::signals::UnclaimedSignalArm>,
     pub major_minor_green_collapsed: bool,
     /// 诊断模式无 network.lfca（`None` → digest 字段序列化不出现，由
@@ -87,7 +87,7 @@ struct ReportHealth {
     parking_registry_empty: bool,
     /// parking polygon 健康事实（§3.5；pinned 基线 175，#253 K6）。
     parking_polygon_count: u64,
-    /// 「声明臂无受控 link」health 事实（K4a；pinned：controller -13968 缺 index 9）。
+    /// 「声明的相位状态位置无受控 link」health 事实（K4a；pinned：controller -13968 缺 index 9）。
     unclaimed_signal_arms: Vec<ReportUnclaimedArm>,
 }
 

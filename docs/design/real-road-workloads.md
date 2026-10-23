@@ -265,7 +265,7 @@ v1 只接受已复核的 201 个 static controllers：
 
 不得固化 actuated program，也不存在“缺失 controller 时降级为 unsignalized”的
 路径。任一 controller 缺失、损坏、需要丢 phase 或需要降级时，转换立即失败。
-**例外（#253 K4a 契约修订）**：「声明臂无受控 link」——相位状态向量中无任何
+**例外（#253 K4a 契约修订）**：「声明的相位状态位置无受控 link」——相位状态向量中无任何
 connection 认领的位置——不判失败，作为 source-health 事实记入 conversion
 report（明列 controller id 与缺失 index；pinned 实例：controller `-13968`
 缺 index 9，相位状态串长 14）。受控 link 的 index 仍必须在相位向量范围内。

@@ -261,7 +261,7 @@ pub enum RoadEditingTableKind {
     LaneEdge,
     /// 路口 `Junction`：组织通行流向和机动路径的静态路口。
     Junction,
-    /// 通行流向 `Movement`：从有向入口臂到有向出口臂的静态通行意图。
+    /// 通行流向 `Movement`：从有向入口接近臂到有向出口接近臂的静态通行意图。
     Movement,
     /// 机动路径 `ManeuverPath`：连接入口边、内部边与出口边的可遍历路径。
     ManeuverPath,

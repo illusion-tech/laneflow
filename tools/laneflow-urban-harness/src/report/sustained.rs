@@ -718,7 +718,7 @@ mod tests {
         let dirs = ["a", "b", "c", "four"].map(|n| temp.path().join(n));
         let pristine = ["a", "b", "c", "four"].map(|n| temp.path().join(format!("pristine-{n}")));
         // packet() 每次生成 4608 拍完整产物，88 次调用里只有 4 种产出；
-        // 先各生成一份 pristine，每个故障再逐臂复制后施加既有篡改。
+        // 先各生成一份 pristine，每个故障再逐次运行复制后施加既有篡改。
         for (i, directory) in pristine.iter().enumerate() {
             packet(directory, &format!("exec-{i}"), if i == 3 { 4 } else { 1 });
         }
@@ -749,7 +749,7 @@ mod tests {
             for (source, directory) in pristine.iter().zip(&dirs) {
                 copy_fixture(source, directory);
             }
-            // 每臂做同一种篡改，不能让跨臂差异代替逐臂校验。
+            // 每次运行做同一种篡改，不能让跨运行差异代替逐次运行校验。
             for directory in &dirs {
                 let path = directory.join("result.json");
                 let mut result: RunResult =

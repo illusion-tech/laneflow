@@ -1474,7 +1474,7 @@ fn profile(slot: u32) -> &'static str {
     }
 }
 
-/// 外部进口或出口车道。键形如 `t000.c00.w.in.l0`。待转释放短边的角色是 `release`，不计入臂。
+/// 外部进口或出口车道。键形如 `t000.c00.w.in.l0`。待转释放短边的角色是 `release`，不计入外部进口或出口车道。
 fn external_lane(edge: &str) -> Option<(&str, &str)> {
     let mut parts = edge.split('.');
     let _tile = parts.next()?;
