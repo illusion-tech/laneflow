@@ -141,11 +141,13 @@ issue 为准，本表只做判读入口，不复制诊断结论。
 
 1. **取证**：`cargo test` / `cargo run` 启动的进程（可执行文件位于含 `CACHEDIR.TAG`
    的 cargo target 目录下）失配时默认落盘到该 target 目录的 `digest-probe/`：
-   `laneflow-digest-probe-<pid>-<entry>-<offset>.bin` 与同名 `.probe` 旁文件（entry、
-   offset、长度、期望与实际摘要），现场行为 `[digest-probe] dump path=...`。设置
-   `LANEFLOW_DIGEST_PROBE_DIR` 时改落该目录；安装到 target 之外的二进制不写盘。目录内
-   转储达 16 份后跳过并输出 `dump skipped`，判读留档后人工清空。只在失配分支写盘，
-   不改变失败语义。仓库 cargo 配置禁止 `[env]` 段（`check-wire-audit`），故不以环境
+   `laneflow-digest-probe-<entry>-<offset>-<实际摘要前 16 位>.bin` 与同名 `.probe`
+   旁文件（entry、offset、长度、期望与实际摘要），现场行为 `[digest-probe] dump path=...`。
+   设置 `LANEFLOW_DIGEST_PROBE_DIR` 时改落该目录；安装到 target 之外的二进制不写盘。
+   按实际摘要命名使确定性的负例测试（如 `laneflow-format` writer 摘要失配测试）只反复
+   覆盖固定文件，不随运行次数占用名额；环境失真每次内容不同，各自留档。目录内不同
+   转储达 16 份后跳过新内容并输出 `dump skipped`，判读留档后人工清空。只在失配分支
+   写盘，不改变失败语义。仓库 cargo 配置禁止 `[env]` 段（`check-wire-audit`），故不以环境
    变量注入默认目录。
 2. **金样本**：用失败测试所用的配置与规模重新生成健康产物，例如 urban-harness 夹具：
 
@@ -162,7 +164,8 @@ issue 为准，本表只做判读入口，不复制诊断结论。
    ```
 
    按 4 KiB 文件页输出首个分歧偏移、每页差异与页分类（`Zero` 零页、`Shifted(k)` 与
-   相距 k 页的金样本页逐字节相同、`Replaced` 差异铺满整页、`Partial` 差异只占页内一段）
+   相距 k 页的金样本页逐字节相同、`Replaced` 页均分 16 段后至少 12 段有差异、`Partial`
+   差异只落在少数分段）
    及结论：`page-fingerprint`（全部差异页为前三类）→ 按环境失真裁决并跑环境对照；
    `code-suspect`（存在 `Partial` 或长度不符）→ 转代码嫌疑；`identical` → 转储字节与
    金样本一致，失真未进入转储。
@@ -170,4 +173,6 @@ issue 为准，本表只做判读入口，不复制诊断结论。
    裁决。
 
 产物零字节较多，替换页与原页常有大量字节巧合相同：整页替换的差异字节可远低于 4 千、
-首个分歧也可能落在页内前几个字节。判读以页分类为准，`page_aligned` 只作参考。
+首个分歧也可能落在页内前几个字节，故 `Replaced` 按差异覆盖的分段而非差异字节数判定；
+页两端的零散翻转只覆盖少数分段，判 `Partial`。判读以页分类为准，`page_aligned` 只作
+参考。

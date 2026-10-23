@@ -1278,8 +1278,8 @@ fn check_source_location_rows(
 /// 转储目录取 `LANEFLOW_DIGEST_PROBE_DIR`；未设置时，仅当当前可执行文件位于 cargo
 /// target 目录（含 `CACHEDIR.TAG`）之下才默认落到其中的 `digest-probe`，覆盖
 /// `cargo test` / `cargo run`，安装到别处的二进制不写盘，也不把构建路径编入二进制。
-/// 文件名含 pid/entry/offset，同名重复落盘为覆盖语义；目录内转储达
-/// `DIGEST_PROBE_DUMP_CAP` 份后跳过并输出现场行，留待判读后人工清理。
+/// 文件名含 entry/offset 与实际摘要前缀，同一失真内容重复落盘为覆盖语义；目录内
+/// 不同转储达 `DIGEST_PROBE_DUMP_CAP` 份后跳过新内容并输出现场行，留待判读后人工清理。
 /// 同名 `.probe` 旁文件记录 entry、offset、长度与双摘要，供
 /// xtask `classify-digest-probe` 离线判读（`validation-matrix.md` §8.1）。
 #[cfg(feature = "std")]
@@ -1332,28 +1332,31 @@ fn write_digest_probe_dump(
         );
         return;
     }
+    // 按实际摘要命名：确定性的负例测试每次得到同一失真内容，只覆盖同一文件，
+    // 不占用名额；环境失真每次内容不同，各自留档。
+    let actual_hex = hex_digest(actual_digest);
+    let path = directory.join(std::format!(
+        "laneflow-digest-probe-{entry}-{byte_offset}-{}.bin",
+        &actual_hex[..16]
+    ));
     let existing = std::fs::read_dir(directory).map_or(0, |entries| {
         entries
             .filter_map(Result::ok)
             .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "bin"))
             .count()
     });
-    if existing >= DIGEST_PROBE_DUMP_CAP {
+    if !path.exists() && existing >= DIGEST_PROBE_DUMP_CAP {
         std::eprintln!(
             "[digest-probe] dump skipped path={} existing={existing} cap={DIGEST_PROBE_DUMP_CAP}",
             directory.display()
         );
         return;
     }
-    let path = directory.join(std::format!(
-        "laneflow-digest-probe-{}-{entry}-{byte_offset}.bin",
-        std::process::id()
-    ));
     let metadata = std::format!(
         "entry={entry}\noffset={byte_offset}\nlen={}\nexpected={}\nactual={}\n",
         chunk.len(),
         hex_digest(expected_digest),
-        hex_digest(actual_digest),
+        actual_hex,
     );
     if let Err(error) = std::fs::write(path.with_extension("probe"), metadata) {
         std::eprintln!(
@@ -1425,11 +1428,24 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&directory);
         let chunk = [7_u8; 100];
+        let dumps = || {
+            std::fs::read_dir(&directory)
+                .unwrap()
+                .filter(|entry| {
+                    entry
+                        .as_ref()
+                        .unwrap()
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext == "bin")
+                })
+                .count()
+        };
+        // 同一失真内容重复转储只覆盖同一文件，不额外占用名额。
         write_digest_probe_dump(&directory, 72, 290, &chunk, &[0xab; 32], &[0x01; 32]);
-        let dump = directory.join(std::format!(
-            "laneflow-digest-probe-{}-72-290.bin",
-            std::process::id()
-        ));
+        write_digest_probe_dump(&directory, 72, 290, &chunk, &[0xab; 32], &[0x01; 32]);
+        assert_eq!(dumps(), 1);
+        let dump = directory.join("laneflow-digest-probe-72-290-0101010101010101.bin");
         assert_eq!(std::fs::read(&dump).unwrap(), chunk);
         let probe = std::fs::read_to_string(dump.with_extension("probe")).unwrap();
         let expected = std::format!(
@@ -1442,15 +1458,17 @@ mod tests {
         for index in 1..DIGEST_PROBE_DUMP_CAP {
             std::fs::write(directory.join(std::format!("filler-{index}.bin")), b"x").unwrap();
         }
-        write_digest_probe_dump(&directory, 0, 88, &chunk, &[0xab; 32], &[0x01; 32]);
+        // 满额时跳过新内容，已有内容仍可覆盖。
+        write_digest_probe_dump(&directory, 0, 88, &chunk, &[0xab; 32], &[0x02; 32]);
         assert!(
             !directory
-                .join(std::format!(
-                    "laneflow-digest-probe-{}-0-88.bin",
-                    std::process::id()
-                ))
+                .join("laneflow-digest-probe-0-88-0202020202020202.bin")
                 .exists()
         );
+        let replaced = [9_u8; 100];
+        write_digest_probe_dump(&directory, 72, 290, &replaced, &[0xab; 32], &[0x01; 32]);
+        assert_eq!(std::fs::read(&dump).unwrap(), replaced);
+        assert_eq!(dumps(), DIGEST_PROBE_DUMP_CAP);
         std::fs::remove_dir_all(&directory).unwrap();
     }
 

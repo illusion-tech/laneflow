@@ -21,6 +21,8 @@ const MAX_SHIFT_PAGES: i64 = 64;
 /// 的 `CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH` 及目录项布局一致。
 const SECTION_PREAMBLE: u64 = 16;
 const ENTRY_DIGEST_OFFSET: u64 = 40;
+/// 整页替换判定的页内分段数。
+const REPLACEMENT_SEGMENTS: usize = 16;
 /// 报告逐页明细的上限，其余只计入汇总。
 const MAX_PAGE_LINES: usize = 32;
 
@@ -160,8 +162,8 @@ enum PageKind {
     Zero,
     /// 失真页与金样本相距若干整页的另一页逐字节相同（页整数倍位移）。
     Shifted(i64),
-    /// 差异铺满整页（整页替换）。产物零字节多，替换页与原页常有大量字节巧合相同，
-    /// 故按差异跨度而非差异字节数判定。
+    /// 差异分布覆盖整页（整页替换）。产物零字节多，替换页与原页常有大量字节巧合
+    /// 相同，故按差异覆盖的页内分段而非差异字节数判定。
     Replaced,
     /// 差异只占页内一段：不符合页级失真指纹。
     Partial,
@@ -322,11 +324,16 @@ fn classify_page(golden: &[u8], page: u64, from: u64, want: &[u8], got: &[u8]) -
             return PageKind::Shifted(shift);
         }
     }
-    let differs = |(left, right): (&u8, &u8)| left != right;
-    let first = want.iter().zip(got).position(differs).unwrap_or(0);
-    let last = want.iter().zip(got).rposition(differs).unwrap_or(0);
-    let edge = want.len() / 8;
-    if first <= edge && last + edge >= want.len() - 1 {
+    // 页均分为 REPLACEMENT_SEGMENTS 段，差异须覆盖其中至少 3/4 才算整页替换；
+    // 只看首尾差异会把页两端的零散翻转误判为替换。
+    let segment = want.len().div_ceil(REPLACEMENT_SEGMENTS).max(1);
+    let (hit, total) = want
+        .chunks(segment)
+        .zip(got.chunks(segment))
+        .fold((0, 0), |(hit, total), (left, right)| {
+            (hit + usize::from(left != right), total + 1)
+        });
+    if hit * 4 >= total * 3 {
         PageKind::Replaced
     } else {
         PageKind::Partial
@@ -518,6 +525,20 @@ mod tests {
         let at = (15 * PAGE + 1_000 - start) as usize;
         dump[at..at + 64].copy_from_slice(&noise(64, 5));
         let report = analyze(&bytes, start, probe.len, &dump);
+        assert_eq!(report.pages[0].kind, PageKind::Partial);
+        assert_eq!(report.verdict, Verdict::CodeSuspect);
+    }
+
+    #[test]
+    fn isolated_flips_at_both_page_ends_are_not_a_replacement() {
+        // 审阅反例：页首、页尾各一个字节翻转，内部未变。
+        let (bytes, probe, start) = aligned();
+        let mut dump = dump_of(&bytes, start, probe.len);
+        let page = (9 * PAGE - start) as usize;
+        dump[page] ^= 0x01;
+        dump[page + PAGE as usize - 1] ^= 0x80;
+        let report = analyze(&bytes, start, probe.len, &dump);
+        assert_eq!(report.pages[0].differing, 2);
         assert_eq!(report.pages[0].kind, PageKind::Partial);
         assert_eq!(report.verdict, Verdict::CodeSuspect);
     }
