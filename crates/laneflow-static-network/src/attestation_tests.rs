@@ -1,5 +1,8 @@
 //! 共享路网修订认证测试（#959 切片 A；按 Issue #959 验收标准逐项覆盖）。
 
+#[path = "attestation_matrix_tests.rs"]
+mod matrix;
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

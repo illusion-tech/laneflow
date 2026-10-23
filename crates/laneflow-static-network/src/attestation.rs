@@ -566,6 +566,8 @@ where
         AttemptOutcome::Failed(FirstFailure::Source(evidence)) => {
             // 来源准备阶段失败直接按复算归类表确认（设计 §2.2）。
             trace.push(TraceStep::RecomputeStarted);
+            #[cfg(test)]
+            test_injection::before_recompute();
             let recompute = run_attempt(
                 root,
                 &lfca,
@@ -633,6 +635,8 @@ where
         },
     };
     trace.push(TraceStep::RecomputeStarted);
+    #[cfg(test)]
+    test_injection::before_recompute();
     let recompute = run_attempt(
         root,
         lfca,
@@ -661,6 +665,21 @@ fn run_attempt<S>(
 where
     S: BoundedReReadableObjectSource,
 {
+    #[cfg(test)]
+    let source_override = test_injection::take_source();
+    #[cfg(test)]
+    if let Some(bytes) = source_override {
+        return run_attempt(
+            root,
+            &bytes.as_slice(),
+            expectation,
+            format_limits,
+            build_options,
+            prepared_identity,
+            source_audit,
+            trace,
+        );
+    }
     trace.push(TraceStep::SourcePreparationStarted);
     let candidate = match run_source_preparation(
         lfca,
@@ -680,8 +699,16 @@ where
         if test_injection::root_comparison_panic_armed() {
             panic!("injected root-comparison panic");
         }
+        let candidate: &SharedNetworkRevision = &candidate;
+        #[cfg(test)]
+        let injected = test_injection::take_comparison();
+        #[cfg(test)]
+        let (candidate, root) = (
+            injected.0.as_deref().unwrap_or(candidate),
+            injected.1.as_deref().unwrap_or(root),
+        );
         compare_origin(root.canonical_origin(), expectation)
-            .and_then(|()| compare_revisions_by_value(&candidate, root))
+            .and_then(|()| compare_revisions_by_value(candidate, root))
     }));
     match comparison {
         Ok(Ok(())) => AttemptOutcome::Concluded,
@@ -1083,12 +1110,62 @@ fn panic_payload_text(payload: Box<dyn Any + Send>) -> String {
 /// panic 归类路径经此注入覆盖）。
 #[cfg(test)]
 pub(crate) mod test_injection {
-    use std::cell::Cell;
+    use crate::SharedNetworkRevision;
+    use std::{
+        cell::{Cell, RefCell},
+        collections::VecDeque,
+        sync::Arc,
+    };
+
+    type Comparison = (
+        Option<Arc<SharedNetworkRevision>>,
+        Option<Arc<SharedNetworkRevision>>,
+    );
 
     thread_local! {
         static SOURCE_PREPARATION_PANIC: Cell<bool> = const { Cell::new(false) };
         static SOURCE_PREPARATION_PANIC_ONCE: Cell<bool> = const { Cell::new(false) };
         static ROOT_COMPARISON_PANIC: Cell<bool> = const { Cell::new(false) };
+        static COMPARISONS: RefCell<VecDeque<Comparison>> = const { RefCell::new(VecDeque::new()) };
+        static SOURCES: RefCell<VecDeque<Vec<u8>>> = const { RefCell::new(VecDeque::new()) };
+        static SOURCE_OVERRIDE_ACTIVE: Cell<bool> = const { Cell::new(false) };
+        static RECOMPUTE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    // 提供阶段读取视图，安全地替换测试对象；不改写在用的不可变借用或模拟 OS 地址故障。
+    pub(crate) fn comparisons(values: Vec<Comparison>) {
+        COMPARISONS.with(|slot| *slot.borrow_mut() = values.into());
+    }
+
+    pub(crate) fn take_comparison() -> Comparison {
+        COMPARISONS.with(|slot| slot.borrow_mut().pop_front().unwrap_or_default())
+    }
+
+    pub(crate) fn sources(values: Vec<Vec<u8>>) {
+        SOURCES.with(|slot| *slot.borrow_mut() = values.into());
+    }
+
+    pub(crate) fn take_source() -> Option<Vec<u8>> {
+        // 只替换外层 attempt，递归调用仍走真实 reader / builder；不消费下一次复算来源。
+        if SOURCE_OVERRIDE_ACTIVE.with(|flag| flag.replace(false)) {
+            return None;
+        }
+        let bytes = SOURCES.with(|slot| slot.borrow_mut().pop_front());
+        if bytes.is_some() {
+            SOURCE_OVERRIDE_ACTIVE.with(|flag| flag.set(true));
+        }
+        bytes
+    }
+
+    pub(crate) fn on_recompute(callback: impl FnOnce() + 'static) {
+        RECOMPUTE.with(|slot| *slot.borrow_mut() = Some(Box::new(callback)));
+    }
+
+    pub(crate) fn before_recompute() {
+        let callback = RECOMPUTE.with(|slot| slot.borrow_mut().take());
+        if let Some(callback) = callback {
+            callback();
+        }
     }
 
     /// 武装来源准备阶段持续 panic（复算同样触发，用于同证据复算用例）。
@@ -1121,5 +1198,9 @@ pub(crate) mod test_injection {
         SOURCE_PREPARATION_PANIC.with(|flag| flag.set(false));
         SOURCE_PREPARATION_PANIC_ONCE.with(|flag| flag.set(false));
         ROOT_COMPARISON_PANIC.with(|flag| flag.set(false));
+        COMPARISONS.with(|slot| slot.borrow_mut().clear());
+        SOURCES.with(|slot| slot.borrow_mut().clear());
+        SOURCE_OVERRIDE_ACTIVE.with(|flag| flag.set(false));
+        RECOMPUTE.with(|slot| *slot.borrow_mut() = None);
     }
 }
