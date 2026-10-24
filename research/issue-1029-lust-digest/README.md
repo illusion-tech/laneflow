@@ -1,10 +1,13 @@
-# LuST 短前像摘要成本复核
+# LuST 短前像摘要成本复核：SHA / BLAKE3 阶段记录
 
 关联 [#1029](https://github.com/illusion-tech/laneflow/issues/1029)；测量日期：2026-10-25。
 
-## 结论
+后续 [XXH3 与确定性派生复核](xxh3-review.md)补充第三种算法、威胁模型和规则修订
+建议；当前判断以该报告为准。本文件保留第一阶段的 330 个样本与当时的比较范围。
 
-在本次机器、依赖版本和固定 LuST 输入上，保持候选排序与 `departPos` 派生的 SHA-256。
+## 第一阶段结论
+
+在本次机器、依赖版本和固定 LuST 输入的 SHA/BLAKE3 二选一比较中，保留 SHA-256。
 实测 BLAKE3 对短输入更慢；完整选取没有可复现的提速。迁移及重建基线主要是一次性
 成本，不能单独证明应长期保留原算法；这里的保持结论由实际候选算法成本支持。
 若目标机器、实现或输入分布改变，应重新测量，不把本机结果推广为 SHA-256 普遍更优。
@@ -15,7 +18,7 @@
 `laneflow-lust-converter` 内部的 `#[cfg(test)]` 模块编译，默认忽略，未新增 research
 crate。这样可复用实际解析、候选谓词、记录类型和来源验证，而不开放生产 API。
 
-- [Rust 实验源码](../../tools/laneflow-lust-converter/src/convert/population/digest_benchmark.rs)。
+- [第一阶段 Rust 实验源码](https://github.com/illusion-tech/laneflow/blob/779f845920ad7abe2c16758a356604101fa4f6e4/tools/laneflow-lust-converter/src/convert/population/digest_benchmark.rs)。
 - [生产选取函数](../../tools/laneflow-lust-converter/src/convert/population.rs)。
 - [全部 330 个批次样本](samples.csv)：三次独立进程，每进程每项 11 个样本、共 10 项。
 - 源码 Git blob：`96d2173f92a31499e9fd9a06383a5597a6622ae3`。
@@ -105,12 +108,15 @@ BLAKE3 对照保留现有前像，仅隔离算法变量；这不是已经冻结�
   没有在本实验中解决。
 
 按设计 §7，真实迁移须提升受影响的工作负载 ID、更新派生版本并重建基线。这是可
-承担的一次性工作；本次不迁移的性能依据是候选算法没有提供持续收益，而非拒绝改变
-历史结果。两处按 ADR 0033 的间接持久化规则归类，角色结论不因测量改变。
+承担的一次性工作；第一阶段不换 BLAKE3 的性能依据是该候选没有提供持续收益，而非
+拒绝改变历史结果。两处按现行 ADR 0033 的间接持久化规则归类；该规则是否适合
+确定性派生由后续报告复核，不把现行规则当作不可改变的技术要求。
 
 ## 复查入口
 
-在工作树根目录，将环境变量 `LUST_SOURCE_DIR` 设置为上述固定 commit 的 LuST
+第一阶段须使用 commit `779f845920ad7abe2c16758a356604101fa4f6e4` 的源码与 lockfile；
+当前源码已增加 XXH3 项，不会重现本阶段的十项输出。在对应工作树根目录，将环境变量
+`LUST_SOURCE_DIR` 设置为上述固定 commit 的 LuST
 checkout，再独立执行下列命令三次；不要与其他基准或构建并行。工具自行验证来源，
 不下载、修改或生成 LuST 输入。
 

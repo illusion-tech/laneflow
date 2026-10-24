@@ -84,6 +84,20 @@ fn blake(bytes: &[u8]) -> [u8; 32] {
     *blake3::hash(bytes).as_bytes()
 }
 
+fn xxh3(bytes: &[u8]) -> u64 {
+    twox_hash::XxHash3_64::oneshot_with_seed(0, bytes)
+}
+
+fn xxh3_depart_numerator(id: &str) -> u64 {
+    // 固定来源的 ID 至多 14 字节；计时包含拼接，不引入堆分配或进程随机 seed。
+    let len = DEPART_PREFIX.len() + id.len();
+    let mut bytes = [0_u8; 64];
+    assert!(len <= bytes.len(), "fixed-input experiment buffer");
+    bytes[..DEPART_PREFIX.len()].copy_from_slice(DEPART_PREFIX);
+    bytes[DEPART_PREFIX.len()..len].copy_from_slice(id.as_bytes());
+    xxh3(&bytes[..len]) >> 11
+}
+
 fn sha_depart(id: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(DEPART_PREFIX);
@@ -103,15 +117,19 @@ fn position_numerator(digest: [u8; 32]) -> u64 {
 }
 
 fn position_fraction(digest: [u8; 32]) -> f64 {
-    position_numerator(digest) as f64 / ((1_u64 << 53) as f64)
+    fraction(position_numerator(digest))
+}
+
+fn fraction(numerator: u64) -> f64 {
+    numerator as f64 / ((1_u64 << 53) as f64)
 }
 
 // 与 select_population 相同的过滤、截断、校验及物化步骤；只有排序键是实验变量。
 // 真实数据启动时逐字段断言 SHA 与生产结果相等，预计算键也必须得到相同记录。
 // 不执行路线展开或静态编译，不能把此调用耗时当作 converter 端到端耗时。
-fn select_with_key(
+fn select_with_key<K: Ord>(
     vehicles: &[DueVehicle],
-    key: impl Fn(&DueVehicle) -> [u8; 32],
+    key: impl Fn(&DueVehicle) -> K,
 ) -> Result<Vec<PopulationRecord>> {
     let known: HashSet<&str> = KNOWN_SOURCE_VTYPE_IDS.iter().copied().collect();
     let mut candidates = Vec::new();
@@ -159,14 +177,19 @@ fn select_with_key(
     Ok(records)
 }
 
-fn print_semantic_changes(sha_records: &[PopulationRecord], blake_records: &[PopulationRecord]) {
+fn print_semantic_changes(
+    name: &str,
+    sha_records: &[PopulationRecord],
+    alternative: &[PopulationRecord],
+    numerator: impl Fn(&str) -> u64,
+) {
     let sha_ranks = sha_records
         .iter()
         .map(|record| (record.vehicle_id.as_str(), record.population_rank))
         .collect::<HashMap<_, _>>();
     let mut common = 0;
     let mut same_rank = 0;
-    for record in blake_records {
+    for record in alternative {
         if let Some(rank) = sha_ranks.get(record.vehicle_id.as_str()) {
             common += 1;
             same_rank += usize::from(*rank == record.population_rank);
@@ -175,26 +198,25 @@ fn print_semantic_changes(sha_records: &[PopulationRecord], blake_records: &[Pop
     let changed_q = sha_records
         .iter()
         .filter(|record| {
-            position_numerator(sha_depart(&record.vehicle_id))
-                != position_numerator(blake_depart(&record.vehicle_id))
+            position_numerator(sha_depart(&record.vehicle_id)) != numerator(&record.vehicle_id)
         })
         .count();
     let mean_abs_q_delta = sha_records
         .iter()
         .map(|record| {
             (position_fraction(sha_depart(&record.vehicle_id))
-                - position_fraction(blake_depart(&record.vehicle_id)))
+                - fraction(numerator(&record.vehicle_id)))
             .abs()
         })
         .sum::<f64>()
         / sha_records.len() as f64;
     println!(
-        "semantic,common={common},removed={},added={},common_rank_changed={},same_rank={same_rank},q_changed={changed_q},mean_abs_q_delta={mean_abs_q_delta:.9}",
+        "semantic,{name},common={common},removed={},added={},common_rank_changed={},same_rank={same_rank},q_changed={changed_q},mean_abs_q_delta={mean_abs_q_delta:.9}",
         sha_records.len() - common,
-        blake_records.len() - common,
+        alternative.len() - common,
         common - same_rank,
     );
-    for (name, records) in [("sha", sha_records), ("blake", blake_records)] {
+    for (name, records) in [("sha", sha_records), (name, alternative)] {
         let edges = records
             .iter()
             .map(|record| record.road_edge_ids.len())
@@ -204,6 +226,36 @@ fn print_semantic_changes(sha_records: &[PopulationRecord], blake_records: &[Pop
             records.len()
         );
     }
+}
+
+fn print_diagnostics<K: Eq + std::hash::Hash>(
+    name: &str,
+    candidates: &[&DueVehicle],
+    records: &[PopulationRecord],
+    key: impl Fn(&[u8]) -> K,
+    numerator: impl Fn(&str) -> u64,
+) {
+    let unique_keys = candidates
+        .iter()
+        .map(|vehicle| key(vehicle.id.as_bytes()))
+        .collect::<HashSet<_>>();
+    let numerators = records
+        .iter()
+        .map(|record| numerator(&record.vehicle_id))
+        .collect::<Vec<_>>();
+    let mut bins = [0_usize; 16];
+    for &value in &numerators {
+        assert!(value < 1_u64 << 53);
+        bins[(value >> 49) as usize] += 1;
+    }
+    println!(
+        "diagnostics,{name},candidate_collisions={},q_collisions={},q_min={:.9},q_max={:.9},q_mean={:.9},q_bins_16={bins:?}",
+        candidates.len() - unique_keys.len(),
+        numerators.len() - numerators.iter().copied().collect::<HashSet<_>>().len(),
+        fraction(*numerators.iter().min().unwrap()),
+        fraction(*numerators.iter().max().unwrap()),
+        numerators.iter().map(|&n| fraction(n)).sum::<f64>() / numerators.len() as f64,
+    );
 }
 
 #[test]
@@ -278,7 +330,42 @@ fn profile_lust_digest_roles() {
     );
     let blake_records = select_with_key(&vehicles, |vehicle| blake(vehicle.id.as_bytes()))
         .expect("BLAKE selection");
-    print_semantic_changes(&production, &blake_records);
+    let xxh3_records =
+        select_with_key(&vehicles, |vehicle| xxh3(vehicle.id.as_bytes())).expect("XXH3 selection");
+    print_semantic_changes("blake", &production, &blake_records, |id| {
+        position_numerator(blake_depart(id))
+    });
+    print_semantic_changes("xxh3", &production, &xxh3_records, xxh3_depart_numerator);
+    print_diagnostics("sha", &candidates, &production, sha, |id| {
+        position_numerator(sha_depart(id))
+    });
+    print_diagnostics("blake", &candidates, &production, blake, |id| {
+        position_numerator(blake_depart(id))
+    });
+    print_diagnostics(
+        "xxh3",
+        &candidates,
+        &production,
+        xxh3,
+        xxh3_depart_numerator,
+    );
+    // 无符号数值升序；反转输入后仍得到同一 XXH3 总顺序。
+    let mut reversed = candidates.iter().copied().rev().collect::<Vec<_>>();
+    reversed.sort_by_cached_key(|vehicle| (xxh3(vehicle.id.as_bytes()), vehicle.id.as_bytes()));
+    assert!(
+        reversed
+            .iter()
+            .take(POPULATION_SELECTED_COUNT)
+            .zip(&xxh3_records)
+            .all(|(vehicle, record)| vehicle.id == record.vehicle_id)
+    );
+    // 强制所有主键碰撞，验证仍按原 ID 字节打破平局且没有丢弃记录。
+    let tied = select_with_key(&vehicles, |_| 0_u64).expect("forced collision selection");
+    assert_eq!(tied.len(), POPULATION_SELECTED_COUNT);
+    assert!(
+        tied.windows(2)
+            .all(|pair| pair[0].vehicle_id.as_bytes() < pair[1].vehicle_id.as_bytes())
+    );
 
     let mut precomputed = [Vec::new(), Vec::new(), Vec::new()];
     for vehicle in &vehicles {
@@ -317,6 +404,11 @@ fn profile_lust_digest_roles() {
                     black_box(blake(black_box(vehicle.id.as_bytes())));
                 }
             }),
+            Case::new("xxh3", || {
+                for vehicle in &candidates {
+                    black_box(xxh3(black_box(vehicle.id.as_bytes())));
+                }
+            }),
         ],
     );
     measure(
@@ -340,6 +432,12 @@ fn profile_lust_digest_roles() {
                         .unwrap(),
                 );
             }),
+            Case::new("xxh3", || {
+                black_box(
+                    select_with_key(black_box(&vehicles), |vehicle| xxh3(vehicle.id.as_bytes()))
+                        .unwrap(),
+                );
+            }),
             // 固定为 SHA 人口，额外算出并消费候选摘要；两组具有相同排序与物化负载。
             Case::new("fixed_population_sha", || {
                 black_box(
@@ -359,6 +457,15 @@ fn profile_lust_digest_roles() {
                     .unwrap(),
                 );
             }),
+            Case::new("fixed_population_xxh3", || {
+                black_box(
+                    select_with_key(black_box(&vehicles), |vehicle| {
+                        black_box(xxh3(vehicle.id.as_bytes()));
+                        cached(vehicle)
+                    })
+                    .unwrap(),
+                );
+            }),
         ],
     );
     measure(
@@ -372,6 +479,13 @@ fn profile_lust_digest_roles() {
             Case::new("blake", || {
                 for record in &production {
                     black_box(position_fraction(blake_depart(black_box(
+                        &record.vehicle_id,
+                    ))));
+                }
+            }),
+            Case::new("xxh3", || {
+                for record in &production {
+                    black_box(fraction(xxh3_depart_numerator(black_box(
                         &record.vehicle_id,
                     ))));
                 }

@@ -81,11 +81,13 @@ deny = [
         "laneflow-runtime",
         "laneflow-urban-harness",
     ], reason = "#1022: 摘要须按 ADR 0033 写明角色；新增直接依赖方须登记" },
-    # XXH3 只用于瞬态指纹（ADR 0033 §2）；ruzstd 是 bevy_image 解码路径的既有传递依赖。
+    # 生产 XXH3 只用于瞬态指纹（ADR 0033 §2）；ruzstd 是 bevy_image 的既有传递依赖。
+    # #1029 转换器仅在测试构建中评估确定性派生候选，不新增生产摘要用途。
     { crate = "twox-hash", wrappers = [
+        "laneflow-lust-converter",
         "laneflow-urban-harness",
         "ruzstd",
-    ], reason = "#1042: 瞬态指纹须按 ADR 0033 写明角色；新增直接依赖方须登记" },
+    ], reason = "#1042 / #1029: 生产瞬态指纹与测试派生实验须写明角色；新增直接依赖方须登记" },
 ]
 skip = []
 skip-tree = []
