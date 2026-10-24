@@ -248,10 +248,20 @@ fn attest(
     bytes: &[u8],
     expected: RootAttestationExpectation,
 ) -> Result<Witness> {
-    let AttestationOutcome::Concluded(report) =
-        attest_shared_network_revision(root, bytes, expected, FormatLimits::HARD, options(), None)
-    else {
-        return Err("authentication did not produce a verdict".to_owned());
+    let report = match attest_shared_network_revision(
+        root,
+        bytes,
+        expected,
+        FormatLimits::HARD,
+        options(),
+        None,
+    ) {
+        AttestationOutcome::Concluded(report) => report,
+        failure => {
+            return Err(format!(
+                "authentication did not produce a verdict: {failure:?}"
+            ));
+        }
     };
     let mismatch = match report.mismatch {
         None => None,
