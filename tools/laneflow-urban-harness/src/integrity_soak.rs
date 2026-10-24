@@ -29,7 +29,6 @@ use laneflow_static_network::{
 };
 use laneflow_urban_generator::{Scale, UrbanConfig, generate, verified_write};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::{Artifacts, Harness, ResolvedPlan, Result, SaveSource, UrbanCase, Window, invalid};
 
@@ -245,7 +244,7 @@ fn advance(
     control: Option<&Controller>,
 ) -> Result<Response> {
     let mut samples = vec![sample(harness, 0)?];
-    let mut ticks = Sha256::new();
+    let mut ticks = crate::digest::Domain::SoakTicks.hasher();
     let mut last_state_digest = None;
     while harness.world().tick_index() < target_tick {
         if deadline.is_some_and(|end| Instant::now() >= end) {
@@ -260,8 +259,8 @@ fn advance(
         let started = Instant::now();
         let record = harness.advance()?;
         let encoded = serde_json::to_vec(&record)?;
-        ticks.update((encoded.len() as u64).to_le_bytes());
-        ticks.update(encoded);
+        ticks.update(&(encoded.len() as u64).to_le_bytes());
+        ticks.update(&encoded);
         last_state_digest = Some(record.state_digest.clone());
         if record.tick.is_multiple_of(STRIDE) {
             samples.push(sample(harness, samples.len() as u32)?);
@@ -277,7 +276,7 @@ fn advance(
         pid: std::process::id(),
         root_attestation: String::new(),
         samples,
-        tick_records_digest: crate::hex(&ticks.finalize()),
+        tick_records_digest: crate::hex(ticks.finalize().as_bytes()),
         last_state_digest,
         environment_probe_rewrites: 0,
     })
@@ -527,7 +526,7 @@ fn run_in_created_directory(
             SaveSource {
                 execution_id: "integrity-soak".into(),
                 git_commit: std::env::var("LF_SOAK_COMMIT").ok(),
-                binary_sha256: std::env::var("LF_SOAK_BINARY_SHA256").ok(),
+                binary_digest: std::env::var("LF_SOAK_BINARY_DIGEST").ok(),
                 workers: 1,
             },
         )?;

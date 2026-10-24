@@ -18,19 +18,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Artifacts, Harness, IndividualId, ResolvedPlan, Result,
-    artifacts::FileDigest,
-    checked, invalid, observe,
+    artifacts::ArtifactFileDigest,
+    checked,
+    digest::{Domain, FileDigest},
+    invalid, observe,
     requests::{RequestLedger, SavedLedger},
     runner::{
         CompletedRecycling, Individual, Request, RetryPolicy, TileEvidence, catalog_bindings,
         observation_pool,
     },
-    sha256,
 };
 
-pub(crate) const SAVE_VERSION: &str = "urban-save-v2";
+pub(crate) const SAVE_VERSION: &str = "urban-save-v3";
 pub(crate) const CALLER_VERSION: &str = "urban-save-caller-v1";
-pub(crate) const CALLER_DIGEST_VERSION: &str = "urban-caller-digest-v1";
+pub(crate) const CALLER_DIGEST_VERSION: &str = "urban-caller-digest-v2";
 const WORLD_FILE: &str = "world.lfrs";
 const CALLER_FILE: &str = "caller.json";
 const MANIFEST_FILE: &str = "save.toml";
@@ -81,11 +82,12 @@ pub struct SaveSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_commit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub binary_sha256: Option<String>,
+    pub binary_digest: Option<String>,
     pub workers: u32,
 }
 
-/// `urban-save-v2` 清单（#1035：确定性状态摘要改为 BLAKE3-256 后由 v1 递增）。
+/// `urban-save-v3` 清单（#1035：确定性状态摘要改为 BLAKE3-256 后由 v1 递增为 v2；
+/// #1042：文件字节摘要、宿主状态摘要与观测摘要改为 BLAKE3-256 后递增为 v3）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SaveManifest {
@@ -99,13 +101,13 @@ pub struct SaveManifest {
     pub observation_version: String,
     pub deterministic_state_digest: String,
     pub state_digest: String,
-    /// 存档时内存中宿主状态的 `urban-caller-digest-v1` 摘要；恢复后重算比对，
+    /// 存档时内存中宿主状态的 `urban-caller-digest-v2` 摘要；恢复后重算比对，
     /// 发现本程序导出与导入的不对称。
     pub caller_digest: String,
     pub world: FileDigest,
     pub caller: FileDigest,
     pub source: SaveSource,
-    pub artifact_files: BTreeMap<String, FileDigest>,
+    pub artifact_files: BTreeMap<String, ArtifactFileDigest>,
 }
 
 /// 回执中的一次存档。
@@ -129,7 +131,7 @@ pub(crate) struct SaveTiming {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResumedFrom {
     pub tick: u64,
-    pub manifest_sha256: String,
+    pub manifest_digest: String,
     pub source: SaveSource,
 }
 
@@ -143,13 +145,6 @@ pub(crate) struct LoadedSave {
 
 fn elapsed_ns(started: Instant) -> u64 {
     started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
-}
-
-fn digest_bytes(bytes: &[u8]) -> FileDigest {
-    FileDigest {
-        bytes: bytes.len() as u64,
-        sha256: sha256(bytes),
-    }
 }
 
 /// 第 T 拍完成 advance、逐拍日志与检查点之后写出存档。先写临时目录，三个文件
@@ -224,8 +219,8 @@ pub(crate) fn write_save(
         deterministic_state_digest: deterministic,
         state_digest: state_digest.into(),
         caller_digest,
-        world: digest_bytes(&world),
-        caller: digest_bytes(&caller),
+        world: FileDigest::of(&world),
+        caller: FileDigest::of(&caller),
         source,
         artifact_files: harness.artifacts.files.clone(),
     };
@@ -237,7 +232,7 @@ pub(crate) fn write_save(
         SaveRecord {
             tick,
             path: format!("saves/{name}"),
-            manifest: digest_bytes(&manifest_bytes),
+            manifest: FileDigest::of(&manifest_bytes),
         },
         SaveTiming {
             tick,
@@ -275,7 +270,7 @@ pub(crate) fn load_save(
     }
     let read = |name: &str, expected: &FileDigest| -> Result<Vec<u8>> {
         let bytes = fs::read(directory.join(name))?;
-        if &digest_bytes(&bytes) != expected {
+        if &FileDigest::of(&bytes) != expected {
             return Err(invalid(format!("save file changed: {name}")));
         }
         Ok(bytes)
@@ -286,7 +281,7 @@ pub(crate) fn load_save(
         return Err(invalid("unsupported caller state version"));
     }
     Ok(LoadedSave {
-        manifest_digest: digest_bytes(&manifest_bytes),
+        manifest_digest: FileDigest::of(&manifest_bytes),
         manifest,
         world,
         caller,
@@ -351,7 +346,7 @@ impl<'a> Harness<'a> {
         })
     }
 
-    /// 终点宿主状态摘要（`urban-caller-digest-v1`）：与槽位无关的规范形式。
+    /// 终点宿主状态摘要（`urban-caller-digest-v2`）：与槽位无关的规范形式。
     /// 车辆以其在世界 live 序中的位置表示，路线以 key 连同边序列表示。
     pub(crate) fn caller_digest(&self) -> Result<String> {
         #[derive(Serialize)]
@@ -427,7 +422,7 @@ impl<'a> Harness<'a> {
             births: self.births,
             removals: self.removals,
         };
-        Ok(sha256(&serde_json::to_vec(&payload)?))
+        Ok(Domain::CallerState.hex(&serde_json::to_vec(&payload)?))
     }
 
     /// 从已核对文件的存档恢复：结构核对 → 恢复世界并重绑 → 语义核对。

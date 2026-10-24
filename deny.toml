@@ -78,7 +78,13 @@ deny = [
         "bevy_asset",
         "laneflow-compiler",
         "laneflow-runtime",
+        "laneflow-urban-harness",
     ], reason = "#1022: 摘要须按 ADR 0033 写明角色；新增直接依赖方须登记" },
+    # XXH3 只用于瞬态指纹（ADR 0033 §2）；ruzstd 是 bevy_image 解码路径的既有传递依赖。
+    { crate = "twox-hash", wrappers = [
+        "laneflow-urban-harness",
+        "ruzstd",
+    ], reason = "#1042: 瞬态指纹须按 ADR 0033 写明角色；新增直接依赖方须登记" },
 ]
 skip = []
 skip-tree = []

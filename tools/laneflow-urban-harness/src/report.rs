@@ -14,7 +14,6 @@ use crate::{
     Artifacts, Harness, ResolvedPlan, Result, TickRecord, UrbanCase, invalid, observe,
     runner::TileEvidence,
     save::{self, ResumedFrom, SaveRecord, SaveSource},
-    sha256,
 };
 
 mod log_io;
@@ -95,7 +94,7 @@ pub struct RunResult {
     pub exhausted_departures: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_load: Option<ActiveLoadSummary>,
-    pub files: BTreeMap<String, crate::artifacts::FileDigest>,
+    pub files: BTreeMap<String, crate::digest::FileDigest>,
     /// 续跑来源；从第 0 拍开始的运行为空。
     pub resumed_from: Option<ResumedFrom>,
     /// 本次运行写出的存档。
@@ -154,12 +153,12 @@ pub struct ActiveLoadSummary {
 pub struct ComparedRun {
     pub execution_id: String,
     pub workers: u32,
-    pub result: crate::artifacts::FileDigest,
+    pub result: crate::digest::FileDigest,
     /// 本次运行的起点：0，或续跑存档拍号。
     pub start: u64,
     /// 本次运行的终点 E。
     pub end: u64,
-    /// 续跑运行的存档清单 SHA-256。
+    /// 续跑运行的存档清单摘要。
     pub resumed_from: Option<String>,
 }
 
@@ -362,8 +361,8 @@ impl MeasurementProvenance {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PerformanceRound {
     pub execution_id: String,
-    pub result: crate::artifacts::FileDigest,
-    pub measurements: crate::artifacts::FileDigest,
+    pub result: crate::digest::FileDigest,
+    pub measurements: crate::digest::FileDigest,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -527,7 +526,7 @@ pub fn run_with_options(
             }
             let resumed = ResumedFrom {
                 tick: save.manifest.tick,
-                manifest_sha256: save.manifest_digest.sha256.clone(),
+                manifest_digest: save.manifest_digest.digest.clone(),
                 source: save.manifest.source.clone(),
             };
             Some((Harness::resume(artifacts, plan, execution, save)?, resumed))
@@ -536,7 +535,8 @@ pub fn run_with_options(
     };
     fs::create_dir(output)?;
     let execution_id = new_execution_id()?;
-    let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
+    let plan_file = plan.write_recorded(&output.join("resolved-plan.toml"))?;
+    let plan_digest = plan_file.digest.clone();
     let started = Instant::now();
     let (mut harness, resumed_from) = match resumed {
         Some((harness, resumed)) => (harness, Some(resumed)),
@@ -544,7 +544,7 @@ pub fn run_with_options(
     };
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v8".into(),
+        version: "urban-result-v9".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         diagnostics_enabled: diagnostics.is_enabled(),
@@ -589,10 +589,10 @@ pub fn run_with_options(
     let source = SaveSource {
         execution_id: execution_id.clone(),
         git_commit: command_output("git", &["rev-parse", "HEAD"]),
-        binary_sha256: std::env::current_exe()
+        binary_digest: std::env::current_exe()
             .ok()
             .and_then(|path| digest_file(&path).ok())
-            .map(|digest| digest.sha256),
+            .map(|digest| digest.digest),
         workers: execution.worker_count().get(),
     };
     let mut save_timings = Vec::new();
@@ -744,15 +744,16 @@ pub fn run_with_options(
         write_json(&output.join("failure.json"), &failure)?;
     }
     // 先释放三份日志缓冲再分配计时输出缓冲，诊断缓冲同时驻留不超过三份。
+    // 记录摘要一律取自写出时的字节，并已与读回核对（#1042）。
     if let Some(logs) = logs.take() {
-        logs.finish()?;
+        for (name, digest) in log_io::FILE_NAMES.into_iter().zip(logs.finish()?) {
+            result.files.insert(name.into(), digest);
+        }
     }
     if let Some(timings) = &tick_timings {
-        timings.write(output)?;
-        result.files.insert(
-            timing::FILE_NAME.into(),
-            digest_file(&output.join(timing::FILE_NAME))?,
-        );
+        result
+            .files
+            .insert(timing::FILE_NAME.into(), timings.write(output)?);
     }
     result.tile_evidence = harness.evidence.clone();
     result.retry_reasons = harness.error_counts.clone();
@@ -761,19 +762,7 @@ pub fn run_with_options(
     result.births = harness.births;
     result.removals = harness.removals;
     result.committed_world_tick = harness.world.tick_index();
-    for name in [
-        "ticks.jsonl",
-        "commands.jsonl",
-        "events.jsonl",
-        "resolved-plan.toml",
-    ] {
-        if !diagnostics.is_enabled() && name != "resolved-plan.toml" {
-            continue;
-        }
-        result
-            .files
-            .insert(name.into(), digest_file(&output.join(name))?);
-    }
+    result.files.insert("resolved-plan.toml".into(), plan_file);
     if let Some(provenance) = performance_context
         && result.error.is_none()
     {
@@ -808,13 +797,11 @@ pub fn run_with_options(
             active_samples: active_samples.clone(),
             intent_samples: intent_samples.clone(),
         };
-        let path = output.join("measurements.toml");
-        let mut file = BufWriter::new(File::create(&path)?);
-        file.write_all(toml::to_string_pretty(&measurements)?.as_bytes())?;
-        file.flush()?;
-        result
-            .files
-            .insert("measurements.toml".into(), digest_file(&path)?);
+        let digest = crate::written::write_verified(
+            &output.join("measurements.toml"),
+            toml::to_string_pretty(&measurements)?.as_bytes(),
+        )?;
+        result.files.insert("measurements.toml".into(), digest);
     }
     if result.error.is_none()
         && formal
@@ -825,11 +812,8 @@ pub fn run_with_options(
         // 负载失败仍保留完整测量；日志已包含全部记录，不再次物化长窗日志副本。
         let failure = json!({"committed_world_tick":harness.world.tick_index(),
             "active_load":result.active_load,"error":result.error});
-        let path = output.join("failure.json");
-        write_json(&path, &failure)?;
-        result
-            .files
-            .insert("failure.json".into(), digest_file(&path)?);
+        let digest = crate::written::write_json_verified(&output.join("failure.json"), &failure)?;
+        result.files.insert("failure.json".into(), digest);
     }
     // diagnostics.json 的摘要纳入 result.files 文件摘要清单，绑定其中的 worker 计数：
     // 先写 diagnostics、登记摘要，再写 result.json。
@@ -874,10 +858,8 @@ pub fn run_with_options(
         diagnostics_json["execution_evidence"] = execution_evidence;
         diagnostics_json
     };
-    write_json(&diagnostics_path, &diagnostics_json)?;
-    result
-        .files
-        .insert("diagnostics.json".into(), digest_file(&diagnostics_path)?);
+    let digest = crate::written::write_json_verified(&diagnostics_path, &diagnostics_json)?;
+    result.files.insert("diagnostics.json".into(), digest);
     write_json(&output.join("result.json"), &result)?;
     tracing::info!(completed_ticks = result.completed_ticks, status = %result.status, "运行结束");
     Ok(result)
@@ -1037,10 +1019,11 @@ pub(crate) fn peak_resident_method() -> &'static str {
     "unavailable-on-this-platform"
 }
 
-pub(crate) fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
-    use sha2::{Digest, Sha256};
+/// 从磁盘读回计算文件字节摘要：用于核对既有记录、输入来源与已按清单校验过的文件；
+/// 刚写出的产物按写出时的字节登记（见 [`crate::written`]，#1042）。
+pub(crate) fn digest_file(path: &Path) -> Result<crate::digest::FileDigest> {
     let mut reader = BufReader::new(File::open(path)?);
-    let mut hash = Sha256::new();
+    let mut hash = crate::digest::Domain::File.hasher();
     loop {
         let bytes = reader.fill_buf()?;
         if bytes.is_empty() {
@@ -1050,16 +1033,16 @@ pub(crate) fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
         let len = bytes.len();
         reader.consume(len);
     }
-    Ok(crate::artifacts::FileDigest {
+    Ok(crate::digest::FileDigest {
         bytes: fs::metadata(path)?.len(),
-        sha256: crate::hex(&hash.finalize()),
+        digest: crate::hex(hash.finalize().as_bytes()),
     })
 }
 
 /// Verifies retained files and returns a report binding both executions to the comparison.
 struct ReadRun {
     result: RunResult,
-    digest: crate::artifacts::FileDigest,
+    digest: crate::digest::FileDigest,
     envelope: Option<MeasurementProvenance>,
 }
 
@@ -1087,7 +1070,7 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
     } else {
         result.status == "segment-complete"
     };
-    if result.version != "urban-result-v8"
+    if result.version != "urban-result-v9"
         || result.error.is_some()
         || result.completed_ticks != result.segment_end
         || result.endpoint.as_ref().map(|endpoint| endpoint.tick) != Some(result.segment_end)
@@ -1118,7 +1101,9 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         }
     }
     require_diagnostics_marker(dir)?;
-    if sha256(&fs::read(dir.join("resolved-plan.toml"))?) != result.plan_digest {
+    if crate::digest::Domain::File.hex(&fs::read(dir.join("resolved-plan.toml"))?)
+        != result.plan_digest
+    {
         return Err(invalid("plan digest differs"));
     }
     let mut tick = result.start_tick();
@@ -1177,10 +1162,7 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
     };
     Ok(ReadRun {
         result,
-        digest: crate::artifacts::FileDigest {
-            bytes: bytes.len() as u64,
-            sha256: sha256(&bytes),
-        },
+        digest: crate::digest::FileDigest::of(&bytes),
         envelope,
     })
 }
@@ -1227,10 +1209,10 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             .result
             .resumed_from
             .as_ref()
-            .map(|resumed| resumed.manifest_sha256.clone()),
+            .map(|resumed| resumed.manifest_digest.clone()),
     };
     Ok(ComparisonReport {
-        version: "urban-comparison-v3".into(),
+        version: "urban-comparison-v4".into(),
         status: if segmented {
             "segment-match"
         } else {
@@ -1344,7 +1326,7 @@ fn compare_segments(left: &Path, a: &RunResult, right: &Path, b: &RunResult) -> 
     // 写出，或两次运行来自同一存档。
     let saved_by = |full: &RunResult, resumed: &ResumedFrom| {
         full.saves.iter().any(|save| {
-            save.tick == resumed.tick && save.manifest.sha256 == resumed.manifest_sha256
+            save.tick == resumed.tick && save.manifest.digest == resumed.manifest_digest
         })
     };
     let bound = match (&a.resumed_from, &b.resumed_from) {
@@ -1354,7 +1336,7 @@ fn compare_segments(left: &Path, a: &RunResult, right: &Path, b: &RunResult) -> 
         (None, Some(resumed)) => saved_by(a, resumed),
         (Some(resumed), None) => saved_by(b, resumed),
         (Some(left), Some(right)) => {
-            left.manifest_sha256 == right.manifest_sha256 || saved_by(a, right) || saved_by(b, left)
+            left.manifest_digest == right.manifest_digest || saved_by(a, right) || saved_by(b, left)
         }
     };
     if !bound {
@@ -1507,7 +1489,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
                 "正式性能聚合需要显式启用详细诊断日志（--diagnostics）",
             ));
         }
-        if result.version != "urban-result-v8"
+        if result.version != "urban-result-v9"
             || !result.is_formal()
             || result.purpose != "performance"
             || !matches!(result.case.as_str(), "MIXED-PEAK" | "SUSTAINED-ACTIVE")
@@ -1534,7 +1516,9 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             }
         }
         require_diagnostics_marker(directory)?;
-        if sha256(&fs::read(directory.join("resolved-plan.toml"))?) != result.plan_digest {
+        if crate::digest::Domain::File.hex(&fs::read(directory.join("resolved-plan.toml"))?)
+            != result.plan_digest
+        {
             return Err(invalid("performance plan digest differs"));
         }
         let mut tick_count = 0;
@@ -1634,20 +1618,14 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         combined_intent.push(sample_summary(&mut measurement.intent_samples)?);
         rounds.push(PerformanceRound {
             execution_id,
-            result: crate::artifacts::FileDigest {
-                bytes: result_bytes.len() as u64,
-                sha256: sha256(&result_bytes),
-            },
-            measurements: crate::artifacts::FileDigest {
-                bytes: measurement_bytes.len() as u64,
-                sha256: sha256(&measurement_bytes),
-            },
+            result: crate::digest::FileDigest::of(&result_bytes),
+            measurements: crate::digest::FileDigest::of(&measurement_bytes),
         });
     }
     let (case, scale, plan_digest) = identity.expect("three retained rounds");
     let workers = provenance.expect("three validated rounds").workers;
     Ok(PerformanceComparisonReport {
-        version: "urban-performance-comparison-v3".into(),
+        version: "urban-performance-comparison-v4".into(),
         workers,
         aggregation: "median-of-three-round-percentiles; worst-round-max; total-sample-count"
             .into(),
@@ -1793,6 +1771,68 @@ pub(crate) fn command_output_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 写出后、核对前篡改逐拍日志（#1042）：运行显式失败，不写 `result.json`、不登记坏摘要，
+    /// 失配文件留在原位；无篡改时登记的摘要等于读回摘要。
+    #[test]
+    fn tampered_stream_log_fails_the_run_before_the_receipt_is_written() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config = laneflow_urban_generator::UrbanConfig::parse(include_str!(
+            "../../../examples/config/cn-urban.toml"
+        ))
+        .unwrap();
+        laneflow_urban_generator::generate(
+            &config,
+            laneflow_urban_generator::Scale::Fixture,
+            &source,
+            None,
+        )
+        .unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        let plan = ResolvedPlan::mixed(&artifacts, crate::Window::probe(8).unwrap()).unwrap();
+        let execution = laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN);
+
+        let clean = temp.path().join("clean");
+        let result =
+            run_to_directory(&artifacts, &plan, &clean, execution, Diagnostics::Enabled).unwrap();
+        for name in [
+            "ticks.jsonl",
+            "commands.jsonl",
+            "events.jsonl",
+            "diagnostics.json",
+        ] {
+            assert_eq!(
+                result.files[name],
+                digest_file(&clean.join(name)).unwrap(),
+                "{name}"
+            );
+        }
+
+        let tampered = temp.path().join("tampered");
+        let error = crate::written::with_after_write(
+            |path| {
+                if path.file_name() == Some(std::ffi::OsStr::new("ticks.jsonl")) {
+                    let mut bytes = fs::read(path).unwrap();
+                    bytes[0] ^= 0x20;
+                    fs::write(path, bytes).unwrap();
+                }
+            },
+            || {
+                run_to_directory(
+                    &artifacts,
+                    &plan,
+                    &tampered,
+                    execution,
+                    Diagnostics::Enabled,
+                )
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("ticks.jsonl"), "{error}");
+        assert!(!tampered.join("result.json").exists());
+        assert!(tampered.join("ticks.jsonl").exists());
+    }
 
     #[test]
     fn performance_output_rejects_future_untracked_directories_before_creation() {
@@ -2144,7 +2184,7 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v8".into(),
+                version: "urban-result-v9".into(),
                 diagnostics_enabled: true,
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
@@ -2160,7 +2200,7 @@ mod tests {
                     observation_ticks: 2,
                 },
                 required_per_tile: BTreeMap::new(),
-                plan_digest: sha256(b"synthetic-envelope-test"),
+                plan_digest: crate::digest::Domain::File.hex(b"synthetic-envelope-test"),
                 expected_ticks: 2,
                 completed_ticks: 2,
                 committed_world_tick: 2,
@@ -2305,11 +2345,14 @@ mod tests {
         write_json(&path, &original).unwrap();
         assert!(compare_runs(&a, &four).is_ok());
         assert!(compare_performance_runs([&a, &b, &c]).is_ok());
-        let mut old = original.clone();
-        old.version = "urban-result-v6".into();
-        write_json(&path, &old).unwrap();
-        assert!(compare_runs(&a, &four).is_err());
-        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        // v8 为 SHA-256 摘要的上一版回执（#1042）：同样拒绝、不转换。
+        for version in ["urban-result-v6", "urban-result-v8"] {
+            let mut old = original.clone();
+            old.version = version.into();
+            write_json(&path, &old).unwrap();
+            assert!(compare_runs(&a, &four).is_err(), "{version}");
+            assert!(compare_performance_runs([&a, &b, &c]).is_err(), "{version}");
+        }
         let mut missing = serde_json::to_value(&original).unwrap();
         missing
             .as_object_mut()

@@ -3310,6 +3310,7 @@ dependencies = [
  "bevy_math",
  "bevy_time",
  "bevy_transform",
+ "blake3",
  "laneflow-audit-test-support",
  "laneflow-bevy",
  "laneflow-compiler",
@@ -3330,6 +3331,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "twox-hash",
 ]
 
 [[package]]

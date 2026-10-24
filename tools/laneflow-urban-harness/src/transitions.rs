@@ -1,12 +1,6 @@
 //! Finite replay and capacity-only migration witnesses using the shared demand program.
 
-use std::{
-    fs,
-    io::{BufWriter, Write},
-    path::Path,
-    sync::Arc,
-    time::Instant,
-};
+use std::{fs, io::Write, path::Path, sync::Arc, time::Instant};
 
 use laneflow_bevy::{
     LaneFlowAdapterError, LaneFlowCommittedPoseBatch, LaneFlowSession, LaneFlowTargetSpatial,
@@ -22,6 +16,7 @@ use crate::{
     invalid,
     report::{digest_file, write_json},
     variant::{CapacityVariant, load_variant},
+    written::DigestWriter,
 };
 
 const SAVE_TICK: u64 = 32;
@@ -137,7 +132,8 @@ pub(crate) fn retained_state(harness: &Harness<'_>) -> String {
     // 全部公开维度（与逐拍观察摘要同面，宽于 runtime 单测恒等 oracle）。
     let signals = harness.world.committed_signal_groups();
     let waiting = harness.world.waiting_zone_members();
-    crate::sha256(format!("{vehicles:?}/{routes:?}/{signals:?}/{waiting:?}").as_bytes())
+    crate::digest::Domain::RetainedState
+        .hex(format!("{vehicles:?}/{routes:?}/{signals:?}/{waiting:?}").as_bytes())
 }
 
 pub(crate) fn extract(harness: &mut Harness<'_>) -> Result<LaneFlowCommittedPoseBatch> {
@@ -285,7 +281,7 @@ pub(crate) fn trial(
     }
     let initial_bindings = selected_counts(&harness, variant)?;
     let mut presentation = Presentation::default();
-    let mut log = BufWriter::new(fs::File::create(output.join("ticks.jsonl"))?);
+    let mut log = DigestWriter::create(&output.join("ticks.jsonl"))?;
     let mut hashes = Vec::new();
     let mut transition = Value::Null;
     let mut transaction = None;
@@ -304,7 +300,7 @@ pub(crate) fn trial(
                     crate::save::SaveSource {
                         execution_id: "transition-replay".into(),
                         git_commit: None,
-                        binary_sha256: None,
+                        binary_digest: None,
                         workers: 1,
                     },
                 )?
@@ -399,7 +395,7 @@ pub(crate) fn trial(
             None
         };
         let normalized = serde_json::to_vec(&record)?;
-        hashes.push(crate::sha256(&normalized));
+        hashes.push(crate::digest::Domain::TrialTick.hex(&normalized));
         serde_json::to_writer(
             &mut log,
             &json!({"runtime":record,"presentation":sample,
@@ -410,12 +406,13 @@ pub(crate) fn trial(
             checked("online pump", transaction.pump(native(&mut harness)?))?;
         }
     }
-    log.flush()?;
+    // 摘要取自写出时的字节，刷盘后经读回核对（#1042）。
+    let ticks_file = log.finish()?;
     let result = json!({"mode":mode,"ticks":END_TICK,"save_tick":SAVE_TICK,"commit_tick":COMMIT_TICK,
         "initial_selected_bindings":initial_bindings,"final_selected_bindings":selected_counts(&harness, variant)?,
         "save_digest":save_digest,"final_digest":harness.checkpoint()?,"tick_hashes":hashes,"transition":transition,
         "command_records":command_count,"tile_evidence":harness.evidence,"retry_reasons":harness.error_counts,
-        "ticks_file":digest_file(&output.join("ticks.jsonl"))?});
+        "ticks_file":ticks_file});
     write_json(&output.join("trial.json"), &result)?;
     Ok(result)
 }

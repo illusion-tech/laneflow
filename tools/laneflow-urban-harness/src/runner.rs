@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::requests::RequestLedger;
-use crate::{Artifacts, ResolvedPlan, Result, checked, invalid, observe, sha256};
+use crate::{Artifacts, ResolvedPlan, Result, checked, digest::Domain, invalid, observe};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IndividualId {
@@ -1613,8 +1613,8 @@ impl<'a> Harness<'a> {
             command_cursor: self.world.command_cursor(),
             event_cursor: self.world.event_cursor(),
             state_digest,
-            event_digest: sha256(&serde_json::to_vec(&self.events)?),
-            commands_digest: sha256(&serde_json::to_vec(&self.commands)?),
+            event_digest: Domain::TickEvents.hex(&serde_json::to_vec(&self.events)?),
+            commands_digest: Domain::TickCommands.hex(&serde_json::to_vec(&self.commands)?),
         })
     }
 }

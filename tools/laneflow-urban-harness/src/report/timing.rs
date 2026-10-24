@@ -1,12 +1,12 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader, BufWriter},
+    io::{BufRead, BufReader},
     path::Path,
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Result, invalid};
+use crate::{Result, digest::FileDigest, invalid};
 
 pub(super) const FILE_NAME: &str = "timings.jsonl";
 pub(super) const VERSION: &str = "urban-tick-timings-v1";
@@ -39,16 +39,18 @@ impl Timings {
         self.rows.push(row);
     }
 
-    pub(super) fn write(&self, output: &Path) -> Result<()> {
-        let mut writer = BufWriter::with_capacity(
+    /// 行数据在内存中：写后读回失配时从同一份行数据有界重写（#1042）。
+    pub(super) fn write(&self, output: &Path) -> Result<FileDigest> {
+        crate::written::write_replayable(
+            &output.join(FILE_NAME),
             super::log_io::BUFFER_BYTES_PER_LOG,
-            File::create(output.join(FILE_NAME))?,
-        );
-        for row in &self.rows {
-            super::line(&mut writer, row)?;
-        }
-        std::io::Write::flush(&mut writer)?;
-        Ok(())
+            |writer| {
+                for row in &self.rows {
+                    super::line(writer, row)?;
+                }
+                Ok(())
+            },
+        )
     }
 }
 
@@ -138,7 +140,7 @@ pub(super) fn write_fixture(
     window: [&[u64]; 3],
     diagnostics: &mut serde_json::Value,
 ) {
-    let mut file = BufWriter::new(File::create(directory.join(FILE_NAME)).unwrap());
+    let mut file = std::io::BufWriter::new(File::create(directory.join(FILE_NAME)).unwrap());
     let mut copies = [Vec::new(), Vec::new(), Vec::new()];
     for tick in 1..=completed_ticks {
         let value = |component: usize| {

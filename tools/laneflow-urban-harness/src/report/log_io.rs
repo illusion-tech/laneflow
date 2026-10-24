@@ -1,33 +1,23 @@
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    path::Path,
-};
+use std::path::Path;
 
 use serde::Serialize;
 
-use crate::Result;
+use crate::{Result, digest::FileDigest, written::DigestWriter};
 
 pub(super) const BUFFER_BYTES_PER_LOG: usize = 10 * 1_024 * 1_024;
+pub(super) const FILE_NAMES: [&str; 3] = ["ticks.jsonl", "commands.jsonl", "events.jsonl"];
 
 pub(super) struct Logs {
-    writers: [BufWriter<File>; 3],
+    writers: [DigestWriter; 3],
 }
 
 impl Logs {
     pub(super) fn new(output: &Path) -> Result<Self> {
-        let make = |name: &str| -> Result<_> {
-            Ok(BufWriter::with_capacity(
-                BUFFER_BYTES_PER_LOG,
-                File::create(output.join(name))?,
-            ))
-        };
+        let make =
+            |name: &str| DigestWriter::with_capacity(&output.join(name), BUFFER_BYTES_PER_LOG);
+        let [ticks, commands, events] = FILE_NAMES;
         Ok(Self {
-            writers: [
-                make("ticks.jsonl")?,
-                make("commands.jsonl")?,
-                make("events.jsonl")?,
-            ],
+            writers: [make(ticks)?, make(commands)?, make(events)?],
         })
     }
 
@@ -47,11 +37,10 @@ impl Logs {
         Ok(())
     }
 
-    /// 刷盘后随所有权释放缓冲，后续输出不与日志缓冲同时驻留。
-    pub(super) fn finish(self) -> Result<()> {
-        for mut writer in self.writers {
-            writer.flush()?;
-        }
-        Ok(())
+    /// 刷盘、读回核对后随所有权释放缓冲，后续输出不与日志缓冲同时驻留；
+    /// 返回按 [`FILE_NAMES`] 顺序的写出摘要（#1042）。
+    pub(super) fn finish(self) -> Result<[FileDigest; 3]> {
+        let [ticks, commands, events] = self.writers;
+        Ok([ticks.finish()?, commands.finish()?, events.finish()?])
     }
 }

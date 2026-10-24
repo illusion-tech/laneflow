@@ -5,7 +5,9 @@ use std::{
 };
 
 use crate::scenario::{CorrectnessRoles, DemandStrategy, PopulationStrategy, ScenarioRecipe};
-use crate::{Artifacts, Result, artifacts::FileDigest, invalid, sha256};
+use crate::{
+    Artifacts, Result, artifacts::ArtifactFileDigest, digest::Domain, digest::FileDigest, invalid,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -285,7 +287,7 @@ pub struct ResolvedPlan {
     pub tiles: u32,
     pub individuals: u32,
     pub manifest_digest: String,
-    pub files: BTreeMap<String, FileDigest>,
+    pub files: BTreeMap<String, ArtifactFileDigest>,
     pub window: Window,
     pub required_per_tile: BTreeMap<String, u64>,
     pub initial_counts: LifecycleCounts,
@@ -1346,21 +1348,23 @@ impl ResolvedPlan {
     }
 
     pub fn write(&self, path: &Path) -> Result<String> {
-        use std::io::Write;
+        Ok(self.write_recorded(path)?.digest)
+    }
+    /// 拒绝覆盖既有文件，经写后读回核对写出（#1042）；摘要取自写出字节。
+    pub(crate) fn write_recorded(&self, path: &Path) -> Result<FileDigest> {
         let bytes = toml::to_string_pretty(self)?.into_bytes();
-        let mut file = fs::OpenOptions::new()
+        fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(path)?;
-        file.write_all(&bytes)?;
-        Ok(sha256(&bytes))
+        crate::written::write_verified(path, &bytes)
     }
     pub fn read(path: &Path) -> Result<Self> {
         Ok(toml::from_str(&fs::read_to_string(path)?)?)
     }
     /// 与 `write` 写出字节相同的计划摘要。
     pub(crate) fn digest(&self) -> Result<String> {
-        Ok(sha256(toml::to_string_pretty(self)?.as_bytes()))
+        Ok(Domain::File.hex(toml::to_string_pretty(self)?.as_bytes()))
     }
     /// 核对计划结构、唯一请求身份及按当前来源重新展开的完整内容。
     ///

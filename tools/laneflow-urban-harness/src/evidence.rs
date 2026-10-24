@@ -2,8 +2,8 @@
 
 use std::{
     collections::BTreeMap,
-    fs::{self, File},
-    io::{BufWriter, Write},
+    fs,
+    io::Write,
     path::Path,
     time::{Duration, Instant},
 };
@@ -130,7 +130,8 @@ pub fn run_evidence(
     }
     let target = target_ticks(plan.window.end(), wall_ms, prefix_ticks)?;
     fs::create_dir(output)?;
-    let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
+    let plan_file = plan.write_recorded(&output.join("resolved-plan.toml"))?;
+    let plan_digest = plan_file.digest.clone();
     let mut harness = Harness::install(
         &artifacts,
         &plan,
@@ -152,7 +153,7 @@ pub fn run_evidence(
     let initial_counts = observe::counts(&harness)?;
     let initial_checkpoint = harness.checkpoint()?;
     let initialized_ms = started.elapsed().as_millis();
-    let mut frames = BufWriter::new(File::create(output.join("frames.jsonl"))?);
+    let mut frames = crate::written::DigestWriter::create(&output.join("frames.jsonl"))?;
     let mut steps = Vec::new();
     let mut command_times = Vec::new();
     let mut observations = Vec::new();
@@ -242,20 +243,22 @@ pub fn run_evidence(
             return Err(invalid("source changed during evidence run"));
         }
         for (name, expected) in &artifacts.files {
-            if digest_file(&artifact_directory.join(name))? != *expected {
+            if crate::artifacts::artifact_file_digest(&artifact_directory.join(name))? != *expected
+            {
                 return Err(invalid(format!(
                     "input changed during evidence run: {name}"
                 )));
             }
         }
-        if digest_file(&artifact_directory.join("manifest.toml"))?.sha256
+        if digest_file(&artifact_directory.join("manifest.toml"))?.digest
             != artifacts.manifest_digest
         {
             return Err(invalid("input manifest changed during evidence run"));
         }
         Ok(())
     })();
-    frames.flush()?;
+    // 摘要取自写出时的字节，刷盘后经读回核对（#1042）。
+    let frames_file = frames.finish()?;
     let mut error = run.err().map(|e| e.to_string());
     let memory = peak_resident_bytes();
     let summary = |values: &mut [u64]| -> Result<Value> {
@@ -266,9 +269,8 @@ pub fn run_evidence(
         }
     };
     let mut files = BTreeMap::new();
-    for name in ["frames.jsonl", "resolved-plan.toml"] {
-        files.insert(name.to_owned(), digest_file(&output.join(name))?);
-    }
+    files.insert("frames.jsonl".to_owned(), frames_file);
+    files.insert("resolved-plan.toml".to_owned(), plan_file);
     if let Some(presentation) = &presentation {
         let pose = artifacts
             .revision()
@@ -291,17 +293,14 @@ pub fn run_evidence(
                     .collect::<Vec<_>>(),
             );
         }
-        write_json(
+        let preview = crate::written::write_json_verified(
             &output.join("preview.json"),
             &json!({"kind":"applied-transform-positions",
             "scope":last_presentation,"positions":presentation.preview(),"canonical_roads_m":roads,
             "tiles":artifacts.tiles,"cells":artifacts.tiles*10,"scale":plan.scale,
             "network_revision":artifacts.catalog.network_revision,"drawing_scope":"top-down projection of canonical lane geometry and applied Transform positions; no GPU draw benchmark"}),
         )?;
-        files.insert(
-            "preview.json".into(),
-            digest_file(&output.join("preview.json"))?,
-        );
+        files.insert("preview.json".into(), preview);
     }
     if wall_ms.is_some_and(|limit| started.elapsed() >= Duration::from_millis(limit)) {
         error = Some("process exceeded its assigned wall budget".into());
@@ -312,13 +311,13 @@ pub fn run_evidence(
         "selection":summary(&mut collection_times)?,"conversion":summary(&mut conversion_times)?,
         "presentation":summary(&mut presentation_times)?,"presentation_validation":summary(&mut validation_times)?});
     let mut result = json!({
-        "version":"urban-cross-layer-evidence-v1",
+        "version":"urban-cross-layer-evidence-v2",
         "status":if error.is_some() {"failed"} else if wall_ms.is_some() {"bounded-observation-complete"} else if plan.window.purpose == "performance" {"performance-case-pass"} else {"correctness-case-pass"},
         "execution_id":new_execution_id()?,"pid":std::process::id(),"source":provenance,
         "invocation":std::env::args().collect::<Vec<_>>(),"case":plan.case,"scale":plan.scale,
         "mode":if adapter {"adapter"} else {"headless"},"window":plan.window,
         "presentation_mode":presentation_mode,
-        "plan_digest":plan_digest,"artifact_files":artifacts.files,"manifest_sha256":artifacts.manifest_digest,
+        "plan_digest":plan_digest,"artifact_files":artifacts.files,"artifact_manifest_digest":artifacts.manifest_digest,
         "network_revision":artifacts.catalog.network_revision,"policy_id":artifacts.catalog.policy_id,
         "target_ticks":target,"prefix_ticks":prefix_ticks,"completed_ticks":completed,"committed_world_tick":harness.world().tick_index(),
         "wall_limit_ms":wall_ms,"soft_limit_ms":soft.map(|v|v.as_millis()),"stop_reason":reason,

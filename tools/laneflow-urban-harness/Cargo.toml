@@ -23,6 +23,7 @@ bevy_ecs = { version = "0.20", default-features = false, features = ["std"], opt
 bevy_math = { version = "0.20", default-features = false, optional = true }
 bevy_time = { version = "0.20", default-features = false, features = ["std"], optional = true }
 bevy_transform = { version = "0.20", default-features = false, features = ["bevy-support", "std"], optional = true }
+blake3 = "1.8"
 laneflow-bevy = { version = "0.0.0", path = "../../crates/laneflow-bevy", optional = true }
 laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial", optional = true }
 laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
@@ -38,6 +39,7 @@ sha2 = { version = "0.11", default-features = false }
 thiserror = "2.0"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt"] }
+twox-hash = { version = "2.1", default-features = false, features = ["xxhash3_64"] }
 stats_alloc = { version = "=0.1.10", optional = true }
 toml = "1.1.3"
 

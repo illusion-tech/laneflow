@@ -5,14 +5,13 @@ use laneflow_static_contract::{
     EntityKind, ManeuverGateOrdinal, ParkingFacilityOrdinal, SignalAspect, WaitingZoneOrdinal,
 };
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::fastmap::FastMap;
-use crate::{Artifacts, Harness, IndividualId, Result, invalid};
+use crate::{Artifacts, Harness, IndividualId, Result, digest::Domain, invalid};
 
 // This encoding belongs to the harness v1 observation, not a Runtime wire format.
 struct Hash {
-    digest: Sha256,
+    digest: blake3::Hasher,
     pending: [u8; 256],
     used: usize,
 }
@@ -20,7 +19,7 @@ struct Hash {
 impl Default for Hash {
     fn default() -> Self {
         Self {
-            digest: Sha256::new(),
+            digest: Domain::Observation.hasher(),
             pending: [0; 256],
             used: 0,
         }
@@ -63,7 +62,7 @@ impl Hash {
     }
     fn finish(mut self) -> String {
         self.flush();
-        crate::hex(&self.digest.finalize())
+        crate::hex(self.digest.finalize().as_bytes())
     }
 }
 
@@ -72,7 +71,7 @@ impl Hash {
 const OBSERVATION_BLOCK: usize = 4096;
 
 /// 逐拍状态摘要的编码版本；存档清单记录它，续跑要求相同。
-pub(crate) const OBSERVATION_VERSION: &str = "urban-observation-v3";
+pub(crate) const OBSERVATION_VERSION: &str = "urban-observation-v4";
 
 /// 车身区间：(边 raw, 车尾 µm, 车头 µm, 个体)。
 type Body = (u32, u64, u64, IndividualId);
@@ -119,7 +118,7 @@ fn block_buffers(
 }
 
 /// state() 逐车并行的块编码器：字节流与 Hash 的 n/text/id/json 完全相同。
-/// v3 中每块字节在块线程内各自 SHA-256 成叶摘要，主线程按块序把叶摘要
+/// 每块字节在块线程内各自取 BLAKE3-256 叶摘要（v4 起；v3 为 SHA-256），主线程按块序把叶摘要
 /// 送入根哈希（有单元测试比对）。
 struct BlockHash {
     bytes: Vec<u8>,
@@ -171,10 +170,9 @@ impl BlockHash {
         self.bytes.extend_from_slice(&self.scratch);
         Ok(())
     }
-    /// 块字节的叶摘要：与 crate::sha256(&self.bytes) 相同，但保留原始字节
-    /// 数组供根哈希直接消费。
+    /// 块字节的叶摘要（[`Domain::ObservationLeaf`]），保留原始字节数组供根哈希直接消费。
     fn digest(&self) -> [u8; 32] {
-        Sha256::digest(&self.bytes).into()
+        Domain::ObservationLeaf.bytes(&self.bytes)
     }
 }
 
@@ -1632,7 +1630,7 @@ mod tests {
 
     #[test]
     fn batched_observation_hash_preserves_the_exact_encoding() {
-        assert_eq!(Hash::default().finish(), crate::sha256(&[]));
+        assert_eq!(Hash::default().finish(), Domain::Observation.hex(&[]));
         for (numbers, text) in [
             (1, String::new()),
             (31, "短文本".into()),
@@ -1662,18 +1660,23 @@ mod tests {
             }
             hash.n(u64::MAX);
             bytes.extend_from_slice(&u64::MAX.to_le_bytes());
-            assert_eq!(hash.finish(), crate::sha256(&bytes));
+            assert_eq!(hash.finish(), Domain::Observation.hex(&bytes));
         }
     }
 
     #[test]
     fn block_json_matches_to_string_byte_for_byte() {
+        // 与根摘要 `Hash::text` 送入的字节逐字节一致：长度前缀加 `to_string` 字节。
+        fn text_bytes(text: &str) -> Vec<u8> {
+            let mut bytes = (text.len() as u64).to_le_bytes().to_vec();
+            bytes.extend_from_slice(text.as_bytes());
+            bytes
+        }
         fn check(value: &impl serde::Serialize) {
-            let mut expected = Hash::default();
-            expected.text(&serde_json::to_string(value).unwrap());
+            let expected = text_bytes(&serde_json::to_string(value).unwrap());
             let mut actual = BlockHash::with_capacity(0);
             actual.json(value).unwrap();
-            assert_eq!(crate::hex(&actual.digest()), expected.finish());
+            assert_eq!(actual.bytes, expected);
         }
         let none: Option<Value> = None;
         check(&none);
@@ -1694,29 +1697,29 @@ mod tests {
         check(&json!([1, "two", null, {"nested": [true, false]}, ""]));
         check(&json!({"unicode": "é中𐍈", "control": "\u{1}\u{1f}"}));
         // BlockHash 连续编码多个值时仍逐字节一致。
-        let mut expected = Hash::default();
+        let mut expected = Vec::new();
         let mut actual = BlockHash::with_capacity(0);
         for value in [json!("x"), json!({"k": [1, 2]}), json!(null)] {
-            expected.text(&serde_json::to_string(&value).unwrap());
+            expected.extend(text_bytes(&serde_json::to_string(&value).unwrap()));
             actual.json(&value).unwrap();
         }
-        assert_eq!(crate::hex(&actual.digest()), expected.finish());
+        assert_eq!(actual.bytes, expected);
     }
 
     #[test]
     #[ignore = "有界 release 编码对照，不代表城市运行耗时"]
     fn observation_hash_encoding_wall_clock() {
         fn scalar() -> String {
-            let mut hash = Sha256::new();
+            let mut hash = Domain::Observation.hasher();
             for index in 0..100_000_u64 {
                 for value in [index, 1, 2, 3, 4, 5, 6, 7] {
-                    hash.update(std::hint::black_box(value).to_le_bytes());
+                    hash.update(&std::hint::black_box(value).to_le_bytes());
                 }
                 let text = "tile-0001.route.urban-crossing";
-                hash.update((text.len() as u64).to_le_bytes());
+                hash.update(&(text.len() as u64).to_le_bytes());
                 hash.update(text.as_bytes());
             }
-            crate::hex(&hash.finalize())
+            crate::hex(hash.finalize().as_bytes())
         }
         fn batched() -> String {
             let mut hash = Hash::default();
@@ -1843,12 +1846,14 @@ mod tests {
     }
 
     #[test]
-    fn block_digest_matches_sha256_of_block_bytes() {
+    fn block_digest_is_the_leaf_digest_of_block_bytes() {
         let mut block = BlockHash::with_capacity(0);
         block.text("城市路線 α");
         block.n(42_u64);
         block.json(&json!({"k": [1, 2, "𐍈"]})).unwrap();
-        assert_eq!(crate::hex(&block.digest()), crate::sha256(&block.bytes));
+        let mut independent = b"laneflow:urban-observation-leaf:v4\0".to_vec();
+        independent.extend_from_slice(&block.bytes);
+        assert_eq!(block.digest(), *blake3::hash(&independent).as_bytes());
     }
 
     fn fixture_artifacts() -> (tempfile::TempDir, Artifacts) {

@@ -19,8 +19,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Result, checked, invalid, sha256};
 
+/// 生成器清单中的文件字节数与 SHA-256：属于 urban-generator 的制品清单（含可移植
+/// 规范制品家族，ADR 0033 §9），harness 只按清单核对并照抄，不改算法（#1042）。
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct FileDigest {
+pub struct ArtifactFileDigest {
     pub bytes: u64,
     pub sha256: String,
 }
@@ -33,13 +35,13 @@ struct Manifest {
     nominal_individuals: u32,
     fixed_step_ms: u64,
     network_revision: String,
-    files: BTreeMap<String, FileDigest>,
+    files: BTreeMap<String, ArtifactFileDigest>,
 }
 
 pub struct Artifacts {
     pub(crate) catalog: Catalog,
     pub(crate) revision: Arc<SharedNetworkRevision>,
-    pub(crate) files: BTreeMap<String, FileDigest>,
+    pub(crate) files: BTreeMap<String, ArtifactFileDigest>,
     pub(crate) manifest_digest: String,
     pub(crate) individuals: u32,
     pub(crate) tiles: u32,
@@ -85,7 +87,7 @@ impl Artifacts {
         let mut consumed = BTreeMap::new();
         let mut read = |name: &str| -> Result<Vec<u8>> {
             let bytes = fs::read(directory.join(name))?;
-            let actual = FileDigest {
+            let actual = ArtifactFileDigest {
                 bytes: bytes.len() as u64,
                 sha256: sha256(&bytes),
             };
@@ -145,7 +147,7 @@ impl Artifacts {
             catalog,
             revision,
             files: consumed,
-            manifest_digest: sha256(&manifest_bytes),
+            manifest_digest: crate::digest::Domain::File.hex(&manifest_bytes),
             individuals: manifest.nominal_individuals,
             tiles: manifest.tiles,
             dt: manifest.fixed_step_ms,
@@ -296,11 +298,26 @@ impl Artifacts {
     }
 }
 
+/// 按生成器清单的口径（SHA-256）计算文件摘要，供运行期间核对输入制品未变。
+#[cfg(feature = "adapter")]
+pub(crate) fn artifact_file_digest(path: &Path) -> Result<ArtifactFileDigest> {
+    let bytes = fs::read(path)?;
+    Ok(ArtifactFileDigest {
+        bytes: bytes.len() as u64,
+        sha256: sha256(&bytes),
+    })
+}
+
 /// 工件摘要失配现场探针（#794 症状③）：输出清单期望值与读回实际值的长度差、摘要
 /// 差异、读回头部 32 字节及流式二次回读对照；另输出全文件 64 等分块摘要，供仅 load
 /// 路径命中（写后回读干净、无内容参考）时与健康参考离线逐块对照定位失真块。
 /// 仅诊断输出：命中不改变 `Artifacts::load` 的失败语义与错误文案。
-fn probe_artifact_mismatch(path: &Path, name: &str, expected: &FileDigest, readback: &[u8]) {
+fn probe_artifact_mismatch(
+    path: &Path,
+    name: &str,
+    expected: &ArtifactFileDigest,
+    readback: &[u8],
+) {
     let (reread_same, reread_sha) = stream_reread(path, readback);
     eprintln!(
         "[digest-probe] site=artifact-load name={name} expected_bytes={} expected_sha={} readback_bytes={} readback_sha={} len_delta={} head32={:02x?} reread_same={} reread_sha={}",

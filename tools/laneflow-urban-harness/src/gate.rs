@@ -13,12 +13,7 @@
 //! 执行回执（`gate.json`）绑定 exact head、命令、输入身份与逐场景结果；scope 与
 //! timing_basis 字段声明本见证不覆盖的范围与计时口径。
 
-use std::{
-    fs,
-    io::{BufWriter, Write},
-    path::Path,
-    time::Instant,
-};
+use std::{fs, io::Write, path::Path, time::Instant};
 
 use laneflow_runtime::*;
 use laneflow_static_network::SharedNetworkRevision;
@@ -29,6 +24,7 @@ use crate::{
     report::{digest_file, write_json},
     transitions::{native, restore, retained_state, selected_counts, target_source, trial},
     variant::{CapacityVariant, load_variant},
+    written::DigestWriter,
 };
 
 const SAVE_TICK: u64 = 32;
@@ -132,14 +128,14 @@ fn commit_window(
 /// 逐拍记录骨架：advance、命令/事件与状态摘要落盘，供场景间逐位比较。
 fn advance_and_log(
     harness: &mut Harness<'_>,
-    log: &mut BufWriter<fs::File>,
+    log: &mut DigestWriter,
     hashes: &mut Vec<String>,
     commands: &mut usize,
 ) -> Result<String> {
     let record = harness.advance()?;
     let state_digest = record.state_digest.clone();
     *commands += harness.commands.len();
-    hashes.push(crate::sha256(&serde_json::to_vec(&record)?));
+    hashes.push(crate::digest::Domain::TrialTick.hex(&serde_json::to_vec(&record)?));
     serde_json::to_writer(
         &mut *log,
         &json!({"runtime":record,"presentation":null,
@@ -161,10 +157,10 @@ fn trial_result(
     command_records: usize,
     transition: &Value,
     output: &Path,
-    log: &mut BufWriter<fs::File>,
+    log: DigestWriter,
 ) -> Result<Value> {
-    // 摘要必须覆盖完整文件：先冲刷缓冲再取 digest（transitions 先例）。
-    log.flush()?;
+    // 摘要取自写出时的字节，刷盘后经读回核对（#1042）。
+    let ticks_file = log.finish()?;
     let result = json!({"mode":mode,"ticks":END_TICK,"save_tick":save_tick,
         "initial_selected_bindings":initial_bindings,
         "final_selected_bindings":selected_counts(harness, variant)?,
@@ -173,7 +169,7 @@ fn trial_result(
         "tick_hashes":hashes,"transition":transition,
         "command_records":command_records,"tile_evidence":harness.evidence,
         "retry_reasons":harness.error_counts,
-        "ticks_file":digest_file(&output.join("ticks.jsonl"))?});
+        "ticks_file":ticks_file});
     write_json(&output.join("trial.json"), &result)?;
     Ok(result)
 }
@@ -196,7 +192,7 @@ fn workflow_trial(
         ExecutionConfig::new(std::num::NonZeroU32::MIN),
     )?;
     let initial_bindings = selected_counts(&harness, variant)?;
-    let mut log = BufWriter::new(fs::File::create(output.join("ticks.jsonl"))?);
+    let mut log = DigestWriter::create(&output.join("ticks.jsonl"))?;
     let mut hashes = Vec::new();
     let mut commands = 0;
     let mut transition = Value::Null;
@@ -256,7 +252,7 @@ fn workflow_trial(
         commands,
         &transition,
         output,
-        &mut log,
+        log,
     )
 }
 
@@ -276,7 +272,7 @@ fn failure_trial(
         ExecutionConfig::new(std::num::NonZeroU32::MIN),
     )?;
     let initial_bindings = selected_counts(&harness, variant)?;
-    let mut log = BufWriter::new(fs::File::create(output.join("ticks.jsonl"))?);
+    let mut log = DigestWriter::create(&output.join("ticks.jsonl"))?;
     let mut hashes = Vec::new();
     let mut commands = 0;
     let limits = match kind {
@@ -419,7 +415,7 @@ fn failure_trial(
         commands,
         &transition,
         output,
-        &mut log,
+        log,
     )
 }
 
@@ -438,7 +434,7 @@ fn reject_trial(
         ExecutionConfig::new(std::num::NonZeroU32::MIN),
     )?;
     let initial_bindings = selected_counts(&harness, variant)?;
-    let mut log = BufWriter::new(fs::File::create(output.join("ticks.jsonl"))?);
+    let mut log = DigestWriter::create(&output.join("ticks.jsonl"))?;
     let mut hashes = Vec::new();
     let mut commands = 0;
     let mut transition = Value::Null;
@@ -638,7 +634,7 @@ fn reject_trial(
         commands,
         &transition,
         output,
-        &mut log,
+        log,
     )
 }
 
@@ -661,7 +657,7 @@ fn multi_trial(
         ExecutionConfig::new(std::num::NonZeroU32::MIN),
     )?;
     let initial_bindings = selected_counts(&harness, v1)?;
-    let mut log = BufWriter::new(fs::File::create(output.join("ticks.jsonl"))?);
+    let mut log = DigestWriter::create(&output.join("ticks.jsonl"))?;
     let mut hashes = Vec::new();
     let mut commands = 0;
     let mut transition = json!({"rounds":[]});
@@ -775,7 +771,7 @@ fn multi_trial(
         commands,
         &transition,
         output,
-        &mut log,
+        log,
     )
 }
 
@@ -860,7 +856,7 @@ the 100/1000 capacity sentinels, so the plan cannot expand on v1 (see gate.rs or
     let save_source = crate::save::SaveSource {
         execution_id: "gate-538".into(),
         git_commit: None,
-        binary_sha256: None,
+        binary_digest: None,
         workers: 1,
     };
     let identity = workflow_trial(
@@ -934,14 +930,17 @@ variant-baseline note)"},
 fn verify_gate_inputs(
     source_after: &Value,
     source_before: &Value,
-    variant_manifest_after: &crate::artifacts::FileDigest,
-    variant_manifest_before: &crate::artifacts::FileDigest,
+    variant_manifest_after: &crate::digest::FileDigest,
+    variant_manifest_before: &crate::digest::FileDigest,
     variant_revision_after: laneflow_static_contract::NetworkRevisionId,
     variant_revision_before: laneflow_static_contract::NetworkRevisionId,
-    artifact_files_after: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
-    artifact_files_before: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
-    variant_files_after: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
-    variant_files_before: &std::collections::BTreeMap<String, crate::artifacts::FileDigest>,
+    artifact_files_after: &std::collections::BTreeMap<String, crate::artifacts::ArtifactFileDigest>,
+    artifact_files_before: &std::collections::BTreeMap<
+        String,
+        crate::artifacts::ArtifactFileDigest,
+    >,
+    variant_files_after: &std::collections::BTreeMap<String, crate::artifacts::ArtifactFileDigest>,
+    variant_files_before: &std::collections::BTreeMap<String, crate::artifacts::ArtifactFileDigest>,
     artifact_manifest_after: &str,
     artifact_manifest_before: &str,
     variant_manifest_digest_after: &str,
@@ -988,7 +987,7 @@ pub fn run_gate_evidence(
     let save_source = crate::save::SaveSource {
         execution_id: "gate-538".into(),
         git_commit: provenance["commit"].as_str().map(String::from),
-        binary_sha256: provenance["binary"].as_str().map(String::from),
+        binary_digest: provenance["binary"]["digest"].as_str().map(String::from),
         workers: 1,
     };
     let bound_chained = workflow_trial(
@@ -1070,12 +1069,11 @@ mod tests {
     fn verify_gate_inputs_rejects_each_drift() {
         let files = std::collections::BTreeMap::new();
         let revision = v1_revision_of_fixture();
-        let manifest = crate::artifacts::FileDigest {
+        let manifest = crate::digest::FileDigest {
             bytes: 1,
-            sha256: String::new(),
+            digest: String::new(),
         };
-        let check = |source_after: &Value,
-                     variant_manifest_after: &crate::artifacts::FileDigest| {
+        let check = |source_after: &Value, variant_manifest_after: &crate::digest::FileDigest| {
             verify_gate_inputs(
                 source_after,
                 &json!({"commit": "c"}),
@@ -1099,9 +1097,9 @@ mod tests {
         assert!(!check(&json!({"commit": "other"}), &manifest.clone()));
         assert!(!check(
             &same,
-            &crate::artifacts::FileDigest {
+            &crate::digest::FileDigest {
                 bytes: 2,
-                sha256: String::new()
+                digest: String::new()
             }
         ));
     }
