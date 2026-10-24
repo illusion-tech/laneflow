@@ -31,6 +31,22 @@ const PROTOCOL: &str = "laneflow-page-injection-v1";
 const CHILD_TEST: &str = "page_injection_tests::child_entry";
 type Result<T> = std::result::Result<T, String>;
 
+fn supports_collection(system_page: usize) -> bool {
+    cfg!(any(unix, windows)) && system_page == PAGE
+}
+
+fn skip_unsupported_page_regression() -> bool {
+    let system_page = page_size::get();
+    if supports_collection(system_page) {
+        false
+    } else {
+        eprintln!(
+            "SKIP page regression: unsupported platform or page size {system_page}; no page coverage"
+        );
+        true
+    }
+}
+
 fn ensure(condition: bool, message: &str) -> Result<()> {
     condition.then_some(()).ok_or_else(|| message.to_owned())
 }
@@ -643,12 +659,20 @@ fn run_case(
 }
 
 fn matrix(directory: &Path) -> Result<()> {
+    matrix_for_page_size(directory, page_size::get())
+}
+
+fn matrix_for_page_size(directory: &Path, system_page: usize) -> Result<()> {
     // 拒绝已有目录时不写任何失败记录；只有原子创建成功后才拥有此目录。
     fs::create_dir(directory).map_err(|e| e.to_string())?;
     let result = (|| {
         write_json(
             &directory.join("run.json"),
             &serde_json::json!({"status":"Incomplete"}),
+        )?;
+        ensure(
+            supports_collection(system_page),
+            "unsupported system page size or platform; no page coverage",
         )?;
         let bytes = fixture()?;
         let source = directory.join("network.lfca");
@@ -702,7 +726,7 @@ fn matrix(directory: &Path) -> Result<()> {
             &serde_json::json!({
             "protocol":PROTOCOL, "status":"Complete", "parent_pid":std::process::id(),
             "root_faults":5, "root_healthy_controls":1, "environment_fault_controls":5,
-            "environment_healthy_controls":1, "page_bytes":page_size::get(),
+            "environment_healthy_controls":1, "page_bytes":system_page,
             "os":std::env::consts::OS, "arch":std::env::consts::ARCH,
             "source_commit":std::env::var("LF_PAGE_COMMIT").ok(),
             "physical_page_frame_or_common_page_proved":false }),
@@ -717,6 +741,9 @@ fn matrix(directory: &Path) -> Result<()> {
 
 #[test]
 fn actual_pages_are_injected_and_verified_in_independent_children() {
+    if skip_unsupported_page_regression() {
+        return;
+    }
     let temporary = tempfile::tempdir().unwrap();
     let result = matrix(&temporary.path().join("evidence"));
     if let Err(error) = result {
@@ -784,6 +811,9 @@ fn failed_and_timed_out_children_remain_incomplete() {
 
 #[test]
 fn missing_short_foreign_and_noop_evidence_is_rejected() {
+    if skip_unsupported_page_regression() {
+        return;
+    }
     let temporary = tempfile::tempdir().unwrap();
     let directory = temporary.path().join("control");
     let request = Request {
@@ -843,4 +873,23 @@ fn missing_short_foreign_and_noop_evidence_is_rejected() {
 fn collect_page_evidence() {
     let output = std::env::var_os("LF_PAGE_OUTPUT").expect("LF_PAGE_OUTPUT");
     matrix(Path::new(&output)).unwrap();
+}
+
+#[test]
+fn unsupported_collection_is_incomplete_before_source_or_children() {
+    let temporary = tempfile::tempdir().unwrap();
+    for system_page in [PAGE * 2, PAGE * 4, PAGE * 16] {
+        let directory = temporary.path().join(format!("unsupported-{system_page}"));
+        assert!(!supports_collection(system_page));
+        assert!(
+            matrix_for_page_size(&directory, system_page)
+                .unwrap_err()
+                .contains("unsupported")
+        );
+        let result: serde_json::Value = read_json(&directory.join("run.json")).unwrap();
+        assert_eq!(result["status"], "Incomplete");
+        assert!(result["reason"].as_str().unwrap().contains("unsupported"));
+        assert!(!directory.join("network.lfca").exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    }
 }
