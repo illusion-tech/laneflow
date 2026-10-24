@@ -1132,12 +1132,19 @@ fn preflight_chunked_section(
             // 现场数据（chunk 位置/期望vs实际摘要/内容头）供下次自然出现时定位
             // 写回-读回分歧点；仅 std 面输出，不影响 no_std 与失败语义。
             #[cfg(feature = "std")]
-            std::eprintln!(
-                "[digest-probe] entry={entry} offset={byte_offset} len={byte_length} expected={expected_digest:02x?} actual={actual_digest:02x?} head32={:02x?}",
-                &chunk[..chunk.len().min(32)]
-            );
-            #[cfg(feature = "std")]
-            dump_digest_probe_chunk(entry, byte_offset, chunk, &expected_digest, &actual_digest);
+            if !DIGEST_PROBE_SUPPRESSED.get() {
+                std::eprintln!(
+                    "[digest-probe] entry={entry} offset={byte_offset} len={byte_length} expected={expected_digest:02x?} actual={actual_digest:02x?} head32={:02x?}",
+                    &chunk[..chunk.len().min(32)]
+                );
+                dump_digest_probe_chunk(
+                    entry,
+                    byte_offset,
+                    chunk,
+                    &expected_digest,
+                    &actual_digest,
+                );
+            }
             return Err(FormatError::DigestMismatch {
                 structure: FormatStructure::ChunkDirectoryEntry,
             });
@@ -1270,6 +1277,28 @@ fn check_source_location_rows(
         });
     }
     Ok(())
+}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    static DIGEST_PROBE_SUPPRESSED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// 在当前线程执行 `f`，期间 chunk 摘要失配不输出 `[digest-probe]` 现场行、不写转储
+/// （#794）；`DigestMismatch` 照常返回，失败语义不变。
+///
+/// 供故意构造摘要失配的测试使用，使注入的失配不混入真实失真的现场行与默认留证目录。
+/// 只作用于调用线程：`f` 内另起线程上的读回校验不受影响。可嵌套，返回时恢复进入前的状态。
+#[cfg(feature = "std")]
+pub fn without_digest_probe<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DIGEST_PROBE_SUPPRESSED.set(self.0);
+        }
+    }
+    let _restore = Restore(DIGEST_PROBE_SUPPRESSED.replace(true));
+    f()
 }
 
 /// 摘要失配失真转储探针（#794）：把失真 chunk 字节落盘并回读比对，供与确定性
@@ -1418,6 +1447,24 @@ mod tests {
     use crate::{
         FormatErrorClass, FormatLimitConfig, LimitDimension, table::preflight_table_with_registry,
     };
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn digest_probe_suppression_is_scoped_nested_and_unwind_safe() {
+        let suppressed = || DIGEST_PROBE_SUPPRESSED.get();
+        assert!(!suppressed());
+        super::without_digest_probe(|| {
+            assert!(suppressed());
+            super::without_digest_probe(|| assert!(suppressed()));
+            assert!(suppressed(), "nested scope keeps the outer state");
+        });
+        assert!(!suppressed());
+        let unwound = std::panic::catch_unwind(|| {
+            super::without_digest_probe(|| panic!("injected"));
+        });
+        assert!(unwound.is_err());
+        assert!(!suppressed(), "panic restores the previous state");
+    }
 
     #[cfg(feature = "std")]
     #[test]
