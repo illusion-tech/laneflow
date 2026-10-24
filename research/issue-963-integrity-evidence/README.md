@@ -188,11 +188,12 @@ cargo +1.99.1 test --release --locked -p laneflow-urban-harness --lib
 cargo +1.99.1 test --locked -p laneflow-runtime --lib origin_mismatches_fail_closed
 ```
 
-长期测试入口为 `integrity_soak::bounded_soak`（默认 ignored）。先构建测试二进制，
-由外层资源看护启动该二进制，设置 `LF_SOAK_OUTPUT` 为新的绝对目录、`LF_SOAK_SECONDS`
-为约定秒数，并设置 `LF_SOAK_COMMIT` / `LF_SOAK_BINARY_SHA256` 记录身份；用
-`--ignored --exact integrity_soak::bounded_soak --nocapture` 运行。复跑须新目录，
-不能覆写原证据。持续时间与资源范围须先由用户约定；正确性浸泡不要求计算安静窗口。
+当前长期测试入口为 `integrity_soak::bounded_soak`（默认 ignored），包含独立资源看护、
+分段证据与同驻留世界的安全暂停 / 恢复。构建、时长 / 资源配置、控制命令和判读规则见
+[长期浸泡驱动](long-soak-driver.md)。复跑必须新目录，不能覆写原证据；关闭后的新一轮
+不冒充匿名堆连续驻留。持续时间与资源范围须先由用户约定；正确性浸泡不要求计算安静窗口，
+需要其他安静开发窗口时应先取得安全暂停确认。本报告的历史 30 分钟样本保持原记录口径，
+不因工具扩展而升级为长期验收或暂停功能的测量证据。
 
 完整源制品、存档、每段请求/响应、stdout/stderr 与资源采样保存在本机忽略目录，
 不随本报告承诺远端原包长期可恢复。入仓摘要保存用于审阅的规模、结果、边界与内容摘要；

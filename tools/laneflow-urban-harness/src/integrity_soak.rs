@@ -1,4 +1,4 @@
-//! #963：有限城市浸泡仪器，只进入测试二进制。性能计时与产品保证不在本仪器范围内。
+//! #963：有界城市浸泡仪器，只进入测试二进制。性能计时与产品保证不在本仪器范围内。
 //! 每段从已写后读回的宿主存档恢复；在用原世界留在父进程，恢复只发生于子进程。
 
 use std::{
@@ -9,6 +9,12 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+mod control;
+mod supervisor;
+mod tests;
+
+use control::{Clock, Controller};
 
 use laneflow_audit_test_support as audit;
 use laneflow_format::FormatLimits;
@@ -29,8 +35,74 @@ use crate::{Artifacts, Harness, ResolvedPlan, Result, SaveSource, UrbanCase, Win
 
 const BATCH_TICKS: u64 = 1_024;
 const STRIDE: u64 = 64;
-const MAX_SECONDS: u64 = 1_800;
-const MAX_DISK_BYTES: u64 = 512 * 1_024 * 1_024;
+const MAX_SECONDS: u64 = 7 * 24 * 60 * 60;
+pub(super) const MAX_TICKS: u64 = MAX_SECONDS * 1_000 / 16 + 4_098;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Config {
+    seconds: u64,
+    wall_seconds: u64,
+    max_disk_bytes: u64,
+    max_memory_bytes: u64,
+    batch_ticks: u64,
+    replay_seconds: u64,
+    paced: bool,
+}
+
+impl Config {
+    fn new(seconds: u64) -> Self {
+        Self {
+            seconds,
+            wall_seconds: seconds.saturating_mul(4).saturating_add(300),
+            max_disk_bytes: 2 * 1_024 * 1_024 * 1_024,
+            max_memory_bytes: 2 * 1_024 * 1_024 * 1_024,
+            batch_ticks: BATCH_TICKS,
+            replay_seconds: 30,
+            paced: true,
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        if !(1..=MAX_SECONDS).contains(&self.seconds)
+            || !(self.seconds..=30 * 24 * 60 * 60).contains(&self.wall_seconds)
+            || !(1..=64 * 1_024 * 1_024 * 1_024).contains(&self.max_disk_bytes)
+            || !(1..=64 * 1_024 * 1_024 * 1_024).contains(&self.max_memory_bytes)
+            || !(1..=4_096).contains(&self.batch_ticks)
+            || !(1..=120).contains(&self.replay_seconds)
+        {
+            return Err(invalid("浸泡配置超出有界范围"));
+        }
+        Ok(())
+    }
+
+    fn from_env() -> Result<Self> {
+        let seconds = std::env::var("LF_SOAK_SECONDS")
+            .map_err(|error| invalid(format!("LF_SOAK_SECONDS: {error}")))?
+            .parse()
+            .map_err(|error| invalid(format!("LF_SOAK_SECONDS: {error}")))?;
+        let mut config = Self::new(seconds);
+        for (key, value) in [
+            ("LF_SOAK_WALL_SECONDS", &mut config.wall_seconds),
+            ("LF_SOAK_MAX_DISK_BYTES", &mut config.max_disk_bytes),
+            ("LF_SOAK_MAX_MEMORY_BYTES", &mut config.max_memory_bytes),
+            ("LF_SOAK_BATCH_TICKS", &mut config.batch_ticks),
+            ("LF_SOAK_REPLAY_SECONDS", &mut config.replay_seconds),
+        ] {
+            match std::env::var(key) {
+                Ok(raw) => {
+                    *value = raw
+                        .parse()
+                        .map_err(|error| invalid(format!("{key}: {error}")))?
+                }
+                Err(std::env::VarError::NotPresent) => {}
+                Err(error) => return Err(invalid(format!("{key}: {error}"))),
+            }
+        }
+        config.validate()?;
+        Ok(config)
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct SourceIdentity {
@@ -84,11 +156,12 @@ struct Request {
     identity: SourceIdentity,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Sample {
     ordinal: u32,
     command_cursor: u64,
     tick: u64,
+    world_id: u64,
     digest: [u8; 32],
     caller_digest: String,
 }
@@ -158,6 +231,7 @@ fn sample(harness: &Harness<'_>, ordinal: u32) -> Result<Sample> {
         ordinal,
         command_cursor: harness.world().command_cursor(),
         tick: harness.world().tick_index(),
+        world_id: harness.world().world_id(),
         digest: *digest.as_bytes(),
         caller_digest: harness.caller_digest()?,
     })
@@ -168,6 +242,7 @@ fn advance(
     target_tick: u64,
     deadline: Option<Instant>,
     pace: bool,
+    control: Option<&Controller>,
 ) -> Result<Response> {
     let mut samples = vec![sample(harness, 0)?];
     let mut ticks = Sha256::new();
@@ -175,6 +250,12 @@ fn advance(
     while harness.world().tick_index() < target_tick {
         if deadline.is_some_and(|end| Instant::now() >= end) {
             break;
+        }
+        if let Some(control) = control {
+            control.check_supervisor()?;
+            if control.pending()?.is_some() {
+                break;
+            }
         }
         let started = Instant::now();
         let record = harness.advance()?;
@@ -253,7 +334,7 @@ fn worker(request: &Path) -> Result<()> {
     let plan = ResolvedPlan::read(&request_value.plan)?;
     let loaded = crate::save::load_save(&request_value.save, &artifacts, &plan.digest()?)?;
     let mut harness = Harness::resume(&artifacts, &plan, execution(), loaded)?;
-    let mut response = advance(&mut harness, request_value.target_tick, None, false)?;
+    let mut response = advance(&mut harness, request_value.target_tick, None, false, None)?;
     response.root_attestation = root_attestation;
     response.environment_probe_rewrites = probe_rewrites;
     write(
@@ -272,15 +353,14 @@ fn replay_worker() {
     .expect("independent audit worker");
 }
 
-fn replay(request: &Path) -> Result<Response> {
+fn replay(request: &Path, timeout: Duration) -> Result<Response> {
+    replay_entry(request, timeout, "integrity_soak::replay_worker")
+}
+
+fn replay_entry(request: &Path, timeout: Duration, entry: &str) -> Result<Response> {
     let mut command = Command::new(std::env::current_exe()?);
     command
-        .args([
-            "--ignored",
-            "--exact",
-            "integrity_soak::replay_worker",
-            "--nocapture",
-        ])
+        .args(["--ignored", "--exact", entry, "--nocapture"])
         .env("LF_SOAK_REQUEST", request)
         .stdout(Stdio::from(fs::File::create(
             request.with_extension("stdout.log"),
@@ -293,28 +373,32 @@ fn replay(request: &Path) -> Result<Response> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let mut child = command.spawn()?;
+    let mut child = supervisor::ChildGuard::new(command.spawn()?);
+    let child_pid = child.child.id();
     let started = Instant::now();
     loop {
-        if let Some(status) = child.try_wait()? {
+        if let Some(status) = child.child.try_wait()? {
             if !status.success() {
                 return Err(invalid(format!("Incomplete: replay child {status}")));
             }
             break;
         }
-        if started.elapsed() > Duration::from_secs(30) {
-            child.kill()?;
-            child.wait()?;
+        if started.elapsed() > timeout {
+            child.terminate()?;
             return Err(invalid("Incomplete: replay child timeout"));
         }
         thread::sleep(Duration::from_millis(20));
     }
+    child.terminate()?;
     let path = request.with_extension("response.json");
     if fs::metadata(&path)?.len() > 128 * 1_024 {
         return Err(invalid("Incomplete: oversized replay response"));
     }
     let response: Response = serde_json::from_slice(&fs::read(path)?)?;
-    if response.pid == std::process::id() || response.root_attestation.is_empty() {
+    if response.pid != child_pid
+        || response.pid == std::process::id()
+        || response.root_attestation.is_empty()
+    {
         return Err(invalid(
             "Incomplete: independent authenticated child missing",
         ));
@@ -323,52 +407,75 @@ fn replay(request: &Path) -> Result<Response> {
 }
 
 fn directory_bytes(path: &Path) -> Result<u64> {
-    let mut total = 0;
-    for entry in fs::read_dir(path)? {
+    let mut total = 0_u64;
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
         let entry = entry?;
-        total += if entry.file_type()?.is_dir() {
+        let kind = match entry.file_type() {
+            Ok(kind) => kind,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let bytes = if kind.is_dir() {
             directory_bytes(&entry.path())?
         } else {
-            entry.metadata()?.len()
+            match entry.metadata() {
+                Ok(metadata) => metadata.len(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            }
         };
+        total = total
+            .checked_add(bytes)
+            .ok_or_else(|| invalid("证据字节数溢出"))?;
     }
     Ok(total)
 }
 
 fn run(output: &Path, seconds: u64, pace: bool) -> Result<()> {
-    if seconds == 0 || seconds > MAX_SECONDS || output.exists() {
-        return Err(invalid("require fresh output and 1..=1800 seconds"));
-    }
-    if let Some(parent) = output
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent)?;
-    }
-    // 原子取得新目录后才有权写失败记录；预检失败与同名目录竞争都不得改写已有证据。
-    fs::create_dir(output)?;
-    let result = run_in_created_directory(output, seconds, pace);
-    if let Err(error) = &result {
-        let _ = write(
-            &output.join("failure.json"),
-            &serde_json::to_vec_pretty(&serde_json::json!({
-                "status": "Incomplete", "reason": error.to_string(),
-            }))
-            .expect("failure JSON"),
-        );
-    }
+    let mut config = Config::new(seconds);
+    config.paced = pace;
+    let spec = supervisor::create_output(output, config)?;
+    let result = run_in_created_directory(output, &spec, false);
+    record_failure(output, &result);
     result
 }
 
-fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<()> {
+fn record_failure(output: &Path, result: &Result<()>) {
+    if let Err(error) = result {
+        let value = serde_json::json!({
+            "status":"Incomplete", "reason":error.to_string(), "pid":std::process::id(),
+        });
+        // 驻留进程与看护进程的原始失败分别保留；顶层记录只作最近失败入口。
+        let original = output
+            .join("failures")
+            .join(format!("{}.json", std::process::id()));
+        if !original.exists() {
+            let _ = control::publish(&original, &value);
+        }
+        let _ = control::publish(&output.join("failure.json"), &value);
+    }
+}
+
+fn run_in_created_directory(
+    output: &Path,
+    spec: &supervisor::Spec,
+    supervised: bool,
+) -> Result<()> {
+    let config = &spec.config;
+    let mut control = Controller::new(output, spec, supervised)?;
     let source = output.join("source");
-    let config = crate::checked(
+    let city_config = crate::checked(
         "city config",
         UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")),
     )?;
     crate::checked(
         "generate city",
-        generate(&config, Scale::Fixture, &source, None),
+        generate(&city_config, Scale::Fixture, &source, None),
     )?;
     let artifacts = Artifacts::load(&source)?;
     let identity = SourceIdentity::pin(&artifacts)?;
@@ -378,7 +485,7 @@ fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<(
         Window {
             purpose: "integrity-soak".into(),
             warm_up_ticks: 0,
-            observation_ticks: 200_000,
+            observation_ticks: (config.seconds * 1_000 / 16 + config.batch_ticks + 2).max(2),
         },
     )?;
     plan.validate(&artifacts)?;
@@ -389,23 +496,31 @@ fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<(
     // 存档沿用 advance 返回的观测摘要；不重复调用带宿主观测副作用的 state。
     let mut state_digest = harness.advance()?.state_digest;
     let initial_tick = harness.world().tick_index();
-    let started = Instant::now();
-    let deadline = started + Duration::from_secs(seconds);
+    let mut clock = Clock::new();
     let mut batches = 0;
     let mut covered_ticks = 0;
-    while Instant::now() < deadline {
-        if directory_bytes(output)? > MAX_DISK_BYTES {
-            return Err(invalid("Incomplete: 512 MiB evidence limit"));
+    let mut stopped = false;
+    control.status("Running", &harness, &clock)?;
+    while clock.active() < Duration::from_secs(config.seconds) {
+        control.check_supervisor()?;
+        if control.boundary(&harness, &artifacts, &source, &identity, &mut clock)? {
+            stopped = true;
+            break;
         }
+        if directory_bytes(output)? > config.max_disk_bytes {
+            return Err(invalid("证据容量超限（Incomplete）"));
+        }
+        let segment = output.join("segments").join(format!("{batches:06}"));
+        fs::create_dir(&segment)?;
         let start_tick = harness.world().tick_index();
-        let path = output.join(format!("batch-{batches:04}.json"));
+        let path = segment.join("request.json");
         let result_path = path.with_extension("result.json");
-        write(
+        control::publish(
             &result_path,
-            br#"{"classification":"Incomplete","reason":"audit pending"}"#,
+            &serde_json::json!({"classification":"Incomplete","reason":"audit pending"}),
         )?;
         let (save, _) = crate::save::write_save(
-            output,
+            &segment,
             &harness,
             &state_digest,
             &plan.digest()?,
@@ -416,7 +531,15 @@ fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<(
                 workers: 1,
             },
         )?;
-        let mut expected = advance(&mut harness, start_tick + BATCH_TICKS, Some(deadline), pace)?;
+        let deadline =
+            Instant::now() + Duration::from_secs(config.seconds).saturating_sub(clock.active());
+        let mut expected = advance(
+            &mut harness,
+            start_tick + config.batch_ticks,
+            Some(deadline),
+            config.paced,
+            Some(&control),
+        )?;
         if let Some(last_state) = &expected.last_state_digest {
             state_digest.clone_from(last_state);
         }
@@ -424,7 +547,7 @@ fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<(
         let request = Request {
             source: source.clone(),
             plan: plan_path.clone(),
-            save: output.join(save.path),
+            save: segment.join(save.path),
             target_tick: harness.world().tick_index(),
             identity: identity.clone(),
         };
@@ -438,14 +561,14 @@ fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<(
         )?;
         write(&path, &serde_json::to_vec_pretty(&request)?)?;
         // 本段尚未取得独立结果；进程被终止时仍保留 Incomplete，不借用前段结论。
-        let actual = replay(&path)?;
+        let actual = replay(&path, Duration::from_secs(config.replay_seconds))?;
         let result = compare(&expected, &actual)?;
         let host_equal = expected.tick_records_digest == actual.tick_records_digest
             && expected
                 .samples
                 .iter()
                 .zip(&actual.samples)
-                .all(|(a, b)| a.caller_digest == b.caller_digest);
+                .all(|(a, b)| a.caller_digest == b.caller_digest && a.world_id == b.world_id);
         let classification = match result {
             audit::AuditResult::CompleteMatch if host_equal => "CompleteMatch",
             audit::AuditResult::CompleteMatch | audit::AuditResult::Diverged { .. } => "Diverged",
@@ -454,72 +577,53 @@ fn run_in_created_directory(output: &Path, seconds: u64, pace: bool) -> Result<(
         let record = serde_json::json!({
             "classification": classification, "runtime_result": format!("{result:?}"),
             "host_equal": host_equal, "start_tick": start_tick, "target_tick": request.target_tick,
-            "points": expected.samples.len(), "elapsed_seconds": started.elapsed().as_secs_f64(),
+            "points": expected.samples.len(), "active_seconds": clock.active().as_secs_f64(),
+            "paused_seconds": clock.paused().as_secs_f64(), "wall_seconds": clock.wall().as_secs_f64(),
+            "run_id": spec.run_id, "segment": batches,
             "parent_pid": std::process::id(), "child_pid": actual.pid,
             "environment_probe_rewrites": [expected.environment_probe_rewrites, actual.environment_probe_rewrites],
         });
-        write(&result_path, &serde_json::to_vec_pretty(&record)?)?;
+        control::publish(&result_path, &record)?;
         println!("SOAK {record}");
         if classification != "CompleteMatch" {
             return Err(invalid(format!("audit stopped: {record}")));
         }
         batches += 1;
         covered_ticks += request.target_tick - start_tick;
-        if !pace {
+        control.status("Running", &harness, &clock)?;
+        if !config.paced {
             break;
         }
     }
+    // 先处理已观察到的末尾请求，再发布终态；终态不再接受控制请求。
+    if !stopped && control.pending()?.is_some() {
+        stopped = control.boundary(&harness, &artifacts, &source, &identity, &mut clock)?;
+    }
+    let status = if stopped { "Incomplete" } else { "Completed" };
     let summary = serde_json::json!({
-        "status": "completed", "scope": "short-soak-chain-validation", "requested_seconds": seconds,
-        "elapsed_seconds": started.elapsed().as_secs_f64(), "complete_match_batches": batches,
+        "status": status, "reason": if stopped { "user stop" } else { "requested interval finished" },
+        "scope": if config.paced { "bounded-resident-soak" } else { "short-soak-chain-validation" },
+        "run_id": spec.run_id, "requested_seconds": config.seconds,
+        "active_seconds": clock.active().as_secs_f64(), "paused_seconds": clock.paused().as_secs_f64(),
+        "wall_seconds": clock.wall().as_secs_f64(), "complete_match_batches": batches,
         "covered_ticks": covered_ticks, "final_tick": harness.world().tick_index(),
         "initial_tick": initial_tick,
-        "initial_attestation": initial_attestation, "runtime_workers": 1, "paced": pace,
+        "world_id": harness.world().world_id(), "resident_pid": std::process::id(),
+        "initial_attestation": initial_attestation, "runtime_workers": 1, "paced": config.paced,
         "nominal_individuals": artifacts.individuals, "replacements": harness.replacements,
-        "evidence_bytes": directory_bytes(output)?, "uncovered": ["long-term fault-host acceptance", "physical heap attribution", "between-checkpoint transient changes"],
+        "evidence_bytes": directory_bytes(output)?, "uncovered": ["long-term fault-host acceptance", "physical heap attribution", "between-checkpoint transient changes", "pause intervals have no periodic sampling", "initial installation and first tick"],
     });
     write(
         &output.join("summary.json"),
         &serde_json::to_vec_pretty(&summary)?,
     )?;
+    control.status(
+        if stopped { "Stopped" } else { "Completed" },
+        &harness,
+        &clock,
+    )?;
     println!("SOAK_SUMMARY {summary}");
     Ok(())
-}
-
-#[test]
-fn rejected_output_and_duration_preserve_existing_evidence() {
-    let temp = tempfile::tempdir().unwrap();
-    let output = temp.path().join("existing");
-    fs::create_dir(&output).unwrap();
-    let failure_path = output.join("failure.json");
-    let original = b"previous run failure evidence";
-    fs::write(&failure_path, original).unwrap();
-    for seconds in [0, 1, MAX_SECONDS + 1] {
-        assert!(run(&output, seconds, false).is_err());
-        assert_eq!(fs::read(&failure_path).unwrap(), original);
-        assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
-    }
-    // 覆盖实际命令行入口，避免它在 run 拒绝目录后另行覆写 failure.json。
-    let mut command = Command::new(std::env::current_exe().unwrap());
-    command
-        .args(["--ignored", "--exact", "integrity_soak::bounded_soak"])
-        .env("LF_SOAK_OUTPUT", &output)
-        .env("LF_SOAK_SECONDS", "1")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    assert!(!command.status().unwrap().success());
-    assert_eq!(fs::read(&failure_path).unwrap(), original);
-    assert_eq!(fs::read_dir(&output).unwrap().count(), 1);
-    for seconds in [0, MAX_SECONDS + 1] {
-        let fresh = temp.path().join(format!("invalid-{seconds}"));
-        assert!(run(&fresh, seconds, false).is_err());
-        assert!(!fresh.exists());
-    }
 }
 
 #[test]
@@ -528,7 +632,7 @@ fn short_chain_replays_in_an_independent_process() {
     let output = temp.path().join("short");
     run(&output, 30, false).unwrap();
     // 真正启动失败子进程：修订期望值失真时不得恢复，也不得沿用旧成功响应。
-    let original = output.join("batch-0000.json");
+    let original = output.join("segments/000000/request.json");
     let mut request: Request = serde_json::from_slice(&fs::read(&original).unwrap()).unwrap();
     request.identity.revision[0] ^= 0x80;
     let rejected = output.join("rejected.json");
@@ -538,7 +642,7 @@ fn short_chain_replays_in_an_independent_process() {
         &probe_bytes(request.target_tick),
     )
     .unwrap();
-    assert!(replay(&rejected).is_err());
+    assert!(replay(&rejected, Duration::from_secs(30)).is_err());
     assert!(!rejected.with_extension("response.json").exists());
     let stderr = fs::read_to_string(rejected.with_extension("stderr.log")).unwrap();
     assert!(
@@ -551,9 +655,28 @@ fn short_chain_replays_in_an_independent_process() {
 #[ignore = "需要用户指定浸泡时长和资源窗口，不参与默认测试"]
 fn bounded_soak() {
     let output = PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").expect("output"));
-    let seconds = std::env::var("LF_SOAK_SECONDS")
-        .expect("seconds")
-        .parse()
-        .expect("integer seconds");
-    run(&output, seconds, true).expect("bounded soak");
+    supervisor::supervise(
+        &output,
+        Config::from_env().expect("bounded config"),
+        "integrity_soak::resident_worker",
+    )
+    .expect("bounded soak");
+}
+
+#[test]
+#[ignore = "驻留世界子进程；只由独立资源看护启动"]
+fn resident_worker() {
+    let output = PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").expect("output"));
+    let spec = control::read_json(&output.join("config.json")).expect("run config");
+    let result = run_in_created_directory(&output, &spec, true);
+    record_failure(&output, &result);
+    result.expect("resident soak");
+}
+
+#[test]
+#[ignore = "显式操作指定的浸泡目录，不参与默认测试"]
+fn control_soak() {
+    let output = PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").expect("output"));
+    control::issue(&output, &std::env::var("LF_SOAK_COMMAND").expect("command"))
+        .expect("soak command");
 }
