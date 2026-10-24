@@ -7,6 +7,10 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# 仅供下游测试注入写后故障，默认构建不包含接缝（#1043）。
+verified-write-test-support = []
+
 [dependencies]
 laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
 laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format", features = ["std"] }

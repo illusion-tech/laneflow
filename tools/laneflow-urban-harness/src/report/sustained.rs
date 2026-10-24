@@ -8,6 +8,9 @@ use std::{
 use super::{ActiveLoadSummary, RetainedMeasurements, RunResult, sample_summary};
 use crate::{ResolvedPlan, Result, TickRecord, Window, digest::Domain, invalid};
 
+#[cfg(test)]
+mod fixture;
+
 struct CommandBatch {
     hash: blake3::Hasher,
     count: usize,
@@ -469,15 +472,19 @@ pub(super) fn verify(
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{measurement_fixture, write_round};
-    use super::super::{compare_performance_runs, compare_runs, digest_file, line, write_json};
+    use super::super::tests::{measurement_fixture, round_result};
+    use super::super::{compare_performance_runs, compare_runs, line};
+    use super::fixture::{CopyStats, Fixture, FixtureDirectory};
     use super::*;
-    use crate::{InitialVehicle, LifecycleCounts, RecyclingEntry, RecyclingPlan};
+    use crate::{
+        InitialVehicle, LifecycleCounts, RecyclingEntry, RecyclingPlan, written::DigestWriter,
+    };
     use serde_json::json;
-    use std::{fs, io::Write};
+    use std::io::Write;
 
     // 运行记录校验夹具，无交通求值或正式性能证明；真实运行另用冻结的城市制品。
-    fn packet(directory: &Path, execution: &str, workers: u32) {
+    fn packet(directory: &Path, execution: &str, workers: u32) -> Result<Fixture> {
+        let mut fixture = Fixture::new(directory)?;
         let target = 10_000;
         let cycle = 128;
         let window = Window::performance_for_cycle(cycle).unwrap();
@@ -495,10 +502,12 @@ mod tests {
         let mut after = vec![target; samples];
         after[0] -= 1;
         measurement["active_samples"] = json!(after);
-        write_round(directory, execution, measurement);
-        let result_path = directory.join("result.json");
-        let mut result: RunResult =
-            serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
+        measurement["execution_id"] = json!(execution);
+        fixture.write(
+            "measurements.toml",
+            toml::to_string(&measurement)?.as_bytes(),
+        )?;
+        let mut result = round_result(BTreeMap::new());
         let plan = ResolvedPlan {
             version: "urban-demand-v3".into(),
             case: "SUSTAINED-ACTIVE".into(),
@@ -565,8 +574,8 @@ mod tests {
                 ],
             }),
         };
-        let plan_bytes = toml::to_string_pretty(&plan).unwrap();
-        fs::write(directory.join("resolved-plan.toml"), &plan_bytes).unwrap();
+        let plan_bytes = toml::to_string_pretty(&plan)?;
+        fixture.write("resolved-plan.toml", plan_bytes.as_bytes())?;
         result.case = plan.case.clone();
         result.window = window.clone();
         result.expected_ticks = window.end();
@@ -608,9 +617,8 @@ mod tests {
                 else {json!({"reason":"entry-blocked","placement":{"route":"route","occurrence":0,"progress_mm":7_000}})}}));
         let command_digest = Domain::TickCommands.hex(&serde_json::to_vec(&command_rows).unwrap());
         let empty_digest = Domain::TickCommands.hex(b"[]");
-        let mut events = File::create(directory.join("events.jsonl")).unwrap();
-        let mut ticks =
-            std::io::BufWriter::new(File::create(directory.join("ticks.jsonl")).unwrap());
+        let mut events = DigestWriter::create(&directory.join("events.jsonl"))?;
+        let mut ticks = DigestWriter::create(&directory.join("ticks.jsonl"))?;
         for tick in 1..=window.end() {
             let dropped = tick <= window.warm_up_ticks || tick == window.end();
             let mut event_rows = Vec::new();
@@ -654,46 +662,37 @@ mod tests {
             )
             .unwrap();
         }
-        ticks.flush().unwrap();
-        drop(ticks);
-        drop(events);
-        let mut commands = File::create(directory.join("commands.jsonl")).unwrap();
-        for row in command_rows {
-            line(&mut commands, &row).unwrap();
-        }
-        drop(commands);
-        let mut diagnostics: serde_json::Value =
-            serde_json::from_slice(&fs::read(directory.join("diagnostics.json")).unwrap()).unwrap();
+        fixture.record("ticks.jsonl", ticks.finish()?);
+        fixture.record("events.jsonl", events.finish()?);
+        fixture.stream("commands.jsonl", |commands| {
+            for row in command_rows {
+                line(commands, &row)?;
+            }
+            Ok(())
+        })?;
+        let mut diagnostics =
+            json!({"execution_id":execution,"workers":workers,"diagnostics_enabled":true});
         let ones = vec![1; samples];
-        super::super::timing::write_fixture(
+        let timing_digest = super::super::timing::write_fixture(
             directory,
             window.end(),
             window.warm_up_ticks,
             [&ones, &ones, &ones],
             &mut diagnostics,
         );
-        write_json(&directory.join("diagnostics.json"), &diagnostics).unwrap();
-        for name in [
-            "resolved-plan.toml",
-            "ticks.jsonl",
-            "commands.jsonl",
-            "events.jsonl",
-            "diagnostics.json",
-            super::super::timing::FILE_NAME,
-        ] {
-            result
-                .files
-                .insert(name.into(), digest_file(&directory.join(name)).unwrap());
-        }
-        write_json(&result_path, &result).unwrap();
+        fixture.record(super::super::timing::FILE_NAME, timing_digest);
+        fixture.write_json("diagnostics.json", &diagnostics)?;
+        result.files = fixture.result_files();
+        fixture.write_json("result.json", &result)?;
+        Ok(fixture)
     }
 
     #[test]
     fn sustained_formal_packets_allow_warmup_and_post_step_deficits_only() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = FixtureDirectory::new();
         let dirs = ["a", "b", "c", "four"].map(|n| temp.path().join(n));
         for (i, dir) in dirs.iter().enumerate() {
-            packet(dir, &format!("exec-{i}"), if i == 3 { 4 } else { 1 });
+            packet(dir, &format!("exec-{i}"), if i == 3 { 4 } else { 1 }).unwrap();
         }
         assert_eq!(
             compare_runs(&dirs[0], &dirs[3]).unwrap().status,
@@ -711,14 +710,21 @@ mod tests {
 
     #[test]
     fn sustained_formal_packets_reject_rehashed_inconsistent_load_and_plan_evidence() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = FixtureDirectory::new();
         let dirs = ["a", "b", "c", "four"].map(|n| temp.path().join(n));
-        let pristine = ["a", "b", "c", "four"].map(|n| temp.path().join(format!("pristine-{n}")));
+        let pristine_dirs =
+            ["a", "b", "c", "four"].map(|n| temp.path().join(format!("pristine-{n}")));
         // packet() 每次生成 4608 拍完整产物，88 次调用里只有 4 种产出；
         // 先各生成一份 pristine，每个故障再逐次运行复制后施加既有篡改。
-        for (i, directory) in pristine.iter().enumerate() {
-            packet(directory, &format!("exec-{i}"), if i == 3 { 4 } else { 1 });
-        }
+        let pristine: Vec<_> = pristine_dirs
+            .iter()
+            .enumerate()
+            .map(|(i, directory)| {
+                packet(directory, &format!("exec-{i}"), if i == 3 { 4 } else { 1 }).unwrap()
+            })
+            .collect();
+        let mut stats = CopyStats::default();
+        let mut edit_rewrites = 0;
         for fault in [
             "tick-deficit",
             "measurement",
@@ -743,20 +749,27 @@ mod tests {
             "timestamp",
             "cursor-jump",
         ] {
-            for (source, directory) in pristine.iter().zip(&dirs) {
-                copy_fixture(source, directory);
-            }
             // 每次运行做同一种篡改，不能让跨运行差异代替逐次运行校验。
-            for directory in &dirs {
-                let path = directory.join("result.json");
-                let mut result: RunResult =
-                    serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            for (i, (source, directory)) in pristine.iter().zip(&dirs).enumerate() {
+                let mut fixture = source
+                    .copy_to(
+                        directory,
+                        || {
+                            packet(
+                                source.directory(),
+                                &format!("exec-{i}"),
+                                if i == 3 { 4 } else { 1 },
+                            )
+                        },
+                        &mut stats,
+                    )
+                    .unwrap();
+                let copy_rewrites = fixture.rewrites();
+                let mut result: RunResult = fixture.read_json("result.json").unwrap();
                 match fault {
                     "tick-deficit" | "pending" | "transient-parked" | "timestamp" => {
-                        let rows = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
-                        let mut output = std::io::BufWriter::new(
-                            File::create(directory.join("ticks.jsonl")).unwrap(),
-                        );
+                        let rows = fixture.read_text("ticks.jsonl").unwrap();
+                        let mut output = Vec::new();
                         for text in rows.lines() {
                             let mut row: TickRecord = serde_json::from_str(text).unwrap();
                             if fault == "timestamp" {
@@ -782,8 +795,7 @@ mod tests {
                             }
                             line(&mut output, &row).unwrap();
                         }
-                        output.flush().unwrap();
-                        drop(output);
+                        fixture.write("ticks.jsonl", &output).unwrap();
                         if fault == "pending" {
                             result.pending_departures = 1;
                         }
@@ -792,22 +804,21 @@ mod tests {
                         }
                     }
                     "measurement" => {
-                        let mut value: toml::Value = toml::from_str(
-                            &fs::read_to_string(directory.join("measurements.toml")).unwrap(),
-                        )
-                        .unwrap();
+                        let mut value: toml::Value =
+                            toml::from_str(&fixture.read_text("measurements.toml").unwrap())
+                                .unwrap();
                         value["intent_samples"][0] = toml::Value::Integer(9_999);
-                        fs::write(
-                            directory.join("measurements.toml"),
-                            toml::to_string(&value).unwrap(),
-                        )
-                        .unwrap();
+                        fixture
+                            .write(
+                                "measurements.toml",
+                                toml::to_string(&value).unwrap().as_bytes(),
+                            )
+                            .unwrap();
                     }
                     "timing-arrays" => {
-                        let mut value: toml::Value = toml::from_str(
-                            &fs::read_to_string(directory.join("measurements.toml")).unwrap(),
-                        )
-                        .unwrap();
+                        let mut value: toml::Value =
+                            toml::from_str(&fixture.read_text("measurements.toml").unwrap())
+                                .unwrap();
                         for field in [
                             "command_samples_ns",
                             "traffic_world_step_samples_ns",
@@ -819,15 +830,17 @@ mod tests {
                                     as usize
                             ]);
                         }
-                        fs::write(
-                            directory.join("measurements.toml"),
-                            toml::to_string(&value).unwrap(),
-                        )
-                        .unwrap();
+                        fixture
+                            .write(
+                                "measurements.toml",
+                                toml::to_string(&value).unwrap().as_bytes(),
+                            )
+                            .unwrap();
                     }
                     "per-tile" => {
-                        let mut plan =
-                            ResolvedPlan::read(&directory.join("resolved-plan.toml")).unwrap();
+                        let mut plan: ResolvedPlan =
+                            toml::from_str(&fixture.read_text("resolved-plan.toml").unwrap())
+                                .unwrap();
                         plan.tiles = 1;
                         for (index, vehicle) in plan.initial.iter_mut().enumerate() {
                             vehicle.tile = 0;
@@ -846,31 +859,36 @@ mod tests {
                         }];
                         let text = toml::to_string_pretty(&plan).unwrap();
                         result.plan_digest = Domain::File.hex(text.as_bytes());
-                        fs::write(directory.join("resolved-plan.toml"), text).unwrap();
-                        let mut commands: Vec<serde_json::Value> =
-                            fs::read_to_string(directory.join("commands.jsonl"))
-                                .unwrap()
-                                .lines()
-                                .map(|s| serde_json::from_str(s).unwrap())
-                                .collect();
+                        fixture
+                            .write("resolved-plan.toml", text.as_bytes())
+                            .unwrap();
+                        let mut commands: Vec<serde_json::Value> = fixture
+                            .read_text("commands.jsonl")
+                            .unwrap()
+                            .lines()
+                            .map(|s| serde_json::from_str(s).unwrap())
+                            .collect();
                         commands[1]["details"]["route"] = json!("route");
                         commands[1]["details"]["placement"]["route"] = json!("route");
-                        rewrite_commands(directory, &commands, true);
+                        rewrite_commands(&mut fixture, &commands, true);
                     }
                     "policy-constants" => {
-                        let mut plan =
-                            ResolvedPlan::read(&directory.join("resolved-plan.toml")).unwrap();
+                        let mut plan: ResolvedPlan =
+                            toml::from_str(&fixture.read_text("resolved-plan.toml").unwrap())
+                                .unwrap();
                         let p = plan.recycling.as_mut().unwrap();
                         p.attempts_per_boundary = 63;
                         p.retry_ticks = 1;
                         p.progress_mm = vec![7_000, 15_500];
                         let text = toml::to_string_pretty(&plan).unwrap();
                         result.plan_digest = Domain::File.hex(text.as_bytes());
-                        fs::write(directory.join("resolved-plan.toml"), text).unwrap();
+                        fixture
+                            .write("resolved-plan.toml", text.as_bytes())
+                            .unwrap();
                     }
                     "event-batch" => {
-                        let text = fs::read_to_string(directory.join("events.jsonl")).unwrap();
-                        let mut file = File::create(directory.join("events.jsonl")).unwrap();
+                        let text = fixture.read_text("events.jsonl").unwrap();
+                        let mut file = Vec::new();
                         for (i, row) in text.lines().enumerate() {
                             writeln!(file, "{row}").unwrap();
                             if i == 0 {
@@ -881,6 +899,7 @@ mod tests {
                                 .unwrap();
                             }
                         }
+                        fixture.write("events.jsonl", &file).unwrap();
                     }
                     "checkpoint" => {
                         result.checkpoints.remove(&result.window.warm_up_ticks);
@@ -898,12 +917,15 @@ mod tests {
                             .after_step_below_target_ticks = 0;
                     }
                     "plan-window" => {
-                        let mut plan =
-                            ResolvedPlan::read(&directory.join("resolved-plan.toml")).unwrap();
+                        let mut plan: ResolvedPlan =
+                            toml::from_str(&fixture.read_text("resolved-plan.toml").unwrap())
+                                .unwrap();
                         plan.cycle_ticks += 1;
                         let text = toml::to_string_pretty(&plan).unwrap();
                         result.plan_digest = Domain::File.hex(text.as_bytes());
-                        fs::write(directory.join("resolved-plan.toml"), text).unwrap();
+                        fixture
+                            .write("resolved-plan.toml", text.as_bytes())
+                            .unwrap();
                     }
                     "non-replace"
                     | "missing-attempt"
@@ -914,12 +936,12 @@ mod tests {
                     | "unbound-command"
                     | "wrong-candidate"
                     | "cursor-jump" => {
-                        let mut commands: Vec<serde_json::Value> =
-                            fs::read_to_string(directory.join("commands.jsonl"))
-                                .unwrap()
-                                .lines()
-                                .map(|s| serde_json::from_str(s).unwrap())
-                                .collect();
+                        let mut commands: Vec<serde_json::Value> = fixture
+                            .read_text("commands.jsonl")
+                            .unwrap()
+                            .lines()
+                            .map(|s| serde_json::from_str(s).unwrap())
+                            .collect();
                         match fault {
                             "non-replace" => {
                                 for row in &mut commands {
@@ -965,13 +987,13 @@ mod tests {
                             _ => unreachable!(),
                         }
                         rewrite_commands(
-                            directory,
+                            &mut fixture,
                             &commands,
                             matches!(fault, "wrong-candidate" | "cursor-jump"),
                         );
                         if fault == "cursor-jump" {
-                            let text = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
-                            let mut file = File::create(directory.join("ticks.jsonl")).unwrap();
+                            let text = fixture.read_text("ticks.jsonl").unwrap();
+                            let mut file = Vec::new();
                             for line_text in text.lines() {
                                 let mut tick: TickRecord = serde_json::from_str(line_text).unwrap();
                                 if tick.tick >= 2 {
@@ -979,60 +1001,82 @@ mod tests {
                                 }
                                 line(&mut file, &tick).unwrap();
                             }
+                            fixture.write("ticks.jsonl", &file).unwrap();
                         }
                     }
                     _ => unreachable!(),
                 }
-                for name in [
-                    "ticks.jsonl",
-                    "measurements.toml",
-                    "resolved-plan.toml",
-                    "commands.jsonl",
-                    "events.jsonl",
-                ] {
-                    result
-                        .files
-                        .insert(name.into(), digest_file(&directory.join(name)).unwrap());
+                result.files = fixture.result_files();
+                fixture.write_json("result.json", &result).unwrap();
+                edit_rewrites += fixture.rewrites() - copy_rewrites;
+                // 篡改后的文件仍须匹配写时登记，不能让意外文件损坏替代语义拒绝。
+                fixture.verify_all().unwrap();
+            }
+            let workers = compare_runs(&dirs[0], &dirs[3]).expect_err(fault);
+            let rounds = compare_performance_runs([&dirs[0], &dirs[1], &dirs[2]]).expect_err(fault);
+            // 只接受原故障对应的拒绝原因，I/O、意外解析失败或文件摘要失配不能代替它。
+            let expected = match fault {
+                "tick-deficit" | "measurement" | "load-summary" => {
+                    "sustained performance load differs between ticks, result and measurements"
                 }
-                write_json(&path, &result).unwrap();
+                "checkpoint" => "sustained performance checkpoints are incomplete",
+                "recycling-count" => "sustained performance recycling counts differ",
+                "plan-window" | "per-tile" => {
+                    "sustained performance plan or complete window differs"
+                }
+                "pending" => "持续 Active 正式负载门槛未通过；保留实际负载与测量，不认证预算",
+                "non-replace" | "retry-identity" | "duplicate-request" => {
+                    "invalid sustained recycling replacement record"
+                }
+                "missing-attempt" => "missing field `attempt` at line ",
+                "refusal-side-effect" => "sustained refused replacement has inconsistent effects",
+                "new-generation" | "cursor-jump" => {
+                    "sustained committed command is not a demonstrated replacement"
+                }
+                "unbound-command" => {
+                    "sustained command batch differs from its tick digest or cursor"
+                }
+                "wrong-candidate" => {
+                    "sustained recycling candidate differs from the frozen rotation"
+                }
+                "transient-parked" | "timestamp" => {
+                    "sustained performance tick load or lifecycle differs"
+                }
+                "timing-arrays" => "measurements 样本与逐拍计时不符",
+                "event-batch" => {
+                    "sustained event batch differs from its tick digest or is incomplete"
+                }
+                "policy-constants" => "sustained recycling policy differs from frozen constants",
+                _ => unreachable!(),
+            };
+            for (comparison, error) in [("workers", workers), ("rounds", rounds)] {
+                assert!(
+                    error.to_string().starts_with(expected),
+                    "{fault}/{comparison}: {error}"
+                );
             }
-            assert!(
-                compare_runs(&dirs[0], &dirs[3]).is_err(),
-                "accepted {fault} across workers"
-            );
-            assert!(
-                compare_performance_runs([&dirs[0], &dirs[1], &dirs[2]]).is_err(),
-                "accepted {fault} across rounds"
-            );
         }
+        eprintln!(
+            "[fixture-copy] copies={} source_regenerations={} regeneration_rewrites={} target_rewrites={} edit_rewrites={} initial_rewrites={}",
+            stats.copies,
+            stats.source_regenerations,
+            stats.regeneration_rewrites,
+            stats.target_rewrites,
+            edit_rewrites,
+            pristine.iter().map(Fixture::rewrites).sum::<u32>()
+        );
+        assert_eq!(stats.copies, 88);
     }
 
-    // packet() 产物当前为扁平文件集；逐文件复制，若将来出现子目录则递归复制。
-    fn copy_fixture(source: &Path, destination: &Path) {
-        if destination.exists() {
-            fs::remove_dir_all(destination).unwrap();
-        }
-        fs::create_dir(destination).unwrap();
-        for entry in fs::read_dir(source).unwrap() {
-            let entry = entry.unwrap();
-            let target = destination.join(entry.file_name());
-            if entry.file_type().unwrap().is_dir() {
-                copy_fixture(&entry.path(), &target);
-            } else {
-                fs::copy(entry.path(), &target).unwrap();
-            }
-        }
-    }
-
-    fn rewrite_commands(directory: &Path, commands: &[serde_json::Value], bind: bool) {
-        let mut file = File::create(directory.join("commands.jsonl")).unwrap();
+    fn rewrite_commands(fixture: &mut Fixture, commands: &[serde_json::Value], bind: bool) {
+        let mut file = Vec::new();
         for row in commands {
             line(&mut file, row).unwrap();
         }
-        drop(file);
+        fixture.write("commands.jsonl", &file).unwrap();
         if bind {
-            let text = fs::read_to_string(directory.join("ticks.jsonl")).unwrap();
-            let mut file = File::create(directory.join("ticks.jsonl")).unwrap();
+            let text = fixture.read_text("ticks.jsonl").unwrap();
+            let mut file = Vec::new();
             for row in text.lines() {
                 let mut tick: TickRecord = serde_json::from_str(row).unwrap();
                 if tick.tick == 2 {
@@ -1041,6 +1085,7 @@ mod tests {
                 }
                 line(&mut file, &tick).unwrap();
             }
+            fixture.write("ticks.jsonl", &file).unwrap();
         }
     }
 }
