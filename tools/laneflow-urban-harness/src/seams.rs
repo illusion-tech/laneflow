@@ -129,7 +129,7 @@ fn seam_witness(artifacts: &Artifacts, plan: &crate::ResolvedPlan, output: &Path
     let full_rows = full.rows().len();
 
     let pool = route_edge_pool(&harness)?;
-    let cost_model = CostModelKey::new(Sha256Digest::ZERO, 1);
+    let cost_model = CostModelKey::new(CostModelId::from_bytes([0; 32]), 1);
     let network_revision = native(&mut harness)?.revision().network_revision();
     let derivation_version = native(&mut harness)?
         .revision()

@@ -6,31 +6,46 @@
 use laneflow_static_contract::{
     LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, Sha256Digest, StableId128,
 };
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::bytes32::bytes32_type;
 use crate::{
-    CommittedTrafficObservationBatch, ObservationStateSequence, ObservationStreamBinding,
-    RouteError, RouteHandle, TrafficWorld, WorldGeneration,
+    CommittedTrafficObservationBatch, ObservationSelectionDigest, ObservationStateSequence,
+    ObservationStreamBinding, RouteError, RouteHandle, TrafficWorld, WorldGeneration,
 };
 
 /// 动态成本快照绑定的封闭版本。
 pub const DYNAMIC_COST_BINDING_VERSION: u16 = 1;
 
 /// 观测输入集合摘要的域分隔前缀；末尾 NUL 是摘要输入的一部分。
-const OBSERVATION_SET_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-observation-set:v1\0";
+const OBSERVATION_SET_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-observation-set:v2\0";
+
+bytes32_type! {
+    /// 观测输入集合摘要（BLAKE3-256）。
+    ///
+    /// ADR 0033 内部完整性摘要：只由 Runtime 产生和重算，宿主只把 32 字节原样写入
+    /// 成本快照摘要的前像。
+    pub struct ObservationSetDigest;
+}
+
+bytes32_type! {
+    /// 宿主所选成本模型身份的 32 字节不透明标识。
+    ///
+    /// 由宿主产生；Runtime 只做精确相等比较，不规定其产生算法，它也不是 LaneFlow 摘要。
+    pub struct CostModelId;
+}
 
 /// 宿主拥有的不透明成本模型身份与封闭版本。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CostModelKey {
-    model_id: Sha256Digest,
+    model_id: CostModelId,
     model_version: u32,
 }
 
 impl CostModelKey {
     /// 构造宿主成本模型身份与封闭版本。
     #[must_use]
-    pub const fn new(model_id: Sha256Digest, model_version: u32) -> Self {
+    pub const fn new(model_id: CostModelId, model_version: u32) -> Self {
         Self {
             model_id,
             model_version,
@@ -39,7 +54,7 @@ impl CostModelKey {
 
     /// 不透明成本模型标识。
     #[must_use]
-    pub const fn model_id(self) -> Sha256Digest {
+    pub const fn model_id(self) -> CostModelId {
         self.model_id
     }
 
@@ -62,7 +77,7 @@ pub struct ObservationSetBinding {
     observation_tick: u64,
     observation_state_sequence: ObservationStateSequence,
     input_count: u64,
-    digest: Sha256Digest,
+    digest: ObservationSetDigest,
 }
 
 impl ObservationSetBinding {
@@ -104,7 +119,7 @@ impl ObservationSetBinding {
 
     /// 规范化输入集合的摘要。
     #[must_use]
-    pub const fn digest(self) -> Sha256Digest {
+    pub const fn digest(self) -> ObservationSetDigest {
         self.digest
     }
 }
@@ -113,11 +128,11 @@ impl ObservationSetBinding {
 struct ObservationSetRecord {
     stream: ObservationStreamBinding,
     delivery_sequence: u64,
-    selection_digest: Sha256Digest,
+    selection_digest: ObservationSelectionDigest,
 }
 
 impl ObservationSetRecord {
-    fn canonical_key(self) -> (u64, u64, u64, Sha256Digest) {
+    fn canonical_key(self) -> (u64, u64, u64, ObservationSelectionDigest) {
         (
             self.stream.world_id(),
             self.stream.world_generation().get(),
@@ -213,13 +228,13 @@ pub fn bind_observation_set(
 
     let input_count =
         u64::try_from(records.len()).map_err(|_| ObservationSetError::ResourceFailure)?;
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     hasher.update(OBSERVATION_SET_DIGEST_DOMAIN);
-    hasher.update(input_count.to_le_bytes());
+    hasher.update(&input_count.to_le_bytes());
     for record in records {
-        hasher.update(record.stream.world_id().to_le_bytes());
-        hasher.update(record.stream.world_generation().get().to_le_bytes());
-        hasher.update(record.delivery_sequence.to_le_bytes());
+        hasher.update(&record.stream.world_id().to_le_bytes());
+        hasher.update(&record.stream.world_generation().get().to_le_bytes());
+        hasher.update(&record.delivery_sequence.to_le_bytes());
         hasher.update(record.selection_digest.as_bytes());
     }
 
@@ -230,7 +245,7 @@ pub fn bind_observation_set(
         observation_tick,
         observation_state_sequence,
         input_count,
-        digest: Sha256Digest::from_bytes(hasher.finalize().into()),
+        digest: ObservationSetDigest::from_bytes(*hasher.finalize().as_bytes()),
     })
 }
 
@@ -750,6 +765,7 @@ mod tests {
         CanonicalNetworkOrigin, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
         SharedNetworkRevision, SpatialBuildOption, build_shared_network_revision,
     };
+    use sha2::{Digest, Sha256};
 
     use super::*;
     use crate::kernel::tables::with_route_allocation_failure_after;
@@ -935,7 +951,7 @@ mod tests {
     }
 
     fn model(seed: u8, version: u32) -> CostModelKey {
-        CostModelKey::new(Sha256Digest::from_bytes([seed; 32]), version)
+        CostModelKey::new(CostModelId::from_bytes([seed; 32]), version)
     }
 
     fn full_observation(world: &TrafficWorld) -> CommittedTrafficObservationBatch {
@@ -973,6 +989,29 @@ mod tests {
             },
         )
         .expect("receive fixture cost")
+    }
+
+    #[test]
+    fn observation_set_digest_is_blake3_of_v2_preimage() {
+        let world = world_with_limits(41, 8, 1_024);
+        let batch = full_observation(&world);
+        let binding = bind_observation_set(&[&batch]).expect("bind observation set");
+        let stream = batch.stream_binding();
+        let mut preimage = b"laneflow:runtime-observation-set:v2\0".to_vec();
+        preimage.extend_from_slice(&1_u64.to_le_bytes());
+        preimage.extend_from_slice(&stream.world_id().to_le_bytes());
+        preimage.extend_from_slice(&stream.world_generation().get().to_le_bytes());
+        preimage.extend_from_slice(&batch.sequence().to_le_bytes());
+        preimage.extend_from_slice(batch.selection_digest().as_bytes());
+
+        assert_eq!(
+            binding.digest().as_bytes(),
+            blake3::hash(&preimage).as_bytes()
+        );
+        assert_eq!(
+            format!("{:x}", binding.digest()),
+            "2c7ffa7a52fbdb6e088d9161200785241622600c0a1e623a78f226327911335e"
+        );
     }
 
     #[test]

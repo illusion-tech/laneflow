@@ -7084,7 +7084,7 @@ fn direct_candidate_and_admitted_routes_share_conflict_capacity() {
         .export_observation(&mut observation, ObservationExportMode::Full)
         .expect("full observation");
     let observation_set = bind_observation_set(&[&batch]).expect("bind observation");
-    let model = CostModelKey::new(Sha256Digest::from_bytes([7; 32]), 1);
+    let model = CostModelKey::new(laneflow_runtime::CostModelId::from_bytes([7; 32]), 1);
     let cost = DynamicCostSnapshotBinding::new(
         observation_set,
         model,

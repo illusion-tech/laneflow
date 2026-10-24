@@ -1,7 +1,7 @@
 # 交通观测与 Routing 接入
 
 **文档状态**: Accepted（#303 G1 Pass）<br>
-**最后更新**: 2026-10-25（#1044 G1 观测摘要角色与算法）<br>
+**最后更新**: 2026-10-25（#1044 观测摘要角色与算法）<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能门禁<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -236,8 +236,6 @@ Runtime 只携带该值，不重算、不比对。前像中的 `observationSetDi
 这些摘要规则是同进程 contract 的规范输入，不新增 LaneFlow wire 或发布格式。
 `selectionDigest` 与 `observationSetDigest` 的算法更换由各自的域分隔前缀版本区分，
 摘要长度仍为 32 字节，因此观测批次与动态成本绑定的 `bindingVersion` 均不递增。
-#1044 实施合入前，现行代码仍以 SHA-256 与 `v1` 前缀计算这两项摘要，`modelId` 仍为
-`Sha256Digest` 类型。
 
 过期策略只使用 fixed tick：候选在 `currentTick < observationTick` 时是“来自未来”，
 在 `currentTick > validThroughTick` 时过期；两者都失败关闭。在同一活动世界世代/

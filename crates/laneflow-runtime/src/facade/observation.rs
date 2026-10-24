@@ -6,13 +6,13 @@
 
 use core::mem::size_of;
 
-use laneflow_static_contract::{LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, Sha256Digest};
-use sha2::{Digest, Sha256};
+use laneflow_static_contract::{LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, StableId128};
 use thiserror::Error;
 
 #[cfg(test)]
 use std::cell::Cell;
 
+use crate::bytes32::bytes32_type;
 use crate::kernel::tables::for_each_occupancy_interval;
 use crate::{TrafficWorld, VehicleStatus, WorldGeneration};
 
@@ -20,7 +20,17 @@ use crate::{TrafficWorld, VehicleStatus, WorldGeneration};
 pub const OBSERVATION_BINDING_VERSION: u16 = 1;
 
 /// selection digest 的域分隔前缀；末尾 NUL 是摘要输入的一部分。
-const OBSERVATION_SELECTION_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-observation-selection:v1\0";
+const OBSERVATION_SELECTION_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-observation-selection:v2\0";
+
+/// selection digest 每批写入 BLAKE3 的字节数；16 个 1 KiB chunk 足以启用多 chunk 并行压缩。
+const SELECTION_DIGEST_BATCH_BYTES: usize = 16 * 1_024;
+
+bytes32_type! {
+    /// 观测选择摘要（BLAKE3-256）。
+    ///
+    /// ADR 0033 内部完整性摘要：只由 Runtime 产生和重算，宿主只做相等比较或原样转写。
+    pub struct ObservationSelectionDigest;
+}
 
 /// 未选中物理边在 ordinal→selection 映射中的哨兵。
 const NOT_SELECTED: usize = usize::MAX;
@@ -185,7 +195,7 @@ pub struct CommittedTrafficObservationBatch {
     stream: ObservationStreamBinding,
     network_revision: NetworkRevisionId,
     network_revision_derivation_version: u16,
-    selection_digest: Sha256Digest,
+    selection_digest: ObservationSelectionDigest,
     mode: ObservationExportMode,
     base: Option<ObservationBatchBase>,
     sequence: u64,
@@ -224,7 +234,7 @@ impl CommittedTrafficObservationBatch {
 
     /// 当前 session 不可变选择的摘要。
     #[must_use]
-    pub const fn selection_digest(&self) -> Sha256Digest {
+    pub const fn selection_digest(&self) -> ObservationSelectionDigest {
         self.selection_digest
     }
 
@@ -295,7 +305,7 @@ pub struct ObservationExportSession {
     stream: ObservationStreamBinding,
     network_revision: NetworkRevisionId,
     network_revision_derivation_version: u16,
-    selection_digest: Sha256Digest,
+    selection_digest: ObservationSelectionDigest,
     selected: Vec<SelectedLaneEdge>,
     ordinal_to_selected: Vec<usize>,
     previous: Option<ObservationBatchBase>,
@@ -311,7 +321,7 @@ impl ObservationExportSession {
 
     /// 不可变 selection digest。
     #[must_use]
-    pub const fn selection_digest(&self) -> Sha256Digest {
+    pub const fn selection_digest(&self) -> ObservationSelectionDigest {
         self.selection_digest
     }
 
@@ -776,15 +786,27 @@ impl TrafficWorld {
     }
 }
 
-fn selection_digest(selected: &[SelectedLaneEdge]) -> Result<Sha256Digest, ObservationError> {
+fn selection_digest(
+    selected: &[SelectedLaneEdge],
+) -> Result<ObservationSelectionDigest, ObservationError> {
+    const ID_BYTES: usize = size_of::<StableId128>();
+
     let count = u64::try_from(selected.len()).map_err(|_| ObservationError::ArithmeticOverflow)?;
-    let mut hasher = Sha256::new();
+    let mut hasher = blake3::Hasher::new();
     hasher.update(OBSERVATION_SELECTION_DIGEST_DOMAIN);
-    hasher.update(count.to_le_bytes());
-    for edge in selected {
-        hasher.update(edge.stable_id.as_untyped().as_bytes());
+    hasher.update(&count.to_le_bytes());
+    // 按批写入：逐 16 字节更新无法让 BLAKE3 并行压缩多个 chunk。
+    let mut batch = [0_u8; SELECTION_DIGEST_BATCH_BYTES];
+    for edges in selected.chunks(SELECTION_DIGEST_BATCH_BYTES / ID_BYTES) {
+        let (slots, _) = batch.as_chunks_mut::<ID_BYTES>();
+        for (slot, edge) in slots.iter_mut().zip(edges) {
+            *slot = *edge.stable_id.as_untyped().as_bytes();
+        }
+        hasher.update(&batch[..edges.len() * ID_BYTES]);
     }
-    Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
+    Ok(ObservationSelectionDigest::from_bytes(
+        *hasher.finalize().as_bytes(),
+    ))
 }
 
 fn observation_batch_bytes(row_count: usize) -> Result<u64, ObservationError> {
@@ -1255,6 +1277,38 @@ mod tests {
             ))
             .expect("explicit all");
         assert_eq!(all.selection_digest(), explicit.selection_digest());
+    }
+
+    #[test]
+    fn selection_digest_is_blake3_of_v2_preimage() {
+        // 2,500 条边跨越三个写入批次，覆盖分批边界。
+        let edges: Vec<_> = (0_u32..2_500)
+            .map(|raw| {
+                let mut bytes = [0_u8; 16];
+                bytes[..4].copy_from_slice(&raw.to_be_bytes());
+                SelectedLaneEdge {
+                    stable_id: LaneEdgeId::from_untyped(StableId128::from_bytes(bytes)),
+                    ordinal: LaneEdgeOrdinal::from_raw(raw),
+                }
+            })
+            .collect();
+        let mut preimage = b"laneflow:runtime-observation-selection:v2\0".to_vec();
+        preimage.extend_from_slice(&2_500_u64.to_le_bytes());
+        for edge in &edges {
+            preimage.extend_from_slice(edge.stable_id.as_untyped().as_bytes());
+        }
+
+        let digest = selection_digest(&edges).expect("selection digest");
+        assert_eq!(digest.as_bytes(), blake3::hash(&preimage).as_bytes());
+        assert_eq!(
+            format!("{digest:x}"),
+            "e1e232a5aa3d380901e9b0f42328147f7efacfec1e2857a7d15820739a8d98d3"
+        );
+        let single = selection_digest(&edges[..1]).expect("single-edge digest");
+        assert_eq!(
+            format!("{single:x}"),
+            "a355b6b8c82cd536cd22ca5de6a9835d7283e5c036528b67cffa2b6935c53f30"
+        );
     }
 
     #[test]
