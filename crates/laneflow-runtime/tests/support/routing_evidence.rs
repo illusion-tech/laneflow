@@ -10,8 +10,8 @@ use laneflow_compiler::{
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
-    CandidateRouteInput, CommittedNetworkSource, CommittedTrafficObservationBatch, CostModelKey,
-    DYNAMIC_COST_BINDING_VERSION, DynamicCostSnapshotBinding, ObservationExportMode,
+    CandidateRouteInput, CommittedNetworkSource, CommittedTrafficObservationBatch, CostModelId,
+    CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostSnapshotBinding, ObservationExportMode,
     ObservationExportSession, ObservationSelection, PublishedLfcaReference,
     RoutingAdmissionSession, TickInput, TrafficWorld, WorldConfig, bind_observation_set,
 };
@@ -144,7 +144,10 @@ pub fn build_fixture() -> RoutingEvidenceFixture {
     }));
 
     let cost_payload = cost_payload(&initial_full);
-    let cost_model = CostModelKey::new(domain_digest(b"lf-routing-g2-cost-model-v1\0"), 1);
+    let cost_model = CostModelKey::new(
+        CostModelId::from_bytes(*domain_digest(b"lf-routing-g2-cost-model-v1\0").as_bytes()),
+        1,
+    );
     let observations = bind_observation_set(&[&initial_full]).expect("observation set");
     let placeholder = Sha256Digest::from_bytes([0x5a; 32]);
     let unsigned = DynamicCostSnapshotBinding::new(

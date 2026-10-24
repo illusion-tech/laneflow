@@ -1,9 +1,8 @@
 //! 与 `LFRS` 容器编码无关的 Runtime 逻辑状态摘要。
 
-use std::fmt;
-
 use thiserror::Error;
 
+use crate::bytes32::bytes32_type;
 use crate::{
     CapturedManeuverTraversalPhase, CapturedParkingBinding, CapturedParkingTarget, CapturedRoute,
     CapturedSnapshot, CapturedVehicle, VehicleStatus,
@@ -14,50 +13,17 @@ pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 8;
 /// 域分隔前缀；尾随 NUL 属于前缀字节。算法更换由前像内的摘要版本区分，前缀保持 v1。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
-/// 32-byte 确定性状态摘要（BLAKE3-256）。
-///
-/// ADR 0033 内部完整性摘要：只由 LaneFlow 实现产生与重算，用于宿主检查点对拍与
-/// 审计重放，不承担发布身份。
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct StateDigest([u8; 32]);
+bytes32_type! {
+    /// 32-byte 确定性状态摘要（BLAKE3-256）。
+    ///
+    /// ADR 0033 内部完整性摘要：只由 LaneFlow 实现产生与重算，用于宿主检查点对拍与
+    /// 审计重放，不承担发布身份。
+    pub struct StateDigest;
+}
 
 impl StateDigest {
-    /// 原样封装 32 个摘要字节，不执行 hash 或信任验证。
-    #[must_use]
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    /// 借用摘要原始字节。
-    #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-
-    /// 取出摘要原始字节。
-    #[must_use]
-    pub const fn into_bytes(self) -> [u8; 32] {
-        self.0
-    }
-
     fn of_preimage(canonical: &[u8]) -> Self {
         Self(*blake3::hash(canonical).as_bytes())
-    }
-}
-
-impl fmt::LowerHex for StateDigest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(formatter, "{byte:02x}")?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Debug for StateDigest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "StateDigest({self:x})")
     }
 }
 

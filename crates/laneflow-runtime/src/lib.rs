@@ -7,6 +7,7 @@ extern crate self as laneflow_runtime;
 mod test_policy;
 
 mod admin;
+mod bytes32;
 mod facade;
 mod kernel;
 
@@ -39,13 +40,14 @@ pub use facade::TrafficWorld;
 pub use facade::observation::{
     CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
     ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,
-    ObservationSelection, ObservationStateSequence, ObservationStreamBinding,
+    ObservationSelection, ObservationSelectionDigest, ObservationStateSequence,
+    ObservationStreamBinding,
 };
 pub use facade::routing::{
     AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,
-    CandidateRouteInput, CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostBindingError,
-    DynamicCostSnapshotBinding, ObservationSetBinding, ObservationSetError,
-    RoutingAdmissionSession, bind_observation_set,
+    CandidateRouteInput, CostModelId, CostModelKey, DYNAMIC_COST_BINDING_VERSION,
+    DynamicCostBindingError, DynamicCostSnapshotBinding, ObservationSetBinding,
+    ObservationSetDigest, ObservationSetError, RoutingAdmissionSession, bind_observation_set,
 };
 pub use facade::source::{
     CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference,
