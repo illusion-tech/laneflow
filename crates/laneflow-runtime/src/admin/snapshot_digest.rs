@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::bytes32::bytes32_type;
+use crate::kernel::bytes32::bytes32_type;
 use crate::{
     CapturedManeuverTraversalPhase, CapturedParkingBinding, CapturedParkingTarget, CapturedRoute,
     CapturedSnapshot, CapturedVehicle, VehicleStatus,

@@ -2,6 +2,8 @@
 
 /// 停车状态变化后的活动顺序增量维护与可选 live 定位缓存。
 pub(crate) mod active_order;
+/// 按角色命名的 32 字节值类型（摘要与不透明标识）的公共实现。
+pub(crate) mod bytes32;
 pub(crate) mod config;
 /// 冲突区裁决核心：冲突候选、间隙证明与组合资源的单写者语义原语。
 pub(crate) mod conflict;

@@ -12,7 +12,7 @@ use thiserror::Error;
 #[cfg(test)]
 use std::cell::Cell;
 
-use crate::bytes32::bytes32_type;
+use crate::kernel::bytes32::bytes32_type;
 use crate::kernel::tables::for_each_occupancy_interval;
 use crate::{TrafficWorld, VehicleStatus, WorldGeneration};
 

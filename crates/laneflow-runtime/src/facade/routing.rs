@@ -8,7 +8,7 @@ use laneflow_static_contract::{
 };
 use thiserror::Error;
 
-use crate::bytes32::bytes32_type;
+use crate::kernel::bytes32::bytes32_type;
 use crate::{
     CommittedTrafficObservationBatch, ObservationSelectionDigest, ObservationStateSequence,
     ObservationStreamBinding, RouteError, RouteHandle, TrafficWorld, WorldGeneration,

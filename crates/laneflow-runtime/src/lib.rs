@@ -7,7 +7,6 @@ extern crate self as laneflow_runtime;
 mod test_policy;
 
 mod admin;
-mod bytes32;
 mod facade;
 mod kernel;
 
