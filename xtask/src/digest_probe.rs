@@ -23,6 +23,10 @@ const SECTION_PREAMBLE: u64 = 16;
 const ENTRY_DIGEST_OFFSET: u64 = 40;
 /// 整页替换判定的页内分段数。
 const REPLACEMENT_SEGMENTS: usize = 16;
+/// 近零页：非零字节至多这么多。归档与浸泡实测的写丢失页为 4,095 / 4,096 字节为零。
+const NEAR_ZERO_MAX_NONZERO: usize = 16;
+/// 近零页还须有至少这么多原非零字节被清零，避免把零字节居多的页上的局部改动当作零页。
+const NEAR_ZERO_MIN_CLEARED: usize = PAGE as usize / 16;
 /// 报告逐页明细的上限，其余只计入汇总。
 const MAX_PAGE_LINES: usize = 32;
 
@@ -180,7 +184,7 @@ fn locate(bytes: &[u8], probe: &Probe) -> Option<u64> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PageKind {
-    /// 失真页全零（写丢失）。
+    /// 失真页全零或近零（写丢失）。
     Zero,
     /// 失真页与金样本相距若干整页的另一页逐字节相同（页整数倍位移）。
     Shifted(i64),
@@ -357,6 +361,17 @@ fn classify_page(golden: &[u8], page: u64, from: u64, want: &[u8], got: &[u8]) -
     if let Some(shift) = found {
         return PageKind::Shifted(shift);
     }
+    // 写丢失页常残留个别非零字节；原页零段多时差异只覆盖部分分段，不按零页认会落入
+    // Partial。须同时有成段原内容被清零，零字节居多的页上的局部改动仍归 Partial。
+    let nonzero = got.iter().filter(|byte| **byte != 0).count();
+    let cleared = want
+        .iter()
+        .zip(got)
+        .filter(|(left, right)| **left != 0 && **right == 0)
+        .count();
+    if nonzero <= NEAR_ZERO_MAX_NONZERO && cleared >= NEAR_ZERO_MIN_CLEARED {
+        return PageKind::Zero;
+    }
     // 页均分为 REPLACEMENT_SEGMENTS 段，差异须覆盖其中至少 3/4 才算整页替换；
     // 只看首尾差异会把页两端的零散翻转误判为替换。
     let segment = want.len().div_ceil(REPLACEMENT_SEGMENTS).max(1);
@@ -494,6 +509,44 @@ mod tests {
         let report = analyze(&bytes, start, probe.len, &dump);
         assert_eq!(report.pages[0].kind, PageKind::Zero);
         assert_eq!(report.verdict, Verdict::PageFingerprint);
+    }
+
+    #[test]
+    fn near_zero_write_loss_page_is_a_zero_page() {
+        // 浸泡实测形态：原页后半为零段，失真页 4,095 字节为零、残留 1 个非零字节。
+        // 差异只覆盖前半分段，若不认近零会落入 Partial。
+        let (mut bytes, probe, start) = aligned();
+        let page = 8 * PAGE as usize;
+        bytes[page + PAGE as usize / 2..page + PAGE as usize].fill(0);
+        let mut dump = dump_of(&bytes, start, probe.len);
+        let lost = page_mut(&mut dump, start, 8);
+        lost.fill(0);
+        lost[3_000] = 0x5a;
+        let report = analyze(&bytes, start, probe.len, &dump);
+        assert_eq!(report.pages[0].kind, PageKind::Zero);
+        assert_eq!(report.verdict, Verdict::PageFingerprint);
+
+        // 原页满载时同样成立。
+        let mut dump = dump_of(&bytes, start, probe.len);
+        let lost = page_mut(&mut dump, start, 7);
+        lost.fill(0);
+        lost[100] = 0x01;
+        let report = analyze(&bytes, start, probe.len, &dump);
+        assert_eq!(report.pages[0].kind, PageKind::Zero);
+    }
+
+    #[test]
+    fn local_clearing_on_a_mostly_zero_page_is_code_suspect() {
+        // 原页只有一小段非零，局部清零后虽近零，但被清零的原内容不成段，不按写丢失认。
+        let (mut bytes, probe, start) = aligned();
+        let page = 8 * PAGE as usize;
+        bytes[page..page + PAGE as usize].fill(0);
+        bytes[page + 1_000..page + 1_040].fill(0x33);
+        let mut dump = dump_of(&bytes, start, probe.len);
+        page_mut(&mut dump, start, 8)[1_000..1_030].fill(0);
+        let report = analyze(&bytes, start, probe.len, &dump);
+        assert_eq!(report.pages[0].kind, PageKind::Partial);
+        assert_eq!(report.verdict, Verdict::CodeSuspect);
     }
 
     #[test]
