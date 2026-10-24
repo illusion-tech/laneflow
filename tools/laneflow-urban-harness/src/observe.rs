@@ -1337,8 +1337,8 @@ fn merge_sorted_runs(data: &mut Vec<Body>, runs: &mut Vec<usize>, aux: &mut Vec<
     }
 }
 
-/// v3 树形摘要：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
-/// 信号、`remaining-claims`）；叶 = 固定块界槽位区间编码字节的 SHA-256。
+/// 树形摘要（v3 起）：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
+/// 信号、`remaining-claims`）；叶 = 固定块界槽位区间编码字节的叶摘要（v4 起为 BLAKE3-256）。
 /// `remaining-claims` 段的 route 按内部索引编码（注册顺序即目录 key 升序，序号
 /// 与 key 一一对应），不再内联 route key 文本。块界与 workers 无关，摘要跨
 /// 并行度稳定；报错仍为块内逐车序 + 块间按块序取首个 Err。
@@ -1756,7 +1756,7 @@ mod tests {
     #[test]
     fn block_hash_byte_stream_matches_batched_hash() {
         // 同一操作序列：全程走 Hash 与 分块 BlockHash 后按块序送入同一
-        // SHA-256，两者摘要逐字节一致（并行 state() 的等价性基础）。
+        // 根哈希，两者摘要逐字节一致（并行 state() 的等价性基础）。
         let id = IndividualId {
             tile: 3,
             slot: 4,
