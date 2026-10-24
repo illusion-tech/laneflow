@@ -11,7 +11,7 @@ use laneflow_static_contract::{
 use sha2::{Digest, Sha256};
 use test_injection::BuilderRead;
 
-struct InjectionGuard;
+pub(super) struct InjectionGuard;
 
 impl Drop for InjectionGuard {
     fn drop(&mut self) {
@@ -32,7 +32,7 @@ impl AttestationTelemetry for TraceSink {
     }
 }
 
-fn observed(
+pub(super) fn observed(
     root: &SharedNetworkRevision,
     bytes: &[u8],
     expectation: RootAttestationExpectation,
@@ -69,7 +69,7 @@ fn field_offset(bytes: &[u8], section: u32, table: u32, tag: u16) -> usize {
     field.value_bytes().as_ptr().addr() - bytes.as_ptr().addr()
 }
 
-fn changed_speed(delta: u32) -> Vec<u8> {
+pub(super) fn changed_speed(delta: u32) -> Vec<u8> {
     let mut bytes = FULL_SPATIAL.to_vec();
     let offset = field_offset(&bytes, 2, 3, 4);
     let speed = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
@@ -127,7 +127,7 @@ fn changed_evidence(bytes: &[u8]) -> MismatchEvidence {
     }
 }
 
-fn occurrences(trace: &[TraceStep], step: TraceStep) -> usize {
+pub(super) fn occurrences(trace: &[TraceStep], step: TraceStep) -> usize {
     trace.iter().filter(|actual| **actual == step).count()
 }
 

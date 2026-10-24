@@ -6,6 +6,9 @@ mod matrix;
 #[path = "attestation_source_timing_tests.rs"]
 mod source_timing;
 
+#[path = "attestation_scan_temporal_tests.rs"]
+mod scan_temporal;
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

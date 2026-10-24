@@ -795,6 +795,14 @@ fn compare_traffic(
         actual.lane_lengths_millimetres(),
         whole,
     )?;
+    // #963：首列读完后只切换后续 traffic 读取视图，不改写已有借用或重扫已读列。
+    #[cfg(test)]
+    let after_lane_lengths = crate::attestation::test_injection::take_after_lane_lengths();
+    #[cfg(test)]
+    let actual = after_lane_lengths
+        .as_deref()
+        .map(SharedNetworkRevision::traffic)
+        .unwrap_or(actual);
     diff_column(
         component,
         "lane_speed_limits_millimetres_per_second",
