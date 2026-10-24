@@ -76,8 +76,28 @@
 修订比较失配误判为应停用修订的 `Untrusted`；已成立的首次修订侧证据仍保持失败关闭。
 
 以下仍不作为已覆盖项：真实根 backing 的 4 KiB 替换/整数页位移与物理共页，以及来源
-immutable backing 在验证期间被实际改写；扫描已读字节随后改变；
+immutable backing 在验证期间被实际改写；
 故障机长期自然取样及匿名堆失真归因。编辑来源仍随 #529，未混入发布来源验收。
+
+## 扫描后与瞬态变化
+
+[扫描时序矩阵](../../crates/laneflow-static-network/src/attestation_scan_temporal_tests.rs)
+核对设计 §4.2 的逐段观测时刻与 §5 第 8 / 17 条声明漏检面。比较器读完车道长度列后，
+仅在测试中把后续 traffic 列的实际侧切换到另一份独立拥有的修订；两份修订只在指定列不同。
+队列消费断言证明切换点已执行，未读列变化的对照必须经过真实两次比较及来源复核。
+
+| 场景                         | 证据入口                                                    | 结果与边界                                                                                                                                                                |
+| ---------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 已读长度列在后续扫描阶段变化 | `already_read_column_is_not_revisited_in_same_scan`         | 当前轮 `Pass`；下一轮从变化后视图起扫，同一变化得到 `Mismatch / SharedStaticRoot / DisableRoot`                                                                           |
+| 尚未读取的限速列变化         | `unread_column_change_is_detected_through_both_comparisons` | 两次真实比较检出同一列、序号、期望与实际值；`Mismatch / SharedStaticRoot / DisableRoot`                                                                                   |
+| `Pass` 返回后修订变化        | `returned_pass_does_not_cover_later_revision_changes`       | 前次报告仍为该次 `Pass`，不随之后变化更新；下一次认证检出本例的长度列变化                                                                                                 |
+| 来源构建期间 `A → B → A`     | `source_aba_is_not_identified_by_equal_endpoint_hashes`     | reader 读 A，首次 builder 消费 B，来源复核重算 A；首次修订比较证据在完整复算 A 后不再复现，返回 `Untrusted / Indeterminate / DisableRoot`，没有 `SourceBytesChanged` 诊断 |
+
+最后一项说明首尾 digest / exact length 相等不能识别构建全过程的来源变化，也不代表
+此类变化必定返回 `Pass`。本例留下不可复现的修订侧证据，按现行规则保留首次证据并失败关闭；
+不能把结果写成来源变化已被识别，或据此断言修订 backing 已损坏。
+返回后变化使用借用结束后的唯一 `Arc` 安全修改；其余阶段视图也不改写实际不可变 backing。
+这些是已声明观测边界的逻辑回归，不证明真实物理页故障或所有瞬态变化均已覆盖。
 
 ## 在用审计与在途步进
 

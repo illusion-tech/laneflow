@@ -1097,9 +1097,9 @@ fn panic_payload_text(payload: Box<dyn Any + Send>) -> String {
     }
 }
 
-/// 测试注入：认证阶段的确定性 panic 钩子（#959；`BoundedReReadableObjectSource`
-/// 的封印不可变借用使「来源在验证后被改写」无法在 safe 代码中真实构造，
-/// panic 归类路径经此注入覆盖）。
+/// 测试注入：认证阶段的读取视图与确定性 panic 钩子（#959 / #963）。
+/// `BoundedReReadableObjectSource` 的封印不可变借用使「来源在验证后被改写」
+/// 无法在 safe 代码中真实构造；阶段视图独立拥有，不模拟实际 backing 改写。
 #[cfg(test)]
 pub(crate) mod test_injection {
     use crate::SharedNetworkRevision;
@@ -1186,6 +1186,19 @@ pub(crate) mod test_injection {
         static RECOMPUTE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static BUILDER_READS: RefCell<VecDeque<Option<BuilderRead>>> = const { RefCell::new(VecDeque::new()) };
         static RECHECK_SOURCES: RefCell<VecDeque<Vec<u8>>> = const { RefCell::new(VecDeque::new()) };
+        static AFTER_LANE_LENGTHS: RefCell<VecDeque<Arc<SharedNetworkRevision>>> = const { RefCell::new(VecDeque::new()) };
+    }
+
+    pub(crate) fn after_lane_lengths(values: Vec<Arc<SharedNetworkRevision>>) {
+        AFTER_LANE_LENGTHS.with(|slot| *slot.borrow_mut() = values.into());
+    }
+
+    pub(crate) fn take_after_lane_lengths() -> Option<Arc<SharedNetworkRevision>> {
+        AFTER_LANE_LENGTHS.with(|slot| slot.borrow_mut().pop_front())
+    }
+
+    pub(crate) fn pending_after_lane_lengths() -> usize {
+        AFTER_LANE_LENGTHS.with(|slot| slot.borrow().len())
     }
 
     pub(crate) fn builder_reads(values: Vec<Option<BuilderRead>>) {
@@ -1267,7 +1280,7 @@ pub(crate) mod test_injection {
         ROOT_COMPARISON_PANIC.with(|flag| flag.get())
     }
 
-    /// 复位全部 panic 注入。
+    /// 复位全部阶段视图与故障注入。
     pub(crate) fn reset() {
         SOURCE_PREPARATION_PANIC.with(|flag| flag.set(false));
         SOURCE_PREPARATION_PANIC_ONCE.with(|flag| flag.set(false));
@@ -1278,5 +1291,6 @@ pub(crate) mod test_injection {
         RECOMPUTE.with(|slot| *slot.borrow_mut() = None);
         BUILDER_READS.with(|slot| slot.borrow_mut().clear());
         RECHECK_SOURCES.with(|slot| slot.borrow_mut().clear());
+        AFTER_LANE_LENGTHS.with(|slot| slot.borrow_mut().clear());
     }
 }
