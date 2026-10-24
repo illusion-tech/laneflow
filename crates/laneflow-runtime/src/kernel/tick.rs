@@ -675,6 +675,7 @@ fn count_motion_path(update: impl FnOnce(&mut MotionPathCounts)) {
 #[cfg(test)]
 thread_local! {
     static MOTION_PATH_COUNTS: std::cell::Cell<MotionPathCounts> = const { std::cell::Cell::new(MotionPathCounts { dispatched: 0, fused: 0, slot_fallback: 0 }) };
+    static BEFORE_COMMIT: std::cell::RefCell<Option<Box<dyn FnOnce() + Send>>> = const { std::cell::RefCell::new(None) };
     /// 生产分发阈值为保守 1_024；小场景测试经该守卫强制 P5 真实分发。
     static MOTION_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// 组合矩阵融合侧入口：强制 P5 保持融合（fuse 优先于 force）。
@@ -687,7 +688,15 @@ thread_local! {
     static LAST_MOTION_DISPATCH_STATS: std::cell::Cell<Option<crate::kernel::execution::DispatchStats>> = const { std::cell::Cell::new(None) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: STEP_FAILPOINT, MOTION_CACHE_LIMIT, HORIZON_CALCULATIONS, MOTION_CALCULATIONS, MOTION_CACHE_HITS, MOTION_CACHE_MISSES, BARRIER_QUERIES, COMMIT_ALLOC_WINDOW, MOTION_PATH_COUNTS, MOTION_FORCE_DISPATCH, MOTION_FORCE_FUSE, MOTION_SLOT_GAP, MOTION_DIAGNOSTICS, LAST_MOTION_DISPATCH_STATS);
+crate::kernel::execution::carry_hooks!(carry_test_hooks: STEP_FAILPOINT, MOTION_CACHE_LIMIT, HORIZON_CALCULATIONS, MOTION_CALCULATIONS, MOTION_CACHE_HITS, MOTION_CACHE_MISSES, BARRIER_QUERIES, COMMIT_ALLOC_WINDOW, MOTION_PATH_COUNTS, MOTION_FORCE_DISPATCH, MOTION_FORCE_FUSE, MOTION_SLOT_GAP, MOTION_DIAGNOSTICS, LAST_MOTION_DISPATCH_STATS, BEFORE_COMMIT);
+
+/// #963：只在成功准备一拍后暂停一次；生产构建没有同步点或调用方停止协议。
+#[cfg(test)]
+pub(crate) fn before_next_commit(callback: impl FnOnce() + Send + 'static) {
+    BEFORE_COMMIT.with(|slot| {
+        assert!(slot.borrow_mut().replace(Box::new(callback)).is_none());
+    });
+}
 
 #[cfg(test)]
 fn motion_dispatch_forced() -> bool {
@@ -1666,7 +1675,15 @@ impl crate::kernel::state::WorldState {
             .committed_check
             .reserve(self.derived.active_order.len());
         self.workspace.clear_motion_cache();
-        Ok(self.committed_mut().commit(plan?))
+        let plan = plan?;
+        #[cfg(test)]
+        {
+            let callback = BEFORE_COMMIT.with(|slot| slot.borrow_mut().take());
+            if let Some(callback) = callback {
+                callback();
+            }
+        }
+        Ok(self.committed_mut().commit(plan))
     }
 
     /// 测试专用：无 Waiting/Conflict 停车约束地推进一步活动车辆。
