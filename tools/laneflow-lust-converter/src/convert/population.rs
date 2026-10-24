@@ -1,5 +1,8 @@
 //! Shared exact 10k source population selection (§4).
 
+#[cfg(test)]
+mod digest_benchmark;
+
 use std::collections::HashSet;
 
 use sha2::{Digest, Sha256};

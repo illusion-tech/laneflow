@@ -77,6 +77,7 @@ deny = [
         "bevy_animation",
         "bevy_asset",
         "laneflow-compiler",
+        "laneflow-lust-converter", # #1029：仅测试构建中的摘要对比实验
         "laneflow-runtime",
         "laneflow-urban-harness",
     ], reason = "#1022: 摘要须按 ADR 0033 写明角色；新增直接依赖方须登记" },

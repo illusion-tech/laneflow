@@ -3176,6 +3176,7 @@ dependencies = [
 name = "laneflow-lust-converter"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "laneflow-compiler",
  "laneflow-format",
  "laneflow-spatial",
