@@ -194,6 +194,15 @@ impl Drop for ChildGuard {
 pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()> {
     let spec = create_output(output, config)?;
     let started = Instant::now();
+    watch(output, &spec, entry, || started.elapsed())
+}
+
+pub(super) fn watch(
+    output: &Path,
+    spec: &Spec,
+    entry: &str,
+    elapsed: impl Fn() -> Duration,
+) -> Result<()> {
     let run = || -> Result<()> {
         let mut command = command(entry)?;
         command
@@ -240,7 +249,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                 }
                 let evidence = directory_bytes(output)?;
                 let record = serde_json::json!({
-                    "run_id":spec.run_id, "ordinal":ordinal, "wall_seconds":started.elapsed().as_secs_f64(),
+                    "run_id":spec.run_id, "ordinal":ordinal, "wall_seconds":elapsed().as_secs_f64(),
                     "resident_bytes_sum":bytes, "sampled_peak_bytes_sum":peak, "evidence_bytes":evidence,
                     "memory_sample_complete":memory_sample_complete,
                     "method":"sysinfo sampled resident set sum, includes supervisor; not heap peak or OS quota",
@@ -258,7 +267,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                 if ordinal.is_multiple_of(60) {
                     samples.clear();
                 }
-                if !required_memory_measured && started.elapsed() >= Duration::from_secs(3) {
+                if !required_memory_measured && elapsed() >= Duration::from_secs(3) {
                     return Err(invalid("无法测得看护或存活驻留进程的工作集（Incomplete）"));
                 }
                 if bytes > spec.config.max_memory_bytes {
@@ -271,7 +280,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                         "证据容量采样超限（Incomplete; evidence threshold）",
                     ));
                 }
-                if started.elapsed() >= Duration::from_secs(spec.config.wall_seconds) {
+                if elapsed() >= Duration::from_secs(spec.config.wall_seconds) {
                     return Err(invalid("含暂停的总墙钟超时（Incomplete; wall timeout）"));
                 }
                 if let Some(status) = exit_status {
@@ -301,7 +310,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                         || active < spec.config.seconds as f64
                         || !paused.is_finite()
                         || paused < 0.0
-                        || active + paused > started.elapsed().as_secs_f64()
+                        || active + paused > elapsed().as_secs_f64()
                         || covered == 0
                         || !start
                             .zip(end)
@@ -323,7 +332,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                 "run_id":spec.run_id, "status":if result.is_ok() && cleanup.is_ok(){"Completed"}else{"Incomplete"},
                 "reason":result.as_ref().err().map(ToString::to_string),
                 "cleanup":cleanup.as_ref().err().map_or("observed descendants terminated".into(), ToString::to_string),
-                "wall_seconds":started.elapsed().as_secs_f64(), "sample_count":ordinal,
+                "wall_seconds":elapsed().as_secs_f64(), "sample_count":ordinal,
                 "sampled_peak_resident_bytes_sum":peak,
                 "complete_memory_samples":complete_memory_samples,
             }),
@@ -340,7 +349,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
             &serde_json::json!({
                 "run_id":spec.run_id, "status":"Incomplete", "reason":error.to_string(),
                 "cleanup":"no final cleanup confirmation; inspect failure and process state",
-                "wall_seconds":started.elapsed().as_secs_f64(),
+                "wall_seconds":elapsed().as_secs_f64(),
             }),
         );
     }

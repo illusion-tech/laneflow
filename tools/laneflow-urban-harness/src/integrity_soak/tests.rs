@@ -2,6 +2,10 @@ use std::{
     fs,
     path::Path,
     process::Stdio,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -255,16 +259,31 @@ fn stop_while_paused_preserves_complete_segments_and_incomplete_collection() {
 fn total_wall_budget_includes_paused_time() {
     let temp = tempfile::tempdir().unwrap();
     let output = temp.path().join("wall");
-    let mut config = config(5);
-    config.wall_seconds = 5;
-    let running = spawn(&output, config);
+    let advance_wall = Arc::new(AtomicU64::new(0));
+    let observed_wall = Arc::clone(&advance_wall);
+    let worker_output = output.clone();
+    let running = thread::spawn(move || {
+        let spec = supervisor::create_output(&worker_output, config(5))?;
+        let started = Instant::now();
+        supervisor::watch(
+            &worker_output,
+            &spec,
+            "integrity_soak::resident_worker",
+            || started.elapsed() + Duration::from_secs(observed_wall.load(Ordering::Relaxed)),
+        )
+    });
     wait_status(&output, "Running");
     control::issue(&output, "pause").unwrap();
-    wait_status(&output, "Paused");
+    let paused = wait_status(&output, "Paused");
+    // 在真实暂停确认之后越过总墙钟预算，不依赖城市生成或回放的实际速度。
+    advance_wall.store(30, Ordering::Relaxed);
     assert!(running.join().unwrap().is_err());
     let result = read(&output.join("supervisor.result.json"));
     assert!(result["reason"].as_str().unwrap().contains("wall timeout"));
     assert_eq!(result["cleanup"], "observed descendants terminated");
+    let after: Status = control::read_json(&output.join("status.json")).unwrap();
+    assert_eq!((after.state.as_str(), after.tick), ("Paused", paused.tick));
+    assert!(result["wall_seconds"].as_f64().unwrap() >= 30.0);
 }
 
 #[test]
