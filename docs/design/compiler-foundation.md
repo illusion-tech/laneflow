@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-09-17<br>
+**最后更新**: 2026-10-25<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -353,6 +353,39 @@ pub struct CompilationUnit {
 小端键字节数、键字节、`u32` 小端 `sourceRecordByteLen` 和 32 字节
 `sourceDocumentDigest`。算法或编码变化必须提升文档集摘要版本并更新已知向量；不能选择“第一个
 文档”充当模块摘要，也不能让单文档模块把文档摘要与文档集摘要混为同一语义。
+
+**来源摘要的制品归类。** 按
+[ADR 0033 §9](../adr/0033-digest-role-and-algorithm-selection-authority.md)，下列来源追溯
+摘要随可移植规范制品家族保持 SHA-256。重放、缓存比较与来源沿袭是用途，不代表摘要
+只在进程内存在；判定须追踪到实际持久化字段，不能据调用次数改选瞬态指纹或内部完整性
+摘要的默认算法。
+
+| 摘要                                                | 制品字段或派生去向                                                                                                                | 算法结论                         |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `sourceDocumentDigest`                              | LFSM `SourceDocument` tag 4 `sourceContentDigest:Sha256`                                                                          | 保持 SHA-256                     |
+| `sourceDocumentSetDigest`                           | LFSM `SourceModule` tag 4 `sourceDocumentSetDigest:Sha256`；同时进入来源集合摘要前像                                              | 保持 SHA-256                     |
+| `sourceCollectionDigest`                            | LFCA `CompilerProvenance` tag 3、LFSM `SourceMapBinding` tag 8、LFCP `SourceMapBinding` tag 6，均为 `Sha256`                      | 保持 SHA-256                     |
+| `compileOptionsDigest`                              | LFCA `CompilerProvenance` tag 4 `compileOptionsDigest:Sha256`；现行无选项前像的冻结常量                                           | 保持 SHA-256                     |
+| `parametersAndInputsDigest`                         | LFSM `SourceModule` tag 9 `parametersAndInputsDigest:Sha256`；道路编辑来源还保存于 LFRE `Provenance.parameters_and_inputs_digest` | 保持 SHA-256                     |
+| `frontendOptionsDigest`（模块描述符）               | LFSM `SourceModule` tag 7 `frontendOptionsDigest:Sha256`                                                                          | 保持 SHA-256                     |
+| 道路编辑来源的 `Provenance.frontend_options_digest` | 原值保存于 LFRE；与几何近似语义版本、精度和方向档位一起派生模块描述符的 `frontendOptionsDigest`，再写入 LFSM                      | 保持 SHA-256；原值与派生值不混同 |
+
+字段与前像以[可移植规范制品](portable-canonical-artifact.md) §3.7、§4.1、§6 和
+[道路编辑来源登记](../../schemas/road-editing/v4/README.md) §4 为准。逐文档摘要与文档集
+摘要直接写入 LFSM；LFCA 通过来源集合摘要绑定它们，不直接保存这两个字段。
+`compileOptionsDigest` 不由来源文档聚合产生，也不是生成器编制选项摘要。
+
+生成器按同一去向归类：走廊生成器的 `config_digest` 与编制选项摘要通过 Synthetic
+模块头原值进入 LFSM tag 9/7；城市生成器的 `config_digest` 用于公共模块，包含规模及
+可选容量增量的 `topology_digest` 用于拓扑模块，路口生成器的配置摘要包含适用的多路口
+布局标记，它们均经道路编辑来源进入 LFSM tag 9。城市与路口生成器的原始编制选项摘要
+先进入 LFRE，再经上述几何配置聚合进入 LFSM tag 7。直接道路编制的冻结参数/选项摘要
+也沿用这一路径。这些值均影响持久制品，不存在可独立替换算法的进程内中间摘要。
+
+来源语义摘要由懂得 LaneFlow 来源与格式的实现重算；不声称通用文件工具能解释其前像。
+宿主资产管线和通用工具校验的是制品对象精确字节摘要。这里保持 SHA-256 的理由是
+ADR 0033 §9 的同一格式家族约束，不是已测得更换算法没有性能收益，也不增加来源真实性
+保证。现有 `Sha256` 字段与 `Sha256Digest` 类型继续准确描述该算法，无需改名。
 
 共同有类型抽象语法树声明使用私有
 `TypedAstDeclaration`。HIR 只遍历
