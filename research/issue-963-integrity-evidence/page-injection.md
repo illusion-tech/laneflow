@@ -70,6 +70,11 @@ revision / digest / exact length；这些保持现行来源身份角色，不新
 用 `--ignored --exact page_injection_tests::collect_page_evidence --nocapture` 运行。
 每次使用新目录；原件默认保存在本机，不承诺远端可恢复。
 
+两项依赖成功采集的普通回归在宿主不支持时输出 `SKIP` 提示并提前返回；Rust 测试框架
+可能显示通过，这不代表页覆盖。手工采集入口仍明确拒绝，并在生成来源或启动子进程前
+保留 `Incomplete / unsupported`。另用 8 / 16 / 64 KiB 参数验证拒绝预检与无来源产物，
+这些参数化负向测试不冒充在相应页大小机器上采集过证据。
+
 ## 2026-10-24 本机样本
 
 冻结仪器源码为 `c653a97e421c5966cd40cca23107647cf6ea2ed1`；Rust 1.99.1，
