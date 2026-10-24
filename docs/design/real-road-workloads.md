@@ -379,13 +379,14 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 
 ### 4.1 排序摘要的角色与算法
 
-按 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) §1，
+按现行 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) §1，
 排序键虽不持久保存，但决定入选人口与 `population_rank`，须按所影响工作负载产物的
 持久角色处理。这里按**内部完整性摘要**归类：重建与比对方是 LaneFlow 转换器及工作
 负载验证流程；持久化范围是共享人口表、转换报告与后续工作负载证据。排序摘要本身
 用于确定性选取，不是产物完整性校验值，也不作为车辆稳定标识；没有独立外部重算方
 要求本排序键采用 SHA-256，不能因算法名称把它归为互操作摘要。它影响确定性输出，
-也不属于瞬态指纹，不得替换为 XXH3 等非密码学哈希。
+也不属于瞬态指纹；在现行 ADR 下不得直接替换为 XXH3 等非密码学哈希。这是当前
+选型规则，不表示确定性排序在技术上必然需要密码学完整性能力。
 
 **保持 SHA-256 及现有前像。** 偏离内部完整性摘要默认 BLAKE3-256 的依据是
 [固定 LuST 短前像测量](../../research/issue-1029-lust-digest/README.md)：当前
@@ -394,6 +395,13 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 SHA-256，完整人口选取也没有可复现的提速。该结论限于报告中的输入、实现和机器；
 预计算键对照受完整调用波动影响，不能据此给出精确的摘要阶段占比，更不构成所有
 机器上的性能结论。目标机器或实现变化后，可按 ADR 0033 §5 重新测量。
+
+[XXH3 补充测量与用途复核](../../research/issue-1029-lust-digest/xxh3-review.md)中，
+同批候选哈希比 SHA 快约 11–12 倍，每批节省约 0.41–0.43 ms；完整选取差值仍受
+波动和人口变化影响，未证明转换器端到端收益。固定来源检查与确定性派生承担不同
+职责，后者不以摘要相等证明内容相等；因此另由
+[#1051](https://github.com/illusion-tech/laneflow/issues/1051) 进入 G1 复核角色与
+非密码学派生边界。当前保持合同，不把 SHA/BLAKE3 二选一结果推广为所有算法的最优解。
 
 更换还会重排名次与入选集合；实测 BLAKE3 对照替换了 560 条入选记录。截断尾部
 包含上述不可车道级展开的候选，不能把更换视为等价排序优化或质量修复。按 §7，
@@ -547,7 +555,7 @@ progress = low + q * (high - low)
 `high < low` 或任一非有限值立即失败。input 使用 source record 的 route/profile 和
 `initialSpeed=0`。
 
-按 ADR 0033 §1，本派生同样按所影响工作负载产物的**内部完整性摘要**角色处理。
+按现行 ADR 0033 §1，本派生同样按所影响工作负载产物的**内部完整性摘要**角色处理。
 摘要本身用于确定性位置派生，不是完整性校验值或持久标识；重建与比对方是 LaneFlow
 DEMAND 工作负载构建与回放验证流程。派生的 `progress` 进入固定运行输入，并影响
 initial/state digest、ordered outcomes/events/counts 与 final replay digest，因而
@@ -555,8 +563,10 @@ initial/state digest、ordered outcomes/events/counts 与 final replay digest，
 设计合同的归类，不声明 DEMAND harness 或其运行证据已经交付。
 
 **保持 SHA-256 及上述工作负载前缀和位提取规则。** 同一短前像实验对固定一万条
-记录执行上述前缀摘要及 `q` 派生，三轮 BLAKE3 均更慢，因此当前没有以性能为由
-迁移的依据。该实验没有执行实际 route/profile 的 `progress` 构造或 DEMAND 回放，
+记录执行上述前缀摘要及 `q` 派生，三轮 BLAKE3 均更慢；补充的 XXH3 实验则快约
+4.8 倍，每批节省约 0.37–0.38 ms。确定性派生角色及迁移选择由 #1051 另行 G1 复核，
+不能用“影响持久输出”单独推导密码学必要性。实验没有执行实际 route/profile 的
+`progress` 构造或 DEMAND 回放，
 不能冒充其端到端耗时或精确成本占比。合同每条记录只派生一次，§6.3 的 blocked
 retry 不重算；收益或成本都发生在每次构建输入时，不是每个稳态 tick。
 
