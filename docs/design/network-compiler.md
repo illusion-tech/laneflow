@@ -1,7 +1,7 @@
 # 路网编译器与共享静态路网
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-27<br>
+**最后更新**: 2026-10-25<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异
@@ -712,6 +712,11 @@ StableId128 =
   canonical tuple，不得进入 artifact 引用；
 - **互操作摘要**：artifact/image/publication integrity 使用 SHA-256，不与实体标识
   摘要混用。
+
+来源文档、文档集、来源集合、编译选项及生成器参数/编制选项摘要均进入可移植规范制品
+家族或其派生链，按 ADR 0033 §9 保持 SHA-256；不能仅因用于重放或缓存比较就归为
+进程内摘要。逐项字段去向及道路编辑原始选项与派生选项的区别见
+[编译器基础 §3.3](compiler-foundation.md#33-官方前端共同受检模块接入)。
 
 compiler 维护 `StableId128 -> CanonicalIdentity + owning source location` 登记。两个 stable
 entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest 对应不同 tuple
