@@ -208,7 +208,8 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
         let mut guard = ChildGuard::new(command.spawn()?);
         let mut samples = Vec::new();
         let mut ordinal = 0_u64;
-        let mut peak = 0;
+        let mut peak: Option<u64> = None;
+        let mut complete_memory_samples = 0_u64;
         let mut observed_resident = false;
         let result = (|| -> Result<()> {
             loop {
@@ -234,7 +235,8 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                     .try_fold(0_u64, |total, value| total.checked_add(value))
                     .ok_or_else(|| invalid("工作集求和溢出"))?;
                 if memory_sample_complete {
-                    peak = peak.max(bytes);
+                    peak = Some(peak.unwrap_or(0).max(bytes));
+                    complete_memory_samples += 1;
                 }
                 let evidence = directory_bytes(output)?;
                 let record = serde_json::json!({
@@ -323,6 +325,7 @@ pub(super) fn supervise(output: &Path, config: Config, entry: &str) -> Result<()
                 "cleanup":cleanup.as_ref().err().map_or("observed descendants terminated".into(), ToString::to_string),
                 "wall_seconds":started.elapsed().as_secs_f64(), "sample_count":ordinal,
                 "sampled_peak_resident_bytes_sum":peak,
+                "complete_memory_samples":complete_memory_samples,
             }),
         )?;
         cleanup?;
