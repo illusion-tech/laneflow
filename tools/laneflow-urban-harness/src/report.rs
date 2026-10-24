@@ -2181,55 +2181,55 @@ mod tests {
         .into_iter()
         .map(|name| (name.into(), digest_file(&directory.join(name)).unwrap()))
         .collect();
-        write_json(
-            &directory.join("result.json"),
-            &RunResult {
-                version: "urban-result-v9".into(),
-                diagnostics_enabled: true,
-                status: "performance-round-complete".into(),
+        write_json(&directory.join("result.json"), &round_result(files)).unwrap();
+    }
+
+    pub(super) fn round_result(files: BTreeMap<String, crate::digest::FileDigest>) -> RunResult {
+        RunResult {
+            version: "urban-result-v9".into(),
+            diagnostics_enabled: true,
+            status: "performance-round-complete".into(),
+            purpose: "performance".into(),
+            case: "MIXED-PEAK".into(),
+            scale: "10k".into(),
+            network_revision: "fixture".into(),
+            policy_id: "fixture".into(),
+            world_id: 1,
+            fixed_step_ms: 16,
+            window: crate::Window {
                 purpose: "performance".into(),
-                case: "MIXED-PEAK".into(),
-                scale: "10k".into(),
-                network_revision: "fixture".into(),
-                policy_id: "fixture".into(),
-                world_id: 1,
-                fixed_step_ms: 16,
-                window: crate::Window {
-                    purpose: "performance".into(),
-                    warm_up_ticks: 0,
-                    observation_ticks: 2,
-                },
-                required_per_tile: BTreeMap::new(),
-                plan_digest: crate::digest::Domain::File.hex(b"synthetic-envelope-test"),
-                expected_ticks: 2,
-                completed_ticks: 2,
-                committed_world_tick: 2,
-                error: None,
-                checkpoints: BTreeMap::new(),
-                initial_counts: (1, 0, 0),
-                final_counts: (1, 0, 0),
-                tile_evidence: vec![],
-                retry_reasons: BTreeMap::new(),
-                atomic_rejections: BTreeMap::new(),
-                replacements: 0,
-                births: 0,
-                removals: 0,
-                pending_departures: 0,
-                exhausted_departures: 0,
-                active_load: None,
-                files,
-                resumed_from: None,
-                saves: Vec::new(),
-                segment_end: 2,
-                observed_ticks: Some((1, 2)),
-                endpoint: Some(Endpoint {
-                    tick: 2,
-                    checkpoint: String::new(),
-                    caller_digest: String::new(),
-                }),
+                warm_up_ticks: 0,
+                observation_ticks: 2,
             },
-        )
-        .unwrap();
+            required_per_tile: BTreeMap::new(),
+            plan_digest: crate::digest::Domain::File.hex(b"synthetic-envelope-test"),
+            expected_ticks: 2,
+            completed_ticks: 2,
+            committed_world_tick: 2,
+            error: None,
+            checkpoints: BTreeMap::new(),
+            initial_counts: (1, 0, 0),
+            final_counts: (1, 0, 0),
+            tile_evidence: vec![],
+            retry_reasons: BTreeMap::new(),
+            atomic_rejections: BTreeMap::new(),
+            replacements: 0,
+            births: 0,
+            removals: 0,
+            pending_departures: 0,
+            exhausted_departures: 0,
+            active_load: None,
+            files,
+            resumed_from: None,
+            saves: Vec::new(),
+            segment_end: 2,
+            observed_ticks: Some((1, 2)),
+            endpoint: Some(Endpoint {
+                tick: 2,
+                checkpoint: String::new(),
+                caller_digest: String::new(),
+            }),
+        }
     }
 
     #[test]

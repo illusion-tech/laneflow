@@ -45,6 +45,7 @@ toml = "1.1.3"
 
 [dev-dependencies]
 laneflow-audit-test-support = { version = "0.0.0", path = "../laneflow-audit-test-support" }
+laneflow-urban-generator = { version = "0.0.0", path = "../laneflow-urban-generator", features = ["verified-write-test-support"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 tempfile = "3.27"
 

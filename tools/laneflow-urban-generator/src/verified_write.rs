@@ -34,6 +34,10 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
+/// 下游测试专用的写后故障注入；默认构建不包含此模块（#1043）。
+#[cfg(feature = "verified-write-test-support")]
+pub mod test_support;
+
 /// 读回窗口大小：限界内存的流式比对单元。
 const READ_WINDOW: usize = 64 * 1024;
 
@@ -195,7 +199,10 @@ struct FsIo;
 
 impl ArtifactIo for FsIo {
     fn write_file(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        fs::write(path, bytes)
+        fs::write(path, bytes)?;
+        #[cfg(feature = "verified-write-test-support")]
+        test_support::after_write(path)?;
+        Ok(())
     }
 
     fn stream_file(&self, path: &Path, sink: &mut dyn FnMut(&[u8])) -> io::Result<()> {

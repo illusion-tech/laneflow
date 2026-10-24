@@ -139,8 +139,8 @@ pub(super) fn write_fixture(
     warm_up_ticks: u64,
     window: [&[u64]; 3],
     diagnostics: &mut serde_json::Value,
-) {
-    let mut file = std::io::BufWriter::new(File::create(directory.join(FILE_NAME)).unwrap());
+) -> crate::digest::FileDigest {
+    let mut file = crate::written::DigestWriter::create(&directory.join(FILE_NAME)).unwrap();
     let mut copies = [Vec::new(), Vec::new(), Vec::new()];
     for tick in 1..=completed_ticks {
         let value = |component: usize| {
@@ -165,12 +165,13 @@ pub(super) fn write_fixture(
         }
         super::line(&mut file, &row).unwrap();
     }
-    std::io::Write::flush(&mut file).unwrap();
+    let digest = file.finish().unwrap();
     let [step, command, observation] = copies;
     diagnostics["tick_timings"] = serde_json::json!({"version":VERSION,"file":FILE_NAME});
     diagnostics["window_step_samples_ns"] = serde_json::json!(step);
     diagnostics["window_command_samples_ns"] = serde_json::json!(command);
     diagnostics["window_observation_samples_ns"] = serde_json::json!(observation);
+    digest
 }
 
 #[cfg(test)]

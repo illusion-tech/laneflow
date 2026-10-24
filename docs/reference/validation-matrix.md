@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-10-24
+**最后更新**: 2026-10-25
 
 **适用范围**: LaneFlow 各切片类型在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
 **关联文档**:
@@ -121,6 +121,15 @@ issue 为准，本表只做判读入口，不复制诊断结论。
 | `per-world live N must stay below M bytes`                                                                          | `shared_network_allocation_evidence` 每世界预算                                   | 分支 diff 存在对应的每世界真实增长（如 +4 B/世界）即真超限，否则待裁决                            | 先对比分支 diff 是否真实增长（实测有 +4 B/世界的研究分支实例），再判串扰                                                                                                                                                            | 多为真预算超限 · #794                  |
 | `NonFiniteMotion` 家族偶发                                                                                          | `phase_equivalence` 等                                                            | —（已修，任何命中即回归）                                                                         | 故障注入跨武装世界引爆                                                                                                                                                                                                              | 已修（#795）· #792                     |
 | 取样脚本报 FAILED 但目标 `test result: ok`                                                                          | 自建循环取样脚本                                                                  | 目标二进制 `test result: ok` 即脚本误报                                                           | 检查匹配是否大小写不敏感、是否误计 `catch_unwind` 预期失败 stderr                                                                                                                                                                   | 方法论教训（#794 iter 5）              |
+
+`sustained` 测试夹具另输出 `[digest-probe] site=fixture-copy name=<文件>`（#1043）：
+`phase=source` 核对复制源，按首次写出登记最多重建同份 pristine 三次；
+`phase=before-edit` / `before-compare` 在解析或比较前核对写时摘要，失配即失败。
+现场包含期望 / 实际摘要与长度、实际头 32 字节及路径；非预期 panic 保留临时目录。
+目标复制使用 #954 的写后核对与最多三次重写，目标失败不触发源重建。
+成功轮次的 `[fixture-copy]` 行分别记录复制次数、源重建次数，以及初始生成、重建、
+目标复制和故意篡改写出的重写次数。重建或重写成功仍须留档；
+`reason=changed-registration` 表示重建内容偏离首次登记，转代码嫌疑，不采纳新摘要。
 
 放行裁决与收录机制：
 
