@@ -66,6 +66,15 @@ pub(crate) fn is_population_candidate(type_id: &str, depart: &ExactDecimal) -> b
         && LUST_PASSENGER_VTYPE_IDS.contains(&type_id)
 }
 
+/// §4 排序键：主键为 `SHA-256(UTF-8 vehicle ID)` 的 32 字节（按无符号字节字典序），
+/// 碰撞时以原始 vehicle ID 字节为次键。
+fn population_sort_key(vehicle: &DueVehicle) -> ([u8; 32], &[u8]) {
+    (
+        Sha256::digest(vehicle.id.as_bytes()).into(),
+        vehicle.id.as_bytes(),
+    )
+}
+
 /// Filter / sort / rank DUE vehicles into the shared population table.
 pub fn select_population(
     vehicles: &[DueVehicle],
@@ -88,14 +97,9 @@ pub fn select_population(
         )));
     }
 
-    candidates.sort_by(|left, right| {
-        let left_digest = Sha256::digest(left.id.as_bytes());
-        let right_digest = Sha256::digest(right.id.as_bytes());
-        left_digest
-            .as_slice()
-            .cmp(right_digest.as_slice())
-            .then_with(|| left.id.as_bytes().cmp(right.id.as_bytes()))
-    });
+    // #1031：每个候选只算一次排序键；sort_by_cached_key 为稳定排序，结果与逐次
+    // 比较时重算摘要一致。
+    candidates.sort_by_cached_key(|vehicle| population_sort_key(vehicle));
 
     if require_lust_candidate_count && candidates.len() < POPULATION_SELECTED_COUNT {
         return Err(Error::SumoModel(format!(
