@@ -76,6 +76,11 @@ impl Tally {
     fn push(&mut self, mut bytes: &[u8]) {
         self.hash.update(bytes);
         self.bytes += bytes.len() as u64;
+        // 页缓冲为空时整页直接从切片取指纹，不拷贝。
+        while self.page.is_empty() && bytes.len() >= PAGE {
+            self.pages.push(page_fingerprint(&bytes[..PAGE]));
+            bytes = &bytes[PAGE..];
+        }
         while !bytes.is_empty() {
             let take = (PAGE - self.page.len()).min(bytes.len());
             self.page.extend_from_slice(&bytes[..take]);
@@ -104,11 +109,31 @@ fn page_fingerprint(page: &[u8]) -> u64 {
     XxHash3_64::oneshot(page)
 }
 
-/// 包裹 `BufWriter<File>`，对每个写入字节同步累计摘要与页指纹。
+/// 带写缓冲的文件写出器，对写入文件的全部字节同步累计摘要与页指纹。
+///
+/// 累计发生在缓冲之下的文件层：只对实际交给文件的字节计算，且每次是写缓冲刷出的
+/// 大块，BLAKE3 可跨块并行、整页指纹免拷贝（逐行累计实测慢约一倍）。
 pub(crate) struct DigestWriter {
     path: PathBuf,
-    inner: BufWriter<File>,
+    inner: BufWriter<TallyFile>,
+}
+
+/// 文件层写入：把成功写入文件的字节送入累计。
+struct TallyFile {
+    file: File,
     tally: Tally,
+}
+
+impl Write for TallyFile {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let written = self.file.write(bytes)?;
+        self.tally.push(&bytes[..written]);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
 }
 
 impl DigestWriter {
@@ -118,18 +143,21 @@ impl DigestWriter {
     }
 
     pub(crate) fn with_capacity(path: &Path, capacity: usize) -> Result<Self> {
+        let file = TallyFile {
+            file: File::create(path)?,
+            tally: Tally::new(),
+        };
         Ok(Self {
             path: path.to_owned(),
-            inner: BufWriter::with_capacity(capacity, File::create(path)?),
-            tally: Tally::new(),
+            inner: BufWriter::with_capacity(capacity, file),
         })
     }
 
     /// 刷盘并释放写缓冲，返回写出指纹。
     fn close(self) -> Result<(PathBuf, Fingerprint)> {
-        let Self { path, inner, tally } = self;
-        inner.into_inner().map_err(io::IntoInnerError::into_error)?;
-        Ok((path, tally.finish()))
+        let Self { path, inner } = self;
+        let file = inner.into_inner().map_err(io::IntoInnerError::into_error)?;
+        Ok((path, file.tally.finish()))
     }
 
     /// 刷盘后读回核对：一致时返回写出摘要；失配时输出现场行并失败关闭（流式无源，
@@ -147,9 +175,7 @@ impl DigestWriter {
 
 impl Write for DigestWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let written = self.inner.write(bytes)?;
-        self.tally.push(&bytes[..written]);
-        Ok(written)
+        self.inner.write(bytes)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -376,6 +402,28 @@ mod tests {
             change(&mut expected);
             assert_eq!(fs::read(&path).unwrap(), expected, "{label}");
         }
+    }
+
+    #[test]
+    fn tally_is_independent_of_how_bytes_are_split() {
+        let bytes = content(5 * PAGE + 123);
+        let whole = {
+            let mut tally = Tally::new();
+            tally.push(&bytes);
+            tally.finish()
+        };
+        // 整页免拷贝与跨页拷贝两条路径交替出现。
+        for split in [1, 7, PAGE - 1, PAGE, PAGE + 1, 3 * PAGE + 5] {
+            let mut tally = Tally::new();
+            for chunk in bytes.chunks(split) {
+                tally.push(chunk);
+            }
+            assert!(tally.finish() == whole, "split {split}");
+        }
+        let mut tally = Tally::new();
+        tally.push(&bytes[..10]);
+        tally.push(&bytes[10..]);
+        assert!(tally.finish() == whole, "unaligned head then bulk");
     }
 
     #[test]
