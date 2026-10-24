@@ -1,12 +1,13 @@
 # 交通观测与 Routing 接入
 
 **文档状态**: Accepted（#303 G1 Pass）<br>
-**最后更新**: 2026-08-31（#541 parking lifecycle 接缝）<br>
+**最后更新**: 2026-10-25（#1044 G1 观测摘要角色与算法）<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能门禁<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
 [`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
+[`../adr/0033-digest-role-and-algorithm-selection-authority.md`](../adr/0033-digest-role-and-algorithm-selection-authority.md)、
 [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)、
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
@@ -114,10 +115,12 @@ ABI；所有乘加 checked，不能把 logical rows 冒充 retained capacity。
 - 当前修订下按 `StableId128` 升序、无重复、非空的显式 LaneEdge 集合。
 
 创建导出 session 时，Runtime 用 `SharedIdentityIndex` 一次性解析并验证选择，计算带
-域分隔版本的 SHA-256 `selectionDigest`。G2 摘要输入精确为
-`"laneflow:runtime-observation-selection:v1\0" || entryCount:u64-le ||
+域分隔版本的 BLAKE3-256 `selectionDigest`（类型 `ObservationSelectionDigest`）。摘要
+输入精确为 `"laneflow:runtime-observation-selection:v2\0" || entryCount:u64-le ||
 laneEdgeStableId[0..N]:raw-16-bytes`；`AllLaneEdges` 与内容完全相同的显式选择得到相同
-摘要，不把选择表达方式伪装成内容差异。未知标识、错误实体 kind、重复或不规范排序
+摘要，不把选择表达方式伪装成内容差异。该摘要按 ADR 0033 属于内部完整性摘要：只由
+Runtime 产生和重算，宿主只做相等比较或把 32 字节原样写入其他摘要的输入（#1044 由
+SHA-256、`v1` 前缀更换）。未知标识、错误实体 kind、重复或不规范排序
 失败关闭，不留下 session。选择在 session 生命周期内不可变；调用方要换分区必须
 新建 session 并先取完整基线。禁止把执行计划分区编号、dense ordinal 或几何包围盒
 解释规则写进该契约。
@@ -184,16 +187,20 @@ session，不能共享并竞争一个隐式全局游标。
 | `entryCount`                                             | Routing 接收并验证的精确成本条目数                                                                                  |
 | `exactByteLength` / `snapshotSha256`                     | 宿主成本 payload 的精确字节数；摘要以域分隔版本前缀覆盖除自身外的上述绑定字段及 exact payload                       |
 
-G2 将宿主不透明成本模型键落定为
-`CostModelKey { modelId: Sha256Digest, modelVersion: u32 }`；`modelId` 是宿主所选模型
-身份的定长摘要值，不证明算法来源或可信性。形成成本前，宿主通过
+宿主不透明成本模型键为
+`CostModelKey { modelId: CostModelId, modelVersion: u32 }`；`modelId` 是宿主所选模型
+身份的 32 字节不透明标识，由宿主产生，Runtime 只做精确相等比较，不规定其产生算法，
+也不证明来源或可信性。它不是 LaneFlow 摘要，ADR 0033 的角色划分不适用。形成成本前，
+宿主通过
 `bind_observation_set` 把一个或多个实际成功的观测批次降低为字段私有的
 `ObservationSetBinding`。该入口逐项拒绝不同 stream、修订/派生版本、tick 或状态序号，
 再按 `(worldId, worldGeneration, deliverySequence, selectionDigest)` 升序规范化；完全相同
-的输入绑定重复出现也拒绝。`observationSetDigest` 的精确输入为：
+的输入绑定重复出现也拒绝。`observationSetDigest`（类型 `ObservationSetDigest`）为
+BLAKE3-256，与 `selectionDigest` 同属内部完整性摘要（#1044 由 SHA-256、`v1` 前缀
+更换），精确输入为：
 
 ```text
-"laneflow:runtime-observation-set:v1\0"
+"laneflow:runtime-observation-set:v2\0"
 || inputCount:u64-le
 || repeated(
      worldId:u64-le
@@ -203,7 +210,10 @@ G2 将宿主不透明成本模型键落定为
    )
 ```
 
-`snapshotSha256` 的 G2 精确输入为：
+`snapshotSha256` 为 SHA-256，按 ADR 0033 属于互操作摘要：外部重算方是宿主 Routing 的
+成本快照接收方，它可以位于进程外、使用 Rust 以外的语言，按下列前像独立计算并核对；
+Runtime 只携带该值，不重算、不比对。前像中的 `observationSetDigest` 与 `costModelId`
+按 32 字节原样写入，接收方无需知道其产生算法。精确输入为：
 
 ```text
 "laneflow:dynamic-cost-snapshot:v1\0"
@@ -224,6 +234,10 @@ G2 将宿主不透明成本模型键落定为
 ```
 
 这些摘要规则是同进程 contract 的规范输入，不新增 LaneFlow wire 或发布格式。
+`selectionDigest` 与 `observationSetDigest` 的算法更换由各自的域分隔前缀版本区分，
+摘要长度仍为 32 字节，因此观测批次与动态成本绑定的 `bindingVersion` 均不递增。
+#1044 实施合入前，现行代码仍以 SHA-256 与 `v1` 前缀计算这两项摘要，`modelId` 仍为
+`Sha256Digest` 类型。
 
 过期策略只使用 fixed tick：候选在 `currentTick < observationTick` 时是“来自未来”，
 在 `currentTick > validThroughTick` 时过期；两者都失败关闭。在同一活动世界世代/
