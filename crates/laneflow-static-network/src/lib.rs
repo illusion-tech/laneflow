@@ -22,6 +22,9 @@ mod tests;
 #[cfg(test)]
 mod attestation_tests;
 
+#[cfg(test)]
+mod page_injection_tests;
+
 use std::sync::Arc;
 
 pub use attestation::{
