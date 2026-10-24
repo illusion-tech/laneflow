@@ -7,10 +7,13 @@ use std::time::Instant;
 use crate::verified_write;
 
 use laneflow_compiler::{
-    CompilationOutput, CompileLimits, PortableDiffBase, PortableEmissionProvenance,
-    check_portable_candidate, emit_portable_candidate_to_staging,
+    CompilationOutput, CompileLimits, PortableDiffBase, PortableEmissionError,
+    PortableEmissionProvenance, PortablePublicationCandidate, check_portable_candidate,
+    emit_portable_candidate_to_staging,
 };
-use laneflow_format::{FormatLimits, RegistryCheckedFieldValue, ValueCheckedObjectView};
+use laneflow_format::{
+    FormatErrorClass, FormatLimits, RegistryCheckedFieldValue, ValueCheckedObjectView,
+};
 use laneflow_static_contract::{
     EntityKind, PortableFieldType, PortableObjectKind, portable_object_schema,
 };
@@ -87,6 +90,8 @@ pub struct Manifest {
 #[derive(Serialize)]
 struct Measurements {
     phases: BTreeMap<String, PhaseMeasurement>,
+    /// 写出读回失配后的重新写出次数（#1036）；`emit` 阶段计时含全部尝试。
+    emission_rewrites: u32,
     memory_note: String,
 }
 
@@ -180,19 +185,13 @@ pub fn generate(
     recorder.finish("compile");
     let metrics = output.metrics();
     let lir_counts = lir_counts(&output);
-    recorder.begin();
-    let staging = tempfile::tempdir()?;
     let provenance = PortableEmissionProvenance::try_new(source::BUILD_ID)
         .map_err(|e| validation("provenance", e))?;
-    let candidate = emit_portable_candidate_to_staging(
-        &output,
-        &provenance,
-        FormatLimits::HARD,
-        PortableDiffBase::Genesis,
-        staging.path(),
-    )
-    .map_err(|e| validation("file-backed emission", e))?;
+    recorder.begin();
+    let ((_staging, candidate), emission_rewrites) =
+        with_emission_rewrites(|| emit_to_fresh_staging(&output, &provenance))?;
     recorder.finish("emit");
+    // 后发射检查不再需要编译结果；先释放以免抬高该阶段峰值，故此阶段失配不重写（#1036）。
     drop(output);
     recorder.begin();
     let checked = check_portable_candidate(candidate, FormatLimits::HARD)
@@ -468,7 +467,7 @@ pub fn generate(
         stage: "write-readback",
         detail: format!("manifest.toml: {error}"),
     })?;
-    let measurements_bytes = toml::to_string_pretty(&Measurements {phases:recorder.phases,
+    let measurements_bytes = toml::to_string_pretty(&Measurements {phases:recorder.phases, emission_rewrites,
         memory_note:"Optional instrumented allocator reports requested live byte deltas and total allocated bytes per phase, not heap peak or OS working set. Compiler controlled peak and shared static network logical bytes are reported separately in manifest.".into()})?;
     verified_write::write_verified(
         &directory.join("measurements.toml"),
@@ -481,6 +480,88 @@ pub fn generate(
         detail: format!("measurements.toml: {error}"),
     })?;
     Ok(manifest)
+}
+
+/// 写出尝试上限（首次 + 2 次重新写出，#1036）。
+const MAX_EMISSION_ATTEMPTS: u32 = 3;
+
+/// 单次写出尝试的失败，按能否用在手的编译结果重新写出分类。
+#[derive(Debug)]
+enum EmissionFailure {
+    /// 读回完整性失配：暂存 backing 不可信，换新暂存目录重新写出可能恢复。
+    Readback(Error),
+    /// 其余失败与输入或实现确定性相关，重写不会改变结果。
+    Other(Error),
+}
+
+/// 在新暂存目录中写出；返回的暂存目录须与候选及其后的检查结果同寿命（backing 在其中）。
+fn emit_to_fresh_staging(
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+) -> std::result::Result<(tempfile::TempDir, PortablePublicationCandidate), EmissionFailure> {
+    let staging = tempfile::tempdir().map_err(|e| EmissionFailure::Other(e.into()))?;
+    let candidate = emit_portable_candidate_to_staging(
+        output,
+        provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+        staging.path(),
+    )
+    .map_err(|e| {
+        let error = validation("file-backed emission", e);
+        if readback_emission(e) {
+            EmissionFailure::Readback(error)
+        } else {
+            EmissionFailure::Other(error)
+        }
+    })?;
+    Ok((staging, candidate))
+}
+
+/// 本机实测与读回完整性直接相关的写出失败（#1036 G2 封闭清单）。
+fn readback_emission(error: PortableEmissionError) -> bool {
+    match error {
+        PortableEmissionError::Format(format) => format.class() == FormatErrorClass::DigestMismatch,
+        PortableEmissionError::StagedBackingChanged | PortableEmissionError::ObjectSource(_) => {
+            true
+        }
+        _ => false,
+    }
+}
+
+/// 有界重新写出：读回失配换新暂存目录再试，至多 [`MAX_EMISSION_ATTEMPTS`] 次；耗尽或遇到
+/// 不可重写的失败时按原错误返回。成功时返回结果与重新写出次数。重写成功只说明本次已恢复，
+/// 不作为偶发失败的放行依据（`validation-matrix.md` §8）。
+fn with_emission_rewrites<T>(
+    mut attempt: impl FnMut() -> std::result::Result<T, EmissionFailure>,
+) -> Result<(T, u32)> {
+    let mut rewrites = 0;
+    loop {
+        match attempt() {
+            Ok(value) => return Ok((value, rewrites)),
+            Err(EmissionFailure::Other(error)) => return Err(error),
+            Err(EmissionFailure::Readback(error)) => {
+                let attempt = rewrites + 1;
+                let exhausted = attempt >= MAX_EMISSION_ATTEMPTS;
+                eprintln!(
+                    "[digest-probe] site=emission-retry attempt={attempt} {} action={}",
+                    probe_fields(&error),
+                    if exhausted { "fail-closed" } else { "retry" }
+                );
+                if exhausted {
+                    return Err(error);
+                }
+                rewrites += 1;
+            }
+        }
+    }
+}
+
+fn probe_fields(error: &Error) -> String {
+    match error {
+        Error::Validation { stage, detail } => format!("stage={stage} detail={detail}"),
+        other => format!("detail={other}"),
+    }
 }
 
 /// 每条外部走廊只计 0 号车道，使参考线长度不随同向车道数重复。
@@ -612,4 +693,119 @@ fn table_counts(view: ValueCheckedObjectView<'_>, kind: PortableObjectKind) -> V
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use laneflow_format::{FormatError, FormatStructure};
+
+    const DIGEST_MISMATCH: FormatError = FormatError::DigestMismatch {
+        structure: FormatStructure::ChunkDirectoryEntry,
+    };
+
+    fn readback_failure() -> EmissionFailure {
+        EmissionFailure::Readback(validation(
+            "file-backed emission",
+            PortableEmissionError::Format(DIGEST_MISMATCH),
+        ))
+    }
+
+    #[test]
+    fn readback_mismatch_is_rewritten_until_success() {
+        let mut attempts = 0;
+        let (value, rewrites) = with_emission_rewrites(|| {
+            attempts += 1;
+            if attempts == 1 {
+                Err(readback_failure())
+            } else {
+                Ok(attempts)
+            }
+        })
+        .expect("recover by rewrite");
+        assert_eq!((value, rewrites), (2, 1));
+    }
+
+    #[test]
+    fn exhausted_rewrites_return_the_original_error() {
+        let mut attempts = 0;
+        let error = with_emission_rewrites(|| -> std::result::Result<(), _> {
+            attempts += 1;
+            Err(readback_failure())
+        })
+        .expect_err("exhaustion fails");
+        assert_eq!(attempts, MAX_EMISSION_ATTEMPTS);
+        assert_eq!(
+            error.to_string(),
+            "file-backed emission: Format(DigestMismatch { structure: ChunkDirectoryEntry })"
+        );
+        assert_eq!(
+            probe_fields(&error),
+            "stage=file-backed emission detail=Format(DigestMismatch { structure: ChunkDirectoryEntry })"
+        );
+    }
+
+    #[test]
+    fn deterministic_failures_are_not_rewritten() {
+        let mut attempts = 0;
+        let error = with_emission_rewrites(|| -> std::result::Result<(), _> {
+            attempts += 1;
+            Err(EmissionFailure::Other(validation(
+                "file-backed emission",
+                PortableEmissionError::InternalBindingMismatch,
+            )))
+        })
+        .expect_err("fails at once");
+        assert_eq!(attempts, 1);
+        assert_eq!(
+            error.to_string(),
+            "file-backed emission: InternalBindingMismatch"
+        );
+    }
+
+    #[test]
+    fn only_readback_integrity_errors_are_rewritable() {
+        assert!(readback_emission(PortableEmissionError::Format(
+            DIGEST_MISMATCH
+        )));
+        assert!(readback_emission(
+            PortableEmissionError::StagedBackingChanged
+        ));
+        assert!(!readback_emission(PortableEmissionError::Format(
+            FormatError::BindingMismatch {
+                structure: FormatStructure::ChunkDirectoryEntry,
+            }
+        )));
+        assert!(!readback_emission(
+            PortableEmissionError::InternalBindingMismatch
+        ));
+    }
+
+    #[test]
+    fn rewriting_from_the_same_compilation_reproduces_identical_bytes() {
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        let output = compile_source(&generate_source(&config, Scale::Fixture).unwrap()).unwrap();
+        let provenance = PortableEmissionProvenance::try_new(source::BUILD_ID).unwrap();
+        let checked = || {
+            let (staging, candidate) =
+                emit_to_fresh_staging(&output, &provenance).expect("emission");
+            let checked = check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
+            (staging, checked)
+        };
+        let (_first_staging, first) = checked();
+        let (_second_staging, second) = checked();
+        assert_eq!(
+            first.canonical_artifact_view().bytes(),
+            second.canonical_artifact_view().bytes()
+        );
+        assert_eq!(
+            first.source_map_view().bytes(),
+            second.source_map_view().bytes()
+        );
+        assert_eq!(
+            first.semantic_diff_view().bytes(),
+            second.semantic_diff_view().bytes()
+        );
+    }
 }
