@@ -56,6 +56,28 @@ allow = []
 deny = [
     # #935 RUSTSEC-2026-0344 例外只覆盖 bevy_image 的 KTX2 解码路径；其他 crate 直接依赖 ruzstd 须重新审查。
     { crate = "ruzstd", wrappers = ["bevy_image"], reason = "#935: ruzstd 仅允许经 bevy_image 解码 Bevy 内嵌的可信 KTX2 资产" },
+    # #1022 ADR 0033：摘要算法直接依赖方的唯一登记名单。新增直接依赖方须在同一变更中更新此处，
+    # 并在 Issue 或设计文档中写明新增摘要的角色与验证方。bevy_animation、bevy_asset 是 Bevy
+    # 上游的传递依赖，不受 ADR 0033 约束，登记只为保留现有依赖图。
+    { crate = "sha2", wrappers = [
+        "laneflow-bevy",
+        "laneflow-compiler",
+        "laneflow-corridor-generator",
+        "laneflow-format",
+        "laneflow-junction-generator",
+        "laneflow-lust-converter",
+        "laneflow-post-p3-research",
+        "laneflow-runtime",
+        "laneflow-static-network",
+        "laneflow-urban-generator",
+        "laneflow-urban-harness",
+        "xtask",
+    ], reason = "#1022: 摘要须按 ADR 0033 写明角色；新增直接依赖方须登记" },
+    { crate = "blake3", wrappers = [
+        "bevy_animation",
+        "bevy_asset",
+        "laneflow-compiler",
+    ], reason = "#1022: 摘要须按 ADR 0033 写明角色；新增直接依赖方须登记" },
 ]
 skip = []
 skip-tree = []

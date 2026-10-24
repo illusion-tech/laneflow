@@ -703,12 +703,15 @@ StableId128 =
 
 ### 7.6 算法角色、碰撞与测试
 
-- **BLAKE3-128**：唯一持久化实体标识摘要；
-- **XXH3-64/128**：仅用于 compiler 进程内 hash table/cache/fingerprint；命中后
-  必须比较完整 canonical tuple，不得进入 artifact 引用；
-- **XXH64/FNV64**：不作为持久标识；
-- **SHA-256**：承担 artifact/image/publication integrity，不与实体标识摘要
-  混用。
+摘要角色与各角色的默认算法以
+[ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) 为准。compiler
+中的对应关系：
+
+- **持久标识摘要**：`StableId128` 使用 BLAKE3-128，是唯一持久化实体标识摘要；
+- **瞬态指纹**：compiler 进程内 hash table/cache/fingerprint；命中后必须比较完整
+  canonical tuple，不得进入 artifact 引用；
+- **互操作摘要**：artifact/image/publication integrity 使用 SHA-256，不与实体标识
+  摘要混用。
 
 compiler 维护 `StableId128 -> CanonicalIdentity + owning source location` 登记。两个 stable
 entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest 对应不同 tuple
