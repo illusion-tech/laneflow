@@ -290,11 +290,12 @@ command、step、observation 计时数组还须与 diagnostics 副本一致，�
    完整观察周期末，另用 `capture_snapshot` / `deterministic_state_digest` 核对完整状态。
    不把 Debug 文本、内存地址、计时或运行目录写进语义摘要。
 
-逐拍状态与决策批摘要自 `urban-observation-v3` 起采用两级树形哈希：个体槽位和决策条
+逐拍状态与决策批摘要采用两级树形哈希（`urban-observation-v3` 起）：个体槽位和决策条
 分别按固定块界 4096 分块，块界是摘要定义的一部分，与 worker 数无关；块内编码后各自
-取 SHA-256 叶摘要，主线程按块序把叶摘要送入根哈希，状态摘要的尾部（等待区、灯色、
-剩余资源声明）保持原始字节编码。同一计划以不同 worker 数运行的摘要逐字节一致；v3 与
-更早版本的摘要值不同，跨摘要版本的运行不属于同一次比较。
+取 BLAKE3-256 叶摘要，主线程按块序把叶摘要送入根哈希，状态摘要的尾部（等待区、灯色、
+剩余资源声明）保持原始字节编码。叶摘要与根摘要的域分隔前缀见 §6「摘要角色与算法」。
+同一计划以不同 worker 数运行的摘要逐字节一致。`urban-observation-v4` 把叶摘要与根摘要
+由 SHA-256 改为 BLAKE3-256（#1042），块界与编码不变；不同摘要版本的运行不属于同一次比较。
 
 命令成功引发的 park/leave/replace 生命周期变化在命令边界记录前后状态、稳定身份及
 命令序号；step 引发的变化在 step 提交时记录，以 phase 区分。命令后仍独立采集
@@ -332,7 +333,7 @@ live；未来尚未到期和已到期 pending/exhausted 请求分别计数，均
 启用时三份日志各设置 10 MiB 流式缓冲，共 30 MiB，由调用方诊断拥有；禁用时为零。
 窗口结束后先刷盘并释放这三份缓冲，再分配逐拍计时的输出缓冲，诊断缓冲同时驻留不超过三份。
 
-结果载荷为 `urban-result-v8`，以必填 `diagnostics_enabled` 绑定实际诊断选择。
+结果载荷为 `urban-result-v9`，以必填 `diagnostics_enabled` 绑定实际诊断选择。
 未启用详细日志的 probe 可以完成运行，但不能作为逐拍回放或完整语义比较证据。
 两次运行比较与三轮聚合均拒绝诊断禁用、记录缺失、版本错误或摘要不符的回执。
 correctness/performance 必须显式启用诊断；未启用时在安装世界和创建输出前拒绝，
@@ -395,10 +396,11 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
 - `result.json`：工作负载/计划/结果版本、case/scale、LFCA/config/catalog
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
 - `comparison.json`：比较结论、case/scale、计划摘要、比较区间、两次运行的起止与 worker 数、
-  两个执行编号和两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；
-  两份原始 result 保持不可变。当前载荷为 `urban-result-v8`（显式绑定详细诊断开关；
+  两个执行编号和两份 result 的文件字节摘要与字节数。CLI 必须指定新报告路径，成功比较才写入；
+  两份原始 result 保持不可变。当前载荷为 `urban-result-v9`（显式绑定详细诊断开关；
   incarnation 与请求编号独立，持续负载显式报告实际 Active；v8 起记录存档、续跑来源与
-  终点核对值，见 §7）/ `urban-comparison-v3`（见 §7.5），不转换旧记录。
+  终点核对值，见 §7；v9 起全部摘要改用 BLAKE3-256 并按角色命名字段，见 §6「摘要角色
+  与算法」）/ `urban-comparison-v4`（见 §7.5），不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、
   构建期实际 rustflags（`--remap-path-prefix` 来源端以 `<worktree>`/`<cargo-home>`/
   `<rustup-toolchain>` 占位符归一化）与 profile 设置、硬件/OS/电源角色、
@@ -434,7 +436,7 @@ observation 累计 step 前的 `step_before` 采集、Active/intent 计数、红
 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags、
 profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
 按性能合同逐轮计算 p50/p95/p99 后取三轮中位数，max 取三轮最坏值，不池化样本求分位；
-合并报告 `urban-performance-comparison-v3` 显式记录该口径（v3 起记录三轮已验证的共同 worker 数；v2 及更早报告不转换），样本数仍报告三轮总数。
+合并报告 `urban-performance-comparison-v4` 显式记录该口径（v4 起各轮回执与测量记录的文件字节摘要改用 BLAKE3-256；v3 起记录三轮已验证的共同 worker 数；v3 及更早报告不转换），样本数仍报告三轮总数。
 不能把两个正确性运行当性能轮次；工具链
 变化须重跑用于当前判断的三个轮次。未测内存项写明未测量，不填 0。
 正式运行在初始化前与窗口结束后核对来源；提交、干净状态、Rust/Cargo/target、构建参数、
@@ -485,6 +487,47 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 初始 75% Active 给测量行命名。#544 的交付不包含新性能门禁、产品达标声明或 owner
 组件的大范围优化；真实缺陷按组件形成可复现的问题，再决定相应修复范围。
 
+### 摘要角色与算法（#1042）
+
+运行程序自己产生的摘要只由运行程序自身重算：运行核对、续跑核对、两次运行比较、三轮
+聚合、存档恢复与来源核对。按 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)，
+它们属于内部完整性摘要，唯一算法为 BLAKE3-256，不保留 SHA-256 计算或比对路径。每个
+摘要的前像以 ASCII 域分隔前缀开头、以 `\0` 结尾，前缀中的版本即派生版本；摘要值以
+64 位小写十六进制记录。
+
+| 摘要             | 前像（前缀之后）                       | 域分隔前缀                                 | 记录位置                                                                                                                                                          |
+| ---------------- | -------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 文件字节摘要     | 文件全部字节                           | `laneflow:urban-harness-file:v1\0`         | `result.files`、`plan_digest`、比较报告中的回执、存档文件与存档清单、来源记录（可执行文件、`Cargo.lock` 与各 manifest）、输入 manifest 整文件摘要、试验与证据产物 |
+| 观测叶摘要       | 块内编码                               | `laneflow:urban-observation-leaf:v4\0`     | 不单独记录                                                                                                                                                        |
+| 观测摘要         | 按块序的叶摘要，随后为尾部编码         | `laneflow:urban-observation:v4\0`          | `ticks.jsonl` 的 `state_digest`、决策批的 `digest`、存档清单                                                                                                      |
+| 逐拍命令摘要     | 本拍命令的规范 JSON 数组               | `laneflow:urban-tick-commands:v1\0`        | `ticks.jsonl` 的 `commands_digest`                                                                                                                                |
+| 逐拍事件摘要     | 本拍事件的规范 JSON 数组               | `laneflow:urban-tick-events:v1\0`          | `ticks.jsonl` 的 `event_digest`                                                                                                                                   |
+| 宿主状态摘要     | §7.3 的规范形式                        | `laneflow:urban-caller-digest:v2\0`        | 回执终点核对值、存档清单                                                                                                                                          |
+| 表现层应用摘要   | 已应用 Transform 的身份与位姿编码      | `laneflow:urban-presentation-applied:v2\0` | 表现采样                                                                                                                                                          |
+| 试验逐拍摘要     | 逐拍记录的规范 JSON                    | `laneflow:urban-trial-tick:v1\0`           | gate / transitions 试验结果的 `tick_hashes`                                                                                                                       |
+| 试验保留状态摘要 | 车辆、路线、信号相位与等待区成员的编码 | `laneflow:urban-retained-state:v1\0`       | gate / transitions 试验结果的 `final_retained_state`                                                                                                              |
+
+同一文件的字节摘要只有一个值：`plan_digest` 与 `result.files` 中 `resolved-plan.toml` 的
+摘要前像与验证方相同，取同一值。
+
+以下摘要不属于运行程序自己的摘要合同，保持 SHA-256：生成器 `manifest.toml` 中的文件摘要，
+以及运行程序照抄进计划、回执与存档的 `artifact_files`（属于 urban-generator 的制品清单，
+含可移植规范制品家族，ADR 0033 §9）；工件摘要失配现场行中与该清单对照的读回摘要；
+`check-binary-paths` 扫描回执。
+
+字段按角色命名，不写入算法：文件字节摘要对象为 `{bytes, digest}`；来源记录中的可执行文件
+摘要为 `binary_digest`；续跑来源与比较报告中的存档清单摘要为 `manifest_digest`；证据报告中
+的输入 manifest 整文件摘要为 `artifact_manifest_digest`。生成器清单沿用其 `sha256` 字段。
+
+摘要随写出计算：流式写出的日志与证据文件按写入字节同步计算摘要，写完后读回一次核对；
+一次写完的文件按源字节计算摘要，经写后读回核对写出。读回与写出不一致时不记录摘要；
+源数据仍在内存的文件有界重写，流式无源的文件使本次运行失败，失配现场按
+[验证矩阵](../reference/validation-matrix.md) §8 判读。
+
+计划版本保持 `urban-demand-v3`：计划中的 `manifest_digest` 是输入 manifest 的文件字节
+摘要，其值本来就随输入制品变化，算法更换不改变需求语义。`fixtures/v3/plans.json` 是
+`urban-demand-v3` 冻结时的历史记录，保持原值。
+
 ## 7. 存档与续跑
 
 **状态**：已实现（#874；G1 设计 #875）。依据 #861 长窗验收
@@ -513,15 +556,15 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 
 存档是输出目录下的 `saves/tick-<T>/` 目录，三个文件：
 
-| 文件          | 内容                                                                        |
-| ------------- | --------------------------------------------------------------------------- |
-| `world.lfrs`  | 第 T 拍提交后的 `encode_lfrs(capture_snapshot())`                           |
-| `caller.json` | 宿主耐久状态，载荷 `urban-save-caller-v1`                                   |
-| `save.toml`   | 清单 `urban-save-v2`：身份绑定、两份文件的字节数与 SHA-256、第 T 拍的核对值 |
+| 文件          | 内容                                                                            |
+| ------------- | ------------------------------------------------------------------------------- |
+| `world.lfrs`  | 第 T 拍提交后的 `encode_lfrs(capture_snapshot())`                               |
+| `caller.json` | 宿主耐久状态，载荷 `urban-save-caller-v1`                                       |
+| `save.toml`   | 清单 `urban-save-v3`：身份绑定、两份文件的字节数与文件字节摘要、第 T 拍的核对值 |
 
-#1035 把确定性状态摘要更换为 BLAKE3-256 后，清单中的状态核对值随之改变，存档清单
-版本由 `urban-save-v1` 递增为 `urban-save-v2`，恢复时不读取 v1。两份文件的字节摘要
-用于通用工具复核，继续使用 SHA-256。
+#1035 把确定性状态摘要更换为 BLAKE3-256 后，存档清单版本由 `urban-save-v1` 递增为
+`urban-save-v2`。#1042 把两份文件的字节摘要、宿主状态摘要与观测摘要改为 BLAKE3-256
+（§6「摘要角色与算法」），清单版本递增为 `urban-save-v3`；恢复时不读取更早版本。
 
 宿主耐久状态逐项来自 `Harness`，以稳定身份或快照局部标识表示，不写进程句柄：
 
@@ -542,9 +585,9 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 
 清单绑定：计划摘要、制品文件摘要（`Artifacts.files`）、fixed dt、拍号 T、命令与事件
 游标、`deterministic_state_digest`、第 T 拍 `TickRecord` 的 `state_digest` 及其观测编码
-版本（当前 `urban-observation-v3`）、存档时内存中宿主状态的摘要（与终点同一规范形式
-`urban-caller-digest-v1`），以及两份文件的字节数与 SHA-256。续跑二进制的观测
-编码版本必须与清单相同，否则 `state_digest` 无从核对，直接拒绝。v3 的摘要与 worker 数
+版本（当前 `urban-observation-v4`）、存档时内存中宿主状态的摘要（与终点同一规范形式
+`urban-caller-digest-v2`），以及两份文件的字节数与文件字节摘要。续跑二进制的观测
+编码版本必须与清单相同，否则 `state_digest` 无从核对，直接拒绝。观测摘要与 worker 数
 无关，存档与续跑可以使用不同的 worker 数。生成存档的执行编号、源码提交、二进制摘要和 worker 数只作来源记录，
 不参与续跑判据。
 
@@ -572,7 +615,8 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 
 宿主状态摘要不能直接取 `caller.json` 的字节：快照局部标识按捕获时的槽位顺序分配，恢复
 会重排槽位（快照 §6：restore 的 Parked 先行 staging 会重排局部标识），逻辑相同的两次运行编码出的局部标识可以不同。
-摘要因此对宿主耐久状态的规范形式求 SHA-256，规范形式只含与槽位无关的值：
+摘要因此对宿主耐久状态的规范形式求 BLAKE3-256（域分隔前缀见 §6「摘要角色与算法」），
+规范形式只含与槽位无关的值：
 
 - 个体所绑车辆以该车在世界 live 序中的位置表示（live 序属于世界确定性状态，由完整
   检查点覆盖），无车辆为空；
@@ -582,14 +626,14 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 - 其余字段（请求、账本、回收、见证、计数）本来就是稳定身份或整数，按 `caller.json` 的
   字段顺序原样编码。
 
-规范形式的载荷标识为 `urban-caller-digest-v1`，与存档用的 `urban-save-caller-v1` 分开：
-存档仍写局部标识，供恢复重绑。
+规范形式的载荷标识为 `urban-caller-digest-v2`（v2 起算法为 BLAKE3-256，规范形式不变），
+与存档用的 `urban-save-caller-v1` 分开：存档仍写局部标识，供恢复重绑。
 
 ### 7.4 续跑
 
 `run <artifacts> <plan> <new-output> --resume <save-dir> [--until-tick E] [--workers N] [--diagnostics]`：
 
-1. 校验清单与两份文件的字节数和 SHA-256、载荷版本，计划摘要与制品文件摘要必须与本次
+1. 校验清单与两份文件的字节数和文件字节摘要、载荷版本，计划摘要与制品文件摘要必须与本次
    输入相同，且 `T < E <= end`（E 缺省为计划终点），保证续跑至少推进一拍；不等即拒绝，
    不尝试转换。
 2. 由同一制品得到修订、已提交来源与 `WorldConfig`，以本次执行配置调用 `restore_lfrs`。
@@ -652,7 +696,7 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
    计划原样判断，因此续跑与不中断运行在重叠拍上执行同一逻辑。
 
 续跑输出目录与普通运行相同；`ticks.jsonl` 等日志与 `timings.jsonl` 只含 T+1 到 E 的拍。
-回执 `resumed_from` 记录存档清单的 SHA-256、拍号与来源记录，`completed_ticks` 仍是
+回执 `resumed_from` 记录存档清单的文件字节摘要（`manifest_digest`）、拍号与来源记录，`completed_ticks` 仍是
 世界拍号。续跑运行同样可以 `--save-at` 更晚的拍。
 
 `timings.jsonl` 行格式仍为 `urban-tick-timings-v1`，校验改为按区间：起点取
@@ -662,14 +706,14 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 
 ### 7.5 结果与比较
 
-- 回执升为 `urban-result-v8`，新增 `resumed_from`、`saves`、分段终点、终点核对值与观察窗交集；状态新增
-  `segment-complete`。旧版本回执不转换。
+- 回执 `urban-result-v8` 起新增 `resumed_from`、`saves`、分段终点、终点核对值与观察窗交集；状态新增
+  `segment-complete`。当前为 `urban-result-v9`（摘要改用 BLAKE3-256）。旧版本回执不转换。
 - 续跑运行和带存档的 performance 运行都不写正式 `measurements.toml`，三轮聚合拒绝。
   计时样本保留在 `timings.jsonl` 与 `diagnostics.json`。
 - `compare` 增加分段比较：一份完整运行、一份续跑（或两份从同一存档续跑的运行），
   要求同一计划且两次运行的终点 E 相同，并且两次运行确实从同一状态出发：从第 0 拍起跑的运行与续跑运行比较时，
-  续跑运行的 `resumed_from` 的存档清单 SHA-256 必须出现在从第 0 拍起跑的运行回执的 `saves` 中（即存档
-  由从第 0 拍起跑的运行在第 T 拍写出）；两份续跑比较时，两次运行的存档清单 SHA-256 必须相同。不满足即
+  续跑运行的 `resumed_from` 的存档清单摘要必须出现在从第 0 拍起跑的运行回执的 `saves` 中（即存档
+  由从第 0 拍起跑的运行在第 T 拍写出）；两份续跑比较时，两次运行的存档清单摘要必须相同。不满足即
   拒绝比较——否则用同计划另一次执行的存档续跑，第 T 拍的差异若在区间内收敛，比较也会
   通过。满足后，在两者共有的推进区间 `(T, E]`（T 取两次运行的起点中较晚者）
   上逐行比较 `ticks.jsonl`、`commands.jsonl`、`events.jsonl`，首个差异保留所属推进
@@ -682,9 +726,10 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
   第 E 拍宿主状态摘要（覆盖 `tile_evidence`、`red_waiters`、`watched`、生命周期计数等
   只观察、不驱动交通的累计量）。两份从同一存档续跑的运行比较可以替代完整运行作为 A/B
   的语义对照。
-- 比较报告升为 `urban-comparison-v3`，载荷显式记录比较区间 `(T, E]`，以及每次运行的起点
+- 比较报告 `urban-comparison-v3` 起显式记录比较区间 `(T, E]`，以及每次运行的起点
   （0 或 `resumed_from` 存档清单摘要与拍号）和终点。完整运行之间的比较是 T = 0、
-  E = 计划终点的特例，同样写 v3；v2 不再生成，旧报告不转换。
+  E = 计划终点的特例，格式相同。当前为 `urban-comparison-v4`（回执与存档清单摘要改用
+  BLAKE3-256）；更早版本不再生成，旧报告不转换。
 - 比较状态：只要任一次运行是续跑或分段运行（未跑到计划终点），通过时状态记为 `segment-match`，
   不沿用 `case-pass`、`performance-match` 等正式状态。它只说明两次运行在区间内相同，不是
   正确性 case 通过、正式性能或认证证据（§7.7）；正式状态只留给两份从第 0 拍跑到计划
@@ -763,4 +808,4 @@ A/B 用法：两次运行从同一存档续跑。候选改变快照格式或恢�
   的存档清单不同、任一次运行缺少区间内计划规定的周期检查点，均拒绝比较；两个从第 0 拍
   起跑的运行初始检查点不同，比较失败；宿主累计量（如 `tile_evidence`）被篡改而逐拍日志相同的
   续跑，比较失败；终点
-  检查点不等时比较失败；`urban-comparison-v3` 记录区间与两次运行的起止。
+  检查点不等时比较失败；比较报告记录区间与两次运行的起止。
