@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-10-12<br>
+**最后更新**: 2026-10-25<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -517,7 +517,11 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 | ------------- | --------------------------------------------------------------------------- |
 | `world.lfrs`  | 第 T 拍提交后的 `encode_lfrs(capture_snapshot())`                           |
 | `caller.json` | 宿主耐久状态，载荷 `urban-save-caller-v1`                                   |
-| `save.toml`   | 清单 `urban-save-v1`：身份绑定、两份文件的字节数与 SHA-256、第 T 拍的核对值 |
+| `save.toml`   | 清单 `urban-save-v2`：身份绑定、两份文件的字节数与 SHA-256、第 T 拍的核对值 |
+
+#1035 G1 把确定性状态摘要更换为 BLAKE3-256 后，清单中的状态核对值随之改变，存档清单
+版本由 `urban-save-v1` 递增为 `urban-save-v2`，恢复时不读取 v1；#1035 实施合入前，
+现行代码仍为 v1。两份文件的字节摘要用于通用工具复核，继续使用 SHA-256。
 
 宿主耐久状态逐项来自 `Harness`，以稳定身份或快照局部标识表示，不写进程句柄：
 

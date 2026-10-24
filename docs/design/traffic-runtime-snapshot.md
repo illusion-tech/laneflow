@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283；Waiting #282）<br>
-**最后更新**: 2026-10-20<br>
+**最后更新**: 2026-10-25<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -234,9 +234,16 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   的 `register_admitted_route` 入口重建，再把新句柄映射回宿主 ID；不重新执行
   Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
-- **确定性状态摘要（术语表）**：当前唯一算法为 SHA-256，域分隔字节是
-  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 `7` 与 `u16`
-  `runtime_state_version` `5`；整数均小端。顶层依次写：`world_id`、语义
+- **确定性状态摘要（术语表）**：唯一算法为 BLAKE3-256。按
+  [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)，它属于内部
+  完整性摘要；#1035 G1 将算法由 SHA-256 更换为 BLAKE3-256，并把摘要版本由 `7` 递增为
+  `8`，规范前像的内容、排序与字节布局不变。#1035 实施合入前，现行代码仍为 SHA-256 与
+  摘要版本 `7`；实施后不保留 SHA-256 计算或比对路径。公开入口
+  `deterministic_state_digest` 与 `TrafficWorld::direct_state_digest` 返回按角色命名的
+  32 字节类型 `StateDigest`，不再复用 `Sha256Digest`。域分隔字节保持
+  `laneflow:runtime-state-digest:v1\0`，摘要版本字段已在前像内区分算法更换；随后写
+  `u16` 摘要版本 `8` 与 `u16` `runtime_state_version` `5`；整数均小端。顶层依次写：
+  `world_id`、语义
   `NetworkRevisionId`、六轴静态契约版本、行为语义配置（vehicle/route、edge/conflict
   两类 occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标、策略选择
   （`u8`：NotRequired=0，Pinned=1 后紧跟 16 字节 policy StableId）、按 stable
