@@ -61,6 +61,10 @@ where
 }
 
 #[cfg(test)]
+#[path = "tests/audit_step_overlap.rs"]
+mod audit_step_overlap;
+
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 

@@ -77,8 +77,31 @@
 
 以下仍不作为已覆盖项：真实根 backing 的 4 KiB 替换/整数页位移与物理共页，以及来源
 immutable backing 在验证期间被实际改写；扫描已读字节随后改变；
-非 `Pass` 审计与正在执行的 `step` 精确重叠时的宿主输出处置；
 故障机长期自然取样及匿名堆失真归因。编辑来源仍随 #529，未混入发布来源验收。
+
+## 在用审计与在途步进
+
+[并发处置测试](../../crates/laneflow-runtime/src/admin/tests/audit_step_overlap.rs) 在真实 `step`
+成功准备、尚未提交的位置设置一次性同步点。宿主收到到达通知后完成真实认证调用，再按
+处置提示裁决新调用，最后释放原 `step`。通知与释放均有 30 秒失败界，异常退出自动释放，
+没有通过睡眠或多次碰运气取得重叠。同步点及其线程间搬运仅进入 `cfg(test)`。
+
+四个用例各覆盖一个工作线程与两个工作线程；池内场景同时核对调用线程与实际执行线程不同。
+两个世界与一个 Spatial 会话持有同一修订 `Arc`：
+
+| 真实认证返回                             | 证据入口                                                           | 宿主处置与在途调用                                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `Pass / None`                            | `pass_audit_overlaps_step_without_stopping_consumers`              | 新调用继续；在途 step 正常提交并发布结果                                                         |
+| `Mismatch / Source / IsolateSource`      | `source_mismatch_isolates_input_while_in_flight_step_finishes`     | 损坏 LFCA 被隔离；两个世界、观测导出和 Spatial 新调用继续                                        |
+| `OperationFailed(BuilderBudgetExceeded)` | `operational_failure_retries_without_stopping_consumers`           | 仅记录重试；已安装修订继续使用                                                                   |
+| `Mismatch / Indeterminate / DisableRoot` | `disabling_audit_stops_new_calls_and_quarantines_late_step_output` | 停止两个世界、观测导出与 Spatial 新调用；原 step 仍提交并返回，晚到 `StepOutcome` 由测试宿主隔离 |
+
+停用场景在原 step 返回后继续阻止其下一拍，未调用 Runtime 取消或排空入口，也未在修订中
+加入失效标志。结论前已发布的非空事件、观测和位姿批次仍保留在宿主，未被撤销。
+该宿主仅展示单一协调器对新调用的裁决与输出隔离，不是产品宿主调度器；不证明任意宿主的
+多发起者并发协议。停用场景把来源与引用一起换成另一份自洽输入，得到真实的无法判因
+`Mismatch`；没有把它标成真实修订页失真或 `Untrusted` 注入。上述具体故障下的重叠仍须
+各自的故障取证，本矩阵只证明这里列出的四种返回与调用边界。
 
 ## 2026-10-24 首轮采集
 
