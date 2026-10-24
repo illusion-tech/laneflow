@@ -287,6 +287,14 @@ fn sampled_memory_and_evidence_thresholds_stop_and_preserve_incomplete() {
             "evidence threshold"
         }));
         assert_eq!(result["cleanup"], "observed descendants terminated");
+        let watch = read(&output.join("watch.json"));
+        if watch["memory_sample_complete"] == true {
+            assert_eq!(result["complete_memory_samples"], 1);
+            assert!(result["sampled_peak_resident_bytes_sum"].as_u64().unwrap() > 0);
+        } else {
+            assert_eq!(result["complete_memory_samples"], 0);
+            assert!(result["sampled_peak_resident_bytes_sum"].is_null());
+        }
         assert_eq!(
             read(&output.join("collection.json"))["status"],
             "Incomplete"
