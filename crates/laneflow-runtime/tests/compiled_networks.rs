@@ -8521,7 +8521,7 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
 
     assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 6);
     assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 5);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 7);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 8);
     let snapshot = world.capture_snapshot().expect("capture");
     let digest = deterministic_state_digest(&snapshot).expect("snapshot digest");
     let reserved_id = snapshot

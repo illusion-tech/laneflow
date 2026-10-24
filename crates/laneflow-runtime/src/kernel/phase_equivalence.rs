@@ -25,8 +25,8 @@ fn checkpoint(world: &TrafficWorld) -> String {
         .map(|id| world.vehicle(*id))
         .collect();
     format!(
-        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-        crate::deterministic_state_digest(&snapshot).unwrap(),
+        "{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        crate::admin::snapshot_digest::frozen_digest_7_fingerprint(&snapshot),
         world.live_vehicles(),
         vehicles,
         world.latest_waiting_decisions(),
@@ -105,7 +105,7 @@ struct TraceDigest {
 }
 
 /// 恢复快照并续跑一拍：恢复不重建历史 latest batches，按快照局部身份比较
-/// 后续语义。返回续跑后状态 digest 的 `{continued:?}` 形式。
+/// 后续语义。返回续跑后状态的 digest 7 冻结指纹（见 `frozen_digest_7_fingerprint`）。
 fn restore_and_continue(world: &mut TrafficWorld, workers: NonZeroU32, input: TickInput) -> String {
     let captured = world.capture_snapshot().unwrap();
     let mut restored = crate::restore_lfrs(
@@ -124,12 +124,13 @@ fn restore_and_continue(world: &mut TrafficWorld, workers: NonZeroU32, input: Ti
     );
     world.step(input).unwrap();
     restored.step(input).unwrap();
-    let continued = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+    let continued_snapshot = world.capture_snapshot().unwrap();
+    let continued = crate::deterministic_state_digest(&continued_snapshot).unwrap();
     assert_eq!(
         crate::deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
         continued
     );
-    format!("{continued:?}")
+    crate::admin::snapshot_digest::frozen_digest_7_fingerprint(&continued_snapshot)
 }
 
 fn trace_with_workers(

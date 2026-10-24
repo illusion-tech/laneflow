@@ -1,7 +1,7 @@
 //! 与 `LFRS` 容器编码无关的 Runtime 逻辑状态摘要。
 
-use laneflow_static_contract::Sha256Digest;
-use sha2::{Digest, Sha256};
+use std::fmt;
+
 use thiserror::Error;
 
 use crate::{
@@ -9,10 +9,57 @@ use crate::{
     CapturedSnapshot, CapturedVehicle, VehicleStatus,
 };
 
-/// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 7;
-/// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
+/// 确定性状态摘要规范化版本（8：算法由 SHA-256 更换为 BLAKE3-256，前像布局不变）。
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 8;
+/// 域分隔前缀；尾随 NUL 属于前缀字节。算法更换由前像内的摘要版本区分，前缀保持 v1。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
+
+/// 32-byte 确定性状态摘要（BLAKE3-256）。
+///
+/// ADR 0033 内部完整性摘要：只由 LaneFlow 实现产生与重算，用于宿主检查点对拍与
+/// 审计重放，不承担发布身份。
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct StateDigest([u8; 32]);
+
+impl StateDigest {
+    /// 原样封装 32 个摘要字节，不执行 hash 或信任验证。
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// 借用摘要原始字节。
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// 取出摘要原始字节。
+    #[must_use]
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.0
+    }
+
+    fn of_preimage(canonical: &[u8]) -> Self {
+        Self(*blake3::hash(canonical).as_bytes())
+    }
+}
+
+impl fmt::LowerHex for StateDigest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for StateDigest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "StateDigest({self:x})")
+    }
+}
 
 /// 状态摘要规范化失败（#532 摘要轴错误族；直算路径错误边界见 #960）。
 ///
@@ -170,7 +217,7 @@ fn digest_try_reserve(values: &mut Vec<u8>, additional: usize) -> Result<(), Sna
 }
 
 /// 对捕获的 Runtime 逻辑状态计算与 `LFRS` wire 编码、进程句柄和快照局部 ID 无关的
-/// SHA-256 摘要。
+/// BLAKE3-256 摘要。
 ///
 /// 规范输入包括：摘要版本、世界身份、语义路网修订与六轴静态契约版本、行为语义
 /// 配置（容量 + fixed dt）、tick/时间/双游标、路线实例分组多重集（路线内容 +
@@ -184,7 +231,29 @@ fn digest_try_reserve(values: &mut Vec<u8>, additional: usize) -> Result<(), Sna
 /// [`SnapshotDigestError::ReservationFailed`]；输入快照不被修改。
 pub fn deterministic_state_digest(
     snapshot: &CapturedSnapshot,
-) -> Result<Sha256Digest, SnapshotDigestError> {
+) -> Result<StateDigest, SnapshotDigestError> {
+    canonical_state_preimage(snapshot).map(|canonical| StateDigest::of_preimage(&canonical))
+}
+
+/// 测试专用：e011745e / c009d2dc 锚定的阶段协议 fixture 以 digest 7（SHA-256）记录状态。
+/// 以相同前像把版本字段改回 7 并按 SHA-256 重算，输出原 `Sha256Digest(..)` 调试形式，
+/// 使 fixture 继续锚定重构前行为、不随 #1035 算法更换从被测实现重生成；生产路径不使用。
+#[cfg(test)]
+pub(crate) fn frozen_digest_7_fingerprint(snapshot: &CapturedSnapshot) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut preimage = canonical_state_preimage(snapshot).expect("preimage");
+    let version_at = RUNTIME_STATE_DIGEST_DOMAIN.len();
+    preimage[version_at..version_at + 2].copy_from_slice(&7_u16.to_le_bytes());
+    let hex: String = Sha256::digest(&preimage)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("Sha256Digest({hex})")
+}
+
+/// 捕获路径的规范前像字节；摘要 = BLAKE3-256(前像)。
+fn canonical_state_preimage(snapshot: &CapturedSnapshot) -> Result<Vec<u8>, SnapshotDigestError> {
     // 车辆记录表：`BTreeMap` 无可失败预留 API，等价换「按局部 ID 排序的
     // 扁平表 + 二分查找」（查找语义与输出字节不变）。
     let mut vehicle_records: Vec<(u64, Vec<u8>, u64)> = Vec::new();
@@ -287,9 +356,7 @@ pub fn deterministic_state_digest(
         try_push_record(&mut canonical, route_bytes)?;
     }
 
-    let mut hasher = Sha256::new();
-    hasher.update(&canonical);
-    Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
+    Ok(canonical)
 }
 
 fn canonical_route_groups<V: AsRef<[u8]>>(
@@ -674,7 +741,7 @@ impl crate::kernel::state::WorldState {
     /// 状态逐记录抽取并立即归一化（完整性设计 §4.3；#960）。
     ///
     /// 字节与现行 `deterministic_state_digest(&CapturedSnapshot)` 逐字节一致
-    ///（digest 7 / runtime state 5 不变）；局部 ID 按 capture 语义由 live 槽位序
+    ///（digest 8 / runtime state 5）；局部 ID 按 capture 语义由 live 槽位序
     /// 分配。归一化 scratch 由 `limits` 约束；预留 / 限额失败无副作用可重试。
     /// 读取真实触达已提交字节，不给结论保留缓存。
     ///
@@ -685,9 +752,10 @@ impl crate::kernel::state::WorldState {
     pub(crate) fn direct_state_digest(
         &self,
         limits: SnapshotDigestLimits,
-    ) -> Result<Sha256Digest, SnapshotDigestError> {
+    ) -> Result<StateDigest, SnapshotDigestError> {
         let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.direct_state_digest_inner(limits)
+            self.direct_state_preimage(limits)
+                .map(|canonical| StateDigest::of_preimage(&canonical))
         }));
         match attempt {
             Ok(result) => result,
@@ -702,10 +770,11 @@ impl crate::kernel::state::WorldState {
         }
     }
 
-    fn direct_state_digest_inner(
+    /// 直算路径的规范前像字节；与捕获路径的前像逐字节一致。
+    fn direct_state_preimage(
         &self,
         limits: SnapshotDigestLimits,
-    ) -> Result<Sha256Digest, SnapshotDigestError> {
+    ) -> Result<Vec<u8>, SnapshotDigestError> {
         use crate::admin::snapshot::FIRST_SNAPSHOT_ID;
         let mut budget = NormalizationBudget {
             remaining: limits.max_normalization_bytes,
@@ -987,9 +1056,7 @@ impl crate::kernel::state::WorldState {
             try_push_record(&mut canonical, route_bytes)?;
         }
 
-        let mut hasher = Sha256::new();
-        hasher.update(&canonical);
-        Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
+        Ok(canonical)
     }
 }
 
@@ -1048,7 +1115,7 @@ impl crate::TrafficWorld {
     pub fn direct_state_digest(
         &self,
         limits: SnapshotDigestLimits,
-    ) -> Result<Sha256Digest, SnapshotDigestError> {
+    ) -> Result<StateDigest, SnapshotDigestError> {
         self.execution.assert_usable();
         self.state.direct_state_digest(limits)
     }
@@ -1254,6 +1321,49 @@ mod tests {
         assert_eq!(
             deterministic_state_digest(&snapshot).expect("retry after clearing"),
             expected
+        );
+    }
+
+    /// #1035：摘要 = BLAKE3-256(规范前像)，前像以域分隔前缀与摘要版本 8 开头，两条路径
+    /// 的前像逐字节一致；把版本字段改回 7 并以 SHA-256 计算，复现 digest 7 的已知向量，
+    /// 证明算法更换未改变前像布局。
+    #[test]
+    fn digest_is_blake3_of_unchanged_preimage() {
+        use sha2::{Digest, Sha256};
+
+        let (world, _, _) = world_with_vehicle(true);
+        let captured = world.capture_snapshot().expect("capture");
+        let preimage = canonical_state_preimage(&captured).expect("preimage");
+        assert_eq!(
+            world
+                .state
+                .direct_state_preimage(SnapshotDigestLimits::new(64 * 1024 * 1024))
+                .expect("direct preimage"),
+            preimage
+        );
+        assert_eq!(
+            deterministic_state_digest(&captured)
+                .expect("digest")
+                .into_bytes(),
+            *blake3::hash(&preimage).as_bytes()
+        );
+
+        let version_at = RUNTIME_STATE_DIGEST_DOMAIN.len();
+        assert_eq!(&preimage[..version_at], RUNTIME_STATE_DIGEST_DOMAIN);
+        assert_eq!(
+            &preimage[version_at..version_at + 2],
+            &RUNTIME_STATE_DIGEST_VERSION.to_le_bytes()
+        );
+        let mut digest_7_preimage = preimage.clone();
+        digest_7_preimage[version_at..version_at + 2].copy_from_slice(&7_u16.to_le_bytes());
+        let digest_7: [u8; 32] = Sha256::digest(&digest_7_preimage).into();
+        assert_eq!(
+            digest_7,
+            [
+                0xdf, 0x23, 0xb5, 0x88, 0x8b, 0x33, 0x1e, 0x67, 0xc3, 0xd8, 0xf6, 0x96, 0x64, 0x9c,
+                0xe0, 0xce, 0x55, 0x8b, 0xe3, 0xb3, 0x74, 0xf2, 0x67, 0x3c, 0xd8, 0xce, 0xab, 0xc9,
+                0x7e, 0xee, 0x87, 0xf3
+            ]
         );
     }
 
@@ -1760,16 +1870,16 @@ mod tests {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
-        // digest 7：独立保留已审核的车辆/路线记录后缀，替换版本与 LFCA 六节摘要，
-        // 追加 tag + 从身份表读取的 policy StableId，以及空 Conflict
-        // lag 分类的显式计数；本向量锁定完整 digest 7 前像。
-        // 下方等价类同时约束来源审计与局部 ID 不进入摘要。
+        // digest 8：前像与 digest 7 相同（独立保留已审核的车辆/路线记录后缀，替换版本与
+        // LFCA 六节摘要，追加 tag + 从身份表读取的 policy StableId，以及空 Conflict
+        // lag 分类的显式计数），只把摘要版本改为 8、算法改为 BLAKE3-256；本向量锁定
+        // 完整 digest 8 前像。下方等价类同时约束来源审计与局部 ID 不进入摘要。
         assert_eq!(
             expected,
-            Sha256Digest::from_bytes([
-                0xdf, 0x23, 0xb5, 0x88, 0x8b, 0x33, 0x1e, 0x67, 0xc3, 0xd8, 0xf6, 0x96, 0x64, 0x9c,
-                0xe0, 0xce, 0x55, 0x8b, 0xe3, 0xb3, 0x74, 0xf2, 0x67, 0x3c, 0xd8, 0xce, 0xab, 0xc9,
-                0x7e, 0xee, 0x87, 0xf3
+            StateDigest::from_bytes([
+                0xb9, 0x71, 0xcd, 0x79, 0xa9, 0xf6, 0x3b, 0x45, 0x2a, 0xcc, 0x5e, 0x17, 0xbb, 0xb7,
+                0x63, 0x14, 0x15, 0x5a, 0x80, 0x35, 0x20, 0x36, 0x41, 0x1d, 0x2a, 0x4e, 0xe1, 0xbd,
+                0x1c, 0xd9, 0x54, 0x56,
             ])
         );
         let mut equivalent = original.clone();

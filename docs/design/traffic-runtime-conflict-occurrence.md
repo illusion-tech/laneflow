@@ -282,7 +282,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
 - capture 仍只保存路线边稳定标识序列；
-- 现行 LFRS 6 保存 `WorldConfig` 容量并把它纳入 deterministic digest 7；
+- 现行 LFRS 6 保存 `WorldConfig` 容量并把它纳入 deterministic digest 8；
 - restore 使用目标修订的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
   再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
   才发布 world；

@@ -74,6 +74,7 @@ motion-kernel-evidence = []
 execution-evidence = []
 
 [dependencies]
+blake3 = "1.8"
 laneflow-motion-kernel = { version = "0.0.0", path = "../laneflow-motion-kernel" }
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime-snapshot-wire = { version = "0.0.0", path = "../laneflow-runtime-snapshot-wire" }

@@ -31,7 +31,7 @@
   坐标、独立容量与正式 Conflict authority 的活动车辆边界。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
   membership/admission/storage/queue 设计，以及当前 LFRS 6、runtime state 5、
-  deterministic digest 7 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
+  deterministic digest 8 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `committed-pose-extraction.md`：#681 位姿来源借用、Spatial 缓冲交换与按需提取

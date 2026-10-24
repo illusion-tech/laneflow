@@ -28,7 +28,7 @@ use crate::{
     sha256,
 };
 
-pub(crate) const SAVE_VERSION: &str = "urban-save-v1";
+pub(crate) const SAVE_VERSION: &str = "urban-save-v2";
 pub(crate) const CALLER_VERSION: &str = "urban-save-caller-v1";
 pub(crate) const CALLER_DIGEST_VERSION: &str = "urban-caller-digest-v1";
 const WORLD_FILE: &str = "world.lfrs";
@@ -85,7 +85,7 @@ pub struct SaveSource {
     pub workers: u32,
 }
 
-/// `urban-save-v1` 清单。
+/// `urban-save-v2` 清单（#1035：确定性状态摘要改为 BLAKE3-256 后由 v1 递增）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SaveManifest {
