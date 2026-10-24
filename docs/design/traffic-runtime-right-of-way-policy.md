@@ -638,7 +638,7 @@ StableId/start/end 排序，lowering 后再按当前修订 ordinal 规范化；�
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
 `acquiredTick × fixedDeltaTimeMs`；缺行、过早时间或 `CutoverFloor` 都不能证明真实 tail-clear。
-保存后捕获结构的语义字段全部参与 deterministic digest 7，派生内容不参与。
+保存后捕获结构的语义字段全部参与 deterministic digest 8，派生内容不参与。
 普通 restore 重建规则/route/ledger，核对每个 owner、时间、full-body footprint 和 wait-for
 graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历史即整体失败。
 

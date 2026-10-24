@@ -52,7 +52,8 @@ downstream authority 与 lag history 的持久化、同/跨修订迁移和生产
 ## 2. 版本轴与绑定集
 
 [执行配置设计](traffic-runtime-execution-config.md)将 worker 移出快照。当前版本轴为
-LFRS 6 / runtime state 5 / digest 7；仅容器布局改变，交通状态及摘要前像不变。
+LFRS 6 / runtime state 5 / digest 8；执行配置分离仅改变容器布局，#1035 仅更换摘要
+算法与摘要版本，交通状态及摘要前像布局不变。
 安装与 fresh restore 都显式接收 `ExecutionConfig`，完整交通准备后才校验执行能力。
 
 版本轴分离：容器 `formatVersion` 与被绑定事实的版本（runtime 版本、
@@ -236,9 +237,8 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：唯一算法为 BLAKE3-256。按
   [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)，它属于内部
-  完整性摘要；#1035 G1 将算法由 SHA-256 更换为 BLAKE3-256，并把摘要版本由 `7` 递增为
-  `8`，规范前像的内容、排序与字节布局不变。#1035 实施合入前，现行代码仍为 SHA-256 与
-  摘要版本 `7`；实施后不保留 SHA-256 计算或比对路径。公开入口
+  完整性摘要；#1035 将算法由 SHA-256 更换为 BLAKE3-256，并把摘要版本由 `7` 递增为
+  `8`，规范前像的内容、排序与字节布局不变；不保留 SHA-256 计算或比对路径。公开入口
   `deterministic_state_digest` 与 `TrafficWorld::direct_state_digest` 返回按角色命名的
   32 字节类型 `StateDigest`，不再复用 `Sha256Digest`。域分隔字节保持
   `laneflow:runtime-state-digest:v1\0`，摘要版本字段已在前像内区分算法更换；随后写

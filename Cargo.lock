@@ -3215,6 +3215,7 @@ dependencies = [
 name = "laneflow-runtime"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "dhat",
  "laneflow-audit-test-support",
  "laneflow-compiler",

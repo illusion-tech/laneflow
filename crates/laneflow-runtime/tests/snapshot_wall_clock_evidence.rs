@@ -16,7 +16,6 @@ use laneflow_runtime::{
     CapturedSnapshot, CommittedNetworkSource, TickInput, TrafficWorld, WorldConfig,
     deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
-use laneflow_static_contract::Sha256Digest;
 use laneflow_static_network::SharedNetworkRevision;
 
 #[path = "support/snapshot_evidence.rs"]
@@ -70,7 +69,7 @@ fn restore_clocks(
     target_revision: &Arc<SharedNetworkRevision>,
     target_source: &CommittedNetworkSource,
     target_config: WorldConfig,
-    expected_digest: Sha256Digest,
+    expected_digest: laneflow_runtime::StateDigest,
 ) -> Vec<u128> {
     let mut clocks = Vec::with_capacity(WALL_SAMPLES);
     for index in 0..(WALL_WARMUP + WALL_SAMPLES) {

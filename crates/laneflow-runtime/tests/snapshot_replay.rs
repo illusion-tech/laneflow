@@ -17,8 +17,7 @@ use laneflow_runtime::{
     deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{
-    LaneEdgeOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, Sha256Digest, VehicleProfileId,
-    VehicleProfileOrdinal,
+    LaneEdgeOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, VehicleProfileId, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
@@ -36,7 +35,7 @@ const PARKING_ONLY: &[u8] = include_bytes!(
 struct ReplayPoint {
     command_cursor: u64,
     tick: u64,
-    digest: Sha256Digest,
+    digest: laneflow_runtime::StateDigest,
 }
 
 #[derive(Default)]

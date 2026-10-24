@@ -82,7 +82,7 @@ fn full_sources(world: &TrafficWorld) -> Vec<(laneflow_runtime::VehicleHandle, P
     world.committed_pose_sources().collect()
 }
 
-fn state_fingerprint(world: &TrafficWorld) -> laneflow_static_contract::Sha256Digest {
+fn state_fingerprint(world: &TrafficWorld) -> laneflow_runtime::StateDigest {
     deterministic_state_digest(&world.capture_snapshot().expect("snapshot")).expect("digest")
 }
 

@@ -29,7 +29,7 @@ pub use admin::snapshot::{
 };
 pub use admin::snapshot_digest::{
     RUNTIME_STATE_DIGEST_DOMAIN, RUNTIME_STATE_DIGEST_VERSION, SnapshotDigestError,
-    SnapshotDigestLimits, StateInvariantViolation, deterministic_state_digest,
+    SnapshotDigestLimits, StateDigest, StateInvariantViolation, deterministic_state_digest,
 };
 pub use admin::snapshot_restore::{
     RestoredSnapshot, SnapshotLimitDimension, SnapshotRestoreError, SnapshotRestoreLimits,
