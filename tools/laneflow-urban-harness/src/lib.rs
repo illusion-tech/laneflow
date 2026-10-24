@@ -3,6 +3,7 @@
 #[cfg(feature = "allocation")]
 mod allocation;
 mod artifacts;
+mod digest;
 #[cfg(feature = "adapter")]
 mod evidence;
 #[cfg(feature = "execution-evidence")]
@@ -36,6 +37,7 @@ pub use gate::run_gate_evidence;
 pub use seams::run_seam_evidence;
 #[cfg(feature = "adapter")]
 mod variant;
+mod written;
 
 pub use artifacts::Artifacts;
 #[cfg(feature = "adapter")]
@@ -87,6 +89,8 @@ pub(crate) fn checked<T, E: std::fmt::Debug>(
     result.map_err(|e| invalid(format!("{context}: {e:?}")))
 }
 
+/// 只用于生成器清单与可移植规范制品家族的 SHA-256（ADR 0033 §9）；harness 自己的
+/// 摘要一律经 [`digest::Domain`]（#1042）。
 pub(crate) fn sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     hex(&Sha256::digest(bytes))

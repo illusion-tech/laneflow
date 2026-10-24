@@ -260,11 +260,11 @@ pub fn prepare_capacity_variant(base_directory: &Path, output: &Path) -> Result<
     ] {
         files.insert(name, digest_file(&output.join(name))?);
     }
-    let result = json!({"version":"urban-capacity-variant-v1","scale":base.catalog().scale,
+    let result = json!({"version":"urban-capacity-variant-v2","scale":base.catalog().scale,
         "bundle_scope":"harness-loadable measurement artifacts; not chainable (generator is ordinary+1 only); not a publication bundle (genesis binding and compile statistics remain base-descriptive)",
         "facility_key":catalog_target.facility,"facility_stable_id":selected_hex,
         "base_capacity":capacity,"target_capacity":capacity+1,
-        "base_lfca":digest_file(&base_directory.join("network.lfca"))?,
+        "base_lfca":crate::artifacts::artifact_file_digest(&base_directory.join("network.lfca"))?,
         "base_network_revision":base.catalog().network_revision,
         "target_network_revision":format!("{:x}", target.network_revision().as_digest()),
         "source_delta":"one virtual-only facility capacity +1; no road, geometry, profile, signal, parking anchor or identity changes",
@@ -331,7 +331,7 @@ pub(crate) struct CapacityVariant {
 
 pub(crate) fn load_variant(base: &Artifacts, directory: &Path) -> Result<CapacityVariant> {
     let manifest: Value = serde_json::from_slice(&fs::read(directory.join("variant.json"))?)?;
-    if manifest["version"] != "urban-capacity-variant-v1"
+    if manifest["version"] != "urban-capacity-variant-v2"
         || manifest["base_network_revision"] != base.catalog().network_revision
     {
         return Err(invalid("capacity variant base mismatch"));

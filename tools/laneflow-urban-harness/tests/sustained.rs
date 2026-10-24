@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use std::fs;
 
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
@@ -28,36 +27,38 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         / 16;
     // 9adc198761 的原始运行库、同配置 fixture、完整暖机与两周期观察的逐字节计划摘要。
     // 不用当前实现生成期望值；相同数值统计不能代替全部角色、路线与请求输入一致。
+    // #1042 改为文件字节摘要（BLAKE3-256）：同一步骤先确认当前计划字节的 SHA-256 仍等于
+    // 原金样本（与历史字节逐字节相同），再记录同一字节的新摘要，核对记录见 PR。
     for (case, digest) in [
         (
             UrbanCase::MixedPeak,
-            "5e9dedc9bc14c89c31f7537bd78f0eec1a634af4909662bfbc736ae054ab6f61",
+            "067077e81a84a8cc8d42cfac2cc4276f3f6d247c033808f67860a187459461ae",
         ),
         (
             UrbanCase::GarageEgress,
-            "ad4dbddb43d3e92a6b587c1924c809fbb2a988d424191715221106a155c12683",
+            "724f8efaf710b06916bd6fe31f5f10926c929437d03d439b3bc7b6542426443f",
         ),
         (
             UrbanCase::GarageIngress,
-            "cf39843794fb36b8e056a35e4eae71ab9e8203cd4b56244f84a7c485229c9cfa",
+            "359093d41f20f7a12acf26a72dabac7b18b8744d4f6f6b50876b627443f71286",
         ),
         (
             UrbanCase::WaitingRelease,
-            "b4d3383ad80fecee8522a7e28a4ed7a20caba2351bbd487457261497901b8005",
+            "a8db2daa65751daad830ecdc9182cfbcd2c18f8486c560b9606d7c5133eec6e9",
         ),
         (
             UrbanCase::PermissiveLeft,
-            "a78d35ee5927dc440a6e0df0bfd46d07a84ac9839112746b9e2c17299be39bed",
+            "d75a7990a0d5b586a3c5a2bbc7f6c2a18d72afe7a0137c17d252ebf158cd5590",
         ),
         // 唯一有意偏离 9adc198761 的一项：那时冻结的让行角色走 c04.n0-e0，与主路脉冲
         // c04.w1-e1 没有共同冲突区，真实让行关系从未出现；改走同出口车道汇入的 c04.n0-e1。
         (
             UrbanCase::UncontrolledYield,
-            "d835b90afb6162b722711d9a4f8b9dcd5e9a854c0f961b3411cc1d035c364150",
+            "654007b09b63e72149a093fe0ec6d96ecb0fb3991fc5825e0f38aab779685d00",
         ),
         (
             UrbanCase::BoundaryBurst,
-            "0c3aca5eef8cf89d6b2f84d75882795b18cacc1396b4d8f6e14917da115cb1ad",
+            "9f210ec94ad896686bb9b7a8a70f9669e5016eebb4455ebcdc5b58cfa431a44f",
         ),
     ] {
         let mut plan = ResolvedPlan::for_case(
@@ -77,11 +78,15 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
             assert!(plan.validate(&artifacts).is_err());
         }
         let bytes = toml::to_string_pretty(&plan).unwrap();
-        let observed = Sha256::digest(bytes.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        assert_eq!(observed, digest, "{} inputs changed", case.as_str());
+        let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();
+        preimage.extend_from_slice(bytes.as_bytes());
+        let observed = blake3::hash(&preimage).to_hex();
+        assert_eq!(
+            observed.as_str(),
+            digest,
+            "{} inputs changed",
+            case.as_str()
+        );
     }
 }
 

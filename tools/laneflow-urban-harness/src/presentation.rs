@@ -12,7 +12,6 @@ use laneflow_bevy::{LaneFlowCommittedPoseBatch, LaneFlowSession};
 use laneflow_runtime::{ParkingBinding, ParkingTarget, VehicleHandle, VehicleStatus};
 use laneflow_spatial::FramePlacementToken;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::{Harness, IndividualId, Result, checked, invalid};
 
@@ -358,8 +357,7 @@ impl Presentation {
             }
         }
         std::mem::swap(&mut self.previous, &mut self.selected);
-        let mut applied_digest = Sha256::new();
-        applied_digest.update(b"laneflow-applied-transforms-v1");
+        let mut applied_digest = crate::digest::Domain::PresentationApplied.hasher();
         for (id, handle, transform) in &self.candidates {
             if !self
                 .bindings
@@ -369,7 +367,7 @@ impl Presentation {
                 continue;
             }
             for value in [id.tile, id.slot, id.incarnation] {
-                applied_digest.update(value.to_le_bytes());
+                applied_digest.update(&value.to_le_bytes());
             }
             for value in transform
                 .translation
@@ -378,10 +376,10 @@ impl Presentation {
                 .chain(transform.rotation.to_array())
                 .chain(transform.scale.to_array())
             {
-                applied_digest.update(value.to_bits().to_le_bytes());
+                applied_digest.update(&value.to_bits().to_le_bytes());
             }
         }
-        let applied_digest = crate::hex(&applied_digest.finalize());
+        let applied_digest = crate::hex(applied_digest.finalize().as_bytes());
         self.handles.clear();
         for (_, handle, _) in &self.candidates {
             if !self.handles.insert(*handle) {

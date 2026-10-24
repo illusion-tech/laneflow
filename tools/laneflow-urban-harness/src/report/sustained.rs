@@ -6,11 +6,10 @@ use std::{
 };
 
 use super::{ActiveLoadSummary, RetainedMeasurements, RunResult, sample_summary};
-use crate::{ResolvedPlan, Result, TickRecord, Window, invalid};
-use sha2::{Digest, Sha256};
+use crate::{ResolvedPlan, Result, TickRecord, Window, digest::Domain, invalid};
 
 struct CommandBatch {
-    hash: Sha256,
+    hash: blake3::Hasher,
     count: usize,
     first_cursor: u64,
     last_cursor: u64,
@@ -18,7 +17,7 @@ struct CommandBatch {
 
 impl CommandBatch {
     fn new(cursor: u64) -> Self {
-        let mut hash = Sha256::new();
+        let mut hash = Domain::TickCommands.hasher();
         hash.update(b"[");
         Self {
             hash,
@@ -44,7 +43,7 @@ impl CommandBatch {
     fn finish(mut self) -> (String, u64, u64) {
         self.hash.update(b"]");
         (
-            crate::hex(&self.hash.finalize()),
+            crate::hex(self.hash.finalize().as_bytes()),
             self.first_cursor,
             self.last_cursor,
         )
@@ -387,7 +386,7 @@ pub(super) fn verify(
     if let Some((boundary, batch)) = active_batch {
         batches.insert(boundary, batch.finish());
     }
-    let mut event_batches: BTreeMap<u64, (Sha256, usize, usize)> = BTreeMap::new();
+    let mut event_batches: BTreeMap<u64, (blake3::Hasher, usize, usize)> = BTreeMap::new();
     let mut last_event_tick = 0;
     for line in BufReader::new(File::open(directory.join("events.jsonl"))?).lines() {
         let text = line?;
@@ -416,7 +415,7 @@ pub(super) fn verify(
             return Err(invalid("sustained event is outside its step"));
         }
         let (hash, count, decisions) = event_batches.entry(tick).or_insert_with(|| {
-            let mut hash = Sha256::new();
+            let mut hash = Domain::TickEvents.hasher();
             hash.update(b"[");
             (hash, 0, 0)
         });
@@ -432,10 +431,10 @@ pub(super) fn verify(
         .into_iter()
         .map(|(tick, (mut hash, _, decisions))| {
             hash.update(b"]");
-            (tick, (crate::hex(&hash.finalize()), decisions))
+            (tick, (crate::hex(hash.finalize().as_bytes()), decisions))
         })
         .collect();
-    let empty_digest = crate::sha256(b"[]");
+    let empty_digest = Domain::TickCommands.hex(b"[]");
     let mut previous_cursor = None;
     for line in BufReader::new(File::open(directory.join("ticks.jsonl"))?).lines() {
         let row: TickRecord = serde_json::from_str(&line?)?;
@@ -471,9 +470,7 @@ pub(super) fn verify(
 #[cfg(test)]
 mod tests {
     use super::super::tests::{measurement_fixture, write_round};
-    use super::super::{
-        compare_performance_runs, compare_runs, digest_file, line, sha256, write_json,
-    };
+    use super::super::{compare_performance_runs, compare_runs, digest_file, line, write_json};
     use super::*;
     use crate::{InitialVehicle, LifecycleCounts, RecyclingEntry, RecyclingPlan};
     use serde_json::json;
@@ -582,7 +579,7 @@ mod tests {
             caller_digest: "fixture".into(),
         });
         result.committed_world_tick = window.end();
-        result.plan_digest = sha256(plan_bytes.as_bytes());
+        result.plan_digest = Domain::File.hex(plan_bytes.as_bytes());
         result.initial_counts = (target as usize, 0, 0);
         result.final_counts = (target as usize - 1, 0, 1);
         result.replacements = 1;
@@ -609,8 +606,8 @@ mod tests {
             "details":if committed {json!({"new_individual":{"tile":0,"slot":0,"incarnation":1},
                 "route":"route-1","placement":{"route":"route-1","occurrence":0,"progress_mm":15_500}})}
                 else {json!({"reason":"entry-blocked","placement":{"route":"route","occurrence":0,"progress_mm":7_000}})}}));
-        let command_digest = sha256(&serde_json::to_vec(&command_rows).unwrap());
-        let empty_digest = sha256(b"[]");
+        let command_digest = Domain::TickCommands.hex(&serde_json::to_vec(&command_rows).unwrap());
+        let empty_digest = Domain::TickCommands.hex(b"[]");
         let mut events = File::create(directory.join("events.jsonl")).unwrap();
         let mut ticks =
             std::io::BufWriter::new(File::create(directory.join("ticks.jsonl")).unwrap());
@@ -647,7 +644,7 @@ mod tests {
                     command_cursor: if tick == 1 { 776 } else { 777 },
                     event_cursor: 0,
                     state_digest: "fixture".into(),
-                    event_digest: sha256(&serde_json::to_vec(&event_rows).unwrap()),
+                    event_digest: Domain::TickEvents.hex(&serde_json::to_vec(&event_rows).unwrap()),
                     commands_digest: if tick == 2 {
                         command_digest.clone()
                     } else {
@@ -848,7 +845,7 @@ mod tests {
                             ],
                         }];
                         let text = toml::to_string_pretty(&plan).unwrap();
-                        result.plan_digest = sha256(text.as_bytes());
+                        result.plan_digest = Domain::File.hex(text.as_bytes());
                         fs::write(directory.join("resolved-plan.toml"), text).unwrap();
                         let mut commands: Vec<serde_json::Value> =
                             fs::read_to_string(directory.join("commands.jsonl"))
@@ -868,7 +865,7 @@ mod tests {
                         p.retry_ticks = 1;
                         p.progress_mm = vec![7_000, 15_500];
                         let text = toml::to_string_pretty(&plan).unwrap();
-                        result.plan_digest = sha256(text.as_bytes());
+                        result.plan_digest = Domain::File.hex(text.as_bytes());
                         fs::write(directory.join("resolved-plan.toml"), text).unwrap();
                     }
                     "event-batch" => {
@@ -905,7 +902,7 @@ mod tests {
                             ResolvedPlan::read(&directory.join("resolved-plan.toml")).unwrap();
                         plan.cycle_ticks += 1;
                         let text = toml::to_string_pretty(&plan).unwrap();
-                        result.plan_digest = sha256(text.as_bytes());
+                        result.plan_digest = Domain::File.hex(text.as_bytes());
                         fs::write(directory.join("resolved-plan.toml"), text).unwrap();
                     }
                     "non-replace"
@@ -1039,7 +1036,8 @@ mod tests {
             for row in text.lines() {
                 let mut tick: TickRecord = serde_json::from_str(row).unwrap();
                 if tick.tick == 2 {
-                    tick.commands_digest = sha256(&serde_json::to_vec(commands).unwrap());
+                    tick.commands_digest =
+                        Domain::TickCommands.hex(&serde_json::to_vec(commands).unwrap());
                 }
                 line(&mut file, &tick).unwrap();
             }

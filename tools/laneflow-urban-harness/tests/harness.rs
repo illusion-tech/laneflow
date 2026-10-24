@@ -15,6 +15,13 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// 与 harness 文件字节摘要相同的独立计算（BLAKE3-256，域分隔前缀见设计 §6）。
+fn file_digest(bytes: &[u8]) -> String {
+    let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();
+    preimage.extend_from_slice(bytes);
+    blake3::hash(&preimage).to_hex().to_string()
+}
+
 fn execution(workers: u32) -> laneflow_runtime::ExecutionConfig {
     laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap())
 }
@@ -771,11 +778,11 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     assert!(first.atomic_rejections.contains_key("leave"));
     let comparison = compare_runs(&a, &b).unwrap();
     assert_eq!(comparison.status, "probe-match");
-    assert_eq!(comparison.version, "urban-comparison-v3");
+    assert_eq!(comparison.version, "urban-comparison-v4");
     assert_eq!(comparison.plan_digest, first.plan_digest);
     for (dir, receipt) in [(&a, &comparison.left), (&b, &comparison.right)] {
         let bytes = fs::read(dir.join("result.json")).unwrap();
-        assert_eq!(receipt.result.sha256, sha256(&bytes));
+        assert_eq!(receipt.result.digest, file_digest(&bytes));
         assert_eq!(receipt.result.bytes, bytes.len() as u64);
     }
     let comparison_file = temp.path().join("comparison.json");

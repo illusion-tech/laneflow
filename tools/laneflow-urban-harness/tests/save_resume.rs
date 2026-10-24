@@ -11,13 +11,12 @@ use laneflow_urban_harness::{
     run_with_options,
 };
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
-fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+/// 与 harness 文件字节摘要相同的独立计算（BLAKE3-256，域分隔前缀见设计 §6）。
+fn file_digest(bytes: &[u8]) -> String {
+    let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();
+    preimage.extend_from_slice(bytes);
+    blake3::hash(&preimage).to_hex().to_string()
 }
 
 fn execution(workers: u32) -> laneflow_runtime::ExecutionConfig {
@@ -69,7 +68,7 @@ fn tampered(save: &Path, target: &Path, edit: impl FnOnce(&mut Value)) -> PathBu
         toml::from_str(&fs::read_to_string(target.join("save.toml")).unwrap()).unwrap();
     let caller_digest = manifest["caller"].as_table_mut().unwrap();
     caller_digest.insert("bytes".into(), toml::Value::Integer(bytes.len() as i64));
-    caller_digest.insert("sha256".into(), toml::Value::String(sha256(&bytes)));
+    caller_digest.insert("digest".into(), toml::Value::String(file_digest(&bytes)));
     fs::write(
         target.join("save.toml"),
         toml::to_string_pretty(&manifest).unwrap(),
@@ -149,7 +148,7 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
             end - tick
         );
         let comparison = compare_runs(&full, &resumed).unwrap();
-        assert_eq!(comparison.version, "urban-comparison-v3");
+        assert_eq!(comparison.version, "urban-comparison-v4");
         assert_eq!(comparison.status, "segment-match");
         assert_eq!(comparison.interval, (tick, end));
         assert_eq!(comparison.right.start, tick);
@@ -515,7 +514,7 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         wrong_version.join("save.toml"),
         fs::read_to_string(save.join("save.toml"))
             .unwrap()
-            .replace("urban-observation-v3", "urban-observation-v2"),
+            .replace("urban-observation-v4", "urban-observation-v3"),
     )
     .unwrap();
     resume(
@@ -525,5 +524,26 @@ fn resume_rejects_malformed_saves_without_writing_output() {
         },
         "observation-version",
         "observation encoding",
+    );
+    // `urban-save-v2` 为 SHA-256 文件摘要的上一版清单（#1042）：不读取、不转换。
+    let old_save = temp.path().join("old-save-version");
+    fs::create_dir_all(&old_save).unwrap();
+    for name in ["world.lfrs", "caller.json"] {
+        fs::copy(save.join(name), old_save.join(name)).unwrap();
+    }
+    fs::write(
+        old_save.join("save.toml"),
+        fs::read_to_string(save.join("save.toml"))
+            .unwrap()
+            .replace("urban-save-v3", "urban-save-v2"),
+    )
+    .unwrap();
+    resume(
+        RunOptions {
+            resume: Some(old_save),
+            ..RunOptions::default()
+        },
+        "old-save-version",
+        "unsupported save version",
     );
 }
