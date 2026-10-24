@@ -1897,6 +1897,18 @@ mod tests {
         }
     }
 
+    /// 故意注入的摘要失配不进入 `[digest-probe]` 现场行与留证（#794）。
+    fn injected_digest_mismatch<R>(f: impl FnOnce() -> R) -> R {
+        #[cfg(feature = "std")]
+        {
+            crate::without_digest_probe(f)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            f()
+        }
+    }
+
     #[test]
     fn chunk_directory_order_ranges_digests_and_budget_fail_closed() {
         let kind = PortableObjectKind::CanonicalArtifact;
@@ -1974,7 +1986,7 @@ mod tests {
         let mut digest = original.clone();
         digest[first + 40] ^= 1;
         assert_eq!(
-            preflight_object_registry(&digest, kind, limits)
+            injected_digest_mismatch(|| preflight_object_registry(&digest, kind, limits))
                 .unwrap_err()
                 .class(),
             FormatErrorClass::DigestMismatch
@@ -1985,7 +1997,7 @@ mod tests {
             u64::from_le_bytes(payload[first + 24..first + 32].try_into().unwrap()) as usize;
         payload[section_start + payload_offset] ^= 1;
         assert_eq!(
-            preflight_object_registry(&payload, kind, limits)
+            injected_digest_mismatch(|| preflight_object_registry(&payload, kind, limits))
                 .unwrap_err()
                 .class(),
             FormatErrorClass::DigestMismatch

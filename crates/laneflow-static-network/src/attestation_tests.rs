@@ -463,12 +463,15 @@ fn corrupted_source_bytes_are_source_cause() {
     let mut corrupted = MIN_HEADLESS.to_vec();
     let mid = corrupted.len() / 2;
     corrupted[mid] ^= 0x01;
-    let report = concluded(attest(
-        &root,
-        &corrupted,
-        expectation_from(root.canonical_origin()),
-        SpatialBuildOption::RetainAvailable,
-    ));
+    // 故意注入的摘要失配不进入 `[digest-probe]` 现场行与留证（#794）。
+    let report = concluded(laneflow_format::without_digest_probe(|| {
+        attest(
+            &root,
+            &corrupted,
+            expectation_from(root.canonical_origin()),
+            SpatialBuildOption::RetainAvailable,
+        )
+    }));
     assert_eq!(report.verdict, AttestationVerdict::Mismatch);
     assert_eq!(report.cause, Some(AttestationCause::Source));
     assert_eq!(report.disposition, Disposition::IsolateSource);

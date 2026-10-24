@@ -267,12 +267,15 @@ fn published_source_page_patterns_are_source_failures() {
             _ => bytes.truncate(bytes.len() - PAGE),
         }
         assert_ne!(bytes, FULL_SPATIAL, "pattern must change content");
-        let report = concluded(attest(
-            &root,
-            &bytes,
-            expectation_from(root.canonical_origin()),
-            SpatialBuildOption::RetainAvailable,
-        ));
+        // 故意注入的摘要失配不进入 `[digest-probe]` 现场行与留证（#794）。
+        let report = concluded(laneflow_format::without_digest_probe(|| {
+            attest(
+                &root,
+                &bytes,
+                expectation_from(root.canonical_origin()),
+                SpatialBuildOption::RetainAvailable,
+            )
+        }));
         assert_eq!(
             report.verdict,
             AttestationVerdict::Mismatch,

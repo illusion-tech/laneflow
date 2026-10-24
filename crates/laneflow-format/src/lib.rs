@@ -28,6 +28,8 @@ pub use canonical_network::{
 pub use error::{FormatError, FormatErrorClass, FormatStructure, LimitDimension};
 pub use framing::{ObjectFramingView, SectionFramingView, preflight_object_framing};
 pub use limits::{FormatLimitConfig, FormatLimits};
+#[cfg(feature = "std")]
+pub use object::without_digest_probe;
 pub use object::{
     RegistryCheckedFieldIter, RegistryCheckedFieldValue, RegistryCheckedFieldView,
     RegistryCheckedObjectView, RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView,

@@ -271,7 +271,8 @@ fn policy_diff_preserves_entity_attribute_partition_and_checks_exact_roots() {
     assert!(verify(&target, &base, &diff).is_err());
     let mut bad_root = target.to_vec();
     *bad_root.last_mut().unwrap() ^= 1;
-    assert!(verify(&base, &bad_root, &diff).is_err());
+    // 故意注入的摘要失配不进入 `[digest-probe]` 现场行与留证（#794）。
+    assert!(laneflow_format::without_digest_probe(|| verify(&base, &bad_root, &diff)).is_err());
     let mut old = raw_bytes(&diff).to_vec();
     old[4..6].copy_from_slice(&3_u16.to_le_bytes());
     assert!(
