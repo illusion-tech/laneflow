@@ -209,8 +209,8 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 若会使工作树变脏，在世界初始化前拒绝，不到长测结束才发现。
 
 合并状态 `performance-three-rounds-complete` 只表示协议完整，不表示达到 #539/#305 的
-产品预算。当前合并报告为 `urban-performance-comparison-v3`（v3 起记录三轮
-已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
+产品预算。当前合并报告为 `urban-performance-comparison-v4`（v4 起回执摘要改用 BLAKE3-256；v3 起记录三轮
+已验证的共同 worker 数，执行配置可归属；v3 及更早报告不转换），显式记录统计
 合并口径。
 
 当前测量载荷为 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags、profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
@@ -223,9 +223,9 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 仍须冻结构建及输入，不能在运行中更改工作树。
 
 观测摘要按固定块界（4096 个个体槽位或决策条，与 workers 无关）树形编码：块内仍用
-固定大小的栈缓冲合批编码字节并各自取 SHA-256 叶摘要，主线程按块序把叶摘要合成根摘要；
-不减少逐拍安全检查。v3 起状态与决策批摘要的摘要值随方案更新，不能与更早摘要
-版本的运行对拍。编码专项对照仅供诊断，不替代真实城市前缀或正式性能取证。
+固定大小的栈缓冲合批编码字节并各自取 BLAKE3-256 叶摘要，主线程按块序把叶摘要合成根摘要；
+不减少逐拍安全检查。v3 起采用该树形方案，v4 起叶摘要与根摘要改用 BLAKE3-256（#1042），
+摘要值不能与更早摘要版本的运行对拍。编码专项对照仅供诊断，不替代真实城市前缀或正式性能取证。
 
 ## Mixed 的具体输入
 
@@ -271,19 +271,19 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v8`，必填 `diagnostics_enabled`
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v9`（v9 起全部摘要改用 BLAKE3-256 并按角色命名字段），必填 `diagnostics_enabled`
   绑定详细日志开关；v8 起记录续跑来源 `resumed_from`、存档 `saves`、终点 `segment_end`、
   观察窗与推进区间的交集 `observed_ticks`，以及终点核对值 `endpoint`（第 E 拍完整检查点
-  与宿主状态摘要 `urban-caller-digest-v1`）。incarnation 与请求序号独立，sustained 显式报告实际 Active；
+  与宿主状态摘要 `urban-caller-digest-v2`）。incarnation 与请求序号独立，sustained 显式报告实际 Active；
   `diagnostics.json` 的摘要纳入 `result.files` 文件摘要清单，绑定其中记录的 worker 计数。
   诊断关闭的 probe 仅表示运行完成，完整比较拒绝该回执；旧载荷拒绝、不转换；
   Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
-- `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v3`（记录比较
+- `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v4`（记录比较
   区间 `(T, E]` 与两次运行各自的起点、终点、续跑存档清单摘要和 worker 数；旧报告不转换），
   记录 `case-pass`、`probe-match`、`performance-match` 或 `segment-match`、case/scale、
-  计划摘要，以及两个执行编号和两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；
+  计划摘要，以及两个执行编号和两份 `result.json` 的文件字节摘要/字节数。原始运行文件保持不变；
   失败比较不生成通过报告。
   库的 `compare_runs` 返回同一结构，可用 `ComparisonReport::write` 保存。
 - `diagnostics.json` 保存执行编号、环境和诊断耗时；step 范围只包围公共 step 调用，
@@ -305,10 +305,10 @@ compare 要求两份诊断记录中的编号存在且不同，用于拦截误复
 按静态设施归属汇总显式绑定，与虚拟绑定一起核对每个设施的 reserved/occupied/total；
 按路线向后展开的 Active 车身区间不重叠。通过 reservation acquire、passage clear 与
 reservation release 的公开事件记录剩余 claim，核对资源区互斥和当前 reservation owner。
-`urban-observation-v3` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
+`urban-observation-v4` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
 公开 Conflict reservation 和灯色，周期性完整快照补充隐藏权威状态。摘要为两级树形
 结构：固定块界 4096 个槽位（块界与 workers 无关，跨并行度稳定），块内编码字节各自
-SHA-256 成叶摘要，主线程按块序把叶摘要与等待区、灯色、剩余资源声明等尾部原始字节
+取 BLAKE3-256 叶摘要，主线程按块序把叶摘要与等待区、灯色、剩余资源声明等尾部原始字节
 送入根哈希；每 tick 的 decision-batch 摘要采用同一固定块界和树形结构。
 失败命令逐次检查主体和游标，并对每类前八个候选调用中的第一次实际拒绝比较完整
 快照；Ingress 的 `exclusive-occupied` / `virtual-full` 各自取证，预先的非 Active
@@ -402,17 +402,10 @@ Spatial 配对，最后执行增容直移。两条路径分别重复两次，检
 失效、句柄和停车 Reserved/Occupied 保留，并验证后续提交。更广协议和失败组合由
 #538 按自身范围认证，本见证不声明该专项通过。
 
-新增性能观测先冻结两个 `--probe-ticks 4096` 的 Mixed 计划，再执行四行串行整批：
-
-```powershell
-pwsh -NoProfile -File tools/laneflow-urban-harness/run-bounded.ps1 -Artifacts10k <10k-artifacts> -Artifacts100k <100k-artifacts> -Plan10k <10k-probe.toml> -Plan100k <100k-probe.toml> -Output <new-batch-directory>
-```
-
-构建和静态生成单独记录。脚本把启动、安装、运行、退出、日志和结果写出计入 600 秒
-整批，按剩余时间和剩余行数分配进程预算，每行预留 10 秒写出，在完整提交边界停止。
-每行最多 4096 ticks；硬终止、空样本、缺失结果或超时均失败。直接 `evidence ... --wall-ms N`
-只限制一行，不能单独宣称整批达标。`batch.json` 和每行 `evidence.json` 记录实际范围、
-停止原因、工具链、二进制/来源摘要、峰值驻留内存和各段分位数。此观测无三轮要求，也不
+有界性能观测使用 `evidence ... --wall-ms N`：计划须为 10k/100k、无暖机且不超过 4096
+ticks 的 Mixed probe（`--probe-ticks 4096` 冻结），进程墙钟预算 N 毫秒，在完整提交
+边界停止。`evidence.json` 记录实际范围、停止原因、工具链、二进制/来源摘要、峰值驻留
+内存和各段分位数。一次调用只限制一行，不构成整批达标结论；此观测无三轮要求，也不
 替代 #544 原性能记录或 #539 产品认证。运行前设置两项硬件/电源角色，并保持源工作树干净。
 
 对同一份计划做固定前缀的性能对照时，可在单行有界调用中加 `--ticks N`：
