@@ -40,6 +40,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
     `docs/design/compiler-post-emission-check-and-minimal-publication-closure.md`
 12. 涉及公开组件定位与宿主边界、Routing、路网修订、存档/回放、并行或 fidelity 时读取
    `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
+13. 新增、更换或复核摘要、指纹，或新增摘要算法依赖时，读取
+    `docs/adr/0033-digest-role-and-algorithm-selection-authority.md`
 
 若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，
 但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。
