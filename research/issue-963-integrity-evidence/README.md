@@ -8,6 +8,10 @@
 后续已补入时序、在途步进、实际整数页及长期取证记录；五项验收的证据入口和剩余缺口
 汇总见[逐项验收证据](acceptance-evidence.md)。
 
+物理共页及活动不可变 backing 改写的后续路径见
+[物理注入可行性与验收方案](physical-injection-plan.md)。该文只给出工具、布局、时序、
+Rust 有效性与失败判据，没有新增物理注入样本或扩大下文覆盖。
+
 ## 仪器与覆盖单位
 
 [城市驱动](../../tools/laneflow-urban-harness/src/integrity_soak.rs) 以 `cfg(test)` 编译，
