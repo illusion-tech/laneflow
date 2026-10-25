@@ -1,6 +1,8 @@
 //! #963 实际整数 backing 的页级注入；只在唯一拥有、没有活动借用时写入。
 //! 地址证明虚拟页范围，不证明物理页帧、物理共页或自然硬件故障。
 
+mod fingerprint_tests;
+
 use std::{
     fs,
     hint::black_box,
@@ -27,6 +29,8 @@ use crate::{
 
 const PAGE: usize = 4_096;
 const WORDS: usize = 4_096;
+const NEAR_ZERO_MAX_NONZERO: usize = 16;
+const NEAR_ZERO_MIN_CLEARED: usize = PAGE / 16;
 const PROTOCOL: &str = "laneflow-page-injection-v1";
 const CHILD_TEST: &str = "page_injection_tests::child_entry";
 type Result<T> = std::result::Result<T, String>;
@@ -486,6 +490,16 @@ fn fingerprint(before: &[u8], after: &[u8], offset: usize) -> String {
         if page == &before[donor..donor + PAGE] {
             return format!("Shifted({delta})");
         }
+    }
+    // 对齐 validation-matrix §8.1；保留精确供体优先，局部清零不得提升为写丢失页。
+    let nonzero = page.iter().filter(|byte| **byte != 0).count();
+    let cleared = before[offset..offset + PAGE]
+        .iter()
+        .zip(page)
+        .filter(|(left, right)| **left != 0 && **right == 0)
+        .count();
+    if nonzero <= NEAR_ZERO_MAX_NONZERO && cleared >= NEAR_ZERO_MIN_CLEARED {
+        return "Zero".into();
     }
     let changed_segments = (0..16)
         .filter(|segment| {
