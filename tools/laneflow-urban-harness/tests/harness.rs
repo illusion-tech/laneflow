@@ -1,5 +1,8 @@
 use std::{fs, process::Command};
 
+#[path = "support/child_diagnostics.rs"]
+mod child_diagnostics;
+
 use laneflow_runtime::VehicleStatus;
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 use laneflow_urban_harness::{
@@ -195,15 +198,16 @@ fn run_cli_workers_parsing() {
     let binary = env!("CARGO_BIN_EXE_laneflow-urban-harness");
 
     let run_cli = |output: &std::path::Path, args: &[&str]| {
-        Command::new(binary)
-            .arg("run")
-            .arg(&source)
-            .arg(&plan_path)
-            .arg(output)
-            .args(args)
-            .env("RUST_LOG", "laneflow_urban_harness=info")
-            .output()
-            .unwrap()
+        child_diagnostics::output(
+            Command::new(binary)
+                .arg("run")
+                .arg(&source)
+                .arg(&plan_path)
+                .arg(output)
+                .args(args)
+                .env("RUST_LOG", "laneflow_urban_harness=info"),
+        )
+        .unwrap()
     };
     // 超界拒绝。
     let rejected = run_cli(&out, &["--workers", "17"]);
@@ -533,22 +537,24 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             .contains("10k or 100k")
     );
     let cli_plan = temp.path().join("cli-plan.toml");
-    let rejected = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
-        .arg("plan")
-        .arg(&source)
-        .arg(&cli_plan)
-        .output()
-        .unwrap();
+    let rejected = child_diagnostics::output(
+        Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+            .arg("plan")
+            .arg(&source)
+            .arg(&cli_plan),
+    )
+    .unwrap();
     assert!(!rejected.status.success());
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("10k or 100k"));
     assert!(!cli_plan.exists());
-    let probe = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
-        .arg("plan")
-        .arg(&source)
-        .arg(&cli_plan)
-        .args(["--probe-ticks", "128"])
-        .output()
-        .unwrap();
+    let probe = child_diagnostics::output(
+        Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+            .arg("plan")
+            .arg(&source)
+            .arg(&cli_plan)
+            .args(["--probe-ticks", "128"]),
+    )
+    .unwrap();
     assert!(probe.status.success(), "{:?}", probe.stderr);
     assert_eq!(
         ResolvedPlan::read(&cli_plan).unwrap().window.purpose,
@@ -786,13 +792,14 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         assert_eq!(receipt.result.bytes, bytes.len() as u64);
     }
     let comparison_file = temp.path().join("comparison.json");
-    let compared = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
-        .arg("compare")
-        .arg(&a)
-        .arg(&b)
-        .arg(&comparison_file)
-        .output()
-        .unwrap();
+    let compared = child_diagnostics::output(
+        Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+            .arg("compare")
+            .arg(&a)
+            .arg(&b)
+            .arg(&comparison_file),
+    )
+    .unwrap();
     assert!(compared.status.success(), "{:?}", compared.stderr);
     let retained: ComparisonReport =
         serde_json::from_slice(&fs::read(&comparison_file).unwrap()).unwrap();
@@ -826,13 +833,14 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             .contains("distinct execution identities")
     );
     let failed_comparison = temp.path().join("failed-comparison.json");
-    let rejected = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
-        .arg("compare")
-        .arg(&a)
-        .arg(&copied)
-        .arg(&failed_comparison)
-        .output()
-        .unwrap();
+    let rejected = child_diagnostics::output(
+        Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+            .arg("compare")
+            .arg(&a)
+            .arg(&copied)
+            .arg(&failed_comparison),
+    )
+    .unwrap();
     assert!(!rejected.status.success());
     assert!(!failed_comparison.exists());
     fs::remove_file(copied.join("diagnostics.json")).unwrap();

@@ -12,6 +12,8 @@ use std::{
 
 use serde_json::{Value, json};
 
+use crate::child_diagnostics::DiagnosticDirectory;
+
 use super::{
     Config, MAX_SECONDS,
     control::{self, Status},
@@ -68,7 +70,7 @@ fn wait_first_segment(output: &Path) {
 
 #[test]
 fn maximum_long_window_builds_and_replays_a_short_chain() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("maximum-plan");
     // 只验证最大计划与短链路，不实际运行七天或把它计入长期样本。
     run(&output, MAX_SECONDS, false).unwrap();
@@ -79,7 +81,7 @@ fn maximum_long_window_builds_and_replays_a_short_chain() {
 
 #[test]
 fn rejected_output_and_duration_preserve_existing_evidence() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("existing");
     fs::create_dir(&output).unwrap();
     let failure = output.join("failure.json");
@@ -97,7 +99,7 @@ fn rejected_output_and_duration_preserve_existing_evidence() {
         .env("LF_SOAK_OUTPUT", &output)
         .env("LF_SOAK_SECONDS", "1")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(fs::File::create(temp.path().join("rejected.stderr.log")).unwrap())
         .status()
         .unwrap();
     assert!(!status.success());
@@ -140,7 +142,7 @@ fn rejected_output_and_duration_preserve_existing_evidence() {
 
 #[test]
 fn safe_pause_resumes_the_resident_world_and_excludes_paused_time() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("pause");
     let running = spawn(&output, config(4));
     let before = wait_status(&output, "Running");
@@ -203,7 +205,7 @@ fn safe_pause_resumes_the_resident_world_and_excludes_paused_time() {
 #[test]
 fn resume_rejects_changed_checkpoint_and_source_without_advancing() {
     for corrupt_source in [false, true] {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = DiagnosticDirectory::new().unwrap();
         let output = temp.path().join("changed");
         let running = spawn(&output, config(5));
         wait_status(&output, "Running");
@@ -232,7 +234,7 @@ fn resume_rejects_changed_checkpoint_and_source_without_advancing() {
 
 #[test]
 fn stop_while_paused_preserves_complete_segments_and_incomplete_collection() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("stop");
     let running = spawn(&output, config(10));
     wait_status(&output, "Running");
@@ -257,7 +259,7 @@ fn stop_while_paused_preserves_complete_segments_and_incomplete_collection() {
 
 #[test]
 fn total_wall_budget_includes_paused_time() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("wall");
     let advance_wall = Arc::new(AtomicU64::new(0));
     let observed_wall = Arc::clone(&advance_wall);
@@ -289,7 +291,7 @@ fn total_wall_budget_includes_paused_time() {
 #[test]
 fn sampled_memory_and_evidence_thresholds_stop_and_preserve_incomplete() {
     for memory in [false, true] {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = DiagnosticDirectory::new().unwrap();
         let output = temp.path().join("limit");
         let mut config = config(5);
         if memory {
@@ -323,7 +325,7 @@ fn sampled_memory_and_evidence_thresholds_stop_and_preserve_incomplete() {
 
 #[test]
 fn replay_timeout_does_not_upgrade_pending_segment() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let path = temp.path().join("request.json");
     let pending = path.with_extension("result.json");
     fs::write(&pending, b"Incomplete: audit pending").unwrap();
@@ -341,7 +343,7 @@ fn replay_timeout_does_not_upgrade_pending_segment() {
 
 #[test]
 fn supervisor_cleans_observed_grandchild_on_timeout() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("tree");
     let mut config = config(2);
     config.wall_seconds = 2;
@@ -364,7 +366,7 @@ fn supervisor_cleans_observed_grandchild_on_timeout() {
 
 #[test]
 fn premature_success_is_incomplete_at_the_supervisor() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("premature");
     assert!(
         supervisor::supervise(
@@ -383,7 +385,7 @@ fn premature_success_is_incomplete_at_the_supervisor() {
 
 #[test]
 fn supervisor_pipe_disconnect_stops_a_paused_resident() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("pipe");
     supervisor::create_output(&output, config(5)).unwrap();
     let mut command = supervisor::command("integrity_soak::resident_worker").unwrap();
@@ -391,7 +393,7 @@ fn supervisor_pipe_disconnect_stops_a_paused_resident() {
         .env("LF_SOAK_OUTPUT", &output)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(fs::File::create(output.join("resident.stderr.log")).unwrap())
         .spawn()
         .unwrap();
     let mut guard = supervisor::ChildGuard::new(child);
@@ -425,14 +427,14 @@ fn hanging_child() {
 #[test]
 #[ignore = "资源看护后代清理回归夹具，只由指定子进程调用"]
 fn hanging_parent() {
+    let output = std::path::PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").unwrap());
     let mut child = supervisor::command("integrity_soak::tests::hanging_child")
         .unwrap()
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(fs::File::create(output.join("hanging.stderr.log")).unwrap())
         .spawn()
         .unwrap();
-    let output = std::path::PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").unwrap());
     control::publish(
         &output.join("fixture-tree.json"),
         &json!({
