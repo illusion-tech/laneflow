@@ -365,14 +365,14 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 
 > **#253 K3(a) 注记**：上述失败契约（空 ID / 重复 ID / 未知 vtype / unknown
 > route / dangling edge）针对**入选的** 10,000 候选——截断先行，route /
-> dangling-edge 验证在选取集合上进行。截断尾部候选不参与验证：pinned 实测
-> SHA 选取基线的尾部 592 个候选中曾有 558 个不可车道级展开（语义见下）。这些
-> 数字不约束 v2 新人口；新人口须重新诊断，排序与截断不能解释为路线质量判定。
+> dangling-edge 验证在选取集合上进行。截断尾部候选不参与验证；排序与截断
+> 不能解释为路线质量判定，也不能用尾部候选补位。
 >
 > **实现状态（边内换道，另立 issue 跟踪）**：当前 pinned 基线上 routes 阶段
 > 整体受阻——§3.1 车道级展开（`can_complete`）禁止边内换道，而 SUMO DUE
-> route 为道路级、真实走法依赖边内换道，既有 SHA 人口中 9,350 条不可展开
-> （含 rank 0，实测 100/100 分块污染；不沿用为 v2 人口数字）。这是**实现语义缺口而非契约否定**：
+> route 为道路级、真实走法依赖边内换道，v2 入选人口中 9,344 条不可展开，见
+> [人口迁移与诊断基线](../../research/issue-1053-lust-population-v2/README.md)。
+> 这是**实现语义缺口而非契约否定**：
 > §4 契约语义不变；修复落地前 CLI 不产出 `routes.toml`。
 
 完整一万 record table、selection config 和各自 digest 是 TOPO/DEMAND 的共享输入。

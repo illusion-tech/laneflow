@@ -120,6 +120,28 @@ fn expand_road_route(
     )))
 }
 
+/// #1053：诊断完整入选集合，复用索引但逐条执行生产校验与展开；不跳过或补位。
+#[cfg(test)]
+pub(super) fn population_route_failures(
+    network: &SumoNetwork,
+    topology: &NormalizedTopology,
+    population: &[PopulationRecord],
+) -> Vec<(String, String)> {
+    let hops = build_hop_index(topology);
+    let lanes_by_edge = build_external_lanes_by_edge(network);
+    population
+        .iter()
+        .filter_map(|record| {
+            validate_known_edges(network, &record.road_edge_ids, &record.vehicle_id)
+                .and_then(|()| {
+                    expand_road_route(network, &lanes_by_edge, &hops, &record.road_edge_ids)
+                })
+                .err()
+                .map(|error| (record.vehicle_id.clone(), error.to_string()))
+        })
+        .collect()
+}
+
 fn can_complete(
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,

@@ -6,7 +6,7 @@ use crate::{
     Result,
     convert::population::{
         POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS, POPULATION_DEPART_START_SECONDS,
-        POPULATION_SELECTED_COUNT, PopulationOrdinal,
+        POPULATION_DERIVATION_ID, POPULATION_SELECTED_COUNT, PopulationOrdinal,
     },
     output::{digest::sha256_digest, json_bytes},
     source::{LUST_COMMIT, LUST_REPOSITORY, LUST_TAG},
@@ -119,6 +119,7 @@ struct ReportSelectedRecord {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ReportPopulation {
+    derivation_id: &'static str,
     depart_start_seconds: &'static str,
     depart_end_seconds_exclusive: &'static str,
     require_lust_candidate_count: bool,
@@ -154,7 +155,7 @@ struct ReportDigests {
 /// Serialize the conversion report JSON (pretty + trailing newline).
 pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>> {
     let report = ConversionReport {
-        format_version: "0.2",
+        format_version: "0.3",
         source: ReportSource {
             repository: LUST_REPOSITORY,
             tag: LUST_TAG,
@@ -188,6 +189,7 @@ pub fn build_conversion_report(input: &ConversionReportInput) -> Result<Vec<u8>>
             maneuver_gate_count: input.maneuver_gate_count,
         },
         population: ReportPopulation {
+            derivation_id: POPULATION_DERIVATION_ID,
             depart_start_seconds: POPULATION_DEPART_START_SECONDS,
             depart_end_seconds_exclusive: POPULATION_DEPART_END_SECONDS,
             require_lust_candidate_count: input.require_lust_population_count,
@@ -278,6 +280,12 @@ mod tests {
         })
         .expect("report");
         let text = String::from_utf8(report.clone()).expect("utf8");
+        let json: serde_json::Value = serde_json::from_slice(&report).expect("json");
+        assert_eq!(json["formatVersion"], "0.3");
+        assert_eq!(
+            json["population"]["derivationId"],
+            "LF-REAL-LUST-POPULATION-v2"
+        );
         assert!(text.contains("sha256:"));
         assert!(text.contains("majorMinorGreenCollapsedToGreen"));
         assert!(text.contains("\"selectedRecords\""));

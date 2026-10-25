@@ -12,8 +12,8 @@ LuST Scenario v2.0 source/static converter for Issue #253.
     普查，当前交付物；同基线与
     `evidence/lust-infeasible-survey.md` 逐字节一致）
   - `routes.toml`：**实现中**——DUE 展开 route catalog + 精确一万 population
-    record；车道级展开语义待修订（`can_complete` 禁止边内换道，pinned 入选
-    10,000 中 9,350 条途径不可展开，另立 issue 跟踪）——诊断模式不产出
+    record；车道级展开语义待修订（`can_complete` 禁止边内换道，v2 人口入选
+    10,000 中 9,344 条途径不可展开）——诊断模式不产出
     （#253 L1 绕过展开），fail-fast 路径在展开成功后产出
   - `manifest.toml` / `lust-conversion-report.json`
   - deterministic `lust-source.tar`（static bundle 与 `network.lfca` 依赖
@@ -23,6 +23,11 @@ LuST Scenario v2.0 source/static converter for Issue #253.
   - `LICENSE.md`（upstream）、`ODbL-1.0.txt`、`NOTICE`
 - **不**交付 TOPO/DEMAND plan（#254 / #255）。
 - **不**把 LuST 大体量 source/static 提交进 Git。
+
+共享人口按 §4.1 使用 `LF-REAL-LUST-POPULATION-v2`、XXH3-64 seed 0 与原始
+UTF-8 ID 次键。转换报告为 `formatVersion=0.3`，明确携带 `population.derivationId`；
+来源、制品与 provenance 仍以 SHA-256 校验。人口迁移与诊断证据见
+[`research/issue-1053-lust-population-v2`](../../research/issue-1053-lust-population-v2/README.md)。
 
 ## 用法
 
