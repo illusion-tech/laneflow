@@ -268,7 +268,7 @@ presentation matrix 的判定角色固定如下：
 当前 canonical workload 使用确定性生成的匹配规模路网
 `LF-SYNTH-v1`，不以某个现实城市或部署分布为代表。LuST v2.0 的来源与共享转换
 沿用 #224 G1，双 workload 的确定性派生由 #1051 修订为 `LF-REAL-LUST-TOPO-v2` /
-`LF-REAL-LUST-DEMAND-v2`（Proposed），详见
+`LF-REAL-LUST-DEMAND-v2`，详见
 [`real-road-workloads.md`](real-road-workloads.md)。converter、Release assets、
 harness 和结果仍待下游交付；两个 real-road workload 只承担 supplemental /
 observation 角色，不替换 `LF-SYNTH-v1`，也不能把 synthetic baseline 结果解释为
