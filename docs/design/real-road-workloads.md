@@ -1,6 +1,6 @@
 # 真实路网 Workload
 
-**文档状态**: Accepted（#224 G1；#253 验收重划见 §3.6 注记）<br>
+**文档状态**: Proposed（#1051 的确定性派生与 workload v2 修订；其余沿用 #224 G1，#253 验收重划见 §3.6）<br>
 **最后更新**: 2026-10-25<br>
 **适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万
 真实路网性能补充 workload 与需求代表性 observation
@@ -17,9 +17,9 @@
 本文是 LaneFlow 真实路网 workload 的长期设计事实源。首个来源固定为 LuST
 Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
 
-- `LF-REAL-LUST-TOPO-v1`：真实静态拓扑、Signals、lane/connection 密度和
+- `LF-REAL-LUST-TOPO-v2`：真实静态拓扑、Signals、lane/connection 密度和
   demand-derived 长路线条件分布下的一万 active 性能补充。
-- `LF-REAL-LUST-DEMAND-v1`：固定 DUE 样本的 departure schedule、route 和自然
+- `LF-REAL-LUST-DEMAND-v2`：固定 DUE 样本的 departure schedule、route 和自然
   lifecycle observation。
 
 两个 workload 都是 current `CoreWorld` 的道路机动车特化，统一声明
@@ -355,8 +355,8 @@ asset，否则会形成 self-digest cycle。build provenance record 同样位于
    vtypes 之一的 `<vehicle>`。
 2. vehicle ID 使用原始 UTF-8 bytes；禁止 trim、case folding 或 Unicode
    normalization。空 ID、重复 ID、未知 vtype/route 或 dangling edge 立即失败。
-3. 主排序键是 `SHA-256(UTF-8 vehicle ID)` 的 32 bytes，按 unsigned byte
-   lexicographic order；碰撞时以原始 vehicle-ID UTF-8 bytes 为第二键。
+3. 主排序键按 §4.1 的 `LF-REAL-LUST-POPULATION-v2` 前像计算 XXH3-64，按无符号
+   `u64` 数值升序；碰撞时以原始 vehicle-ID UTF-8 bytes 字典序为第二键。
 4. 候选数必须精确为 10,592。按上述顺序取前 10,000，并依次赋
    `population_rank = 0..9999`。
 
@@ -366,56 +366,86 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 > **#253 K3(a) 注记**：上述失败契约（空 ID / 重复 ID / 未知 vtype / unknown
 > route / dangling edge）针对**入选的** 10,000 候选——截断先行，route /
 > dangling-edge 验证在选取集合上进行。截断尾部候选不参与验证：pinned 实测
-> 尾部 592 个候选中 558 个不可车道级展开（语义见下），截断实质承担过滤职能，
-> 非质量判定。
+> SHA 选取基线的尾部 592 个候选中曾有 558 个不可车道级展开（语义见下）。这些
+> 数字不约束 v2 新人口；新人口须重新诊断，排序与截断不能解释为路线质量判定。
 >
 > **实现状态（边内换道，另立 issue 跟踪）**：当前 pinned 基线上 routes 阶段
 > 整体受阻——§3.1 车道级展开（`can_complete`）禁止边内换道，而 SUMO DUE
-> route 为道路级、真实走法依赖边内换道，入选 10,000 中 9,350 条不可展开
-> （含 rank 0，实测 100/100 分块污染）。这是**实现语义缺口而非契约否定**：
+> route 为道路级、真实走法依赖边内换道，既有 SHA 人口中 9,350 条不可展开
+> （含 rank 0，实测 100/100 分块污染；不沿用为 v2 人口数字）。这是**实现语义缺口而非契约否定**：
 > §4 契约语义不变；修复落地前 CLI 不产出 `routes.toml`。
 
 完整一万 record table、selection config 和各自 digest 是 TOPO/DEMAND 的共享输入。
 
 ### 4.1 排序摘要的角色与算法
 
-按现行 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) §1，
-排序键虽不持久保存，但决定入选人口与 `population_rank`，须按所影响工作负载产物的
-持久角色处理。这里按**内部完整性摘要**归类：重建与比对方是 LaneFlow 转换器及工作
-负载验证流程；持久化范围是共享人口表、转换报告与后续工作负载证据。排序摘要本身
-用于确定性选取，不是产物完整性校验值，也不作为车辆稳定标识；没有独立外部重算方
-要求本排序键采用 SHA-256，不能因算法名称把它归为互操作摘要。它影响确定性输出，
-也不属于瞬态指纹；在现行 ADR 下不得直接替换为 XXH3 等非密码学哈希。这是当前
-选型规则，不表示确定性排序在技术上必然需要密码学完整性能力。
+本用途属于 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) 的
+**确定性派生摘要（deterministic derivation digest）**。重建方为 LaneFlow 转换器与
+工作负载构建流程，持久化范围是共享人口表、报告及由其派生的工作负载输入。
+排序主键不充当车辆身份，不以主键相等证明 ID 或内容相同。
 
-**保持 SHA-256 及现有前像。** 偏离内部完整性摘要默认 BLAKE3-256 的依据是
-[固定 LuST 短前像测量](../../research/issue-1029-lust-digest/README.md)：当前
-`select_population` 已缓存排序键，每个候选计算一次，共 10,592 次；候选 ID 为
-7–14 字节。在所测支持 SHA 指令的 x86_64 机器上，三轮 BLAKE3 摘要耗时均高于
-SHA-256，完整人口选取也没有可复现的提速。该结论限于报告中的输入、实现和机器；
-预计算键对照受完整调用波动影响，不能据此给出精确的摘要阶段占比，更不构成所有
-机器上的性能结论。目标机器或实现变化后，可按 ADR 0033 §5 重新测量。
+分布合同只要求固定总顺序和可复查的精确一万人口，不保证等概率抽样、独立性或
+交通代表性，也不按输出分布反复挑选 seed。新人口的分布观察必须保留，但不能
+用粗分箱结果替代路线与 workload 验收。
 
-[XXH3 补充测量与用途复核](../../research/issue-1029-lust-digest/xxh3-review.md)中，
-同批候选哈希比 SHA 快约 11–12 倍，每批节省约 0.41–0.43 ms；完整选取差值仍受
-波动和人口变化影响，未证明转换器端到端收益。固定来源检查与确定性派生承担不同
-职责，后者不以摘要相等证明内容相等；因此另由
-[#1051](https://github.com/illusion-tech/laneflow/issues/1051) 进入 G1 复核角色与
-非密码学派生边界。当前保持合同，不把 SHA/BLAKE3 二选一结果推广为所有算法的最优解。
+**算法采用 XXH3-64。** 固定参数和前像为：
 
-更换还会重排名次与入选集合；实测 BLAKE3 对照替换了 560 条入选记录。截断尾部
-包含上述不可车道级展开的候选，不能把更换视为等价排序优化或质量修复。按 §7，
-受影响的 TOPO/DEMAND 工作负载 ID 必须提升，历史运行不能直接比较。迁移与重建
-基线主要是一次性成本，若有持续收益可以承担，不能单独作为保持 SHA-256 的理由。
+```text
+population_derivation_id = "LF-REAL-LUST-POPULATION-v2"
+preimage = UTF-8("LF-REAL-LUST-POPULATION-v2\0") || UTF-8(vehicle ID)
+key = XXH3_64bits_withSeed(preimage, seed = 0)
+order = (key as unsigned u64 ascending, original vehicle-ID bytes lexicographic)
+```
 
-本次归类不改写现行字节合同。排序前像仍为原始 vehicle ID，不追补域分隔前缀；
-追加前缀同样会改变排序。未来更换算法或前像时，须另行 G1，按 ADR 0033 §4 明确
-域分隔与派生版本，并按 §7 提升工作负载 ID；届时直接改写合同，不保留双算法路径。
+算法以 [xxHash v0.8.3 参考实现](https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h)
+的 `XXH3_64bits_withSeed` 为定义，使用标准 192 字节 `XXH3_kSecret`，禁止替换 secret、
+加入运行时随机 seed 或用 XXH64 / XXH3-128 代替。`\0` 是单个 `0x00` 字节；前缀为
+27 字节，之后恰好一个变长 ID 字段，不加长度字段、终止零或其他分隔符。不得使用
+Rust `Hash` trait 的对象编码或机器原生结构体内存作为前像。
+
+`u64` 数值升序等价于其八字节大端表示的字典序；不得比较原生端序字节。主键碰撞时
+仍以完整 ID 字节排序，不能去重或丢弃记录。重复 ID 继续遵循 §4 入选集合的失败域。
+每个候选只计算一次并缓存排序键；不在排序比较器中反复计算。
+
+输入须先通过 §2 固定 commit、文件长度和 SHA-256 检查；这些检查负责冻结来源的
+字节一致性，与派生算法独立。该 workload 不提供参与者自由提交 ID 的公平抽签服务，
+不承诺不可预测性或抗操纵；若引入此类输入边界，须另行设计，不能仅换一个哈希名称。
+
+[固定输入实验](../../research/issue-1029-lust-digest/xxh3-review.md)在保留旧前像的
+对照中测得 XXH3 的候选哈希快约 11–12 倍、每批节省约 0.41–0.43 ms，但未证明
+转换器整体提速。此处选择 XXH3 的依据是角色匹配及有证据的单项收益；占比小与
+一次性重建成本不单独否决迁移。该实验没有使用本节的新域前缀，其 559 条人口替换
+和耗时数值不得作为 v2 的基线，实施时须重测最终前像。
+
+转换报告的 `formatVersion` 从 `0.2` 提升为 `0.3`，在 `population` 对象中新增
+`derivationId`，值固定为上述 `population_derivation_id`。它不是用户可选配置，
+也不携带算法选择开关。报告字节仍由既有 SHA-256 产物摘要覆盖，并进入 semantic
+provenance；不改制品完整性算法或 `SemanticConfig` 的执行侧隔离规则。
+
 LuST/Bevy 示例的 seeded 无放回抽样另由
 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) §4 约束，不替代
 这里的共享人口选取规则。
 
-## 5. `LF-REAL-LUST-TOPO-v1`
+### 4.2 固定派生测试向量
+
+下列向量固定算法、seed、默认 secret、前缀和 ID 原始字节。`key/u` 是无符号
+64 位结果的 16 位十六进制表示，`n` 是 §6.2 的位置分子；人口键不生成位置分子。
+ID `车辆-1` 的 UTF-8 字节为 `e8 bd a6 e8 be 86 2d 31`。
+
+| 用途前缀                       | ID           | 前像字节数 | `key/u`（十六进制） |    `n`（十进制） |
+| ------------------------------ | ------------ | ---------: | ------------------- | ---------------: |
+| `LF-REAL-LUST-POPULATION-v2\0` | `1`          |         28 | `01e8f0dbf24df715`  |                — |
+| `LF-REAL-LUST-POPULATION-v2\0` | `veh_000001` |         37 | `db5d822d0369b7be`  |                — |
+| `LF-REAL-LUST-POPULATION-v2\0` | `车辆-1`     |         35 | `36452967b188f5c5`  |                — |
+| `LF-REAL-LUST-DEMAND-v2\0`     | `1`          |         24 | `b42cb2d2df97c583`  | 6339330295198456 |
+| `LF-REAL-LUST-DEMAND-v2\0`     | `veh_000001` |         33 | `74ede418993b02b0`  | 4114082652432224 |
+| `LF-REAL-LUST-DEMAND-v2\0`     | `车辆-1`     |         31 | `ff9c87c7547b7831`  | 8993528254992239 |
+
+这些是算法/编码向量，不是源数据有效性证明；空 ID 仍按 §4 拒绝。实现须以常量
+期望值回归，不能在测试中调用待测实现重新生成期望值。实现升级须保持这些值，
+并另测候选输入置换、强制主键碰撞、Unicode/字节边界与源校验失败路径。
+
+## 5. `LF-REAL-LUST-TOPO-v2`
 
 ### 5.1 用途与时间协议
 
@@ -509,7 +539,7 @@ hard-invariant 和 exact-only oracle 纪律，但它是 supplemental row，不�
 Product Pass/Fail。结果只能声明真实静态拓扑/控制和“从固定 DUE 样本条件化得到的
 长路线”压力。
 
-## 6. `LF-REAL-LUST-DEMAND-v1`
+## 6. `LF-REAL-LUST-DEMAND-v2`
 
 ### 6.1 Departure 与 pending authority
 
@@ -536,12 +566,10 @@ DEMAND 忠实回放共享 source records 的固定 departure schedule：
 对 record 计算：
 
 ```text
-h = SHA-256(
-      UTF-8("LF-REAL-LUST-DEMAND-v1\0")
-      || UTF-8(vehicle ID)
-    )
-u = big_endian_u64(h[0..8])
-q = high_53_bits(u) / 2^53
+preimage = UTF-8("LF-REAL-LUST-DEMAND-v2\0") || UTF-8(vehicle ID)
+u = XXH3_64bits_withSeed(preimage, seed = 0)
+n = u >> 11
+q = n / 2^53
 ```
 
 首 route edge 的合法 front-bumper 区间为：
@@ -555,26 +583,23 @@ progress = low + q * (high - low)
 `high < low` 或任一非有限值立即失败。input 使用 source record 的 route/profile 和
 `initialSpeed=0`。
 
-按现行 ADR 0033 §1，本派生同样按所影响工作负载产物的**内部完整性摘要**角色处理。
-摘要本身用于确定性位置派生，不是完整性校验值或持久标识；重建与比对方是 LaneFlow
-DEMAND 工作负载构建与回放验证流程。派生的 `progress` 进入固定运行输入，并影响
-initial/state digest、ordered outcomes/events/counts 与 final replay digest，因而
-不能当作瞬态随机指纹；没有独立外部重算方要求此派生采用 SHA-256。此处是 DEMAND
-设计合同的归类，不声明 DEMAND harness 或其运行证据已经交付。
+本用途同属**确定性派生摘要**，由 DEMAND 构建/重建方消费；比例值不证明输入或
+状态完整性，也不要求各车辆位置分子互不相同。算法变体和默认 secret 与 §4.1
+一致，但必须独立计算此处的 23 字节域前缀和 ID，不复用人口排序键。
 
-**保持 SHA-256 及上述工作负载前缀和位提取规则。** 同一短前像实验对固定一万条
-记录执行上述前缀摘要及 `q` 派生，三轮 BLAKE3 均更慢；补充的 XXH3 实验则快约
-4.8 倍，每批节省约 0.37–0.38 ms。确定性派生角色及迁移选择由 #1051 另行 G1 复核，
-不能用“影响持久输出”单独推导密码学必要性。实验没有执行实际 route/profile 的
-`progress` 构造或 DEMAND 回放，
-不能冒充其端到端耗时或精确成本占比。合同每条记录只派生一次，§6.3 的 blocked
-retry 不重算；收益或成本都发生在每次构建输入时，不是每个稳态 tick。
+分布要求为可重建的有界比例；不承诺固定一万样本的严格均匀性、独立性、空间
+均匀分布或 SUMO 随机位置等价。实施须报告最小值、最大值、均值、重复数与固定
+16 箱计数作为检查材料；这些描述值不新增统计显著性门禁，也不能支持更强的质量声明。
 
-实验中一万条记录的 `q` 全部变化，可能改变派生位置及固定输入；退化区间和实际
-浮点舍入后的 `progress` 差异未在该实验中统计。
-按 §7 须提升 DEMAND 工作负载 ID；重建基线的一次性成本本身不否定持续收益。
-未来若在目标环境测得值得迁移的收益，须另行 G1，并按 ADR 0033 §4 更新域分隔与
-派生版本，不复用 §4 的排序摘要，也不并存新旧算法。
+`u` 直接作为无符号 `u64` 右移 11 位，不读取原生端序内存，不取低 53 位或使用
+取模代替；`n` 范围是 `0..=2^53-1`。`q` 按 binary64 将精确整数 `n` 除以精确
+`2^53` 得到，范围为 `[0, 1)`。不得先舍入到 binary32；实际 `progress` 构造继续
+遵守上述合法区间和所消费 Runtime 数值域，不借本派生修改物理坐标合同。
+
+旧前缀的固定输入实验测得该单项比 SHA 快约 4.8 倍、每批节省约 0.37–0.38 ms，
+没有执行实际 `progress` 构造或 DEMAND 回放。新前缀须重新生成位置与回放基线，
+不沿用旧实验的一万条 `q` 差异或耗时作为新合同认证。每条记录只派生一次，§6.3
+的 blocked retry 保留原值，不重算；派生不进入稳态 tick。
 
 ### 6.3 Blocked、Completed 与结束条件
 
@@ -654,6 +679,36 @@ digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runt
   跨 ID 差异只能标为相对 observation；
 - production runtime 不得识别 workload ID、source、seed、population rank 或
   external-ID prefix 走专用路径。
+
+### 7.1 XXH3 迁移与验收边界
+
+本次人口派生提升为 `LF-REAL-LUST-POPULATION-v2`，共享该人口的 TOPO 和 DEMAND
+分别提升为 `LF-REAL-LUST-TOPO-v2`、`LF-REAL-LUST-DEMAND-v2`。算法、前像及结果
+一起重建，不将旧人口表、旧报告或旧 plan 改标签充作 v2。旧 v1 只从历史证据查阅；
+生产不保留算法选择开关、回退分支、双算或旧格式读取兼容。历史研究中的对照算法
+不构成生产双路径。
+
+生产实现按下列边界验收：
+
+1. **转换器人口切换**：用 §4.1 的唯一算法替换现有排序键，保留候选过滤、缓存一次、
+   截断后验证及原 ID 次键。将 `twox-hash` 纳入转换器生产依赖与根许可名单的对应
+   用途；版本升级须保持向量和前像结果。新增报告 `population.derivationId`，
+   `formatVersion=0.3`。来源验证、制品和 provenance 的 SHA-256 不迁移。
+2. **人口与诊断重建**：固定源验证后，在同一 build 的两个 fresh process 中比较全部
+   选中记录及顺序、rank、source ordinal、类型、departure 和 road-edge 序列；重新
+   固定人口/报告摘要，检查输入置换与强制碰撞次键。使用最终前缀重测局部成本，并
+   保留与完整选取的边界。新人口的 route 诊断必须真实保留；禁止改 seed、扩窗、
+   跳过错误记录或补位来凑齐可运行的一万条。
+3. **TOPO/DEMAND 消费**：plan/harness 只接受对应 v2 工作负载与人口派生标识；
+   DEMAND 以 §6.2 构造位置，覆盖 `q` 边界、`high==low`、非法区间、非有限值和
+   blocked retry 原值复用。固定测试向量须核对到 `u` 与 53 位分子，不只比较浮点
+   打印文本。不得把测试专用公式或未被生产调用的 helper 宣称为 DEMAND 已交付。
+4. **运行认证**：现有路线/几何语义缺口未解决时，只能验收第 1、2 项的算法和诊断
+   切片；不产出伪造的完整 bundle/plan，不宣称新人口可运行。完整 v2 workload
+   认证须在这些既有前置条件满足后重跑 §7 的全部适用 oracle、digest 与回放检查。
+
+此设计不新建 Runtime 算法回调、公共摘要类型或工作负载专用执行路径。人口切换与
+实际位置构建由各自生产消费者落地，不为尚未交付的 harness 创建无调用方公共 API。
 
 ## 8. 许可、制品与离线消费
 
