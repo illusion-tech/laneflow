@@ -111,22 +111,38 @@
 处置提示裁决新调用，最后释放原 `step`。通知与释放均有 30 秒失败界，异常退出自动释放，
 没有通过睡眠或多次碰运气取得重叠。同步点及其线程间搬运仅进入 `cfg(test)`。
 
-四个用例各覆盖一个工作线程与两个工作线程；池内场景同时核对调用线程与实际执行线程不同。
+七个用例各覆盖一个工作线程与两个工作线程；池内场景同时核对调用线程与实际执行线程不同。
 两个世界与一个 Spatial 会话持有同一修订 `Arc`：
 
-| 真实认证返回                             | 证据入口                                                           | 宿主处置与在途调用                                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `Pass / None`                            | `pass_audit_overlaps_step_without_stopping_consumers`              | 新调用继续；在途 step 正常提交并发布结果                                                         |
-| `Mismatch / Source / IsolateSource`      | `source_mismatch_isolates_input_while_in_flight_step_finishes`     | 损坏 LFCA 被隔离；两个世界、观测导出和 Spatial 新调用继续                                        |
-| `OperationFailed(BuilderBudgetExceeded)` | `operational_failure_retries_without_stopping_consumers`           | 仅记录重试；已安装修订继续使用                                                                   |
-| `Mismatch / Indeterminate / DisableRoot` | `disabling_audit_stops_new_calls_and_quarantines_late_step_output` | 停止两个世界、观测导出与 Spatial 新调用；原 step 仍提交并返回，晚到 `StepOutcome` 由测试宿主隔离 |
+| 真实认证返回                                | 证据入口                                                                   | 宿主处置与在途调用                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `Pass / None`                               | `pass_audit_overlaps_step_without_stopping_consumers`                      | 新调用继续；在途 step 正常提交并发布结果                                                         |
+| `Mismatch / Source / IsolateSource`         | `source_mismatch_isolates_input_while_in_flight_step_finishes`             | 损坏 LFCA 被隔离；两个世界、观测导出和 Spatial 新调用继续                                        |
+| `OperationFailed(BuilderBudgetExceeded)`    | `operational_failure_retries_without_stopping_consumers`                   | 仅记录重试；已安装修订继续使用                                                                   |
+| `Mismatch / Indeterminate / DisableRoot`    | `disabling_audit_stops_new_calls_and_quarantines_late_step_output`         | 停止两个世界、观测导出与 Spatial 新调用；原 step 仍提交并返回，晚到 `StepOutcome` 由测试宿主隔离 |
+| `Mismatch / SharedStaticRoot / DisableRoot` | `shared_static_root_mismatch_stops_calls_and_quarantines_late_step`        | 两次比较均读取同一长度失配视图；停用后拒绝新调用，隔离晚到结果                                   |
+| `Untrusted / Indeterminate / DisableRoot`   | `transient_root_untrusted_stops_calls_and_quarantines_late_step`           | 首次长度失配、复算完整通过；仍停用，保留首次完整证据并隔离晚到结果                               |
+| `Untrusted / Indeterminate / DisableRoot`   | `moving_root_untrusted_preserves_first_evidence_and_quarantines_late_step` | 复算失配移到另一条车道；保留首次位置与值对，停用并隔离晚到结果                                   |
 
-停用场景在原 step 返回后继续阻止其下一拍，未调用 Runtime 取消或排空入口，也未在修订中
+全部场景同时检查路线注册、另一世界的 step、观测导出和 Spatial 位姿提取的新调用；
+停用后闭包不执行，调用计数不增长。停用场景在原 step 返回后继续阻止其下一拍，未调用 Runtime 取消或排空入口，也未在修订中
 加入失效标志。结论前已发布的非空事件、观测和位姿批次仍保留在宿主，未被撤销。
 该宿主仅展示单一协调器对新调用的裁决与输出隔离，不是产品宿主调度器；不证明任意宿主的
-多发起者并发协议。停用场景把来源与引用一起换成另一份自洽输入，得到真实的无法判因
-`Mismatch`；没有把它标成真实修订页失真或 `Untrusted` 注入。上述具体故障下的重叠仍须
-各自的故障取证，本矩阵只证明这里列出的四种返回与调用边界。
+多发起者并发协议。既有 `Indeterminate` 场景仍使用另一份自洽来源，不冒充修订失真。
+
+[具体修订故障用例](../../crates/laneflow-runtime/src/admin/tests/audit_step_overlap/faults.rs)
+使用默认关闭的 `attestation-fixtures`，由 Runtime 的开发依赖启用。
+[比较夹具](../../crates/laneflow-static-network/src/attestation_fixtures.rs) 复用原阶段视图
+注入点：独立构建修订，在唯一可变借用时翻转长度最低位，再按首次比较与复算顺序提供
+视图；真实 reader、builder、比较器、来源复核和判因保持执行，不预制认证报告。
+三种故障均核对完整步骤序列、首条失配的阶段、表、序号、字段和值对，以及停用处置。
+视图绑定当前线程和目标根，数量或目标错误在认证 panic 捕获边界之外拒绝；
+[夹具回归](../../crates/laneflow-static-network/src/attestation_fixtures_tests.rs) 验证 unwind
+清理、错误目标/次数、跨线程隔离与嵌套拒绝。随后同线程的健康认证通过，排除残留注入。
+
+消费者仍共享原健康根，原长度列保持不变；这补齐了上述逻辑故障与真实在途调用的重叠，
+不证明消费者实际读取了受损 backing。真实物理共页及活动不可变借用期间的实际改写
+继续未覆盖，也未新增自然失真或 24 小时采集样本。
 
 ## 实际整数内存页注入
 

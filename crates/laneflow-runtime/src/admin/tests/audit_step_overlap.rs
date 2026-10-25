@@ -1,5 +1,8 @@
 //! #963：真实认证与在途 step 的宿主停止边界；本模块中的调度与输出策略仅为测试宿主。
 
+#[path = "audit_step_overlap/faults.rs"]
+mod faults;
+
 use std::{
     num::NonZeroU32,
     sync::{
@@ -96,10 +99,18 @@ enum Case {
     Source,
     Operational,
     Disable,
+    Revision(faults::Fault),
 }
 
 impl Case {
-    fn audit(self, root: &SharedNetworkRevision) -> AttestationOutcome {
+    fn stops_root(self) -> bool {
+        matches!(self, Self::Disable | Self::Revision(_))
+    }
+
+    fn audit(self, root: &Arc<SharedNetworkRevision>) -> AttestationOutcome {
+        if let Self::Revision(fault) = self {
+            return faults::audit(root, fault);
+        }
         let mut damaged = LFCA.to_vec();
         damaged[0] ^= 0xFF;
         let (bytes, expected, build) = match self {
@@ -115,6 +126,7 @@ impl Case {
             ),
             // 来源与引用一起替换为另一份自洽输入；不是在用修订物理失真的注入。
             Self::Disable => (OTHER_LFCA, reference(OTHER_LFCA), options()),
+            Self::Revision(_) => unreachable!("revision faults use comparison views"),
         };
         let outcome = attest_published_shared_network_revision(
             root,
@@ -292,12 +304,16 @@ fn exercise(case: Case) {
             ));
             // 下面需要独占调度状态；在途调用只持有 stopped/calls 两个原子值。
             host.accept_audit(&audit);
-            let stopped = matches!(case, Case::Disable);
+            let stopped = case.stops_root();
             assert_eq!(host.admission.stopped.load(Ordering::Acquire), stopped);
             assert_eq!(host.source_isolated, matches!(case, Case::Source));
             assert_eq!(host.retry, matches!(case, Case::Operational));
             let calls_before = host.admission.calls.load(Ordering::Relaxed);
             let second_step = host.call(|| other_world.step(TickInput::new(100)));
+            let next_route = host.call(|| {
+                other_world
+                    .register_route(RouteRegisterInput::new(vec![LaneEdgeOrdinal::from_raw(0)]))
+            });
             let next_observation = host.call(|| {
                 other_world.export_observation(&mut observations, ObservationExportMode::Full)
             });
@@ -310,17 +326,19 @@ fn exercise(case: Case) {
                 )
             });
             assert_eq!(second_step.is_none(), stopped);
+            assert_eq!(next_route.is_none(), stopped);
             assert_eq!(next_observation.is_none(), stopped);
             assert_eq!(next_spatial.is_none(), stopped);
             if stopped {
                 assert_eq!(host.admission.calls.load(Ordering::Relaxed), calls_before);
             } else {
                 second_step.unwrap().unwrap();
+                next_route.unwrap().unwrap();
                 next_observation.unwrap().unwrap();
                 next_spatial.unwrap().unwrap();
                 assert_eq!(
                     host.admission.calls.load(Ordering::Relaxed),
-                    calls_before + 3
+                    calls_before + 4
                 );
             }
             release.resume();
@@ -334,7 +352,7 @@ fn exercise(case: Case) {
             host.accept_returned_step(outcome);
         });
         assert_eq!(format!("{published_outputs:?}"), published_before);
-        if matches!(case, Case::Disable) {
+        if case.stops_root() {
             assert_eq!(host.published, prior_published);
             assert_eq!(host.quarantined.len(), 1);
             // 连同刚返回的世界也阻止下一拍，不靠 Runtime 自有失效标志。
