@@ -27,7 +27,10 @@ XXH3 是值得进入 G1 的候选，不能由 SHA/BLAKE3 两项比较排除。�
 均验证固定来源，消费时再验证文件字节，读取后重查 revision。机器为 AMD Ryzen 9
 9955HX，SHA/AVX2/SSE4.1 可用；Rust 1.99.1、Windows x86_64 MSVC、release 构建。
 
-- [实验源码](../../tools/laneflow-lust-converter/src/convert/population/digest_benchmark.rs)，Git blob：
+- [测量快照](https://github.com/illusion-tech/laneflow/commit/5d7fa6c33853ce4ea14714b91c144cc6eb84e925)：
+  后续与主分支整合只改变根依赖图与许可名单，以下身份指向测量时的快照，不指代
+  PR 最终 HEAD。复查本批数值时使用该快照的源码与 lockfile。
+- [测量源码](https://github.com/illusion-tech/laneflow/blob/5d7fa6c33853ce4ea14714b91c144cc6eb84e925/tools/laneflow-lust-converter/src/convert/population/digest_benchmark.rs)，Git blob：
   `4170f33d0a4126c26063b358db76ec7be62b3cd6`。
 - Cargo.lock Git blob：`d2c679c7d854a53d9c1308e77f00694ee5ae9c4e`。
 - 三轮使用同一二进制，SHA-256：
