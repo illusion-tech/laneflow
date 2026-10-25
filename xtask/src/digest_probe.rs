@@ -24,6 +24,7 @@ const ENTRY_DIGEST_OFFSET: u64 = 40;
 /// 整页替换判定的页内分段数。
 const REPLACEMENT_SEGMENTS: usize = 16;
 /// 近零页：非零字节至多这么多。归档与浸泡实测的写丢失页为 4,095 / 4,096 字节为零。
+/// 两项阈值共同遵循 `docs/reference/validation-matrix.md` §8.1，且均包含边界。
 const NEAR_ZERO_MAX_NONZERO: usize = 16;
 /// 近零页还须有至少这么多原非零字节被清零，避免把零字节居多的页上的局部改动当作零页。
 const NEAR_ZERO_MIN_CLEARED: usize = PAGE as usize / 16;
