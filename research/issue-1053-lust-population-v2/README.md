@@ -65,3 +65,46 @@ road-edge 序列及两个 source ordinal。`converted/` 保留真实转换报告
 每项先校准至约 40 ms 或 256 次上限，随后轮转次序取 11 个样本。两项候选哈希和
 两项完整选取共四项；不从局部倍率推断转换器端到端加速。旧 #1029 的无前缀 XXH3
 结果及 559 条人口替换不能沿用为本次数据。
+
+## 冻结构建与两次独立进程
+
+测量日期：2026-10-26（Asia/Tokyo）。使用
+[`9a0bde5974bf4e6ac6cc6b298f145d62aab20455`](https://github.com/illusion-tech/laneflow/commit/9a0bde5974bf4e6ac6cc6b298f145d62aab20455)
+的同一 release 测试二进制；后续提交只补充本文和证据数据。身份见
+[`verification.json`](verification.json)，全部 88 个批次样本见 [`samples.csv`](samples.csv)。
+
+- 人口实现 Git blob：`7eeb22c0b31a10c715dfe4e1d438461c00d18c90`。
+- 迁移测试 Git blob：`f90dbc65d3ee1513e32902da33eaf6a8ac64c1c3`。
+- Cargo.lock Git blob：`a35e035cb7bc0e2c2d9814c5ab615d82bab9fdfc`；依赖锁未因生产迁移改变。
+- 测试二进制 SHA-256：`c5deac8d57c5863c9ba139ead9527082cfa0ec3647e5978259d37278f38098ee`。
+- AMD Ryzen 9 9955HX，16 核 / 32 逻辑处理器；Windows NT 10.0.29683.0。
+  Rust 1.99.1（`58cf8f9c35b355199727627d07ae34a4e2846d67`）、LLVM 23.1.1、
+  `x86_64-pc-windows-msvc`；`twox-hash 2.1.3`、`sha2 0.11.1`。
+- 两次 fresh process 均通过固定基线断言。使用 `fc.exe /b` 比较 11 份文件，全部
+  逐字节相同；各自 build provenance 都指向上述提交和相同 lockfile。原始配置摘要
+  因输出目录不同而不同，semantic provenance 保持相同。
+- 测量期间本会话未并行启动本机构建或其他基准；未改变电源策略或 CPU 亲和性。
+  主机并非独占环境，两轮结果不是统计显著性或跨平台性能证明。
+
+下表为每进程 11 个样本的中位数，单位 **ms / 整次调用**：
+
+| 项目                               |  第 1 轮 |  第 2 轮 |
+| ---------------------------------- | -------: | -------: |
+| 候选哈希：旧 SHA-256，10,592 个 ID | 0.452765 | 0.452089 |
+| 候选哈希：v2 XXH3，含正式前缀拼接  | 0.106845 | 0.106428 |
+| 完整选取及释放：旧 SHA 参考        |  63.8161 |  62.2589 |
+| 完整选取及释放：v2 生产函数        |  62.1823 |  59.4771 |
+
+最终前像下的候选哈希快 **4.24–4.25 倍**，每次构建节省 **0.3457–0.3459 ms**。
+SHA 项校准为每批 128 次，XXH3 项为 256 次；后者先达到迭代上限，实际批次约
+27 ms，未达到 40 ms。完整选取每批一次，测量区间仍有明显重叠。
+
+两轮完整选取中位数分别下降 1.6338 ms 与 2.7818 ms，但该差值还包含新人口、
+复制量、排序键宽和主机波动，不能全部归因于哈希。这里只确认持续发生的局部收益；
+没有测量或宣称转换器端到端、Traffic Runtime 或交通质量提升。
+
+本切片验证结果为：162 项 release 测试通过、9 项默认忽略；两个显式迁移进程各
+1 项通过；cargo check、Clippy、rustfmt、Markdown 表格及根 cargo-deny 四项通过。
+Dependabot security updates 为 enabled、未 paused，读取时开放告警为 0；根依赖
+审计的既有重复版本警告仍保留。完整 v2 workload 认证与实际 DEMAND 位置仍属于
+#254/#255 及既有路线/几何前置工作。
