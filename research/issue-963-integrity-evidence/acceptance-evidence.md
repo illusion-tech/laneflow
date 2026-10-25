@@ -23,6 +23,10 @@ Issue 保存验收状态；这里保存可定位的实现、研究结果及结�
 - 来源验证后、builder 重读期间的覆盖来自独立拥有的阶段视图；没有在活动不可变借用
   期间改写实际 immutable backing。安全整数页写入发生在唯一拥有、没有活动借用时。
 
+[物理注入可行性与验收方案](physical-injection-plan.md)定义这两项的工具前置条件、
+布局与时序证据、Rust 约束及失败判据。方案本身不补齐缺口；指定二进制在外部扰动下
+的完整观察也不自动成为合法 Rust 并发行为或跨构建保证。
+
 [在途 step 重叠测试](../../crates/laneflow-runtime/src/admin/tests/audit_step_overlap.rs)
 在既有四种场景之外，已补持续修订失配的 `Mismatch / SharedStaticRoot`，以及复算通过、
 复算失配位置变化两种 `Untrusted`。七种场景均覆盖单、双工作线程，检查真实判因、
