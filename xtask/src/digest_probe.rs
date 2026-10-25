@@ -550,6 +550,72 @@ mod tests {
     }
 
     #[test]
+    fn near_zero_requires_both_thresholds() {
+        for (nonzero, cleared, expected) in [
+            (15, 255, PageKind::Partial),
+            (15, 256, PageKind::Zero),
+            (15, 257, PageKind::Zero),
+            (16, 255, PageKind::Partial),
+            (16, 256, PageKind::Zero),
+            (16, 257, PageKind::Zero),
+            (17, 255, PageKind::Partial),
+            (17, 256, PageKind::Partial),
+            (17, 257, PageKind::Partial),
+        ] {
+            let (mut bytes, probe, start) = aligned();
+            let page = 8 * PAGE as usize;
+            bytes[page..page + PAGE as usize].fill(0);
+            bytes[page..page + cleared].fill(0x33);
+            let mut dump = dump_of(&bytes, start, probe.len);
+            let lost = page_mut(&mut dump, start, 8);
+            lost.fill(0);
+            lost[3_000..3_000 + nonzero].fill(0x5a);
+            let report = analyze(&bytes, start, probe.len, &dump);
+            assert_eq!(report.pages.len(), 1);
+            assert_eq!(
+                report.pages[0].kind, expected,
+                "nonzero {nonzero}, cleared {cleared}"
+            );
+            assert_eq!(
+                report.verdict,
+                if expected == PageKind::Zero {
+                    Verdict::PageFingerprint
+                } else {
+                    Verdict::CodeSuspect
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn near_zero_exact_donor_match_precedes_zero_classification() {
+        for donor in [7, 9] {
+            let (mut bytes, probe, start) = aligned();
+            let page = 8 * PAGE as usize;
+            bytes[page..page + PAGE as usize].fill(0);
+            bytes[page..page + 256].fill(0x33);
+            let donor_start = donor * PAGE as usize;
+            bytes[donor_start..donor_start + PAGE as usize].fill(0);
+            bytes[donor_start + 3_000..donor_start + 3_016].fill(0x5a);
+            let mut dump = dump_of(&bytes, start, probe.len);
+            page_mut(&mut dump, start, 8)
+                .copy_from_slice(&bytes[donor_start..donor_start + PAGE as usize]);
+            let report = analyze(&bytes, start, probe.len, &dump);
+            assert_eq!(report.pages.len(), 1);
+            assert_eq!(report.pages[0].kind, PageKind::Shifted(donor as i64 - 8));
+            assert_eq!(report.verdict, Verdict::PageFingerprint);
+        }
+    }
+
+    #[test]
+    fn near_zero_fragment_is_not_page_evidence() {
+        let want = vec![0x33; PAGE as usize - 1];
+        let mut got = vec![0; want.len()];
+        got[100] = 0x5a;
+        assert_eq!(classify_page(&want, 0, 0, &want, &got), PageKind::Fragment);
+    }
+
+    #[test]
     fn single_byte_flip_inside_a_page_is_code_suspect() {
         let (bytes, probe, start) = aligned();
         let mut dump = dump_of(&bytes, start, probe.len);
