@@ -627,7 +627,7 @@ fn run_in_created_directory(
 
 #[test]
 fn short_chain_replays_in_an_independent_process() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = crate::child_diagnostics::DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("short");
     run(&output, 30, false).unwrap();
     // 真正启动失败子进程：修订期望值失真时不得恢复，也不得沿用旧成功响应。
