@@ -222,7 +222,8 @@ jobs:
       - name: Install dotnet SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: "9.0.x"
+          # 精确 SDK 版本避开通道别名的不可下载重定向（#794）。
+          dotnet-version: "9.0.320"
 
       - name: Build and run C# writer
         shell: bash
