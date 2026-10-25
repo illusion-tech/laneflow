@@ -1,5 +1,6 @@
 //! #1029 非生产实验：对比持久工作负载派生的算法成本，不提供可替换算法的生产入口。
 
+use sha2::{Digest, Sha256};
 use std::{collections::HashMap, hint::black_box, path::Path, time::Instant};
 
 use super::*;
@@ -11,13 +12,13 @@ use crate::{
 const DEPART_PREFIX: &[u8] = b"LF-REAL-LUST-DEMAND-v1\0";
 const SAMPLES: usize = 11;
 
-struct Case<'a> {
+pub(super) struct Case<'a> {
     name: &'static str,
     run: Box<dyn FnMut() + 'a>,
 }
 
 impl<'a> Case<'a> {
-    fn new(name: &'static str, run: impl FnMut() + 'a) -> Self {
+    pub(super) fn new(name: &'static str, run: impl FnMut() + 'a) -> Self {
         Self {
             name,
             run: Box::new(run),
@@ -33,8 +34,8 @@ fn elapsed_ns(run: &mut dyn FnMut(), iterations: u32) -> f64 {
     start.elapsed().as_secs_f64() * 1_000_000_000.0
 }
 
-fn measure(group: &str, mut cases: Vec<Case<'_>>) {
-    // 计时在整批操作外；每样本至少约 40 ms，避免给每个短摘要插入计时器。
+pub(super) fn measure(group: &str, mut cases: Vec<Case<'_>>) {
+    // 计时在整批操作外；预热目标约 40 ms 或上限 256 次，短摘要不逐条计时。
     let iterations = cases
         .iter_mut()
         .map(|case| {
@@ -76,7 +77,7 @@ fn measure(group: &str, mut cases: Vec<Case<'_>>) {
     }
 }
 
-fn sha(bytes: &[u8]) -> [u8; 32] {
+pub(super) fn sha(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
@@ -125,11 +126,12 @@ fn fraction(numerator: u64) -> f64 {
 }
 
 // 与 select_population 相同的过滤、截断、校验及物化步骤；只有排序键是实验变量。
-// 真实数据启动时逐字段断言 SHA 与生产结果相等，预计算键也必须得到相同记录。
+// #1029 的 SHA/BLAKE3/无前缀 XXH3 是历史对照；预计算键须得到相同 SHA 记录。
+// 当前生产合同由 migration 模块与真实生产调用逐字段对照。
 // 不执行路线展开或静态编译，不能把此调用耗时当作 converter 端到端耗时。
-fn select_with_key<K: Ord>(
+pub(super) fn select_with_key<K: Ord>(
     vehicles: &[DueVehicle],
-    key: impl Fn(&DueVehicle) -> K,
+    mut key: impl FnMut(&DueVehicle) -> K,
 ) -> Result<Vec<PopulationRecord>> {
     let known: HashSet<&str> = KNOWN_SOURCE_VTYPE_IDS.iter().copied().collect();
     let mut candidates = Vec::new();
@@ -321,31 +323,31 @@ fn profile_lust_digest_roles() {
             .max()
             .unwrap(),
     );
-    let production = select_population(&vehicles, true).expect("production selection");
-    let reference =
+    let historical_sha =
         select_with_key(&vehicles, |vehicle| sha(vehicle.id.as_bytes())).expect("SHA reference");
-    assert_eq!(
-        production, reference,
-        "SHA reference must match all production fields"
-    );
     let blake_records = select_with_key(&vehicles, |vehicle| blake(vehicle.id.as_bytes()))
         .expect("BLAKE selection");
     let xxh3_records =
         select_with_key(&vehicles, |vehicle| xxh3(vehicle.id.as_bytes())).expect("XXH3 selection");
-    print_semantic_changes("blake", &production, &blake_records, |id| {
+    print_semantic_changes("blake", &historical_sha, &blake_records, |id| {
         position_numerator(blake_depart(id))
     });
-    print_semantic_changes("xxh3", &production, &xxh3_records, xxh3_depart_numerator);
-    print_diagnostics("sha", &candidates, &production, sha, |id| {
+    print_semantic_changes(
+        "xxh3",
+        &historical_sha,
+        &xxh3_records,
+        xxh3_depart_numerator,
+    );
+    print_diagnostics("sha", &candidates, &historical_sha, sha, |id| {
         position_numerator(sha_depart(id))
     });
-    print_diagnostics("blake", &candidates, &production, blake, |id| {
+    print_diagnostics("blake", &candidates, &historical_sha, blake, |id| {
         position_numerator(blake_depart(id))
     });
     print_diagnostics(
         "xxh3",
         &candidates,
-        &production,
+        &historical_sha,
         xxh3,
         xxh3_depart_numerator,
     );
@@ -387,7 +389,7 @@ fn profile_lust_digest_roles() {
             [vehicle.source_vehicle_ordinal as usize]
     };
     assert_eq!(
-        production,
+        historical_sha,
         select_with_key(&vehicles, cached).expect("precomputed reference")
     );
     println!("sample_header,group,case,sample,iterations,ns_per_call");
@@ -414,9 +416,6 @@ fn profile_lust_digest_roles() {
     measure(
         "select_and_drop",
         vec![
-            Case::new("production", || {
-                black_box(select_population(black_box(&vehicles), true).unwrap());
-            }),
             Case::new("sha", || {
                 black_box(
                     select_with_key(black_box(&vehicles), |vehicle| sha(vehicle.id.as_bytes()))
@@ -472,19 +471,19 @@ fn profile_lust_digest_roles() {
         "depart_fraction",
         vec![
             Case::new("sha", || {
-                for record in &production {
+                for record in &historical_sha {
                     black_box(position_fraction(sha_depart(black_box(&record.vehicle_id))));
                 }
             }),
             Case::new("blake", || {
-                for record in &production {
+                for record in &historical_sha {
                     black_box(position_fraction(blake_depart(black_box(
                         &record.vehicle_id,
                     ))));
                 }
             }),
             Case::new("xxh3", || {
-                for record in &production {
+                for record in &historical_sha {
                     black_box(fraction(xxh3_depart_numerator(black_box(
                         &record.vehicle_id,
                     ))));

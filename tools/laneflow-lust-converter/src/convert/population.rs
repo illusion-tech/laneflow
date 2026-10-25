@@ -1,11 +1,13 @@
-//! Shared exact 10k source population selection (§4).
+//! 共享精确一万来源人口选取（real-road-workloads §4）。
 
 #[cfg(test)]
 mod digest_benchmark;
+#[cfg(test)]
+mod migration;
 
 use std::collections::HashSet;
 
-use sha2::{Digest, Sha256};
+use twox_hash::XxHash3_64;
 
 use crate::{
     Error, Result,
@@ -21,6 +23,8 @@ pub const POPULATION_DEPART_END_SECONDS: &str = "30600";
 pub const POPULATION_CANDIDATE_COUNT: usize = 10_592;
 /// Selected population size.
 pub const POPULATION_SELECTED_COUNT: usize = 10_000;
+/// 固定人口派生身份；同时用于排序前像与转换报告，不提供算法选择开关。
+pub const POPULATION_DERIVATION_ID: &str = "LF-REAL-LUST-POPULATION-v2";
 
 const KNOWN_SOURCE_VTYPE_IDS: &[&str] = &[
     "passenger1",
@@ -69,13 +73,19 @@ pub(crate) fn is_population_candidate(type_id: &str, depart: &ExactDecimal) -> b
         && LUST_PASSENGER_VTYPE_IDS.contains(&type_id)
 }
 
-/// §4 排序键：主键为 `SHA-256(UTF-8 vehicle ID)` 的 32 字节（按无符号字节字典序），
-/// 碰撞时以原始 vehicle ID 字节为次键。
-fn population_sort_key(vehicle: &DueVehicle) -> ([u8; 32], &[u8]) {
-    (
-        Sha256::digest(vehicle.id.as_bytes()).into(),
-        vehicle.id.as_bytes(),
-    )
+/// §4.1：原始 UTF-8 域名、单个零字节、原始 ID；seed 0 与标准 secret。
+/// 复用单次选取的缓冲区，不为每个候选分配，也不限制 ID 长度。
+fn population_digest(id: &str, preimage: &mut Vec<u8>) -> u64 {
+    preimage.clear();
+    preimage.extend_from_slice(POPULATION_DERIVATION_ID.as_bytes());
+    preimage.push(0);
+    preimage.extend_from_slice(id.as_bytes());
+    XxHash3_64::oneshot_with_seed(0, preimage)
+}
+
+fn sort_population_candidates(candidates: &mut [&DueVehicle], mut digest: impl FnMut(&str) -> u64) {
+    // 主键为无符号数值，碰撞后仍按完整 ID 字节排序；每候选只计算一次。
+    candidates.sort_by_cached_key(|vehicle| (digest(&vehicle.id), vehicle.id.as_bytes()));
 }
 
 /// Filter / sort / rank DUE vehicles into the shared population table.
@@ -100,9 +110,8 @@ pub fn select_population(
         )));
     }
 
-    // #1031：每个候选只算一次排序键；sort_by_cached_key 为稳定排序，结果与逐次
-    // 比较时重算摘要一致。
-    candidates.sort_by_cached_key(|vehicle| population_sort_key(vehicle));
+    let mut preimage = Vec::new();
+    sort_population_candidates(&mut candidates, |id| population_digest(id, &mut preimage));
 
     if require_lust_candidate_count && candidates.len() < POPULATION_SELECTED_COUNT {
         return Err(Error::SumoModel(format!(
@@ -112,9 +121,8 @@ pub fn select_population(
 
     // #253 K3(a) 契约澄清：失败契约（unknown route / dangling edge）针对
     // **入选**的 10,000 候选——截断先行，route/dangling-edge 验证在选取
-    // 集合上进行（build_routes_and_bind_population）。截断尾部不参与验证：
-    // pinned 实测尾部 592 个候选中 558 个无完整车道级路径，截断实质承担
-    // 过滤职能，非质量判定（§4 注记）。
+    // 集合上进行（build_routes_and_bind_population）。截断尾部不参与验证；
+    // 排序和截断不构成路线质量判定，不能用尾部补位（§4 注记）。
     let selected_len = candidates.len().min(POPULATION_SELECTED_COUNT);
     let mut records = Vec::with_capacity(selected_len);
     // #253 Q2：重复 id 检查在选取集合上进行（K3(a) 契约口径——失败域限于
@@ -286,26 +294,100 @@ mod tests {
     }
 
     #[test]
-    fn ranks_by_sha256_then_id_bytes() {
+    fn population_digest_matches_frozen_reference_vectors() {
+        // §4.2：期望值由固定 xxHash v0.8.3 C 参考实现独立生成。
+        let mut preimage = Vec::new();
+        for (id, expected) in [
+            ("1", 0x01e8_f0db_f24d_f715),
+            ("veh_000001", 0xdb5d_822d_0369_b7be),
+            ("车辆-1", 0x3645_2967_b188_f5c5),
+        ] {
+            assert_eq!(population_digest(id, &mut preimage), expected, "{id}");
+            assert_eq!(&preimage[..27], b"LF-REAL-LUST-POPULATION-v2\0");
+            assert_eq!(&preimage[27..], id.as_bytes());
+        }
+        let long_id = format!(" {}e\u{301}\0", "车辆".repeat(1_000));
+        population_digest(&long_id, &mut preimage);
+        assert_eq!(&preimage[27..], long_id.as_bytes());
+        assert_eq!(population_digest("1", &mut preimage), 0x01e8_f0db_f24d_f715);
+    }
+
+    #[test]
+    fn ranks_by_frozen_unsigned_keys_independent_of_input_order() {
         let vehicles = vec![
-            vehicle("b", "passenger1", "28800", &["west"]),
-            vehicle("a", "passenger1", "28800", &["west"]),
-            vehicle("c", "passenger1", "28800", &["west"]),
+            vehicle("veh_000001", "passenger1", "28800", &["west"]),
+            vehicle("车辆-1", "passenger2a", "28801", &["east", "west"]),
+            vehicle("1", "passenger3", "30599.99", &["south"]),
         ];
         let records = select_population(&vehicles, false).expect("select");
-        assert_eq!(records.len(), 3);
-        let mut expected = vehicles.clone();
-        expected.sort_by(|left, right| {
-            let left_digest = Sha256::digest(left.id.as_bytes());
-            let right_digest = Sha256::digest(right.id.as_bytes());
-            left_digest
-                .as_slice()
-                .cmp(right_digest.as_slice())
-                .then_with(|| left.id.as_bytes().cmp(right.id.as_bytes()))
-        });
-        for (rank, (record, vehicle)) in records.iter().zip(expected.iter()).enumerate() {
-            assert_eq!(record.population_rank, rank as u32);
-            assert_eq!(record.vehicle_id, vehicle.id);
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.vehicle_id.as_str())
+                .collect::<Vec<_>>(),
+            ["1", "车辆-1", "veh_000001"],
+        );
+        for (rank, record) in records.iter().enumerate() {
+            assert_eq!(record.population_rank as usize, rank);
         }
+        for permutation in [[2, 1, 0], [1, 0, 2], [1, 2, 0]] {
+            let permuted = permutation.map(|index| vehicles[index].clone());
+            assert_eq!(select_population(&permuted, false).unwrap(), records);
+        }
+    }
+
+    #[test]
+    fn forced_key_collisions_keep_every_record_and_use_raw_id_bytes() {
+        let vehicles = ["车辆-1", "é", "e\u{301}", "z", " A", "a", "a"]
+            .map(|id| vehicle(id, "passenger1", "28800", &["west"]));
+        let mut candidates = vehicles.iter().collect::<Vec<_>>();
+        let mut calls = 0;
+        sort_population_candidates(&mut candidates, |_| {
+            calls += 1;
+            0
+        });
+        assert_eq!(calls, vehicles.len());
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|vehicle| vehicle.id.as_str())
+                .collect::<Vec<_>>(),
+            [" A", "a", "a", "e\u{301}", "z", "é", "车辆-1"],
+        );
+    }
+
+    #[test]
+    fn malformed_and_duplicate_truncated_records_do_not_expand_the_failure_domain() {
+        let mut vehicles = (0..=POPULATION_SELECTED_COUNT)
+            .map(|index| {
+                vehicle(
+                    &format!("fixture-{index}"),
+                    "passenger1",
+                    "28800",
+                    &["west"],
+                )
+            })
+            .collect::<Vec<_>>();
+        let expected = select_population(&vehicles, false).unwrap();
+        let selected_ids = expected
+            .iter()
+            .map(|record| record.vehicle_id.as_str())
+            .collect::<HashSet<_>>();
+        let tail = vehicles
+            .iter()
+            .position(|vehicle| !selected_ids.contains(vehicle.id.as_str()))
+            .unwrap();
+        vehicles[tail].depart_pos = None;
+        vehicles[tail].road_edge_ids.clear();
+        vehicles.push(vehicles[tail].clone());
+        assert_eq!(select_population(&vehicles, false).unwrap(), expected);
+
+        let selected = vehicles
+            .iter()
+            .position(|vehicle| vehicle.id == expected[0].vehicle_id)
+            .unwrap();
+        vehicles.push(vehicles[selected].clone());
+        let error = select_population(&vehicles, false).expect_err("selected duplicate fails");
+        assert!(error.to_string().contains("duplicate DUE vehicle id"));
     }
 }

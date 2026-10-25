@@ -3,7 +3,9 @@
 关联 [#1029](https://github.com/illusion-tech/laneflow/issues/1029)；测量日期：2026-10-25。
 
 后续 [XXH3 与确定性派生复核](xxh3-review.md)补充第三种算法、威胁模型和规则修订
-建议；当前判断以该报告为准。本文件保留第一阶段的 330 个样本与当时的比较范围。
+建议。本文件保留第一阶段的 330 个样本与当时的比较范围；当前生产合同以
+[`real-road-workloads.md` §4.1](../../docs/design/real-road-workloads.md#41-排序摘要的角色与算法)
+为准，实际 v2 迁移见 [#1053 记录](../issue-1053-lust-population-v2/README.md)。
 
 ## 第一阶段结论
 

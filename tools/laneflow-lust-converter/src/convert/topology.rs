@@ -113,8 +113,8 @@ pub(crate) fn convert_static_with_due(
     let population = select_population(due_vehicles, options.require_lust_population_count)?;
 
     // #253 L1：诊断模式绕过未完成的 lane-level route 展开（`can_complete`
-    // 禁止边内换道，pinned 入选 10,000 中 9,350 条不可展开——实现语义缺口，
-    // 另立 issue 修复；§4/§3.6 文档已标「routes.toml 实现中」）。不展开即不产
+    // 禁止边内换道，真实 DUE 路线存在不可展开记录——实现语义缺口，
+    // 由 §4/§3.6 的「routes.toml 实现中」边界约束）。不展开即不产
     // routes.toml（None）；fail-fast 路径保持原语义（展开失败仍 fail-closed）。
     // #253 W2：跳过的是展开，不是入选集校验——诊断模式仍执行 route 边引用
     // 存在性/非 internal 校验（K3(a) 失败域不因模式而豁免）。

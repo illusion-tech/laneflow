@@ -1,0 +1,64 @@
+{
+  "population": {
+    "added": 557,
+    "candidateKeyBins16": [
+      668,
+      646,
+      664,
+      687,
+      620,
+      693,
+      707,
+      700,
+      689,
+      618,
+      660,
+      672,
+      644,
+      642,
+      636,
+      646
+    ],
+    "candidateKeyCollisions": 0,
+    "candidates": 10592,
+    "commonRankChanged": 9442,
+    "commonWithHistoricalSha": 9443,
+    "derivationId": "LF-REAL-LUST-POPULATION-v2",
+    "firstRouteFailureId": "carIn22201:1",
+    "firstSelectedId": "carIn47455:1",
+    "historicalShaEdgeStrings": 377108,
+    "historicalShaRouteFailures": 9350,
+    "populationDigest": "sha256:4a8b759fa1bf91526e1e95a2c3efd86597591c05a10ff84e6c2cfef32e746cdd",
+    "removed": 557,
+    "routeFailureDigest": "sha256:2fde13d05ec383ce145e860fa492d91ee63055b2e8ff2de7aeb9c1a28a495686",
+    "routeFailures": 9344,
+    "sameRank": 1,
+    "selected": 10000,
+    "selectedDepartureBins300Seconds": [
+      1586,
+      1695,
+      1720,
+      1685,
+      1675,
+      1639
+    ],
+    "selectedEdgeStrings": 375891,
+    "selectedSourceCounts": [
+      10000,
+      0,
+      0
+    ],
+    "selectedTypeCounts": {
+      "passenger1": 4017,
+      "passenger2a": 2061,
+      "passenger2b": 1953,
+      "passenger3": 976,
+      "passenger4": 474,
+      "passenger5": 519
+    },
+    "sourceCommit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+    "sourceRecords": 215526
+  },
+  "conversionReportDigest": "sha256:2f3c6fb446d4add7bd9e546e695a811b9133019f70cd70a06cf0e8e7918d8f3d",
+  "geometrySurveyDigest": "sha256:7d4f8243ee23fb06199986fd8f103ff0558a23992caadbc256d1c545f21fff6c"
+}

@@ -1,7 +1,10 @@
 # LuST 确定性派生与 XXH3 复核
 
 关联 [#1029](https://github.com/illusion-tech/laneflow/issues/1029)；测量日期：2026-10-25。
-这是固定输入的非生产实验。规则修订提案在 [#1051](https://github.com/illusion-tech/laneflow/issues/1051)，尚未接受。
+这是固定输入的非生产实验，以下结论与实现状态保留测量时口径。
+后续 [#1051](https://github.com/illusion-tech/laneflow/issues/1051) 已接受确定性派生角色；
+最终 v2 前像的生产迁移与重测见 [#1053 记录](../issue-1053-lust-population-v2/README.md)。
+复查本报告数据须使用下方固定测量快照，不能用当前源码替代。
 
 ## 结论
 
