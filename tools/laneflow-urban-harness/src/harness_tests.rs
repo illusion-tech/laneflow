@@ -1,6 +1,5 @@
 use std::{fs, process::Command};
 
-#[path = "support/child_diagnostics.rs"]
 mod child_diagnostics;
 
 use laneflow_runtime::VehicleStatus;
