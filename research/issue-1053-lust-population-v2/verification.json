@@ -1,0 +1,83 @@
+{
+  "measuredCommit": "9a0bde5974bf4e6ac6cc6b298f145d62aab20455",
+  "populationSourceBlob": "7eeb22c0b31a10c715dfe4e1d438461c00d18c90",
+  "migrationTestSourceBlob": "f90dbc65d3ee1513e32902da33eaf6a8ac64c1c3",
+  "cargoLockBlob": "a35e035cb7bc0e2c2d9814c5ab615d82bab9fdfc",
+  "binarySha256": "c5deac8d57c5863c9ba139ead9527082cfa0ec3647e5978259d37278f38098ee",
+  "independentProcesses": 2,
+  "samples": 88,
+  "byteComparisons": [
+    {
+      "path": "population.json",
+      "bytes": 6255018,
+      "sha256": "4a8b759fa1bf91526e1e95a2c3efd86597591c05a10ff84e6c2cfef32e746cdd",
+      "byteIdentical": true
+    },
+    {
+      "path": "route-failures.json",
+      "bytes": 6448406,
+      "sha256": "2fde13d05ec383ce145e860fa492d91ee63055b2e8ff2de7aeb9c1a28a495686",
+      "byteIdentical": true
+    },
+    {
+      "path": "summary.json",
+      "bytes": 1244,
+      "sha256": "6f5bf8bf9312dfd277d6d3092b75484182e15eef04d3b6c91808dae50df9a208",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/lust-conversion-report.json",
+      "bytes": 1190365,
+      "sha256": "2f3c6fb446d4add7bd9e546e695a811b9133019f70cd70a06cf0e8e7918d8f3d",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/issue253-infeasible-survey.md",
+      "bytes": 2054848,
+      "sha256": "7d4f8243ee23fb06199986fd8f103ff0558a23992caadbc256d1c545f21fff6c",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/lust-semantic-provenance.json",
+      "bytes": 3209,
+      "sha256": "6a3acea94c06ad57644a0d4d1c0fbac08e3edff0a542e533b2a7c8f1cb9885b3",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/manifest.toml",
+      "bytes": 479,
+      "sha256": "2d3ab86cf5801876b2d1e220633e3170367817dab748fd049fbff237fcd5f947",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/lust-source.tar",
+      "bytes": 143237120,
+      "sha256": "bbcffdff842e9801fac53850133ef3f065f4aa17da710b61cfe90c5c265e70b6",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/LICENSE.md",
+      "bytes": 1134,
+      "sha256": "9a16c8681095f730e72ad6efe2b56c30a924552d4b6b6326868309749d64837b",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/ODbL-1.0.txt",
+      "bytes": 25289,
+      "sha256": "77d2692c3d64efdd4db18dce2407699baf62930e2b50d6e5ed90b48acf16b7c1",
+      "byteIdentical": true
+    },
+    {
+      "path": "converted/NOTICE",
+      "bytes": 886,
+      "sha256": "25a883c8b903e425f95ebdf52ea8ed7781c3405f67aff214582eeacdf5369a02",
+      "byteIdentical": true
+    }
+  ],
+  "buildProvenance": {
+    "converterCommit": "9a0bde5974bf4e6ac6cc6b298f145d62aab20455",
+    "cargoLockDigest": "sha256:166df67336d4312964b21e540d483a4f7dd8497938771a4905c434fc79c12e9e",
+    "semanticProvenanceDigest": "sha256:6a3acea94c06ad57644a0d4d1c0fbac08e3edff0a542e533b2a7c8f1cb9885b3",
+    "rawConfigDigestsDiffer": true
+  }
+}
