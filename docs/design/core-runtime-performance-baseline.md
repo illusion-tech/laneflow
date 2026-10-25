@@ -266,9 +266,9 @@ presentation matrix 的判定角色固定如下：
 ### 4.1 `LF-SYNTH-v1` 确定性生成契约
 
 当前 canonical workload 使用确定性生成的匹配规模路网
-`LF-SYNTH-v1`，不以某个现实城市或部署分布为代表。#224 已在 G1 冻结 LuST
-v2.0 的来源、共享转换以及 `LF-REAL-LUST-TOPO-v1` /
-`LF-REAL-LUST-DEMAND-v1` 双 workload 契约，详见
+`LF-SYNTH-v1`，不以某个现实城市或部署分布为代表。LuST v2.0 的来源与共享转换
+沿用 #224 G1，双 workload 的确定性派生由 #1051 修订为 `LF-REAL-LUST-TOPO-v2` /
+`LF-REAL-LUST-DEMAND-v2`（Proposed），详见
 [`real-road-workloads.md`](real-road-workloads.md)。converter、Release assets、
 harness 和结果仍待下游交付；两个 real-road workload 只承担 supplemental /
 observation 角色，不替换 `LF-SYNTH-v1`，也不能把 synthetic baseline 结果解释为
@@ -822,14 +822,14 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 TBD 是显式停止条件，不是可以用开发机推测值填补的空白。每项必须记录未决原因、
 禁止声明、解除触发和 owner。
 
-| TBD                                                          | 未决原因                                           | 当前禁止的声明                                           | 解除触发                                                      | Owner / 后续承载                      |
-| ------------------------------------------------------------ | -------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
-| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                               | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification              | `wangzishi`；后续 certification Issue |
-| P100 支持的 release OS、固件基线与数值内存上限               | 推荐硬件已选定，认证运行环境和数值上限尚未冻结     | 十万 Product Pass / SLA                                  | 在 P100 完成第 4–8 节 integrated certification                | `wangzishi`；后续 certification Issue |
-| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact                  | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差                            | `wangzishi`；独立 design Issue        |
-| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型                   | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR                        | `wangzishi`；未来 aggregate Issue     |
-| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 的 R0/P100                 | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议               | `wangzishi`；平台专用 Issue           |
-| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路              | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据                 | `wangzishi`；#224 与下游 A–C          |
+| TBD                                                          | 未决原因                                                                       | 当前禁止的声明                                           | 解除触发                                                       | Owner / 后续承载                      |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------- |
+| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                                                           | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification               | `wangzishi`；后续 certification Issue |
+| P100 支持的 release OS、固件基线与数值内存上限               | 推荐硬件已选定，认证运行环境和数值上限尚未冻结                                 | 十万 Product Pass / SLA                                  | 在 P100 完成第 4–8 节 integrated certification                 | `wangzishi`；后续 certification Issue |
+| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact                                              | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差                             | `wangzishi`；独立 design Issue        |
+| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型                                               | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR                         | `wangzishi`；未来 aggregate Issue     |
+| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 的 R0/P100                                             | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议                | `wangzishi`；平台专用 Issue           |
+| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路                                          | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据                  | `wangzishi`；#224 与下游 A–C          |
 | 城市工作负载 `LF-CN-URBAN-v1` 的代表性与产品认证             | 规范生成、需求运行与有限跨层观测已有独立入口；代表性和完整产品协议仍需专门验证 | 城市代表性、法规合规或 Product Pass                      | 复用 #542/#544/#545 的固定输入与有限证据，另行完成本文产品协议 | `wangzishi`；#304、#539/#305          |
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
@@ -854,8 +854,8 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
   设计；`real-road-workloads.md` 是长期事实源。其 converter、Release assets、
   harness 和结果由 #224 G4 后的 A–C 继续承载，不阻塞 `LF-SYNTH-v1` 的研究与产品
   Gate 准备。
-- `LF-REAL-LUST-TOPO-v1` 只补充真实拓扑压力，不能单独形成 Product Pass；
-  `LF-REAL-LUST-DEMAND-v1` 只形成 demand/lifecycle observation。二者都不得替换
+- `LF-REAL-LUST-TOPO-v2` 只补充真实拓扑压力，不能单独形成 Product Pass；
+  `LF-REAL-LUST-DEMAND-v2` 只形成 demand/lifecycle observation。二者都不得替换
   canonical synthetic baseline，也不得把 synthetic 结果表述为真实路网代表性证据。
 - multi-world shared-static 测量只证明静态内存复用和 ensemble 吞吐；单大型城市
   world 的并行执行必须单独报告 worker/partition 置换、barrier、边界交换、动态负载

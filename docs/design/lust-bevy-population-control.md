@@ -34,7 +34,7 @@ TOPO/DEMAND workload ID
 
 - 把人口 controller 放进 Core 或新增 batch lifecycle public API；
 - 把 `target_N` / seed / 抽样集合写入 Traffic、Spatial 或 ScenarioManifest；
-- 改写 `LF-REAL-LUST-TOPO-v1` / `LF-REAL-LUST-DEMAND-v1` 的固定一万语义；
+- 改写 `LF-REAL-LUST-TOPO-v2` / `LF-REAL-LUST-DEMAND-v2` 的固定一万语义；
 - 宣称一万@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
 
 走廊场景继续以 [`signalized-corridor-population.md`](signalized-corridor-population.md)
