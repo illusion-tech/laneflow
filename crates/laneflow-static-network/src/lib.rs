@@ -3,6 +3,9 @@
 
 mod attestation;
 mod attestation_compare;
+#[cfg(any(test, feature = "attestation-fixtures"))]
+#[doc(hidden)]
+pub mod attestation_fixtures;
 mod builder;
 mod conflict;
 mod error;

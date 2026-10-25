@@ -12,6 +12,10 @@ publish = false
 name = "laneflow_static_network"
 path = "src/lib.rs"
 
+[features]
+# 默认关闭；跨包测试只替换认证比较视图，不改写在用修订。
+attestation-fixtures = []
+
 [dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }

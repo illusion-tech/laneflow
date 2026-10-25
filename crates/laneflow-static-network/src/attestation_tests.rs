@@ -9,6 +9,9 @@ mod source_timing;
 #[path = "attestation_scan_temporal_tests.rs"]
 mod scan_temporal;
 
+#[path = "attestation_fixtures_tests.rs"]
+mod fixtures;
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

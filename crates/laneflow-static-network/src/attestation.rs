@@ -659,9 +659,9 @@ where
             panic!("injected root-comparison panic");
         }
         let candidate: &SharedNetworkRevision = &candidate;
-        #[cfg(test)]
-        let injected = test_injection::take_comparison();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "attestation-fixtures"))]
+        let injected = crate::attestation_fixtures::take_comparison(root);
+        #[cfg(any(test, feature = "attestation-fixtures"))]
         let (candidate, root) = (
             injected.0.as_deref().unwrap_or(candidate),
             injected.1.as_deref().unwrap_or(root),
@@ -1116,10 +1116,7 @@ pub(crate) mod test_injection {
         sync::Arc,
     };
 
-    type Comparison = (
-        Option<Arc<SharedNetworkRevision>>,
-        Option<Arc<SharedNetworkRevision>>,
-    );
+    use crate::attestation_fixtures::{self, Comparison};
 
     #[derive(Clone)]
     pub(crate) enum BuilderRead {
@@ -1180,7 +1177,6 @@ pub(crate) mod test_injection {
         static SOURCE_PREPARATION_PANIC: Cell<bool> = const { Cell::new(false) };
         static SOURCE_PREPARATION_PANIC_ONCE: Cell<bool> = const { Cell::new(false) };
         static ROOT_COMPARISON_PANIC: Cell<bool> = const { Cell::new(false) };
-        static COMPARISONS: RefCell<VecDeque<Comparison>> = const { RefCell::new(VecDeque::new()) };
         static SOURCES: RefCell<VecDeque<Vec<u8>>> = const { RefCell::new(VecDeque::new()) };
         static SOURCE_OVERRIDE_ACTIVE: Cell<bool> = const { Cell::new(false) };
         static RECOMPUTE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
@@ -1221,11 +1217,7 @@ pub(crate) mod test_injection {
 
     // 提供阶段读取视图，安全地替换测试对象；不改写在用的不可变借用或模拟 OS 地址故障。
     pub(crate) fn comparisons(values: Vec<Comparison>) {
-        COMPARISONS.with(|slot| *slot.borrow_mut() = values.into());
-    }
-
-    pub(crate) fn take_comparison() -> Comparison {
-        COMPARISONS.with(|slot| slot.borrow_mut().pop_front().unwrap_or_default())
+        attestation_fixtures::comparisons(values);
     }
 
     pub(crate) fn sources(values: Vec<Vec<u8>>) {
@@ -1285,7 +1277,7 @@ pub(crate) mod test_injection {
         SOURCE_PREPARATION_PANIC.with(|flag| flag.set(false));
         SOURCE_PREPARATION_PANIC_ONCE.with(|flag| flag.set(false));
         ROOT_COMPARISON_PANIC.with(|flag| flag.set(false));
-        COMPARISONS.with(|slot| slot.borrow_mut().clear());
+        attestation_fixtures::reset();
         SOURCES.with(|slot| slot.borrow_mut().clear());
         SOURCE_OVERRIDE_ACTIVE.with(|flag| flag.set(false));
         RECOMPUTE.with(|slot| *slot.borrow_mut() = None);
