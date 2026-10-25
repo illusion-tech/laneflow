@@ -4,7 +4,6 @@
 mod allocation;
 mod artifacts;
 #[cfg(test)]
-#[path = "../tests/support/child_diagnostics.rs"]
 mod child_diagnostics;
 #[cfg(test)]
 mod child_diagnostics_tests;

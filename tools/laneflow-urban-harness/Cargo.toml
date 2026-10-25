@@ -9,6 +9,10 @@ publish = false
 # 显式关闭构建脚本自动发现：正式测量二进制的构建面不含游离 build.rs。
 build = false
 
+[[test]]
+name = "harness"
+path = "src/harness_tests.rs"
+
 [features]
 motion-kernel-evidence = ["laneflow-runtime/motion-kernel-evidence"]
 # 诊断输出附带观察窗口的调度统计与资源账（#972）；计时含插桩，不作为认证。
