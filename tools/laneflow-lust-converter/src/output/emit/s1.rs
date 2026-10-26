@@ -1,4 +1,4 @@
-//! #1090：保留生产声明和控制锚点的真实完整路径研究。
+//! #1093：保留生产声明和控制锚点的真实完整路径研究。
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -486,10 +486,11 @@ fn run(observation: &observe::EmissionObservation, samples: &Value) -> (Value, V
             break;
         }
     }
+    let mut policy = sampler::policy();
+    policy["assignments"] = json!(ASSIGNMENT_LIMIT);
     (
-        json!({"schema":"laneflow-1090-s1-research","base_commit":"baebb3031bafbc4786525850cf4744626febfb16",
-        "policy":{"pieces_max":2_048,"partitions_per_edge":sampler::PARTITION_LIMIT,"evaluations_per_edge":sampler::EVALUATION_LIMIT,
-            "programs_per_edge":sampler::PROGRAM_LIMIT,"assignments":ASSIGNMENT_LIMIT,"end_degrees":0.95,"recursive_candidate_search":false},
+        json!({"schema":"laneflow-1093-s1-research","base_commit":"6d403d00bb11364ab21d2c1f61bbd9f17ce7b8c8",
+        "policy":policy,
         "successful_programs_replayed_equal":preserved,"samples":rows,"affected_paths":paths.len(),"baseline_paths":baseline,
         "assignment_trials":trials,"retained_pool_assignments_exhausted":assignment_exhausted,"best_assignment":best_assignment,
         "best_assignment_paths":best_paths,"g1_accepted":false}),
