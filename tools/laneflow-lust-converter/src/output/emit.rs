@@ -169,6 +169,8 @@ fn compile_network_lfca_inner(
     // G1 修订（几何修复）：maneuver 边界端点切向钳制，配合 repair_curve 的
     // Bezier 重拟合与硬角倒圆，保证 numeric freeze 的方向连续性。
     let clamps = geom::boundary_clamps(traffic, &curve_by_edge)?;
+    #[cfg(test)]
+    observe::record_topology(traffic);
     add_edges(
         &mut builder,
         traffic,
@@ -361,8 +363,24 @@ fn add_edges(
             clamps.source_at_start(&edge.id),
             clamps.source_at_finish(&edge.id),
         ) {
-            Ok(repaired) => (repaired.program, Some(repaired.quantized_arc_meters)),
+            Ok(repaired) => {
+                #[cfg(test)]
+                observe::record_edge(
+                    &edge.id,
+                    &spatial.centerline.points,
+                    [clamps.at_start(&edge.id), clamps.at_finish(&edge.id)],
+                    Ok(&repaired.program),
+                );
+                (repaired.program, Some(repaired.quantized_arc_meters))
+            }
             Err(error) => {
+                #[cfg(test)]
+                observe::record_edge(
+                    &edge.id,
+                    &spatial.centerline.points,
+                    [clamps.at_start(&edge.id), clamps.at_finish(&edge.id)],
+                    Err(&error),
+                );
                 let full = format!("lane edge {:?}: {error}", edge.id);
                 if let Some(diagnostics) = diagnostics.as_mut() {
                     diagnostics.push(geom::classify_infeasible(
@@ -778,5 +796,85 @@ impl From<laneflow_compiler::DiagnosticBundle> for Error {
             stage: "road-editing source",
             message: diagnostics(&value),
         }
+    }
+}
+
+/// 仅测试的发射观察（#1084 S0-F）：在线程内显式开启时，记录本次转换的完整
+/// 机动路径与每条车道图边的真实 `repair_curve` 结果（失败边记录原始错误，
+/// 不记录诊断模式随后使用的占位程序）。未开启时不记录，也不改变发射行为。
+#[cfg(test)]
+pub(crate) mod observe {
+    use std::cell::RefCell;
+
+    use laneflow_compiler::road_editing as re;
+
+    use crate::output::model::{ManeuverPath, Movement, TrafficPackage};
+
+    /// 一条车道图边的真实发射结果。
+    pub(crate) enum EdgeEmission {
+        Emitted(re::RoadEditingCurveProgram),
+        Failed(String),
+    }
+
+    /// 一条边 `repair_curve` 的原样输入：规范坐标中心线与首/末边界钳制方向。
+    pub(crate) struct EdgeInput {
+        pub(crate) points: Vec<[f64; 3]>,
+        pub(crate) clamps: [Option<[f64; 3]>; 2],
+    }
+
+    /// 一次转换的观察记录；边按发射顺序记录，`inputs` 与 `edges` 同序。
+    #[derive(Default)]
+    pub(crate) struct EmissionObservation {
+        pub(crate) maneuver_paths: Vec<ManeuverPath>,
+        pub(crate) movements: Vec<Movement>,
+        pub(crate) edges: Vec<(String, EdgeEmission)>,
+        pub(crate) inputs: Vec<EdgeInput>,
+    }
+
+    thread_local! {
+        static ACTIVE: RefCell<Option<EmissionObservation>> = const { RefCell::new(None) };
+    }
+
+    /// 在当前线程开启观察并执行 `run`，返回其结果与观察记录。
+    pub(crate) fn capture<T>(run: impl FnOnce() -> T) -> (T, EmissionObservation) {
+        ACTIVE.with(|slot| {
+            assert!(slot.borrow().is_none(), "nested emission observation");
+            *slot.borrow_mut() = Some(EmissionObservation::default());
+        });
+        let output = run();
+        let observation = ACTIVE
+            .with(|slot| slot.borrow_mut().take())
+            .expect("observation slot");
+        (output, observation)
+    }
+
+    pub(super) fn record_topology(traffic: &TrafficPackage) {
+        ACTIVE.with(|slot| {
+            if let Some(observation) = slot.borrow_mut().as_mut() {
+                observation.maneuver_paths = traffic.maneuver_paths.clone();
+                observation.movements = traffic.movements.clone();
+            }
+        });
+    }
+
+    pub(super) fn record_edge(
+        edge_id: &str,
+        points: &[[f64; 3]],
+        clamps: [Option<[f64; 3]>; 2],
+        result: std::result::Result<&re::RoadEditingCurveProgram, &crate::Error>,
+    ) {
+        ACTIVE.with(|slot| {
+            if let Some(observation) = slot.borrow_mut().as_mut() {
+                let emission = match result {
+                    Ok(program) => EdgeEmission::Emitted(program.clone()),
+                    Err(error) => EdgeEmission::Failed(error.to_string()),
+                };
+                observation.edges.push((edge_id.to_owned(), emission));
+                observation.inputs.push(EdgeInput {
+                    points: points.to_vec(),
+                    clamps,
+                });
+            }
+        });
     }
 }

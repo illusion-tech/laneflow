@@ -30,7 +30,7 @@ const WITNESS_CUBIC: [Vec3; 4] = [
 
 /// 夹具入/出口直线边长度（米）：远离 0.1 m 退化下限与 100 mm 边长下限。
 const LEAD_METERS: f64 = 2.0;
-const FRAME_KEY: &str = "s0-frame";
+pub(super) const FRAME_KEY: &str = "s0-frame";
 const ENTRY_KEY: &str = "entry";
 const INTERNAL_KEY: &str = "internal";
 const EXIT_KEY: &str = "exit";
@@ -157,7 +157,7 @@ fn sink_verdict(points: &[Vec3]) -> SinkVerdict {
 
 /// compiler 拒绝时所在的公开受检入口。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Stage {
+pub(super) enum Stage {
     Declaration,
     Finish,
     Write,
@@ -167,7 +167,7 @@ enum Stage {
 }
 
 impl Stage {
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Stage::Declaration => "builder-declaration",
             Stage::Finish => "builder-finish",
@@ -243,7 +243,7 @@ fn line_program(points: &[Vec3]) -> re::RoadEditingCurveProgram {
 }
 
 /// 与 converter 发射同构的 approach 边声明：alignment → corridor → section → lane。
-fn approach_declarations(
+pub(super) fn approach_declarations(
     key: &str,
     program: re::RoadEditingCurveProgram,
 ) -> (re::RoadAlignmentInput, Vec<re::RoadEditingDeclaration>) {
