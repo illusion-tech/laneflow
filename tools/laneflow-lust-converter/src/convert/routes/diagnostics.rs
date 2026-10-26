@@ -4,7 +4,10 @@ use std::{collections::BTreeSet, time::Instant};
 
 use crate::{
     Error,
-    convert::{junction::NormalizedTopology, population::PopulationRecord},
+    convert::{
+        junction::{NormalizationFailure, NormalizationFailureKind, NormalizedTopology},
+        population::PopulationRecord,
+    },
     output::model::ManeuverPath,
     sumo::SumoNetwork,
 };
@@ -118,10 +121,12 @@ pub(crate) struct RouteDiagnostic {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DiagnosticMetrics {
     pub records: usize,
+    /// 以下计数只包含诊断观察器的执行，不包含正式路线入口的基线调用。
     pub expansion_calls: usize,
     pub state_evaluations: u64,
     pub memo_hits: u64,
     pub materialize_calls: u64,
+    /// 整次诊断耗时：索引、正式基线、诊断展开、绑定与排序全部计入。
     pub elapsed_ns: u128,
 }
 
@@ -134,6 +139,7 @@ pub(crate) struct RouteDiagnosticReport {
 
 #[derive(Default)]
 struct Trace {
+    expansion_calls: usize,
     start_lanes: Option<Vec<u32>>,
     candidates: Vec<HopDiagnostic>,
     state_evaluations: u64,
@@ -170,15 +176,18 @@ impl RouteObserver for Trace {
     }
 }
 
-pub(crate) fn diagnose_normalization_failure(error: Error) -> RouteDiagnostic {
+pub(crate) fn diagnose_normalization_failure(failure: NormalizationFailure) -> RouteDiagnostic {
     RouteDiagnostic {
-        kind: RouteDiagnosticKind::SourceReference,
+        kind: match failure.kind {
+            NormalizationFailureKind::SourceReference => RouteDiagnosticKind::SourceReference,
+            NormalizationFailureKind::Unclassified => RouteDiagnosticKind::Unclassified,
+        },
         stage: RouteDiagnosticStage::Normalization,
         population: None,
         road_edge_ids: Vec::new(),
         first_gap: None,
         route: None,
-        original_error: Some(DiagnosticError::from_error(error)),
+        original_error: Some(DiagnosticError::from_error(failure.error)),
         injected: false,
     }
 }
@@ -219,6 +228,7 @@ fn diagnose_record(
             trace,
         );
     }
+    trace.expansion_calls += 1;
     let result = expand_road_route_with_observer(
         network,
         lanes_by_edge,
@@ -226,7 +236,7 @@ fn diagnose_record(
         &population.road_edge_ids,
         &mut trace,
     );
-    let injected = trace.inject_materialize_failure;
+    let injected = trace.inject_materialize_failure && trace.materialize_calls > 0;
     let (kind, stage, first_gap, route, original_error) = match result {
         Ok(edge_ids) => (
             RouteDiagnosticKind::Success,
@@ -371,12 +381,12 @@ fn diagnose_population_impl(
     population: &[PopulationRecord],
     inject_materialize_failure: bool,
 ) -> RouteDiagnosticReport {
+    let started = Instant::now();
     note_diagnostic_entry();
     let hops = build_hop_index(topology);
     let lanes_by_edge = build_external_lanes_by_edge(network);
     let formal = build_routes_and_bind_population(network, topology, population)
         .map_err(DiagnosticError::from_error);
-    let started = Instant::now();
     let mut metrics = DiagnosticMetrics::default();
     let mut records = Vec::with_capacity(population.len());
     for population_record in population {
@@ -401,13 +411,12 @@ fn diagnose_population_impl(
             route.catalog_id = bound.as_ref().map(|bound| bound.route_id.clone());
             route.bound = bound;
         }
-        metrics.expansion_calls += 1;
+        metrics.expansion_calls += trace.expansion_calls;
         metrics.state_evaluations += trace.state_evaluations;
         metrics.memo_hits += trace.memo_hits;
         metrics.materialize_calls += trace.materialize_calls;
         records.push(record);
     }
-    metrics.elapsed_ns = started.elapsed().as_nanos();
     metrics.records = records.len();
     records.sort_by(|left, right| {
         let ordering = match (&left.population, &right.population) {
@@ -426,6 +435,7 @@ fn diagnose_population_impl(
         };
         ordering.then_with(|| left.road_edge_ids.cmp(&right.road_edge_ids))
     });
+    metrics.elapsed_ns = started.elapsed().as_nanos();
     RouteDiagnosticReport {
         formal,
         records,
@@ -448,7 +458,7 @@ mod tests {
 
     use super::*;
     use crate::convert::{
-        junction::normalize_junctions,
+        junction::normalize_junctions_diagnosed,
         routes::test_support::{
             NO_COMPLETE_ROUTE_ERROR, RouteFixture, RouteFixtureKind, population_record,
         },
@@ -712,6 +722,9 @@ mod tests {
             "DUE vehicle \"unknown-road\" references unknown road edge \"GHOST\"",
         );
         assert_eq!(record.population.as_ref().unwrap().population_rank, 0);
+        assert_eq!(report.metrics.expansion_calls, 0);
+        assert_eq!(report.metrics.state_evaluations, 0);
+        assert_eq!(report.metrics.materialize_calls, 0);
 
         let population = vec![population_record("internal-road", &["A", "B", ":J2_0"])];
         let report = diagnose_population(&network, &topology, &population);
@@ -722,10 +735,11 @@ mod tests {
             record,
             "DUE vehicle \"internal-road\" route references internal edge \":J2_0\"",
         );
+        assert_eq!(report.metrics.expansion_calls, 0);
 
         let unknown_lane = RouteFixture::new(RouteFixtureKind::UnknownLane);
         let network = unknown_lane.network();
-        let error = normalize_junctions(
+        let error = normalize_junctions_diagnosed(
             &network,
             &crate::convert::junction::StubWeldGate::Unrestricted,
         )
@@ -747,11 +761,40 @@ mod tests {
         assert_eq!(record.stage, RouteDiagnosticStage::RouteExpansion);
         assert!(record.first_gap.is_none());
         assert_original(record, "road-level route must contain at least one edge");
+        assert_eq!(report.metrics.expansion_calls, 1);
 
         let population = vec![population_record("single", &["B"])];
         let report = diagnose_population(&network, &topology, &population);
         let record = only(&report);
         assert_success_chain(record, &["sumo:B_0"]);
+    }
+
+    fn unsupported_normalization_network() -> SumoNetwork {
+        crate::sumo::parse_sumo_network_xml(include_str!(
+            "diagnostics/tests/stub-with-continuation.net.xml"
+        ))
+        .expect("parse stub continuation")
+    }
+
+    #[test]
+    fn a1_unsupported_normalization_preserves_unclassified_and_original_error() {
+        let network = unsupported_normalization_network();
+        let gate = crate::convert::junction::StubWeldGate::Unrestricted;
+        let formal = crate::convert::junction::normalize_junctions(&network, &gate)
+            .expect_err("unsupported normalization");
+        let failure = normalize_junctions_diagnosed(&network, &gate)
+            .expect_err("diagnosed unsupported normalization");
+        let record = diagnose_normalization_failure(failure);
+        assert_eq!(record.kind, RouteDiagnosticKind::Unclassified);
+        assert_eq!(record.stage, RouteDiagnosticStage::Normalization);
+        assert_eq!(
+            record.original_error,
+            Some(DiagnosticError::from_error(formal))
+        );
+        assert!(record.population.is_none());
+        assert!(record.road_edge_ids.is_empty());
+        assert!(record.first_gap.is_none());
+        assert!(!record.injected);
     }
 
     #[test]
