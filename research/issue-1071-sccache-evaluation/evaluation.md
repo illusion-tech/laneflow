@@ -2,7 +2,7 @@
 
 > 本记录为 [#1071](https://github.com/illusion-tech/laneflow/issues/1071) 的评估产出；go/no-go 决议、ADR 判断与失败语义选择由维护者在该 Issue 签署，本记录只给建议与证据。
 
-评估环境：工作树 `E:\projects\worktrees\1071-sccache-eval\laneflow`（分支 `research/1071-sccache-eval`，基线 `232198ae`）；Windows 11 本机；Rust 1.99.1（`x86_64-pc-windows-msvc`）。被评估工具：sccache **v0.19.0**（2026-10-24 发布），本机实验用 `sccache-v0.19.0-x86_64-pc-windows-msvc.zip`，SHA-256 `28be8c61f6b2c89b9eb2869f6af7f78e6f992e78a8abae0ce855fcc129cbeac1`，与 GitHub 发布 API 的官方 digest 一致。CI 落地对应 Linux 资产 `sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz`（官方 digest `aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd`）。
+评估环境：本机专用工作树（分支 `research/1071-sccache-eval`，基线 `232198ae`）；Windows 11 本机；Rust 1.99.1（`x86_64-pc-windows-msvc`）。被评估工具：sccache **v0.19.0**（2026-10-24 发布），本机实验用 `sccache-v0.19.0-x86_64-pc-windows-msvc.zip`，SHA-256 `28be8c61f6b2c89b9eb2869f6af7f78e6f992e78a8abae0ce855fcc129cbeac1`，与 GitHub 发布 API 的官方 digest 一致。CI 落地对应 Linux 资产 `sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz`（官方 digest `aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd`）。
 
 ## 1. 正确性论证（纸面）
 
@@ -16,7 +16,7 @@ sccache 作为编译器包装器（`RUSTC_WRAPPER=sccache`，cargo ≥1.40 原�
 - **等价性要点**：miss 时 sccache 以原参数调用真实 rustc 并存储产物；hit 时返回的是一次"同源码摘要 + 同参数 + 同编译器身份"调用的产物。包装器不修改参数、不修改产物语义。
 - **已知边界**（官方 README "Known Caveats"）：`bin` / `dylib` / `cdylib` / `proc-macro` 等需链接的 crate 不可缓存（测试二进制、最终链接留在热运行地板里）；增量编译产物不可缓存——CI 侧 rust-cache 已注入 `CARGO_INCREMENTAL: 0`，满足前提。
 
-## 2. 信任面与实验 1（实测：hermetic 审计与 job 级包装器完全隔离）
+## 2. 信任面与实验 1（实测：hermetic 子编译与 job 级包装器完全隔离）
 
 **机制**：`xtask/src/wire_audit.rs` 的 `HERMETIC_SCRUB_ENV_EXACT`（:176-187）精确剔除 `RUSTC` / `RUSTC_WRAPPER` / `RUSTC_WORKSPACE_WRAPPER` / `CARGO_BUILD_RUSTC*` / `RUSTFLAGS*` / `RUSTC_BOOTSTRAP` 共 10 键，外加模式剔除 `CARGO_TARGET_*_RUSTFLAGS`（:190-193）；`hermetic_cargo_command`（:1240-1259）以仓库外 cwd + 逐键 `env_remove` 构造命令。
 
@@ -29,7 +29,9 @@ sccache 作为编译器包装器（`RUSTC_WRAPPER=sccache`，cargo ≥1.40 原�
 | B 单测     | `xtask-724e65963a3e9f0b.exe wire_audit`（wrapper 在场）                                              | **28 passed / 0 failed**                                        | **0**                            |
 | C 反面对照 | `cargo +1.99.1 check` 独立 scratch crate（wrapper 在场）                                             | 构建成功                                                        | **6**（同场条件下日志确实工作）  |
 
-**结论**：wire 审计的全部编译面（默认+全特性双配置 `-F` 编译、三路注入金丝雀、hermetic metadata）在 job 级 `RUSTC_WRAPPER` 在场时**零经过包装器**；隔离来自 `HERMETIC_SCRUB_ENV_EXACT` 而非巧合（C 组证明）。因此 job 级 sccache **无法影响门禁审计的编译**；仓库 config 层的 `[build] rustc*` 禁令（:225-282）与 workflow 信任面（`RUSTC_WRAPPER` 环境）边界清晰、互不越界。金丝雀三路注入语义（manifest [lints] / `RUSTFLAGS=-A` / cwd `.cargo/config` rustflags 须编译失败且指向 unsafe）不受包装器影响——它们根本不在包装器路径上。
+**结论**：xtask 运行后的 hermetic 子编译面（默认+全特性双配置 `-F` 编译、三路注入金丝雀、hermetic metadata）在 job 级 `RUSTC_WRAPPER` 在场时**零经过包装器**；隔离来自 `HERMETIC_SCRUB_ENV_EXACT` 而非巧合（C 组证明）。金丝雀三路注入语义（manifest [lints] / `RUSTFLAGS=-A` / cwd `.cargo/config` rustflags 须编译失败且指向 unsafe）不受包装器影响——它们根本不在包装器路径上。
+
+**结论边界（审阅意见修正）**：上述隔离**只覆盖 hermetic 子编译**。审计器自身的引导构建（`ci.yml` 的仓库外 cwd `cargo build -p xtask`）继承 job 环境，`RUSTC_WRAPPER` 在场时**会**经过包装器（D 组 52 次拦截即包含此类构建），`HERMETIC_SCRUB_ENV_EXACT` 要等 xtask 启动后才作用于其子进程。因此「sccache 无法触碰门禁审计」仅对 hermetic 子编译成立；引导构建面的处置列为实施前提（§10 前提 6）：推荐 `wire-audit` job 整体不挂 `RUSTC_WRAPPER`（该 job 无缓存收益——hermetic 子编译被剔除、引导构建缓存无意义），或为引导构建单独完成信任论证并留档。
 
 **待实施确认项**：`SCCACHE_*` 环境键未列入剔除名单；因包装器路径不被触发，它们对 hermetic 编译惰性（实验 A/B 的零拦截即证），建议落地 PR 在文档中显式论证而不必扩名单。
 
@@ -71,16 +73,16 @@ sccache 作为编译器包装器（`RUSTC_WRAPPER=sccache`，cargo ≥1.40 原�
 
 基线 = PR #1058 push 3（Rust checks 11m57s）；编译降幅按实验 2 的 ×0.37 保守预估：
 
-| 步骤                         | 基线                             | sccache 热缓存预估  | 说明                                     |
-| ---------------------------- | -------------------------------- | ------------------- | ---------------------------------------- |
-| Run workspace tests          | 6m45s（编译 4m09s + 测试 2m36s） | ~3m30s              | 编译 249s→~92s；测试执行不缓存           |
-| Run execution evidence tests | 2m12s（≈全编译）                 | ~50s                | 特征形态独立命中                         |
-| Check wire toolchain audit   | 1m54s                            | **1m54s 不变**      | 实验 1：wrapper 被 hermetic 剔除，零命中 |
-| clippy 20s + 14s             | 不变                             | 不变                | 走 clippy-driver，不按获益计             |
-| fmt / doctests / 架构 / 示例 | ~12s                             | 不变                |                                          |
-| **Rust checks 合计**         | **~12m**                         | **~7m-7m30s（热）** | 冷缓存轮 ≈ 基线 +1%                      |
+| 步骤                         | 基线                             | sccache 热缓存预估 | 说明                                     |
+| ---------------------------- | -------------------------------- | ------------------ | ---------------------------------------- |
+| Run workspace tests          | 6m45s（编译 4m09s + 测试 2m36s） | ~4m08s             | 编译 249s→~92s，加不缓存的测试 156s      |
+| Run execution evidence tests | 2m12s（≈全编译）                 | ~50s               | 特征形态独立命中                         |
+| Check wire toolchain audit   | 1m54s                            | **1m54s 不变**     | 实验 1：wrapper 被 hermetic 剔除，零命中 |
+| clippy 20s + 14s             | 不变                             | 不变               | 走 clippy-driver，不按获益计             |
+| fmt / doctests / 架构 / 示例 | ~12s                             | 不变               |                                          |
+| **Rust checks 合计**         | **~12m**                         | **~7m58s（热）**   | 冷缓存轮 ≈ 基线 +1%                      |
 
-merge_group 入队（现 14m27s 全量）同样受益（读 main 缓存）；PR 二次 push、docs-only push 收益最大。首次部署与缓存淘汰后的首轮无收益，属预期。
+merge_group 入队（现 14m27s 全量）同样受益（读 main 缓存）；PR 二次 push、docs-only push 收益最大。首次部署与缓存淘汰后的首轮无收益，属预期。注：#1072 已把 wire 审计拆出 `Rust checks`（实测基线 10m0s），同一绝对节省量（约 4m）对应拆分后约 6m-6m30s。
 
 ## 7. 准入合规
 
@@ -104,14 +106,15 @@ merge_group 入队（现 14m27s 全量）同样受益（读 main 缓存）；PR 
 
 ## 10. go/no-go 建议
 
-**建议：go（附前提条件）**。理由：正确性论证成立（内容寻址 + 编译器身份入键 + 失败关闭语义）；信任面核心风险已被实验 1 排除（门禁审计 wrapper-free）；投毒面被 GitHub 作用域与低信任写限制结构性压制，残余风险有明确缓解；收益实测显著（编译 -62.6%，映射到 CI 约 12m → 7m-7m30s）。
+**建议：go（附前提条件）**。理由：正确性论证成立（内容寻址 + 编译器身份入键 + 失败关闭语义）；hermetic 子编译信任面已被实验 1 排除，引导构建面按前提 6 处置后排除；投毒面被 GitHub 作用域与低信任写限制结构性压制，残余风险有明确缓解；收益实测显著（编译 -62.6%，映射到 CI 约 12m → ~8m；#1072 后 ~10m 基线对应约 6m-6m30s）。
 
 前提条件（进入实施单前必须闭合）：
 1. 维护者签署本记录（含 §9 ADR 判断与 §7 失败语义选择）；
 2. 实施单要求同提交开/关对照复测（Linux runner 实测比例替换本机 ×0.37）；
 3. 落地形态按 §5 GHA 原生后端（可加 `disk` L0 多级），PR 侧评估 `SCCACHE_GHA_RW_MODE=READ_ONLY`；
 4. `SCCACHE_*` 惰性论证与工具基线条目写入 `dependency-security.md`；stats 纳入 CI 日志；
-5. 配额预算评估（与 rust-cache 现有条目共享 10 GB）。
+5. 配额预算评估（与 rust-cache 现有条目共享 10 GB）；
+6. 引导构建面处置：`wire-audit` job 不设置 `RUSTC_WRAPPER`（推荐，该 job 无缓存收益），或对审计器引导构建完成单独信任论证并留档（§2 结论边界）。
 
 最终决议归维护者。
 
