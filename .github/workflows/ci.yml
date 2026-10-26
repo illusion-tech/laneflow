@@ -170,7 +170,9 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: laneflow-msrv-1.99.1-rust
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # #1094 实验：RUSTFLAGS 变更使依赖制品迁移失效，临时保存 lld 键依赖
+          # 制品供下一轮测真实稳态；判决后收敛为 main-only。
+          save-if: true
           cache-targets: true
 
       - name: Install cargo-nextest 0.9.145
@@ -405,7 +407,8 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: laneflow-msrv-1.99.1-placement-fixtures
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # #1094 实验：同上，临时保存 lld 键依赖制品测稳态。
+          save-if: true
           cache-targets: true
 
       - name: Install cargo-nextest 0.9.145
@@ -535,7 +538,8 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: laneflow-msrv-1.99.1-rust-urban
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # #1094 实验：同上，临时保存 lld 键依赖制品测稳态。
+          save-if: true
           cache-targets: true
 
       - name: Install cargo-nextest 0.9.145
