@@ -136,10 +136,13 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "on"
-      SCCACHE_GHA_CACHE_TO: sccache-v1-
-      SCCACHE_GHA_CACHE_FROM: sccache-v1-
-      # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
-      # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
+      # #1074 根因修复：缓存服务 v2（Twirp）开关。不设时 ghac 走 v1 旧路径
+      # _apis/artifactcache/*，在现行 results-receiver 上 404，能力探测失败使
+      # 存储降级只读、写入静默全拒（main 首跑 641/641）；设置后走 Twirp 端点，
+      # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
+      ACTIONS_CACHE_SERVICE_V2: "on"
+      # 验证期临时读写（先验写入通路与真实命中），验证后收敛为条件式
+      # （PR 与 merge_group 只读、main push 读写，#1071 威胁模型）。
       SCCACHE_GHA_RW_MODE: READ_WRITE
     steps:
       - name: Fail closed when path detection did not succeed
@@ -364,10 +367,13 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "on"
-      SCCACHE_GHA_CACHE_TO: sccache-v1-
-      SCCACHE_GHA_CACHE_FROM: sccache-v1-
-      # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
-      # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
+      # #1074 根因修复：缓存服务 v2（Twirp）开关。不设时 ghac 走 v1 旧路径
+      # _apis/artifactcache/*，在现行 results-receiver 上 404，能力探测失败使
+      # 存储降级只读、写入静默全拒（main 首跑 641/641）；设置后走 Twirp 端点，
+      # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
+      ACTIONS_CACHE_SERVICE_V2: "on"
+      # 验证期临时读写（先验写入通路与真实命中），验证后收敛为条件式
+      # （PR 与 merge_group 只读、main push 读写，#1071 威胁模型）。
       SCCACHE_GHA_RW_MODE: READ_WRITE
     steps:
       - name: Fail closed when path detection did not succeed
@@ -487,10 +493,13 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "on"
-      SCCACHE_GHA_CACHE_TO: sccache-v1-
-      SCCACHE_GHA_CACHE_FROM: sccache-v1-
-      # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
-      # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
+      # #1074 根因修复：缓存服务 v2（Twirp）开关。不设时 ghac 走 v1 旧路径
+      # _apis/artifactcache/*，在现行 results-receiver 上 404，能力探测失败使
+      # 存储降级只读、写入静默全拒（main 首跑 641/641）；设置后走 Twirp 端点，
+      # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
+      ACTIONS_CACHE_SERVICE_V2: "on"
+      # 验证期临时读写（先验写入通路与真实命中），验证后收敛为条件式
+      # （PR 与 merge_group 只读、main push 读写，#1071 威胁模型）。
       SCCACHE_GHA_RW_MODE: READ_WRITE
     steps:
       - name: Fail closed when path detection did not succeed
