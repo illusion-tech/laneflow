@@ -1,0 +1,86 @@
+{
+  "counts": {
+    "distinct_directed_pairs": {
+      "by_outcome": {
+        "compiled:accepted": 14887,
+        "compiled:direction_failed": 3,
+        "not_checked:both_emission_failed": 2227,
+        "not_checked:left_emission_failed": 6440,
+        "not_checked:right_emission_failed": 6414
+      },
+      "compiled": 14890,
+      "not_compiled": 15081,
+      "total": 29971
+    },
+    "path_positions": {
+      "by_outcome": {
+        "compiled:accepted": 14887,
+        "compiled:direction_failed": 3,
+        "not_checked:both_emission_failed": 2227,
+        "not_checked:left_emission_failed": 6440,
+        "not_checked:right_emission_failed": 6414
+      },
+      "compiled": 14890,
+      "not_compiled": 15081,
+      "total": 29971
+    }
+  },
+  "edges": {
+    "emission_failed": 8230,
+    "emitted": 16265,
+    "recorded": 24495
+  },
+  "fixture": {
+    "layout": "lead-in -> left -> right -> lead-out (left/right = emitted programs as direct-geometry internal edges)",
+    "lead_meters": 2.0
+  },
+  "geometry_profile": "Balanced5Cm + Balanced2Deg",
+  "maneuver_paths": 14098,
+  "schema": "laneflow-1084-s0f-summary",
+  "source": {
+    "lust_commit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+    "net_digest": "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341",
+    "pinned_files": [
+      {
+        "bytes": 10940662,
+        "path": "scenario/lust.net.xml",
+        "sha256": "6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341"
+      },
+      {
+        "bytes": 2743451,
+        "path": "scenario/lust.poly.xml",
+        "sha256": "abb519b3e12e0392111e9d0c3517e8f54ec424dedbb54dd9ceaf31a9eb3fcc8e"
+      },
+      {
+        "bytes": 83530,
+        "path": "scenario/tll.static.xml",
+        "sha256": "893f4e0e9ffb8e8eed67caeafada8fec958fb92f437aa41f69783c059c474102"
+      },
+      {
+        "bytes": 1707,
+        "path": "scenario/vtypes.add.xml",
+        "sha256": "8bfa1f4f2c51f4f15066e5d799027572f3482aaaa67fb37ee10a75cecf42ee92"
+      },
+      {
+        "bytes": 41634764,
+        "path": "scenario/DUERoutes/local.static.0.rou.xml",
+        "sha256": "08a76518941bcb56ee42a50e34a360efade103a21a6ea3d7d19f5a66765e6503"
+      },
+      {
+        "bytes": 42862343,
+        "path": "scenario/DUERoutes/local.static.1.rou.xml",
+        "sha256": "1e657f82da83d43869d9bf91d7f20c997bc9b2d031cd4f08ccdc3ccd84836ccf"
+      },
+      {
+        "bytes": 44934267,
+        "path": "scenario/DUERoutes/local.static.2.rou.xml",
+        "sha256": "bdd93df275c624f44db4d3bbdc659cd91f237a5951b1d09fa0be105264ecdd35"
+      },
+      {
+        "bytes": 1134,
+        "path": "LICENSE.md",
+        "sha256": "9a16c8681095f730e72ad6efe2b56c30a924552d4b6b6326868309749d64837b"
+      }
+    ]
+  }
+}
