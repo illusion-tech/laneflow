@@ -152,8 +152,11 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: laneflow-msrv-1.99.1-rust
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # #1061 实验探针：实验分支临时放开保存，取得两轮 push 的复用数据后撤除或定案。
+          save-if: true
           cache-targets: true
+          # #1061 实验探针：留存 workspace 成员制品，测量跨运行复用收益与缓存体积。
+          cache-workspace-crates: true
 
       - name: Install cargo-nextest 0.9.145
         if: needs.changes.outputs.rust == 'true'
