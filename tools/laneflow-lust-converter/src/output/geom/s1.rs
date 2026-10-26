@@ -1,7 +1,7 @@
 //! #1090：仅测试构建可开启的固定 cubic 划分研究；不进入生产采样路径。
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -15,6 +15,38 @@ pub(crate) const EVALUATION_LIMIT: u64 = 32_000_000;
 const END_DEGREES: f64 = 0.95;
 const CACHED_CUBIC_LIMIT: usize = 256;
 const SCAN_STEPS: usize = 512;
+const RETAINED_KEY_POINT_LIMIT: usize = 262_144;
+
+#[derive(Default)]
+struct ExactSeen {
+    keys: BTreeSet<Vec<[u32; 3]>>,
+    points: usize,
+}
+
+#[derive(Debug, PartialEq)]
+enum Retain {
+    New,
+    Duplicate,
+    Budget,
+}
+
+impl ExactSeen {
+    fn insert(&mut self, key: Vec<[u32; 3]>, limit: usize) -> Retain {
+        if self.keys.contains(&key) {
+            return Retain::Duplicate;
+        }
+        if self.points + key.len() > limit {
+            return Retain::Budget;
+        }
+        self.points += key.len();
+        self.keys.insert(key);
+        Retain::New
+    }
+}
+
+fn canonical_key(points: impl Iterator<Item = Vec3>) -> Vec<[u32; 3]> {
+    points.map(|p| quantize_vec3(p).map(f32::to_bits)).collect()
+}
 
 struct Scan {
     control: [[u64; 3]; 6],
@@ -34,6 +66,9 @@ struct Counts {
     scan_reuses: u64,
     cached_cubics_peak: usize,
     scan_values_peak: usize,
+    duplicate_partitions: u64,
+    duplicate_programs: u64,
+    retained_key_points_peak: usize,
 }
 
 #[derive(Default)]
@@ -45,6 +80,7 @@ struct Search {
     counts: Counts,
     spans: Vec<Value>,
     scans: BTreeMap<usize, Scan>,
+    program_keys: ExactSeen,
 }
 
 thread_local! {
@@ -105,13 +141,31 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
                     state.counts.complete_edge_end_rejected += 1;
                     last_error = Some(format!("complete edge end constraint: {angles:?}"));
                 } else {
-                    candidates.push(Candidate {
-                        repaired,
-                        spans: state.spans.clone(),
-                    });
-                    if candidates.len() == PROGRAM_LIMIT {
-                        state.truncated = true;
-                        break;
+                    match state
+                        .program_keys
+                        .insert(canonical_key(points.into_iter()), RETAINED_KEY_POINT_LIMIT)
+                    {
+                        Retain::Duplicate => {
+                            state.counts.duplicate_programs += 1;
+                        }
+                        Retain::Budget => {
+                            state.truncated = true;
+                            break;
+                        }
+                        Retain::New => {
+                            state.counts.retained_key_points_peak = state
+                                .counts
+                                .retained_key_points_peak
+                                .max(state.program_keys.points);
+                            candidates.push(Candidate {
+                                repaired,
+                                spans: state.spans.clone(),
+                            });
+                            if candidates.len() == PROGRAM_LIMIT {
+                                state.truncated = true;
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -153,6 +207,7 @@ pub(super) fn sample_if_active(
         let checkpoint = sink.checkpoint();
         assert_eq!(checkpoint.prev_point, quantize_vec3(a), "fixed span seam");
         let mut accepted = 0;
+        let mut seen = ExactSeen::default();
         for n in 2..=SAMPLE_MAX_PIECES {
             for angle in [false, true] {
                 let new_scan = angle && !state.scans.contains_key(&index);
@@ -192,6 +247,27 @@ pub(super) fn sample_if_active(
                     state.counts.point_evaluations += 1;
                     if sink.push(end).is_err() { passed = false; break; }
                 }
+                if passed {
+                    let key = canonical_key(std::iter::once(a).chain(sink.segments[checkpoint.segments_len..].iter().map(|s| {
+                        let re::RoadEditingCurveSegmentGeometry::Line {end} = s.geometry() else { panic!("line program"); };
+                        [end.x(),end.y(),end.z()]
+                    })));
+                    match seen.insert(key,RETAINED_KEY_POINT_LIMIT - state.program_keys.points) {
+                        Retain::Duplicate => {
+                            state.counts.duplicate_partitions += 1;
+                            sink.restore(&checkpoint);
+                            continue;
+                        }
+                        Retain::Budget => {
+                            state.truncated = true;
+                            sink.restore(&checkpoint);
+                            return Some(Err(Error::SumoModel("S1 research dedup budget truncated".to_owned())));
+                        }
+                        Retain::New => {
+                            state.counts.retained_key_points_peak = state.counts.retained_key_points_peak.max(seen.points + state.program_keys.points);
+                        }
+                    }
+                }
                 if passed && accepted == wanted {
                     state.spans.push(json!({"cubic_index": index, "span_index_zero_based": span_index, "pieces": n,
                         "partition": if angle {"tangent_angle_512"} else {"uniform_t"},
@@ -206,6 +282,31 @@ pub(super) fn sample_if_active(
         state.failed_at = Some(index);
         Some(Err(Error::SumoModel(format!("S1 finite partition family exhausted at cubic {index}, requested rank {wanted}"))))
     })
+}
+
+#[test]
+fn dedup_uses_all_canonical_points_and_respects_budget() {
+    let mut seen = ExactSeen::default();
+    let a = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+    let mut same = a;
+    same[1][0] += 1e-9;
+    let mut changed = a;
+    changed[1][1] = 0.01;
+    assert_eq!(seen.insert(canonical_key(a.into_iter()), 6), Retain::New);
+    assert_eq!(
+        seen.insert(canonical_key(same.into_iter()), 6),
+        Retain::Duplicate
+    );
+    assert_eq!(seen.points, 3);
+    assert_eq!(
+        seen.insert(canonical_key(changed.into_iter()), 6),
+        Retain::New
+    );
+    assert_eq!(
+        seen.insert(canonical_key([[3.0, 0.0, 0.0]].into_iter()), 6),
+        Retain::Budget
+    );
+    assert_eq!(seen.points, 6);
 }
 
 fn scan(span: &BezierSpan) -> (Option<Vec<f64>>, u64) {
