@@ -369,6 +369,10 @@ fn add_edges(
                     &edge.id,
                     &spatial.centerline.points,
                     [clamps.at_start(&edge.id), clamps.at_finish(&edge.id)],
+                    [
+                        clamps.source_at_start(&edge.id),
+                        clamps.source_at_finish(&edge.id),
+                    ],
                     Ok(&repaired.program),
                 );
                 (repaired.program, Some(repaired.quantized_arc_meters))
@@ -379,6 +383,10 @@ fn add_edges(
                     &edge.id,
                     &spatial.centerline.points,
                     [clamps.at_start(&edge.id), clamps.at_finish(&edge.id)],
+                    [
+                        clamps.source_at_start(&edge.id),
+                        clamps.source_at_finish(&edge.id),
+                    ],
                     Err(&error),
                 );
                 let full = format!("lane edge {:?}: {error}", edge.id);
@@ -820,6 +828,7 @@ pub(crate) mod observe {
     pub(crate) struct EdgeInput {
         pub(crate) points: Vec<[f64; 3]>,
         pub(crate) clamps: [Option<[f64; 3]>; 2],
+        pub(crate) clamp_sources: [Option<super::geom::ClampSource>; 2],
     }
 
     /// 一次转换的观察记录；边按发射顺序记录，`inputs` 与 `edges` 同序。
@@ -861,6 +870,7 @@ pub(crate) mod observe {
         edge_id: &str,
         points: &[[f64; 3]],
         clamps: [Option<[f64; 3]>; 2],
+        clamp_sources: [Option<&super::geom::ClampSource>; 2],
         result: std::result::Result<&re::RoadEditingCurveProgram, &crate::Error>,
     ) {
         ACTIVE.with(|slot| {
@@ -873,6 +883,7 @@ pub(crate) mod observe {
                 observation.inputs.push(EdgeInput {
                     points: points.to_vec(),
                     clamps,
+                    clamp_sources: clamp_sources.map(|source| source.cloned()),
                 });
             }
         });
