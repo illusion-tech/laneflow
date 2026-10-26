@@ -1,6 +1,7 @@
 //! #1090：仅测试构建可开启的固定 cubic 划分研究；不进入生产采样路径。
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -12,6 +13,13 @@ pub(crate) const PROGRAM_LIMIT: usize = 8;
 pub(crate) const PARTITION_LIMIT: u64 = 32_768;
 pub(crate) const EVALUATION_LIMIT: u64 = 32_000_000;
 const END_DEGREES: f64 = 0.95;
+const CACHED_CUBIC_LIMIT: usize = 256;
+const SCAN_STEPS: usize = 512;
+
+struct Scan {
+    control: [[u64; 3]; 6],
+    cumulative: Option<Vec<f64>>,
+}
 
 #[derive(Clone, Default, Serialize)]
 struct Counts {
@@ -22,6 +30,10 @@ struct Counts {
     unavailable_partition: u64,
     complete_edge_end_rejected: u64,
     edge_replays: u64,
+    scan_builds: u64,
+    scan_reuses: u64,
+    cached_cubics_peak: usize,
+    scan_values_peak: usize,
 }
 
 #[derive(Default)]
@@ -32,6 +44,7 @@ struct Search {
     truncated: bool,
     counts: Counts,
     spans: Vec<Value>,
+    scans: BTreeMap<usize, Scan>,
 }
 
 thread_local! {
@@ -142,17 +155,30 @@ pub(super) fn sample_if_active(
         let mut accepted = 0;
         for n in 2..=SAMPLE_MAX_PIECES {
             for angle in [false, true] {
+                let new_scan = angle && !state.scans.contains_key(&index);
                 if state.counts.partitions >= PARTITION_LIMIT
                     || state.counts.point_evaluations + state.counts.tangent_evaluations
-                        + u64::from(n) + 513 > EVALUATION_LIMIT {
+                        + u64::from(n) + if new_scan { 513 } else { 0 } > EVALUATION_LIMIT
+                    || new_scan && state.scans.len() == CACHED_CUBIC_LIMIT {
                     state.truncated = true;
                     sink.restore(&checkpoint);
                     return Some(Err(Error::SumoModel("S1 research budget truncated".to_owned())));
                 }
                 state.counts.partitions += 1;
                 let params = if angle {
-                    state.counts.tangent_evaluations += 513;
-                    tangent_angle_split_params(&span, n)
+                    if new_scan {
+                        let (cumulative, evaluations) = scan(&span);
+                        state.counts.tangent_evaluations += evaluations;
+                        state.counts.scan_builds += 1;
+                        state.scans.insert(index, Scan { control: control.map(|p| p.map(f64::to_bits)), cumulative });
+                        state.counts.cached_cubics_peak = state.scans.len();
+                        state.counts.scan_values_peak = state.scans.values().map(|s| s.cumulative.as_ref().map_or(0, Vec::len)).sum();
+                    } else {
+                        state.counts.scan_reuses += 1;
+                    }
+                    let cached = &state.scans[&index];
+                    assert_eq!(cached.control, control.map(|p| p.map(f64::to_bits)), "fixed cubic cache input");
+                    cached.cumulative.as_deref().map(|values| split_params(values, n))
                 } else {
                     Some((0..=n).map(|k| f64::from(k)/f64::from(n)).collect())
                 };
@@ -180,6 +206,95 @@ pub(super) fn sample_if_active(
         state.failed_at = Some(index);
         Some(Err(Error::SumoModel(format!("S1 finite partition family exhausted at cubic {index}, requested rank {wanted}"))))
     })
+}
+
+fn scan(span: &BezierSpan) -> (Option<Vec<f64>>, u64) {
+    let Some(mut prev) = unit(cubic_tangent_at(span.a, span.c1, span.c2, span.b, 0.0)) else {
+        return (None, 1);
+    };
+    let mut cumulative = vec![0.0; SCAN_STEPS + 1];
+    for k in 1..=SCAN_STEPS {
+        let dir = unit(cubic_tangent_at(
+            span.a,
+            span.c1,
+            span.c2,
+            span.b,
+            k as f64 / SCAN_STEPS as f64,
+        ))
+        .unwrap_or(prev);
+        cumulative[k] = cumulative[k - 1] + angle_rad(prev, dir);
+        prev = dir;
+    }
+    if cumulative[SCAN_STEPS] <= 1e-12 {
+        (None, 513)
+    } else {
+        (Some(cumulative), 513)
+    }
+}
+
+fn split_params(cumulative: &[f64], n: u32) -> Vec<f64> {
+    let mut params = vec![0.0; n as usize + 1];
+    *params.last_mut().unwrap() = 1.0;
+    let mut scan = 0;
+    for (k, slot) in params.iter_mut().enumerate().take(n as usize).skip(1) {
+        let target = cumulative[SCAN_STEPS] * k as f64 / n as f64;
+        while scan + 1 < cumulative.len() && cumulative[scan + 1] < target {
+            scan += 1;
+        }
+        let t = if cumulative[scan + 1] > cumulative[scan] {
+            let f = (target - cumulative[scan]) / (cumulative[scan + 1] - cumulative[scan]);
+            (scan as f64 + f) / SCAN_STEPS as f64
+        } else {
+            scan as f64 / SCAN_STEPS as f64
+        };
+        *slot = t.clamp(0.0, 1.0);
+    }
+    params
+}
+
+#[test]
+fn reused_scan_matches_original_parameter_bits() {
+    for c in [
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        [
+            [7_300.0, 0.0, 0.0],
+            [7_300.2, 0.3, 0.0],
+            [7_301.0, 0.8, 0.0],
+            [7_301.1, 0.0, 0.0],
+        ],
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+    ] {
+        let span = BezierSpan {
+            a: c[0],
+            c1: c[1],
+            c2: c[2],
+            b: c[3],
+            dir_a: [1.0, 0.0, 0.0],
+            dir_b: [1.0, 0.0, 0.0],
+        };
+        let (table, _) = scan(&span);
+        for n in [2, 7, 32, 257, 2_048] {
+            let actual = table.as_deref().map(|t| {
+                split_params(t, n)
+                    .into_iter()
+                    .map(f64::to_bits)
+                    .collect::<Vec<_>>()
+            });
+            let expected = tangent_angle_split_params(&span, n)
+                .map(|v| v.into_iter().map(f64::to_bits).collect::<Vec<_>>());
+            assert_eq!(actual, expected);
+        }
+    }
 }
 
 pub(crate) fn program_points(program: &re::RoadEditingCurveProgram) -> Vec<Vec3> {
