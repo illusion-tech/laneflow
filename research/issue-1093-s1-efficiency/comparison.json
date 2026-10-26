@@ -1,5 +1,16 @@
 {
   "schema": "laneflow-1093-search-comparison",
+  "evidence_status": "uncontrolled_test_profile_observation_not_verified_performance",
+  "correction": {
+    "date": "2026-10-27",
+    "follow_up_issue": 1099,
+    "vendor_performance_mode_verified": false,
+    "ac_power_verified": false,
+    "windows_power_plan_verified": false,
+    "quiet_load_admission_passed": false,
+    "release_build": false,
+    "interpretation": "Timing differences, including reduction_vs_a_percent, are exploratory observations only. They do not establish speedup, regression, or timing attribution. Original timings and correctness comparisons are preserved."
+  },
   "input_sha256": "D2B2EED3FEE4B2559A60397BF387EB0E52EAA370A68CE42435E8B8BB5870513C",
   "processor": {
     "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
