@@ -206,15 +206,15 @@ LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列�
 
 `main` 的队列配置：
 
-| 参数                                | 值         | 目的                                  |
-| ----------------------------------- | ---------- | ------------------------------------- |
-| `merge_method`                      | `REBASE`   | 保持线性历史                          |
-| `grouping_strategy`                 | `ALLGREEN` | 每个进入合并组的 PR 都必须满足 checks |
-| `max_entries_to_build`              | `1`        | 首轮串行构建                          |
-| `min_entries_to_merge`              | `1`        | 单个已就绪 PR 不等待额外成员          |
-| `max_entries_to_merge`              | `1`        | 每次只把一个 PR 写入 `main`           |
-| `min_entries_to_merge_wait_minutes` | `0`        | `min=1` 时无需额外等待                |
-| `check_response_timeout_minutes`    | `60`       | required check 超时后失败关闭         |
+| 参数                                | 值         | 目的                                          |
+| ----------------------------------- | ---------- | --------------------------------------------- |
+| `merge_method`                      | `REBASE`   | 保持线性历史                                  |
+| `grouping_strategy`                 | `ALLGREEN` | 每个进入合并组的 PR 都必须满足 checks         |
+| `max_entries_to_build`              | `2`        | 排队 PR 并行验证（speculative），提高队列吞吐 |
+| `min_entries_to_merge`              | `1`        | 单个已就绪 PR 不等待额外成员                  |
+| `max_entries_to_merge`              | `2`        | 每轮最多两个 PR 写入 `main`                   |
+| `min_entries_to_merge_wait_minutes` | `0`        | `min=1` 时无需额外等待                        |
+| `check_response_timeout_minutes`    | `60`       | required check 超时后失败关闭                 |
 
 启用队列时，`required_status_checks.strict_required_status_checks_policy` 必须为
 `false`，但不得删除 required checks。

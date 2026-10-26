@@ -143,6 +143,9 @@ jobs:
       ACTIONS_CACHE_SERVICE_V2: "on"
       # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1094：CI 链接器用 lld。稳态实测关键路径 -29%（Rust checks 631s→445s，
+      # workspace tests 441s→296s）。RUSTFLAGS 参与指纹与 sccache 键，变更即换代。
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -373,6 +376,9 @@ jobs:
       ACTIONS_CACHE_SERVICE_V2: "on"
       # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1094：CI 链接器用 lld。稳态实测关键路径 -29%（Rust checks 631s→445s，
+      # workspace tests 441s→296s）。RUSTFLAGS 参与指纹与 sccache 键，变更即换代。
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -498,6 +504,9 @@ jobs:
       ACTIONS_CACHE_SERVICE_V2: "on"
       # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1094：CI 链接器用 lld。稳态实测关键路径 -29%（Rust checks 631s→445s，
+      # workspace tests 441s→296s）。RUSTFLAGS 参与指纹与 sccache 键，变更即换代。
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
