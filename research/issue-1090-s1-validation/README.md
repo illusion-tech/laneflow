@@ -117,7 +117,9 @@ compiler 接受后按原稳定身份字段找到每条边，核对全部规范�
 ## 重建与检查
 
 设置 `LUST_SOURCE_DIR` 为上述 pinned 来源目录，`S1_OUTPUT_DIR` 为一个空输出目录。
-在上述代码提交或包含它的 checkout 执行：
+切换到上述冻结代码提交执行；当前研究入口已由
+[#1093 的同样本开销比较](../issue-1093-s1-efficiency/README.md)优化，重建本报告的原始
+结果应使用这里记录的旧代码提交：
 
 ```text
 cargo +1.99.1 test --locked -p laneflow-lust-converter --lib output::emit::s1::pinned_lust_s1_sample_validation -- --exact --ignored --nocapture

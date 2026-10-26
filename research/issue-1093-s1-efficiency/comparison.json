@@ -1,0 +1,1087 @@
+{
+  "schema": "laneflow-1093-search-comparison",
+  "input_sha256": "D2B2EED3FEE4B2559A60397BF387EB0E52EAA370A68CE42435E8B8BB5870513C",
+  "processor": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfLogicalProcessors": 32
+  },
+  "rust": [
+    "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "binary: rustc",
+    "commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67",
+    "commit-date: 2026-10-13",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.1",
+    "LLVM version: 23.1.1"
+  ],
+  "order": [
+    "00-warmup-a",
+    "01-warmup-b",
+    "02-warmup-c",
+    "03-warmup-d",
+    "04-measured-a",
+    "05-measured-b",
+    "06-measured-c",
+    "07-measured-d",
+    "08-measured-d",
+    "09-measured-c",
+    "10-measured-b",
+    "11-measured-a",
+    "12-measured-a",
+    "13-measured-b",
+    "14-measured-c",
+    "15-measured-d",
+    "16-measured-d",
+    "17-measured-c",
+    "18-measured-b",
+    "19-measured-a"
+  ],
+  "stages": {
+    "a": {
+      "commit": "4f32cb8ffcb911f9964553dd0dddfd8b942736f4",
+      "executable_sha256": "9A1A9D82BE2D66EEA86798D2BCC8DD9B11A466A9CF5299CEF9B762BE1141CD28",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "sample_search_seconds": {
+        "n": 4,
+        "median": 9.677151950000003,
+        "min": 9.0102273,
+        "max": 9.851539499999996
+      },
+      "process_cpu_seconds": {
+        "n": 4,
+        "median": 9.671875,
+        "min": 8.984375,
+        "max": 9.84375
+      },
+      "wall_seconds": {
+        "n": 4,
+        "median": 9.726098,
+        "min": 9.0468884,
+        "max": 9.8965442
+      },
+      "all_repeated_outputs_byte_equal": true,
+      "complete_candidate_and_preserved_programs_equal_baseline": true,
+      "counts_sum_or_max_for_peak": {
+        "complete_edge_end_rejected": 0.0,
+        "edge_replays": 58.0,
+        "partitions": 205457.0,
+        "point_evaluations": 211115.0,
+        "sink_rejected": 205063.0,
+        "tangent_evaluations": 52669197.0,
+        "unavailable_partition": 0.0
+      },
+      "edges": {
+        "sumo:--30266_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 1,
+            "partitions": 4094,
+            "point_evaluations": 4113,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 1050111,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/6 (chord 1.4629 m) is not emittable: invalid SUMO network model: S1 finite partition family exhausted at cubic 0, requested rank 0; start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-29244_4_0->sumo:--30266_0, sumo::-29244_6_0->sumo:--30266_0]); finish tangent: interior Catmull-Rom tangent"
+        },
+        "sumo:--30316_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33670,
+            "sink_rejected": 32692,
+            "tangent_evaluations": 8397810,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 7/28 (chord 2.1427 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+        },
+        "sumo:--30358#12_1": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33042,
+            "sink_rejected": 32656,
+            "tangent_evaluations": 8389602,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 12/12 (chord 0.1217 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))"
+        },
+        "sumo:--30452_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 32873,
+            "sink_rejected": 32725,
+            "tangent_evaluations": 8403966,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/3 (chord 0.7823 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])"
+        },
+        "sumo::-10004_3_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33321,
+            "sink_rejected": 32732,
+            "tangent_evaluations": 8404479,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/3 (chord 0.9427 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+        },
+        "sumo::-10004_5_1": {
+          "budget_truncated": true,
+          "candidate_programs": 8,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 661,
+            "point_evaluations": 3176,
+            "sink_rejected": 601,
+            "tangent_evaluations": 165186,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": null
+        },
+        "sumo::-1000_2_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33306,
+            "sink_rejected": 32732,
+            "tangent_evaluations": 8403966,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/2 (chord 1.4727 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))"
+        },
+        "sumo::-10046_0_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33516,
+            "sink_rejected": 32737,
+            "tangent_evaluations": 8403966,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/4 (chord 1.2317 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+        },
+        "sumo::-10564_6_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 1,
+            "partitions": 4094,
+            "point_evaluations": 4098,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 1050111,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/3 (chord 0.1970 m) is not emittable: invalid SUMO network model: S1 finite partition family exhausted at cubic 0, requested rank 0; start tangent: boundary clamp (pair target (angular mean of both end chords)); finish tangent: interior Catmull-Rom tangent"
+        }
+      },
+      "reduction_vs_a_percent": 0.0
+    },
+    "b": {
+      "commit": "af4a2301d607cce72cb3ad5b0d50f848d312ddf3",
+      "executable_sha256": "D96AA1A3393523A13AD58C82DF3FBEE58AF106FD0C604E676D29950F1E3353F2",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "sample_search_seconds": {
+        "n": 4,
+        "median": 5.745821149999999,
+        "min": 5.4644613999999985,
+        "max": 6.0498929
+      },
+      "process_cpu_seconds": {
+        "n": 4,
+        "median": 5.7578125,
+        "min": 5.515625,
+        "max": 6.015625
+      },
+      "wall_seconds": {
+        "n": 4,
+        "median": 5.78616175,
+        "min": 5.5070204,
+        "max": 6.0991336
+      },
+      "all_repeated_outputs_byte_equal": true,
+      "complete_candidate_and_preserved_programs_equal_baseline": true,
+      "counts_sum_or_max_for_peak": {
+        "cached_cubics_peak": 6.0,
+        "complete_edge_end_rejected": 0.0,
+        "edge_replays": 58.0,
+        "partitions": 205457.0,
+        "point_evaluations": 211115.0,
+        "scan_builds": 27.0,
+        "scan_reuses": 102642.0,
+        "scan_values_peak": 3078.0,
+        "sink_rejected": 205063.0,
+        "tangent_evaluations": 13851.0,
+        "unavailable_partition": 0.0
+      },
+      "edges": {
+        "sumo:--30266_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 1,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 1,
+            "partitions": 4094,
+            "point_evaluations": 4113,
+            "scan_builds": 1,
+            "scan_reuses": 2046,
+            "scan_values_peak": 513,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 513,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/6 (chord 1.4629 m) is not emittable: invalid SUMO network model: S1 finite partition family exhausted at cubic 0, requested rank 0; start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-29244_4_0->sumo:--30266_0, sumo::-29244_6_0->sumo:--30266_0]); finish tangent: interior Catmull-Rom tangent"
+        },
+        "sumo:--30316_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 5,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33670,
+            "scan_builds": 5,
+            "scan_reuses": 16365,
+            "scan_values_peak": 2565,
+            "sink_rejected": 32692,
+            "tangent_evaluations": 2565,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 7/28 (chord 2.1427 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+        },
+        "sumo:--30358#12_1": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 6,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33042,
+            "scan_builds": 6,
+            "scan_reuses": 16348,
+            "scan_values_peak": 3078,
+            "sink_rejected": 32656,
+            "tangent_evaluations": 3078,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 12/12 (chord 0.1217 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))"
+        },
+        "sumo:--30452_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 3,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 32873,
+            "scan_builds": 3,
+            "scan_reuses": 16379,
+            "scan_values_peak": 1539,
+            "sink_rejected": 32725,
+            "tangent_evaluations": 1539,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/3 (chord 0.7823 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])"
+        },
+        "sumo::-10004_3_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 2,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33321,
+            "scan_builds": 2,
+            "scan_reuses": 16381,
+            "scan_values_peak": 1026,
+            "sink_rejected": 32732,
+            "tangent_evaluations": 1026,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/3 (chord 0.9427 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+        },
+        "sumo::-10004_5_1": {
+          "budget_truncated": true,
+          "candidate_programs": 8,
+          "counts": {
+            "cached_cubics_peak": 4,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 661,
+            "point_evaluations": 3176,
+            "scan_builds": 4,
+            "scan_reuses": 318,
+            "scan_values_peak": 2052,
+            "sink_rejected": 601,
+            "tangent_evaluations": 2052,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": null
+        },
+        "sumo::-1000_2_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 2,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33306,
+            "scan_builds": 2,
+            "scan_reuses": 16380,
+            "scan_values_peak": 1026,
+            "sink_rejected": 32732,
+            "tangent_evaluations": 1026,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/2 (chord 1.4727 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))"
+        },
+        "sumo::-10046_0_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 3,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33516,
+            "scan_builds": 3,
+            "scan_reuses": 16379,
+            "scan_values_peak": 1539,
+            "sink_rejected": 32737,
+            "tangent_evaluations": 1539,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/4 (chord 1.2317 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+        },
+        "sumo::-10564_6_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 1,
+            "complete_edge_end_rejected": 0,
+            "edge_replays": 1,
+            "partitions": 4094,
+            "point_evaluations": 4098,
+            "scan_builds": 1,
+            "scan_reuses": 2046,
+            "scan_values_peak": 513,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 513,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/3 (chord 0.1970 m) is not emittable: invalid SUMO network model: S1 finite partition family exhausted at cubic 0, requested rank 0; start tangent: boundary clamp (pair target (angular mean of both end chords)); finish tangent: interior Catmull-Rom tangent"
+        }
+      },
+      "reduction_vs_a_percent": 40.62487413975144
+    },
+    "c": {
+      "commit": "9ba518da5a364bef088690f2ee245b58cce7582d",
+      "executable_sha256": "0F290746977C8027054537981129B912159A315B30AC91538252D0F37220AAFD",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "sample_search_seconds": {
+        "n": 4,
+        "median": 5.97774545,
+        "min": 5.5009689999999996,
+        "max": 8.116273699999997
+      },
+      "process_cpu_seconds": {
+        "n": 4,
+        "median": 6.0,
+        "min": 5.5,
+        "max": 7.921875
+      },
+      "wall_seconds": {
+        "n": 4,
+        "median": 6.0203539,
+        "min": 5.5519292,
+        "max": 8.1641514
+      },
+      "all_repeated_outputs_byte_equal": true,
+      "complete_candidate_and_preserved_programs_equal_baseline": true,
+      "counts_sum_or_max_for_peak": {
+        "cached_cubics_peak": 6.0,
+        "complete_edge_end_rejected": 0.0,
+        "duplicate_partitions": 0.0,
+        "duplicate_programs": 0.0,
+        "edge_replays": 58.0,
+        "partitions": 205457.0,
+        "point_evaluations": 211115.0,
+        "retained_key_points_peak": 420.0,
+        "scan_builds": 27.0,
+        "scan_reuses": 102642.0,
+        "scan_values_peak": 3078.0,
+        "sink_rejected": 205063.0,
+        "tangent_evaluations": 13851.0,
+        "unavailable_partition": 0.0
+      },
+      "edges": {
+        "sumo:--30266_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 1,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 1,
+            "partitions": 4094,
+            "point_evaluations": 4113,
+            "retained_key_points_peak": 0,
+            "scan_builds": 1,
+            "scan_reuses": 2046,
+            "scan_values_peak": 513,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 513,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/6 (chord 1.4629 m) is not emittable: invalid SUMO network model: S1 finite partition family exhausted at cubic 0, requested rank 0; start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-29244_4_0->sumo:--30266_0, sumo::-29244_6_0->sumo:--30266_0]); finish tangent: interior Catmull-Rom tangent"
+        },
+        "sumo:--30316_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 5,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33670,
+            "retained_key_points_peak": 36,
+            "scan_builds": 5,
+            "scan_reuses": 16365,
+            "scan_values_peak": 2565,
+            "sink_rejected": 32692,
+            "tangent_evaluations": 2565,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 7/28 (chord 2.1427 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+        },
+        "sumo:--30358#12_1": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 6,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33042,
+            "retained_key_points_peak": 30,
+            "scan_builds": 6,
+            "scan_reuses": 16348,
+            "scan_values_peak": 3078,
+            "sink_rejected": 32656,
+            "tangent_evaluations": 3078,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 12/12 (chord 0.1217 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))"
+        },
+        "sumo:--30452_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 3,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 32873,
+            "retained_key_points_peak": 33,
+            "scan_builds": 3,
+            "scan_reuses": 16379,
+            "scan_values_peak": 1539,
+            "sink_rejected": 32725,
+            "tangent_evaluations": 1539,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/3 (chord 0.7823 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])"
+        },
+        "sumo::-10004_3_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 2,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33321,
+            "retained_key_points_peak": 116,
+            "scan_builds": 2,
+            "scan_reuses": 16381,
+            "scan_values_peak": 1026,
+            "sink_rejected": 32732,
+            "tangent_evaluations": 1026,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/3 (chord 0.9427 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+        },
+        "sumo::-10004_5_1": {
+          "budget_truncated": true,
+          "candidate_programs": 8,
+          "counts": {
+            "cached_cubics_peak": 4,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 661,
+            "point_evaluations": 3176,
+            "retained_key_points_peak": 420,
+            "scan_builds": 4,
+            "scan_reuses": 318,
+            "scan_values_peak": 2052,
+            "sink_rejected": 601,
+            "tangent_evaluations": 2052,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": null
+        },
+        "sumo::-1000_2_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 2,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33306,
+            "retained_key_points_peak": 108,
+            "scan_builds": 2,
+            "scan_reuses": 16380,
+            "scan_values_peak": 1026,
+            "sink_rejected": 32732,
+            "tangent_evaluations": 1026,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/2 (chord 1.4727 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))"
+        },
+        "sumo::-10046_0_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 3,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "partitions": 32768,
+            "point_evaluations": 33516,
+            "retained_key_points_peak": 50,
+            "scan_builds": 3,
+            "scan_reuses": 16379,
+            "scan_values_peak": 1539,
+            "sink_rejected": 32737,
+            "tangent_evaluations": 1539,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/4 (chord 1.2317 m) is not emittable: invalid SUMO network model: S1 research budget truncated; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent"
+        },
+        "sumo::-10564_6_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "cached_cubics_peak": 1,
+            "complete_edge_end_rejected": 0,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 1,
+            "partitions": 4094,
+            "point_evaluations": 4098,
+            "retained_key_points_peak": 0,
+            "scan_builds": 1,
+            "scan_reuses": 2046,
+            "scan_values_peak": 513,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 513,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/3 (chord 0.1970 m) is not emittable: invalid SUMO network model: S1 finite partition family exhausted at cubic 0, requested rank 0; start tangent: boundary clamp (pair target (angular mean of both end chords)); finish tangent: interior Catmull-Rom tangent"
+        }
+      },
+      "reduction_vs_a_percent": 38.228256816821
+    },
+    "d": {
+      "commit": "464783ae95ae940810050d4f94391f90d9a12c72",
+      "executable_sha256": "9C43309C7285D85F8717FDFB7F80CD3FEE2B30DCE29060FEC17332566BBACA62",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "sample_search_seconds": {
+        "n": 4,
+        "median": 5.334514199999999,
+        "min": 4.913740999999999,
+        "max": 5.9449979
+      },
+      "process_cpu_seconds": {
+        "n": 4,
+        "median": 5.328125,
+        "min": 4.90625,
+        "max": 5.984375
+      },
+      "wall_seconds": {
+        "n": 4,
+        "median": 5.3840771,
+        "min": 4.9532349,
+        "max": 5.9939665
+      },
+      "all_repeated_outputs_byte_equal": true,
+      "complete_candidate_and_preserved_programs_equal_baseline": true,
+      "counts_sum_or_max_for_peak": {
+        "backtracks": 43.0,
+        "cached_cubics_peak": 6.0,
+        "complete_edge_end_rejected": 0.0,
+        "cubic_sink_pushes": 206911.0,
+        "duplicate_partitions": 0.0,
+        "duplicate_programs": 0.0,
+        "edge_replays": 59.0,
+        "frames_peak": 12.0,
+        "partitions": 204884.0,
+        "point_evaluations": 206158.0,
+        "prefix_point_uses": 753.0,
+        "prefix_reuses": 135.0,
+        "retained_key_points_peak": 509.0,
+        "retained_prefix_points_peak": 49.0,
+        "scan_builds": 27.0,
+        "scan_reuses": 102405.0,
+        "scan_values_peak": 3078.0,
+        "sink_rejected": 204807.0,
+        "tangent_evaluations": 13851.0,
+        "unavailable_partition": 0.0
+      },
+      "edges": {
+        "sumo:--30266_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 0,
+            "cached_cubics_peak": 1,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 4113,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 1,
+            "frames_peak": 1,
+            "partitions": 4094,
+            "point_evaluations": 4113,
+            "prefix_point_uses": 0,
+            "prefix_reuses": 0,
+            "retained_key_points_peak": 0,
+            "retained_prefix_points_peak": 0,
+            "scan_builds": 1,
+            "scan_reuses": 2046,
+            "scan_values_peak": 513,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 513,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/6 (chord 1.4629 m) is not emittable: invalid SUMO network model: S1 有限划分族耗尽：cubic 0; start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-29244_4_0->sumo:--30266_0, sumo::-29244_6_0->sumo:--30266_0]); finish tangent: interior Catmull-Rom tangent",
+          "stop_reason": "finite_family_exhausted"
+        },
+        "sumo:--30316_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 7,
+            "cached_cubics_peak": 5,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 33284,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "frames_peak": 7,
+            "partitions": 32768,
+            "point_evaluations": 33046,
+            "prefix_point_uses": 238,
+            "prefix_reuses": 35,
+            "retained_key_points_peak": 75,
+            "retained_prefix_points_peak": 39,
+            "scan_builds": 5,
+            "scan_reuses": 16377,
+            "scan_values_peak": 2565,
+            "sink_rejected": 32755,
+            "tangent_evaluations": 2565,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 7/28 (chord 2.1427 m) is not emittable: invalid SUMO network model: S1 研究预算截断：partitions; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)",
+          "stop_reason": "partitions"
+        },
+        "sumo:--30358#12_1": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 7,
+            "cached_cubics_peak": 6,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 33019,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "frames_peak": 12,
+            "partitions": 32768,
+            "point_evaluations": 32815,
+            "prefix_point_uses": 204,
+            "prefix_reuses": 66,
+            "retained_key_points_peak": 75,
+            "retained_prefix_points_peak": 37,
+            "scan_builds": 6,
+            "scan_reuses": 16374,
+            "scan_values_peak": 3078,
+            "sink_rejected": 32750,
+            "tangent_evaluations": 3078,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 12/12 (chord 0.1217 m) is not emittable: invalid SUMO network model: S1 研究预算截断：partitions; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))",
+          "stop_reason": "partitions"
+        },
+        "sumo:--30452_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 8,
+            "cached_cubics_peak": 3,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 32819,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 9,
+            "frames_peak": 3,
+            "partitions": 32768,
+            "point_evaluations": 32798,
+            "prefix_point_uses": 21,
+            "prefix_reuses": 7,
+            "retained_key_points_peak": 47,
+            "retained_prefix_points_peak": 9,
+            "scan_builds": 3,
+            "scan_reuses": 16380,
+            "scan_values_peak": 1539,
+            "sink_rejected": 32758,
+            "tangent_evaluations": 1539,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/3 (chord 0.7823 m) is not emittable: invalid SUMO network model: S1 研究预算截断：partitions; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])",
+          "stop_reason": "partitions"
+        },
+        "sumo::-10004_3_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 7,
+            "cached_cubics_peak": 2,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 32908,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "frames_peak": 2,
+            "partitions": 32768,
+            "point_evaluations": 32908,
+            "prefix_point_uses": 0,
+            "prefix_reuses": 0,
+            "retained_key_points_peak": 116,
+            "retained_prefix_points_peak": 20,
+            "scan_builds": 2,
+            "scan_reuses": 16381,
+            "scan_values_peak": 1026,
+            "sink_rejected": 32760,
+            "tangent_evaluations": 1026,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/3 (chord 0.9427 m) is not emittable: invalid SUMO network model: S1 研究预算截断：partitions; start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)",
+          "stop_reason": "partitions"
+        },
+        "sumo::-10004_5_1": {
+          "budget_truncated": true,
+          "candidate_programs": 8,
+          "counts": {
+            "backtracks": 0,
+            "cached_cubics_peak": 4,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 692,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "frames_peak": 4,
+            "partitions": 88,
+            "point_evaluations": 440,
+            "prefix_point_uses": 252,
+            "prefix_reuses": 21,
+            "retained_key_points_peak": 509,
+            "retained_prefix_points_peak": 49,
+            "scan_builds": 4,
+            "scan_reuses": 39,
+            "scan_values_peak": 2052,
+            "sink_rejected": 77,
+            "tangent_evaluations": 2052,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": null,
+          "stop_reason": "program_pool"
+        },
+        "sumo::-1000_2_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 7,
+            "cached_cubics_peak": 2,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 32878,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "frames_peak": 2,
+            "partitions": 32768,
+            "point_evaluations": 32878,
+            "prefix_point_uses": 0,
+            "prefix_reuses": 0,
+            "retained_key_points_peak": 108,
+            "retained_prefix_points_peak": 14,
+            "scan_builds": 2,
+            "scan_reuses": 16382,
+            "scan_values_peak": 1026,
+            "sink_rejected": 32760,
+            "tangent_evaluations": 1026,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 2/2 (chord 1.4727 m) is not emittable: invalid SUMO network model: S1 研究预算截断：partitions; start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))",
+          "stop_reason": "partitions"
+        },
+        "sumo::-10046_0_0": {
+          "budget_truncated": true,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 7,
+            "cached_cubics_peak": 3,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 33100,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 8,
+            "frames_peak": 3,
+            "partitions": 32768,
+            "point_evaluations": 33062,
+            "prefix_point_uses": 38,
+            "prefix_reuses": 6,
+            "retained_key_points_peak": 57,
+            "retained_prefix_points_peak": 19,
+            "scan_builds": 3,
+            "scan_reuses": 16380,
+            "scan_values_peak": 1539,
+            "sink_rejected": 32759,
+            "tangent_evaluations": 1539,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": false,
+          "last_error": "invalid SUMO network model: span 3/4 (chord 1.2317 m) is not emittable: invalid SUMO network model: S1 研究预算截断：partitions; start tangent: interior Catmull-Rom tangent; finish tangent: interior Catmull-Rom tangent",
+          "stop_reason": "partitions"
+        },
+        "sumo::-10564_6_0": {
+          "budget_truncated": false,
+          "candidate_programs": 0,
+          "counts": {
+            "backtracks": 0,
+            "cached_cubics_peak": 1,
+            "complete_edge_end_rejected": 0,
+            "cubic_sink_pushes": 4098,
+            "duplicate_partitions": 0,
+            "duplicate_programs": 0,
+            "edge_replays": 1,
+            "frames_peak": 1,
+            "partitions": 4094,
+            "point_evaluations": 4098,
+            "prefix_point_uses": 0,
+            "prefix_reuses": 0,
+            "retained_key_points_peak": 0,
+            "retained_prefix_points_peak": 0,
+            "scan_builds": 1,
+            "scan_reuses": 2046,
+            "scan_values_peak": 513,
+            "sink_rejected": 4094,
+            "tangent_evaluations": 513,
+            "unavailable_partition": 0
+          },
+          "family_exhausted": true,
+          "last_error": "invalid SUMO network model: span 1/3 (chord 0.1970 m) is not emittable: invalid SUMO network model: S1 有限划分族耗尽：cubic 0; start tangent: boundary clamp (pair target (angular mean of both end chords)); finish tangent: interior Catmull-Rom tangent",
+          "stop_reason": "finite_family_exhausted"
+        }
+      },
+      "reduction_vs_a_percent": 44.87516339970256
+    }
+  },
+  "background_cpu_seconds_per_round": {
+    "n": 16,
+    "median": 9.4609375,
+    "min": 5.078125,
+    "max": 19.03125
+  },
+  "system_cpu_percent_before": {
+    "n": 16,
+    "median": 11,
+    "min": 5,
+    "max": 25
+  },
+  "timing_scope": "17 selected samples; failed-edge search plus result/metrics construction; original-repair validation and filesystem I/O excluded",
+  "limitations": "debug test profile; no affinity or machine isolation; background CPU records cover processes present at both snapshots; no allocator peak measurement",
+  "full_validation": {
+    "a_and_d_compiled": true,
+    "b_and_c_compiled_separately": false,
+    "b_and_c_complete_programs_match_a": true,
+    "source_inputs_byte_equal": true,
+    "compared_fields": [
+      "successful_programs_replayed_equal",
+      "affected_paths",
+      "baseline_paths",
+      "assignment_trials",
+      "retained_pool_assignments_exhausted",
+      "best_assignment",
+      "best_assignment_paths"
+    ],
+    "compared_fields_equal": true,
+    "timed_and_full_search_equal": true,
+    "successful_programs_replayed_equal": 16265,
+    "affected_paths": 34,
+    "full_a_timing": {
+      "assignment_compile_seconds": 12.2379717,
+      "baseline_conversion_seconds": 133.8206586,
+      "edge_search_seconds": {
+        "sumo:--30244#0_0": 0.0004214,
+        "sumo:--30266_0": 0.1361623,
+        "sumo:--30316_0": 1.0940473,
+        "sumo:--30358#12_1": 1.1873438,
+        "sumo:--30452_0": 1.1280224,
+        "sumo:--32668#0_0": 1.02E-05,
+        "sumo:-32668#0_0": 8.9E-06,
+        "sumo:-32770#1_1": 0.0001368,
+        "sumo::-10004_0_0": 1.85E-05,
+        "sumo::-10004_3_0": 1.0890143,
+        "sumo::-10004_5_1": 0.0320934,
+        "sumo::-1000_2_0": 1.1261978,
+        "sumo::-10046_0_0": 1.1118874,
+        "sumo::-10564_6_0": 0.1366985,
+        "sumo::-19726_1_0": 7E-05,
+        "sumo::-25490_3_0": 6.87E-05,
+        "sumo::-8018_0_1": 0.0001261
+      },
+      "source_verify_and_parse_seconds": 1.9253118,
+      "success_replay_and_compare_seconds": 2.063490000000012,
+      "total_seconds": 158.4832132
+    },
+    "full_d_timing": {
+      "assignment_compile_seconds": 18.4955595,
+      "baseline_conversion_seconds": 186.2799812,
+      "edge_search_seconds": {
+        "sumo:--30244#0_0": 0.0006489,
+        "sumo:--30266_0": 0.1176164,
+        "sumo:--30316_0": 0.8173378,
+        "sumo:--30358#12_1": 0.948822,
+        "sumo:--30452_0": 0.9106608,
+        "sumo:--32668#0_0": 1.3E-05,
+        "sumo:-32668#0_0": 9.6E-06,
+        "sumo:-32770#1_1": 0.0001345,
+        "sumo::-10004_0_0": 2.84E-05,
+        "sumo::-10004_3_0": 0.9362362,
+        "sumo::-10004_5_1": 0.0122365,
+        "sumo::-1000_2_0": 0.9586566,
+        "sumo::-10046_0_0": 0.926578,
+        "sumo::-10564_6_0": 0.1040049,
+        "sumo::-19726_1_0": 0.0001047,
+        "sumo::-25490_3_0": 0.0001003,
+        "sumo::-8018_0_1": 0.0002012
+      },
+      "source_verify_and_parse_seconds": 2.555195,
+      "success_replay_and_compare_seconds": 2.8293171999999918,
+      "total_seconds": 218.210489
+    }
+  }
+}
