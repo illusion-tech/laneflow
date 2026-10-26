@@ -172,7 +172,8 @@ const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
 const AUDITED_MMAP_PACKAGE_NAME: &str = "laneflow-format-mmap";
 
 /// hermetic 编译前必须剔除的精确环境变量：它们能把 rustc 二进制、wrapper 或
-/// 额外 rustflags 注入编译命令行。
+/// 额外 rustflags 注入编译命令行。job 级 `RUSTC_WRAPPER`（如 sccache）在此被
+/// 剔除，`SCCACHE_*` 配置随之对 hermetic 编译惰性（#1071 评估记录 §2/§7）。
 const HERMETIC_SCRUB_ENV_EXACT: [&str; 10] = [
     "RUSTFLAGS",
     "CARGO_ENCODED_RUSTFLAGS",
