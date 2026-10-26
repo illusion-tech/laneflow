@@ -64,8 +64,10 @@ impl InfeasibilityMechanism {
 /// - `PreCheckRejected`：质量目标预检拒绝——`sample_cubic` 两处
 ///   "curvature is infeasible" 文案均由 0.105 m **采样质量目标**（非硬下限
 ///   0.1 m）驱动的候选搜索前预检产生，不构成硬预算无解证明（复审数值反例：
-///   预检拒绝的曲线两段划分后满足全部硬预算，见
-///   `quality_floor_precheck_is_not_proven_conflict` 回归）。
+///   预检拒绝的曲线在原点两段划分后通过 sink 与 compiler，见
+///   `quality_floor_precheck_is_not_proven_conflict` 与 `tests::witness`）。
+///   该反例只否定「预检拒绝即无解」，不证明被拒车道可修：同一见证平移到
+///   LuST 规范坐标域四角时量化 weld 超 2°，被 compiler 拒绝（#790 S0）。
 /// - `ProvenBudgetConflict`：真必要条件证明。**审计结论：当前发射层无此
 ///   发射点**（两处候选均为质量目标预检），枚举保留以备未来真证明路径。
 /// - `NotBudget`：非预算类失败。
@@ -1485,8 +1487,9 @@ fn sample_cubic(
         // R9 审计（质量目标预检，非硬预算证明）：n_floor 按 0.105 m 采样质量
         // 目标取整，硬下限是 0.1 m（sink/HIR 退化段）——floor(arc/0.105) < 2
         // 不排除「两段各 ≥0.1 m 且 ≤1.9°」的合法划分（复审数值反例：
-        // arc 0.2066 m 预检拒绝，两段量化最短弦 0.1033 m > 0.1、weld
-        // 1.8495° < 1.95° 全过）。此处报 "curvature is infeasible" 仅宣告
+        // arc 0.2066 m 预检拒绝，原点两段量化弦 0.1033 m > 0.1、weld
+        // 1.8495° < 1.95°，sink 与 compiler 均通过；LuST 坐标量级下同一划分
+        // 可超 2°，见 `tests::witness`）。此处报 "curvature is infeasible" 仅宣告
         // 质量目标预检拒绝，清单分类为 PreCheckRejected。单片在安全转角内
         // 仍发射（sink 量化终检），否则 fail-closed 报精确位置。
         if turn <= WELD_SAFE_TURN_RAD {
@@ -1690,6 +1693,8 @@ fn cubic_tangent_at(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3, t: f64) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod witness;
 
     fn pt(x: f64, y: f64) -> Vec3 {
         [x, y, 0.0]
@@ -2169,10 +2174,12 @@ mod tests {
     fn quality_floor_precheck_is_not_proven_conflict() {
         // R9 复审数值反例：L/3 控制柄 cubic（起止切向夹角 3.7°，16 段弧长
         // 估计 0.206646828 m → n_floor = floor(0.2066/0.105) = 1 < 2）。预检
-        // 拒绝它，但同曲线两段划分量化最短弦 0.103318997 m > 0.1 m、最大
-        // weld 1.849517822° < 1.95°、子段切向 1.85° < 1.9°、垂距上界
-        // 0.000556053 m < 0.01 m——满足全部硬预算。故诊断分类必须是
-        // PreCheckRejected，不得标 ProvenBudgetConflict。
+        // 拒绝它，但同曲线在原点按 t = 0.5 两段划分时量化弦 0.103318997 m
+        // > 0.1 m、中间 weld 1.849517822° < 1.95°，sink、compiler 边内硬门与
+        // 完整路径编译均通过（`tests::witness` S0-A/B）。故诊断分类必须是
+        // PreCheckRejected，不得标 ProvenBudgetConflict。该见证依赖坐标量级：
+        // 平移到 LuST 规范坐标域四角时 weld 2.16–2.17° > 2°（S0-C），不能据此
+        // 推断被预检拒绝的 LuST 车道可修。
         let a = [0.0, 0.0, 0.0];
         let c1 = [0.06887035952165224, 0.0, 0.0];
         let c2 = [0.1377765790067887, 0.0, 0.002225658258883879];
