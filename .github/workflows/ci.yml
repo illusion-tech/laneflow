@@ -232,10 +232,22 @@ jobs:
           export SCCACHE_LOG=debug
           echo "SCCACHE_ERROR_LOG=$RUNNER_TEMP/sccache-error.log" >> "$GITHUB_ENV"
           echo "SCCACHE_LOG=debug" >> "$GITHUB_ENV"
+          echo "=== runner cache env inventory ==="
+          env | grep -iE 'ACTIONS_|CACHE|RESULTS' | sed -E 's/(TOKEN=).+/\1***/' | sort || true
+          # 根因假说：opendal ghac 拼接旧协议路径 _apis/artifactcache/*，而
+          # ACTIONS_RESULTS_URL 指向新协议 results-receiver（404 page not found）。
+          # 若 runner 仍提供旧协议宿主 ACTIONS_CACHE_URL，改指它重试能力探测。
+          if [ -n "${ACTIONS_CACHE_URL:-}" ]; then
+            echo "=== override SCCACHE_GHA_CACHE_URL with ACTIONS_CACHE_URL ==="
+            export SCCACHE_GHA_CACHE_URL="$ACTIONS_CACHE_URL"
+            echo "SCCACHE_GHA_CACHE_URL=$ACTIONS_CACHE_URL" >> "$GITHUB_ENV"
+          else
+            echo "=== ACTIONS_CACHE_URL not present ==="
+          fi
           sccache --stop-server || true
           sccache --start-server
           printf 'pub fn probe() {}\n' > "$RUNNER_TEMP/sccache-probe.rs"
-          sccache rustc --crate-type lib "$RUNNER_TEMP/sccache-probe.rs" --out-dir "$RUNNER_TEMP" || true
+          sccache rustc --edition 2021 --crate-type lib --emit=obj,link "$RUNNER_TEMP/sccache-probe.rs" --out-dir "$RUNNER_TEMP" || true
           sccache --show-stats || true
           echo "=== sccache error log ==="
           tail -n 60 "$SCCACHE_ERROR_LOG" || true
