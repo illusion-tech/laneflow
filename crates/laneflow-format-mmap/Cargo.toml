@@ -19,7 +19,7 @@ name = "laneflow_format_mmap"
 path = "src/lib.rs"
 
 [dependencies]
-memmap2 = { version = "=0.9.11", default-features = false }
+memmap2 = { version = "=0.9.12", default-features = false }
 tempfile = "=3.27.0"
 
 # 本 package 是 workspace 内唯一登记的手写 unsafe 例外：恰一次模块级 allow、
