@@ -50,6 +50,9 @@ const SUMO_LANE_WIDTH_METERS: f64 = 3.2;
 /// EmissionSink 的逐弦预算与倒圆/焊接有界记录承担。
 const DECLARED_ARC_DIVERGENCE_CEILING_METERS: f64 = 25.0;
 
+#[cfg(test)]
+mod s1;
+
 /// Entity counts of the compiled network, used by the conversion report and manifest.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TopologyCounts {
@@ -534,6 +537,8 @@ fn path_keys(traffic: &TrafficPackage) -> Result<HashMap<String, PathKeys>> {
             },
         );
     }
+    #[cfg(test)]
+    s1::preserve_path_keys(&mut keys);
     Ok(keys)
 }
 
@@ -834,6 +839,7 @@ pub(crate) mod observe {
     /// 一次转换的观察记录；边按发射顺序记录，`inputs` 与 `edges` 同序。
     #[derive(Default)]
     pub(crate) struct EmissionObservation {
+        pub(crate) traffic: Option<TrafficPackage>,
         pub(crate) maneuver_paths: Vec<ManeuverPath>,
         pub(crate) movements: Vec<Movement>,
         pub(crate) edges: Vec<(String, EdgeEmission)>,
@@ -861,6 +867,7 @@ pub(crate) mod observe {
         ACTIVE.with(|slot| {
             if let Some(observation) = slot.borrow_mut().as_mut() {
                 observation.maneuver_paths = traffic.maneuver_paths.clone();
+                observation.traffic = Some(traffic.clone());
                 observation.movements = traffic.movements.clone();
             }
         });

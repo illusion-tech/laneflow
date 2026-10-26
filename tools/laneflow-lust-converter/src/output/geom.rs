@@ -1348,6 +1348,10 @@ fn emit_sampled_span(
     let handle = span.arc_handle.unwrap_or(len / 3.0);
     let c1 = add(a, scale(dir_a, handle));
     let c2 = sub(b, scale(dir_b, handle));
+    #[cfg(test)]
+    if let Some(result) = s1::sample_if_active(j, [a, c1, c2, b, dir_a, dir_b], sink) {
+        return result;
+    }
     sample_cubic(a, c1, c2, b, dir_a, dir_b, sink)
 }
 
@@ -1576,6 +1580,9 @@ use sample_cubic_impl as sample_cubic;
 
 #[cfg(test)]
 mod sampling_observation;
+
+#[cfg(test)]
+pub(crate) mod s1;
 
 #[cfg(test)]
 fn sample_cubic(
