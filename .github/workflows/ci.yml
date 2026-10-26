@@ -141,6 +141,10 @@ jobs:
       # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
       # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
       SCCACHE_GHA_RW_MODE: READ_WRITE
+      # #1074 诊断探针：抓取 GHA 后端写入全部失败（main 首跑 write errors 641/641）
+      # 的真实错误码，定位后移除。
+      SCCACHE_ERROR_LOG: ${{ runner.temp }}/sccache-error.log
+      SCCACHE_LOG: debug
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -219,6 +223,22 @@ jobs:
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
+      # #1074 诊断探针：官方 Configuration.md 注明部分 env 需重启 server 生效。
+      # 先重启 server 再做一次最小包装器编译，使统计与错误日志在大构建前即可见；
+      # 本步只诊断不判定（失败不阻断），定位后移除。
+      - name: Probe sccache GHA write
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          sccache --stop-server || true
+          sccache --start-server
+          printf 'pub fn probe() {}\n' > "$RUNNER_TEMP/sccache-probe.rs"
+          sccache rustc --crate-type lib "$RUNNER_TEMP/sccache-probe.rs" --out-dir "$RUNNER_TEMP" || true
+          sccache --show-stats || true
+          echo "=== sccache error log ==="
+          tail -n 60 "$SCCACHE_ERROR_LOG" || true
+
       - name: Check Rust toolchain
         if: needs.changes.outputs.rust == 'true'
         shell: bash
@@ -270,7 +290,10 @@ jobs:
       - name: Show sccache statistics
         if: ${{ !cancelled() && needs.changes.outputs.rust == 'true' }}
         shell: bash
-        run: sccache --show-stats
+        run: |
+          sccache --show-stats
+          echo "=== sccache error log tail ==="
+          tail -n 80 "$SCCACHE_ERROR_LOG" || true
 
       - name: Skip heavy Rust checks for non-Rust paths
         if: needs.changes.outputs.rust != 'true'
