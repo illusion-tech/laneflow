@@ -138,7 +138,9 @@ jobs:
       SCCACHE_GHA_ENABLED: "on"
       SCCACHE_GHA_CACHE_TO: sccache-v1-
       SCCACHE_GHA_CACHE_FROM: sccache-v1-
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
+      # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
+      SCCACHE_GHA_RW_MODE: READ_WRITE
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -204,17 +206,16 @@ jobs:
           install -m 0755 "$extract_dir/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" "$RUNNER_TEMP/sccache"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Configure sccache GHA backend
+      # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
+      # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
+      # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
+      - name: Configure sccache
         if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 官方 docs/GHA.md 的凭据导出方式（bash 等价实现，不引入额外 action）：
-          # 把 runner 提供的缓存 API 凭据显式带入后续步骤，供 sccache GHA 后端读取。
-          {
-            echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL}"
-            echo "ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN}"
-          } >> "$GITHUB_ENV"
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Check Rust toolchain
         if: needs.changes.outputs.rust == 'true'
@@ -363,7 +364,9 @@ jobs:
       SCCACHE_GHA_ENABLED: "on"
       SCCACHE_GHA_CACHE_TO: sccache-v1-
       SCCACHE_GHA_CACHE_FROM: sccache-v1-
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
+      # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
+      SCCACHE_GHA_RW_MODE: READ_WRITE
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -429,17 +432,16 @@ jobs:
           install -m 0755 "$extract_dir/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" "$RUNNER_TEMP/sccache"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Configure sccache GHA backend
+      # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
+      # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
+      # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
+      - name: Configure sccache
         if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 官方 docs/GHA.md 的凭据导出方式（bash 等价实现，不引入额外 action）：
-          # 把 runner 提供的缓存 API 凭据显式带入后续步骤，供 sccache GHA 后端读取。
-          {
-            echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL}"
-            echo "ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN}"
-          } >> "$GITHUB_ENV"
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Check placement fixture lints
         if: needs.changes.outputs.rust == 'true'
@@ -483,7 +485,9 @@ jobs:
       SCCACHE_GHA_ENABLED: "on"
       SCCACHE_GHA_CACHE_TO: sccache-v1-
       SCCACHE_GHA_CACHE_FROM: sccache-v1-
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
+      # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
+      SCCACHE_GHA_RW_MODE: READ_WRITE
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -549,17 +553,16 @@ jobs:
           install -m 0755 "$extract_dir/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" "$RUNNER_TEMP/sccache"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Configure sccache GHA backend
+      # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
+      # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
+      # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
+      - name: Configure sccache
         if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 官方 docs/GHA.md 的凭据导出方式（bash 等价实现，不引入额外 action）：
-          # 把 runner 提供的缓存 API 凭据显式带入后续步骤，供 sccache GHA 后端读取。
-          {
-            echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL}"
-            echo "ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN}"
-          } >> "$GITHUB_ENV"
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Run urban Adapter harness tests
         if: needs.changes.outputs.rust == 'true'
