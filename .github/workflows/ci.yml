@@ -154,6 +154,9 @@ jobs:
           shared-key: laneflow-msrv-1.99.1-rust
           # #1061 实验探针：实验分支临时放开保存，取得两轮 push 的复用数据后撤除或定案。
           save-if: true
+          # #1061 实验探针：cache-workspace-crates 不改缓存键，既有键精确命中会跳过
+          # 保存使开关静默无效；换独立 prefix-key 建新命名空间才能测得保存与复用。
+          prefix-key: v0-rust-wsc
           cache-targets: true
           # #1061 实验探针：留存 workspace 成员制品，测量跨运行复用收益与缓存体积。
           cache-workspace-crates: true
