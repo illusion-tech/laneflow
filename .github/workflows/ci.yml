@@ -141,10 +141,6 @@ jobs:
       # #1074 测量探针：对照期间 PR 侧临时放开写入（R1'/R2' 可读写），采集
       # 完成后收敛为条件式（PR 与 merge_group 只读、main push 读写）。
       SCCACHE_GHA_RW_MODE: READ_WRITE
-      # #1074 诊断探针：抓取 GHA 后端写入全部失败（main 首跑 write errors 641/641）
-      # 的真实错误码，定位后移除。
-      SCCACHE_ERROR_LOG: ${{ runner.temp }}/sccache-error.log
-      SCCACHE_LOG: debug
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -231,6 +227,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # runner 上下文仅步骤级可用：诊断 env 经 GITHUB_ENV 传递给后续步骤。
+          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-error.log"
+          export SCCACHE_LOG=debug
+          echo "SCCACHE_ERROR_LOG=$RUNNER_TEMP/sccache-error.log" >> "$GITHUB_ENV"
+          echo "SCCACHE_LOG=debug" >> "$GITHUB_ENV"
           sccache --stop-server || true
           sccache --start-server
           printf 'pub fn probe() {}\n' > "$RUNNER_TEMP/sccache-probe.rs"
