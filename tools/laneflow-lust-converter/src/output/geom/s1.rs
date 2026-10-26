@@ -1,4 +1,4 @@
-//! #1090：仅测试构建可开启的固定 cubic 划分研究；不进入生产采样路径。
+//! #1093：固定 cubic 的扫描复用、精确去重与有界前缀回溯；仅用于测试研究。
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,6 +16,22 @@ const END_DEGREES: f64 = 0.95;
 const CACHED_CUBIC_LIMIT: usize = 256;
 const SCAN_STEPS: usize = 512;
 const RETAINED_KEY_POINT_LIMIT: usize = 262_144;
+const RETAINED_PREFIX_POINT_LIMIT: usize = 262_144;
+
+struct SavedPrefix {
+    points: Vec<Vec3>,
+    report: Value,
+}
+
+struct Frame {
+    control: [[u64; 3]; 6],
+    incoming_point: [u32; 3],
+    incoming_dir: Option<[u64; 3]>,
+    next_partition: u32,
+    rank: usize,
+    seen: ExactSeen,
+    selected: Option<SavedPrefix>,
+}
 
 #[derive(Default)]
 struct ExactSeen {
@@ -69,11 +85,17 @@ struct Counts {
     duplicate_partitions: u64,
     duplicate_programs: u64,
     retained_key_points_peak: usize,
+    retained_prefix_points_peak: usize,
+    prefix_reuses: u64,
+    prefix_point_uses: u64,
+    cubic_sink_pushes: u64,
+    backtracks: u64,
+    frames_peak: usize,
 }
 
 #[derive(Default)]
 struct Search {
-    choices: Vec<usize>,
+    frames: Vec<Frame>,
     encountered: usize,
     failed_at: Option<usize>,
     truncated: bool,
@@ -81,6 +103,33 @@ struct Search {
     spans: Vec<Value>,
     scans: BTreeMap<usize, Scan>,
     program_keys: ExactSeen,
+    truncation_reason: Option<&'static str>,
+}
+
+impl Search {
+    fn key_points(&self) -> usize {
+        self.program_keys.points + self.frames.iter().map(|f| f.seen.points).sum::<usize>()
+    }
+
+    fn prefix_points(&self) -> usize {
+        self.frames
+            .iter()
+            .filter_map(|f| f.selected.as_ref())
+            .map(|p| p.points.len())
+            .sum()
+    }
+
+    fn work(&self) -> u64 {
+        self.counts.point_evaluations
+            + self.counts.tangent_evaluations
+            + self.counts.prefix_point_uses
+    }
+
+    fn truncate(&mut self, reason: &'static str) -> Error {
+        self.truncated = true;
+        self.truncation_reason = Some(reason);
+        Error::SumoModel(format!("S1 研究预算截断：{reason}"))
+    }
 }
 
 thread_local! {
@@ -102,6 +151,19 @@ pub(crate) struct Candidate {
 pub(crate) struct EdgeSearch {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) report: Value,
+}
+
+pub(crate) fn policy() -> Value {
+    json!({"pieces_max":SAMPLE_MAX_PIECES,"partitions_per_edge":PARTITION_LIMIT,
+        "evaluations_per_edge":EVALUATION_LIMIT,"programs_per_edge":PROGRAM_LIMIT,
+        "end_degrees":END_DEGREES,"recursive_candidate_search":false,
+        "cached_cubics_and_frames":CACHED_CUBIC_LIMIT,"scan_steps":SCAN_STEPS,
+        "retained_canonical_key_points":RETAINED_KEY_POINT_LIMIT,
+        "retained_prefix_points":RETAINED_PREFIX_POINT_LIMIT,
+        "evaluation_accounting":"new candidate point uses + tangent evaluations + replayed prefix point uses",
+        "dedup":"complete ordered canonical f32 point bits; first representative",
+        "traversal":"depth-first persistent cursors; discard descendants when parent changes",
+        "scope":"test research only; storage counts are not allocator peak measurements"})
 }
 
 pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
@@ -127,6 +189,7 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
             input.clamp_sources[1].as_ref(),
         );
         state = ACTIVE.with(|slot| slot.borrow_mut().take().expect("active search"));
+        let complete = repaired.is_ok();
         match repaired {
             Ok(repaired) => {
                 let points = program_points(&repaired.program);
@@ -141,28 +204,29 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
                     state.counts.complete_edge_end_rejected += 1;
                     last_error = Some(format!("complete edge end constraint: {angles:?}"));
                 } else {
-                    match state
-                        .program_keys
-                        .insert(canonical_key(points.into_iter()), RETAINED_KEY_POINT_LIMIT)
-                    {
+                    match state.program_keys.insert(
+                        canonical_key(points.into_iter()),
+                        RETAINED_KEY_POINT_LIMIT
+                            - state.frames.iter().map(|f| f.seen.points).sum::<usize>(),
+                    ) {
                         Retain::Duplicate => {
                             state.counts.duplicate_programs += 1;
                         }
                         Retain::Budget => {
-                            state.truncated = true;
+                            state.truncate("retained_keys");
                             break;
                         }
                         Retain::New => {
                             state.counts.retained_key_points_peak = state
                                 .counts
                                 .retained_key_points_peak
-                                .max(state.program_keys.points);
+                                .max(state.key_points());
                             candidates.push(Candidate {
                                 repaired,
                                 spans: state.spans.clone(),
                             });
                             if candidates.len() == PROGRAM_LIMIT {
-                                state.truncated = true;
+                                state.truncate("program_pool");
                                 break;
                             }
                         }
@@ -174,22 +238,27 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
         if state.truncated {
             break;
         }
-        // 深度优先枚举固定 span 的候选序号；某层穷尽后回退到前一层。
+        // 仅改变当前最深层游标；父层保留规范前缀，改变父层后丢弃其后全部帧。
         let advance = state.failed_at.unwrap_or(state.encountered);
         if advance == 0 {
-            family_exhausted = state.failed_at == Some(0);
+            family_exhausted = state.failed_at == Some(0) || complete;
             break;
         }
-        state.choices.resize(advance, 0);
-        state.choices.truncate(advance);
-        state.choices[advance - 1] += 1;
+        if state.failed_at.is_some() {
+            state.counts.backtracks += 1;
+        }
+        state.frames.truncate(advance);
+        state.frames[advance - 1].selected = None;
     }
     EdgeSearch {
         report: json!({"candidate_programs": candidates.len(), "family_exhausted": family_exhausted,
-            "budget_truncated": state.truncated, "counts": state.counts, "last_error": last_error}),
+            "budget_truncated": state.truncated, "stop_reason": state.truncation_reason.unwrap_or(if family_exhausted {"finite_family_exhausted"} else {"preparation_or_straight_rejected"}),
+            "counts": state.counts, "last_error": last_error}),
         candidates,
     }
 }
+
+mod traverse;
 
 pub(super) fn sample_if_active(
     span_index: usize,
@@ -197,90 +266,9 @@ pub(super) fn sample_if_active(
     sink: &mut EmissionSink,
 ) -> Option<Result<()>> {
     ACTIVE.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        let state = slot.as_mut()?;
-        let index = state.encountered;
-        state.encountered += 1;
-        let wanted = state.choices.get(index).copied().unwrap_or(0);
-        let [a, c1, c2, b, dir_a, dir_b] = control;
-        let span = BezierSpan { a, c1, c2, b, dir_a, dir_b };
-        let checkpoint = sink.checkpoint();
-        assert_eq!(checkpoint.prev_point, quantize_vec3(a), "fixed span seam");
-        let mut accepted = 0;
-        let mut seen = ExactSeen::default();
-        for n in 2..=SAMPLE_MAX_PIECES {
-            for angle in [false, true] {
-                let new_scan = angle && !state.scans.contains_key(&index);
-                if state.counts.partitions >= PARTITION_LIMIT
-                    || state.counts.point_evaluations + state.counts.tangent_evaluations
-                        + u64::from(n) + if new_scan { 513 } else { 0 } > EVALUATION_LIMIT
-                    || new_scan && state.scans.len() == CACHED_CUBIC_LIMIT {
-                    state.truncated = true;
-                    sink.restore(&checkpoint);
-                    return Some(Err(Error::SumoModel("S1 research budget truncated".to_owned())));
-                }
-                state.counts.partitions += 1;
-                let params = if angle {
-                    if new_scan {
-                        let (cumulative, evaluations) = scan(&span);
-                        state.counts.tangent_evaluations += evaluations;
-                        state.counts.scan_builds += 1;
-                        state.scans.insert(index, Scan { control: control.map(|p| p.map(f64::to_bits)), cumulative });
-                        state.counts.cached_cubics_peak = state.scans.len();
-                        state.counts.scan_values_peak = state.scans.values().map(|s| s.cumulative.as_ref().map_or(0, Vec::len)).sum();
-                    } else {
-                        state.counts.scan_reuses += 1;
-                    }
-                    let cached = &state.scans[&index];
-                    assert_eq!(cached.control, control.map(|p| p.map(f64::to_bits)), "fixed cubic cache input");
-                    cached.cumulative.as_deref().map(|values| split_params(values, n))
-                } else {
-                    Some((0..=n).map(|k| f64::from(k)/f64::from(n)).collect())
-                };
-                let Some(params) = params.filter(|p| p.windows(2).all(|w| w[0] < w[1])) else {
-                    state.counts.unavailable_partition += 1;
-                    continue;
-                };
-                let mut passed = true;
-                for (k, &t) in params.iter().enumerate().skip(1) {
-                    let end = if k == n as usize { b } else { cubic_at(a, c1, c2, b, t) };
-                    state.counts.point_evaluations += 1;
-                    if sink.push(end).is_err() { passed = false; break; }
-                }
-                if passed {
-                    let key = canonical_key(std::iter::once(a).chain(sink.segments[checkpoint.segments_len..].iter().map(|s| {
-                        let re::RoadEditingCurveSegmentGeometry::Line {end} = s.geometry() else { panic!("line program"); };
-                        [end.x(),end.y(),end.z()]
-                    })));
-                    match seen.insert(key,RETAINED_KEY_POINT_LIMIT - state.program_keys.points) {
-                        Retain::Duplicate => {
-                            state.counts.duplicate_partitions += 1;
-                            sink.restore(&checkpoint);
-                            continue;
-                        }
-                        Retain::Budget => {
-                            state.truncated = true;
-                            sink.restore(&checkpoint);
-                            return Some(Err(Error::SumoModel("S1 research dedup budget truncated".to_owned())));
-                        }
-                        Retain::New => {
-                            state.counts.retained_key_points_peak = state.counts.retained_key_points_peak.max(seen.points + state.program_keys.points);
-                        }
-                    }
-                }
-                if passed && accepted == wanted {
-                    state.spans.push(json!({"cubic_index": index, "span_index_zero_based": span_index, "pieces": n,
-                        "partition": if angle {"tangent_angle_512"} else {"uniform_t"},
-                        "candidate_rank": wanted, "control_f64_bits": ([a,c1,c2,b].map(|p| p.map(f64::to_bits))),
-                        "metrics": metrics([a,c1,c2,b], &params)}));
-                    return Some(Ok(()));
-                }
-                if passed { accepted += 1; } else { state.counts.sink_rejected += 1; }
-                sink.restore(&checkpoint);
-            }
-        }
-        state.failed_at = Some(index);
-        Some(Err(Error::SumoModel(format!("S1 finite partition family exhausted at cubic {index}, requested rank {wanted}"))))
+        slot.borrow_mut()
+            .as_mut()
+            .map(|state| traverse::sample(state, span_index, control, sink))
     })
 }
 
