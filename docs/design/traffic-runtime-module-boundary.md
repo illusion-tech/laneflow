@@ -153,9 +153,10 @@ Runtime 与 Spatial 互不依赖，两者都不能反向到 compiler、Bevy Adap
 检查通过只表示这些明确列出的规则通过。该范围不免除显式格式依赖漏检、可见接口
 越界、缺失生产模块或已解析依赖漏查等缺陷的修复责任。
 
-该检查加入 PR、Merge Queue 与 main 共用的 `Rust checks`，与现行 wire 审计共用
-已构建的 xtask 二进制。模块依赖检查与 Rust 编译、阶段借用权限和行为测试共同
-构成证据，不改变现有五项 required check 名称。
+该检查由 PR、Merge Queue 与 main 共用的 `Wire toolchain audit` 承载（#1061 自
+`Rust checks` 拆出，与 wire 审计共用已构建的 xtask 二进制）。模块依赖检查与
+Rust 编译、阶段借用权限和行为测试共同构成证据，不改变各 required check 的判据
+语义。
 
 ## 4. 验证边界
 

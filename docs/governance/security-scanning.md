@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-09-21  
+**最后更新**: 2026-10-26  
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`、`#451`
 
@@ -33,30 +33,31 @@ setup identity。冻结配置为：
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
-  library 或发布分发物。#989 于 2026-10-21 核验当前 pin
-  `6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee`（`v4.39.0`；`init` 与 `analyze` 必须同版本，
-  两行同钉该 commit）：official repository 的 annotated tag `v4.39.0`（tag object
-  `48870fdd6b42ee6474ec4207209ff87609271a5e`）peel 至该 commit，来源为
+  library 或发布分发物。#1076 于 2026-10-26 核验当前 pin
+  `9b3254085494b55a0f7c4c2b3d2d52cc712ce370`（`v4.39.1`；`init` 与 `analyze` 必须同版本，
+  两行同钉该 commit）：official repository 的 annotated tag `v4.39.1`（tag object
+  `8498dc4c2b27cdd99baf0f87955b29ebbf30c78d`）peel 至该 commit，来源为
   [GitHub 官方仓库](https://github.com/github/codeql-action)，该 revision 的
-  [许可证为 MIT](https://github.com/github/codeql-action/blob/6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/LICENSE)。
+  [许可证为 MIT](https://github.com/github/codeql-action/blob/9b3254085494b55a0f7c4c2b3d2d52cc712ce370/LICENSE)。
   当日 upstream advisory 核验：
   [GHSA-vqf5-2xx6-9wfm](https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm)
-  公布受影响范围为 `>= 2.26.11, < 3.0.0` 与 `>= 3.26.11, <= 3.28.2`，不包含 `v4.39.0`；
+  公布受影响范围为 `>= 2.26.11, < 3.0.0` 与 `>= 3.26.11, <= 3.28.2`，不包含 `v4.39.1`；
   [GHSA-g36v-2xff-pv5m](https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m)
   当日未出现在全局 advisory API 索引（返回 404，未按零覆盖解释），维持 repository advisory
   公布的受影响范围（`CodeQL runner < codeql-bundle-20210304`，止于旧 CodeQL runner），同样不包含
-  `v4.39.0`。当日仓库侧三类开放告警（code scanning、Dependabot、secret scanning）均为 0，
+  `v4.39.1`。当日仓库侧三类开放告警（code scanning、Dependabot、secret scanning）均为 0，
   Dependabot security updates 为 enabled。
-  `v4.39.0` 为 minor 升级并带 breaking change 标记：最低 CodeQL bundle 版本升至 2.20.7——本仓库
-  advanced setup 使用 action 自带默认 bundle（≥ 2.27.2），不受影响；`analyze` 新增的 `checkout_path`
-  输入校验对 workspace 根 checkout 不触发；第三方缓存修复与 `start-proxy` 改进（Default Setup 专用）
-  与本仓库配置无交集，不改变 `none` build mode 与 Ubuntu x64 runner 的适用性。这是有日期的 upstream
-  metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory 与分发边界。
-  前序 pin 只保留为历史审计，不再表示当前 pin：#891 于 2026-10-12 核验的
+  `v4.39.1` 为 patch 升级：唯一变更为默认 CodeQL bundle 升至 2.27.3，无 breaking change；最低
+  CodeQL bundle 2.20.7 的要求已由 `v4.39.0` 引入，本仓库 advanced setup 使用 action 自带默认
+  bundle（≥ 2.27.3），不受影响；不改变 `none` build mode 与 Ubuntu x64 runner 的适用性。这是
+  有日期的 upstream metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory
+  与分发边界。
+  前序 pin 只保留为历史审计，不再表示当前 pin：#989 于 2026-10-21 核验的
+  `6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee`（`v4.39.0`）、#891 于 2026-10-12 核验的
   `24c54180a607b1449ed407dd24f251e4e9147c8d`（`v4.38.3`）、#784 于 2026-09-29 核验的
-  `2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2`（`v4.38.2`）、#737 于 2026-09-21 核验的
-  `1c5b675653bb5c22dbe9b12b556ec555138e09fd`（`v4.38.1`）；更早的 #660（`v4.38.0`，2026-09-14）、
-  #553（`v4.37.9`，2026-09-01）与 #485（`v4.37.8`，2026-08-24）的核验记录见各自 Issue。
+  `2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2`（`v4.38.2`）；更早的 #737（`v4.38.1`，2026-09-21）、
+  #660（`v4.38.0`，2026-09-14）、#553（`v4.37.9`，2026-09-01）与 #485（`v4.37.8`，2026-08-24）的
+  核验记录见各自 Issue。
 - `main` ruleset 的原生 `code_scanning` rule 继续约束普通 PR：分析未配置、仍在运行或发现
   `high` / `critical` security alert 时阻断合并。
 - GitHub 明确说明原生 code-scanning merge protection **不适用于 Merge Queue groups**；
@@ -72,6 +73,7 @@ Merge Queue 的 required status checks 固定为：
 
 - `Commit message`
 - `Rust checks`
+- `Wire toolchain audit`
 - `Placement fixture tests`
 - `Urban harness tests`
 - `Dependency policy`

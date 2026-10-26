@@ -75,7 +75,7 @@ stages/detail 分别使用自己的导出目录和 `target/hotspot-stages-build`
 - `TOOL verify base target/hotspot-runs research/issue-762-post-p3-hotspots/evidence/results.json`
 - `TOOL verify detail target/hotspot-detail-runs research/issue-762-post-p3-hotspots/evidence/detail-results.json research/issue-762-post-p3-hotspots/evidence/results.json`
 
-采集记录的 `resolver` 与采集时的精确 pin 绑定（当前 `cc 1.8.0`，见
+采集记录的 `resolver` 与采集时的精确 pin 绑定（当前 `cc 1.9.0`，见
 `chunk_native.rs` 的 `RESOLVER` 合同常量）。历史原始包的 `verify` 复算须使用
 产出记录时 pin 构建的工具执行；迁移期在 `cc 1.6.0` 下完成的历史复算结论见
 [Rust 迁移记录](migration.md)。
