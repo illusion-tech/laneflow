@@ -2582,6 +2582,91 @@ output_dir = 'E:/nonexistent-out'
         }
     }
 
+    // ---- ADR 0034 §2：钉版可核验包装器（#1074）。契约见
+    // docs/adr/0034-pinned-compiler-cache-wrapper-trust.md。----
+
+    /// 包装器自报版本钉版（sccache release v0.19.0）。
+    const PINNED_WRAPPER_VERSION: &str = "sccache 0.19.0";
+
+    /// 钉版包装器二进制 SHA-256（release 资产解出的 `sccache` 可执行文件本身）。
+    /// 与 `.github/workflows/ci.yml` 安装步骤的 `SCCACHE_SHA256`（压缩包资产摘要）
+    /// 互为镜像、互相指认防漂移：同一钉版 release 的两段锚——资产摘要锚定来源，
+    /// 此处锚定运行期实际执行的字节。Linux 资产 `sccache-v0.19.0-x86_64-unknown-linux-musl`
+    /// 的资产摘要 `aa73c727…b9dd`；Windows 资产 `sccache-v0.19.0-x86_64-pc-windows-msvc`
+    /// 的资产摘要 `28be8c61…cbeac1`。其余平台无钉版常量：存在包装器即 fail-closed。
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    const PINNED_WRAPPER_BINARY_SHA256: Option<&str> =
+        Some("0b44834be857e21b026f7db49a7762023fedb5eb5ed60725a66f698d8d79a34b");
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    const PINNED_WRAPPER_BINARY_SHA256: Option<&str> =
+        Some("ba5542107b245431e37011110c1929d635e3a8e52cc98d35c4b01d0aa328b5a5");
+    #[cfg(not(any(
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
+    const PINNED_WRAPPER_BINARY_SHA256: Option<&str> = None;
+
+    /// 解析包装器文件路径：带路径分隔符按路径取，裸名按 PATH 扫描（Windows 依次
+    /// 尝试原名与 `.exe`/`.cmd`/`.bat` 变体）。不可解析即 `Err`（ADR 0034 §2 第 1 步
+    /// fail-closed，不猜测、不降级）。
+    fn resolve_wrapper_file(wrapper: &std::ffi::OsStr) -> Result<PathBuf, String> {
+        let raw = Path::new(wrapper);
+        let direct = if raw.components().count() > 1 || raw.is_absolute() {
+            raw.is_file().then(|| raw.to_path_buf())
+        } else {
+            std::env::var_os("PATH").and_then(|paths| {
+                std::env::split_paths(&paths).find_map(|dir| {
+                    let mut options = vec![dir.join(raw)];
+                    #[cfg(windows)]
+                    for ext in ["exe", "cmd", "bat"] {
+                        let mut name = raw.as_os_str().to_os_string();
+                        name.push(".");
+                        name.push(ext);
+                        options.push(dir.join(name));
+                    }
+                    options.into_iter().find(|path| path.is_file())
+                })
+            })
+        };
+        direct.ok_or_else(|| {
+            format!("包装器未验明正身：路径不可解析（{wrapper:?}），门禁 fail-closed")
+        })
+    }
+
+    /// 验明正身（ADR 0034 §2 第 1–3 步）：解析路径 → 文件 SHA-256 对仓库钉版常量 →
+    /// `--version` 自报逐行对钉版。任一步不可完成即 `Err`（沿用原 fail-closed 语义，
+    /// 信息注明「包装器未验明正身」）。判定链逻辑由下方夹具测试覆盖；真实钉版常量与
+    /// 真实包装器的正例在挂载 `RUSTC_WRAPPER` 的 CI 构建 job 实测。
+    fn verify_pinned_wrapper(
+        wrapper: &std::ffi::OsStr,
+        expected_sha256: &str,
+        expected_version: &str,
+    ) -> Result<(), String> {
+        let path = resolve_wrapper_file(wrapper)?;
+        let bytes = std::fs::read(&path).map_err(|error| {
+            format!("包装器未验明正身：无法读取文件（{error}），门禁 fail-closed")
+        })?;
+        let actual = crate::output::digest::hex_sha256(&bytes);
+        if actual != expected_sha256 {
+            return Err(format!(
+                "包装器未验明正身：文件 SHA-256 与仓库钉版常量不匹配（实际 {actual}），门禁 fail-closed"
+            ));
+        }
+        let output = std::process::Command::new(&path)
+            .arg("--version")
+            .output()
+            .map_err(|error| {
+                format!("包装器未验明正身：无法执行 --version（{error}），门禁 fail-closed")
+            })?;
+        let report = String::from_utf8_lossy(&output.stdout);
+        if !output.status.success() || report.trim() != expected_version {
+            return Err(format!(
+                "包装器未验明正身：自报版本与钉版 {expected_version} 不一致（{report:?}），门禁 fail-closed"
+            ));
+        }
+        Ok(())
+    }
+
     #[test]
     fn build_compiler_matches_pinned_toolchain() {
         // #253：provenance 的 rust_version 记录仓库 pin，但覆盖构建编译器
@@ -2589,12 +2674,17 @@ output_dir = 'E:/nonexistent-out'
         // 解析编译器——RUSTC 环境变量 > PATH（rustup 代理按
         // RUSTUP_TOOLCHAIN/rust-toolchain.toml 解析）；仓库 wire 审计已禁
         // cargo config 的 [build] 编译器替换键，覆盖面只剩环境变量。
-        // RUSTC_WRAPPER 类包装器可以改指实际编译器，无法核实即 fail-closed。
+        // ADR 0034 §2（#1074）契约修订：RUSTC_WRAPPER 类包装器不再一律拒绝，
+        // 改为验明正身（路径解析 → 文件 SHA-256 对钉版常量 → --version 自报对
+        // 钉版）；任一步不可完成仍 fail-closed，信息注明「包装器未验明正身」。
+        // 门禁新增信任面仅为钉版且验明正身的缓存包装器（ADR 0034 §2 末段）。
         for var in ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
-            assert!(
-                std::env::var_os(var).is_none(),
-                "{var} redirects the actual compiler; the gate cannot verify it"
-            );
+            if let Some(wrapper) = std::env::var_os(var) {
+                let pinned = PINNED_WRAPPER_BINARY_SHA256
+                    .expect("本平台无钉版包装器常量；存在包装器即 fail-closed");
+                verify_pinned_wrapper(&wrapper, pinned, PINNED_WRAPPER_VERSION)
+                    .unwrap_or_else(|error| panic!("{var}: {error}"));
+            }
         }
         let compiler = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
         let output = std::process::Command::new(&compiler)
@@ -2608,6 +2698,90 @@ output_dir = 'E:/nonexistent-out'
             version.starts_with(&format!("rustc {channel} ")),
             "build compiler must match the pinned toolchain {channel}: {version}"
         );
+    }
+
+    /// 写一个自报固定版本行的假包装器夹具（unix：sh 脚本；windows：.cmd）。
+    fn write_fake_wrapper(dir: &Path, version_line: &str) -> PathBuf {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join("fake-sccache");
+            std::fs::write(&path, format!("#!/bin/sh\necho \"{version_line}\"\n"))
+                .expect("write fake wrapper");
+            let mut permissions = std::fs::metadata(&path)
+                .expect("fake wrapper metadata")
+                .permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&path, permissions).expect("chmod fake wrapper");
+            path
+        }
+        #[cfg(windows)]
+        {
+            let path = dir.join("fake-sccache.cmd");
+            std::fs::write(&path, format!("@echo {version_line}\r\n")).expect("write fake wrapper");
+            path
+        }
+    }
+
+    fn wrapper_fixture_dir(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("lust-wrapper-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("fake wrapper temp dir");
+        root
+    }
+
+    #[test]
+    fn pinned_wrapper_rejects_unresolvable_path() {
+        // ADR 0034 §2 第 1 步：路径不可解析即 fail-closed。
+        let error = verify_pinned_wrapper(
+            std::ffi::OsStr::new("no-such-sccache-wrapper-1074"),
+            PINNED_WRAPPER_BINARY_SHA256.unwrap_or("00"),
+            PINNED_WRAPPER_VERSION,
+        )
+        .expect_err("unresolvable wrapper must fail closed");
+        assert!(error.contains("路径不可解析"), "{error}");
+    }
+
+    #[test]
+    fn pinned_wrapper_rejects_digest_mismatch() {
+        // ADR 0034 §2 第 2 步：文件摘要与钉版常量不符即 fail-closed。
+        let root = wrapper_fixture_dir("digest");
+        let wrapper = write_fake_wrapper(&root, PINNED_WRAPPER_VERSION);
+        let error = verify_pinned_wrapper(
+            wrapper.as_os_str(),
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            PINNED_WRAPPER_VERSION,
+        )
+        .expect_err("digest mismatch must fail closed");
+        assert!(error.contains("SHA-256"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pinned_wrapper_rejects_version_mismatch() {
+        // ADR 0034 §2 第 3 步：摘要相符但自报版本不符即 fail-closed。
+        let root = wrapper_fixture_dir("version");
+        let wrapper = write_fake_wrapper(&root, "sccache 0.0.0-not-pinned");
+        let bytes = std::fs::read(&wrapper).expect("read fake wrapper");
+        let own = crate::output::digest::hex_sha256(&bytes);
+        let error = verify_pinned_wrapper(wrapper.as_os_str(), &own, PINNED_WRAPPER_VERSION)
+            .expect_err("version mismatch must fail closed");
+        assert!(error.contains("版本"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pinned_wrapper_accepts_matching_identity_fixture() {
+        // 判定链正例（注入钉版）：摘要与自报均与注入常量一致即放行。真实钉版
+        // 常量 + 真实 sccache 的正例只能在挂载 RUSTC_WRAPPER 的 CI 构建 job 实测
+        // （本 PR 的 Rust checks / Placement fixture tests / Urban harness tests）。
+        let root = wrapper_fixture_dir("accept");
+        let wrapper = write_fake_wrapper(&root, PINNED_WRAPPER_VERSION);
+        let bytes = std::fs::read(&wrapper).expect("read fake wrapper");
+        let own = crate::output::digest::hex_sha256(&bytes);
+        verify_pinned_wrapper(wrapper.as_os_str(), &own, PINNED_WRAPPER_VERSION)
+            .expect("matching fixture must pass");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[cfg(unix)]
