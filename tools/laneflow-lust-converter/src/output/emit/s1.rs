@@ -15,6 +15,8 @@ use crate::output::model::ManeuverPath;
 
 const ASSIGNMENT_LIMIT: usize = 128;
 
+mod measurement;
+
 thread_local! {
     static ORIGINAL_PATH_KEYS: RefCell<Option<HashMap<String, String>>> = const { RefCell::new(None) };
 }
@@ -734,6 +736,7 @@ fn pinned_lust_s1_sample_validation() {
         "../../../../../research/issue-1084-lust-sampling/samples.json"
     ))
     .unwrap();
+    measurement::write_inputs(&out, &observation, &samples);
     let (mut report, mut timing) = run(&observation, &samples);
     report["source"] = json!({"lust_commit":crate::source::LUST_COMMIT,"net_digest":prepared.report_source().net_digest()});
     timing["total_seconds"] = json!(started.elapsed().as_secs_f64());
