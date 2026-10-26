@@ -1,0 +1,103 @@
+{
+  "schema": "laneflow-1090-verification",
+  "code_commit": "fd93e363a3aba13939376838220b225c25c08eda",
+  "toolchain": "Rust 1.99.1",
+  "target": "x86_64-pc-windows-msvc",
+  "profile": "debug test, unoptimized + debuginfo",
+  "processor": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfLogicalProcessors": 32
+  },
+  "processes": 2,
+  "results_bytes": 288999,
+  "direct_byte_comparison_equal": true,
+  "comparison": "run-2/results.json versus run-3/results.json; direct bytes, timing excluded",
+  "scope_note": "run-2 began before the code commit; its Rust source bytes equal the committed code used by run-3. Exploration run-1 is excluded.",
+  "timing_note": "Diagnostic timings include recording and geometry metrics. These were not isolated performance benchmarks; cargo check/clippy/commit-hook work overlapped run-2. No product speedup or full-network extrapolation is claimed.",
+  "checks": [
+    {
+      "command": "cargo +1.99.1 test --locked -p laneflow-lust-converter --lib",
+      "passed": 204,
+      "failed": 0,
+      "ignored": 11
+    },
+    {
+      "command": "cargo +1.99.1 fmt --all -- --check",
+      "exit": 0
+    },
+    {
+      "command": "cargo +1.99.1 check --locked -p laneflow-lust-converter --tests",
+      "exit": 0
+    },
+    {
+      "command": "cargo +1.99.1 clippy --locked -p laneflow-lust-converter --all-targets -- -D warnings",
+      "exit": 0
+    },
+    {
+      "command": "cargo +1.99.1 test --locked -p laneflow-lust-converter --lib output::emit::s1::pinned_lust_s1_sample_validation -- --exact --ignored --nocapture",
+      "independent_runs": 2,
+      "passed_per_run": 1,
+      "failed": 0
+    }
+  ],
+  "timings": [
+    {
+      "run": "run-2",
+      "measurements": {
+        "assignment_compile_seconds": 16.3087542,
+        "baseline_conversion_seconds": 152.6602521,
+        "edge_search_seconds": {
+          "sumo:--30244#0_0": 0.0004218,
+          "sumo:--30266_0": 0.2110784,
+          "sumo:--30316_0": 1.5580892,
+          "sumo:--30358#12_1": 1.6617213,
+          "sumo:--30452_0": 1.6603801,
+          "sumo:--32668#0_0": 1.21E-05,
+          "sumo:-32668#0_0": 9.4E-06,
+          "sumo:-32770#1_1": 0.0002184,
+          "sumo::-10004_0_0": 3.88E-05,
+          "sumo::-10004_3_0": 1.5759881,
+          "sumo::-10004_5_1": 0.0456968,
+          "sumo::-1000_2_0": 1.5893819,
+          "sumo::-10046_0_0": 1.5720657999999998,
+          "sumo::-10564_6_0": 0.1801333,
+          "sumo::-19726_1_0": 0.0001285,
+          "sumo::-25490_3_0": 0.0001184,
+          "sumo::-8018_0_1": 0.0002139
+        },
+        "source_verify_and_parse_seconds": 1.9348063,
+        "success_replay_and_compare_seconds": 3.00631699999999,
+        "total_seconds": 186.2158997
+      }
+    },
+    {
+      "run": "run-3",
+      "measurements": {
+        "assignment_compile_seconds": 15.7609245,
+        "baseline_conversion_seconds": 172.2321205,
+        "edge_search_seconds": {
+          "sumo:--30244#0_0": 0.0005482,
+          "sumo:--30266_0": 0.1875716,
+          "sumo:--30316_0": 1.5132734,
+          "sumo:--30358#12_1": 1.5286594,
+          "sumo:--30452_0": 1.5115287,
+          "sumo:--32668#0_0": 9.9E-06,
+          "sumo:-32668#0_0": 9.9E-06,
+          "sumo:-32770#1_1": 0.0002136,
+          "sumo::-10004_0_0": 2.9E-05,
+          "sumo::-10004_3_0": 1.5593651,
+          "sumo::-10004_5_1": 0.04004,
+          "sumo::-1000_2_0": 1.5613943,
+          "sumo::-10046_0_0": 1.5466432,
+          "sumo::-10564_6_0": 0.1687507,
+          "sumo::-19726_1_0": 0.0001087,
+          "sumo::-25490_3_0": 9.81E-05,
+          "sumo::-8018_0_1": 0.0001251
+        },
+        "source_verify_and_parse_seconds": 2.4653867,
+        "success_replay_and_compare_seconds": 2.596737900000002,
+        "total_seconds": 204.5825948
+      }
+    }
+  ]
+}
