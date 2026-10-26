@@ -142,7 +142,9 @@ jobs:
       # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
       ACTIONS_CACHE_SERVICE_V2: "on"
       # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1094 实验修正：PR 只读导致探针轮无写入、"热轮"实为全冷轮；临时放开
+      # 写入取得真实热轮数据后收敛回条件式。
+      SCCACHE_GHA_RW_MODE: READ_WRITE
       # #1094 提速探针：链接器换 lld（纯声明式 env；runner 自带 ld.lld，
       # 缺失即快速失败再议）。RUSTFLAGS 参与指纹与 sccache 键，探针轮如实标注。
       RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -375,7 +377,9 @@ jobs:
       # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
       ACTIONS_CACHE_SERVICE_V2: "on"
       # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1094 实验修正：PR 只读导致探针轮无写入、"热轮"实为全冷轮；临时放开
+      # 写入取得真实热轮数据后收敛回条件式。
+      SCCACHE_GHA_RW_MODE: READ_WRITE
       # #1094 提速探针：链接器换 lld（纯声明式 env；runner 自带 ld.lld，
       # 缺失即快速失败再议）。RUSTFLAGS 参与指纹与 sccache 键，探针轮如实标注。
       RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -503,7 +507,9 @@ jobs:
       # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
       ACTIONS_CACHE_SERVICE_V2: "on"
       # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+      # #1094 实验修正：PR 只读导致探针轮无写入、"热轮"实为全冷轮；临时放开
+      # 写入取得真实热轮数据后收敛回条件式。
+      SCCACHE_GHA_RW_MODE: READ_WRITE
       # #1094 提速探针：链接器换 lld（纯声明式 env；runner 自带 ld.lld，
       # 缺失即快速失败再议）。RUSTFLAGS 参与指纹与 sccache 键，探针轮如实标注。
       RUSTFLAGS: -C link-arg=-fuse-ld=lld
