@@ -69,6 +69,101 @@ fn bits(point: [f32; 3]) -> [u32; 3] {
     point.map(f32::to_bits)
 }
 
+/// 完整程序的无损测试记录；不以段数和首末点代替内部几何。
+fn program_record(program: &re::RoadEditingCurveProgram) -> Value {
+    let point_bits = |point| vec3(point).map(f64::to_bits);
+    let segments = program
+        .segments()
+        .iter()
+        .map(|segment| {
+            let geometry = match segment.geometry() {
+                re::RoadEditingCurveSegmentGeometry::Line { end } => {
+                    json!({"kind": "Line", "end_f64_bits": point_bits(end)})
+                }
+                re::RoadEditingCurveSegmentGeometry::CubicBezier {
+                    control_1,
+                    control_2,
+                    end,
+                } => {
+                    json!({"kind": "CubicBezier", "control_1_f64_bits": point_bits(control_1),
+                    "control_2_f64_bits": point_bits(control_2), "end_f64_bits": point_bits(end)})
+                }
+            };
+            json!({"geometry": geometry, "canvas_selection": segment.canvas_selection()})
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "start_f64_bits": point_bits(program.start()), "segments": segments,
+        "line_points_f32_bits": edge_geometry(program).map(|geometry| {
+            geometry.points.into_iter().map(bits).collect::<Vec<_>>()
+        }),
+    })
+}
+
+fn sampling_samples(observation: &EmissionObservation) -> String {
+    use super::super::{repair_curve, sampling_observation};
+
+    let selected = [
+        "sumo::-10046_0_0",
+        "sumo:--30452_0",
+        "sumo::-10004_3_0",
+        "sumo:--30316_0",
+        "sumo::-10564_6_0",
+        "sumo:--30358#12_1",
+        "sumo::-1000_2_0",
+        "sumo::-10004_5_1",
+        "sumo:--30266_0",
+        "sumo::-10004_0_0",
+        "sumo:--30244#0_0",
+        "sumo:--32668#0_0",
+        "sumo::-19726_1_0",
+        "sumo:-32668#0_0",
+        "sumo::-25490_3_0",
+        "sumo::-8018_0_1",
+        "sumo:-32770#1_1",
+    ];
+    let mut rows = Vec::new();
+    for ((edge, original), input) in observation.edges.iter().zip(&observation.inputs) {
+        if !selected.contains(&edge.as_str()) {
+            continue;
+        }
+        let (replay, calls) = sampling_observation::capture(|| {
+            repair_curve(
+                &input.points,
+                input.clamps[0],
+                input.clamps[1],
+                input.clamp_sources[0].as_ref(),
+                input.clamp_sources[1].as_ref(),
+            )
+        });
+        let outcome = match (original, replay) {
+            (EdgeEmission::Emitted(original), Ok(repaired)) => {
+                assert_eq!(program_record(original), program_record(&repaired.program));
+                json!({"status": "emitted", "program": program_record(&repaired.program),
+                    "quantized_arc_f64_bits": repaired.quantized_arc_meters.to_bits()})
+            }
+            (EdgeEmission::Failed(original), Err(error)) => {
+                assert_eq!(*original, error.to_string());
+                json!({"status": "emission_failed", "error": original})
+            }
+            _ => panic!("sampling replay changed original outcome: {edge}"),
+        };
+        rows.push((edge, json!({"edge": edge, "original_replay_equal": true,
+            "input_points_f64_bits": input.points.iter().map(|p| p.map(f64::to_bits)).collect::<Vec<_>>(),
+            "clamps_f64_bits": input.clamps.map(|p| p.map(|p| p.map(f64::to_bits))),
+            "outcome": outcome, "sample_cubic_calls": calls})));
+    }
+    assert_eq!(
+        rows.len(),
+        selected.len(),
+        "all selected real samples observed"
+    );
+    rows.sort_by(|a, b| a.0.cmp(b.0));
+    rows.into_iter()
+        .map(|(_, row)| format!("{row}\n"))
+        .collect()
+}
+
 /// 量化弦的 f64 促升单位方向（与 sink 同一算术）。
 fn chord_dir(from: [f32; 3], to: [f32; 3]) -> Vec3 {
     unit([
@@ -772,6 +867,7 @@ fn pinned_lust_path_adjacency_survey() {
                     json!({
                         "status": if geometry.is_some() { "emitted" } else { "emitted_non_line" },
                         "segments": program.segments().len(),
+                        "full_program": program_record(program),
                         "first_point_bits": geometry.as_ref().map(|g| bits(g.points[0])),
                         "last_point_bits": geometry.as_ref().map(|g| bits(g.points[g.points.len() - 1])),
                     })
@@ -803,6 +899,11 @@ fn pinned_lust_path_adjacency_survey() {
         edges_text.push('\n');
     }
     fs::write(output_dir.join("edge-emissions.jsonl"), &edges_text).expect("edges");
+    fs::write(
+        output_dir.join("sampling-samples.jsonl"),
+        sampling_samples(&observation),
+    )
+    .expect("sampling samples");
     let summary_text = serde_json::to_string_pretty(&summary).expect("summary json");
     fs::write(output_dir.join("summary.json"), format!("{summary_text}\n")).expect("summary");
     fs::write(output_dir.join("pairs.jsonl"), &pairs_text).expect("pairs");
@@ -826,6 +927,51 @@ fn pinned_lust_path_adjacency_survey() {
 // ---------------------------------------------------------------------------
 // 普通小夹具：定位准确性与计数规则
 // ---------------------------------------------------------------------------
+
+#[test]
+fn complete_program_record_detects_middle_point_change() {
+    let first = program(&[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+    let changed = program(&[[0.0, 0.0, 0.0], [1.0, 0.01, 0.0], [2.0, 0.0, 0.0]]);
+    assert_eq!(first.segments().len(), changed.segments().len());
+    let first_points = edge_geometry(&first).unwrap().points;
+    let changed_points = edge_geometry(&changed).unwrap().points;
+    assert_eq!(first_points.first(), changed_points.first());
+    assert_eq!(first_points.last(), changed_points.last());
+    assert_ne!(program_record(&first), program_record(&changed));
+}
+
+/// 同参数 cubic 与量化弦之差仍是 cubic；控制多边形凸包给出保守距离上界。
+/// 这覆盖弦内部，但该数值未被接受为 S1 的合同门槛。
+fn cubic_chord_deviation_bound(control: [Vec3; 4], chord: [Vec3; 2]) -> f64 {
+    let linear = [
+        chord[0],
+        scale(add(scale(chord[0], 2.0), chord[1]), 1.0 / 3.0),
+        scale(add(chord[0], scale(chord[1], 2.0)), 1.0 / 3.0),
+        chord[1],
+    ];
+    control
+        .into_iter()
+        .zip(linear)
+        .map(|(p, q)| super::super::norm(sub(p, q)))
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn deviation_bound_covers_curve_interior_when_vertices_lie_on_curve() {
+    use super::super::{cubic_at, norm};
+    let control = [
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ];
+    let [a, c1, c2, b] = control;
+    assert_eq!(cubic_at(a, c1, c2, b, 0.0), a);
+    assert_eq!(cubic_at(a, c1, c2, b, 1.0), b);
+    let midpoint_deviation = norm(sub(cubic_at(a, c1, c2, b, 0.5), [0.5, 0.0, 0.0]));
+    assert_eq!(midpoint_deviation, 0.75);
+    assert!(cubic_chord_deviation_bound(control, [a, b]) >= midpoint_deviation);
+}
 
 fn program(points: &[Vec3]) -> re::RoadEditingCurveProgram {
     re::RoadEditingCurveProgram::try_new(

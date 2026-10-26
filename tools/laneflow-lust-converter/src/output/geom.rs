@@ -1078,6 +1078,8 @@ pub(crate) fn repair_curve(
     // 0.105m）并在发射时按量化后的真实弦做 weld 预检，可稳定通过。
     let mut sink = EmissionSink::new(first);
     for (j, span) in spans.iter().enumerate() {
+        #[cfg(test)]
+        sampling_observation::outer_span(j, spans.len());
         emit_sampled_span(j, span, clamp_start, clamp_finish, &spans, &mut sink).map_err(
             |error| {
                 // fail-closed 诊断：报出失败跨段的位置与两端切向的产生机制，
@@ -1448,7 +1450,7 @@ fn cubic_arc_len(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3) -> f64 {
 /// 片数按局部几何一次选定（质量目标 × 弧长容量下界），初始候选为等 t 参数
 /// 划分；局部失败时回溯一轮做等切向角重划分（见 emit_angle_pieces），两轮
 /// 都找不到合格候选报「sampling exhausted」（与已证预算冲突文案区分）。
-fn sample_cubic(
+fn sample_cubic_impl(
     a: Vec3,
     c1: Vec3,
     c2: Vec3,
@@ -1567,6 +1569,28 @@ fn sample_cubic(
         }
     }
     unreachable!("loop returns by round {}", SAMPLE_BACKTRACK_ROUNDS);
+}
+
+#[cfg(not(test))]
+use sample_cubic_impl as sample_cubic;
+
+#[cfg(test)]
+mod sampling_observation;
+
+#[cfg(test)]
+fn sample_cubic(
+    a: Vec3,
+    c1: Vec3,
+    c2: Vec3,
+    b: Vec3,
+    dir_a: Vec3,
+    dir_b: Vec3,
+    sink: &mut EmissionSink,
+) -> Result<()> {
+    let call = sampling_observation::enter([a, c1, c2, b, dir_a, dir_b], sink);
+    let result = sample_cubic_impl(a, c1, c2, b, dir_a, dir_b, sink);
+    sampling_observation::finish(call, &result);
+    result
 }
 
 /// 一段待采样的三次 Bezier 及其两端切向（束参数，避开 too_many_arguments）。
