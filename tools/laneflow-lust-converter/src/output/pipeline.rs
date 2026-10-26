@@ -2616,6 +2616,8 @@ output_dir = 'E:/nonexistent-out'
         } else {
             std::env::var_os("PATH").and_then(|paths| {
                 std::env::split_paths(&paths).find_map(|dir| {
+                    // Windows 追加扩展名变体；非 Windows 无追加，`mut` 只在 Windows 需要。
+                    #[cfg_attr(not(windows), allow(unused_mut))]
                     let mut options = vec![dir.join(raw)];
                     #[cfg(windows)]
                     for ext in ["exe", "cmd", "bat"] {
