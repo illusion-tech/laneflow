@@ -80,11 +80,42 @@ pub(crate) fn build_routes_and_bind_population(
     Ok(RoutePopulationBundle { routes, records })
 }
 
+trait RouteObserver {
+    fn start_lanes(&mut self, _lanes: &[u32]) {}
+    fn state(&mut self, _occurrence: usize, _lane: u32, _result: bool, _cached: bool) {}
+    fn hop(&mut self, _occurrence: usize, _hop: &HopOption) {}
+    fn materialize_entry(&mut self, _start_lane: u32) {}
+    #[cfg(test)]
+    fn inject_materialize_failure(&mut self) -> bool {
+        false
+    }
+}
+
+struct NoopObserver;
+
+impl RouteObserver for NoopObserver {}
+
 fn expand_road_route(
     network: &SumoNetwork,
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
+) -> Result<Vec<String>> {
+    expand_road_route_with_observer(
+        network,
+        lanes_by_edge,
+        hops,
+        road_edge_ids,
+        &mut NoopObserver,
+    )
+}
+
+fn expand_road_route_with_observer(
+    network: &SumoNetwork,
+    lanes_by_edge: &HashMap<&str, Vec<u32>>,
+    hops: &HashMap<(String, String), Vec<HopOption>>,
+    road_edge_ids: &[String],
+    observer: &mut impl RouteObserver,
 ) -> Result<Vec<String>> {
     if road_edge_ids.is_empty() {
         return Err(Error::SumoModel(
@@ -100,17 +131,27 @@ fn expand_road_route(
                 road_edge_ids[0]
             ))
         })?;
+    observer.start_lanes(start_lanes);
 
     let mut memo: HashMap<(usize, u32), bool> = HashMap::new();
     for &start_lane in start_lanes {
-        if can_complete(lanes_by_edge, hops, road_edge_ids, 0, start_lane, &mut memo) {
-            return materialize_path(
+        if can_complete_with_observer(
+            lanes_by_edge,
+            hops,
+            road_edge_ids,
+            0,
+            start_lane,
+            &mut memo,
+            observer,
+        ) {
+            return materialize_path_with_observer(
                 network,
                 lanes_by_edge,
                 hops,
                 road_edge_ids,
                 start_lane,
                 &mut memo,
+                observer,
             );
         }
     }
@@ -142,15 +183,17 @@ pub(super) fn population_route_failures(
         .collect()
 }
 
-fn can_complete(
+fn can_complete_with_observer(
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
     edge_index: usize,
     lane_index: u32,
     memo: &mut HashMap<(usize, u32), bool>,
+    observer: &mut impl RouteObserver,
 ) -> bool {
     if let Some(&cached) = memo.get(&(edge_index, lane_index)) {
+        observer.state(edge_index, lane_index, cached, true);
         return cached;
     }
     let result = if edge_index + 1 == road_edge_ids.len() {
@@ -165,28 +208,37 @@ fn can_complete(
             .flatten()
             .filter(|hop| hop.from_lane == lane_index)
             .any(|hop| {
-                can_complete(
+                observer.hop(edge_index, hop);
+                can_complete_with_observer(
                     lanes_by_edge,
                     hops,
                     road_edge_ids,
                     edge_index + 1,
                     hop.to_lane,
                     memo,
+                    &mut *observer,
                 )
             })
     };
+    observer.state(edge_index, lane_index, result, false);
     memo.insert((edge_index, lane_index), result);
     result
 }
 
-fn materialize_path(
+fn materialize_path_with_observer(
     network: &SumoNetwork,
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
     start_lane: u32,
     memo: &mut HashMap<(usize, u32), bool>,
+    observer: &mut impl RouteObserver,
 ) -> Result<Vec<String>> {
+    observer.materialize_entry(start_lane);
+    #[cfg(test)]
+    if observer.inject_materialize_failure() {
+        return Err(Error::SumoModel("injected materialize failure".to_owned()));
+    }
     let mut lane_edge_ids = vec![lane_laneflow_id(network, &road_edge_ids[0], start_lane)?];
     let mut current_lane = start_lane;
 
@@ -201,13 +253,14 @@ fn materialize_path(
 
         let mut chosen: Option<&HopOption> = None;
         for hop in options.iter().filter(|hop| hop.from_lane == current_lane) {
-            if can_complete(
+            if can_complete_with_observer(
                 lanes_by_edge,
                 hops,
                 road_edge_ids,
                 edge_index + 1,
                 hop.to_lane,
                 memo,
+                &mut *observer,
             ) {
                 chosen = Some(hop);
                 break;
@@ -228,6 +281,10 @@ fn materialize_path(
 
     Ok(lane_edge_ids)
 }
+
+/// 按需内部诊断；默认转换不调用，非测试构建不因入口暂未接入而删除这些实现。
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod diagnostics;
 
 fn build_hop_index(topology: &NormalizedTopology) -> HashMap<(String, String), Vec<HopOption>> {
     let path_by_id: HashMap<&str, &ManeuverPath> = topology

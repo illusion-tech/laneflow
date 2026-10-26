@@ -42,6 +42,8 @@ pub(crate) enum RouteFixtureKind {
     Continuous,
     MissingHop,
     UnknownLane,
+    TwoLaneOrigin,
+    LoopBack,
 }
 
 #[derive(Clone, Debug)]
@@ -105,6 +107,17 @@ impl RouteFixture {
         self
     }
 
+    pub(crate) fn with_road_sequence(mut self, roads: &[&str]) -> Self {
+        let roads = roads
+            .iter()
+            .map(|road| (*road).to_owned())
+            .collect::<Vec<_>>();
+        for vehicle in &mut self.vehicles {
+            vehicle.road_edge_ids.clone_from(&roads);
+        }
+        self
+    }
+
     pub(crate) fn network(&self) -> SumoNetwork {
         parse_sumo_network_xml(&self.net_xml()).expect("parse A0 network")
     }
@@ -160,6 +173,11 @@ impl RouteFixture {
     }
 
     fn net_xml(&self) -> String {
+        match self.kind {
+            RouteFixtureKind::TwoLaneOrigin => return two_lane_origin_net_xml(),
+            RouteFixtureKind::LoopBack => return loop_back_net_xml(),
+            _ => {}
+        }
         let include_p2 = !matches!(self.kind, RouteFixtureKind::MissingHop);
         let include_p0 = matches!(self.kind, RouteFixtureKind::Continuous);
         let p2_from_lane = if matches!(self.kind, RouteFixtureKind::UnknownLane) {
@@ -242,6 +260,55 @@ impl RouteFixture {
         }
         documents
     }
+}
+
+fn two_lane_origin_net_xml() -> String {
+    r#"<?xml version="1.0" encoding="UTF-8"?>
+<net version="1.16">
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="A" from="X" to="J1"><lane id="A_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/><lane id="A_1" index="1" speed="13.89" length="20.00" shape="6786.88,5730.52 6806.88,5730.52"/></edge>
+  <edge id="B" from="J1" to="J2"><lane id="B_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="B_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
+  <edge id="C" from="J2" to="Z"><lane id="C_0" index="0" speed="13.89" length="20.00" shape="6840.88,5727.52 6860.88,5727.52"/></edge>
+  <edge id=":J1_0" function="internal"><lane id=":J1_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <edge id=":J1_1" function="internal"><lane id=":J1_1_0" index="0" speed="13.89" length="10.00" shape="6806.88,5730.52 6816.88,5730.52"/></edge>
+  <edge id=":J2_0" function="internal"><lane id=":J2_0_0" index="0" speed="13.89" length="5.00" shape="6836.88,5730.52 6840.88,5727.52"/></edge>
+  <junction id="X" type="dead_end" incLanes="" intLanes=""/>
+  <junction id="Z" type="dead_end" incLanes="C_0" intLanes=""/>
+  <junction id="J1" type="priority" incLanes="A_0 A_1" intLanes=":J1_0_0 :J1_1_0"/>
+  <junction id="J2" type="priority" incLanes="B_0 B_1" intLanes=":J2_0_0"/>
+  <connection from="A" to="B" fromLane="0" toLane="0" via=":J1_0_0"/>
+  <connection from=":J1_0" to="B" fromLane="0" toLane="0"/>
+  <connection from="A" to="B" fromLane="1" toLane="1" via=":J1_1_0"/>
+  <connection from=":J1_1" to="B" fromLane="0" toLane="1"/>
+  <connection from="B" to="C" fromLane="1" toLane="0" via=":J2_0_0"/>
+  <connection from=":J2_0" to="C" fromLane="0" toLane="0"/>
+</net>
+"#
+    .to_owned()
+}
+
+fn loop_back_net_xml() -> String {
+    r#"<?xml version="1.0" encoding="UTF-8"?>
+<net version="1.16">
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="A" from="X" to="J1"><lane id="A_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="B" from="J1" to="J2"><lane id="B_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="B_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
+  <edge id="C" from="J2" to="J1"><lane id="C_0" index="0" speed="13.89" length="40.00" shape="6846.88,5720.52 6806.88,5720.52"/></edge>
+  <edge id=":J1_0" function="internal"><lane id=":J1_0_0" index="0" speed="13.89" length="13.00" shape="6806.88,5727.52 6806.88,5730.52 6816.88,5730.52"/></edge>
+  <edge id=":J2_0" function="internal"><lane id=":J2_0_0" index="0" speed="13.89" length="20.00" shape="6836.88,5730.52 6846.88,5730.52 6846.88,5720.52"/></edge>
+  <edge id=":J1_1" function="internal"><lane id=":J1_1_0" index="0" speed="13.89" length="17.00" shape="6806.88,5720.52 6816.88,5720.52 6816.88,5727.52"/></edge>
+  <junction id="X" type="dead_end" incLanes="" intLanes=""/>
+  <junction id="J1" type="priority" incLanes="A_0 C_0" intLanes=":J1_0_0 :J1_1_0"/>
+  <junction id="J2" type="priority" incLanes="B_0 B_1" intLanes=":J2_0_0"/>
+  <connection from="A" to="B" fromLane="0" toLane="1" via=":J1_0_0"/>
+  <connection from=":J1_0" to="B" fromLane="0" toLane="1"/>
+  <connection from="B" to="C" fromLane="1" toLane="0" via=":J2_0_0"/>
+  <connection from=":J2_0" to="C" fromLane="0" toLane="0"/>
+  <connection from="C" to="B" fromLane="0" toLane="0" via=":J1_1_0"/>
+  <connection from=":J1_1" to="B" fromLane="0" toLane="0"/>
+</net>
+"#
+    .to_owned()
 }
 
 pub(crate) fn diagnostic_options() -> TopologyConvertOptions {
