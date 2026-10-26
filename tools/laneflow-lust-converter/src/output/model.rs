@@ -9,6 +9,7 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct TrafficPackage {
     pub format_version: &'static str,
     pub units: Units,
@@ -26,12 +27,14 @@ pub(crate) struct TrafficPackage {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct Units {
     pub distance: &'static str,
     pub time: &'static str,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct LaneGraph {
     pub edges: Vec<LaneEdge>,
 }
@@ -92,6 +95,7 @@ pub(crate) struct VehicleProfile {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct Signals {
     pub stop_lines: Vec<StopLine>,
     pub maneuver_gates: Vec<ManeuverGate>,
@@ -101,6 +105,7 @@ pub(crate) struct Signals {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct StopLine {
     pub id: String,
     pub edge_id: String,
@@ -109,6 +114,7 @@ pub(crate) struct StopLine {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct ManeuverGate {
     pub id: String,
     pub maneuver_path_id: String,
@@ -119,18 +125,21 @@ pub(crate) struct ManeuverGate {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct SignalControl {
     pub kind: &'static str,
     pub group_id: String,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct SignalGroup {
     pub id: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct SignalController {
     pub id: String,
     pub kind: &'static str,
@@ -141,6 +150,7 @@ pub(crate) struct SignalController {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct SignalPhase {
     pub id: String,
     pub duration_ms: u64,
@@ -149,18 +159,21 @@ pub(crate) struct SignalPhase {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct SignalGroupState {
     pub group_id: String,
     pub aspect: &'static str,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct Parking {
     pub areas: Vec<Never>,
     pub spaces: Vec<Never>,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) enum Never {}
 
 #[derive(Debug, Serialize)]

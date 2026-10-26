@@ -1004,6 +1004,7 @@ fn fixture_observation(
     edges: Vec<(&str, EdgeEmission)>,
 ) -> EmissionObservation {
     EmissionObservation {
+        traffic: None,
         maneuver_paths: paths,
         movements: vec![Movement {
             id: "m".to_owned(),
