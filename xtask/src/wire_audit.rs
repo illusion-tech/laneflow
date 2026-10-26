@@ -143,8 +143,8 @@ const LOCKFILE_PINS: [LockfilePin; 3] = [
     },
     LockfilePin {
         package: "memmap2",
-        version: "0.9.11",
-        checksum: "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0",
+        version: "0.9.12",
+        checksum: "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157",
     },
     LockfilePin {
         package: "tempfile",
@@ -530,7 +530,7 @@ fn require_wire_flatbuffers_dep(manifest: &toml::Table, label: &str) -> Result<(
 /// 不得声明 build 脚本键、auto* 四键必须显式关闭；[lib] 固定指向 src/lib.rs、
 /// 不得声明额外 target 段与 [target] 段；package 根目录不得存在 build.rs 与
 /// src/bin/、tests/、benches/、examples/ 目录；[dependencies] 必须恰好两条钉版：
-/// `memmap2 = { version = "=0.9.11", default-features = false }`（恰两键）与
+/// `memmap2 = { version = "=0.9.12", default-features = false }`（恰两键）与
 /// `tempfile = "=3.27.0"`；无 dev/build 依赖段。resolved source/checksum 钉版
 /// 由 `check_lockfile_pins` 闭合。
 fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
@@ -596,14 +596,14 @@ fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
             format!("mmap 例外 manifest `{manifest_path}` 的 memmap2 依赖必须是内联表形态")
         })?;
     if memmap2.len() != 2
-        || memmap2.get("version").and_then(toml::Value::as_str) != Some("=0.9.11")
+        || memmap2.get("version").and_then(toml::Value::as_str) != Some("=0.9.12")
         || memmap2
             .get("default-features")
             .and_then(toml::Value::as_bool)
             != Some(false)
     {
         return Err(format!(
-            "mmap 例外 manifest `{manifest_path}` 的 memmap2 依赖必须恰好为 `version = \"=0.9.11\", default-features = false` 两键（禁止 `package` 改名等注入）"
+            "mmap 例外 manifest `{manifest_path}` 的 memmap2 依赖必须恰好为 `version = \"=0.9.12\", default-features = false` 两键（禁止 `package` 改名等注入）"
         ));
     }
     if dependencies.get("tempfile").and_then(toml::Value::as_str) != Some("=3.27.0") {
@@ -1842,37 +1842,37 @@ mod tests {
         };
         // auto* 键缺失（默认开启自动发现）即拒绝。
         write_manifest(
-            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.12\", default-features = false }\ntempfile = \"=3.27.0\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("autobins"), "{error}");
         // 依赖表多一条。
         write_manifest(
-            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\nserde = \"1\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.12\", default-features = false }\ntempfile = \"=3.27.0\"\nserde = \"1\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("恰好 memmap2/tempfile 两条"), "{error}");
         // memmap2 未精确钉版。
         write_manifest(
-            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"0.9.12\", default-features = false }\ntempfile = \"=3.27.0\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("memmap2"), "{error}");
         // 额外 target 段。
         write_manifest(
-            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[[bin]]\nname = \"x\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.12\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[[bin]]\nname = \"x\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("只许 [lib] 一个编译入口"), "{error}");
         // [target] 条件依赖段逃逸顶层依赖表钉版。
         write_manifest(
-            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[target.'cfg(unix)'.dependencies]\nshim = { path = \"shim\" }\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.12\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[target.'cfg(unix)'.dependencies]\nshim = { path = \"shim\" }\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("[target]"), "{error}");
         // build.rs 存在。
         write_manifest(
-            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.12\", default-features = false }\ntempfile = \"=3.27.0\"\n",
         );
         fs::write(package_root.join("build.rs"), "fn main() {}\n").unwrap();
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
