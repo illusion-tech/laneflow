@@ -1,0 +1,3031 @@
+{
+  "code": {
+    "branch": "codex/1085-route-diagnostics",
+    "cargoTargetDir": "<build-output>",
+    "dirty": false,
+    "head": "4ace80110c985e175840c3314f2e265b7730d4c3",
+    "host": "x86_64-pc-windows-msvc",
+    "platform": "windows-x86_64",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+  },
+  "baseline_code": {
+    "branch": "codex/1085-route-diagnostics",
+    "cargoTargetDir": "<build-output>",
+    "dirty": false,
+    "head": "85a2d383f1cd66d8d8d04a14ce7d7a049172ed42",
+    "host": "x86_64-pc-windows-msvc",
+    "platform": "windows-x86_64",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+  },
+  "export_command": "See README.md for the evidence entry point and environment variables.",
+  "a0_comparisons": [
+    {
+      "case": "fixture-self-check",
+      "equal": true,
+      "checks": [
+        {
+          "name": "gapNetworkLaneCount",
+          "equal": true,
+          "baseline": 6,
+          "current": 6
+        },
+        {
+          "name": "continuousNetworkLaneCount",
+          "equal": true,
+          "baseline": 7,
+          "current": 7
+        },
+        {
+          "name": "gapConnectionCount",
+          "equal": true,
+          "baseline": 4,
+          "current": 4
+        },
+        {
+          "name": "continuousConnectionCount",
+          "equal": true,
+          "baseline": 6,
+          "current": 6
+        },
+        {
+          "name": "gapBLaneIndices",
+          "equal": true,
+          "baseline": [
+            0,
+            1
+          ],
+          "current": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "continuousBLaneIndices",
+          "equal": true,
+          "baseline": [
+            0,
+            1
+          ],
+          "current": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "noB0B1Connection",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "noB0ToCPath",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "noStubChanges",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "sourcePaths",
+          "equal": true,
+          "baseline": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ],
+          "current": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ]
+        },
+        {
+          "name": "continuousPaths",
+          "equal": true,
+          "baseline": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/0->C/0",
+              "entry": "sumo:B_0",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_1_0"
+              ],
+              "path_id": "sumo:J2:B_0-to-C_0::J2_1_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ],
+          "current": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/0->C/0",
+              "entry": "sumo:B_0",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_1_0"
+              ],
+              "path_id": "sumo:J2:B_0-to-C_0::J2_1_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "direct-gap",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "sourcePaths",
+          "equal": true,
+          "baseline": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ],
+          "current": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ]
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "fail-fast-gap",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "diagnostic-gap",
+      "equal": true,
+      "checks": [
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        },
+        {
+          "name": "populationOrdinals",
+          "equal": true,
+          "baseline": [
+            {
+              "populationRank": 0,
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1
+            },
+            {
+              "populationRank": 1,
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0
+            }
+          ],
+          "current": [
+            {
+              "populationRank": 0,
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1
+            },
+            {
+              "populationRank": 1,
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0
+            }
+          ]
+        },
+        {
+          "name": "routesTomlNone",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "repeatEqual",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "populationRecordCount",
+          "equal": true,
+          "baseline": 2,
+          "current": 2
+        },
+        {
+          "name": "infeasibilityReportPresent",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "networkLfcaEmpty",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        }
+      ]
+    },
+    {
+      "case": "continuous-direct",
+      "equal": true,
+      "checks": [
+        {
+          "name": "finalEdgeChain",
+          "equal": true,
+          "baseline": [
+            "sumo:A_0",
+            "sumo::J1_0_0",
+            "sumo:B_0",
+            "sumo::J2_1_0",
+            "sumo:C_0"
+          ],
+          "current": [
+            "sumo:A_0",
+            "sumo::J1_0_0",
+            "sumo:B_0",
+            "sumo::J2_1_0",
+            "sumo:C_0"
+          ]
+        },
+        {
+          "name": "boundPopulation",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleProfileId": "sumo:passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleProfileId": "sumo:passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ]
+        },
+        {
+          "name": "routeCatalogIds",
+          "equal": true,
+          "baseline": [
+            "sumo:route-0"
+          ],
+          "current": [
+            "sumo:route-0"
+          ]
+        },
+        {
+          "name": "repeatCatalogEqual",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "repeatRecordsEqual",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        },
+        {
+          "name": "sourcePaths",
+          "equal": true,
+          "baseline": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/0->C/0",
+              "entry": "sumo:B_0",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_1_0"
+              ],
+              "path_id": "sumo:J2:B_0-to-C_0::J2_1_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ],
+          "current": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/0->C/0",
+              "entry": "sumo:B_0",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_1_0"
+              ],
+              "path_id": "sumo:J2:B_0-to-C_0::J2_1_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "unknown-lane-normalization",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "connection references unknown lane edge=\"B\" index=9",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "connection references unknown lane edge=\"B\" index=9",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "sourcePaths",
+          "equal": true,
+          "baseline": [],
+          "current": []
+        }
+      ]
+    },
+    {
+      "case": "unknown-road-direct",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "DUE vehicle \"unknown-road\" references unknown road edge \"GHOST\"",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "DUE vehicle \"unknown-road\" references unknown road edge \"GHOST\"",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "GHOST"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "unknown-road",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "GHOST"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "unknown-road",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        },
+        {
+          "name": "sourcePaths",
+          "equal": true,
+          "baseline": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ],
+          "current": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "internal-road-direct",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "DUE vehicle \"internal-road\" route references internal edge \":J2_0\"",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "DUE vehicle \"internal-road\" route references internal edge \":J2_0\"",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                ":J2_0"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "internal-road",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                ":J2_0"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "internal-road",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        },
+        {
+          "name": "sourcePaths",
+          "equal": true,
+          "baseline": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ],
+          "current": [
+            {
+              "connection": "A/0->B/0",
+              "entry": "sumo:A_0",
+              "exit": "sumo:B_0",
+              "internals": [
+                "sumo::J1_0_0"
+              ],
+              "path_id": "sumo:J1:A_0-to-B_0::J1_0_0"
+            },
+            {
+              "connection": "B/1->C/0",
+              "entry": "sumo:B_1",
+              "exit": "sumo:C_0",
+              "internals": [
+                "sumo::J2_0_0"
+              ],
+              "path_id": "sumo:J2:B_1-to-C_0::J2_0_0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "unknown-road-diagnostic",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "DUE vehicle \"selected-z\" references unknown road edge \"GHOST\"",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "DUE vehicle \"selected-z\" references unknown road edge \"GHOST\"",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "GHOST"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "GHOST"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "internal-road-diagnostic",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "DUE vehicle \"selected-z\" route references internal edge \":J2_0\"",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "DUE vehicle \"selected-z\" route references internal edge \":J2_0\"",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                ":J2_0"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                ":J2_0"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "missing-hop-direct",
+      "equal": true,
+      "checks": [
+        {
+          "name": "error",
+          "equal": true,
+          "baseline": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "current": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          }
+        },
+        {
+          "name": "population",
+          "equal": true,
+          "baseline": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ],
+          "current": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            }
+          ]
+        },
+        {
+          "name": "hopPresent",
+          "equal": true,
+          "baseline": false,
+          "current": false
+        },
+        {
+          "name": "sameErrorAsGap",
+          "equal": true,
+          "baseline": true,
+          "current": true
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "direct-gap",
+      "test": "a1_gap_and_missing_hop_have_distinct_diagnostics",
+      "input": "Gap",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 2,
+          "stateEvaluations": 4
+        },
+        "records": [
+          {
+            "firstGap": {
+              "candidates": [
+                {
+                  "fromLane": 1,
+                  "occurrence": 1,
+                  "path": {
+                    "entry": "sumo:B_1",
+                    "exit": "sumo:C_0",
+                    "id": "sumo:J2:B_1-to-C_0::J2_0_0",
+                    "internals": [
+                      "sumo::J2_0_0"
+                    ],
+                    "movementId": "sumo:J2:B-to-C"
+                  },
+                  "toLane": 0
+                }
+              ],
+              "fromOccurrence": 1,
+              "fromRoad": "B",
+              "kind": "LaneContinuityGap",
+              "reachableLanes": [
+                0
+              ],
+              "requiredFromLanes": [
+                1
+              ],
+              "toOccurrence": 2,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "LaneContinuityGap",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          },
+          {
+            "firstGap": {
+              "candidates": [
+                {
+                  "fromLane": 1,
+                  "occurrence": 1,
+                  "path": {
+                    "entry": "sumo:B_1",
+                    "exit": "sumo:C_0",
+                    "id": "sumo:J2:B_1-to-C_0::J2_0_0",
+                    "internals": [
+                      "sumo::J2_0_0"
+                    ],
+                    "movementId": "sumo:J2:B-to-C"
+                  },
+                  "toLane": 0
+                }
+              ],
+              "fromOccurrence": 1,
+              "fromRoad": "B",
+              "kind": "LaneContinuityGap",
+              "reachableLanes": [
+                0
+              ],
+              "requiredFromLanes": [
+                1
+              ],
+              "toOccurrence": 2,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "LaneContinuityGap",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "missing-hop",
+      "test": "a1_gap_and_missing_hop_have_distinct_diagnostics",
+      "input": "MissingHop",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 2,
+          "stateEvaluations": 4
+        },
+        "records": [
+          {
+            "firstGap": {
+              "candidates": [],
+              "fromOccurrence": 1,
+              "fromRoad": "B",
+              "kind": "RoadHopMissing",
+              "reachableLanes": [
+                0
+              ],
+              "requiredFromLanes": [],
+              "toOccurrence": 2,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "RoadHopMissing",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          },
+          {
+            "firstGap": {
+              "candidates": [],
+              "fromOccurrence": 1,
+              "fromRoad": "B",
+              "kind": "RoadHopMissing",
+              "reachableLanes": [
+                0
+              ],
+              "requiredFromLanes": [],
+              "toOccurrence": 2,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "RoadHopMissing",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "branch-success",
+      "test": "a1_branch_success_does_not_report_first_dead_branch",
+      "input": "Gap; direct population record",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "outcome": "success",
+          "records": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "branch-success",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "routes": [
+            {
+              "edgeIds": [
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0"
+              ],
+              "id": "sumo:route-0"
+            }
+          ]
+        },
+        "metrics": {
+          "expansionCalls": 1,
+          "materializeCalls": 1,
+          "memoHits": 1,
+          "records": 1,
+          "stateEvaluations": 3
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "branch-success",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "B",
+              "C"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28800",
+                "populationRank": 0,
+                "roadEdgeIds": [
+                  "B",
+                  "C"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 0,
+                "sourceVehicleOrdinal": 0,
+                "vehicleId": "branch-success",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0"
+              ]
+            },
+            "stage": "Materialization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "two-lane-origin",
+      "test": "a1_branch_success_does_not_report_first_dead_branch",
+      "input": "TwoLaneOrigin",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "A/1->B/1",
+          "path_id": "sumo:J1:A_1-to-B_1::J1_1_0",
+          "entry": "sumo:A_1",
+          "internals": [
+            "sumo::J1_1_0"
+          ],
+          "exit": "sumo:B_1"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "outcome": "success",
+          "records": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleProfileId": "sumo:passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "routes": [
+            {
+              "edgeIds": [
+                "sumo:A_1",
+                "sumo::J1_1_0",
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0"
+              ],
+              "id": "sumo:route-0"
+            }
+          ]
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 2,
+          "memoHits": 4,
+          "records": 2,
+          "stateEvaluations": 10
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28800",
+                "populationRank": 0,
+                "roadEdgeIds": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 0,
+                "sourceVehicleOrdinal": 1,
+                "vehicleId": "selected-z",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:A_1",
+                "sumo::J1_1_0",
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0"
+              ]
+            },
+            "stage": "Materialization"
+          },
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28801",
+                "populationRank": 1,
+                "roadEdgeIds": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 1,
+                "sourceVehicleOrdinal": 0,
+                "vehicleId": "selected-a",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:A_1",
+                "sumo::J1_1_0",
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0"
+              ]
+            },
+            "stage": "Materialization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "all-failed-start-lanes",
+      "test": "a1_all_failed_start_lanes_use_full_reachable_set",
+      "input": "MissingHop; direct population record",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "no complete lane-level path for road route [\"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 1,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 1,
+          "stateEvaluations": 2
+        },
+        "records": [
+          {
+            "firstGap": {
+              "candidates": [],
+              "fromOccurrence": 0,
+              "fromRoad": "B",
+              "kind": "RoadHopMissing",
+              "reachableLanes": [
+                0,
+                1
+              ],
+              "requiredFromLanes": [],
+              "toOccurrence": 1,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "RoadHopMissing",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "all-fail",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "repeated-success",
+      "test": "a1_repeated_occurrence_is_located_by_index",
+      "input": "LoopBack",
+      "source_paths": [
+        {
+          "connection": "A/0->B/1",
+          "path_id": "sumo:J1:A_0-to-B_1::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_1"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        },
+        {
+          "connection": "C/0->B/0",
+          "path_id": "sumo:J1:C_0-to-B_0::J1_1_0",
+          "entry": "sumo:C_0",
+          "internals": [
+            "sumo::J1_1_0"
+          ],
+          "exit": "sumo:B_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "outcome": "success",
+          "records": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C",
+                "B"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleProfileId": "sumo:passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C",
+                "B"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "routes": [
+            {
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0",
+                "sumo::J1_1_0",
+                "sumo:B_0"
+              ],
+              "id": "sumo:route-0"
+            }
+          ]
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 2,
+          "memoHits": 6,
+          "records": 2,
+          "stateEvaluations": 8
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C",
+                "B"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C",
+              "B"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28800",
+                "populationRank": 0,
+                "roadEdgeIds": [
+                  "A",
+                  "B",
+                  "C",
+                  "B"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 0,
+                "sourceVehicleOrdinal": 1,
+                "vehicleId": "selected-z",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0",
+                "sumo::J1_1_0",
+                "sumo:B_0"
+              ]
+            },
+            "stage": "Materialization"
+          },
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C",
+                "B"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C",
+              "B"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28801",
+                "populationRank": 1,
+                "roadEdgeIds": [
+                  "A",
+                  "B",
+                  "C",
+                  "B"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 1,
+                "sourceVehicleOrdinal": 0,
+                "vehicleId": "selected-a",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_1",
+                "sumo::J2_0_0",
+                "sumo:C_0",
+                "sumo::J1_1_0",
+                "sumo:B_0"
+              ]
+            },
+            "stage": "Materialization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "repeated-gap",
+      "test": "a1_repeated_occurrence_is_located_by_index",
+      "input": "LoopBack",
+      "source_paths": [
+        {
+          "connection": "A/0->B/1",
+          "path_id": "sumo:J1:A_0-to-B_1::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_1"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        },
+        {
+          "connection": "C/0->B/0",
+          "path_id": "sumo:J1:C_0-to-B_0::J1_1_0",
+          "entry": "sumo:C_0",
+          "internals": [
+            "sumo::J1_1_0"
+          ],
+          "exit": "sumo:B_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\", \"B\", \"C\"]",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 2,
+          "stateEvaluations": 8
+        },
+        "records": [
+          {
+            "firstGap": {
+              "candidates": [
+                {
+                  "fromLane": 1,
+                  "occurrence": 3,
+                  "path": {
+                    "entry": "sumo:B_1",
+                    "exit": "sumo:C_0",
+                    "id": "sumo:J2:B_1-to-C_0::J2_0_0",
+                    "internals": [
+                      "sumo::J2_0_0"
+                    ],
+                    "movementId": "sumo:J2:B-to-C"
+                  },
+                  "toLane": 0
+                }
+              ],
+              "fromOccurrence": 3,
+              "fromRoad": "B",
+              "kind": "LaneContinuityGap",
+              "reachableLanes": [
+                0
+              ],
+              "requiredFromLanes": [
+                1
+              ],
+              "toOccurrence": 4,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "LaneContinuityGap",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\", \"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          },
+          {
+            "firstGap": {
+              "candidates": [
+                {
+                  "fromLane": 1,
+                  "occurrence": 3,
+                  "path": {
+                    "entry": "sumo:B_1",
+                    "exit": "sumo:C_0",
+                    "id": "sumo:J2:B_1-to-C_0::J2_0_0",
+                    "internals": [
+                      "sumo::J2_0_0"
+                    ],
+                    "movementId": "sumo:J2:B-to-C"
+                  },
+                  "toLane": 0
+                }
+              ],
+              "fromOccurrence": 3,
+              "fromRoad": "B",
+              "kind": "LaneContinuityGap",
+              "reachableLanes": [
+                0
+              ],
+              "requiredFromLanes": [
+                1
+              ],
+              "toOccurrence": 4,
+              "toRoad": "C"
+            },
+            "injected": false,
+            "kind": "LaneContinuityGap",
+            "originalError": {
+              "message": "no complete lane-level path for road route [\"A\", \"B\", \"C\", \"B\", \"C\"]",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "RouteExpansion"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "unknown-road-direct",
+      "test": "a1_source_errors_and_unclassified_boundaries_are_distinct",
+      "input": "Gap; direct population record",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "DUE vehicle \"unknown-road\" references unknown road edge \"GHOST\"",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 0,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 1,
+          "stateEvaluations": 0
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "SourceReference",
+            "originalError": {
+              "message": "DUE vehicle \"unknown-road\" references unknown road edge \"GHOST\"",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "GHOST"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "unknown-road",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "GHOST"
+            ],
+            "route": null,
+            "stage": "SourceValidation"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "internal-road-direct",
+      "test": "a1_source_errors_and_unclassified_boundaries_are_distinct",
+      "input": "Gap; direct population record",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "DUE vehicle \"internal-road\" route references internal edge \":J2_0\"",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 0,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 1,
+          "stateEvaluations": 0
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "SourceReference",
+            "originalError": {
+              "message": "DUE vehicle \"internal-road\" route references internal edge \":J2_0\"",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                ":J2_0"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "internal-road",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              ":J2_0"
+            ],
+            "route": null,
+            "stage": "SourceValidation"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "normalization-unknown-lane",
+      "test": "a1_source_errors_and_unclassified_boundaries_are_distinct",
+      "input": "UnknownLane; normalization has no population context",
+      "source_paths": [],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "connection references unknown lane edge=\"B\" index=9",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 0,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 0,
+          "stateEvaluations": 0
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "SourceReference",
+            "originalError": {
+              "message": "connection references unknown lane edge=\"B\" index=9",
+              "variant": "SumoModel"
+            },
+            "population": null,
+            "roadEdgeIds": [],
+            "route": null,
+            "stage": "Normalization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "normalization-unsupported-stub-continuation",
+      "test": "a1_unsupported_normalization_preserves_unclassified_and_original_error",
+      "input": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<net>\n  <location netOffset=\"-285448.66,-5492398.13\" convBoundary=\"0.00,0.00,13613.76,11455.04\"/>\n  <edge id=\"west\" from=\"W\" to=\"J\"><lane id=\"west_0\" index=\"0\" speed=\"13.89\" length=\"20.00\" shape=\"6786.88,5727.52 6806.88,5727.52\"/></edge>\n  <edge id=\"east\" from=\"J\" to=\"E\"><lane id=\"east_0\" index=\"0\" speed=\"13.89\" length=\"20.00\" shape=\"6816.88,5727.52 6836.88,5727.52\"/></edge>\n  <edge id=\":J_0\" function=\"internal\"><lane id=\":J_0_0\" index=\"0\" speed=\"13.89\" length=\"0.40\" shape=\"6806.88,5727.52 6807.18,5727.60\"/></edge>\n  <edge id=\":J_2\" function=\"internal\"><lane id=\":J_2_0\" index=\"0\" speed=\"13.89\" length=\"5.00\" shape=\"6811.88,5727.52 6816.88,5727.52\"/></edge>\n  <junction id=\"J\" type=\"priority\" intLanes=\":J_0_0 :J_2_0\"/>\n  <junction id=\":J_2_0\" type=\"internal\" incLanes=\":J_0_0\" intLanes=\"\"/>\n  <connection from=\"west\" to=\"east\" fromLane=\"0\" toLane=\"0\" via=\":J_0_0\"/>\n  <connection from=\":J_0\" to=\"east\" fromLane=\"0\" toLane=\"0\" via=\":J_2_0\"/>\n  <connection from=\":J_2\" to=\"east\" fromLane=\"0\" toLane=\"0\"/>\n</net>\n",
+      "source_paths": [],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "point-stub internal lane \":J_0_0\" with continuation segments is unsupported: dropping it would swallow real continuation geometry",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 0,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 0,
+          "stateEvaluations": 0
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Unclassified",
+            "originalError": {
+              "message": "point-stub internal lane \":J_0_0\" with continuation segments is unsupported: dropping it would swallow real continuation geometry",
+              "variant": "SumoModel"
+            },
+            "population": null,
+            "roadEdgeIds": [],
+            "route": null,
+            "stage": "Normalization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "empty-unclassified",
+      "test": "a1_source_errors_and_unclassified_boundaries_are_distinct",
+      "input": "Gap; direct population record",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "error": {
+            "message": "road-level route must contain at least one edge",
+            "variant": "SumoModel"
+          },
+          "outcome": "rejected"
+        },
+        "metrics": {
+          "expansionCalls": 1,
+          "materializeCalls": 0,
+          "memoHits": 0,
+          "records": 1,
+          "stateEvaluations": 0
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Unclassified",
+            "originalError": {
+              "message": "road-level route must contain at least one edge",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "empty",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [],
+            "route": null,
+            "stage": "RouteExpansion"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "single-road",
+      "test": "a1_source_errors_and_unclassified_boundaries_are_distinct",
+      "input": "Gap; direct population record",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "outcome": "success",
+          "records": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "B"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "single",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "routes": [
+            {
+              "edgeIds": [
+                "sumo:B_0"
+              ],
+              "id": "sumo:route-0"
+            }
+          ]
+        },
+        "metrics": {
+          "expansionCalls": 1,
+          "materializeCalls": 1,
+          "memoHits": 0,
+          "records": 1,
+          "stateEvaluations": 1
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "B"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "single",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "B"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28800",
+                "populationRank": 0,
+                "roadEdgeIds": [
+                  "B"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 0,
+                "sourceVehicleOrdinal": 0,
+                "vehicleId": "single",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:B_0"
+              ]
+            },
+            "stage": "Materialization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "materialization-injection",
+      "test": "a1_materialization_failure_is_limited_to_actual_entry_and_injection",
+      "input": "Continuous; test-only materialize-entry failure injection",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/0->C/0",
+          "path_id": "sumo:J2:B_0-to-C_0::J2_1_0",
+          "entry": "sumo:B_0",
+          "internals": [
+            "sumo::J2_1_0"
+          ],
+          "exit": "sumo:C_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "outcome": "success",
+          "records": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleProfileId": "sumo:passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "routes": [
+            {
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_0",
+                "sumo::J2_1_0",
+                "sumo:C_0"
+              ],
+              "id": "sumo:route-0"
+            }
+          ]
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 2,
+          "memoHits": 0,
+          "records": 2,
+          "stateEvaluations": 6
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": true,
+            "kind": "MaterializationFailure",
+            "originalError": {
+              "message": "injected materialize failure",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "Materialization"
+          },
+          {
+            "firstGap": null,
+            "injected": true,
+            "kind": "MaterializationFailure",
+            "originalError": {
+              "message": "injected materialize failure",
+              "variant": "SumoModel"
+            },
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": null,
+            "stage": "Materialization"
+          }
+        ]
+      },
+      "combined": null,
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    },
+    {
+      "name": "continuous-direct",
+      "test": "a1_continuous_combined_static_result_is_recorded",
+      "input": "Continuous",
+      "source_paths": [
+        {
+          "connection": "A/0->B/0",
+          "path_id": "sumo:J1:A_0-to-B_0::J1_0_0",
+          "entry": "sumo:A_0",
+          "internals": [
+            "sumo::J1_0_0"
+          ],
+          "exit": "sumo:B_0"
+        },
+        {
+          "connection": "B/0->C/0",
+          "path_id": "sumo:J2:B_0-to-C_0::J2_1_0",
+          "entry": "sumo:B_0",
+          "internals": [
+            "sumo::J2_1_0"
+          ],
+          "exit": "sumo:C_0"
+        },
+        {
+          "connection": "B/1->C/0",
+          "path_id": "sumo:J2:B_1-to-C_0::J2_0_0",
+          "entry": "sumo:B_1",
+          "internals": [
+            "sumo::J2_0_0"
+          ],
+          "exit": "sumo:C_0"
+        }
+      ],
+      "report": {
+        "formal": {
+          "outcome": "success",
+          "records": [
+            {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleProfileId": "sumo:passenger1"
+            },
+            {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "routeId": "sumo:route-0",
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleProfileId": "sumo:passenger1"
+            }
+          ],
+          "routes": [
+            {
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_0",
+                "sumo::J2_1_0",
+                "sumo:C_0"
+              ],
+              "id": "sumo:route-0"
+            }
+          ]
+        },
+        "metrics": {
+          "expansionCalls": 2,
+          "materializeCalls": 2,
+          "memoHits": 4,
+          "records": 2,
+          "stateEvaluations": 6
+        },
+        "records": [
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28800",
+              "populationRank": 0,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 0,
+              "sourceVehicleOrdinal": 1,
+              "vehicleId": "selected-z",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28800",
+                "populationRank": 0,
+                "roadEdgeIds": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 0,
+                "sourceVehicleOrdinal": 1,
+                "vehicleId": "selected-z",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_0",
+                "sumo::J2_1_0",
+                "sumo:C_0"
+              ]
+            },
+            "stage": "Materialization"
+          },
+          {
+            "firstGap": null,
+            "injected": false,
+            "kind": "Success",
+            "originalError": null,
+            "population": {
+              "depart": "28801",
+              "populationRank": 1,
+              "roadEdgeIds": [
+                "A",
+                "B",
+                "C"
+              ],
+              "sourceFileOrdinal": 1,
+              "sourceVehicleOrdinal": 0,
+              "vehicleId": "selected-a",
+              "vehicleTypeId": "passenger1"
+            },
+            "roadEdgeIds": [
+              "A",
+              "B",
+              "C"
+            ],
+            "route": {
+              "bound": {
+                "depart": "28801",
+                "populationRank": 1,
+                "roadEdgeIds": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "routeId": "sumo:route-0",
+                "sourceFileOrdinal": 1,
+                "sourceVehicleOrdinal": 0,
+                "vehicleId": "selected-a",
+                "vehicleProfileId": "sumo:passenger1"
+              },
+              "catalogId": "sumo:route-0",
+              "edgeIds": [
+                "sumo:A_0",
+                "sumo::J1_0_0",
+                "sumo:B_0",
+                "sumo::J2_1_0",
+                "sumo:C_0"
+              ]
+            },
+            "stage": "Materialization"
+          }
+        ]
+      },
+      "combined": {
+        "stage": "geometry-repair",
+        "stage_evidence": "direct route succeeded; output/emit.rs geometry repair returned this error",
+        "outcome": "post-route-error",
+        "direct_route_succeeded": true,
+        "network_lfca_bytes": null,
+        "routes_toml_bytes": null,
+        "route_count": null,
+        "population_record_count": null,
+        "error": {
+          "message": "lane edge \"sumo::J2_0_0\": invalid SUMO network model: span 1/1 (chord 5.0000 m) is not emittable: invalid SUMO network model: repaired curve sampling exhausted: 9 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (34, 0, 0); last error: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 2 pieces (chord floor) each turn 3.75 deg > 1.90 deg at (30.28787284257879, 0, 2.882162690721896); start tangent: boundary clamp (pair target (angular mean of both end chords)); finish tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::J2_1_0->sumo:C_0, sumo::J2_0_0->sumo:C_0])",
+          "variant": "SumoModel"
+        },
+        "ordinary_diagnostic_calls": 0
+      },
+      "not_executed": [
+        "runtime-route-registration",
+        "vehicle-placement-and-admission",
+        "fixed-tick-execution",
+        "full-population-diagnostics"
+      ]
+    }
+  ],
+  "cost": {
+    "ordinary_diagnostic_calls_before": 0,
+    "diagnostic_calls_after": 1,
+    "metrics": {
+      "elapsedNs": 27200,
+      "expansionCalls": 2,
+      "materializeCalls": 2,
+      "memoHits": 4,
+      "records": 2,
+      "stateEvaluations": 6
+    }
+  },
+  "unexecuted": [
+    "Runtime route registration and vehicle admission",
+    "fixed-tick and multi-vehicle safety",
+    "ignored pinned full-LuST, migration, TOPO/DEMAND and Runtime simulation"
+  ]
+}
