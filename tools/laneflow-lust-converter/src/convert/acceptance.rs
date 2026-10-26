@@ -372,66 +372,67 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     );
 }
 
-/// L1 回归：诊断模式绕过未完成的 lane-level route 展开——population 选取
-/// 保留（计数健康事实），routes.toml 不产出；fail-fast 路径仍严格展开。
+/// 真实 B0/B1 缺口：fail-fast 在路线阶段精确失败，诊断模式保留人口身份和来源顺序。
 #[test]
 fn diagnostic_mode_skips_route_expansion_but_keeps_population() {
-    // x(2 车道) → y 仅 (0,0) → z 仅 (1,1)：车道连续走法不存在（边内换道
-    // 语义缺口的最小复现），fail-fast 展开必败。
-    let net = r#"<?xml version="1.0" encoding="UTF-8"?>
-<net>
-  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
-  <edge id="x" from="X" to="J"><lane id="x_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/><lane id="x_1" index="1" speed="13.89" length="20.00" shape="6786.88,5730.52 6806.88,5730.52"/></edge>
-  <edge id="y" from="J" to="K"><lane id="y_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/></edge>
-  <edge id="z" from="K" to="Z"><lane id="z_0" index="0" speed="13.89" length="20.00" shape="6846.88,5727.52 6866.88,5727.52"/></edge>
-  <edge id=":J_0" function="internal"><lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
-  <edge id=":K_0" function="internal"><lane id=":K_0_0" index="0" speed="13.89" length="10.00" shape="6836.88,5727.52 6846.88,5727.52"/></edge>
-  <junction id="J" type="priority" intLanes=":J_0_0"/>
-  <junction id="K" type="priority" intLanes=":K_0_0"/>
-  <connection from="x" to="y" fromLane="0" toLane="0" via=":J_0_0" tl="J" linkIndex="0"/>
-  <connection from=":J_0" to="y" fromLane="0" toLane="0"/>
-  <connection from="y" to="z" fromLane="0" toLane="0" via=":K_0_0"/>
-  <connection from=":K_0" to="z" fromLane="0" toLane="0"/>
-  <tlLogic id="J" type="static" programID="1" offset="0">
-    <phase duration="31" state="Gr"/>
-  </tlLogic>
-</net>"#;
-    let due = |id: &str| {
-        format!(
-            r#"<routes>
-  <vehicle id="{id}" type="passenger1" depart="28800" departPos="random">
-    <route edges="x y z"/>
-  </vehicle>
-</routes>"#
-        )
+    use crate::convert::routes::{
+        build_routes_and_bind_population,
+        test_support::{
+            ErrorEvidence, NO_COMPLETE_ROUTE_ERROR, RouteFixture, RouteFixtureKind,
+            diagnostic_options, error_evidence, expected_ordinals,
+        },
     };
-    // fail-fast：展开失败（routes 构建先于信号闭包）。
-    let fail_fast = convert_static_from_xml_with_due(
-        net,
-        &fixture_tll_xml(),
-        &fixture_vtypes_xml(),
-        [&due("v0"), &fixture_due1_xml(), &fixture_due2_xml()],
-        &TopologyConvertOptions::default(),
+
+    let fixture = RouteFixture::new(RouteFixtureKind::Gap);
+    let network = fixture.network();
+    let topology = fixture.normalized_topology(&network);
+    let population = fixture.selected_population();
+    assert_eq!(population.len(), 2);
+    let mut selected_ids = population
+        .iter()
+        .map(|record| record.vehicle_id.as_str())
+        .collect::<Vec<_>>();
+    selected_ids.sort_unstable();
+    assert_eq!(selected_ids, ["selected-a", "selected-z"]);
+    assert!(
+        population.iter().any(|record| {
+            record.source_file_ordinal == 0 && record.source_vehicle_ordinal == 1
+        })
     );
     assert!(
-        fail_fast.is_err(),
-        "fail-fast 路径仍须严格展开（边内换道语义缺口下必败）"
+        population.iter().any(|record| {
+            record.source_file_ordinal == 1 && record.source_vehicle_ordinal == 0
+        })
     );
-    // 诊断模式：绕过展开，population 计数保留，不产 routes.toml。
-    let artifacts = convert_static_from_xml_with_due(
-        net,
-        &fixture_tll_xml(),
-        &fixture_vtypes_xml(),
-        [&due("v0"), &fixture_due1_xml(), &fixture_due2_xml()],
-        &TopologyConvertOptions {
-            emit_infeasibility_report: true,
-            ..TopologyConvertOptions::default()
-        },
-    )
-    .expect("diagnostic mode bypasses route expansion");
-    assert_eq!(artifacts.population_record_count, 1);
-    assert!(artifacts.routes_toml.is_none(), "诊断模式不产 routes.toml");
-    assert!(artifacts.topology.infeasibility_report.is_some());
+
+    let direct_error = build_routes_and_bind_population(&network, &topology, &population)
+        .expect_err("the real lane gap must fail direct route construction");
+    let direct_error = error_evidence(direct_error);
+    assert_eq!(
+        direct_error,
+        ErrorEvidence {
+            variant: "SumoModel",
+            message: NO_COMPLETE_ROUTE_ERROR.to_owned(),
+        }
+    );
+
+    let fail_fast = fixture
+        .combined(&TopologyConvertOptions::default())
+        .expect_err("fail-fast conversion must stop at the same route error");
+    assert_eq!(error_evidence(fail_fast), direct_error);
+
+    let expected_ordinals = expected_ordinals(&population);
+    let first = fixture
+        .combined(&diagnostic_options())
+        .expect("diagnostic conversion must bypass only lane expansion");
+    assert_eq!(first.population_record_count, population.len());
+    assert_eq!(first.population_ordinals, expected_ordinals);
+    assert!(first.routes_toml.is_none());
+    assert!(first.topology.infeasibility_report.is_some());
+    let second = fixture
+        .combined(&diagnostic_options())
+        .expect("repeated diagnostic conversion must succeed");
+    assert_eq!(first, second);
 }
 
 /// R8 回归：通用 XML 入口（未验证来源）+ 几何可焊形态 stub → 0.5 m 例外

@@ -326,8 +326,18 @@ fn lane_laneflow_id(network: &SumoNetwork, edge_id: &str, lane_index: u32) -> Re
 }
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        test_support::{
+            ErrorEvidence, NO_COMPLETE_ROUTE_ERROR, PathEvidence, RouteFixture, RouteFixtureKind,
+            diagnostic_options, error_evidence, expected_final_chain, path_evidence,
+            population_record,
+        },
+        *,
+    };
     use crate::{
         convert::junction::normalize_junctions,
         convert::population::{PopulationRecord, select_population},
@@ -428,5 +438,249 @@ mod tests {
             super::validate_population_route_edges(&network, &[record("v", &["west", ":J_0"])])
                 .expect_err("internal edge rejected");
         assert!(error.to_string().contains("internal edge"), "{error}");
+    }
+
+    #[test]
+    fn a0_fixture_proves_real_lane_gap_and_continuous_control() {
+        let p1 = || PathEvidence {
+            connection: "A/0->B/0".to_owned(),
+            path_id: "sumo:J1:A_0-to-B_0::J1_0_0".to_owned(),
+            entry: "sumo:A_0".to_owned(),
+            internals: vec!["sumo::J1_0_0".to_owned()],
+            exit: "sumo:B_0".to_owned(),
+        };
+        let p2 = || PathEvidence {
+            connection: "B/1->C/0".to_owned(),
+            path_id: "sumo:J2:B_1-to-C_0::J2_0_0".to_owned(),
+            entry: "sumo:B_1".to_owned(),
+            internals: vec!["sumo::J2_0_0".to_owned()],
+            exit: "sumo:C_0".to_owned(),
+        };
+
+        let gap = RouteFixture::new(RouteFixtureKind::Gap);
+        let network = gap.network();
+        let mut b_lanes = network
+            .lanes
+            .iter()
+            .filter(|lane| lane.edge_id == "B" && !lane.function_internal)
+            .map(|lane| lane.index)
+            .collect::<Vec<_>>();
+        b_lanes.sort_unstable();
+        assert_eq!(b_lanes, [0, 1]);
+        assert_eq!(network.lanes.len(), 6);
+        assert_eq!(network.connections.len(), 4);
+        assert!(
+            !network.connections.iter().any(|connection| {
+                connection.from_edge_id == "B"
+                    && connection.to_edge_id == "B"
+                    && connection.from_lane == 0
+                    && connection.to_lane == 1
+            }),
+            "B0 must not acquire an implicit lateral connection"
+        );
+        let topology = gap.normalized_topology(&network);
+        assert_eq!(topology.junctions.len(), 2);
+        assert_eq!(topology.maneuver_paths.len(), 2);
+        assert_eq!(topology.path_by_connection.len(), 2);
+        assert_eq!(path_evidence(&topology, "A", 0, "B", 0), p1());
+        assert_eq!(path_evidence(&topology, "B", 1, "C", 0), p2());
+        assert!(
+            !topology
+                .path_by_connection
+                .keys()
+                .any(|(from, from_lane, to, _)| from == "B" && *from_lane == 0 && to == "C"),
+            "B0 must not have a path to C in the gap fixture"
+        );
+        assert!(topology.dropped_stub_lane_ids.is_empty());
+        assert!(topology.stub_welds.is_empty());
+        assert!(topology.stub_weld_records.is_empty());
+
+        let continuous = RouteFixture::new(RouteFixtureKind::Continuous);
+        let network = continuous.network();
+        assert_eq!(network.lanes.len(), 7);
+        assert_eq!(network.connections.len(), 6);
+        let topology = continuous.normalized_topology(&network);
+        assert_eq!(topology.junctions.len(), 2);
+        assert_eq!(topology.maneuver_paths.len(), 3);
+        assert_eq!(topology.path_by_connection.len(), 3);
+        assert_eq!(path_evidence(&topology, "A", 0, "B", 0), p1());
+        assert_eq!(path_evidence(&topology, "B", 1, "C", 0), p2());
+        assert_eq!(
+            path_evidence(&topology, "B", 0, "C", 0),
+            PathEvidence {
+                connection: "B/0->C/0".to_owned(),
+                path_id: "sumo:J2:B_0-to-C_0::J2_1_0".to_owned(),
+                entry: "sumo:B_0".to_owned(),
+                internals: vec!["sumo::J2_1_0".to_owned()],
+                exit: "sumo:C_0".to_owned(),
+            }
+        );
+        assert!(topology.dropped_stub_lane_ids.is_empty());
+        assert!(topology.stub_welds.is_empty());
+        assert!(topology.stub_weld_records.is_empty());
+    }
+
+    #[test]
+    fn a0_lane_gap_fails_at_route_expansion_with_exact_error() {
+        let fixture = RouteFixture::new(RouteFixtureKind::Gap);
+        let network = fixture.network();
+        let topology = fixture.normalized_topology(&network);
+        let population = fixture.selected_population();
+        let error = build_routes_and_bind_population(&network, &topology, &population)
+            .expect_err("the real B0/B1 gap must fail route expansion");
+        assert_eq!(
+            error_evidence(error),
+            ErrorEvidence {
+                variant: "SumoModel",
+                message: NO_COMPLETE_ROUTE_ERROR.to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn a0_continuous_path_materializes_and_binds_population_deterministically() {
+        let fixture = RouteFixture::new(RouteFixtureKind::Continuous);
+        let network = fixture.network();
+        let topology = fixture.normalized_topology(&network);
+        let population = fixture.selected_population();
+        assert_eq!(population.len(), 2);
+        let build = || build_routes_and_bind_population(&network, &topology, &population);
+        let first = build().expect("continuous control must materialize");
+        let second = build().expect("repeated continuous control must materialize");
+
+        assert_eq!(first.routes.len(), 1);
+        assert_eq!(first.routes[0].id, "sumo:route-0");
+        assert_eq!(first.routes[0].edge_ids, expected_final_chain());
+        assert!(
+            !first.routes[0]
+                .edge_ids
+                .iter()
+                .any(|edge| edge == "sumo:B_1" || edge == "sumo::J2_0_0"),
+            "the continuous route must not jump to B1"
+        );
+        assert_eq!(first.records.len(), population.len());
+        for (bound, selected) in first.records.iter().zip(&population) {
+            assert_eq!(bound.population_rank, selected.population_rank);
+            assert_eq!(bound.vehicle_id, selected.vehicle_id);
+            assert_eq!(bound.vehicle_profile_id, "sumo:passenger1");
+            assert_eq!(bound.depart, selected.depart);
+            assert_eq!(bound.route_id, "sumo:route-0");
+            assert_eq!(bound.road_edge_ids, selected.road_edge_ids);
+            assert_eq!(bound.source_file_ordinal, selected.source_file_ordinal);
+            assert_eq!(
+                bound.source_vehicle_ordinal,
+                selected.source_vehicle_ordinal
+            );
+        }
+
+        let catalog = |bundle: &RoutePopulationBundle| {
+            bundle
+                .routes
+                .iter()
+                .map(|route| (route.id.clone(), route.edge_ids.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(catalog(&first), catalog(&second));
+        assert_eq!(first.records, second.records);
+    }
+
+    #[test]
+    fn a0_source_reference_failures_are_stage_specific() {
+        let unknown_lane = RouteFixture::new(RouteFixtureKind::UnknownLane);
+        let network = unknown_lane.network();
+        let error = normalize_junctions(
+            &network,
+            &crate::convert::junction::StubWeldGate::Unrestricted,
+        )
+        .expect_err("unknown connection lane must fail normalization");
+        assert_eq!(
+            error_evidence(error),
+            ErrorEvidence {
+                variant: "SumoModel",
+                message: "connection references unknown lane edge=\"B\" index=9".to_owned(),
+            }
+        );
+
+        let fixture = RouteFixture::new(RouteFixtureKind::Gap);
+        let network = fixture.network();
+        let topology = fixture.normalized_topology(&network);
+        let unknown_road = population_record("unknown-road", &["A", "B", "GHOST"]);
+        let expected_unknown_road = ErrorEvidence {
+            variant: "SumoModel",
+            message: "DUE vehicle \"unknown-road\" references unknown road edge \"GHOST\""
+                .to_owned(),
+        };
+        let error = build_routes_and_bind_population(&network, &topology, &[unknown_road])
+            .expect_err("unknown road must fail route-edge validation");
+        assert_eq!(error_evidence(error), expected_unknown_road);
+
+        let internal_road = population_record("internal-road", &["A", "B", ":J2_0"]);
+        let expected_internal_road = ErrorEvidence {
+            variant: "SumoModel",
+            message: "DUE vehicle \"internal-road\" route references internal edge \":J2_0\""
+                .to_owned(),
+        };
+        let error = build_routes_and_bind_population(&network, &topology, &[internal_road])
+            .expect_err("internal DUE road must fail route-edge validation");
+        assert_eq!(error_evidence(error), expected_internal_road);
+
+        let reject_in_diagnostic = |roads: &[&str], expected: fn(&str) -> String| {
+            let fixture = RouteFixture::new(RouteFixtureKind::Gap);
+            let first_id = fixture.selected_population()[0].vehicle_id.clone();
+            let fixture = fixture.with_route_override(&first_id, roads);
+            let error = fixture
+                .combined(&diagnostic_options())
+                .expect_err("diagnostic mode must retain route-edge validation");
+            assert_eq!(
+                error_evidence(error),
+                ErrorEvidence {
+                    variant: "SumoModel",
+                    message: expected(&first_id),
+                }
+            );
+        };
+        reject_in_diagnostic(&["A", "B", "GHOST"], |id| {
+            format!("DUE vehicle {id:?} references unknown road edge \"GHOST\"")
+        });
+        reject_in_diagnostic(&["A", "B", ":J2_0"], |id| {
+            format!("DUE vehicle {id:?} route references internal edge \":J2_0\"")
+        });
+    }
+
+    #[test]
+    fn a0_missing_road_hop_shares_current_lane_gap_error() {
+        let missing_hop = RouteFixture::new(RouteFixtureKind::MissingHop);
+        let network = missing_hop.network();
+        let topology = missing_hop.normalized_topology(&network);
+        assert_eq!(topology.maneuver_paths.len(), 1);
+        assert!(
+            !topology
+                .path_by_connection
+                .keys()
+                .any(|(from, _, to, _)| from == "B" && to == "C"),
+            "the missing-hop fixture must not have a B to C source path"
+        );
+        let population = missing_hop.selected_population();
+        let error = build_routes_and_bind_population(&network, &topology, &population)
+            .expect_err("missing road hop must fail route expansion");
+
+        let gap = RouteFixture::new(RouteFixtureKind::Gap);
+        let gap_network = gap.network();
+        let gap_topology = gap.normalized_topology(&gap_network);
+        let gap_population = gap.selected_population();
+        let gap_error =
+            build_routes_and_bind_population(&gap_network, &gap_topology, &gap_population)
+                .expect_err("lane gap must fail route expansion");
+        assert_eq!(error_evidence(error), error_evidence(gap_error));
+        assert_eq!(
+            error_evidence(
+                build_routes_and_bind_population(&network, &topology, &population)
+                    .expect_err("repeated missing road hop must fail")
+            ),
+            ErrorEvidence {
+                variant: "SumoModel",
+                message: NO_COMPLETE_ROUTE_ERROR.to_owned(),
+            }
+        );
     }
 }
