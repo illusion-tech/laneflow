@@ -173,6 +173,7 @@ fn observed_cases() -> Vec<CaseEvidence> {
             population_record("internal-road", &["A", "B", ":J2_0"]),
         ),
         normalization_case(),
+        unsupported_normalization_case(),
         record_case(
             "empty-unclassified",
             "a1_source_errors_and_unclassified_boundaries_are_distinct",
@@ -241,7 +242,7 @@ fn record_case(
 fn normalization_case() -> CaseEvidence {
     let fixture = RouteFixture::new(RouteFixtureKind::UnknownLane);
     let network = fixture.network();
-    let error = normalize_junctions(
+    let error = normalize_junctions_diagnosed(
         &network,
         &crate::convert::junction::StubWeldGate::Unrestricted,
     )
@@ -257,6 +258,31 @@ fn normalization_case() -> CaseEvidence {
         name: "normalization-unknown-lane",
         test: "a1_source_errors_and_unclassified_boundaries_are_distinct",
         input: "UnknownLane; normalization has no population context".to_owned(),
+        source_paths: Vec::new(),
+        report: diagnostic_json(&report),
+        combined: None,
+        not_executed: unexecuted_stages(),
+    }
+}
+
+fn unsupported_normalization_case() -> CaseEvidence {
+    let network = unsupported_normalization_network();
+    let failure = normalize_junctions_diagnosed(
+        &network,
+        &crate::convert::junction::StubWeldGate::Unrestricted,
+    )
+    .expect_err("unsupported stub continuation");
+    let record = diagnose_normalization_failure(failure);
+    assert_eq!(record.kind, RouteDiagnosticKind::Unclassified);
+    let report = RouteDiagnosticReport {
+        formal: Err(record.original_error.clone().expect("normalization error")),
+        records: vec![record],
+        metrics: DiagnosticMetrics::default(),
+    };
+    CaseEvidence {
+        name: "normalization-unsupported-stub-continuation",
+        test: "a1_unsupported_normalization_preserves_unclassified_and_original_error",
+        input: include_str!("stub-with-continuation.net.xml").to_owned(),
         source_paths: Vec::new(),
         report: diagnostic_json(&report),
         combined: None,
@@ -376,7 +402,7 @@ fn observe_cost() -> CostObservation {
 }
 
 fn validate_cases(cases: &[CaseEvidence]) {
-    assert_eq!(cases.len(), 14);
+    assert_eq!(cases.len(), 15);
     let case = |name| cases.iter().find(|case| case.name == name).expect("case");
     assert_eq!(
         case("direct-gap").report["records"][0]["firstGap"]["kind"],
@@ -417,6 +443,13 @@ fn validate_cases(cases: &[CaseEvidence]) {
         case("normalization-unknown-lane").report["records"][0]["population"],
         Value::Null
     );
+    assert_eq!(
+        case("normalization-unsupported-stub-continuation").report["records"][0]["kind"],
+        json!("Unclassified")
+    );
+    for name in ["unknown-road-direct", "internal-road-direct"] {
+        assert_eq!(case(name).report["metrics"]["expansionCalls"], json!(0));
+    }
     assert_eq!(
         case("empty-unclassified").report["records"][0]["kind"],
         json!("Unclassified")

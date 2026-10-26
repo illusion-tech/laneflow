@@ -32,8 +32,37 @@ pub fn normalize_junctions(
     network: &SumoNetwork,
     stub_weld_gate: &StubWeldGate,
 ) -> Result<NormalizedTopology> {
+    normalize_junctions_diagnosed(network, stub_weld_gate).map_err(|failure| failure.error)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NormalizationFailureKind {
+    SourceReference,
+    Unclassified,
+}
+
+#[derive(Debug)]
+pub(crate) struct NormalizationFailure {
+    pub kind: NormalizationFailureKind,
+    pub error: Error,
+}
+
+pub(super) fn normalize_junctions_diagnosed(
+    network: &SumoNetwork,
+    stub_weld_gate: &StubWeldGate,
+) -> std::result::Result<NormalizedTopology, NormalizationFailure> {
+    let mut kind = NormalizationFailureKind::Unclassified;
+    normalize_junctions_impl(network, stub_weld_gate, &mut kind)
+        .map_err(|error| NormalizationFailure { kind, error })
+}
+
+fn normalize_junctions_impl(
+    network: &SumoNetwork,
+    stub_weld_gate: &StubWeldGate,
+    failure_kind: &mut NormalizationFailureKind,
+) -> Result<NormalizedTopology> {
     let lane_by_edge_index = build_lane_index(network)?;
-    let adjacency = build_lane_adjacency(network, &lane_by_edge_index)?;
+    let adjacency = build_lane_adjacency(network, &lane_by_edge_index, failure_kind)?;
     let IntLaneOwnership {
         owners: owners_by_int_lane,
         orphan_members,
@@ -1444,6 +1473,7 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<IntLaneOwnership<'_>> 
 fn build_lane_adjacency(
     network: &SumoNetwork,
     lane_by_edge_index: &HashMap<(String, u32), &SumoLane>,
+    failure_kind: &mut NormalizationFailureKind,
 ) -> Result<HashMap<String, HashSet<String>>> {
     let mut adjacency: HashMap<String, HashSet<String>> = HashMap::new();
     for connection in &network.connections {
@@ -1451,16 +1481,19 @@ fn build_lane_adjacency(
             lane_by_edge_index,
             &connection.from_edge_id,
             connection.from_lane,
-        )?;
+        )
+        .inspect_err(|_| *failure_kind = NormalizationFailureKind::SourceReference)?;
         let to_lane = resolve_lane(
             lane_by_edge_index,
             &connection.to_edge_id,
             connection.to_lane,
-        )?;
+        )
+        .inspect_err(|_| *failure_kind = NormalizationFailureKind::SourceReference)?;
         let mut chain = Vec::with_capacity(connection.via_lane_ids.len() + 2);
         chain.push(from_lane.id.clone());
         for via_id in &connection.via_lane_ids {
             if network.lane(via_id).is_none() {
+                *failure_kind = NormalizationFailureKind::SourceReference;
                 return Err(Error::SumoModel(format!(
                     "connection via references unknown lane {via_id:?}"
                 )));
