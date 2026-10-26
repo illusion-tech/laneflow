@@ -1694,6 +1694,7 @@ fn cubic_tangent_at(a: Vec3, c1: Vec3, c2: Vec3, b: Vec3, t: f64) -> Vec3 {
 mod tests {
     use super::*;
 
+    mod s0f;
     mod witness;
 
     fn pt(x: f64, y: f64) -> Vec3 {
