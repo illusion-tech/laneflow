@@ -105,6 +105,10 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   新增摘要须写明角色与验证方，以性能为由更换算法须先测量，摘要算法直接依赖由
   `deny.toml` 约束；具体字节合同由对应设计拥有（Accepted；#1051 修订 #1022 G1，
   LuST 的两处派生采用 XXH3-64）。
+- [`0034`](0034-pinned-compiler-cache-wrapper-trust.md)：钉版可核验编译缓存包装器的准入条件
+  （官方来源 + 仓库固定 SHA-256 + 作用域收敛）与溯源门禁 `build_compiler_matches_pinned_toolchain`
+  的契约修订（从「包装器一律 fail-closed」到「钉版验明正身否则 fail-closed」）；溯源记录不加
+  缓存披露及其再评估条件；换变量绕过门禁永久禁止（Accepted；#1074）。
 
 ## 命名规则
 
