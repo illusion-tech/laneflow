@@ -130,19 +130,6 @@ jobs:
     if: ${{ !cancelled() }}
     permissions:
       contents: read
-    # #1074：sccache 内容寻址编译缓存（GHA 原生后端，#1071 评估记录）。仅此三个
-    # 有收益 job 挂包装器；wire-audit 不挂——hermetic 子编译经 env 剔除不触碰
-    # 包装器，审计器引导构建不经缓存。写只在 main push，PR 与 merge_group 只读。
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "on"
-      # #1074 根因修复：缓存服务 v2（Twirp）开关。不设时 ghac 走 v1 旧路径
-      # _apis/artifactcache/*，在现行 results-receiver 上 404，能力探测失败使
-      # 存储降级只读、写入静默全拒（main 首跑 641/641）；设置后走 Twirp 端点，
-      # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
-      ACTIONS_CACHE_SERVICE_V2: "on"
-      # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -187,39 +174,6 @@ jobs:
           tar --extract --gzip --file "$archive" --directory "$extract_dir"
           install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      - name: Install sccache 0.19.0
-        if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        env:
-          # 资产摘要钉版；解出的包装器二进制摘要镜像钉在
-          # tools/laneflow-lust-converter/src/output/pipeline.rs（ADR 0034）。
-          SCCACHE_SHA256: aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd
-          SCCACHE_VERSION: 0.19.0
-        run: |
-          set -euo pipefail
-
-          archive="$RUNNER_TEMP/sccache.tar.gz"
-          extract_dir="$RUNNER_TEMP/sccache-extract"
-          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
-            "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-            --output "$archive"
-          echo "${SCCACHE_SHA256}  ${archive}" | sha256sum --check --strict
-          mkdir -p "$extract_dir"
-          tar --extract --gzip --file "$archive" --directory "$extract_dir"
-          install -m 0755 "$extract_dir/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" "$RUNNER_TEMP/sccache"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
-      # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
-      # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
-      - name: Configure sccache
-        if: needs.changes.outputs.rust == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Check Rust toolchain
         if: needs.changes.outputs.rust == 'true'
@@ -268,11 +222,6 @@ jobs:
           cargo +1.99.1 check --locked -p laneflow-bevy
           --example quickstart --example corridor_traffic --example junction_debug
           --features native-example
-
-      - name: Show sccache statistics
-        if: ${{ !cancelled() && needs.changes.outputs.rust == 'true' }}
-        shell: bash
-        run: sccache --show-stats
 
       - name: Skip heavy Rust checks for non-Rust paths
         if: needs.changes.outputs.rust != 'true'
@@ -362,17 +311,6 @@ jobs:
     if: ${{ !cancelled() }}
     permissions:
       contents: read
-    # #1074：sccache 配置同 Rust checks；wrapper 作用域限定三个有收益 job。
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "on"
-      # #1074 根因修复：缓存服务 v2（Twirp）开关。不设时 ghac 走 v1 旧路径
-      # _apis/artifactcache/*，在现行 results-receiver 上 404，能力探测失败使
-      # 存储降级只读、写入静默全拒（main 首跑 641/641）；设置后走 Twirp 端点，
-      # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
-      ACTIONS_CACHE_SERVICE_V2: "on"
-      # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -418,39 +356,6 @@ jobs:
           install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Install sccache 0.19.0
-        if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        env:
-          # 资产摘要钉版；解出的包装器二进制摘要镜像钉在
-          # tools/laneflow-lust-converter/src/output/pipeline.rs（ADR 0034）。
-          SCCACHE_SHA256: aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd
-          SCCACHE_VERSION: 0.19.0
-        run: |
-          set -euo pipefail
-
-          archive="$RUNNER_TEMP/sccache.tar.gz"
-          extract_dir="$RUNNER_TEMP/sccache-extract"
-          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
-            "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-            --output "$archive"
-          echo "${SCCACHE_SHA256}  ${archive}" | sha256sum --check --strict
-          mkdir -p "$extract_dir"
-          tar --extract --gzip --file "$archive" --directory "$extract_dir"
-          install -m 0755 "$extract_dir/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" "$RUNNER_TEMP/sccache"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
-      # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
-      # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
-      - name: Configure sccache
-        if: needs.changes.outputs.rust == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
       - name: Check placement fixture lints
         if: needs.changes.outputs.rust == 'true'
         shell: bash
@@ -467,11 +372,6 @@ jobs:
           cargo +1.99.1 nextest run -p laneflow-scenario --locked --features placement-fixtures
           cargo +1.99.1 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
 
-      - name: Show sccache statistics
-        if: ${{ !cancelled() && needs.changes.outputs.rust == 'true' }}
-        shell: bash
-        run: sccache --show-stats
-
       - name: Skip placement fixture tests for non-Rust paths
         if: needs.changes.outputs.rust != 'true'
         shell: bash
@@ -487,17 +387,6 @@ jobs:
     if: ${{ !cancelled() }}
     permissions:
       contents: read
-    # #1074：sccache 配置同 Rust checks；wrapper 作用域限定三个有收益 job。
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "on"
-      # #1074 根因修复：缓存服务 v2（Twirp）开关。不设时 ghac 走 v1 旧路径
-      # _apis/artifactcache/*，在现行 results-receiver 上 404，能力探测失败使
-      # 存储降级只读、写入静默全拒（main 首跑 641/641）；设置后走 Twirp 端点，
-      # 与 sccache-action「Force the github action v2」同一机制。零逻辑分支。
-      ACTIONS_CACHE_SERVICE_V2: "on"
-      # PR 与 merge_group 只读，main push 读写（#1071 威胁模型：写只在默认分支）。
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - name: Fail closed when path detection did not succeed
         if: needs.changes.result != 'success'
@@ -543,48 +432,10 @@ jobs:
           install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Install sccache 0.19.0
-        if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        env:
-          # 资产摘要钉版；解出的包装器二进制摘要镜像钉在
-          # tools/laneflow-lust-converter/src/output/pipeline.rs（ADR 0034）。
-          SCCACHE_SHA256: aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd
-          SCCACHE_VERSION: 0.19.0
-        run: |
-          set -euo pipefail
-
-          archive="$RUNNER_TEMP/sccache.tar.gz"
-          extract_dir="$RUNNER_TEMP/sccache-extract"
-          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
-            "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-            --output "$archive"
-          echo "${SCCACHE_SHA256}  ${archive}" | sha256sum --check --strict
-          mkdir -p "$extract_dir"
-          tar --extract --gzip --file "$archive" --directory "$extract_dir"
-          install -m 0755 "$extract_dir/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" "$RUNNER_TEMP/sccache"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
-      # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
-      # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
-      - name: Configure sccache
-        if: needs.changes.outputs.rust == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
       - name: Run urban Adapter harness tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.99.1 nextest run --locked -p laneflow-urban-harness --features adapter
-
-      - name: Show sccache statistics
-        if: ${{ !cancelled() && needs.changes.outputs.rust == 'true' }}
-        shell: bash
-        run: sccache --show-stats
 
       - name: Skip urban harness tests for non-Rust paths
         if: needs.changes.outputs.rust != 'true'
