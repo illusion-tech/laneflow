@@ -435,6 +435,47 @@ fn diagnostic_mode_skips_route_expansion_but_keeps_population() {
     assert_eq!(first, second);
 }
 
+#[test]
+fn a1_continuous_combined_static_result_is_recorded() {
+    use crate::convert::routes::{
+        build_routes_and_bind_population,
+        diagnostics::{diagnostic_entry_count, reset_diagnostic_entry_count},
+        test_support::{RouteFixture, RouteFixtureKind, error_evidence, expected_final_chain},
+    };
+
+    let fixture = RouteFixture::new(RouteFixtureKind::Continuous);
+    let network = fixture.network();
+    let topology = fixture.normalized_topology(&network);
+    let population = fixture.selected_population();
+    let direct = build_routes_and_bind_population(&network, &topology, &population)
+        .expect("direct continuous route must succeed");
+    assert_eq!(direct.routes[0].edge_ids, expected_final_chain());
+
+    reset_diagnostic_entry_count();
+    let result = fixture.combined(&TopologyConvertOptions::default());
+    assert_eq!(diagnostic_entry_count(), 0);
+    match result {
+        Ok(artifacts) => {
+            assert!(!artifacts.topology.network_lfca.is_empty());
+            assert!(artifacts.routes_toml.is_some());
+            assert_eq!(artifacts.route_count, 1);
+            assert_eq!(artifacts.population_record_count, 2);
+            println!(
+                "A1_COMBINED_STATIC=success network_lfca_bytes={} routes_toml_bytes={}",
+                artifacts.topology.network_lfca.len(),
+                artifacts.routes_toml.as_ref().map_or(0, Vec::len)
+            );
+        }
+        Err(error) => {
+            let error = error_evidence(error);
+            println!(
+                "A1_COMBINED_STATIC=post-route-error variant={} message={}",
+                error.variant, error.message
+            );
+        }
+    }
+}
+
 /// R8 回归：通用 XML 入口（未验证来源）+ 几何可焊形态 stub → 0.5 m 例外
 /// 不生效（BlockedOutOfDomain），stub 保留走普通穿越，处置记录入附录。
 #[test]
