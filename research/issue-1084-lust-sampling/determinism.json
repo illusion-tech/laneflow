@@ -1,0 +1,39 @@
+{
+  "code_commit": "c62567b7e45d1460936a83dbe21d9b2e22072e14",
+  "source": "Pinned LuST; see summary.json",
+  "direct_byte_comparison": "fc.exe /B on the five deterministic outputs from two independent test processes",
+  "files": [
+    {
+      "file": "summary.json",
+      "byte_equal": true,
+      "sha256": "150D2B08AEA48BE8080D6A3765D8B8E307760B87C26515E638841C1A3B53A204",
+      "bytes": 2734
+    },
+    {
+      "file": "pairs.jsonl",
+      "byte_equal": true,
+      "sha256": "922E90D5DA8C2746A382C68CDCE67D1A75CD3637EE39A0CA815585A7591FF637",
+      "bytes": 35711132
+    },
+    {
+      "file": "positions.jsonl",
+      "byte_equal": true,
+      "sha256": "78C52DCFCDC6FB7ECA276FCFC102DDE17414BC168A052B559595793BE7C13FD5",
+      "bytes": 7132813
+    },
+    {
+      "file": "edge-emissions.jsonl",
+      "byte_equal": true,
+      "sha256": "85EBD8844B3B8572DC4D3F14AEC77074964671340B20B3DB2CA637B09E504AC4",
+      "bytes": 108740888
+    },
+    {
+      "file": "sampling-samples.jsonl",
+      "byte_equal": true,
+      "sha256": "993A4178A513CA42F9B9727ABBA15DE5414C978631654AAE89B14272553384DC",
+      "bytes": 921196
+    }
+  ],
+  "complete_programs": 16265,
+  "ordered_f32_points": 670966
+}
