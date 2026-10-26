@@ -220,10 +220,10 @@ LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列�
 `false`，但不得删除 required checks。
 
 required status checks 固定为 `Commit message`、`Rust checks`、
-`Placement fixture tests`、`Urban harness tests`、`Dependency policy`、
-`Analyze (actions)`、`Analyze (rust)`，PR 与 `merge_group` 同名。七项机器
-检查 expected source 绑定 GitHub Actions App `integration_id=15368`。原生
-CodeQL rule 不能替代 `H_mg` 上的两个 `Analyze`。
+`Wire toolchain audit`、`Placement fixture tests`、`Urban harness tests`、
+`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`，PR 与
+`merge_group` 同名。八项机器检查 expected source 绑定 GitHub Actions App
+`integration_id=15368`。原生 CodeQL rule 不能替代 `H_mg` 上的两个 `Analyze`。
 
 ### 7.1 日常入队与失效边界
 
@@ -263,12 +263,16 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   （nextest 钉版本并校验 SHA256 安装，测试二进制并行执行）。
   默认 workspace 测试不打开 `placement-fixtures`。
   doctest 由 `cargo test --workspace --doc --locked`
-  单独覆盖（nextest 不执行 doctest）；另有工具链
-  wire 审计与运行时架构检查。走廊 catalog 与
+  单独覆盖（nextest 不执行 doctest）。走廊 catalog 与
   LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。
   `schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 变更拉起整仓
   Rust 测试。Bevy native example 在 Adapter/Runtime/Spatial/scenario、format、
   static-contract、static-network、compiler 或 `examples/data/` 变更时编译。
+- `Wire toolchain audit`：`xtask check-wire-audit` 与
+  `xtask check-runtime-architecture`，覆盖仓库 cargo config 卫生、依赖与生成物
+  钉版、workspace unsafe 边界的 hermetic 双特性编译与注入金丝雀，以及运行时模块
+  架构检查（自 `Rust checks` 拆出，#1061）。与 `Rust checks` 并行执行，压缩合并
+  路径关键路径；非 Rust 路径变更时以 skip 模式成功完成。
 - `Placement fixture tests`：`placement-fixtures` 是空 feature，开启时全量重跑
   运行时、情景包与 junction-generator 以护栏 feature 副作用，用来编译并执行
   “已经在路上”的回归：
