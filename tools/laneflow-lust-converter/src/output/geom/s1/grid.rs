@@ -25,12 +25,12 @@ struct Counts {
     retained_points_peak: usize,
     state_limited_searches: u64,
     representative_limited_searches: u64,
-    merged_states: u64,
     duplicate_programs: u64,
     complete_edge_end_rejected: u64,
     edge_replays: u64,
     backtracks: u64,
     start_clamp_rejected: u64,
+    previously_reached_chords_skipped: u64,
 }
 
 struct GridFrame {
@@ -117,6 +117,7 @@ pub(crate) fn policy() -> Value {
         "end_degrees":END_DEGREES,"metrics_excluded_from_search_work":true,
         "state_merge":"first BFS prefix per directed chord",
         "initial_chord":"original complete-edge start clamp checked before prefix selection",
+        "transition_reuse":"remove directed chord after first BFS reach; preserve remaining order",
         "scope":"retained finite representatives only; not continuous completeness or allocator peak"})
 }
 

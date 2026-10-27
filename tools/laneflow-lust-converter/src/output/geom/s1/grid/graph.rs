@@ -84,7 +84,7 @@ pub(super) fn paths(
     }
     state.counts.chords_peak = state.counts.chords_peak.max(chords);
     let mut nodes = Vec::<Node>::new();
-    let mut seen = BTreeSet::new();
+    let outdegrees = outgoing.iter().map(Vec::len).collect::<Vec<_>>();
     for chord in &outgoing[0] {
         state.reserve_work(1)?;
         state.counts.transition_checks += 1;
@@ -99,7 +99,6 @@ pub(super) fn paths(
         if incoming.is_some_and(|d| angle_rad(d, chord.dir) > WELD_MAX_TURN_RAD) {
             continue;
         }
-        seen.insert((0, chord.end));
         nodes.push(Node {
             from: 0,
             to: chord.end,
@@ -109,6 +108,8 @@ pub(super) fn paths(
         });
         state.counts.states_peak = state.counts.states_peak.max(nodes.len());
     }
+    let seed_count = nodes.len();
+    let mut min_rejected_turn: Option<f64> = None;
     let mut cursor = 0;
     let mut limited = false;
     while cursor < nodes.len() && !limited {
@@ -116,21 +117,28 @@ pub(super) fn paths(
         let from = node.to;
         let dir = node.dir;
         let depth = node.depth + 1;
-        for chord in &outgoing[from] {
-            state.reserve_work(1)?;
-            state.counts.transition_checks += 1;
-            if angle_rad(dir, chord.dir) > WELD_MAX_TURN_RAD {
-                continue;
+        state.counts.previously_reached_chords_skipped +=
+            (outdegrees[from] - outgoing[from].len()) as u64;
+        let mut error = None;
+        // 相同有向弦的后续可行性只取决于其末点和方向；首个 BFS 前缀保留后即可移除。
+        outgoing[from].retain(|chord| {
+            if limited || error.is_some() {
+                return true;
             }
-            if seen.contains(&(from, chord.end)) {
-                state.counts.merged_states += 1;
-                continue;
+            if let Err(e) = state.reserve_work(1) {
+                error = Some(e);
+                return true;
+            }
+            state.counts.transition_checks += 1;
+            let angle = angle_rad(dir, chord.dir);
+            if angle > WELD_MAX_TURN_RAD {
+                min_rejected_turn = Some(min_rejected_turn.map_or(angle, |a| a.min(angle)));
+                return true;
             }
             if nodes.len() == STATE_LIMIT {
                 limited = true;
-                break;
+                return true;
             }
-            seen.insert((from, chord.end));
             nodes.push(Node {
                 from,
                 to: chord.end,
@@ -139,6 +147,10 @@ pub(super) fn paths(
                 depth,
             });
             state.counts.states_peak = state.counts.states_peak.max(nodes.len());
+            false
+        });
+        if let Some(error) = error {
+            return Err(error);
         }
         cursor += 1;
     }
@@ -150,6 +162,15 @@ pub(super) fn paths(
         .filter(|(_, n)| n.to == STEPS)
         .map(|(i, n)| (angle_rad(n.dir, control[5]), i))
         .collect::<Vec<_>>();
+    if let Some(audit) = &mut state.audit {
+        audit.graph(
+            json!({"control_f64_bits":control.map(|p|p.map(f64::to_bits)),
+            "incoming_dir_f64_bits":incoming.map(|d|d.map(f64::to_bits)),
+            "seed_states":seed_count,"states":nodes.len(),"terminals":terminal.len(),
+            "state_limit":limited,"maximum_reached_index":nodes.iter().map(|n|n.to).max(),
+            "minimum_rejected_turn_degrees":min_rejected_turn.map(f64::to_degrees)}),
+        );
+    }
     terminal.sort_by(|(aa, a), (bb, b)| {
         aa.total_cmp(bb)
             .then(nodes[*a].depth.cmp(&nodes[*b].depth))
