@@ -16,6 +16,7 @@ use crate::output::model::ManeuverPath;
 const ASSIGNMENT_LIMIT: usize = 128;
 
 mod measurement;
+mod recovery;
 
 thread_local! {
     static ORIGINAL_PATH_KEYS: RefCell<Option<HashMap<String, String>>> = const { RefCell::new(None) };
@@ -413,7 +414,7 @@ fn run(observation: &observe::EmissionObservation, samples: &Value) -> (Value, V
                 json!({"original":"emitted","status":"preserved_success","program":program_bits(program)})
             }
             observe::EdgeEmission::Failed(message) => {
-                let search = sampler::search(input);
+                let search = sampler::search(input, sampler::SearchBudget::default());
                 let values=search.candidates.iter().map(|c|json!({"program":program_bits(&c.repaired.program),"arc_m":c.repaired.quantized_arc_meters,"spans":c.spans})).collect::<Vec<_>>();
                 let row = json!({"original":"emission_failed","original_error":message,"search":search.report,"candidates":values});
                 if !search.candidates.is_empty() {
@@ -486,7 +487,7 @@ fn run(observation: &observe::EmissionObservation, samples: &Value) -> (Value, V
             break;
         }
     }
-    let mut policy = sampler::policy();
+    let mut policy = sampler::policy(sampler::SearchBudget::default());
     policy["assignments"] = json!(ASSIGNMENT_LIMIT);
     (
         json!({"schema":"laneflow-1093-s1-research","base_commit":"6d403d00bb11364ab21d2c1f61bbd9f17ce7b8c8",

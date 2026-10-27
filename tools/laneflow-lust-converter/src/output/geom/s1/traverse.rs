@@ -72,7 +72,7 @@ pub(super) fn sample(
         let n = ordinal / 2 + 2;
         let angle = ordinal % 2 == 1;
         let new_scan = angle && !state.scans.contains_key(&index);
-        if state.counts.partitions == PARTITION_LIMIT {
+        if state.counts.partitions >= state.budget.partitions {
             return Err(state.truncate("partitions"));
         }
         if state.work() + u64::from(n) + if new_scan { 513 } else { 0 } > EVALUATION_LIMIT {
@@ -203,6 +203,41 @@ fn gentle_control() -> [Vec3; 6] {
         [1.0, 0.0, 0.0],
         [1.0, 0.0, 0.0],
     ]
+}
+
+#[test]
+fn partition_budget_stops_exactly_and_larger_budget_keeps_the_prefix() {
+    let mut control = gentle_control();
+    control[1] = control[0];
+    control[2] = [0.05, 0.0, 0.0];
+    control[3] = control[2];
+    for limit in [1, 2, 7, 4_094, 4_095] {
+        let mut state = Search {
+            budget: SearchBudget { partitions: limit },
+            ..Search::default()
+        };
+        let mut sink = EmissionSink::new(control[0]);
+        assert!(sample(&mut state, 0, control, &mut sink).is_err());
+        assert!(sink.segments.is_empty());
+        assert_eq!(state.counts.partitions, limit.min(4_094));
+        assert_eq!(state.truncated, limit < 4_094);
+        assert_eq!(state.failed_at, (limit >= 4_094).then_some(0));
+        if state.truncated {
+            assert_eq!(state.truncation_reason, Some("partitions"));
+        }
+    }
+    let control = gentle_control();
+    let mut outputs = Vec::new();
+    for limit in [1, 8] {
+        let mut state = Search {
+            budget: SearchBudget { partitions: limit },
+            ..Search::default()
+        };
+        let mut sink = EmissionSink::new(control[0]);
+        sample(&mut state, 0, control, &mut sink).unwrap();
+        outputs.push((sink.prev_point, sink.prev_dir, sink.total_arc_meters));
+    }
+    assert_eq!(outputs[0], outputs[1]);
 }
 
 #[test]
