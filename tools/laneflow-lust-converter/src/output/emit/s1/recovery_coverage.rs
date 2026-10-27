@@ -3,6 +3,7 @@
 use super::*;
 
 mod assignments;
+mod successors;
 mod validation;
 
 fn capture_lust() -> (observe::EmissionObservation, Value, Value) {

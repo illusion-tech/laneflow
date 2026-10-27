@@ -7,7 +7,7 @@ fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
 
-fn closure_audit(traffic: &TrafficPackage, path: &ManeuverPath) -> Value {
+pub(super) fn closure_audit(traffic: &TrafficPackage, path: &ManeuverPath) -> Value {
     let part = clip(traffic, path);
     let controller_ids = part
         .signals
