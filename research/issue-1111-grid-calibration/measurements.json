@@ -1,0 +1,150 @@
+[
+  {
+    "run": 0,
+    "old_grid_seconds": {
+      "sumo::-10004_5_1": 2.719061,
+      "sumo::-16502_0_0": 1.1581549,
+      "sumo::-28860_3_0": 0.0179904,
+      "sumo::-7348_3_0": 3.6246650000000002
+    },
+    "current": {
+      "baseline_conversion_seconds": 182.8653787,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.1637213,
+          "sumo::-16502_0_0": 1.1537963,
+          "sumo::-28860_3_0": 0.0122049,
+          "sumo::-7348_3_0": 0.1802924
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0036618,
+          "sumo::-16502_0_0": 0.2973374,
+          "sumo::-28860_3_0": 0.0458124,
+          "sumo::-7348_3_0": 0.0037644
+        }
+      },
+      "local_probe_seconds": 0.3229691,
+      "search_order": "old-grid",
+      "source_verify_and_parse_seconds": 1.3795975,
+      "validation_seconds": {
+        "baseline": 13.124388,
+        "combined": 12.8685486,
+        "grid_replacement": 11.375477
+      }
+    },
+    "old_grid_total_seconds": 7.5198713,
+    "new_grid_total_seconds": 1.5100148999999998,
+    "original_family_total_seconds": 0.350576
+  },
+  {
+    "run": 1,
+    "old_grid_seconds": {
+      "sumo::-10004_5_1": 4.2848225,
+      "sumo::-16502_0_0": 1.9748606,
+      "sumo::-28860_3_0": 0.0192153,
+      "sumo::-7348_3_0": 7.4114675
+    },
+    "current": {
+      "baseline_conversion_seconds": 179.1510805,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.2484047,
+          "sumo::-16502_0_0": 1.6699548,
+          "sumo::-28860_3_0": 0.0196817,
+          "sumo::-7348_3_0": 0.2604184
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0073597,
+          "sumo::-16502_0_0": 0.5326996,
+          "sumo::-28860_3_0": 0.0525345,
+          "sumo::-7348_3_0": 0.0074544
+        }
+      },
+      "local_probe_seconds": 0.4443774,
+      "search_order": "grid-old",
+      "source_verify_and_parse_seconds": 3.1822577,
+      "validation_seconds": {
+        "baseline": 15.9499738,
+        "combined": 16.1735687,
+        "grid_replacement": 11.7937802
+      }
+    },
+    "old_grid_total_seconds": 13.6903659,
+    "new_grid_total_seconds": 2.1984596,
+    "original_family_total_seconds": 0.6000482
+  },
+  {
+    "run": 2,
+    "old_grid_seconds": {
+      "sumo::-10004_5_1": 2.2548933,
+      "sumo::-16502_0_0": 0.8787974,
+      "sumo::-28860_3_0": 0.0151282,
+      "sumo::-7348_3_0": 3.6796943
+    },
+    "current": {
+      "baseline_conversion_seconds": 148.5332964,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.1255153,
+          "sumo::-16502_0_0": 0.9102991,
+          "sumo::-28860_3_0": 0.0116752,
+          "sumo::-7348_3_0": 0.1444421
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0041731,
+          "sumo::-16502_0_0": 0.1974805,
+          "sumo::-28860_3_0": 0.0244024,
+          "sumo::-7348_3_0": 0.0040647
+        }
+      },
+      "local_probe_seconds": 0.2390987,
+      "search_order": "grid-old",
+      "source_verify_and_parse_seconds": 2.3264298,
+      "validation_seconds": {
+        "baseline": 8.1128629,
+        "combined": 9.1296433,
+        "grid_replacement": 8.4290928
+      }
+    },
+    "old_grid_total_seconds": 6.8285132,
+    "new_grid_total_seconds": 1.1919317,
+    "original_family_total_seconds": 0.2301207
+  },
+  {
+    "run": 3,
+    "old_grid_seconds": {
+      "sumo::-10004_5_1": 2.1762411999999998,
+      "sumo::-16502_0_0": 0.8371935,
+      "sumo::-28860_3_0": 0.0092296,
+      "sumo::-7348_3_0": 2.9390198
+    },
+    "current": {
+      "baseline_conversion_seconds": 122.6348795,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.1609655,
+          "sumo::-16502_0_0": 0.9960533,
+          "sumo::-28860_3_0": 0.0113484,
+          "sumo::-7348_3_0": 0.1718915
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0043765,
+          "sumo::-16502_0_0": 0.2760043,
+          "sumo::-28860_3_0": 0.0313649,
+          "sumo::-7348_3_0": 0.0045058
+        }
+      },
+      "local_probe_seconds": 0.195756,
+      "search_order": "old-grid",
+      "source_verify_and_parse_seconds": 1.2450188,
+      "validation_seconds": {
+        "baseline": 9.1591544,
+        "combined": 8.7308509,
+        "grid_replacement": 8.5284305
+      }
+    },
+    "old_grid_total_seconds": 5.961684099999999,
+    "new_grid_total_seconds": 1.3402587000000001,
+    "original_family_total_seconds": 0.3162515
+  }
+]
