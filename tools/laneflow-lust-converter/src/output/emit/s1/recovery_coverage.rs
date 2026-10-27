@@ -3,6 +3,7 @@
 use super::*;
 
 mod assignments;
+mod dependency_recovery;
 mod successors;
 mod validation;
 
