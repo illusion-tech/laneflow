@@ -11,9 +11,16 @@ pub(super) struct EndAudit {
     accepted: u64,
     angle_ranges_degrees: [Option<[f64; 2]>; 2],
     first_eight: Vec<Value>,
+    graphs: Vec<Value>,
 }
 
 impl EndAudit {
+    pub(super) fn graph(&mut self, graph: Value) {
+        if self.graphs.len() < 64 {
+            self.graphs.push(graph);
+        }
+    }
+
     pub(super) fn record(&mut self, clamps: [Option<Vec3>; 2], dirs: [Vec3; 2], spans: &[Value]) {
         self.complete_edges += 1;
         let angles = [0, 1].map(|i| clamps[i].map(|c| angle_rad(dirs[i], c).to_degrees()));
