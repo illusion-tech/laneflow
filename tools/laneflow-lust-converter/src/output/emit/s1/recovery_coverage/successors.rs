@@ -11,7 +11,7 @@ fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
 
-fn frozen_candidate(value: &Value) -> Candidate {
+pub(super) fn frozen_candidate(value: &Value) -> Candidate {
     let bits: [u64; 3] = serde_json::from_value(value["program"]["start"].clone()).unwrap();
     let segments = value["program"]["segments"]
         .as_array()
@@ -40,7 +40,7 @@ fn frozen_candidate(value: &Value) -> Candidate {
     }
 }
 
-fn write_geometry(out: &Path, programs: &BTreeMap<String, re::RoadEditingCurveProgram>) {
+pub(super) fn write_geometry(out: &Path, programs: &BTreeMap<String, re::RoadEditingCurveProgram>) {
     let mut writer =
         BufWriter::new(fs::File::create(out.join("successful-programs.jsonl")).unwrap());
     for (id, program) in programs {
@@ -56,7 +56,7 @@ fn write_geometry(out: &Path, programs: &BTreeMap<String, re::RoadEditingCurvePr
     writer.flush().unwrap();
 }
 
-fn assert_same_file(left: &Path, right: &Path) {
+pub(super) fn assert_same_file(left: &Path, right: &Path) {
     let mut expected = BufReader::new(fs::File::open(left).unwrap()).lines();
     for actual in BufReader::new(fs::File::open(right).unwrap()).lines() {
         assert_eq!(
