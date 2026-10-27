@@ -1,0 +1,44 @@
+{
+  "attempts": [
+    {
+      "attempt": "attempt-01",
+      "status": {
+        "attempt": "attempt-01",
+        "started_utc": "2026-10-26T23:14:28.2387145Z",
+        "complete": false,
+        "failure": "Background CPU interval rejected: 00-warmup-a / 2",
+        "finished_utc": "2026-10-26T23:14:56.0744813Z",
+        "completed_measured_blocks": 0
+      },
+      "background_mean_limit_percent": 5,
+      "background_interval_limit_percent": 9,
+      "included_in_final_statistics": false
+    },
+    {
+      "attempt": "attempt-02",
+      "status": {
+        "attempt": "attempt-02",
+        "started_utc": "2026-10-26T23:17:02.7441331Z",
+        "complete": false,
+        "failure": "Block background/power rejected: 01-warmup-b",
+        "finished_utc": "2026-10-26T23:17:47.5328982Z",
+        "completed_measured_blocks": 0
+      },
+      "background_mean_limit_percent": 5,
+      "background_interval_limit_percent": 9,
+      "included_in_final_statistics": false
+    },
+    {
+      "attempt": "attempt-03",
+      "complete": false,
+      "status": "interrupted",
+      "recorded_utc": "2026-10-27T08:04:58.8919166Z",
+      "reason": "Chat turn interruption; original process no longer exists; normal final status was not written",
+      "persisted_measured_blocks": 10,
+      "included_in_final_statistics": false
+    }
+  ],
+  "attempt_01_audit": "A PowerShell Math.Max overload rounded background CPU seconds. The corrected interval is 9.38657943%, still above the then-active 9% limit. Original records retained; corrected double overload used from attempt-02 onward.",
+  "attempt_02_audit": "Stopped during B warmup: block background mean 5.21212861% exceeded then-active 5% limit; zero formal blocks.",
+  "partial_data_policy": "Only complete attempt-04 enters final statistics. No incomplete blocks, warmups, or preparation probes are substituted into it."
+}

@@ -1,0 +1,107 @@
+{
+  "recorded_utc": "2026-10-27T08:05:06.0943659Z",
+  "mode": {
+    "confirmed": true,
+    "mode": "狂暴模式",
+    "source": "User explicitly confirmed mode set and requested remeasurement in this chat",
+    "recorded_utc": "2026-10-26T22:57:42.4317871Z",
+    "configuration_cross_check": "OperatingMode = 2",
+    "configuration_observed_utc": "2026-10-26T22:55:57.650934Z"
+  },
+  "power": {
+    "observed_utc": "2026-10-27T08:05:06.0857176Z",
+    "ac_online": true,
+    "battery": [
+      {
+        "PowerOnline": true,
+        "Charging": false,
+        "Discharging": false
+      }
+    ],
+    "windows_scheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+    "vendor_mode_source": "user confirmation plus read-only OEM MainOption.json",
+    "vendor_mode_path": "C:/Program Files/OEM/机械革命控制中心/AiStoneService/MyControlCenter/UserPofiles/MainOption.json",
+    "vendor_mode": 2,
+    "vendor_mode_file_last_write_utc": "2026-10-27T07:35:55.5920409Z",
+    "vendor_mode_confirmed": true
+  },
+  "processor": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfLogicalProcessors": 32
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "BuildNumber": "29695",
+    "Version": "10.0.29695"
+  },
+  "bios": {
+    "Manufacturer": "American Megatrends International, LLC.",
+    "SMBIOSBIOSVersion": "N.1.09MRO07"
+  },
+  "rust": [
+    "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "binary: rustc",
+    "commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67",
+    "commit-date: 2026-10-13",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.1",
+    "LLVM version: 23.1.1"
+  ],
+  "input_sha256": "D2B2EED3FEE4B2559A60397BF387EB0E52EAA370A68CE42435E8B8BB5870513C",
+  "binaries": [
+    {
+      "stage": "a",
+      "commit": "4f32cb8ffcb911f9964553dd0dddfd8b942736f4",
+      "sha256": "E30E8661AEEDF8024366AE3B1CA47B3ED4665104B310FED13B3F2912E73C9934",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": true
+      },
+      "command": "cargo +1.99.1 test --release --locked -p laneflow-lust-converter --lib --no-run --message-format=json"
+    },
+    {
+      "stage": "b",
+      "commit": "af4a2301d607cce72cb3ad5b0d50f848d312ddf3",
+      "sha256": "25655AB5FE682A8B9464161F1883C8FCA766CF858CD72C102125D83432B92E6E",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": true
+      },
+      "command": "cargo +1.99.1 test --release --locked -p laneflow-lust-converter --lib --no-run --message-format=json"
+    },
+    {
+      "stage": "c",
+      "commit": "9ba518da5a364bef088690f2ee245b58cce7582d",
+      "sha256": "8A149471FB38411B259E79E6895F5E646BFDC3943916BFFBFA331176ABE9D7A5",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": true
+      },
+      "command": "cargo +1.99.1 test --release --locked -p laneflow-lust-converter --lib --no-run --message-format=json"
+    },
+    {
+      "stage": "d",
+      "commit": "464783ae95ae940810050d4f94391f90d9a12c72",
+      "sha256": "6CD6C8EA8EB14BD02F6C3B2CD838246B3C5ECDCDECFC8D8B14DB8D146873A423",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": true
+      },
+      "command": "cargo +1.99.1 test --release --locked -p laneflow-lust-converter --lib --no-run --message-format=json"
+    }
+  ],
+  "monitor": "Windows Processor(_Total)/% Processor Time CounterSample pairs; subtract measured-process CPU from aggregate active CPU; includes supervisor overhead; no process-wide monitoring in timed blocks",
+  "affinity": "default OS scheduling"
+}
