@@ -1,0 +1,1328 @@
+[
+  {
+    "edge": "sumo:--30452_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 99,
+      "chord_checks": 13264128,
+      "chords_peak": 64830,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 100,
+      "frames_peak": 3,
+      "graph_searches": 101,
+      "merged_states": 18446489,
+      "node_evaluations": 52513,
+      "prefix_point_uses": 1372,
+      "representative_limited_searches": 4,
+      "retained_points_peak": 526,
+      "state_limited_searches": 0,
+      "states_peak": 45541,
+      "transition_checks": 18681987
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4659961835663497626,
+            0,
+            13876787160384169574
+          ],
+          [
+            4659934949602140892,
+            0,
+            13876843229180647963
+          ],
+          [
+            4659906680114754251,
+            0,
+            13876896578105322861
+          ],
+          [
+            4659878976467228426,
+            0,
+            13876951031597173309
+          ],
+          [
+            13827781774306375005,
+            0,
+            13828048058265233726
+          ],
+          [
+            13827971361600085497,
+            0,
+            13827860774499615427
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13827772002050540521,
+          0,
+          13828057416152418805
+        ],
+        "reason": "work",
+        "span_index_zero_based": 1
+      },
+      "2": {
+        "control_f64_bits": [
+          [
+            4659878976467228426,
+            0,
+            13876951031597173309
+          ],
+          [
+            4659878567482442573,
+            0,
+            13876951835485891668
+          ],
+          [
+            4659878018312439672,
+            0,
+            13876952293691993971
+          ],
+          [
+            4659877525111879762,
+            0,
+            13876952878776707973
+          ],
+          [
+            13827971361600085497,
+            0,
+            13827860774499615427
+          ],
+          [
+            13829294176068393756,
+            0,
+            13826142348789424806
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13827978580871529047,
+          0,
+          13827853420365347612
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 2
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10004_3_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 9258456,
+    "grid_counts": {
+      "backtracks": 32,
+      "chord_checks": 4333824,
+      "chords_peak": 55713,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 33,
+      "frames_peak": 2,
+      "graph_searches": 33,
+      "merged_states": 4321456,
+      "node_evaluations": 17217,
+      "prefix_point_uses": 288,
+      "representative_limited_searches": 1,
+      "retained_points_peak": 329,
+      "state_limited_searches": 0,
+      "states_peak": 47945,
+      "transition_checks": 4907127
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4652916097661553083,
+            0,
+            4649809817186599584
+          ],
+          [
+            4652915125614854952,
+            0,
+            4649807706869604385
+          ],
+          [
+            4652914603154829632,
+            0,
+            4649804921852565505
+          ],
+          [
+            4652914641229592920,
+            0,
+            4649802053553731141
+          ],
+          [
+            13827650061498807860,
+            0,
+            13828171862678255398
+          ],
+          [
+            4583306659978801717,
+            0,
+            13830551283050609223
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13827557131736184098,
+          0,
+          13828256282920998500
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10004_5_1",
+    "old_candidates": 8,
+    "grid_candidates": 0,
+    "old_stop": "program_pool",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 2,
+      "chord_checks": 787968,
+      "chords_peak": 62253,
+      "complete_edge_end_rejected": 64,
+      "duplicate_programs": 0,
+      "edge_replays": 67,
+      "frames_peak": 4,
+      "graph_searches": 6,
+      "merged_states": 21627091,
+      "node_evaluations": 3634,
+      "prefix_point_uses": 2254,
+      "representative_limited_searches": 4,
+      "retained_points_peak": 959,
+      "state_limited_searches": 0,
+      "states_peak": 54503,
+      "transition_checks": 31206144
+    },
+    "grid_failures": {
+      "3": {
+        "control_f64_bits": [
+          [
+            4652930414823404995,
+            0,
+            4649771869760525435
+          ],
+          [
+            4652934877149650695,
+            0,
+            4649774867750585653
+          ],
+          [
+            4652938992762972119,
+            0,
+            4649779718776647889
+          ],
+          [
+            4652943037216891863,
+            0,
+            4649784536134477414
+          ],
+          [
+            4606713544171248488,
+            0,
+            4599408047724869263
+          ],
+          [
+            4605913977000501596,
+            0,
+            4602784044934006540
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4606762398270275182,
+          0,
+          4599108530790647996
+        ],
+        "reason": "work",
+        "span_index_zero_based": 3
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10004_8_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": true,
+    "grid_work": 4470434,
+    "grid_counts": {
+      "backtracks": 32,
+      "chord_checks": 4333824,
+      "chords_peak": 107880,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 33,
+      "frames_peak": 2,
+      "graph_searches": 33,
+      "merged_states": 0,
+      "node_evaluations": 16993,
+      "prefix_point_uses": 64,
+      "representative_limited_searches": 1,
+      "retained_points_peak": 98,
+      "state_limited_searches": 1,
+      "states_peak": 65536,
+      "transition_checks": 119553
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4652914834743639408,
+            0,
+            4649787394864709632
+          ],
+          [
+            4652914898595697369,
+            0,
+            4649782542108304604
+          ],
+          [
+            4652915829139352114,
+            0,
+            4649777895471367803
+          ],
+          [
+            4652917457890609359,
+            0,
+            4649774296272785360
+          ],
+          [
+            4583239606282011979,
+            0,
+            13830551338437446107
+          ],
+          [
+            4604219376191402417,
+            0,
+            13828225415491575692
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4583242858736234700,
+          0,
+          13830551335762156407
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10034_4_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 3332516,
+    "grid_counts": {
+      "backtracks": 6,
+      "chord_checks": 919296,
+      "chords_peak": 59874,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 7,
+      "frames_peak": 2,
+      "graph_searches": 7,
+      "merged_states": 344920,
+      "node_evaluations": 3648,
+      "prefix_point_uses": 57,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 73,
+      "state_limited_searches": 0,
+      "states_peak": 18506,
+      "transition_checks": 2409515
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            13886517970231382508,
+            0,
+            4653790936603767603
+          ],
+          [
+            13886517718220039839,
+            0,
+            4653789634823322026
+          ],
+          [
+            13886517526926492081,
+            0,
+            4653788070606433451
+          ],
+          [
+            13886517453460917453,
+            0,
+            4653786450596326277
+          ],
+          [
+            4603689922045597335,
+            0,
+            13828668892079273739
+          ],
+          [
+            4595598537009275677,
+            0,
+            13830409827518820851
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4603855092968072454,
+          0,
+          13828537869843493501
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10046_0_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 86,
+      "chord_checks": 11563032,
+      "chords_peak": 73628,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 87,
+      "frames_peak": 3,
+      "graph_searches": 89,
+      "merged_states": 4709872,
+      "node_evaluations": 46441,
+      "prefix_point_uses": 1282,
+      "representative_limited_searches": 1,
+      "retained_points_peak": 471,
+      "state_limited_searches": 0,
+      "states_peak": 57762,
+      "transition_checks": 20389245
+    },
+    "grid_failures": {
+      "2": {
+        "control_f64_bits": [
+          [
+            13885774557434494321,
+            0,
+            4657986497053500375
+          ],
+          [
+            13885774391879259392,
+            0,
+            4657987337028481804
+          ],
+          [
+            13885774145390374711,
+            0,
+            4657988134631737545
+          ],
+          [
+            13885773831756819988,
+            0,
+            4657988784037686149
+          ],
+          [
+            4600277986898592659,
+            0,
+            4606554874504982672
+          ],
+          [
+            4604432884429291525,
+            0,
+            4604653743189901854
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4599920374837181202,
+          0,
+          4606623172190995668
+        ],
+        "reason": "work",
+        "span_index_zero_based": 2
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10100_1_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 150044,
+    "grid_counts": {
+      "backtracks": 0,
+      "chord_checks": 131328,
+      "chords_peak": 64444,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 1,
+      "frames_peak": 1,
+      "graph_searches": 1,
+      "merged_states": 0,
+      "node_evaluations": 513,
+      "prefix_point_uses": 0,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 0,
+      "state_limited_searches": 0,
+      "states_peak": 100,
+      "transition_checks": 18203
+    },
+    "grid_failures": {
+      "0": {
+        "control_f64_bits": [
+          [
+            4659255201530558546,
+            0,
+            4657012835526639616
+          ],
+          [
+            4659254990688704921,
+            0,
+            4657013349843303245
+          ],
+          [
+            4659254564546822188,
+            0,
+            4657013746655275167
+          ],
+          [
+            4659254246054954009,
+            0,
+            4657014202219592942
+          ],
+          [
+            13823876701698128021,
+            0,
+            4606509306938405603
+          ],
+          [
+            13826708160666070123,
+            0,
+            4605557272482746109
+          ]
+        ],
+        "incoming_dir_f64_bits": null,
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 0
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10564_3_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 9117202,
+    "grid_counts": {
+      "backtracks": 32,
+      "chord_checks": 4333824,
+      "chords_peak": 60785,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 33,
+      "frames_peak": 2,
+      "graph_searches": 33,
+      "merged_states": 1926105,
+      "node_evaluations": 17185,
+      "prefix_point_uses": 256,
+      "representative_limited_searches": 1,
+      "retained_points_peak": 296,
+      "state_limited_searches": 0,
+      "states_peak": 43360,
+      "transition_checks": 4765937
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            13877340258713406013,
+            0,
+            13866658371308166840
+          ],
+          [
+            13877338459644418656,
+            0,
+            13866648950728742133
+          ],
+          [
+            13877337635471176659,
+            0,
+            13866637107692290833
+          ],
+          [
+            13877336388432476242,
+            0,
+            13866626353529566003
+          ],
+          [
+            4603642952959233115,
+            0,
+            4605332979650819777
+          ],
+          [
+            4601251624040798569,
+            0,
+            4606346236788486668
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4603789969698012374,
+          0,
+          4605218245822166075
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-10564_6_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 132003,
+    "grid_counts": {
+      "backtracks": 0,
+      "chord_checks": 131328,
+      "chords_peak": 19484,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 1,
+      "frames_peak": 1,
+      "graph_searches": 1,
+      "merged_states": 0,
+      "node_evaluations": 513,
+      "prefix_point_uses": 0,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 0,
+      "state_limited_searches": 0,
+      "states_peak": 162,
+      "transition_checks": 162
+    },
+    "grid_failures": {
+      "0": {
+        "control_f64_bits": [
+          [
+            13877336388432476242,
+            0,
+            13866626353529566003
+          ],
+          [
+            13877336266924691829,
+            0,
+            13866625305675569592
+          ],
+          [
+            13877336053475297803,
+            0,
+            13866624340045690971
+          ],
+          [
+            13877336036588755354,
+            0,
+            13866623186936078008
+          ],
+          [
+            4601251624040798569,
+            0,
+            4606346236788486668
+          ],
+          [
+            4588588268676627364,
+            0,
+            4607167005197765791
+          ]
+        ],
+        "incoming_dir_f64_bits": null,
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 0
+      }
+    }
+  },
+  {
+    "edge": "sumo::-1426_1_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 3412334,
+    "grid_counts": {
+      "backtracks": 5,
+      "chord_checks": 787968,
+      "chords_peak": 62325,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 6,
+      "frames_peak": 2,
+      "graph_searches": 6,
+      "merged_states": 389560,
+      "node_evaluations": 3123,
+      "prefix_point_uses": 45,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 59,
+      "state_limited_searches": 0,
+      "states_peak": 19439,
+      "transition_checks": 2621198
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4653463809904271688,
+            0,
+            4650233664644191355
+          ],
+          [
+            4653464014302631344,
+            0,
+            4650236921391388543
+          ],
+          [
+            4653464521366481332,
+            0,
+            4650240207651262908
+          ],
+          [
+            4653465393201015685,
+            0,
+            4650242988502794895
+          ],
+          [
+            4593638882334151142,
+            0,
+            4607112287625968158
+          ],
+          [
+            4602960143960247422,
+            0,
+            4605806349000188123
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4592375669433101408,
+          0,
+          4607130694041484534
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-1426_2_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 66,
+      "chord_checks": 8930304,
+      "chords_peak": 71074,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 67,
+      "frames_peak": 3,
+      "graph_searches": 68,
+      "merged_states": 11393370,
+      "node_evaluations": 35283,
+      "prefix_point_uses": 719,
+      "representative_limited_searches": 3,
+      "retained_points_peak": 427,
+      "state_limited_searches": 1,
+      "states_peak": 65536,
+      "transition_checks": 23033694
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4653461127095899914,
+            0,
+            4650245715291631780
+          ],
+          [
+            4653460177242957055,
+            0,
+            4650251502475124696
+          ],
+          [
+            4653458938633540848,
+            0,
+            4650257133581299683
+          ],
+          [
+            4653457432736830587,
+            0,
+            4650262427868373975
+          ],
+          [
+            13822662112759388814,
+            0,
+            4606733132637611807
+          ],
+          [
+            13825951156034260899,
+            0,
+            4606004252221210802
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13822544196189702358,
+          0,
+          4606752261864459486
+        ],
+        "reason": "work",
+        "span_index_zero_based": 1
+      },
+      "2": {
+        "control_f64_bits": [
+          [
+            4653457432736830587,
+            0,
+            4650262427868373975
+          ],
+          [
+            4653456740538344451,
+            0,
+            4650264861433354244
+          ],
+          [
+            4653455548469543565,
+            0,
+            4650266569525183073
+          ],
+          [
+            4653454606335900054,
+            0,
+            4650268640353587622
+          ],
+          [
+            13825951156034260899,
+            0,
+            4606004252221210802
+          ],
+          [
+            13827609141034279703,
+            0,
+            4604837290776952303
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13825777436539509775,
+          0,
+          4606053030863196066
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 2
+      }
+    }
+  },
+  {
+    "edge": "sumo::-16502_0_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 7,
+      "chord_checks": 1181952,
+      "chords_peak": 106387,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 8,
+      "frames_peak": 2,
+      "graph_searches": 9,
+      "merged_states": 5195838,
+      "node_evaluations": 4633,
+      "prefix_point_uses": 16,
+      "representative_limited_searches": 1,
+      "retained_points_peak": 98,
+      "state_limited_searches": 1,
+      "states_peak": 65536,
+      "transition_checks": 30813399
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            13862387164458443080,
+            0,
+            4655015308771993846
+          ],
+          [
+            13862384193822325522,
+            0,
+            4655016326933566396
+          ],
+          [
+            13862381141529851931,
+            0,
+            4655017349990150296
+          ],
+          [
+            13862376960990537318,
+            0,
+            4655018299443621396
+          ],
+          [
+            4599843899495991925,
+            0,
+            4606637215741038519
+          ],
+          [
+            4602357792311913445,
+            0,
+            4606066178973635054
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          4599728734464382539,
+          0,
+          4606657994990690612
+        ],
+        "reason": "work",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-19726_2_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 7123386,
+    "grid_counts": {
+      "backtracks": 32,
+      "chord_checks": 4333824,
+      "chords_peak": 65984,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 33,
+      "frames_peak": 2,
+      "graph_searches": 33,
+      "merged_states": 664170,
+      "node_evaluations": 17185,
+      "prefix_point_uses": 256,
+      "representative_limited_searches": 1,
+      "retained_points_peak": 296,
+      "state_limited_searches": 0,
+      "states_peak": 24184,
+      "transition_checks": 2772121
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4629877746172197601,
+            0,
+            4657771190686549279
+          ],
+          [
+            4629875294060457120,
+            0,
+            4657771646922555309
+          ],
+          [
+            4629890131071172870,
+            0,
+            4657772085689014288
+          ],
+          [
+            4629896323520660504,
+            0,
+            4657772533190246793
+          ],
+          [
+            13814066556388695924,
+            0,
+            4607150824300444505
+          ],
+          [
+            4596782086575963154,
+            0,
+            4606978983687799559
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13815222510069956835,
+          0,
+          4607137516881944699
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-20112_0_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 1695450,
+    "grid_counts": {
+      "backtracks": 0,
+      "chord_checks": 131328,
+      "chords_peak": 56117,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 1,
+      "frames_peak": 1,
+      "graph_searches": 1,
+      "merged_states": 170941,
+      "node_evaluations": 513,
+      "prefix_point_uses": 0,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 0,
+      "state_limited_searches": 0,
+      "states_peak": 11717,
+      "transition_checks": 1563609
+    },
+    "grid_failures": {
+      "0": {
+        "control_f64_bits": [
+          [
+            4659877525111879762,
+            0,
+            13876952878776707973
+          ],
+          [
+            4659876745293323469,
+            0,
+            13876953803876868171
+          ],
+          [
+            4659875911792795849,
+            0,
+            13876954682548877268
+          ],
+          [
+            4659875018225368433,
+            0,
+            13876954989839033303
+          ],
+          [
+            13829294176068393756,
+            0,
+            13826142348789424806
+          ],
+          [
+            13830424186838010654,
+            0,
+            13818645457265537687
+          ]
+        ],
+        "incoming_dir_f64_bits": null,
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 0
+      }
+    }
+  },
+  {
+    "edge": "sumo::-22042_7_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "partitions",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 110,
+      "chord_checks": 14945349,
+      "chords_peak": 91117,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 111,
+      "frames_peak": 4,
+      "graph_searches": 114,
+      "merged_states": 16276544,
+      "node_evaluations": 58822,
+      "prefix_point_uses": 1101,
+      "representative_limited_searches": 6,
+      "retained_points_peak": 426,
+      "state_limited_searches": 6,
+      "states_peak": 65536,
+      "transition_checks": 16994728
+    },
+    "grid_failures": {
+      "3": {
+        "control_f64_bits": [
+          [
+            4653300672933143573,
+            0,
+            4650342331109514917
+          ],
+          [
+            4653299702743487050,
+            0,
+            4650343172186479507
+          ],
+          [
+            4653298862985250160,
+            0,
+            4650344517911773945
+          ],
+          [
+            4653298241045314667,
+            0,
+            4650346228246596551
+          ],
+          [
+            13829811480566729903,
+            0,
+            4600836042389398593
+          ],
+          [
+            13826845036077010943,
+            0,
+            4605459666601094027
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13829768643134028710,
+          0,
+          4601030543367705390
+        ],
+        "reason": "work",
+        "span_index_zero_based": 3
+      }
+    }
+  },
+  {
+    "edge": "sumo::-25490_4_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 3386460,
+    "grid_counts": {
+      "backtracks": 11,
+      "chord_checks": 1575936,
+      "chords_peak": 59598,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 12,
+      "frames_peak": 2,
+      "graph_searches": 12,
+      "merged_states": 217960,
+      "node_evaluations": 6266,
+      "prefix_point_uses": 110,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 131,
+      "state_limited_searches": 0,
+      "states_peak": 14429,
+      "transition_checks": 1804148
+    },
+    "grid_failures": {
+      "1": {
+        "control_f64_bits": [
+          [
+            4630481509997241958,
+            0,
+            4657789464569802916
+          ],
+          [
+            4630479136681350171,
+            0,
+            4657788638628903075
+          ],
+          [
+            4630466557184333303,
+            0,
+            4657787788934427268
+          ],
+          [
+            4630440696125618913,
+            0,
+            4657787067634454364
+          ],
+          [
+            13809996823884833518,
+            0,
+            13830545390880703859
+          ],
+          [
+            13825848058068563385,
+            0,
+            13829405390266936653
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13806350585703472838,
+          0,
+          13830551549424612132
+        ],
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 1
+      }
+    }
+  },
+  {
+    "edge": "sumo::-28860_3_0",
+    "old_candidates": 0,
+    "grid_candidates": 0,
+    "old_stop": "finite_family_exhausted",
+    "grid_stop": "retained_family_exhausted",
+    "grid_budget_stopped": false,
+    "grid_work": 139710,
+    "grid_counts": {
+      "backtracks": 0,
+      "chord_checks": 131328,
+      "chords_peak": 60811,
+      "complete_edge_end_rejected": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 1,
+      "frames_peak": 1,
+      "graph_searches": 1,
+      "merged_states": 0,
+      "node_evaluations": 513,
+      "prefix_point_uses": 0,
+      "representative_limited_searches": 0,
+      "retained_points_peak": 0,
+      "state_limited_searches": 0,
+      "states_peak": 80,
+      "transition_checks": 7869
+    },
+    "grid_failures": {
+      "0": {
+        "control_f64_bits": [
+          [
+            13875855830054978191,
+            0,
+            4655233144015688827
+          ],
+          [
+            13875858281081106028,
+            0,
+            4655233656986549693
+          ],
+          [
+            13875860838204137095,
+            0,
+            4655233110628027768
+          ],
+          [
+            13875863342278716547,
+            0,
+            4655233093934197238
+          ],
+          [
+            13830363443550450828,
+            0,
+            4596548516256258305
+          ],
+          [
+            13830554255501481530,
+            0,
+            13797708031575004769
+          ]
+        ],
+        "incoming_dir_f64_bits": null,
+        "reason": "no_retained_grid_path",
+        "span_index_zero_based": 0
+      }
+    }
+  },
+  {
+    "edge": "sumo::-7348_3_0",
+    "old_candidates": 8,
+    "grid_candidates": 0,
+    "old_stop": "program_pool",
+    "grid_stop": "work",
+    "grid_budget_stopped": true,
+    "grid_work": 32000000,
+    "grid_counts": {
+      "backtracks": 59,
+      "chord_checks": 8242493,
+      "chords_peak": 105563,
+      "complete_edge_end_rejected": 1856,
+      "duplicate_programs": 0,
+      "edge_replays": 1916,
+      "frames_peak": 4,
+      "graph_searches": 63,
+      "merged_states": 11364069,
+      "node_evaluations": 36407,
+      "prefix_point_uses": 40143,
+      "representative_limited_searches": 62,
+      "retained_points_peak": 823,
+      "state_limited_searches": 59,
+      "states_peak": 65536,
+      "transition_checks": 23680957
+    },
+    "grid_failures": {
+      "3": {
+        "control_f64_bits": [
+          [
+            4660874650216877261,
+            0,
+            4660639112835975086
+          ],
+          [
+            4660873568124779984,
+            0,
+            4660640293690446320
+          ],
+          [
+            4660872402348778410,
+            0,
+            4660641395069543039
+          ],
+          [
+            4660871285711296266,
+            0,
+            4660642543312253747
+          ],
+          [
+            13827632549194139948,
+            0,
+            4604815916046761084
+          ],
+          [
+            13827826819887116194,
+            0,
+            4604632519354526385
+          ]
+        ],
+        "incoming_dir_f64_bits": [
+          13827637535574777807,
+          0,
+          4604811343262365372
+        ],
+        "reason": "work",
+        "span_index_zero_based": 3
+      }
+    }
+  }
+]

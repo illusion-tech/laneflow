@@ -1,0 +1,52 @@
+{
+  "source_commit": "de65187c811ea86be2461ad2498a75995bb97268",
+  "executable_sha256": "FC05028A1C6AAF3CDAEEAC9F9CF17F941D155D9657D891B359590FF1E74414FE",
+  "source_archive_sha256": "91260E390179A9E827E2A0201803FAB585103C0D0974298649A63EF329A17951",
+  "source_dir": "E:/projects/lust-scenario",
+  "baseline_dir": "E:/projects/laneflow/target/issue-790-806-handoff-20261026/direct-successors-20261027/post-fix-a",
+  "orders": [
+    "old-grid",
+    "grid-old",
+    "grid-old",
+    "old-grid"
+  ],
+  "status": "complete",
+  "runs": [
+    {
+      "name": "run-00",
+      "order": "old-grid",
+      "started_utc": "2026-10-27T21:17:13.0285060Z",
+      "status": "complete",
+      "elapsed_seconds": 63.1509459,
+      "completed_utc": "2026-10-27T21:18:16.1956666Z",
+      "exit_code": 0
+    },
+    {
+      "name": "run-01",
+      "order": "grid-old",
+      "started_utc": "2026-10-27T21:18:16.2464617Z",
+      "status": "complete",
+      "elapsed_seconds": 62.9452335,
+      "completed_utc": "2026-10-27T21:19:19.1928305Z",
+      "exit_code": 0
+    },
+    {
+      "name": "run-02",
+      "order": "grid-old",
+      "started_utc": "2026-10-27T21:19:19.2390266Z",
+      "status": "complete",
+      "elapsed_seconds": 68.1374004,
+      "completed_utc": "2026-10-27T21:20:27.3889519Z",
+      "exit_code": 0
+    },
+    {
+      "name": "run-03",
+      "order": "old-grid",
+      "started_utc": "2026-10-27T21:20:27.4101424Z",
+      "status": "complete",
+      "elapsed_seconds": 66.7497035,
+      "completed_utc": "2026-10-27T21:21:34.1608034Z",
+      "exit_code": 0
+    }
+  ]
+}
