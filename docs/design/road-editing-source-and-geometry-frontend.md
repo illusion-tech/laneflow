@@ -428,10 +428,10 @@ reference 禁止跨模块，普通关系目标才可引用 imports。
 
 每个 `LaneEdge` 恰好承担以下一种角色：
 
-| 角色              | owner 与来源                                                                                  | geometry                                                         | successor                                 |
-| ----------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| 角色              | owner 与来源                                                                                  | geometry                                                         | successor                                   |
+| ----------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------- |
 | section-derived   | 被恰好一个 `AuthoringLane` 引用；不属于任何 `Junction.internal_edges`                         | `explicit_geometry` 必须缺失；由 alignment、station 与横断面派生 | 可以声明到另一 section-derived 边的普通延续 |
-| junction-internal | 被恰好一个 `Junction` 拥有；不被任何 `AuthoringLane` 引用；至少被该 junction 的一条 path 使用 | `explicit_geometry` 必须存在                                     | `successors` 必须为空；转换只从 path 派生 |
+| junction-internal | 被恰好一个 `Junction` 拥有；不被任何 `AuthoringLane` 引用；至少被该 junction 的一条 path 使用 | `explicit_geometry` 必须存在                                     | `successors` 必须为空；转换只从 path 派生   |
 
 同时满足、两者都不满足、多 owner、孤立 internal edge 或重复 topology authority 均失败
 关闭。角色不进入 `CanonicalIdentity`，合法角色变化不暗改稳定键。

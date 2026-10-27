@@ -1,0 +1,118 @@
+{
+  "schema": "laneflow-1105-direct-successor-comparison",
+  "frozen_reference_commit": "cf2b84b8da4cc80f46ae640a1bfb23d195328721",
+  "source": {
+    "lust_commit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+    "net_digest": "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341"
+  },
+  "full_byte_comparison": "Windows fc.exe /b in addition to Rust full-value comparisons",
+  "files": [
+    {
+      "file": "successful-programs.jsonl",
+      "byte_count": 69898773,
+      "sha256": "4EF69B1460ECD573AE3D946C4E50D37234D4385CD4877889920CB7CF66E21467",
+      "pre_fix_and_two_post_fix_runs_equal": true
+    },
+    {
+      "file": "topology.json",
+      "byte_count": 10310418,
+      "sha256": "6D1C667D4B8F02B0C9E0EFDF520EFE545AB25389D7281CA64F2AE95AA010DBE4",
+      "pre_fix_and_two_post_fix_runs_equal": true
+    },
+    {
+      "file": "failed-edges.json",
+      "byte_count": 4541257,
+      "sha256": "D65398F05452FAF356BF6B37BE7A4858B751302E9BDE70A0E4116CD2C55179FE",
+      "pre_fix_and_two_post_fix_runs_equal": true
+    },
+    {
+      "file": "production-closures/successful-programs.jsonl",
+      "byte_count": 30255,
+      "sha256": "F5CC203748E9F87505A7F62B2A92D4844E1BBBA6191B0B9581CC7B7A9DAEF936",
+      "pre_fix_and_two_post_fix_runs_equal": true
+    },
+    {
+      "file": "results.json",
+      "byte_count": 903952,
+      "sha256": "EC05DAB530455941BA0904212828A59154AEC14C627FBF4F5FCFAB311DEAA973",
+      "two_post_fix_runs_equal": true
+    },
+    {
+      "file": "signal-closure-0.lfca",
+      "byte_count": 53959,
+      "sha256": "7D801F23A00BC1489089750724F3BCF43728EB3CD27E4A9E710F2ED83AF60ED4",
+      "two_post_fix_runs_equal": true
+    },
+    {
+      "file": "signal-closure-1.lfca",
+      "byte_count": 63940,
+      "sha256": "AC010A3440B9D6AA6737746BB73AE8221A69091B4A06761D1A2477E79202E8B1",
+      "two_post_fix_runs_equal": true
+    }
+  ],
+  "target_paths": 84,
+  "original_successful_edges": 16265,
+  "original_failed_edges": 8230,
+  "baseline_before": {
+    "accepted/compile": 22,
+    "cross_edge_direction_rejected/compile": 3,
+    "target_check_not_completed/compile": 2,
+    "target_check_not_completed/emission_prerequisite": 57
+  },
+  "baseline_after": {
+    "accepted/compile": 24,
+    "cross_edge_direction_rejected/compile": 3,
+    "target_check_not_completed/emission_prerequisite": 57
+  },
+  "frozen_candidates_before": {
+    "accepted": 23,
+    "cross_edge_direction_rejected": 3,
+    "target_check_not_completed": 58
+  },
+  "frozen_candidates_after": {
+    "accepted": 25,
+    "cross_edge_direction_rejected": 3,
+    "target_check_not_completed": 56
+  },
+  "changed_paths": [
+    "sumo:-20604:--30872#8_0-to---30872#7_0:direct",
+    "sumo:-22774:--32924#3_0-to---32924#2_0:direct"
+  ],
+  "changed_junctions": [
+    "sumo:-20604",
+    "sumo:-22774"
+  ],
+  "production_closures": [
+    {
+      "junction": "sumo:-20604",
+      "result": {
+        "controllers": 1,
+        "groups": 1,
+        "lane_edges": 8,
+        "lfca_bytes": 53959,
+        "maneuver_gates": 4,
+        "maneuver_paths": 4,
+        "phases": 4,
+        "status": "accepted",
+        "stop_lines": 4
+      }
+    },
+    {
+      "junction": "sumo:-22774",
+      "result": {
+        "controllers": 1,
+        "groups": 1,
+        "lane_edges": 12,
+        "lfca_bytes": 63940,
+        "maneuver_gates": 6,
+        "maneuver_paths": 6,
+        "phases": 4,
+        "status": "accepted",
+        "stop_lines": 6
+      }
+    }
+  ],
+  "search_executed": false,
+  "candidate_pool_and_assignment_order_unchanged": true,
+  "performance_claim": false
+}

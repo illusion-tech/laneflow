@@ -1,0 +1,66 @@
+{
+  "runs": [
+    {
+      "protocol": {
+        "source_commit": "4d377ff3da075c6a679e8aedeafb52790badbaa6",
+        "binary": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\baseline.exe",
+        "binary_sha256": "CC2BE7E3A8CBEA957AE9E6C3FE9F5893ADCEE5FEA4ACFB82C40C397012DFC6D8",
+        "reference_sha256": "7279AA6D355663D591F4860A2F2DF7377C22CEF358B7F42DED2774991E25C9EE",
+        "test": "output::emit::s1::recovery_coverage::successors::pinned_lust_direct_successor_regression",
+        "output": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\pre-fix-a",
+        "baseline": "",
+        "started_utc": "2026-10-27T14:18:06.9819934Z",
+        "purpose": "correctness regression; no performance claim"
+      },
+      "completion": {
+        "exit_code": 0,
+        "completed_utc": "2026-10-27T14:19:00.5898485Z",
+        "status": "complete",
+        "output": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\pre-fix-a"
+      }
+    },
+    {
+      "protocol": {
+        "source_commit": "4ebd388b524ac9c2107f472fe82ea9d4a71dd937",
+        "binary": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\fixed.exe",
+        "binary_sha256": "4EACDF2859671F925E906064778F2A6B79F2D164650124489731E527071818CB",
+        "reference_sha256": "7279AA6D355663D591F4860A2F2DF7377C22CEF358B7F42DED2774991E25C9EE",
+        "test": "output::emit::s1::recovery_coverage::successors::pinned_lust_direct_successor_regression",
+        "output": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\post-fix-a",
+        "baseline": "pre-fix-a",
+        "started_utc": "2026-10-27T14:28:10.0823248Z",
+        "purpose": "correctness regression; no performance claim"
+      },
+      "completion": {
+        "exit_code": 0,
+        "completed_utc": "2026-10-27T14:29:00.0526537Z",
+        "status": "complete",
+        "output": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\post-fix-a"
+      }
+    },
+    {
+      "protocol": {
+        "source_commit": "4ebd388b524ac9c2107f472fe82ea9d4a71dd937",
+        "binary": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\fixed.exe",
+        "binary_sha256": "4EACDF2859671F925E906064778F2A6B79F2D164650124489731E527071818CB",
+        "reference_sha256": "7279AA6D355663D591F4860A2F2DF7377C22CEF358B7F42DED2774991E25C9EE",
+        "test": "output::emit::s1::recovery_coverage::successors::pinned_lust_direct_successor_regression",
+        "output": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\post-fix-b",
+        "baseline": "pre-fix-a",
+        "started_utc": "2026-10-27T14:30:49.7607929Z",
+        "purpose": "correctness regression; no performance claim"
+      },
+      "completion": {
+        "exit_code": 0,
+        "completed_utc": "2026-10-27T14:31:39.0679597Z",
+        "status": "complete",
+        "output": "E:\\projects\\laneflow\\target\\issue-790-806-handoff-20261026\\direct-successors-20261027\\post-fix-b"
+      }
+    }
+  ],
+  "raw_evidence_root": "E:/projects/laneflow/target/issue-790-806-handoff-20261026/direct-successors-20261027",
+  "digest_role": "interoperable SHA-256: independently checked by PowerShell Get-FileHash; geometry and topology compared as full bytes",
+  "repository_code_languages": [
+    "Rust"
+  ]
+}

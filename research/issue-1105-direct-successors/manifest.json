@@ -1,0 +1,26 @@
+{
+  "schema": "laneflow-1105-evidence-manifest",
+  "algorithm": "SHA-256",
+  "files": [
+    {
+      "name": "baseline-results.json",
+      "bytes": 872135,
+      "sha256": "36FF9FB5D3ADAF3FAF3C1ADFBBE743D6507E3521871F5374344EB513F579354A"
+    },
+    {
+      "name": "comparison.json",
+      "bytes": 3572,
+      "sha256": "01EC0ACEBCB56C3EC03648F3F74E9FD3293D59E1ED6634F535695B653A9F8317"
+    },
+    {
+      "name": "protocol.json",
+      "bytes": 3529,
+      "sha256": "173F613B8A550B235C800B13105327C74471EBFCCA962DC96418B53A1DC08B13"
+    },
+    {
+      "name": "results.json",
+      "bytes": 903952,
+      "sha256": "EC05DAB530455941BA0904212828A59154AEC14C627FBF4F5FCFAB311DEAA973"
+    }
+  ]
+}
