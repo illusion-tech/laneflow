@@ -1,0 +1,104 @@
+{
+  "source_commit": "e4db94476c1f91d8a94bee8e69a18a513ed66b30",
+  "executable_sha256": "DD4787680EE7AAFB598612F418BDA5B7FFCBAA994EF5A9A8415933C9D45DF54F",
+  "old_source_commit": "713af06cf0e3389bb646dd7d883f9b84b449c859",
+  "old_executable_sha256": "D75E6F18BD0A07306E11D2FDF080D9B7AF1964407F04F5E5AF8FD39A9A6A5644",
+  "source_archive_sha256": "B96511771496EB5232CD59A6433DDF9D21BE5F189D9789563C72ED869EC31EF4",
+  "source_dir": "E:/projects/lust-scenario",
+  "baseline_dir": "E:/projects/laneflow/target/issue-790-806-handoff-20261026/direct-successors-20261027/post-fix-a",
+  "orders": [
+    "old-new",
+    "new-old",
+    "new-old",
+    "old-new"
+  ],
+  "new_family_orders": [
+    "old-grid",
+    "grid-old",
+    "grid-old",
+    "old-grid"
+  ],
+  "status": "complete",
+  "runs": [
+    {
+      "name": "old-00",
+      "variant": "old",
+      "order": "old-grid",
+      "started_utc": "2026-10-27T23:03:25.8927546Z",
+      "status": "complete",
+      "elapsed_seconds": 7.5656821,
+      "completed_utc": "2026-10-27T23:03:33.4730724Z",
+      "exit_code": 0
+    },
+    {
+      "name": "new-00",
+      "variant": "new",
+      "order": "old-grid",
+      "started_utc": "2026-10-27T23:03:33.5094350Z",
+      "status": "complete",
+      "elapsed_seconds": 226.7453331,
+      "completed_utc": "2026-10-27T23:07:20.2566009Z",
+      "exit_code": 0
+    },
+    {
+      "name": "new-01",
+      "variant": "new",
+      "order": "grid-old",
+      "started_utc": "2026-10-27T23:07:20.2704641Z",
+      "status": "complete",
+      "elapsed_seconds": 233.2737909,
+      "completed_utc": "2026-10-27T23:11:13.5474252Z",
+      "exit_code": 0
+    },
+    {
+      "name": "old-01",
+      "variant": "old",
+      "order": "grid-old",
+      "started_utc": "2026-10-27T23:11:13.5591671Z",
+      "status": "complete",
+      "elapsed_seconds": 13.7552475,
+      "completed_utc": "2026-10-27T23:11:27.3171664Z",
+      "exit_code": 0
+    },
+    {
+      "name": "new-02",
+      "variant": "new",
+      "order": "grid-old",
+      "started_utc": "2026-10-27T23:11:27.3279670Z",
+      "status": "complete",
+      "elapsed_seconds": 180.25385,
+      "completed_utc": "2026-10-27T23:14:27.5850272Z",
+      "exit_code": 0
+    },
+    {
+      "name": "old-02",
+      "variant": "old",
+      "order": "grid-old",
+      "started_utc": "2026-10-27T23:14:27.5920995Z",
+      "status": "complete",
+      "elapsed_seconds": 6.869001,
+      "completed_utc": "2026-10-27T23:14:34.4633097Z",
+      "exit_code": 0
+    },
+    {
+      "name": "old-03",
+      "variant": "old",
+      "order": "old-grid",
+      "started_utc": "2026-10-27T23:14:34.4685237Z",
+      "status": "complete",
+      "elapsed_seconds": 5.9918899,
+      "completed_utc": "2026-10-27T23:14:40.4617143Z",
+      "exit_code": 0
+    },
+    {
+      "name": "new-03",
+      "variant": "new",
+      "order": "old-grid",
+      "started_utc": "2026-10-27T23:14:40.4663370Z",
+      "status": "complete",
+      "elapsed_seconds": 155.1034718,
+      "completed_utc": "2026-10-27T23:17:15.5711437Z",
+      "exit_code": 0
+    }
+  ]
+}
