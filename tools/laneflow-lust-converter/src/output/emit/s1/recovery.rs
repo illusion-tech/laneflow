@@ -109,7 +109,14 @@ fn fixed_sample_budget_measurement() {
         timing.insert(id.clone(), started.elapsed().as_secs_f64());
         if result.get("search").is_some() && (!selected || partitions == sampler::PARTITION_LIMIT) {
             assert_eq!(result["search"], baseline["samples"][&id]["search"]);
-            assert_eq!(result["candidates"], baseline["samples"][&id]["candidates"]);
+            // 与磁盘基线走相同 JSON 读取路径；诊断 f64 的十进制读取可能舍入末位，
+            // 程序坐标、控制点和离散选择仍以 u64 位表示逐项精确比较。
+            let serialized_candidates: Value =
+                serde_json::from_str(&result["candidates"].to_string()).unwrap();
+            assert_eq!(
+                serialized_candidates,
+                baseline["samples"][&id]["candidates"]
+            );
         }
         results.insert(id, result);
     }
