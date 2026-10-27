@@ -9,6 +9,7 @@ const FRAME_LIMIT: usize = 256;
 const POINT_LIMIT: usize = 262_144;
 const DEVIATION_METERS: f64 = 0.01;
 
+mod audit;
 mod graph;
 
 #[derive(Default, Serialize)]
@@ -49,6 +50,7 @@ struct GridSearch {
     stop: Option<&'static str>,
     spans: Vec<Value>,
     failures: BTreeMap<usize, Value>,
+    audit: Option<audit::EndAudit>,
 }
 
 impl GridSearch {
@@ -116,8 +118,19 @@ pub(crate) fn policy() -> Value {
 }
 
 pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
+    search_impl(input, false)
+}
+
+pub(crate) fn search_audited(input: &EdgeInput) -> EdgeSearch {
+    search_impl(input, true)
+}
+
+fn search_impl(input: &EdgeInput, audited: bool) -> EdgeSearch {
     let _reset = GridReset;
-    let mut state = GridSearch::default();
+    let mut state = GridSearch {
+        audit: audited.then(audit::EndAudit::default),
+        ..GridSearch::default()
+    };
     let mut candidates = Vec::new();
     let mut last_error = None;
     let mut exhausted = false;
@@ -146,6 +159,9 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
                     unit(sub(points[1], points[0])).unwrap(),
                     unit(sub(points[points.len() - 1], points[points.len() - 2])).unwrap(),
                 ];
+                if let Some(audit) = &mut state.audit {
+                    audit.record(input.clamps, dirs, &state.spans);
+                }
                 if (0..2).any(|i| {
                     input.clamps[i]
                         .is_some_and(|c| angle_rad(dirs[i], c).to_degrees() > END_DEGREES)
@@ -186,14 +202,15 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
         state.frames.truncate(advance);
         state.frames[advance - 1].selected = None;
     }
-    EdgeSearch {
-        report: json!({"candidate_programs":candidates.len(),"counts":state.counts,
+    let mut report = json!({"candidate_programs":candidates.len(),"counts":state.counts,
             "search_work":state.work(),"last_error":last_error,"failures":state.failures,
             "retained_family_exhausted":exhausted,"complete_grid_path_enumeration":false,
             "budget_stopped":state.stop.is_some() || state.counts.state_limited_searches > 0,
-            "stop_reason":state.stop.unwrap_or(if exhausted {"retained_family_exhausted"} else {"preparation_or_straight_rejected"})}),
-        candidates,
+            "stop_reason":state.stop.unwrap_or(if exhausted {"retained_family_exhausted"} else {"preparation_or_straight_rejected"})});
+    if let Some(audit) = &state.audit {
+        report["end_audit"] = json!(audit);
     }
+    EdgeSearch { report, candidates }
 }
 
 pub(super) fn sample_if_active(

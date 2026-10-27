@@ -4,6 +4,7 @@ use super::*;
 use std::collections::BTreeSet;
 use std::path::Path;
 
+mod calibration;
 mod combinations;
 mod components;
 mod experiment;
