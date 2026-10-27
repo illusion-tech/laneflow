@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod experiment;
+
 const EDGES: [&str; 4] = [
     "sumo::-10004_5_1",
     "sumo::-7348_3_0",
@@ -74,6 +76,11 @@ fn fixed_signal_span_probe() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh probe output");
     fs::create_dir_all(&out).unwrap();
+    recovery::write_json(&out, "local-probes.json", &signal_probes());
+    println!("signal span probes saved={}", out.display());
+}
+
+fn signal_probes() -> Value {
     let inputs: Value = serde_json::from_str(include_str!(
         "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
     ))
@@ -96,6 +103,5 @@ fn fixed_signal_span_probe() {
             sampler::grid::local_probe(bits.map(|p| p.map(f64::from_bits)), clamp),
         );
     }
-    recovery::write_json(&out, "local-probes.json", &json!(rows));
-    println!("signal span probes saved={}", out.display());
+    json!(rows)
 }
