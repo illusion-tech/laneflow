@@ -176,3 +176,63 @@ pub(super) fn search(
         .map(|i| parameters(&layers, &nodes, i))
         .collect())
 }
+
+#[test]
+fn bounded_refinement_emits_real_sink_paths_and_keeps_negative_constraints() {
+    let control = [
+        [0.0, 0.0, 0.0],
+        [10.0 / 3.0, 0.03, 0.0],
+        [20.0 / 3.0, 0.03, 0.0],
+        [10.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ];
+    let mut state = GridSearch {
+        start_clamp: Some(control[4]),
+        ..GridSearch::default()
+    };
+    let paths = search(&mut state, control, None, &[0.0, 0.5, 1.0]).unwrap();
+    assert!(!paths.is_empty());
+    for p in paths {
+        assert_eq!(p.first(), Some(&0.0));
+        assert_eq!(p.last(), Some(&1.0));
+        assert!(p.windows(2).all(|w| w[0] < w[1]));
+        let mut sink = EmissionSink::new(control[0]);
+        for t in p.into_iter().skip(1) {
+            sink.push(if t == 1.0 {
+                control[3]
+            } else {
+                cubic_at(control[0], control[1], control[2], control[3], t)
+            })
+            .unwrap();
+        }
+    }
+    let mut state = GridSearch::default();
+    let mut nonlinear_parameterization = control;
+    nonlinear_parameterization[1][0] = 3.0;
+    nonlinear_parameterization[2][0] = 7.0;
+    assert!(
+        search(
+            &mut state,
+            nonlinear_parameterization,
+            None,
+            &[0.0, 0.5, 1.0],
+        )
+        .unwrap()
+        .is_empty()
+    );
+    let mut state = GridSearch {
+        start_clamp: Some([0.0, 1.0, 0.0]),
+        ..GridSearch::default()
+    };
+    assert!(
+        search(&mut state, control, None, &[0.0, 0.5, 1.0])
+            .unwrap()
+            .is_empty()
+    );
+    let mut state = GridSearch::default();
+    state.counts.node_evaluations = EVALUATION_LIMIT;
+    assert!(search(&mut state, control, None, &[0.0, 0.5, 1.0]).is_err());
+    assert_eq!(state.work(), EVALUATION_LIMIT);
+    assert_eq!(state.stop, Some("work"));
+}

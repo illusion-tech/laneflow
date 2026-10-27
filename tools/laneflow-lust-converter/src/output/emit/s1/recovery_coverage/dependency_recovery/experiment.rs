@@ -5,7 +5,7 @@ fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
 
-fn pool(rows: &Value) -> Pools {
+pub(super) fn pool(rows: &Value) -> Pools {
     rows.as_object()
         .unwrap()
         .iter()
@@ -24,7 +24,7 @@ fn pool(rows: &Value) -> Pools {
         .collect()
 }
 
-fn merge(pools: &mut Pools, new: Pools) {
+pub(super) fn merge(pools: &mut Pools, new: Pools) {
     let bits = |p: &re::RoadEditingCurveProgram| {
         program_points(p)
             .into_iter()

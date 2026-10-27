@@ -1,0 +1,693 @@
+{
+  "sumo::-16502_0_0": {
+    "control_f64_bits": [
+      [
+        13862387164458443080,
+        0,
+        4655015308771993846
+      ],
+      [
+        13862384193822325522,
+        0,
+        4655016326933566396
+      ],
+      [
+        13862381141529851931,
+        0,
+        4655017349990150296
+      ],
+      [
+        13862376960990537318,
+        0,
+        4655018299443621396
+      ],
+      [
+        4599843899495991925,
+        0,
+        4606637215741038519
+      ],
+      [
+        4602357792311913445,
+        0,
+        4606066178973635054
+      ]
+    ],
+    "dense_first_chord_probe": {
+      "continuous_certificate": false,
+      "eligible_chords": 39272,
+      "minimum_angle": {
+        "angle_degrees": 0.08290389508959636,
+        "chord_m": 0.1014031171798706,
+        "deviation_estimate_m": 0.00008865162967499024,
+        "parameter_f64_bits": 4594100429452738560,
+        "quantized_end_f32_bits": [
+          3272127619,
+          0,
+          1154449696
+        ]
+      },
+      "steps": 65536
+    },
+    "scope": "finite local cubic reachability; excludes downstream spans and controller acceptance",
+    "start_clamp": null,
+    "variants": {
+      "finish_dense": {
+        "audit": {
+          "accepted": 0,
+          "angle_ranges_degrees": [
+            null,
+            null
+          ],
+          "both_rejected": 0,
+          "complete_edges": 0,
+          "finish_only_rejected": 0,
+          "first_eight": [],
+          "graphs": [
+            {
+              "closest_terminal_parameters_f64_bits": [
+                0,
+                4601815084069552128,
+                4603485860707434496,
+                4604714564951474176,
+                4605942032244932608,
+                4607182418800017408
+              ],
+              "control_f64_bits": [
+                [
+                  13862387164458443080,
+                  0,
+                  4655015308771993846
+                ],
+                [
+                  13862384193822325522,
+                  0,
+                  4655016326933566396
+                ],
+                [
+                  13862381141529851931,
+                  0,
+                  4655017349990150296
+                ],
+                [
+                  13862376960990537318,
+                  0,
+                  4655018299443621396
+                ],
+                [
+                  4599843899495991925,
+                  0,
+                  4606637215741038519
+                ],
+                [
+                  4602357792311913445,
+                  0,
+                  4606066178973635054
+                ]
+              ],
+              "incoming_dir_f64_bits": null,
+              "maximum_reached_index": 472,
+              "minimum_rejected_turn_degrees": 1.9500116980458304,
+              "minimum_terminal_turn_degrees": 1.9913287114984193,
+              "seed_states": 213,
+              "state_limit": false,
+              "states": 17673,
+              "terminals": 0
+            }
+          ],
+          "start_only_rejected": 0
+        },
+        "counts": {
+          "backtracks": 0,
+          "chord_checks": 144133,
+          "chords_peak": 71355,
+          "complete_edge_end_rejected": 0,
+          "duplicate_programs": 0,
+          "edge_replays": 0,
+          "frames_peak": 0,
+          "graph_searches": 1,
+          "node_evaluations": 775,
+          "prefix_point_uses": 0,
+          "previously_reached_chords_skipped": 795439,
+          "refinement_calls": 1,
+          "refinement_chords_peak": 8638,
+          "refinement_skeleton_limited": 0,
+          "refinement_states_peak": 8586,
+          "representative_limited_searches": 0,
+          "retained_points_peak": 0,
+          "start_clamp_rejected": 0,
+          "state_limited_searches": 0,
+          "states_peak": 17673,
+          "transition_checks": 3171376
+        },
+        "error": null,
+        "paths": [],
+        "refinement": {
+          "additional_work": 23429,
+          "error": null,
+          "parameters_f64_bits": [],
+          "skeleton_parameters_f64_bits": [
+            0,
+            4601815084069552128,
+            4603485860707434496,
+            4604714564951474176,
+            4605942032244932608,
+            4607182418800017408
+          ]
+        },
+        "stop": null,
+        "work": 3316284
+      },
+      "start_dense": {
+        "audit": {
+          "accepted": 0,
+          "angle_ranges_degrees": [
+            null,
+            null
+          ],
+          "both_rejected": 0,
+          "complete_edges": 0,
+          "finish_only_rejected": 0,
+          "first_eight": [],
+          "graphs": [
+            {
+              "closest_terminal_parameters_f64_bits": [
+                0,
+                4601803607916937216,
+                4603482046776475648,
+                4604706868370079744,
+                4605927635514556416,
+                4607182418800017408
+              ],
+              "control_f64_bits": [
+                [
+                  13862387164458443080,
+                  0,
+                  4655015308771993846
+                ],
+                [
+                  13862384193822325522,
+                  0,
+                  4655016326933566396
+                ],
+                [
+                  13862381141529851931,
+                  0,
+                  4655017349990150296
+                ],
+                [
+                  13862376960990537318,
+                  0,
+                  4655018299443621396
+                ],
+                [
+                  4599843899495991925,
+                  0,
+                  4606637215741038519
+                ],
+                [
+                  4602357792311913445,
+                  0,
+                  4606066178973635054
+                ]
+              ],
+              "incoming_dir_f64_bits": null,
+              "maximum_reached_index": 506,
+              "minimum_rejected_turn_degrees": 1.9500157654688817,
+              "minimum_terminal_turn_degrees": 1.9748580439362113,
+              "seed_states": 250,
+              "state_limit": false,
+              "states": 19557,
+              "terminals": 0
+            }
+          ],
+          "start_only_rejected": 0
+        },
+        "counts": {
+          "backtracks": 0,
+          "chord_checks": 144133,
+          "chords_peak": 76348,
+          "complete_edge_end_rejected": 0,
+          "duplicate_programs": 0,
+          "edge_replays": 0,
+          "frames_peak": 0,
+          "graph_searches": 1,
+          "node_evaluations": 775,
+          "prefix_point_uses": 0,
+          "previously_reached_chords_skipped": 773843,
+          "refinement_calls": 1,
+          "refinement_chords_peak": 8152,
+          "refinement_skeleton_limited": 0,
+          "refinement_states_peak": 8087,
+          "representative_limited_searches": 0,
+          "retained_points_peak": 0,
+          "start_clamp_rejected": 0,
+          "state_limited_searches": 0,
+          "states_peak": 19557,
+          "transition_checks": 1037853
+        },
+        "error": null,
+        "paths": [],
+        "refinement": {
+          "additional_work": 23395,
+          "error": null,
+          "parameters_f64_bits": [],
+          "skeleton_parameters_f64_bits": [
+            0,
+            4601803607916937216,
+            4603482046776475648,
+            4604706868370079744,
+            4605927635514556416,
+            4607182418800017408
+          ]
+        },
+        "stop": null,
+        "work": 1182761
+      },
+      "uniform": {
+        "audit": {
+          "accepted": 0,
+          "angle_ranges_degrees": [
+            null,
+            null
+          ],
+          "both_rejected": 0,
+          "complete_edges": 0,
+          "finish_only_rejected": 0,
+          "first_eight": [],
+          "graphs": [
+            {
+              "closest_terminal_parameters_f64_bits": [
+                0,
+                4601834394242514944,
+                4603488059730690048,
+                4604719512753799168,
+                4605950965776908288,
+                4607182418800017408
+              ],
+              "control_f64_bits": [
+                [
+                  13862387164458443080,
+                  0,
+                  4655015308771993846
+                ],
+                [
+                  13862384193822325522,
+                  0,
+                  4655016326933566396
+                ],
+                [
+                  13862381141529851931,
+                  0,
+                  4655017349990150296
+                ],
+                [
+                  13862376960990537318,
+                  0,
+                  4655018299443621396
+                ],
+                [
+                  4599843899495991925,
+                  0,
+                  4606637215741038519
+                ],
+                [
+                  4602357792311913445,
+                  0,
+                  4606066178973635054
+                ]
+              ],
+              "incoming_dir_f64_bits": null,
+              "maximum_reached_index": 503,
+              "minimum_rejected_turn_degrees": 1.9500638013661067,
+              "minimum_terminal_turn_degrees": 1.966002350671241,
+              "seed_states": 306,
+              "state_limit": false,
+              "states": 31401,
+              "terminals": 0
+            }
+          ],
+          "start_only_rejected": 0
+        },
+        "counts": {
+          "backtracks": 0,
+          "chord_checks": 144133,
+          "chords_peak": 82936,
+          "complete_edge_end_rejected": 0,
+          "duplicate_programs": 0,
+          "edge_replays": 0,
+          "frames_peak": 0,
+          "graph_searches": 1,
+          "node_evaluations": 775,
+          "prefix_point_uses": 0,
+          "previously_reached_chords_skipped": 1536524,
+          "refinement_calls": 1,
+          "refinement_chords_peak": 8637,
+          "refinement_skeleton_limited": 0,
+          "refinement_states_peak": 8593,
+          "representative_limited_searches": 0,
+          "retained_points_peak": 0,
+          "start_clamp_rejected": 0,
+          "state_limited_searches": 0,
+          "states_peak": 31401,
+          "transition_checks": 2814701
+        },
+        "error": null,
+        "paths": [],
+        "refinement": {
+          "additional_work": 23145,
+          "error": null,
+          "parameters_f64_bits": [],
+          "skeleton_parameters_f64_bits": [
+            0,
+            4601834394242514944,
+            4603488059730690048,
+            4604719512753799168,
+            4605950965776908288,
+            4607182418800017408
+          ]
+        },
+        "stop": null,
+        "work": 2959609
+      }
+    }
+  },
+  "sumo::-28860_3_0": {
+    "control_f64_bits": [
+      [
+        13875855830054978191,
+        0,
+        4655233144015688827
+      ],
+      [
+        13875858281081106028,
+        0,
+        4655233656986549693
+      ],
+      [
+        13875860838204137095,
+        0,
+        4655233110628027768
+      ],
+      [
+        13875863342278716547,
+        0,
+        4655233093934197238
+      ],
+      [
+        13830363443550450828,
+        0,
+        4596548516256258305
+      ],
+      [
+        13830554255501481530,
+        0,
+        13797708031575004769
+      ]
+    ],
+    "dense_first_chord_probe": {
+      "continuous_certificate": false,
+      "eligible_chords": 10238,
+      "minimum_angle": {
+        "angle_degrees": 1.3418860299430926,
+        "chord_m": 0.10067811608314514,
+        "deviation_estimate_m": 0.0008164891941012616,
+        "parameter_f64_bits": 4588673240058036224,
+        "quantized_end_f32_bits": [
+          3297218060,
+          0,
+          1154854816
+        ]
+      },
+      "steps": 65536
+    },
+    "scope": "finite local cubic reachability; excludes downstream spans and controller acceptance",
+    "start_clamp": [
+      13830363443550450828,
+      0,
+      4596548516256258305
+    ],
+    "variants": {
+      "finish_dense": {
+        "audit": {
+          "accepted": 0,
+          "angle_ranges_degrees": [
+            null,
+            null
+          ],
+          "both_rejected": 0,
+          "complete_edges": 0,
+          "finish_only_rejected": 0,
+          "first_eight": [],
+          "graphs": [
+            {
+              "closest_terminal_parameters_f64_bits": null,
+              "control_f64_bits": [
+                [
+                  13875855830054978191,
+                  0,
+                  4655233144015688827
+                ],
+                [
+                  13875858281081106028,
+                  0,
+                  4655233656986549693
+                ],
+                [
+                  13875860838204137095,
+                  0,
+                  4655233110628027768
+                ],
+                [
+                  13875863342278716547,
+                  0,
+                  4655233093934197238
+                ],
+                [
+                  13830363443550450828,
+                  0,
+                  4596548516256258305
+                ],
+                [
+                  13830554255501481530,
+                  0,
+                  13797708031575004769
+                ]
+              ],
+              "incoming_dir_f64_bits": null,
+              "maximum_reached_index": null,
+              "minimum_rejected_turn_degrees": null,
+              "minimum_terminal_turn_degrees": null,
+              "seed_states": 0,
+              "state_limit": false,
+              "states": 0,
+              "terminals": 0
+            }
+          ],
+          "start_only_rejected": 0
+        },
+        "counts": {
+          "backtracks": 0,
+          "chord_checks": 131328,
+          "chords_peak": 62231,
+          "complete_edge_end_rejected": 0,
+          "duplicate_programs": 0,
+          "edge_replays": 0,
+          "frames_peak": 0,
+          "graph_searches": 1,
+          "node_evaluations": 513,
+          "prefix_point_uses": 0,
+          "previously_reached_chords_skipped": 0,
+          "refinement_calls": 0,
+          "refinement_chords_peak": 0,
+          "refinement_skeleton_limited": 0,
+          "refinement_states_peak": 0,
+          "representative_limited_searches": 0,
+          "retained_points_peak": 0,
+          "start_clamp_rejected": 43,
+          "state_limited_searches": 0,
+          "states_peak": 0,
+          "transition_checks": 43
+        },
+        "error": null,
+        "paths": [],
+        "refinement": null,
+        "stop": null,
+        "work": 131884
+      },
+      "start_dense": {
+        "audit": {
+          "accepted": 0,
+          "angle_ranges_degrees": [
+            null,
+            null
+          ],
+          "both_rejected": 0,
+          "complete_edges": 0,
+          "finish_only_rejected": 0,
+          "first_eight": [],
+          "graphs": [
+            {
+              "closest_terminal_parameters_f64_bits": null,
+              "control_f64_bits": [
+                [
+                  13875855830054978191,
+                  0,
+                  4655233144015688827
+                ],
+                [
+                  13875858281081106028,
+                  0,
+                  4655233656986549693
+                ],
+                [
+                  13875860838204137095,
+                  0,
+                  4655233110628027768
+                ],
+                [
+                  13875863342278716547,
+                  0,
+                  4655233093934197238
+                ],
+                [
+                  13830363443550450828,
+                  0,
+                  4596548516256258305
+                ],
+                [
+                  13830554255501481530,
+                  0,
+                  13797708031575004769
+                ]
+              ],
+              "incoming_dir_f64_bits": null,
+              "maximum_reached_index": null,
+              "minimum_rejected_turn_degrees": null,
+              "minimum_terminal_turn_degrees": null,
+              "seed_states": 0,
+              "state_limit": false,
+              "states": 0,
+              "terminals": 0
+            }
+          ],
+          "start_only_rejected": 0
+        },
+        "counts": {
+          "backtracks": 0,
+          "chord_checks": 131328,
+          "chords_peak": 46487,
+          "complete_edge_end_rejected": 0,
+          "duplicate_programs": 0,
+          "edge_replays": 0,
+          "frames_peak": 0,
+          "graph_searches": 1,
+          "node_evaluations": 513,
+          "prefix_point_uses": 0,
+          "previously_reached_chords_skipped": 0,
+          "refinement_calls": 0,
+          "refinement_chords_peak": 0,
+          "refinement_skeleton_limited": 0,
+          "refinement_states_peak": 0,
+          "representative_limited_searches": 0,
+          "retained_points_peak": 0,
+          "start_clamp_rejected": 114,
+          "state_limited_searches": 0,
+          "states_peak": 0,
+          "transition_checks": 114
+        },
+        "error": null,
+        "paths": [],
+        "refinement": null,
+        "stop": null,
+        "work": 131955
+      },
+      "uniform": {
+        "audit": {
+          "accepted": 0,
+          "angle_ranges_degrees": [
+            null,
+            null
+          ],
+          "both_rejected": 0,
+          "complete_edges": 0,
+          "finish_only_rejected": 0,
+          "first_eight": [],
+          "graphs": [
+            {
+              "closest_terminal_parameters_f64_bits": null,
+              "control_f64_bits": [
+                [
+                  13875855830054978191,
+                  0,
+                  4655233144015688827
+                ],
+                [
+                  13875858281081106028,
+                  0,
+                  4655233656986549693
+                ],
+                [
+                  13875860838204137095,
+                  0,
+                  4655233110628027768
+                ],
+                [
+                  13875863342278716547,
+                  0,
+                  4655233093934197238
+                ],
+                [
+                  13830363443550450828,
+                  0,
+                  4596548516256258305
+                ],
+                [
+                  13830554255501481530,
+                  0,
+                  13797708031575004769
+                ]
+              ],
+              "incoming_dir_f64_bits": null,
+              "maximum_reached_index": null,
+              "minimum_rejected_turn_degrees": null,
+              "minimum_terminal_turn_degrees": null,
+              "seed_states": 0,
+              "state_limit": false,
+              "states": 0,
+              "terminals": 0
+            }
+          ],
+          "start_only_rejected": 0
+        },
+        "counts": {
+          "backtracks": 0,
+          "chord_checks": 131328,
+          "chords_peak": 60811,
+          "complete_edge_end_rejected": 0,
+          "duplicate_programs": 0,
+          "edge_replays": 0,
+          "frames_peak": 0,
+          "graph_searches": 1,
+          "node_evaluations": 513,
+          "prefix_point_uses": 0,
+          "previously_reached_chords_skipped": 0,
+          "refinement_calls": 0,
+          "refinement_chords_peak": 0,
+          "refinement_skeleton_limited": 0,
+          "refinement_states_peak": 0,
+          "representative_limited_searches": 0,
+          "retained_points_peak": 0,
+          "start_clamp_rejected": 80,
+          "state_limited_searches": 0,
+          "states_peak": 0,
+          "transition_checks": 80
+        },
+        "error": null,
+        "paths": [],
+        "refinement": null,
+        "stop": null,
+        "work": 131921
+      }
+    }
+  }
+}
