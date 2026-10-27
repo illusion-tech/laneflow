@@ -88,6 +88,14 @@ pub(super) fn paths(
     for chord in &outgoing[0] {
         state.reserve_work(1)?;
         state.counts.transition_checks += 1;
+        if incoming.is_none()
+            && state
+                .start_clamp
+                .is_some_and(|d| angle_rad(d, chord.dir).to_degrees() > END_DEGREES)
+        {
+            state.counts.start_clamp_rejected += 1;
+            continue;
+        }
         if incoming.is_some_and(|d| angle_rad(d, chord.dir) > WELD_MAX_TURN_RAD) {
             continue;
         }
@@ -205,4 +213,35 @@ fn incoming_direction_and_degenerate_chords_are_not_relaxed() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn first_chord_applies_original_end_clamp_before_state_merge() {
+    let c = [
+        [0.0, 0.0, 0.0],
+        [3.0, 0.5, 0.0],
+        [7.0, 0.5, 0.0],
+        [10.0, 0.0, 0.0],
+        unit([3.0, 0.5, 0.0]).unwrap(),
+        unit([3.0, -0.5, 0.0]).unwrap(),
+    ];
+    let mut state = GridSearch {
+        start_clamp: Some(c[4]),
+        ..GridSearch::default()
+    };
+    let found = paths(&mut state, c, None).unwrap();
+    assert!(!found.is_empty());
+    for p in found {
+        let first = quantize_vec3(cubic_at(c[0], c[1], c[2], c[3], p[1] as f64 / STEPS as f64))
+            .map(f64::from);
+        let dir = unit(sub(first, quantize_vec3(c[0]).map(f64::from))).unwrap();
+        assert!(angle_rad(dir, c[4]).to_degrees() <= END_DEGREES);
+    }
+    assert!(state.counts.start_clamp_rejected > 0);
+    let mut state = GridSearch {
+        start_clamp: Some([0.0, 0.0, 1.0]),
+        ..GridSearch::default()
+    };
+    assert!(paths(&mut state, c, None).unwrap().is_empty());
+    assert!(paths(&mut state, c, Some(c[4])).is_ok());
 }

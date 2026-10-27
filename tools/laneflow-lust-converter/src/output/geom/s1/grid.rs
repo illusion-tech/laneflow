@@ -30,6 +30,7 @@ struct Counts {
     complete_edge_end_rejected: u64,
     edge_replays: u64,
     backtracks: u64,
+    start_clamp_rejected: u64,
 }
 
 struct GridFrame {
@@ -51,6 +52,7 @@ struct GridSearch {
     spans: Vec<Value>,
     failures: BTreeMap<usize, Value>,
     audit: Option<audit::EndAudit>,
+    start_clamp: Option<Vec3>,
 }
 
 impl GridSearch {
@@ -114,6 +116,7 @@ pub(crate) fn policy() -> Value {
         "programs_per_edge":PROGRAM_LIMIT,"deviation_estimate_m":DEVIATION_METERS,
         "end_degrees":END_DEGREES,"metrics_excluded_from_search_work":true,
         "state_merge":"first BFS prefix per directed chord",
+        "initial_chord":"original complete-edge start clamp checked before prefix selection",
         "scope":"retained finite representatives only; not continuous completeness or allocator peak"})
 }
 
@@ -129,6 +132,7 @@ fn search_impl(input: &EdgeInput, audited: bool) -> EdgeSearch {
     let _reset = GridReset;
     let mut state = GridSearch {
         audit: audited.then(audit::EndAudit::default),
+        start_clamp: input.clamps[0],
         ..GridSearch::default()
     };
     let mut candidates = Vec::new();
