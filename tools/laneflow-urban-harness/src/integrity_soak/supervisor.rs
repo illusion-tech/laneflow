@@ -297,7 +297,16 @@ pub(super) fn watch(
                     let covered = summary["covered_ticks"].as_u64().unwrap_or(0);
                     let start = summary["initial_tick"].as_u64();
                     let end = summary["final_tick"].as_u64();
-                    let virtual_clock = summary["clock"] == "virtual-ticks";
+                    // 钟型由看护冻结配置决定（#1110 审阅：摘要自报值不得决定验证
+                    // 严格度——防 config.json 在看护启动后、worker 读取前被改的
+                    // TOCTOU）；摘要钟型与冻结配置不符即拒绝。
+                    let virtual_clock = spec.config.virtual_clock;
+                    let clock_ok = summary["clock"]
+                        == if virtual_clock {
+                            "virtual-ticks"
+                        } else {
+                            "real"
+                        };
                     // 真实时钟下 `paced` 必须成立；虚拟时钟（#1108）不睡眠。
                     let paced_ok = summary["paced"] == !virtual_clock;
                     // 记账一致性：真实模式沿用 `active + paused <= wall`（防虚报
@@ -313,6 +322,7 @@ pub(super) fn watch(
                     if summary["run_id"] != spec.run_id
                         || summary["status"] != "Completed"
                         || summary["scope"] != "bounded-resident-soak"
+                        || !clock_ok
                         || !paced_ok
                         || summary["requested_seconds"] != spec.config.seconds
                         || summary["resident_pid"] != guard.child.id()
