@@ -107,5 +107,6 @@
       "finished_utc": "2026-10-27T12:07:33.6084878Z"
     }
   },
-  "publication": "input_path made repository-relative; full coverage results and inputs are byte copies; machine-local binaries, logs and runner scripts retained outside repository"
+  "publication": "input_path made repository-relative; full coverage results and inputs are byte copies; other JSON uses LF for stable Git blobs; coverage.cohort_sha256 records original frozen local CRLF bytes, published_cohort_sha256 records equal JSON values with LF; machine-local binaries, logs and runner scripts retained outside repository",
+  "published_cohort_sha256": "3f29132d9c0479abf7229e2fd1ee874e6b086bd6fe44ec9afebd30528235487c"
 }
