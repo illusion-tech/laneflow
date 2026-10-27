@@ -129,6 +129,10 @@ pub(crate) fn search_audited(input: &EdgeInput) -> EdgeSearch {
     search_impl(input, true)
 }
 
+pub(crate) fn local_probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {
+    audit::probe(control, start_clamp)
+}
+
 fn search_impl(input: &EdgeInput, audited: bool) -> EdgeSearch {
     let _reset = GridReset;
     let mut state = GridSearch {

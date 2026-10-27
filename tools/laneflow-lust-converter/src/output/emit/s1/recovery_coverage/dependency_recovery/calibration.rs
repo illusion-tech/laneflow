@@ -67,3 +67,35 @@ fn fixed_grid_calibration() {
     recovery::write_json(&out, "timing.json", &json!(times));
     println!("grid diagnosis saved={}", out.display());
 }
+
+#[test]
+#[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
+fn fixed_signal_span_probe() {
+    let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
+    assert!(!out.exists(), "fresh probe output");
+    fs::create_dir_all(&out).unwrap();
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    ))
+    .unwrap();
+    let old: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+    ))
+    .unwrap();
+    let mut rows = BTreeMap::new();
+    for (id, index) in [(EDGES[2], "1"), (EDGES[3], "0")] {
+        let bits: [[u64; 3]; 6] = serde_json::from_value(
+            old[id]["search"]["failures"][index]["control_f64_bits"].clone(),
+        )
+        .unwrap();
+        let clamp = (index == "0")
+            .then(|| measurement::input(&inputs[id]).clamps[0])
+            .flatten();
+        rows.insert(
+            id,
+            sampler::grid::local_probe(bits.map(|p| p.map(f64::from_bits)), clamp),
+        );
+    }
+    recovery::write_json(&out, "local-probes.json", &json!(rows));
+    println!("signal span probes saved={}", out.display());
+}

@@ -46,3 +46,75 @@ impl EndAudit {
         }
     }
 }
+
+pub(super) fn probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {
+    let mut variants = BTreeMap::new();
+    for variant in ["uniform", "start_dense", "finish_dense"] {
+        let params = (0..=STEPS)
+            .map(|i| {
+                let u = i as f64 / STEPS as f64;
+                match variant {
+                    "uniform" => u,
+                    "start_dense" => u * u,
+                    "finish_dense" => 1.0 - (1.0 - u) * (1.0 - u),
+                    _ => unreachable!(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut state = GridSearch {
+            start_clamp,
+            audit: Some(EndAudit::default()),
+            ..GridSearch::default()
+        };
+        let result = graph::paths_on(&mut state, control, None, &params);
+        let paths = result.as_ref().ok().map(|paths| paths.iter().map(|p| {
+            let mut sink = EmissionSink::new(control[0]);
+            for &i in p.iter().skip(1) {
+                sink.push(if i == STEPS { control[3] } else { cubic_at(control[0],control[1],control[2],control[3],params[i]) }).unwrap();
+            }
+            json!({"parameters_f64_bits":p.iter().map(|&i|params[i].to_bits()).collect::<Vec<_>>(),
+                "arc_m":sink.total_arc_meters})
+        }).collect::<Vec<_>>());
+        variants.insert(
+            variant,
+            json!({"paths":paths,"error":result.err().map(|e|e.to_string()),
+            "counts":state.counts,"work":state.work(),"stop":state.stop,"audit":state.audit}),
+        );
+    }
+    let c = [control[0], control[1], control[2], control[3]];
+    let a = quantize_vec3(c[0]);
+    let mut minimum: Option<(f64, Value)> = None;
+    let mut eligible = 0;
+    for k in 1..=65_536 {
+        let t = f64::from(k) / 65_536.0;
+        let b = quantize_vec3(if k == 65_536 {
+            c[3]
+        } else {
+            cubic_at(c[0], c[1], c[2], c[3], t)
+        });
+        let length = quantized_chord_meters(a, b);
+        if length <= QUANTIZED_MIN_SEGMENT_METERS {
+            continue;
+        }
+        let deviation = graph::deviation(c, 0.0, t, a.map(f64::from), b.map(f64::from));
+        if deviation > DEVIATION_METERS {
+            continue;
+        }
+        eligible += 1;
+        let angle = angle_rad(
+            unit(sub(b.map(f64::from), a.map(f64::from))).unwrap(),
+            start_clamp.unwrap_or(control[4]),
+        )
+        .to_degrees();
+        if minimum.as_ref().is_none_or(|(best, _)| angle < *best) {
+            minimum = Some((
+                angle,
+                json!({"parameter_f64_bits":t.to_bits(),"angle_degrees":angle,
+                "quantized_end_f32_bits":b.map(f32::to_bits),"chord_m":length,"deviation_estimate_m":deviation}),
+            ));
+        }
+    }
+    json!({"control_f64_bits":control.map(|p|p.map(f64::to_bits)),"start_clamp":start_clamp.map(|d|d.map(f64::to_bits)),
+        "variants":variants,"dense_first_chord_probe":{"steps":65_536,"eligible_chords":eligible,"minimum_angle":minimum.map(|(_,v)|v),"continuous_certificate":false},
+        "scope":"finite local cubic reachability; excludes downstream spans and controller acceptance"})
+}

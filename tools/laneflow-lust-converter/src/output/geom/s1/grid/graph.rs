@@ -27,8 +27,8 @@ fn path(nodes: &[Node], mut at: usize) -> Vec<usize> {
     result
 }
 
-fn deviation(c: [Vec3; 4], i: usize, j: usize, a: Vec3, b: Vec3) -> f64 {
-    let curve = restricted(c, i as f64 / STEPS as f64, j as f64 / STEPS as f64);
+pub(super) fn deviation(c: [Vec3; 4], ta: f64, tb: f64, a: Vec3, b: Vec3) -> f64 {
+    let curve = restricted(c, ta, tb);
     let line = [
         a,
         add(a, scale(sub(b, a), 1.0 / 3.0)),
@@ -45,6 +45,22 @@ pub(super) fn paths(
     control: [Vec3; 6],
     incoming: Option<Vec3>,
 ) -> Result<Vec<Vec<usize>>> {
+    let params = (0..=STEPS)
+        .map(|i| i as f64 / STEPS as f64)
+        .collect::<Vec<_>>();
+    paths_on(state, control, incoming, &params)
+}
+
+pub(super) fn paths_on(
+    state: &mut GridSearch,
+    control: [Vec3; 6],
+    incoming: Option<Vec3>,
+    params: &[f64],
+) -> Result<Vec<Vec<usize>>> {
+    assert_eq!(params.len(), STEPS + 1);
+    assert_eq!(params[0], 0.0);
+    assert_eq!(params[STEPS], 1.0);
+    assert!(params.windows(2).all(|p| p[0] < p[1]));
     state.counts.graph_searches += 1;
     state.reserve_work((STEPS + 1) as u64)?;
     let c = [control[0], control[1], control[2], control[3]];
@@ -55,7 +71,7 @@ pub(super) fn paths(
             } else if i == STEPS {
                 c[3]
             } else {
-                cubic_at(c[0], c[1], c[2], c[3], i as f64 / STEPS as f64)
+                cubic_at(c[0], c[1], c[2], c[3], params[i])
             })
         })
         .collect::<Vec<_>>();
@@ -71,7 +87,7 @@ pub(super) fn paths(
             }
             let a = points[i].map(f64::from);
             let b = points[j].map(f64::from);
-            if deviation(c, i, j, a, b) > DEVIATION_METERS {
+            if deviation(c, params[i], params[j], a, b) > DEVIATION_METERS {
                 continue;
             }
             outgoing[i].push(Chord {
@@ -110,6 +126,7 @@ pub(super) fn paths(
     }
     let seed_count = nodes.len();
     let mut min_rejected_turn: Option<f64> = None;
+    let mut min_terminal_turn: Option<f64> = None;
     let mut cursor = 0;
     let mut limited = false;
     while cursor < nodes.len() && !limited {
@@ -131,6 +148,9 @@ pub(super) fn paths(
             }
             state.counts.transition_checks += 1;
             let angle = angle_rad(dir, chord.dir);
+            if chord.end == STEPS {
+                min_terminal_turn = Some(min_terminal_turn.map_or(angle, |a| a.min(angle)));
+            }
             if angle > WELD_MAX_TURN_RAD {
                 min_rejected_turn = Some(min_rejected_turn.map_or(angle, |a| a.min(angle)));
                 return true;
@@ -168,6 +188,7 @@ pub(super) fn paths(
             "incoming_dir_f64_bits":incoming.map(|d|d.map(f64::to_bits)),
             "seed_states":seed_count,"states":nodes.len(),"terminals":terminal.len(),
             "state_limit":limited,"maximum_reached_index":nodes.iter().map(|n|n.to).max(),
+            "minimum_terminal_turn_degrees":min_terminal_turn.map(f64::to_degrees),
             "minimum_rejected_turn_degrees":min_rejected_turn.map(f64::to_degrees)}),
         );
     }
