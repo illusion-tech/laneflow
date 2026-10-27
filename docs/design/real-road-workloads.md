@@ -191,6 +191,10 @@ fail closed 回到 #224 G1。
   lane；该完整序列映射为
   `ManeuverPath(entryEdgeId, ordered internalEdgeIds, exitEdgeId)`。空 `via` 只在
   source 确实没有 internal lane 时允许。
+- LFRE 发射时，仅从归一化后 `internalEdgeIds` 为空的合法路径派生 entry → exit
+  后继，按稳定边键排序并去重。接触内边的转换继续只由路径声明；不得为了补后继
+  删除内边、改变归一化结果或调整几何。无内边路径自身以及关联的控制器、相位、
+  机动门和停止线全部保留，符合道路编辑前端 §9.3.1 的普通段间连接要求。
 - source connection 与 `via` chain normalization 使用
   `(junction ID, from road edge ID, to road edge ID, from lane index, to lane index,
   ordered internal lane IDs)` 的稳定顺序。unknown/dangling `via`、cycle、跨
