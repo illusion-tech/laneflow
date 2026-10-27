@@ -17,6 +17,7 @@ const ASSIGNMENT_LIMIT: usize = 128;
 
 mod measurement;
 mod recovery;
+mod recovery_coverage;
 
 thread_local! {
     static ORIGINAL_PATH_KEYS: RefCell<Option<HashMap<String, String>>> = const { RefCell::new(None) };

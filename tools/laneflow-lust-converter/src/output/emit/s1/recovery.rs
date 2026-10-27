@@ -2,7 +2,7 @@
 
 use super::*;
 
-const TRUNCATED_EDGES: [&str; 6] = [
+pub(super) const TRUNCATED_EDGES: [&str; 6] = [
     "sumo:--30316_0",
     "sumo:--30358#12_1",
     "sumo:--30452_0",
@@ -12,7 +12,7 @@ const TRUNCATED_EDGES: [&str; 6] = [
 ];
 const PARTITION_TIERS: [u64; 4] = [32_768, 65_536, 131_072, 262_144];
 
-fn candidates(search: &sampler::EdgeSearch) -> Value {
+pub(super) fn candidates(search: &sampler::EdgeSearch) -> Value {
     json!(
         search
             .candidates
@@ -25,14 +25,14 @@ fn candidates(search: &sampler::EdgeSearch) -> Value {
     )
 }
 
-fn fresh_output() -> PathBuf {
+pub(super) fn fresh_output() -> PathBuf {
     let out = PathBuf::from(std::env::var("S1_OUTPUT_DIR").expect("S1_OUTPUT_DIR"));
     assert!(!out.exists(), "fresh output directory");
     fs::create_dir_all(&out).unwrap();
     out
 }
 
-fn write_json(out: &std::path::Path, name: &str, value: &Value) {
+pub(super) fn write_json(out: &std::path::Path, name: &str, value: &Value) {
     fs::write(
         out.join(name),
         format!("{}\n", serde_json::to_string_pretty(value).unwrap()),

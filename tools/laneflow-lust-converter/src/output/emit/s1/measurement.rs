@@ -53,7 +53,7 @@ pub(super) fn write_inputs(
             "clamp_sources":input.clamp_sources.each_ref().map(source_value),"original":original}),
         );
     }
-    assert_eq!(rows.len(), 17);
+    assert_eq!(rows.len(), selected.len());
     fs::write(
         out.join("inputs.json"),
         format!("{}\n", serde_json::to_string_pretty(&rows).unwrap()),
