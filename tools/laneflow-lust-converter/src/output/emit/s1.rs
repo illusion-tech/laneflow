@@ -334,6 +334,11 @@ fn compile_path(
     match Compiler::new().compile(unit) {
         Err(e) => rejected("compile", &e, path),
         Ok(output) => {
+            assert!(
+                !emit_lfca(&output)
+                    .expect("complete checked artifact")
+                    .is_empty()
+            );
             let edges=part.lane_graph.edges.iter().map(|source| {
                 let key=edge_key(&source.id);
                 let matched=output.lir().lane_edges().filter(|e|e.identity_fields().any(|f|f.value_bytes()==key.as_bytes())).collect::<Vec<_>>();
