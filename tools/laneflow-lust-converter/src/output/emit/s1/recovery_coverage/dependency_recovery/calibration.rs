@@ -11,7 +11,7 @@ const EDGES: [&str; 4] = [
 
 #[test]
 #[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
-fn fixed_grid_zero_candidate_diagnosis() {
+fn fixed_grid_positive_calibration() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh diagnostic output");
     fs::create_dir_all(&out).unwrap();
@@ -19,35 +19,22 @@ fn fixed_grid_zero_candidate_diagnosis() {
         "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
     ))
     .unwrap();
-    let reference: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
-    ))
-    .unwrap();
     let mut rows = BTreeMap::new();
     let mut times = BTreeMap::new();
-    for id in EDGES {
+    for &id in &EDGES[..2] {
         let input = measurement::input(&inputs[id]);
         let started = Instant::now();
-        let mut search = sampler::grid::search_audited(&input);
+        let search = sampler::grid::search_audited(&input);
         times.insert(id, started.elapsed().as_secs_f64());
-        let audit = search
-            .report
-            .as_object_mut()
-            .unwrap()
-            .remove("end_audit")
-            .unwrap();
-        let normalized: Value = serde_json::from_str(&search.report.to_string()).unwrap();
-        assert_eq!(
-            normalized, reference[id]["search"],
-            "unchanged grid decisions"
+        rows.insert(
+            id,
+            json!({"search":search.report,"candidates":recovery::candidates(&search)}),
         );
-        assert!(search.candidates.is_empty());
-        rows.insert(id, json!({"search":search.report,"end_audit":audit}));
     }
     recovery::write_json(
         &out,
         "diagnosis.json",
-        &json!({"edges":rows,"old_grid_results_equal":true}),
+        &json!({"edges":rows,"scope":"first chord constraint only"}),
     );
     recovery::write_json(&out, "timing.json", &json!(times));
     println!("grid diagnosis saved={}", out.display());
