@@ -1,0 +1,58 @@
+{
+  "262144": {
+    "totals": {
+      "backtracks": 1045,
+      "complete_edge_end_rejected": 1,
+      "cubic_sink_pushes": 4471150,
+      "duplicate_partitions": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 1131,
+      "partitions": 4382675,
+      "point_evaluations": 4462405,
+      "prefix_point_uses": 8745,
+      "prefix_reuses": 1689,
+      "scan_builds": 103,
+      "scan_reuses": 2191217,
+      "sink_rejected": 4381528,
+      "tangent_evaluations": 52839,
+      "unavailable_partition": 0
+    },
+    "per_edge_maxima": {
+      "cached_cubics_peak": 6,
+      "frames_peak": 12,
+      "retained_key_points_peak": 1779,
+      "retained_prefix_points_peak": 77,
+      "scan_values_peak": 3078
+    },
+    "retained_candidate_program_points": 2438,
+    "note": "per-edge maxima are independent and not simultaneous or allocator heap peaks; retained candidate values exclude JSON and container overhead"
+  },
+  "32768": {
+    "totals": {
+      "backtracks": 186,
+      "complete_edge_end_rejected": 1,
+      "cubic_sink_pushes": 903872,
+      "duplicate_partitions": 0,
+      "duplicate_programs": 0,
+      "edge_replays": 272,
+      "partitions": 889341,
+      "point_evaluations": 901549,
+      "prefix_point_uses": 2323,
+      "prefix_reuses": 301,
+      "scan_builds": 100,
+      "scan_reuses": 444543,
+      "sink_rejected": 889039,
+      "tangent_evaluations": 51300,
+      "unavailable_partition": 0
+    },
+    "per_edge_maxima": {
+      "cached_cubics_peak": 6,
+      "frames_peak": 12,
+      "retained_key_points_peak": 759,
+      "retained_prefix_points_peak": 77,
+      "scan_values_peak": 3078
+    },
+    "retained_candidate_program_points": 2438,
+    "note": "per-edge maxima are independent and not simultaneous or allocator heap peaks; retained candidate values exclude JSON and container overhead"
+  }
+}

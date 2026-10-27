@@ -1,0 +1,46 @@
+{
+  "budget-comparison.json": {
+    "bytes": 33986,
+    "sha256": "9a23e3b9cdb8df10ef6fcacf42f35a40cfb9c484879a21e598ef91df002f34cb"
+  },
+  "budget-measurements.json": {
+    "bytes": 45511,
+    "sha256": "3e733a5a1ae359ca0081037c4600b2074757d942a477a23fa85bcbe284aae99d"
+  },
+  "budget-results.json": {
+    "bytes": 994137,
+    "sha256": "3af76df1eded308c11d8d3a1573e2b1f4a8957ae883e1a3f736fff66e7e14f78"
+  },
+  "cohort.json": {
+    "bytes": 34817,
+    "sha256": "79a8beb726cc6c8c78276c080f1696c7ab024b0ff3e4956127ea0643fed39b04"
+  },
+  "coverage-comparison.json": {
+    "bytes": 22985,
+    "sha256": "34f3d9cce1765866d66489cce8478e7c5c9946fec582078a806d41fd3c01550a"
+  },
+  "coverage-timing.json": {
+    "bytes": 8050,
+    "sha256": "6f2bb309391d89576f4f9f370f202a583fe2f58764f8e10fef54bb6376961276"
+  },
+  "environment.json": {
+    "bytes": 1071,
+    "sha256": "47db130f69919dace40c0cc23453ae4f5a365ad8a7e4dadbb1c333574efb44bc"
+  },
+  "inputs.json": {
+    "bytes": 159839,
+    "sha256": "e8c2cd88710b75fe7017fe74ec874e3315cab0c220bbd6280500f4ca9f73fbc4"
+  },
+  "protocol.json": {
+    "bytes": 3926,
+    "sha256": "b8dd3e95ac270e948c7bed3db17fdf65a9700212a4c0f9f41a652166b43a9fcb"
+  },
+  "resource-counts.json": {
+    "bytes": 1891,
+    "sha256": "9a2f9b5e83707f5887de0d553c252a62fabf0adbaede50306fb93d62dc004930"
+  },
+  "results.json": {
+    "bytes": 2873186,
+    "sha256": "7279aa6d355663d591f4860a2f2df7377c22cef358b7f42ded2774991e25c9ee"
+  }
+}
