@@ -18,6 +18,7 @@ const ASSIGNMENT_LIMIT: usize = 128;
 mod measurement;
 mod recovery;
 mod recovery_coverage;
+mod successor_tests;
 
 thread_local! {
     static ORIGINAL_PATH_KEYS: RefCell<Option<HashMap<String, String>>> = const { RefCell::new(None) };
@@ -145,8 +146,12 @@ fn add_programs(
     approaches: &HashSet<&str>,
 ) -> Result<()> {
     let frame = re::CanonicalFrameReference::local(LUST_FRAME_ID)?;
+    let mut direct_successors = direct_successors(traffic)?;
     for edge in &traffic.lane_graph.edges {
         let key = edge_key(&edge.id);
+        let successors = direct_successors
+            .remove(edge.id.as_str())
+            .unwrap_or_default();
         let geometry = programs[&edge.id].clone();
         if approaches.contains(edge.id.as_str()) {
             let corridor_key = format!("{key}.road");
@@ -194,11 +199,11 @@ fn add_programs(
                 )?,
             ))?;
             builder.add_declaration(re::RoadEditingDeclaration::LaneEdge(
-                re::LaneEdgeInput::try_new(&key, edge.speed_limit, Vec::new(), None)?,
+                re::LaneEdgeInput::try_new(&key, edge.speed_limit, successors, None)?,
             ))?;
         } else {
             builder.add_declaration(re::RoadEditingDeclaration::LaneEdge(
-                re::LaneEdgeInput::try_new(&key, edge.speed_limit, Vec::new(), Some(geometry))?,
+                re::LaneEdgeInput::try_new(&key, edge.speed_limit, successors, Some(geometry))?,
             ))?;
         }
     }
