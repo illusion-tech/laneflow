@@ -1,0 +1,725 @@
+{
+  "schema": "laneflow-1103-coverage-comparison",
+  "targets": 84,
+  "selected_roots": 17,
+  "original_success_programs_and_points_equal": 16265,
+  "full_result_sha256": "7279aa6d355663d591f4860a2f2df7377c22cef358b7f42ded2774991e25c9ee",
+  "repeated_result_and_inputs_byte_equal": true,
+  "tiers": {
+    "262144": {
+      "search_edges": 43,
+      "candidate_edges": 6,
+      "candidates": 48,
+      "search_stop_reasons": {
+        "finite_family_exhausted": 25,
+        "partitions": 12,
+        "program_pool": 6
+      },
+      "baseline_counts": {
+        "accepted": 22,
+        "target_check_not_completed": 59,
+        "cross_edge_direction_rejected": 3
+      },
+      "best_counts": {
+        "accepted": 23,
+        "target_check_not_completed": 58,
+        "cross_edge_direction_rejected": 3
+      },
+      "outcome_stages": {
+        "accepted/compile": 23,
+        "target_check_not_completed/emission_prerequisite": 56,
+        "cross_edge_direction_rejected/compile": 3,
+        "target_check_not_completed/compile": 2
+      },
+      "newly_accepted_paths": [
+        "sumo:-10004:--30608#7_2-to---30608#6_1::-10004_5_1"
+      ],
+      "lost_accepted_paths": [],
+      "multiple_internal_target_paths": 14,
+      "multiple_internal_counts": {
+        "target_check_not_completed": 9,
+        "accepted": 3,
+        "cross_edge_direction_rejected": 2
+      },
+      "signaled_target_paths": 31,
+      "signaled_counts": {
+        "target_check_not_completed": 31
+      },
+      "included_controllers": 12,
+      "accepted_controllers": [],
+      "accepted_signal_dependency_paths": [],
+      "shared_cohorts": {
+        "sumo:-10004:--30608#7_0-to--31916_0::-10004_4_0": {
+          "shared_edges": [
+            "sumo:--30608#7_0",
+            "sumo:-31916_0"
+          ],
+          "paths": 20,
+          "counts": {
+            "accepted": 1,
+            "target_check_not_completed": 19
+          }
+        },
+        "sumo:-10004:--30608#7_1-to---30608#6_0::-10004_5_0": {
+          "shared_edges": [
+            "sumo:--30608#7_1",
+            "sumo:--30608#6_0"
+          ],
+          "paths": 19,
+          "counts": {
+            "accepted": 3,
+            "target_check_not_completed": 16
+          }
+        },
+        "sumo:-10004:--30608#7_2-to---30608#6_1::-10004_5_1": {
+          "shared_edges": [
+            "sumo:--30608#7_2",
+            "sumo:--30608#6_1"
+          ],
+          "paths": 19,
+          "counts": {
+            "accepted": 3,
+            "target_check_not_completed": 16
+          }
+        },
+        "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0": {
+          "shared_edges": [
+            "sumo:-30608#6_2",
+            "sumo:-31916_0"
+          ],
+          "paths": 7,
+          "counts": {
+            "accepted": 3,
+            "target_check_not_completed": 4
+          }
+        },
+        "sumo:-1000:--31686#1_0-to--32592#0_0::-1000_5_0": {
+          "shared_edges": [
+            "sumo:--31686#1_0",
+            "sumo:-32592#0_0"
+          ],
+          "paths": 6,
+          "counts": {
+            "target_check_not_completed": 4,
+            "accepted": 2
+          }
+        },
+        "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0": {
+          "shared_edges": [
+            "sumo:--30306#2_0",
+            "sumo:--30592#6_0"
+          ],
+          "paths": 8,
+          "counts": {
+            "target_check_not_completed": 5,
+            "accepted": 3
+          }
+        }
+      },
+      "global_candidate_product": 262144,
+      "assignment_trials": 128,
+      "assignment_exhausted": false,
+      "evaluated_candidate_indices": {
+        "sumo::-10004_5_1": [
+          0
+        ],
+        "sumo::-10034_0_0": [
+          0
+        ],
+        "sumo::-10130_16_0": [
+          0
+        ],
+        "sumo::-10130_18_0": [
+          0,
+          1
+        ],
+        "sumo::-10130_8_0": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "sumo::-29388_3_0": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "root_outcomes": [
+        {
+          "path": "sumo:-10004:--30608#7_0-to--31916_0::-10004_4_0",
+          "strata": [
+            "shared_edge/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10004:--30608#7_1-to---30608#6_0::-10004_5_0",
+          "strata": [
+            "shared_edge/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10004:--30608#7_2-to---30608#6_1::-10004_5_1",
+          "strata": [
+            "shared_edge/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0",
+          "strata": [
+            "multi_internal/missing_2_plus",
+            "shared_edge/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-1000:--31686#1_0-to--32592#0_0::-1000_5_0",
+          "strata": [
+            "shared_edge/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-1000:-31686#0_1-to--32592#0_0::-1000_2_0.:-1000_7_0",
+          "strata": [
+            "multi_internal/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0",
+          "strata": [
+            "shared_edge/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10042:--30818#1_0-to---30290_0::-10042_1_0.:-10042_6_0",
+          "strata": [
+            "multi_internal/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10100:--31480_0-to--30896_0::-10100_1_0.:-10100_4_0",
+          "strata": [
+            "multi_internal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-1010:--31186#0_0-to--32918#1_0::-1010_1_0.:-1010_6_0",
+          "strata": [
+            "multi_internal/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10130:--31940#5_0-to---31940#4_0::-10130_9_0",
+          "strata": [
+            "signal/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10156:--32878#2_0-to---32878#1_0::-10156_0_0",
+          "strata": [
+            "signal/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10414:--30976#1_0-to---31624_0::-10414_1_0.:-10414_6_0",
+          "strata": [
+            "multi_internal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-16502:-30384#7_0-to--31608_0::-16502_0_0",
+          "strata": [
+            "signal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-20604:--30872#8_0-to---30872#7_0:direct",
+          "strata": [
+            "signal/missing_0"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-22774:--32924#3_0-to---32924#2_0:direct",
+          "strata": [
+            "signal/missing_0"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-28860:--31940#1_0-to---31940#0_0::-28860_5_0",
+          "strata": [
+            "signal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        }
+      ]
+    },
+    "32768": {
+      "search_edges": 43,
+      "candidate_edges": 6,
+      "candidates": 48,
+      "search_stop_reasons": {
+        "finite_family_exhausted": 13,
+        "partitions": 24,
+        "program_pool": 6
+      },
+      "baseline_counts": {
+        "accepted": 22,
+        "target_check_not_completed": 59,
+        "cross_edge_direction_rejected": 3
+      },
+      "best_counts": {
+        "accepted": 23,
+        "target_check_not_completed": 58,
+        "cross_edge_direction_rejected": 3
+      },
+      "outcome_stages": {
+        "accepted/compile": 23,
+        "target_check_not_completed/emission_prerequisite": 56,
+        "cross_edge_direction_rejected/compile": 3,
+        "target_check_not_completed/compile": 2
+      },
+      "newly_accepted_paths": [
+        "sumo:-10004:--30608#7_2-to---30608#6_1::-10004_5_1"
+      ],
+      "lost_accepted_paths": [],
+      "multiple_internal_target_paths": 14,
+      "multiple_internal_counts": {
+        "target_check_not_completed": 9,
+        "accepted": 3,
+        "cross_edge_direction_rejected": 2
+      },
+      "signaled_target_paths": 31,
+      "signaled_counts": {
+        "target_check_not_completed": 31
+      },
+      "included_controllers": 12,
+      "accepted_controllers": [],
+      "accepted_signal_dependency_paths": [],
+      "shared_cohorts": {
+        "sumo:-10004:--30608#7_0-to--31916_0::-10004_4_0": {
+          "shared_edges": [
+            "sumo:--30608#7_0",
+            "sumo:-31916_0"
+          ],
+          "paths": 20,
+          "counts": {
+            "accepted": 1,
+            "target_check_not_completed": 19
+          }
+        },
+        "sumo:-10004:--30608#7_1-to---30608#6_0::-10004_5_0": {
+          "shared_edges": [
+            "sumo:--30608#7_1",
+            "sumo:--30608#6_0"
+          ],
+          "paths": 19,
+          "counts": {
+            "accepted": 3,
+            "target_check_not_completed": 16
+          }
+        },
+        "sumo:-10004:--30608#7_2-to---30608#6_1::-10004_5_1": {
+          "shared_edges": [
+            "sumo:--30608#7_2",
+            "sumo:--30608#6_1"
+          ],
+          "paths": 19,
+          "counts": {
+            "accepted": 3,
+            "target_check_not_completed": 16
+          }
+        },
+        "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0": {
+          "shared_edges": [
+            "sumo:-30608#6_2",
+            "sumo:-31916_0"
+          ],
+          "paths": 7,
+          "counts": {
+            "accepted": 3,
+            "target_check_not_completed": 4
+          }
+        },
+        "sumo:-1000:--31686#1_0-to--32592#0_0::-1000_5_0": {
+          "shared_edges": [
+            "sumo:--31686#1_0",
+            "sumo:-32592#0_0"
+          ],
+          "paths": 6,
+          "counts": {
+            "target_check_not_completed": 4,
+            "accepted": 2
+          }
+        },
+        "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0": {
+          "shared_edges": [
+            "sumo:--30306#2_0",
+            "sumo:--30592#6_0"
+          ],
+          "paths": 8,
+          "counts": {
+            "target_check_not_completed": 5,
+            "accepted": 3
+          }
+        }
+      },
+      "global_candidate_product": 262144,
+      "assignment_trials": 128,
+      "assignment_exhausted": false,
+      "evaluated_candidate_indices": {
+        "sumo::-10004_5_1": [
+          0
+        ],
+        "sumo::-10034_0_0": [
+          0
+        ],
+        "sumo::-10130_16_0": [
+          0
+        ],
+        "sumo::-10130_18_0": [
+          0,
+          1
+        ],
+        "sumo::-10130_8_0": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "sumo::-29388_3_0": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "root_outcomes": [
+        {
+          "path": "sumo:-10004:--30608#7_0-to--31916_0::-10004_4_0",
+          "strata": [
+            "shared_edge/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10004:--30608#7_1-to---30608#6_0::-10004_5_0",
+          "strata": [
+            "shared_edge/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10004:--30608#7_2-to---30608#6_1::-10004_5_1",
+          "strata": [
+            "shared_edge/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0",
+          "strata": [
+            "multi_internal/missing_2_plus",
+            "shared_edge/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-1000:--31686#1_0-to--32592#0_0::-1000_5_0",
+          "strata": [
+            "shared_edge/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-1000:-31686#0_1-to--32592#0_0::-1000_2_0.:-1000_7_0",
+          "strata": [
+            "multi_internal/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0",
+          "strata": [
+            "shared_edge/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10042:--30818#1_0-to---30290_0::-10042_1_0.:-10042_6_0",
+          "strata": [
+            "multi_internal/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10100:--31480_0-to--30896_0::-10100_1_0.:-10100_4_0",
+          "strata": [
+            "multi_internal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-1010:--31186#0_0-to--32918#1_0::-1010_1_0.:-1010_6_0",
+          "strata": [
+            "multi_internal/missing_0"
+          ],
+          "baseline": "accepted",
+          "result": "accepted",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-10130:--31940#5_0-to---31940#4_0::-10130_9_0",
+          "strata": [
+            "signal/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10156:--32878#2_0-to---32878#1_0::-10156_0_0",
+          "strata": [
+            "signal/missing_2_plus"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-10414:--30976#1_0-to---31624_0::-10414_1_0.:-10414_6_0",
+          "strata": [
+            "multi_internal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-16502:-30384#7_0-to--31608_0::-16502_0_0",
+          "strata": [
+            "signal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        },
+        {
+          "path": "sumo:-20604:--30872#8_0-to---30872#7_0:direct",
+          "strata": [
+            "signal/missing_0"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-22774:--32924#3_0-to---32924#2_0:direct",
+          "strata": [
+            "signal/missing_0"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "compile"
+        },
+        {
+          "path": "sumo:-28860:--31940#1_0-to---31940#0_0::-28860_5_0",
+          "strata": [
+            "signal/missing_1"
+          ],
+          "baseline": "target_check_not_completed",
+          "result": "target_check_not_completed",
+          "stage": "emission_prerequisite"
+        }
+      ]
+    }
+  },
+  "all_retained_candidates_equal_between_budgets": true,
+  "all_assignment_results_equal_between_budgets": true,
+  "estimates": {
+    "candidate_span_records": 192,
+    "max_grid_deviation_to_own_chord_m": 0.010183467343373285,
+    "max_control_hull_deviation_estimate_m": 0.015941869787647465,
+    "certified_continuous_bound": false
+  },
+  "accepted_geometry": {
+    "unique_edges": 62,
+    "all_canonical_points_match": true,
+    "source_length_delta_range_m": [
+      -5.002999999999986,
+      3.336999999999989
+    ]
+  },
+  "g1_accepted": false,
+  "fixed_six_affected_path_outcomes": {
+    "sumo:--30316_0": {
+      "262144": {
+        "target_check_not_completed": 5
+      },
+      "32768": {
+        "target_check_not_completed": 5
+      }
+    },
+    "sumo:--30358#12_1": {
+      "262144": {
+        "target_check_not_completed": 3
+      },
+      "32768": {
+        "target_check_not_completed": 3
+      }
+    },
+    "sumo:--30452_0": {
+      "262144": {
+        "target_check_not_completed": 2
+      },
+      "32768": {
+        "target_check_not_completed": 2
+      }
+    },
+    "sumo::-10004_3_0": {
+      "262144": {
+        "target_check_not_completed": 1
+      },
+      "32768": {
+        "target_check_not_completed": 1
+      }
+    },
+    "sumo::-1000_2_0": {
+      "262144": {
+        "target_check_not_completed": 1
+      },
+      "32768": {
+        "target_check_not_completed": 1
+      }
+    },
+    "sumo::-10046_0_0": {
+      "262144": {
+        "target_check_not_completed": 1
+      },
+      "32768": {
+        "target_check_not_completed": 1
+      }
+    }
+  },
+  "compiler_topology_rejections": [
+    {
+      "edges": [
+        "sumo:--30872#8_0",
+        "sumo:--30872#7_0"
+      ],
+      "path": "sumo:-20604:--30872#8_0-to---30872#7_0:direct",
+      "result": {
+        "diagnostics": [
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-0\"): DisconnectedManeuverPath { path_key: \"path-0\", predecessor_key: \"x--30872.8_0\", successor_key: \"x--30872.7_0\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-1\"): DisconnectedManeuverPath { path_key: \"path-1\", predecessor_key: \"x--30872.8_1\", successor_key: \"x--30872.7_1\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-0\"): DisconnectedManeuverPath { path_key: \"path-0\", predecessor_key: \"x-30872.7_0\", successor_key: \"x-30872.8_0\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-1\"): DisconnectedManeuverPath { path_key: \"path-1\", predecessor_key: \"x-30872.7_1\", successor_key: \"x-30872.8_1\" }"
+        ],
+        "stage": "compile",
+        "status": "target_check_not_completed"
+      }
+    },
+    {
+      "edges": [
+        "sumo:--32924#3_0",
+        "sumo:--32924#2_0"
+      ],
+      "path": "sumo:-22774:--32924#3_0-to---32924#2_0:direct",
+      "result": {
+        "diagnostics": [
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-0\"): DisconnectedManeuverPath { path_key: \"path-0\", predecessor_key: \"x--32924.3_0\", successor_key: \"x--32924.2_0\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-1\"): DisconnectedManeuverPath { path_key: \"path-1\", predecessor_key: \"x--32924.3_1\", successor_key: \"x--32924.2_1\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-2\"): DisconnectedManeuverPath { path_key: \"path-2\", predecessor_key: \"x--32924.3_2\", successor_key: \"x--32924.2_2\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-0\"): DisconnectedManeuverPath { path_key: \"path-0\", predecessor_key: \"x-32924.2_0\", successor_key: \"x-32924.3_0\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-1\"): DisconnectedManeuverPath { path_key: \"path-1\", predecessor_key: \"x-32924.2_1\", successor_key: \"x-32924.3_1\" }",
+          "LF-COMP-DISCONNECTED-MANEUVER-PATH Some(\"path-2\"): DisconnectedManeuverPath { path_key: \"path-2\", predecessor_key: \"x-32924.2_2\", successor_key: \"x-32924.3_2\" }"
+        ],
+        "stage": "compile",
+        "status": "target_check_not_completed"
+      }
+    }
+  ]
+}

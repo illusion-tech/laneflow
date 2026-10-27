@@ -1,0 +1,111 @@
+{
+  "budget": {
+    "schema": "laneflow-1103-budget-protocol",
+    "frozen_utc": "2026-10-27T11:53:53.0676386Z",
+    "source_commit": "5388d19f58f51b8466331c3e542f10a76107e453",
+    "binary": {
+      "filename": "budget-v2.exe",
+      "sha256": "682353EB829B653B2452276F58C8CE054D049779EB7B50BB329B1AAFFBC78EA9",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": true
+      },
+      "command": "cargo +1.99.1 test --locked -p laneflow-lust-converter --lib --release --no-run --message-format=json"
+    },
+    "input_path": "../issue-1093-s1-efficiency/inputs.json",
+    "input_sha256": "D2B2EED3FEE4B2559A60397BF387EB0E52EAA370A68CE42435E8B8BB5870513C",
+    "tiers": [
+      32768,
+      65536,
+      131072,
+      262144
+    ],
+    "warmup_order": [
+      32768,
+      65536,
+      131072,
+      262144
+    ],
+    "measured_order": [
+      32768,
+      65536,
+      131072,
+      262144,
+      262144,
+      131072,
+      65536,
+      32768,
+      32768,
+      65536,
+      131072,
+      262144,
+      262144,
+      131072,
+      65536,
+      32768
+    ],
+    "process_policy": "one fresh native process per invocation; four measured replicates per tier; only six prior partition-truncated edges receive increased budget; eleven controls use baseline; output bytes must equal same-tier warmup",
+    "timing_scope": "17 fixed samples only; separate search wall, native process wall and process CPU; no conversion or whole-city speed claim",
+    "environment_policy": "AC online, OEM OperatingMode=2 and unchanged Windows power scheme; no concurrent compiler; record aggregate background CPU without load abort per user instruction; no quiet-environment certification",
+    "fixed_limits": {
+      "evaluation_work": 32000000,
+      "candidate_pool": 8,
+      "stack_and_cache_frames": 256,
+      "candidate_key_points": 262144,
+      "retained_prefix_points": 262144,
+      "span_scan_steps": 512,
+      "pieces_min": 2,
+      "pieces_max": 2048,
+      "candidate_endpoint_tolerance_degrees": 0.95
+    }
+  },
+  "coverage": {
+    "source_commit": "4bb1f89d0b351bb9dde68219bc0c053eb2bbb098",
+    "binary_sha256": "2C166BE7EF0E4F3A7B77A5106087ECDE2EBDCFF69175AE600030C20144AAB5B6",
+    "cohort_sha256": "79A8BEB726CC6C8C78276C080F1696C7AB024B0FF3E4956127EA0643FED39B04",
+    "profile": {
+      "opt_level": "3",
+      "debuginfo": 0,
+      "debug_assertions": false,
+      "overflow_checks": false,
+      "test": true
+    },
+    "test": "output::emit::s1::recovery_coverage::validation::pinned_lust_recovery_validation",
+    "runs": [
+      "coverage-a",
+      "coverage-b"
+    ],
+    "purpose": "two fresh serial native processes; semantic determinism and complete real-path validation; timing is diagnostic, not performance certification"
+  },
+  "budget_attempt_status": {
+    "started_utc": "2026-10-27T11:53:54.6285810Z",
+    "complete": true,
+    "failure": null,
+    "finished_utc": "2026-10-27T11:54:46.5221438Z",
+    "completed_measured_processes": 16
+  },
+  "coverage_status": {
+    "coverage-a": {
+      "run": "coverage-a",
+      "started_utc": "2026-10-27T12:05:37.8156147Z",
+      "complete": true,
+      "failure": null,
+      "exit_code": 0,
+      "process_cpu_seconds": 57.203125,
+      "finished_utc": "2026-10-27T12:06:35.4412458Z"
+    },
+    "coverage-b": {
+      "run": "coverage-b",
+      "started_utc": "2026-10-27T12:06:35.4430905Z",
+      "complete": true,
+      "failure": null,
+      "exit_code": 0,
+      "process_cpu_seconds": 57.296875,
+      "finished_utc": "2026-10-27T12:07:33.6084878Z"
+    }
+  },
+  "publication": "input_path made repository-relative; full coverage results and inputs are byte copies; machine-local binaries, logs and runner scripts retained outside repository"
+}
