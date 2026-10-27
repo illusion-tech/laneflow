@@ -145,13 +145,12 @@ fn production_closures(
                 .edges
                 .iter()
                 .zip(&observation.inputs)
-                .filter_map(|((id, _), input)| {
-                    edges.contains(id.as_str()).then(|| SpatialEdge {
-                        traffic_edge_id: id.clone(),
-                        centerline: Centerline {
-                            points: input.points.clone(),
-                        },
-                    })
+                .filter(|((id, _), _)| edges.contains(id.as_str()))
+                .map(|((id, _), input)| SpatialEdge {
+                    traffic_edge_id: id.clone(),
+                    centerline: Centerline {
+                        points: input.points.clone(),
+                    },
                 })
                 .collect(),
         };

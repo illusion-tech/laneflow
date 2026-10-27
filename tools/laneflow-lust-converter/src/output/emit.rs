@@ -5,7 +5,7 @@
 //! Compilation IS the artifact validation; there is no separate JSON schema or runtime
 //! admission step.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use laneflow_compiler::road_editing as re;
 use laneflow_compiler::{
@@ -301,6 +301,34 @@ fn edge_ref(key: &str) -> Result<re::LaneEdgeReference> {
     Ok(re::LaneEdgeReference::local(key)?)
 }
 
+fn direct_successors(
+    traffic: &TrafficPackage,
+) -> Result<BTreeMap<&str, Vec<re::LaneEdgeReference>>> {
+    let mut targets = BTreeMap::<&str, Vec<String>>::new();
+    for path in &traffic.maneuver_paths {
+        if path.internal_edge_ids.is_empty() {
+            targets
+                .entry(path.entry_edge_id.as_str())
+                .or_default()
+                .push(edge_key(&path.exit_edge_id));
+        }
+    }
+    targets
+        .into_iter()
+        .map(|(entry, mut exits)| {
+            exits.sort_unstable();
+            exits.dedup();
+            Ok((
+                entry,
+                exits
+                    .iter()
+                    .map(|key| edge_ref(key))
+                    .collect::<Result<_>>()?,
+            ))
+        })
+        .collect()
+}
+
 fn add_profiles(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
     traffic: &TrafficPackage,
@@ -349,13 +377,16 @@ fn add_edges(
     internal_lanes: &HashSet<String>,
 ) -> Result<()> {
     let frame = re::CanonicalFrameReference::local(LUST_FRAME_ID)?;
+    let mut direct_successors = direct_successors(traffic)?;
     // 契约比对插桩（LUST_LENGTH_DEBUG）：打印声明 @length 与发射量化弧长
     // 偏差超 5mm 的车道，用于 pinned 全网实测偏差分布（容差定值依据）。
     let length_debug = std::env::var_os("LUST_LENGTH_DEBUG").is_some();
     for edge in &traffic.lane_graph.edges {
         let key = edge_key(&edge.id);
-        // 编译器规定路口穿越由 ManeuverPath 独占权威：路径链不写 LaneEdge 后继。
-        let successors = Vec::new();
+        // 只有接触内边的转换由路径独占；无内边路径仍须声明普通段间后继。
+        let successors = direct_successors
+            .remove(edge.id.as_str())
+            .unwrap_or_default();
         let spatial = curve_by_edge.get(edge.id.as_str()).ok_or_else(|| {
             Error::SumoModel(format!("lane edge {:?} has no spatial centerline", edge.id))
         })?;
