@@ -75,9 +75,38 @@ pub(super) fn probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {
             json!({"parameters_f64_bits":p.iter().map(|&i|params[i].to_bits()).collect::<Vec<_>>(),
                 "arc_m":sink.total_arc_meters})
         }).collect::<Vec<_>>());
+        let skeleton = state
+            .audit
+            .as_ref()
+            .and_then(|a| a.graphs.last())
+            .and_then(|g| g["closest_terminal_parameters_f64_bits"].as_array())
+            .map(|v| {
+                v.iter()
+                    .map(|v| f64::from_bits(v.as_u64().unwrap()))
+                    .collect::<Vec<_>>()
+            });
+        let refinement = if result.as_ref().is_ok_and(Vec::is_empty) {
+            skeleton.map(|p| {
+                let started=state.work();
+                let found=refine::search(&mut state,control,None,&p);
+                if let Ok(paths) = &found {
+                    for path in paths {
+                        let mut sink = EmissionSink::new(control[0]);
+                        for &t in path.iter().skip(1) {
+                            sink.push(if t == 1.0 { control[3] } else { cubic_at(control[0], control[1], control[2], control[3], t) }).unwrap();
+                        }
+                    }
+                }
+                json!({"skeleton_parameters_f64_bits":p.iter().map(|t|t.to_bits()).collect::<Vec<_>>(),
+                    "parameters_f64_bits":found.as_ref().ok().map(|paths|paths.iter().map(|p|p.iter().map(|t|t.to_bits()).collect::<Vec<_>>()).collect::<Vec<_>>()),
+                    "error":found.err().map(|e|e.to_string()),"additional_work":state.work()-started})
+            })
+        } else {
+            None
+        };
         variants.insert(
             variant,
-            json!({"paths":paths,"error":result.err().map(|e|e.to_string()),
+            json!({"paths":paths,"refinement":refinement,"error":result.err().map(|e|e.to_string()),
             "counts":state.counts,"work":state.work(),"stop":state.stop,"audit":state.audit}),
         );
     }
