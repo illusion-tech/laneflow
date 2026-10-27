@@ -73,6 +73,7 @@ Merge Queue 的 required status checks 固定为：
 
 - `Commit message`
 - `Rust checks`
+- `Evidence fixture tests`
 - `Wire toolchain audit`
 - `Placement fixture tests`
 - `Urban harness tests`
