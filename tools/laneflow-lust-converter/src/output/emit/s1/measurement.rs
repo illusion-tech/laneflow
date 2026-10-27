@@ -61,7 +61,7 @@ pub(super) fn write_inputs(
     .unwrap();
 }
 
-fn input(row: &Value) -> observe::EdgeInput {
+pub(super) fn input(row: &Value) -> observe::EdgeInput {
     let points: Vec<[u64; 3]> = serde_json::from_value(row["points"].clone()).unwrap();
     let clamps: [Option<[u64; 3]>; 2] = serde_json::from_value(row["clamps"].clone()).unwrap();
     observe::EdgeInput {
@@ -116,7 +116,7 @@ fn fixed_sample_search_measurement() {
         let result = match original {
             Ok(p) => json!({"status":"preserved_success","program":program_bits(&p.program)}),
             Err(_) => {
-                let search = sampler::search(&input);
+                let search = sampler::search(&input, sampler::SearchBudget::default());
                 json!({"search":search.report,"candidates":search.candidates.iter().map(|c|
                     json!({"program":program_bits(&c.repaired.program),"arc_m":c.repaired.quantized_arc_meters,"spans":c.spans})).collect::<Vec<_>>()})
             }

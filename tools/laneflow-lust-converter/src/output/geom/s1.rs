@@ -18,6 +18,19 @@ const SCAN_STEPS: usize = 512;
 const RETAINED_KEY_POINT_LIMIT: usize = 262_144;
 const RETAINED_PREFIX_POINT_LIMIT: usize = 262_144;
 
+#[derive(Clone, Copy)]
+pub(crate) struct SearchBudget {
+    pub(crate) partitions: u64,
+}
+
+impl Default for SearchBudget {
+    fn default() -> Self {
+        Self {
+            partitions: PARTITION_LIMIT,
+        }
+    }
+}
+
 struct SavedPrefix {
     points: Vec<Vec3>,
     report: Value,
@@ -95,6 +108,7 @@ struct Counts {
 
 #[derive(Default)]
 struct Search {
+    budget: SearchBudget,
     frames: Vec<Frame>,
     encountered: usize,
     failed_at: Option<usize>,
@@ -153,8 +167,8 @@ pub(crate) struct EdgeSearch {
     pub(crate) report: Value,
 }
 
-pub(crate) fn policy() -> Value {
-    json!({"pieces_max":SAMPLE_MAX_PIECES,"partitions_per_edge":PARTITION_LIMIT,
+pub(crate) fn policy(budget: SearchBudget) -> Value {
+    json!({"pieces_max":SAMPLE_MAX_PIECES,"partitions_per_edge":budget.partitions,
         "evaluations_per_edge":EVALUATION_LIMIT,"programs_per_edge":PROGRAM_LIMIT,
         "end_degrees":END_DEGREES,"recursive_candidate_search":false,
         "cached_cubics_and_frames":CACHED_CUBIC_LIMIT,"scan_steps":SCAN_STEPS,
@@ -166,8 +180,12 @@ pub(crate) fn policy() -> Value {
         "scope":"test research only; storage counts are not allocator peak measurements"})
 }
 
-pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
-    let mut state = Search::default();
+pub(crate) fn search(input: &EdgeInput, budget: SearchBudget) -> EdgeSearch {
+    assert!(budget.partitions > 0, "nonzero partition budget");
+    let mut state = Search {
+        budget,
+        ..Search::default()
+    };
     let mut candidates = Vec::new();
     let mut last_error = None;
     let mut family_exhausted = false;
