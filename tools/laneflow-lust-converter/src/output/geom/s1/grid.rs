@@ -11,6 +11,7 @@ const DEVIATION_METERS: f64 = 0.01;
 
 mod audit;
 mod graph;
+mod refine;
 
 #[derive(Default, Serialize)]
 struct Counts {
@@ -31,6 +32,10 @@ struct Counts {
     backtracks: u64,
     start_clamp_rejected: u64,
     previously_reached_chords_skipped: u64,
+    refinement_calls: u64,
+    refinement_states_peak: usize,
+    refinement_chords_peak: usize,
+    refinement_skeleton_limited: u64,
 }
 
 struct GridFrame {

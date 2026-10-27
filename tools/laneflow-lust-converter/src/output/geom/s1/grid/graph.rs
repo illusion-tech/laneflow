@@ -127,6 +127,7 @@ pub(super) fn paths_on(
     let seed_count = nodes.len();
     let mut min_rejected_turn: Option<f64> = None;
     let mut min_terminal_turn: Option<f64> = None;
+    let mut closest_terminal = None;
     let mut cursor = 0;
     let mut limited = false;
     while cursor < nodes.len() && !limited {
@@ -149,6 +150,12 @@ pub(super) fn paths_on(
             state.counts.transition_checks += 1;
             let angle = angle_rad(dir, chord.dir);
             if chord.end == STEPS {
+                if min_terminal_turn.is_none_or(|a| angle < a) {
+                    let mut p = path(&nodes, cursor);
+                    p.push(STEPS);
+                    closest_terminal =
+                        Some(p.iter().map(|&i| params[i].to_bits()).collect::<Vec<_>>());
+                }
                 min_terminal_turn = Some(min_terminal_turn.map_or(angle, |a| a.min(angle)));
             }
             if angle > WELD_MAX_TURN_RAD {
@@ -189,6 +196,7 @@ pub(super) fn paths_on(
             "seed_states":seed_count,"states":nodes.len(),"terminals":terminal.len(),
             "state_limit":limited,"maximum_reached_index":nodes.iter().map(|n|n.to).max(),
             "minimum_terminal_turn_degrees":min_terminal_turn.map(f64::to_degrees),
+            "closest_terminal_parameters_f64_bits":closest_terminal,
             "minimum_rejected_turn_degrees":min_rejected_turn.map(f64::to_degrees)}),
         );
     }
