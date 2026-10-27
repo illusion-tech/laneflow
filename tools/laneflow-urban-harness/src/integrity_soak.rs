@@ -47,6 +47,11 @@ struct Config {
     batch_ticks: u64,
     replay_seconds: u64,
     paced: bool,
+    /// 无节拍虚拟时钟（#1108，仅测试仪器）：`active` 按 tick × 16ms 记账、
+    /// 不等待真实时间，暂停期间无推进即无记账；与 `paced` 独立——虚拟模式
+    /// 下不做真实节拍睡眠。长时取证保持 `false`（真实时钟 + 节拍语义不变）。
+    #[serde(default)]
+    virtual_clock: bool,
 }
 
 impl Config {
@@ -59,6 +64,7 @@ impl Config {
             batch_ticks: BATCH_TICKS,
             replay_seconds: 30,
             paced: true,
+            virtual_clock: false,
         }
     }
 
@@ -495,7 +501,11 @@ fn run_in_created_directory(
     // 存档沿用 advance 返回的观测摘要；不重复调用带宿主观测副作用的 state。
     let mut state_digest = harness.advance()?.state_digest;
     let initial_tick = harness.world().tick_index();
-    let mut clock = Clock::new();
+    let mut clock = if config.virtual_clock {
+        Clock::virtual_ticks()
+    } else {
+        Clock::new()
+    };
     let mut batches = 0;
     let mut covered_ticks = 0;
     let mut stopped = false;
@@ -530,15 +540,23 @@ fn run_in_created_directory(
                 workers: 1,
             },
         )?;
-        let deadline =
-            Instant::now() + Duration::from_secs(config.seconds).saturating_sub(clock.active());
+        // 虚拟时钟下不限真实时间预算：记账由 tick 推进驱动（#1108）。
+        let deadline = if config.virtual_clock {
+            None
+        } else {
+            Some(
+                Instant::now() + Duration::from_secs(config.seconds).saturating_sub(clock.active()),
+            )
+        };
         let mut expected = advance(
             &mut harness,
             start_tick + config.batch_ticks,
-            Some(deadline),
-            config.paced,
+            deadline,
+            config.paced && !config.virtual_clock,
             Some(&control),
         )?;
+        // 虚拟时钟按实际推进 tick 记账（与 covered_ticks 同源，16ms/拍）。
+        clock.credit(harness.world().tick_index().saturating_sub(start_tick));
         if let Some(last_state) = &expected.last_state_digest {
             state_digest.clone_from(last_state);
         }
@@ -601,14 +619,17 @@ fn run_in_created_directory(
     let status = if stopped { "Incomplete" } else { "Completed" };
     let summary = serde_json::json!({
         "status": status, "reason": if stopped { "user stop" } else { "requested interval finished" },
-        "scope": if config.paced { "bounded-resident-soak" } else { "short-soak-chain-validation" },
+        "scope": if config.paced || config.virtual_clock { "bounded-resident-soak" } else { "short-soak-chain-validation" },
         "run_id": spec.run_id, "requested_seconds": config.seconds,
         "active_seconds": clock.active().as_secs_f64(), "paused_seconds": clock.paused().as_secs_f64(),
         "wall_seconds": clock.wall().as_secs_f64(), "complete_match_batches": batches,
         "covered_ticks": covered_ticks, "final_tick": harness.world().tick_index(),
         "initial_tick": initial_tick,
         "world_id": harness.world().world_id(), "resident_pid": std::process::id(),
-        "initial_attestation": initial_attestation, "runtime_workers": 1, "paced": config.paced,
+        "initial_attestation": initial_attestation, "runtime_workers": 1,
+        // `paced` 记录真实节拍是否执行；虚拟时钟下不睡眠（#1108），由 `clock` 区分。
+        "paced": config.paced && !config.virtual_clock,
+        "clock": if clock.is_virtual() { "virtual-ticks" } else { "real" },
         "nominal_individuals": artifacts.individuals, "replacements": harness.replacements,
         "evidence_bytes": directory_bytes(output)?, "uncovered": ["long-term fault-host acceptance", "physical heap attribution", "between-checkpoint transient changes", "pause intervals have no periodic sampling", "initial installation and first tick"],
     });

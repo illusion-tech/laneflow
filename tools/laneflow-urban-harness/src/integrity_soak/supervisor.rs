@@ -297,10 +297,23 @@ pub(super) fn watch(
                     let covered = summary["covered_ticks"].as_u64().unwrap_or(0);
                     let start = summary["initial_tick"].as_u64();
                     let end = summary["final_tick"].as_u64();
+                    let virtual_clock = summary["clock"] == "virtual-ticks";
+                    // 真实时钟下 `paced` 必须成立；虚拟时钟（#1108）不睡眠。
+                    let paced_ok = summary["paced"] == !virtual_clock;
+                    // 记账一致性：真实模式沿用 `active + paused <= wall`（防虚报
+                    // 时间膨胀）；虚拟模式等价替换为 `active ≈ 覆盖 tick × 16ms`
+                    // （防记账漂移/超记）且 `paused <= wall`（真实暂停仍受真实
+                    // 墙钟约束）。两种模式都拦“虚报时间膨胀”这一失效模式。
+                    let accounting_ok = if virtual_clock {
+                        (active - covered as f64 * 0.016).abs() <= 0.016
+                            && paused <= elapsed().as_secs_f64()
+                    } else {
+                        active + paused <= elapsed().as_secs_f64()
+                    };
                     if summary["run_id"] != spec.run_id
                         || summary["status"] != "Completed"
                         || summary["scope"] != "bounded-resident-soak"
-                        || summary["paced"] != true
+                        || !paced_ok
                         || summary["requested_seconds"] != spec.config.seconds
                         || summary["resident_pid"] != guard.child.id()
                         || summary["runtime_workers"] != 1
@@ -310,7 +323,7 @@ pub(super) fn watch(
                         || active < spec.config.seconds as f64
                         || !paused.is_finite()
                         || paused < 0.0
-                        || active + paused > elapsed().as_secs_f64()
+                        || !accounting_ok
                         || covered == 0
                         || !start
                             .zip(end)

@@ -17,7 +17,7 @@ use crate::child_diagnostics::DiagnosticDirectory;
 use super::{
     Config, MAX_SECONDS,
     control::{self, Status},
-    run, supervisor,
+    run, run_in_created_directory, supervisor,
 };
 
 fn read(path: &Path) -> Value {
@@ -43,9 +43,17 @@ fn wait_status(output: &Path, state: &str) -> Status {
 }
 
 fn config(seconds: u64) -> Config {
+    config_with_batch(seconds, 128)
+}
+
+/// #1108：短回归用无节拍虚拟时钟（tick×16ms 记账）+ 可调段长。段长即
+/// 覆盖口径——段边界密度本身是被测对象的用例取小值（如 4），通用用例取
+/// 128 以少而整的段控制独立回放子进程成本。
+fn config_with_batch(seconds: u64, batch_ticks: u64) -> Config {
     let mut config = Config::new(seconds);
-    config.batch_ticks = 4;
+    config.batch_ticks = batch_ticks;
     config.wall_seconds = 30;
+    config.virtual_clock = true;
     config
 }
 
@@ -66,6 +74,37 @@ fn wait_first_segment(output: &Path) {
         assert!(Instant::now() < deadline, "segment timeout");
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// #1108 覆盖口径：4-tick 最小段以最小段长验证段边界记账与存档/独立回放
+/// 连通性（`covered == end - start`、段内 request/result 闭环）；跨段连续性
+/// 由 `safe_pause_resumes…`（暂停跨段）与 `stop_while_paused…`（多段保留）
+/// 覆盖，通用用例因此可取 128 段长而不失覆盖意图。
+#[test]
+fn four_tick_segment_preserves_boundary_and_replay_chain() {
+    let temp = DiagnosticDirectory::new().unwrap();
+    let output = temp.path().join("tiny-segment");
+    let mut config = Config::new(1);
+    config.batch_ticks = 4;
+    config.wall_seconds = 30;
+    config.paced = false;
+    let spec = supervisor::create_output(&output, config).unwrap();
+    run_in_created_directory(&output, &spec, false).unwrap();
+    let summary = read(&output.join("summary.json"));
+    assert_eq!(summary["scope"], "short-soak-chain-validation");
+    assert_eq!(summary["clock"], "real");
+    assert_eq!(summary["covered_ticks"], 4);
+    assert_eq!(summary["complete_match_batches"], 1);
+    assert_eq!(
+        summary["initial_tick"].as_u64().unwrap() + 4,
+        summary["final_tick"].as_u64().unwrap()
+    );
+    let record = read(&output.join("segments/000000/request.result.json"));
+    assert_eq!(record["classification"], "CompleteMatch");
+    assert_eq!(
+        record["target_tick"].as_u64().unwrap() - record["start_tick"].as_u64().unwrap(),
+        4
+    );
 }
 
 #[test]

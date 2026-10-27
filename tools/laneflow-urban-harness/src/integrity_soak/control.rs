@@ -37,6 +37,10 @@ pub(super) struct Clock {
     started: Instant,
     paused: Duration,
     pause_start: Option<Instant>,
+    /// `Some` 时为无节拍虚拟时钟（#1108）：`active` 只由推进 tick 按 16ms/拍
+    /// 记账，不等待真实时间；暂停期间无 tick 推进即无记账，`active` 天然不含
+    /// 暂停。仅测试仪器使用；长时取证仍用真实时钟。
+    credited: Option<Duration>,
 }
 
 impl Clock {
@@ -45,7 +49,27 @@ impl Clock {
             started: Instant::now(),
             paused: Duration::ZERO,
             pause_start: None,
+            credited: None,
         }
+    }
+
+    /// 无节拍虚拟时钟（#1108）：短回归只验证正确性与记账一致性，不等待驻留节奏。
+    pub(super) fn virtual_ticks() -> Self {
+        Self {
+            credited: Some(Duration::ZERO),
+            ..Self::new()
+        }
+    }
+
+    /// 虚拟时钟下按推进的 tick 数记账（16ms/拍）；真实时钟为空操作。
+    pub(super) fn credit(&mut self, ticks: u64) {
+        if let Some(credited) = &mut self.credited {
+            *credited += Duration::from_millis(16 * ticks);
+        }
+    }
+
+    pub(super) fn is_virtual(&self) -> bool {
+        self.credited.is_some()
     }
 
     pub(super) fn wall(&self) -> Duration {
@@ -60,6 +84,9 @@ impl Clock {
     }
 
     pub(super) fn active(&self) -> Duration {
+        if let Some(credited) = self.credited {
+            return credited;
+        }
         self.pause_start
             .unwrap_or_else(Instant::now)
             .duration_since(self.started)
