@@ -4,7 +4,9 @@ use super::*;
 use std::collections::BTreeSet;
 use std::path::Path;
 
+mod combinations;
 mod components;
+mod experiment;
 
 fn reference() -> Value {
     serde_json::from_str(include_str!(

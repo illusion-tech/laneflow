@@ -49,8 +49,11 @@ fn path_edges(path: &ManeuverPath) -> Vec<&str> {
 }
 
 fn clip(traffic: &TrafficPackage, path: &ManeuverPath) -> TrafficPackage {
+    clip_paths(traffic, HashSet::from([path.id.as_str()]))
+}
+
+fn clip_paths<'a>(traffic: &'a TrafficPackage, mut paths: HashSet<&'a str>) -> TrafficPackage {
     // 保留完整控制器、相位及其关联路径，不改写相位或移除控制锚点。
-    let mut paths = HashSet::from([path.id.as_str()]);
     loop {
         let required = traffic
             .signals
@@ -250,6 +253,16 @@ fn compile_path(
     programs: &BTreeMap<String, re::RoadEditingCurveProgram>,
 ) -> Value {
     let part = clip(traffic, path);
+    compile_part(traffic, path, &part, programs, None)
+}
+
+fn compile_part(
+    traffic: &TrafficPackage,
+    path: &ManeuverPath,
+    part: &TrafficPackage,
+    programs: &BTreeMap<String, re::RoadEditingCurveProgram>,
+    save: Option<&std::path::Path>,
+) -> Value {
     let dependency_paths = part
         .maneuver_paths
         .iter()
@@ -277,7 +290,7 @@ fn compile_path(
         );
     });
     let _reset = PathKeysReset;
-    assert_eq!(path_keys(&part).unwrap()[&path.id].path_key, original_key);
+    assert_eq!(path_keys(part).unwrap()[&path.id].path_key, original_key);
     let approaches = traffic
         .maneuver_paths
         .iter()
@@ -306,13 +319,13 @@ fn compile_path(
     )
     .unwrap();
     let declared = (|| -> Result<()> {
-        add_profiles(&mut builder, &part)?;
+        add_profiles(&mut builder, part)?;
         builder.add_declaration(re::RoadEditingDeclaration::CanonicalFrame(
             re::CanonicalFrameInput::try_new(LUST_FRAME_ID)?,
         ))?;
-        add_programs(&mut builder, &part, programs, &approaches)?;
-        add_junctions(&mut builder, &part)?;
-        add_signals(&mut builder, &part)?;
+        add_programs(&mut builder, part, programs, &approaches)?;
+        add_junctions(&mut builder, part)?;
+        add_signals(&mut builder, part)?;
         Ok(())
     })();
     if let Err(error) = declared {
@@ -339,11 +352,12 @@ fn compile_path(
     match Compiler::new().compile(unit) {
         Err(e) => rejected("compile", &e, path),
         Ok(output) => {
-            assert!(
-                !emit_lfca(&output)
-                    .expect("complete checked artifact")
-                    .is_empty()
-            );
+            let compiled_anchors = compiled_control_anchors(&output, part);
+            let artifact = emit_lfca(&output).expect("complete checked artifact");
+            assert!(!artifact.is_empty());
+            if let Some(save) = save {
+                fs::write(save, &artifact).unwrap();
+            }
             let edges=part.lane_graph.edges.iter().map(|source| {
                 let key=edge_key(&source.id);
                 let matched=output.lir().lane_edges().filter(|e|e.identity_fields().any(|f|f.value_bytes()==key.as_bytes())).collect::<Vec<_>>();
@@ -355,10 +369,55 @@ fn compile_path(
                 json!({"edge":source.id,"length_mm":edge.length_mm(),"canonical_arc_m":geometry.arc_length_meters(),
                     "source_length_m":source.length,"source_length_delta_m":f64::from(edge.length_mm())/1_000.0-source.length,"all_points_match":true})
             }).collect::<Vec<_>>();
-            json!({"status":"accepted","stage":"compile","edges":edges,"original_path_key":original_key,"dependency_paths":dependency_paths,
-                "stop_lines":part.signals.stop_lines,"maneuver_gates":part.signals.maneuver_gates})
+            let mut result = json!({"status":"accepted","stage":"compile","edges":edges,"original_path_key":original_key,"dependency_paths":dependency_paths,
+                "stop_lines":part.signals.stop_lines,"maneuver_gates":part.signals.maneuver_gates});
+            if save.is_some() {
+                result["compiled_control_anchors"] = compiled_anchors;
+                result["lfca_bytes"] = json!(artifact.len());
+            }
+            result
         }
     }
+}
+
+fn compiled_control_anchors(output: &CompilationOutput, part: &TrafficPackage) -> Value {
+    let lir = output.lir();
+    let keys = path_keys(part).unwrap();
+    assert_eq!(
+        lir.maneuver_gates().len(),
+        part.signals.maneuver_gates.len()
+    );
+    assert_eq!(lir.stop_lines().len(), part.signals.stop_lines.len());
+    let rows = part.signals.maneuver_gates.iter().map(|source| {
+        let key = &keys[&source.maneuver_path_id];
+        let source_path = part.maneuver_paths.iter().find(|p|p.id == source.maneuver_path_id).unwrap();
+        let source_movement = part.movements.iter().find(|m|m.id == source_path.movement_id).unwrap();
+        let matched = lir.maneuver_paths().filter(|path| {
+            let movement = lir.movement(path.movement()).unwrap();
+            let junction = lir.junction(movement.junction()).unwrap();
+            path.identity_fields().any(|f|f.value_bytes() == key.path_key.as_bytes())
+                && junction.identity_fields().any(|f|f.value_bytes() == key.junction_key.as_bytes())
+                && movement.directed_entry_approach_key() == token(&source_movement.from_road_edge_id)
+                && movement.directed_exit_approach_key() == token(&source_movement.to_road_edge_id)
+        }).collect::<Vec<_>>();
+        assert_eq!(matched.len(),1,"complete path identity");
+        let gates = lir.maneuver_gates().filter(|g|g.maneuver_path() == matched[0].ordinal()).collect::<Vec<_>>();
+        assert_eq!(gates.len(),1);
+        let gate = gates[0];
+        assert_eq!(gate.transition_index(),source.transition_index);
+        let stop = lir.stop_line(gate.stop_line()).unwrap();
+        assert!(stop.identity_fields().any(|f|f.value_bytes() == id_key(&source.stop_line_id).as_bytes()));
+        let source_stop = part.signals.stop_lines.iter().find(|s|s.id == source.stop_line_id).unwrap();
+        let edge = lir.lane_edge(stop.lane_edge()).unwrap();
+        assert!(edge.identity_fields().any(|f|f.value_bytes() == edge_key(&source_stop.edge_id).as_bytes()));
+        let laneflow_compiler::CanonicalSignalControl::Group(group) = gate.signal_control() else {panic!("signal group retained");};
+        assert!(lir.signal_group(group).unwrap().identity_fields().any(|f|f.value_bytes() == id_key(&source.signal_control.group_id).as_bytes()));
+        let end = edge.spatial_geometry().unwrap().points().last().unwrap();
+        json!({"gate":source.id,"path":source.maneuver_path_id,"transition_index":gate.transition_index(),
+            "stop_line":source.stop_line_id,"stop_edge":source_stop.edge_id,"signal_group":source.signal_control.group_id,
+            "stop_edge_length_mm":edge.length_mm(),"stop_endpoint_f32_bits":[end.x.to_bits(),end.y.to_bits(),end.z.to_bits()]})
+    }).collect::<Vec<_>>();
+    json!(rows)
 }
 
 fn run(observation: &observe::EmissionObservation, samples: &Value) -> (Value, Value) {

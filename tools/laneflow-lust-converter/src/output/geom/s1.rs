@@ -276,6 +276,7 @@ pub(crate) fn search(input: &EdgeInput, budget: SearchBudget) -> EdgeSearch {
     }
 }
 
+pub(crate) mod grid;
 mod traverse;
 
 pub(super) fn sample_if_active(
@@ -283,6 +284,9 @@ pub(super) fn sample_if_active(
     control: [Vec3; 6],
     sink: &mut EmissionSink,
 ) -> Option<Result<()>> {
+    if let Some(result) = grid::sample_if_active(span_index, control, sink) {
+        return Some(result);
+    }
     ACTIVE.with(|slot| {
         slot.borrow_mut()
             .as_mut()
