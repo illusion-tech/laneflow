@@ -1,43 +1,43 @@
 {
   "budget-comparison.json": {
-    "bytes": 33986,
-    "sha256": "9a23e3b9cdb8df10ef6fcacf42f35a40cfb9c484879a21e598ef91df002f34cb"
+    "bytes": 32965,
+    "sha256": "c833bdbec6ac759d463d82e9027a729ebf900c3d4f4b435663ea5d6f6df661b4"
   },
   "budget-measurements.json": {
-    "bytes": 45511,
-    "sha256": "3e733a5a1ae359ca0081037c4600b2074757d942a477a23fa85bcbe284aae99d"
+    "bytes": 44009,
+    "sha256": "9f33d6dd90c6cb2b1fffab136af3c4e66f83b4e674ea48f9b797c65fc0efe8e5"
   },
   "budget-results.json": {
-    "bytes": 994137,
-    "sha256": "3af76df1eded308c11d8d3a1573e2b1f4a8957ae883e1a3f736fff66e7e14f78"
+    "bytes": 960471,
+    "sha256": "ab25001743687ce8a1aa0067d433138f5f792d457d2b8cdf7cb9d88a8a8e263e"
   },
   "cohort.json": {
-    "bytes": 34817,
-    "sha256": "79a8beb726cc6c8c78276c080f1696c7ab024b0ff3e4956127ea0643fed39b04"
+    "bytes": 33737,
+    "sha256": "3f29132d9c0479abf7229e2fd1ee874e6b086bd6fe44ec9afebd30528235487c"
   },
   "coverage-comparison.json": {
-    "bytes": 22985,
-    "sha256": "34f3d9cce1765866d66489cce8478e7c5c9946fec582078a806d41fd3c01550a"
+    "bytes": 22260,
+    "sha256": "7b51902cf9130af12663d3333be63b23b9c56d5d61690432c47b2a2a019ed82f"
   },
   "coverage-timing.json": {
-    "bytes": 8050,
-    "sha256": "6f2bb309391d89576f4f9f370f202a583fe2f58764f8e10fef54bb6376961276"
+    "bytes": 7842,
+    "sha256": "0e9f3a4192cda4a96857993d7bd113b8d717ab9ed75a2737126bd7d12a287c0a"
   },
   "environment.json": {
-    "bytes": 1071,
-    "sha256": "47db130f69919dace40c0cc23453ae4f5a365ad8a7e4dadbb1c333574efb44bc"
+    "bytes": 1036,
+    "sha256": "7ef2349e5f1714bc6b73960ca68fe6db7667d687cd3990e95dab2995966cc9af"
   },
   "inputs.json": {
     "bytes": 159839,
     "sha256": "e8c2cd88710b75fe7017fe74ec874e3315cab0c220bbd6280500f4ca9f73fbc4"
   },
   "protocol.json": {
-    "bytes": 3926,
-    "sha256": "b8dd3e95ac270e948c7bed3db17fdf65a9700212a4c0f9f41a652166b43a9fcb"
+    "bytes": 4077,
+    "sha256": "709f243f1bce41620caabe6d80bebc6d5ced26601187424c64f77bac0fd5461d"
   },
   "resource-counts.json": {
-    "bytes": 1891,
-    "sha256": "9a2f9b5e83707f5887de0d553c252a62fabf0adbaede50306fb93d62dc004930"
+    "bytes": 1833,
+    "sha256": "7703f721186d7d869955c58935324198d3e5f11f3c57c307ecd85c9950489204"
   },
   "results.json": {
     "bytes": 2873186,
