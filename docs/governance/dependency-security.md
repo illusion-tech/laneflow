@@ -145,7 +145,7 @@ LaneFlow 固定 sccache `0.19.0` 作为 CI 编译缓存（内容寻址编译缓�
 
 作用域与信任面边界（依据 #1071 评估记录 §2/§7）：
 
-- `RUSTC_WRAPPER` 只在 `Rust checks`、`Placement fixture tests`、`Urban harness tests` 三个 job 启用；`Wire toolchain audit` 不启用。wire 审计的 hermetic 子编译经 `HERMETIC_SCRUB_ENV_EXACT` 剔除包装器环境，`SCCACHE_*` 配置对审计编译惰性；审计器引导构建不经缓存路径，门禁信任面不扩大。
+- `RUSTC_WRAPPER` 只在 `Rust checks`、`Evidence fixture tests`、`Placement fixture tests`、`Urban harness tests` 四个 job 启用；`Wire toolchain audit` 不启用。wire 审计的 hermetic 子编译经 `HERMETIC_SCRUB_ENV_EXACT` 剔除包装器环境，`SCCACHE_*` 配置对审计编译惰性；审计器引导构建不经缓存路径，门禁信任面不扩大。
 - 后端为 GitHub Actions 缓存（`SCCACHE_GHA_*`，键前缀 `sccache-v1-`）：写只在 `main` push，PR 与 `merge_group` 只读；失败语义为默认失败关闭，不设置 `SCCACHE_IGNORE_SERVER_IO_ERROR`。缓存内容无签名的残余风险按 #1071 评估记录 §4 的缓解清单处置（编译器身份入键、命中率统计进日志、`SCCACHE_GHA_VERSION` 换代清场、配额纳入运维观察）。
 - sccache 以 Apache-2.0 发布，落在本文允许列表内；作为 workspace 外二进制工具，不新增 crate 依赖面，RustSec / cargo-deny 审计归属不变。
 
