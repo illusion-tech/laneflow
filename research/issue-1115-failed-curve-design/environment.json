@@ -1,0 +1,26 @@
+{
+  "captured_utc": "2026-10-28T03:34:17.3007659Z",
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29695",
+    "BuildNumber": "29695",
+    "TotalVisibleMemorySize": 64680184
+  },
+  "rustc": [
+    "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "binary: rustc",
+    "commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67",
+    "commit-date: 2026-10-13",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.1",
+    "LLVM version: 23.1.1"
+  ],
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "powershell": "7.6.5",
+  "timing_scope": "fixed-input research, no idle gate, no allocator peak or production throughput claim"
+}
