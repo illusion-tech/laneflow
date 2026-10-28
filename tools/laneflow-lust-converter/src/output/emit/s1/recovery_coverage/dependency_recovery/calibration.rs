@@ -6,6 +6,32 @@ mod experiment;
 
 #[test]
 #[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
+fn fixed_signal_seam_feasibility() {
+    let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
+    assert!(!out.exists(), "fresh seam diagnostic output");
+    fs::create_dir_all(&out).unwrap();
+    let endpoints: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
+    ))
+    .unwrap();
+    let seam: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1113-closure-feasibility/seam-input.json"
+    ))
+    .unwrap();
+    let left: [[u64; 3]; 6] =
+        serde_json::from_value(endpoints["sumo::-16502_0_0"]["control_f64_bits"].clone()).unwrap();
+    let right: [[u64; 3]; 6] = serde_json::from_value(seam["control_f64_bits"].clone()).unwrap();
+    let left = std::array::from_fn(|i| left[i].map(f64::from_bits));
+    let right = std::array::from_fn(|i| right[i].map(f64::from_bits));
+    let started = Instant::now();
+    let result = sampler::feasibility::diagnose_seam(left, right);
+    let seconds = started.elapsed().as_secs_f64();
+    recovery::write_json(&out, "seam-feasibility.json", &result);
+    recovery::write_json(&out, "timing.json", &json!({"seconds":seconds}));
+}
+
+#[test]
+#[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
 fn fixed_signal_guided_recovery() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh guided output");
