@@ -3,6 +3,8 @@
 use super::*;
 use experiment::{merge, pool};
 
+mod stream_b_curve_design_c06_c08;
+
 const EDGES: [&str; 2] = ["sumo::-16502_0_0", "sumo::-28860_3_0"];
 
 fn normalized(value: &Value) -> Value {

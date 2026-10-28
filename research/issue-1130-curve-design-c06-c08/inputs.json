@@ -1,0 +1,244 @@
+{
+  "sumo:--30306#2_0": {
+    "clamp_sources": [
+      {
+        "kind": "fan_out",
+        "pairs": [
+          "sumo::-8806_1_0->sumo:--30306#2_0",
+          "sumo::-8806_4_0->sumo:--30306#2_0"
+        ]
+      },
+      {
+        "kind": "fan_out",
+        "pairs": [
+          "sumo:--30306#2_0->sumo::-10034_0_0",
+          "sumo:--30306#2_0->sumo::-10034_1_0"
+        ]
+      }
+    ],
+    "clamps": [
+      [
+        13830382990226752532,
+        0,
+        13819536566170029895
+      ],
+      [
+        13829657370811440093,
+        0,
+        13824880922277640839
+      ]
+    ],
+    "original": {
+      "error": "invalid SUMO network model: span 1/9 (chord 0.5672 m) is not emittable: invalid SUMO network model: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (-5772.83, 0, 1403.97); last error: invalid SUMO network model: repaired curve sampling exhausted: 3 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (-5772.64679105303, 0, 1404.0034971700027); last error: invalid SUMO network model: repaired curve emits a degenerate canonical segment: quantized length 0.059592444 m <= 0.1 m at (-5772.3286, 0, 1404.0492); start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-8806_1_0->sumo:--30306#2_0, sumo::-8806_4_0->sumo:--30306#2_0]); finish tangent: interior Catmull-Rom tangent"
+    },
+    "points": [
+      [
+        13886440729539531244,
+        0,
+        4653889936630732554
+      ],
+      [
+        13886441345266042798,
+        0,
+        4653889540806546555
+      ],
+      [
+        13886450207329762673,
+        0,
+        4653881272479105679
+      ],
+      [
+        13886458871481389548,
+        0,
+        4653874455507013468
+      ],
+      [
+        13886468107379062866,
+        0,
+        4653864076117247263
+      ],
+      [
+        13886473571951852913,
+        0,
+        4653857039242829496
+      ],
+      [
+        13886478596719991849,
+        0,
+        4653851013919109284
+      ],
+      [
+        13886492571512780882,
+        0,
+        4653832542123762647
+      ],
+      [
+        13886507524870918636,
+        0,
+        4653810419949811794
+      ],
+      [
+        13886511164254406574,
+        0,
+        4653802679387952251
+      ]
+    ]
+  },
+  "sumo::-10004_3_0": {
+    "clamp_sources": [
+      {
+        "kind": "fan_out",
+        "pairs": [
+          "sumo:-30608#6_2->sumo::-10004_0_2",
+          "sumo:-30608#6_2->sumo::-10004_3_0"
+        ]
+      },
+      {
+        "kind": "pair"
+      }
+    ],
+    "clamps": [
+      [
+        13828683701271507606,
+        0,
+        13827042781216781275
+      ],
+      [
+        4583273133181965457,
+        0,
+        13830551310804983796
+      ]
+    ],
+    "original": {
+      "error": "invalid SUMO network model: span 2/3 (chord 0.9427 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 9 pieces (chord floor) each turn 4.91 deg > 1.90 deg at (1182.3035, 0, 749.2914999999999); start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+    },
+    "points": [
+      [
+        4652926412601079890,
+        0,
+        4649832210958657782
+      ],
+      [
+        4652914581855965020,
+        0,
+        4649806526367032934
+      ],
+      [
+        4652914713797360353,
+        0,
+        4649796586781917839
+      ]
+    ]
+  },
+  "sumo::-10004_8_0": {
+    "clamp_sources": [
+      {
+        "kind": "pair"
+      },
+      {
+        "kind": "fan_out",
+        "pairs": [
+          "sumo::-10004_4_0->sumo:-31916_0",
+          "sumo::-10004_8_0->sumo:-31916_0"
+        ]
+      }
+    ],
+    "clamps": [
+      [
+        4583273133181965457,
+        0,
+        13830551310804983796
+      ],
+      [
+        4606426816166613894,
+        0,
+        13824266064020501143
+      ]
+    ],
+    "original": {
+      "error": "invalid SUMO network model: span 2/4 (chord 1.6041 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 15 pieces (chord floor) each turn 2.71 deg > 1.90 deg at (1182.9439345677854, 0, 746.1358625055236); start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)"
+    },
+    "points": [
+      [
+        4652914713797360353,
+        0,
+        4649796586781917839
+      ],
+      [
+        4652914933699685908,
+        0,
+        4649779874205175644
+      ],
+      [
+        4652927512112707666,
+        0,
+        4649752078551225467
+      ],
+      [
+        4652952317095030292,
+        0,
+        4649723315327042847
+      ]
+    ]
+  },
+  "sumo::-8806_4_0": {
+    "clamp_sources": [
+      {
+        "kind": "fan_out",
+        "pairs": [
+          "sumo:-31086_0->sumo::-8806_4_0",
+          "sumo:-31086_0->sumo::-8806_5_0"
+        ]
+      },
+      {
+        "kind": "fan_out",
+        "pairs": [
+          "sumo::-8806_1_0->sumo:--30306#2_0",
+          "sumo::-8806_4_0->sumo:--30306#2_0"
+        ]
+      }
+    ],
+    "clamps": [
+      [
+        4603384346500715723,
+        0,
+        13828895360562128473
+      ],
+      [
+        13830382990226752532,
+        0,
+        13819536566170029895
+      ]
+    ],
+    "original": {
+      "error": "invalid SUMO network model: span 2/5 (chord 0.6382 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 6 pieces (chord floor) each turn 3.46 deg > 1.90 deg at (-5769.81, 0, 1405.8818448045154); start tangent: interior Catmull-Rom tangent; finish tangent: fillet arc tangent (prescribed)"
+    },
+    "points": [
+      [
+        13886438915345345413,
+        0,
+        4653907352894916526
+      ],
+      [
+        13886438024740926915,
+        0,
+        4653900755825149870
+      ],
+      [
+        13886438024740926915,
+        0,
+        4653895654091196989
+      ],
+      [
+        13886438926340461691,
+        0,
+        4653892047693057884
+      ],
+      [
+        13886440729539531244,
+        0,
+        4653889936630732554
+      ]
+    ]
+  }
+}
