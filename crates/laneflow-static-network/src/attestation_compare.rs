@@ -671,10 +671,12 @@ fn f32_bits_whole(expected: &f32, actual: &f32) -> FieldDiff {
     f32_whole(expected, actual)
 }
 
-/// `origin` 与期望值逐字段比对（字节身份字段除外，设计 §2.2 / §4.2）。
+/// `origin` 与期望值逐字段比对（设计 §2.2 / §4.2）。字节身份字段只在
+/// `byte_identity` 为真时比对：编辑来源有独立期望值，发布来源没有。
 pub(crate) fn compare_origin(
     origin: &CanonicalNetworkOrigin,
     expectation: &RootAttestationExpectation,
+    byte_identity: bool,
 ) -> Result<(), MismatchEvidence> {
     let field = |name, expected: String, actual: String| {
         Err(evidence(MismatchSite::OriginField {
@@ -690,6 +692,22 @@ pub(crate) fn compare_origin(
             format!("{:?}", expectation.network_revision()),
             format!("{:?}", origin.network_revision()),
         );
+    }
+    if byte_identity {
+        if origin.canonical_artifact_digest() != expectation.reference_digest() {
+            return field(
+                OriginField::CanonicalArtifactDigest,
+                format!("{:?}", expectation.reference_digest()),
+                format!("{:?}", origin.canonical_artifact_digest()),
+            );
+        }
+        if origin.canonical_artifact_byte_length() != expectation.reference_byte_length() {
+            return field(
+                OriginField::CanonicalArtifactByteLength,
+                expectation.reference_byte_length().get().to_string(),
+                origin.canonical_artifact_byte_length().get().to_string(),
+            );
+        }
     }
     let expected_contracts = expected_static_contract_versions();
     let origin_field = |name: OriginField, expected: u16, actual: u16| {

@@ -1,17 +1,19 @@
-//! 发布来源的共享路网修订认证门面（#959 切片 A；完整性设计 §4.2）。
+//! 共享路网修订认证门面（#959 切片 A、#529；完整性设计 §4.2）。
 //!
-//! 从宿主持有的 [`PublishedLfcaReference`] 组装修订来源期望值并调用
-//! `laneflow-static-network` 的认证核心；本 crate 不解析 asset key、不做
-//! 文件 I/O。宿主在安装、恢复、Spatial 绑定与切换之前及在用修订审计时调用；
-//! 编辑来源（committed `RoadEditingState`）分支随 #529 落地。
+//! 发布来源从宿主持有的 [`PublishedLfcaReference`] 组装修订来源期望值；编辑来源
+//! 由宿主重编译已提交的 [`RoadEditingState`]，期望值取自重编译所得的候选修订。
+//! 两者都调用 `laneflow-static-network` 的认证核心；本 crate 不依赖编译器、不解析
+//! asset key、不做文件 I/O。宿主在安装、恢复、Spatial 绑定与切换之前及在用修订
+//! 审计时调用。
 
 use laneflow_format::{BoundedReReadableObjectSource, FormatLimits};
 use laneflow_static_network::{
-    AttestationOutcome, AttestationTelemetry, RootAttestationExpectation,
-    SharedNetworkBuildOptions, SharedNetworkRevision, attest_shared_network_revision,
+    AttestationOutcome, AttestationTelemetry, RecompileFailure, RootAttestationExpectation,
+    SharedNetworkBuildOptions, SharedNetworkRevision, attest_recompiled_shared_network_revision,
+    attest_shared_network_revision,
 };
 
-use crate::PublishedLfcaReference;
+use crate::{PublishedLfcaReference, RoadEditingState};
 
 /// 认证发布来源的共享路网修订（术语表：shared network revision authentication）。
 ///
@@ -54,6 +56,44 @@ where
         root,
         lfca,
         expectation,
+        format_limits,
+        build_options,
+        telemetry,
+    )
+}
+
+/// 认证编辑来源的共享路网修订（完整性设计 §2.2、§4.2 编辑来源分支）。
+///
+/// `recompile` 是宿主的重编译路径（`committed-road-editing-state.md` §4）：读取
+/// `state`，逐模块 `LFRE` 准入、编译、发射与后发射检查，返回 exact LFCA 字节；
+/// 宿主须使用构建 `root` 时的同一编译器构建与同一组参数。认证在首次尝试与失配
+/// 复算中各调用一次，候选修订的完整 `origin`（含 LFCA digest / exact length）即
+/// 期望值，任何值都不取自被认证修订自身。`format_limits` 与 `build_options` 原样
+/// 传给 reader / builder。
+///
+/// 重编译失败按 [`RecompileFailure`] 分类：内容失败判因 `来源`（经复算确认），
+/// 资源失败与取消为操作失败。`RoadEditingState` 失真（仍可编译但内容不同）表现为
+/// `NetworkRevisionId` 失配，判因 `无法判因`；派生表失真判因 `共享路网修订`。
+/// 处置按完整性设计 §3 / §7，与 [`attest_published_shared_network_revision`] 相同。
+///
+/// # Panics
+///
+/// 重编译闭包与认证过程的 panic 按阶段以 `catch_unwind` 包住，不向宿主传播
+/// （设计 §2.4）；`panic=abort` 构建下按进程终止语义处理。
+pub fn attest_editable_shared_network_revision<F>(
+    root: &SharedNetworkRevision,
+    state: &RoadEditingState,
+    mut recompile: F,
+    format_limits: FormatLimits,
+    build_options: SharedNetworkBuildOptions<'_>,
+    telemetry: Option<&mut dyn AttestationTelemetry>,
+) -> AttestationOutcome
+where
+    F: FnMut(&RoadEditingState) -> Result<Vec<u8>, RecompileFailure>,
+{
+    attest_recompiled_shared_network_revision(
+        root,
+        &mut || recompile(state),
         format_limits,
         build_options,
         telemetry,

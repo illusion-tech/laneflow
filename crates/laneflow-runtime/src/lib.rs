@@ -20,7 +20,9 @@ pub use admin::cutover_transaction::{
     DEFAULT_MAX_RECORDS_PER_PUMP, PumpOutcome,
 };
 pub use admin::migration_journal::{DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, MigrationJournalStats};
-pub use admin::root_attestation::attest_published_shared_network_revision;
+pub use admin::root_attestation::{
+    attest_editable_shared_network_revision, attest_published_shared_network_revision,
+};
 pub use admin::snapshot::{
     CapturedManeuverTraversal, CapturedManeuverTraversalPhase, CapturedParkingBinding,
     CapturedParkingTarget, CapturedRoute, CapturedSnapshot, CapturedVehicle,

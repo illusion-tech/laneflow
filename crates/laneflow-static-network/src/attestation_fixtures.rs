@@ -29,6 +29,15 @@ pub fn flip_lane_length(root: &mut SharedNetworkRevision, index: usize) {
     root.traffic.lane_lengths_millimetres[index] ^= 1;
 }
 
+/// 改写唯一可变修订的指定分区规划提示边界权重（派生表失真）。
+///
+/// # Panics
+/// `index` 不在边界权重列内时 panic。
+pub fn perturb_edge_boundary_weight(root: &mut SharedNetworkRevision, index: usize) {
+    let weight = &mut root.planning_hints.edge_boundary_weights[index];
+    *weight = weight.wrapping_add(1);
+}
+
 /// 在当前线程的一次认证调用中依次替换修订比较视图，退出（含 unwind）后清理。
 /// 来源准备、比较器、来源复核与复算仍执行真实路径；不预制认证结果。
 ///

@@ -503,3 +503,6 @@ fn cross_revision_editable_to_published_retires_diff_base() {
         CommittedNetworkSource::Published { .. }
     ));
 }
+
+#[path = "editable_attestation.rs"]
+mod attestation;

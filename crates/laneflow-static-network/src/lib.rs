@@ -33,8 +33,9 @@ use std::sync::Arc;
 pub use attestation::{
     AttestationCause, AttestationEvent, AttestationOutcome, AttestationReport, AttestationStage,
     AttestationTelemetry, AttestationVerdict, Disposition, MismatchEvidence, MismatchSite,
-    OperationFailure, OperationFailureKind, OriginField, RootAttestationExpectation, RootComponent,
-    SourceAuditNote, SourceFailureDetail, TelemetryDeliveryError, TraceStep,
+    OperationFailure, OperationFailureKind, OriginField, RecompileFailure, RecompileSource,
+    RootAttestationExpectation, RootComponent, SourceAuditNote, SourceFailureDetail,
+    TelemetryDeliveryError, TraceStep, attest_recompiled_shared_network_revision,
     attest_shared_network_revision,
 };
 pub use builder::{
