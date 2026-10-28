@@ -1,0 +1,125 @@
+{
+  "schema": "laneflow-round2-curve-design-cohort",
+  "stream": "stream-b",
+  "baseline_main": "779bdd22d6d596cc5a9c148abec978dc87ee7fe4",
+  "method_source": "research/issue-1115-failed-curve-design/design.md",
+  "round1_evidence": "coverage-diagnosis-20261028/run-00/diagnosis.json; research/issue-1121-coverage-diagnosis/README.md",
+  "components": [
+    {
+      "code": "C06",
+      "id": "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0",
+      "path_count": 1,
+      "paths": "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0",
+      "failed_edges": [
+        "sumo::-10004_3_0",
+        "sumo::-10004_8_0"
+      ],
+      "candidate_edges": []
+    },
+    {
+      "code": "C08",
+      "id": "sumo:-10034:--30306#2_0-to---30306#1_0::-10034_0_0",
+      "path_count": 4,
+      "paths": [
+        "sumo:-10034:--30306#2_0-to---30306#1_0::-10034_0_0",
+        "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0",
+        "sumo:-8806:--30306#3_0-to---30306#2_0::-8806_1_0",
+        "sumo:-8806:-31086_0-to---30306#2_0::-8806_4_0"
+      ],
+      "failed_edges": [
+        "sumo:--30306#2_0",
+        "sumo::-10034_0_0",
+        "sumo::-8806_4_0"
+      ],
+      "candidate_edges": [
+        "sumo::-10034_0_0"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "sumo::-10004_3_0",
+      "source_length_m": 5.11,
+      "tangent_mechanism": "fillet_both_ends",
+      "entry_basis": [
+        {
+          "span_index_zero_based": 1,
+          "problem_kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition",
+          "round1_status": "local_witness",
+          "visited_boxes": 2,
+          "certificate_leaves": 0,
+          "witness_t_f64_bits": 4598175219545276416,
+          "injected_stop_label": "retained_family_exhausted"
+        },
+        {
+          "span_index_zero_based": 1,
+          "problem_kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition",
+          "round1_status": "unresolved",
+          "visited_boxes": 32000000,
+          "certificate_leaves": 0,
+          "witness_t_f64_bits": null,
+          "injected_stop_label": null
+        }
+      ]
+    },
+    {
+      "id": "sumo::-10004_8_0",
+      "source_length_m": 12.69,
+      "tangent_mechanism": "fillet_both_ends",
+      "entry_basis": [
+        {
+          "span_index_zero_based": 1,
+          "problem_kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition",
+          "round1_status": "local_witness",
+          "visited_boxes": 3,
+          "certificate_leaves": 0,
+          "witness_t_f64_bits": 4593671619917905920,
+          "injected_stop_label": "retained_family_exhausted"
+        },
+        {
+          "span_index_zero_based": 1,
+          "problem_kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition",
+          "round1_status": "unresolved",
+          "visited_boxes": 32000000,
+          "certificate_leaves": 0,
+          "witness_t_f64_bits": null,
+          "injected_stop_label": null
+        }
+      ]
+    },
+    {
+      "id": "sumo:--30306#2_0",
+      "source_length_m": 67.22,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "entry_basis": {
+        "span_index_zero_based": 0,
+        "problem_kind": "first_chord",
+        "direction_source": "start_boundary_clamp",
+        "round1_status": "necessary_condition_excluded",
+        "visited_boxes": 81,
+        "certificate_leaves": 41,
+        "witness_t_f64_bits": null,
+        "injected_stop_label": null
+      }
+    },
+    {
+      "id": "sumo::-8806_4_0",
+      "source_length_m": 5.73,
+      "tangent_mechanism": "interior_or_mixed",
+      "entry_basis": {
+        "span_index_zero_based": 1,
+        "problem_kind": "last_chord",
+        "direction_source": "fillet_not_a_direction_condition",
+        "round1_status": "local_witness",
+        "visited_boxes": 1,
+        "certificate_leaves": 0,
+        "witness_t_f64_bits": 4602678819172646912,
+        "injected_stop_label": "retained_family_exhausted"
+      }
+    }
+  ]
+}
