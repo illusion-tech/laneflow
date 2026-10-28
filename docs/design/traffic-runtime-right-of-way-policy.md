@@ -611,7 +611,7 @@ grant 未发生 crossing 时不提交任何成员或 reservation；whole-vehicle
 
 ### 6.1 快照分类
 
-| 类别     | LFRS 6 / runtime state 5 合同                                                                                               |
+| 类别     | LFRS 7 / runtime state 5 合同                                                                                               |
 | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | 策略绑定 | selection tag；Pinned 保存 policy StableId；exact 内容仍由快照的 LFCA origin 绑定                                           |
 | 排序历史 | 每车当前 Gate occurrence 的 firstEligibleTick；None 与 tick 0 明确区分                                                      |

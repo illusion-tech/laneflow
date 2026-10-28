@@ -1,6 +1,6 @@
-# Runtime Snapshot v6
+# Runtime Snapshot v7
 
-`runtime-snapshot.fbs` 是当前唯一 LFRS schema，`format_version = 6`、
+`runtime-snapshot.fbs` 是当前唯一 LFRS schema，`format_version = 7`、
 `runtime_state_version = 5`。必填 `world_policy` 保存闭合选择：`NotRequired = 1`
 禁止携带 policy，`Pinned = 2` 必须携带 policy StableId；0 和未知 tag 拒绝。
 策略内容由 LFCA origin 绑定，步长派生间隙在恢复时重新计算。
@@ -22,6 +22,16 @@ reservation 的 exact Gate/passages、route、车辆全长和绑定修订边长�
 比较。wire 使用 StableId 规范序，lowering 后才按当前修订 ordinal 排序。已清 cell 只能由
 同地址 `ActualClear` 闭合，`CutoverFloor` 不冒充真实清空。
 
+来源绑定按 `source_kind` 封闭为两种形状（`committed-road-editing-state.md` §6）：
+
+- `Published = 1`：必须携带 `source_published`（asset key、LFCA digest / length 与
+  `network_revision`），不得携带 `source_editable`；
+- `Editable = 2`：必须携带 `source_editable`，只含道路编辑状态摘要（BLAKE3-256）、
+  全部来源字节的精确总长度与模块数，不内嵌 `LFRE` 字节；不得携带 `source_published`。
+  恢复要求宿主提供的 `RoadEditingState` 三项逐值相等；`EditableDiffBase` 不入档。
+
+`Unspecified = 0` 与未知值拒绝；快照来源种类必须与宿主提供的目标来源种类一致。
+
 clean regeneration 使用固定 flatc 25.12.19：
 
 ```text
@@ -29,5 +39,6 @@ cargo +1.99.1 run --locked -p xtask -- check-runtime-snapshot-codegen --flatc <f
 ```
 
 配置仅包含四类语义容量与固定步长，不包含 worker；宿主为安装/恢复另行传入执行配置。
-Runtime 状态仍为 5、摘要仍为 7。仓库只保留当前 reader/writer，旧版本输入明确失败关闭；
-真实 v5 拒绝向量（包含缺省 worker）位于 Runtime 的 `tests/fixtures/snapshot-v5`。
+Runtime 状态为 5、确定性状态摘要为 8，来源绑定不进入摘要前像。
+仓库只保留当前 reader/writer，旧版本输入明确失败关闭；真实 v5 拒绝向量（包含缺省 worker）
+位于 Runtime 的 `tests/fixtures/snapshot-v5`。

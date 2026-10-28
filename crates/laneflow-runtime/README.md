@@ -18,7 +18,7 @@ P3/P5 仍由协调器串行（#706）。执行器 panic 在 join 后使世界失
 策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
 `policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
 
-LFRS 6 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
+LFRS 7 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
 history，digest 8 纳入相同逻辑字段。downstream 以热路径物理区间并集保存，并由
 reservation 的 route/Gate/passages、车辆全长和边长在 capture/restore/cutover 精确重建；
 不为可合并的物理区间保存含糊的单一 route occurrence。切换描述符 2 保持字段形状；

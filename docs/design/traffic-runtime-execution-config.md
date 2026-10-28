@@ -8,7 +8,7 @@
 **配套合同**: [并行执行](traffic-runtime-parallel-execution.md)、
 [快照](traffic-runtime-snapshot.md)、[修订切换](traffic-runtime-revision-cutover.md)
 
-本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 6 只保存
+本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 7 只保存
 交通配置，安装和恢复支持 worker 1–16（#705 开放）。活动世界独占执行资源，私有
 候选只持有交通状态和目标计划；P2 运动/前视预览、P3 已冻结只读输入上的候选字段
 求值与 P5 逐车最终运动按 worker 数真实分发（#705/#706），协调器保序规范组装，
@@ -255,17 +255,17 @@ epoch、WorldGeneration 各自承担其原有寿命，不相互冒充。
 
 ## 6. 格式与版本轴
 
-| 轴                                   | 当前合同                                  | 原因                                                  |
-| ------------------------------------ | ----------------------------------------- | ----------------------------------------------------- |
-| Rust API                             | 交通与执行配置分离，显式安装/恢复参数     | 1.0 前破坏性清扫，无兼容别名                          |
-| LFRS `format_version`                | 6                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动 |
-| schema / namespace                   | `runtime-snapshot/v6` / V6                | 只保留唯一当前 wire binding                           |
-| `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                            |
-| `RUNTIME_STATE_DIGEST_VERSION`       | 7                                         | 规范前像已经排除 worker，状态版本头及其余编码不变     |
-| 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 摘要算法和规范化规则不变                              |
-| LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值，不因执行配置升级              | 静态事实不增加执行分配                                |
-| cutover descriptor format            | 2                                         | 不修改持久化迁移描述符                                |
-| Observation / Routing 绑定           | 各自现行值，不因执行配置升级              | 不改变交通身份、游标或失效语义                        |
+| 轴                                   | 当前合同                                  | 原因                                                                                                                                          |
+| ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust API                             | 交通与执行配置分离，显式安装/恢复参数     | 1.0 前破坏性清扫，无兼容别名                                                                                                                  |
+| LFRS `format_version`                | 7                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动；编辑来源绑定见 [`committed-road-editing-state.md`](committed-road-editing-state.md) §6 |
+| schema / namespace                   | `runtime-snapshot/v7` / V7                | 只保留唯一当前 wire binding                                                                                                                   |
+| `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                                                                                                                    |
+| `RUNTIME_STATE_DIGEST_VERSION`       | 8                                         | 规范前像已经排除 worker；算法为 BLAKE3-256（#1035），状态版本头及其余编码不变                                                                 |
+| 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 摘要算法和规范化规则不变                                                                                                                      |
+| LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值，不因执行配置升级              | 静态事实不增加执行分配                                                                                                                        |
+| cutover descriptor format            | 2                                         | 不修改持久化迁移描述符                                                                                                                        |
+| Observation / Routing 绑定           | 各自现行值，不因执行配置升级              | 不改变交通身份、游标或失效语义                                                                                                                |
 
 格式 6、状态 5、摘要 7 刻意分离版本轴。若修改交通状态或摘要前像，必须重做版本判断；
 不能借配置拆分免除升级。各唯一事实源同步更新，不让两个“当前格式”并存。

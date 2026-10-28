@@ -151,7 +151,7 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
-    /// 游标/策略选择与当前世界不一致、target 来源修订不匹配或信号程序无效、
+    /// 游标/策略选择与当前世界不一致、target 来源修订或编辑来源差异基线不匹配、信号程序无效、
     /// 描述符一致性预检失败（缺语义差异、修订相等、派生版本不受支持或 origin 与
     /// 实际制品不符，[`CutoverError::Descriptor`]，先于 LFSD 读取）、目标修订策略
     /// 连续性失败（目标缺当前固定策略或其法规身份变化，`PolicyInstall` /
@@ -208,6 +208,9 @@ impl TrafficWorld {
         self.state.validate_cutover_policy(&target_revision)?;
         if target_source.network_revision() != target_origin.network_revision() {
             return Err(CutoverError::TargetSourceRevisionMismatch);
+        }
+        if !target_source.diff_base_corresponds_to(target_origin) {
+            return Err(CutoverError::TargetEditableDiffBaseMismatch);
         }
         // 目标信号程序按本世界步长复验（install 路径的对等校验）：候选不经
         // `TrafficWorld::install` 构造，相位与步长的合同约束必须在此显式把关。

@@ -142,19 +142,19 @@ fn execution_validation_follows_complete_traffic_restore() {
 }
 
 #[test]
-fn v6_world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
+fn world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
     let (world, _, _) = world_with_vehicle(true);
     let mut bytes = encode_lfrs(&world.capture_snapshot().unwrap());
     let (table, mut fields) = {
         let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
-        assert_eq!(root.format_version(), 6);
+        assert_eq!(root.format_version(), SNAPSHOT_FORMAT_VERSION);
         assert_eq!(root.runtime_state_version(), 5);
         let config = root.world_config();
         assert_eq!(
             config.fixed_delta_time_ms(),
             world.config().fixed_delta_time_ms()
         );
-        assert_eq!(WORLD_CONFIG_V6_FIELDS, 5);
+        assert_eq!(WORLD_CONFIG_FIELDS, 5);
         let table = config._tab.loc();
         let backwards = i32::from_le_bytes(bytes[table..table + 4].try_into().unwrap());
         let vtable = table.checked_sub_signed(backwards as isize).unwrap();
@@ -2032,7 +2032,8 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
     );
 
     let mut unknown_format = valid.clone();
-    unknown_format[format_offset..format_offset + 4].copy_from_slice(&7_u32.to_le_bytes());
+    unknown_format[format_offset..format_offset + 4]
+        .copy_from_slice(&(SNAPSHOT_FORMAT_VERSION + 1).to_le_bytes());
     assert_eq!(
         restore_lfrs(
             &unknown_format,
@@ -2043,7 +2044,9 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             generous_limits(),
         )
         .unwrap_err(),
-        SnapshotRestoreError::UnsupportedFormatVersion { actual: 7 }
+        SnapshotRestoreError::UnsupportedFormatVersion {
+            actual: SNAPSHOT_FORMAT_VERSION + 1
+        }
     );
 
     let mut prior_runtime = valid.clone();
@@ -2093,10 +2096,11 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             generous_limits(),
         )
         .unwrap_err(),
+        // 发布来源快照不写末尾缺省的 `source_editable` 槽，vtable 比登记字段数少 1。
         SnapshotRestoreError::UnknownTableFields {
             table: "RuntimeSnapshot",
-            supported: ROOT_V6_FIELDS,
-            actual: ROOT_V6_FIELDS + 4,
+            supported: ROOT_FIELDS,
+            actual: ROOT_FIELDS - 1 + 4,
         }
     );
 

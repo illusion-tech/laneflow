@@ -268,10 +268,31 @@ RoadEditingState
 
 ## 9. G2 落定清单（实现内容，不属 G1 冻结）
 
-- `RoadEditingState`、其模块类型、构造错误、摘要类型与 `EditableDiffBase` 的 Rust 标识符
-  与模块落点（facade `source` 模块或相邻模块）；
-- 各入口新增的错误变体名，以及它们在现有错误枚举中的位置；
-- `LFRS` 7 的 schema 字段名、来源表形状与 README 绑定；
-- 宿主侧重编译辅助入口是否放进 `laneflow-bevy` 会话，以及其参数形状；
-- 测试与证据：编辑来源的构造 / 摘要单元测试、各入口的对应关系拒绝面、四种来源转换、
-  快照编辑来源往返与失配拒绝。端到端恢复、editable load 初值与认证分支属于 #529。
+以下为 #1119 落定的实现选择：
+
+- **模块落点与标识符**：`laneflow-runtime` facade 模块 `editable_source` 承载
+  `RoadEditingState`、`RoadEditingStateModule`、`InvalidRoadEditingState`、
+  `RoadEditingStateDigest`（及 `ROAD_EDITING_STATE_DIGEST_DOMAIN` /
+  `ROAD_EDITING_STATE_DIGEST_VERSION`）与 `EditableDiffBase`；变体为
+  `CommittedNetworkSource::Editable { state, diff_base }`。均从 crate 根导出。
+- **差异基线构造**：`EditableDiffBase::try_new(lfca_bytes, origin)` 计算一次 SHA-256 与
+  长度，核对与宿主刚构建出的修订 origin 对应（失配返回 `EditableDiffBaseMismatch`），并记录
+  该修订的 `NetworkRevisionId`。因此编辑来源的 `CommittedNetworkSource::network_revision()`
+  取差异基线绑定的修订，现有修订比对逻辑不变；各入口再以目标修订 origin 核对字节对应。
+- **只读借出**：沿用 `TrafficWorld::committed_source()`，编辑变体的两个成员经只读访问器
+  取得，不提供替换入口。
+- **错误变体**：`InstallError::EditableDiffBaseMismatch`（安装与快照恢复共用交通准备路径，
+  恢复经 `SnapshotRestoreError::Install` 报告）；`CutoverError::TargetEditableDiffBaseMismatch`
+  （同修订换根与跨修订直移）；`SnapshotRestoreError::SourceKindMismatch`、
+  `SnapshotRestoreError::UnexpectedSourceBinding { field }` 与
+  `SnapshotRestoreError::EditableSourceBindingMismatch`。
+- **`LFRS` 7**：`SourceKind::Editable = 2`；`EditableSourceBinding { state_digest,
+  state_byte_length, module_count }` 作为根表末尾字段 `source_editable`；schema 位于
+  `schemas/runtime-snapshot/v7`，README 逐项绑定。
+- **宿主重编译辅助入口：不提供生产入口**。`laneflow-bevy` 只在开发依赖中使用编译器，
+  生产依赖中也没有同时依赖编译器、`laneflow-format` 与 `laneflow-static-network` 的
+  crate；为此让 Adapter 引入编译器生产依赖得不偿失。宿主用现有入口组合重编译路径
+  （§4）；`laneflow-runtime` 的编辑来源测试提供这条组合路径，并证明同构建同参数下 LFCA
+  逐字节可复现。
+- **测试**：构造与规范排序、摘要固定向量、各入口的差异基线对应关系、四种来源转换、
+  快照编辑来源往返与拒绝面。端到端恢复、editable load 初值与认证分支属于 #529。

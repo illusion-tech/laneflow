@@ -9,7 +9,7 @@ use crate::kernel::state::WorldState;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
 use laneflow_static_contract::{
     ConflictZoneId, LaneEdgeId, ManeuverGateId, ManeuverPathId, ParkingFacilityId, ParkingSpaceId,
@@ -47,32 +47,34 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 6;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
-const ROOT_V6_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_CONFLICT_LAG_STATES);
-const WORLD_CONFIG_V6_FIELDS: usize =
+const ROOT_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_SOURCE_EDITABLE);
+const WORLD_CONFIG_FIELDS: usize =
     vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
-const PUBLISHED_SOURCE_V6_FIELDS: usize =
+const PUBLISHED_SOURCE_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
-const ROUTE_V6_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_V6_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_CONFLICT_RESERVATION);
-const PARKING_BINDING_V6_FIELDS: usize =
+const EDITABLE_SOURCE_FIELDS: usize =
+    vtable_field_count(wire::EditableSourceBinding::VT_MODULE_COUNT);
+const ROUTE_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_CONFLICT_RESERVATION);
+const PARKING_BINDING_FIELDS: usize =
     vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
-const MANEUVER_TRAVERSAL_V6_FIELDS: usize =
+const MANEUVER_TRAVERSAL_FIELDS: usize =
     vtable_field_count(wire::ManeuverTraversalBinding::VT_PHASE_GATE);
-const WAITING_MEMBERSHIP_V6_FIELDS: usize =
+const WAITING_MEMBERSHIP_FIELDS: usize =
     vtable_field_count(wire::WaitingMembershipBinding::VT_ADMISSION_SEQUENCE);
-const WAITING_ZONE_STATE_V6_FIELDS: usize =
+const WAITING_ZONE_STATE_FIELDS: usize =
     vtable_field_count(wire::WaitingZoneState::VT_NEXT_ADMISSION_SEQUENCE);
-const CONFLICT_LOCATOR_V6_FIELDS: usize =
+const CONFLICT_LOCATOR_FIELDS: usize =
     vtable_field_count(wire::ConflictPassageLocatorBinding::VT_CONFLICT_ZONE);
-const CONFLICT_ELIGIBILITY_V6_FIELDS: usize =
+const CONFLICT_ELIGIBILITY_FIELDS: usize =
     vtable_field_count(wire::ConflictEligibilityBinding::VT_FIRST_ELIGIBLE_TICK);
-const CONFLICT_PASSAGE_V6_FIELDS: usize =
+const CONFLICT_PASSAGE_FIELDS: usize =
     vtable_field_count(wire::ConflictPassageBinding::VT_CLEARANCE_PROGRESS_MM);
-const CONFLICT_DOWNSTREAM_V6_FIELDS: usize =
+const CONFLICT_DOWNSTREAM_FIELDS: usize =
     vtable_field_count(wire::ConflictDownstreamIntervalBinding::VT_END_MM);
-const CONFLICT_RESERVATION_V6_FIELDS: usize =
+const CONFLICT_RESERVATION_FIELDS: usize =
     vtable_field_count(wire::ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS);
-const CONFLICT_LAG_STATE_V6_FIELDS: usize =
+const CONFLICT_LAG_STATE_FIELDS: usize =
     vtable_field_count(wire::ConflictLagState::VT_REFERENCE_TIME_MS);
 
 const fn vtable_field_count(
@@ -167,7 +169,7 @@ pub(super) fn verify_semantic_diff(
     Ok(())
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v6。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v7。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`crate::TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -475,7 +477,7 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
         .collect::<Vec<_>>();
     let conflict_lag_states = fbb.create_vector(&conflict_lag_offsets);
 
-    let (source_kind, source_published) = match &snapshot.source {
+    let (source_kind, source_published, source_editable) = match &snapshot.source {
         CommittedNetworkSource::Published { reference } => {
             let asset_key = fbb.create_string(reference.asset_key());
             let artifact_digest =
@@ -491,7 +493,19 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     network_revision: Some(&network_revision),
                 },
             );
-            (wire::SourceKind::Published, Some(published))
+            (wire::SourceKind::Published, Some(published), None)
+        }
+        CommittedNetworkSource::Editable { state, .. } => {
+            let state_digest = wire::Digest256::new(state.digest().as_bytes());
+            let editable = wire::EditableSourceBinding::create(
+                &mut fbb,
+                &wire::EditableSourceBindingArgs {
+                    state_digest: Some(&state_digest),
+                    state_byte_length: state.total_byte_length().get(),
+                    module_count: state.module_count(),
+                },
+            );
+            (wire::SourceKind::Editable, None, Some(editable))
         }
     };
 
@@ -546,6 +560,7 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
             waiting_zones: Some(waiting_zones),
             world_policy: Some(world_policy),
             conflict_lag_states: Some(conflict_lag_states),
+            source_editable,
         },
     );
     wire::finish_size_prefixed_runtime_snapshot_buffer(&mut fbb, root);
@@ -1414,6 +1429,79 @@ fn verify_lfrs<'a>(
         .map_err(|_| SnapshotRestoreError::InvalidFlatbuffer)
 }
 
+/// 发布来源的快照绑定：asset key 非空且在上限内，快照来源修订与快照根修订闭合。
+fn validate_published_source_binding(
+    root: wire::RuntimeSnapshot<'_>,
+    network_revision: &wire::Digest256,
+    limits: SnapshotRestoreLimits,
+) -> Result<(), SnapshotRestoreError> {
+    if root.source_editable().is_some() {
+        return Err(SnapshotRestoreError::UnexpectedSourceBinding {
+            field: "source_editable",
+        });
+    }
+    let published = root
+        .source_published()
+        .ok_or(SnapshotRestoreError::MissingField {
+            field: "source_published",
+        })?;
+    if published.asset_key().is_empty() {
+        return Err(SnapshotRestoreError::EmptyAssetKey);
+    }
+    let asset_key_len = u64::try_from(published.asset_key().len()).unwrap_or(u64::MAX);
+    if asset_key_len > limits.max_asset_key_bytes() {
+        return Err(limit_error(
+            SnapshotLimitDimension::AssetKeyBytes,
+            limits.max_asset_key_bytes(),
+            asset_key_len,
+        ));
+    }
+    published
+        .artifact_digest()
+        .ok_or(SnapshotRestoreError::MissingField {
+            field: "source_published.artifact_digest",
+        })?;
+    let source_revision =
+        published
+            .network_revision()
+            .ok_or(SnapshotRestoreError::MissingField {
+                field: "source_published.network_revision",
+            })?;
+    if source_revision.0 != network_revision.0 {
+        return Err(SnapshotRestoreError::SnapshotSourceRevisionMismatch);
+    }
+    Ok(())
+}
+
+/// 编辑来源的快照绑定：摘要、精确总长度与模块数逐值等于宿主提供的状态。
+fn validate_editable_source_binding(
+    root: wire::RuntimeSnapshot<'_>,
+    state: &crate::RoadEditingState,
+) -> Result<(), SnapshotRestoreError> {
+    if root.source_published().is_some() {
+        return Err(SnapshotRestoreError::UnexpectedSourceBinding {
+            field: "source_published",
+        });
+    }
+    let editable = root
+        .source_editable()
+        .ok_or(SnapshotRestoreError::MissingField {
+            field: "source_editable",
+        })?;
+    let digest = editable
+        .state_digest()
+        .ok_or(SnapshotRestoreError::MissingField {
+            field: "source_editable.state_digest",
+        })?;
+    if digest.0 != *state.digest().as_bytes()
+        || editable.state_byte_length() != state.total_byte_length().get()
+        || editable.module_count() != state.module_count()
+    {
+        return Err(SnapshotRestoreError::EditableSourceBindingMismatch);
+    }
+    Ok(())
+}
+
 fn validate_bindings(
     root: wire::RuntimeSnapshot<'_>,
     revision: &SharedNetworkRevision,
@@ -1470,40 +1558,19 @@ fn validate_bindings(
         ));
     }
 
-    if root.source_kind() != wire::SourceKind::Published {
-        return Err(SnapshotRestoreError::UnsupportedSourceKind {
-            actual: root.source_kind().0,
-        });
-    }
-    let published = root
-        .source_published()
-        .ok_or(SnapshotRestoreError::MissingField {
-            field: "source_published",
-        })?;
-    if published.asset_key().is_empty() {
-        return Err(SnapshotRestoreError::EmptyAssetKey);
-    }
-    let asset_key_len = u64::try_from(published.asset_key().len()).unwrap_or(u64::MAX);
-    if asset_key_len > limits.max_asset_key_bytes() {
-        return Err(limit_error(
-            SnapshotLimitDimension::AssetKeyBytes,
-            limits.max_asset_key_bytes(),
-            asset_key_len,
-        ));
-    }
-    published
-        .artifact_digest()
-        .ok_or(SnapshotRestoreError::MissingField {
-            field: "source_published.artifact_digest",
-        })?;
-    let source_revision =
-        published
-            .network_revision()
-            .ok_or(SnapshotRestoreError::MissingField {
-                field: "source_published.network_revision",
-            })?;
-    if source_revision.0 != network_revision.0 {
-        return Err(SnapshotRestoreError::SnapshotSourceRevisionMismatch);
+    match (root.source_kind(), source) {
+        (wire::SourceKind::Published, CommittedNetworkSource::Published { .. }) => {
+            validate_published_source_binding(root, network_revision, limits)?;
+        }
+        (wire::SourceKind::Editable, CommittedNetworkSource::Editable { state, .. }) => {
+            validate_editable_source_binding(root, state)?;
+        }
+        (wire::SourceKind::Published | wire::SourceKind::Editable, _) => {
+            return Err(SnapshotRestoreError::SourceKindMismatch);
+        }
+        (kind, _) => {
+            return Err(SnapshotRestoreError::UnsupportedSourceKind { actual: kind.0 });
+        }
     }
 
     let snapshot_config = root.world_config();
@@ -1598,7 +1665,7 @@ fn decode_world_policy(
 }
 
 fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
-    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V6_FIELDS)?;
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_FIELDS)?;
     validate_table_field_count(
         "WorldPolicyBinding",
         root.world_policy()._tab,
@@ -1607,42 +1674,49 @@ fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snapsho
     validate_table_field_count(
         "WorldConfigBinding",
         root.world_config()._tab,
-        WORLD_CONFIG_V6_FIELDS,
+        WORLD_CONFIG_FIELDS,
     )?;
     if let Some(published) = root.source_published() {
         validate_table_field_count(
             "PublishedSourceBinding",
             published._tab,
-            PUBLISHED_SOURCE_V6_FIELDS,
+            PUBLISHED_SOURCE_FIELDS,
+        )?;
+    }
+    if let Some(editable) = root.source_editable() {
+        validate_table_field_count(
+            "EditableSourceBinding",
+            editable._tab,
+            EDITABLE_SOURCE_FIELDS,
         )?;
     }
     for route in root.routes() {
-        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V6_FIELDS)?;
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_FIELDS)?;
     }
     for vehicle in root.vehicles() {
-        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V6_FIELDS)?;
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_FIELDS)?;
         if let Some(parking) = vehicle.parking() {
-            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V6_FIELDS)?;
+            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_FIELDS)?;
         }
         if let Some(traversal) = vehicle.maneuver_traversal() {
             validate_table_field_count(
                 "ManeuverTraversalBinding",
                 traversal._tab,
-                MANEUVER_TRAVERSAL_V6_FIELDS,
+                MANEUVER_TRAVERSAL_FIELDS,
             )?;
         }
         if let Some(membership) = vehicle.waiting_membership() {
             validate_table_field_count(
                 "WaitingMembershipBinding",
                 membership._tab,
-                WAITING_MEMBERSHIP_V6_FIELDS,
+                WAITING_MEMBERSHIP_FIELDS,
             )?;
         }
         if let Some(eligibility) = vehicle.conflict_eligibility() {
             validate_table_field_count(
                 "ConflictEligibilityBinding",
                 eligibility._tab,
-                CONFLICT_ELIGIBILITY_V6_FIELDS,
+                CONFLICT_ELIGIBILITY_FIELDS,
             )?;
             validate_conflict_locator_table(eligibility.passage())?;
         }
@@ -1650,13 +1724,13 @@ fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snapsho
             validate_table_field_count(
                 "ConflictReservationBinding",
                 reservation._tab,
-                CONFLICT_RESERVATION_V6_FIELDS,
+                CONFLICT_RESERVATION_FIELDS,
             )?;
             for passage in reservation.passages() {
                 validate_table_field_count(
                     "ConflictPassageBinding",
                     passage._tab,
-                    CONFLICT_PASSAGE_V6_FIELDS,
+                    CONFLICT_PASSAGE_FIELDS,
                 )?;
                 validate_conflict_locator_table(passage.passage())?;
             }
@@ -1664,16 +1738,16 @@ fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snapsho
                 validate_table_field_count(
                     "ConflictDownstreamIntervalBinding",
                     downstream._tab,
-                    CONFLICT_DOWNSTREAM_V6_FIELDS,
+                    CONFLICT_DOWNSTREAM_FIELDS,
                 )?;
             }
         }
     }
     for state in root.waiting_zones() {
-        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_V6_FIELDS)?;
+        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_FIELDS)?;
     }
     for state in root.conflict_lag_states() {
-        validate_table_field_count("ConflictLagState", state._tab, CONFLICT_LAG_STATE_V6_FIELDS)?;
+        validate_table_field_count("ConflictLagState", state._tab, CONFLICT_LAG_STATE_FIELDS)?;
         validate_conflict_locator_table(state.passage())?;
     }
     Ok(())
@@ -1685,7 +1759,7 @@ fn validate_conflict_locator_table(
     validate_table_field_count(
         "ConflictPassageLocatorBinding",
         locator._tab,
-        CONFLICT_LOCATOR_V6_FIELDS,
+        CONFLICT_LOCATOR_FIELDS,
     )
 }
 
@@ -2276,3 +2350,7 @@ const fn limit_error(
 #[cfg(test)]
 #[path = "tests/format_admission.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "tests/editable_source.rs"]
+mod editable_source_tests;

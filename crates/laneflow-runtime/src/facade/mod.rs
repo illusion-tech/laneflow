@@ -1,5 +1,7 @@
 //! 唯一世界聚合与宿主会话；组合仿真内核和管理操作。
 
+/// 已提交道路编辑状态与编辑来源差异基线。
+pub(crate) mod editable_source;
 pub(crate) mod observation;
 /// 宿主 Routing 与 Traffic Runtime 的纯契约边界。
 pub(crate) mod routing;

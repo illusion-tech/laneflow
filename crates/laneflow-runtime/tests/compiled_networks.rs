@@ -62,7 +62,7 @@ use laneflow_static_network::{
     SpatialBuildOption, build_shared_network_revision,
 };
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as snapshot_wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as snapshot_wire;
 
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -8519,7 +8519,7 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
         .expect("spawn occupied virtual")
         .vehicle;
 
-    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 6);
+    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 7);
     assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 5);
     assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 8);
     let snapshot = world.capture_snapshot().expect("capture");
