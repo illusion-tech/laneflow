@@ -67,4 +67,5 @@
 
 - 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored --nocapture --test-threads=1`。
 - 环境变量（沿 #1115 口径）：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`CURVE_DESIGN_OUTPUT_DIR`（每次必须为不存在的新目录）、`CURVE_DESIGN_ORDER`（ABBA 序）、`CURVE_DESIGN_FROZEN_RESULT`（冻结对照结果）；精确测试名实现后补入本节。
+- 精确测试名（实现定稿补录）：`output::emit::s1::recovery_coverage::dependency_recovery::reshape::stream_b_curve_design_c06_c08::fixed_stream_b_curve_design`（冻结输入搜索，其 `stream-b-searches.json` 作为 `CURVE_DESIGN_FROZEN_RESULT`）与 `output::emit::s1::recovery_coverage::dependency_recovery::reshape::stream_b_curve_design_c06_c08::pinned_lust_stream_b_curve_experiment`（完整实验；`CURVE_DESIGN_ORDER` ∈ `baseline-new` / `new-baseline`，ABBA 四轮依次 baseline-new、new-baseline、new-baseline、baseline-new）。
 - 输入、样本与预算由冻结源码与 `edges.json` 固定，不得换样后沿用结论。
