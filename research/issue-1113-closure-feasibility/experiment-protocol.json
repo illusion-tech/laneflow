@@ -1,0 +1,48 @@
+{
+  "source_commit": "018040fa1ce6b899d20012ee971eed1653cca83a",
+  "binary_sha256": "B97284CF9DC0599321C769FF42C3D542ADF8CEABC3D45904AD7AEDFCD94EA126",
+  "source_archive_sha256": "3D95100AD9244626BEE2B036FC15A906E5DA7EDA98172F23875219A301A864A3",
+  "status": "complete",
+  "runs": [
+    {
+      "name": "run-00",
+      "closure_order": "diagnosis-first",
+      "calibration_order": "old-grid",
+      "started_utc": "2026-10-28T00:31:38.7569139Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 85.3289494,
+      "completed_utc": "2026-10-28T00:33:04.1027011Z"
+    },
+    {
+      "name": "run-01",
+      "closure_order": "baseline-first",
+      "calibration_order": "grid-old",
+      "started_utc": "2026-10-28T00:33:04.1075983Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 85.6008067,
+      "completed_utc": "2026-10-28T00:34:29.7092184Z"
+    },
+    {
+      "name": "run-02",
+      "closure_order": "baseline-first",
+      "calibration_order": "grid-old",
+      "started_utc": "2026-10-28T00:34:29.7115752Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 109.2729025,
+      "completed_utc": "2026-10-28T00:36:18.9853190Z"
+    },
+    {
+      "name": "run-03",
+      "closure_order": "diagnosis-first",
+      "calibration_order": "old-grid",
+      "started_utc": "2026-10-28T00:36:18.9883845Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 106.2921448,
+      "completed_utc": "2026-10-28T00:38:05.2816969Z"
+    }
+  ]
+}

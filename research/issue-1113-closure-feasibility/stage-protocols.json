@@ -1,0 +1,32 @@
+[
+  {
+    "source_commit": "e0419aa5aa113a33f7c023811101e99fcc10d455",
+    "binary_sha256": "605DB4CB4AE79E5BEB2F89FAB97FEDE868D9A16F040C7F53E6BD8EA5D817A989",
+    "source_archive_sha256": "8CE295D7C7A1523B205AEE5088224B5C98AA96AC621A509BCC8FC8DA2FCCBE41",
+    "started_utc": "2026-10-28T00:17:36.6661942Z",
+    "status": "complete",
+    "elapsed_seconds": 0.1353461,
+    "exit_code": 0,
+    "completed_utc": "2026-10-28T00:17:36.8284093Z"
+  },
+  {
+    "source_commit": "82bfe1232702bc165fb889bd9e5cd06681ecda14",
+    "binary_sha256": "227EC20D5F684F5D504E6DD951D7DE597895003F11B7AA230B7BBB1CB948E23C",
+    "source_archive_sha256": "AFD0A75BF2C46C1F985FC8C2A27575565FADC04FF39912D80D4B9C2B007CFEAB",
+    "started_utc": "2026-10-28T00:21:22.5199946Z",
+    "status": "complete",
+    "elapsed_seconds": 0.4169739,
+    "exit_code": 0,
+    "completed_utc": "2026-10-28T00:21:22.9568332Z"
+  },
+  {
+    "source_commit": "8e7331ab8ebdb3bf6858db2801bceb60c0f07328",
+    "binary_sha256": "0E13B1BF5A0345B6093B13E4436D0A63125C40C1527DA75BB5774AF4F53C64D9",
+    "source_archive_sha256": "EE1707983F4A7E26FFE79DB94E701DB2ED8686D7FF0452EA903E4CAF58F1A3AC",
+    "started_utc": "2026-10-28T00:24:14.5751114Z",
+    "status": "complete",
+    "elapsed_seconds": 0.0586104,
+    "exit_code": 0,
+    "completed_utc": "2026-10-28T00:24:14.6735258Z"
+  }
+]

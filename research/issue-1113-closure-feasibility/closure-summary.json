@@ -1,0 +1,46 @@
+{
+  "closures": [
+    {
+      "artifact": null,
+      "component": "sumo:-16502:-30384#7_0-to--31608_0::-16502_0_0",
+      "result": {
+        "missing_edges": [
+          "sumo::-16502_0_0"
+        ],
+        "retained_pool_assignments_exhausted": false,
+        "status": "missing_real_programs",
+        "trials": []
+      }
+    },
+    {
+      "artifact": null,
+      "component": "sumo:-28860:--31940#1_0-to---31940#0_0::-28860_5_0",
+      "result": {
+        "missing_edges": [
+          "sumo::-28860_3_0"
+        ],
+        "retained_pool_assignments_exhausted": false,
+        "status": "missing_real_programs",
+        "trials": []
+      }
+    }
+  ],
+  "fixed_curve_disposition": {
+    "sumo::-16502_0_0": "local_grid_coverage_gap_and_fixed_cubic_seam_conflict",
+    "sumo::-28860_3_0": "first_chord_constraint_conflict"
+  },
+  "original_geometry_controls_and_failures_equal": true,
+  "original_successful_edges": 16265,
+  "path_counts": {
+    "accepted": 26,
+    "cross_edge_direction_rejected": 3,
+    "target_check_not_completed": 55
+  },
+  "prior_complete_results_equal": true,
+  "production_g1_accepted": false,
+  "schema": "laneflow-1113-closure-feasibility",
+  "source": {
+    "lust_commit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+    "net_digest": "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341"
+  }
+}
