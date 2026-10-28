@@ -7,7 +7,8 @@
 切换 / 审计各入口的合同、快照中的编辑来源绑定<br>
 **设计入口**: [#1116](https://github.com/illusion-tech/laneflow/issues/1116)<br>
 **关联决策**: [ADR 0023](../adr/0023-road-editing-state-and-phased-network-replacement.md)、
-[ADR 0025](../adr/0025-checked-canonical-network-and-shared-static-network.md)<br>
+[ADR 0025](../adr/0025-checked-canonical-network-and-shared-static-network.md)、
+[ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)<br>
 **关联设计**: [`shared-static-network.md`](shared-static-network.md) §8/§9、
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md) §2/§5/§9、
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md) §3/§7、
@@ -87,11 +88,21 @@ Runtime 能接受的结构是编译器能接受的超集；无法编译的状态
 
 ### 2.4 道路编辑状态摘要
 
-`RoadEditingState` 在构造成功时计算一次道路编辑状态摘要，此后不可变：
+`RoadEditingState` 在构造成功时计算一次道路编辑状态摘要，此后不可变。
+
+**角色与算法**（[ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) §3）：
+
+- 角色：内部完整性摘要，认证宿主提供的状态与快照绑定的状态是同一份字节；
+- 验证方：LaneFlow 实现（Runtime 快照恢复入口），没有外部重算方；宿主按摘要寻址时
+  使用 Runtime 给出的摘要值，不独立重算；
+- 持久化范围：快照（`LFRS`）与宿主存档中的寻址键；
+- 算法：BLAKE3-256，即该角色的默认算法，无偏离。`LFRE` 不属于可移植规范制品家族，
+  不适用该家族保持 SHA-256 的理由。
 
 ```text
-SHA-256(
-  "laneflow.road-editing-state.v1\0"
+BLAKE3-256(
+  "laneflow:road-editing-state-digest:v1\0"
+  || digestVersion:u16 = 1
   || moduleCount:u32
   || for each module in canonical order:
        sourceDocumentKeyByteLength:u32
@@ -101,9 +112,15 @@ SHA-256(
 )
 ```
 
-所有整数采用小端序。摘要与精确总字节长度（全部来源字节长度之和）一起构成快照中的编辑
-来源绑定（§6）。该摘要只绑定“哪一份已提交状态”，不替代 LFSM 的 `sourceCollectionDigest`
-（后者由编译器在准入后从模块命名空间计算），也不进入 `NetworkRevisionId`。
+所有整数采用小端序。更换算法或前像即递增 `digestVersion`；1.0 前不保留旧版本的计算或
+比对路径。摘要与精确总字节长度（全部来源字节长度之和）一起构成快照中的编辑来源绑定
+（§6）。该摘要只绑定“哪一份已提交状态”，不替代 LFSM 的 `sourceCollectionDigest`（后者由
+编译器在准入后从模块命名空间计算），也不进入 `NetworkRevisionId`。公开类型按角色命名，
+不在名称中写入算法。
+
+§3.2 的差异基线对应关系判据不新增摘要：它重算的是 LFCA 对象精确字节摘要，属于可移植
+规范制品家族的互操作摘要，按 ADR 0033 §9 保持 SHA-256，并与修订 origin 中的同一字段
+比较。
 
 ### 2.5 共享与克隆
 
