@@ -4,6 +4,37 @@ use super::*;
 
 mod experiment;
 
+#[test]
+#[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
+fn fixed_signal_endpoint_feasibility() {
+    let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
+    assert!(!out.exists(), "fresh endpoint diagnostic output");
+    fs::create_dir_all(&out).unwrap();
+    let old: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1111-grid-calibration/local-probes.json"
+    ))
+    .unwrap();
+    let mut rows = BTreeMap::new();
+    let mut timing = BTreeMap::new();
+    for id in ["sumo::-28860_3_0", "sumo::-16502_0_0"] {
+        let bits: [[u64; 3]; 6] =
+            serde_json::from_value(old[id]["control_f64_bits"].clone()).unwrap();
+        let clamp: Option<[u64; 3]> =
+            serde_json::from_value(old[id]["start_clamp"].clone()).unwrap();
+        let started = Instant::now();
+        rows.insert(
+            id,
+            sampler::feasibility::diagnose(
+                bits.map(|p| p.map(f64::from_bits)),
+                clamp.map(|d| d.map(f64::from_bits)),
+            ),
+        );
+        timing.insert(id, started.elapsed().as_secs_f64());
+    }
+    recovery::write_json(&out, "endpoint-feasibility.json", &json!(rows));
+    recovery::write_json(&out, "timing.json", &json!(timing));
+}
+
 const EDGES: [&str; 4] = [
     "sumo::-10004_5_1",
     "sumo::-7348_3_0",

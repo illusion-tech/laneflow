@@ -276,6 +276,7 @@ pub(crate) fn search(input: &EdgeInput, budget: SearchBudget) -> EdgeSearch {
     }
 }
 
+pub(crate) mod feasibility;
 pub(crate) mod grid;
 mod traverse;
 

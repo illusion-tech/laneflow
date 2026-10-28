@@ -27,7 +27,13 @@ fn path(nodes: &[Node], mut at: usize) -> Vec<usize> {
     result
 }
 
-pub(super) fn deviation(c: [Vec3; 4], ta: f64, tb: f64, a: Vec3, b: Vec3) -> f64 {
+pub(in crate::output::geom::s1) fn deviation(
+    c: [Vec3; 4],
+    ta: f64,
+    tb: f64,
+    a: Vec3,
+    b: Vec3,
+) -> f64 {
     let curve = restricted(c, ta, tb);
     let line = [
         a,
