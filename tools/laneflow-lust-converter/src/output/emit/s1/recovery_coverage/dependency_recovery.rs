@@ -9,6 +9,7 @@ mod combinations;
 mod components;
 mod experiment;
 mod reshape;
+mod stream_a_curve_design_c29_c17;
 
 fn reference() -> Value {
     serde_json::from_str(include_str!(
