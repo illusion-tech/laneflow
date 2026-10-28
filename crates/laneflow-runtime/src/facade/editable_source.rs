@@ -156,12 +156,13 @@ impl RoadEditingState {
                 .as_bytes()
                 .cmp(right.source_document_key.as_bytes())
         });
-        if let Some(pair) = modules
+        if let Some(index) = modules
             .windows(2)
-            .find(|pair| pair[0].source_document_key == pair[1].source_document_key)
+            .position(|pair| pair[0].source_document_key == pair[1].source_document_key)
         {
+            // 移出而不复制，拒绝路径不做调用方规模的分配。
             return Err(InvalidRoadEditingState::DuplicateSourceDocumentKey {
-                key: pair[0].source_document_key.clone(),
+                key: modules.swap_remove(index).source_document_key,
             });
         }
         let digest = road_editing_state_digest(&modules);
@@ -352,6 +353,25 @@ mod tests {
                 key: "b".to_owned()
             })
         );
+    }
+
+    #[test]
+    fn duplicate_key_rejection_moves_the_caller_key() {
+        let first = String::from("dup.lfre");
+        let second = String::from("dup.lfre");
+        let candidate_buffers = [first.as_ptr(), second.as_ptr()];
+        let modules = vec![
+            RoadEditingStateModule::new(first, b"x".to_vec()),
+            RoadEditingStateModule::new(second, b"y".to_vec()),
+        ];
+        let Err(InvalidRoadEditingState::DuplicateSourceDocumentKey { key }) =
+            RoadEditingState::try_new(modules)
+        else {
+            panic!("duplicate keys must be rejected");
+        };
+        assert_eq!(key, "dup.lfre");
+        // unstable 排序可能交换相等键，所以接受任一输入缓冲区；不得是新分配。
+        assert!(candidate_buffers.contains(&key.as_ptr()));
     }
 
     #[test]
