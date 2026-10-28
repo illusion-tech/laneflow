@@ -34,15 +34,16 @@ pub(crate) fn diagnose(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
     );
     let joint = point(quantize_vec3(left[3]));
     let domain = Interval { lo: 0.0, hi: 1.0 };
-    let mut stack = vec![(domain, domain, 0_u32)];
+    let mut stack = vec![(domain, domain, 0_u32, 1_u64)];
+    let mut leaves = Vec::new();
     let mut visited = 0;
     let mut deepest = 0;
     let mut counts = BTreeMap::<&str, u64>::new();
     let mut unresolved = Vec::new();
     let mut found = None;
-    while let Some((u, v, depth)) = stack.pop() {
-        if visited == BOX_LIMIT {
-            stack.push((u, v, depth));
+    while let Some((u, v, depth, code)) = stack.pop() {
+        if visited == BOX_LIMIT || leaves.len() == certificate::LIMIT {
+            stack.push((u, v, depth, code));
             break;
         }
         visited += 1;
@@ -60,6 +61,15 @@ pub(crate) fn diagnose(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
         };
         if let Some(reason) = reason {
             *counts.entry(reason).or_default() += 1;
+            leaves.push((
+                code,
+                match reason {
+                    "constant_quantized_rejection" => 1,
+                    "minimum_chord" => 2,
+                    "seam_turn" => 3,
+                    _ => unreachable!(),
+                },
+            ));
             continue;
         }
         let um = (u.lo + u.hi) * 0.5;
@@ -76,18 +86,33 @@ pub(crate) fn diagnose(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
             continue;
         }
         if u.hi - u.lo > v.hi - v.lo {
-            stack.push((Interval { lo: um, hi: u.hi }, v, depth + 1));
-            stack.push((Interval { lo: u.lo, hi: um }, v, depth + 1));
+            stack.push((Interval { lo: um, hi: u.hi }, v, depth + 1, code * 2 + 1));
+            stack.push((Interval { lo: u.lo, hi: um }, v, depth + 1, code * 2));
         } else {
-            stack.push((u, Interval { lo: vm, hi: v.hi }, depth + 1));
-            stack.push((u, Interval { lo: v.lo, hi: vm }, depth + 1));
+            stack.push((u, Interval { lo: vm, hi: v.hi }, depth + 1, code * 2 + 1));
+            stack.push((u, Interval { lo: v.lo, hi: vm }, depth + 1, code * 2));
         }
     }
     let excluded = found.is_none() && stack.is_empty() && unresolved.is_empty();
+    let verified = excluded.then(|| {
+        certificate::verify(&leaves, false, |u, v| {
+            let a = curve(left, u);
+            let b = curve(right, v);
+            if constant_rejection(a, joint, b, None) {
+                Some(1)
+            } else if short(difference(joint, a)) || short(difference(b, joint)) {
+                Some(2)
+            } else {
+                angle_excluded(difference(joint, a), difference(b, joint), 0.0341).then_some(3)
+            }
+        })
+    });
+    assert!(verified.is_none_or(|v| v), "complete seam certificate");
     json!({"left_control_f64_bits":left.map(|p|p.map(f64::to_bits)),"right_control_f64_bits":right.map(|p|p.map(f64::to_bits)),
         "status":if found.is_some(){"local_witness"}else if excluded{"necessary_condition_excluded"}else{"unresolved"},
         "witness":found,"visited_boxes":visited,"deepest":deepest,"excluded_boxes":counts,"pending_boxes":stack.len(),"first_unresolved_boxes":unresolved,
-        "policy":{"box_limit":BOX_LIMIT,"depth_limit":DEPTH_LIMIT,"turn_tangent_upper":0.0341,"length_exclusion_m":0.099_999,"roundoff_epsilon_factor":128,"deviation_omitted_from_exclusion":true},
+        "exclusion_certificate":if verified==Some(true){Some(&leaves)}else{None},"certificate_verified":verified,
+        "policy":{"box_limit":BOX_LIMIT,"depth_limit":DEPTH_LIMIT,"certificate_leaf_limit":certificate::LIMIT,"turn_tangent_upper":0.0341,"length_exclusion_m":0.099_999,"roundoff_epsilon_factor":128,"deviation_omitted_from_exclusion":true},
         "scope":"all parameter pairs on two fixed adjacent planar cubics; mandatory fixed seam; excludes preceding/following chords and complete edge acceptance"})
 }
 

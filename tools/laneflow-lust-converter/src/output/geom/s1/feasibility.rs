@@ -3,6 +3,7 @@
 use super::*;
 use interval::{Interval, angle_excluded, curve, difference, point, short};
 
+mod certificate;
 mod interval;
 mod seam;
 
@@ -92,6 +93,15 @@ fn witness(c: [Vec3; 4], params: &[f64], clamp: Option<Vec3>) -> Option<Value> {
 }
 
 pub(crate) fn diagnose(control: [Vec3; 6], clamp: Option<Vec3>) -> Value {
+    diagnose_with_limits(control, clamp, BOX_LIMIT, DEPTH_LIMIT)
+}
+
+fn diagnose_with_limits(
+    control: [Vec3; 6],
+    clamp: Option<Vec3>,
+    box_limit: u64,
+    depth_limit: u32,
+) -> Value {
     let c = [control[0], control[1], control[2], control[3]];
     assert!(
         c.iter()
@@ -104,15 +114,16 @@ pub(crate) fn diagnose(control: [Vec3; 6], clamp: Option<Vec3>) -> Value {
     let end = point(quantize_vec3(c[3]));
     let start = point(quantize_vec3(c[0]));
     let domain = Interval { lo: 0.0, hi: 1.0 };
-    let mut stack = vec![(domain, domain, 0_u32)];
+    let mut stack = vec![(domain, domain, 0_u32, 1_u64)];
+    let mut leaves = Vec::new();
     let mut counts = BTreeMap::<&str, u64>::new();
     let mut visited = 0;
     let mut deepest = 0;
     let mut found = None;
     let mut unresolved = Vec::new();
-    while let Some((u, v, depth)) = stack.pop() {
-        if visited == BOX_LIMIT {
-            stack.push((u, v, depth));
+    while let Some((u, v, depth, code)) = stack.pop() {
+        if visited == box_limit || leaves.len() == certificate::LIMIT {
+            stack.push((u, v, depth, code));
             break;
         }
         visited += 1;
@@ -135,6 +146,17 @@ pub(crate) fn diagnose(control: [Vec3; 6], clamp: Option<Vec3>) -> Value {
         };
         if let Some(reason) = reason {
             *counts.entry(reason).or_default() += 1;
+            if clamp.is_some() {
+                leaves.push((
+                    code,
+                    match reason {
+                        "constant_quantized_rejection" => 1,
+                        "minimum_chord" => 2,
+                        "start_direction" => 3,
+                        _ => unreachable!(),
+                    },
+                ));
+            }
             continue;
         }
         let um = (u.lo + u.hi) * 0.5;
@@ -148,7 +170,7 @@ pub(crate) fn diagnose(control: [Vec3; 6], clamp: Option<Vec3>) -> Value {
             found = Some(candidate);
             break;
         }
-        if depth == DEPTH_LIMIT {
+        if depth == depth_limit {
             *counts.entry("unresolved_depth").or_default() += 1;
             if unresolved.len() < 16 {
                 unresolved.push(json!({"u":[u.lo,u.hi],"v":[v.lo,v.hi]}));
@@ -156,21 +178,43 @@ pub(crate) fn diagnose(control: [Vec3; 6], clamp: Option<Vec3>) -> Value {
             continue;
         }
         if clamp.is_none() && u.hi - u.lo > v.hi - v.lo {
-            stack.push((Interval { lo: um, hi: u.hi }, v, depth + 1));
-            stack.push((Interval { lo: u.lo, hi: um }, v, depth + 1));
+            stack.push((Interval { lo: um, hi: u.hi }, v, depth + 1, code * 2 + 1));
+            stack.push((Interval { lo: u.lo, hi: um }, v, depth + 1, code * 2));
         } else {
-            stack.push((u, Interval { lo: vm, hi: v.hi }, depth + 1));
-            stack.push((u, Interval { lo: v.lo, hi: vm }, depth + 1));
+            stack.push((u, Interval { lo: vm, hi: v.hi }, depth + 1, code * 2 + 1));
+            stack.push((u, Interval { lo: v.lo, hi: vm }, depth + 1, code * 2));
         }
     }
     let excluded = found.is_none() && stack.is_empty() && unresolved.is_empty();
+    let verified = clamp.filter(|_| excluded).map(|d| {
+        certificate::verify(&leaves, true, |_, v| {
+            let b = curve(c, v);
+            if constant_rejection(start, b, end, Some(d)) {
+                Some(1)
+            } else if short(difference(b, start)) {
+                Some(2)
+            } else {
+                angle_excluded(
+                    [Interval::point(d[0]), Interval::point(d[2])],
+                    difference(b, start),
+                    0.0166,
+                )
+                .then_some(3)
+            }
+        })
+    });
+    assert!(
+        verified.is_none_or(|v| v),
+        "complete first-chord certificate"
+    );
     json!({"control_f64_bits":control.map(|p|p.map(f64::to_bits)),"clamp_f64_bits":clamp.map(|d|d.map(f64::to_bits)),
         "kind":if clamp.is_some(){"first_chord"}else{"last_two_chords"},
         "status":if found.is_some(){"local_witness"}else if excluded{"necessary_condition_excluded"}else{"unresolved"},
         "witness":found,"visited_boxes":visited,"deepest":deepest,"excluded_boxes":counts,"pending_boxes":stack.len(),
         "first_unresolved_boxes":unresolved,"single_chord_witness":witness(c,&[0.0,1.0],clamp),
+        "exclusion_certificate":if verified==Some(true){Some(&leaves)}else{None},"certificate_verified":verified,
         "single_chord_deviation_m":grid::deviation_for_probe(c,0.0,1.0,quantize_vec3(c[0]).map(f64::from),quantize_vec3(c[3]).map(f64::from)),
-        "policy":{"box_limit":BOX_LIMIT,"depth_limit":DEPTH_LIMIT,"length_exclusion_m":0.099_999,"start_tangent_upper":0.0166,"turn_tangent_upper":0.0341,
+        "policy":{"box_limit":box_limit,"depth_limit":depth_limit,"certificate_leaf_limit":certificate::LIMIT,"length_exclusion_m":0.099_999,"start_tangent_upper":0.0166,"turn_tangent_upper":0.0341,
         "roundoff_epsilon_factor":128,"direction_and_length_exclusion_are_relaxed":true,"deviation_omitted_from_exclusion":true},
         "scope":"fixed planar cubic endpoint necessary conditions; not a continuous approximation-error certificate or complete edge acceptance"})
 }
@@ -191,4 +235,36 @@ fn straight_curve_is_not_falsely_excluded() {
         diagnose(c, Some([0.0, 0.0, 1.0]))["status"],
         "necessary_condition_excluded"
     );
+}
+
+#[test]
+fn resource_stops_do_not_become_exclusion() {
+    let c = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 1.0],
+        [2.0, 0.0, -1.0],
+        [3.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ];
+    let stopped = diagnose_with_limits(c, Some(c[4]), 0, 48);
+    assert_eq!(stopped["status"], "unresolved");
+    assert_eq!(stopped["certificate_verified"], Value::Null);
+    let stopped = diagnose_with_limits(c, Some(c[4]), BOX_LIMIT, 0);
+    assert_eq!(stopped["status"], "unresolved");
+    assert_eq!(stopped["excluded_boxes"]["unresolved_depth"], 1);
+}
+
+#[test]
+#[should_panic(expected = "unit clamp required")]
+fn non_unit_clamps_are_outside_the_diagnostic_domain() {
+    let c = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ];
+    diagnose(c, Some([2.0, 0.0, 0.0]));
 }

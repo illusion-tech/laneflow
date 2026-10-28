@@ -9,7 +9,7 @@ fn normalized(value: &Value) -> Value {
 
 #[test]
 #[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, CALIBRATION_ORDER and fresh GRID_CALIBRATION_OUTPUT_DIR"]
-fn pinned_lust_calibrated_grid_experiment() {
+pub(super) fn pinned_lust_calibrated_grid_experiment() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh calibrated output");
     fs::create_dir_all(&out).unwrap();

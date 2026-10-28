@@ -319,6 +319,10 @@ fn sample(
                 "incoming_dir_f64_bits":checkpoint.prev_dir.map(|p|p.map(f64::to_bits)),
                 "reason":"no_retained_grid_path"}),
             );
+            if state.guide.is_some() {
+                state.failures.get_mut(&index).unwrap()["accepted_prefix_spans"] =
+                    json!(state.spans);
+            }
         }
         state.frames.push(GridFrame {
             control: control.map(|p| p.map(f64::to_bits)),
