@@ -1,0 +1,96 @@
+{
+  "schema": "laneflow-round2-curve-design-cohort",
+  "stream": "stream-a",
+  "baseline_main": "779bdd22d6d596cc5a9c148abec978dc87ee7fe4",
+  "method_source": "research/issue-1115-failed-curve-design/design.md",
+  "round1_evidence": "coverage-diagnosis-20261028/run-00/diagnosis.json; research/issue-1121-coverage-diagnosis/README.md",
+  "components": [
+    {
+      "code": "C17",
+      "id": "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0",
+      "path_count": 1,
+      "paths": "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0",
+      "failed_edges": [
+        "sumo::-10564_3_0",
+        "sumo::-10564_6_0"
+      ],
+      "candidate_edges": []
+    },
+    {
+      "code": "C29",
+      "id": "sumo:-20112:--30452_0-to---31818#6_1::-20112_1_0",
+      "path_count": 2,
+      "paths": [
+        "sumo:-20112:--30452_0-to---31818#6_1::-20112_1_0",
+        "sumo:-20112:--30452_0-to--31818#7_0::-20112_0_0"
+      ],
+      "failed_edges": [
+        "sumo:--30452_0",
+        "sumo::-20112_0_0"
+      ],
+      "candidate_edges": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "sumo:--30452_0",
+      "source_length_m": 78.64,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "entry_basis": {
+        "span_index_zero_based": 2,
+        "problem_kind": "last_chord",
+        "direction_source": "finish_boundary_clamp",
+        "round1_status": "unresolved",
+        "visited_boxes": 32000000,
+        "certificate_leaves": 0,
+        "witness_t_f64_bits": null,
+        "injected_stop_label": null
+      }
+    },
+    {
+      "id": "sumo::-20112_0_0",
+      "source_length_m": 5.08,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "entry_basis": {
+        "span_index_zero_based": 0,
+        "problem_kind": "first_chord",
+        "direction_source": "start_boundary_clamp",
+        "round1_status": "local_witness",
+        "visited_boxes": 3,
+        "certificate_leaves": 0,
+        "witness_t_f64_bits": 4593671619917905920,
+        "injected_stop_label": "retained_family_exhausted"
+      }
+    },
+    {
+      "id": "sumo::-10564_3_0",
+      "source_length_m": 4.6,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "entry_basis": {
+        "span_index_zero_based": 1,
+        "problem_kind": "last_chord",
+        "direction_source": "finish_boundary_clamp",
+        "round1_status": "unresolved",
+        "visited_boxes": 32000000,
+        "certificate_leaves": 0,
+        "witness_t_f64_bits": null,
+        "injected_stop_label": null
+      }
+    },
+    {
+      "id": "sumo::-10564_6_0",
+      "source_length_m": 4.99,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "entry_basis": {
+        "span_index_zero_based": 0,
+        "problem_kind": "first_chord",
+        "direction_source": "start_boundary_clamp",
+        "round1_status": "unresolved",
+        "visited_boxes": 32000000,
+        "certificate_leaves": 0,
+        "witness_t_f64_bits": null,
+        "injected_stop_label": null
+      }
+    }
+  ]
+}
