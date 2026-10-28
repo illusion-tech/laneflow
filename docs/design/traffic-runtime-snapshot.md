@@ -377,7 +377,7 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 | 快照制品 exact bytes | LFRS `3,248` bytes                                                                                                                                                                                                                              |
 | save 主线程停顿      | 边界 `capture_snapshot` 中位 `0.002 ms`；账本 34 次分配 / 3,435 bytes，返回时净 live `2,955` bytes。随后 `encode_lfrs` 可移到后台，中位 `0.0072 ms`；账本 34 次分配 + 12 次重分配 / 9,480 allocated bytes，返回时净 live `7,448` bytes          |
 | published load 停顿  | 目标 Published 根/source 已由调用方取得后，`restore_lfrs` 内绑定认证 + verifier + 语义 lowering + fresh world 重建整次中位 `0.063 ms`；账本 386 次分配 + 13 次重分配 / 23,240 allocated bytes，返回时净 live `18,256` bytes                     |
-| editable load 停顿   | **尚未登记，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；随该类型落地后单列重编译与恢复，不用 published 数值代替                                                                                                         |
+| editable load 停顿   | 切片 B 时没有编辑来源变体，未登记；现行初值见下文「2026-10-28 editable load 初值」                                                                                                                                                              |
 | 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享路网修订/source 在 profiler 前准备，不重复计入增量                                                                               |
 | 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
 
@@ -394,9 +394,38 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 增量同时存续峰值 `45,472 B / 418 blocks`、返回 live `44,152 B / 412 blocks`。LFRS
 exact `3,312 B`。保存前后稳态 tick 账本**相等**的硬断言通过（实测两侧均 `0/0`；
 断言对象是相等性，不是 0 值本身）。已实现的 §9 义务的回归面随 CI 保持；本节未新增
-覆盖——Editable 来源仍未覆盖（见 §9 表），墙钟类证据为手动取证。editable load
-停顿仍沿 #529 未覆盖。完整记录、原始输出与复现命令见
+覆盖，墙钟类证据为手动取证；Editable 来源与 editable load 见下文 #529 节。完整记录、
+原始输出与复现命令见
 `research/issue-537-target-path-baseline/`（结果表为数值权威）。
+
+### 2026-10-28 editable load 初值（#529，v7）
+
+同机 LF-P100-REF-01（AMD Ryzen 9 9955HX）、rustc 1.99.1、release、Windows build 29695。
+工作负载为 `laneflow-urban-generator` 按 `examples/config/cn-urban.toml` 生成的城市路网，
+编辑来源为两份 `LFRE` 模块；走廊夹具只有 LFCA、没有 `LFRE` 来源，不能用于编辑来源，
+因此本节与发布来源初值不作回归比较。宿主以 harness mixed-peak 计划运行 64 拍后，经同修订
+换根切到编辑来源并保存。宿主重编译（逐模块准入、编译、发射与后发射检查）与生成器产物
+逐字节一致；修订构建为 headless（`SpatialBuildOption::Omit`），与 harness 宿主同一组参数。
+数值为未插桩墙钟中位，只描述本机，不是产品阈值。
+
+| 项目                               | fixture（9 样本） | 10k（5 样本） |
+| ---------------------------------- | ----------------- | ------------- |
+| 保存时在途车辆                     | 2,000             | 10,000        |
+| `LFRE` exact bytes（2 模块）       | 1,670,208         | 8,345,128     |
+| LFCA exact bytes                   | 8,868,299         | 44,328,051    |
+| `LFRS` exact bytes                 | 241,200           | 1,219,856     |
+| 宿主重编译                         | `1,002.2 ms`      | `8,298.2 ms`  |
+| 修订构建                           | `32.9 ms`         | `176.2 ms`    |
+| `restore_lfrs`（编辑来源）         | `3.8 ms`          | `29.6 ms`     |
+| 编辑来源修订认证（另列，含重编译） | `1,058.9 ms`      | `8,422.0 ms`  |
+
+editable load 停顿 = 宿主重编译 + 修订构建 + `restore_lfrs`，由重编译主导；恢复之前的
+修订认证（§5）另列，它在内部再做一次重编译与候选修订构建。复现命令（`LF_EDITABLE_LOAD_SCALE`
+取 `fixture` / `10k` / `100k`，`LF_EDITABLE_LOAD_SAMPLES` 取样本数）：
+
+```text
+cargo +1.99.1 test --release --locked -p laneflow-urban-harness --lib editable_load_evidence -- --ignored --nocapture
+```
 
 ## 9. Runtime Snapshot v7 的 G2 边界与必测义务
 
@@ -453,9 +482,9 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 | 配置判据                    | 已覆盖：fixed dt 不等拒绝，vehicle/route/edge occurrence/conflict occurrence 四类语义容量缩小拒绝/放大允许，执行配置另行显式提供，交通错误先于执行能力错误；容量不同不冒充 exact replay                                                                                                                                            |
 | 容器与完整性拒绝面          | 已覆盖：framing / identifier / verifier / wire 与 asset-key 上限、format/runtime/静态版本、未知 vtable 槽/枚举、必需字段、标识/引用/live 排列/停车/数值/时钟/Active 重叠；错误只返回失败，不暴露 staging                                                                                                                           |
 | Published 来源              | 已覆盖：端到端 fresh restore；同语义修订、不同 asset key / exact-byte digest / length 的已认证重发布来源允许恢复                                                                                                                                                                                                                   |
-| Editable 来源               | 生产变体已落地（#1119）：安装、快照恢复、同修订换根与跨修订直移的差异基线对应关系，四种来源转换，以及编辑来源绑定往返与拒绝面已覆盖。真实宿主重编译后的端到端恢复与 editable load 预算初值**尚未覆盖，不视为已满足**（#529）                                                                                                       |
+| Editable 来源               | 已覆盖：安装、快照恢复、同修订换根与跨修订直移的差异基线对应关系，四种来源转换，编辑来源绑定往返与拒绝面；宿主重编译后先认证再恢复的端到端 exact oracle（逻辑状态摘要全等、继续运行逐 tick 相等），含同修订不同构建字节的恢复（#529）                                                                                              |
 | 边界捕获 / 候选准备期保存   | 现行实现保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试                                                                            |
 | occurrence max / max+1      | 已覆盖：edge 与 conflict 两类总 occurrence 正好等于保存/目标上限时恢复成功；max+1 分别以 `RouteEdgeOccurrences` / `RouteConflictOccurrences` 上限错误失败；实际 conflict 总数由完整 staging 路线表重建后核对                                                                                                                       |
 | 冲突能力保护                | 已覆盖：保存的微米 carry 参与车尾位置；clearance 前一微米拒绝、相等允许；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                                                                                                   |
 | Conflict 持久状态           | 已覆盖：firstEligibleTick 的 None/tick 0 区分、Clearing owner/passages 与可重建 downstream 物理并集往返、1 mm 改写/缺区间拒绝、ActualClear tick 0、cleared cell 历史类别闭合、悬空 locator/错误 occurrence/重复及 future history 拒绝；same-revision 原样保持，cross-revision 使用最终 T_commit floor 并在连续再次切换时保留原基准 |
-| 快照五维预算                | Published 初值已登记于 §8；editable load 初值随 Editable 来源生产化补齐                                                                                                                                                                                                                                                            |
+| 快照五维预算                | Published 初值与 editable load 初值均已登记于 §8                                                                                                                                                                                                                                                                                   |

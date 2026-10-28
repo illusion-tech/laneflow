@@ -506,3 +506,6 @@ fn cross_revision_editable_to_published_retires_diff_base() {
 
 #[path = "editable_attestation.rs"]
 mod attestation;
+
+#[path = "editable_restore.rs"]
+mod restore;
