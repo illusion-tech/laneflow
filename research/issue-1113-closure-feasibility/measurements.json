@@ -1,0 +1,154 @@
+[
+  {
+    "run": "run-00",
+    "wall_seconds": 85.3289494,
+    "closure": {
+      "order": "diagnosis-first",
+      "seconds": {
+        "fixed_seam": 0.008526,
+        "guided_search": 0.4467106,
+        "sumo::-16502_0_0": 0.05951,
+        "sumo::-28860_3_0": 0.0002031
+      }
+    },
+    "full_regression": {
+      "baseline_conversion_seconds": 63.0499726,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.0850956,
+          "sumo::-16502_0_0": 0.6057645,
+          "sumo::-28860_3_0": 0.0125743,
+          "sumo::-7348_3_0": 0.0963224
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0026547,
+          "sumo::-16502_0_0": 0.1223558,
+          "sumo::-28860_3_0": 0.0141832,
+          "sumo::-7348_3_0": 0.0019299
+        }
+      },
+      "local_probe_seconds": 0.1246353,
+      "search_order": "old-grid",
+      "source_verify_and_parse_seconds": 0.8388237,
+      "validation_seconds": {
+        "baseline": 6.4153303,
+        "combined": 5.914597,
+        "grid_replacement": 6.1019529
+      }
+    }
+  },
+  {
+    "run": "run-01",
+    "wall_seconds": 85.6008067,
+    "closure": {
+      "order": "baseline-first",
+      "seconds": {
+        "fixed_seam": 0.0231683,
+        "guided_search": 0.4952217,
+        "sumo::-16502_0_0": 0.0958905,
+        "sumo::-28860_3_0": 9.95E-05
+      }
+    },
+    "full_regression": {
+      "baseline_conversion_seconds": 62.0576326,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.0612562,
+          "sumo::-16502_0_0": 0.3749189,
+          "sumo::-28860_3_0": 0.0060878,
+          "sumo::-7348_3_0": 0.0668741
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0020518,
+          "sumo::-16502_0_0": 0.1233364,
+          "sumo::-28860_3_0": 0.0312144,
+          "sumo::-7348_3_0": 0.0021856
+        }
+      },
+      "local_probe_seconds": 0.1555939,
+      "search_order": "grid-old",
+      "source_verify_and_parse_seconds": 0.879998,
+      "validation_seconds": {
+        "baseline": 5.5097225,
+        "combined": 7.7602169,
+        "grid_replacement": 6.8061665
+      }
+    }
+  },
+  {
+    "run": "run-02",
+    "wall_seconds": 109.2729025,
+    "closure": {
+      "order": "baseline-first",
+      "seconds": {
+        "fixed_seam": 0.0209378,
+        "guided_search": 0.6608287,
+        "sumo::-16502_0_0": 0.1288572,
+        "sumo::-28860_3_0": 0.0001342
+      }
+    },
+    "full_regression": {
+      "baseline_conversion_seconds": 76.9642536,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.1143109,
+          "sumo::-16502_0_0": 0.5517421,
+          "sumo::-28860_3_0": 0.0074089,
+          "sumo::-7348_3_0": 0.1136471
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0040054,
+          "sumo::-16502_0_0": 0.1300447,
+          "sumo::-28860_3_0": 0.0133946,
+          "sumo::-7348_3_0": 0.0040996
+        }
+      },
+      "local_probe_seconds": 0.2257642,
+      "search_order": "grid-old",
+      "source_verify_and_parse_seconds": 0.8195738,
+      "validation_seconds": {
+        "baseline": 6.8535242,
+        "combined": 11.5460146,
+        "grid_replacement": 9.2951291
+      }
+    }
+  },
+  {
+    "run": "run-03",
+    "wall_seconds": 106.2921448,
+    "closure": {
+      "order": "diagnosis-first",
+      "seconds": {
+        "fixed_seam": 0.0154824,
+        "guided_search": 0.7139983,
+        "sumo::-16502_0_0": 0.1156567,
+        "sumo::-28860_3_0": 0.0006441
+      }
+    },
+    "full_regression": {
+      "baseline_conversion_seconds": 79.9149864,
+      "edge_search_seconds": {
+        "grid": {
+          "sumo::-10004_5_1": 0.1004333,
+          "sumo::-16502_0_0": 0.5983119,
+          "sumo::-28860_3_0": 0.0091592,
+          "sumo::-7348_3_0": 0.1166523
+        },
+        "old": {
+          "sumo::-10004_5_1": 0.0030022,
+          "sumo::-16502_0_0": 0.1424607,
+          "sumo::-28860_3_0": 0.0172852,
+          "sumo::-7348_3_0": 0.0027676
+        }
+      },
+      "local_probe_seconds": 0.1509458,
+      "search_order": "old-grid",
+      "source_verify_and_parse_seconds": 1.2317317,
+      "validation_seconds": {
+        "baseline": 7.1162805,
+        "combined": 7.1703855,
+        "grid_replacement": 7.135016
+      }
+    }
+  }
+]
