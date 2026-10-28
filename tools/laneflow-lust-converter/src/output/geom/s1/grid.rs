@@ -61,6 +61,8 @@ struct GridSearch {
     audit: Option<audit::EndAudit>,
     start_clamp: Option<Vec3>,
     guide: Option<Guide>,
+    injection: Option<Injection>,
+    injection_records: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -82,6 +84,103 @@ impl Guide {
             .take_while(|&t| t < self.tail[0])
             .chain(self.tail)
             .collect()
+    }
+}
+
+/// #1221 §3.5：见证参数注入。只把见证参数并入该 cubic 的参数网格，**不强制**搜索使用
+/// 见证弦：`graph::paths_on` 连接全部满足条件的 `i<j` 节点对，注入后仍可跳过见证弦。
+#[derive(Clone)]
+pub(crate) struct Injection {
+    pub(crate) control: [[u64; 3]; 6],
+    pub(crate) kind: InjectionKind,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum InjectionKind {
+    /// 首弦见证 `[0,t]`：节点 0、t，再接原 513 节点网格中严格大于 t 的节点。
+    FirstChord { t: f64 },
+    /// 末弦见证 `[t,1]`：保留原网格中严格小于 t 的节点，再接 t、1。
+    LastChord { t: f64 },
+}
+
+impl Injection {
+    fn parameters(&self) -> Vec<f64> {
+        let uniform = (0..=STEPS).map(|i| i as f64 / STEPS as f64);
+        match self.kind {
+            InjectionKind::FirstChord { t } => {
+                assert!(t > 0.0 && t <= 1.0);
+                std::iter::once(0.0)
+                    .chain(std::iter::once(t))
+                    .chain(uniform.filter(move |&x| x > t))
+                    .collect()
+            }
+            InjectionKind::LastChord { t } => {
+                assert!((0.0..1.0).contains(&t));
+                uniform
+                    .filter(|&x| x < t)
+                    .chain(std::iter::once(t))
+                    .chain(std::iter::once(1.0))
+                    .collect()
+            }
+        }
+    }
+
+    fn witness_pair(&self) -> [usize; 2] {
+        match self.kind {
+            InjectionKind::FirstChord { .. } => [0, 1],
+            InjectionKind::LastChord { .. } => {
+                let last = self.parameters().len() - 1;
+                [last - 1, last]
+            }
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self.kind {
+            InjectionKind::FirstChord { .. } => "grid_injected_first_chord",
+            InjectionKind::LastChord { .. } => "grid_injected_last_chord",
+        }
+    }
+
+    /// §3.6 的见证弦实际尝试/使用证据。`graph::paths_on` 枚举全部 `i<j` 节点对，见证弦
+    /// 必然被检查（attempted）；合格性与是否被任何路径使用另行记录，不得由注入推出。
+    fn evidence(
+        &self,
+        control: [Vec3; 6],
+        params: &[f64],
+        paths: &[Vec<usize>],
+        selected: usize,
+    ) -> Value {
+        let [a, b] = self.witness_pair();
+        let point_at = |t: f64| {
+            if t == 1.0 {
+                control[3]
+            } else {
+                cubic_at(control[0], control[1], control[2], control[3], t)
+            }
+        };
+        let qa = quantize_vec3(point_at(params[a]));
+        let qb = quantize_vec3(point_at(params[b]));
+        let length_ok = quantized_chord_meters(qa, qb) > QUANTIZED_MIN_SEGMENT_METERS;
+        let deviation_m = deviation_for_probe(
+            [control[0], control[1], control[2], control[3]],
+            params[a],
+            params[b],
+            qa.map(f64::from),
+            qb.map(f64::from),
+        );
+        let deviation_ok = deviation_m <= DEVIATION_METERS;
+        let uses = |path: &[usize]| path.windows(2).any(|w| w == [a, b]);
+        json!({"kind":match self.kind{InjectionKind::FirstChord{..}=>"first_chord",InjectionKind::LastChord{..}=>"last_chord"},
+            "t_f64_bits":match self.kind{InjectionKind::FirstChord{t}|InjectionKind::LastChord{t}=>t.to_bits()},
+            "witness_pair_node_indices":[a,b],
+            "witness_chord_attempted":true,
+            "witness_chord_qualified":length_ok&&deviation_ok,
+            "witness_chord_rejected_by":if !length_ok{Some("quantized_min_segment")}else if !deviation_ok{Some("deviation_screening")}else{None},
+            "witness_chord_deviation_m":deviation_m,
+            "witness_chord_in_any_returned_path":paths.iter().any(|p|uses(p)),
+            "witness_chord_in_selected_path":uses(&paths[selected]),
+            "usage_semantics":"injection does not force witness-chord usage; the chord graph enumerates all i<j node pairs"})
     }
 }
 
@@ -152,27 +251,53 @@ pub(crate) fn policy() -> Value {
 }
 
 pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
-    search_impl(input, false, None)
+    search_impl(input, false, None, None)
 }
 
 pub(crate) fn search_audited(input: &EdgeInput) -> EdgeSearch {
-    search_impl(input, true, None)
+    search_impl(input, true, None, None)
 }
 
 pub(crate) fn search_guided(input: &EdgeInput, guide: Guide) -> EdgeSearch {
-    search_impl(input, true, Some(guide))
+    search_impl(input, true, Some(guide), None)
+}
+
+/// #1221 §3.5：见证参数注入后的整边搜索；预算与上限不增加。
+pub(crate) fn search_injected(input: &EdgeInput, injection: Injection) -> EdgeSearch {
+    search_impl(input, true, None, Some(injection))
 }
 
 pub(crate) fn local_probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {
     audit::probe(control, start_clamp)
 }
 
-fn search_impl(input: &EdgeInput, audited: bool, guide: Option<Guide>) -> EdgeSearch {
+fn parameter_override(state: &GridSearch, control: [Vec3; 6]) -> Option<(Vec<f64>, &'static str)> {
+    let bits = control.map(|p| p.map(f64::to_bits));
+    if let Some(guide) = &state.guide
+        && guide.control == bits
+    {
+        return Some((guide.parameters(), "grid_prefix_with_witness_tail"));
+    }
+    if let Some(injection) = &state.injection
+        && injection.control == bits
+    {
+        return Some((injection.parameters(), injection.label()));
+    }
+    None
+}
+
+fn search_impl(
+    input: &EdgeInput,
+    audited: bool,
+    guide: Option<Guide>,
+    injection: Option<Injection>,
+) -> EdgeSearch {
     let _reset = GridReset;
     let mut state = GridSearch {
         audit: audited.then(audit::EndAudit::default),
         start_clamp: input.clamps[0],
         guide,
+        injection,
         ..GridSearch::default()
     };
     let mut candidates = Vec::new();
@@ -251,6 +376,9 @@ fn search_impl(input: &EdgeInput, audited: bool, guide: Option<Guide>) -> EdgeSe
             "retained_family_exhausted":exhausted,"complete_grid_path_enumeration":false,
             "budget_stopped":state.stop.is_some() || state.counts.state_limited_searches > 0,
             "stop_reason":state.stop.unwrap_or(if exhausted {"retained_family_exhausted"} else {"preparation_or_straight_rejected"})});
+    if !state.injection_records.is_empty() {
+        report["witness_injection_records"] = json!(state.injection_records);
+    }
     if let Some(audit) = &state.audit {
         report["end_audit"] = json!(audit);
     }
@@ -287,11 +415,7 @@ fn sample(
         if index == FRAME_LIMIT {
             return Err(state.fail("frames"));
         }
-        let params = state
-            .guide
-            .as_ref()
-            .filter(|g| g.control == control.map(|p| p.map(f64::to_bits)))
-            .map(Guide::parameters);
+        let params = parameter_override(state, control).map(|(p, _)| p);
         let result = if let Some(params) = &params {
             graph::paths_on(state, control, checkpoint.prev_dir, params)
         } else {
@@ -344,11 +468,7 @@ fn sample(
         "fixed grid incoming direction"
     );
     if state.frames[index].selected.is_none() {
-        let guide = state
-            .guide
-            .as_ref()
-            .filter(|g| g.control == control.map(|p| p.map(f64::to_bits)));
-        let parameter_grid = guide.map(Guide::parameters);
+        let override_grid = parameter_override(state, control);
         let frame = &mut state.frames[index];
         let Some(path) = frame.paths.get(frame.next) else {
             state.failed_at = Some(index);
@@ -358,9 +478,9 @@ fn sample(
         let params = path
             .iter()
             .map(|&k| {
-                parameter_grid
+                override_grid
                     .as_ref()
-                    .map_or(k as f64 / STEPS as f64, |p| p[k])
+                    .map_or(k as f64 / STEPS as f64, |(p, _)| p[k])
             })
             .collect::<Vec<_>>();
         let points = params
@@ -377,19 +497,27 @@ fn sample(
         state.reserve_points(points.len())?;
         state.reserve_work(points.len() as u64)?;
         state.counts.node_evaluations += points.len() as u64;
-        let report = json!({"cubic_index":index,"span_index_zero_based":span_index,
-            "partition":if parameter_grid.is_some(){"grid_prefix_with_witness_tail"}else{"grid_512_directed_chord_bfs"},"candidate_rank":rank,
+        let mut report = json!({"cubic_index":index,"span_index_zero_based":span_index,
+            "partition":override_grid.as_ref().map_or("grid_512_directed_chord_bfs", |(_, label)| *label),
+            "candidate_rank":rank,
             "parameter_indices":state.frames[index].paths[rank],
             "control_f64_bits":control[..4].iter().map(|p|p.map(f64::to_bits)).collect::<Vec<_>>(),
             "metrics":metrics([control[0],control[1],control[2],control[3]],&params)});
-        let report = if parameter_grid.is_some() {
-            let mut report = report;
+        if override_grid.is_some() {
             report["parameters_f64_bits"] =
                 json!(params.iter().map(|t| t.to_bits()).collect::<Vec<_>>());
-            report
-        } else {
-            report
-        };
+        }
+        if let Some(evidence) = state
+            .injection
+            .as_ref()
+            .filter(|i| i.control == control.map(|p| p.map(f64::to_bits)))
+            .map(|injection| injection.evidence(control, &params, &state.frames[index].paths, rank))
+        {
+            report["witness_injection"] = evidence.clone();
+            state.injection_records.push(
+                json!({"cubic_index":index,"span_index_zero_based":span_index,"evidence":evidence}),
+            );
+        }
         state.frames[index].next += 1;
         state.frames[index].selected = Some(SavedPrefix { points, report });
     }
@@ -470,4 +598,34 @@ fn exhausted_suffix_advances_prefix_and_replay_keeps_the_sink_contract() {
     let mut sink = EmissionSink::new(control[0]);
     sample(&mut state, 0, control, &mut sink).unwrap();
     assert_eq!(state.frames[0].next, 2);
+}
+
+#[test]
+fn witness_injection_parameters_follow_frozen_shapes() {
+    let control = [[0_u64; 3]; 6];
+    let first = Injection {
+        control,
+        kind: InjectionKind::FirstChord { t: 0.3 },
+    };
+    let params = first.parameters();
+    assert_eq!(&params[..2], &[0.0, 0.3]);
+    assert!(params.windows(2).all(|w| w[0] < w[1]));
+    assert_eq!(params.last(), Some(&1.0));
+    assert!(params[2..].iter().all(|&x| x > 0.3));
+    assert_eq!(first.witness_pair(), [0, 1]);
+    let last = Injection {
+        control,
+        kind: InjectionKind::LastChord { t: 0.7 },
+    };
+    let params = last.parameters();
+    assert_eq!(&params[params.len() - 2..], &[0.7, 1.0]);
+    assert!(params.windows(2).all(|w| w[0] < w[1]));
+    assert!(params[..params.len() - 2].iter().all(|&x| x < 0.7));
+    assert_eq!(last.witness_pair(), [params.len() - 2, params.len() - 1]);
+    for (kind, expected) in [
+        (InjectionKind::FirstChord { t: 1.0 }, vec![0.0, 1.0]),
+        (InjectionKind::LastChord { t: 0.0 }, vec![0.0, 1.0]),
+    ] {
+        assert_eq!(Injection { control, kind }.parameters(), expected);
+    }
 }
