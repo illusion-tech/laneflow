@@ -13,6 +13,8 @@ mod audit;
 mod graph;
 mod refine;
 
+pub(super) use graph::deviation as deviation_for_probe;
+
 #[derive(Default, Serialize)]
 struct Counts {
     node_evaluations: u64,
