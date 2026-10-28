@@ -142,16 +142,20 @@ impl Injection {
         }
     }
 
-    /// §3.6 的见证弦实际尝试/使用证据。`graph::paths_on` 枚举全部 `i<j` 节点对，见证弦
-    /// 必然被检查（attempted）；合格性与是否被任何路径使用另行记录，不得由注入推出。
+    /// §3.6 的见证弦实际尝试/使用证据。`witness_pair` 是**完整注入网格**的节点下标，
+    /// 见证弦端点参数取自该网格；返回路径可跳过网格节点，不得按返回路径的局部下标索引。
+    /// `graph::paths_on` 枚举全部 `i<j` 节点对，正常返回时见证弦必然被检查（attempted）；
+    /// 图搜索预算停止时尝试与否不可知，记 `null`（not_recorded 口径）。
     fn evidence(
         &self,
         control: [Vec3; 6],
-        params: &[f64],
         paths: &[Vec<usize>],
-        selected: usize,
+        selected: Option<usize>,
+        stage: &'static str,
     ) -> Value {
         let [a, b] = self.witness_pair();
+        let grid = self.parameters();
+        let witness = [grid[a], grid[b]];
         let point_at = |t: f64| {
             if t == 1.0 {
                 control[3]
@@ -159,13 +163,13 @@ impl Injection {
                 cubic_at(control[0], control[1], control[2], control[3], t)
             }
         };
-        let qa = quantize_vec3(point_at(params[a]));
-        let qb = quantize_vec3(point_at(params[b]));
+        let qa = quantize_vec3(point_at(witness[0]));
+        let qb = quantize_vec3(point_at(witness[1]));
         let length_ok = quantized_chord_meters(qa, qb) > QUANTIZED_MIN_SEGMENT_METERS;
         let deviation_m = deviation_for_probe(
             [control[0], control[1], control[2], control[3]],
-            params[a],
-            params[b],
+            witness[0],
+            witness[1],
             qa.map(f64::from),
             qb.map(f64::from),
         );
@@ -173,14 +177,42 @@ impl Injection {
         let uses = |path: &[usize]| path.windows(2).any(|w| w == [a, b]);
         json!({"kind":match self.kind{InjectionKind::FirstChord{..}=>"first_chord",InjectionKind::LastChord{..}=>"last_chord"},
             "t_f64_bits":match self.kind{InjectionKind::FirstChord{t}|InjectionKind::LastChord{t}=>t.to_bits()},
+            "record_stage":stage,
             "witness_pair_node_indices":[a,b],
-            "witness_chord_attempted":true,
+            "witness_chord_parameters_f64_bits":witness.map(f64::to_bits),
+            "witness_chord_attempted":(stage!="search_error").then_some(true),
             "witness_chord_qualified":length_ok&&deviation_ok,
             "witness_chord_rejected_by":if !length_ok{Some("quantized_min_segment")}else if !deviation_ok{Some("deviation_screening")}else{None},
             "witness_chord_deviation_m":deviation_m,
             "witness_chord_in_any_returned_path":paths.iter().any(|p|uses(p)),
-            "witness_chord_in_selected_path":uses(&paths[selected]),
+            "witness_chord_in_selected_path":selected.map(|i|uses(&paths[i])),
             "usage_semantics":"injection does not force witness-chord usage; the chord graph enumerates all i<j node pairs"})
+    }
+}
+
+impl GridSearch {
+    /// 注入见证弦的尝试/使用记录：无返回路径与图搜索停止时也必须留痕（§3.6），
+    /// 不得只在成功选路后记录。
+    fn record_injection(
+        &mut self,
+        index: usize,
+        span_index: usize,
+        control: [Vec3; 6],
+        paths: &[Vec<usize>],
+        selected: Option<usize>,
+        stage: &'static str,
+    ) -> Option<Value> {
+        let bits = control.map(|p| p.map(f64::to_bits));
+        let injection = self.injection.as_ref()?;
+        if injection.control != bits {
+            return None;
+        }
+        let evidence = injection.evidence(control, paths, selected, stage);
+        self.injection_records.push(
+            json!({"cubic_index":index,"span_index_zero_based":span_index,
+                "record_stage":stage,"evidence":evidence.clone()}),
+        );
+        Some(evidence)
     }
 }
 
@@ -424,6 +456,7 @@ fn sample(
         let paths = match result {
             Ok(paths) => paths,
             Err(error) => {
+                state.record_injection(index, span_index, control, &[], None, "search_error");
                 state.failures.insert(
                     index,
                     json!({"span_index_zero_based":span_index,
@@ -436,6 +469,7 @@ fn sample(
         };
         state.reserve_points(paths.iter().map(Vec::len).sum())?;
         if paths.is_empty() {
+            state.record_injection(index, span_index, control, &paths, None, "no_retained_path");
             state.failures.insert(
                 index,
                 json!({"span_index_zero_based":span_index,
@@ -507,16 +541,16 @@ fn sample(
             report["parameters_f64_bits"] =
                 json!(params.iter().map(|t| t.to_bits()).collect::<Vec<_>>());
         }
-        if let Some(evidence) = state
-            .injection
-            .as_ref()
-            .filter(|i| i.control == control.map(|p| p.map(f64::to_bits)))
-            .map(|injection| injection.evidence(control, &params, &state.frames[index].paths, rank))
-        {
-            report["witness_injection"] = evidence.clone();
-            state.injection_records.push(
-                json!({"cubic_index":index,"span_index_zero_based":span_index,"evidence":evidence}),
-            );
+        let frame_paths = state.frames[index].paths.clone();
+        if let Some(evidence) = state.record_injection(
+            index,
+            span_index,
+            control,
+            &frame_paths,
+            Some(rank),
+            "selected_path",
+        ) {
+            report["witness_injection"] = evidence;
         }
         state.frames[index].next += 1;
         state.frames[index].selected = Some(SavedPrefix { points, report });
@@ -628,4 +662,39 @@ fn witness_injection_parameters_follow_frozen_shapes() {
     ] {
         assert_eq!(Injection { control, kind }.parameters(), expected);
     }
+}
+
+#[test]
+fn witness_evidence_uses_full_grid_and_records_every_outcome() {
+    let control = [
+        [0.0, 0.0, 0.0],
+        [3.0, 0.3, 0.0],
+        [7.0, 0.3, 0.0],
+        [10.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ];
+    let injection = Injection {
+        control: control.map(|p| p.map(f64::to_bits)),
+        kind: InjectionKind::LastChord { t: 0.5 },
+    };
+    let grid = injection.parameters();
+    let [a, b] = injection.witness_pair();
+    // 返回路径跳过网格节点：局部下标与见证节点下标不同，见证弦仍取完整网格参数。
+    let short_path = vec![vec![0_usize, 5, a, b]];
+    let value = injection.evidence(control, &short_path, Some(0), "selected_path");
+    assert_eq!(
+        value["witness_chord_parameters_f64_bits"],
+        json!([grid[a].to_bits(), grid[b].to_bits()])
+    );
+    assert_eq!(value["witness_chord_in_selected_path"], json!(true));
+    assert_eq!(value["record_stage"], json!("selected_path"));
+    // 图搜索无保留路径时也必须留下尝试证据（§3.6），不得缺失记录。
+    let value = injection.evidence(control, &[], None, "no_retained_path");
+    assert_eq!(value["witness_chord_attempted"], json!(true));
+    assert_eq!(value["witness_chord_in_any_returned_path"], json!(false));
+    assert_eq!(value["witness_chord_in_selected_path"], Value::Null);
+    // 图搜索预算停止时尝试与否不可知，记 null（not_recorded 口径）。
+    let value = injection.evidence(control, &[], None, "search_error");
+    assert!(value["witness_chord_attempted"].is_null());
 }
