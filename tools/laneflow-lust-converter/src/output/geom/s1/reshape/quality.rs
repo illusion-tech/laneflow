@@ -114,7 +114,7 @@ pub(super) fn polyline_fit(points: &[Vec3], source: &[Vec3], budget: &mut Budget
         Some(worst)
     };
     Some(Fit {
-        curve_to_source_estimate_m: directed(points, source, 1, budget)?,
+        curve_to_source_estimate_m: directed(points, source, STEPS, budget)?,
         source_to_curve_estimate_m: directed(source, points, STEPS, budget)?,
     })
 }
@@ -188,4 +188,13 @@ fn source_fit_budget_stops_without_a_partial_acceptance() {
     };
     assert!(fit(&[c], &[c[0], c[3]], &mut budget).is_none());
     assert_eq!(budget.stop, Some("source_fit_work"));
+}
+
+#[test]
+fn canonical_observation_resolves_a_source_vertex_inside_one_chord() {
+    let points = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+    let source = [points[0], [1.0, 0.0, 0.0], points[1]];
+    let result = polyline_fit(&points, &source, &mut Budget::default()).unwrap();
+    assert_eq!(result.curve_to_source_estimate_m, 0.0);
+    assert_eq!(result.source_to_curve_estimate_m, 0.0);
 }
