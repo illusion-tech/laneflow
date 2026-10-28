@@ -408,6 +408,9 @@ CommittedRoadNetwork {
   `EditableDiffBase` LFCA bytes。下一次发射必须把它传给 `PortableDiffBase::Artifact`；候选
   提交后 target LFCA 原子成为新 diff base，失败则继续保留旧 base。缺失或 origin 错配时
   不得发射/提交 LFSD；
+- committed `RoadEditingState` 的形状、编辑来源变体与 `EditableDiffBase` 的对应关系判据、
+  重编译责任与快照绑定由 [`committed-road-editing-state.md`](committed-road-editing-state.md)
+  冻结；
 - 加载 editable 来源时重新编译和构建；加载 published reference 时重新认证并读取被引用的
   LFCA 再构建。editable 加载先以新编译 LFCA 建立根与 diff base，再按相同 revision/contract
   规则恢复 snapshot；资产缺失/错配时失败关闭，不把 diff base、工作态 LFCA 或内部数组缓存

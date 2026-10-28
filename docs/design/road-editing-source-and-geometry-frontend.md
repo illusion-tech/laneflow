@@ -66,7 +66,9 @@ LIR 未改变）由独立的后继来源差异能力 [#345] 拥有；不能把
 本节描述可持久化内容的形状，不授予任意工作副本进入城市存档。现行保存入口只读取活动
 Runtime 的 `CommittedNetworkSource`；本节只约束其中可编辑的
 committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 同样是合法来源，
-但不携带 authoring payload，因此不适用下列 `RoadEditingState` 必须保存内容。
+但不携带 authoring payload，因此不适用下列 `RoadEditingState` 必须保存内容。committed
+`RoadEditingState` 作为 Runtime 来源载荷的形状（`LFRE` 模块集合、结构校验与摘要）见
+[`committed-road-editing-state.md`](committed-road-editing-state.md) §2。
 
 必须保存：
 
