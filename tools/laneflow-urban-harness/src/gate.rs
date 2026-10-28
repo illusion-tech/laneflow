@@ -471,7 +471,10 @@ fn reject_trial(
                 MigrationPolicyKind::SameRevisionRestore,
                 binding,
             );
-            let CommittedNetworkSource::Published { reference: _ } = target_source(&variant.root)?;
+            let CommittedNetworkSource::Published { reference: _ } = target_source(&variant.root)?
+            else {
+                return Err(invalid("target source 必须是发布来源".to_owned()));
+            };
             let reference = checked(
                 "wrong target source",
                 PublishedLfcaReference::new(

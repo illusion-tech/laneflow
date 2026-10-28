@@ -36,6 +36,11 @@ pub use admin::snapshot_restore::{
     restore_lfrs,
 };
 pub use facade::TrafficWorld;
+pub use facade::editable_source::{
+    EditableDiffBase, EditableDiffBaseMismatch, InvalidRoadEditingState,
+    ROAD_EDITING_STATE_DIGEST_DOMAIN, ROAD_EDITING_STATE_DIGEST_VERSION, RoadEditingState,
+    RoadEditingStateDigest, RoadEditingStateModule,
+};
 pub use facade::observation::{
     CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
     ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,

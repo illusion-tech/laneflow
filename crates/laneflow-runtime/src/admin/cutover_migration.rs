@@ -2501,7 +2501,7 @@ pub(crate) mod tests {
             .expect("add approach lane edge");
     }
 
-    fn conflict_cutover_test_module(
+    pub(crate) fn conflict_cutover_test_module(
         insert_preceding_passage: bool,
         change_stable_passage_exit: bool,
         long_approaches: bool,

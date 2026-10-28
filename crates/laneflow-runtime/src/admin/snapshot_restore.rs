@@ -105,12 +105,12 @@ pub enum SnapshotRestoreError {
         /// 实际版本。
         actual: u16,
     },
-    /// v6 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
-    #[error("LFRS v6 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    /// table 出现现行 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS table {table} 含未知字段槽: supported={supported}, actual={actual}")]
     UnknownTableFields {
         /// table 名。
         table: &'static str,
-        /// v1 登记字段数。
+        /// 现行 schema 登记字段数。
         supported: usize,
         /// wire vtable 声明字段数。
         actual: usize,
@@ -121,12 +121,24 @@ pub enum SnapshotRestoreError {
         /// schema 字段名。
         field: &'static str,
     },
-    /// 来源种类未闭合到 v1 Published。
+    /// 来源种类不是 `Published` 或 `Editable`。
     #[error("LFRS source kind 不支持: {actual}")]
     UnsupportedSourceKind {
         /// 原始枚举值。
         actual: u8,
     },
+    /// 快照来源种类与宿主提供的目标来源种类不一致。
+    #[error("快照来源种类与目标来源种类不一致")]
+    SourceKindMismatch,
+    /// 携带了与 `source_kind` 不符的另一种来源绑定表。
+    #[error("LFRS 携带与来源种类不符的字段: {field}")]
+    UnexpectedSourceBinding {
+        /// 不应出现的 schema 字段名。
+        field: &'static str,
+    },
+    /// 宿主提供的道路编辑状态与快照编辑来源绑定（摘要 / 总长度 / 模块数）不一致。
+    #[error("道路编辑状态与快照编辑来源绑定不一致")]
+    EditableSourceBindingMismatch,
     /// Published asset key 为空。
     #[error("LFRS Published asset key 不能为空")]
     EmptyAssetKey,

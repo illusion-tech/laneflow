@@ -117,6 +117,10 @@ pub enum InstallError {
         /// 共享路网修订 origin 的修订标识。
         installed_revision: NetworkRevisionId,
     },
+    /// 编辑来源的差异基线与共享路网修订 origin 的 LFCA digest / length 不一致
+    /// （安装与快照恢复共用交通准备路径）。
+    #[error("编辑来源的差异基线与共享路网修订 LFCA 不对应")]
+    EditableDiffBaseMismatch,
 }
 
 /// `TrafficWorld::step` 失败。

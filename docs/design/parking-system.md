@@ -586,7 +586,7 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
 
 ## 7. Snapshot、回放与修订切换
 
-### 7.1 Runtime Snapshot v6
+### 7.1 Runtime Snapshot
 
 每个停车 binding 保存：
 
@@ -689,13 +689,13 @@ Adapter 可以自行选择对象池和视觉过渡，但不能延迟、回滚或
 
 目标边界：
 
-| 路径                    | 时间/空间边界                                                                                  |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| shared static retained  | `O(F + S + A)`，与 `C` 无关                                                                    |
-| 每世界 parking retained | `O(F + S + max(V_cap, H))`，与 `C` 无关；账本按槽位 `Vec` 的 `capacity` 计，不按 `B` 计        |
-| reserve/park/cancel     | ordinal 已解析后摊销 `O(1)`；anchor membership 可用有序 range 查找                             |
-| leave safety            | 一次扫描 `V_active` 并复用 route-aware occupancy 查询；不扫描 Parked 或 `C`                    |
-| fixed tick              | `O(V_active + active constraints)`；不扫描 Parked、全部槽位或 `C`                             |
+| 路径                    | 时间/空间边界                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| shared static retained  | `O(F + S + A)`，与 `C` 无关                                                                 |
+| 每世界 parking retained | `O(F + S + max(V_cap, H))`，与 `C` 无关；账本按槽位 `Vec` 的 `capacity` 计，不按 `B` 计     |
+| reserve/park/cancel     | ordinal 已解析后摊销 `O(1)`；anchor membership 可用有序 range 查找                          |
+| leave safety            | 一次扫描 `V_active` 并复用 route-aware occupancy 查询；不扫描 Parked 或 `C`                 |
+| fixed tick              | `O(V_active + active constraints)`；不扫描 Parked、全部槽位或 `C`                           |
 | snapshot/cutover        | `O(V + B + routes)`，无 `O(C)` 展开；binding 写入按车辆下标落槽，不按槽位顺序重排观察或快照 |
 
 10 万声明虚拟容量、100 辆实际 parked 仍不展开具体车位。binding 槽位在安装时按车辆容量

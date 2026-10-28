@@ -1853,7 +1853,9 @@ mod tests {
         equivalent.vehicles[0].snapshot_vehicle_id = 72;
         equivalent.vehicles[0].snapshot_route_id = 91;
         equivalent.live_order[0] = 72;
-        let crate::CommittedNetworkSource::Published { reference } = &original.source;
+        let crate::CommittedNetworkSource::Published { reference } = &original.source else {
+            panic!("测试世界为发布来源");
+        };
         equivalent.source = crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
                 "asset://republished-audit-name",

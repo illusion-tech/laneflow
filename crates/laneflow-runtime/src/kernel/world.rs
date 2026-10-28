@@ -239,6 +239,9 @@ impl crate::kernel::state::WorldState {
                 installed_revision: installed,
             });
         }
+        if !source.diff_base_corresponds_to(*revision.canonical_origin()) {
+            return Err(InstallError::EditableDiffBaseMismatch);
+        }
         let dt = config.fixed_delta_time_ms();
         if !(4..=1_000).contains(&dt) {
             return Err(InstallError::DeltaOutOfRange {
@@ -2210,12 +2213,14 @@ impl TrafficWorld {
     /// 安装完整共享路网修订并指名已提交来源（#302 活动聚合）。失败不留下
     /// 可观察的半个 world。
     ///
-    /// 来源的 `NetworkRevisionId` 必须与共享路网修订 origin 精确相等；digest /
-    /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
+    /// 来源的 `NetworkRevisionId` 必须与共享路网修订 origin 精确相等；发布来源的
+    /// digest / length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
+    /// 编辑来源的差异基线必须与 origin 的 LFCA digest / length 逐字节对应。
     ///
     /// # Errors
     ///
-    /// 来源修订号与共享路网修订 origin 不一致、
+    /// 来源修订号与共享路网修订 origin 不一致、编辑来源差异基线不对应
+    /// （[`InstallError::EditableDiffBaseMismatch`]）、
     /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享静态路网
     /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
     /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /

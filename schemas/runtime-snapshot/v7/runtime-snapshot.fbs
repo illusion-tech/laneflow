@@ -1,8 +1,9 @@
-// LaneFlow 运行时快照容器 v6。
+// LaneFlow 运行时快照容器 v7。
 // 保存策略选择、Conflict 资格/reservation/lag history 与 Clearing；派生
 // queue link、occupancy index、frontier、latest decision/event batch 和 tick-local claim 不持久化。
+// 编辑来源只绑定道路编辑状态摘要、精确总长度与模块数，不内嵌 LFRE 字节。
 
-namespace LaneFlow.RuntimeSnapshot.V6;
+namespace LaneFlow.RuntimeSnapshot.V7;
 
 struct Digest256 { bytes:[ubyte:32]; }
 struct StableId128 { bytes:[ubyte:16]; }
@@ -16,7 +17,7 @@ struct StaticContractVersionSet {
   static_execution_contract_version:ushort;
 }
 
-enum SourceKind:ubyte { Unspecified = 0, Published = 1 }
+enum SourceKind:ubyte { Unspecified = 0, Published = 1, Editable = 2 }
 enum VehicleStatusKind:ubyte { Unspecified = 0, Active = 1, Parked = 2, Completed = 3 }
 enum ParkingBindingStateKind:ubyte { Unspecified = 0, Reserved = 1, Occupied = 2 }
 enum ParkingTargetKind:ubyte { Unspecified = 0, ExplicitSpace = 1, VirtualPool = 2 }
@@ -53,6 +54,12 @@ table PublishedSourceBinding {
   artifact_digest:Digest256;
   artifact_byte_length:ulong;
   network_revision:Digest256;
+}
+
+table EditableSourceBinding {
+  state_digest:Digest256;
+  state_byte_length:ulong;
+  module_count:uint;
 }
 
 table SnapshotRoute {
@@ -183,6 +190,7 @@ table RuntimeSnapshot {
   waiting_zones:[WaitingZoneState] (required);
   world_policy:WorldPolicyBinding (required);
   conflict_lag_states:[ConflictLagState] (required);
+  source_editable:EditableSourceBinding;
 }
 
 root_type RuntimeSnapshot;

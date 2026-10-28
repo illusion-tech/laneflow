@@ -250,7 +250,7 @@ fn gap_overflow_rejects_only_the_selected_policy_without_publishing_a_world() {
 #[test]
 fn snapshot_policy_wire_is_required_closed_and_never_falls_back() {
     use laneflow_runtime::SnapshotRestoreError;
-    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as wire;
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as wire;
     let revision = root(POLICIES);
     let world = install(&revision, pin(&revision, 0), 100).unwrap();
     let original = encode_lfrs(&world.capture_snapshot().unwrap());

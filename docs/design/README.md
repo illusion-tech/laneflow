@@ -30,7 +30,7 @@
 - `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
   坐标、独立容量与正式 Conflict authority 的活动车辆边界。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
-  membership/admission/storage/queue 设计，以及当前 LFRS 6、runtime state 5、
+  membership/admission/storage/queue 设计，以及当前 LFRS 7、runtime state 5、
   deterministic digest 8 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `committed-road-editing-state.md`：committed `RoadEditingState` 的形状与所属层级、
@@ -56,7 +56,7 @@
 - [`traffic-runtime-execution-config.md`](traffic-runtime-execution-config.md)：Accepted；
   配置分离 API、世界执行资源、候选计划、安装/恢复/切换与 LFRS 版本轴。
 
-两文配套 ADR 0030（Accepted）；配置分离与 LFRS 6 已实现，worker 1–16 已开放（#705）。
+两文配套 ADR 0030（Accepted）；配置分离已实现（现行 LFRS 7），worker 1–16 已开放（#705）。
 
 - [`traffic-runtime-columnar-execution.md`](traffic-runtime-columnar-execution.md)：ADR 0031 接受的列式运动权威、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准。
 

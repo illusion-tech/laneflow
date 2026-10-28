@@ -1,7 +1,10 @@
-//! 已提交路网来源：#302 活动聚合的来源指名（切片 A 第一步）。
+//! 已提交路网来源：#302 活动聚合的来源指名（发布 / 编辑两种来源，#1116 G1）。
 
 use laneflow_static_contract::{ExactByteLength, NetworkRevisionId, Sha256Digest};
+use laneflow_static_network::CanonicalNetworkOrigin;
 use thiserror::Error;
+
+use crate::facade::editable_source::{EditableDiffBase, RoadEditingState};
 
 /// 已发布 LFCA 引用（术语表：published LFCA reference）构造失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -121,9 +124,8 @@ impl PublishedLfcaReference {
 /// 已提交路网来源（术语表：committed network source）。
 ///
 /// 已进入活动 Runtime 修订的可重建来源，是 #302 原子晋升清单的一员。
-/// v1 只交付发布形态；可编辑形态的载荷是 committed `RoadEditingState`，
-/// 该领域类型尚未存在于生产依赖面内，随 editable session 对接切片落位
-/// 并回写切换/快照合同——不为其预留空壳变体。
+/// 编辑来源同变体携带 [`EditableDiffBase`]，使“编辑来源缺基线”与“发布来源带基线”
+/// 不可表示（`committed-road-editing-state.md` §3.1）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommittedNetworkSource {
     /// runtime-only 发布世界：不透明 asset key + LFCA
@@ -131,6 +133,15 @@ pub enum CommittedNetworkSource {
     Published {
         /// 宿主持久的发布引用。
         reference: PublishedLfcaReference,
+    },
+    /// 可编辑世界：committed 道路编辑状态与构建当前修订所用的 exact LFCA。
+    ///
+    /// 快照只绑定 `state` 的摘要、长度与模块数；`diff_base` 不入档。
+    Editable {
+        /// 与修订共同提交的道路编辑状态。
+        state: RoadEditingState,
+        /// 与当前修订逐字节对应的差异基线。
+        diff_base: EditableDiffBase,
     },
 }
 
@@ -140,16 +151,31 @@ impl CommittedNetworkSource {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         match self {
             Self::Published { reference } => reference.retained_logical_bytes(),
+            Self::Editable { state, diff_base } => {
+                state.retained_logical_bytes() + diff_base.retained_logical_bytes()
+            }
         }
     }
 }
 
 impl CommittedNetworkSource {
     /// 来源指向的路网修订标识；与活动修订的一致性由安装/切换路径验证。
+    ///
+    /// 编辑来源取差异基线构造时绑定的修订标识。
     #[must_use]
-    pub const fn network_revision(&self) -> NetworkRevisionId {
+    pub fn network_revision(&self) -> NetworkRevisionId {
         match self {
             Self::Published { reference } => reference.network_revision(),
+            Self::Editable { diff_base, .. } => diff_base.network_revision(),
+        }
+    }
+
+    /// 编辑来源的差异基线是否与 `origin` 逐字节对应；发布来源没有差异基线，恒为真。
+    #[must_use]
+    pub fn diff_base_corresponds_to(&self, origin: CanonicalNetworkOrigin) -> bool {
+        match self {
+            Self::Published { .. } => true,
+            Self::Editable { diff_base, .. } => diff_base.corresponds_to(origin),
         }
     }
 
@@ -163,6 +189,11 @@ impl CommittedNetworkSource {
         match self {
             Self::Published { reference } => Ok(Self::Published {
                 reference: reference.try_clone()?,
+            }),
+            // 编辑来源成员均为引用计数共享，克隆不分配、不复制载荷。
+            Self::Editable { state, diff_base } => Ok(Self::Editable {
+                state: state.clone(),
+                diff_base: diff_base.clone(),
             }),
         }
     }

@@ -10,18 +10,19 @@ pub mod lane_flow {
 pub mod runtime_snapshot {
 
 #[allow(unused_imports, dead_code)]
-pub mod v6 {
+pub mod v7 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SOURCE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SOURCE_KIND: u8 = 1;
+pub const ENUM_MAX_SOURCE_KIND: u8 = 2;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SOURCE_KIND: [SourceKind; 2] = [
+pub const ENUM_VALUES_SOURCE_KIND: [SourceKind; 3] = [
   SourceKind::Unspecified,
   SourceKind::Published,
+  SourceKind::Editable,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -31,18 +32,21 @@ pub struct SourceKind(pub u8);
 impl SourceKind {
   pub const Unspecified: Self = Self(0);
   pub const Published: Self = Self(1);
+  pub const Editable: Self = Self(2);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 2;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Unspecified,
     Self::Published,
+    Self::Editable,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Unspecified => Some("Unspecified"),
       Self::Published => Some("Published"),
+      Self::Editable => Some("Editable"),
       _ => None,
     }
   }
@@ -1476,6 +1480,136 @@ impl ::core::fmt::Debug for PublishedSourceBinding<'_> {
       ds.field("artifact_digest", &self.artifact_digest());
       ds.field("artifact_byte_length", &self.artifact_byte_length());
       ds.field("network_revision", &self.network_revision());
+      ds.finish()
+  }
+}
+pub enum EditableSourceBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct EditableSourceBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for EditableSourceBinding<'a> {
+  type Inner = EditableSourceBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> EditableSourceBinding<'a> {
+  pub const VT_STATE_DIGEST: ::flatbuffers::VOffsetT = 4;
+  pub const VT_STATE_BYTE_LENGTH: ::flatbuffers::VOffsetT = 6;
+  pub const VT_MODULE_COUNT: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    EditableSourceBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args EditableSourceBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<EditableSourceBinding<'bldr>> {
+    let mut builder = EditableSourceBindingBuilder::new(_fbb);
+    builder.add_state_byte_length(args.state_byte_length);
+    builder.add_module_count(args.module_count);
+    if let Some(x) = args.state_digest { builder.add_state_digest(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn state_digest(&self) -> Option<&'a Digest256> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<Digest256>(EditableSourceBinding::VT_STATE_DIGEST, None)}
+  }
+  #[inline]
+  pub fn state_byte_length(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(EditableSourceBinding::VT_STATE_BYTE_LENGTH, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn module_count(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(EditableSourceBinding::VT_MODULE_COUNT, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for EditableSourceBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<Digest256>("state_digest", Self::VT_STATE_DIGEST, false)?
+     .visit_field::<u64>("state_byte_length", Self::VT_STATE_BYTE_LENGTH, false)?
+     .visit_field::<u32>("module_count", Self::VT_MODULE_COUNT, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct EditableSourceBindingArgs<'a> {
+    pub state_digest: Option<&'a Digest256>,
+    pub state_byte_length: u64,
+    pub module_count: u32,
+}
+impl<'a> Default for EditableSourceBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    EditableSourceBindingArgs {
+      state_digest: None,
+      state_byte_length: 0,
+      module_count: 0,
+    }
+  }
+}
+
+pub struct EditableSourceBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> EditableSourceBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_state_digest(&mut self, state_digest: &Digest256) {
+    self.fbb_.push_slot_always::<&Digest256>(EditableSourceBinding::VT_STATE_DIGEST, state_digest);
+  }
+  #[inline]
+  pub fn add_state_byte_length(&mut self, state_byte_length: u64) {
+    self.fbb_.push_slot::<u64>(EditableSourceBinding::VT_STATE_BYTE_LENGTH, state_byte_length, 0);
+  }
+  #[inline]
+  pub fn add_module_count(&mut self, module_count: u32) {
+    self.fbb_.push_slot::<u32>(EditableSourceBinding::VT_MODULE_COUNT, module_count, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> EditableSourceBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    EditableSourceBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<EditableSourceBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for EditableSourceBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("EditableSourceBinding");
+      ds.field("state_digest", &self.state_digest());
+      ds.field("state_byte_length", &self.state_byte_length());
+      ds.field("module_count", &self.module_count());
       ds.finish()
   }
 }
@@ -3489,6 +3623,7 @@ impl<'a> RuntimeSnapshot<'a> {
   pub const VT_WAITING_ZONES: ::flatbuffers::VOffsetT = 38;
   pub const VT_WORLD_POLICY: ::flatbuffers::VOffsetT = 40;
   pub const VT_CONFLICT_LAG_STATES: ::flatbuffers::VOffsetT = 42;
+  pub const VT_SOURCE_EDITABLE: ::flatbuffers::VOffsetT = 44;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3506,6 +3641,7 @@ impl<'a> RuntimeSnapshot<'a> {
     builder.add_time_ms(args.time_ms);
     builder.add_tick(args.tick);
     builder.add_world_id(args.world_id);
+    if let Some(x) = args.source_editable { builder.add_source_editable(x); }
     if let Some(x) = args.conflict_lag_states { builder.add_conflict_lag_states(x); }
     if let Some(x) = args.world_policy { builder.add_world_policy(x); }
     if let Some(x) = args.waiting_zones { builder.add_waiting_zones(x); }
@@ -3664,6 +3800,13 @@ impl<'a> RuntimeSnapshot<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictLagState>>>>(RuntimeSnapshot::VT_CONFLICT_LAG_STATES, None).unwrap()}
   }
+  #[inline]
+  pub fn source_editable(&self) -> Option<EditableSourceBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<EditableSourceBinding>>(RuntimeSnapshot::VT_SOURCE_EDITABLE, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
@@ -3692,6 +3835,7 @@ impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<WaitingZoneState>>>>("waiting_zones", Self::VT_WAITING_ZONES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<WorldPolicyBinding>>("world_policy", Self::VT_WORLD_POLICY, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictLagState>>>>("conflict_lag_states", Self::VT_CONFLICT_LAG_STATES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<EditableSourceBinding>>("source_editable", Self::VT_SOURCE_EDITABLE, false)?
      .finish();
     Ok(())
   }
@@ -3717,6 +3861,7 @@ pub struct RuntimeSnapshotArgs<'a> {
     pub waiting_zones: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState<'a>>>>>,
     pub world_policy: Option<::flatbuffers::WIPOffset<WorldPolicyBinding<'a>>>,
     pub conflict_lag_states: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictLagState<'a>>>>>,
+    pub source_editable: Option<::flatbuffers::WIPOffset<EditableSourceBinding<'a>>>,
 }
 impl<'a> Default for RuntimeSnapshotArgs<'a> {
   #[inline]
@@ -3742,6 +3887,7 @@ impl<'a> Default for RuntimeSnapshotArgs<'a> {
       waiting_zones: None, // required field
       world_policy: None, // required field
       conflict_lag_states: None, // required field
+      source_editable: None,
     }
   }
 }
@@ -3832,6 +3978,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RuntimeSnapshot::VT_CONFLICT_LAG_STATES, conflict_lag_states);
   }
   #[inline]
+  pub fn add_source_editable(&mut self, source_editable: ::flatbuffers::WIPOffset<EditableSourceBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<EditableSourceBinding>>(RuntimeSnapshot::VT_SOURCE_EDITABLE, source_editable);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RuntimeSnapshotBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RuntimeSnapshotBuilder {
@@ -3876,6 +4026,7 @@ impl ::core::fmt::Debug for RuntimeSnapshot<'_> {
       ds.field("waiting_zones", &self.waiting_zones());
       ds.field("world_policy", &self.world_policy());
       ds.field("conflict_lag_states", &self.conflict_lag_states());
+      ds.field("source_editable", &self.source_editable());
       ds.finish()
   }
 }
@@ -3964,7 +4115,7 @@ pub fn finish_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(
 pub fn finish_size_prefixed_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>, root: ::flatbuffers::WIPOffset<RuntimeSnapshot<'a>>) {
   fbb.finish_size_prefixed(root, Some(RUNTIME_SNAPSHOT_IDENTIFIER));
 }
-}  // pub mod V6
+}  // pub mod V7
 }  // pub mod RuntimeSnapshot
 }  // pub mod LaneFlow
 

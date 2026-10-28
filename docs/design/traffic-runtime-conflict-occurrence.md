@@ -282,7 +282,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
 - capture 仍只保存路线边稳定标识序列；
-- 现行 LFRS 6 保存 `WorldConfig` 容量并把它纳入 deterministic digest 8；
+- 现行 LFRS 7 保存 `WorldConfig` 容量并把它纳入 deterministic digest 8；
 - restore 使用目标修订的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
   再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
   才发布 world；
@@ -316,7 +316,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 - 上表全部生命周期入口、Parked/Completed 允许面和失败零副作用；
 - edge 容量与 conflict 容量分别达到 `max-1 / max / max+1`，checked overflow、分配
   failpoint、route removal 释放和三个路线注册入口共用计数；
-- LFRS v6 round-trip、v5 及更早版本/unknown version 拒绝、摘要差异、恢复容量放大、cutover
+- 现行 LFRS round-trip、旧版本/unknown version 拒绝、摘要差异、恢复容量放大、cutover
   target conflict count 增减与整事务回滚；
 - 10,000 冲突路线出现项产品档与 100,000 scaling 档的注册时间、retained logical
   bytes 和近线性比例。它们是路线元数据，不等于活动车辆数。

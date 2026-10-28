@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 6;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 7;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
 pub const RUNTIME_STATE_VERSION: u16 = 5;
 
@@ -497,7 +497,7 @@ impl CapturedWaitingZoneState {
     }
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v6。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v7。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -1200,7 +1200,7 @@ mod tests {
     use super::*;
     use crate::admin::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{ParkedVehicleSpawnInput, ParkingTarget, RouteRegisterInput, TickInput};
-    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as wire;
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as wire;
 
     #[test]
     fn capture_binds_cursors_config_and_origin() {
@@ -1442,7 +1442,9 @@ mod tests {
             expected_contracts.static_execution_contract_version()
         );
 
-        let CommittedNetworkSource::Published { reference } = snapshot.source();
+        let CommittedNetworkSource::Published { reference } = snapshot.source() else {
+            panic!("测试世界为发布来源");
+        };
         assert_eq!(root.source_kind(), wire::SourceKind::Published);
         let published = root.source_published().expect("published source");
         assert_eq!(published.asset_key(), reference.asset_key());

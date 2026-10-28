@@ -164,7 +164,7 @@ const RUNTIME_SNAPSHOT_WIRE_LIB_RS_PIN: &str =
 const ROAD_EDITING_GENERATED_RS_SHA256: &str =
     "b5937d7d8c7d2e17d88cd7d1c0800cdb7e8f9ba309d417c75a7c85c78580ddd7";
 const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
-    "1238fd450a189ebc1bf2d01aadca459bcd6026b9ed2e78d315b6b01db79e4462";
+    "9d990c9bfb67e47495647ebe72f79af74541fde0e85d30364a7f2a2ef2bd8428";
 
 /// 分类断言：workspace 内唯一登记的手写 unsafe 例外 crate（平台私有临时文件
 /// staging + 只读映射）。它与两个 wire crate 构成 `allow` 登记名单；新增
