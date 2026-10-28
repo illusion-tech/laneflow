@@ -61,7 +61,9 @@ static-contract versions、`networkRevisionDerivationVersion`、identity registr
 revision）不混用单一数字；未知版本值失败关闭。
 
 必绑：LFCA origin；`CommittedNetworkSource`（editable 世界 = committed
-`RoadEditingState`；runtime-only 世界 = `PublishedLfcaReference`）；上列版本；
+`RoadEditingState` 的道路编辑状态摘要、精确总长度与模块数，不内嵌 `LFRE` 字节；
+runtime-only 世界 = `PublishedLfcaReference`；编辑来源绑定形状见
+[`committed-road-editing-state.md`](committed-road-editing-state.md) §6）；上列版本；
 世界身份（快照局部）；`tick` / `time_ms` / 输入命令与已提交事件双游标（切换
 事务的 `worldBinding` 需要双游标基线）；全部每世界可变状态（§3）；
 `WorldConfig` 与 `WorldPolicySelection`。必填 `world_policy` 使用封闭 tag：
@@ -170,7 +172,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   `networkRevisionDerivationVersion` + 契约版本精确相等（与切换文档 §3 一致）；
   origin 字节差异仅承担来源审计，published 重发布的摘要错配在判据满足时允许
   恢复。资产缺失、重编译失败、版本不匹配或缺 `EditableDiffBase` 对应关系失败
-  关闭。
+  关闭。editable 恢复由宿主按快照中的道路编辑状态摘要取回状态并重编译；Runtime 检查
+  状态摘要与快照绑定一致、差异基线与目标修订逐字节对应
+  （`committed-road-editing-state.md` §4–§6）。
 - 发布资产启用道路编辑须另带 committed 道路状态并完成同修订
   root / source / diff-base rebase；成功前不得启用编辑。
 - **捕获与编码的失败关闭分工（#532）**：`capture_snapshot` 的全部容量按计数
@@ -446,7 +450,7 @@ v6 回归测试。
 | 配置判据                    | 已覆盖：fixed dt 不等拒绝，vehicle/route/edge occurrence/conflict occurrence 四类语义容量缩小拒绝/放大允许，执行配置另行显式提供，交通错误先于执行能力错误；容量不同不冒充 exact replay                                                                                                                                            |
 | 容器与完整性拒绝面          | 已覆盖：framing / identifier / verifier / wire 与 asset-key 上限、format/runtime/静态版本、未知 vtable 槽/枚举、必需字段、标识/引用/live 排列/停车/数值/时钟/Active 重叠；错误只返回失败，不暴露 staging                                                                                                                           |
 | Published 来源              | 已覆盖：端到端 fresh restore；同语义修订、不同 asset key / exact-byte digest / length 的已认证重发布来源允许恢复                                                                                                                                                                                                                   |
-| Editable 来源               | **尚未覆盖，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；类型落地后必须补重编译 + `EditableDiffBase` 对应关系 + 端到端恢复                                                                                                                                                                                  |
+| Editable 来源               | **尚未覆盖，不视为已满足**：类型与绑定已由 #1116 冻结（`committed-road-editing-state.md`），生产变体尚未落地；落地后必须补重编译 + `EditableDiffBase` 对应关系 + 端到端恢复（#529）                                                                                                                                                |
 | 边界捕获 / 候选准备期保存   | v6 保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试                                                                                 |
 | occurrence max / max+1      | 已覆盖：edge 与 conflict 两类总 occurrence 正好等于保存/目标上限时恢复成功；max+1 分别以 `RouteEdgeOccurrences` / `RouteConflictOccurrences` 上限错误失败；实际 conflict 总数由完整 staging 路线表重建后核对                                                                                                                       |
 | 冲突能力保护                | 已覆盖：保存的微米 carry 参与车尾位置；clearance 前一微米拒绝、相等允许；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                                                                                                   |

@@ -33,6 +33,9 @@
   membership/admission/storage/queue 设计，以及当前 LFRS 6、runtime state 5、
   deterministic digest 8 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
+- `committed-road-editing-state.md`：committed `RoadEditingState` 的形状与所属层级、
+  `CommittedNetworkSource` 编辑来源变体、`EditableDiffBase` 对应关系、宿主重编译的信任
+  边界与快照编辑来源绑定（#1116 G1；实现随后续切片，端到端验证随 #529）。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `committed-pose-extraction.md`：#681 位姿来源借用、Spatial 缓冲交换与按需提取
   的已接受设计；实现状态以独立切片为准。
