@@ -66,4 +66,13 @@
 
 - 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored --nocapture --test-threads=1`。
 - 环境变量（沿 #1115 口径）：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`CURVE_DESIGN_OUTPUT_DIR`（每次必须为不存在的新目录）、`CURVE_DESIGN_ORDER`（ABBA 序）、`CURVE_DESIGN_FROZEN_RESULT`（冻结对照结果）；精确测试名实现后补入本节。与流 B 并行时输出目录、结果文件与测试模块命名以流名区分。
+- 精确测试名（实现定稿补录）：正式实验入口
+  `output::emit::s1::recovery_coverage::dependency_recovery::stream_a_curve_design_c29_c17::pinned_lust_stream_a_curve_experiment`；
+  候选冻结入口（其 `stream-a-searches.json` 作 `CURVE_DESIGN_FROZEN_RESULT`）
+  `output::emit::s1::recovery_coverage::dependency_recovery::stream_a_curve_design_c29_c17::fixed_stream_a_curve_design`；
+  常规（非 ignore）单测
+  `output::emit::s1::recovery_coverage::dependency_recovery::stream_a_curve_design_c29_c17::stream_a_cohort_and_capacities_match_the_frozen_plan`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::stream_a_curve_design_c29_c17::stream_a_baseline_pool_merges_four_frozen_sources_in_order`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::stream_a_curve_design_c29_c17::curve_capacity_parameterization_keeps_the_frozen_six_default`。
+- `CURVE_DESIGN_ORDER` 的 ABBA 序取值：`baseline-new`、`new-baseline`、`new-baseline`、`baseline-new`（四次分别设置一个值）。执行中出现的计划与冻结实现差异及授权记录见 `README.md`「结论边界与差异记录」。
 - 输入、样本与预算由冻结源码与 `edges.json` 固定，不得换样后沿用结论。
