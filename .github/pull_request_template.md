@@ -50,6 +50,6 @@
 
 ## 完成
 
-- [ ] commit 使用 Conventional 标题、`Refs: #<issue>`；破坏性变更同时有标题 `!` 和 `BREAKING CHANGE:`。AI 参与时在 `Refs` 前成对写 `Harness:` / `Model:`，不用 `Co-authored-by` 标注工具或模型
+- [ ] commit 使用 Conventional 标题、`Refs: #<issue>`；破坏性变更同时有标题 `!` 和 `BREAKING CHANGE:`。AI 参与时在 `Refs` 前成对写已登记规范 ID 的 `Harness:` / `Model:`，`Harness` 区分入口形态，不用 `Co-authored-by` 标注工具或模型
 - [ ] 未解决的 review conversation 已处理（由 GitHub 原生规则拦截）
 - [ ] 合入走 Merge Queue，不使用 `--admin`

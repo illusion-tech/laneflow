@@ -91,6 +91,13 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 ## 2. 状态、治理与迁移
 
+提交执行框架标识（Commit Harness Identifier，`Harness`）：提交归属的 AI 执行产品
+及入口形态的已登记 ID，格式为 `<发布者>/<产品>/<入口形态>`，不表示模型身份。
+入口形态（Harness Surface）：提供任务交互和上下文集成的产品入口，区分 `cli`
+（含 TUI）、`web`、`desktop`、`ide-extension` 和 `ide`，不按底层进程或执行位置
+分类。登记、入口判定与校验以[提交规范第 6.2 节](commit-convention.md#62-执行框架目录与入口登记)
+为唯一事实源。
+
 代码语言立项审查（Code Language Proposal Review）：在新增或修改拟入库的非 Rust
 代码前，由维护者对语言必要性、用途、路径、工具链、验证与维护范围作出明确接受结论的
 G0/G2 人流程。纯删除不适用；具体规则由

@@ -1,3 +1,4 @@
+mod commit_harnesses;
 mod commit_messages;
 mod commit_models;
 mod digest_probe;

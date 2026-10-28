@@ -1,5 +1,5 @@
 //! 提交信息校验 Conventional Commits 标题、Refs/Closes、破坏性变更说明和成对的 Harness/Model。
-//! Model 只接受已登记的规范 ID。trailer 身份由 `git interpret-trailers --parse --no-divider`
+//! Harness 和 Model 只接受已登记的规范 ID。trailer 身份由 `git interpret-trailers --parse --no-divider`
 //! 确定；原文用于拒绝不规范写法。禁止使用 AI 工具署名 trailer。
 
 use std::borrow::Cow;
@@ -22,8 +22,8 @@ const AI_TOOL_COAUTHOR_EMAILS: &[&str] = &[
     "noreply@openai.com",
     "cursoragent@cursor.com",
 ];
-const AI_COAUTHOR_REWRITE_HINT: &str = "`Co-authored-by` 不得标注 AI 工具或模型。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架>` 和 `Model: <实际模型>`";
-const AI_MADE_WITH_REWRITE_HINT: &str = "`Made-with:` 不得标注 AI 工具。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架>` 和 `Model: <实际模型>`";
+const AI_COAUTHOR_REWRITE_HINT: &str = "`Co-authored-by` 不得标注 AI 工具或模型。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架的已登记规范 ID>` 和 `Model: <实际模型>`";
+const AI_MADE_WITH_REWRITE_HINT: &str = "`Made-with:` 不得标注 AI 工具。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架的已登记规范 ID>` 和 `Model: <实际模型>`";
 
 /// 读取并校验单个 commit message 文件（commit-msg 钩子入口）：归一化换行、剥离 Git 注释行后按合同校验。
 pub(crate) fn check_commit_message_file(path: &str) -> Result<(), String> {
@@ -783,6 +783,12 @@ fn harness_model_errors_from_git(trailers: &[GitTrailer]) -> Vec<String> {
             errors.push(format!("`{key}:` 必须写成 `{key}: <非空取值>`"));
         }
     }
+    if let [position] = harness.as_slice()
+        && !trailers[*position].value.is_empty()
+        && let Err(error) = crate::commit_harnesses::validate_harness_id(&trailers[*position].value)
+    {
+        errors.push(error);
+    }
     if let [position] = model.as_slice()
         && !trailers[*position].value.is_empty()
         && let Err(error) = crate::commit_models::validate_model_id(&trailers[*position].value)
@@ -1361,15 +1367,54 @@ Refs: #12
             message_with_body("Co-authored-by: Claudette Morel <claudette@example.com>"),
             message_with_body("Co-authored-by: Researcher <researcher@openai.com>"),
             message_with_body("Co-authored-by: Ada Lovelace <ada@cursor.com>"),
-            message_with_body("Harness: Cursor\nModel: openai/gpt-6.1-sol"),
+            message_with_body("Harness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol"),
             message_with_body(
-                "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: Claude Code\nModel: anthropic/claude-opus-5-5",
+                "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: anthropic/claude-code/cli\nModel: anthropic/claude-opus-5-5",
             ),
-            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: Claude Code\nModel: anthropic/claude-opus-5-5\nRefs: #12\n".to_string(),
+            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: anthropic/claude-code/cli\nModel: anthropic/claude-opus-5-5\nRefs: #12\n".to_string(),
             VALID_MESSAGE.to_string(),
         ] {
             assert_accepted(&message);
         }
+    }
+
+    #[test]
+    fn rejects_noncanonical_harness_ids_in_commit_messages() {
+        for value in [
+            "Codex",
+            "Codex Desktop",
+            "OPENAI/CODEX/DESKTOP",
+            "openai/codex",
+            "openai/codex/ide",
+            "new/agent/cli",
+            "unknown",
+            "other",
+        ] {
+            assert_rejected(
+                &message_with_body(&format!("Harness: {value}\nModel: openai/gpt-6.1-sol")),
+                "未登记为规范 ID",
+            );
+        }
+    }
+
+    #[test]
+    fn dependabot_exception_does_not_exempt_harness_registration() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump dependency\n\nHarness: Codex\nModel: openai/gpt-6.1-sol\n",
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("`Harness: Codex` 未登记")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().all(|error| !error.contains("缺少 `Refs:`")),
+            "{errors:?}"
+        );
     }
 
     #[test]
@@ -1382,7 +1427,7 @@ Refs: #12
             ("lab/unregistered-model", "未登记为规范 ID"),
         ] {
             assert_rejected(
-                &message_with_body(&format!("Harness: Codex\nModel: {value}")),
+                &message_with_body(&format!("Harness: openai/codex/desktop\nModel: {value}")),
                 hint,
             );
         }
@@ -1396,7 +1441,8 @@ Refs: #12
             ("gpt-6.1-sol", false),
             ("openai/unregistered-model", false),
         ] {
-            let message = message_with_body(&format!("Harness: Codex\nModel: {value}"));
+            let message =
+                message_with_body(&format!("Harness: openai/codex/desktop\nModel: {value}"));
             std::fs::write(&path, &message).expect("write test message");
             let file_result = check_commit_message_file(path.to_str().unwrap());
             let range_errors =
@@ -1417,7 +1463,7 @@ Refs: #12
             "0123456789abcdef",
             DEPENDABOT_AUTHOR_NAME,
             DEPENDABOT_AUTHOR_EMAIL,
-            "build(deps): bump dependency\n\nHarness: Codex\nModel: unknown-model\n",
+            "build(deps): bump dependency\n\nHarness: openai/codex/desktop\nModel: unknown-model\n",
         );
         assert!(
             errors.iter().any(|error| error.contains("未登记为规范 ID")),
@@ -1529,7 +1575,7 @@ Refs: #12
     #[test]
     fn rejects_indented_trailer_block() {
         assert_rejected(
-            "docs(governance): 对齐提交规范\n\n Co-authored-by: Ada <ada@example.com>\nHarness: Cursor\nModel: openai/gpt-6.1-sol\nRefs: #23\n",
+            "docs(governance): 对齐提交规范\n\n Co-authored-by: Ada <ada@example.com>\nHarness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol\nRefs: #23\n",
             "没有把提交末尾认成 trailer",
         );
     }
@@ -1552,7 +1598,7 @@ Refs: #12
     fn rejects_ai_tool_coauthor_even_with_harness_model_pair() {
         assert_rejected(
             &message_with_body(
-                "Co-authored-by: Codex <noreply@openai.com>\nHarness: Codex CLI\nModel: openai/gpt-6.1-sol",
+                "Co-authored-by: Codex <noreply@openai.com>\nHarness: openai/codex/cli\nModel: openai/gpt-6.1-sol",
             ),
             "不得标注 AI 工具",
         );
@@ -1560,7 +1606,10 @@ Refs: #12
 
     #[test]
     fn rejects_unpaired_harness_or_model() {
-        assert_rejected(&message_with_body("Harness: Cursor"), "必须成对出现");
+        assert_rejected(
+            &message_with_body("Harness: anysphere/cursor/ide"),
+            "必须成对出现",
+        );
         assert_rejected(
             &message_with_body("Model: openai/gpt-6.1-sol"),
             "必须成对出现",
@@ -1578,11 +1627,11 @@ Refs: #12
             "`Harness:` 必须写成",
         );
         assert_rejected(
-            &message_with_body("Harness: Cursor\nModel:"),
+            &message_with_body("Harness: anysphere/cursor/ide\nModel:"),
             "`Model:` 必须写成",
         );
         assert_rejected(
-            &message_with_body("Harness: Cursor\nModel:   "),
+            &message_with_body("Harness: anysphere/cursor/ide\nModel:   "),
             "`Model:` 必须写成",
         );
     }
@@ -1590,11 +1639,11 @@ Refs: #12
     #[test]
     fn rejects_harness_model_that_are_not_adjacent() {
         assert_rejected(
-            &message_with_body("Harness: Cursor\n\nModel: openai/gpt-6.1-sol"),
+            &message_with_body("Harness: anysphere/cursor/ide\n\nModel: openai/gpt-6.1-sol"),
             "必须成对出现",
         );
         assert_rejected(
-            &message_with_body("Model: openai/gpt-6.1-sol\nHarness: Cursor"),
+            &message_with_body("Model: openai/gpt-6.1-sol\nHarness: anysphere/cursor/ide"),
             "必须紧邻",
         );
     }
@@ -1602,11 +1651,15 @@ Refs: #12
     #[test]
     fn rejects_repeated_harness_or_model() {
         assert_rejected(
-            &message_with_body("Harness: Cursor\nHarness: Claude Code\nModel: openai/gpt-6.1-sol"),
+            &message_with_body(
+                "Harness: anysphere/cursor/ide\nHarness: anthropic/claude-code/cli\nModel: openai/gpt-6.1-sol",
+            ),
             "`Harness:` 只能出现一次",
         );
         assert_rejected(
-            &message_with_body("Harness: Cursor\nModel: openai/gpt-6.1-sol\nModel: other-model"),
+            &message_with_body(
+                "Harness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol\nModel: other-model",
+            ),
             "`Model:` 只能出现一次",
         );
     }
@@ -1614,7 +1667,7 @@ Refs: #12
     #[test]
     fn rejects_harness_model_after_issue_footer() {
         assert_rejected(
-            &format!("{VALID_MESSAGE}Harness: Cursor\nModel: openai/gpt-6.1-sol\n"),
+            &format!("{VALID_MESSAGE}Harness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol\n"),
             "必须位于 `Refs:` / `Closes:` 之前",
         );
     }
@@ -1623,7 +1676,7 @@ Refs: #12
     fn rejects_breaking_change_inside_attribution_trailer_block() {
         let message = BREAKING_MESSAGE.replace(
             "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nRefs: #12",
-            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: Cursor\nModel: openai/gpt-6.1-sol\nRefs: #12",
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol\nRefs: #12",
         );
 
         assert_rejected(&message, "trailer 段之前必须有空行");
@@ -1632,7 +1685,7 @@ Refs: #12
     #[test]
     fn rejects_attribution_trailer_without_leading_blank_line() {
         assert_rejected(
-            "docs(governance): 对齐提交规范\nHarness: Cursor\nModel: openai/gpt-6.1-sol\nRefs: #23\n",
+            "docs(governance): 对齐提交规范\nHarness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol\nRefs: #23\n",
             "trailer 段之前必须有空行",
         );
     }
@@ -1756,7 +1809,7 @@ Refs: #12
     #[test]
     fn rejects_blank_line_inside_attribution_trailer_block() {
         assert_rejected(
-            "docs(governance): 对齐提交规范\n\nHarness: Cursor\nModel: openai/gpt-6.1-sol\n\nRefs: #23\n",
+            "docs(governance): 对齐提交规范\n\nHarness: anysphere/cursor/ide\nModel: openai/gpt-6.1-sol\n\nRefs: #23\n",
             "中间不能空行",
         );
     }
