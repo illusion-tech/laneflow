@@ -196,9 +196,10 @@ fn run_diagnosis(
     searches: &BTreeMap<String, Value>,
     grid_history: &Value,
     zero_edges: &BTreeSet<&str>,
-) -> Value {
+) -> (Value, Value) {
     let mut problems = Vec::new();
     let mut summaries = BTreeMap::<String, Value>::new();
+    let mut timing = BTreeMap::<String, Value>::new();
     for problem in PROBLEMS {
         let id = problem.edge;
         let summary = summaries.entry(id.to_owned()).or_insert_with(|| {
@@ -239,7 +240,10 @@ fn run_diagnosis(
             };
             let started = Instant::now();
             let result = sampler::feasibility::diagnose_end_chord(control, kind, direction);
-            let seconds = started.elapsed().as_secs_f64();
+            timing.insert(
+                format!("{id}:{kind_label}"),
+                json!(started.elapsed().as_secs_f64()),
+            );
             let witness_t = result["witness"]["parameters_f64_bits"]
                 .as_array()
                 .map(|bits| {
@@ -264,12 +268,16 @@ fn run_diagnosis(
                 let started = Instant::now();
                 let search = sampler::grid::search_injected(input, injection);
                 let label = plan_stop_label(&search.report, search.candidates.len() as u64);
+                timing.insert(
+                    format!("{id}:{kind_label}:injected"),
+                    json!(started.elapsed().as_secs_f64()),
+                );
                 summary["injected_search_stop_labels"]
                     .as_array_mut()
                     .unwrap()
                     .push(json!({"kind":kind_label,"plan_stop_label":label}));
                 injected = json!({"search":search.report,"candidates":recovery::candidates(&search),
-                    "plan_stop_label":label,"seconds":started.elapsed().as_secs_f64()});
+                    "plan_stop_label":label});
             }
             match result["status"].as_str().unwrap() {
                 "necessary_condition_excluded" => summary["proven_fixed_conflicts"]
@@ -285,7 +293,7 @@ fn run_diagnosis(
             }
             problems.push(json!({"edge":id,"span_index_zero_based":problem.span_index_zero_based,
                 "problem_kind":kind_label,"direction_source":direction_source,
-                "applicability":"diagnosed","local_problem_result":result,"diagnosis_seconds":seconds,
+                "applicability":"diagnosed","local_problem_result":result,
                 "family_membership":{"calibrated_grid_node":witness_t.map(grid_node_member),
                     "t_f64_bits":witness_t.map(f64::to_bits),
                     "original_partition_family":"not_applicable_partition_family",
@@ -296,10 +304,13 @@ fn run_diagnosis(
                 "injected_whole_edge":injected}));
         }
     }
-    json!({"edges":summaries,"problems":problems,
+    (
+        json!({"edges":summaries,"problems":problems,
         "policy":{"injection_semantics":"见证参数注入不强制使用见证弦",
         "exclusion_scope":"单个局部问题全参数域排除即否定该固定 cubic 的完整发射；局部见证不构成可行证明",
-        "box_limit":32_000_000_u64,"depth_limit":48_u32,"certificate_leaf_limit":65_536_usize}})
+        "box_limit":32_000_000_u64,"depth_limit":48_u32,"certificate_leaf_limit":65_536_usize}}),
+        json!(timing),
+    )
 }
 
 #[test]
@@ -487,10 +498,12 @@ fn pinned_lust_coverage_diagnosis_experiment() {
         })
         .collect();
     let mut diagnosis = Value::Null;
+    let mut diagnosis_timing = Value::Null;
     let mut diagnosis_seconds = 0.0;
     if diagnosis_order == "diagnosis-first" {
         let started = Instant::now();
-        diagnosis = run_diagnosis(&observation, &searches, &grid_history, &zero_edges);
+        (diagnosis, diagnosis_timing) =
+            run_diagnosis(&observation, &searches, &grid_history, &zero_edges);
         diagnosis_seconds = started.elapsed().as_secs_f64();
     }
     let mut baseline = pool(&legacy["tiers"]["32768"]["searches"]);
@@ -599,13 +612,15 @@ fn pinned_lust_coverage_diagnosis_experiment() {
     }
     if diagnosis_order == "baseline-first" {
         let started = Instant::now();
-        diagnosis = run_diagnosis(&observation, &searches, &grid_history, &zero_edges);
+        (diagnosis, diagnosis_timing) =
+            run_diagnosis(&observation, &searches, &grid_history, &zero_edges);
         diagnosis_seconds = started.elapsed().as_secs_f64();
     }
     recovery::write_json(&out, "diagnosis.json", &diagnosis);
     timing["search_order"] = json!(order);
     timing["diagnosis_order"] = json!(diagnosis_order);
     timing["diagnosis_seconds"] = json!(diagnosis_seconds);
+    timing["diagnosis"] = diagnosis_timing;
     timing["edge_search_seconds"] = json!(search_times);
     timing["validation_seconds"] = json!(validation_times);
     recovery::write_json(
