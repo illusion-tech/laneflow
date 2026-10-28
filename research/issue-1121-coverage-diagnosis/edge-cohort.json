@@ -1,0 +1,650 @@
+{
+  "schema": "laneflow-minimal-cohort-coverage-diagnosis",
+  "generated_utc": "2026-10-28T05:07:35Z",
+  "baseline": {
+    "main_commit": "057dcf13bd6d63f1b53c0b98a2706dbb19f6b7b3",
+    "lust_commit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+    "inventory_json": "target/issue-790-806-handoff-20261026/missing-component-inventory-20261028/inventory.json"
+  },
+  "scope": "四个最小多边案例（C06/C08/C17/C29）：8 条仍缺程序边与 1 条已有候选边、8 条完整路径；第 1 轮固定曲线搜索补齐与诊断分层的冻结样本。",
+  "invariant": "字段逐项取自本地盘点产物 inventory.json（只读重组，未随 #1117 入库；其输入文件与 #1117 合入提交的 evidence-manifest.json 核对一致）；不含本轮任何新搜索或诊断结果。",
+  "components": [
+    {
+      "code": "C06",
+      "id": "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0",
+      "anchor_junction_label": "-10004",
+      "status": "missing_real_programs",
+      "target_count": 1,
+      "path_count": 1,
+      "current_missing_count": 2,
+      "available_failed_count": 0,
+      "missing_stop_edge_count": 0,
+      "searched_missing_count": 2,
+      "no_recorded_search_count": 0,
+      "controllers": [],
+      "source_result_pointer": "/variants/new/components/6/result",
+      "path_details": [
+        {
+          "id": "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:-30608#6_2",
+            "sumo::-10004_3_0",
+            "sumo::-10004_8_0",
+            "sumo:-31916_0"
+          ],
+          "currently_missing_edges": [
+            "sumo::-10004_3_0",
+            "sumo::-10004_8_0"
+          ],
+          "gates": []
+        }
+      ],
+      "failed_edges": [
+        {
+          "id": "sumo::-10004_3_0",
+          "currently_missing": true,
+          "source_length_m": 5.11,
+          "diagnostic_kind": "quality_precheck_rejected",
+          "tangent_mechanism": "fillet_both_ends",
+          "reported_span": {
+            "index_one_based": 2,
+            "total": 3,
+            "reported_chord_m": 0.9427
+          },
+          "start_tangent": "fillet arc tangent (prescribed)",
+          "finish_tangent": "fillet arc tangent (prescribed)",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0"
+          ],
+          "original_error": "invalid SUMO network model: span 2/3 (chord 0.9427 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 9 pieces (chord floor) each turn 4.91 deg > 1.90 deg at (1182.3035, 0, 749.2914999999999); start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo::-10004_3_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1103-expanded",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/262144/searches/sumo::-10004_3_0",
+              "candidate_count": 0,
+              "stop_reason": "finite_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": true,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-old",
+              "file": "research/issue-1107-dependency-recovery/old-searches.json",
+              "json_pointer": "/sumo::-10004_3_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-grid",
+              "file": "research/issue-1107-dependency-recovery/grid-searches.json",
+              "json_pointer": "/sumo::-10004_3_0",
+              "candidate_count": 0,
+              "stop_reason": "retained_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": null,
+              "retained_family_exhausted": true,
+              "search_work": 9258456
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        },
+        {
+          "id": "sumo::-10004_8_0",
+          "currently_missing": true,
+          "source_length_m": 12.69,
+          "diagnostic_kind": "quality_precheck_rejected",
+          "tangent_mechanism": "fillet_both_ends",
+          "reported_span": {
+            "index_one_based": 2,
+            "total": 4,
+            "reported_chord_m": 1.6041
+          },
+          "start_tangent": "fillet arc tangent (prescribed)",
+          "finish_tangent": "fillet arc tangent (prescribed)",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0"
+          ],
+          "original_error": "invalid SUMO network model: span 2/4 (chord 1.6041 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 15 pieces (chord floor) each turn 2.71 deg > 1.90 deg at (1182.9439345677854, 0, 746.1358625055236); start tangent: fillet arc tangent (prescribed); finish tangent: fillet arc tangent (prescribed)",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo::-10004_8_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-old",
+              "file": "research/issue-1107-dependency-recovery/old-searches.json",
+              "json_pointer": "/sumo::-10004_8_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-grid",
+              "file": "research/issue-1107-dependency-recovery/grid-searches.json",
+              "json_pointer": "/sumo::-10004_8_0",
+              "candidate_count": 0,
+              "stop_reason": "retained_family_exhausted",
+              "budget_stopped": true,
+              "family_exhausted": null,
+              "retained_family_exhausted": true,
+              "search_work": 4470434
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        }
+      ]
+    },
+    {
+      "code": "C08",
+      "id": "sumo:-10034:--30306#2_0-to---30306#1_0::-10034_0_0",
+      "anchor_junction_label": "-10034",
+      "status": "missing_real_programs",
+      "target_count": 4,
+      "path_count": 4,
+      "current_missing_count": 2,
+      "available_failed_count": 1,
+      "missing_stop_edge_count": 0,
+      "searched_missing_count": 2,
+      "no_recorded_search_count": 0,
+      "controllers": [],
+      "source_result_pointer": "/variants/new/components/8/result",
+      "path_details": [
+        {
+          "id": "sumo:-10034:--30306#2_0-to---30306#1_0::-10034_0_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:--30306#2_0",
+            "sumo::-10034_0_0",
+            "sumo:--30306#1_0"
+          ],
+          "currently_missing_edges": [
+            "sumo:--30306#2_0"
+          ],
+          "gates": []
+        },
+        {
+          "id": "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:--30306#2_0",
+            "sumo::-10034_1_0",
+            "sumo:--30592#6_0"
+          ],
+          "currently_missing_edges": [
+            "sumo:--30306#2_0"
+          ],
+          "gates": []
+        },
+        {
+          "id": "sumo:-8806:--30306#3_0-to---30306#2_0::-8806_1_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:--30306#3_0",
+            "sumo::-8806_1_0",
+            "sumo:--30306#2_0"
+          ],
+          "currently_missing_edges": [
+            "sumo:--30306#2_0"
+          ],
+          "gates": []
+        },
+        {
+          "id": "sumo:-8806:-31086_0-to---30306#2_0::-8806_4_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:-31086_0",
+            "sumo::-8806_4_0",
+            "sumo:--30306#2_0"
+          ],
+          "currently_missing_edges": [
+            "sumo::-8806_4_0",
+            "sumo:--30306#2_0"
+          ],
+          "gates": []
+        }
+      ],
+      "failed_edges": [
+        {
+          "id": "sumo:--30306#2_0",
+          "currently_missing": true,
+          "source_length_m": 67.22,
+          "diagnostic_kind": "original_sampling_exhausted",
+          "tangent_mechanism": "boundary_clamp_involved",
+          "reported_span": {
+            "index_one_based": 1,
+            "total": 9,
+            "reported_chord_m": 0.5672
+          },
+          "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-8806_1_0->sumo:--30306#2_0, sumo::-8806_4_0->sumo:--30306#2_0])",
+          "finish_tangent": "interior Catmull-Rom tangent",
+          "is_shared": true,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-10034:--30306#2_0-to---30306#1_0::-10034_0_0",
+            "sumo:-10034:--30306#2_0-to---30592#6_0::-10034_1_0",
+            "sumo:-8806:--30306#3_0-to---30306#2_0::-8806_1_0",
+            "sumo:-8806:-31086_0-to---30306#2_0::-8806_4_0"
+          ],
+          "original_error": "invalid SUMO network model: span 1/9 (chord 0.5672 m) is not emittable: invalid SUMO network model: repaired curve sampling exhausted: 2 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (-5772.83, 0, 1403.97); last error: invalid SUMO network model: repaired curve sampling exhausted: 3 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (-5772.64679105303, 0, 1404.0034971700027); last error: invalid SUMO network model: repaired curve emits a degenerate canonical segment: quantized length 0.059592444 m <= 0.1 m at (-5772.3286, 0, 1404.0492); start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo::-8806_1_0->sumo:--30306#2_0, sumo::-8806_4_0->sumo:--30306#2_0]); finish tangent: interior Catmull-Rom tangent",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo:--30306#2_0",
+              "candidate_count": 0,
+              "stop_reason": "finite_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": true,
+              "retained_family_exhausted": null,
+              "search_work": null
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        },
+        {
+          "id": "sumo::-10034_0_0",
+          "currently_missing": false,
+          "source_length_m": 5.76,
+          "diagnostic_kind": "original_sampling_exhausted",
+          "tangent_mechanism": "boundary_clamp_involved",
+          "reported_span": {
+            "index_one_based": 1,
+            "total": 4,
+            "reported_chord_m": 1.205
+          },
+          "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30306#2_0->sumo::-10034_0_0, sumo:--30306#2_0->sumo::-10034_1_0])",
+          "finish_tangent": "interior Catmull-Rom tangent",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-10034:--30306#2_0-to---30306#1_0::-10034_0_0"
+          ],
+          "original_error": "invalid SUMO network model: span 1/4 (chord 1.2050 m) is not emittable: invalid SUMO network model: repaired curve sampling exhausted: 11 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (-5837.48, 0, 1383.86); last error: invalid SUMO network model: repaired curve emits a degenerate canonical segment: quantized length 0.09933801 m <= 0.1 m at (-5837.2085, 0, 1383.9081); start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30306#2_0->sumo::-10034_0_0, sumo:--30306#2_0->sumo::-10034_1_0]); finish tangent: interior Catmull-Rom tangent",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo::-10034_0_0",
+              "candidate_count": 8,
+              "stop_reason": "program_pool",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        },
+        {
+          "id": "sumo::-8806_4_0",
+          "currently_missing": true,
+          "source_length_m": 5.73,
+          "diagnostic_kind": "quality_precheck_rejected",
+          "tangent_mechanism": "interior_or_mixed",
+          "reported_span": {
+            "index_one_based": 2,
+            "total": 5,
+            "reported_chord_m": 0.6382
+          },
+          "start_tangent": "interior Catmull-Rom tangent",
+          "finish_tangent": "fillet arc tangent (prescribed)",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-8806:-31086_0-to---30306#2_0::-8806_4_0"
+          ],
+          "original_error": "invalid SUMO network model: span 2/5 (chord 0.6382 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 6 pieces (chord floor) each turn 3.46 deg > 1.90 deg at (-5769.81, 0, 1405.8818448045154); start tangent: interior Catmull-Rom tangent; finish tangent: fillet arc tangent (prescribed)",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo::-8806_4_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        }
+      ]
+    },
+    {
+      "code": "C17",
+      "id": "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0",
+      "anchor_junction_label": "-10564",
+      "status": "missing_real_programs",
+      "target_count": 1,
+      "path_count": 1,
+      "current_missing_count": 2,
+      "available_failed_count": 0,
+      "missing_stop_edge_count": 0,
+      "searched_missing_count": 2,
+      "no_recorded_search_count": 0,
+      "controllers": [],
+      "source_result_pointer": "/variants/new/components/17/result",
+      "path_details": [
+        {
+          "id": "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:--32172#4_0",
+            "sumo::-10564_3_0",
+            "sumo::-10564_6_0",
+            "sumo:-31194_0"
+          ],
+          "currently_missing_edges": [
+            "sumo::-10564_3_0",
+            "sumo::-10564_6_0"
+          ],
+          "gates": []
+        }
+      ],
+      "failed_edges": [
+        {
+          "id": "sumo::-10564_3_0",
+          "currently_missing": true,
+          "source_length_m": 4.6,
+          "diagnostic_kind": "original_sampling_exhausted",
+          "tangent_mechanism": "boundary_clamp_involved",
+          "reported_span": {
+            "index_one_based": 2,
+            "total": 2,
+            "reported_chord_m": 2.0216
+          },
+          "start_tangent": "interior Catmull-Rom tangent",
+          "finish_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0"
+          ],
+          "original_error": "invalid SUMO network model: span 2/2 (chord 2.0216 m) is not emittable: invalid SUMO network model: repaired curve sampling exhausted: 11 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (-1420.98, 0, -258.45); last error: invalid SUMO network model: repaired curve emits a degenerate canonical segment: quantized length 0.07798012 m <= 0.1 m at (-1421.8136, 0, -260.2073); start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (pair target (angular mean of both end chords))",
+          "history": [
+            {
+              "experiment": "1107-old",
+              "file": "research/issue-1107-dependency-recovery/old-searches.json",
+              "json_pointer": "/sumo::-10564_3_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-grid",
+              "file": "research/issue-1107-dependency-recovery/grid-searches.json",
+              "json_pointer": "/sumo::-10564_3_0",
+              "candidate_count": 0,
+              "stop_reason": "retained_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": null,
+              "retained_family_exhausted": true,
+              "search_work": 9117202
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        },
+        {
+          "id": "sumo::-10564_6_0",
+          "currently_missing": true,
+          "source_length_m": 4.99,
+          "diagnostic_kind": "quality_precheck_rejected",
+          "tangent_mechanism": "boundary_clamp_involved",
+          "reported_span": {
+            "index_one_based": 1,
+            "total": 3,
+            "reported_chord_m": 0.197
+          },
+          "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+          "finish_tangent": "interior Catmull-Rom tangent",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0"
+          ],
+          "original_error": "invalid SUMO network model: span 1/3 (chord 0.1970 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: span arc 0.1987 m (chord 0.1970 m) turns 21.53 deg > 1.90 deg at (-1420.9, 0, -258.27); splitting finer would breach the 0.105 m chord floor; start tangent: boundary clamp (pair target (angular mean of both end chords)); finish tangent: interior Catmull-Rom tangent",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo::-10564_6_0",
+              "candidate_count": 0,
+              "stop_reason": "finite_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": true,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-old",
+              "file": "research/issue-1107-dependency-recovery/old-searches.json",
+              "json_pointer": "/sumo::-10564_6_0",
+              "candidate_count": 0,
+              "stop_reason": "finite_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": true,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-grid",
+              "file": "research/issue-1107-dependency-recovery/grid-searches.json",
+              "json_pointer": "/sumo::-10564_6_0",
+              "candidate_count": 0,
+              "stop_reason": "retained_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": null,
+              "retained_family_exhausted": true,
+              "search_work": 132003
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        }
+      ]
+    },
+    {
+      "code": "C29",
+      "id": "sumo:-20112:--30452_0-to---31818#6_1::-20112_1_0",
+      "anchor_junction_label": "-20112",
+      "status": "missing_real_programs",
+      "target_count": 2,
+      "path_count": 2,
+      "current_missing_count": 2,
+      "available_failed_count": 0,
+      "missing_stop_edge_count": 0,
+      "searched_missing_count": 2,
+      "no_recorded_search_count": 0,
+      "controllers": [],
+      "source_result_pointer": "/variants/new/components/29/result",
+      "path_details": [
+        {
+          "id": "sumo:-20112:--30452_0-to---31818#6_1::-20112_1_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:--30452_0",
+            "sumo::-20112_1_0",
+            "sumo:--31818#6_1"
+          ],
+          "currently_missing_edges": [
+            "sumo:--30452_0"
+          ],
+          "gates": []
+        },
+        {
+          "id": "sumo:-20112:--30452_0-to--31818#7_0::-20112_0_0",
+          "is_original_target": true,
+          "ordered_edges": [
+            "sumo:--30452_0",
+            "sumo::-20112_0_0",
+            "sumo:-31818#7_0"
+          ],
+          "currently_missing_edges": [
+            "sumo:--30452_0",
+            "sumo::-20112_0_0"
+          ],
+          "gates": []
+        }
+      ],
+      "failed_edges": [
+        {
+          "id": "sumo:--30452_0",
+          "currently_missing": true,
+          "source_length_m": 78.64,
+          "diagnostic_kind": "quality_precheck_rejected",
+          "tangent_mechanism": "boundary_clamp_involved",
+          "reported_span": {
+            "index_one_based": 3,
+            "total": 3,
+            "reported_chord_m": 0.7823
+          },
+          "start_tangent": "interior Catmull-Rom tangent",
+          "finish_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])",
+          "is_shared": true,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-20112:--30452_0-to---31818#6_1::-20112_1_0",
+            "sumo:-20112:--30452_0-to--31818#7_0::-20112_0_0"
+          ],
+          "original_error": "invalid SUMO network model: span 3/3 (chord 0.7823 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 7 pieces (chord floor) each turn 1.98 deg > 1.90 deg at (3482.96, 0, -1333.78); start tangent: interior Catmull-Rom tangent; finish tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])",
+          "history": [
+            {
+              "experiment": "1103-base",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/32768/searches/sumo:--30452_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1103-expanded",
+              "file": "research/issue-1103-s1-recovery-budget/results.json",
+              "json_pointer": "/tiers/262144/searches/sumo:--30452_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-old",
+              "file": "research/issue-1107-dependency-recovery/old-searches.json",
+              "json_pointer": "/sumo:--30452_0",
+              "candidate_count": 0,
+              "stop_reason": "partitions",
+              "budget_stopped": true,
+              "family_exhausted": false,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-grid",
+              "file": "research/issue-1107-dependency-recovery/grid-searches.json",
+              "json_pointer": "/sumo:--30452_0",
+              "candidate_count": 0,
+              "stop_reason": "work",
+              "budget_stopped": true,
+              "family_exhausted": null,
+              "retained_family_exhausted": false,
+              "search_work": 32000000
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        },
+        {
+          "id": "sumo::-20112_0_0",
+          "currently_missing": true,
+          "source_length_m": 5.08,
+          "diagnostic_kind": "quality_precheck_rejected",
+          "tangent_mechanism": "boundary_clamp_involved",
+          "reported_span": {
+            "index_one_based": 1,
+            "total": 4,
+            "reported_chord_m": 1.2369
+          },
+          "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0])",
+          "finish_tangent": "interior Catmull-Rom tangent",
+          "is_shared": false,
+          "stop_lines": [],
+          "all_dependency_users": [
+            "sumo:-20112:--30452_0-to--31818#7_0::-20112_0_0"
+          ],
+          "original_error": "invalid SUMO network model: span 1/4 (chord 1.2369 m) is not emittable: invalid SUMO network model: repaired curve curvature is infeasible under the quantized weld budget: 11 pieces (chord floor) each turn 1.90 deg > 1.90 deg at (3481.82, 0, -1334.26); start tangent: boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--30452_0->sumo::-20112_1_0, sumo:--30452_0->sumo::-20112_0_0]); finish tangent: interior Catmull-Rom tangent",
+          "history": [
+            {
+              "experiment": "1107-old",
+              "file": "research/issue-1107-dependency-recovery/old-searches.json",
+              "json_pointer": "/sumo::-20112_0_0",
+              "candidate_count": 0,
+              "stop_reason": "finite_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": true,
+              "retained_family_exhausted": null,
+              "search_work": null
+            },
+            {
+              "experiment": "1107-grid",
+              "file": "research/issue-1107-dependency-recovery/grid-searches.json",
+              "json_pointer": "/sumo::-20112_0_0",
+              "candidate_count": 0,
+              "stop_reason": "retained_family_exhausted",
+              "budget_stopped": false,
+              "family_exhausted": null,
+              "retained_family_exhausted": true,
+              "search_work": 1695450
+            }
+          ],
+          "recorded_search_present": true,
+          "fixed_curve_impossibility_proven": false
+        }
+      ]
+    }
+  ]
+}
