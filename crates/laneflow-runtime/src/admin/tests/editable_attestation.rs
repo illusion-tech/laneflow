@@ -52,7 +52,7 @@ fn host_recompile(
     }
 }
 
-fn attest(
+pub(super) fn attest(
     root: &SharedNetworkRevision,
     state: &RoadEditingState,
     provenance: &'static str,

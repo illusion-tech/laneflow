@@ -8,6 +8,8 @@ mod child_diagnostics;
 #[cfg(test)]
 mod child_diagnostics_tests;
 mod digest;
+#[cfg(test)]
+mod editable_load_evidence;
 #[cfg(feature = "adapter")]
 mod evidence;
 #[cfg(feature = "execution-evidence")]
