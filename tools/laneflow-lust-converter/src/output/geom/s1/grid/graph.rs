@@ -63,29 +63,30 @@ pub(super) fn paths_on(
     incoming: Option<Vec3>,
     params: &[f64],
 ) -> Result<Vec<Vec<usize>>> {
-    assert_eq!(params.len(), STEPS + 1);
+    assert!((2..=STEPS + 3).contains(&params.len()));
+    let last = params.len() - 1;
     assert_eq!(params[0], 0.0);
-    assert_eq!(params[STEPS], 1.0);
+    assert_eq!(params[last], 1.0);
     assert!(params.windows(2).all(|p| p[0] < p[1]));
     state.counts.graph_searches += 1;
-    state.reserve_work((STEPS + 1) as u64)?;
+    state.reserve_work(params.len() as u64)?;
     let c = [control[0], control[1], control[2], control[3]];
-    let points = (0..=STEPS)
+    let points = (0..=last)
         .map(|i| {
             quantize_vec3(if i == 0 {
                 c[0]
-            } else if i == STEPS {
+            } else if i == last {
                 c[3]
             } else {
                 cubic_at(c[0], c[1], c[2], c[3], params[i])
             })
         })
         .collect::<Vec<_>>();
-    state.counts.node_evaluations += (STEPS + 1) as u64;
-    let mut outgoing = vec![Vec::new(); STEPS + 1];
+    state.counts.node_evaluations += params.len() as u64;
+    let mut outgoing = vec![Vec::new(); params.len()];
     let mut chords = 0;
-    for i in 0..STEPS {
-        for j in (i + 1..=STEPS).rev() {
+    for i in 0..last {
+        for j in (i + 1..=last).rev() {
             state.reserve_work(1)?;
             state.counts.chord_checks += 1;
             if quantized_chord_meters(points[i], points[j]) <= QUANTIZED_MIN_SEGMENT_METERS {
@@ -155,10 +156,10 @@ pub(super) fn paths_on(
             }
             state.counts.transition_checks += 1;
             let angle = angle_rad(dir, chord.dir);
-            if chord.end == STEPS {
+            if chord.end == last {
                 if min_terminal_turn.is_none_or(|a| angle < a) {
                     let mut p = path(&nodes, cursor);
-                    p.push(STEPS);
+                    p.push(last);
                     closest_terminal =
                         Some(p.iter().map(|&i| params[i].to_bits()).collect::<Vec<_>>());
                 }
@@ -192,7 +193,7 @@ pub(super) fn paths_on(
     let mut terminal = nodes
         .iter()
         .enumerate()
-        .filter(|(_, n)| n.to == STEPS)
+        .filter(|(_, n)| n.to == last)
         .map(|(i, n)| (angle_rad(n.dir, control[5]), i))
         .collect::<Vec<_>>();
     if let Some(audit) = &mut state.audit {

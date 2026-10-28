@@ -60,6 +60,29 @@ struct GridSearch {
     failures: BTreeMap<usize, Value>,
     audit: Option<audit::EndAudit>,
     start_clamp: Option<Vec3>,
+    guide: Option<Guide>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Guide {
+    pub(crate) control: [[u64; 3]; 6],
+    pub(crate) tail: [f64; 3],
+}
+
+impl Guide {
+    fn parameters(&self) -> Vec<f64> {
+        assert!(
+            self.tail[0] > 0.0
+                && self.tail[0] < self.tail[1]
+                && self.tail[1] < 1.0
+                && self.tail[2] == 1.0
+        );
+        (0..=STEPS)
+            .map(|i| i as f64 / STEPS as f64)
+            .take_while(|&t| t < self.tail[0])
+            .chain(self.tail)
+            .collect()
+    }
 }
 
 impl GridSearch {
@@ -129,22 +152,27 @@ pub(crate) fn policy() -> Value {
 }
 
 pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
-    search_impl(input, false)
+    search_impl(input, false, None)
 }
 
 pub(crate) fn search_audited(input: &EdgeInput) -> EdgeSearch {
-    search_impl(input, true)
+    search_impl(input, true, None)
+}
+
+pub(crate) fn search_guided(input: &EdgeInput, guide: Guide) -> EdgeSearch {
+    search_impl(input, true, Some(guide))
 }
 
 pub(crate) fn local_probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {
     audit::probe(control, start_clamp)
 }
 
-fn search_impl(input: &EdgeInput, audited: bool) -> EdgeSearch {
+fn search_impl(input: &EdgeInput, audited: bool, guide: Option<Guide>) -> EdgeSearch {
     let _reset = GridReset;
     let mut state = GridSearch {
         audit: audited.then(audit::EndAudit::default),
         start_clamp: input.clamps[0],
+        guide,
         ..GridSearch::default()
     };
     let mut candidates = Vec::new();
@@ -259,7 +287,17 @@ fn sample(
         if index == FRAME_LIMIT {
             return Err(state.fail("frames"));
         }
-        let paths = match graph::paths(state, control, checkpoint.prev_dir) {
+        let params = state
+            .guide
+            .as_ref()
+            .filter(|g| g.control == control.map(|p| p.map(f64::to_bits)))
+            .map(Guide::parameters);
+        let result = if let Some(params) = &params {
+            graph::paths_on(state, control, checkpoint.prev_dir, params)
+        } else {
+            graph::paths(state, control, checkpoint.prev_dir)
+        };
+        let paths = match result {
             Ok(paths) => paths,
             Err(error) => {
                 state.failures.insert(
@@ -302,6 +340,11 @@ fn sample(
         "fixed grid incoming direction"
     );
     if state.frames[index].selected.is_none() {
+        let guide = state
+            .guide
+            .as_ref()
+            .filter(|g| g.control == control.map(|p| p.map(f64::to_bits)));
+        let parameter_grid = guide.map(Guide::parameters);
         let frame = &mut state.frames[index];
         let Some(path) = frame.paths.get(frame.next) else {
             state.failed_at = Some(index);
@@ -310,7 +353,11 @@ fn sample(
         let rank = frame.next;
         let params = path
             .iter()
-            .map(|&k| k as f64 / STEPS as f64)
+            .map(|&k| {
+                parameter_grid
+                    .as_ref()
+                    .map_or(k as f64 / STEPS as f64, |p| p[k])
+            })
             .collect::<Vec<_>>();
         let points = params
             .iter()
@@ -327,10 +374,18 @@ fn sample(
         state.reserve_work(points.len() as u64)?;
         state.counts.node_evaluations += points.len() as u64;
         let report = json!({"cubic_index":index,"span_index_zero_based":span_index,
-            "partition":"grid_512_directed_chord_bfs","candidate_rank":rank,
+            "partition":if parameter_grid.is_some(){"grid_prefix_with_witness_tail"}else{"grid_512_directed_chord_bfs"},"candidate_rank":rank,
             "parameter_indices":state.frames[index].paths[rank],
             "control_f64_bits":control[..4].iter().map(|p|p.map(f64::to_bits)).collect::<Vec<_>>(),
             "metrics":metrics([control[0],control[1],control[2],control[3]],&params)});
+        let report = if parameter_grid.is_some() {
+            let mut report = report;
+            report["parameters_f64_bits"] =
+                json!(params.iter().map(|t| t.to_bits()).collect::<Vec<_>>());
+            report
+        } else {
+            report
+        };
         state.frames[index].next += 1;
         state.frames[index].selected = Some(SavedPrefix { points, report });
     }

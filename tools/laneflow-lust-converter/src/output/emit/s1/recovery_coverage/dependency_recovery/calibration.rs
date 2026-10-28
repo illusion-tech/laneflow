@@ -6,6 +6,41 @@ mod experiment;
 
 #[test]
 #[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
+fn fixed_signal_guided_recovery() {
+    let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
+    assert!(!out.exists(), "fresh guided output");
+    fs::create_dir_all(&out).unwrap();
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    ))
+    .unwrap();
+    let endpoints: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
+    ))
+    .unwrap();
+    let id = "sumo::-16502_0_0";
+    let control = serde_json::from_value(endpoints[id]["control_f64_bits"].clone()).unwrap();
+    let tail: [u64; 3] =
+        serde_json::from_value(endpoints[id]["witness"]["parameters_f64_bits"].clone()).unwrap();
+    let started = Instant::now();
+    let search = sampler::grid::search_guided(
+        &measurement::input(&inputs[id]),
+        sampler::grid::Guide {
+            control,
+            tail: tail.map(f64::from_bits),
+        },
+    );
+    let seconds = started.elapsed().as_secs_f64();
+    recovery::write_json(
+        &out,
+        "guided-search.json",
+        &json!({id:{"search":search.report,"candidates":recovery::candidates(&search)}}),
+    );
+    recovery::write_json(&out, "timing.json", &json!({id:seconds}));
+}
+
+#[test]
+#[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
 fn fixed_signal_endpoint_feasibility() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh endpoint diagnostic output");
