@@ -1,0 +1,45 @@
+{
+  "source_commit": "57a6a222ab57ee3b66a27802627804fd047fd7d2",
+  "binary_sha256": "CF22799EAC18D3BA0AC6178B7961EB6CD947EAC17E85C28F5B4F0F51648D6CEC",
+  "source_archive_sha256": "3098CA8A8C965637F711100F15534FD4BCEFB3C105FC8C3725E0297641630C60",
+  "status": "complete",
+  "runs": [
+    {
+      "name": "run-00",
+      "order": "baseline-new",
+      "started_utc": "2026-10-28T03:28:32.4395955Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 64.889592,
+      "completed_utc": "2026-10-28T03:29:37.3540026Z"
+    },
+    {
+      "name": "run-01",
+      "order": "new-baseline",
+      "started_utc": "2026-10-28T03:29:37.3617959Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 67.012805,
+      "completed_utc": "2026-10-28T03:30:44.3755944Z"
+    },
+    {
+      "name": "run-02",
+      "order": "new-baseline",
+      "started_utc": "2026-10-28T03:30:44.3780434Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 69.0629213,
+      "completed_utc": "2026-10-28T03:31:53.4424097Z"
+    },
+    {
+      "name": "run-03",
+      "order": "baseline-new",
+      "started_utc": "2026-10-28T03:31:53.4444212Z",
+      "status": "complete",
+      "exit_code": 0,
+      "elapsed_seconds": 65.5336038,
+      "completed_utc": "2026-10-28T03:32:58.9787004Z"
+    }
+  ],
+  "refined_observation_preserves_candidates": true
+}

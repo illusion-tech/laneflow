@@ -1,0 +1,492 @@
+[
+  {
+    "edge": "sumo::-16502_0_0",
+    "component": "sumo:-16502:-30384#7_0-to--31608_0::-16502_0_0",
+    "artifact": "new-component-23.lfca",
+    "complete_paths": [
+      "sumo:-16502:-30384#7_0-to--31608_0::-16502_0_0",
+      "sumo:-16502:-30384#7_1-to--30944_0::-16502_1_0",
+      "sumo:-16502:-30384#7_2-to--30944_1::-16502_1_1",
+      "sumo:-16502:-30384#7_3-to--30944_2::-16502_1_2"
+    ],
+    "assignment": {
+      "sumo::-16502_0_0": 0
+    },
+    "trials": [
+      {
+        "assignment": {
+          "sumo::-16502_0_0": 0
+        },
+        "result": {
+          "status": "accepted"
+        },
+        "trial": 0
+      }
+    ],
+    "retained_pool_assignments_exhausted": true,
+    "selected_geometry": {
+      "group": "whole",
+      "handle_factors": [
+        1.5,
+        1.5
+      ]
+    },
+    "candidate_arc_m": 3.629641056060791,
+    "candidate_measurements": {
+      "canonical_source_fit": {
+        "curve_to_source_estimate_m": 0.013217935481146269,
+        "source_to_curve_estimate_m": 0.013196069437767577
+      },
+      "control_f64_bits": [
+        [
+          [
+            13862398775301232394,
+            0,
+            4655010822764552520
+          ],
+          [
+            13862379760239741684,
+            0,
+            4655018339499553953
+          ],
+          [
+            13862378656361265031,
+            0,
+            4655018615608320177
+          ],
+          [
+            13862337906337518715,
+            0,
+            4655024632630597386
+          ],
+          [
+            4599102921076650202,
+            0,
+            4606763285703927177
+          ],
+          [
+            4603994965416210283,
+            0,
+            4605049824727565425
+          ]
+        ]
+      ],
+      "geometry": 131,
+      "parameter_f64_bits": [
+        [
+          0,
+          4586426698778222948,
+          4590930298405593444,
+          4593867428597356811,
+          4595433898032963940,
+          4597000367468571069,
+          4598371028224727307,
+          4599154262942530872,
+          4599937497660334436,
+          4600720732378138001,
+          4601503967095941565,
+          4602287201813745130,
+          4602874627852097803,
+          4603266245210999585,
+          4603657862569901368,
+          4604049479928803150,
+          4604441097287704932,
+          4604832714646606714,
+          4605224332005508497,
+          4605615949364410279,
+          4606007566723312061,
+          4606399184082213843,
+          4606790801441115626,
+          4607182418800017408
+        ]
+      ],
+      "partition": "uniform",
+      "pieces_per_cubic": 23,
+      "reference_length_estimates": {
+        "certified_continuous_bound": false,
+        "chord_estimate_m": 3.6296850390026005,
+        "control_polygon_estimate_m": 3.629685042271901,
+        "intervals_per_cubic": 4096
+      },
+      "source_fit": {
+        "curve_to_source_estimate_m": 0.013514110367642062,
+        "source_to_curve_estimate_m": 0.013904648789723615
+      }
+    },
+    "reference_fit": {
+      "curve_to_source_estimate_m": 0.0145057047821127,
+      "source_to_curve_estimate_m": 0.014515167306862907
+    },
+    "original_reference_length_estimates": {
+      "certified_continuous_bound": false,
+      "chord_estimate_m": 3.633023105933008,
+      "control_polygon_estimate_m": 3.633023106201897,
+      "intervals_per_cubic": 4096
+    },
+    "source_shape_length_m": 3.6312700019408286,
+    "compiled_edge": {
+      "all_points_match": true,
+      "canonical_arc_m": 3.629641056060791,
+      "edge": "sumo::-16502_0_0",
+      "length_mm": 3630,
+      "source_length_delta_m": -0.010000000000000231,
+      "source_length_m": 3.64
+    },
+    "compiled_control_anchors": [
+      {
+        "gate": "sumo:gate:-16502:-30384#7-to--30944:1",
+        "path": "sumo:-16502:-30384#7_1-to--30944_0::-16502_1_0",
+        "signal_group": "sumo:-16502:group-0",
+        "stop_edge": "sumo:-30384#7_1",
+        "stop_edge_length_mm": 85976,
+        "stop_endpoint_f32_bits": [
+          3272358625,
+          0,
+          1154448507
+        ],
+        "stop_line": "sumo:stop:-30384#7_1",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-16502:-30384#7-to--30944:2",
+        "path": "sumo:-16502:-30384#7_2-to--30944_1::-16502_1_1",
+        "signal_group": "sumo:-16502:group-0",
+        "stop_edge": "sumo:-30384#7_2",
+        "stop_edge_length_mm": 85334,
+        "stop_endpoint_f32_bits": [
+          3272565064,
+          0,
+          1154456453
+        ],
+        "stop_line": "sumo:stop:-30384#7_2",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-16502:-30384#7-to--30944:3",
+        "path": "sumo:-16502:-30384#7_3-to--30944_2::-16502_1_2",
+        "signal_group": "sumo:-16502:group-0",
+        "stop_edge": "sumo:-30384#7_3",
+        "stop_edge_length_mm": 84707,
+        "stop_endpoint_f32_bits": [
+          3272771502,
+          0,
+          1154464481
+        ],
+        "stop_line": "sumo:stop:-30384#7_3",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-16502:-30384#7-to--31608:0",
+        "path": "sumo:-16502:-30384#7_0-to--31608_0::-16502_0_0",
+        "signal_group": "sumo:-16502:group-0",
+        "stop_edge": "sumo:-30384#7_0",
+        "stop_edge_length_mm": 86644,
+        "stop_endpoint_f32_bits": [
+          3272151532,
+          0,
+          1154440561
+        ],
+        "stop_line": "sumo:stop:-30384#7_0",
+        "transition_index": 0
+      }
+    ],
+    "lfca_bytes": 84227
+  },
+  {
+    "edge": "sumo::-28860_3_0",
+    "component": "sumo:-28860:--31940#1_0-to---31940#0_0::-28860_5_0",
+    "artifact": "new-component-45.lfca",
+    "complete_paths": [
+      "sumo:-28860:--31940#1_0-to---31940#0_0::-28860_5_0",
+      "sumo:-28860:--31940#1_0-to--31346_0::-28860_4_0",
+      "sumo:-28860:--31940#1_1-to---31940#0_1::-28860_5_1",
+      "sumo:-28860:--31940#1_2-to---31940#0_2::-28860_5_2",
+      "sumo:-28860:-31940#0_0-to--31940#1_0::-28860_0_0",
+      "sumo:-28860:-31940#0_1-to--31940#1_1::-28860_0_1",
+      "sumo:-28860:-31940#0_2-to--31346_0::-28860_3_0",
+      "sumo:-28860:-31940#0_2-to--31940#1_2::-28860_0_2"
+    ],
+    "assignment": {
+      "sumo::-28860_3_0": 0
+    },
+    "trials": [
+      {
+        "assignment": {
+          "sumo::-28860_3_0": 0
+        },
+        "result": {
+          "status": "accepted"
+        },
+        "trial": 0
+      },
+      {
+        "assignment": {
+          "sumo::-28860_3_0": 1
+        },
+        "result": {
+          "status": "accepted"
+        },
+        "trial": 1
+      }
+    ],
+    "retained_pool_assignments_exhausted": true,
+    "selected_geometry": {
+      "group": "whole",
+      "handle_factors": [
+        1.25,
+        1.5
+      ]
+    },
+    "candidate_arc_m": 16.094333104789257,
+    "candidate_measurements": {
+      "canonical_source_fit": {
+        "curve_to_source_estimate_m": 0.19095825449586015,
+        "source_to_curve_estimate_m": 0.2065231782554651
+      },
+      "control_f64_bits": [
+        [
+          [
+            13875855830054978191,
+            0,
+            4655233144015688827
+          ],
+          [
+            13875880375822176891,
+            0,
+            4655238281155267851
+          ],
+          [
+            13875885060223992968,
+            0,
+            4655209265016258768
+          ],
+          [
+            13875882658138695926,
+            0,
+            4655179267945927803
+          ],
+          [
+            13830363443550450828,
+            0,
+            4596548516256258305
+          ],
+          [
+            4590416188604391135,
+            0,
+            13830525715016447904
+          ]
+        ]
+      ],
+      "geometry": 124,
+      "parameter_f64_bits": [
+        [
+          0,
+          4578869210374734077,
+          4583218307768801980,
+          4585723956872557236,
+          4587444540444362555,
+          4589109481183800650,
+          4589946363329358042,
+          4590731858408031386,
+          4591497482008210551,
+          4592245642000775693,
+          4592978280548814832,
+          4593684462235326593,
+          4594038085104614202,
+          4594386655469718871,
+          4594730969229374084,
+          4595071774035241301,
+          4595409808946065023,
+          4595745790391044218,
+          4596080406718492420,
+          4596414332815636531,
+          4596748245655440962,
+          4597082820589496086,
+          4597418731514942029,
+          4597756665072360124,
+          4598097342876192257,
+          4598308353367340061,
+          4598482533551770384,
+          4598659217134040704,
+          4598838819276941892,
+          4599021785254358659,
+          4599208605226176813,
+          4599399750946494768,
+          4599595801332002837,
+          4599797320728085099,
+          4600004983200962322,
+          4600219516540722380,
+          4600441700955226668,
+          4600672367167820698,
+          4600912567201203699,
+          4601163334366133146,
+          4601425955312304885,
+          4601701769507731966,
+          4601992404084751155,
+          4602299638585098057,
+          4602625588502480569,
+          4602825722308709854,
+          4603011175907180634,
+          4603210204464009234,
+          4603424696985596405,
+          4603656884089840477,
+          4603909400559233840,
+          4604185406510998044,
+          4604488584901680030,
+          4604823370464330912,
+          4605194975355640536,
+          4605609512255325435,
+          4606073911465936209,
+          4606595765437268712,
+          4607182418800017408
+        ]
+      ],
+      "partition": "tangent_angle",
+      "pieces_per_cubic": 58,
+      "reference_length_estimates": {
+        "certified_continuous_bound": false,
+        "chord_estimate_m": 16.094951210390413,
+        "control_polygon_estimate_m": 16.094951526121324,
+        "intervals_per_cubic": 4096
+      },
+      "source_fit": {
+        "curve_to_source_estimate_m": 0.21182419315037837,
+        "source_to_curve_estimate_m": 0.20930258742156224
+      }
+    },
+    "reference_fit": {
+      "curve_to_source_estimate_m": 0.23825312384370606,
+      "source_to_curve_estimate_m": 0.2581347826030556
+    },
+    "original_reference_length_estimates": {
+      "certified_continuous_bound": false,
+      "chord_estimate_m": 16.004343324116814,
+      "control_polygon_estimate_m": 16.004343339062878,
+      "intervals_per_cubic": 4096
+    },
+    "source_shape_length_m": 16.182037843027846,
+    "compiled_edge": {
+      "all_points_match": true,
+      "canonical_arc_m": 16.094331741333008,
+      "edge": "sumo::-28860_3_0",
+      "length_mm": 16094,
+      "source_length_delta_m": -0.08599999999999852,
+      "source_length_m": 16.18
+    },
+    "compiled_control_anchors": [
+      {
+        "gate": "sumo:gate:-28860:--31940#1-to---31940#0:5",
+        "path": "sumo:-28860:--31940#1_0-to---31940#0_0::-28860_5_0",
+        "signal_group": "sumo:-28860:group-0",
+        "stop_edge": "sumo:--31940#1_0",
+        "stop_edge_length_mm": 81419,
+        "stop_endpoint_f32_bits": [
+          3297303101,
+          0,
+          1154794701
+        ],
+        "stop_line": "sumo:stop:--31940#1_0",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:--31940#1-to---31940#0:6",
+        "path": "sumo:-28860:--31940#1_1-to---31940#0_1::-28860_5_1",
+        "signal_group": "sumo:-28860:group-0",
+        "stop_edge": "sumo:--31940#1_1",
+        "stop_edge_length_mm": 81437,
+        "stop_endpoint_f32_bits": [
+          3297295892,
+          0,
+          1154820751
+        ],
+        "stop_line": "sumo:stop:--31940#1_1",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:--31940#1-to---31940#0:7",
+        "path": "sumo:-28860:--31940#1_2-to---31940#0_2::-28860_5_2",
+        "signal_group": "sumo:-28860:group-0",
+        "stop_edge": "sumo:--31940#1_2",
+        "stop_edge_length_mm": 81453,
+        "stop_endpoint_f32_bits": [
+          3297288684,
+          0,
+          1154846802
+        ],
+        "stop_line": "sumo:stop:--31940#1_2",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:--31940#1-to--31346:4",
+        "path": "sumo:-28860:--31940#1_0-to--31346_0::-28860_4_0",
+        "signal_group": "sumo:-28860:group-0",
+        "stop_edge": "sumo:--31940#1_0",
+        "stop_edge_length_mm": 81419,
+        "stop_endpoint_f32_bits": [
+          3297303101,
+          0,
+          1154794701
+        ],
+        "stop_line": "sumo:stop:--31940#1_0",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:-31940#0-to--31346:3",
+        "path": "sumo:-28860:-31940#0_2-to--31346_0::-28860_3_0",
+        "signal_group": "sumo:-28860:group-2",
+        "stop_edge": "sumo:-31940#0_2",
+        "stop_edge_length_mm": 34865,
+        "stop_endpoint_f32_bits": [
+          3297217249,
+          0,
+          1154854666
+        ],
+        "stop_line": "sumo:stop:-31940#0_2",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:-31940#0-to--31940#1:0",
+        "path": "sumo:-28860:-31940#0_0-to--31940#1_0::-28860_0_0",
+        "signal_group": "sumo:-28860:group-1",
+        "stop_edge": "sumo:-31940#0_0",
+        "stop_edge_length_mm": 34835,
+        "stop_endpoint_f32_bits": [
+          3297202422,
+          0,
+          1154906604
+        ],
+        "stop_line": "sumo:stop:-31940#0_0",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:-31940#0-to--31940#1:1",
+        "path": "sumo:-28860:-31940#0_1-to--31940#1_1::-28860_0_1",
+        "signal_group": "sumo:-28860:group-1",
+        "stop_edge": "sumo:-31940#0_1",
+        "stop_edge_length_mm": 34849,
+        "stop_endpoint_f32_bits": [
+          3297209876,
+          0,
+          1154880635
+        ],
+        "stop_line": "sumo:stop:-31940#0_1",
+        "transition_index": 0
+      },
+      {
+        "gate": "sumo:gate:-28860:-31940#0-to--31940#1:2",
+        "path": "sumo:-28860:-31940#0_2-to--31940#1_2::-28860_0_2",
+        "signal_group": "sumo:-28860:group-1",
+        "stop_edge": "sumo:-31940#0_2",
+        "stop_edge_length_mm": 34865,
+        "stop_endpoint_f32_bits": [
+          3297217249,
+          0,
+          1154854666
+        ],
+        "stop_line": "sumo:stop:-31940#0_2",
+        "transition_index": 0
+      }
+    ],
+    "lfca_bytes": 109314
+  }
+]
