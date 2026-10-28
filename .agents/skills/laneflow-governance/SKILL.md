@@ -77,13 +77,14 @@ footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。�
 禁止用 `Co-authored-by` 或 `Made-with:` 标注 AI 工具或模型。人类合作者的 `Co-authored-by` 仍然允许，
 且必须放在 `Refs:` / `Closes:` 之前。AI 参与的提交在末尾 trailer 段成对写入下面两行，段前空一行；
 `BREAKING CHANGE:` 留在这段之前。纯人工提交可以不写。两行各出现一次，键名大小写必须精确，
-取值非空，`Harness:` 的下一行就是 `Model:`。`Model` 填提交时实际使用的模型，不要照抄工具自动生成的值。
+取值非空，`Harness:` 的下一行就是 `Model:`。`Model` 填提交时实际模型对应的已登记规范 ID，
+不要照抄工具自动生成的值；别名、未知 ID 均拒绝，登记规则见 `docs/reference/commit-convention.md` 第 6.1 节。
 
 ```text
 <type>[optional scope][optional !]: <description>
 
 Harness: <执行框架，如 Codex CLI / Claude Code / Cursor>
-Model: <提交时实际使用的模型标识>
+Model: <提交时实际模型的已登记规范 ID>
 Refs: #<id>
 ```
 
