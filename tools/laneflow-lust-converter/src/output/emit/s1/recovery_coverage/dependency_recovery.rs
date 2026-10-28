@@ -8,6 +8,7 @@ mod calibration;
 mod combinations;
 mod components;
 mod experiment;
+mod reshape;
 
 fn reference() -> Value {
     serde_json::from_str(include_str!(

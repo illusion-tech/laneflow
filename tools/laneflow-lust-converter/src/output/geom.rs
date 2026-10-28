@@ -1341,6 +1341,10 @@ fn emit_sampled_span(
         )
     };
     if angle_rad(dir_a, cu) < STRAIGHT_EPS_RAD && angle_rad(dir_b, cu) < STRAIGHT_EPS_RAD {
+        #[cfg(test)]
+        if s1::reshape::capture_line_if_active(a, b, cu) {
+            return Ok(());
+        }
         return sink.push(b);
     }
     // 弧段使用倒圆构造时算好的圆弧控制柄 (4/3)·r·tan(θ/4)（端点严格相切、

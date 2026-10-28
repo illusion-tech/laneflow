@@ -278,6 +278,7 @@ pub(crate) fn search(input: &EdgeInput, budget: SearchBudget) -> EdgeSearch {
 
 pub(crate) mod feasibility;
 pub(crate) mod grid;
+pub(crate) mod reshape;
 mod traverse;
 
 pub(super) fn sample_if_active(
@@ -285,6 +286,9 @@ pub(super) fn sample_if_active(
     control: [Vec3; 6],
     sink: &mut EmissionSink,
 ) -> Option<Result<()>> {
+    if reshape::capture_if_active(control) {
+        return Some(Ok(()));
+    }
     if let Some(result) = grid::sample_if_active(span_index, control, sink) {
         return Some(result);
     }
