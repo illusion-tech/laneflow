@@ -55,12 +55,13 @@ pub enum AttestationStage {
     RootComparison,
 }
 
-/// 修订来源期望值（完整性设计 §2.2；任何值不得取自被认证修订自身的 `origin`）。
+/// 发布来源的修订来源期望值（完整性设计 §2.2；任何值不得取自被认证修订自身的 `origin`）。
 ///
 /// 发布来源由宿主随 [`crate::CanonicalNetworkOrigin`] 之外的
 /// `PublishedLfcaReference` 持久：`NetworkRevisionId` 参与同修订判据；
 /// LFCA digest / exact length 在任何调用时机都没有独立期望值，只作来源
-/// 审计诊断（设计 §2.2「发布来源的字节身份」）。编辑来源期望值随 #529 落地。
+/// 审计诊断（设计 §2.2「发布来源的字节身份」）。编辑来源没有外部引用，期望值
+/// 取自宿主重编译所得的候选修订 `origin`（[`attest_recompiled_shared_network_revision`]）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RootAttestationExpectation {
     network_revision: NetworkRevisionId,
@@ -102,11 +103,15 @@ impl RootAttestationExpectation {
     }
 }
 
-/// 失配所在的 `origin` 字段（字节身份字段不在比对面内）。
+/// 失配所在的 `origin` 字段（发布来源的字节身份字段不在比对面内）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OriginField {
     /// 路网修订标识。
     NetworkRevision,
+    /// LFCA 摘要（只在编辑来源分支比对，期望值取自重编译所得的候选修订）。
+    CanonicalArtifactDigest,
+    /// LFCA 精确字节长度（只在编辑来源分支比对）。
+    CanonicalArtifactByteLength,
     /// LFCA 格式版本。
     CanonicalFormatVersion,
     /// 标识编码版本。
@@ -169,6 +174,8 @@ pub enum SourceFailureDetail {
         /// 复核重算的精确字节长度。
         recheck_byte_length: u64,
     },
+    /// 宿主重编译的内容失败（编辑来源；准入、编译、发射或后发射检查拒绝）。
+    Recompile(String),
     /// 来源准备阶段 panic（按来源失败归类，设计 §2.4）。
     Panic(String),
 }
@@ -293,6 +300,8 @@ pub enum OperationFailureKind {
     BuilderAllocationFailure,
     /// 调用方取消（只有宿主提供取消标志才可能发生）。
     Cancelled,
+    /// 编辑来源重编译的资源失败（编译限额超限、预留 / 分配失败）。
+    RecompileResourceFailure,
     /// 首次来源侧失配后复算证据不同（来源证据不稳定）。
     SourceEvidenceUnstable,
     /// 首次来源侧失配后复算未完成（取消、预留 / 分配失败、限额超限）。
@@ -313,6 +322,21 @@ pub struct OperationFailure {
     /// 不改变结论，也不经故障 sink 自身报告）。
     pub telemetry_dropped: u32,
 }
+
+/// 编辑来源重编译的失败（宿主重编译闭包的返回值，完整性设计 §2.4）。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecompileFailure {
+    /// 来源内容无法编译：准入、编译、发射或后发射检查拒绝。属来源准备阶段失败
+    /// （判因 `来源`，经复算确认）；载荷为完整错误变体与载荷的文本，复算按其比对证据。
+    Content(String),
+    /// 资源失败：编译限额超限、预留 / 分配失败。属操作失败。
+    Resource(String),
+    /// 调用方取消。属操作失败。
+    Cancelled,
+}
+
+/// 宿主重编译闭包：每次调用重新读取已提交道路编辑状态，返回重编译得到的 exact LFCA 字节。
+pub type RecompileSource<'a> = dyn FnMut() -> Result<Vec<u8>, RecompileFailure> + 'a;
 
 /// 判因对应的处置提示（L3，完整性设计 §7；宿主按调用时机取用）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -513,12 +537,88 @@ pub fn attest_shared_network_revision<S>(
 where
     S: BoundedReReadableObjectSource,
 {
+    attest(
+        root,
+        &mut AttestationSource::Published {
+            lfca: &lfca,
+            expectation: &expectation,
+        },
+        format_limits,
+        build_options,
+        telemetry,
+    )
+}
+
+/// 认证编辑来源的共享路网修订（完整性设计 §2.2、§4.2 编辑来源分支）。
+///
+/// 本 crate 不依赖编译器：`recompile` 由宿主提供，每次调用重新读取已提交
+/// 道路编辑状态并返回重编译得到的 exact LFCA 字节，宿主须使用构建该修订时的
+/// 同一编译器构建与同一组参数（`committed-road-editing-state.md` §4）。每次认证
+/// 尝试（首次与复算）各调用一次。来源准备阶段对返回的字节执行与发布来源相同的
+/// reader 受检与 builder 完整构建；候选修订的完整 `origin` 即期望值，因此不做同修订
+/// 判据、不产生字节身份审计诊断，LFCA digest / exact length 进入 `origin` 比对。
+/// 修订比较、来源复核（对本次重编译字节）、复算归类与 panic 边界与
+/// [`attest_shared_network_revision`] 相同。
+///
+/// 重编译失败按 [`RecompileFailure`] 分类：内容失败属来源准备阶段失败，资源失败与
+/// 取消属操作失败。宿主参数与构建该修订时不同导致的字节差异表现为 `origin` 字节
+/// 身份失配（判因 `无法判因`），属宿主调用错误，不是修订失真。
+///
+/// # Panics
+///
+/// 重编译闭包与认证过程的 panic 按阶段以 `catch_unwind` 包住，不向宿主传播：
+/// 闭包 panic 按来源准备阶段 panic 归类（设计 §2.4）；其余同
+/// [`attest_shared_network_revision`]。
+pub fn attest_recompiled_shared_network_revision(
+    root: &SharedNetworkRevision,
+    recompile: &mut RecompileSource<'_>,
+    format_limits: FormatLimits,
+    build_options: SharedNetworkBuildOptions<'_>,
+    telemetry: Option<&mut dyn AttestationTelemetry>,
+) -> AttestationOutcome {
+    attest::<&[u8]>(
+        root,
+        &mut AttestationSource::Recompiled { recompile },
+        format_limits,
+        build_options,
+        telemetry,
+    )
+}
+
+/// 一次认证调用的来源：发布来源借用宿主字节并携带引用期望值；编辑来源在每次
+/// 尝试中调用宿主重编译。
+enum AttestationSource<'s, 'r, S> {
+    Published {
+        lfca: &'s S,
+        expectation: &'s RootAttestationExpectation,
+    },
+    Recompiled {
+        recompile: &'s mut RecompileSource<'r>,
+    },
+}
+
+/// 单次尝试的期望值来源：发布来源取自引用；编辑来源取自本次重编译所得的候选修订。
+#[derive(Clone, Copy)]
+enum ExpectationSource<'e> {
+    Reference(&'e RootAttestationExpectation),
+    Recompiled,
+}
+
+fn attest<S>(
+    root: &SharedNetworkRevision,
+    source: &mut AttestationSource<'_, '_, S>,
+    format_limits: FormatLimits,
+    build_options: SharedNetworkBuildOptions<'_>,
+    telemetry: Option<&mut dyn AttestationTelemetry>,
+) -> AttestationOutcome
+where
+    S: BoundedReReadableObjectSource,
+{
     let mut source_audit = Vec::new();
     let mut trace = Vec::new();
     let first = run_attempt(
         root,
-        &lfca,
-        &expectation,
+        source,
         format_limits,
         build_options,
         &mut source_audit,
@@ -550,8 +650,7 @@ where
             } else {
                 confirm_root_mismatch(
                     root,
-                    &lfca,
-                    &expectation,
+                    source,
                     format_limits,
                     build_options,
                     evidence,
@@ -567,8 +666,7 @@ where
             test_injection::before_recompute();
             let recompute = run_attempt(
                 root,
-                &lfca,
-                &expectation,
+                source,
                 format_limits,
                 build_options,
                 &mut source_audit,
@@ -585,8 +683,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn confirm_root_mismatch<S>(
     root: &SharedNetworkRevision,
-    lfca: &S,
-    expectation: &RootAttestationExpectation,
+    source: &mut AttestationSource<'_, '_, S>,
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
     evidence: MismatchEvidence,
@@ -601,8 +698,7 @@ where
     test_injection::before_recompute();
     let recompute = run_attempt(
         root,
-        lfca,
-        expectation,
+        source,
         format_limits,
         build_options,
         &mut source_audit,
@@ -611,11 +707,86 @@ where
     classify_confirmed_failure(FirstFailure::RootCompare(evidence), recompute, source_audit)
 }
 
-/// 单次完整认证尝试：来源准备 → 修订比较（均含 panic 边界）→ 失配路径来源复核。
+/// 单次完整认证尝试：编辑来源先调用宿主重编译，随后按取得的字节执行同一流程。
 fn run_attempt<S>(
     root: &SharedNetworkRevision,
+    source: &mut AttestationSource<'_, '_, S>,
+    format_limits: FormatLimits,
+    build_options: SharedNetworkBuildOptions<'_>,
+    source_audit: &mut Vec<SourceAuditNote>,
+    trace: &mut Vec<TraceStep>,
+) -> AttemptOutcome
+where
+    S: BoundedReReadableObjectSource,
+{
+    match source {
+        AttestationSource::Published { lfca, expectation } => run_attempt_on(
+            root,
+            *lfca,
+            ExpectationSource::Reference(expectation),
+            format_limits,
+            build_options,
+            source_audit,
+            trace,
+        ),
+        AttestationSource::Recompiled { recompile } => {
+            trace.push(TraceStep::SourcePreparationStarted);
+            match recompile_source(recompile) {
+                Ok(bytes) => run_attempt_on(
+                    root,
+                    &bytes.as_slice(),
+                    ExpectationSource::Recompiled,
+                    format_limits,
+                    build_options,
+                    source_audit,
+                    trace,
+                ),
+                Err(outcome) => outcome,
+            }
+        }
+    }
+}
+
+/// 宿主重编译边界：内容失败与 panic 属来源准备阶段失败，资源失败与取消属操作失败。
+fn recompile_source(recompile: &mut RecompileSource<'_>) -> Result<Vec<u8>, AttemptOutcome> {
+    let source_failure = |detail| {
+        AttemptOutcome::Failed(FirstFailure::Source(MismatchEvidence {
+            stage: AttestationStage::SourcePreparation,
+            site: MismatchSite::SourceFailure { detail },
+        }))
+    };
+    let operational = |kind, detail| {
+        AttemptOutcome::OperationFailed(OperationFailure {
+            kind,
+            detail,
+            source_audit: Vec::new(),
+            telemetry_dropped: 0,
+        })
+    };
+    match catch_unwind(AssertUnwindSafe(recompile)) {
+        Ok(Ok(bytes)) => Ok(bytes),
+        Ok(Err(RecompileFailure::Content(detail))) => {
+            Err(source_failure(SourceFailureDetail::Recompile(detail)))
+        }
+        Ok(Err(RecompileFailure::Resource(detail))) => Err(operational(
+            OperationFailureKind::RecompileResourceFailure,
+            detail,
+        )),
+        Ok(Err(RecompileFailure::Cancelled)) => Err(operational(
+            OperationFailureKind::Cancelled,
+            "recompile cancelled".to_owned(),
+        )),
+        Err(payload) => Err(source_failure(SourceFailureDetail::Panic(
+            panic_payload_text(payload),
+        ))),
+    }
+}
+
+/// 单次完整认证尝试：来源准备 → 修订比较（均含 panic 边界）→ 失配路径来源复核。
+fn run_attempt_on<S>(
+    root: &SharedNetworkRevision,
     lfca: &S,
-    expectation: &RootAttestationExpectation,
+    expectation: ExpectationSource<'_>,
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
     source_audit: &mut Vec<SourceAuditNote>,
@@ -628,7 +799,7 @@ where
     let source_override = test_injection::take_source();
     #[cfg(test)]
     if let Some(bytes) = source_override {
-        return run_attempt(
+        return run_attempt_on(
             root,
             &bytes.as_slice(),
             expectation,
@@ -638,7 +809,9 @@ where
             trace,
         );
     }
-    trace.push(TraceStep::SourcePreparationStarted);
+    if matches!(expectation, ExpectationSource::Reference(_)) {
+        trace.push(TraceStep::SourcePreparationStarted);
+    }
     let mut prepared_identity = None;
     let candidate = match run_source_preparation(
         lfca,
@@ -659,6 +832,21 @@ where
             panic!("injected root-comparison panic");
         }
         let candidate: &SharedNetworkRevision = &candidate;
+        // 编辑来源的期望值取自本次重编译所得的候选修订，字节身份同样进入比对。
+        let (expected, byte_identity) = match expectation {
+            ExpectationSource::Reference(reference) => (*reference, false),
+            ExpectationSource::Recompiled => {
+                let origin = candidate.canonical_origin();
+                (
+                    RootAttestationExpectation::new(
+                        origin.network_revision(),
+                        origin.canonical_artifact_digest(),
+                        origin.canonical_artifact_byte_length(),
+                    ),
+                    true,
+                )
+            }
+        };
         #[cfg(any(test, feature = "attestation-fixtures"))]
         let injected = crate::attestation_fixtures::take_comparison(root);
         #[cfg(any(test, feature = "attestation-fixtures"))]
@@ -666,7 +854,7 @@ where
             injected.0.as_deref().unwrap_or(candidate),
             injected.1.as_deref().unwrap_or(root),
         );
-        compare_origin(root.canonical_origin(), expectation)
+        compare_origin(root.canonical_origin(), &expected, byte_identity)
             .and_then(|()| compare_revisions_by_value(candidate, root))
     }));
     match comparison {
@@ -714,12 +902,12 @@ where
     }
 }
 
-/// 来源准备阶段：reader 受检 → 同修订判据 → 候选修订完整构建。
+/// 来源准备阶段：reader 受检 → 同修订判据（只限发布来源）→ 候选修订完整构建。
 /// 本阶段不读取被认证修订（设计 §4.2）；panic 按来源失败归类。
 #[allow(clippy::too_many_arguments)]
 fn run_source_preparation<S>(
     lfca: &S,
-    expectation: &RootAttestationExpectation,
+    expectation: ExpectationSource<'_>,
     format_limits: FormatLimits,
     build_options: SharedNetworkBuildOptions<'_>,
     prepared_identity: Option<&mut Option<(Sha256Digest, ExactByteLength)>>,
@@ -739,36 +927,40 @@ where
             Err(error) => return Err(map_reader_error(error)),
         };
         trace.push(TraceStep::ReaderAccepted);
-        // 字节身份在受检身份可用后立即记录：同修订判据失配的提前返回
-        // 不得吞掉字节差异诊断（诊断不进入结论，设计 §2.2）。
         let digest = checked.canonical_artifact_digest();
         let length = checked.canonical_artifact_byte_length();
-        if digest != expectation.reference_digest() || length != expectation.reference_byte_length()
-        {
-            source_audit.push(SourceAuditNote::ByteIdentityDiffersFromReference {
-                reference_digest: expectation.reference_digest(),
-                reference_byte_length: expectation.reference_byte_length().get(),
-                source_digest: digest,
-                source_byte_length: length.get(),
-            });
-        }
         if let Some(slot) = prepared_identity {
             *slot = Some((digest, length));
         }
-        if checked.network_revision() != expectation.network_revision() {
-            return Err(AttemptOutcome::Failed(FirstFailure::Source(
-                MismatchEvidence {
-                    stage: AttestationStage::SourcePreparation,
-                    site: MismatchSite::SourceFailure {
-                        detail: SourceFailureDetail::RevisionCriterion {
-                            reference: expectation.network_revision(),
-                            recomputed: checked.network_revision(),
+        // 编辑来源没有外部引用：期望值即本次候选修订的 origin，不做同修订判据。
+        if let ExpectationSource::Reference(expectation) = expectation {
+            // 字节身份在受检身份可用后立即记录：同修订判据失配的提前返回
+            // 不得吞掉字节差异诊断（诊断不进入结论，设计 §2.2）。
+            if digest != expectation.reference_digest()
+                || length != expectation.reference_byte_length()
+            {
+                source_audit.push(SourceAuditNote::ByteIdentityDiffersFromReference {
+                    reference_digest: expectation.reference_digest(),
+                    reference_byte_length: expectation.reference_byte_length().get(),
+                    source_digest: digest,
+                    source_byte_length: length.get(),
+                });
+            }
+            if checked.network_revision() != expectation.network_revision() {
+                return Err(AttemptOutcome::Failed(FirstFailure::Source(
+                    MismatchEvidence {
+                        stage: AttestationStage::SourcePreparation,
+                        site: MismatchSite::SourceFailure {
+                            detail: SourceFailureDetail::RevisionCriterion {
+                                reference: expectation.network_revision(),
+                                recomputed: checked.network_revision(),
+                            },
                         },
                     },
-                },
-            )));
+                )));
+            }
+            trace.push(TraceStep::SameRevisionCriterionChecked);
         }
-        trace.push(TraceStep::SameRevisionCriterionChecked);
         match build_shared_network_revision(checked, build_options) {
             Ok(candidate) => Ok(candidate),
             Err(error) => Err(map_builder_error(error)),
