@@ -4,6 +4,9 @@ use super::*;
 use interval::{Interval, angle_excluded, curve, difference, point, short};
 
 mod interval;
+mod seam;
+
+pub(crate) use seam::diagnose as diagnose_seam;
 
 const BOX_LIMIT: u64 = 32_000_000;
 const DEPTH_LIMIT: u32 = 48;
@@ -96,6 +99,7 @@ pub(crate) fn diagnose(control: [Vec3; 6], clamp: Option<Vec3>) -> Value {
     );
     if let Some(d) = clamp {
         assert_eq!(d[1], 0.0);
+        assert!((norm(d) - 1.0).abs() <= 1e-12, "unit clamp required");
     }
     let end = point(quantize_vec3(c[3]));
     let start = point(quantize_vec3(c[0]));
