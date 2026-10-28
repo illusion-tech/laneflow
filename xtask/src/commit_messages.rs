@@ -1,7 +1,6 @@
-//! LaneFlow commit message contract: Conventional Commits title, Refs/Closes footer,
-//! BREAKING CHANGE when the title uses `!`, and paired Harness/Model trailers.
-//! Trailer identity comes from `git interpret-trailers --parse --no-divider`. The raw message only
-//! rejects non-canonical spelling. AI tool trailers are rejected.
+//! 提交信息校验 Conventional Commits 标题、Refs/Closes、破坏性变更说明和成对的 Harness/Model。
+//! Model 只接受已登记的规范 ID。trailer 身份由 `git interpret-trailers --parse --no-divider`
+//! 确定；原文用于拒绝不规范写法。禁止使用 AI 工具署名 trailer。
 
 use std::borrow::Cow;
 use std::env;
@@ -784,6 +783,12 @@ fn harness_model_errors_from_git(trailers: &[GitTrailer]) -> Vec<String> {
             errors.push(format!("`{key}:` 必须写成 `{key}: <非空取值>`"));
         }
     }
+    if let [position] = model.as_slice()
+        && !trailers[*position].value.is_empty()
+        && let Err(error) = crate::commit_models::validate_model_id(&trailers[*position].value)
+    {
+        errors.push(error);
+    }
     if let Some(footer) = trailers
         .iter()
         .rposition(|trailer| is_issue_trailer_key(&trailer.key))
@@ -1356,11 +1361,11 @@ Refs: #12
             message_with_body("Co-authored-by: Claudette Morel <claudette@example.com>"),
             message_with_body("Co-authored-by: Researcher <researcher@openai.com>"),
             message_with_body("Co-authored-by: Ada Lovelace <ada@cursor.com>"),
-            message_with_body("Harness: Cursor\nModel: example-model"),
+            message_with_body("Harness: Cursor\nModel: openai/gpt-6.1-sol"),
             message_with_body(
-                "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: Claude Code\nModel: claude-opus-4.7",
+                "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: Claude Code\nModel: anthropic/claude-opus-5-5",
             ),
-            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: Claude Code\nModel: claude-opus-4.7\nRefs: #12\n".to_string(),
+            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: Claude Code\nModel: anthropic/claude-opus-5-5\nRefs: #12\n".to_string(),
             VALID_MESSAGE.to_string(),
         ] {
             assert_accepted(&message);
@@ -1368,9 +1373,66 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_noncanonical_model_ids_in_commit_messages() {
+        for (value, hint) in [
+            ("claude-opus-5.5", "anthropic/claude-opus-5-5"),
+            ("OPENAI/GPT-6.1-SOL", "openai/gpt-6.1-sol"),
+            ("kimi-code/k3", "moonshotai/kimi-k3"),
+            ("GPT-6", "未登记为规范 ID"),
+            ("lab/unregistered-model", "未登记为规范 ID"),
+        ] {
+            assert_rejected(
+                &message_with_body(&format!("Harness: Codex\nModel: {value}")),
+                hint,
+            );
+        }
+    }
+
+    #[test]
+    fn model_registration_applies_to_file_and_range_validation() {
+        let path = temp_message_path("registered-model");
+        for (value, accepted) in [
+            ("openai/gpt-6.1-sol", true),
+            ("gpt-6.1-sol", false),
+            ("openai/unregistered-model", false),
+        ] {
+            let message = message_with_body(&format!("Harness: Codex\nModel: {value}"));
+            std::fs::write(&path, &message).expect("write test message");
+            let file_result = check_commit_message_file(path.to_str().unwrap());
+            let range_errors =
+                commit_message_errors("0123456789abcdef", "Human", "human@example.com", &message);
+            assert_eq!(file_result.is_ok(), accepted, "{value}: {file_result:?}");
+            assert_eq!(
+                range_errors.is_empty(),
+                accepted,
+                "{value}: {range_errors:?}"
+            );
+        }
+        std::fs::remove_file(path).expect("remove test message");
+    }
+
+    #[test]
+    fn dependabot_exception_does_not_exempt_model_registration() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump dependency\n\nHarness: Codex\nModel: unknown-model\n",
+        );
+        assert!(
+            errors.iter().any(|error| error.contains("未登记为规范 ID")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().all(|error| !error.contains("缺少 `Refs:`")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
     fn rejects_lowercase_harness_and_model_keys() {
         assert_rejected(
-            &message_with_body("harness: Cursor\nmodel: example-model"),
+            &message_with_body("harness: Cursor\nmodel: openai/gpt-6.1-sol"),
             "键名大小写必须精确",
         );
     }
@@ -1467,7 +1529,7 @@ Refs: #12
     #[test]
     fn rejects_indented_trailer_block() {
         assert_rejected(
-            "docs(governance): 对齐提交规范\n\n Co-authored-by: Ada <ada@example.com>\nHarness: Cursor\nModel: m\nRefs: #23\n",
+            "docs(governance): 对齐提交规范\n\n Co-authored-by: Ada <ada@example.com>\nHarness: Cursor\nModel: openai/gpt-6.1-sol\nRefs: #23\n",
             "没有把提交末尾认成 trailer",
         );
     }
@@ -1490,7 +1552,7 @@ Refs: #12
     fn rejects_ai_tool_coauthor_even_with_harness_model_pair() {
         assert_rejected(
             &message_with_body(
-                "Co-authored-by: Codex <noreply@openai.com>\nHarness: Codex CLI\nModel: example-model",
+                "Co-authored-by: Codex <noreply@openai.com>\nHarness: Codex CLI\nModel: openai/gpt-6.1-sol",
             ),
             "不得标注 AI 工具",
         );
@@ -1499,17 +1561,20 @@ Refs: #12
     #[test]
     fn rejects_unpaired_harness_or_model() {
         assert_rejected(&message_with_body("Harness: Cursor"), "必须成对出现");
-        assert_rejected(&message_with_body("Model: example-model"), "必须成对出现");
+        assert_rejected(
+            &message_with_body("Model: openai/gpt-6.1-sol"),
+            "必须成对出现",
+        );
     }
 
     #[test]
     fn rejects_empty_harness_or_model_value() {
         assert_rejected(
-            &message_with_body("Harness:\nModel: example-model"),
+            &message_with_body("Harness:\nModel: openai/gpt-6.1-sol"),
             "`Harness:` 必须写成",
         );
         assert_rejected(
-            &message_with_body("Harness:   \nModel: example-model"),
+            &message_with_body("Harness:   \nModel: openai/gpt-6.1-sol"),
             "`Harness:` 必须写成",
         );
         assert_rejected(
@@ -1525,11 +1590,11 @@ Refs: #12
     #[test]
     fn rejects_harness_model_that_are_not_adjacent() {
         assert_rejected(
-            &message_with_body("Harness: Cursor\n\nModel: example-model"),
+            &message_with_body("Harness: Cursor\n\nModel: openai/gpt-6.1-sol"),
             "必须成对出现",
         );
         assert_rejected(
-            &message_with_body("Model: example-model\nHarness: Cursor"),
+            &message_with_body("Model: openai/gpt-6.1-sol\nHarness: Cursor"),
             "必须紧邻",
         );
     }
@@ -1537,11 +1602,11 @@ Refs: #12
     #[test]
     fn rejects_repeated_harness_or_model() {
         assert_rejected(
-            &message_with_body("Harness: Cursor\nHarness: Claude Code\nModel: example-model"),
+            &message_with_body("Harness: Cursor\nHarness: Claude Code\nModel: openai/gpt-6.1-sol"),
             "`Harness:` 只能出现一次",
         );
         assert_rejected(
-            &message_with_body("Harness: Cursor\nModel: example-model\nModel: other-model"),
+            &message_with_body("Harness: Cursor\nModel: openai/gpt-6.1-sol\nModel: other-model"),
             "`Model:` 只能出现一次",
         );
     }
@@ -1549,7 +1614,7 @@ Refs: #12
     #[test]
     fn rejects_harness_model_after_issue_footer() {
         assert_rejected(
-            &format!("{VALID_MESSAGE}Harness: Cursor\nModel: example-model\n"),
+            &format!("{VALID_MESSAGE}Harness: Cursor\nModel: openai/gpt-6.1-sol\n"),
             "必须位于 `Refs:` / `Closes:` 之前",
         );
     }
@@ -1558,7 +1623,7 @@ Refs: #12
     fn rejects_breaking_change_inside_attribution_trailer_block() {
         let message = BREAKING_MESSAGE.replace(
             "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nRefs: #12",
-            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: Cursor\nModel: example-model\nRefs: #12",
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nHarness: Cursor\nModel: openai/gpt-6.1-sol\nRefs: #12",
         );
 
         assert_rejected(&message, "trailer 段之前必须有空行");
@@ -1567,7 +1632,7 @@ Refs: #12
     #[test]
     fn rejects_attribution_trailer_without_leading_blank_line() {
         assert_rejected(
-            "docs(governance): 对齐提交规范\nHarness: Cursor\nModel: example-model\nRefs: #23\n",
+            "docs(governance): 对齐提交规范\nHarness: Cursor\nModel: openai/gpt-6.1-sol\nRefs: #23\n",
             "trailer 段之前必须有空行",
         );
     }
@@ -1691,7 +1756,7 @@ Refs: #12
     #[test]
     fn rejects_blank_line_inside_attribution_trailer_block() {
         assert_rejected(
-            "docs(governance): 对齐提交规范\n\nHarness: Cursor\nModel: example-model\n\nRefs: #23\n",
+            "docs(governance): 对齐提交规范\n\nHarness: Cursor\nModel: openai/gpt-6.1-sol\n\nRefs: #23\n",
             "中间不能空行",
         );
     }

@@ -1,7 +1,7 @@
 # 提交规范
 
 **文档状态**: Active
-**最后更新**: 2026-10-13
+**最后更新**: 2026-10-28
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查
 
 ## 1. 目标
@@ -113,7 +113,8 @@ Refs: #12
 `Co-authored-by` 只用于人类合作者。不得用它标注 AI 执行框架或模型。本地
 `commit-msg` hook 与 CI 的 `Commit message` 使用同一套校验：先用
 `git interpret-trailers --parse --no-divider` 取得 Git 认定的 trailer。该调用固定 `trailer.separators=:`，并忽略宿主机的 Git 配置。然后再检查 AI 署名和
-`Harness:` / `Model:` 成对。原文只用来拒绝冒号前空格、行首缩进、取值折行和其他不规范写法。
+`Harness:` / `Model:` 成对，且 `Model` 使用已登记的规范 ID。原文还用于拒绝冒号前空格、
+行首缩进、取值折行和其他不规范写法。
 
 `Co-authored-by` 键名大小写不敏感。取值满足任一条件即拒绝，并提示改写为
 `Harness:` / `Model:`：
@@ -131,7 +132,7 @@ AI 参与的提交改用下面两行，纯人工提交可以不写。出现时�
 
 ```text
 Harness: <执行框架>
-Model: <实际使用的模型标识>
+Model: <实际使用模型的已登记规范 ID>
 ```
 
 - 键名大小写必须精确，冒号必须紧跟键名。`harness:`、`MODEL:` 和 `Harness :` 都会拒绝，而不是当成普通正文忽略。冒号后有一个空格，取值去掉首尾空白后不得为空。
@@ -140,17 +141,19 @@ Model: <实际使用的模型标识>
 - `BREAKING CHANGE:` 不是 Git trailer 键。有 AI 署名时把它写在这段之前，不要写进 trailer 段。
 - `Refs:` / `Closes:` 仍是最后一个非空行。人类 `Co-authored-by` 也不得写在它后面。键名和冒号之间的空格仍视为同一个 `Co-authored-by`。
 - 也拒绝 `Made-with:` 标注 AI 工具，例如 Cursor 默认的 `Made-with: Cursor`。
-- 不校验取值是否属于白名单。`Model` 必须填写提交时实际使用的模型，不得照抄工具
-  自动生成、且可能过期的模型名。
+- `Model` 只接受第 6.1 节目录中已登记的规范 ID，大小写与标点必须精确一致。别名、
+  展示名、缺少实验室前缀的短名、模糊名称和未登记 ID 都拒绝，不会静默改写。
+- 提交者须核对当前会话实际模型后选择对应规范 ID，不得照抄工具自动生成、且可能
+  过期的模型名。目录只校验名称，不证明会话实际使用了该模型。
 
 执行框架可以写成 `Codex CLI`、`Claude Code` 或 `Cursor`，也可以是其他非空名称。
-下面只说明格式，校验不核对这些取值：
+`Harness` 仍只要求非空；`Model` 示例使用已登记的规范 ID：
 
 ```text
 feat(runtime): 校验 route segment 连续性
 
 Harness: Claude Code
-Model: claude-opus-4.7
+Model: anthropic/claude-opus-5-5
 Refs: #12
 ```
 
@@ -163,12 +166,53 @@ BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
 
 Co-authored-by: Ada Lovelace <ada@example.com>
 Harness: Claude Code
-Model: claude-opus-4.7
+Model: anthropic/claude-opus-5-5
 Refs: #12
 ```
 
 关闭各工具自动追加的 `Co-authored-by` 见 `CONTRIBUTING.md` 第 6 节。hook
 仍会拒绝漏网的 AI 工具署名。
+
+### 6.1 模型目录与登记
+
+[`xtask/data/model-registry.json`](../../xtask/data/model-registry.json) 是本仓库接受的
+模型 ID 目录，由 Git 保存版本，Rust 校验器在编译时嵌入。同一版本的本地 hook 和 CI
+使用同一份数据，校验期间不联网，不读取用户自行配置的外部目录。
+
+- `canonical_ids`：从 [models.dev 模型目录](https://models.dev/models.json?type=all)
+  提取的完整规范 ID，例如 `openai/gpt-6-astra`、`anthropic/claude-opus-5-5`。
+  `source` 和 `retrieved_at` 记录上游地址及该快照的 UTC 获取时间。
+- `local_models`：上游尚未收录时的显式本地登记。每项必须提供完整的 `id` 和非空
+  `source`，来源应指向能核对模型身份的官方文档或维护者接受的证据。不得只为了
+  通过校验而登记已有模型的另一种写法。
+- `aliases`：仅用于报错提示，每项记录 `alias`、`canonical_id` 和 `source`。
+  [models.dev 服务商目录](https://models.dev/catalog.json?type=all) 中的
+  `canonical_model_id` 可作为映射依据；工具特有前缀需明确登记，不能全局删除前缀。
+  别名从不作为合法 `Model` 值。
+
+规范 ID 采用 `<实验室>/<模型标识>`。这里的实验室指模型来源，不是执行框架或中转
+服务商。保留目录中原有大小写、版本和变体，不把 `pro` / `pro-ultraspeed` 等合并，
+也不由 `GPT-6` 猜测具体型号。诊断可以对大小写或短名给出唯一候选，但仍要求提交者
+核对实际模型后修改；有多个候选时不替提交者选择。
+
+使用新模型前，先更新目录或完成本地登记：
+
+1. 获取上述 `models.json?type=all`，核对模型的完整顶层 ID；刷新快照时按 ID 排序
+   更新 `canonical_ids`，同时更新 `retrieved_at`。目录是显式审阅的数据，不随网络
+   响应自动改变。
+2. 上游尚未收录时，在 `local_models` 加入带来源的规范 ID。上游后来收录同一 ID，
+   则在刷新时移除重复的本地登记。目录中的 ID 必须唯一，大小写变体也不得重复登记；
+   别名目标必须已经登记。
+3. 若上游移除模型，核对原因；仍有使用依据的模型可转为带来源的本地登记，不能
+   直接把它映射到另一型号。别名目标消失时同步审阅对应别名。
+4. 运行 `cargo +1.99.1 test --locked -p xtask`。登记变更可与首次使用该规范 ID 的
+   提交放在同一 PR；hook / CI 校验的是当前检出版本所携带的目录。
+
+目录格式错误、重复 ID、缺少本地登记来源或别名冲突会使含 `Model` 的提交校验失败。
+纯人工提交仍可省略整个 `Harness` / `Model` 对。新规则应用于 hook 文件或 CI 指定
+范围中的提交；不改写已经合入的历史，尚未合入且进入检查范围的旧写法须修正。
+
+数据来源：[models.dev](https://github.com/anomalyco/models.dev)（MIT）。
 
 ## 7. 与 PR 的关系
 
@@ -195,7 +239,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
 - 不以 `Co-authored-by` 标注 AI 工具或模型；人类合作者除外。
-- `Harness:` / `Model:` 要么都不写，要么成对、非空，和 `Refs:` / `Closes:` 组成末尾 trailer 段。段前有空行，段内没有 `BREAKING CHANGE:`。
+- `Harness:` / `Model:` 要么都不写，要么成对、非空，和 `Refs:` / `Closes:` 组成末尾 trailer 段。段前有空行，段内没有 `BREAKING CHANGE:`；`Model` 必须是第 6.1 节已登记的精确规范 ID。
 
 Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下条件的机器提交提供
 窄例外：

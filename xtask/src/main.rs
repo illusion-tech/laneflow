@@ -1,4 +1,5 @@
 mod commit_messages;
+mod commit_models;
 mod digest_probe;
 mod markdown_tables;
 mod measurement;
