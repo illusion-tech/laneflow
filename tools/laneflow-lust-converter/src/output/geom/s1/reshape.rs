@@ -13,7 +13,9 @@ const MAX_PIECES: u32 = 96;
 const MAX_CURVES: usize = 6;
 
 thread_local! {
-    static REFERENCE: RefCell<Option<Vec<Control>>> = const { RefCell::new(None) };
+    // 捕获槽携带段容量：design.md 的 6 段上限在 #1131/#1130 按每边实际参考段数 s
+    // 参数化，捕获断言随容量走；`search()`/`policy()` 仍默认 6，#1115 行为逐位不变。
+    static REFERENCE: RefCell<Option<(usize, Vec<Control>)>> = const { RefCell::new(None) };
 }
 
 struct CaptureReset;
@@ -27,10 +29,10 @@ impl Drop for CaptureReset {
 pub(super) fn capture_if_active(control: Control) -> bool {
     REFERENCE.with(|slot| {
         let mut slot = slot.borrow_mut();
-        let Some(curves) = slot.as_mut() else {
+        let Some((max_curves, curves)) = slot.as_mut() else {
             return false;
         };
-        assert!(curves.len() < MAX_CURVES, "bounded reference capture");
+        assert!(curves.len() < *max_curves, "bounded reference capture");
         curves.push(control);
         true
     })
@@ -48,9 +50,15 @@ pub(crate) fn capture_line_if_active(a: Vec3, b: Vec3, direction: Vec3) -> bool 
 }
 
 fn reference(input: &EdgeInput) -> Vec<Control> {
+    reference_with_curve_cap(input, MAX_CURVES)
+}
+
+/// 捕获 `repair_curve` 生成的原参考 cubic 链；`max_curves` 为该边冻结的段容量 s
+/// （流 B 冻结计划 §6），默认 `MAX_CURVES` 沿 #1115 口径。
+fn reference_with_curve_cap(input: &EdgeInput, max_curves: usize) -> Vec<Control> {
     REFERENCE.with(|slot| {
         assert!(slot.borrow().is_none(), "nested reference capture");
-        *slot.borrow_mut() = Some(Vec::new());
+        *slot.borrow_mut() = Some((max_curves, Vec::new()));
     });
     let _reset = CaptureReset;
     // 观察模式不向 sink 写入点，末尾空程序不作为研究候选返回。
@@ -61,7 +69,7 @@ fn reference(input: &EdgeInput) -> Vec<Control> {
         input.clamp_sources[0].as_ref(),
         input.clamp_sources[1].as_ref(),
     );
-    let curves = REFERENCE.with(|slot| slot.borrow_mut().take().unwrap());
+    let curves = REFERENCE.with(|slot| slot.borrow_mut().take().unwrap().1);
     assert!(!curves.is_empty(), "cubic reference required");
     assert_eq!(curves[0][0], input.points[0], "reference starts at source");
     assert_eq!(
@@ -233,6 +241,11 @@ fn attempt(
         re::RoadEditingCurveProgram::try_new(point3(input.points[0]).unwrap(), sink.segments)
             .unwrap();
     let points = program_points(&program);
+    // plan §6：每段 ≤96 片 ⇒ 临时程序 ≤ 96×段数+1 点（s=6 时即 577）。
+    assert!(
+        points.len() <= MAX_PIECES as usize * curves.len() + 1,
+        "temporary program within segment capacity"
+    );
     let dirs = [
         unit(sub(points[1], points[0])).unwrap(),
         unit(sub(points[points.len() - 1], points[points.len() - 2])).unwrap(),
@@ -272,11 +285,16 @@ fn rank_compare(a: &Ranked, b: &Ranked) -> std::cmp::Ordering {
 }
 
 pub(crate) fn policy() -> Value {
+    policy_with_curve_cap(MAX_CURVES)
+}
+
+/// 同 `policy()`；`max_curves` 为该边冻结的段容量 s（流 B 参数化，口径不变）。
+pub(crate) fn policy_with_curve_cap(max_curves: usize) -> Value {
     json!({"geometry_attempts_per_edge":148,"handle_factors":FACTORS,
         "seams":["keep","pair","whole"],"pieces_per_cubic":[2,MAX_PIECES],
         "partitions_per_edge":PARTITION_LIMIT,"sampling_work":WORK_LIMIT,"source_fit_distance_work":WORK_LIMIT,
         "source_fit_steps":64,"canonical_observation_steps_per_chord":64,
-        "tangent_scan_steps":SCAN_STEPS,"reference_cubics_max":MAX_CURVES,
+        "tangent_scan_steps":SCAN_STEPS,"reference_cubics_max":max_curves,
         "program_pool":PROGRAM_LIMIT,"dedup_point_limit":FIT_KEY_POINT_LIMIT,
         "sampling_deviation_m":0.01,"end_degrees":END_DEGREES,
         "source_fit_screen":"both directional upper estimates <= original reference under the same algorithm",
@@ -286,6 +304,13 @@ pub(crate) fn policy() -> Value {
 }
 
 pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
+    search_with_curve_cap(input, MAX_CURVES)
+}
+
+/// 同 `search()`；`max_curves` 为该边冻结的段容量 s（流 B 参数化，候选族、筛选
+/// 顺序、排序与停止口径逐值不变）。
+pub(crate) fn search_with_curve_cap(input: &EdgeInput, max_curves: usize) -> EdgeSearch {
+    assert!(max_curves >= 1, "nonzero curve cap");
     assert!(input.points.len() >= 2);
     assert!(
         input
@@ -297,11 +322,13 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
     assert!(
         input
             .clamps
-            .iter()
-            .all(|c| c.is_some_and(|d| (norm(d) - 1.0).abs() < 1e-12)),
+            .into_iter()
+            .flatten()
+            .all(|d| (norm(d) - 1.0).abs() < 1e-12),
         "unit end clamps"
     );
-    let original = reference(input);
+    let original = reference_with_curve_cap(input, max_curves);
+    assert!(original.len() <= max_curves, "bounded reference capture");
     let mut budget = Budget::default();
     let reference_fit =
         quality::fit(&original, &input.points, &mut budget).expect("bounded reference fit");
@@ -420,7 +447,7 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
             p.candidate
         })
         .collect::<Vec<_>>();
-    let report = json!({"policy":policy(),"reference_controls_f64_bits":bits(&original),
+    let report = json!({"policy":policy_with_curve_cap(max_curves),"reference_controls_f64_bits":bits(&original),
         "reference_fit":reference_fit,"reference_length_estimates":reference_length,
         "source_shape_polyline_length_m":input.points.windows(2).map(|w|norm(sub(w[1],w[0]))).sum::<f64>(),
         "counts":budget,"geometries":rows,"geometry_family_visited":rows.len()==148 && budget.stop.is_none(),
