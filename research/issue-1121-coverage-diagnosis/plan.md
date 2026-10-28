@@ -278,8 +278,19 @@
 
 - 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored
   --nocapture --test-threads=1`。
-- 环境变量：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、本轮输出目录（每次必须为
-  不存在的新目录）、执行顺序变量；基线路径可取协议 JSON 保存值。
-- 精确测试名（实现后补）：阶段一搜索 `…calibration::<module>::<search_entry>`；阶段二诊断
-  `…calibration::<module>::<diagnosis_entry>`；正式回归入口同上。输入、预算、样本均由冻结
-  源码与 `edge-cohort.json` 固定，不得换样后沿用结论。
+- 环境变量：`LUST_SOURCE_DIR`（钉版 LuST checkout）、`DIRECT_SUCCESSOR_BASELINE_DIR`
+  （#1105 修复后完整基线）、`COVERAGE_OUTPUT_DIR`（每次必须为不存在的新目录）、
+  `COVERAGE_ORDER`（`old-grid` / `grid-old`）、`COVERAGE_DIAGNOSIS_ORDER`
+  （`diagnosis-first` / `baseline-first`）。
+- 正式实验入口（阶段一搜索、阶段二诊断、阶段三组合验收与完整回归在同一入口内按
+  §6 顺序执行）：
+  `output::emit::s1::recovery_coverage::dependency_recovery::calibration::coverage::pinned_lust_coverage_diagnosis_experiment`。
+- 常规（非 ignore）测试入口：
+  `…calibration::coverage::plan_stop_labels_map_frozen_vocabulary`、
+  `…calibration::coverage::frozen_cohort_and_problem_table_stay_consistent`、
+  `…calibration::coverage::grid_membership_is_computed_from_the_frozen_grid`、
+  `output::geom::s1::feasibility::end_chord_separates_direction_criterion_from_length`、
+  `output::geom::s1::feasibility::end_chord_without_direction_excludes_only_by_length`、
+  `output::geom::s1::feasibility::end_chord_resource_stops_stay_unresolved`、
+  `output::geom::s1::grid::witness_injection_parameters_follow_frozen_shapes`。
+- 输入、预算、样本均由冻结源码与 `edge-cohort.json` 固定，不得换样后沿用结论。

@@ -3,6 +3,7 @@
 use super::*;
 
 mod closure;
+mod coverage;
 mod experiment;
 
 #[test]
