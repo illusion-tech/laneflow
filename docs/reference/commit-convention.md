@@ -113,7 +113,7 @@ Refs: #12
 `Co-authored-by` 只用于人类合作者。不得用它标注 AI 执行框架或模型。本地
 `commit-msg` hook 与 CI 的 `Commit message` 使用同一套校验：先用
 `git interpret-trailers --parse --no-divider` 取得 Git 认定的 trailer。该调用固定 `trailer.separators=:`，并忽略宿主机的 Git 配置。然后再检查 AI 署名和
-`Harness:` / `Model:` 成对，且 `Model` 使用已登记的规范 ID。原文还用于拒绝冒号前空格、
+`Harness:` / `Model:` 成对，且两者均使用已登记的规范 ID。原文还用于拒绝冒号前空格、
 行首缩进、取值折行和其他不规范写法。
 
 `Co-authored-by` 键名大小写不敏感。取值满足任一条件即拒绝，并提示改写为
@@ -131,7 +131,7 @@ Refs: #12
 AI 参与的提交改用下面两行，纯人工提交可以不写。出现时必须同时写，且各写一次：
 
 ```text
-Harness: <执行框架>
+Harness: <执行框架与入口形态的已登记规范 ID>
 Model: <实际使用模型的已登记规范 ID>
 ```
 
@@ -143,16 +143,17 @@ Model: <实际使用模型的已登记规范 ID>
 - 也拒绝 `Made-with:` 标注 AI 工具，例如 Cursor 默认的 `Made-with: Cursor`。
 - `Model` 只接受第 6.1 节目录中已登记的规范 ID，大小写与标点必须精确一致。别名、
   展示名、缺少实验室前缀的短名、模糊名称和未登记 ID 都拒绝，不会静默改写。
+- `Harness` 只接受第 6.2 节目录中已登记的 `<发布者>/<产品>/<入口形态>` 精确 ID。
+  展示名、模糊产品名、大小写变体和未登记的产品/入口组合均拒绝；候选只用于提示。
 - 提交者须核对当前会话实际模型后选择对应规范 ID，不得照抄工具自动生成、且可能
   过期的模型名。目录只校验名称，不证明会话实际使用了该模型。
 
-执行框架可以写成 `Codex CLI`、`Claude Code` 或 `Cursor`，也可以是其他非空名称。
-`Harness` 仍只要求非空；`Model` 示例使用已登记的规范 ID：
+下面的示例记录通过 Claude Code 终端入口使用已登记模型的提交：
 
 ```text
 feat(runtime): 校验 route segment 连续性
 
-Harness: Claude Code
+Harness: anthropic/claude-code/cli
 Model: anthropic/claude-opus-5-5
 Refs: #12
 ```
@@ -165,7 +166,7 @@ feat(runtime)!: 调整 tick API
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
 
 Co-authored-by: Ada Lovelace <ada@example.com>
-Harness: Claude Code
+Harness: anthropic/claude-code/cli
 Model: anthropic/claude-opus-5-5
 Refs: #12
 ```
@@ -214,6 +215,64 @@ Refs: #12
 
 数据来源：[models.dev](https://github.com/anomalyco/models.dev)（MIT）。
 
+### 6.2 执行框架目录与入口登记
+
+[`xtask/data/harness-registry.json`](../../xtask/data/harness-registry.json) 是本仓库接受的
+执行框架 ID 目录，由 Git 保存版本，Rust 校验器在编译时嵌入。本地 hook 与 CI 使用
+当前检出版本的同一份目录，校验时不联网，也不读取用户配置的替代目录。
+
+规范 ID 采用 `<发布者>/<产品>/<入口形态>`，例如 `openai/codex/desktop`。这些 ID 是
+LaneFlow 的登记约定，不宣称是外部目录或厂商的官方 ID。发布者与产品使用小写 ASCII
+字母、数字及连接非空片段的单个连字符；不得使用 `unknown` 或 `other` 占位。命名空间
+表示产品发布者，不是本次模型的实验室。显示名称或普通软件版本变化不另建 ID。
+
+入口形态固定如下，每个产品与入口组合必须分别登记：
+
+| 入口值          | 中文定义                                      | 判定示例                                                     |
+| --------------- | --------------------------------------------- | ------------------------------------------------------------ |
+| `cli`           | 终端入口，包含交互式 TUI 和非交互命令行运行   | 在 IDE 终端中直接运行 Codex CLI，仍记 `openai/codex/cli`     |
+| `web`           | 浏览器中的任务交互入口，包括本机提供的 Web UI | 通过浏览器使用 `kimi web` 记 `moonshotai/kimi-code/web`      |
+| `desktop`       | 独立桌面应用中的 Agent 入口                   | Codex 桌面会话记 `openai/codex/desktop`                      |
+| `ide-extension` | 通过 IDE 插件/扩展接入的 Agent 工作流         | 在 Cursor 内使用 Codex 扩展，记 `openai/codex/ide-extension` |
+| `ide`           | 完整 IDE 自带的 Agent 工作流                  | 使用 Cursor 编辑器内置 Agent，记 `anysphere/cursor/ide`      |
+
+按为本次改动提供任务交互和上下文集成的主会话入口填写，不按底层执行命令的进程
+或最后运行 `git commit` 的终端填写。IDE 扩展提供上下文集成、会话控制等功能时，即使
+内部显示 TUI，也属于 `ide-extension`；仅把 IDE 终端当终端使用仍属于 `cli`。
+桌面 Agent 调用浏览器工具不会变成 `web`；桌面 App 内部使用 CLI 服务也不会变成
+`cli`。本地/远程/云端是执行位置，与入口形态独立。
+
+每条提交仍只有一个 `Harness` / `Model` 对，记录本次提交归属的主会话。跨入口或
+多工具协作时由提交者核对归属，不能在单个值中拼接多个 ID；该字段不是全部参与者
+的执行轨迹。目录只验证名称与登记关系，不证明真实会话、模型或工具的使用情况。
+
+登记表字段：
+
+- `entries`：每项保存唯一 `id`、非空 `display_name` 和非空 `sources`。每个来源
+  保存 HTTPS `url` 和有效日历日期 `checked_at`（`YYYY-MM-DD`），由登记者核实来源
+  能支持对应产品及入口；机器只检查结构，不联网判定来源内容。
+- `hints`：每项保存 `input` 和非空 `candidates`。所有候选必须已登记且不能重复；
+  输入按 ASCII 大小写不敏感判定唯一，也不能与规范 ID 冲突。提示从不是合法别名。
+  `Codex` 等模糊输入可对应多个入口，校验器列出所有候选，不替提交者选择。
+
+新工具或新入口的登记流程：
+
+1. 核对产品官方文档/仓库及实际入口。外部应用目录、排行、ACP Registry 可以提供
+   发现线索，但不直接拥有本仓库的 ID；ACP 适配器、模型服务和产品入口不能互换。
+   私有工具也须明确发布者、产品、入口，并提供维护者可审查的身份依据。
+2. 在 `entries` 增加完整组合，写明来源和核实日期，按 ID 排序。已登记 CLI 不会自动
+   允许同产品的 Web、Desktop 或 IDE 扩展；先核实再逐项登记。
+3. 在 `hints` 增加需要的展示名/历史写法提示，按输入排序；新增入口时复核对应模糊
+   产品名的候选列表。不得为同一入口登记另一种规范拼写，也不得凭旧提交名称猜入口。
+4. 运行 `cargo +1.99.1 test --locked -p xtask`。登记变更可与首次使用该规范 ID 的提交
+   放在同一 PR，hook / CI 使用当前检出版本携带的目录。
+5. 产品改名或来源失效时通过 PR 核实并更新来源；保留稳定 ID。确需删除某组合时，
+   同时处理提示引用并说明对尚未合入提交的影响，不把它静默映射成其他产品或入口。
+
+目录格式错误、重复 ID、非法入口、缺失来源、无效日期或提示冲突会导致含 `Harness`
+的提交校验失败。纯人工提交仍可省略整个 `Harness` / `Model` 对。规则作用于 hook
+文件或 CI 选定范围中的提交；已经合入的历史不改写，进入检查范围的旧写法须修正。
+
 ## 7. 与 PR 的关系
 
 PR 是主要合并证据。Core、数据格式、Adapter、跨层变更和任何 breaking change
@@ -239,7 +298,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
 - 不以 `Co-authored-by` 标注 AI 工具或模型；人类合作者除外。
-- `Harness:` / `Model:` 要么都不写，要么成对、非空，和 `Refs:` / `Closes:` 组成末尾 trailer 段。段前有空行，段内没有 `BREAKING CHANGE:`；`Model` 必须是第 6.1 节已登记的精确规范 ID。
+- `Harness:` / `Model:` 要么都不写，要么成对、非空，和 `Refs:` / `Closes:` 组成末尾 trailer 段。段前有空行，段内没有 `BREAKING CHANGE:`；`Model` 与 `Harness` 分别必须是第 6.1、6.2 节已登记的精确规范 ID。
 
 Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下条件的机器提交提供
 窄例外：

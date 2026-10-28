@@ -1,0 +1,420 @@
+{
+  "entries": [
+    {
+      "id": "anomalyco/opencode/cli",
+      "display_name": "OpenCode CLI",
+      "sources": [
+        {
+          "url": "https://opencode.ai/docs/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anomalyco/opencode/desktop",
+      "display_name": "OpenCode Desktop",
+      "sources": [
+        {
+          "url": "https://opencode.ai/docs/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anomalyco/opencode/ide-extension",
+      "display_name": "OpenCode IDE extension",
+      "sources": [
+        {
+          "url": "https://opencode.ai/docs/ide/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anomalyco/opencode/web",
+      "display_name": "OpenCode Web",
+      "sources": [
+        {
+          "url": "https://opencode.ai/docs/web/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anthropic/claude-code/cli",
+      "display_name": "Claude Code CLI",
+      "sources": [
+        {
+          "url": "https://code.claude.com/docs/en/overview",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anthropic/claude-code/desktop",
+      "display_name": "Claude Code Desktop",
+      "sources": [
+        {
+          "url": "https://code.claude.com/docs/en/overview",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anthropic/claude-code/ide-extension",
+      "display_name": "Claude Code IDE extension",
+      "sources": [
+        {
+          "url": "https://code.claude.com/docs/en/overview",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anthropic/claude-code/web",
+      "display_name": "Claude Code Web",
+      "sources": [
+        {
+          "url": "https://code.claude.com/docs/en/overview",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anysphere/cursor/cli",
+      "display_name": "Cursor CLI",
+      "sources": [
+        {
+          "url": "https://cursor.com/docs/cli/overview",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "anysphere/cursor/ide",
+      "display_name": "Cursor IDE",
+      "sources": [
+        {
+          "url": "https://cursor.com/docs",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "deepseek/harness/desktop",
+      "display_name": "DeepSeek Harness Desktop",
+      "sources": [
+        {
+          "url": "https://deepseek.com/harness/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "deepseek/harness/web",
+      "display_name": "DeepSeek Harness Web",
+      "sources": [
+        {
+          "url": "https://deepseek.com/harness/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "moonshotai/kimi-code/cli",
+      "display_name": "Kimi Code CLI",
+      "sources": [
+        {
+          "url": "https://www.kimi.com/code/docs/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "moonshotai/kimi-code/desktop",
+      "display_name": "Kimi Code Desktop",
+      "sources": [
+        {
+          "url": "https://www.kimi.com/code/docs/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "moonshotai/kimi-code/ide-extension",
+      "display_name": "Kimi Code IDE extension",
+      "sources": [
+        {
+          "url": "https://www.kimi.com/code/docs/",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "moonshotai/kimi-code/web",
+      "display_name": "Kimi Code Web",
+      "sources": [
+        {
+          "url": "https://www.kimi.com/code/docs/kimi-code-cli/guides/web.html",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "openai/codex/cli",
+      "display_name": "Codex CLI",
+      "sources": [
+        {
+          "url": "https://learn.chatgpt.com/docs/codex/cli",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "openai/codex/desktop",
+      "display_name": "Codex Desktop",
+      "sources": [
+        {
+          "url": "https://learn.chatgpt.com/docs/quickstart",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "openai/codex/ide-extension",
+      "display_name": "Codex IDE extension",
+      "sources": [
+        {
+          "url": "https://learn.chatgpt.com/docs/codex/ide",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "openai/codex/web",
+      "display_name": "Codex Web",
+      "sources": [
+        {
+          "url": "https://learn.chatgpt.com/docs/quickstart",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "tencent/workbuddy/desktop",
+      "display_name": "WorkBuddy Desktop",
+      "sources": [
+        {
+          "url": "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Product-Guide",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    },
+    {
+      "id": "z-ai/zcode/desktop",
+      "display_name": "ZCode Desktop",
+      "sources": [
+        {
+          "url": "https://zcode.z.ai/en",
+          "checked_at": "2026-10-28"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    {
+      "input": "Claude Code",
+      "candidates": [
+        "anthropic/claude-code/cli",
+        "anthropic/claude-code/desktop",
+        "anthropic/claude-code/ide-extension",
+        "anthropic/claude-code/web"
+      ]
+    },
+    {
+      "input": "Claude Code CLI",
+      "candidates": [
+        "anthropic/claude-code/cli"
+      ]
+    },
+    {
+      "input": "Claude Code Desktop",
+      "candidates": [
+        "anthropic/claude-code/desktop"
+      ]
+    },
+    {
+      "input": "Claude Code IDE extension",
+      "candidates": [
+        "anthropic/claude-code/ide-extension"
+      ]
+    },
+    {
+      "input": "Claude Code Web",
+      "candidates": [
+        "anthropic/claude-code/web"
+      ]
+    },
+    {
+      "input": "Codex",
+      "candidates": [
+        "openai/codex/cli",
+        "openai/codex/desktop",
+        "openai/codex/ide-extension",
+        "openai/codex/web"
+      ]
+    },
+    {
+      "input": "Codex CLI",
+      "candidates": [
+        "openai/codex/cli"
+      ]
+    },
+    {
+      "input": "Codex Desktop",
+      "candidates": [
+        "openai/codex/desktop"
+      ]
+    },
+    {
+      "input": "Codex IDE extension",
+      "candidates": [
+        "openai/codex/ide-extension"
+      ]
+    },
+    {
+      "input": "Codex Web",
+      "candidates": [
+        "openai/codex/web"
+      ]
+    },
+    {
+      "input": "Cursor",
+      "candidates": [
+        "anysphere/cursor/cli",
+        "anysphere/cursor/ide"
+      ]
+    },
+    {
+      "input": "Cursor CLI",
+      "candidates": [
+        "anysphere/cursor/cli"
+      ]
+    },
+    {
+      "input": "Cursor IDE",
+      "candidates": [
+        "anysphere/cursor/ide"
+      ]
+    },
+    {
+      "input": "DeepSeek Harness",
+      "candidates": [
+        "deepseek/harness/desktop",
+        "deepseek/harness/web"
+      ]
+    },
+    {
+      "input": "DeepSeek Harness Desktop",
+      "candidates": [
+        "deepseek/harness/desktop"
+      ]
+    },
+    {
+      "input": "DeepSeek Harness Web",
+      "candidates": [
+        "deepseek/harness/web"
+      ]
+    },
+    {
+      "input": "Kimi Code",
+      "candidates": [
+        "moonshotai/kimi-code/cli",
+        "moonshotai/kimi-code/desktop",
+        "moonshotai/kimi-code/ide-extension",
+        "moonshotai/kimi-code/web"
+      ]
+    },
+    {
+      "input": "Kimi Code CLI",
+      "candidates": [
+        "moonshotai/kimi-code/cli"
+      ]
+    },
+    {
+      "input": "Kimi Code Desktop",
+      "candidates": [
+        "moonshotai/kimi-code/desktop"
+      ]
+    },
+    {
+      "input": "Kimi Code IDE extension",
+      "candidates": [
+        "moonshotai/kimi-code/ide-extension"
+      ]
+    },
+    {
+      "input": "Kimi Code Web",
+      "candidates": [
+        "moonshotai/kimi-code/web"
+      ]
+    },
+    {
+      "input": "OpenCode",
+      "candidates": [
+        "anomalyco/opencode/cli",
+        "anomalyco/opencode/desktop",
+        "anomalyco/opencode/ide-extension",
+        "anomalyco/opencode/web"
+      ]
+    },
+    {
+      "input": "OpenCode CLI",
+      "candidates": [
+        "anomalyco/opencode/cli"
+      ]
+    },
+    {
+      "input": "OpenCode Desktop",
+      "candidates": [
+        "anomalyco/opencode/desktop"
+      ]
+    },
+    {
+      "input": "OpenCode IDE extension",
+      "candidates": [
+        "anomalyco/opencode/ide-extension"
+      ]
+    },
+    {
+      "input": "OpenCode Web",
+      "candidates": [
+        "anomalyco/opencode/web"
+      ]
+    },
+    {
+      "input": "WorkBuddy",
+      "candidates": [
+        "tencent/workbuddy/desktop"
+      ]
+    },
+    {
+      "input": "WorkBuddy Desktop",
+      "candidates": [
+        "tencent/workbuddy/desktop"
+      ]
+    },
+    {
+      "input": "ZCode",
+      "candidates": [
+        "z-ai/zcode/desktop"
+      ]
+    },
+    {
+      "input": "ZCode Desktop",
+      "candidates": [
+        "z-ai/zcode/desktop"
+      ]
+    }
+  ]
+}
