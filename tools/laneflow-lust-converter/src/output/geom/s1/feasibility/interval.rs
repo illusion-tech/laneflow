@@ -157,3 +157,47 @@ fn outward_curve_contains_direct_evaluation_and_rounding_boundaries() {
         0.0341
     ));
 }
+
+#[test]
+fn narrow_enclosures_cover_machine_evaluation_at_extrema_and_float_boundaries() {
+    let boundary = (f64::from(1_709.5_f32) + f64::from(1_709.5_f32.next_up())) * 0.5;
+    let cases = [
+        [
+            [32_000.0, 0.0, -32_000.0],
+            [-32_000.0, 0.0, 32_000.0],
+            [32_000.0, 0.0, -32_000.0],
+            [-32_000.0, 0.0, 32_000.0],
+        ],
+        [[boundary, 0.0, 0.0]; 4],
+        [
+            [0.0, 0.0, 0.0],
+            [f64::MIN_POSITIVE, 0.0, 0.0],
+            [-f64::MIN_POSITIVE, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+    ];
+    for c in cases {
+        for power in [10, 24, 40, 48] {
+            let width = 2.0_f64.powi(-power);
+            for center in [0.0, 0.001, 0.25, 0.5, 0.726_552_963_256_836, 0.999, 1.0] {
+                let t = Interval {
+                    lo: (center - width).max(0.0),
+                    hi: (center + width).min(1.0),
+                };
+                let b = curve(c, t);
+                for u in [
+                    t.lo,
+                    t.lo.next_up(),
+                    (t.lo + t.hi) * 0.5,
+                    t.hi.next_down(),
+                    t.hi,
+                ] {
+                    let q = super::quantize_vec3(super::at(c, u));
+                    for (k, axis) in [0, 2].into_iter().enumerate() {
+                        assert!(b[k].lo <= f64::from(q[axis]) && f64::from(q[axis]) <= b[k].hi);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod closure;
 mod experiment;
 
 #[test]
