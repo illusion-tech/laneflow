@@ -543,6 +543,737 @@ fn c17_cohort_and_capacities_match_the_frozen_sample() {
 }
 
 // ---------------------------------------------------------------------------
+// S1/S2 新族构造与驱动接线（冻结方案 §2/§3；构造属使用方模块，判定走
+// geom::s1::reshape::custom 共享驱动——判定口径零重定义）
+// ---------------------------------------------------------------------------
+
+use crate::output::geom::s1::reshape::custom::GeometrySpec;
+
+/// 组构造：把原 span 区间 `[start, end]` 合并为单 cubic（柄 = 组端点弦长/3 × 因子，
+/// 组首末切向取（已扰动）结点切向）。`groups` 为 `(起 span, 止 span)` 0 基闭区间。
+fn grouped_cubics(
+    knots: &[Vec3f],
+    tangents: &[Vec3f],
+    groups: &[(usize, usize)],
+    factors: &[[f64; 2]],
+) -> Vec<[[f64; 3]; 6]> {
+    assert_eq!(groups.len(), factors.len());
+    groups
+        .iter()
+        .zip(factors)
+        .map(|(&(start, end), factor)| {
+            let a = knots[start];
+            let b = knots[end + 1];
+            let handle = v_norm(v_sub(b, a)) / 3.0;
+            [
+                a,
+                v_add(a, v_scale(tangents[start], handle * factor[0])),
+                v_sub(b, v_scale(tangents[end + 1], handle * factor[1])),
+                b,
+                tangents[start],
+                tangents[end + 1],
+            ]
+        })
+        .collect()
+}
+
+/// 一条边的新族配置全集（冻结方案 §3 遍历序）：探索组先行（S1-pair-L、S2-pair-L），
+/// 负对照组后行（S1-keep、S2-pair-R 照常走管线不预分类——证书预判不提前截断），
+/// 旧族重叠 16 对角配置显式跳过零预算。返回（config_index → 新族元数据, 配置列表）。
+fn edge_family_configs(
+    knots: &[Vec3f],
+    tangents: &[Vec3f],
+    s: usize,
+) -> (Vec<serde_json::Value>, Vec<GeometrySpec>) {
+    let deltas: [f64; 5] = [-12.0, -6.0, 0.0, 6.0, 12.0];
+    let domain: [f64; 4] = [0.75, 1.0, 1.25, 1.5];
+    let mut metas: Vec<serde_json::Value> = Vec::new();
+    let mut specs: Vec<GeometrySpec> = Vec::new();
+    let s1_tangents = |knot: usize, delta: f64, base: &[Vec3f]| -> Vec<Vec3f> {
+        let central = v_unit(v_sub(knots[knot + 1], knots[knot - 1]));
+        let w = s1_rotation_plane(base[knot], central, base[knot - 1], base[knot + 1])
+            .expect("rotation plane");
+        let mut out = base.to_vec();
+        out[knot] = rotate_tangent(base[knot], w, delta);
+        out
+    };
+    match s {
+        2 => {
+            // edge3：S1-keep（δ1 扰动结点 1；5 配置）。
+            let groups = [(0, 0), (1, 1)];
+            let factors = [[1.0, 1.0], [1.0, 1.0]];
+            for delta in deltas {
+                let t = s1_tangents(1, delta, tangents);
+                let config_index = metas.len();
+                metas.push(serde_json::json!({"family":"s1-keep","deltas_deg":[delta]}));
+                specs.push(GeometrySpec {
+                    config_index,
+                    group: "keep",
+                    factors: factors.to_vec(),
+                    cubics: grouped_cubics(knots, &t, &groups, &factors),
+                    preclassified: None,
+                });
+            }
+        }
+        3 => {
+            // 探索组先行。
+            let pair_l_groups = [(0, 1), (2, 2)];
+            let pair_l_factors = [[1.0, 1.0], [1.0, 1.0]];
+            for delta in deltas {
+                let t = s1_tangents(2, delta, tangents);
+                let config_index = metas.len();
+                metas.push(serde_json::json!({"family":"s1-pair-L","deltas_deg":[delta]}));
+                specs.push(GeometrySpec {
+                    config_index,
+                    group: "pair-L",
+                    factors: pair_l_factors.to_vec(),
+                    cubics: grouped_cubics(knots, &t, &pair_l_groups, &pair_l_factors),
+                    preclassified: None,
+                });
+            }
+            for f1 in domain {
+                for g1 in domain {
+                    for f2 in domain {
+                        for g2 in domain {
+                            let factors = [[f1, g1], [f2, g2]];
+                            let skip = f1 == f2 && g1 == g2;
+                            let config_index = metas.len();
+                            metas.push(serde_json::json!({"family":"s2-pair-L",
+                                "group_factors":factors,"skipped_old_family_overlap":skip}));
+                            specs.push(GeometrySpec {
+                                config_index,
+                                group: "pair-L",
+                                factors: factors.to_vec(),
+                                cubics: grouped_cubics(knots, tangents, &pair_l_groups, &factors),
+                                preclassified: skip.then_some("skipped_old_family_overlap"),
+                            });
+                        }
+                    }
+                }
+            }
+            // 负对照组后行（照常走管线；预期零合法程序、最早拒绝阶段如实记录）。
+            let keep_groups = [(0, 0), (1, 1), (2, 2)];
+            let keep_factors = [[1.0, 1.0]; 3];
+            for d1 in deltas {
+                for d2 in deltas {
+                    let mut t = s1_tangents(1, d1, tangents);
+                    let central2 = v_unit(v_sub(knots[3], knots[1]));
+                    let w2 = s1_rotation_plane(tangents[2], central2, tangents[1], tangents[3])
+                        .expect("rotation plane");
+                    t[2] = rotate_tangent(tangents[2], w2, d2);
+                    let config_index = metas.len();
+                    metas.push(serde_json::json!({"family":"s1-keep","deltas_deg":[d1, d2]}));
+                    specs.push(GeometrySpec {
+                        config_index,
+                        group: "keep",
+                        factors: keep_factors.to_vec(),
+                        cubics: grouped_cubics(knots, &t, &keep_groups, &keep_factors),
+                        preclassified: None,
+                    });
+                }
+            }
+            let pair_r_groups = [(0, 0), (1, 2)];
+            for f1 in domain {
+                for g1 in domain {
+                    for f2 in domain {
+                        for g2 in domain {
+                            let factors = [[f1, g1], [f2, g2]];
+                            let config_index = metas.len();
+                            metas.push(serde_json::json!({"family":"s2-pair-R",
+                                "group_factors":factors}));
+                            specs.push(GeometrySpec {
+                                config_index,
+                                group: "pair-R",
+                                factors: factors.to_vec(),
+                                cubics: grouped_cubics(knots, tangents, &pair_r_groups, &factors),
+                                preclassified: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        other => panic!("unexpected reference cubic count {other}"),
+    }
+    assert_eq!(metas.len(), specs.len());
+    (metas, specs)
+}
+
+// ---------------------------------------------------------------------------
+// 新族驱动与 ABBA 入口（custom 共享驱动；构造在上节，判定口径零重定义）
+// ---------------------------------------------------------------------------
+
+/// JSON 规范化往返（与既有对照口径同：双侧同源序列化/解析）。
+fn normalized(value: &Value) -> Value {
+    serde_json::from_str(&value.to_string()).unwrap()
+}
+
+/// 池规模（边数、候选总数）。
+fn pool_size(pools: &combinations::Pools) -> (usize, usize) {
+    (pools.len(), pools.values().map(Vec::len).sum())
+}
+
+/// 冻结参考链的结点与切向（内部结点断言为 interior CR 中心差分，§S1 来源断言）。
+fn frozen_knots_tangents(edge_index: usize, s: usize) -> (Vec<Vec3f>, Vec<Vec3f>) {
+    let controls = &FROZEN_REFERENCE_CONTROLS[edge_index];
+    let mut knots = vec![controls[0][0].map(f64::from_bits)];
+    let mut tangents = vec![controls[0][4].map(f64::from_bits)];
+    for control in controls.iter().take(s) {
+        knots.push(control[3].map(f64::from_bits));
+        tangents.push(control[5].map(f64::from_bits));
+    }
+    for k in 1..s {
+        let central = v_unit(v_sub(knots[k + 1], knots[k - 1]));
+        assert!(
+            v_norm(v_sub(tangents[k], central)) < 1e-12,
+            "knot {k} tangent is the interior CR central difference"
+        );
+    }
+    (knots, tangents)
+}
+
+/// 原参考长度估计（4096 区间弦长 / 控制多边形；冻结方案 §4 清单）。
+fn reference_length_estimates(edge_index: usize, s: usize) -> serde_json::Value {
+    let controls = &FROZEN_REFERENCE_CONTROLS[edge_index];
+    let mut chord = 0.0_f64;
+    let mut polygon = 0.0_f64;
+    for control in controls.iter().take(s) {
+        let cubic = [0, 1, 2, 3].map(|k| control[k].map(f64::from_bits));
+        for k in 0..4096_usize {
+            let a = k as f64 / 4096.0;
+            let b = (k + 1) as f64 / 4096.0;
+            let part = split_range(cubic, a, b);
+            chord += v_norm(v_sub(part[3], part[0]));
+            polygon += (0..3)
+                .map(|j| v_norm(v_sub(part[j + 1], part[j])))
+                .sum::<f64>();
+        }
+    }
+    serde_json::json!({"chord_estimate_m":chord,"control_polygon_estimate_m":polygon,
+        "intervals_per_cubic":4096})
+}
+
+/// de Casteljau 区间截取（与共享机器 `restricted` 同口径）。
+fn split_range(c: [[f64; 3]; 4], a: f64, b: f64) -> [[f64; 3]; 4] {
+    let split = |c: [[f64; 3]; 4], t: f64| {
+        let lerp = |p: Vec3f, q: Vec3f| v_add(p, v_scale(v_sub(q, p), t));
+        let p01 = lerp(c[0], c[1]);
+        let p12 = lerp(c[1], c[2]);
+        let p23 = lerp(c[2], c[3]);
+        let p012 = lerp(p01, p12);
+        let p123 = lerp(p12, p23);
+        (
+            [c[0], p01, p012, lerp(p012, p123)],
+            [lerp(p012, p123), p123, p23, c[3]],
+        )
+    };
+    let left = if b == 1.0 { c } else { split(c, b).0 };
+    if a == 0.0 { left } else { split(left, a / b).1 }
+}
+
+/// 两边缘 S1/S2 新族搜索（冻结计划 §3/§4；每边独立三分量预算共享先到即停）。
+fn run_c17_new_family(inputs: &Value) -> (serde_json::Value, serde_json::Value) {
+    let mut searches = BTreeMap::new();
+    let mut timing = BTreeMap::new();
+    for (edge_index, (id, s, cap)) in C17_EDGES.into_iter().enumerate() {
+        assert_eq!(96 * s + 1, cap, "frozen temp program point cap");
+        let input = measurement::input(&inputs[id]);
+        let (knots, tangents) = frozen_knots_tangents(edge_index, s);
+        let (config_table, specs) = edge_family_configs(&knots, &tangents, s);
+        let started = Instant::now();
+        let mut budget = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+        let (rows, retained) = crate::output::geom::s1::reshape::custom::search_custom_geometries(
+            &input,
+            s,
+            &specs,
+            &mut budget,
+        );
+        timing.insert(id, started.elapsed().as_secs_f64());
+        let json_rows = rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({"geometry":row.geometry_index,"description":row.description,
+                    "status":row.status,"partition_rejections":row.partition_rejections,
+                    "successful_partitions":row.successful_partitions,
+                    "source_fit":row.source_fit,"controls_f64_bits":row.controls_f64_bits,
+                    "arc_m":row.arc_m,"source_length_estimate":row.source_length_estimate})
+            })
+            .collect::<Vec<_>>();
+        let json_candidates = retained
+            .iter()
+            .map(|entry| {
+                serde_json::json!({"program":program_bits(&entry.candidate.repaired.program),
+                    "arc_m":entry.candidate.repaired.quantized_arc_meters,
+                    "spans":entry.candidate.spans,"score":entry.score,"order":entry.order,
+                    "curves_f64_bits":entry.curves.iter().map(|c| c.map(|p| p.map(f64::to_bits))).collect::<Vec<_>>()})
+            })
+            .collect::<Vec<_>>();
+        searches.insert(
+            id,
+            serde_json::json!({"config_table":config_table,"geometries":json_rows,
+                "candidates":json_candidates,
+                "frozen_segment_capacity":{"reference_cubics_s":s,"temp_program_points_cap":cap},
+                "budget":{"partitions":budget.partitions_consumed,
+                    "sampling_work":budget.grid_work_consumed,
+                    "source_fit_evals":budget.source_fit_consumed}}),
+        );
+    }
+    (
+        serde_json::to_value(searches).unwrap(),
+        serde_json::to_value(timing).unwrap(),
+    )
+}
+
+/// 新族候选 → 边池（`frozen_candidate` 复用既有候选形态；`order` 保留秩序）。
+fn pools_from_c17_searches(searches: &Value) -> combinations::Pools {
+    let mut pools = combinations::Pools::new();
+    for (id, row) in searches.as_object().unwrap() {
+        let candidates = row["candidates"].as_array().unwrap();
+        if !candidates.is_empty() {
+            pools.insert(
+                id.clone(),
+                candidates
+                    .iter()
+                    .map(|c| successors::frozen_candidate(c).repaired.program)
+                    .collect(),
+            );
+        }
+    }
+    pools
+}
+
+/// C17 双边联合验收记录（冻结方案 §2.J：池字典序枚举、接缝全角只作记录字段）。
+fn c17_joint_record(rows: &[Value], pools: &combinations::Pools, missing_edges: &[&str]) -> Value {
+    let row = rows
+        .iter()
+        .find(|row| row["component"] == C17_COMPONENT)
+        .expect("C17 row");
+    let result = &row["result"];
+    let total = result["total_assignments"].as_u64();
+    let trials = result["trials"].as_array().map(Vec::len).unwrap_or(0) as u64;
+    // 逐赋值接缝全角（记录字段，不参与判定）：edge3 末弦与 edge6 首弦全角。
+    let seam_trials = result["trials"]
+        .as_array()
+        .map(|trials| {
+            trials
+                .iter()
+                .map(|trial| {
+                    let idx3 = trial["assignment"]["sumo::-10564_3_0"].as_u64().unwrap() as usize;
+                    let idx6 = trial["assignment"]["sumo::-10564_6_0"].as_u64().unwrap() as usize;
+                    let pts3 = program_points(&pools["sumo::-10564_3_0"][idx3]);
+                    let pts6 = program_points(&pools["sumo::-10564_6_0"][idx6]);
+                    let last = pts3.len();
+                    let chord3 = v_sub(pts3[last - 1], pts3[last - 2]);
+                    let chord6 = v_sub(pts6[1], pts6[0]);
+                    serde_json::json!({"trial":trial["trial"],
+                        "seam_turn_deg":v_dot(v_unit(chord3), v_unit(chord6)).acos().to_degrees()})
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    serde_json::json!({"component":C17_COMPONENT,"complete_paths":C17_PATHS,
+        "missing_edges":missing_edges,"status":result["status"],
+        "total_assignments":total,"tried_assignments":trials,
+        "unvisited_assignments":total.map(|total| total - trials),
+        "assignment_budget_stopped":result["assignment_budget_stopped"],
+        "retained_pool_assignments_exhausted":result["retained_pool_assignments_exhausted"],
+        "selected_assignment":result["selected_assignment"],
+        "seam_turn_records":seam_trials})
+}
+
+/// 候选冻结入口（先跑；`c17-searches.json` 作 `CURVE_DESIGN_FROZEN_RESULT`）。
+#[test]
+#[ignore = "requires fresh CURVE_DESIGN_OUTPUT_DIR"]
+fn fixed_c17_bilateral_design() {
+    let out = PathBuf::from(std::env::var("CURVE_DESIGN_OUTPUT_DIR").unwrap());
+    assert!(!out.exists(), "fresh c17 curve design output");
+    fs::create_dir_all(&out).unwrap();
+    let (searches, timing) = run_c17_new_family(&frozen_calibration_inputs());
+    recovery::write_json(&out, "c17-searches.json", &searches);
+    recovery::write_json(&out, "c17-timing.json", &timing);
+}
+
+/// 旧族 148 配置对照列（冻结方案 §2：只作对照，不作候选点位来源）。
+fn run_old_family_column(inputs: &Value) -> serde_json::Value {
+    let mut out = BTreeMap::new();
+    for (id, s, _) in C17_EDGES {
+        let input = measurement::input(&inputs[id]);
+        let search = sampler::reshape::search_with_curve_cap(&input, s);
+        out.insert(id, search.report);
+    }
+    serde_json::to_value(out).unwrap()
+}
+
+/// 在该分量选中赋值下逐条完整路径真实编译（C17 单路径；齐备才可能接受）。
+fn complete_path_checks(
+    traffic: &TrafficPackage,
+    originals: &BTreeMap<String, re::RoadEditingCurveProgram>,
+    pools: &combinations::Pools,
+    result: &Value,
+) -> Value {
+    let mut programs = originals.clone();
+    if result["status"] == "accepted" {
+        for (id, choice) in result["selected_assignment"].as_object().unwrap() {
+            programs.insert(
+                id.clone(),
+                pools[id][choice.as_u64().unwrap() as usize].clone(),
+            );
+        }
+    }
+    C17_PATHS
+        .iter()
+        .map(|id| {
+            let path = traffic
+                .maneuver_paths
+                .iter()
+                .find(|path| path.id == *id)
+                .expect("complete path identity");
+            serde_json::json!({"path":path.id,"result":compile_path(traffic, path, &programs)})
+        })
+        .collect()
+}
+
+/// 冻结方案 §4 长度与拟合报告（未测项如实 null）。
+fn c17_length_report(
+    traffic: &TrafficPackage,
+    inputs: &Value,
+    old_column: &Value,
+    searches: &Value,
+) -> Value {
+    C17_EDGES
+        .iter()
+        .enumerate()
+        .map(|(edge_index, (id, s, _))| {
+            let source = traffic
+                .lane_graph
+                .edges
+                .iter()
+                .find(|edge| edge.id == *id)
+                .expect("c17 edge in lane graph");
+            let points = measurement::input(&inputs[id]).points;
+            let shape: f64 = points.windows(2).map(|w| v_norm(v_sub(w[1], w[0]))).sum();
+            let old = &old_column[id];
+            let candidates = searches[id]["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|candidate| {
+                    serde_json::json!({
+                        "candidate_index":candidate["order"],
+                        "arc_m":candidate["arc_m"],
+                        "new_reference_chord_estimate_m":
+                            (candidate["curves_f64_bits"].as_array().unwrap().len() as f64),
+                        "source_fit":candidate["spans"][0]["source_fit"],
+                    })
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({"edge":id,
+                "source_at_length_m":source.length,
+                "source_shape_polyline_m":shape,
+                "old_reference":reference_length_estimates(edge_index, *s),
+                "old_reference_source_fit":old["reference_fit"],
+                "retained_candidates":candidates})
+        })
+        .collect()
+}
+
+/// 流 B 路正式实验（四轮 ABBA；`c17-*` 前缀输出、结果 JSON 禁计时、生成物外置）。
+#[test]
+#[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, SIX_STREAMS_BASELINE_DIR, CURVE_DESIGN_FROZEN_RESULT, CURVE_DESIGN_ORDER and fresh CURVE_DESIGN_OUTPUT_DIR"]
+fn pinned_lust_c17_bilateral_experiment() {
+    let out = PathBuf::from(std::env::var("CURVE_DESIGN_OUTPUT_DIR").unwrap());
+    assert!(!out.exists(), "fresh full c17 curve design output");
+    fs::create_dir_all(&out).unwrap();
+    let order = std::env::var("CURVE_DESIGN_ORDER").unwrap();
+    assert!(matches!(order.as_str(), "baseline-new" | "new-baseline"));
+    let frozen: Value = serde_json::from_slice(
+        &fs::read(std::env::var("CURVE_DESIGN_FROZEN_RESULT").unwrap()).unwrap(),
+    )
+    .unwrap();
+    // 共同基线（E0 冻结交付）与结果对照锚（仅对照，不作候选点位来源）。
+    let baseline = calibration::shared_baseline::shared_pools();
+    assert_eq!(
+        pool_size(&baseline),
+        (11, 92),
+        "frozen 11 edges 92 candidates"
+    );
+    let anchor = calibration::shared_baseline::results_anchor_pinned();
+    assert_eq!(anchor["components"].as_array().unwrap().len(), 53);
+    assert_eq!(anchor["paths"].as_array().unwrap().len(), 84);
+    assert_eq!(anchor["path_counts"]["accepted"], 28, "frozen 28/84 anchor");
+    let (observation, source, mut timing) = capture_lust();
+    assert_eq!(
+        source["lust_commit"],
+        serde_json::json!("c4bd5bd3751d426d42a9a1749c815e47ea188549"),
+        "pinned LuST source"
+    );
+    let originals = original_programs(&observation);
+    snapshot(&out, &observation, &originals);
+    let traffic = observation.traffic.as_ref().unwrap();
+    let components = components::inventory(traffic, &originals, &target_ids(&reference()));
+    assert_eq!(components.len(), 53, "frozen component count");
+    assert_eq!(
+        components.iter().map(|c| c.paths.len()).sum::<usize>(),
+        183,
+        "frozen component path total"
+    );
+    let c17 = components
+        .iter()
+        .find(|c| c.id == C17_COMPONENT)
+        .expect("C17 component");
+    assert_eq!(c17.paths, C17_PATHS, "C17 complete paths");
+    let missing: Vec<&str> = c17.missing_edges.iter().map(String::as_str).collect();
+    assert_eq!(
+        missing,
+        vec!["sumo::-10564_3_0", "sumo::-10564_6_0"],
+        "C17 missing edges"
+    );
+    measurement::write_inputs(
+        &out,
+        &observation,
+        &serde_json::json!({"samples":C17_EDGES.map(|(id, _, _)| serde_json::json!({"edge":id}))}),
+    );
+    let inputs: Value =
+        serde_json::from_slice(&fs::read(out.join("inputs.json")).unwrap()).unwrap();
+    let frozen_inputs = frozen_calibration_inputs();
+    for (id, ..) in C17_EDGES {
+        assert_eq!(
+            inputs[id], frozen_inputs[id],
+            "unchanged source and emission failure"
+        );
+        assert!(!originals.contains_key(id), "only failed edges redesigned");
+    }
+    // 新族搜索（冻结重放）+ 旧族对照列。
+    let (searches, search_times) = run_c17_new_family(&inputs);
+    assert_eq!(normalized(&searches), frozen, "frozen c17 candidate replay");
+    recovery::write_json(&out, "c17-searches.json", &searches);
+    let old_column = run_old_family_column(&inputs);
+    recovery::write_json(&out, "c17-old-family-column.json", &old_column);
+    // 池合成：基线（含既有候选 #1131 几何 80 于 edge3 池索引 0）+ 新族保留。
+    assert_eq!(
+        baseline["sumo::-10564_3_0"].len(),
+        1,
+        "prior candidate sits in baseline pool"
+    );
+    let mut combined = baseline.clone();
+    experiment::merge(&mut combined, pools_from_c17_searches(&searches));
+    // 基线/新增两组验证（ABBA 顺序；C17 记录 + 完整路径逐条）。
+    let mut results = BTreeMap::new();
+    let mut validation_times = BTreeMap::new();
+    let mut joint = BTreeMap::new();
+    for family in order.split('-') {
+        let pools = if family == "baseline" {
+            &baseline
+        } else {
+            &combined
+        };
+        let started = Instant::now();
+        let mut programs = originals.clone();
+        for (id, choice) in reference()["tiers"]["32768"]["best"]["assignment"]
+            .as_object()
+            .unwrap()
+        {
+            programs.insert(
+                id.clone(),
+                pools[id][choice.as_u64().unwrap() as usize].clone(),
+            );
+        }
+        let mut rows = Vec::new();
+        for (index, component) in components.iter().enumerate() {
+            let file = format!("{family}-component-{index:02}.lfca");
+            let mut result = combinations::evaluate(
+                traffic,
+                component,
+                &originals,
+                pools,
+                Some(&out.join(&file)),
+            );
+            // 对照锚字段形态：`unvisited_assignments` 先增强再逐值比较。
+            if let (Some(total), Some(trials)) = (
+                result["total_assignments"].as_u64(),
+                result["trials"].as_array(),
+            ) {
+                result["unvisited_assignments"] = serde_json::json!(total - trials.len() as u64);
+            }
+            if result["status"] == "accepted" {
+                for (id, choice) in result["selected_assignment"].as_object().unwrap() {
+                    programs.insert(
+                        id.clone(),
+                        pools[id][choice.as_u64().unwrap() as usize].clone(),
+                    );
+                }
+            }
+            rows.push(serde_json::json!({"component":component.id,"result":result,
+                "artifact":(result["status"] == "accepted").then_some(file)}));
+        }
+        let paths = inventory_paths(traffic, &inventory_rows(), &programs);
+        let mut counts = BTreeMap::<String, usize>::new();
+        for row in &paths {
+            *counts
+                .entry(row["result"]["status"].as_str().unwrap().to_owned())
+                .or_default() += 1;
+        }
+        let c17_result = &rows
+            .iter()
+            .find(|row| row["component"] == C17_COMPONENT)
+            .expect("C17 row")["result"];
+        joint.insert(
+            family,
+            serde_json::json!({
+                "record":c17_joint_record(&rows, pools, &missing),
+                "complete_path_checks":complete_path_checks(traffic, &originals, pools, c17_result)}),
+        );
+        results.insert(
+            family,
+            serde_json::json!({"components":rows,"paths":paths,"path_counts":counts}),
+        );
+        validation_times.insert(family, started.elapsed().as_secs_f64());
+    }
+    // 结果对照（仅对照）：基线变体与重锚逐值一致（含 unvisited_assignments 字段形态）。
+    let base = &results["baseline"];
+    let anchor_components = anchor["components"].as_array().unwrap();
+    let base_components = base["components"].as_array().unwrap();
+    assert_eq!(base_components.len(), anchor_components.len());
+    for (current, previous) in base_components.iter().zip(anchor_components) {
+        assert_eq!(current["component"], previous["component"]);
+        assert_eq!(
+            normalized(&current["result"]),
+            previous["result"],
+            "baseline component equals 92-pool anchor"
+        );
+    }
+    assert_eq!(
+        normalized(&base["paths"]),
+        anchor["paths"],
+        "baseline paths equal anchor"
+    );
+    assert_eq!(
+        normalized(&base["path_counts"]),
+        anchor["path_counts"],
+        "baseline counts equal anchor"
+    );
+    assert_eq!(
+        base["path_counts"]["accepted"].as_u64(),
+        Some(28),
+        "frozen accepted total 28/84"
+    );
+    // 两口径收益（章程 §1 分列）与新增收益。
+    let new_counts = results["new"]["path_counts"].clone();
+    let gains = serde_json::json!({
+        "added_candidates":pool_size(&combined).1 - pool_size(&baseline).1,
+        "complete_paths_scope":1,
+        "original_targets_scope":1,
+        "path_counts_new":new_counts,
+    });
+    let mut policy = sampler::reshape::policy();
+    policy["reference_cubics_max_per_edge"] = serde_json::json!(
+        C17_EDGES
+            .iter()
+            .map(
+                |(id, s, cap)| serde_json::json!({"edge":id,"reference_cubics_s":s,
+            "temp_program_points_cap":cap})
+            )
+            .collect::<Vec<_>>()
+    );
+    timing["search_seconds"] = search_times;
+    timing["old_family_column_seconds"] = serde_json::Value::Null;
+    timing["validation_seconds"] = serde_json::to_value(validation_times).unwrap();
+    timing["order"] = serde_json::json!(order);
+    let _ = policy;
+    recovery::write_json(
+        &out,
+        "c17-results.json",
+        &serde_json::json!({"schema":"laneflow-1137-c17-bilateral-recovery",
+        "source":source,"variants":results,
+        "c17":{"joint":joint,
+            "length_report":c17_length_report(traffic, &inputs, &old_column, &searches),
+            "new_pool":{"edges":pool_size(&combined).0,"candidates":pool_size(&combined).1},
+            "gains":gains},
+        "result_comparison":{"baseline_equals_anchor_92_pool":true,
+            "anchor_role":"comparison only; not a candidate source",
+            "accepted_paths_baseline":"28/84"},
+        "original_geometry_controls_and_failures_equal":true,
+        "production_g1_accepted":false}),
+    );
+    recovery::write_json(&out, "c17-timing.json", &timing);
+}
+
+/// 84 目标路径逐条编译（与锚路径行同形）。
+fn inventory_paths(
+    traffic: &TrafficPackage,
+    rows: &[Value],
+    programs: &BTreeMap<String, re::RoadEditingCurveProgram>,
+) -> Vec<Value> {
+    rows.iter()
+        .map(|row| {
+            let path = traffic
+                .maneuver_paths
+                .iter()
+                .find(|p| p.id == row["path"].as_str().unwrap())
+                .unwrap();
+            serde_json::json!({"path":path.id,"edges":path_edges(path),
+                "result":compile_path(traffic, path, programs)})
+        })
+        .collect()
+}
+
+/// 84 目标行（issue-1107 `baseline_paths` 冻结清单）。
+fn inventory_rows() -> Vec<Value> {
+    let inventory: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    ))
+    .unwrap();
+    inventory["baseline_paths"].as_array().unwrap().clone()
+}
+
+#[test]
+fn c17_family_config_counts_match_the_frozen_plan() {
+    // edge3：S1-keep 5；edge6：S1-pair-L 5 + S2-pair-L 256（16 对角跳过）+
+    // S1-keep 25 + S2-pair-R 256 = 542 列明。
+    let (knots3, tangents3) = frozen_knots_tangents(0, 2);
+    let (metas3, specs3) = edge_family_configs(&knots3, &tangents3, 2);
+    assert_eq!(specs3.len(), 5);
+    assert_eq!(metas3.len(), 5);
+    let (knots6, tangents6) = frozen_knots_tangents(1, 3);
+    let (metas6, specs6) = edge_family_configs(&knots6, &tangents6, 3);
+    assert_eq!(metas6.len(), specs6.len());
+    assert_eq!(specs6.len(), 542);
+    let skipped = specs6
+        .iter()
+        .filter(|spec| spec.preclassified == Some("skipped_old_family_overlap"))
+        .count();
+    assert_eq!(skipped, 16, "old-family overlap diagonals skipped");
+    // 组序（冻结方案 §3）：探索组先行（s1-pair-L、s2-pair-L），负对照组后行。
+    assert_eq!(specs6[0].group, "pair-L");
+    assert_eq!(specs6[5].group, "pair-L");
+    assert_eq!(specs6[261].group, "keep");
+    assert_eq!(specs6[286].group, "pair-R");
+    // δ=0 的 S1-keep 配置与未扰动 keep 构造逐位一致。
+    let base_keep = grouped_cubics(
+        &knots6,
+        &tangents6,
+        &[(0, 0), (1, 1), (2, 2)],
+        &[[1.0, 1.0]; 3],
+    );
+    let zero_pos = metas6
+        .iter()
+        .position(|meta| {
+            meta["family"] == "s1-keep" && meta["deltas_deg"] == serde_json::json!([0.0, 0.0])
+        })
+        .expect("zero-delta s1-keep config");
+    let zero = &specs6[zero_pos];
+    for (a, b) in zero.cubics.iter().zip(&base_keep) {
+        for i in 0..6 {
+            assert_eq!(
+                a[i].map(f64::to_bits),
+                b[i].map(f64::to_bits),
+                "delta=0 bitwise"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // K1–K4 正例校准（冻结方案 §6；阶段 2 第一闸，全绿后才启动正式 ABBA）
 // ---------------------------------------------------------------------------
 
