@@ -47,7 +47,7 @@
 
 - **逐值比较 = 语义字段逐值**：`status`、`selected_result`/`selected_assignment`、`trials`/计数、`paths`/`path_counts`、`missing_edges` 列表、分量结果语义行等**必须逐值相同**。
 - **数值字段 f64 位级硬门**（统筹补维，2026-10-29；裁决 B 定稿）：位级比较在**文本 token 域**执行——锚文件原始 token vs 本路内存值序列化 token 逐叶比较，数值叶以正确舍入 `f64::from_str` 解析后按 `to_bits` 相等、整数叶按值且形态一致。背景：serde_json 1.0.154 默认解析（未开 `float_roundtrip`）对 17 位十进制浮点误舍入 1 ULP（实证 `10.220051765441895` → bits …313、真值 …312），解析域折叠相邻对（…895/…896）——解析域比较对漂移漏报、内存 vs 解析域比较对忠实锚误报，均不得作位级裁决。`float_roundtrip` 升级为独立维护者决策项（生产解析正确性潜伏问题，不混入研究切片）。开跑前置预校验 = 锚数值 vs 源切片（#1134 run-03 `results.json#variants.new`）的正确舍入位级比较，「位级复验通过」字样为放行条件。
-- **运行局部字段显式归一化后比较**（不许静默跳过字段）：分量行 `artifact` 文件名的运行/变体前缀（`baseline-` / `new-` / `stream-a-…-` 等）归一为规范后缀 `component-NN.lfca` 后比较；锚顶层 `source` 为 E0 资产来源注（代际/事故/哈希），显式声明**不入逐值比较**、其语义面 `comparison_only` 断言为真；本规则同步写入 README。除运行局部命名与来源注外，任何非计时语义字段不一致 → 按 §7 停机报统筹。
+- **运行局部字段显式归一化后比较**（不许静默跳过字段）：分量行 `artifact` 文件名的运行/变体前缀（`baseline-` / `new-` / `stream-a-…-` 等）归一为规范后缀 `component-NN.lfca` 后比较；锚顶层 `source` 为 E0 资产来源注（代际/事故/哈希）、`cohort_*` 为源批次（#1134）自有分析列（其 11 分量队列与本路 4 分量队列不同，含 `cohort_paths`/`cohort_path_counts`/`cohort_joint_acceptance`）——二者显式声明**不入逐值比较**（`source` 的语义面 `comparison_only` 断言为真）；`pool_sizes` 池形状入比较。本规则同步写入 README。除上述声明项外，任何非计时语义字段不一致 → 按 §7 停机报统筹。
 - 同机同二进制下 `lfca_bytes`/内容哈希应逐值相同（基线分量发射不受本路测试代码影响）；哈希级不同即真差异，照停。
 
 ## 7. 验证与证据（逐值沿用第 1 轮 §5 与执行注意事项）
