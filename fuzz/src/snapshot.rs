@@ -341,12 +341,31 @@ pub(crate) fn seeds() -> Vec<(&'static str, &'static str, Vec<u8>)> {
         ("lfrs_restore", "editable-mutation", vec![3]),
         ("lfrs_restore", "published-wrong-source", vec![5]),
         ("lfrs_restore", "editable-wrong-source", vec![7]),
+        // 首轮正式验收的最小化 crash 单元（run 40933268900，
+        // crash-9303b8943eeeb463f8aaf9bd7000b712b776935c）：变异后的 vtable
+        // 声明长度过短，曾使恢复路径字段计数下溢；修复后须稳定回归。
+        (
+            "lfrs_restore",
+            "truncated-vtable",
+            vec![
+                0xdb, 0x0d, 0x34, 0xb5, 0x00, 0x34, 0x38, 0x38, 0x38, 0x38, 0x61, 0x2e, 0x41,
+                0x0d, 0x24,
+            ],
+        ),
     ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_vtable_does_not_panic() {
+        check_snapshot(&[
+            0xdb, 0x0d, 0x34, 0xb5, 0x00, 0x34, 0x38, 0x38, 0x38, 0x38, 0x61, 0x2e, 0x41,
+            0x0d, 0x24,
+        ]);
+    }
 
     #[test]
     fn source_kinds_and_wire_limit_reject() {

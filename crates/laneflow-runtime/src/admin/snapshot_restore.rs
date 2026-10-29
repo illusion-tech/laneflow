@@ -115,6 +115,17 @@ pub enum SnapshotRestoreError {
         /// wire vtable 声明字段数。
         actual: usize,
     },
+    /// table 的 vtable 自声明长度短于长度槽 + 对象长度槽的最小头部。
+    ///
+    /// FlatBuffers verifier 只约束 vtable 落在缓冲区内且偶对齐，不设最小长度；
+    /// 此类输入必须显式拒绝，封闭性检查的字段计数不能依赖整数下溢行为。
+    #[error("LFRS table {table} 的 vtable 过短: declared={declared}")]
+    TruncatedVtable {
+        /// table 名。
+        table: &'static str,
+        /// vtable 自声明的字节数。
+        declared: usize,
+    },
     /// 必需的结构字段缺席。
     #[error("LFRS 必需字段缺席: {field}")]
     MissingField {

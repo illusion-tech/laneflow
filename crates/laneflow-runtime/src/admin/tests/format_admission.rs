@@ -193,6 +193,63 @@ fn world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
     );
 }
 
+#[test]
+fn truncated_vtable_is_rejected_before_field_counting() {
+    // FlatBuffers verifier 只约束 vtable 落在缓冲区内且偶对齐，也不为无
+    // required 字段的表兜底；WorldConfigBinding 的 vtable 声明长度压到 0/2
+    // 仍能通过 verifier，随后封闭性检查的字段计数减法会下溢，必须显式拒绝。
+    let (world, _, _) = world_with_vehicle(true);
+    let bytes = encode_lfrs(&world.capture_snapshot().unwrap());
+    let root_table = 4 + u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+    let root_vtable = root_table
+        .checked_sub_signed(i32::from_le_bytes(
+            bytes[root_table..root_table + 4].try_into().unwrap(),
+        ) as isize)
+        .unwrap();
+    // world_config 是引用字段：vtable 槽先指向 uoffset，uoffset 再指向表本体。
+    let config_uoffset = root_table
+        + usize::from(u16::from_le_bytes(
+            bytes[root_vtable + usize::from(wire::RuntimeSnapshot::VT_WORLD_CONFIG)..][..2]
+                .try_into()
+                .unwrap(),
+        ));
+    let config_table = config_uoffset
+        + u32::from_le_bytes(
+            bytes[config_uoffset..config_uoffset + 4]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+    let config_vtable = config_table
+        .checked_sub_signed(i32::from_le_bytes(
+            bytes[config_table..config_table + 4].try_into().unwrap(),
+        ) as isize)
+        .unwrap();
+    let declared = u16::from_le_bytes(bytes[config_vtable..config_vtable + 2].try_into().unwrap());
+    assert_eq!(
+        declared, 14,
+        "world config vtable covers its five registered fields"
+    );
+    for short in [0_u16, 2] {
+        let mut mutated = bytes.clone();
+        mutated[config_vtable..config_vtable + 2].copy_from_slice(&short.to_le_bytes());
+        assert_eq!(
+            restore_lfrs(
+                &mutated,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                world.execution_config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::TruncatedVtable {
+                table: "WorldConfigBinding",
+                declared: short as usize,
+            },
+        );
+    }
+}
+
 fn conflict_world_with_route() -> (TrafficWorld, RouteHandle) {
     conflict_world_with_route_config(WorldConfig::new(8, 4, 1_024, 1_024, 100))
 }
