@@ -47,11 +47,11 @@ fn original_sink_and_end_checks_remain_active() {
     let run =
         |input: &EdgeInput, n| attempt(&[c], &[None], false, n, input, &mut Budget::default());
     assert!(matches!(run(&input, 20), Attempt::Accepted(_)));
-    assert!(matches!(run(&input, 31), Attempt::Rejected("sink")));
+    assert!(matches!(run(&input, 31), Attempt::Rejected("sink", _)));
     input.clamps[0] = Some([0.0, 0.0, 1.0]);
     assert!(matches!(
         run(&input, 20),
-        Attempt::Rejected("complete_end_direction")
+        Attempt::Rejected("complete_end_direction", _)
     ));
 }
 

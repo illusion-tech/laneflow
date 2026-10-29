@@ -5,6 +5,9 @@ use super::*;
 pub(crate) mod quality;
 mod tests;
 
+/// task-11（#1137/#1154）：自定义几何集搜索驱动（B 驱动）。
+pub(crate) mod custom;
+
 type Control = [Vec3; 6];
 const WORK_LIMIT: u64 = 32_000_000;
 const FIT_KEY_POINT_LIMIT: usize = 262_144;
@@ -196,8 +199,21 @@ fn bits(curves: &[Control]) -> Vec<[[u64; 3]; 6]> {
 
 enum Attempt {
     Accepted(Candidate),
-    Rejected(&'static str),
+    /// 拒绝原因 + sink 子原因（`Some` 仅 `reason == "sink"`；分类供 B 驱动明细，
+    /// 主循环计数口径不变）。
+    Rejected(&'static str, Option<&'static str>),
     Budget,
+}
+
+/// sink 拒绝子原因分类（task-11 taxonomy：degenerate_chord / weld_turn）。
+fn sink_reject_sub_reason(message: &str) -> &'static str {
+    if message.contains("degenerate canonical segment") {
+        "degenerate_chord"
+    } else if message.contains("weld budget") {
+        "weld_turn"
+    } else {
+        "sink_other"
+    }
 }
 
 fn attempt(
@@ -216,7 +232,7 @@ fn attempt(
     for (c, table) in curves.iter().zip(tables) {
         let params = if angle {
             let Some(table) = table else {
-                return Attempt::Rejected("angle_partition_unavailable");
+                return Attempt::Rejected("angle_partition_unavailable", None);
             };
             split_params(table, n)
         } else {
@@ -241,10 +257,10 @@ fn attempt(
             let end = eval(w[1]);
             let to = quantize_vec3(end).map(f64::from);
             if quality::chord_error(restricted(cubic, w[0], w[1]), from, to) > 0.01 {
-                return Attempt::Rejected("sampling_deviation");
+                return Attempt::Rejected("sampling_deviation", None);
             }
-            if sink.push(end).is_err() {
-                return Attempt::Rejected("sink");
+            if let Err(error) = sink.push(end) {
+                return Attempt::Rejected("sink", Some(sink_reject_sub_reason(&error.to_string())));
             }
         }
         parameter_bits.push(params.iter().map(|t| t.to_bits()).collect::<Vec<_>>());
@@ -266,7 +282,7 @@ fn attempt(
     if (0..2)
         .any(|i| input.clamps[i].is_some_and(|d| angle_rad(dirs[i], d).to_degrees() > END_DEGREES))
     {
-        return Attempt::Rejected("complete_end_direction");
+        return Attempt::Rejected("complete_end_direction", None);
     }
     Attempt::Accepted(Candidate {
         repaired: RepairedCurve {
@@ -418,7 +434,7 @@ pub(crate) fn search_with_curve_cap_budget(
             for n in 2..=MAX_PIECES {
                 match attempt(&curves, &tables, angle, n, input, &mut budget) {
                     Attempt::Budget => break,
-                    Attempt::Rejected(reason) => {
+                    Attempt::Rejected(reason, _sub) => {
                         *rejections.entry(reason).or_default() += 1;
                     }
                     Attempt::Accepted(mut candidate) => {
