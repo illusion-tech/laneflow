@@ -1,0 +1,103 @@
+{
+  "schema": "laneflow-round4-c12-curve-design-cohort",
+  "lane": "A",
+  "baseline_main": "8336eb87",
+  "method_source": "research/issue-1115-failed-curve-design/design.md",
+  "implementation_template": "research/issue-1131-curve-design-c29-c17",
+  "shared_baseline": {
+    "charter": "research/six-streams-20261029/coordination.md",
+    "candidate_pool": "11 edges 92 candidates",
+    "merge_order": "1103(48) -> 1107(56) -> 1111(72) -> 1115(75) -> 1131(76) -> 1134(92)",
+    "dedup": "canonical f32 point bits",
+    "acceptance_comparison": "28/84",
+    "result_anchor": "research/issue-1134-cohort2-coverage-diagnosis results new variant (53 components, 84 path counts)",
+    "delivery": "E0 frozen shared baseline (Release-pinned, *_BASELINE_DIR env + in-code hash assertions)"
+  },
+  "round2_evidence": "research/issue-1134-cohort2-coverage-diagnosis/edges.json; research/issue-1134-cohort2-coverage-diagnosis/README.md",
+  "components": [
+    {
+      "code": "C12",
+      "id": "sumo:-10100:--31480_0-to--30896_0::-10100_1_0.:-10100_4_0",
+      "path_count": 1,
+      "paths": "sumo:-10100:--31480_0-to--30896_0::-10100_1_0.:-10100_4_0",
+      "failed_edges": [
+        "sumo::-10100_1_0"
+      ],
+      "candidate_edges": [],
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "sumo::-10100_1_0",
+      "component": "C12",
+      "source_length_m": 3.04,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "diagnosed_span": {
+        "span_index_zero_based": 0,
+        "span_total": 4,
+        "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--31480_0->sumo::-10100_1_0, sumo:--31480_0->sumo::-10100_0_0])",
+        "finish_tangent": "fillet arc tangent (prescribed)",
+        "note": "start/finish_tangent 沿 #1134 记录语义，描述被诊断 span 0 的两端切向；finish 即 span 0/1 规定倒圆接缝"
+      },
+      "edge_endpoints": {
+        "start_clamp": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--31480_0->sumo::-10100_1_0, sumo:--31480_0->sumo::-10100_0_0])",
+        "finish_clamp": "boundary clamp (pair target)",
+        "frozen_f64_bits": true
+      },
+      "segment_capacity": {
+        "reference_cubics": 4,
+        "temp_program_points_max": 385
+      },
+      "prescribed_fillet_seam": {
+        "span_index_zero_based": 0,
+        "note": "span 0/1 接缝为规定倒圆切点（span 0 末弦见证对应位置）；合段跨过须逐候选记录 crosses_prescribed_fillet_seam，不得写成纯采样优化"
+      },
+      "entry_basis": {
+        "first_chord": {
+          "problem_kind": "first_chord",
+          "direction_source": "start_boundary_clamp",
+          "status": "necessary_condition_excluded",
+          "visited_boxes": 39,
+          "depth": 7,
+          "certificate_leaves": 20,
+          "leaf_breakdown": {
+            "shortest_chord": 2,
+            "start_direction": 18
+          },
+          "scope": "覆盖全部首弦与单弦情形，单独否定该固定 cubic 的完整发射；量化弦长下限与起始边界钳制方向锥的已证固定冲突（第二例，继 sumo:--30306#2_0）"
+        },
+        "last_chord": {
+          "problem_kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition",
+          "status": "local_witness",
+          "witness_t_f64_bits": 4602678819172646912,
+          "witness_chord_m": 0.3821,
+          "scope": "仅局部问题存在性记录，非整条边末端的可行证明；与首弦排除正交并存"
+        },
+        "original_emission_error": "span 1/4 sampling exhausted (quality_precheck_rejected)",
+        "fixed_curve_design_relevance": "首弦冲突只对原固定 cubic 成立，不禁止改控制柄/合并分段的曲线设计；不预设设计族结果"
+      },
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-old",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "retained_family_exhausted",
+          "candidate_count": 0
+        }
+      ]
+    }
+  ]
+}
