@@ -56,11 +56,168 @@ const STREAM_A_SEARCHES_SHA256: &str =
 const RUN3_RESULTS_SHA256: &str =
     "b320cfe9452edb87cd17a2186338fc0fef077ba141c937a626c56686b970c25f";
 
+// ===== 文本拼接原语（位忠实导出；数值字符串逐字保留，不做浮点再序列化）=====
+// 背景（README 差异记录「导出路径有损再序列化（1 ULP）」）：经浮点解析/写出的
+// 数值字符串存在 ±1 ULP 漂移（如 `10.220051765441895` → `10.220051765441896`）。
+// 锚导出按字节从源文本切片，数字原文逐字保留。
+
+/// 跳过 JSON 空白。
+fn skip_ws(text: &[u8], pos: &mut usize) {
+    while *pos < text.len() && matches!(text[*pos], b' ' | b'\t' | b'\n' | b'\r') {
+        *pos += 1;
+    }
+}
+
+/// 跳过一个 JSON 值（对象/数组/字符串/数字/字面量），`pos` 停在值后。
+fn skip_json_value(text: &[u8], pos: &mut usize) {
+    match text[*pos] {
+        b'{' | b'[' => {
+            let (open, close) = if text[*pos] == b'{' {
+                (b'{', b'}')
+            } else {
+                (b'[', b']')
+            };
+            let mut depth = 0usize;
+            let mut in_string = false;
+            let mut escape = false;
+            loop {
+                let byte = text[*pos];
+                if in_string {
+                    if escape {
+                        escape = false;
+                    } else if byte == b'\\' {
+                        escape = true;
+                    } else if byte == b'"' {
+                        in_string = false;
+                    }
+                } else {
+                    match byte {
+                        b'"' => in_string = true,
+                        b if b == open => depth += 1,
+                        b if b == close => {
+                            depth -= 1;
+                            if depth == 0 {
+                                *pos += 1;
+                                return;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                *pos += 1;
+            }
+        }
+        b'"' => {
+            *pos += 1;
+            let mut escape = false;
+            loop {
+                match text[*pos] {
+                    b'\\' if !escape => escape = true,
+                    b'"' if !escape => {
+                        *pos += 1;
+                        return;
+                    }
+                    _ => escape = false,
+                }
+                *pos += 1;
+            }
+        }
+        _ => {
+            while *pos < text.len()
+                && !matches!(
+                    text[*pos],
+                    b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r'
+                )
+            {
+                *pos += 1;
+            }
+        }
+    }
+}
+
+/// 解析一个 JSON 字符串键（`pos` 在 `"` 上），返回键内容字节切片并前进到 `:` 前。
+fn json_key<'a>(text: &'a [u8], pos: &mut usize) -> &'a [u8] {
+    let start = *pos;
+    skip_json_value(text, pos);
+    &text[start + 1..*pos - 1]
+}
+
+/// 按键路径定位对象内部字节区间（`key_path` 最后一个键所在的对象）：逐键匹配路径并
+/// 深入，返回该对象 `{`/`}` 之间的内部区间（不含大括号）。
+fn json_object_interior(text: &[u8], start: usize, key_path: &[&str]) -> (usize, usize) {
+    let mut pos = start;
+    assert_eq!(text[pos], b'{', "object expected");
+    pos += 1;
+    loop {
+        skip_ws(text, &mut pos);
+        assert!(pos < text.len(), "object not terminated");
+        if text[pos] == b'}' {
+            panic!("json key {:?} not found", key_path.first());
+        }
+        assert_eq!(text[pos], b'"', "object key expected");
+        let key = json_key(text, &mut pos);
+        skip_ws(text, &mut pos);
+        assert_eq!(text[pos], b':', "key separator expected");
+        pos += 1;
+        skip_ws(text, &mut pos);
+        if key == key_path[0].as_bytes() {
+            if key_path.len() == 1 {
+                assert_eq!(text[pos], b'{', "target value must be an object");
+                let inner_start = pos + 1;
+                let mut probe = pos;
+                skip_json_value(text, &mut probe);
+                return (inner_start, probe - 1);
+            }
+            return json_object_interior(text, pos, &key_path[1..]);
+        }
+        skip_json_value(text, &mut pos);
+        skip_ws(text, &mut pos);
+        if text[pos] == b',' {
+            pos += 1;
+        }
+    }
+}
+
+/// 数值字面量逐个提取（位级比较用；不含字符串内数字）。
+fn json_numeric_literals(text: &[u8]) -> Vec<&[u8]> {
+    let mut literals = Vec::new();
+    let mut pos = 0;
+    let mut in_string = false;
+    let mut escape = false;
+    while pos < text.len() {
+        let byte = text[pos];
+        if in_string {
+            if escape {
+                escape = false;
+            } else if byte == b'\\' {
+                escape = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            pos += 1;
+        } else if byte == b'"' {
+            in_string = true;
+            pos += 1;
+        } else if byte == b'-' || byte.is_ascii_digit() {
+            let start = pos;
+            while pos < text.len()
+                && matches!(text[pos], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+            {
+                pos += 1;
+            }
+            literals.push(&text[start..pos]);
+        } else {
+            pos += 1;
+        }
+    }
+    literals
+}
+
 /// 资产钉版（`shared-baseline-inputs.zip` 三成员；plan §2 同步钉版）。
 const POOL_JSON_SHA256: &str = "31fca69617e2fd5d818aafc64b6704451475e05bf3aa3918391e1a2f9feb1bb3";
 const RESULTS_ANCHOR_SHA256: &str =
-    "0973dd355f18be878b977f3e2caea65ba355aeb7f1d0282e624e4b62b8b1abe5";
-const MANIFEST_SHA256: &str = "56edd1365c48ce68b39e260f5be01ecea8629ee92e424d58363bd718e2d00cf5";
+    "d025c4bf6cd2a6c815e9586124034d21c8232d6c9cb46266ad0a5727e658847b";
+const MANIFEST_SHA256: &str = "7bb522c5a228b4fec0cce8f793297119a1cc03a832758fc043c18f3aa0b7d33a";
 
 /// 来源⑥钉版（#1134 冻结四轮 ABBA 逐字节一致的 run-03 输出；两文件各 157,603 /
 /// 1,313,285 字节）。
@@ -183,12 +340,34 @@ fn verified_pools(rows: &Value) -> combinations::Pools {
     pools
 }
 
-/// plan §2 结果对照锚（锚代际错位事故返工，取材身份三件套钉版）：#1134 run-03
-/// `results.json#variants.new` **整行逐值**（92 池行：53 分量、84 路径、接受 28/84）；
-/// **仅结果对照，不作候选点位来源**。代际守卫：C40 组件行 `missing_edges`=5
-/// （76 池旧代为 6，拒收）。
-fn results_anchor(run_results: &Value) -> Value {
-    let variant = &run_results["variants"]["new"];
+/// 钉版文本读取（SHA-256 断言语义同 `read_pinned_json`，panic 口径一致；文本原样
+/// 返回，供位忠实切片）。
+fn read_pinned_text(path: &Path, expected_sha: &str) -> String {
+    let bytes = fs::read(path).expect("pinned baseline input present");
+    assert_eq!(
+        hex_sha256(&bytes),
+        expected_sha,
+        "pinned baseline input digest"
+    );
+    String::from_utf8(bytes).expect("pinned input is utf-8")
+}
+
+/// 锚 `source` 溯源键（取材身份三件套 + 代际 + 变更记录；无浮点字段，序列化无漂移）。
+fn anchor_source_value() -> Value {
+    json!({
+        "asset":"evidence/run-03/results.json","sha256":RUN3_RESULTS_SHA256,"bytes":631650,
+        "json_pointer":"#variants.new","generation":"92-池行",
+        "release_tag":"research-evidence-1140-shared-baseline","comparison_only":true,
+        "changed_from":{
+            "asset":"stream-a-results.json","json_pointer":"#variants.new",
+            "release_tag":"research-evidence-1134-cohort2-baseline","generation":"76-池行",
+            "reason":"锚代际错位事故：原取材 #1131 代 stream-a-results.json（76 池行）；章程 §1 要求 #1134 新增变体 = run-03 results.json#variants.new（92 池行）；两代唯一语义差为 C40 missing_edges 6→5",
+        },
+    })
+}
+
+/// 锚语义守卫（结构/整数断言，浮点漂移免疫）：92 池行代际 + 计数逐值。
+fn assert_anchor_semantics(variant: &Value) {
     let c40 = variant["components"]
         .as_array()
         .unwrap()
@@ -219,22 +398,21 @@ fn results_anchor(run_results: &Value) -> Value {
         variant["path_counts"]["target_check_not_completed"], 53,
         "anchor unfinished count"
     );
-    let mut anchor = json!({});
-    anchor["source"] = json!({
-        "asset":"evidence/run-03/results.json","sha256":RUN3_RESULTS_SHA256,"bytes":631650,
-        "json_pointer":"#variants.new","generation":"92-池行",
-        "release_tag":"research-evidence-1140-shared-baseline","comparison_only":true,
-        "changed_from":{
-            "asset":"stream-a-results.json","json_pointer":"#variants.new",
-            "release_tag":"research-evidence-1134-cohort2-baseline","generation":"76-池行",
-            "reason":"锚代际错位事故：原取材 #1131 代 stream-a-results.json（76 池行）；章程 §1 要求 #1134 新增变体 = run-03 results.json#variants.new（92 池行）；两代唯一语义差为 C40 missing_edges 6→5",
-        },
-    });
-    // `variants.new` 整行逐值展开（`source` 与行内 7 键无冲突）。
-    for (key, value) in variant.as_object().unwrap() {
-        anchor[key] = value.clone();
-    }
-    anchor
+}
+
+/// plan §2 结果对照锚（**位忠实文本拼接**，lead 复验硬门）：#1134 run-03
+/// `results.json#variants.new` **整行按字节切片**（92 池行），数字字符串逐字保留、
+/// 不做浮点再序列化（差异记录「导出路径有损再序列化（1 ULP）」）；仅外包 `source`
+/// 溯源键——除 `source` 外锚文件与源切片+包装**字节可证等值**。语义守卫（C40
+/// `missing_edges`=5 代际 + 计数）以结构断言执行（浮点漂移免疫）。
+fn results_anchor_text(source_text: &str) -> String {
+    let source: Value = serde_json::from_str(source_text).unwrap();
+    assert_anchor_semantics(&source["variants"]["new"]);
+    let bytes = source_text.as_bytes();
+    let (inner_start, inner_end) = json_object_interior(bytes, 0, &["variants", "new"]);
+    let interior = &source_text[inner_start..inner_end];
+    let source_json = serde_json::to_string(&anchor_source_value()).unwrap();
+    format!("{{\n  \"source\": {source_json},{interior}\n}}\n")
 }
 
 /// plan §1 来源装载：①–④为仓库内历史切片研究制品（include_str 钉版），⑤经
@@ -280,15 +458,15 @@ fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(
 }
 
 /// 来源⑤/⑥与结果对照锚的钉版输入装载（`COHORT2_BASELINE_DIR` + `COHORT2_RUN_DIR`；
-/// 锚取材 = run-03 `results.json`，锚代际错位事故返工后）。
-fn pinned_sources() -> (Value, Value, Value, Value) {
+/// 锚取材 = run-03 `results.json` **原文文本**，供位忠实切片）。
+fn pinned_sources() -> (Value, String, Value, Value) {
     let base = PathBuf::from(std::env::var("COHORT2_BASELINE_DIR").expect("COHORT2_BASELINE_DIR"));
     let run = PathBuf::from(std::env::var("COHORT2_RUN_DIR").expect("COHORT2_RUN_DIR"));
     let stream_searches = read_pinned_json(
         &base.join("stream-a-searches.json"),
         STREAM_A_SEARCHES_SHA256,
     );
-    let run_results = read_pinned_json(&run.join("results.json"), RUN3_RESULTS_SHA256);
+    let run_results = read_pinned_text(&run.join("results.json"), RUN3_RESULTS_SHA256);
     let run_old = read_pinned_json(&run.join("old-searches.json"), RUN3_OLD_SEARCHES_SHA256);
     let run_grid = read_pinned_json(&run.join("grid-searches.json"), RUN3_GRID_SEARCHES_SHA256);
     (stream_searches, run_results, run_old, run_grid)
@@ -390,9 +568,9 @@ fn shared_baseline_export() {
         .map(|(stage, source)| (*stage, source))
         .collect();
     let (pool_rows, provenance, per_stage) = build_pool(&sources);
-    let anchor = results_anchor(&run_results);
+    let anchor_text = results_anchor_text(&run_results);
     recovery::write_json(&out, "pool.json", &pool_rows);
-    recovery::write_json(&out, "results-anchor.json", &anchor);
+    fs::write(out.join("results-anchor.json"), &anchor_text).unwrap();
     let pool_bytes = fs::read(out.join("pool.json")).unwrap();
     let anchor_bytes = fs::read(out.join("results-anchor.json")).unwrap();
     let mut manifest_sources = Vec::new();
@@ -435,7 +613,7 @@ fn shared_baseline_export() {
 }
 
 /// plan §5 校验入口：`SIX_STREAMS_BASELINE_DIR` 三资产全断言 + 六来源重建逐值逐序 +
-/// 结果对照锚与 `run-03 results.json#variants.new` 整行逐值（92 池行）。
+/// 结果对照锚**字节可证等值**（源切片+包装，92 池行；数字字符串逐字）。
 #[test]
 #[ignore = "requires SIX_STREAMS_BASELINE_DIR, COHORT2_BASELINE_DIR and COHORT2_RUN_DIR"]
 fn shared_baseline_package_matches_frozen_chain() {
@@ -446,8 +624,14 @@ fn shared_baseline_package_matches_frozen_chain() {
     let (stream_searches, run_results, run_old, run_grid) = pinned_sources();
     let rows_sources = source_rows(stream_searches, run_old, run_grid);
     assert_rebuild_matches_package(&rows, &rows_sources);
-    let anchor = results_anchor_pinned();
-    assert_eq!(anchor, results_anchor(&run_results), "anchor 逐值");
+    let _ = results_anchor_pinned();
+    let expected_anchor = results_anchor_text(&run_results);
+    let anchor_bytes = fs::read(dir.join("results-anchor.json")).unwrap();
+    assert_eq!(
+        anchor_bytes,
+        expected_anchor.as_bytes(),
+        "anchor 字节可证等值（源切片+包装，数值字面量逐字）"
+    );
 }
 
 /// 临时目录唯一命名；钉版读取验证的同字节内容只写临时目录，不落仓库。
@@ -523,12 +707,63 @@ fn shared_baseline_loader_rejects_unpinned_bytes() {
 fn shared_baseline_anchor_rejects_old_generation_row() {
     // 锚代际守卫（锚代际错位事故返工）：76 池旧代行（C40 missing_edges=6）拒收，
     // 只接受 92 池行（C40 missing_edges=5）。
-    let missing = vec![json!({"edge":"sumo::e0-synthetic"}); 6];
-    let run_results = json!({"variants":{"new":{
-        "components":[{
-            "component":"sumo:-25332:--32278#0_1-to--32770#7_1::-25332_0_1",
-            "result":{"missing_edges":missing},
-        }],
-    }}});
-    let _ = results_anchor(&run_results);
+    let missing = ["{\"edge\":\"sumo::e0-synthetic\"}"; 6].join(",");
+    let source_text = format!(
+        "{{\"variants\":{{\"new\":{{\"components\":[{{\"component\":\
+         \"sumo:-25332:--32278#0_1-to--32770#7_1::-25332_0_1\",\"result\":\
+         {{\"missing_edges\":[{missing}]}}}}]}}}}}}"
+    );
+    let _ = results_anchor_text(&source_text);
+}
+
+#[test]
+fn shared_baseline_anchor_text_splice_is_byte_faithful() {
+    // 位忠实硬门（差异记录「导出路径有损再序列化（1 ULP）」）：canonical_arc_m 回归
+    // 样例数字逐字保留、全数值字面量逐个相等、锚 = 包装前缀 + 源切片 + 包装后缀。
+    let components: String = (1..53)
+        .map(|i| format!("{{\"component\":\"c{i}\",\"result\":{{\"missing_edges\":[]}}}}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let missing = ["{\"edge\":\"sumo::e0-synthetic\"}"; 5].join(",");
+    let paths: String = (0..84)
+        .map(|i| format!("{{\"path\":\"p{i}\"}}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let source_text = format!(
+        "{{\"variants\":{{\"new\":{{\"components\":[\
+         {{\"component\":\"sumo:-25332:--32278#0_1-to--32770#7_1::-25332_0_1\",\
+         \"result\":{{\"missing_edges\":[{missing}]}}}},{components}],\
+         \"paths\":[{paths}],\"path_counts\":{{\"accepted\":28,\
+         \"cross_edge_direction_rejected\":3,\"target_check_not_completed\":53}},\
+         \"regression\":{{\"canonical_arc_m\":10.220051765441895,\
+         \"source_length_delta_m\":0.009999999999999787}}}}}},\"other\":1}}"
+    );
+    let anchor = results_anchor_text(&source_text);
+    assert!(
+        anchor.contains("10.220051765441895"),
+        "canonical_arc_m regression literal verbatim"
+    );
+    assert!(
+        anchor.contains("0.009999999999999787"),
+        "source_length_delta_m literal verbatim"
+    );
+    assert!(
+        !anchor.contains("10.220051765441896"),
+        "no re-serialization drift"
+    );
+    let bytes = source_text.as_bytes();
+    let (inner_start, inner_end) = json_object_interior(bytes, 0, &["variants", "new"]);
+    let interior = &source_text[inner_start..inner_end];
+    let source_json = serde_json::to_string(&anchor_source_value()).unwrap();
+    let expected = format!("{{\n  \"source\": {source_json},{interior}\n}}\n");
+    assert_eq!(anchor, expected, "byte-provable wrapper equality");
+    // 全数值字段位级比较：锚内除 source 外的数值字面量与源切片逐个相等。
+    let anchor_literals = json_numeric_literals(anchor.as_bytes());
+    let interior_literals = json_numeric_literals(interior.as_bytes());
+    let offset = anchor_literals.len() - interior_literals.len();
+    assert_eq!(
+        anchor_literals[offset..],
+        interior_literals[..],
+        "numeric literals verbatim"
+    );
 }
