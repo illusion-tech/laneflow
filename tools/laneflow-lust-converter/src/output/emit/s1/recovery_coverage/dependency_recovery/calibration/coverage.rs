@@ -182,7 +182,9 @@ pub(in super::super) struct SpanControl {
 
 /// `repair_curve` 重放回退（#1134 §7 重新授权）：以测试观察逐 cubic 记录冻结输入原修复
 /// 参考曲线的六点控制；只读重放，不改采样、阈值与预算。诊断 span 即原生产失败 span，
-/// 重放必然到达并记录该 span。
+/// 重放必然到达并记录该 span。**截断语义**：遇发射失败即停、只保失败 span 及之前的
+/// 控制点——诊断 span（=失败 span）必然被捕获，但**不可**用作全边参考；全边参考用
+/// `geom::s1::reshape::reference_with_curve_cap`（观察模式全 span 构建 + 三断言）。
 pub(in super::super) fn replay_span_controls(
     input: &observe::EdgeInput,
 ) -> BTreeMap<usize, [[f64; 3]; 6]> {

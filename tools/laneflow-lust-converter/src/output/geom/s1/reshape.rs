@@ -49,13 +49,19 @@ pub(crate) fn capture_line_if_active(a: Vec3, b: Vec3, direction: Vec3) -> bool 
     ])
 }
 
-fn reference(input: &EdgeInput) -> Vec<Control> {
+pub(crate) fn reference(input: &EdgeInput) -> Vec<Control> {
     reference_with_curve_cap(input, MAX_CURVES)
 }
 
 /// 捕获 `repair_curve` 生成的原参考 cubic 链；`max_curves` 为该边冻结的段容量 s
 /// （流 B 冻结计划 §6），默认 `MAX_CURVES` 沿 #1115 口径。
-fn reference_with_curve_cap(input: &EdgeInput, max_curves: usize) -> Vec<Control> {
+///
+/// **全边参考入口**（D #1154 P2-1 评审指定修法）：观察模式**全 span 构建**、独立于
+/// 发射成功与否（末尾空程序不作为研究候选返回），并断言 starts-at-source /
+/// ends-at-source / chain-continuity 三性质。对照：`calibration::coverage::
+/// replay_span_controls` 为**截断**重放（遇发射失败即停、只保失败 span 及之前），
+/// 不可用作全边参考。
+pub(crate) fn reference_with_curve_cap(input: &EdgeInput, max_curves: usize) -> Vec<Control> {
     REFERENCE.with(|slot| {
         assert!(slot.borrow().is_none(), "nested reference capture");
         *slot.borrow_mut() = Some((max_curves, Vec::new()));
