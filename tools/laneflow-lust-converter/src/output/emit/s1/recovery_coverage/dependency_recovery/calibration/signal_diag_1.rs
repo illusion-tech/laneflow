@@ -83,9 +83,10 @@ fn normalized_artifact(value: &Value) -> Value {
     }
 }
 
-/// plan §6.1 数值字段 f64 位级硬门（统筹补维，2026-10-29）：逐叶子比较——浮点叶按
-/// `to_bits` 相等、整数叶按值且形态一致、字符串按字面、键序逐项一致；±1 ULP 漂移必须
-/// 显形（不只比较解析值）。失配即 panic 首个失配路径与两侧位串，按 §7 停机口径处理。
+/// plan §6.1 解析域逐值比较（结构与非数值叶 + 双侧同解析器的数值叶）：浮点叶按
+/// `to_bits`、整数叶按值且形态一致、字符串按字面、键序逐项一致。失配即 panic 首个失配
+/// 路径与两侧位串。数值位级最终裁决以文本 token 域 `assert_raw_leaves_equal` 为准
+/// （serde_json 默认解析对 17 位十进制浮点误舍入 1 ULP，见其文档注释）。
 fn assert_bits_equal(left: &Value, right: &Value, path: &str) {
     match (left, right) {
         (Value::Number(a), Value::Number(b)) => {
@@ -124,6 +125,183 @@ fn assert_bits_equal(left: &Value, right: &Value, path: &str) {
         }
         _ => panic!("type mismatch at {path}: {left:?} vs {right:?}"),
     }
+}
+
+/// JSON 文本叶子提取（路径 → 原始 token），文本 token 域位级比较的载体。背景（统筹裁决
+/// B，2026-10-29）：serde_json 1.0.154 默认解析（未开 `float_roundtrip`）对 17 位十进制
+/// 浮点误舍入 1 ULP（实证 `from_str("10.220051765441895")` → bits …313，真值 …312），
+/// 解析域把相邻对（…895/…896）折叠到同一 f64——位级裁决必须保留原始 token，用正确舍入
+/// 的 `f64::from_str` 比较。
+fn raw_leaves(text: &str) -> BTreeMap<String, String> {
+    let bytes = text.as_bytes();
+    let mut leaves = BTreeMap::new();
+    let mut pos = 0;
+    parse_raw_value(text, bytes, &mut pos, "", &mut leaves);
+    leaves
+}
+
+fn parse_raw_value(
+    text: &str,
+    bytes: &[u8],
+    pos: &mut usize,
+    path: &str,
+    leaves: &mut BTreeMap<String, String>,
+) {
+    skip_raw_ws(bytes, pos);
+    match bytes[*pos] {
+        b'{' => {
+            *pos += 1;
+            loop {
+                skip_raw_ws(bytes, pos);
+                if bytes[*pos] == b'}' {
+                    *pos += 1;
+                    break;
+                }
+                let key = parse_raw_string(text, bytes, pos);
+                skip_raw_ws(bytes, pos);
+                assert_eq!(bytes[*pos], b':', "object colon at {path}");
+                *pos += 1;
+                parse_raw_value(text, bytes, pos, &format!("{path}.{key}"), leaves);
+                skip_raw_ws(bytes, pos);
+                match bytes[*pos] {
+                    b',' => *pos += 1,
+                    b'}' => {
+                        *pos += 1;
+                        break;
+                    }
+                    other => panic!("object delimiter {other} at {path}"),
+                }
+            }
+        }
+        b'[' => {
+            *pos += 1;
+            let mut index = 0;
+            loop {
+                skip_raw_ws(bytes, pos);
+                if bytes[*pos] == b']' {
+                    *pos += 1;
+                    break;
+                }
+                parse_raw_value(text, bytes, pos, &format!("{path}[{index}]"), leaves);
+                index += 1;
+                skip_raw_ws(bytes, pos);
+                match bytes[*pos] {
+                    b',' => *pos += 1,
+                    b']' => {
+                        *pos += 1;
+                        break;
+                    }
+                    other => panic!("array delimiter {other} at {path}"),
+                }
+            }
+        }
+        b'"' => {
+            let token = parse_raw_string(text, bytes, pos);
+            leaves.insert(format!("{path}.string"), format!("\"{token}\""));
+        }
+        b'-' | b'0'..=b'9' => {
+            let start = *pos;
+            while *pos < bytes.len()
+                && (bytes[*pos].is_ascii_digit()
+                    || matches!(bytes[*pos], b'.' | b'e' | b'E' | b'+' | b'-'))
+            {
+                *pos += 1;
+            }
+            leaves.insert(format!("{path}.number"), text[start..*pos].to_owned());
+        }
+        _ => {
+            let start = *pos;
+            while *pos < bytes.len() && bytes[*pos].is_ascii_alphabetic() {
+                *pos += 1;
+            }
+            leaves.insert(format!("{path}.literal"), text[start..*pos].to_owned());
+        }
+    }
+}
+
+fn parse_raw_string(text: &str, bytes: &[u8], pos: &mut usize) -> String {
+    assert_eq!(bytes[*pos], b'"', "string open");
+    *pos += 1;
+    let mut token = String::new();
+    while *pos < bytes.len() {
+        match bytes[*pos] {
+            b'\\' => {
+                token.push_str(&text[*pos..*pos + 2]);
+                *pos += 2;
+            }
+            b'"' => {
+                *pos += 1;
+                break;
+            }
+            _ => {
+                token.push(text[*pos..].chars().next().unwrap());
+                *pos += text[*pos..].chars().next().unwrap().len_utf8();
+            }
+        }
+    }
+    token
+}
+
+fn skip_raw_ws(bytes: &[u8], pos: &mut usize) {
+    while *pos < bytes.len() && bytes[*pos].is_ascii_whitespace() {
+        *pos += 1;
+    }
+}
+
+/// plan §6.1 文本 token 域位级硬门（统筹裁决 B）：锚文件**原始 token** vs 本路内存值
+/// 序列化 token 逐叶比较——数值叶以正确舍入 `f64::from_str` 解析后按 `to_bits` 相等，
+/// 字面叶按原文；锚侧 `artifact`（运行局部）按前缀归一化后比较、`source`（来源注）显式
+/// 声明不入比较；锚侧每个叶必须在本路侧找到对应值——不许静默跳过字段（本路附加分析列
+/// cohort / stop_line_checks 允许超出锚侧）。
+fn assert_raw_leaves_equal(mine: &Value, anchor_text: &str) {
+    let mine_text = serde_json::to_string(mine).unwrap();
+    let mine_leaves = raw_leaves(&mine_text);
+    let anchor_leaves = raw_leaves(anchor_text);
+    let mut checked = 0;
+    for (path, token) in &anchor_leaves {
+        if path.starts_with(".source.") {
+            continue; // 来源注（plan §6.1 显式声明不入逐值比较）
+        }
+        let own = mine_leaves
+            .get(path)
+            .unwrap_or_else(|| panic!("missing leaf at {path} in computed result"));
+        if path.ends_with(".artifact.string") {
+            let normalize = |raw: &str| {
+                raw.trim_matches('"')
+                    .split("component-")
+                    .last()
+                    .map(|suffix| format!("component-{suffix}"))
+                    .unwrap_or_else(|| raw.to_owned())
+            };
+            assert_eq!(
+                normalize(token),
+                normalize(own),
+                "artifact run-local prefix mismatch at {path}"
+            );
+        } else if let (Ok(a), Ok(b)) = (token.parse::<f64>(), own.parse::<f64>()) {
+            assert_eq!(
+                token.parse::<u64>().is_ok(),
+                own.parse::<u64>().is_ok(),
+                "number form mismatch at {path}: {token} vs {own}"
+            );
+            assert!(
+                a.to_bits() == b.to_bits(),
+                "raw bit mismatch at {path}: {token} vs {own} (f64 bits {} vs {})",
+                a.to_bits(),
+                b.to_bits()
+            );
+        } else {
+            assert!(
+                token == own,
+                "raw leaf mismatch at {path}: {token} vs {own}"
+            );
+        }
+        checked += 1;
+    }
+    assert!(
+        checked >= 1_000,
+        "raw leaf comparison coverage implausible: {checked}"
+    );
 }
 
 fn cohort() -> Value {
@@ -433,6 +611,12 @@ fn pinned_lust_signal_diag_1_experiment() {
     );
     let anchor = shared_baseline::results_anchor_pinned();
     let variant_anchor = &anchor;
+    // 锚文件原始文本：文本 token 域位级终裁的基准（serde 解析会误舍入，见 raw_leaves）。
+    let anchor_text = fs::read_to_string(
+        PathBuf::from(std::env::var("SIX_STREAMS_BASELINE_DIR").expect("SIX_STREAMS_BASELINE_DIR"))
+            .join("results-anchor.json"),
+    )
+    .expect("anchor raw text");
     let legacy: Value = serde_json::from_str(include_str!(
         "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
     ))
@@ -638,7 +822,12 @@ fn pinned_lust_signal_diag_1_experiment() {
             if variant == "baseline" {
                 let prior = &variant_anchor["components"][index];
                 assert_eq!(prior["component"], json!(component.id));
-                assert_bits_equal(&result, &prior["result"], "components[].result");
+                // 解析域逐值（双侧同解析器）；数值位级由 assert_raw_leaves_equal 终裁。
+                assert_bits_equal(
+                    &normalized(&result),
+                    &prior["result"],
+                    "components[].result",
+                );
                 assert_eq!(
                     normalized_artifact(&json!(artifact)),
                     normalized_artifact(&prior["artifact"]),
@@ -676,7 +865,11 @@ fn pinned_lust_signal_diag_1_experiment() {
             }
         }
         if variant == "baseline" {
-            assert_bits_equal(&json!(paths), &variant_anchor["paths"], "paths");
+            assert_bits_equal(
+                &normalized(&json!(paths)),
+                &variant_anchor["paths"],
+                "paths",
+            );
         }
         let counts = paths
             .iter()
@@ -686,6 +879,13 @@ fn pinned_lust_signal_diag_1_experiment() {
                     .or_default() += 1;
                 counts
             });
+        if variant == "baseline" {
+            // plan §6.1 裁决 B：文本 token 域位级终裁（原始 token + f64::from_str）。
+            assert_raw_leaves_equal(
+                &json!({"components":rows,"paths":paths,"path_counts":counts}),
+                &anchor_text,
+            );
+        }
         let cohort_paths = cohort["components"]
             .as_array()
             .unwrap()
