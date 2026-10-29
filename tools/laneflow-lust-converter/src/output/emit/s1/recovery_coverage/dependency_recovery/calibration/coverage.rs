@@ -104,7 +104,7 @@ pub(super) fn coverage_output() -> PathBuf {
 
 /// §2.3.4 词汇映射：原始停止标签保留在 `report.stop_reason`，本函数只产出计划词汇。
 /// `candidates_found`/`program_pool_full` 是结果维度（有候选），其余是终止原因维度。
-pub(super) fn plan_stop_label(report: &Value, candidate_programs: u64) -> &'static str {
+pub(in super::super) fn plan_stop_label(report: &Value, candidate_programs: u64) -> &'static str {
     if candidate_programs > 0 {
         return if report["stop_reason"] == "program_pool" {
             "program_pool_full"
@@ -127,7 +127,7 @@ pub(super) fn plan_stop_label(report: &Value, candidate_programs: u64) -> &'stat
 }
 
 /// 见证参数是否属于校准网格节点集合 {i/512}；按冻结算法直接计算，不查 `history`。
-pub(super) fn grid_node_member(t: f64) -> bool {
+pub(in super::super) fn grid_node_member(t: f64) -> bool {
     let scaled = t * 512.0;
     (0.0..=512.0).contains(&scaled) && scaled.fract() == 0.0
 }
@@ -144,7 +144,7 @@ pub(super) fn edge_input<'a>(
     &observation.inputs[index]
 }
 
-pub(super) fn find_span_control(search: &Value, span: usize) -> Option<[[f64; 3]; 6]> {
+pub(in super::super) fn find_span_control(search: &Value, span: usize) -> Option<[[f64; 3]; 6]> {
     if let Some(failures) = search["failures"].as_object() {
         for row in failures.values() {
             if row["span_index_zero_based"].as_u64() == Some(span as u64) {
@@ -169,21 +169,23 @@ pub(super) fn find_span_control(search: &Value, span: usize) -> Option<[[f64; 3]
 }
 
 /// 诊断目标 cubic 的控制点解析结果（#1134 §7 重新授权的三层载体链）。
-pub(super) struct SpanControl {
+pub(in super::super) struct SpanControl {
     /// 诊断用控制点：前四点为冻结参考 cubic 控制点，来源按 `source` 记录。
-    pub(super) control: [[f64; 3]; 6],
+    pub(in super::super) control: [[f64; 3]; 6],
     /// 见证参数注入匹配用：完整六点（含 `dir_a`/`dir_b`），不再零填充。
-    pub(super) injection_control: [[f64; 3]; 6],
+    pub(in super::super) injection_control: [[f64; 3]; 6],
     /// `repair_curve` 重放的六点控制（交叉核对列；重放未到达该 span 时为 `None`）。
-    pub(super) replay_control: Option<[[f64; 3]; 6]>,
+    pub(in super::super) replay_control: Option<[[f64; 3]; 6]>,
     /// `fresh_failures` / `history` / `replay_fallback` 三层来源标签。
-    pub(super) source: &'static str,
+    pub(in super::super) source: &'static str,
 }
 
 /// `repair_curve` 重放回退（#1134 §7 重新授权）：以测试观察逐 cubic 记录冻结输入原修复
 /// 参考曲线的六点控制；只读重放，不改采样、阈值与预算。诊断 span 即原生产失败 span，
 /// 重放必然到达并记录该 span。
-pub(super) fn replay_span_controls(input: &observe::EdgeInput) -> BTreeMap<usize, [[f64; 3]; 6]> {
+pub(in super::super) fn replay_span_controls(
+    input: &observe::EdgeInput,
+) -> BTreeMap<usize, [[f64; 3]; 6]> {
     let (_result, calls) = geom::sampling_observation::capture(|| {
         geom::repair_curve(
             &input.points,
@@ -210,7 +212,7 @@ pub(super) fn replay_span_controls(input: &observe::EdgeInput) -> BTreeMap<usize
 /// 诊断目标 cubic 的控制点来源：本轮两族搜索记录优先，历史 1107 网格记录兜底，最后以
 /// `repair_curve` 重放回退（#1134 §7 重新授权，追加在既有两层之后、解析结果不变）；
 /// 三层全失才按计划 §7 停止并重新授权。
-pub(super) fn span_control(
+pub(in super::super) fn span_control(
     searches: &BTreeMap<String, Value>,
     grid_history: &Value,
     id: &str,
