@@ -259,8 +259,10 @@ fn assert_raw_leaves_equal(mine: &Value, anchor_text: &str) {
     let anchor_leaves = raw_leaves(anchor_text);
     let mut checked = 0;
     for (path, token) in &anchor_leaves {
-        if path.starts_with(".source.") {
-            continue; // 来源注（plan §6.1 显式声明不入逐值比较）
+        // 显式声明不入比较（plan §6.1，不许静默跳过）：`.source.` = E0 资产来源注；
+        // `.cohort_*` = 源批次（#1134）自有分析列（其 11 分量队列与本路 4 分量队列不同）。
+        if path.starts_with(".source.") || path.starts_with(".cohort_") {
+            continue;
         }
         let own = mine_leaves
             .get(path)
@@ -880,9 +882,11 @@ fn pinned_lust_signal_diag_1_experiment() {
                 counts
             });
         if variant == "baseline" {
-            // plan §6.1 裁决 B：文本 token 域位级终裁（原始 token + f64::from_str）。
+            // plan §6.1 裁决 B：文本 token 域位级终裁（原始 token + f64::from_str）；
+            // 比较面 = 语义集合（components/paths/path_counts）+ pool_sizes（池形状）。
             assert_raw_leaves_equal(
-                &json!({"components":rows,"paths":paths,"path_counts":counts}),
+                &json!({"components":rows,"paths":paths,"path_counts":counts,
+                    "pool_sizes":pools.iter().map(|(id,p)|(id,p.len())).collect::<BTreeMap<_,_>>()}),
                 &anchor_text,
             );
         }
