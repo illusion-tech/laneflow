@@ -344,14 +344,27 @@ fn pinned_lust_witness_guided_search_experiment() {
         drive_witness_guided_searches(&observation, &order);
     timing["witness_searches"] = search_timing;
     recovery::write_json(&out, "witness-guided-searches.json", &search_evidence);
-    // (a) 候选资格验证：搜索内接受（实际长度/sink 转角/0.01 m）+ 编译/LFCA/锚点
-    // 全量验证；双向拟合为复核域独立计费（lead 裁决），E task-11 fit 入口落地前
-    // 该列记 not_executed（未执行分列，不混入几何拒绝统计）。
+    // (a) 候选资格验证：搜索内接受（实际长度/sink 转角/0.01 m）+ 双向拟合
+    // （复核域独立计费；`quality::fit` 同算法双向估计 ≤ 原参考）+ 编译/LFCA/锚点
+    // 全量验证。原参考 = 该边原修复曲线逐 span 六点控制；候选 = 发射折线逐弦退化
+    // cubic（fit 仅取前四点，线性插值即直线弦）。复核域计数独立报出（lead 裁决）。
     let mut qualification_rows = Vec::new();
     let mut witness_pool: combinations::Pools = BTreeMap::new();
-    let review_fit_consumed_total = 0_u64;
+    let mut review_fit_calls = 0_u64;
+    let mut review_fit_consumed_total = 0_u64;
     let mut qi = 0_usize;
     for (edge, cands) in &witness_candidates {
+        let input = edge_input(&observation, edge);
+        let mut review_handle = WorkBudget::per_edge_default();
+        let reference_controls: Vec<[[f64; 3]; 6]> =
+            replay_span_controls(input).into_values().collect();
+        review_fit_calls += 1;
+        let reference_fit = sampler::reshape::quality::fit_with_handle(
+            &reference_controls,
+            &input.points,
+            &mut review_handle,
+        )
+        .expect("bounded reference fit");
         let component = components
             .iter()
             .find(|c| c.missing_edges.iter().any(|m| m == edge))
@@ -359,19 +372,62 @@ fn pinned_lust_witness_guided_search_experiment() {
         let part = combinations::part(traffic, component);
         let path = &part.maneuver_paths[0];
         for cand in cands {
+            let points = program_points(&cand.program);
+            let candidate_controls: Vec<[[f64; 3]; 6]> = points
+                .windows(2)
+                .map(|w| {
+                    let (a, b) = (w[0], w[1]);
+                    let lerp = |t: f64| {
+                        [
+                            a[0] + t * (b[0] - a[0]),
+                            a[1] + t * (b[1] - a[1]),
+                            a[2] + t * (b[2] - a[2]),
+                        ]
+                    };
+                    [a, lerp(1.0 / 3.0), lerp(2.0 / 3.0), b, [0.0; 3], [0.0; 3]]
+                })
+                .collect();
+            review_fit_calls += 1;
+            let candidate_fit = sampler::reshape::quality::fit_with_handle(
+                &candidate_controls,
+                &input.points,
+                &mut review_handle,
+            );
+            let fit_row = match candidate_fit {
+                Some(fit) => json!({"status":"executed",
+                    "pass":fit.within(reference_fit),
+                    "candidate":{"curve_to_source_estimate_m":fit.curve_to_source_estimate_m,
+                        "source_to_curve_estimate_m":fit.source_to_curve_estimate_m},
+                    "reference":{"curve_to_source_estimate_m":reference_fit.curve_to_source_estimate_m,
+                        "source_to_curve_estimate_m":reference_fit.source_to_curve_estimate_m},
+                    "screen":"both directional upper estimates <= original reference (same algorithm)"}),
+                None => json!({"status":"not_executed",
+                    "reason":"review_domain_fit_budget_exhausted"}),
+            };
             let mut programs = originals.clone();
             programs.insert(edge.clone(), cand.program.clone());
             let file = format!("qualify-{qi:03}-{edge}.lfca");
             qi += 1;
             let result = compile_part(traffic, path, &part, &programs, Some(&out.join(&file)));
-            let outcome = match result["status"].as_str().unwrap() {
-                "accepted" => "qualified",
+            let compile_outcome = match result["status"].as_str().unwrap() {
+                "accepted" => "accepted",
                 "target_check_not_completed" => "not_executed",
                 _ => "geometry_rejected",
             };
-            // 池入规则：几何拒绝排除；qualified / not_executed（依赖不齐、完整验证
-            // 随 (c) 联合编译执行）入本轮新增池，不回写标准族池。
-            if outcome != "geometry_rejected" {
+            let outcome = match (
+                fit_row["status"].as_str().unwrap(),
+                fit_row["pass"].as_bool(),
+                compile_outcome,
+            ) {
+                (_, Some(false), _) => "fit_rejected",
+                ("not_executed", _, _) => "not_executed",
+                (_, _, "geometry_rejected") => "geometry_rejected",
+                (_, _, "not_executed") => "not_executed",
+                _ => "qualified",
+            };
+            // 池入规则：几何/拟合拒绝排除；qualified 与 not_executed（依赖不齐、
+            // 完整验证随 (c) 联合编译执行）入本轮新增池，不回写标准族池。
+            if outcome == "qualified" || outcome == "not_executed" {
                 witness_pool
                     .entry(edge.clone())
                     .or_default()
@@ -380,17 +436,17 @@ fn pinned_lust_witness_guided_search_experiment() {
             qualification_rows.push(json!({"edge":edge,"variant":cand.variant,
                 "arc_m":cand.arc_m,"program":program_bits(&cand.program),
                 "in_search_acceptance":"actual_length/sink_angle/0.01m_envelope",
-                "source_fit_review_domain":{"status":"not_executed",
-                    "reason":"review_domain_fit_entry_pending_e_task11",
-                    "billing":"review_domain_independent_per_lead_ruling"},
+                "source_fit_review_domain":fit_row,
                 "compile_validation":result,"outcome":outcome}));
         }
+        review_fit_consumed_total += review_handle.source_fit_consumed;
     }
     recovery::write_json(
         &out,
         "qualification.json",
         &json!({"rows":qualification_rows,
-        "review_domain_counts":{"fit_evaluations":review_fit_consumed_total,
+        "review_domain_counts":{"fit_evaluations":review_fit_calls,
+            "fit_consumed_source_fit_units":review_fit_consumed_total,
             "compile_validations":qi,"lfca_artifacts":qi},
         "review_domain_billing":"验收层验证计入复核域、独立计数（lead 裁决，冻结计划复核独立计数条款）；不与搜索域三计数器混列、不占搜索域每边 32M source_fit 池"}),
     );
