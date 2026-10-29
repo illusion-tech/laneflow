@@ -15,7 +15,7 @@ use crate::{Error, Plan, failure, install::Sample, require};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-enum Operation {
+pub(crate) enum Operation {
     ReserveParking,
     ParkVehicle,
     LeaveParking,
@@ -39,13 +39,13 @@ impl Operation {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct Command {
-    operation: Operation,
-    logical_rank: u32,
-    route_rank: u32,
-    edge_occurrence: u32,
-    progress_mm: u32,
-    speed_mm_per_s: u32,
+pub(crate) struct Command {
+    pub operation: Operation,
+    pub logical_rank: u32,
+    pub route_rank: u32,
+    pub edge_occurrence: u32,
+    pub progress_mm: u32,
+    pub speed_mm_per_s: u32,
 }
 
 impl Command {
@@ -60,7 +60,7 @@ impl Command {
         ]
     }
 
-    fn encode(&self, target: &mut Vec<u8>) {
+    pub(crate) fn encode(&self, target: &mut Vec<u8>) {
         for word in self.words() {
             target.extend_from_slice(&word.to_le_bytes());
         }
@@ -69,17 +69,17 @@ impl Command {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Scheduled {
-    boundary: u64,
-    commands: Vec<Command>,
+pub(crate) struct Scheduled {
+    pub boundary: u64,
+    pub commands: Vec<Command>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ReplacementRule {
-    ranks: Vec<u32>,
-    edge_occurrence: u32,
-    progress_mm: u32,
-    speed_mm_per_s: u32,
+pub(crate) struct ReplacementRule {
+    pub ranks: Vec<u32>,
+    pub edge_occurrence: u32,
+    pub progress_mm: u32,
+    pub speed_mm_per_s: u32,
 }
 
 struct Journal {
@@ -504,7 +504,7 @@ impl Burst {
     }
 }
 
-fn parking_command(operation: Operation, cell: usize) -> Command {
+pub(crate) fn parking_command(operation: Operation, cell: usize) -> Command {
     let rank = cell as u32 * 100;
     Command {
         operation,
@@ -516,7 +516,7 @@ fn parking_command(operation: Operation, cell: usize) -> Command {
     }
 }
 
-fn state_digest(world: &TrafficWorld) -> Result<String, Error> {
+pub(crate) fn state_digest(world: &TrafficWorld) -> Result<String, Error> {
     let snapshot = world
         .capture_snapshot()
         .map_err(|e| failure("snapshot", e))?;
@@ -528,7 +528,7 @@ fn state_digest(world: &TrafficWorld) -> Result<String, Error> {
         .collect())
 }
 
-fn input_digest(commands: &[Command]) -> String {
+pub(crate) fn input_digest(commands: &[Command]) -> String {
     let mut bytes = b"lf-synth-command-batch-1\0".to_vec();
     bytes.extend_from_slice(&(commands.len() as u32).to_le_bytes());
     for command in commands {
@@ -570,8 +570,10 @@ pub(super) fn run(
     let mut checkpoints = Vec::new();
     let mut batches = Vec::new();
     let mut outcome = None;
+    let mut events = crate::measurement::events::Recorder::new(total + 1, plan.identity.scale);
     for tick in 0..=total {
         let boundary_digest = burst.observe(tick, plan.warm_up_ticks, outcome.as_ref())?;
+        events.record(&burst.sample.world, &burst.handle_ranks, outcome.as_ref())?;
         trace.write_all(&tick.to_le_bytes())?;
         trace.write_all(boundary_digest.as_bytes())?;
         stream.update(&tick.to_le_bytes());
@@ -646,6 +648,7 @@ pub(super) fn run(
     )?;
     trace.flush()?;
     journal.output.flush()?;
+    events.write(&output.join("events.bin"))?;
     crate::write_json(
         &output.join("batches.json"),
         &json!({"complete":true,"batches":batches}),
@@ -666,7 +669,8 @@ pub(super) fn run(
         "gate_crossings":burst.sample.transitions,
         "max_observed_deceleration_mm_s2":burst.sample.max_deceleration_mm_s2,
         "deceleration_above_profile_count":burst.sample.deceleration_above_profile_count,
-        "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints}))
+        "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints,
+        "ordered_events_digest":events.digest()}))
 }
 
 #[cfg(test)]
