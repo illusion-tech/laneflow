@@ -77,8 +77,8 @@
 
 ## 10. 研究入口与复现（实现定稿后补精确测试名，本节自授权）
 
-- 自有 `cfg(test)` 研究入口（模块名 `signal_diag_2`），模块位置实现时定；正式实验入口与常规测试名定稿后补入本节（沿 #1134 §8 口径）。
-- 环境变量沿第 1/2 轮口径：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`COVERAGE_OUTPUT_DIR`（全新目录）、`COVERAGE_ORDER`（`old-grid`/`grid-old`）、`COVERAGE_DIAGNOSIS_ORDER`（`diagnosis-first`/`baseline-first`）；共同基线经 E0 冻结的 `*_BASELINE_DIR` 入口读取并断言钉版哈希。
+- 自有 `cfg(test)` 研究入口：模块 `calibration::signal_diag_2`。正式实验入口（四轮 ABBA，`--exact --ignored --nocapture --test-threads=1`）：`output::emit::s1::recovery_coverage::dependency_recovery::calibration::signal_diag_2::pinned_lust_signal_diag_2_coverage_diagnosis_experiment`。常规（非 ignore）测试：`…signal_diag_2::signal_diag_2_frozen_sample_and_problem_table_stay_consistent`、`…signal_diag_2::signal_diag_2_stop_line_table_pins_exact_edge_ids`、`…signal_diag_2::signal_diag_2_stop_line_three_case_checklist_covers_each_case`、`…signal_diag_2::signal_diag_2_pinned_loader_parses_same_bytes_and_rejects_others`。
+- 环境变量沿第 1/2 轮口径：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`COVERAGE_OUTPUT_DIR`（全新目录）、`COVERAGE_ORDER`（`old-grid`/`grid-old`）、`COVERAGE_DIAGNOSIS_ORDER`（`diagnosis-first`/`baseline-first`）；共同基线经 E0 冻结的 `SIX_STREAMS_BASELINE_DIR` + `shared_baseline::shared_pools()`/`results_anchor_pinned()` 钉版读取并断言。
 - 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored --nocapture --test-threads=1`；输入、预算与样本均由冻结源码与 `edges.json` 固定，不得换样后沿用结论。
 
 ## 11. 公共代码与依赖（协调章程 §2）
