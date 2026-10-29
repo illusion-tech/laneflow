@@ -1,8 +1,9 @@
 # JSON 浮点解析精度缺口生产路径审计 — 审计结论（#1155 交付物 ① 定稿）
 
-- 状态：**审计结论修订版**（应维护者 2026-10-29 审定两处修正：① 撤回 integrity_soak
-  「1 ULP 不可能翻转、影响面为零」表述，改为逐谓词「未发现实际丢位或判定翻转，浮点判定路径
-  仍需验证」；② 双态自适应测试证明力降级为「双态差异实证 + 自适应对照」，充分性论证归修复阶段）。
+- 状态：**审计结论修订版 R2**（维护者 2026-10-29 两轮审定：R1 撤回 integrity_soak「影响面为零」
+  改逐谓词待验证、双态测试证明力降级；R2 补持续时间链丢位实证并分列两项待验证、LFCA 格式依据
+  更正为 LaneFlow 封闭节目录格式位编码、两处翻转论证收紧到输入域 + 解析器行为、「均不含浮点」
+  限定为列举路径、写侧依赖更正为 `zmij`）。
   路径清单见同目录 [`path-inventory-draft.md`](path-inventory-draft.md)，初稿已过 lead 初审；
   本文件汇总结论与证据，供 lead 转维护者定稿。
 - 工作树：`E:/projects/worktrees/float-roundtrip-audit/laneflow`，分支 `research/1155-float-roundtrip-audit`；
@@ -17,10 +18,17 @@
 1. **生产持久化 / 摘要 / 验收判定路径未发现实际丢位，不提级。** 依据逐路径证据（路径清单 §1 A/B 表）：
    - LFRS 快照与确定性状态摘要为整数规范字节 + FlatBuffers，无浮点文本、无 JSON
      （`laneflow-runtime` 生产依赖树无 serde_json；快照一维数值全整数 mm/µm/`u32` mm/s）；
-   - LFCA / 共享静态路网 / wire 浮点为二进制位编码（u64 三元组），不经十进制文本；
-   - 生产 JSON 判定谓词均不含浮点解析值：stub 授权门控只取字符串身份 + net_digest；
-     caller.json / TickRecord / TickTiming / RunResult 全 `derive Eq` 无浮点字段；
-     events / commands / 观测摘要 JSON 全整数与字符串；ConversionReport / provenance 无浮点字段。
+   - LFCA / LFSM / LFSD / LFCP 规范制品为 **LaneFlow 自有封闭节目录格式**（非 FlatBuffers、
+     非 JSON；`docs/design/portable-canonical-artifact.md:50-53`），浮点 f32/f64 以 **IEEE 754
+     小端位编码** 写入——生产读写 `crates/laneflow-format/src/writer.rs:1116-1117`
+     （`FieldWriteValue::F32/F64 => cursor.u32/u64(value.to_bits())`）与 `object.rs:495-500`
+     （`from_bits` 解码），`table.rs:720-743` 拒 NaN/inf/−0.0；不经十进制文本/JSON
+     （FlatBuffers 仅为 LFRS 快照容器与未发布 Road Editing 编制输入，同文档 :53；「u64 位三元组」
+     是研究 JSON `*_f64_bits` 惯例、非 LFCA 编码形态——原稿此节误写，维护者复审更正）；
+   - **列举的**生产 JSON 判定路径不含浮点解析值（仅限以下已审计路径，不作全称断言）：
+     stub 授权门控只取字符串身份 + net_digest；caller.json / TickRecord / TickTiming / RunResult
+     全 `derive Eq` 无浮点字段；events / commands / 观测摘要 JSON 全整数与字符串；
+     ConversionReport / provenance 无浮点字段。（含浮点的判定路径见 §1.2。）
 2. **「浮点解析→判定」形态集中于 urban-harness integrity_soak**（worker 把
    `active_seconds`/`paused_seconds`（f64）写入 summary.json，`supervisor.rs:295-296` 解析回判定；
    `tests.rs` 另有阈值断言）。**未发现实际丢位或判定翻转，相关浮点判定路径仍需验证**。
@@ -34,17 +42,32 @@
    | `paused ≤ elapsed().as_secs_f64()`（:318，虚拟钟） | **无** | 翻转需 paused 距实时墙钟 ≤ 漂移量；余量由摘要落盘→判定间开销承担，未证 | **待验证** |
    | `active + paused ≤ elapsed().as_secs_f64()`（:320，真实钟） | **无** | 两解析侧 f64 各 ±1 ULP 求和后入比较；同上未证 | **待验证** |
    | `active < spec.config.seconds` 判失败（:333） | **无** | 翻转需 measured active 距阈值 ≤ 漂移量；worker 以「active ≥ 请求」为停机条件，超调余量由循环粒度决定，未证 | **待验证** |
-   | `!active.is_finite()`（:332）/ `!paused.is_finite()`（:334） | — | 有限十进制 token 解析 ±1 ULP 保持有限 | **论证成立（翻转不可达）** |
-   | `paused < 0.0` 判失败（:335） | **无** | 非负十进制 token 解析 ±1 ULP 保持非负（0.0 的 ULP 邻域不含负值） | **论证成立（翻转不可达）** |
+   | `!active.is_finite()`（:332）/ `!paused.is_finite()`（:334） | — | 基于输入域 + 解析器行为证明（非一般性质）：本路径 f64 输入恒为 `Duration::as_secs_f64()` 输出（量级 ≤ u64::MAX 秒 ≈ 1.85×10¹⁹，远离溢出阈值），token 为 zmij 有限十进制字面量，解析结果受字面量量级约束必有限 | **论证成立（前提：输入域不变量 + 解析器量级行为）** |
+   | `paused < 0.0` 判失败（:335） | **无** | 基于 token 域 + 解析器符号行为（非一般性质）：非负 Duration 的 zmij 字面量无负号 token，解析按量级舍入不引入符号 → 结果 ≥ +0.0 | **论证成立（同前提）** |
    | `tests.rs:223-224`（`paused ≥ 0.4`、`active ≥ 4.0`）、`tests.rs:327`（`wall ≥ 30.0`） | **无** | 与 :333 同形态：阈值超调余量由运行时机决定，未证 | **待验证** |
 
    判定输入域注记：`elapsed()` 为判定时实时测量（不经 JSON），漂移仅作用于 JSON 解析侧的
    `active`/`paused`；`covered`/`requested_seconds` 为整数域（精确）。维护者口径：即使有容差
-   也须证明距判定边界的余量——故容差行同样记「待验证」。验证手段（修复阶段或独立切片）：
-   对上述谓词注入 ±1 ULP 边界值做判定翻转测试，或对运行值实测边界距离分布。
-3. **实际丢位史证仅出现在研究导出工具**（#1140 重锚 parse→re-serialize ±1 ULP，18/53 分量），
-   与 serde_json 1.0.154 默认解析 1 ULP 误舍入机理一致（本审计实测复证，见 §2），非生产路径，
-   且已有文本拼接硬门钉版（`shared_baseline_anchor_text_splice_is_byte_faithful`）。历史研究结论有效（lead 已裁定）。
+   也须证明距判定边界的余量——故容差行同样记「待验证」。上表两项「论证成立」**不是一般性质**：
+   其成立依赖①输入域不变量（字段值仅来自 `Duration::as_secs_f64` 的非负有限输出、summary.json
+   由 harness 自写，威胁模型「不防有意伪造」见 `report/timing.rs:74`）与②解析器行为（非负字面量
+   不引入符号、量级受限字面量不溢出）；输入域或解析器变化须重证。验证手段（修复阶段或独立
+   切片）：对上述谓词注入 ±1 ULP 边界值做判定翻转测试，或对运行值实测边界距离分布。
+3. **丢位实证分列如下，各有限定**：
+   - **既有事故记录（限定：已记录的实际丢位事故仅在研究导出工具）**：#1140 重锚
+     parse→re-serialize ±1 ULP（18/53 分量 + 18/84 路径），与 serde_json 1.0.154 默认解析
+     1 ULP 误舍入机理一致（本审计实测复证，见 §2），非生产路径，已文本拼接硬门钉版
+     （`shared_baseline_anchor_text_splice_is_byte_faithful`）。历史研究结论有效（lead 已裁定）。
+   - **合成输入实证（维护者 2026-10-29 复现，`target/issue-1155-review/probe.rs`，本审计已独立
+     复证）**：soak 同款 `Duration → as_secs_f64 → JSON → Value` 链默认解析丢位——
+     `Duration::new(1, 774_304_400)` 写出 `1.7743044000000001`（bits `4610669575807328744`）
+     解析回 `4610669575807328743`（−1 ULP）；10,000 抽样 **1,444 个丢位**（±1 ULP 双向，另见
+     `1.8793370999999999` +1 ULP、`1.8715220000000001` −1 ULP）；启用 `float_roundtrip` 后
+     **0/10,000**。三例已入位级回归语料（`float_roundtrip.rs`），双形态 6/6 复证钉版数值。
+   - **仍待验证（分列，不并入上两项结论）**：① 真实运行产物是否丢位（soak/生产实际 JSON 数据
+     是否出现丢位 token）→ **待验证**；② 验收判定是否翻转（阈值谓词在实际运行值上是否被 1 ULP
+     翻转）→ **待验证**（虚拟时钟 100 抽样 0 丢位/0 翻转、1,444 丢位样本未见阈值翻转打印，均系
+     小样本观察，不作论证）。
 4. **Feature 统一性实证（「单包构建验证」必要性核心证据）**：`float_roundtrip` 当前仅由
    `research/issue-762-post-p3-hotspots`（**workspace 成员**）请求 → workspace 测试构建经 feature 统一
    使全workspace共享 `float_roundtrip`（**掩盖缺口**），单包生产构建没有（**暴露缺口**）。
@@ -67,9 +90,14 @@
 | `10.220051765441896` | `4621942995720077313` | `4621942995720077313`（正确） | `10.220051765441896` |
 | `0.009999999999999787` | `4576918229304087552` | `4576918229304087553`（+1 ULP） | `0.009999999999999789`（丢源 token） |
 | `0.009999999999999789` | `4576918229304087553` | `4576918229304087553`（正确） | `0.009999999999999789` |
+| `1.7743044000000001` | `4610669575807328744` | `4610669575807328743`（−1 ULP） | ≠ 源 token（丢位漂移） |
+| `1.8793370999999999` | `4611142601035910460` | `4611142601035910461`（+1 ULP） | ≠ 源 token（丢位漂移） |
+| `1.8715220000000001` | `4611107404954462598` | `4611107404954462597`（−1 ULP） | ≠ 源 token（丢位漂移） |
 
 - 两组反例对（…895/…896、…787/…789）各自恰为相邻 1 ULP；写侧序列化文本 token 逐字保真、位值往返恒等
   （写侧无损，缺口纯在解析侧）。
+- 后三行为 soak 同款时长链丢位实证样本（维护者探针 1,444/10,000 中的代表例，±1 ULP 双向），
+  已入 `float_roundtrip.rs` 语料并双形态复证。
 - **默认解析下两组反例对各自折叠到同一 bits**（…895/…896 均 → …313；…787/…789 均 → …553）——
   解析域折叠对漏报形态的直接实证；文本 token 域恒可区分。
 - 有损再序列化（#1140 事故形态）在文本 token 域可检出，行为随构建形态钉死。
@@ -115,4 +143,9 @@ cargo +1.99.1 test --locked -p laneflow-lust-converter -p laneflow-post-p3-resea
   负对照实测：default 形态下运行失败 `float_roundtrip must be active`（证明检查面有牙齿）；
 - 解析成本对照：[`parse-cost-evidence.md`](parse-cost-evidence.md)（双形态各两轮实测）；
 - 事故史证：`research/issue-1140-shared-baseline/README.md` 差异记录（lead 独立复验）；
+- 合成输入丢位实证：`target/issue-1155-review/probe.rs`（维护者复现；`default.txt`/`roundtrip.txt`
+  同目录存档：default 1,444/10,000 丢位、roundtrip 0/10,000）；三例语料经本模块双形态复证；
+- LFCA 格式依据：`docs/design/portable-canonical-artifact.md:50-53`；生产读写
+  `crates/laneflow-format/src/writer.rs:1116-1117`、`object.rs:495-500`（位编解码）、
+  `table.rs:720-743`（值域校验）；
 - 比较语义口径：`research/issue-1139-signal-diag-2/README.md` 第 4 条；`sumo/decimal.rs` `ExactDecimal::to_f64`。

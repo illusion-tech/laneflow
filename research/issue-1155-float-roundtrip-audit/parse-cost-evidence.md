@@ -4,7 +4,7 @@
   serde_json 1.0.154。数值只描述本机，不是产品阈值（沿 §8 口径）。
 - 取证入口：`calibration/float_roundtrip.rs::fixed_input_parse_cost_evidence`（`#[ignore]` 手动取证）。
 - 固定输入：确定性 50,000 个浮点 token 的 JSON 数组文本，905,087 bytes——两形态字节完全一致
-  （写侧 ryu 序列化不受 feature 影响，实测 bytes 相同）；解析目标 `Vec<f64>`。
+  （写侧 `zmij` 序列化不受 feature 影响，实测 bytes 相同）；解析目标 `Vec<f64>`。
 - 方法：每轮 220 次完整解析，弃前 20 预热，取 200 样本中位与最小值；两种构建形态各自测两轮。
   形态 A = 单包（default，无 `float_roundtrip`，生产语义）；形态 B = `-p laneflow-lust-converter
   -p laneflow-post-p3-research`（feature 统一，`float_roundtrip` 生效）。
