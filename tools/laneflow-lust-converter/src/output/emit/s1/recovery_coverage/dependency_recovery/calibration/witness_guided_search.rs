@@ -1024,7 +1024,9 @@ fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
 /// `replay_span_controls` 为逐 span 控制点载体链（诊断 span = 原失败 span 必然被捕获），
 /// 但**遇发射失败即截断**（`--30266_0` 失败于 span 0/6 只捕获 span 0），不得用作全边参考。
 fn full_reference_controls(input: &observe::EdgeInput) -> Vec<[[f64; 3]; 6]> {
-    sampler::reshape::reference(input)
+    // 段容量上界取源折线段数（参考 cubic 数 ≤ 源段数；`MAX_CURVES`=6 为流 B 设计族
+    // 冻结段容量 s 口径，不适用于全边参考重建）。
+    sampler::reshape::reference_with_curve_cap(input, input.points.len())
 }
 
 /// B 口径基准（原参考的发射折线）：全 span 六点控制取前四点（cubic），513 节点均匀
