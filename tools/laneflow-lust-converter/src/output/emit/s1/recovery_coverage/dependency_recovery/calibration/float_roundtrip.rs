@@ -80,7 +80,11 @@ fn float_roundtrip_active() -> bool {
 #[test]
 fn counterexample_tokens_have_pinned_correctly_rounded_bits() {
     for (text, bits) in CORRECT_BITS {
-        assert_eq!(text.parse::<f64>().unwrap().to_bits(), *bits, "oracle {text}");
+        assert_eq!(
+            text.parse::<f64>().unwrap().to_bits(),
+            *bits,
+            "oracle {text}"
+        );
     }
     // 两个已知反例对各自恰为相邻 1 ULP。
     assert_eq!(CORRECT_BITS[0].1 + 1, CORRECT_BITS[1].1, "895/896 adjacent");
