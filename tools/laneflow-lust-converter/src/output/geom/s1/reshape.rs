@@ -197,11 +197,18 @@ fn bits(curves: &[Control]) -> Vec<[[u64; 3]; 6]> {
         .collect()
 }
 
+/// sink 拒绝证据（子原因 + 错误信息原文；原文内含量化弦长/转角实测值与阈值，
+/// 供 R2/R3「实测 vs 期望」核对——D/B 复核建议 1 证据通道）。
+pub(super) struct SinkRejection {
+    pub(super) reason: &'static str,
+    pub(super) message: String,
+}
+
 enum Attempt {
     Accepted(Candidate),
-    /// 拒绝原因 + sink 子原因（`Some` 仅 `reason == "sink"`；分类供 B 驱动明细，
+    /// 拒绝原因 + sink 证据（`Some` 仅 `reason == "sink"`；分类供 B 驱动明细，
     /// 主循环计数口径不变）。
-    Rejected(&'static str, Option<&'static str>),
+    Rejected(&'static str, Option<SinkRejection>),
     Budget,
 }
 
@@ -260,7 +267,14 @@ fn attempt(
                 return Attempt::Rejected("sampling_deviation", None);
             }
             if let Err(error) = sink.push(end) {
-                return Attempt::Rejected("sink", Some(sink_reject_sub_reason(&error.to_string())));
+                let message = error.to_string();
+                return Attempt::Rejected(
+                    "sink",
+                    Some(SinkRejection {
+                        reason: sink_reject_sub_reason(&message),
+                        message,
+                    }),
+                );
             }
         }
         parameter_bits.push(params.iter().map(|t| t.to_bits()).collect::<Vec<_>>());
