@@ -6,6 +6,7 @@ mod closure;
 mod cohort2_coverage;
 mod coverage;
 mod experiment;
+mod float_roundtrip;
 pub(super) mod shared_baseline;
 mod signal_diag_1;
 mod signal_diag_2;
