@@ -82,6 +82,12 @@ fn geometry_covers_all_cells_with_exact_split_and_disjoint_bands() {
                     })
                     .sum();
                 assert_eq!(length, 5_130.0, "axis aligned telescoping length");
+                let committed_arc = edge.windows(2).fold(0.0_f32, |sum, p| {
+                    sum + (p[1].x - p[0].x)
+                        .hypot(p[1].y - p[0].y)
+                        .hypot(p[1].z - p[0].z)
+                });
+                assert_eq!(committed_arc, 5_130.0, "production f32 arc accumulation");
                 for point in edge {
                     assert!((-16_384.0..=16_384.0).contains(&point.x));
                     assert!((-16_384.0..=16_384.0).contains(&point.z));
