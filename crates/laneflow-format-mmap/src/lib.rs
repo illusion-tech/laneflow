@@ -1,6 +1,6 @@
 //! 平台私有临时文件 staging 与只读映射 backing。
 //!
-//! 本 crate 是 workspace 内唯一登记的手写 unsafe 例外。SAFETY 自证链完整封在
+//! 本 crate 是 workspace 内登记的手写 unsafe 例外之一。SAFETY 自证链完整封在
 //! 本模块内：
 //!
 //! 1. [`PrivateStagedFile::create_in`] 经 `tempfile::tempfile_in` 创建 backing：

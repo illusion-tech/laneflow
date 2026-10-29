@@ -6,22 +6,37 @@ on:
       - "crates/laneflow-road-editing-wire/**"
       - "crates/laneflow-compiler/**"
       - "crates/laneflow-format-mmap/**"
+      - "crates/laneflow-format/**"
+      - "crates/laneflow-static-contract/**"
+      - "crates/laneflow-static-network/**"
+      - "crates/laneflow-runtime/**"
+      - "crates/laneflow-runtime-snapshot-wire/**"
+      - "crates/laneflow-motion-kernel/**"
       - "schemas/road-editing/**"
+      - "schemas/runtime-snapshot/**"
       - "fuzz/**"
       - ".github/workflows/fuzz.yml"
   merge_group:
     types:
       - checks_requested
   workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "每个目标的有界运行秒数；#536 正式窗口使用 1800"
+        type: choice
+        options:
+          - "300"
+          - "1800"
+        default: "300"
 
 permissions:
   contents: read
 
 jobs:
-  lfre-fuzz:
-    name: LFRE fuzz bounded smoke (${{ matrix.target }})
+  input-fuzz:
+    name: Input fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       # 一个 target 出 crash 时另一个仍要跑完并各自上传 artifact。
       fail-fast: false
@@ -29,18 +44,20 @@ jobs:
         target:
           - lfre_arbitrary_bytes
           - lfre_writer_differential
+          - portable_arbitrary_bytes
+          - portable_bundle_mutation
+          - lfrs_restore
+          - cutover_inputs
     env:
       # 每个 target 的有界运行秒数，保持 PR 反馈在分钟级。
-      FUZZ_MAX_TOTAL_TIME: "300"
-      # 单个输入的执行超时秒数，把近死循环输入判为 crash 而不是拖住 job。
-      FUZZ_TIMEOUT: "25"
+      FUZZ_MAX_TOTAL_TIME: ${{ inputs.duration_seconds || '300' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust nightly toolchain for libFuzzer
         shell: bash
-        run: rustup toolchain install nightly --profile minimal
+        run: rustup toolchain install nightly --profile minimal --component clippy
 
       - name: Cache Rust dependencies for fuzz
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -56,18 +73,42 @@ jobs:
         shell: bash
         run: cargo +nightly install cargo-fuzz --locked --version 0.13.2
 
+      - name: Record toolchain identity
+        run: |
+          rustc +nightly --version --verbose
+          cargo +nightly --version
+          cargo +nightly fuzz --version
+
+      - name: Validate harness oracles
+        run: cargo +nightly test --manifest-path fuzz/Cargo.toml --locked --lib
+
+      - name: Check fuzz harness lints
+        run: cargo +nightly clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Prepare seed corpus and byte inventory
+        run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed_corpus -- fuzz/corpus
+
       - name: Fuzz ${{ matrix.target }}
         shell: bash
         env:
           FUZZ_TARGET: ${{ matrix.target }}
         run: >-
-          cargo +nightly fuzz run ${FUZZ_TARGET} --
-          -max_total_time=${FUZZ_MAX_TOTAL_TIME} -timeout=${FUZZ_TIMEOUT}
+          cargo +nightly run --manifest-path fuzz/Cargo.toml --locked
+          --example run_campaign -- ${FUZZ_TARGET}
 
-      - name: Upload crash artifacts
-        if: failure()
+      # cargo-fuzz 0.13.2 不提供 --locked；前置 Cargo 命令使用锁文件，执行后再核对未漂移。
+      - name: Verify dependency lockfiles stayed unchanged
+        run: git diff --exit-code -- Cargo.lock fuzz/Cargo.lock
+
+      - name: Preserve corpus and crash artifacts
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: lfre-fuzz-artifacts-${{ matrix.target }}
-          path: fuzz/artifacts/
-          if-no-files-found: ignore
+          name: input-fuzz-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            fuzz/corpus/${{ matrix.target }}/
+            fuzz/corpus/seed-inventory.tsv
+            fuzz/artifacts/${{ matrix.target }}/
+            fuzz/receipts/${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 90
