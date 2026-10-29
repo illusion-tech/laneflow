@@ -68,6 +68,21 @@ fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
 
+/// plan §6.1 运行局部字段显式归一化（统筹预授权）：分量行 `artifact` 文件名的运行/变体
+/// 前缀（`baseline-` / `new-` / `stream-a-…-` 等）归一为规范后缀 `component-NN.lfca`；
+/// 其余非计时语义字段一律逐值比较，不许静默跳过。
+fn normalized_artifact(value: &Value) -> Value {
+    match value.as_str() {
+        Some(name) => json!(
+            name.split("component-")
+                .last()
+                .map(|suffix| format!("component-{suffix}"))
+                .unwrap_or_else(|| name.to_owned())
+        ),
+        None => value.clone(),
+    }
+}
+
 fn cohort() -> Value {
     serde_json::from_str(include_str!(
         "../../../../../../../../../research/issue-1138-signal-diag-1/edges.json"
@@ -562,15 +577,6 @@ fn pinned_lust_signal_diag_1_experiment() {
                 .and_then(Value::as_u64)
                 .map(|total| total - result["trials"].as_array().unwrap().len() as u64);
             result["unvisited_assignments"] = json!(unvisited);
-            if variant == "baseline" {
-                let prior = &variant_anchor["components"][index];
-                assert_eq!(prior["component"], json!(component.id));
-                assert_eq!(
-                    normalized(&result),
-                    prior["result"],
-                    "baseline component matches the shared result anchor"
-                );
-            }
             if result["status"] == "accepted" {
                 for (id, choice) in result["selected_assignment"].as_object().unwrap() {
                     programs.insert(
@@ -579,10 +585,25 @@ fn pinned_lust_signal_diag_1_experiment() {
                     );
                 }
             }
+            let artifact = (result["status"] == "accepted").then_some(file);
+            if variant == "baseline" {
+                let prior = &variant_anchor["components"][index];
+                assert_eq!(prior["component"], json!(component.id));
+                assert_eq!(
+                    normalized(&result),
+                    prior["result"],
+                    "baseline component matches the shared result anchor"
+                );
+                assert_eq!(
+                    normalized_artifact(&json!(artifact)),
+                    normalized_artifact(&prior["artifact"]),
+                    "artifact run-local prefix normalized equal"
+                );
+            }
             rows.push(json!({"component":component.id,"result":result,
                 "cohort":cohort_ids.contains(&component.id),
                 "stop_line_checks":stop_checks,
-                "artifact":(result["status"]=="accepted").then_some(file)}));
+                "artifact":artifact}));
         }
         let paths = reference["baseline_paths"]
             .as_array()

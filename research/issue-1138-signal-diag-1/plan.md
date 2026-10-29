@@ -43,6 +43,12 @@
 3. 阶段三组合：分量码序 C14、C15、C18、C46。
 4. 四独立 release 进程：搜索族 old→grid、grid→old、grid→old、old→grid；诊断 diagnosis-first、baseline-first、baseline-first、diagnosis-first。
 
+### 6.1 逐值比较口径（统筹预授权，2026-10-29）
+
+- **逐值比较 = 语义字段逐值**：`status`、`selected_result`/`selected_assignment`、`trials`/计数、`paths`/`path_counts`、`missing_edges` 列表、分量结果语义行等**必须逐值相同**。
+- **运行局部字段显式归一化后比较**（不许静默跳过字段）：分量行 `artifact` 文件名的运行/变体前缀（`baseline-` / `new-` / `stream-a-…-` 等）归一为规范后缀 `component-NN.lfca` 后比较；本规则同步写入 README。除运行局部命名外，任何非计时语义字段不一致 → 按 §7 停机报统筹。
+- 同机同二进制下 `lfca_bytes`/内容哈希应逐值相同（基线分量发射不受本路测试代码影响）；哈希级不同即真差异，照停。
+
 ## 7. 验证与证据（逐值沿用第 1 轮 §5 与执行注意事项）
 
 - 四轮非计时输出逐字节比较（`fc.exe /b`）；evidence-manifest/environment/measurements；结果 JSON 禁计时字段；输出目录全新；中止产物 `*-aborted-*` 归档；搜索/运行生成物压缩挂 Release，仓库只留计划、入口与摘要。
