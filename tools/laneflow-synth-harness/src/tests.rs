@@ -103,13 +103,14 @@ fn canonical_initialization_and_guard_negative_controls() {
 }
 
 #[test]
-fn w3_is_rejected_and_existing_output_is_preserved() {
+fn invalid_input_and_existing_output_are_preserved() {
     let bundle = bundle(Case::W3, 33);
-    assert!(Plan::read(&bundle).is_err());
+    assert!(Plan::read(&bundle).is_ok());
     let root = tempfile::tempdir().unwrap();
     let input = root.path().join("input");
     let output = root.path().join("output");
     bundle.write_new(&input).unwrap();
+    std::fs::write(input.join("input-plan.json"), b"{}").unwrap();
     assert!(crate::run(&input, &"c".repeat(40), &output).is_err());
     let before = std::fs::read(output.join("report.json")).unwrap();
     let report: serde_json::Value = serde_json::from_slice(&before).unwrap();

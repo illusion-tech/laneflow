@@ -29,7 +29,7 @@ pub(crate) fn aspect(cell: u32, route: u32, tick: u64, dt: u32) -> SignalAspect 
     }
 }
 
-fn position(state: VehicleState) -> u64 {
+pub(crate) fn position(state: VehicleState) -> u64 {
     (u64::from(state.route_edge_index()) * EDGE_MM + u64::from(state.progress_mm())) * 1_000
         + u64::from(state.carry_um())
 }
