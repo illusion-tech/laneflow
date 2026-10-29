@@ -26,6 +26,11 @@ pub(crate) struct GeometrySpec {
 }
 
 /// 逐配置行（B 冻结形态：六字段 + source_fit/arc_m/source_length_estimate 补齐）。
+///
+/// **词汇映射（D/B 复核建议 2/3，防跨机器汇总错位）**：本驱动
+/// `backtracking_rejected` ≡ 旧机 `backtracking_control_rejected`、
+/// `completed_finite_family` ≡ 旧机 `completed_finite_geometry_family`
+/// ——语义同、字面异；对照列取冻结记录不碰撞。
 pub(crate) struct AttemptRow {
     pub(crate) geometry_index: usize,
     pub(crate) description: Value,
@@ -49,11 +54,14 @@ pub(crate) struct RetainedEntry {
 }
 
 /// 逐配置尝试拒绝明细（R2/R3 直调：钉住输入与 (族,n) 后直接取拒绝标签与子原因证据）。
+///
+/// `measured` 证据通道（D/B 复核建议 1）：sink 拒绝携带错误信息原文（内含量化弦长 /
+/// 转角实测值与 0.10 m / 1.95° 阈值口径），R2/R3 直调断言据实测值落证。
 pub(crate) struct RejectionDetail {
     /// 拒绝阶段（与 `AttemptRow.partition_rejections` 同词汇；通过记 "accepted"）。
     pub(crate) stage: &'static str,
     pub(crate) sink_sub_reason: Option<&'static str>,
-    /// 实测证据（失败窗量化弦长/错误信息原文；阈值 0.10 m / 1.95° 为排除余量口径）。
+    /// 实测证据（sink 错误原文 + (族,n)；阈值 0.10 m / 1.95° 为排除余量口径）。
     pub(crate) measured: Value,
 }
 
@@ -168,7 +176,7 @@ pub(crate) fn search_custom_geometries(
                     Attempt::Budget => break,
                     Attempt::Rejected(reason, sub) => {
                         let key = match (reason, sub) {
-                            ("sink", Some(sub)) => format!("sink_rejected:{sub}"),
+                            ("sink", Some(sub)) => format!("sink_rejected:{}", sub.reason),
                             (reason, _) => reason.to_owned(),
                         };
                         *row.partition_rejections.entry(key).or_default() += 1;
@@ -272,8 +280,11 @@ pub(crate) fn attempt_reject_detail(
         },
         Attempt::Rejected(reason, sub) => RejectionDetail {
             stage: reason,
-            sink_sub_reason: sub,
-            measured: json!({"family":family,"n":n}),
+            sink_sub_reason: sub.as_ref().map(|s| s.reason),
+            measured: match &sub {
+                Some(s) => json!({"family":family,"n":n,"error_message":s.message}),
+                None => json!({"family":family,"n":n}),
+            },
         },
     }
 }
@@ -305,6 +316,44 @@ mod tests {
             "weld_turn"
         );
         assert_eq!(sink_reject_sub_reason("other"), "sink_other");
+    }
+
+    #[test]
+    fn reject_detail_carries_measured_evidence() {
+        // D/B 复核建议 1：实测证据通道——sink 拒绝携带错误原文（内含量化弦长实测值），
+        // R2/R3 直调断言据实测值落证（R3 0.09m 相邻点距即 degenerate_chord 形态）。
+        let input = EdgeInput {
+            points: vec![
+                [0.0, 0.0, 0.0],
+                [4.0, 0.2, 0.0],
+                [8.0, 0.2, 0.0],
+                [12.0, 0.0, 0.0],
+            ],
+            clamps: [None, None],
+            clamp_sources: [None, None],
+        };
+        let tiny = GeometrySpec {
+            config_index: 0,
+            group: "whole",
+            factors: vec![[1.0, 1.0]],
+            cubics: vec![[
+                [0.0, 0.0, 0.0],
+                [0.01, 0.0, 0.0],
+                [0.02, 0.0, 0.0],
+                [0.03, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+            ]],
+            preclassified: None,
+        };
+        let detail = attempt_reject_detail(&input, &tiny, "even", 2);
+        assert_eq!(detail.stage, "sink");
+        assert_eq!(detail.sink_sub_reason, Some("degenerate_chord"));
+        let message = detail.measured["error_message"].as_str().unwrap();
+        assert!(
+            message.contains("degenerate canonical segment"),
+            "实测原文落证"
+        );
     }
 
     #[test]
