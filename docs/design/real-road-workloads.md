@@ -36,7 +36,7 @@ Accepted 工作负载。
 本文当前只冻结设计契约。converter、Release assets、TOPO/DEMAND plan、benchmark
 harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实现和证据完成前：
 
-- `LF-SYNTH-v1` 继续是一万/十万唯一 canonical product Gate baseline；
+- `LF-SYNTH-v2` 继续是一万/十万唯一 canonical product Gate baseline；
 - TOPO 只能形成真实拓扑压力的补充结果，不能单独形成 Product Pass；
 - DEMAND 全部结果都是 observation，不适用 #215 的 performance budget；
 - 不得宣称真实城市 workload SLA、LuST travel-time fidelity、真实停车代表性或中国
@@ -679,7 +679,7 @@ digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runt
   digest 改变时，必须提升受影响 workload ID；
 - converter 纯重构且所有 semantic bytes/digests 不变时可以保留 ID，但运行记录必须
   保存新的 converter commit 和 build provenance record；
-- TOPO、DEMAND 与 `LF-SYNTH-v1` 不直接比较绝对值；同硬件、同 build、同协议的
+- TOPO、DEMAND 与 `LF-SYNTH-v2` 不直接比较绝对值；同硬件、同 build、同协议的
   跨 ID 差异只能标为相对 observation；
 - production runtime 不得识别 workload ID、source、seed、population rank 或
   external-ID prefix 走专用路径。

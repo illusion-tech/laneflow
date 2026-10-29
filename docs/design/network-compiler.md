@@ -1782,7 +1782,7 @@ kernel 时虚构绝对 SLA。Gate 至少覆盖：
   的成本与 SoA/CSR、融合执行器等收益分别报告，不以 baseline 数字单独否决终态契约；
 - 动态通行定义编译（Dynamic Traversal Compilation）不进入交通参与单元固定步进；
 - 中国特色城市工作负载（Chinese-style City Workload）的拓扑/需求/运行时指标由
-  后继 G1 建立，不能用 `LF-SYNTH-v1`、LuST 或多世界集合静默代替；
+  后继 G1 建立，不能用 `LF-SYNTH-v2`、LuST 或多世界集合静默代替；
 - target-specific SIMD/alignment 候选相对 portable/common layout 的收益。
 
 不能用“BLAKE3/StableId128 可能变大”推导 tick 回退：ID 位于 cold/compiler boundary，

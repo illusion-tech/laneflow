@@ -72,6 +72,10 @@ mod spawn_overlap_tests;
 #[path = "tests/placement_admission.rs"]
 mod placement_admission_tests;
 
+#[cfg(test)]
+#[path = "tests/lf_synth_contract.rs"]
+mod lf_synth_contract;
+
 /// #814 三个数值后端 × worker 数的整世界逐拍对拍。
 #[cfg(test)]
 #[path = "tests/motion_backend_equivalence.rs"]

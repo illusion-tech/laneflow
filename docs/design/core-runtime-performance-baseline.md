@@ -1,7 +1,7 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-09-07<br>
+**最后更新**: 2026-10-29<br>
 **适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
@@ -168,7 +168,7 @@ Pass、容量比较或计算复杂度归因；跨域汇总只能作为已说明�
 
 ### 3.3 已接受目标对当前道路机动车的映射
 
-当前 `CoreWorld`、`VehicleState`、`LF-SYNTH-v1`、LuST workload 与既有一万/十万/
+当前 `TrafficWorld`、`VehicleState`、`LF-SYNTH-v2`、LuST workload 与既有一万/十万/
 一百万证据只覆盖道路机动车执行域。本文使用 reporting token
 `road_motor_vehicle` 表示该 current specialization；它不是 production schema enum，
 也不预先冻结非机动车、步行或轨道交通 API。
@@ -233,7 +233,7 @@ workload：
   Gate。
 - 中国特色城市工作负载（Chinese-style City Workload）将作为新的并列工作负载族
   建立，不能把
-  `LF-SYNTH-v1` 或 LuST 静默改名，也不能在正式 topology/demand/runtime
+  `LF-SYNTH-v2` 或 LuST 静默改名，也不能在正式 topology/demand/runtime
   contract 前据此声明中国特色城市 Product Pass。
 - W1/W3 至少运行 `N_presented = 1% / 10% / 50% / 100%`；其中只有
   一万 W1 的 100% 行和十万 W1 的 10% 行是 presentation Gate 主行，其余行是
@@ -263,21 +263,24 @@ presentation matrix 的判定角色固定如下：
 | 一万 W4         | 固定 `N_presented=100%`    | 无其他 presentation row                       |
 | 十万 W4         | 固定 `N_presented=10%`     | 无其他 presentation row                       |
 
-### 4.1 `LF-SYNTH-v1` 确定性生成契约
+### 4.1 `LF-SYNTH-v2` 确定性生成契约
+
+#1148 将相位离散化、密集车队初速与生命周期输入对齐现行生产准入，因此更新工作负载
+身份。旧 `LF-SYNTH-v1` 仅保留于 Git 历史；当前以本节合同为唯一实现目标，不建立兼容路径。
 
 当前 canonical workload 使用确定性生成的匹配规模路网
-`LF-SYNTH-v1`，不以某个现实城市或部署分布为代表。LuST v2.0 的来源与共享转换
+`LF-SYNTH-v2`，不以某个现实城市或部署分布为代表。LuST v2.0 的来源与共享转换
 沿用 #224 G1，双 workload 的确定性派生由 #1051 修订为 `LF-REAL-LUST-TOPO-v2` /
 `LF-REAL-LUST-DEMAND-v2`，详见
 [`real-road-workloads.md`](real-road-workloads.md)。converter、Release assets、
 harness 和结果仍待下游交付；两个 real-road workload 只承担 supplemental /
-observation 角色，不替换 `LF-SYNTH-v1`，也不能把 synthetic baseline 结果解释为
+observation 角色，不替换 `LF-SYNTH-v2`，也不能把 synthetic baseline 结果解释为
 real-road representativeness。
 
-`LF-SYNTH-v1` 以 100 个 individual 为一个 cell。一万生成 100 cells，十万
+`LF-SYNTH-v2` 以 100 个 individual 为一个 cell。一万生成 100 cells，十万
 生成 1000 cells；每个 cell 固定包含 4 条互不相交的有向 route、8 条 edge、
 1 个 fixed-time signal controller、4 个 signal group/gate/stop line、
-1 个 ParkingArea 和 100 个 ParkingSpace。
+1 个 `ParkingFacility`（虚拟容量为 0）和 100 个 `ParkingSpace`。
 
 | 项目                        | 每 cell 冻结值       | 一万 / 十万归一化总数 |
 | --------------------------- | -------------------- | --------------------- |
@@ -286,7 +289,7 @@ real-road representativeness。
 | edge                        | 4 entry + 4 exit     | 800 / 8,000           |
 | signal controller           | 1                    | 100 / 1,000           |
 | signal group/gate/stop line | 4 / 4 / 4            | 400 / 4,000 each      |
-| ParkingArea                 | 1                    | 100 / 1,000           |
+| ParkingFacility             | 1                    | 100 / 1,000           |
 | ParkingSpace                | 4 routes × 25 spaces | 10,000 / 100,000      |
 
 拓扑与 Spatial geometry 按以下算法生成：
@@ -308,19 +311,31 @@ real-road representativeness。
    geometry band 不重叠。
 
 每条 route 在 entry/exit 边界设置一个 stop line 和一个 gate，并映射到本 cell
-对应的 signal group。controller 使用固定 58 s 六阶段周期：
+对应的 signal group；四条独立通路各声明一个 Junction、Movement 和无 internal edge 的
+ManeuverPath，gate 位于 transition index 0，显式策略为 `ProtectedGroup`。
+controller 的六阶段名义时长按以下规则在生成侧离散化；Runtime 不取整：
 
-| 阶段     | 时长 | route 0/2 | route 1/3 |
-| -------- | ---: | --------- | --------- |
-| A green  | 30 s | Green     | Red       |
-| A yellow |  3 s | Yellow    | Red       |
-| all red  |  1 s | Red       | Red       |
-| B green  | 20 s | Red       | Green     |
-| B yellow |  3 s | Red       | Yellow    |
-| all red  |  1 s | Red       | Red       |
+```text
+phase_ms[i] = ceil(nominal_phase_ms[i] / delta_ms) * delta_ms
+cycle_ms = sum(phase_ms)
+C_signal_ticks = cycle_ms / delta_ms
+```
+
+| 阶段     | 名义时长 | 16 ms 下的时长 | 33 ms 下的时长 | route 0/2 | route 1/3 |
+| -------- | -------: | -------------: | -------------: | --------- | --------- |
+| A green  |     30 s |       30000 ms |       30030 ms | Green     | Red       |
+| A yellow |      3 s |        3008 ms |        3003 ms | Yellow    | Red       |
+| all red  |      1 s |        1008 ms |        1023 ms | Red       | Red       |
+| B green  |     20 s |       20000 ms |       20031 ms | Red       | Green     |
+| B yellow |      3 s |        3008 ms |        3003 ms | Red       | Yellow    |
+| all red  |      1 s |        1008 ms |        1023 ms | Red       | Red       |
+
+16/33 ms 的周期分别为 58032/58113 ms，即 3627/1761 ticks。对应 warm-up 为
+14508/7044 ticks，W1–W3 observation 为 29016/14088 ticks。
 
 W1–W3 的 controller offset 为
-`(cell_index × 997) mod 58000 ms`。W4 使用第 4.3 节按 fixed step 派生的统一
+`(cell_index × 997) mod cycle_ms`；offset 使用整数毫秒，不要求整除步长。
+W4 使用第 4.3 节按 fixed step 派生的统一
 offset，使所有 controller 在第一 observation step 同时从最后一个 all-red
 进入 A-green。
 
@@ -341,17 +356,22 @@ comfortable deceleration 2.0 m/s²、emergency deceleration 6.0 m/s²。
 individual 以 speed 0 占用同 route、同 slot 的 ParkingSpace，其 resume target
 固定为 exit edge occurrence index 1 和该 space 的 exit anchor。
 
+初始构造按 `(cell_index, route_index, slot_index)` 升序执行。Active 使用
+`spawn_vehicle`；Parked 使用 `spawn_parked_vehicle` 直接建立 `Parked + Occupied`，
+不伪造到达事件。密集车队以零速构造；6.5 m 间距保持不变。1 m/s 的原输入在
+现行安全准入下按升序生成被 `UnsafeFollower` 拒绝，逆序也被 `UnsafeLeader` 拒绝。
+
 | Workload                 | 每 cell 的确定性初始 population                                                                                                                                                                                                                                                                                            |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| W1 Mixed product         | route 0：25 active，progress `20 + 6.5 × s m`，speed 1.0 m/s；route 1：25 active，同 spacing/speed；route 2：slots 0–11 为 12 active，progress `20 + 28 × s m`，speed 13.9 m/s，其余 13 parked；route 3：slots 0–12 为 13 active，同 free-flow spacing/speed，其余 12 parked。合计 75 active / 25 parked。                 |
-| W2 Dense following       | 四条 route 的全部 25 slots active，progress `20 + 6.5 × s m`，speed 1.0 m/s。相邻车辆 front-position 间距为 6.5 m，扣除 4.5 m 车长后恰为 2.0 m minimum gap，因此每条 route 除最前方车辆外的 24/25、全局同样为 24/25 individual 有 leader（每 cell 96/100）。                                                               |
+| W1 Mixed product         | route 0：25 active，progress `20 + 6.5 × s m`，speed 0 m/s；route 1：25 active，同 spacing/speed；route 2：slots 0–11 为 12 active，progress `20 + 28 × s m`，speed 13.9 m/s，其余 13 parked；route 3：slots 0–12 为 13 active，同 free-flow spacing/speed，其余 12 parked。合计 75 active / 25 parked。                   |
+| W2 Dense following       | 四条 route 的全部 25 slots active，progress `20 + 6.5 × s m`，speed 0 m/s。相邻车辆 front-position 间距为 6.5 m，扣除 4.5 m 车长后恰为 2.0 m minimum gap，因此每条 route 除最前方车辆外的 24/25、全局同样为 24/25 individual 有 leader（每 cell 96/100）。                                                                 |
 | W3 Parking/lifecycle     | route 0–2 的 slots 0–5 和 route 3 的 slots 0–6 active，progress `20 + 28 × s m`，speed 13.9 m/s；其余 parked。初始合计 25 active / 75 parked。route 0 slot 0 是 Parking probe；route 3 slot 6 是 lifecycle probe。两者按下文固定序列运行。                                                                                 |
 | W4 Synchronized boundary | 继承 W1 的 topology、初始 population 与 spacing；按第 4.3 节冻结 controller offset、probe slots、command order 与 observation ticks，使 Signal release、Parking release 和 atomic lifecycle replace 在 `B0` 提交，route/edge transition 在读取已提交 green snapshot 的 `B1` 提交。W4 不改变 normalized individual counts。 |
 
 28 m free-flow front-position 间距高于基础参数在 13.9 m/s 时的
 `4.5 + 2.0 + 1.5 × 13.9 = 27.35 m` equilibrium spacing。任何 benchmark
 harness 对上述 topology、population、spacing、phase 或 stable order 的改变，
-都必须产生新的 workload ID，不能仍标记为 `LF-SYNTH-v1`。
+都必须产生新的 workload ID，不能仍标记为 `LF-SYNTH-v2`。
 
 W1/W2 的 active population 以及 W3 中非 probe 的 active population 在正式
 case 内不得自然耗尽。16 ms 与 33 ms 行从 warm-up 开始到 observation 结束最多分别
@@ -373,23 +393,23 @@ transition 的性能和 tail 只由下述 W3/W4 frozen sequences 承担，不得
 W3 的 Parking probe 使用以下 fixed-step input sequence：
 
 1. world 构造完成后、第一条 warm-up step 前，按 cell 升序对 route 0 slot 0
-   调用 `reserve_parking_space`，目标是同一 logical slot 的 ParkingSpace。每次
-   command 必须返回 `Applied`；selected entry 固定为 exit edge occurrence index
+   调用 `reserve_parking`，目标是同一 logical slot 的 ParkingSpace。每次
+   command 必须返回 `ParkingCommandOutcome::Committed`；selected entry 固定为 exit edge occurrence index
    1、edge progress 5 m。W3 不创建其他 reservation。
 2. 该 probe 的初始 route progress 为 20 m。完整 warm-up 即使始终以
-   13.9 m/s 行驶也只会到达 3244.8 m，小于 entry 的 route progress
+   13.9 m/s 行驶也最多到达 3251.083 m，小于 entry 的 route progress
    5135 m，因此 warm-up 不得产生 arrival。observation 内每个 cell 必须恰好产生
-   一条该 probe 的 ordered `VehicleParkingArrivalReached`；缺失、重复或出现在
+   一条该 probe 的 `StepOutcome::parking_arrivals()` 观测；保持返回的稳定顺序，缺失、重复或出现在
    warm-up 都使 round 无效。
 3. harness 只收集 arrival event，不按单个 cell 提前 commit。全部 cells 都已恰好
    arrival 后，在紧接着的下一 boundary 建立 barrier，并按 cell 升序对所有 exact
-   pairs 调用 `commit_parking`；每次必须返回 `Applied`。随后恰好运行一条
+   pairs 调用 `park_vehicle`；每次必须返回 `ParkingCommandOutcome::Committed`。随后恰好运行一条
    successful Core step，使全部 probes 以 `Occupied + Parked` 从 lane authority
    排除；该 tick 的全局 W3 population 精确为 24% active / 76% parked。若 barrier
    后不足两条 observation steps，round 无效。
 4. 紧接着的下一 boundary 按 cell 升序对全部 probes 调用 `leave_parking`，目标仍为原 route、
    exit edge occurrence index 1 和 canonical exit anchor 5 m，且必须返回
-   `Applied`。entry/exit anchor 相同；leave 后恢复 25 active / 75 parked。不得
+   成功的 `ParkingLeaveRecord`。entry/exit anchor 相同；leave 后以零速恢复 25 active / 75 parked。不得
    cancel、rebind、延迟 leave 或对该 probe 开始第二轮 reservation。
 
 由此每个 cell 都执行同一条
@@ -404,10 +424,13 @@ W3 的 lifecycle probe 同时使用以下 fixed-step input sequence：
 
 1. warm-up 结束后的首个 observation boundary，按 cell 升序对 route 3 slot 6
    顺序执行 caller-owned despawn 和 spawn command；spawn 复用同一 logical
-   external ID，新 handle 保留该 logical slot，route progress 为 10259.9 m、
-   speed 为 13.9 m/s。该 command batch 计入 W3 lifecycle burst；任一 command
+   external ID，新 handle 保留该 logical slot，route progress 为 10260 m、
+   speed 为 0。新鲜状态为 Active，下一拍提交 Completed。
+   该 command batch 计入 W3 lifecycle burst；任一 command
    失败都使该 round 无效。
-2. Core step 后按 ordered completion event 建立 frozen replacement plan；下一个
+2. successful step 后，宿主按 logical rank 升序比较该拍前后状态，记录
+   `Active -> Completed` 的完成观测；这不是 Runtime 新增的事件 API。
+   据此建立 frozen replacement plan；下一个
    lifecycle boundary 使用 Core atomic replace，把同一 logical external ID 的新
    handle 放回 route progress 188 m、speed 13.9 m/s。
 3. 每个 boundary 的全局顺序固定为 `apply pending Parking commits by cell ->
@@ -418,9 +441,10 @@ W3 的 lifecycle probe 同时使用以下 fixed-step input sequence：
    或 active-count drain 时，该 round 无效。
 
 W3 failed-step/retry guardrail 同样使用第 8.1 节的 optimized test-only binary：
-failpoint 固定指向 cell 0 route 3 slot 6 在 atomic replacement 后的新 handle，
-post-command/pre-step state 必须单独记录 digest；失败后不重复 lifecycle command，
-清除 failpoint 后只重试相同 Core step，并与独立 fresh replay 比较。
+failpoint 在首批 atomic replacements 后的下一 step 使用第 4.3 节定义的
+`StepFailpoint::AfterTransitions`。post-command/pre-step state 必须单独记录
+现行 `deterministic_state_digest`，并保留规范快照逐值比较；失败后不重复 lifecycle
+command，只重试相同 Core step，并与独立 fresh replay 比较。
 
 ### 4.3 W4 同步 causal burst 输入序列
 
@@ -430,12 +454,12 @@ step；其 pre-step tick index 为 `warm_up_ticks`。对当前 case 的
 
 ```text
 t_B0_post_ms = (warm_up_ticks + 1) * delta_ms
-w4_offset_ms = (58000 - (t_B0_post_ms mod 58000)) mod 58000
+w4_offset_ms = (cycle_ms - (t_B0_post_ms mod cycle_ms)) mod cycle_ms
 ```
 
 因此 `B0` pre-step 位于最后一个 all-red 的最后 `delta_ms`，`B0` successful
 step 的 post-step position 精确为 cycle 0，并同时产生 A-green release。16 ms
-case 的 offset 为 57856 ms；33 ms case 的 offset 为 57515 ms。
+case 的 offset 为 58016 ms；33 ms case 的 offset 为 58080 ms。
 
 W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up step，`B0/B1`
 表示前两条 observation steps。因为车辆使用 pre-step Signal snapshot，`B0`
@@ -444,8 +468,8 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
 `cell_index` 升序：
 
 1. 在 `B-1` pre-step，依次 despawn route 3 slot 12 的 active handle，并用同一
-   logical external ID spawn 新 handle，route progress 为 10259.9 m、speed 为
-   13.9 m/s。`B-1` Core step 必须产生这些 handle 的 ordered completion events，
+   logical external ID spawn 新 handle，route progress 为 10260 m、speed 为
+   0。`B-1` Core step 后必须按第 4.2 节产生这些 handle 的宿主完成观测，
    并为 `B0` 冻结 replacement inputs。
 2. 在 `B0` pre-step，先按 cell 升序 apply route 3 slot 12 pending atomic
    replacements；replacement route progress 为 356 m、speed 为 13.9 m/s。
@@ -467,12 +491,10 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
    failed-step/retry W4 使用同一份 pre-`B0` state、command-batch digest 和 Core
    step-input digest。pending replace 与 Parking leave 只执行一次；完成这些同步
    command 后必须记录 post-command/pre-step state `S_B0` 及其 digest。
-7. failure guardrail 使用 Core crate 内 `#[cfg(test)]` 的
-   `step_failure_after_vehicle` failpoint，并固定指向 cell 0 route 3 slot 12 在
-   pending replacement 后的新 handle。它从 `S_B0` 开始，在该 vehicle candidate
-   advance 后、atomic commit 前返回
-   `ParkingBindingInvariantViolation(stage="test_after_vehicle_advance")`。
-   failed step 必须保持 `S_B0` 不变；清除 failpoint 后，retry 只重新调用相同
+7. failure guardrail 使用 `laneflow-runtime` 内 `#[cfg(test)]` 的
+   `StepFailpoint::AfterTransitions`，在全批转换准备完成、atomic commit 前返回
+   `StepError::ParkingObservationAllocFailed`。这是整拍失败点，不声称绑定某辆车。
+   failed step 必须保持 `S_B0`、已发布事件和命令游标不变；failpoint 消耗后，retry 只重新调用相同
    Core step，不重复 pending replace、Parking leave 或其他 pre-step command。
 8. fresh replay 使用独立 world 从 pre-`B0` state 重建，执行一次相同 command
    batch，先验证得到相同 `S_B0` digest，再执行同一 Core step。只有 retry 成功后
@@ -506,13 +528,25 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
   `N_individual × percentage / 100` 个，不得按 status 过滤或直接取 ID prefix。
 - 每次正式运行必须记录 workload ID、scale、source commit、generator
   implementation commit、归一化对象计数、配置摘要，以及生成后的
-  topology/state/fixed-input-sequence SHA-256。
-- 同一 workload ID 的同一 scale 必须生成相同 stable order 和相同摘要；任一
+  topology/state/fixed-input-sequence SHA-256。这三个摘要认证规范输入文件的精确字节，
+  属于 ADR 0033 的互操作摘要；外部复核方使用通用 SHA-256 工具核对交付文件。
+  运行时状态比较使用现行 `deterministic_state_digest`，不复用输入文件摘要。
+- 输入身份为 `(workload_id, scale, case, fixed_delta_ms, seed)`；表现比例只参与
+  选择及运行配置身份，不改变交通初始状态。十万 16 ms 与 33 ms 输入分别生成和认证。
+  topology 摘要包括信号相位、offset 与静态政策；state 包括初始人口、位置、速度、
+  停车绑定和 logical rank；fixed-input-sequence 包括命令次序、固定参数、窗口及
+  arrival barrier / 完成观测驱动规则。实际执行的命令另按 tick 记录，不用预期 tick
+  冒充实际回执。生成器交付时冻结各输入文件的规范编码与对应测试向量。
+- 同一输入身份必须生成相同 stable order 和相同摘要；任一
   topology/state/input-sequence digest 不同即视为不同 workload。
 - production runtime 不得识别 workload ID、seed、cell/route/vehicle ID 或
   选择结果来走专用路径。
 - 本文只冻结生成契约，不实现 benchmark harness。后续 harness 尚未输出并校验
   manifest/digest 前，一万/十万继续保持 `Product TBD / Uncertified`。
+
+#1148 的 [1/2 cell 合同验证记录](../../research/issue-1148-lf-synth-contract/README.md)
+覆盖 W1–W4、16/33 ms、停车 barrier、同步信号和失败重试；它省略 Spatial 与表现层，
+不代替正式规模生成器或性能认证。
 
 ## 5. 硬件与平台角色
 
@@ -852,7 +886,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
   是 research evidence。
 - #224 已冻结 LuST v2.0 来源、许可、共享 Traffic/Spatial 转换及双 workload
   设计；`real-road-workloads.md` 是长期事实源。其 converter、Release assets、
-  harness 和结果由 #224 G4 后的 A–C 继续承载，不阻塞 `LF-SYNTH-v1` 的研究与产品
+  harness 和结果由 #224 G4 后的 A–C 继续承载，不阻塞 `LF-SYNTH-v2` 的研究与产品
   Gate 准备。
 - `LF-REAL-LUST-TOPO-v2` 只补充真实拓扑压力，不能单独形成 Product Pass；
   `LF-REAL-LUST-DEMAND-v2` 只形成 demand/lifecycle observation。二者都不得替换
