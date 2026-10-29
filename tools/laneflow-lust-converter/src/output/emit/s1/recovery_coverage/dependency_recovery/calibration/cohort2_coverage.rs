@@ -69,7 +69,10 @@ fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
 fn pinned_baseline_inputs() -> (Value, Value) {
     let dir = PathBuf::from(std::env::var("COHORT2_BASELINE_DIR").expect("COHORT2_BASELINE_DIR"));
     (
-        read_pinned_json(&dir.join("stream-a-searches.json"), STREAM_A_SEARCHES_SHA256),
+        read_pinned_json(
+            &dir.join("stream-a-searches.json"),
+            STREAM_A_SEARCHES_SHA256,
+        ),
         read_pinned_json(&dir.join("stream-a-results.json"), STREAM_A_RESULTS_SHA256),
     )
 }
@@ -1160,8 +1163,10 @@ fn cohort2_frozen_sample_and_problem_table_stay_consistent() {
 fn temp_probe_dir() -> PathBuf {
     static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("laneflow-cohort2-baseline-{}-{n}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "laneflow-cohort2-baseline-{}-{n}",
+        std::process::id()
+    ));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -1196,7 +1201,11 @@ fn cohort2_baseline_pool_merges_frozen_sources_with_pinned_input_bytes() {
     let loaded = read_pinned_json(&path, &hex_sha256(&bytes));
     assert_eq!(loaded, source, "pinned loader parses the written bytes");
     let pools = baseline_pool(&loaded);
-    assert_eq!(pool_counts(&pools), (10, 76), "sources 1-4 chain plus source 5");
+    assert_eq!(
+        pool_counts(&pools),
+        (10, 76),
+        "sources 1-4 chain plus source 5"
+    );
     assert_eq!(per_edge_counts(&pools)["sumo::cohort2-synthetic"], 1);
     fs::remove_dir_all(&dir).unwrap();
 }
