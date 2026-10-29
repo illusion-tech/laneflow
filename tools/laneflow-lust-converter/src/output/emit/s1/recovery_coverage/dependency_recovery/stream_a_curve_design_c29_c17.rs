@@ -39,11 +39,11 @@ fn frozen_inputs() -> Value {
     .unwrap()
 }
 
-fn pool_counts(pools: &combinations::Pools) -> (usize, usize) {
+pub(super) fn pool_counts(pools: &combinations::Pools) -> (usize, usize) {
     (pools.len(), pools.values().map(Vec::len).sum())
 }
 
-fn per_edge_counts(pools: &combinations::Pools) -> BTreeMap<String, usize> {
+pub(super) fn per_edge_counts(pools: &combinations::Pools) -> BTreeMap<String, usize> {
     pools
         .iter()
         .map(|(id, candidates)| (id.clone(), candidates.len()))

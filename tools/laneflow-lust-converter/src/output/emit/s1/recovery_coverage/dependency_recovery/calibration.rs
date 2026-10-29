@@ -3,6 +3,7 @@
 use super::*;
 
 mod closure;
+mod cohort2_coverage;
 mod coverage;
 mod experiment;
 
