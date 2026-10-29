@@ -772,6 +772,37 @@ fn split_range(c: [[f64; 3]; 4], a: f64, b: f64) -> [[f64; 3]; 4] {
     if a == 0.0 { left } else { split(left, a / b).1 }
 }
 
+/// 候选参考长度估计（4096 区间弦长 / 控制多边形；自控制位解码，与原参考同法——
+/// Codex P2-3：不以 cubic 段数充当长度）。
+fn estimates_from_curves_bits(bits: &Value) -> serde_json::Value {
+    let controls: Vec<[[u64; 3]; 6]> = serde_json::from_value(bits.clone()).unwrap();
+    let mut chord = 0.0_f64;
+    let mut polygon = 0.0_f64;
+    for control in &controls {
+        let cubic = [0, 1, 2, 3].map(|k| control[k].map(f64::from_bits));
+        for k in 0..4096_usize {
+            let part = split_range(cubic, k as f64 / 4096.0, (k + 1) as f64 / 4096.0);
+            chord += v_norm(v_sub(part[3], part[0]));
+            polygon += (0..3)
+                .map(|j| v_norm(v_sub(part[j + 1], part[j])))
+                .sum::<f64>();
+        }
+    }
+    serde_json::json!({"chord_estimate_m":chord,"control_polygon_estimate_m":polygon,
+        "intervals_per_cubic":4096})
+}
+
+/// 从参考控制位构建结点与切向（通用构造输入；CR 来源断言按需由调用方附加）。
+fn knots_tangents_from(controls: &[[[u64; 3]; 6]]) -> (Vec<Vec3f>, Vec<Vec3f>) {
+    let mut knots = vec![controls[0][0].map(f64::from_bits)];
+    let mut tangents = vec![controls[0][4].map(f64::from_bits)];
+    for control in controls {
+        knots.push(control[3].map(f64::from_bits));
+        tangents.push(control[5].map(f64::from_bits));
+    }
+    (knots, tangents)
+}
+
 /// 两边缘 S1/S2 新族搜索（冻结计划 §3/§4；每边独立三分量预算共享先到即停）。
 fn run_c17_new_family(inputs: &Value) -> (serde_json::Value, serde_json::Value) {
     let mut searches = BTreeMap::new();
@@ -806,6 +837,8 @@ fn run_c17_new_family(inputs: &Value) -> (serde_json::Value, serde_json::Value) 
                 serde_json::json!({"program":program_bits(&entry.candidate.repaired.program),
                     "arc_m":entry.candidate.repaired.quantized_arc_meters,
                     "spans":entry.candidate.spans,"score":entry.score,"order":entry.order,
+                    "canonical_source_fit":entry.canonical_source_fit,
+                    "observation_complete":entry.observation_complete,
                     "curves_f64_bits":entry.curves.iter().map(|c| c.map(|p| p.map(f64::to_bits))).collect::<Vec<_>>()})
             })
             .collect::<Vec<_>>();
@@ -959,12 +992,14 @@ fn c17_length_report(
                 .unwrap()
                 .iter()
                 .map(|candidate| {
+                    let estimates = estimates_from_curves_bits(&candidate["curves_f64_bits"]);
                     serde_json::json!({
                         "candidate_index":candidate["order"],
                         "arc_m":candidate["arc_m"],
-                        "new_reference_chord_estimate_m":
-                            (candidate["curves_f64_bits"].as_array().unwrap().len() as f64),
+                        "new_reference":estimates,
                         "source_fit":candidate["spans"][0]["source_fit"],
+                        "canonical_source_fit":candidate["canonical_source_fit"],
+                        "observation_complete":candidate["observation_complete"],
                     })
                 })
                 .collect::<Vec<_>>();
@@ -1367,6 +1402,87 @@ fn k1_known_candidates_replay_with_frozen_inputs() {
             serde_json::from_str::<serde_json::Value>(&expected.to_string()).unwrap(),
             "known positive replay {id}"
         );
+    }
+}
+
+/// K1 增补（Codex P2-2 方法论级）：冻结正例几何经 **custom 新驱动** 重放并断言
+/// 接受程序身份逐项一致——校准覆盖新旧双驱动（新驱动拒一切不再能绿过校准门）。
+#[test]
+fn k1b_known_positives_replay_through_custom_driver() {
+    let inputs = frozen_calibration_inputs();
+    let frozen = k2_frozen_records();
+    // #1131 几何 80（edge3，pair 合段 [0,1]、因子 [1.5, 1]）经新驱动重放。
+    let (knots3, tangents3) = frozen_knots_tangents(0, 2);
+    let specs3 = [GeometrySpec {
+        config_index: 80,
+        group: "pair",
+        factors: vec![[1.5, 1.0]],
+        cubics: grouped_cubics(&knots3, &tangents3, &[(0, 1)], &[[1.5, 1.0]]),
+        preclassified: None,
+    }];
+    let input3 = measurement::input(&inputs["sumo::-10564_3_0"]);
+    let mut budget3 = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+    let (_, retained3) = crate::output::geom::s1::reshape::custom::search_custom_geometries(
+        &input3,
+        2,
+        &specs3,
+        &mut budget3,
+    );
+    assert_eq!(retained3.len(), 1, "prior candidate via custom driver");
+    assert_eq!(
+        serde_json::json!(program_bits(&retained3[0].candidate.repaired.program)),
+        frozen["edges"]["sumo::-10564_3_0"]["candidates"][0]["program"],
+        "prior candidate identity via custom driver"
+    );
+    // #1115 两正例边（完整冻结输入 + 冻结几何构造）经新驱动重放：-16502 几何
+    // 131（whole、[1.5, 1.5]）；-28860 两份均为整边合段——几何 124（whole、
+    // [1.25, 1.5]）与几何 118（whole、[1, 2]）。
+    let frozen_1115: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+    ))
+    .unwrap();
+    for (id, configs) in [
+        ("sumo::-16502_0_0", vec![[[1.5_f64, 1.5]]]),
+        ("sumo::-28860_3_0", vec![[[1.25, 1.5]], [[1.0, 2.0]]]),
+    ] {
+        let controls: Vec<[[u64; 3]; 6]> = serde_json::from_value(
+            frozen_1115[id]["search"]["reference_controls_f64_bits"].clone(),
+        )
+        .unwrap();
+        let s = controls.len();
+        let (knots, tangents) = knots_tangents_from(&controls);
+        let specs: Vec<GeometrySpec> = configs
+            .iter()
+            .enumerate()
+            .map(|(config_index, factors)| GeometrySpec {
+                config_index,
+                group: "whole",
+                factors: factors.to_vec(),
+                cubics: grouped_cubics(&knots, &tangents, &[(0, s - 1)], factors),
+                preclassified: None,
+            })
+            .collect();
+        let input = measurement::input(&inputs[id]);
+        let mut budget = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+        let (_, retained) = crate::output::geom::s1::reshape::custom::search_custom_geometries(
+            &input,
+            s,
+            &specs,
+            &mut budget,
+        );
+        let mut got = retained
+            .iter()
+            .map(|entry| serde_json::json!(program_bits(&entry.candidate.repaired.program)))
+            .collect::<Vec<_>>();
+        got.sort_by_key(Value::to_string);
+        let mut want = frozen_1115[id]["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|candidate| candidate["program"].clone())
+            .collect::<Vec<_>>();
+        want.sort_by_key(Value::to_string);
+        assert_eq!(got, want, "known positives via custom driver {id}");
     }
 }
 

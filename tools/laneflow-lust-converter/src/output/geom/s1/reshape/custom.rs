@@ -51,6 +51,10 @@ pub(crate) struct RetainedEntry {
     pub(crate) order: [usize; 3],
     pub(crate) candidate: Candidate,
     pub(crate) curves: Vec<Control>,
+    /// 最终保留程序的规范折线→来源双向观察（计入来源拟合工作预算；
+    /// 预算尽时为 `None` 且 `observation_complete=false`，未完成观察保留）。
+    pub(crate) canonical_source_fit: Option<quality::Fit>,
+    pub(crate) observation_complete: bool,
 }
 
 /// 逐配置尝试拒绝明细（R2/R3 直调：钉住输入与 (族,n) 后直接取拒绝标签与子原因证据）。
@@ -207,6 +211,8 @@ pub(crate) fn search_custom_geometries(
                                     order: [spec.config_index, family, n as usize],
                                     candidate,
                                     curves: curves.clone(),
+                                    canonical_source_fit: None,
+                                    observation_complete: false,
                                 });
                                 pool.sort_by(retained_compare);
                                 pool.truncate(PROGRAM_LIMIT);
@@ -226,6 +232,18 @@ pub(crate) fn search_custom_geometries(
             "no_complete_program"
         };
         rows.push(row);
+        // 预算尽即止（与 search_with_curve_cap_budget 同语义）：后续配置不再进入
+        // 拟合/scan，避免把预算停止误记为 source_fit_rejected。
+        if budget.stop.is_some() {
+            break;
+        }
+    }
+    // 最终保留程序的规范折线→来源双向观察（计入来源拟合工作预算；预算尽时保留
+    // 未完成观察并由停止原因记录）。
+    for entry in pool.iter_mut() {
+        let points = program_points(&entry.candidate.repaired.program);
+        entry.canonical_source_fit = quality::polyline_fit(&points, &input.points, &mut budget);
+        entry.observation_complete = entry.canonical_source_fit.is_some();
     }
     handle.grid_work_remaining = handle
         .grid_work_remaining
