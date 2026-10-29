@@ -1088,13 +1088,13 @@ fn pinned_lust_c17_bilateral_experiment() {
                 pools,
                 Some(&out.join(&file)),
             );
-            // 对照锚字段形态：`unvisited_assignments` 先增强再逐值比较。
-            if let (Some(total), Some(trials)) = (
-                result["total_assignments"].as_u64(),
-                result["trials"].as_array(),
-            ) {
-                result["unvisited_assignments"] = serde_json::json!(total - trials.len() as u64);
-            }
+            // 对照锚字段形态：`unvisited_assignments` 一律增强（无赋值时为 null）
+            // 再逐值比较（c12 同款）。
+            let unvisited = result
+                .get("total_assignments")
+                .and_then(Value::as_u64)
+                .map(|total| total - result["trials"].as_array().unwrap().len() as u64);
+            result["unvisited_assignments"] = serde_json::json!(unvisited);
             if result["status"] == "accepted" {
                 for (id, choice) in result["selected_assignment"].as_object().unwrap() {
                     programs.insert(
@@ -1217,13 +1217,9 @@ fn inventory_paths(
         .collect()
 }
 
-/// 84 目标行（issue-1107 `baseline_paths` 冻结清单）。
+/// 84 目标行（issue-1105 `baseline_paths` 冻结清单，与 `target_ids` 同源）。
 fn inventory_rows() -> Vec<Value> {
-    let inventory: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
-    ))
-    .unwrap();
-    inventory["baseline_paths"].as_array().unwrap().clone()
+    reference()["baseline_paths"].as_array().unwrap().clone()
 }
 
 #[test]
