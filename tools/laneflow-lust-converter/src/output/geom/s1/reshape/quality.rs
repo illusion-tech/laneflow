@@ -5,18 +5,18 @@ use super::*;
 const STEPS: usize = 64;
 
 #[derive(Clone, Copy, Debug, Serialize)]
-pub(super) struct Fit {
-    pub(super) curve_to_source_estimate_m: f64,
-    pub(super) source_to_curve_estimate_m: f64,
+pub(crate) struct Fit {
+    pub(crate) curve_to_source_estimate_m: f64,
+    pub(crate) source_to_curve_estimate_m: f64,
 }
 
 impl Fit {
-    pub(super) fn within(self, reference: Self) -> bool {
+    pub(crate) fn within(self, reference: Self) -> bool {
         self.curve_to_source_estimate_m <= reference.curve_to_source_estimate_m
             && self.source_to_curve_estimate_m <= reference.source_to_curve_estimate_m
     }
 
-    pub(super) fn score(self) -> [f64; 2] {
+    pub(crate) fn score(self) -> [f64; 2] {
         [
             self.curve_to_source_estimate_m
                 .max(self.source_to_curve_estimate_m),
@@ -36,7 +36,7 @@ fn distance(p: Vec3, a: Vec3, b: Vec3, budget: &mut Budget) -> Option<f64> {
     })
 }
 
-pub(super) fn fit(curves: &[Control], source: &[Vec3], budget: &mut Budget) -> Option<Fit> {
+pub(crate) fn fit(curves: &[Control], source: &[Vec3], budget: &mut Budget) -> Option<Fit> {
     assert!(source.windows(2).all(|w| norm(sub(w[1], w[0])) > 0.0));
     let mut forward = 0.0_f64;
     let mut reference_error = 0.0_f64;
@@ -80,6 +80,27 @@ pub(super) fn fit(curves: &[Control], source: &[Vec3], budget: &mut Budget) -> O
         curve_to_source_estimate_m: forward,
         source_to_curve_estimate_m: reverse + reference_error,
     })
+}
+
+/// 共享句柄便捷入口（task-11/#1154）：按句柄 source_fit 分量预投影、实耗回扣。
+/// **句柄由调用方选择**：搜索域传每边共享句柄；复核域验证（验收层双向拟合等，#1154
+/// 「复核独立计数」——独立计数、不占搜索域每边 32M source_fit 池）传独立句柄即独立
+/// 计账。返回 `Fit` 双向估计（`curve_to_source_estimate_m`/`source_to_curve_estimate_m`）。
+pub(crate) fn fit_with_handle(
+    curves: &[Control],
+    source: &[Vec3],
+    handle: &mut super::super::grid::WorkBudget,
+) -> Option<Fit> {
+    let mut budget = Budget {
+        quality_limit: Some(handle.source_fit_remaining),
+        ..Budget::default()
+    };
+    let result = fit(curves, source, &mut budget);
+    handle.source_fit_remaining = handle
+        .source_fit_remaining
+        .saturating_sub(budget.quality_work);
+    handle.source_fit_consumed += budget.quality_work;
+    result
 }
 
 pub(super) fn chord_error(part: [Vec3; 4], a: Vec3, b: Vec3) -> f64 {
@@ -188,6 +209,40 @@ fn source_fit_budget_stops_without_a_partial_acceptance() {
     };
     assert!(fit(&[c], &[c[0], c[3]], &mut budget).is_none());
     assert_eq!(budget.stop, Some("source_fit_work"));
+}
+
+#[test]
+fn fit_with_handle_accounts_review_domain_independently() {
+    // 复核域独立计费（lead 裁决）：独立句柄计账、不占搜索域池；恒等式保持、跨调用不续杯。
+    let c = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ];
+    let search_domain = super::super::grid::WorkBudget::per_edge_default();
+    let f0 = search_domain.source_fit_remaining;
+    let mut review = super::super::grid::WorkBudget::per_edge_default();
+    let initial = review.source_fit_remaining;
+    let result = fit_with_handle(&[c], &[c[0], c[3]], &mut review).unwrap();
+    assert_eq!(result.curve_to_source_estimate_m, 0.0);
+    assert_eq!(
+        review.source_fit_consumed + review.source_fit_remaining,
+        initial,
+        "复核域恒等式"
+    );
+    assert_eq!(
+        search_domain.source_fit_remaining, f0,
+        "搜索域池不受复核域影响"
+    );
+    let _ = fit_with_handle(&[c], &[c[0], c[3]], &mut review);
+    assert_eq!(
+        review.source_fit_consumed + review.source_fit_remaining,
+        initial,
+        "跨调用不续杯"
+    );
 }
 
 #[test]
