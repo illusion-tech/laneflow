@@ -17,12 +17,17 @@ pub(super) struct Allocation {
 #[cfg(feature = "allocation")]
 pub(super) type AllocationStart = stats_alloc::Stats;
 #[cfg(not(feature = "allocation"))]
-pub(super) type AllocationStart = ();
+#[derive(Clone, Copy)]
+pub(super) struct AllocationStart;
 
 pub(super) fn start() -> AllocationStart {
     #[cfg(feature = "allocation")]
     {
         stats_alloc::INSTRUMENTED_SYSTEM.stats()
+    }
+    #[cfg(not(feature = "allocation"))]
+    {
+        AllocationStart
     }
 }
 
