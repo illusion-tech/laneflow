@@ -76,7 +76,10 @@ fn canonical_initialization_and_guard_negative_controls() {
         (14_508, 29_016)
     );
     let mut sample = Sample::new(&bundle).unwrap();
-    sample.observe(0, true).unwrap();
+    assert_eq!(
+        sample.observe(0, true).unwrap().to_hex().as_str(),
+        "ebb35b54634106fdc227b7b3f86712232ad4e30c75512e556aa538771cf73a7e"
+    );
     for tick in 1..=8 {
         let outcome = sample.world.step(TickInput::new(16)).unwrap();
         sample
@@ -113,4 +116,38 @@ fn w3_is_rejected_and_existing_output_is_preserved() {
     assert_eq!(report["complete"], false);
     assert!(crate::run(&input, &"c".repeat(40), &output).is_err());
     assert_eq!(std::fs::read(output.join("report.json")).unwrap(), before);
+}
+
+#[test]
+fn w2_is_fully_active_and_shortened_plan_is_rejected() {
+    let bundle = bundle(Case::W2, 33);
+    let plan = Plan::read(&bundle).unwrap();
+    assert_eq!(
+        (plan.warm_up_ticks, plan.observation_ticks),
+        (7_044, 14_088)
+    );
+    let mut sample = Sample::new(&bundle).unwrap();
+    sample.observe(0, true).unwrap();
+    assert!(
+        sample
+            .initial
+            .iter()
+            .all(|state| state.status() == laneflow_runtime::VehicleStatus::Active)
+    );
+    for tick in 1..=8 {
+        sample.world.step(TickInput::new(33)).unwrap();
+        sample.observe(tick, true).unwrap();
+    }
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("input");
+    bundle.write_new(&input).unwrap();
+    let mut plan: serde_json::Value =
+        serde_json::from_slice(&bundle.files()["input-plan.json"]).unwrap();
+    plan["observation_ticks"] = 1.into();
+    let mut bytes = serde_json::to_vec(&plan).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(input.join("input-plan.json"), bytes).unwrap();
+    let output = root.path().join("output");
+    assert!(crate::run(&input, &"c".repeat(40), &output).is_err());
+    assert!(!output.join("ticks.bin").exists());
 }
