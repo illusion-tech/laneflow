@@ -260,8 +260,12 @@ fn assert_raw_leaves_equal(mine: &Value, anchor_text: &str) {
     let mut checked = 0;
     for (path, token) in &anchor_leaves {
         // 显式声明不入比较（plan §6.1，不许静默跳过）：`.source.` = E0 资产来源注；
-        // `.cohort_*` = 源批次（#1134）自有分析列（其 11 分量队列与本路 4 分量队列不同）。
-        if path.starts_with(".source.") || path.starts_with(".cohort_") {
+        // `.cohort_*` / 行内 `cohort` 标记 = 源批次（#1134）自有分析列（其 11 分量队列
+        // 与本路 4 分量队列不同）。
+        if path.starts_with(".source.")
+            || path.starts_with(".cohort_")
+            || path.ends_with(".cohort.literal")
+        {
             continue;
         }
         let own = mine_leaves
