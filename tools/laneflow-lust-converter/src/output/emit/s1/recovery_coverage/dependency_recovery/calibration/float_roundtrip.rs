@@ -19,8 +19,11 @@
 //!   - `0.009999999999999789`：bits `4576918229304087553`（两形态均正确）。
 //! - 默认解析下两组反例对各自折叠到同一 bits（解析域漏报形态的实证）。
 //!
-//! 修复（Cargo.toml 启用 `float_roundtrip`，排六路收口后）合入后，本模块在单包构建下
-//! 自动转入"全部正确舍入"断言分支；若回归出新的静默漂移，双分支均会失败。
+//! 证明力边界（维护者 2026-10-29 审定）：本模块双态自适应断言只构成**双态差异实证 +
+//! 自适应对照**，不构成修复生效证明——feature 缺失时误舍入分支同样通过。修复阶段
+//! （Cargo.toml 启用 `float_roundtrip`，排六路收口后）须启用
+//! [`fix_gate_mandatory_correctly_rounded_bits`]（无条件正确位值断言）并在单包正常
+//! 构建下核验通过；充分性论证归该阶段。
 
 use super::shared_baseline::{JsonLeafToken, json_leaf_mismatch, json_leaf_tokens};
 
@@ -144,4 +147,61 @@ fn counterexample_pairs_never_collapse_in_text_domain() {
             "text domain must distinguish {left} vs {right}"
         );
     }
+}
+
+/// 修复阶段强制检查面（维护者 2026-10-29 审定）：无条件断言全部已知反例解析为正确
+/// 舍入位值——feature 缺失时本测试必失败，是 `float_roundtrip` 修复生效的充分性证据。
+/// 修复 PR 启用（去掉 `#[ignore]`）后须在**单包正常构建**下运行通过，防测试构建
+/// feature 合并掩盖。
+#[test]
+#[ignore = "#1155 修复阶段启用：无条件正确位值断言（float_roundtrip 生效证明）"]
+fn fix_gate_mandatory_correctly_rounded_bits() {
+    assert!(float_roundtrip_active(), "float_roundtrip must be active");
+    for (text, bits) in CORRECT_BITS {
+        assert_eq!(
+            serde_json::from_str::<f64>(text).unwrap().to_bits(),
+            *bits,
+            "mandatory correct bits for {text}"
+        );
+    }
+}
+
+/// #1155 ③ 固定输入解析耗时对照取证（同机描述性基线；上游注明 `float_roundtrip` 有
+/// 解析成本）。同一确定性输入文本在两种构建形态（默认 / `float_roundtrip` 统一）下
+/// 各自测量 `Vec<f64>` 解析中位耗时；`--release -- --ignored --nocapture` 手动取证。
+#[test]
+#[ignore = "#1155 ③ 手动取证：cargo test --release --lib fixed_input_parse_cost_evidence -- --ignored --nocapture"]
+fn fixed_input_parse_cost_evidence() {
+    use std::time::Instant;
+
+    // 固定输入：确定性 50,000 个浮点 token 的 JSON 数组文本（两形态字节相同）。
+    let values: Vec<f64> = (0..50_000_u64)
+        .map(|i| i as f64 * 7.3e-3 + 10.220051765441895)
+        .collect();
+    let text = serde_json::to_string(&values).unwrap();
+    let tokens = values.len();
+    drop(values);
+    std::hint::black_box(&text);
+
+    let mut samples = Vec::with_capacity(200);
+    for round in 0..220_u32 {
+        let from = Instant::now();
+        let parsed: Vec<f64> = serde_json::from_str(&text).unwrap();
+        let elapsed = from.elapsed();
+        std::hint::black_box(&parsed);
+        if round >= 20 {
+            samples.push(elapsed);
+        }
+    }
+    samples.sort();
+    let median = samples[samples.len() / 2];
+    let min = samples[0];
+    println!(
+        "parse_cost float_roundtrip={} tokens={tokens} bytes={} median={:?} median_ns_per_token={} min={:?}",
+        float_roundtrip_active(),
+        text.len(),
+        median,
+        median.as_nanos() as u64 / tokens as u64,
+        min,
+    );
 }
