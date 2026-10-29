@@ -161,5 +161,6 @@
 1. **停止线三情形核对表 fixture 单测使用合成 evaluate 形状评价行（lead 裁决可接受，2026-10-29）**。fixture 环境中手工合成的停止线/机动门声明不被真实联合编译接受（fixture 信号语义限制），核对表单测因此以合成的 evaluate 结果形状验证分类、证据投影与绑定核对；真实证据（规范端点、编译后长度、`edgeEnd` 解析、LFCA 控制锚点）由正式实验的联合编译产出，其正确性由 `compile_part` 内部断言（完整规范程序点位、`length_mm`/`canonical_arc_m`、`compiled_control_anchors`）保证，正式实验入口另对恢复行断言 `lfca_bytes > 0`。
 2. **结果对照锚代际错位事故（E0 交付缺陷，lead 验收漏检；本路按 plan §8 停机触发发现）**。首启 run-00 在基线对照断言停止：E0 原锚取材 `stream-a-results.json#variants.new`（#1131 时代 76 池行，C40 `missing_edges=6`），与章程「结果对照锚 #1134 新增变体」（#1134 run-03 `variants.new` 92 池行，C40 `missing_edges=5`）代际错位。本路以 #1134 run-03 真值逐行核对圈定差异面（53 分量行仅 C40 一行、84 路径行 0 行、28/84 计数全同）后停机报统筹；lead 裁决 E0 重锚（含位忠实导出 1 ULP 返工）、位级复验（4,554 叶 0 失配）重新冻结后重启四轮。事故与返工的完整记录见 E0 `research/issue-1140-shared-baseline/README.md` 差异记录；本路中止产物 `aborted-anchor-mismatch/` 保留归档。
 3. **运行脚本首启缺陷（本路脚本，非研究口径）**。脚本宿主 CWD 未固定导致 cargo 构建了错误工作树的测试体（0 tests 静默退出），未产生任何运行输出；已归档 `aborted-wrong-build-cwd/` 并加三道防御（工作树内构建、产物路径断言、二进制入口预检）。不改任何搜索、诊断或验收口径。
+4. **跨片事实备忘（C 路发现，lead 通报，仅记录）**。serde_json 1.0.154 默认解析对 17 位十进制浮点文本存在 1 ULP 误舍入；本路四轮比较为解析域双侧自洽（同解析器对称）+ 198 组文件字节级全等，**不受该缺陷影响，结论有效**。收口批若补做位级核对，须用 E 的共享文本域比较助手（`f64::from_str` 正确舍入）或 C 的 `compare-anchor-bits.ps1` 工具，**勿用「内存值 vs serde 解析值」形态**（锚代际事故复验所用 compare-anchor-bits 即文本域位级形态，4,554 叶 0 失配）。
 
 下一步依据见[决策材料](g1-proposal.md)，生产 S1 的 G1 保持 Proposed。
