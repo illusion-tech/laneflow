@@ -619,6 +619,248 @@ fn pinned_lust_witness_guided_search_experiment() {
     println!("witness guided search evidence saved={}", out.display());
 }
 
+/// 口径修订复算（维护者裁定 2026-10-30，B 同表示基准；plan §4 修订记录）：**只重算
+/// (a) 列双向拟合资格**——候选折线 vs 原参考的**发射折线**（原参考曲线逐 span 取
+/// cubic、513 节点均匀网格采样后 f32 规范化链接；同一 `quality::fit` 估计函数、
+/// 折线对折线同表示公平比较），"不劣于原参考" = `within`（双向上界估计均 ≤ 原参考
+/// 发射折线）。不重跑搜索（8 份候选几何证据外置直接复算）；原跨表示 8/8 拒绝
+/// （折线 vs 曲线，参考反向值受曲线控制多边形项污染）作为表示伪影证据随输入原样
+/// 保留。复核域独立计费同 plan §4。若出现 qualified → (a) 入池 → (c) 终验 → 两口径
+/// 收益更新；池空则 (c) 记 not_triggered。
+#[test]
+#[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, SIX_STREAMS_BASELINE_DIR, WITNESS_GUIDED_RECOMPUTE_INPUT (run-00 evidence dir), fresh WITNESS_GUIDED_RECOMPUTE_OUTPUT"]
+fn recompute_witness_qualification_same_representation() {
+    let input_dir = PathBuf::from(std::env::var("WITNESS_GUIDED_RECOMPUTE_INPUT").unwrap());
+    let out = PathBuf::from(std::env::var("WITNESS_GUIDED_RECOMPUTE_OUTPUT").unwrap());
+    assert!(!out.exists(), "fresh recompute output");
+    fs::create_dir_all(&out).unwrap();
+    let prior: Value =
+        serde_json::from_slice(&fs::read(input_dir.join("qualification.json")).unwrap()).unwrap();
+    let (observation, _source, mut timing) = capture_lust();
+    let started_all = Instant::now();
+    let mut rows = Vec::new();
+    let mut review_fit_calls = 0_u64;
+    let mut review_fit_consumed = 0_u64;
+    let mut qualified: BTreeMap<String, Vec<(String, re::RoadEditingCurveProgram, f64)>> =
+        BTreeMap::new();
+    for prior_row in prior["rows"].as_array().unwrap() {
+        let edge = prior_row["edge"].as_str().unwrap();
+        let variant = prior_row["variant"].as_str().unwrap().to_owned();
+        let input = edge_input(&observation, edge);
+        let mut review_handle = WorkBudget::per_edge_default();
+        // 原参考的发射折线：逐 span 六点控制取前四点（cubic），513 节点均匀参数
+        // 网格采样（grid 族基网格）、f32 规范化、跨 span 去重链接。
+        let mut reference_points: Vec<[f64; 3]> = Vec::new();
+        let controls = replay_span_controls(input);
+        let mut keys: Vec<usize> = controls.keys().copied().collect();
+        keys.sort_unstable();
+        for key in keys {
+            let c = controls[&key];
+            for k in 0..=512 {
+                let p = quantize_f32(cubic_bezier(c[0], c[1], c[2], c[3], k as f64 / 512.0));
+                if reference_points.last() != Some(&p) {
+                    reference_points.push(p);
+                }
+            }
+        }
+        // 候选折线：规范程序点位（start + 各 line 段 end；见证候选全为直线段，
+        // canvas_selection 为 null——断言保持该形态）。
+        let mut candidate_points = vec![from_bits3(prior_row["program"]["start"].clone())];
+        for segment in prior_row["program"]["segments"].as_array().unwrap() {
+            assert!(
+                segment["canvas_selection"].is_null(),
+                "line-segment candidates only (frozen run-00 shape)"
+            );
+            let p = from_bits3(segment["end"].clone());
+            if candidate_points.last() != Some(&p) {
+                candidate_points.push(p);
+            }
+        }
+        let reference_controls = polyline_as_controls(&reference_points);
+        let candidate_controls = polyline_as_controls(&candidate_points);
+        review_fit_calls += 1;
+        let reference_fit = sampler::reshape::quality::fit_with_handle(
+            &reference_controls,
+            &input.points,
+            &mut review_handle,
+        )
+        .expect("bounded reference polyline fit");
+        review_fit_calls += 1;
+        let candidate_fit = sampler::reshape::quality::fit_with_handle(
+            &candidate_controls,
+            &input.points,
+            &mut review_handle,
+        );
+        let (fit_row, fit_pass) = match candidate_fit {
+            Some(fit) => (
+                json!({"status":"executed","pass":fit.within(reference_fit),
+                    "candidate":{"curve_to_source_estimate_m":fit.curve_to_source_estimate_m,
+                        "source_to_curve_estimate_m":fit.source_to_curve_estimate_m},
+                    "reference_emitted_polyline":{"curve_to_source_estimate_m":reference_fit.curve_to_source_estimate_m,
+                        "source_to_curve_estimate_m":reference_fit.source_to_curve_estimate_m,
+                        "points":reference_points.len()},
+                    "screen":"candidate polyline not worse than reference emitted polyline (same estimator, same representation; maintainer ruling 2026-10-30)"}),
+                fit.within(reference_fit),
+            ),
+            None => (
+                json!({"status":"not_executed","reason":"review_domain_fit_budget_exhausted"}),
+                false,
+            ),
+        };
+        review_fit_consumed += review_handle.source_fit_consumed;
+        let outcome = if fit_row["status"] == "not_executed" {
+            "not_executed"
+        } else if fit_pass {
+            "qualified"
+        } else {
+            "fit_rejected"
+        };
+        if outcome == "qualified" {
+            let start = from_bits3(prior_row["program"]["start"].clone());
+            let segments = prior_row["program"]["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| re::RoadEditingCurveSegment::line(point3(from_bits3(s["end"].clone()))))
+                .collect::<Vec<_>>();
+            let program = re::RoadEditingCurveProgram::try_new(point3(start), segments).unwrap();
+            qualified.entry(edge.to_owned()).or_default().push((
+                variant,
+                program,
+                prior_row["arc_m"].as_f64().unwrap(),
+            ));
+        }
+        rows.push(
+            json!({"edge":edge,"variant":prior_row["variant"],"arc_m":prior_row["arc_m"],
+            "candidate_points":candidate_points.len(),
+            "same_representation_fit":fit_row,
+            "cross_representation_artifact":prior_row["source_fit_review_domain"],
+            "compile_validation_reused":prior_row["compile_validation"],
+            "outcome":outcome}),
+        );
+    }
+    // (c) 终验：qualified 候选入池（不回写标准族池）→ 联合赋值/LFCA/锚点真实编译；
+    // 池空记 not_triggered（lead 裁定执行序）。
+    let mut c_record = json!({"c_final_validation":"not_triggered","reason":"no qualified candidates under same-representation screen"});
+    if !qualified.is_empty() {
+        let reference = reference();
+        let baseline = super::shared_baseline::shared_pools();
+        let mut combined = baseline.clone();
+        for (edge, cands) in &qualified {
+            combined
+                .entry(edge.clone())
+                .or_default()
+                .extend(cands.iter().map(|(_, p, _)| p.clone()));
+        }
+        let originals = original_programs(&observation);
+        let traffic = observation.traffic.as_ref().unwrap();
+        let components = components::inventory(traffic, &originals, &target_ids(&reference));
+        let mut evaluations = BTreeMap::new();
+        let mut final_programs = originals.clone();
+        let mut accepted_components = Vec::new();
+        for (index, component) in components.iter().enumerate() {
+            let file = format!("recompute-component-{index:02}.lfca");
+            let mut result = combinations::evaluate(
+                traffic,
+                component,
+                &originals,
+                &combined,
+                Some(&out.join(&file)),
+            );
+            let unvisited = result
+                .get("total_assignments")
+                .and_then(Value::as_u64)
+                .map(|total| total - result["trials"].as_array().unwrap().len() as u64);
+            result["unvisited_assignments"] = json!(unvisited);
+            if result["status"] == "accepted" {
+                for (id, choice) in result["selected_assignment"].as_object().unwrap() {
+                    final_programs.insert(
+                        id.clone(),
+                        combined[id][choice.as_u64().unwrap() as usize].clone(),
+                    );
+                }
+                accepted_components.push(json!(component.id));
+            }
+            evaluations.insert(component.id.clone(), result);
+        }
+        let d_cohort: Value = serde_json::from_str(include_str!(
+            "../../../../../../../../../research/issue-1139-signal-diag-2/edges.json"
+        ))
+        .unwrap();
+        let checklist = super::signal_diag_2::stop_line_checklist(
+            &d_cohort,
+            traffic,
+            &originals,
+            &final_programs,
+            &evaluations,
+        );
+        recovery::write_json(&out, "stop-line-checklist-recompute.json", &checklist);
+        c_record = json!({"c_final_validation":"executed",
+            "accepted_components":accepted_components,
+            "stop_line_checklist":"stop-line-checklist-recompute.json",
+            "two_accounting_note":"两口径收益按接受组件与路径在结果中分列更新"});
+    }
+    recovery::write_json(
+        &out,
+        "qualification-recompute.json",
+        &json!({"schema":"laneflow-1154-same-representation-recompute",
+            "rule":"maintainer ruling 2026-10-30 B: candidate polyline vs reference emitted polyline (same estimator, same representation)",
+            "reference_emitted_polyline_sampling":"per-span cubic first-four-points at 513 uniform parameter nodes, f32 canonicalized, chained (grid-family base emission form)",
+            "rows":rows,
+            "review_domain_counts":{"fit_evaluations":review_fit_calls,
+                "fit_consumed_source_fit_units":review_fit_consumed},
+            "c_stage":c_record}),
+    );
+    timing["recompute_seconds"] = json!(started_all.elapsed().as_secs_f64());
+    recovery::write_json(&out, "timing.json", &timing);
+    println!("same-representation recompute saved={}", out.display());
+}
+
+fn cubic_bezier(a: [f64; 3], c1: [f64; 3], c2: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
+    let u = 1.0 - t;
+    let mut p = [0.0; 3];
+    for i in 0..3 {
+        p[i] =
+            u * u * u * a[i] + 3.0 * u * u * t * c1[i] + 3.0 * u * t * t * c2[i] + t * t * t * b[i];
+    }
+    p
+}
+
+fn quantize_f32(p: [f64; 3]) -> [f64; 3] {
+    [
+        (p[0] as f32) as f64,
+        (p[1] as f32) as f64,
+        (p[2] as f32) as f64,
+    ]
+}
+
+fn from_bits3(value: Value) -> [f64; 3] {
+    let bits: [u64; 3] = serde_json::from_value(value).unwrap();
+    bits.map(f64::from_bits)
+}
+
+fn point3(p: [f64; 3]) -> re::RoadEditingPoint3 {
+    re::RoadEditingPoint3::try_new(p[0], p[1], p[2]).unwrap()
+}
+
+/// 折线 → 逐弦退化 cubic（`quality::fit` 仅取前四点；两端点线性插值即直线弦）。
+fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
+    points
+        .windows(2)
+        .map(|w| {
+            let (a, b) = (w[0], w[1]);
+            let lerp = |t: f64| {
+                [
+                    a[0] + t * (b[0] - a[0]),
+                    a[1] + t * (b[1] - a[1]),
+                    a[2] + t * (b[2] - a[2]),
+                ]
+            };
+            [a, lerp(1.0 / 3.0), lerp(2.0 / 3.0), b, [0.0; 3], [0.0; 3]]
+        })
+        .collect()
+}
+
 #[test]
 fn witness_inventory_stays_frozen() {
     let inventory = inventory();
