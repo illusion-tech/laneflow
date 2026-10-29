@@ -1,0 +1,6 @@
+{
+  "complete": false,
+  "error": "语义验证失败：进度/速度/加减速 tick=21466 rank=187: VehicleState { handle: VehicleHandle { index: 187, generation: 0 }, profile: Ordinal(0), class: Ordinal(0), route: RouteHandle { index: 7, generation: 0 }, route_edge_index: 0, progress_mm: 5129816, carry_um: 0, speed_mm_s: 13900, length_mm: 4500, status: Active, maneuver_traversal: None, waiting_membership: None } -> VehicleState { handle: VehicleHandle { index: 187, generation: 0 }, profile: Ordinal(0), class: Ordinal(0), route: RouteHandle { index: 7, generation: 0 }, route_edge_index: 0, progress_mm: 5130000, carry_um: 0, speed_mm_s: 0, length_mm: 4500, status: Active, maneuver_traversal: None, waiting_membership: None }",
+  "format": "lf-synth-semantic-run-1",
+  "implementation_commit": "e9dddc61a957875514cc5360e7f73d79a83b0d80"
+}

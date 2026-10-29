@@ -1,0 +1,15 @@
+{
+  "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\r\nbinary: rustc\r\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\r\ncommit-date: 2026-10-13\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.99.1\r\nLLVM version: 23.1.1",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "binary_sha256": "03bae8e9a276e88b4579112b5fb171bad18504bcbc113108cb27b334048a420b",
+  "scope": "semantic_validation_only",
+  "max_concurrent_processes": 4,
+  "runtime_workers_per_process": 1,
+  "input_generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+  "build_command": "cargo +1.99.1 build --release --locked -p laneflow-synth-harness",
+  "rustflags": null,
+  "cargo_encoded_rustflags": null,
+  "cargo_build_target": null,
+  "format": "lf-synth-semantic-environment-1"
+}
