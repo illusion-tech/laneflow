@@ -20,6 +20,8 @@ pub(crate) struct Sample {
     pub bindings: Vec<Option<ParkingBinding>>,
     pub crossed: Vec<bool>,
     pub transitions: u64,
+    pub max_deceleration_mm_s2: u64,
+    pub deceleration_above_profile_count: u64,
     pub cursor: u64,
     pub trace_bytes: Vec<u8>,
 }
@@ -170,6 +172,8 @@ impl Sample {
             initial,
             bindings,
             transitions: 0,
+            max_deceleration_mm_s2: 0,
+            deceleration_above_profile_count: 0,
             cursor,
         })
     }
