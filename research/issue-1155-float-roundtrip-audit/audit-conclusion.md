@@ -1,10 +1,12 @@
 # JSON 浮点解析精度缺口生产路径审计 — 审计结论（#1155 交付物 ① 定稿）
 
-- 状态：**审计结论修订版 R2**（维护者 2026-10-29 两轮审定：R1 撤回 integrity_soak「影响面为零」
-  改逐谓词待验证、双态测试证明力降级；R2 补持续时间链丢位实证并分列两项待验证、LFCA 格式依据
-  更正为 LaneFlow 封闭节目录格式位编码、两处翻转论证收紧到输入域 + 解析器行为、「均不含浮点」
-  限定为列举路径、写侧依赖更正为 `zmij`）。
-  路径清单见同目录 [`path-inventory-draft.md`](path-inventory-draft.md)，初稿已过 lead 初审；
+- 状态：**定稿归档**（维护者 2026-10-29 审定通过（基线提交 `d94f9a85`），审定边界入档：合成输入
+  已证实丢位；真实运行产物丢位 / 验收判定翻转**分别待验证**；暂不提级；feature 修复排六路收口后，
+  修复验收须启用强制正确位值测试 + 单包正常构建核验 + 产物差异 + 全量回归。此前两轮修订：R1 撤回
+  integrity_soak「影响面为零」改逐谓词待验证、双态测试证明力降级；R2 补持续时间链丢位实证并分列
+  两项待验证、LFCA 格式依据更正为 LaneFlow 封闭节目录格式位编码、两处翻转论证收紧到输入域 +
+  解析器行为、「均不含浮点」限定为列举路径、写侧依赖更正为 `zmij`）。
+  路径清单见同目录 [`path-inventory.md`](path-inventory.md)，初稿已过 lead 初审；
   本文件汇总结论与证据，供 lead 转维护者定稿。
 - 工作树：`E:/projects/worktrees/float-roundtrip-audit/laneflow`，分支 `research/1155-float-roundtrip-audit`；
   审计基线 `47be29a5`（origin/main），测试提交 `777ad953`（叠 #1153 助手分支 `5a59a759`）。
@@ -66,8 +68,8 @@
      **0/10,000**。三例已入位级回归语料（`float_roundtrip.rs`），双形态 6/6 复证钉版数值。
    - **仍待验证（分列，不并入上两项结论）**：① 真实运行产物是否丢位（soak/生产实际 JSON 数据
      是否出现丢位 token）→ **待验证**；② 验收判定是否翻转（阈值谓词在实际运行值上是否被 1 ULP
-     翻转）→ **待验证**（虚拟时钟 100 抽样 0 丢位/0 翻转、1,444 丢位样本未见阈值翻转打印，均系
-     小样本观察，不作论证）。
+     翻转）→ **待验证**（这些样本仅检查位级往返，未测试阈值判定翻转；虚拟时钟 100 抽样 0 丢位
+     亦仅系小样本观察，均不作论证）。
 4. **Feature 统一性实证（「单包构建验证」必要性核心证据）**：`float_roundtrip` 当前仅由
    `research/issue-762-post-p3-hotspots`（**workspace 成员**）请求 → workspace 测试构建经 feature 统一
    使全workspace共享 `float_roundtrip`（**掩盖缺口**），单包生产构建没有（**暴露缺口**）。
@@ -119,7 +121,8 @@ cargo +1.99.1 test --locked -p laneflow-lust-converter -p laneflow-post-p3-resea
 并在**单包正常构建**下核验 `float_roundtrip` 生效。双态回归的既有价值不变：任何新静默漂移
 （依赖版本漂移等）在两形态下同时失败。
 
-整包回归：`cargo +1.99.1 test --locked -p laneflow-lust-converter --lib` → 287 通过 / 0 失败 / 38 ignored。
+整包回归：`cargo +1.99.1 test --locked -p laneflow-lust-converter --lib` → 287 通过 / 0 失败 / 40 ignored
+（38 既有 + 修复门与取证门各 1）。
 
 ## 3. 与交付物 ③④ 的边界（本文件不含）
 
@@ -137,7 +140,7 @@ cargo +1.99.1 test --locked -p laneflow-lust-converter -p laneflow-post-p3-resea
 ## 4. 证据索引
 
 - feature 实况：`cargo tree --locked -e features -i serde_json`（本树实测，输出存档于审计记录）；
-- 路径逐条证据（文件:行号）：[`path-inventory-draft.md`](path-inventory-draft.md) §1 表格；
+- 路径逐条证据（文件:行号）：[`path-inventory.md`](path-inventory.md) §1 表格；
 - 位级证据与测试：`calibration/float_roundtrip.rs`（本提交）；反例对实测上表；
 - 修复生效检查面与负对照：`fix_gate_mandatory_correctly_rounded_bits`（`#[ignore]` 待修复启用）；
   负对照实测：default 形态下运行失败 `float_roundtrip must be active`（证明检查面有牙齿）；
