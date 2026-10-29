@@ -29,7 +29,7 @@ fn quality_fit_entries_reachable_from_emit_subtree() {
 fn reference_capture_reachable_from_emit_subtree() {
     // 契约（可见性类防回归）：reshape::reference_with_curve_cap（全边参考入口，
     // D #1154 P2-1 修法）须自 emit 兄弟子树可达；可见性回归即编译失败。
-    type ReferenceCapture = fn(&crate::output::emit::EdgeInput, usize) -> Vec<[[f64; 3]; 6]>;
+    type ReferenceCapture = fn(&observe::EdgeInput, usize) -> Vec<[[f64; 3]; 6]>;
     let _: ReferenceCapture = crate::output::geom::s1::reshape::reference_with_curve_cap;
 }
 
