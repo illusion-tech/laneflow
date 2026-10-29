@@ -378,6 +378,9 @@ fn pinned_lust_witness_guided_search_experiment() {
     for (edge, cands) in &witness_candidates {
         let input = edge_input(&observation, edge);
         let mut review_handle = WorkBudget::per_edge_default();
+        // 复核域计数器（lead 裁决 B 案：只记 consumed、不占搜索池）：验证算量为固定
+        // 确定性负载（全 span 发射折线拟合），不设池上限截断，实耗如实单列。
+        review_handle.source_fit_remaining = u64::MAX;
         let reference_controls = full_reference_controls(input);
         let reference_polyline = reference_emitted_polyline(&reference_controls);
         let reference_polyline_controls = polyline_as_controls(&reference_polyline);
@@ -708,6 +711,8 @@ fn recompute_witness_qualification_same_representation() {
         let variant = prior_row["variant"].as_str().unwrap().to_owned();
         let input = edge_input(&observation, edge);
         let mut review_handle = WorkBudget::per_edge_default();
+        // 复核域计数器（lead B 案：只记 consumed 不占池，不截断验证算量）。
+        review_handle.source_fit_remaining = u64::MAX;
         // 原参考的发射折线（P2-1 修复后）：全 span 参考（独立于发射成败、覆盖断言）
         // 经 513 网格采样 f32 规范化（`reference_emitted_polyline`，与主入口同一基元）。
         let reference_controls = full_reference_controls(input);
