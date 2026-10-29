@@ -1768,7 +1768,17 @@ fn validate_table_field_count(
     table: laneflow_runtime_snapshot_wire::runtime::Table<'_>,
     supported: usize,
 ) -> Result<(), SnapshotRestoreError> {
-    let actual = table.vtable().num_fields();
+    let vtable = table.vtable();
+    // verifier 只保证 vtable 落在缓冲区内且偶对齐；声明长度短于自身长度 + 对象
+    // 长度两个 u16 槽时，num_fields 的派生减法会下溢，必须在计数前显式拒绝。
+    let declared = vtable.num_bytes();
+    if declared < std::mem::size_of::<u16>() * 2 {
+        return Err(SnapshotRestoreError::TruncatedVtable {
+            table: table_name,
+            declared,
+        });
+    }
+    let actual = vtable.num_fields();
     if actual > supported {
         return Err(SnapshotRestoreError::UnknownTableFields {
             table: table_name,

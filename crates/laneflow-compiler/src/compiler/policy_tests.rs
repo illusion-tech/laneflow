@@ -621,6 +621,56 @@ fn malformed_lfre_policy_is_rejected_and_admission_can_retry() {
 }
 
 #[test]
+fn truncated_vtable_fails_closed_before_closure_field_counting() {
+    // verifier 接受声明长度 0/2 的 vtable；当前 schema 为 closed() 触及的每个表
+    // 保留 required 字段，MissingRequiredField 先行拒绝。本测试钉住该失败关闭
+    // 行为——封闭性检查的字段计数减法会下溢，准入不得因 required 巧合移除而 panic。
+    use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
+    let limits = CompileLimits::p100_initial_v1();
+    let valid = editing_policy(&limits);
+    let root = wire::size_prefixed_root_as_road_editing_source(valid.as_bytes()).unwrap();
+    let stream = root
+        .right_of_way_policy_sets()
+        .get(0)
+        .stream_rules()
+        .get(0)
+        ._tab
+        .loc();
+    let offset = i32::from_le_bytes(valid.as_bytes()[stream..stream + 4].try_into().unwrap());
+    let vtable = usize::try_from(stream as i64 - i64::from(offset)).unwrap();
+    let declared = u16::from_le_bytes(valid.as_bytes()[vtable..vtable + 2].try_into().unwrap());
+    assert!(declared >= 6, "constructed stream vtable carries fields");
+    let mut admission = CompilationUnitBuilder::new(limits.clone());
+    for short in [0_u16, 2] {
+        let mut bytes = valid.as_bytes().to_vec();
+        bytes[vtable..vtable + 2].copy_from_slice(&short.to_le_bytes());
+        let error = admission
+            .add_road_editing_module(
+                re::RoadEditingModuleInput::try_new(DOCUMENT, &bytes, None).unwrap(),
+            )
+            .err()
+            .expect("truncated vtable must be rejected");
+        assert!(
+            matches!(
+                error.diagnostics()[0].payload(),
+                DiagnosticPayload::InvalidRoadEditingSource {
+                    violation: RoadEditingSourceViolation::MalformedWire,
+                    field,
+                    ..
+                } if field.as_deref() == Some("stream_rules"),
+            ),
+            "unexpected payload: {:?}",
+            error.diagnostics()[0].payload()
+        );
+    }
+    admission
+        .add_road_editing_module(
+            re::RoadEditingModuleInput::try_new(DOCUMENT, valid.as_bytes(), None).unwrap(),
+        )
+        .unwrap();
+}
+
+#[test]
 fn nearer_class_precedes_priority_and_access_denied_stream_needs_no_rule() {
     compile(|streams, _| {
         streams[1].priority = -100;

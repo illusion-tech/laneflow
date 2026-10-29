@@ -48,3 +48,20 @@ motion-kernel 不一致。本切片只修正此注释为“之一”，不改变
 最终验收以 [#536](https://github.com/illusion-tech/laneflow/issues/536) 的精确提交
 回执与其运行制品链接闭合；本文件不随每次 CI 自动回写而制造新的待验收提交。
 #305 选择不同的总验收提交时必须重新复核安全相关差异与适用检查。
+
+## 首轮正式验收失败与修复（2026-10-30）
+
+`b14f77a0` 的首轮六目标正式窗口（run `40933268900`，workflow_dispatch，1800 秒/目标）
+在 `lfrs_restore` 开跑约 5 分钟时 panic：flatbuffers 25.12.19 的 verifier 只保证
+vtable 落在缓冲区内且偶对齐，接受声明长度 0/2 的 vtable；恢复路径封闭性检查
+`num_fields() = num_bytes()/2 - 2` 的派生减法随之下溢（vtable.rs:48）。其余五目标
+通过；同 head 的 PR smoke（run `40933225763`）同因失败。最小化 crash 单元
+`crash-9303b8943eeeb463f8aaf9bd7000b712b776935c`（15 字节，SHA-256
+`9e0b84d175a5c20275d5b2c809fb9331a2930550242fbe352f505561b7119f57`）已逐字节嵌入
+`lfrs_restore` 种子（`truncated-vtable`）与运行时定向回归测试；LFRE 预检 `closed()`
+加同判守卫（当前 schema 的 required 字段使下溢在该入口不可达，属防演进兜底）。
+
+失败运行六目标制品与回执已下载归档至工作树外本地目录
+`E:/projects/worktrees/2933/fuzz-archive-536/failed-formal-40933268900/`
+（含 SHA256SUMS；`lfrs_restore` zip 哈希与工作流上传日志宣布值一致）；GitHub
+原始制品 90 天保留。修复提交另以新的六目标正式窗口重跑闭合。

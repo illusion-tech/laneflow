@@ -5,6 +5,15 @@ use laneflow_road_editing_wire::runtime::Table;
 /// 封闭性检查：拒绝 wire table 中超出预期字段数的已填充未知字段。
 pub(super) fn closed(table: Table<'_>, fields: usize, key: &str) -> Result<(), DiagnosticBundle> {
     let vtable = table.vtable();
+    // verifier 只保证 vtable 落在缓冲区内且偶对齐；当前 schema 的 required
+    // 字段恰好先行拒绝短 vtable，但 num_fields 的计数下溢不能依赖该巧合。
+    if vtable.num_bytes() < 4 {
+        return Err(semantic_error(
+            "truncatedVtable",
+            RoadEditingInputViolation::InvalidCombination,
+            key,
+        ));
+    }
     if (fields..vtable.num_fields()).any(|index| vtable.get_field(index) != 0) {
         return Err(semantic_error(
             "unknownField",
