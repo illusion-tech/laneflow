@@ -383,6 +383,28 @@ fn stop_line_checklist(
         .iter()
         .map(|edge| (edge["id"].as_str().unwrap(), edge))
         .collect::<BTreeMap<_, _>>();
+    // 冻结表 `stop_lines` 行以分量码（C19/C22/C24）标注归属；正式实验的评价表以完整
+    // 分量 id 键入。fixture 冻结表无 `components` 段时按码直查。
+    let code_ids = cohort
+        .get("components")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .map(|row| {
+                    (
+                        row["code"].as_str().unwrap().to_owned(),
+                        row["id"].as_str().unwrap().to_owned(),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let evaluation_key = |code: &str| -> String {
+        code_ids
+            .get(code)
+            .cloned()
+            .unwrap_or_else(|| code.to_owned())
+    };
     let gate_bindings = |stop_line_id: &str| -> Value {
         let gates = traffic
             .signals
@@ -433,7 +455,7 @@ fn stop_line_checklist(
         let gates = gate_bindings(id);
         let edge_row = edge_rows[edge];
         let evaluation = evaluations
-            .get(code)
+            .get(&evaluation_key(code))
             .expect("component evaluation present for stop line edge");
         let selected = evaluation
             .get("selected_assignment")
