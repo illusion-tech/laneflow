@@ -63,6 +63,8 @@ struct GridSearch {
     guide: Option<Guide>,
     injection: Option<Injection>,
     injection_records: Vec<Value>,
+    /// 本次调用的网格工作预投影上限（`None` = 历史常量 `EVALUATION_LIMIT`）。
+    work_allowance: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -242,7 +244,7 @@ impl GridSearch {
     }
 
     fn reserve_work(&mut self, amount: u64) -> Result<()> {
-        if self.work() + amount > EVALUATION_LIMIT {
+        if self.work() + amount > self.work_allowance.unwrap_or(EVALUATION_LIMIT) {
             Err(self.fail("work"))
         } else {
             Ok(())
@@ -282,21 +284,90 @@ pub(crate) fn policy() -> Value {
         "scope":"retained finite representatives only; not continuous completeness or allocator peak"})
 }
 
+/// 跨调用共享三分量工作预算（#1154 冻结口径：标准网格与全部注入变体共享每边
+/// 32,000,000 网格工作预算、**不按见证续杯**；B 自定义几何驱动与 D 注入变体共用
+/// 同一句柄，reshape 侧 `source_fit`/`sampling` 分量同句柄扣减）。
+///
+/// **截断语义**：调用按进入时 `grid_work_remaining` 预投影截断（`reserve_work`
+/// 不得超出），退出时按**实耗**（报告 `search_work`）扣减——不按预投影额扣。不变量：
+/// 单次调用 `work() ≤ 进入时 remaining`，故 `consumed + remaining == 初始值` 恒成立。
+///
+/// **D 场景用法（勿建多句柄）**：标准网格与全部注入变体传同一个句柄——
+/// ```ignore
+/// let mut budget = WorkBudget::per_edge_default();
+/// let standard = search_audited_with_budget(input, &mut budget);
+/// let injected = search_injected_with_budget(input, injection, &mut budget);
+/// // budget.grid_work_consumed = 两次实耗之和；32M 不按见证续杯。
+/// ```
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // 划分/来源拟合分量随 reshape 侧接线（task-11 B 驱动）启用；句柄形状先行冻结。
+pub(crate) struct WorkBudget {
+    pub(crate) partitions_remaining: u64,
+    pub(crate) grid_work_remaining: u64,
+    pub(crate) source_fit_remaining: u64,
+    pub(crate) partitions_consumed: u64,
+    pub(crate) grid_work_consumed: u64,
+    pub(crate) source_fit_consumed: u64,
+}
+
+impl WorkBudget {
+    /// 每边缺省口径：划分 32,768 / 网格工作 32,000,000 / 来源拟合 32,000,000。
+    pub(crate) fn per_edge_default() -> Self {
+        Self {
+            partitions_remaining: 32_768,
+            grid_work_remaining: EVALUATION_LIMIT,
+            source_fit_remaining: 32_000_000,
+            partitions_consumed: 0,
+            grid_work_consumed: 0,
+            source_fit_consumed: 0,
+        }
+    }
+
+    /// 每次调用独立的缺省句柄（历史语义；缺省路径行为等值由构造 + 等值单测双证）。
+    pub(crate) fn per_call_default() -> Self {
+        Self::per_edge_default()
+    }
+}
+
 pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
-    search_impl(input, false, None, None)
+    search_with_budget(input, &mut WorkBudget::per_call_default())
 }
 
 pub(crate) fn search_audited(input: &EdgeInput) -> EdgeSearch {
-    search_impl(input, true, None, None)
+    search_audited_with_budget(input, &mut WorkBudget::per_call_default())
 }
 
 pub(crate) fn search_guided(input: &EdgeInput, guide: Guide) -> EdgeSearch {
-    search_impl(input, true, Some(guide), None)
+    search_guided_with_budget(input, guide, &mut WorkBudget::per_call_default())
 }
 
 /// #1221 §3.5：见证参数注入后的整边搜索；预算与上限不增加。
 pub(crate) fn search_injected(input: &EdgeInput, injection: Injection) -> EdgeSearch {
-    search_impl(input, true, None, Some(injection))
+    search_injected_with_budget(input, injection, &mut WorkBudget::per_call_default())
+}
+
+pub(crate) fn search_with_budget(input: &EdgeInput, budget: &mut WorkBudget) -> EdgeSearch {
+    search_impl(input, false, None, None, budget)
+}
+
+pub(crate) fn search_audited_with_budget(input: &EdgeInput, budget: &mut WorkBudget) -> EdgeSearch {
+    search_impl(input, true, None, None, budget)
+}
+
+pub(crate) fn search_guided_with_budget(
+    input: &EdgeInput,
+    guide: Guide,
+    budget: &mut WorkBudget,
+) -> EdgeSearch {
+    search_impl(input, true, Some(guide), None, budget)
+}
+
+pub(crate) fn search_injected_with_budget(
+    input: &EdgeInput,
+    injection: Injection,
+    budget: &mut WorkBudget,
+) -> EdgeSearch {
+    search_impl(input, true, None, Some(injection), budget)
 }
 
 pub(crate) fn local_probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {
@@ -323,6 +394,7 @@ fn search_impl(
     audited: bool,
     guide: Option<Guide>,
     injection: Option<Injection>,
+    budget: &mut WorkBudget,
 ) -> EdgeSearch {
     let _reset = GridReset;
     let mut state = GridSearch {
@@ -330,6 +402,7 @@ fn search_impl(
         start_clamp: input.clamps[0],
         guide,
         injection,
+        work_allowance: Some(budget.grid_work_remaining),
         ..GridSearch::default()
     };
     let mut candidates = Vec::new();
@@ -414,6 +487,10 @@ fn search_impl(
     if let Some(audit) = &state.audit {
         report["end_audit"] = json!(audit);
     }
+    // 共享预算核算（截断语义：预投影截断、按实耗扣减）。
+    let used = state.work();
+    budget.grid_work_remaining = budget.grid_work_remaining.saturating_sub(used);
+    budget.grid_work_consumed += used;
     EdgeSearch { report, candidates }
 }
 
@@ -567,6 +644,76 @@ fn sample(
     }
     state.spans.push(saved.report.clone());
     Ok(())
+}
+
+#[test]
+fn shared_work_budget_truncates_and_accounts_actual_consumption() {
+    // 截断语义（lead 实施注意 1）：按进入时剩余量预投影截断、退出按实耗扣减（不按
+    // 预投影额扣）；不变量 remaining ≥ 0 且 consumed + remaining == 初始值；跨调用
+    // 共享不续杯。注入变体与标准网格传同一句柄由 API 形态保证（search_injected_with_budget
+    // 同参数形态，用法示例见 WorkBudget 文档注释）。
+    let input = EdgeInput {
+        points: vec![
+            [0.0, 0.0, 0.0],
+            [4.0, 0.2, 0.0],
+            [8.0, 0.2, 0.0],
+            [12.0, 0.0, 0.0],
+        ],
+        clamps: [None, None],
+        clamp_sources: [None, None],
+    };
+    let initial = 4u64;
+    let mut budget = WorkBudget {
+        partitions_remaining: 32_768,
+        grid_work_remaining: initial,
+        source_fit_remaining: 32_000_000,
+        partitions_consumed: 0,
+        grid_work_consumed: 0,
+        source_fit_consumed: 0,
+    };
+    let first = search_audited_with_budget(&input, &mut budget);
+    assert_eq!(
+        budget.grid_work_consumed + budget.grid_work_remaining,
+        initial,
+        "实耗扣减不变量（第一次调用后）"
+    );
+    let second = search_audited_with_budget(&input, &mut budget);
+    assert_eq!(
+        budget.grid_work_consumed + budget.grid_work_remaining,
+        initial,
+        "跨调用不续杯（第二次调用后恒等式仍成立）"
+    );
+    assert!(
+        budget.grid_work_consumed >= first.report["search_work"].as_u64().unwrap(),
+        "consumed 累计覆盖各调用实耗"
+    );
+    assert!(budget.grid_work_consumed >= second.report["search_work"].as_u64().unwrap());
+}
+
+#[test]
+fn budget_default_path_matches_legacy_entry_bit_identically() {
+    // 缺省路径行为等值（lead 批准口径，双证之单测证）：旧入口与 per_call_default
+    // 句柄走同一实现，输出逐位一致。
+    let input = EdgeInput {
+        points: vec![
+            [0.0, 0.0, 0.0],
+            [4.0, 0.2, 0.0],
+            [8.0, 0.2, 0.0],
+            [12.0, 0.0, 0.0],
+        ],
+        clamps: [None, None],
+        clamp_sources: [None, None],
+    };
+    let legacy = search_audited(&input);
+    let fresh = search_audited_with_budget(&input, &mut WorkBudget::per_call_default());
+    assert_eq!(legacy.report, fresh.report, "缺省路径报告逐位等值");
+    assert_eq!(legacy.candidates.len(), fresh.candidates.len());
+    let legacy_plain = search(&input);
+    let fresh_plain = search_with_budget(&input, &mut WorkBudget::per_call_default());
+    assert_eq!(
+        legacy_plain.report, fresh_plain.report,
+        "search 缺省逐位等值"
+    );
 }
 
 #[test]
