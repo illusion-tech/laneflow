@@ -91,11 +91,18 @@ struct Budget {
     quality_work: u64,
     retained_key_points: usize,
     stop: Option<&'static str>,
+    /// 共享句柄预投影限额（`None` = 历史常量；报告序列化跳过，输出逐位不变）。
+    #[serde(skip)]
+    sample_limit: Option<u64>,
+    #[serde(skip)]
+    quality_limit: Option<u64>,
+    #[serde(skip)]
+    partition_limit: Option<u64>,
 }
 
 impl Budget {
     fn sample(&mut self, n: u64) -> bool {
-        if n > WORK_LIMIT - self.sample_work {
+        if n > self.sample_limit.unwrap_or(WORK_LIMIT) - self.sample_work {
             self.stop = Some("sampling_work");
             false
         } else {
@@ -105,7 +112,7 @@ impl Budget {
     }
 
     fn quality(&mut self, n: u64) -> bool {
-        if n > WORK_LIMIT - self.quality_work {
+        if n > self.quality_limit.unwrap_or(WORK_LIMIT) - self.quality_work {
             self.stop = Some("source_fit_work");
             false
         } else {
@@ -115,7 +122,7 @@ impl Budget {
     }
 
     fn partition(&mut self) -> bool {
-        if self.partitions == PARTITION_LIMIT {
+        if self.partitions == self.partition_limit.unwrap_or(PARTITION_LIMIT) {
             self.stop = Some("partitions");
             false
         } else {
@@ -310,6 +317,23 @@ pub(crate) fn search(input: &EdgeInput) -> EdgeSearch {
 /// 同 `search()`；`max_curves` 为该边冻结的段容量 s（流 B 参数化，候选族、筛选
 /// 顺序、排序与停止口径逐值不变）。
 pub(crate) fn search_with_curve_cap(input: &EdgeInput, max_curves: usize) -> EdgeSearch {
+    search_with_curve_cap_budget(
+        input,
+        max_curves,
+        &mut super::grid::WorkBudget::per_call_default(),
+    )
+}
+
+/// 共享三分量句柄版（task-11 / #1154）：三分量自句柄**预投影**（partitions←
+/// partitions、sample_work←grid_work 工作池、quality_work←source_fit），退出按
+/// **实耗回扣**（consumed+remaining==初始值不变量同构）。**句柄由调用方选择**：
+/// 每边搜索共享一个句柄；原族对照重放、复核域验证（#1154「复核独立计数」——验收层
+/// 双向拟合等计入复核域、独立计数、不占搜索池）各传独立句柄即独立计账。
+pub(crate) fn search_with_curve_cap_budget(
+    input: &EdgeInput,
+    max_curves: usize,
+    handle: &mut super::grid::WorkBudget,
+) -> EdgeSearch {
     assert!(max_curves >= 1, "nonzero curve cap");
     assert!(input.points.len() >= 2);
     assert!(
@@ -329,7 +353,12 @@ pub(crate) fn search_with_curve_cap(input: &EdgeInput, max_curves: usize) -> Edg
     );
     let original = reference_with_curve_cap(input, max_curves);
     assert!(original.len() <= max_curves, "bounded reference capture");
-    let mut budget = Budget::default();
+    let mut budget = Budget {
+        sample_limit: Some(handle.grid_work_remaining),
+        quality_limit: Some(handle.source_fit_remaining),
+        partition_limit: Some(handle.partitions_remaining),
+        ..Budget::default()
+    };
     let reference_fit =
         quality::fit(&original, &input.points, &mut budget).expect("bounded reference fit");
     let reference_length = quality::lengths(&original);
@@ -453,5 +482,90 @@ pub(crate) fn search_with_curve_cap(input: &EdgeInput, max_curves: usize) -> Edg
         "counts":budget,"geometries":rows,"geometry_family_visited":rows.len()==148 && budget.stop.is_none(),
         "budget_truncated":budget.stop.is_some(),"stop_reason":budget.stop.unwrap_or("completed_finite_geometry_family"),
         "candidate_programs":candidates.len(),"production_g1_accepted":false});
+    // 共享句柄核算（截断语义：预投影截断、按实耗扣减；复核域独立句柄同构计账）。
+    handle.grid_work_remaining = handle
+        .grid_work_remaining
+        .saturating_sub(budget.sample_work);
+    handle.grid_work_consumed += budget.sample_work;
+    handle.source_fit_remaining = handle
+        .source_fit_remaining
+        .saturating_sub(budget.quality_work);
+    handle.source_fit_consumed += budget.quality_work;
+    handle.partitions_remaining = handle
+        .partitions_remaining
+        .saturating_sub(budget.partitions);
+    handle.partitions_consumed += budget.partitions;
     EdgeSearch { candidates, report }
+}
+
+#[cfg(test)]
+mod work_budget_tests {
+    use super::*;
+
+    fn edge_input() -> EdgeInput {
+        EdgeInput {
+            points: vec![
+                [0.0, 0.0, 0.0],
+                [4.0, 0.2, 0.0],
+                [8.0, 0.2, 0.0],
+                [12.0, 0.0, 0.0],
+            ],
+            clamps: [None, None],
+            clamp_sources: [None, None],
+        }
+    }
+
+    #[test]
+    fn budget_default_path_matches_legacy_entry_bit_identically() {
+        // 缺省路径行为等值：旧入口与 per_call_default 句柄走同一实现，报告逐位一致
+        // （`#[serde(skip)]` 限额字段不入报告）。
+        let legacy = search_with_curve_cap(&edge_input(), 4);
+        let fresh = search_with_curve_cap_budget(
+            &edge_input(),
+            4,
+            &mut super::super::grid::WorkBudget::per_call_default(),
+        );
+        assert_eq!(legacy.report, fresh.report, "缺省路径报告逐位等值");
+        assert_eq!(legacy.candidates.len(), fresh.candidates.len());
+    }
+
+    #[test]
+    fn shared_budget_accounts_actual_consumption_with_invariant() {
+        // 截断语义：预投影截断、按实耗回扣；consumed + remaining == 初始值；跨调用
+        // 不续杯；句柄由调用方选择（复核域/原族重放传独立句柄即独立计账）。
+        let input = edge_input();
+        let mut handle = super::super::grid::WorkBudget::per_edge_default();
+        let (p0, w0, f0) = (
+            handle.partitions_remaining,
+            handle.grid_work_remaining,
+            handle.source_fit_remaining,
+        );
+        let first = search_with_curve_cap_budget(&input, 4, &mut handle);
+        assert_eq!(
+            handle.partitions_consumed + handle.partitions_remaining,
+            p0,
+            "partitions 恒等式"
+        );
+        assert_eq!(
+            handle.grid_work_consumed + handle.grid_work_remaining,
+            w0,
+            "工作池恒等式"
+        );
+        assert_eq!(
+            handle.source_fit_consumed + handle.source_fit_remaining,
+            f0,
+            "source_fit 恒等式"
+        );
+        let _ = search_with_curve_cap_budget(&input, 4, &mut handle);
+        assert_eq!(
+            handle.grid_work_consumed + handle.grid_work_remaining,
+            w0,
+            "跨调用不续杯（第二次调用后恒等式仍成立）"
+        );
+        let counts = &first.report["counts"];
+        assert!(
+            handle.grid_work_consumed >= counts["sample_work"].as_u64().unwrap(),
+            "consumed 覆盖首调用实耗"
+        );
+    }
 }
