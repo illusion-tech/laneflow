@@ -1,6 +1,8 @@
 use std::fs::{self, File};
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 
 use laneflow_synth_harness::{Error, run};
 use serde_json::{Value, json};
@@ -16,62 +18,71 @@ fn matrix(input: &Path, implementation: &str, output: &Path) -> Result<(), Error
     fs::create_dir(output)?;
     let binary = std::env::current_exe()?;
     let mut summary = json!({"format":"lf-synth-semantic-matrix-1","complete":false,
-        "implementation_commit":implementation,"scope":"semantics_only_not_performance_or_product_certification","rows":[]});
+        "implementation_commit":implementation,"max_concurrent_processes":4,
+        "scope":"semantics_only_not_performance_or_product_certification","rows":[],"errors":[]});
     write(&output.join("summary.json"), &summary)?;
-    let result = (|| {
-        for scale in [10_000, 100_000] {
-            for case in ["W1", "W2"] {
-                for dt in [16, 33] {
-                    let label = format!("{scale}-{case}-{dt}");
-                    // 复用正式生成器矩阵的 -a 规范输入；两个消费进程均重新受检读取。
-                    let bundle = input.join(format!("{label}-a"));
-                    let mut reports = Vec::new();
-                    for round in ["a", "b"] {
-                        let target = output.join(format!("{label}-{round}"));
-                        let log = File::create(output.join(format!("{label}-{round}.log")))?;
-                        let status = Command::new(&binary)
-                            .arg("run")
-                            .arg(&bundle)
-                            .arg(implementation)
-                            .arg(&target)
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::from(log))
-                            .status()?;
-                        if !status.success() {
-                            return Err(Error::Invalid(format!(
-                                "子进程失败 {label}-{round}: {status}"
-                            )));
-                        }
-                        let report: Value =
-                            serde_json::from_slice(&fs::read(target.join("report.json"))?)?;
-                        if report["complete"] != true {
-                            return Err(Error::Invalid(format!(
-                                "不完整子进程回执 {label}-{round}"
-                            )));
-                        }
-                        reports.push(report);
-                    }
-                    let a = fs::read(output.join(format!("{label}-a/ticks.bin")))?;
-                    let b = fs::read(output.join(format!("{label}-b/ticks.bin")))?;
-                    if a != b || reports[0] != reports[1] {
-                        return Err(Error::Invalid(format!("独立进程轨迹或检查点不同：{label}")));
-                    }
-                    summary["rows"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(json!({"identity":label,
-                        "fresh_process_rounds":2,"trace_bytes_equal":true,"reports_equal":true,
-                        "trace_byte_length":a.len(),"report":reports.remove(0)}));
-                    write(&output.join("summary.json"), &summary)?;
-                    eprintln!(
-                        "verified {label} ({}/8)",
-                        summary["rows"].as_array().unwrap().len()
-                    );
+    let mut jobs = Vec::new();
+    for scale in [10_000, 100_000] {
+        for case in ["W1", "W2"] {
+            for dt in [16, 33] {
+                for round in ["a", "b"] {
+                    jobs.push((format!("{scale}-{case}-{dt}"), round));
                 }
             }
         }
-        Ok::<_, Error>(())
-    })();
+    }
+    let next = AtomicUsize::new(0);
+    let (sender, receiver) = mpsc::channel();
+    let mut reports = vec![None; jobs.len()];
+    let result = std::thread::scope(|scope| {
+        for _ in 0..4 {
+            let (sender, next, jobs, binary) = (sender.clone(), &next, &jobs, &binary);
+            scope.spawn(move || {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some((label, round)) = jobs.get(index) else {
+                        break;
+                    };
+                    let result = run_process(binary, input, implementation, output, label, round);
+                    if sender.send((index, result)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(sender);
+        // 只有父进程写汇总；scope 等待已启动子进程，错误也不遗留孤儿进程。
+        for (index, result) in receiver {
+            let paired = index ^ 1;
+            let result = result.and_then(|report| {
+                reports[index] = Some(report);
+                if let (Some(a), Some(b)) = (&reports[index], &reports[paired]) {
+                    let label = &jobs[index].0;
+                    let row = compare(output, label, a, b)?;
+                    let rows = summary["rows"].as_array_mut().unwrap();
+                    rows.push(row);
+                    rows.sort_by(|a, b| a["identity"].as_str().cmp(&b["identity"].as_str()));
+                    eprintln!("verified {label} ({}/8)", rows.len());
+                }
+                Ok(())
+            });
+            if let Err(error) = result {
+                summary["errors"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(Value::String(error.to_string()));
+            }
+            write(&output.join("summary.json"), &summary)?;
+        }
+        if summary["rows"].as_array().unwrap().len() != 8
+            || !summary["errors"].as_array().unwrap().is_empty()
+        {
+            return Err(Error::Invalid(
+                "矩阵未全部通过；具体失败见 summary.json".into(),
+            ));
+        }
+        Ok(())
+    });
     if let Err(error) = result {
         summary["error"] = Value::String(error.to_string());
         write(&output.join("summary.json"), &summary)?;
@@ -80,6 +91,57 @@ fn matrix(input: &Path, implementation: &str, output: &Path) -> Result<(), Error
     summary["complete"] = Value::Bool(true);
     write(&output.join("summary.json"), &summary)?;
     Ok(())
+}
+
+fn run_process(
+    binary: &Path,
+    input: &Path,
+    implementation: &str,
+    output: &Path,
+    label: &str,
+    round: &str,
+) -> Result<Value, Error> {
+    let target = output.join(format!("{label}-{round}"));
+    let log = File::create(output.join(format!("{label}-{round}.log")))?;
+    let status = Command::new(binary)
+        .arg("run")
+        .arg(input.join(format!("{label}-a")))
+        .arg(implementation)
+        .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(log))
+        .status()?;
+    if !status.success() {
+        return Err(Error::Invalid(format!(
+            "子进程失败 {label}-{round}: {status}"
+        )));
+    }
+    let report: Value = serde_json::from_slice(&fs::read(target.join("report.json"))?)?;
+    let identity = &report["input_manifest"]["identity"];
+    let actual = format!(
+        "{}-{}-{}",
+        identity["scale"],
+        identity["case"].as_str().unwrap_or(""),
+        identity["fixed_delta_ms"]
+    );
+    if report["complete"] != true || actual != label {
+        return Err(Error::Invalid(format!(
+            "不完整或身份不符的子进程回执 {label}-{round}: {actual}"
+        )));
+    }
+    Ok(report)
+}
+
+fn compare(output: &Path, label: &str, a: &Value, b: &Value) -> Result<Value, Error> {
+    let first = fs::read(output.join(format!("{label}-a/ticks.bin")))?;
+    let second = fs::read(output.join(format!("{label}-b/ticks.bin")))?;
+    if first != second || a != b {
+        return Err(Error::Invalid(format!("独立进程轨迹或检查点不同：{label}")));
+    }
+    Ok(
+        json!({"identity":label,"fresh_process_rounds":2,"trace_bytes_equal":true,"reports_equal":true,
+        "trace_byte_length":first.len(),"report":a}),
+    )
 }
 
 fn execute() -> Result<(), Error> {
@@ -114,5 +176,24 @@ fn main() -> ExitCode {
             eprintln!("{error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn comparison_rejects_trace_or_checkpoint_changes() {
+        let root = tempfile::tempdir().unwrap();
+        for round in ["a", "b"] {
+            let path = root.path().join(format!("case-{round}"));
+            std::fs::create_dir(&path).unwrap();
+            std::fs::write(path.join("ticks.bin"), [1_u8, 2, 3]).unwrap();
+        }
+        let report = serde_json::json!({"checkpoint":"original"});
+        assert!(super::compare(root.path(), "case", &report, &report).is_ok());
+        let changed = serde_json::json!({"checkpoint":"changed"});
+        assert!(super::compare(root.path(), "case", &report, &changed).is_err());
+        std::fs::write(root.path().join("case-b/ticks.bin"), [1_u8, 9, 3]).unwrap();
+        assert!(super::compare(root.path(), "case", &report, &report).is_err());
     }
 }
