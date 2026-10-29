@@ -548,9 +548,9 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
   topology/state/input-sequence digest 不同即视为不同 workload。
 - production runtime 不得识别 workload ID、seed、cell/route/vehicle ID 或
   选择结果来走专用路径。
-- W1/W2 的完整窗口语义消费与证据编码见
+- W1–W4 的完整冻结窗口语义消费、W3/W4 独立失败重试和证据编码见
   [`lf-synth-execution.md`](lf-synth-execution.md)。该工具不实现表现与性能测量；
-  完整 W1–W4、表现/性能及五轴验收完成前，一万/十万保持 `Product TBD / Uncertified`。
+  表现/性能及五轴验收完成前，一万/十万保持 `Product TBD / Uncertified`。
 
 #1148 的 [1/2 cell 合同验证记录](../../research/issue-1148-lf-synth-contract/README.md)
 覆盖 W1–W4、16/33 ms、停车 barrier、同步信号和失败重试；它省略 Spatial 与表现层，

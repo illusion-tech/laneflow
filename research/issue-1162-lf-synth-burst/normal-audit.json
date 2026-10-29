@@ -1,0 +1,475 @@
+{
+  "format": "lf-synth-burst-external-audit-1",
+  "complete": true,
+  "implementation_commit": "1b08df57e6e17112e31fc2663a59f6fb2c25bacc",
+  "method": "PowerShell Get-FileHash SHA256 and System.IO.BinaryReader",
+  "verified_tick_files": 16,
+  "verified_command_files": 16,
+  "verified_file_pairs": 32,
+  "rows": [
+    {
+      "identity": "10000-W3-16",
+      "tick_records_per_round": 43525,
+      "command_records_per_round": 600,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 1741023,
+          "sha256": "93fb03ed88b2f502efb00e500a9d40f351c81ffe00a6ee6c1cb43fb9b782ffd6"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "f340740d47ca4fbcaaf326e6f7c3f628b9b02c1559f0ff0764296a596e6879bb"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 2271,
+          "sha256": "2ed48d9e1138ce7ffc5f6a54476a79924b7e0a135c17c374b66f9ae6ee0ac3c2"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 15800,
+          "sha256": "1c6c61bf54cde0b5959d807e967d920b2bdb698dae3f16c9a0ec997ee190e9e1"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 1741023,
+          "sha256": "93fb03ed88b2f502efb00e500a9d40f351c81ffe00a6ee6c1cb43fb9b782ffd6"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "f340740d47ca4fbcaaf326e6f7c3f628b9b02c1559f0ff0764296a596e6879bb"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 2271,
+          "sha256": "2ed48d9e1138ce7ffc5f6a54476a79924b7e0a135c17c374b66f9ae6ee0ac3c2"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 15800,
+          "sha256": "1c6c61bf54cde0b5959d807e967d920b2bdb698dae3f16c9a0ec997ee190e9e1"
+        }
+      ]
+    },
+    {
+      "identity": "10000-W3-33",
+      "tick_records_per_round": 21133,
+      "command_records_per_round": 600,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 845343,
+          "sha256": "4c1faee6f63f5d28e76c26efd2016bf7574df1aa0180c6d7dd186027b544e681"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "672cea1756c7738ac671e525b5ea7ab9bce8d4b27de5073741b168b44ccf7e5b"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 2269,
+          "sha256": "0457499f3b4d745ad4a57bb55de48ddd0311bbd9fdc21a18f2dbd37bcc6e6c0b"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 15694,
+          "sha256": "2f1c5c7dfce68234d20b6bba8525d1b285e7f6c6b965ab789c69fbb54ea7ce1a"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 845343,
+          "sha256": "4c1faee6f63f5d28e76c26efd2016bf7574df1aa0180c6d7dd186027b544e681"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "672cea1756c7738ac671e525b5ea7ab9bce8d4b27de5073741b168b44ccf7e5b"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 2269,
+          "sha256": "0457499f3b4d745ad4a57bb55de48ddd0311bbd9fdc21a18f2dbd37bcc6e6c0b"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 15694,
+          "sha256": "2f1c5c7dfce68234d20b6bba8525d1b285e7f6c6b965ab789c69fbb54ea7ce1a"
+        }
+      ]
+    },
+    {
+      "identity": "10000-W4-16",
+      "tick_records_per_round": 14511,
+      "command_records_per_round": 600,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 580463,
+          "sha256": "095618acbb09d3bf5a8a58f53d28837182eee0311c150f7634cd8ad2ae4a44b1"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "a2e9e9a8db44af952e9ed495f78e94783f2c90a4dc4b52934fbfab195bd31ef9"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 1381,
+          "sha256": "0d9d605eb1f2571306d9e625002533c28caa59a9f518c829eda59dc9e7c11c46"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 8922,
+          "sha256": "7db6e945d79779ce9753d20248addd57364c530ff6d0093564e19d40f987da6a"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 580463,
+          "sha256": "095618acbb09d3bf5a8a58f53d28837182eee0311c150f7634cd8ad2ae4a44b1"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "a2e9e9a8db44af952e9ed495f78e94783f2c90a4dc4b52934fbfab195bd31ef9"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 1381,
+          "sha256": "0d9d605eb1f2571306d9e625002533c28caa59a9f518c829eda59dc9e7c11c46"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 8922,
+          "sha256": "7db6e945d79779ce9753d20248addd57364c530ff6d0093564e19d40f987da6a"
+        }
+      ]
+    },
+    {
+      "identity": "10000-W4-33",
+      "tick_records_per_round": 7047,
+      "command_records_per_round": 600,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 281903,
+          "sha256": "63dc912fca8afe5dda92d1bf27df1dd9809893d418c82c49b4510e45f6724126"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "bfd2705df2860ef2d0d6232aaf1301f497bc49dd0dbd6d8b0b2e15c890a5684b"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 1378,
+          "sha256": "cf916c0685d9e0ffd4a09ba336d89d47b49b6ec6949e49f17b8833d65386fc06"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 8814,
+          "sha256": "7f465b595cff577bdaf034c8971ffacaf75f59d9d9170a58354ea27a4f858113"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 281903,
+          "sha256": "63dc912fca8afe5dda92d1bf27df1dd9809893d418c82c49b4510e45f6724126"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 40828,
+          "sha256": "bfd2705df2860ef2d0d6232aaf1301f497bc49dd0dbd6d8b0b2e15c890a5684b"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 1378,
+          "sha256": "cf916c0685d9e0ffd4a09ba336d89d47b49b6ec6949e49f17b8833d65386fc06"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 8814,
+          "sha256": "7f465b595cff577bdaf034c8971ffacaf75f59d9d9170a58354ea27a4f858113"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W3-16",
+      "tick_records_per_round": 43525,
+      "command_records_per_round": 6000,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 1741023,
+          "sha256": "889b8dfc3c319b9ebe9743c007a2ac32cbb9772072d7505c1f60958bc1260e9f"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "0b47e731836ded908386fb44c4e8bf850b29d55c18e2f7f627efd3e6e898a9a0"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 2290,
+          "sha256": "c41df376df7e4ea6548e6c82dc9e819beaea0dde42be691dd82cd394d3fb277c"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 84279,
+          "sha256": "bd5bda0956037504e3837c7bcb013f5951e4290e8753d94c31a63f1fc60b75fa"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 1741023,
+          "sha256": "889b8dfc3c319b9ebe9743c007a2ac32cbb9772072d7505c1f60958bc1260e9f"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "0b47e731836ded908386fb44c4e8bf850b29d55c18e2f7f627efd3e6e898a9a0"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 2290,
+          "sha256": "c41df376df7e4ea6548e6c82dc9e819beaea0dde42be691dd82cd394d3fb277c"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 84279,
+          "sha256": "bd5bda0956037504e3837c7bcb013f5951e4290e8753d94c31a63f1fc60b75fa"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W3-33",
+      "tick_records_per_round": 21133,
+      "command_records_per_round": 6000,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 845343,
+          "sha256": "1ec06de5a38208ffa3113b38b400bf9d61a5719ae3f19c615e067db3699e1dab"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "8e59e779a50fa281b06fdbaf1502e4cfd0811fac7d95b4539299b23b3f1cb4dc"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 2288,
+          "sha256": "048c1b9c7412b8dfddaa951ce5f04be7bf54b7409754f7b72ef4f84a24099b91"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 83274,
+          "sha256": "63963c9455d5cea62e7680946397a0b21e0f62e38dcf88d32bde78a2455e3c6b"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 845343,
+          "sha256": "1ec06de5a38208ffa3113b38b400bf9d61a5719ae3f19c615e067db3699e1dab"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "8e59e779a50fa281b06fdbaf1502e4cfd0811fac7d95b4539299b23b3f1cb4dc"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 2288,
+          "sha256": "048c1b9c7412b8dfddaa951ce5f04be7bf54b7409754f7b72ef4f84a24099b91"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 83274,
+          "sha256": "63963c9455d5cea62e7680946397a0b21e0f62e38dcf88d32bde78a2455e3c6b"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W4-16",
+      "tick_records_per_round": 14511,
+      "command_records_per_round": 6000,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 580463,
+          "sha256": "800db1027813d1f8d738a9f4dc4743fd55dd39a7be88f964d4e83f34a63a11ae"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "c9b441e893bf249a428f9761c9fbb834a4e8f46c3a60e54af095212283cec03b"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 1392,
+          "sha256": "33226e46981b87c4cd3237e476e8208297433bb4ba03c5205725f5fc895e484c"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 43172,
+          "sha256": "549917926214819af6a02d2e1ab46fc3349c53f6aaf64cb8c147af5b954e0ff5"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 580463,
+          "sha256": "800db1027813d1f8d738a9f4dc4743fd55dd39a7be88f964d4e83f34a63a11ae"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "c9b441e893bf249a428f9761c9fbb834a4e8f46c3a60e54af095212283cec03b"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 1392,
+          "sha256": "33226e46981b87c4cd3237e476e8208297433bb4ba03c5205725f5fc895e484c"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 43172,
+          "sha256": "549917926214819af6a02d2e1ab46fc3349c53f6aaf64cb8c147af5b954e0ff5"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W4-33",
+      "tick_records_per_round": 7047,
+      "command_records_per_round": 6000,
+      "all_tick_indices_contiguous": true,
+      "all_command_indices_and_cursors_valid": true,
+      "four_file_sha256_pairs_equal": true,
+      "files": [
+        {
+          "round": "a",
+          "name": "ticks.bin",
+          "byte_length": 281903,
+          "sha256": "4ae7ca527f505a785ec80fab9bbdf410cc1cd54a5cbdc1de18f92eeca1e19be4"
+        },
+        {
+          "round": "a",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "f01d2166e3276950d861a4c9f267e745357bf3a95bda9193b87ed8626ba33c0c"
+        },
+        {
+          "round": "a",
+          "name": "batches.json",
+          "byte_length": 1389,
+          "sha256": "b93a4b40d4baa091fc809ed79dd5a88d99c778fe7729bb18c4f9fc1e442a996f"
+        },
+        {
+          "round": "a",
+          "name": "report.json",
+          "byte_length": 42164,
+          "sha256": "dc68f9e39a5e326296be3c6d5afc98d4a4aad0bba5323257dbf54aa0e1e484a8"
+        },
+        {
+          "round": "b",
+          "name": "ticks.bin",
+          "byte_length": 281903,
+          "sha256": "4ae7ca527f505a785ec80fab9bbdf410cc1cd54a5cbdc1de18f92eeca1e19be4"
+        },
+        {
+          "round": "b",
+          "name": "commands.bin",
+          "byte_length": 408028,
+          "sha256": "f01d2166e3276950d861a4c9f267e745357bf3a95bda9193b87ed8626ba33c0c"
+        },
+        {
+          "round": "b",
+          "name": "batches.json",
+          "byte_length": 1389,
+          "sha256": "b93a4b40d4baa091fc809ed79dd5a88d99c778fe7729bb18c4f9fc1e442a996f"
+        },
+        {
+          "round": "b",
+          "name": "report.json",
+          "byte_length": 42164,
+          "sha256": "dc68f9e39a5e326296be3c6d5afc98d4a4aad0bba5323257dbf54aa0e1e484a8"
+        }
+      ]
+    }
+  ]
+}

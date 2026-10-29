@@ -1,0 +1,346 @@
+{
+  "format": "lf-synth-retry-external-audit-1",
+  "complete": true,
+  "implementation_commit": "1b08df57e6e17112e31fc2663a59f6fb2c25bacc",
+  "method": "PowerShell Get-FileHash SHA256",
+  "verified_snapshots": 56,
+  "verified_equality_pairs": 24,
+  "rows": [
+    {
+      "identity": "10000-W3-16",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 1027928,
+          "sha256": "4b1dbb81cc6c2fcfc608a889eb7a2682ecbaa022a1f634d167cd1e581c12e3f5"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 1027928,
+          "sha256": "6f369c90d8fcceedf44793186a4f5ff3af21bee7ab30c6a5d5b8aa6dfca709a3"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 1027928,
+          "sha256": "6f369c90d8fcceedf44793186a4f5ff3af21bee7ab30c6a5d5b8aa6dfca709a3"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 1027928,
+          "sha256": "6f369c90d8fcceedf44793186a4f5ff3af21bee7ab30c6a5d5b8aa6dfca709a3"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 1027928,
+          "sha256": "39b188a38aca2d01fbb71f75e7d5f3dee369a303485b8a9aef264326efe3de88"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 1027928,
+          "sha256": "39b188a38aca2d01fbb71f75e7d5f3dee369a303485b8a9aef264326efe3de88"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 1027928,
+          "sha256": "39b188a38aca2d01fbb71f75e7d5f3dee369a303485b8a9aef264326efe3de88"
+        }
+      ]
+    },
+    {
+      "identity": "10000-W3-33",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 1027928,
+          "sha256": "0fc0619d3c59e56b5f3c8f73dfd7b88cf4f1118d1c5d4e91bd77fd7725ec9d91"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 1027928,
+          "sha256": "7dc6740a67c9a0ea6b93044dd47c5f495a44eb7e8f561502baec095269e98089"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 1027928,
+          "sha256": "7dc6740a67c9a0ea6b93044dd47c5f495a44eb7e8f561502baec095269e98089"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 1027928,
+          "sha256": "7dc6740a67c9a0ea6b93044dd47c5f495a44eb7e8f561502baec095269e98089"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 1027872,
+          "sha256": "662d6cfa082b8b284d9611f4f69ac0a8fdb64024f97bf277bc21424bb12d4410"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 1027872,
+          "sha256": "662d6cfa082b8b284d9611f4f69ac0a8fdb64024f97bf277bc21424bb12d4410"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 1027872,
+          "sha256": "662d6cfa082b8b284d9611f4f69ac0a8fdb64024f97bf277bc21424bb12d4410"
+        }
+      ]
+    },
+    {
+      "identity": "10000-W4-16",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 864664,
+          "sha256": "daa01d633b11b897d8345ea9e031e729d1188b1e8ea498f825eea0638f598ec4"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 861456,
+          "sha256": "647ce6771cf738b6e78860af8382161f6946cb9bf315de2ac175db8735ff50c2"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 861456,
+          "sha256": "647ce6771cf738b6e78860af8382161f6946cb9bf315de2ac175db8735ff50c2"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 861456,
+          "sha256": "647ce6771cf738b6e78860af8382161f6946cb9bf315de2ac175db8735ff50c2"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 862256,
+          "sha256": "38e426d989150ec9d1597a3d73a5f83ed89e3191aa7d754c2bfa722a1b470d3a"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 862256,
+          "sha256": "38e426d989150ec9d1597a3d73a5f83ed89e3191aa7d754c2bfa722a1b470d3a"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 863168,
+          "sha256": "3796667421898e3f9e3068be955b0b9c4aa0113bd337e1cc97cafd483c7bcd64"
+        }
+      ]
+    },
+    {
+      "identity": "10000-W4-33",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 864664,
+          "sha256": "74ec44186210d3f6519e0bcc5c610ce7fbce5a9da9aed2ce2fe9993e388b4950"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 861456,
+          "sha256": "a4cc9c71d615f825bacfedaa7b1bc7112e1fce2c3852ed2ba7b54268dbcff90c"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 861456,
+          "sha256": "a4cc9c71d615f825bacfedaa7b1bc7112e1fce2c3852ed2ba7b54268dbcff90c"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 861456,
+          "sha256": "a4cc9c71d615f825bacfedaa7b1bc7112e1fce2c3852ed2ba7b54268dbcff90c"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 862256,
+          "sha256": "24e27e8360974e2774f4ee331687289f70930b6ea337641abfe475fe67a6d8d8"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 862256,
+          "sha256": "24e27e8360974e2774f4ee331687289f70930b6ea337641abfe475fe67a6d8d8"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 863096,
+          "sha256": "b432743d8682a1f808a74719db24ce86a494892bd2d5ea830baf4ccdae0913ac"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W3-16",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 10272728,
+          "sha256": "616fc848f61d4f1627d8a6be10b78f1e86ad4b2e94899ac9bc2c7ede466c2385"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 10272728,
+          "sha256": "8dba7dfc132071a6a19308b32385e6b5e9e32041cf4b7b9a17616363f6101a10"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 10272728,
+          "sha256": "8dba7dfc132071a6a19308b32385e6b5e9e32041cf4b7b9a17616363f6101a10"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 10272728,
+          "sha256": "8dba7dfc132071a6a19308b32385e6b5e9e32041cf4b7b9a17616363f6101a10"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 10272728,
+          "sha256": "4c3f68293534319d11ca0497e7cfa69d31aa56512eb7fb6646066d380d415f69"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 10272728,
+          "sha256": "4c3f68293534319d11ca0497e7cfa69d31aa56512eb7fb6646066d380d415f69"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 10272728,
+          "sha256": "4c3f68293534319d11ca0497e7cfa69d31aa56512eb7fb6646066d380d415f69"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W3-33",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 10272728,
+          "sha256": "6b1ec3478fca38992d24e9f036d16061a40d9fcb9fa2a529ba62e30c55e1dd5a"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 10272728,
+          "sha256": "e6e511873492f83c950ef1ded2efa01c17992612d9f46a31eca75e2f6ec29e7b"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 10272728,
+          "sha256": "e6e511873492f83c950ef1ded2efa01c17992612d9f46a31eca75e2f6ec29e7b"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 10272728,
+          "sha256": "e6e511873492f83c950ef1ded2efa01c17992612d9f46a31eca75e2f6ec29e7b"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 10272672,
+          "sha256": "5d8b71596c1ec43c80c54d361718412c7b40e0aefde6a495d7e0bc906cdc2c4a"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 10272672,
+          "sha256": "5d8b71596c1ec43c80c54d361718412c7b40e0aefde6a495d7e0bc906cdc2c4a"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 10272672,
+          "sha256": "5d8b71596c1ec43c80c54d361718412c7b40e0aefde6a495d7e0bc906cdc2c4a"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W4-16",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 8640664,
+          "sha256": "f7f905e52d330aca58b460a285f480ed86c919a7a40d5ccbde8ca0c05dcecd8b"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 8608656,
+          "sha256": "8294812e946a9a8d7a6bf7c42aa768509bd03901d44cf74b3b2ad1231295c964"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 8608656,
+          "sha256": "8294812e946a9a8d7a6bf7c42aa768509bd03901d44cf74b3b2ad1231295c964"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 8608656,
+          "sha256": "8294812e946a9a8d7a6bf7c42aa768509bd03901d44cf74b3b2ad1231295c964"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 8616656,
+          "sha256": "e2ec890adf0da26f300dc18fc367958519a0089e84d95fd52efcb362dfe91705"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 8616656,
+          "sha256": "e2ec890adf0da26f300dc18fc367958519a0089e84d95fd52efcb362dfe91705"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 8624768,
+          "sha256": "780aceee291b24416b42f99cf45f5720ce073ef94bb581de44996862063dd7c7"
+        }
+      ]
+    },
+    {
+      "identity": "100000-W4-33",
+      "post_failed_freshpost_sha256_equal": true,
+      "retry_fresh_sha256_equal": true,
+      "files": [
+        {
+          "name": "pre-command.lfrs",
+          "byte_length": 8640664,
+          "sha256": "0f62b49af681e5265e42b584339e46ab098639c8d9b97d67ff7083acb945897b"
+        },
+        {
+          "name": "post-command.lfrs",
+          "byte_length": 8608656,
+          "sha256": "c0cf365de0de455831d15ce267d1e53f3ff182d8fb34aca0e1b2a2f27bfad4d7"
+        },
+        {
+          "name": "fresh-post-command.lfrs",
+          "byte_length": 8608656,
+          "sha256": "c0cf365de0de455831d15ce267d1e53f3ff182d8fb34aca0e1b2a2f27bfad4d7"
+        },
+        {
+          "name": "failed.lfrs",
+          "byte_length": 8608656,
+          "sha256": "c0cf365de0de455831d15ce267d1e53f3ff182d8fb34aca0e1b2a2f27bfad4d7"
+        },
+        {
+          "name": "retry.lfrs",
+          "byte_length": 8616656,
+          "sha256": "eb1bc2a4c1de9ecf5450b9b01c8a06dd79b8e917811d134e7ff402ab4a698c01"
+        },
+        {
+          "name": "fresh.lfrs",
+          "byte_length": 8616656,
+          "sha256": "eb1bc2a4c1de9ecf5450b9b01c8a06dd79b8e917811d134e7ff402ab4a698c01"
+        },
+        {
+          "name": "final.lfrs",
+          "byte_length": 8624696,
+          "sha256": "ee9f6f73ebceac0bcbd7b5556a4c4395d2d3eb769ba043cc0adcce6c98c4f179"
+        }
+      ]
+    }
+  ]
+}
