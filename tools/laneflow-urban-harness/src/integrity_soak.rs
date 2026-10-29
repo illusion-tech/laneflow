@@ -619,7 +619,8 @@ fn run_in_created_directory(
     let status = if stopped { "Incomplete" } else { "Completed" };
     let summary = serde_json::json!({
         "status": status, "reason": if stopped { "user stop" } else { "requested interval finished" },
-        "scope": if config.paced || config.virtual_clock { "bounded-resident-soak" } else { "short-soak-chain-validation" },
+        // 单段退出由 paced 决定；虚拟时钟只改变记账，不扩大覆盖范围（#1152）。
+        "scope": if config.paced { "bounded-resident-soak" } else { "short-soak-chain-validation" },
         "run_id": spec.run_id, "requested_seconds": config.seconds,
         "active_seconds": clock.active().as_secs_f64(), "paused_seconds": clock.paused().as_secs_f64(),
         "wall_seconds": clock.wall().as_secs_f64(), "complete_match_batches": batches,

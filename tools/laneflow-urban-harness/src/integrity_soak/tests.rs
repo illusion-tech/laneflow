@@ -84,15 +84,16 @@ fn wait_first_segment(output: &Path) {
 fn four_tick_segment_preserves_boundary_and_replay_chain() {
     let temp = DiagnosticDirectory::new().unwrap();
     let output = temp.path().join("tiny-segment");
-    let mut config = Config::new(1);
-    config.batch_ticks = 4;
-    config.wall_seconds = 30;
+    // #1152：四拍覆盖量由虚拟时钟确定，段前存档 I/O 不消耗推进预算。
+    let mut config = config_with_batch(1, 4);
     config.paced = false;
     let spec = supervisor::create_output(&output, config).unwrap();
     run_in_created_directory(&output, &spec, false).unwrap();
     let summary = read(&output.join("summary.json"));
     assert_eq!(summary["scope"], "short-soak-chain-validation");
-    assert_eq!(summary["clock"], "real");
+    assert_eq!(summary["clock"], "virtual-ticks");
+    assert_eq!(summary["paced"], false);
+    assert_eq!(summary["active_seconds"], 0.064);
     assert_eq!(summary["covered_ticks"], 4);
     assert_eq!(summary["complete_match_batches"], 1);
     assert_eq!(
