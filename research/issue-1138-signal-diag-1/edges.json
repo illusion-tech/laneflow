@@ -1,0 +1,799 @@
+{
+  "schema": "laneflow-round4-signal-diag-1-coverage-diagnosis",
+  "generated_utc": "2026-10-29T05:14:16Z",
+  "baseline_main": "8336eb87",
+  "method_source": "research/issue-1121-coverage-diagnosis/plan.md",
+  "inventory_source": "target/issue-790-806-handoff-20261026/missing-component-inventory-20261028/inventory.json",
+  "problem_rule": "逐端判定：span 起点切向 = 边界钳制→首弦（方向锥=起始钳制）/规定倒圆→首弦（无方向锥）/interior CR→该端不取；span 终点对称取末弦；仅两端均 interior CR 才边级记 endpoint_diagnosis_not_selected，单端不取保留另一端问题",
+  "coordination": "research/six-streams-20261029/coordination.md（v2，随统筹冻结入库）",
+  "summary": {
+    "components": 4,
+    "missing_edges": 23,
+    "complete_paths": 54,
+    "original_targets": 19,
+    "candidate_edges": 3,
+    "controllers": 4,
+    "stop_line_edges": 0,
+    "single_missing_components": 0,
+    "expanded_tier_edges": 0,
+    "first_run_edges": 8
+  },
+  "components": [
+    {
+      "code": "C14",
+      "id": "sumo:-10130:--31940#5_0-to---31940#4_0::-10130_9_0",
+      "path_count": 16,
+      "paths": [
+        "sumo:-10130:--31940#5_0-to---31940#4_0::-10130_9_0",
+        "sumo:-10130:--31940#5_0-to--32776#2_0::-10130_8_0",
+        "sumo:-10130:--31940#5_1-to---31940#4_1::-10130_9_1",
+        "sumo:-10130:--31940#5_2-to---31940#4_2::-10130_9_2",
+        "sumo:-10130:--31940#5_2-to---32776#1_1::-10130_12_0.:-10130_18_0",
+        "sumo:-10130:--32776#2_0-to---31940#4_0::-10130_5_0",
+        "sumo:-10130:--32776#2_1-to---32776#1_1::-10130_6_0",
+        "sumo:-10130:--32776#2_1-to--31940#5_2::-10130_7_0.:-10130_17_0",
+        "sumo:-10130:-31940#4_0-to---32776#1_0::-10130_0_0",
+        "sumo:-10130:-31940#4_0-to--31940#5_0::-10130_1_0",
+        "sumo:-10130:-31940#4_1-to--31940#5_1::-10130_1_1",
+        "sumo:-10130:-31940#4_2-to--31940#5_2::-10130_1_2",
+        "sumo:-10130:-31940#4_2-to--32776#2_1::-10130_4_0.:-10130_16_0",
+        "sumo:-10130:-32776#1_0-to--31940#5_0::-10130_13_0",
+        "sumo:-10130:-32776#1_1-to---31940#4_2::-10130_15_0.:-10130_19_0",
+        "sumo:-10130:-32776#1_1-to--32776#2_1::-10130_14_0"
+      ],
+      "missing_edges": [
+        "sumo::-10130_12_0",
+        "sumo::-10130_13_0",
+        "sumo::-10130_4_0",
+        "sumo::-10130_5_0",
+        "sumo::-10130_7_0"
+      ],
+      "candidate_edges": [
+        "sumo::-10130_16_0",
+        "sumo::-10130_18_0",
+        "sumo::-10130_8_0"
+      ],
+      "controllers": [
+        "sumo:-10130"
+      ],
+      "full_controller_members": [
+        {
+          "id": "sumo:-10130",
+          "all_paths": [
+            "sumo:-10130:--31940#5_0-to---31940#4_0::-10130_9_0",
+            "sumo:-10130:--31940#5_0-to--32776#2_0::-10130_8_0",
+            "sumo:-10130:--31940#5_1-to---31940#4_1::-10130_9_1",
+            "sumo:-10130:--31940#5_2-to---31940#4_2::-10130_9_2",
+            "sumo:-10130:--31940#5_2-to---32776#1_1::-10130_12_0.:-10130_18_0",
+            "sumo:-10130:--32776#2_0-to---31940#4_0::-10130_5_0",
+            "sumo:-10130:--32776#2_1-to---32776#1_1::-10130_6_0",
+            "sumo:-10130:--32776#2_1-to--31940#5_2::-10130_7_0.:-10130_17_0",
+            "sumo:-10130:-31940#4_0-to---32776#1_0::-10130_0_0",
+            "sumo:-10130:-31940#4_0-to--31940#5_0::-10130_1_0",
+            "sumo:-10130:-31940#4_1-to--31940#5_1::-10130_1_1",
+            "sumo:-10130:-31940#4_2-to--31940#5_2::-10130_1_2",
+            "sumo:-10130:-31940#4_2-to--32776#2_1::-10130_4_0.:-10130_16_0",
+            "sumo:-10130:-32776#1_0-to--31940#5_0::-10130_13_0",
+            "sumo:-10130:-32776#1_1-to---31940#4_2::-10130_15_0.:-10130_19_0",
+            "sumo:-10130:-32776#1_1-to--32776#2_1::-10130_14_0"
+          ]
+        }
+      ],
+      "stop_line_edges": []
+    },
+    {
+      "code": "C15",
+      "id": "sumo:-10156:--32878#2_0-to---32878#1_0::-10156_0_0",
+      "path_count": 8,
+      "paths": [
+        "sumo:-10156:--32878#2_0-to---32878#1_0::-10156_0_0",
+        "sumo:-10156:--32878#2_1-to---31046#1_0::-10156_2_0.:-10156_8_0",
+        "sumo:-10156:--32878#2_1-to---32878#1_1::-10156_0_1",
+        "sumo:-10156:-31046#1_0-to---32878#1_1::-10156_4_0",
+        "sumo:-10156:-31046#1_0-to--32878#2_0::-10156_3_0",
+        "sumo:-10156:-32878#1_0-to---31046#1_0::-10156_5_0",
+        "sumo:-10156:-32878#1_0-to--32878#2_0::-10156_6_0",
+        "sumo:-10156:-32878#1_1-to--32878#2_1::-10156_6_1"
+      ],
+      "missing_edges": [
+        "sumo::-10156_2_0",
+        "sumo::-10156_3_0",
+        "sumo::-10156_4_0",
+        "sumo::-10156_5_0",
+        "sumo::-10156_8_0"
+      ],
+      "candidate_edges": [],
+      "controllers": [
+        "sumo:-10156"
+      ],
+      "full_controller_members": [
+        {
+          "id": "sumo:-10156",
+          "all_paths": [
+            "sumo:-10156:--32878#2_0-to---32878#1_0::-10156_0_0",
+            "sumo:-10156:--32878#2_1-to---31046#1_0::-10156_2_0.:-10156_8_0",
+            "sumo:-10156:--32878#2_1-to---32878#1_1::-10156_0_1",
+            "sumo:-10156:-31046#1_0-to---32878#1_1::-10156_4_0",
+            "sumo:-10156:-31046#1_0-to--32878#2_0::-10156_3_0",
+            "sumo:-10156:-32878#1_0-to---31046#1_0::-10156_5_0",
+            "sumo:-10156:-32878#1_0-to--32878#2_0::-10156_6_0",
+            "sumo:-10156:-32878#1_1-to--32878#2_1::-10156_6_1"
+          ]
+        }
+      ],
+      "stop_line_edges": []
+    },
+    {
+      "code": "C18",
+      "id": "sumo:-11042:--30244#0_0-to--31070#3_0::-11042_11_0",
+      "path_count": 14,
+      "paths": [
+        "sumo:-11042:--30244#0_0-to--31070#3_0::-11042_11_0",
+        "sumo:-11042:--30244#0_1-to---31070#2_1::-11042_13_0.:-11042_17_0",
+        "sumo:-11042:--30244#0_1-to--32078_0::-11042_12_0",
+        "sumo:-11042:--31070#3_0-to---31070#2_0::-11042_8_0",
+        "sumo:-11042:--31070#3_0-to--32078_0::-11042_7_0",
+        "sumo:-11042:--31070#3_1-to---31070#2_1::-11042_8_1",
+        "sumo:-11042:--31070#3_1-to--30682_1::-11042_10_0.:-11042_16_0",
+        "sumo:-11042:--32078_0-to---31070#2_0::-11042_4_0",
+        "sumo:-11042:--32078_0-to--30682_1::-11042_5_0",
+        "sumo:-11042:--32078_0-to--31070#3_1::-11042_6_0.:-11042_15_0",
+        "sumo:-11042:-31070#2_0-to--30682_0::-11042_0_0",
+        "sumo:-11042:-31070#2_0-to--31070#3_0::-11042_1_0",
+        "sumo:-11042:-31070#2_1-to--31070#3_1::-11042_1_1",
+        "sumo:-11042:-31070#2_1-to--32078_0::-11042_3_0.:-11042_14_0"
+      ],
+      "missing_edges": [
+        "sumo::-11042_0_0",
+        "sumo::-11042_10_0",
+        "sumo::-11042_11_0",
+        "sumo::-11042_14_0",
+        "sumo::-11042_15_0",
+        "sumo::-11042_16_0",
+        "sumo::-11042_4_0",
+        "sumo::-11042_6_0"
+      ],
+      "candidate_edges": [],
+      "controllers": [
+        "sumo:-11042"
+      ],
+      "full_controller_members": [
+        {
+          "id": "sumo:-11042",
+          "all_paths": [
+            "sumo:-11042:--30244#0_0-to--31070#3_0::-11042_11_0",
+            "sumo:-11042:--30244#0_1-to---31070#2_1::-11042_13_0.:-11042_17_0",
+            "sumo:-11042:--30244#0_1-to--32078_0::-11042_12_0",
+            "sumo:-11042:--31070#3_0-to---31070#2_0::-11042_8_0",
+            "sumo:-11042:--31070#3_0-to--32078_0::-11042_7_0",
+            "sumo:-11042:--31070#3_1-to---31070#2_1::-11042_8_1",
+            "sumo:-11042:--31070#3_1-to--30682_1::-11042_10_0.:-11042_16_0",
+            "sumo:-11042:--32078_0-to---31070#2_0::-11042_4_0",
+            "sumo:-11042:--32078_0-to--30682_1::-11042_5_0",
+            "sumo:-11042:--32078_0-to--31070#3_1::-11042_6_0.:-11042_15_0",
+            "sumo:-11042:-31070#2_0-to--30682_0::-11042_0_0",
+            "sumo:-11042:-31070#2_0-to--31070#3_0::-11042_1_0",
+            "sumo:-11042:-31070#2_1-to--31070#3_1::-11042_1_1",
+            "sumo:-11042:-31070#2_1-to--32078_0::-11042_3_0.:-11042_14_0"
+          ]
+        }
+      ],
+      "stop_line_edges": []
+    },
+    {
+      "code": "C46",
+      "id": "sumo:-29900:--30608#8_0-to---30608#7_0::-29900_13_0",
+      "path_count": 16,
+      "paths": [
+        "sumo:-29900:--30608#8_0-to---30608#7_0::-29900_13_0",
+        "sumo:-29900:--30608#8_0-to--30902#0_0::-29900_12_0",
+        "sumo:-29900:--30608#8_0-to--32468#0_0::-29900_11_0",
+        "sumo:-29900:--30608#8_1-to---30608#7_1::-29900_13_1",
+        "sumo:-29900:--30608#8_2-to---30608#7_2::-29900_13_2",
+        "sumo:-29900:--30902#0_0-to---30608#7_0::-29900_4_0",
+        "sumo:-29900:--30902#0_0-to--30608#8_1::-29900_5_0",
+        "sumo:-29900:--30902#0_0-to--32468#0_1::-29900_6_0",
+        "sumo:-29900:--32468#0_0-to---30608#7_1::-29900_8_0",
+        "sumo:-29900:--32468#0_0-to--30902#0_0::-29900_7_0",
+        "sumo:-29900:--32468#0_1-to---30608#7_2::-29900_8_1",
+        "sumo:-29900:--32468#0_1-to--30608#8_2::-29900_10_0",
+        "sumo:-29900:-30608#7_0-to--30608#8_0::-29900_0_0",
+        "sumo:-29900:-30608#7_1-to--30608#8_1::-29900_0_1",
+        "sumo:-29900:-30608#7_2-to--30902#0_0::-29900_3_0.:-29900_16_0",
+        "sumo:-29900:-30608#7_2-to--32468#0_1::-29900_2_0"
+      ],
+      "missing_edges": [
+        "sumo::-29900_10_0",
+        "sumo::-29900_11_0",
+        "sumo::-29900_16_0",
+        "sumo::-29900_3_0",
+        "sumo::-29900_4_0"
+      ],
+      "candidate_edges": [],
+      "controllers": [
+        "sumo:-29900"
+      ],
+      "full_controller_members": [
+        {
+          "id": "sumo:-29900",
+          "all_paths": [
+            "sumo:-29900:--30608#8_0-to---30608#7_0::-29900_13_0",
+            "sumo:-29900:--30608#8_0-to--30902#0_0::-29900_12_0",
+            "sumo:-29900:--30608#8_0-to--32468#0_0::-29900_11_0",
+            "sumo:-29900:--30608#8_1-to---30608#7_1::-29900_13_1",
+            "sumo:-29900:--30608#8_2-to---30608#7_2::-29900_13_2",
+            "sumo:-29900:--30902#0_0-to---30608#7_0::-29900_4_0",
+            "sumo:-29900:--30902#0_0-to--30608#8_1::-29900_5_0",
+            "sumo:-29900:--30902#0_0-to--32468#0_1::-29900_6_0",
+            "sumo:-29900:--32468#0_0-to---30608#7_1::-29900_8_0",
+            "sumo:-29900:--32468#0_0-to--30902#0_0::-29900_7_0",
+            "sumo:-29900:--32468#0_1-to---30608#7_2::-29900_8_1",
+            "sumo:-29900:--32468#0_1-to--30608#8_2::-29900_10_0",
+            "sumo:-29900:-30608#7_0-to--30608#8_0::-29900_0_0",
+            "sumo:-29900:-30608#7_1-to--30608#8_1::-29900_0_1",
+            "sumo:-29900:-30608#7_2-to--30902#0_0::-29900_3_0.:-29900_16_0",
+            "sumo:-29900:-30608#7_2-to--32468#0_1::-29900_2_0"
+          ]
+        }
+      ],
+      "stop_line_edges": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "sumo::-10130_12_0",
+      "component": "C14",
+      "source_length_m": 8.73,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "fillet_both_ends",
+      "span_index_zero_based": 1,
+      "span_total": 3,
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10130_13_0",
+      "component": "C14",
+      "source_length_m": 5.88,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 5,
+      "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10130_4_0",
+      "component": "C14",
+      "source_length_m": 5.91,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "fillet_both_ends",
+      "span_index_zero_based": 1,
+      "span_total": 3,
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10130_5_0",
+      "component": "C14",
+      "source_length_m": 5.23,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 5,
+      "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10130_7_0",
+      "component": "C14",
+      "source_length_m": 8.81,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 1,
+      "span_total": 2,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "finish_boundary_clamp"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10156_2_0",
+      "component": "C15",
+      "source_length_m": 4.72,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "fillet_both_ends",
+      "span_index_zero_based": 1,
+      "span_total": 3,
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10156_3_0",
+      "component": "C15",
+      "source_length_m": 5.06,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 4,
+      "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:-31046#1_0->sumo::-10156_4_0, sumo:-31046#1_0->sumo::-10156_3_0])",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10156_4_0",
+      "component": "C15",
+      "source_length_m": 13.18,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "interior_or_mixed",
+      "span_index_zero_based": 2,
+      "span_total": 5,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10156_5_0",
+      "component": "C15",
+      "source_length_m": 5.15,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 4,
+      "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:-32878#1_0->sumo::-10156_5_0, sumo:-32878#1_0->sumo::-10156_6_0])",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-10156_8_0",
+      "component": "C15",
+      "source_length_m": 8.7,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 3,
+      "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_0_0",
+      "component": "C18",
+      "source_length_m": 5.24,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 4,
+      "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:-31070#2_0->sumo::-11042_0_0, sumo:-31070#2_0->sumo::-11042_1_0])",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_10_0",
+      "component": "C18",
+      "source_length_m": 5.53,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 1,
+      "span_total": 2,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "finish_boundary_clamp"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_11_0",
+      "component": "C18",
+      "source_length_m": 4.95,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 4,
+      "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_14_0",
+      "component": "C18",
+      "source_length_m": 9.18,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "fillet_both_ends",
+      "span_index_zero_based": 1,
+      "span_total": 4,
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_15_0",
+      "component": "C18",
+      "source_length_m": 10.1,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 3,
+      "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_16_0",
+      "component": "C18",
+      "source_length_m": 9.73,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 3,
+      "start_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_4_0",
+      "component": "C18",
+      "source_length_m": 5.9,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 0,
+      "span_total": 6,
+      "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:--32078_0->sumo::-11042_4_0, sumo:--32078_0->sumo::-11042_5_0, sumo:--32078_0->sumo::-11042_6_0])",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "start_boundary_clamp"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-11042_6_0",
+      "component": "C18",
+      "source_length_m": 6.38,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "boundary_clamp_involved",
+      "span_index_zero_based": 1,
+      "span_total": 2,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "boundary clamp (pair target (angular mean of both end chords))",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "finish_boundary_clamp"
+        }
+      ],
+      "history": [],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-29900_10_0",
+      "component": "C46",
+      "source_length_m": 40.41,
+      "diagnostic_kind": "original_sampling_exhausted",
+      "tangent_mechanism": "interior_or_mixed",
+      "span_index_zero_based": 1,
+      "span_total": 6,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-29900_11_0",
+      "component": "C46",
+      "source_length_m": 8.0,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "interior_or_mixed",
+      "span_index_zero_based": 1,
+      "span_total": 5,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-29900_16_0",
+      "component": "C46",
+      "source_length_m": 15.74,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "fillet_both_ends",
+      "span_index_zero_based": 1,
+      "span_total": 4,
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-29900_3_0",
+      "component": "C46",
+      "source_length_m": 7.78,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "fillet_both_ends",
+      "span_index_zero_based": 1,
+      "span_total": 3,
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "first_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        },
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    },
+    {
+      "id": "sumo::-29900_4_0",
+      "component": "C46",
+      "source_length_m": 6.15,
+      "diagnostic_kind": "quality_precheck_rejected",
+      "tangent_mechanism": "interior_or_mixed",
+      "span_index_zero_based": 1,
+      "span_total": 5,
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "problems": [
+        {
+          "kind": "last_chord",
+          "direction_source": "fillet_not_a_direction_condition"
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        }
+      ],
+      "diagnosis_status": "selected"
+    }
+  ]
+}
