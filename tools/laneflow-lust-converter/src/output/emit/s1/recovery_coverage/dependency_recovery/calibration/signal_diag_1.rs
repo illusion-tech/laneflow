@@ -447,7 +447,13 @@ fn pinned_lust_signal_diag_1_experiment() {
     .unwrap();
     let (observation, source, mut timing) = capture_lust();
     assert_eq!(source, reference["source"]);
-    assert_eq!(source, variant_anchor["source"], "result comparison source");
+    // 锚的 `source` 为 E0 资产来源注（代际/事故/哈希），非 LuST 源对象；语义面为
+    // comparison_only 标记（plan §6.1：来源注不入逐值比较，显式声明不跳语义字段）。
+    assert_eq!(
+        variant_anchor["source"]["comparison_only"],
+        json!(true),
+        "anchor is result comparison only"
+    );
     let originals = original_programs(&observation);
     snapshot(&out, &observation, &originals);
     let traffic = observation.traffic.as_ref().unwrap();
