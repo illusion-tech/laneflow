@@ -27,8 +27,9 @@ laneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <n
 ```
 
 输入根目录采用生成器矩阵布局，例如 `10000-W1-16-a`、`100000-W2-33-a`。
-每个消费进程都重新验证四文件和重编译结果。执行顺序为规模、一对 W1/W2、16/33 ms，
-每行顺序启动两个 fresh-process rounds；原始日志分别保存。输出目录必须不存在。
+每个消费进程都重新验证四文件和重编译结果。按规模、W1/W2、16/33 ms 排队，
+最多四个 fresh-process 消费进程并发，每行两轮；原始日志分别保存。这只是语义
+对照，不能用并发进程的耗时评价性能。输出目录必须不存在。
 
 ## 结果与边界
 
@@ -55,4 +56,5 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 ```
 
 默认测试覆盖两步长相位边界、正式一万人口初始化与短序列、错误状态拒绝、W3
-拒绝及输出保留；不在默认 CI 中重复运行八行长窗口，正式验收使用上述 `matrix`。
+拒绝、输出保留、轨迹/检查点篡改比较和并发子进程失败收集；不在默认 CI 中重复
+运行八行长窗口，正式验收使用上述 `matrix`。

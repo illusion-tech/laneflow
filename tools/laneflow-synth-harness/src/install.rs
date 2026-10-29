@@ -154,6 +154,24 @@ impl Sample {
                     .map_err(|e| failure("parked spawn", e))?
                     .vehicle
             };
+            let actual = world
+                .vehicle(handle)
+                .ok_or_else(|| failure("spawn state", "missing"))?;
+            crate::require(
+                actual.profile() == profile
+                    && actual.route() == route
+                    && actual.route_edge_index() == vehicle.edge_occurrence
+                    && actual.progress_mm() == vehicle.progress_mm
+                    && actual.speed_mm_s() == vehicle.speed_mm_per_s
+                    && actual.carry_um() == 0
+                    && actual.status()
+                        == if vehicle.status == "active" {
+                            VehicleStatus::Active
+                        } else {
+                            VehicleStatus::Parked
+                        },
+                || format!("初始状态与目录不符 rank={}", vehicle.logical_rank),
+            )?;
             handles.push(handle);
         }
         let initial: Vec<_> = handles.iter().map(|&h| world.vehicle(h).unwrap()).collect();
