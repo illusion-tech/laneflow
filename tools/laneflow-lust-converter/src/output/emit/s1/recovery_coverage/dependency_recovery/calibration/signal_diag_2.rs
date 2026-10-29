@@ -369,8 +369,8 @@ fn run_diagnosis(
 /// （原成功停止线边 / 本轮恢复的停止线边 / 未恢复）。情形 1 核对原程序与控制语义逐字节
 /// 保持；情形 2 核对选中候选、规范端点、编译后长度、`edgeEnd` 解析与机动门绑定；
 /// 情形 3 如实记录程序/编译检查未执行并保留来源绑定核对。本轮候选齐备即执行情形 2，
-/// 不得留给后续设计切片。
-fn stop_line_checklist(
+/// 不得留给后续设计切片。（#1154 见证引导切片复用同一核对口径，仅可见性放宽。）
+pub(super) fn stop_line_checklist(
     cohort: &Value,
     traffic: &TrafficPackage,
     originals: &BTreeMap<String, re::RoadEditingCurveProgram>,
