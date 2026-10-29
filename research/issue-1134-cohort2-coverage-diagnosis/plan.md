@@ -48,6 +48,9 @@
 - 完整回归 84/53/183/16,265/8,230 与 #1105 基线逐行一致；debug/release 回归、check、Clippy、rustfmt、JSON 检查；九项必需检查走 Merge Queue，trailer `Harness: deepseek/harness/web` / `Model: xiaomi/mimo-v2.6-pro`；GitHub 文本不硬折行。
 - 本批为单一队列：一个工作树/分支、一个 teammate 执行、lead 监督收口；与已合入各轮无共享改动面（仅新增研究入口与文档）。
 
-## 8. 复现（实现定稿后补精确测试名与环境变量）
+## 8. 复现（实现定稿后补精确测试名与环境变量，本计划 §8 自授权）
 
-- 环境变量沿第 1 轮口径：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`COVERAGE_OUTPUT_DIR`（全新目录）、`COVERAGE_ORDER`、`COVERAGE_DIAGNOSIS_ORDER`；入口名实现后补录（本计划 §8 自授权）。
+- 环境变量沿第 1 轮口径：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`COVERAGE_OUTPUT_DIR`（全新目录）、`COVERAGE_ORDER`（`old-grid` / `grid-old`）、`COVERAGE_DIAGNOSIS_ORDER`（`diagnosis-first` / `baseline-first`）；基线输入经 `COHORT2_BASELINE_DIR`（Release 资产 `cohort2-baseline-inputs.zip` 解压目录）读取，代码内断言 §5 钉版 SHA-256。
+- 正式实验入口（阶段一搜索、阶段二诊断、阶段三组合验收与完整回归在同一入口内按 §6 顺序执行）：`output::emit::s1::recovery_coverage::dependency_recovery::calibration::cohort2_coverage::pinned_lust_cohort2_coverage_diagnosis_experiment`。
+- 常规（非 ignore）测试入口：`…calibration::cohort2_coverage::cohort2_frozen_sample_and_problem_table_stay_consistent`、`…calibration::cohort2_coverage::cohort2_baseline_pool_merges_frozen_sources_with_pinned_input_bytes`、`…calibration::cohort2_coverage::cohort2_pinned_baseline_loader_rejects_unpinned_bytes`、`…calibration::cohort2_coverage::cohort2_span_control_fallback_preserves_existing_carriers`。
+- 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored --nocapture --test-threads=1`；输入、预算与样本均由冻结源码与 `edges.json` 固定，不得换样后沿用结论。
