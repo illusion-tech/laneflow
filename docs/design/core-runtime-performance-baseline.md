@@ -453,11 +453,9 @@ command，只重试相同 Core step，并与独立 fresh replay 比较。
 
 ### 4.3 W4 同步 causal burst 输入序列
 
-> E 表现/测量接线的 G1 缺口：下文 B0/B1 各自包含表现提交，却禁止两拍间的
-> outer-frame input，与 Bevy 每帧最多一次提交的合同尚未完成组合裁决。
-> [测量接线提案](lf-synth-measurement.md)给出两个指定外层帧的修订方案，
-> #1165 接受后须同步改写本节；当前 Core-only 状态和失败重试证据不受影响，
-> 也不据此补足表现或正式 latency 证据。
+W4 的宿主接线使用[表现与测量合同](lf-synth-measurement.md) §4 的两个指定外层帧，
+每帧一个固定 quantum、一次表现提交。交通输入与 B0/B1 语义不变；已有 Core-only
+状态和失败重试证据不补足新路径的表现或正式 latency 证据。
 
 令 `B0` 为 warm-up 成功完成 `warm_up_ticks` 后、进入 observation 的第一条 Core
 step；其 pre-step tick index 为 `warm_up_ticks`。对当前 case 的
@@ -493,8 +491,9 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
    升序依次 despawn route 2 slot 11，并用同一 logical external ID spawn 到 route
    progress 5129.9 m、speed 13.9 m/s。
 5. 紧接着运行一次 `B1` Core step；route 2 slot 11 使用 `B0` 已提交的 A-green
-   snapshot，并必须提交 entry→exit transition。`B0` 与 `B1` 不允许插入额外
-   Core step、outer-frame input 或 presentation commit。
+   snapshot，并必须提交 entry→exit transition。`B0`、`B1` 各使用一个 fixed
+   quantum 的指定外层帧，各完成一次表现；两者之间不得插入第三次 outer-frame
+   input、额外 Core step、额外 presentation commit 或其他宿主命令。
 6. `B0` 的计时范围包含 pending replace、Parking leave、Core step、ordered
    events、Spatial extract 与 Adapter apply；`B1` 另行包含 route-transition
    probe commands、Core step、ordered events、Spatial extract 与 Adapter apply。
@@ -650,6 +649,10 @@ Core、Spatial 与 Adapter 必须在同一次 integrated run 中计时。不同�
 
 Catch-up 契约：
 
+W1/W3 的整数纳秒 60 Hz 输入、精确窗口边界和独立追赶序列按
+[`lf-synth-measurement.md`](lf-synth-measurement.md) §3 冻结。边界帧保留原始数据并
+单独统计，不进入普通帧预算；其 observation Core ticks 仍进入全部 Core 统计。
+
 - canonical `max_catch_up_steps = 2`；
 - 达到上限时保留 backlog，不丢 simulation time；
 - 不丢中间 `StepResult` 或 events；
@@ -785,6 +788,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
   `N_presented` 下，正常 release-mode 每 round 分别报告 Core、Spatial+Adapter
   与 integrated outer frame 的 `B0`、`B1` raw 值，以及每个层级各自的
   `burst_max = max(B0, B1)`；三轮分别报告各层级 `burst_max` median 与 worst。
+  B0/B1 是固定步长驱动的指定帧，不是普通 60 Hz cadence 或 catch-up 样本；
   test-only failure/retry timing 只作诊断。
 - W3 的全部 presentation 行都是强制 guardrail/observation；它们验证
   lifecycle、Parking authority、内存与 presentation scaling，不套用 W1

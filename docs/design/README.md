@@ -107,8 +107,8 @@
 - `core-runtime-performance-baseline.md`：一万 / 十万产品目标与一百万研究包络。
 - `lf-synth-input-bundle.md`：LF-SYNTH-v2 正式规模生成、规范输入编码与受检交付。
 - `lf-synth-execution.md`：W1/W2 完整窗口消费、逐拍语义核验与独立进程证据编码。
-- [`lf-synth-measurement.md`](lf-synth-measurement.md)：Draft；E 的固定表现、外层帧、
-  W4 两帧与计时接线提案，#1165 G1 待接受，尚未实现。
+- [`lf-synth-measurement.md`](lf-synth-measurement.md)：Accepted；E 的固定表现、外层帧、
+  W4 两帧与计时接线合同，实施与正式证据由 #1166 承担。
 - `real-road-workloads.md`：LuST 真实路网契约。
 - `lust-bevy-population-control.md`：LuST / Bevy 示例层人口调节。
 - `core-runtime-scalability-audit.md`：城市级可扩展性前置约束；不实现生产分区。
