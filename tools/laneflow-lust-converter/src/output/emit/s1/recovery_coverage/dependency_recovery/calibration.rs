@@ -7,6 +7,7 @@ mod cohort2_coverage;
 mod coverage;
 mod experiment;
 pub(super) mod shared_baseline;
+mod signal_diag_2;
 
 #[test]
 #[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
