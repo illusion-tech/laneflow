@@ -11,16 +11,18 @@ fn shared_baseline_facade_reachable_from_dependency_recovery_subtree() {
 
 #[test]
 fn quality_fit_entries_reachable_from_emit_subtree() {
-    // 契约（lead E0603 同族防回归；可见性类缺陷第三例）：reshape::quality 的
+    // 契约（lead E0603 同族防回归；可见性类缺陷根治）：reshape::quality 的
     // fit_with_handle/Fit 须按文档路径自 emit 兄弟子树可达（D #1154
     // calibration::witness_guided_search 调用点）；`mod quality` 可见性回归即编译
-    // 失败。`fit` 同步放宽（签名含 reshape 内部 Budget，经 fit_with_handle 调用）。
+    // 失败。`fit` 保持 pub(super)（签名含 reshape 内部 Budget，不对外泄露——D 只经
+    // fit_with_handle 调用）。
     use crate::output::geom::s1::reshape::quality;
-    let _: fn(
+    type FitWithHandle = fn(
         &[[[f64; 3]; 6]],
         &[[f64; 3]],
         &mut crate::output::geom::s1::grid::WorkBudget,
-    ) -> Option<quality::Fit> = quality::fit_with_handle;
+    ) -> Option<quality::Fit>;
+    let _: FitWithHandle = quality::fit_with_handle;
 }
 
 fn normalized(value: &Value) -> Value {
