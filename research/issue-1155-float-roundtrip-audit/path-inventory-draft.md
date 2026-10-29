@@ -48,7 +48,7 @@
 | urban-harness events/commands JSONL 与 `Domain::TickEvents`/`TickCommands` 摘要 | 写（`to_vec` 进摘要）+ sustained 读回重算摘要 | 无浮点（`json!` 字面量：tick/due/sequence/boundary/id/枚举字符串） | default | **摘要 / 验收判定** | `runner.rs:1097,1120,1289,1572`、`observe.rs:892,1041`、`sustained.rs:618,655`（parse→re-serialize 重算）；输入输出均无浮点 token → **无影响** |
 | urban-harness 观测摘要（`urban-observation-v4`，`BlockHash::json`） | 写（`serde_json::to_writer` 入摘要字节） | 无浮点（passage/range/id/整数字段） | default | **摘要**（续跑判据） | `observe.rs:153-177`；仅写侧、无解析 → **无影响** |
 | urban-harness `diagnostics.json`（`elapsed_seconds` 等） | 写 + 读 | f64：`elapsed_seconds` | default | 记录/展示 | `report.rs:842`；timing verify 的判定字段全为 `u64` ns（`timing.rs:63-69` `Envelope`）→ **判定无影响**，f64 仅展示 |
-| urban-harness integrity_soak 控制/记录 JSON | **写 + 读 + 判定** | f64：`active/paused/wall_seconds`、`paused_interval_seconds` | default | soak 墙钟会计判定（容差 0.016 s 量级） | `control.rs:114-132,264-277`，读回 `control.rs:26,324,402`；判定 `supervisor.rs:295-333`（`as_f64` + 容差比较）→ **唯一"浮点解析→判定"形态**；1 ULP（±2⁻⁵² 量级）对 0.016 s 容差不可翻转 → 影响面为零，列入低风险观察项 |
+| urban-harness integrity_soak 控制/记录 JSON | **写 + 读 + 判定** | f64：`active/paused/wall_seconds`、`paused_interval_seconds` | default | soak 墙钟会计判定（容差 0.016 s 量级） | `control.rs:114-132,264-277`，读回 `control.rs:26,324,402`；判定 `supervisor.rs:295-333`（`as_f64` + 容差比较）→ **「浮点解析→判定」形态集中处**；未发现实际丢位或判定翻转，各判定谓词边界余量**待验证**（逐谓词表见 [audit-conclusion.md](audit-conclusion.md) §1.2，含无容差比较与 `active ≥ requested_seconds` 形态） |
 | urban-harness presentation 采样（f32 位姿预览） | 写（trial JSONL `presentation`） | f32 位置数组 | default | 调试可视化 / 测试 | `presentation.rs:478-480`、`transitions.rs:397-403`；不进持久化/判定 → 无影响（测试比较若为解析域则折叠自洽，见 §2） |
 | xtask（cargo metadata 解析、`commit_models`/`commit_harnesses` 目录、measurement receipts） | 读 + 写 | **无 f32/f64 字段**（grep 零匹配） | default | 开发工装 / CI | `xtask/src` grep `: (f32|f64)` 零匹配；内容为字符串/整数/日期 → **无影响** |
 
@@ -65,9 +65,11 @@
 ## 2. 初步影响面判定（终稿随"审计结论"里程碑）
 
 1. **生产持久化/验收路径已实际丢位：未发现** → 不触发提级条件。LFRS/确定性摘要/LFCA/wire 无 JSON、
-   无浮点文本；生产 JSON 判定谓词（stub 授权门控身份匹配、timing verify、soak 容差、caller/checkpoint 摘要）
-   均不含浮点解析值。
-2. 唯一"浮点解析→判定"形态为 integrity_soak 墙钟会计（容差 0.016 s），1 ULP 不可能翻转 → 不构成故障面。
+   无浮点文本；生产 JSON 判定谓词（stub 授权门控身份匹配、timing verify、caller/checkpoint 摘要）
+   不含浮点解析值。
+2. 「浮点解析→判定」形态集中于 integrity_soak 墙钟会计（含无容差比较与 `active ≥ requested_seconds`
+   阈值形态）：未发现实际丢位或判定翻转，浮点判定路径**仍需验证**（逐谓词边界余量见
+   [audit-conclusion.md](audit-conclusion.md) §1.2，缺论证项一律记待验证），不作零影响结论。
 3. 实际丢位史证仅出现在研究导出工具（issue-1140 重锚），非生产路径，且已有文本拼接硬门钉版。
 4. **Feature 合并陷阱确认**：workspace 测试构建统一 float_roundtrip、单包生产构建无 → 修复验收必须
    单包正常构建验证 feature 生效（issue ② 要求，防测试构建合并掩盖）。

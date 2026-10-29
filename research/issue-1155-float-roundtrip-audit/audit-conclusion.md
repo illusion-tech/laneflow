@@ -1,7 +1,10 @@
 # JSON 浮点解析精度缺口生产路径审计 — 审计结论（#1155 交付物 ① 定稿）
 
-- 状态：**审计结论定稿**（路径清单见同目录 [`path-inventory-draft.md`](path-inventory-draft.md)，初稿已过 lead 初审；
-  本文件汇总结论与证据，供 lead 转维护者）。
+- 状态：**审计结论修订版**（应维护者 2026-10-29 审定两处修正：① 撤回 integrity_soak
+  「1 ULP 不可能翻转、影响面为零」表述，改为逐谓词「未发现实际丢位或判定翻转，浮点判定路径
+  仍需验证」；② 双态自适应测试证明力降级为「双态差异实证 + 自适应对照」，充分性论证归修复阶段）。
+  路径清单见同目录 [`path-inventory-draft.md`](path-inventory-draft.md)，初稿已过 lead 初审；
+  本文件汇总结论与证据，供 lead 转维护者定稿。
 - 工作树：`E:/projects/worktrees/float-roundtrip-audit/laneflow`，分支 `research/1155-float-roundtrip-audit`；
   审计基线 `47be29a5`（origin/main），测试提交 `777ad953`（叠 #1153 助手分支 `5a59a759`）。
 - 派工勘误（lead 2026-10-29 确认）：必读清单中 `docs/reference/snapshot-format.md` 系派工笔误、仓库无此文件，
@@ -18,8 +21,27 @@
    - 生产 JSON 判定谓词均不含浮点解析值：stub 授权门控只取字符串身份 + net_digest；
      caller.json / TickRecord / TickTiming / RunResult 全 `derive Eq` 无浮点字段；
      events / commands / 观测摘要 JSON 全整数与字符串；ConversionReport / provenance 无浮点字段。
-2. **唯一「浮点解析→判定」形态**为 urban-harness integrity_soak 墙钟会计（f64 秒，容差 0.016 s 量级，
-   `supervisor.rs` 判定）。1 ULP（±2⁻⁵² 量级）不可能翻转容差 → 影响面为零，列低风险观察项。
+2. **「浮点解析→判定」形态集中于 urban-harness integrity_soak**（worker 把
+   `active_seconds`/`paused_seconds`（f64）写入 summary.json，`supervisor.rs:295-296` 解析回判定；
+   `tests.rs` 另有阈值断言）。**未发现实际丢位或判定翻转，相关浮点判定路径仍需验证**。
+   逐条谓词、容差与边界余量论证如下（漂移量级：1 ULP 满足 ULP(x) ≤ x·2⁻⁵²，1–100 s 量级值
+   约 ≤ 1.4×10⁻¹⁴ s；「余量未证」= 静态审计无法证明运行值距判定边界的距离大于漂移量，
+   一律记**待验证**，不得记零影响）：
+
+   | 判定谓词（supervisor.rs / tests.rs 行号） | 容差 | 边界余量论证 | 判定 |
+   |---|---|---|---|
+   | `(active − covered×0.016).abs() ≤ 0.016`（:317，虚拟钟） | 有（±0.016 s） | 翻转需原值距边界 ≤ 漂移量（~10⁻¹⁴ s 量级）；运行值分布未证 | **待验证** |
+   | `paused ≤ elapsed().as_secs_f64()`（:318，虚拟钟） | **无** | 翻转需 paused 距实时墙钟 ≤ 漂移量；余量由摘要落盘→判定间开销承担，未证 | **待验证** |
+   | `active + paused ≤ elapsed().as_secs_f64()`（:320，真实钟） | **无** | 两解析侧 f64 各 ±1 ULP 求和后入比较；同上未证 | **待验证** |
+   | `active < spec.config.seconds` 判失败（:333） | **无** | 翻转需 measured active 距阈值 ≤ 漂移量；worker 以「active ≥ 请求」为停机条件，超调余量由循环粒度决定，未证 | **待验证** |
+   | `!active.is_finite()`（:332）/ `!paused.is_finite()`（:334） | — | 有限十进制 token 解析 ±1 ULP 保持有限 | **论证成立（翻转不可达）** |
+   | `paused < 0.0` 判失败（:335） | **无** | 非负十进制 token 解析 ±1 ULP 保持非负（0.0 的 ULP 邻域不含负值） | **论证成立（翻转不可达）** |
+   | `tests.rs:223-224`（`paused ≥ 0.4`、`active ≥ 4.0`）、`tests.rs:327`（`wall ≥ 30.0`） | **无** | 与 :333 同形态：阈值超调余量由运行时机决定，未证 | **待验证** |
+
+   判定输入域注记：`elapsed()` 为判定时实时测量（不经 JSON），漂移仅作用于 JSON 解析侧的
+   `active`/`paused`；`covered`/`requested_seconds` 为整数域（精确）。维护者口径：即使有容差
+   也须证明距判定边界的余量——故容差行同样记「待验证」。验证手段（修复阶段或独立切片）：
+   对上述谓词注入 ±1 ULP 边界值做判定翻转测试，或对运行值实测边界距离分布。
 3. **实际丢位史证仅出现在研究导出工具**（#1140 重锚 parse→re-serialize ±1 ULP，18/53 分量），
    与 serde_json 1.0.154 默认解析 1 ULP 误舍入机理一致（本审计实测复证，见 §2），非生产路径，
    且已有文本拼接硬门钉版（`shared_baseline_anchor_text_splice_is_byte_faithful`）。历史研究结论有效（lead 已裁定）。
@@ -61,19 +83,27 @@ cargo +1.99.1 test --locked -p laneflow-lust-converter -p laneflow-post-p3-resea
 
 前者 = 单包 default 形态（生产语义，误舍入分支），后者 = feature 统一形态（`float_roundtrip` 分支）；
 测试二进制哈希不同（`laneflow_lust_converter-b5b263…` / `-32f58c…`）证明是两个独立 feature 解析形态。
-测试对两形态自适应双态钉死，任何新静默漂移（依赖版本漂移等）都会失败。
-**修复合入后，单包构建运行本模块即为「feature 生效」的固定检查面**（自动转入正确舍入分支），
-直接落实防测试构建 feature 合并掩盖的要求。
+
+**证明力边界（维护者 2026-10-29 审定）**：双态自适应断言构成的是**双态差异实证 + 自适应对照**，
+**不构成修复生效证明**——feature 缺失时误舍入分支同样通过（`float_roundtrip.rs` 的形态探测分支）。
+充分性论证归修复阶段：启用 [`fix_gate_mandatory_correctly_rounded_bits`](../../../tools/laneflow-lust-converter/src/output/emit/s1/recovery_coverage/dependency_recovery/calibration/float_roundtrip.rs)
+（无条件断言 …312/…552 等钉版正确位值，feature 缺失时必失败，现 `#[ignore]` 随修复 PR 启用）
+并在**单包正常构建**下核验 `float_roundtrip` 生效。双态回归的既有价值不变：任何新静默漂移
+（依赖版本漂移等）在两形态下同时失败。
 
 整包回归：`cargo +1.99.1 test --locked -p laneflow-lust-converter --lib` → 287 通过 / 0 失败 / 38 ignored。
 
 ## 3. 与交付物 ③④ 的边界（本文件不含）
 
-- **③ 固定输入解析耗时对照**（上游注明 `float_roundtrip` 有解析成本）：待做，方法为 release、固定输入、
-  双形态中位对照；结论随成本数据单独报。
-- **④ 修复实施（六路收口后）**：Cargo.toml 启用 serde_json `float_roundtrip`；应不变产物逐字节核验、
-  修正项逐字段解释、**禁止批量刷新基线**；单包正常构建 + 本模块双形态检查面验证 feature 生效；
-  全量回归 + 钉版复验 + 差异说明。
+- **③ 固定输入解析耗时对照（已完成，见 [`parse-cost-evidence.md`](parse-cost-evidence.md)）**：
+  release、同一 50,000-token/905,087-byte 固定输入、双形态各两轮（各 200 样本中位）：
+  `float_roundtrip` 解析耗时约为默认 **1.2–1.4×**（中位 +18%~+36%，最小值 +24%~+27%），
+  与上游注明该 feature 有解析成本一致；成本纯在解析侧（写侧无损已证），E 文本域助手不受影响。
+- **④ 修复实施（六路收口后）**：Cargo.toml 启用 serde_json `float_roundtrip`；启用
+  `fix_gate_mandatory_correctly_rounded_bits`（无条件正确位值断言，即修复生效的充分性证据）
+  并在**单包正常构建**下核验 feature 生效（防测试构建 feature 合并掩盖）；应不变产物逐字节核验、
+  修正项逐字段解释、**禁止批量刷新基线**；integrity_soak 浮点判定谓词（§1.2 表）的边界余量
+  验证随修复或独立切片补做；全量回归 + 钉版复验 + 差异说明。
 - **E 助手合同**：E 的文本域助手继续承担原文字节比较职责，不受本修复影响（issue 范围 3）。
 
 ## 4. 证据索引
@@ -81,5 +111,8 @@ cargo +1.99.1 test --locked -p laneflow-lust-converter -p laneflow-post-p3-resea
 - feature 实况：`cargo tree --locked -e features -i serde_json`（本树实测，输出存档于审计记录）；
 - 路径逐条证据（文件:行号）：[`path-inventory-draft.md`](path-inventory-draft.md) §1 表格；
 - 位级证据与测试：`calibration/float_roundtrip.rs`（本提交）；反例对实测上表；
+- 修复生效检查面与负对照：`fix_gate_mandatory_correctly_rounded_bits`（`#[ignore]` 待修复启用）；
+  负对照实测：default 形态下运行失败 `float_roundtrip must be active`（证明检查面有牙齿）；
+- 解析成本对照：[`parse-cost-evidence.md`](parse-cost-evidence.md)（双形态各两轮实测）；
 - 事故史证：`research/issue-1140-shared-baseline/README.md` 差异记录（lead 独立复验）；
 - 比较语义口径：`research/issue-1139-signal-diag-2/README.md` 第 4 条；`sumo/decimal.rs` `ExactDecimal::to_f64`。
