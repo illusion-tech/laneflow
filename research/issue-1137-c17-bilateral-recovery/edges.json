@@ -1,0 +1,89 @@
+{
+  "schema": "laneflow-round4-c17-bilateral-cohort",
+  "stream": "c17-bilateral",
+  "charter": "research/six-streams-20261029/coordination.md; research/six-streams-20261029/lane-briefs.md",
+  "baseline_main": "8336eb87dca2229bff0061b56389ea90ae0cab8d",
+  "method_source": "research/issue-1115-failed-curve-design/design.md",
+  "prior_research": "research/issue-1131-curve-design-c29-c17/{plan,README,g1-proposal}.md",
+  "round1_evidence": "research/issue-1121-coverage-diagnosis/README.md; research/issue-1121-coverage-diagnosis/edge-cohort.json",
+  "components": [
+    {
+      "code": "C17",
+      "id": "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0",
+      "path_count": 1,
+      "paths": "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0",
+      "failed_edges": [
+        "sumo::-10564_3_0",
+        "sumo::-10564_6_0"
+      ],
+      "candidate_edges": [],
+      "goal": "两程序齐备的完整路径真实联合编译 + LFCA + 控制锚点；只齐一边如实记不齐备"
+    }
+  ],
+  "edges": [
+    {
+      "id": "sumo::-10564_3_0",
+      "source_length_m": 4.6,
+      "s": 2,
+      "temp_program_points_cap": 193,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "clamps_frozen": "finish_boundary_clamp（起始 interior CR）；首末坐标与存在端钳制方向保持原 f64 位",
+      "entry_basis": {
+        "span_index_zero_based": 1,
+        "problem_kind": "last_chord",
+        "direction_source": "finish_boundary_clamp",
+        "round1_status": "unresolved",
+        "visited_boxes": 32000000,
+        "certificate_leaves": 0
+      },
+      "prior_candidate": {
+        "source": "research/issue-1131-curve-design-c29-c17",
+        "geometry": 80,
+        "group": "pair",
+        "handle_factors": [1.5, 1],
+        "partition": "equal-t",
+        "pieces_per_cubic": 22,
+        "canonical_chord_sum_m": 4.595364,
+        "note": "几何 129（whole、同因子）在 s=2 下同形，规范点全量位去重只留几何 80"
+      }
+    },
+    {
+      "id": "sumo::-10564_6_0",
+      "source_length_m": 4.99,
+      "s": 3,
+      "temp_program_points_cap": 289,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "clamps_frozen": "start_boundary_clamp（末端 interior CR）；首末坐标与存在端钳制方向保持原 f64 位",
+      "entry_basis": {
+        "span_index_zero_based": 0,
+        "problem_kind": "first_chord",
+        "direction_source": "start_boundary_clamp",
+        "round1_status": "unresolved",
+        "visited_boxes": 32000000,
+        "certificate_leaves": 0
+      },
+      "prior_zero_candidate_rejections": {
+        "source": "#1131 旧族 148 配置（仅对照列，不重跑充当研究）",
+        "backtracking_rejected": 51,
+        "source_fit_rejected": 79,
+        "no_complete_program": 18,
+        "accepted": 0,
+        "partition_attempts": 3420,
+        "partition_attempts_note": "18 几何 × 190 次（n∈2..96 × 2 划分族）",
+        "partition_rejections": {
+          "sink": 3314,
+          "sampling_deviation": 106
+        },
+        "all_190_sink_geometries": 3,
+        "interpretation": "判定器 sink 失败即返回、端弦检查在其后，端弦拒绝计数 0 只说明未到达该检查；柄长变化可以改变曲率分布，数据只证明旧有限族未通过；sink 子原因（degenerate_chord/weld_turn）为本轮新增观察口径，旧记录只有合并 sink 计数"
+      },
+      "short_span_obstruction": {
+        "certificate": "research/issue-1137-c17-bilateral-recovery/short-span-certificate.json",
+        "recheck_test": "short_first_span_obstruction_certificate_recheck",
+        "span0_endpoint_distance_m": 0.196977,
+        "gap_m": 0.00278,
+        "affected": "S1 keep 25 配置与 pair-R 256 配置（负对照，保留遍历）；结论只覆盖列明配置，不写整条边无解"
+      }
+    }
+  ]
+}
