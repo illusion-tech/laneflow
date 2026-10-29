@@ -95,7 +95,7 @@ fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
 
-fn coverage_output() -> PathBuf {
+pub(super) fn coverage_output() -> PathBuf {
     let out = PathBuf::from(std::env::var("COVERAGE_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh coverage evidence output");
     fs::create_dir_all(&out).unwrap();
@@ -104,7 +104,7 @@ fn coverage_output() -> PathBuf {
 
 /// §2.3.4 词汇映射：原始停止标签保留在 `report.stop_reason`，本函数只产出计划词汇。
 /// `candidates_found`/`program_pool_full` 是结果维度（有候选），其余是终止原因维度。
-fn plan_stop_label(report: &Value, candidate_programs: u64) -> &'static str {
+pub(super) fn plan_stop_label(report: &Value, candidate_programs: u64) -> &'static str {
     if candidate_programs > 0 {
         return if report["stop_reason"] == "program_pool" {
             "program_pool_full"
@@ -127,12 +127,12 @@ fn plan_stop_label(report: &Value, candidate_programs: u64) -> &'static str {
 }
 
 /// 见证参数是否属于校准网格节点集合 {i/512}；按冻结算法直接计算，不查 `history`。
-fn grid_node_member(t: f64) -> bool {
+pub(super) fn grid_node_member(t: f64) -> bool {
     let scaled = t * 512.0;
     (0.0..=512.0).contains(&scaled) && scaled.fract() == 0.0
 }
 
-fn edge_input<'a>(
+pub(super) fn edge_input<'a>(
     observation: &'a observe::EmissionObservation,
     id: &str,
 ) -> &'a observe::EdgeInput {
@@ -144,7 +144,7 @@ fn edge_input<'a>(
     &observation.inputs[index]
 }
 
-fn find_span_control(search: &Value, span: usize) -> Option<[[f64; 3]; 6]> {
+pub(super) fn find_span_control(search: &Value, span: usize) -> Option<[[f64; 3]; 6]> {
     if let Some(failures) = search["failures"].as_object() {
         for row in failures.values() {
             if row["span_index_zero_based"].as_u64() == Some(span as u64) {
@@ -168,27 +168,88 @@ fn find_span_control(search: &Value, span: usize) -> Option<[[f64; 3]; 6]> {
     None
 }
 
-/// 诊断目标 cubic 的控制点来源：本轮两族搜索记录优先，历史 1107 网格记录兜底；均缺失时
-/// 按计划 §7 停止并重新授权。
-fn span_control(
+/// 诊断目标 cubic 的控制点解析结果（#1134 §7 重新授权的三层载体链）。
+pub(super) struct SpanControl {
+    /// 诊断用控制点：前四点为冻结参考 cubic 控制点，来源按 `source` 记录。
+    pub(super) control: [[f64; 3]; 6],
+    /// 见证参数注入匹配用：完整六点（含 `dir_a`/`dir_b`），不再零填充。
+    pub(super) injection_control: [[f64; 3]; 6],
+    /// `repair_curve` 重放的六点控制（交叉核对列；重放未到达该 span 时为 `None`）。
+    pub(super) replay_control: Option<[[f64; 3]; 6]>,
+    /// `fresh_failures` / `history` / `replay_fallback` 三层来源标签。
+    pub(super) source: &'static str,
+}
+
+/// `repair_curve` 重放回退（#1134 §7 重新授权）：以测试观察逐 cubic 记录冻结输入原修复
+/// 参考曲线的六点控制；只读重放，不改采样、阈值与预算。诊断 span 即原生产失败 span，
+/// 重放必然到达并记录该 span。
+pub(super) fn replay_span_controls(input: &observe::EdgeInput) -> BTreeMap<usize, [[f64; 3]; 6]> {
+    let (_result, calls) = geom::sampling_observation::capture(|| {
+        geom::repair_curve(
+            &input.points,
+            input.clamps[0],
+            input.clamps[1],
+            input.clamp_sources[0].as_ref(),
+            input.clamp_sources[1].as_ref(),
+        )
+    });
+    calls
+        .iter()
+        .filter(|call| call["depth"] == 0)
+        .map(|call| {
+            let bits: [[u64; 3]; 6] =
+                serde_json::from_value(call["control_f64_bits"].clone()).unwrap();
+            (
+                call["span_index_zero_based"].as_u64().unwrap() as usize,
+                bits.map(|p| p.map(f64::from_bits)),
+            )
+        })
+        .collect()
+}
+
+/// 诊断目标 cubic 的控制点来源：本轮两族搜索记录优先，历史 1107 网格记录兜底，最后以
+/// `repair_curve` 重放回退（#1134 §7 重新授权，追加在既有两层之后、解析结果不变）；
+/// 三层全失才按计划 §7 停止并重新授权。
+pub(super) fn span_control(
     searches: &BTreeMap<String, Value>,
     grid_history: &Value,
     id: &str,
     span: usize,
-) -> [[f64; 3]; 6] {
-    for family in ["grid", "old", "old-expanded"] {
-        if let Some(row) = searches.get(family).and_then(|rows| rows.get(id))
-            && let Some(found) = find_span_control(&row["search"], span)
-        {
-            return found;
-        }
+    input: &observe::EdgeInput,
+) -> SpanControl {
+    let replay = replay_span_controls(input).remove(&span);
+    let chain = ["grid", "old", "old-expanded"]
+        .iter()
+        .find_map(|family| {
+            searches
+                .get(*family)
+                .and_then(|rows| rows.get(id))
+                .and_then(|row| find_span_control(&row["search"], span))
+                .map(|control| (control, "fresh_failures"))
+        })
+        .or_else(|| {
+            grid_history
+                .get(id)
+                .and_then(|row| find_span_control(&row["search"], span))
+                .map(|control| (control, "history"))
+        });
+    if let Some((control, source)) = chain {
+        return SpanControl {
+            control,
+            injection_control: replay.unwrap_or(control),
+            replay_control: replay,
+            source,
+        };
     }
-    if let Some(row) = grid_history.get(id)
-        && let Some(found) = find_span_control(&row["search"], span)
-    {
-        return found;
+    if let Some(control) = replay {
+        return SpanControl {
+            control,
+            injection_control: control,
+            replay_control: replay,
+            source: "replay_fallback",
+        };
     }
-    panic!("span {span} control missing for {id}: 计划 §7 差异处理，停止该处执行并重新授权");
+    panic!("span {span} control missing for {id}: 计划 §7 三层载体全失，停止该处执行并重新授权");
 }
 
 fn run_diagnosis(
@@ -232,14 +293,20 @@ fn run_diagnosis(
             Direction::FinishClamp => "finish_boundary_clamp",
             Direction::Fillet => "fillet_not_a_direction_condition",
         };
-        let control = span_control(searches, grid_history, id, problem.span_index_zero_based);
+        let span = span_control(
+            searches,
+            grid_history,
+            id,
+            problem.span_index_zero_based,
+            input,
+        );
         for &kind in problem.kinds {
             let kind_label = match kind {
                 EndChord::First => "first_chord",
                 EndChord::Last => "last_chord",
             };
             let started = Instant::now();
-            let result = sampler::feasibility::diagnose_end_chord(control, kind, direction);
+            let result = sampler::feasibility::diagnose_end_chord(span.control, kind, direction);
             timing.insert(
                 format!("{id}:{kind_label}"),
                 json!(started.elapsed().as_secs_f64()),
@@ -259,7 +326,7 @@ fn run_diagnosis(
             let mut injected = Value::Null;
             if let Some(t) = witness_t {
                 let injection = sampler::grid::Injection {
-                    control: control.map(|p| p.map(f64::to_bits)),
+                    control: span.injection_control.map(|p| p.map(f64::to_bits)),
                     kind: match kind {
                         EndChord::First => sampler::grid::InjectionKind::FirstChord { t },
                         EndChord::Last => sampler::grid::InjectionKind::LastChord { t },

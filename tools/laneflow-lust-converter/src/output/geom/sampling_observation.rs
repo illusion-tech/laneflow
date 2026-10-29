@@ -25,7 +25,7 @@ impl Drop for Reset {
     }
 }
 
-pub(super) fn capture<T>(run: impl FnOnce() -> T) -> (T, Vec<Value>) {
+pub(crate) fn capture<T>(run: impl FnOnce() -> T) -> (T, Vec<Value>) {
     ACTIVE.with(|slot| {
         assert!(slot.borrow().is_none(), "nested sampling observation");
         *slot.borrow_mut() = Some(Observation::default());

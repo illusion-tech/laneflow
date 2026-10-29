@@ -1583,7 +1583,7 @@ fn sample_cubic_impl(
 use sample_cubic_impl as sample_cubic;
 
 #[cfg(test)]
-mod sampling_observation;
+pub(crate) mod sampling_observation;
 
 #[cfg(test)]
 pub(crate) mod s1;
