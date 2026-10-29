@@ -31,6 +31,10 @@
 - 正式合同以主线文档为准：`docs/design/route-system.md`、`cross-section-access.md`、
   `road-junction-model.md`、`vehicle-following.md`、`real-road-workloads.md`、
   `network-compiler.md`、ADR 0029。
+- **方向裁决（2026-10-29，维护者，#806 评论）**：选项 3 采纳——本设计的职责
+  边界与材料化方向成立，#806「任意 lane 隐式完成换道」实现方案撤销；#806 目标
+  保留、实现方案更换。方向成立 ≠ G1 Accepted：T01 承载形式、占用映射、执行
+  能力检查保持待冻结（`design.md` §6.1）。
 
 ## Issue #1142 验收对照
 
