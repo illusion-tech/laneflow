@@ -288,9 +288,9 @@ pub(crate) fn centerlines(cell: u32, route: u32) -> [Vec<CanonicalPoint3F32Input
     let origin_x = -16_300_000 + 1_024_000 * i64::from(cell % 32);
     let origin_z = -16_300_000 + 1_024_000 * i64::from(cell / 32) + 80_000 * i64::from(route);
     let point = |x: i64, z: i64| CanonicalPoint3F32Input {
-        x: ((origin_x + x) as f64 / 1_000.0) as f32,
+        x: geometry_coordinate(origin_x + x),
         y: 0.0,
-        z: ((origin_z + z) as f64 / 1_000.0) as f32,
+        z: geometry_coordinate(origin_z + z),
     };
     let mut entry = Vec::with_capacity(52);
     let mut exit = Vec::with_capacity(52);
@@ -311,4 +311,12 @@ pub(crate) fn centerlines(cell: u32, route: u32) -> [Vec<CanonicalPoint3F32Input
         }
     }
     [entry, exit]
+}
+
+/// #1156：统一二进制格点使轴向段长及 5130 m 内的 f32 前缀和精确可表示。
+/// 125 为奇数，无半格平局；负坐标使用 Euclid 余数实现同一最近格点规则。
+fn geometry_coordinate(millimetres: i64) -> f32 {
+    let numerator = millimetres * 128;
+    let grid = numerator.div_euclid(125) + i64::from(numerator.rem_euclid(125) >= 63);
+    grid as f32 / 1_024.0
 }

@@ -310,6 +310,11 @@ real-road representativeness。
    1000 cells 的所有点位于每轴闭区间 `[-16384, 16384] m`，不同 route/cell 的
    geometry band 不重叠。
 
+正式文件将上述解析坐标量化到最近的 `1/1024 m` 二进制格点（精确算法见
+[`lf-synth-input-bundle.md` §3](lf-synth-input-bundle.md#3-静态网络与引用)），最大误差小于
+0.489 mm；原点、端点与分割点不变。该编码使轴向折线的逐段 f32 弧长累计仍精确
+为 5130 m，符合 ADR 0028 从规范弧长提交边长的权威；不能接受编译后毫米边长漂移。
+
 每条 route 在 entry/exit 边界设置一个 stop line 和一个 gate，并映射到本 cell
 对应的 signal group；四条独立通路各声明一个 Junction、Movement 和无 internal edge 的
 ManeuverPath，gate 位于 transition index 0，显式策略为 `ProtectedGroup`。
