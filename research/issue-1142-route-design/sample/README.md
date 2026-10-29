@@ -1,6 +1,6 @@
 # 最小闭环样本（合成 / 钉版输入）
 
-**状态**: 设计材料（`minimal-closed-loop.json` v1）；不是运行结果，不构成执行结论
+**状态**: 设计材料（`minimal-closed-loop.json` v2）；不是运行结果，不构成执行结论
 **关联**: [设计方案](../design.md)、[实现切片与验收计划](../slice-plan.md)、
 Issue #1142 / #806 / #237
 
@@ -11,12 +11,22 @@ Issue #1142 / #806 / #237
 设计方案 §2.3 子合同 4–8 与验收矩阵（反例与对照、单车与位姿、目标与源车道安全、
 同拍与多车、车尾与下游、持久化与确定性、结构负例）。
 
-样本同时钉住设计边界本身（scenario `s1-materialization-boundary`）：
+样本同时钉住设计边界本身（scenario `s1-materialization-boundary`，三拓扑变体
+把 gap 与 continuous-control 分离，对齐
+`a0_fixture_proves_real_lane_gap_and_continuous_control` 的区分逻辑）：
 
-- **有过渡材料**：道路级需求 `A B C` 物化为
-  `[A0, I1, B0_up, T01, B1_down, I2, C0]`——展开器只是**消费**真实存在的过渡边；
-- **无过渡材料**：同一需求在 `B→C` 处 `lane-continuity-gap` 失败关闭（可达
-  `{0}`、所需 `{1}`）——展开器**不产生**横向转移。
+- **gap**（无 `T01`、无 `I0`/`P0`）：道路级需求 `A B C` 在 `B→C` 处
+  `lane-continuity-gap` 失败关闭（可达 `{0}`、所需 `{1}`），且**不存在**任何
+  lane-continuous 完整替代路线——展开器**不产生**横向转移；
+- **continuous-control**（无 `T01`、有 `I0`/`P0`）：同一需求精确物化
+  `[A0, I1, B0_up, S00, B0_down, I0, C0]`——缺口失败不是其他原因；
+- **transition**（有 `T01`、无 `I0`/`P0`）：同一需求精确物化
+  `[A0, I1, B0_up, T01, B1_down, I2, C0]`——展开器只是**消费**真实存在的过渡边。
+
+完整网络（`T01` 与 `I0`/`P0` 并存）只服务 s2–s11 的调用方显式钉版路线
+（`route-system.md` D1：显式边序列、不做寻路）；现行展开的 lexicographic-min
+选路规则（`real-road-workloads.md` §3.1）在完整网络上仍选 lane-0 连续路径，
+故 transition 变体移除 `I0`/`P0`，物化结果才能唯一归因于过渡材料。
 
 这正是「路线展开负责找到并物化、#237 最小换道负责证明可执行」的可观察判据。
 
@@ -56,7 +66,12 @@ A0 ── I1 ──┬── B0_up ──┬── S00 ──┬── B0_down �
    量化后的钉版值。
 3. **确定性**：场景只描述输入与期望，不含计时字段；同拍裁决期望写「稳定顺序」，
    不指定具体排序实现。
-4. **可表达性分级**：每组期望标注
+4. **actor 构型**（JSON `meta.actor_conventions`）：`spawn` 为前保险杠初始位置，
+   `route_edge_index` 指明其在钉版 route 中的当前边下标；车尾范围必须落在
+   route 覆盖内（s8 长车 route 保留 `A0`/`I1` 前缀）；全部 actor 于 tick 0
+   同时激活，同拍竞争/追赶交互以对称位置与同速构造（s3/s4/s5/s6/s8），
+   源后车钉在过渡车后方。
+5. **可表达性分级**：每组期望标注
    `route-expansion-today` / `registration-today` / `needs-237-subcontract` /
    `needs-g1`（见 JSON `meta.expressibility_legend`）。今天的工具链只能验证
    前两级；标记为 `needs-237-subcontract` 的断言是后续实现切片的验收输入，
