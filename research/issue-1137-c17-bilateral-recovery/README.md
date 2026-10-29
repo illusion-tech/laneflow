@@ -71,7 +71,7 @@ C17 单条完整路径 `sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_
 
 - 候选冻结入口（先跑，`c17-searches.json` 作 `CURVE_DESIGN_FROZEN_RESULT`）：`output::emit::s1::recovery_coverage::dependency_recovery::c17_bilateral_recovery::fixed_c17_bilateral_design`
 - 正式实验入口（四轮 ABBA，`--exact --ignored --nocapture --test-threads=1`）：`…::pinned_lust_c17_bilateral_experiment`
-- 校准（第一闸）：`…::k1_known_candidates_replay_with_frozen_inputs`、`…::k2_old_family_replay_matches_frozen_records`（k2-old-family-frozen.json 等值锚）、`…::k3_tangent_rotation_boundary_self_checks`、`…::k4_synthetic_positive_and_negative_cases`；证书 `…::short_first_span_obstruction_certificate_recheck`、`…::certificate_tampering_is_rejected`
+- 校准（第一闸，**覆盖新旧双驱动**：k1/k2 走旧族驱动、k1b 走 custom 新驱动，接受程序身份逐项一致）：`…::k1_known_candidates_replay_with_frozen_inputs`、`…::k1b_known_positives_replay_through_custom_driver`、`…::k2_old_family_replay_matches_frozen_records`（k2-old-family-frozen.json 等值锚）、`…::k3_tangent_rotation_boundary_self_checks`、`…::k4_synthetic_positive_and_negative_cases`；证书 `…::short_first_span_obstruction_certificate_recheck`、`…::certificate_tampering_is_rejected`
 - 常规单测：`…::c17_cohort_and_capacities_match_the_frozen_sample`、`…::c17_family_config_counts_match_the_frozen_plan`
 - 环境变量：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`SIX_STREAMS_BASELINE_DIR`（E0 钉版基线包解压目录）、`CURVE_DESIGN_OUTPUT_DIR`（每次不存在的新目录）、`CURVE_DESIGN_ORDER`、`CURVE_DESIGN_FROZEN_RESULT`。本机脚本 `run-c17-abba.ps1` / `collect-c17-evidence.ps1`（不入库）。
 
@@ -79,5 +79,5 @@ C17 单条完整路径 `sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_
 
 - **有限族未通过不作无解证明**：S1/S2 新族 547 列明配置零候选，只表示本族未通过；短首段证书只覆盖列明配置（keep 首 cubic 与 pair-R 首组），不外推整条边或分量。不预设必须恢复。
 - 新变量覆盖事实：切向扰动与逐组独立柄因子均未跨越既有阻点（拟合弦近似误差项对参数化敏感为既有保守方向行为，未改共享代码）；旧族对照列不作候选来源。
-- 差异记录：R1 曾误钉 sink 标签（改回冻结「不钉特定标签」口径）；合成输入 s 由倒圆构造决定（L 形→s=3）；serde_json 1 ULP 跨片事实（双侧同源解析语义有效，未装位级硬门）；`unvisited_assignments` 字段形态按锚增强后比较；E 驱动 `attempt_reject_detail.measured` 实测证据通道由 `57eeb02f` 落地（R2/R3 直调证据齐）。
+- 差异记录：R1 曾误钉 sink 标签（改回冻结「不钉特定标签」口径）；合成输入 s 由倒圆构造决定（L 形→s=3）；serde_json 1 ULP 跨片事实（双侧同源解析语义有效，未装位级硬门）；`unvisited_assignments` 字段形态按锚增强后比较；E 驱动 `attempt_reject_detail.measured` 实测证据通道由 `57eeb02f` 落地（R2/R3 直调证据齐）。Codex 评审五线程修复（`730ede60`）：正例校准增补 k1b 过新驱动（双驱动覆盖；过程中纠正一处记录误读——-28860 两候选均为整边合段）、长度证据改自控制位解码 4096 双估计、custom 驱动预算尽即止外层循环、最终保留程序补规范折线→来源双向观察（预算尽记未完成）；修复后四轮重跑与修复前输出**逐字节全同**（252 组非计时，零候选/无预算停止下无触发面，输出不变）。
 - 完成本切片不关闭 #790；下一步依据见[决策材料](g1-proposal.md)，生产 S1 的 G1 保持 Proposed。
