@@ -47,17 +47,20 @@ const FINAL_PER_EDGE: [(&str, usize); 11] = [
 ];
 
 /// 来源⑤钉版（#1134 plan §5）：Release 资产 `research-evidence-1134-cohort2-baseline`
-/// → `cohort2-baseline-inputs.zip` 两成员，SHA-256 与字节数冻结。
+/// → `cohort2-baseline-inputs.zip::stream-a-searches.json`，SHA-256 与字节数冻结。
 const STREAM_A_SEARCHES_SHA256: &str =
     "1c6dd16244481d8fa757865305b2f05287ed74624dde5770998e752d18e26d7b";
-const STREAM_A_RESULTS_SHA256: &str =
-    "17d6bdce48e63cb26116ea6fc9882225a1aa95d7f67bb248bacfa15ac3b37786";
+
+/// 结果对照锚取材钉版（锚代际错位事故返工后）：#1134 run-03 `results.json`
+/// （631,650 字节）`#variants.new` 整行 = 92 池行。
+const RUN3_RESULTS_SHA256: &str =
+    "b320cfe9452edb87cd17a2186338fc0fef077ba141c937a626c56686b970c25f";
 
 /// 资产钉版（`shared-baseline-inputs.zip` 三成员；plan §2 同步钉版）。
 const POOL_JSON_SHA256: &str = "31fca69617e2fd5d818aafc64b6704451475e05bf3aa3918391e1a2f9feb1bb3";
 const RESULTS_ANCHOR_SHA256: &str =
-    "ff5276fc9d244c9209881b67f9652cf328580dd8af7f11d49796e24b5783acfc";
-const MANIFEST_SHA256: &str = "8b5d80219506430a30b3496e7fe88a00e5956ced516501d7193336b80072be66";
+    "0973dd355f18be878b977f3e2caea65ba355aeb7f1d0282e624e4b62b8b1abe5";
+const MANIFEST_SHA256: &str = "56edd1365c48ce68b39e260f5be01ecea8629ee92e424d58363bd718e2d00cf5";
 
 /// 来源⑥钉版（#1134 冻结四轮 ABBA 逐字节一致的 run-03 输出；两文件各 157,603 /
 /// 1,313,285 字节）。
@@ -180,12 +183,23 @@ fn verified_pools(rows: &Value) -> combinations::Pools {
     pools
 }
 
-/// plan §2 结果对照锚：#1134 新增变体 `variants.new` 的分量/路径/计数逐值提取
-/// （53 分量、84 路径、接受 28/84）；**仅结果对照，不作候选点位来源**。
-/// 形状按 A 路消费澄清：`{"source": {…}, "components": […], "paths": […],
-/// "path_counts": {…}}`。
-fn results_anchor(stream_results: &Value) -> Value {
-    let variant = &stream_results["variants"]["new"];
+/// plan §2 结果对照锚（锚代际错位事故返工，取材身份三件套钉版）：#1134 run-03
+/// `results.json#variants.new` **整行逐值**（92 池行：53 分量、84 路径、接受 28/84）；
+/// **仅结果对照，不作候选点位来源**。代际守卫：C40 组件行 `missing_edges`=5
+/// （76 池旧代为 6，拒收）。
+fn results_anchor(run_results: &Value) -> Value {
+    let variant = &run_results["variants"]["new"];
+    let c40 = variant["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["component"] == "sumo:-25332:--32278#0_1-to--32770#7_1::-25332_0_1")
+        .expect("C40 cohort component row present");
+    assert_eq!(
+        c40["result"]["missing_edges"].as_array().unwrap().len(),
+        5,
+        "anchor generation: 92-pool row (C40 missing_edges=5)"
+    );
     assert_eq!(
         variant["components"].as_array().unwrap().len(),
         53,
@@ -205,14 +219,22 @@ fn results_anchor(stream_results: &Value) -> Value {
         variant["path_counts"]["target_check_not_completed"], 53,
         "anchor unfinished count"
     );
-    json!({
-        "source":{"asset":"stream-a-results.json",
-            "release_tag":"research-evidence-1134-cohort2-baseline",
-            "zip_member":"cohort2-baseline-inputs.zip::stream-a-results.json",
-            "json_pointer":"#variants.new","comparison_only":true},
-        "components":variant["components"],"paths":variant["paths"],
-        "path_counts":variant["path_counts"],
-    })
+    let mut anchor = json!({});
+    anchor["source"] = json!({
+        "asset":"evidence/run-03/results.json","sha256":RUN3_RESULTS_SHA256,"bytes":631650,
+        "json_pointer":"#variants.new","generation":"92-池行",
+        "release_tag":"research-evidence-1140-shared-baseline","comparison_only":true,
+        "changed_from":{
+            "asset":"stream-a-results.json","json_pointer":"#variants.new",
+            "release_tag":"research-evidence-1134-cohort2-baseline","generation":"76-池行",
+            "reason":"锚代际错位事故：原取材 #1131 代 stream-a-results.json（76 池行）；章程 §1 要求 #1134 新增变体 = run-03 results.json#variants.new（92 池行）；两代唯一语义差为 C40 missing_edges 6→5",
+        },
+    });
+    // `variants.new` 整行逐值展开（`source` 与行内 7 键无冲突）。
+    for (key, value) in variant.as_object().unwrap() {
+        anchor[key] = value.clone();
+    }
+    anchor
 }
 
 /// plan §1 来源装载：①–④为仓库内历史切片研究制品（include_str 钉版），⑤经
@@ -257,7 +279,8 @@ fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(
     ]
 }
 
-/// 来源⑤/⑥与结果对照锚的钉版输入装载（`COHORT2_BASELINE_DIR` + `COHORT2_RUN_DIR`）。
+/// 来源⑤/⑥与结果对照锚的钉版输入装载（`COHORT2_BASELINE_DIR` + `COHORT2_RUN_DIR`；
+/// 锚取材 = run-03 `results.json`，锚代际错位事故返工后）。
 fn pinned_sources() -> (Value, Value, Value, Value) {
     let base = PathBuf::from(std::env::var("COHORT2_BASELINE_DIR").expect("COHORT2_BASELINE_DIR"));
     let run = PathBuf::from(std::env::var("COHORT2_RUN_DIR").expect("COHORT2_RUN_DIR"));
@@ -265,11 +288,10 @@ fn pinned_sources() -> (Value, Value, Value, Value) {
         &base.join("stream-a-searches.json"),
         STREAM_A_SEARCHES_SHA256,
     );
-    let stream_results =
-        read_pinned_json(&base.join("stream-a-results.json"), STREAM_A_RESULTS_SHA256);
+    let run_results = read_pinned_json(&run.join("results.json"), RUN3_RESULTS_SHA256);
     let run_old = read_pinned_json(&run.join("old-searches.json"), RUN3_OLD_SEARCHES_SHA256);
     let run_grid = read_pinned_json(&run.join("grid-searches.json"), RUN3_GRID_SEARCHES_SHA256);
-    (stream_searches, stream_results, run_old, run_grid)
+    (stream_searches, run_results, run_old, run_grid)
 }
 
 /// plan §3 ⑤ 六来源重建与包内候选逐值逐序对照（`experiment::{pool, merge}` 双记账）。
@@ -327,13 +349,29 @@ pub(in super::super) fn shared_pools() -> combinations::Pools {
     verified_pools(&rows)
 }
 
-/// 需求单「结果对照锚」读取（仅对照，不作候选点位来源）。
+/// 需求单「结果对照锚」读取（仅对照，不作候选点位来源）。取材身份三件套
+/// （asset/json_pointer/release_tag）+ 代际标签断言（A 路入口同款钉版断言）。
 pub(in super::super) fn results_anchor_pinned() -> Value {
     let dir = pinned_baseline_dir();
     let anchor = read_pinned_json(&dir.join("results-anchor.json"), RESULTS_ANCHOR_SHA256);
+    let source = &anchor["source"];
+    assert_eq!(source["comparison_only"], true, "comparison-only anchor");
     assert_eq!(
-        anchor["source"]["comparison_only"], true,
-        "comparison-only anchor"
+        source["asset"], "evidence/run-03/results.json",
+        "anchor source asset"
+    );
+    assert_eq!(
+        source["json_pointer"], "#variants.new",
+        "anchor source json_pointer"
+    );
+    assert_eq!(
+        source["release_tag"], "research-evidence-1140-shared-baseline",
+        "anchor source release_tag"
+    );
+    assert_eq!(source["generation"], "92-池行", "anchor generation label");
+    assert_eq!(
+        source["sha256"], RUN3_RESULTS_SHA256,
+        "anchor source digest"
     );
     anchor
 }
@@ -345,14 +383,14 @@ fn shared_baseline_export() {
     let out = PathBuf::from(std::env::var("SHARED_BASELINE_EXPORT_DIR").expect("export dir"));
     assert!(!out.exists(), "fresh export directory");
     fs::create_dir_all(&out).unwrap();
-    let (stream_searches, stream_results, run_old, run_grid) = pinned_sources();
+    let (stream_searches, run_results, run_old, run_grid) = pinned_sources();
     let rows = source_rows(stream_searches, run_old, run_grid);
     let sources: Vec<(usize, &Value)> = rows
         .iter()
         .map(|(stage, source)| (*stage, source))
         .collect();
     let (pool_rows, provenance, per_stage) = build_pool(&sources);
-    let anchor = results_anchor(&stream_results);
+    let anchor = results_anchor(&run_results);
     recovery::write_json(&out, "pool.json", &pool_rows);
     recovery::write_json(&out, "results-anchor.json", &anchor);
     let pool_bytes = fs::read(out.join("pool.json")).unwrap();
@@ -382,7 +420,13 @@ fn shared_baseline_export() {
             "per_edge":FINAL_PER_EDGE.iter().map(|(id,count)|(id.to_string(),count)).collect::<BTreeMap<String,_>>()},
         "sources":manifest_sources,
         "candidate_sources":provenance,
-        "generation":"E0 export entry shared_baseline_export; pool merge semantics = dependency_recovery::experiment::{pool,merge}; pool.json rows are source-shaped ({edge:{candidates:[…]}}); results anchor comparison-only",
+        "anchor_source":{
+            "asset":"evidence/run-03/results.json","sha256":RUN3_RESULTS_SHA256,"bytes":631650,
+            "json_pointer":"#variants.new","generation":"92-池行",
+            "release_tag":"research-evidence-1140-shared-baseline",
+            "changed_from":"#variants.new@stream-a-results.json（research-evidence-1134-cohort2-baseline，76-池行）→ #variants.new@evidence/run-03/results.json（92-池行）；根因=锚代际错位事故，两代唯一语义差为 C40 missing_edges 6→5",
+        },
+        "generation":"E0 export entry shared_baseline_export; pool merge semantics = dependency_recovery::experiment::{pool,merge}; pool.json rows are source-shaped ({edge:{candidates:[…]}}); results anchor = run-03 results.json#variants.new 整行（92-池行，锚代际错位事故返工后取材），comparison-only",
     });
     // 冻结链断言先于写 MANIFEST（per_stage/ final 与 build 产物交叉一致）。
     assert_frozen_chain(&pool_rows, &manifest);
@@ -391,7 +435,7 @@ fn shared_baseline_export() {
 }
 
 /// plan §5 校验入口：`SIX_STREAMS_BASELINE_DIR` 三资产全断言 + 六来源重建逐值逐序 +
-/// 结果对照锚与 `stream-a-results.json#variants.new` 逐值。
+/// 结果对照锚与 `run-03 results.json#variants.new` 整行逐值（92 池行）。
 #[test]
 #[ignore = "requires SIX_STREAMS_BASELINE_DIR, COHORT2_BASELINE_DIR and COHORT2_RUN_DIR"]
 fn shared_baseline_package_matches_frozen_chain() {
@@ -399,11 +443,11 @@ fn shared_baseline_package_matches_frozen_chain() {
     assert_eq!(pool_counts(&pools), (11, 92), "verified pool totals");
     let dir = pinned_baseline_dir();
     let rows = read_pinned_json(&dir.join("pool.json"), POOL_JSON_SHA256);
-    let (stream_searches, stream_results, run_old, run_grid) = pinned_sources();
+    let (stream_searches, run_results, run_old, run_grid) = pinned_sources();
     let rows_sources = source_rows(stream_searches, run_old, run_grid);
     assert_rebuild_matches_package(&rows, &rows_sources);
     let anchor = results_anchor_pinned();
-    assert_eq!(anchor, results_anchor(&stream_results), "anchor 逐值");
+    assert_eq!(anchor, results_anchor(&run_results), "anchor 逐值");
 }
 
 /// 临时目录唯一命名；钉版读取验证的同字节内容只写临时目录，不落仓库。
@@ -472,4 +516,19 @@ fn shared_baseline_loader_rejects_unpinned_bytes() {
     let path = dir.join("pool.json");
     fs::write(&path, b"not the pinned shared baseline bytes").unwrap();
     let _ = read_pinned_json(&path, POOL_JSON_SHA256);
+}
+
+#[test]
+#[should_panic(expected = "anchor generation")]
+fn shared_baseline_anchor_rejects_old_generation_row() {
+    // 锚代际守卫（锚代际错位事故返工）：76 池旧代行（C40 missing_edges=6）拒收，
+    // 只接受 92 池行（C40 missing_edges=5）。
+    let missing = vec![json!({"edge":"sumo::e0-synthetic"}); 6];
+    let run_results = json!({"variants":{"new":{
+        "components":[{
+            "component":"sumo:-25332:--32278#0_1-to--32770#7_1::-25332_0_1",
+            "result":{"missing_edges":missing},
+        }],
+    }}});
+    let _ = results_anchor(&run_results);
 }
