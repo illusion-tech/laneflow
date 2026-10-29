@@ -1,0 +1,2794 @@
+{
+  "schema": "laneflow-1154-witness-guided-search-witness-inventory",
+  "generated_utc": "2026-10-29T14:25:57.7701143Z",
+  "issue": "#1154",
+  "freeze_rule": "一次冻结：截止冻结时点已交付可重放的全部合格首/末单弦见证（local_witness 状态、first_chord/last_chord 单弦问题）；绑定来源哈希/控制点 f64 位/参数位；后续产物不自动追加",
+  "classification": {
+    "field": "witness_chord_in_selected_path（注入搜索记录 evidence 字段，见证级聚合：任一 true > 任一 false > null）",
+    "true": "见证弦进入选中路径",
+    "false": "有选中路径记录但见证弦不在其中",
+    "null": "无选中路径或未记录，附 null_reason"
+  },
+  "summary": {
+    "total": 47,
+    "true": 1,
+    "false": 7,
+    "null": 39,
+    "by_lane": {
+      "round1-1121": {
+        "total": 4,
+        "true": 0,
+        "false": 0,
+        "null": 4
+      },
+      "cohort2-1134": {
+        "total": 13,
+        "true": 0,
+        "false": 2,
+        "null": 11
+      },
+      "signal-diag-1-1138": {
+        "total": 15,
+        "true": 0,
+        "false": 3,
+        "null": 12
+      },
+      "signal-diag-2-1139": {
+        "total": 15,
+        "true": 1,
+        "false": 2,
+        "null": 12
+      }
+    }
+  },
+  "sources": [
+    {
+      "label": "target/issue-790-806-handoff-20261026/coverage-diagnosis-20261028/run-00/diagnosis.json",
+      "lane": "round1-1121",
+      "sha256": "4677e73059e535b33f3c050121da2cdbcbfb7f9befc7608dbf211b433bc31de1"
+    },
+    {
+      "label": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "lane": "cohort2-1134",
+      "sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8"
+    },
+    {
+      "label": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "lane": "signal-diag-1-1138",
+      "sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6"
+    },
+    {
+      "label": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "lane": "signal-diag-2-1139",
+      "sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c"
+    }
+  ],
+  "witnesses": [
+    {
+      "lane": "round1-1121",
+      "edge": "sumo::-20112_0_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4659877525111879762,
+          0,
+          13876952878776707973
+        ],
+        [
+          4659876745293323469,
+          0,
+          13876953803876868171
+        ],
+        [
+          4659875911792795849,
+          0,
+          13876954682548877268
+        ],
+        [
+          4659875018225368433,
+          0,
+          13876954989839033303
+        ],
+        [
+          13829294176068393756,
+          0,
+          13826142348789424806
+        ],
+        [
+          13830424186838010654,
+          0,
+          13818645457265537687
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/coverage-diagnosis-20261028/run-00/diagnosis.json",
+      "source_sha256": "4677e73059e535b33f3c050121da2cdbcbfb7f9befc7608dbf211b433bc31de1",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "round1-1121",
+      "edge": "sumo::-8806_4_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13886438024740926915,
+          0,
+          4653900755825149870
+        ],
+        [
+          13886437941883756017,
+          0,
+          4653899880953592146
+        ],
+        [
+          13886438024740926915,
+          0,
+          4653898884734329174
+        ],
+        [
+          13886438024740926915,
+          0,
+          4653897949188918826
+        ],
+        [
+          4600053446302464937,
+          0,
+          13829970302845011629
+        ],
+        [
+          0,
+          0,
+          13830554455654793216
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/coverage-diagnosis-20261028/run-00/diagnosis.json",
+      "source_sha256": "4677e73059e535b33f3c050121da2cdbcbfb7f9befc7608dbf211b433bc31de1",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "round1-1121",
+      "edge": "sumo::-10004_3_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4652916097661553083,
+          0,
+          4649809817186599584
+        ],
+        [
+          4652915125614854952,
+          0,
+          4649807706869604385
+        ],
+        [
+          4652914603154829632,
+          0,
+          4649804921852565505
+        ],
+        [
+          4652914641229592920,
+          0,
+          4649802053553731141
+        ],
+        [
+          13827650061498807860,
+          0,
+          13828171862678255398
+        ],
+        [
+          4583306659978801717,
+          0,
+          13830551283050609223
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/coverage-diagnosis-20261028/run-00/diagnosis.json",
+      "source_sha256": "4677e73059e535b33f3c050121da2cdbcbfb7f9befc7608dbf211b433bc31de1",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "round1-1121",
+      "edge": "sumo::-10004_8_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4652914834743639408,
+          0,
+          4649787394864709632
+        ],
+        [
+          4652914898595697369,
+          0,
+          4649782542108304604
+        ],
+        [
+          4652915829139352114,
+          0,
+          4649777895471367803
+        ],
+        [
+          4652917457890609359,
+          0,
+          4649774296272785360
+        ],
+        [
+          4583239606282011979,
+          0,
+          13830551338437446107
+        ],
+        [
+          4604219376191402417,
+          0,
+          13828225415491575692
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/coverage-diagnosis-20261028/run-00/diagnosis.json",
+      "source_sha256": "4677e73059e535b33f3c050121da2cdbcbfb7f9befc7608dbf211b433bc31de1",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-1000_5_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4647695991807284347,
+          0,
+          4654063879370246717
+        ],
+        [
+          4647696214511430564,
+          0,
+          4654061855123088121
+        ],
+        [
+          4647696745634323319,
+          0,
+          4654059783911372270
+        ],
+        [
+          4647694936276121682,
+          0,
+          4654057810066061394
+        ],
+        [
+          4583581875444588060,
+          0,
+          13830551050608680739
+        ],
+        [
+          13820588031340580003,
+          0,
+          13830326864613072021
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4602678819172646912
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-10034_4_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13886519113723475395,
+          0,
+          4653795026787022930
+        ],
+        [
+          13886518691603322379,
+          0,
+          4653793872467370964
+        ],
+        [
+          13886518283298961191,
+          0,
+          4653792553774041593
+        ],
+        [
+          13886517970231382508,
+          0,
+          4653790936603767603
+        ],
+        [
+          4605610889099654613,
+          0,
+          13826630607331544150
+        ],
+        [
+          4603689922045597335,
+          0,
+          13828668892079273739
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 6,
+        "witness_chord_attempted_true": 6,
+        "witness_chord_qualified_true": 6,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 6,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-10100_1_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4659255201530558546,
+          0,
+          4657012835526639616
+        ],
+        [
+          4659254990688704921,
+          0,
+          4657013349843303245
+        ],
+        [
+          4659254564546822188,
+          0,
+          4657013746655275167
+        ],
+        [
+          4659254246054954009,
+          0,
+          4657014202219592942
+        ],
+        [
+          13823876701698128021,
+          0,
+          4606509306938405603
+        ],
+        [
+          13826708160666070123,
+          0,
+          4605557272482746109
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo:--31624_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 3,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4659856974889429774,
+          0,
+          13879039868766026129
+        ],
+        [
+          4659859786090867073,
+          0,
+          13879037586789039030
+        ],
+        [
+          4659863245800570011,
+          0,
+          13879037278403891084
+        ],
+        [
+          4659865408493741670,
+          0,
+          13879033022835064832
+        ],
+        [
+          4606521187679184939,
+          0,
+          4600446412703634553
+        ],
+        [
+          4604595879429199097,
+          0,
+          4604492241396559871
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 239,
+        "witness_chord_attempted_true": 238,
+        "witness_chord_qualified_true": 239,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 239,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-10414_4_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4659778635036077588,
+          0,
+          13878938948620192317
+        ],
+        [
+          4659778992492059897,
+          0,
+          13878938382619715066
+        ],
+        [
+          4659779481660030975,
+          0,
+          13878938271321029607
+        ],
+        [
+          4659779904972007669,
+          0,
+          13878937932671448252
+        ],
+        [
+          4605237139477398695,
+          0,
+          4603766187733962590
+        ],
+        [
+          4606538194103463131,
+          0,
+          4600361999564451670
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-22822_2_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4659906904062573937,
+          0,
+          13878942423076936090
+        ],
+        [
+          4659907289894673998,
+          0,
+          13878941937824514253
+        ],
+        [
+          4659907782938868406,
+          0,
+          13878941939291819868
+        ],
+        [
+          4659908222377015640,
+          0,
+          13878941697399261757
+        ],
+        [
+          4605800124816741313,
+          0,
+          4602970056144764819
+        ],
+        [
+          4606859500207257392,
+          0,
+          4598451957896982272
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-1426_1_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4653464073787062354,
+          0,
+          4650221965840471818
+        ],
+        [
+          4653463750391228850,
+          0,
+          4650225815450694980
+        ],
+        [
+          4653463566818054709,
+          0,
+          4650229791470467489
+        ],
+        [
+          4653463809904271688,
+          0,
+          4650233664644191355
+        ],
+        [
+          13818509757008205486,
+          0,
+          4607057916553296654
+        ],
+        [
+          4593638882334151142,
+          0,
+          4607112287625968158
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 5,
+        "witness_chord_attempted_true": 5,
+        "witness_chord_qualified_true": 5,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 5,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-1426_2_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 2,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4653457432736830587,
+          0,
+          4650262427868373975
+        ],
+        [
+          4653456740538344451,
+          0,
+          4650264861433354244
+        ],
+        [
+          4653455548469543565,
+          0,
+          4650266569525183073
+        ],
+        [
+          4653454606335900054,
+          0,
+          4650268640353587622
+        ],
+        [
+          13825951156034260899,
+          0,
+          4606004252221210802
+        ],
+        [
+          13827609141034279703,
+          0,
+          4604837290776952303
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 335,
+        "witness_chord_attempted_true": 334,
+        "witness_chord_qualified_true": 335,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 335,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-19726_2_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4629877746172197601,
+          0,
+          4657771190686549279
+        ],
+        [
+          4629875294060457120,
+          0,
+          4657771646922555309
+        ],
+        [
+          4629890131071172870,
+          0,
+          4657772085689014288
+        ],
+        [
+          4629896323520660504,
+          0,
+          4657772533190246793
+        ],
+        [
+          13814066556388695924,
+          0,
+          4607150824300444505
+        ],
+        [
+          4596782086575963154,
+          0,
+          4606978983687799559
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-22042_7_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 3,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4653300672933143573,
+          0,
+          4650342331109514917
+        ],
+        [
+          4653299702743487050,
+          0,
+          4650343172186479507
+        ],
+        [
+          4653298862985250160,
+          0,
+          4650344517911773945
+        ],
+        [
+          4653298241045314667,
+          0,
+          4650346228246596551
+        ],
+        [
+          13829811480566729903,
+          0,
+          4600836042389398593
+        ],
+        [
+          13826845036077010943,
+          0,
+          4605459666601094027
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 385,
+        "witness_chord_attempted_true": 384,
+        "witness_chord_qualified_true": 385,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 385,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo:-32770#6_1",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 4,
+      "direction_source": "finish_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4660716034669454295,
+          0,
+          4660570195447146086
+        ],
+        [
+          4660716362574648816,
+          0,
+          4660568915559128761
+        ],
+        [
+          4660717409317469301,
+          0,
+          4660567938109816404
+        ],
+        [
+          4660718057770849403,
+          0,
+          4660566786961099981
+        ],
+        [
+          4598109745484613825,
+          0,
+          13830272649532983579
+        ],
+        [
+          4602513035093568800,
+          0,
+          13829394993834338378
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4606635549204152320,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4606635549204152320,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 256,
+        "witness_chord_attempted_true": 255,
+        "witness_chord_qualified_true": 256,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 256,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo:-32770#7_1",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 3,
+      "direction_source": "finish_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4660821345893162680,
+          0,
+          4660516187435989729
+        ],
+        [
+          4660822677256977770,
+          0,
+          4660516579334876837
+        ],
+        [
+          4660823697230885668,
+          0,
+          4660517664688474754
+        ],
+        [
+          4660824908310836675,
+          0,
+          4660518342478780170
+        ],
+        [
+          4606815851092468677,
+          0,
+          4598758514797996350
+        ],
+        [
+          4606035201551875638,
+          0,
+          4602469419931669166
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4606686676494843904,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4606686676494843904,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 252,
+        "witness_chord_attempted_true": 251,
+        "witness_chord_qualified_true": 252,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 252,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "cohort2-1134",
+      "edge": "sumo::-8018_7_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4660835639544323768,
+          0,
+          4660520563492268278
+        ],
+        [
+          4660837047662936581,
+          0,
+          4660519918527580447
+        ],
+        [
+          4660838626879380818,
+          0,
+          4660519577474215846
+        ],
+        [
+          4660839883659206984,
+          0,
+          4660518672332268503
+        ],
+        [
+          4606364279074378021,
+          0,
+          13824545374560878476
+        ],
+        [
+          4605484152697500511,
+          0,
+          13826811203074452166
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4589168020290535424
+      ],
+      "t_f64_bits": 4589168020290535424,
+      "source_file": "target/issue-790-806-handoff-20261026/round3-cohort2-coverage-20261029/evidence/run-00/diagnosis.json",
+      "source_sha256": "5f9446f3781b11ce4ba6bb3b17883bba570148157a54093a50d9cf2e0575a1e8",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10130_12_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13879228477265944704,
+          0,
+          4656106582656571496
+        ],
+        [
+          13879226693034891090,
+          0,
+          4656106304178520310
+        ],
+        [
+          13879224866384944415,
+          0,
+          4656106540744246656
+        ],
+        [
+          13879223211958391013,
+          0,
+          4656107264555863769
+        ],
+        [
+          4607074675030738017,
+          0,
+          13818096070790930317
+        ],
+        [
+          4606427231209433008,
+          0,
+          4600892130124042388
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10130_13_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13879231066869459845,
+          0,
+          4656165573856507986
+        ],
+        [
+          13879230606489233971,
+          0,
+          4656163018199148441
+        ],
+        [
+          13879230134343615921,
+          0,
+          4656160429548551933
+        ],
+        [
+          13879230187260157624,
+          0,
+          4656157833294648443
+        ],
+        [
+          4595555493209298393,
+          0,
+          13830411772758636658
+        ],
+        [
+          13804902716037186904,
+          0,
+          13830552585347052771
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4602678819172646912
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10130_4_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13879168720051930302,
+          0,
+          4656096947146761356
+        ],
+        [
+          13879169745717468732,
+          0,
+          4656096987211821451
+        ],
+        [
+          13879170763774055537,
+          0,
+          4656096755703213753
+        ],
+        [
+          13879171671251327386,
+          0,
+          4656096276036655776
+        ],
+        [
+          13830547591561452948,
+          0,
+          4585786030511671033
+        ],
+        [
+          13829510475687396560,
+          0,
+          13825461917162162169
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10130_5_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13879172352948536607,
+          0,
+          4656041812827685519
+        ],
+        [
+          13879172113826770015,
+          0,
+          4656043947325684673
+        ],
+        [
+          13879171834688783654,
+          0,
+          4656046105079790129
+        ],
+        [
+          13879171165475978609,
+          0,
+          4656048146014661509
+        ],
+        [
+          4592686646025882905,
+          0,
+          4607126424735400076
+        ],
+        [
+          4599284425492041865,
+          0,
+          4606734059525749457
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 32,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10156_2_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13884842969799240282,
+          0,
+          4657150067782096471
+        ],
+        [
+          13884843505557568535,
+          0,
+          4657149799902932344
+        ],
+        [
+          13884843996160148527,
+          0,
+          4657149252390224070
+        ],
+        [
+          13884844391488116752,
+          0,
+          4657148481176646713
+        ],
+        [
+          13830285523204353820,
+          0,
+          13821278323949612828
+        ],
+        [
+          13827995091327447875,
+          0,
+          13827836538009557669
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10156_3_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13884843523973442437,
+          0,
+          4657129537690811761
+        ],
+        [
+          13884843559663314601,
+          0,
+          4657130563539620809
+        ],
+        [
+          13884843549233441660,
+          0,
+          4657131618454468893
+        ],
+        [
+          13884843425017395937,
+          0,
+          4657132616323369533
+        ],
+        [
+          13813038214615101805,
+          0,
+          4607160693312414951
+        ],
+        [
+          4597872149089674705,
+          0,
+          4606915615547752866
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 5,
+        "witness_chord_attempted_true": 5,
+        "witness_chord_qualified_true": 5,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 5,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-10156_5_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13884850813735534592,
+          0,
+          4657135628985229640
+        ],
+        [
+          13884850314201021915,
+          0,
+          4657135660998351620
+        ],
+        [
+          13884849800391675660,
+          0,
+          4657135673466676783
+        ],
+        [
+          13884849318399720817,
+          0,
+          4657135409082904084
+        ],
+        [
+          4607177798283070882,
+          0,
+          4584776328376372506
+        ],
+        [
+          4606861647438327641,
+          0,
+          13821808364055790881
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-11042_0_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4658209653933473792,
+          0,
+          4659914534673270702
+        ],
+        [
+          4658208878931329160,
+          0,
+          4659913955348180133
+        ],
+        [
+          4658208023750652225,
+          0,
+          4659913446923583564
+        ],
+        [
+          4658207103066497352,
+          0,
+          4659913149288619704
+        ],
+        [
+          13828761614798539328,
+          0,
+          13826940091583217501
+        ],
+        [
+          13830117742960729951,
+          0,
+          13822584919635188488
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 5,
+        "witness_chord_attempted_true": 5,
+        "witness_chord_qualified_true": 5,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 5,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-11042_11_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4658183881380918723,
+          0,
+          4659900526895132836
+        ],
+        [
+          4658184523534338872,
+          0,
+          4659899779755010092
+        ],
+        [
+          4658185198391656861,
+          0,
+          4659899032308796544
+        ],
+        [
+          4658185640599523164,
+          0,
+          4659898151950016840
+        ],
+        [
+          4604046232522959711,
+          0,
+          13828378130797263829
+        ],
+        [
+          4601757563371407011,
+          0,
+          13829596108369824212
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4602678819172646912
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-11042_14_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4658206907353427608,
+          0,
+          4659896290476831015
+        ],
+        [
+          4658206791540557594,
+          0,
+          4659895756450819284
+        ],
+        [
+          4658206846453172216,
+          0,
+          4659895199534199958
+        ],
+        [
+          4658207064332969471,
+          0,
+          4659894698410666271
+        ],
+        [
+          13820176028675808546,
+          0,
+          13830349834692160528
+        ],
+        [
+          4600854430985062703,
+          0,
+          13829807489127281474
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-11042_15_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4658209280099520348,
+          0,
+          4659892720362575626
+        ],
+        [
+          4658207659845770488,
+          0,
+          4659893033975924457
+        ],
+        [
+          4658206064665144368,
+          0,
+          4659893805588925463
+        ],
+        [
+          4658204420258125578,
+          0,
+          4659893665942575514
+        ],
+        [
+          13830390327000731631,
+          0,
+          4596014614499052498
+        ],
+        [
+          13830522151452552943,
+          0,
+          13814133786565737488
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4589168020290535424
+      ],
+      "t_f64_bits": 4589168020290535424,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-11042_16_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4658200571967428362,
+          0,
+          4659891510899785073
+        ],
+        [
+          4658200904948562983,
+          0,
+          4659893012875706521
+        ],
+        [
+          4658201677786337901,
+          0,
+          4659894484853105392
+        ],
+        [
+          4658201561527893361,
+          0,
+          4659896018897458954
+        ],
+        [
+          4596966103525853660,
+          0,
+          4606968910865225463
+        ],
+        [
+          13813481769177183971,
+          0,
+          4607156663471043357
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4589168020290535424
+      ],
+      "t_f64_bits": 4589168020290535424,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-11042_4_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4658221814532076995,
+          0,
+          4659886782999785636
+        ],
+        [
+          4658221254719502473,
+          0,
+          4659887227183840827
+        ],
+        [
+          4658220842358759651,
+          0,
+          4659887830681710152
+        ],
+        [
+          4658220356272100979,
+          0,
+          4659888354522672410
+        ],
+        [
+          13828603180743838977,
+          0,
+          4603773752394993758
+        ],
+        [
+          13827673933156187349,
+          0,
+          4604777754690237045
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-29900_16_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4652358655582821941,
+          0,
+          4649375777293688898
+        ],
+        [
+          4652357080729273978,
+          0,
+          4649369502877172412
+        ],
+        [
+          4652357029350944790,
+          0,
+          4649362131533978151
+        ],
+        [
+          4652358516144060484,
+          0,
+          4649355771758641163
+        ],
+        [
+          13825125587409797113,
+          0,
+          13829597115883845752
+        ],
+        [
+          4601301636593632671,
+          0,
+          13829706628299692514
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-1-1138",
+      "edge": "sumo::-29900_3_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          4652366602823160004,
+          0,
+          4649400424334457369
+        ],
+        [
+          4652365106130567854,
+          0,
+          4649398930226826518
+        ],
+        [
+          4652363888948211239,
+          0,
+          4649396514205944152
+        ],
+        [
+          4652363130595146990,
+          0,
+          4649393532207454225
+        ],
+        [
+          13829606322192251355,
+          0,
+          13825088803625688818
+        ],
+        [
+          13825210487116539282,
+          0,
+          13829575665890621857
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-1-evidence/run-00/diagnosis.json",
+      "source_sha256": "6b69482875c968e4363bd2c54a0b2c81ae0e733cd6bb01c66b02dbac1f21bfd6",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo:--30358#12_1",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 11,
+      "direction_source": "finish_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13885963497512611348,
+          0,
+          4653829375530274652
+        ],
+        [
+          13885963500309018099,
+          0,
+          4653829553527643491
+        ],
+        [
+          13885963510897029331,
+          0,
+          4653829728300939334
+        ],
+        [
+          13885963519502843904,
+          0,
+          4653829903295855985
+        ],
+        [
+          13812555752293451739,
+          0,
+          4607164686327004618
+        ],
+        [
+          13819494019194652037,
+          0,
+          4607013052376526801
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4593108669964484608,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4593108669964484608,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 3605,
+        "witness_chord_attempted_true": 3604,
+        "witness_chord_qualified_true": 3605,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 3605,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-5126_3_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13885959957085169910,
+          0,
+          4653839095213064192
+        ],
+        [
+          13885959928742778010,
+          0,
+          4653840027536191822
+        ],
+        [
+          13885959750325309661,
+          0,
+          4653840781724865434
+        ],
+        [
+          13885959646945379537,
+          0,
+          4653841624980766055
+        ],
+        [
+          4593362482442674791,
+          0,
+          4607116556641013496
+        ],
+        [
+          4601603245997155174,
+          0,
+          4606262367704507205
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-5126_8_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 2,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13885965187634049395,
+          0,
+          4653862534650276199
+        ],
+        [
+          13885965683456438137,
+          0,
+          4653858884988569375
+        ],
+        [
+          13885966452182960737,
+          0,
+          4653855642558950163
+        ],
+        [
+          13885966675101215621,
+          0,
+          4653851585665155727
+        ],
+        [
+          13825645027939159003,
+          0,
+          13829461404612508825
+        ],
+        [
+          13820274288973372569,
+          0,
+          13830344471416264421
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 38,
+        "witness_chord_attempted_true": 37,
+        "witness_chord_qualified_true": 38,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 38,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo:--30316_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 6,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13884017662098122211,
+          0,
+          4648191352581923012
+        ],
+        [
+          13884019263192714451,
+          0,
+          4648192668896844696
+        ],
+        [
+          13884020664131871351,
+          0,
+          4648196510425506911
+        ],
+        [
+          13884021548414066824,
+          0,
+          4648202009286047620
+        ],
+        [
+          13830370028394826094,
+          0,
+          4596421524539203746
+        ],
+        [
+          13826420060435186001,
+          0,
+          4605750535990798059
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 285,
+        "witness_chord_attempted_true": 284,
+        "witness_chord_qualified_true": 285,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 285,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-1542_0_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13883619239766146417,
+          0,
+          4647617530657526252
+        ],
+        [
+          13883620144266068533,
+          0,
+          4647615266715338332
+        ],
+        [
+          13883621063792547695,
+          0,
+          4647612776062636967
+        ],
+        [
+          13883622010535448412,
+          0,
+          4647612428923573371
+        ],
+        [
+          13830143536642883316,
+          0,
+          13822422728960826630
+        ],
+        [
+          13830545009847539616,
+          0,
+          13810131210418729480
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4602678819172646912
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-1542_10_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13883621042965215969,
+          0,
+          4647452164108708741
+        ],
+        [
+          13883620860958882084,
+          0,
+          4647463834839660317
+        ],
+        [
+          13883620281938049890,
+          0,
+          4647475533428080042
+        ],
+        [
+          13883620493209402081,
+          0,
+          4647487172558937129
+        ],
+        [
+          4593585230195958589,
+          0,
+          4607113126892474681
+        ],
+        [
+          13817717655782692300,
+          0,
+          4607088926290312038
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4589168020290535424
+      ],
+      "t_f64_bits": 4589168020290535424,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-1542_7_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13883634940792191058,
+          0,
+          4647616826970084475
+        ],
+        [
+          13883634426565189648,
+          0,
+          4647609983442589765
+        ],
+        [
+          13883633981924365211,
+          0,
+          4647602609298422095
+        ],
+        [
+          13883633753319633060,
+          0,
+          4647594836737528955
+        ],
+        [
+          4602815770042339917,
+          0,
+          13829267031623386797
+        ],
+        [
+          4597420031954691169,
+          0,
+          13830315018793218541
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 10,
+        "witness_chord_attempted_true": 10,
+        "witness_chord_qualified_true": 10,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 10,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-1542_8_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 4,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13883611016518682280,
+          0,
+          4647403979111133086
+        ],
+        [
+          13883610165863186257,
+          0,
+          4647403269559629295
+        ],
+        [
+          13883609284805172408,
+          0,
+          4647399912764149808
+        ],
+        [
+          13883608464552194212,
+          0,
+          4647401850456621711
+        ],
+        [
+          4607133854543175954,
+          0,
+          13815509063013819500
+        ],
+        [
+          4606813671976321307,
+          0,
+          4598773297293507509
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 252,
+        "witness_chord_attempted_true": 252,
+        "witness_chord_qualified_true": 252,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 252,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-25286_11_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          13884576628520916091,
+          0,
+          4643518903152898212
+        ],
+        [
+          13884575687528686858,
+          0,
+          4643520563921184213
+        ],
+        [
+          13884574702489747724,
+          0,
+          4643521885371946253
+        ],
+        [
+          13884573747800451318,
+          0,
+          4643520838293363098
+        ],
+        [
+          4606970916124410875,
+          0,
+          4596929834617002187
+        ],
+        [
+          4607098946136916730,
+          0,
+          13817433713663307955
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4593671619917905920
+      ],
+      "t_f64_bits": 4593671619917905920,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-25286_2_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 2,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13884571963864903512,
+          0,
+          4643725368415767449
+        ],
+        [
+          13884571737621496177,
+          0,
+          4643719597569435431
+        ],
+        [
+          13884571276915217627,
+          0,
+          4643714596615432347
+        ],
+        [
+          13884570654874242384,
+          0,
+          4643711159358084612
+        ],
+        [
+          4599062656585245658,
+          0,
+          13830141662681317748
+        ],
+        [
+          4605586365234839330,
+          0,
+          13826666295175318507
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 364,
+        "witness_chord_attempted_true": 363,
+        "witness_chord_qualified_true": 364,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 364,
+        "injected_plan_stop_label": "work_budget_stopped"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "records_present_with_not_recorded_attempt; injected_stop=work_budget_stopped"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-25286_3_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13884563324430220001,
+          0,
+          4643849460328672788
+        ],
+        [
+          13884563789054242028,
+          0,
+          4643849589666813102
+        ],
+        [
+          13884564187180343930,
+          0,
+          4643852234030005790
+        ],
+        [
+          13884564618555405894,
+          0,
+          4643853620880672292
+        ],
+        [
+          13830549007674310589,
+          0,
+          4585172485152094481
+        ],
+        [
+          13829904833343187127,
+          0,
+          4600388924750705014
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-25286_7_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 1,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13884564550276638926,
+          0,
+          4643709870331668831
+        ],
+        [
+          13884565330789487907,
+          0,
+          4643707048055699681
+        ],
+        [
+          13884565999998020884,
+          0,
+          4643702572353287544
+        ],
+        [
+          13884566485526149857,
+          0,
+          4643696927279574680
+        ],
+        [
+          13829754989634881150,
+          0,
+          13824463293842105374
+        ],
+        [
+          13826652983187023918,
+          0,
+          13828967579330451303
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 32,
+        "witness_chord_attempted_true": 32,
+        "witness_chord_qualified_true": 32,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 32,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-25286_8_0",
+      "problem_kind": "last_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "fillet_not_a_direction_condition",
+      "control_f64_bits": [
+        [
+          13884560289778127340,
+          0,
+          4643491635264529367
+        ],
+        [
+          13884560516754306388,
+          0,
+          4643496334339012198
+        ],
+        [
+          13884560520329060862,
+          0,
+          4643501540415747349
+        ],
+        [
+          13884560635604527623,
+          0,
+          4643506492991356340
+        ],
+        [
+          13823536835531629302,
+          0,
+          4606576963162865248
+        ],
+        [
+          13819135500026924820,
+          0,
+          4607030212302998890
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        4602678819172646912,
+        4607182418800017408
+      ],
+      "t_f64_bits": 4602678819172646912,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 1,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "null",
+      "null_reason": "no_selected_path_recorded; injected_stop=retained_family_exhausted"
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo:--30266_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4649691209587511788,
+          0,
+          4662425863211576197
+        ],
+        [
+          4649695125769737186,
+          0,
+          4662426081927321043
+        ],
+        [
+          4649698535263540285,
+          0,
+          4662426421204399050
+        ],
+        [
+          4649702204703789548,
+          0,
+          4662426698840413307
+        ],
+        [
+          4606398915964020113,
+          0,
+          4601020213151157785
+        ],
+        [
+          4605880775849819245,
+          0,
+          4602839342233642036
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4589625417127690240
+      ],
+      "t_f64_bits": 4589625417127690240,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 1,
+        "in_selected_path_true": 1,
+        "in_selected_path_false": 0,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "program_pool_full"
+      },
+      "in_selected_path_class": "true",
+      "null_reason": null
+    },
+    {
+      "lane": "signal-diag-2-1139",
+      "edge": "sumo::-17348_0_0",
+      "problem_kind": "first_chord",
+      "span_index_zero_based": 0,
+      "direction_source": "start_boundary_clamp",
+      "control_f64_bits": [
+        [
+          4650831271204120166,
+          0,
+          4662443862216922890
+        ],
+        [
+          4650830965587369583,
+          0,
+          4662443352574166040
+        ],
+        [
+          4650830454147972672,
+          0,
+          4662442832786803009
+        ],
+        [
+          4650828984219934392,
+          0,
+          4662442355885992837
+        ],
+        [
+          13813422681118033350,
+          0,
+          13830529257024447375
+        ],
+        [
+          13823520200577231509,
+          0,
+          13829952209314943755
+        ]
+      ],
+      "witness_parameters_f64_bits": [
+        0,
+        4598175219545276416
+      ],
+      "t_f64_bits": 4598175219545276416,
+      "source_file": "target/issue-790-806-handoff-20261026/round4-six-streams-20261029/signal-diag-2-evidence/run-00/diagnosis.json",
+      "source_sha256": "55a2fe0f438cdae85b8d160736d06c951ed5fb71133ed989fa902b96ce549d7c",
+      "injection": {
+        "records": 1,
+        "witness_chord_attempted_true": 1,
+        "witness_chord_qualified_true": 1,
+        "witness_chord_in_any_returned_path_true": 0,
+        "in_selected_path_true": 0,
+        "in_selected_path_false": 1,
+        "in_selected_path_null": 0,
+        "injected_plan_stop_label": "retained_family_exhausted"
+      },
+      "in_selected_path_class": "false",
+      "null_reason": null
+    }
+  ]
+}
