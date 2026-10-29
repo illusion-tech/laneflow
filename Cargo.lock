@@ -3286,6 +3286,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-synth-generator"
+version = "0.0.0"
+dependencies = [
+ "laneflow-compiler",
+ "laneflow-format",
+ "laneflow-runtime",
+ "laneflow-static-contract",
+ "laneflow-static-network",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "laneflow-urban-generator"
 version = "0.0.0"
 dependencies = [

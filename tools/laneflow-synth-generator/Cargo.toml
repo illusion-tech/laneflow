@@ -1,0 +1,25 @@
+[package]
+name = "laneflow-synth-generator"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
+laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format" }
+laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = { version = "0.11", default-features = false }
+thiserror = "2.0"
+
+[dev-dependencies]
+laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
+laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
+tempfile = "3.27"
+
+[lints]
+workspace = true
