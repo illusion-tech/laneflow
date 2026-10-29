@@ -36,7 +36,7 @@ fn distance(p: Vec3, a: Vec3, b: Vec3, budget: &mut Budget) -> Option<f64> {
     })
 }
 
-pub(crate) fn fit(curves: &[Control], source: &[Vec3], budget: &mut Budget) -> Option<Fit> {
+pub(super) fn fit(curves: &[Control], source: &[Vec3], budget: &mut Budget) -> Option<Fit> {
     assert!(source.windows(2).all(|w| norm(sub(w[1], w[0])) > 0.0));
     let mut forward = 0.0_f64;
     let mut reference_error = 0.0_f64;
