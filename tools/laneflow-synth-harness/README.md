@@ -33,7 +33,7 @@ laneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-comm
 ```
 
 输入根目录采用生成器矩阵布局，例如 `10000-W1-16-a`、`100000-W2-33-a`。
-每个消费进程都重新验证四文件和重编译结果。按规模、W1/W2、16/33 ms 排队，
+每个消费进程都重新验证四文件和重编译结果。按规模、场景、16/33 ms 排队，
 最多四个 fresh-process 消费进程并发，每行两轮；原始日志分别保存。这只是语义
 对照，不能用并发进程的耗时评价性能。输出目录必须不存在。
 
