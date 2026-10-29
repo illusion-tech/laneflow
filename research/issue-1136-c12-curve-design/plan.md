@@ -66,3 +66,13 @@ C12 为**单缺边分量**：唯一缺边 `sumo::-10100_1_0`，单条完整路�
 - 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored --nocapture --test-threads=1`。
 - 环境变量（沿 #1131 口径 + E0 共同基线接口）：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、共同基线 `*_BASELINE_DIR`（E0 冻结接口与哈希断言）、`CURVE_DESIGN_OUTPUT_DIR`（每次必须为不存在的新目录）、`CURVE_DESIGN_ORDER`（ABBA 序：`baseline-new`、`new-baseline`、`new-baseline`、`baseline-new`）、`CURVE_DESIGN_FROZEN_RESULT`（冻结对照结果）；输出目录、结果文件与测试模块命名以本路 `c12` 区分。
 - 输入、样本与预算由冻结源码与本目录 `edges.json` 固定，不得换样后沿用结论。
+- 精确测试名（实现定稿补录）：正式实验入口
+  `output::emit::s1::recovery_coverage::dependency_recovery::c12_curve_design::pinned_lust_c12_curve_experiment`；
+  候选冻结入口（其 `c12-searches.json` 作 `CURVE_DESIGN_FROZEN_RESULT`）
+  `output::emit::s1::recovery_coverage::dependency_recovery::c12_curve_design::fixed_c12_curve_design`；
+  常规（非 ignore）单测
+  `output::emit::s1::recovery_coverage::dependency_recovery::c12_curve_design::c12_cohort_and_capacities_match_the_frozen_plan`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::c12_curve_design::c12_fillet_seam_crossing_tracks_group_boundaries`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::c12_curve_design::curve_capacity_parameterization_keeps_the_frozen_six_default`。
+  共同基线经 `SIX_STREAMS_BASELINE_DIR` + `calibration::shared_baseline::shared_pools()` /
+  `results_anchor_pinned()` 读取（E0 #1140 冻结交付）；执行中出现的实现缺陷与授权记录见 `README.md`「结论边界与差异记录」。
