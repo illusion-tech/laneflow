@@ -404,7 +404,7 @@ workload ID、source commit、路网/状态/selection digest、车辆规模与 l
 seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、warm-up、样本/round
 规则和 candidate/oracle 边界。观测 full/delta 优先复用
 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 的
-`LF-SYNTH-v1` W1–W4；新增 Routing 专用拓扑或成本 payload 时使用新的具名 workload，
+`LF-SYNTH-v2` W1–W4；新增 Routing 专用拓扑或成本 payload 时使用新的具名 workload，
 不把“典型”“长路线”当作可重放身份。
 
 | 边界                   | 必测切片                                                                    | 必过不变量                                                                         |
@@ -445,7 +445,7 @@ dirty journal、墙钟任务或 allocator 活动。
 | candidate              | 1 / 128 / 4096 edges；输入构造在测量区外；成功注册后在测量区外移除                       |
 | allocation protocol    | 插桩 release 独立进程；steady tick 各 32 samples；墙钟不在该进程采信                     |
 | wall-clock protocol    | 未插桩 release；3 个 fresh-process rounds；每操作 3 warm-up + 21 measured samples        |
-| certification boundary | `Product TBD / Uncertified`；不是 `LF-SYNTH-v1` W1–W4，也不覆盖真实车辆/产品组合         |
+| certification boundary | `Product TBD / Uncertified`；不是 `LF-SYNTH` W1–W4，也不覆盖真实车辆/产品组合            |
 
 可重放身份为：LFCA exact bytes 1311878，artifact
 `b65e84e4813d9298ce9d3c5f70abbb05c0ab24027b81b9b7762ef04a8e7119e4`，
