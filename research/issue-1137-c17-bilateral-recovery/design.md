@@ -251,7 +251,14 @@ Bezier 控制柄的位置与内部曲线分界保留/合并）；切向旋转即
 - 验证口径：基线/新增两组；C17 完整路径验收（双边齐备）或如实不齐备；完整回归
   84 目标 / 53 分量 / 183 关联路径 / 16,265 成功边 / 8,230 失败诊断与 #1105 基线
   逐行一致；两口径收益分列。
-- 入口：自有 `cfg(test)` 模块（`c17` 命名空间）；四轮 ABBA 环境变量沿 #1115 口径；
+- 入口：自有 `cfg(test)` 模块（`c17` 命名空间）；四轮 ABBA 环境变量沿 #1115 口径，
+  另加 `SIX_STREAMS_BASELINE_DIR`（E0 共同基线包，哈希/顺序/份数断言读取）。
+  精确测试名（§8 补录，lead 授权）：候选冻结
+  `output::emit::s1::recovery_coverage::dependency_recovery::c17_bilateral_recovery::fixed_c17_bilateral_design`；
+  正式实验 `…::pinned_lust_c17_bilateral_experiment`；校准
+  `…::k1_known_candidates_replay_with_frozen_inputs`、`…::k2_old_family_replay_matches_frozen_records`、
+  `…::k3_tangent_rotation_boundary_self_checks`、`…::k4_synthetic_positive_and_negative_cases`；
+  证书 `…::short_first_span_obstruction_certificate_recheck`、`…::certificate_tampering_is_rejected`。
   常规单测覆盖：配置计数/跳过规则/退化分支/δ=0 逐位/去重排序/K1 校准/池截断。
 - **实现依赖（共享代码纪律）**：新族驱动与 sink 拒绝子原因观察需要共享判定机器的
   通用化入口（自定义几何集遍历、逐配置尝试拒绝明细）——按协调章程 §2 提交公共
