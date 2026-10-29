@@ -2,7 +2,7 @@
 
 use super::*;
 
-mod quality;
+pub(crate) mod quality;
 mod tests;
 
 type Control = [Vec3; 6];
