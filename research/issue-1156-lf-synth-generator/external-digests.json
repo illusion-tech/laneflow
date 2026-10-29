@@ -1,0 +1,344 @@
+{
+  "format": "lf-synth-external-digest-verification-1",
+  "implementation": "PowerShell Get-FileHash SHA256",
+  "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+  "verified_files": 48,
+  "files": [
+    {
+      "input": "10000-W1-16-a",
+      "file": "input-plan.json",
+      "byte_length": 882,
+      "digest": "8f46c797de6fd89d9dc73f64b4396fedff5a899536a88af62c2033816a4515b6",
+      "matches": true
+    },
+    {
+      "input": "10000-W1-16-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "2f826d4bdb4e1fb0a904be621e4974004a0f6726c10554576511116aaf17b080",
+      "matches": true
+    },
+    {
+      "input": "10000-W1-16-a",
+      "file": "state.json",
+      "byte_length": 2099395,
+      "digest": "6afb1d7a7c63b3bd20b83f8a64e65f897398c9f37ac81b0568fd6b3301a36726",
+      "matches": true
+    },
+    {
+      "input": "10000-W1-33-a",
+      "file": "input-plan.json",
+      "byte_length": 881,
+      "digest": "ca3953f9a402156dbb942e633dacfbcb685fe297a3b3381c9cc90e3b35208576",
+      "matches": true
+    },
+    {
+      "input": "10000-W1-33-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "d9346e4104c682f83e388555155dcb153a8e6a37601393d109031cd9e462379b",
+      "matches": true
+    },
+    {
+      "input": "10000-W1-33-a",
+      "file": "state.json",
+      "byte_length": 2099395,
+      "digest": "5ddd2433cc9388c4a745aae4d6b7ffca6c398234c9826f635795dd510785fb28",
+      "matches": true
+    },
+    {
+      "input": "10000-W2-16-a",
+      "file": "input-plan.json",
+      "byte_length": 880,
+      "digest": "7476d35c5b84f304597fae127ed97f8855f79322aff65e1677c338cc4e6e6fbc",
+      "matches": true
+    },
+    {
+      "input": "10000-W2-16-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "1cbd02323a3554a2ae089354b7fe8d097310afbfa3a66248ebaf3d7169ebcf7e",
+      "matches": true
+    },
+    {
+      "input": "10000-W2-16-a",
+      "file": "state.json",
+      "byte_length": 2087495,
+      "digest": "1546de17ecbc567933df4dac98b3ac18f415f0b4f74d8e1c60b31a03d2072f76",
+      "matches": true
+    },
+    {
+      "input": "10000-W2-33-a",
+      "file": "input-plan.json",
+      "byte_length": 879,
+      "digest": "90a90d927c9781e2761dd9b38255c65b20e366e713269b9ee4b9705fc2af8b5b",
+      "matches": true
+    },
+    {
+      "input": "10000-W2-33-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "a4b4e5d72c5e8663a27ee8e183d5e5ae822ad259e42d6f3fb4b94cb1729fe674",
+      "matches": true
+    },
+    {
+      "input": "10000-W2-33-a",
+      "file": "state.json",
+      "byte_length": 2087495,
+      "digest": "e0a992fa688bba0cdb3b1dcf9685973d7fef874683ed10e1c4d0bce0588d42b6",
+      "matches": true
+    },
+    {
+      "input": "10000-W3-16-a",
+      "file": "input-plan.json",
+      "byte_length": 39736,
+      "digest": "663f358e39f1fc059bce434576fa69060e7014cfbdcafd21d44420358283e536",
+      "matches": true
+    },
+    {
+      "input": "10000-W3-16-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "956567e0c97aa0dd0102757e9cc5258696e1edb2e9b3aed715b620e9315913c5",
+      "matches": true
+    },
+    {
+      "input": "10000-W3-16-a",
+      "file": "state.json",
+      "byte_length": 2098795,
+      "digest": "8dea00d2d1d9709f719c3713fda66b28bbbf56a766b8680465f126fce658dd4f",
+      "matches": true
+    },
+    {
+      "input": "10000-W3-33-a",
+      "file": "input-plan.json",
+      "byte_length": 39734,
+      "digest": "8f0760829b3deea62a266428cf91a0d6f3930fa8d5e4a80947df790fd30fa632",
+      "matches": true
+    },
+    {
+      "input": "10000-W3-33-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "726d47e82e8bcff1b241574ec8b91911db8a66fd068d77355b513dbd6ba58e4b",
+      "matches": true
+    },
+    {
+      "input": "10000-W3-33-a",
+      "file": "state.json",
+      "byte_length": 2098795,
+      "digest": "f5e530d0f1256f49aa9aa149280d0225078001ee702a6b41d38efbc4ca92d5ea",
+      "matches": true
+    },
+    {
+      "input": "10000-W4-16-a",
+      "file": "input-plan.json",
+      "byte_length": 76492,
+      "digest": "74dddb6e70123df2722c5de273e191fa0948481800c2e32c4b192dc76b9fc9c1",
+      "matches": true
+    },
+    {
+      "input": "10000-W4-16-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "65ad4aaa2c9e1f3d94898ac379a4d7865f3d99005a1232c73f39fe3038fead3a",
+      "matches": true
+    },
+    {
+      "input": "10000-W4-16-a",
+      "file": "state.json",
+      "byte_length": 2099395,
+      "digest": "2136fcca445ec10edd3536b2752311a93223595d8df8024e0121f6f027b33779",
+      "matches": true
+    },
+    {
+      "input": "10000-W4-33-a",
+      "file": "input-plan.json",
+      "byte_length": 76488,
+      "digest": "a528f78752595bf6620a50b12c37800f2845fa78cb3f3ca0b7ea8dc4e218aa45",
+      "matches": true
+    },
+    {
+      "input": "10000-W4-33-a",
+      "file": "network.lfca",
+      "byte_length": 14271543,
+      "digest": "7743a0b9ee32ac337a1d2c2ea94ad7fc977e34755ab98ce229b37e7c18899e28",
+      "matches": true
+    },
+    {
+      "input": "10000-W4-33-a",
+      "file": "state.json",
+      "byte_length": 2099395,
+      "digest": "252201deb0c0b05d89ac9757117a889c77623bac527d68a6b3594f85acaf5766",
+      "matches": true
+    },
+    {
+      "input": "100000-W1-16-a",
+      "file": "input-plan.json",
+      "byte_length": 886,
+      "digest": "e0f284a14a68840f8ca1dbbfdeff2a82a415af018021277f6e027ce8e45a5a49",
+      "matches": true
+    },
+    {
+      "input": "100000-W1-16-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "b7a11975849e5c8002835535260a2d6901d5d4e3a29ffd03d14785f43bb84c0b",
+      "matches": true
+    },
+    {
+      "input": "100000-W1-16-a",
+      "file": "state.json",
+      "byte_length": 21198896,
+      "digest": "10f876fbca029e38d16959a9381f31e908af7f21cca5acd41241249f00af609d",
+      "matches": true
+    },
+    {
+      "input": "100000-W1-33-a",
+      "file": "input-plan.json",
+      "byte_length": 885,
+      "digest": "ab73e68f557ed711f775f4b18e93b2981914fe3d945199aad8de41492fe1c596",
+      "matches": true
+    },
+    {
+      "input": "100000-W1-33-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "1ab25b732ef6975c66cb0476be101e26b824fb567f184cee588b6aeb586606b2",
+      "matches": true
+    },
+    {
+      "input": "100000-W1-33-a",
+      "file": "state.json",
+      "byte_length": 21198896,
+      "digest": "427e6efc628e2aa4402be616e97da9e5984a462f29abc17a514eab8a0fe359a0",
+      "matches": true
+    },
+    {
+      "input": "100000-W2-16-a",
+      "file": "input-plan.json",
+      "byte_length": 883,
+      "digest": "a11e61c0518f6eaaeb748e055dfe2958a9c7592879f09f25b8001afe614a02f8",
+      "matches": true
+    },
+    {
+      "input": "100000-W2-16-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "77eddd8d7e74fe3ab10fb5665467bce874d1865c994b0d0c6fcfb2e4f34bc80d",
+      "matches": true
+    },
+    {
+      "input": "100000-W2-16-a",
+      "file": "state.json",
+      "byte_length": 21079896,
+      "digest": "7bab13c2708207562c96f74ee247acc87003a2da5b3e3d3babe1f690d1861655",
+      "matches": true
+    },
+    {
+      "input": "100000-W2-33-a",
+      "file": "input-plan.json",
+      "byte_length": 882,
+      "digest": "0a1894b5545b525b2111de8f8e0f7f8496bcdc5fd42ffb3921b9a9e298b22047",
+      "matches": true
+    },
+    {
+      "input": "100000-W2-33-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "49b3d567d632cddaf4afc7c3f26e214c1f639bef24fa6a0250739d0a9f92efba",
+      "matches": true
+    },
+    {
+      "input": "100000-W2-33-a",
+      "file": "state.json",
+      "byte_length": 21079896,
+      "digest": "47a00b0ef4c79fc6e4b3c8de0d7ebd31882e82624c68cb95263b9f0f7822e705",
+      "matches": true
+    },
+    {
+      "input": "100000-W3-16-a",
+      "file": "input-plan.json",
+      "byte_length": 382192,
+      "digest": "d3fee21cd1293ff3abe53ddf59f8fb9b6c1fc96442b22a73ca596c7c6c8dff73",
+      "matches": true
+    },
+    {
+      "input": "100000-W3-16-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "11d3cf4ef000b165449dc96936bc39ccbaf4a8614983fa1377fa2af13b53bb03",
+      "matches": true
+    },
+    {
+      "input": "100000-W3-16-a",
+      "file": "state.json",
+      "byte_length": 21192896,
+      "digest": "ca603211661b15b3d8647a79e49a8a0610e835ed95a7814949b2527307ac69fe",
+      "matches": true
+    },
+    {
+      "input": "100000-W3-33-a",
+      "file": "input-plan.json",
+      "byte_length": 382190,
+      "digest": "26baf3c16b95c8365fa584fb43e7ec842e347fbaca7564e63b523254b4aa6d52",
+      "matches": true
+    },
+    {
+      "input": "100000-W3-33-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "bc76890baee4a1997c230aca77b77ac89acb6c605ab5fdab728a34c8d8d39c7b",
+      "matches": true
+    },
+    {
+      "input": "100000-W3-33-a",
+      "file": "state.json",
+      "byte_length": 21192896,
+      "digest": "a376a7b720f4c7441f9e78a25191839377f5222b12813a921484b9893010bfce",
+      "matches": true
+    },
+    {
+      "input": "100000-W4-16-a",
+      "file": "input-plan.json",
+      "byte_length": 763196,
+      "digest": "3b11f5ebe991f051e45bde52b1758f5b3fa5f27e1c4f8eebdb5573391202b8dd",
+      "matches": true
+    },
+    {
+      "input": "100000-W4-16-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "84aed5845c55e677d86f51a777c8794a6f6143313c03edf8296a2924af54f0c8",
+      "matches": true
+    },
+    {
+      "input": "100000-W4-16-a",
+      "file": "state.json",
+      "byte_length": 21198896,
+      "digest": "3766f49f6c167c67413fc7977331db568b099b957e51159490f974bf34d927a8",
+      "matches": true
+    },
+    {
+      "input": "100000-W4-33-a",
+      "file": "input-plan.json",
+      "byte_length": 763192,
+      "digest": "07f66136e7bc9c2debfa93b0840664e9a1180227225f8b7889405ea8860bf9ab",
+      "matches": true
+    },
+    {
+      "input": "100000-W4-33-a",
+      "file": "network.lfca",
+      "byte_length": 142679199,
+      "digest": "bc4dd784aedf573966e73f1697a2536ac823d8aaba437934b547c71013c8ff44",
+      "matches": true
+    },
+    {
+      "input": "100000-W4-33-a",
+      "file": "state.json",
+      "byte_length": 21198896,
+      "digest": "1cddecb0952c8ac126a563b4d953d3f952805aa24b36664195203e2f09c76c56",
+      "matches": true
+    }
+  ]
+}
