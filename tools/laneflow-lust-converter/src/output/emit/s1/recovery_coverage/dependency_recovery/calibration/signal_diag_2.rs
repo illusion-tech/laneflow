@@ -6,11 +6,11 @@
 //! 配置档、阈值与原成功几何。计划与冻结实现不一致时停止执行并重新授权（plan §8），
 //! 不得单向迁就。
 //!
-//! 基线接线边界（plan §6）：共同基线 = E0（Issue #1140）冻结交付的 11 边 92 份
+//! 基线接线（plan §6）：共同基线 = E0（Issue #1140）冻结交付的 11 边 92 份
 //! （六来源按序合并、规范 f32 点位去重），结果对照锚为 #1134 新增变体（53 分量、
-//! 84 路径计数）逐值。读取入口与环境变量名以 E0 冻结交付为准（`*_BASELINE_DIR`
-//! 模式），本路代码内断言其钉版哈希；`common_baseline` 在 E0 交付前保持停止占位
-//! （Issue 锚点 #1140 / #1139），搜索、诊断与停止线三情形核对表机械均已实现。
+//! 84 路径计数）逐值。经 E0 冻结门面读取：env `SIX_STREAMS_BASELINE_DIR` +
+//! `shared_baseline::shared_pools()` / `results_anchor_pinned()`（代码内哈希、
+//! 合并顺序与逐边份数断言）；不得使用旧 9/10 边池或任何替代来源。
 
 use super::super::experiment::{merge, pool};
 use super::super::stream_a_curve_design_c29_c17::{per_edge_counts, pool_counts};
@@ -102,14 +102,14 @@ fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
 }
 
 /// plan §6：共同基线 = E0（Issue #1140）冻结交付的 11 边 92 份，结果对照锚 = #1134
-/// 新增变体逐值。E0 冻结接口（`research/issue-1140-shared-baseline/README.md` 形状定案）：
-/// env `SIX_STREAMS_BASELINE_DIR` + `shared_baseline::shared_pools()`（返回
-/// `combinations::Pools`）+ `shared_baseline::results_anchor_pinned()`，含代码内哈希、
-/// 合并顺序与逐边份数断言。E0 助手入库后本函数接线其门面；此前保持停止占位
-/// （Issue 锚点 #1140 / #1139），不得以旧 10 边 76 份池或任何替代来源充当共同基线。
+/// 新增变体逐值。经 E0 冻结门面 `shared_baseline`（`research/issue-1140-shared-baseline/`）
+/// 读取：env `SIX_STREAMS_BASELINE_DIR` + `shared_pools()`（钉版哈希/合并顺序/逐边份数
+/// 断言后返回 `combinations::Pools`）+ `results_anchor_pinned()`（仅对照，不作候选
+/// 点位来源）。不得以旧 10 边 76 份池或任何替代来源充当共同基线。
 fn common_baseline() -> (combinations::Pools, Value) {
-    todo!(
-        "G2 接线：E0（#1140）shared_baseline::shared_pools()/results_anchor_pinned()（Issue #1139）"
+    (
+        super::shared_baseline::shared_pools(),
+        super::shared_baseline::results_anchor_pinned(),
     )
 }
 
@@ -1068,7 +1068,10 @@ fn pinned_lust_signal_diag_2_coverage_diagnosis_experiment() {
     .unwrap();
     let (observation, source, mut timing) = capture_lust();
     assert_eq!(source, reference["source"]);
-    assert_eq!(source, comparison["source"], "result comparison source");
+    assert_eq!(
+        comparison["source"]["comparison_only"], true,
+        "comparison-only anchor"
+    );
     let originals = original_programs(&observation);
     snapshot(&out, &observation, &originals);
     let traffic = observation.traffic.as_ref().unwrap();
@@ -1262,7 +1265,7 @@ fn pinned_lust_signal_diag_2_coverage_diagnosis_experiment() {
                 .map(|total| total - result["trials"].as_array().unwrap().len() as u64);
             result["unvisited_assignments"] = json!(unvisited);
             if variant == "baseline" {
-                let prior = &comparison["variants"]["new"]["components"][index];
+                let prior = &comparison["components"][index];
                 assert_eq!(prior["component"], json!(component.id));
                 assert_eq!(
                     normalized(&result),
@@ -1301,10 +1304,7 @@ fn pinned_lust_signal_diag_2_coverage_diagnosis_experiment() {
                 json!({"path":path.id,"edges":path_edges(path),"result":compile_path(traffic,path,&programs)})
             })
             .collect::<Vec<_>>();
-        for (current, previous) in paths
-            .iter()
-            .zip(comparison["variants"]["new"]["paths"].as_array().unwrap())
-        {
+        for (current, previous) in paths.iter().zip(comparison["paths"].as_array().unwrap()) {
             assert_eq!(current["path"], previous["path"]);
             if previous["result"]["status"] == "accepted" {
                 assert_eq!(
@@ -1316,7 +1316,7 @@ fn pinned_lust_signal_diag_2_coverage_diagnosis_experiment() {
         if variant == "baseline" {
             assert_eq!(
                 normalized(&json!(paths)),
-                comparison["variants"]["new"]["paths"],
+                comparison["paths"],
                 "baseline target evidence matches the result comparison anchor"
             );
         }
