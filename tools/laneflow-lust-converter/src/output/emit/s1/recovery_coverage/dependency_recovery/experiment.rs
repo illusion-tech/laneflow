@@ -1,6 +1,14 @@
 use super::*;
 use combinations::Pools;
 
+#[test]
+fn shared_baseline_facade_reachable_from_dependency_recovery_subtree() {
+    // 契约（lead E0603 修复授权）：门面须自 dependency_recovery 兄弟子树按 README
+    // 路径可达（A c12/B c17 调用点）；`mod shared_baseline` 可见性回归即编译失败。
+    let _: fn() -> Pools = super::calibration::shared_baseline::shared_pools;
+    let _: fn() -> Value = super::calibration::shared_baseline::results_anchor_pinned;
+}
+
 fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }

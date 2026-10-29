@@ -6,7 +6,7 @@ mod closure;
 mod cohort2_coverage;
 mod coverage;
 mod experiment;
-mod shared_baseline;
+pub(in super) mod shared_baseline;
 
 #[test]
 #[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
