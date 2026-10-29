@@ -4,6 +4,7 @@ use super::*;
 use std::collections::BTreeSet;
 use std::path::Path;
 
+mod c12_curve_design;
 mod calibration;
 mod combinations;
 mod components;
