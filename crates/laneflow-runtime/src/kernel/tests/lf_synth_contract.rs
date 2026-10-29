@@ -1,6 +1,8 @@
 //! #1148 仅验证小样本交通合同，不作为 LF-SYNTH 规模、表现或性能认证。
 #[path = "lf_synth_contract/fixture.rs"]
 mod fixture;
+#[path = "lf_synth_contract/formal_retry.rs"]
+mod formal_retry;
 
 use crate::kernel::tick::{STEP_FAILPOINT, StepFailpoint};
 use crate::*;

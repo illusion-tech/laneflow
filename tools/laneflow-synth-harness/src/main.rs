@@ -7,6 +7,8 @@ use std::sync::mpsc;
 use laneflow_synth_harness::{Error, run};
 use serde_json::{Value, json};
 
+mod retry;
+
 fn write(path: &Path, value: &Value) -> Result<(), Error> {
     let mut bytes = serde_json::to_vec_pretty(value)?;
     bytes.push(b'\n');
@@ -14,7 +16,12 @@ fn write(path: &Path, value: &Value) -> Result<(), Error> {
     Ok(())
 }
 
-fn matrix(input: &Path, implementation: &str, output: &Path) -> Result<(), Error> {
+fn matrix(
+    input: &Path,
+    implementation: &str,
+    output: &Path,
+    cases: [&str; 2],
+) -> Result<(), Error> {
     fs::create_dir(output)?;
     let binary = std::env::current_exe()?;
     let mut summary = json!({"format":"lf-synth-semantic-matrix-1","complete":false,
@@ -23,7 +30,7 @@ fn matrix(input: &Path, implementation: &str, output: &Path) -> Result<(), Error
     write(&output.join("summary.json"), &summary)?;
     let mut jobs = Vec::new();
     for scale in [10_000, 100_000] {
-        for case in ["W1", "W2"] {
+        for case in cases {
             for dt in [16, 33] {
                 for round in ["a", "b"] {
                     jobs.push((format!("{scale}-{case}-{dt}"), round));
@@ -138,6 +145,17 @@ fn compare(output: &Path, label: &str, a: &Value, b: &Value) -> Result<Value, Er
     if first != second || a != b {
         return Err(Error::Invalid(format!("独立进程轨迹或检查点不同：{label}")));
     }
+    if a["format"] == "lf-synth-burst-run-1" {
+        for file in ["commands.bin", "batches.json"] {
+            let first = fs::read(output.join(format!("{label}-a/{file}")))?;
+            let second = fs::read(output.join(format!("{label}-b/{file}")))?;
+            if first != second {
+                return Err(Error::Invalid(format!(
+                    "独立进程命令证据不同：{label}/{file}"
+                )));
+            }
+        }
+    }
     Ok(
         json!({"identity":label,"fresh_process_rounds":2,"trace_bytes_equal":true,"reports_equal":true,
         "trace_byte_length":first.len(),"report":a}),
@@ -148,9 +166,21 @@ fn execute() -> Result<(), Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 1 && args[0] == "--help" {
         println!(
-            "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>"
+            "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <normal-matrix-output> <new-output-root>"
         );
         return Ok(());
+    }
+    if args.len() == 6 && args[0] == "retry-matrix" {
+        let implementation = args[3]
+            .to_str()
+            .ok_or_else(|| Error::Invalid("提交必须为 UTF-8".into()))?;
+        return retry::matrix(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            implementation,
+            Path::new(&args[4]),
+            Path::new(&args[5]),
+        );
     }
     if args.len() != 4 {
         return Err(Error::Invalid("参数错误；使用 --help 查看正式入口".into()));
@@ -161,8 +191,18 @@ fn execute() -> Result<(), Error> {
     if args[0] == "run" {
         let result = run(Path::new(&args[1]), implementation, Path::new(&args[3]))?;
         println!("{}", serde_json::to_string(&result)?);
-    } else if args[0] == "matrix" {
-        matrix(Path::new(&args[1]), implementation, Path::new(&args[3]))?;
+    } else if args[0] == "matrix" || args[0] == "burst-matrix" {
+        let cases = if args[0] == "matrix" {
+            ["W1", "W2"]
+        } else {
+            ["W3", "W4"]
+        };
+        matrix(
+            Path::new(&args[1]),
+            implementation,
+            Path::new(&args[3]),
+            cases,
+        )?;
     } else {
         return Err(Error::Invalid("未知子命令".into()));
     }
@@ -195,5 +235,16 @@ mod tests {
         assert!(super::compare(root.path(), "case", &report, &changed).is_err());
         std::fs::write(root.path().join("case-b/ticks.bin"), [1_u8, 9, 3]).unwrap();
         assert!(super::compare(root.path(), "case", &report, &report).is_err());
+        std::fs::write(root.path().join("case-b/ticks.bin"), [1_u8, 2, 3]).unwrap();
+        let burst = serde_json::json!({"format":"lf-synth-burst-run-1"});
+        for round in ["a", "b"] {
+            for file in ["commands.bin", "batches.json"] {
+                std::fs::write(root.path().join(format!("case-{round}/{file}")), [1_u8, 2])
+                    .unwrap();
+            }
+        }
+        assert!(super::compare(root.path(), "case", &burst, &burst).is_ok());
+        std::fs::write(root.path().join("case-b/commands.bin"), [2_u8, 1]).unwrap();
+        assert!(super::compare(root.path(), "case", &burst, &burst).is_err());
     }
 }

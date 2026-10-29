@@ -1,5 +1,6 @@
-//! LF-SYNTH-v2 W1/W2 语义消费验证；不采集性能或发布产品认证。
+//! LF-SYNTH-v2 语义消费验证；不采集性能或发布产品认证。
 
+mod burst;
 mod install;
 mod observe;
 
@@ -55,17 +56,20 @@ impl Plan {
         let identity = &bundle.manifest().identity;
         let cycle = cycle_ms(identity.fixed_delta_ms);
         let warm = (4 * cycle / u64::from(identity.fixed_delta_ms)).max(512);
-        let observation = (8 * cycle / u64::from(identity.fixed_delta_ms)).max(4_096);
+        let observation = if identity.case == Case::W4 {
+            2
+        } else {
+            (8 * cycle / u64::from(identity.fixed_delta_ms)).max(4_096)
+        };
         require(
-            matches!(identity.case, Case::W1 | Case::W2)
-                && plan.identity == *identity
+            plan.identity == *identity
                 && plan.format == "lf-synth-input-plan-1"
                 && plan.warm_up_ticks == warm
                 && plan.observation_ticks == observation
-                && plan.scheduled.is_empty()
+                && (plan.scheduled.is_empty() == matches!(identity.case, Case::W1 | Case::W2))
                 && !plan.rules.is_empty()
                 && !plan.boundary_order.is_empty(),
-            || "只接受冻结 W1/W2 完整窗口与空命令计划".into(),
+            || "只接受冻结完整窗口与对应命令计划".into(),
         )?;
         // verify_directory 已把规则与同身份重建字节比较；此处不能绕过该受检入口。
         Ok(plan)
@@ -113,7 +117,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
 /// 消费一个正式输入目录，在全新目录保存逐拍轨迹与完整回执。
 ///
 /// # Errors
-/// 输入不符合生成合同、非 W1/W2、提交格式非法、输出已存在、I/O、安装/步进或逐拍
+/// 输入不符合生成合同、提交格式非法、输出已存在、I/O、安装/步进或逐拍
 /// 语义核验失败时返回错误。失败目录保留 complete=false 和已写轨迹，不能当成完成结果。
 pub fn run(input: &Path, implementation_commit: &str, output: &Path) -> Result<Value, Error> {
     require(
@@ -143,6 +147,9 @@ pub fn run(input: &Path, implementation_commit: &str, output: &Path) -> Result<V
 fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result<Value, Error> {
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
+    if matches!(plan.identity.case, Case::W3 | Case::W4) {
+        return burst::run(&bundle, &plan, implementation_commit, output);
+    }
     let mut sample = install::Sample::new(&bundle)?;
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
     trace.write_all(b"lf-synth-public-ticks-1\0")?;
