@@ -105,6 +105,7 @@
 - [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285 G1
   提案，复杂路口精确机动门定位、借用式领域观测、参考场景和跨层验证；尚未接受或实现。
 - `core-runtime-performance-baseline.md`：一万 / 十万产品目标与一百万研究包络。
+- `lf-synth-input-bundle.md`：LF-SYNTH-v2 正式规模生成、规范输入编码与受检交付。
 - `real-road-workloads.md`：LuST 真实路网契约。
 - `lust-bevy-population-control.md`：LuST / Bevy 示例层人口调节。
 - `core-runtime-scalability-audit.md`：城市级可扩展性前置约束；不实现生产分区。

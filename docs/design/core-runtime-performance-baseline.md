@@ -536,7 +536,9 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
   topology 摘要包括信号相位、offset 与静态政策；state 包括初始人口、位置、速度、
   停车绑定和 logical rank；fixed-input-sequence 包括命令次序、固定参数、窗口及
   arrival barrier / 完成观测驱动规则。实际执行的命令另按 tick 记录，不用预期 tick
-  冒充实际回执。生成器交付时冻结各输入文件的规范编码与对应测试向量。
+  冒充实际回执。规范编码与测试向量由
+  [`lf-synth-input-bundle.md`](lf-synth-input-bundle.md) 冻结，生成及校验入口见
+  [`laneflow-synth-generator`](../../tools/laneflow-synth-generator/README.md)。
 - 同一输入身份必须生成相同 stable order 和相同摘要；任一
   topology/state/input-sequence digest 不同即视为不同 workload。
 - production runtime 不得识别 workload ID、seed、cell/route/vehicle ID 或

@@ -69,6 +69,7 @@ deny = [
         "laneflow-post-p3-research",
         "laneflow-runtime",
         "laneflow-static-network",
+        "laneflow-synth-generator",
         "laneflow-urban-generator",
         "laneflow-urban-harness",
         "xtask",
