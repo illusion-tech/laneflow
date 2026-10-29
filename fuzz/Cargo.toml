@@ -16,6 +16,12 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 laneflow-compiler = { path = "../crates/laneflow-compiler", version = "0.0.0" }
+laneflow-format = { path = "../crates/laneflow-format", version = "0.0.0", features = ["std"] }
+laneflow-runtime = { path = "../crates/laneflow-runtime", version = "0.0.0" }
+laneflow-static-contract = { path = "../crates/laneflow-static-contract", version = "0.0.0" }
+laneflow-static-network = { path = "../crates/laneflow-static-network", version = "0.0.0" }
+sha2 = { version = "0.11", default-features = false }
+serde_json = "1.0"
 
 [[bin]]
 name = "lfre_arbitrary_bytes"
@@ -26,5 +32,29 @@ doc = false
 [[bin]]
 name = "lfre_writer_differential"
 path = "fuzz_targets/lfre_writer_differential.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "portable_arbitrary_bytes"
+path = "fuzz_targets/portable_arbitrary_bytes.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "portable_bundle_mutation"
+path = "fuzz_targets/portable_bundle_mutation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "lfrs_restore"
+path = "fuzz_targets/lfrs_restore.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "cutover_inputs"
+path = "fuzz_targets/cutover_inputs.rs"
 test = false
 doc = false

@@ -84,7 +84,7 @@ fn check_unmutated_seed_admits(seed: &[u8]) {
 
 fn mutate(seed: &[u8], program: &[u8]) -> Vec<u8> {
     let mut bytes = seed.to_vec();
-    for chunk in program.chunks_exact(4).take(MAX_MUTATION_OPS) {
+    for chunk in program.as_chunks::<4>().0.iter().take(MAX_MUTATION_OPS) {
         let at = usize::from(u16::from_le_bytes([chunk[1], chunk[2]]));
         match chunk[0] % 3 {
             // 截断到 [0, len] 内的任意长度。

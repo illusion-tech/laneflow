@@ -64,6 +64,7 @@ deny = [
         "laneflow-compiler",
         "laneflow-corridor-generator",
         "laneflow-format",
+        "laneflow-fuzz", # #536：既有 wire SHA-256 合同及语料字节库存的互操作摘要
         "laneflow-junction-generator",
         "laneflow-lust-converter",
         "laneflow-post-p3-research",
