@@ -453,6 +453,12 @@ command，只重试相同 Core step，并与独立 fresh replay 比较。
 
 ### 4.3 W4 同步 causal burst 输入序列
 
+> E 表现/测量接线的 G1 缺口：下文 B0/B1 各自包含表现提交，却禁止两拍间的
+> outer-frame input，与 Bevy 每帧最多一次提交的合同尚未完成组合裁决。
+> [测量接线提案](lf-synth-measurement.md)给出两个指定外层帧的修订方案，
+> #1165 接受后须同步改写本节；当前 Core-only 状态和失败重试证据不受影响，
+> 也不据此补足表现或正式 latency 证据。
+
 令 `B0` 为 warm-up 成功完成 `warm_up_ticks` 后、进入 observation 的第一条 Core
 step；其 pre-step tick index 为 `warm_up_ticks`。对当前 case 的
 `delta_ms`，所有 W4 controller 使用：
