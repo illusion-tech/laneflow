@@ -53,9 +53,81 @@ W1/W2 初始化后只调用 `step` 和只读查询。W3/W4 按受检计划执行
 完整状态摘要只在检查点生成；逐拍轨迹覆盖设计列出的公开字段，不宣称逐拍内部状态
 全部受检。完整窗口执行会较长，进度每 1024 拍写入 stderr。
 
-这是包含大量宿主核验的语义运行，不是正式性能测量。表现选择、外层帧、计时/分配/
-内存、worker 排列、快照恢复、Routing 与五轴认证不由本工具完成。
-两轮用于确定性对照，不替代性能合同的三轮。`Product TBD / Uncertified` 保持不变。
+上述入口包含大量宿主核验，只用于语义对照。两轮不能替代性能合同的三轮；
+表现与测量使用下述独立 `measure` 入口。worker 排列、快照恢复、Routing 与五轴
+认证均不在本工具范围内。`Product TBD / Uncertified` 保持不变。
+
+## 表现与测量
+
+接线遵循 [LF-SYNTH 测量设计](../../docs/design/lf-synth-measurement.md)。同一提交的
+`measure` 使用真实 Bevy Session/Plugin、Spatial 与 Transform；W2 只调用 Core。
+固定选择绑定 logical rank，Completed 暂时没有来源，despawn/spawn 与原子替换
+复用同一 Entity。完整批次预检成功后才写入所有 Transform。
+
+先生成独立语义 oracle，再运行串行、轮换顺序的 fresh-process 正式矩阵：
+
+```text
+measure prepare-oracles <semantic-binary> <generator-matrix-root> <implementation-commit> <new-oracle-root>
+measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment.json> <new-output-root>
+measure stretch-matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment.json> <new-stretch-output>
+measure guardrail <W1-input-directory> <new-guardrail-output>
+```
+
+标称矩阵是一万/16 ms 和十万/33 ms，各 10 行：W1 与 W3 的 1/10/50/100%、
+W2 Core-only、W4 对应规模的固定主行。每行三个全新进程，共 60 次；各轮将行顺序
+左移 7 项。stretch 入口仅覆盖十万 W1/16 ms/10% 的三轮，单列为 observation，
+不表示其他 stretch 行已测量。guardrail 独立覆盖两种步长的零/一/两拍、两 quantum
+backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
+
+`environment.json` 由执行者采集：记录 `rustc -Vv`、`cargo -V`、构建命令、target、
+源码干净状态、OS/CPU/内存、AC、电源计划、厂商模式和后台进程。工具保留这些声明，
+不把缺项当成已验证。每个运行另绑定当前 binary SHA-256、输入 manifest、比例、轮次、
+完整帧序列与固定选择 SHA-256。源码与 binary 的关联须由干净检出、构建日志和归档
+共同证明。各目录必须全新；失败停止矩阵并保留首错与已有材料。
+
+正常 release 构建不启用任何测量 feature。独立诊断构建启用 `allocation`，同时启用
+已有 execution-evidence 与 pose-profiling；诊断矩阵每行一个完整窗口，其耗时明确排除：
+
+```powershell
+cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bins
+cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin measure --features allocation --target-dir target/synth-allocation
+```
+
+诊断 binary 也运行相同 `matrix` 命令。普通 binary 与诊断 binary 必须分别归档，
+不得在三轮之间覆盖 binary。`stats_alloc` 记录 Core 区间和 lifecycle 区间的
+allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Core 计时包围 Bevy
+`Step` set，含相邻调度边界开销；W2 则直接包围 `TrafficWorld::step`。
+连续 integrated 区间包括 App 调度、生命周期、全部 Core steps、逐拍事件消费、
+选择映射、Spatial 提取、完整 Transform staging/apply，不暂停或扣除中间区间。
+状态快照、文件写入、统计排序放在声明的帧间检查点。
+
+结果文件：
+
+- `ticks.json`：包括预热的每拍 Core/lifecycle 时间、帧号、命令数、分配记录和
+  step 前实际 Active 人口。后者由宿主状态变化账本维护，并在检查点全量核对；
+  不将其冒称为未公开的昂贵 intent 计算次数。
+- `frames.json`：包括预热的完整输入、步数、余量、上限标记、生命周期命令数、
+  selected/sourced/applied 数量、人口与同帧两段时间。分类优先级为 W4 突发、边界、
+  lifecycle、catch-up、普通零拍/单拍；独立字段保留重叠属性。
+- `frame-inputs.json`、`selection.json`：计时前冻结的完整输入。W4 observation
+  恰好两条 quantum 输入，各一次提取/提交；B0/B1 raw 和 burst max 单列，不做 percentile。
+- `events.bin`、`commands.bin`、`batches.json`、`checkpoints.json`：与同输入完整窗口
+  oracle 比较的有序事件、命令回执、批次字段与状态检查点。W3 比较共同的
+  初始/预热/H/2H/4H/最终检查点；W4 比较初始/预热/B0/B1。
+- `resources.json`：声明边界的 Runtime owned-capacity 账本、宿主选择/暂存容量、
+  working set、private bytes、进程生命周期 working-set/commit peak。Windows 只读
+  `GetProcessMemoryInfo`；其他平台明确报告不可用。进程峰值包含输入重建、初始化和
+  证据缓冲，不能解释为 Core heap peak。Runtime capacity 是 retained storage，
+  不能解释为每拍写入量。
+- 子进程日志：诊断构建的现有 Adapter/Spatial 容量计数；矩阵汇总每字段最大值，
+  保留 capacity、元素大小和实际 batch 长度的不同口径。HashMap capacity 不是含
+  allocator/control-byte 开销的完整堆占用。
+- `report.json`、`summary.json`：原始文件 SHA-256、同源检查、分组统计和三轮聚合。
+  percentile 使用 nearest-rank；先求每轮 p50/p95/p99，再取三轮中位数；max 取三轮最坏。
+
+单个完整窗口可用 `measure run` 重现，参数顺序以 `measure --help` 为准。任何开发态
+试跑、失败、instrumented 数据和缺少完整环境的运行均须保持各自标签；完成本切片
+不解除 P10/P100 平台与数值内存上限 TBD，也不证明完整游戏的 60 FPS。
 
 ## 失败重试
 

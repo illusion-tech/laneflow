@@ -71,6 +71,7 @@ deny = [
         "laneflow-runtime",
         "laneflow-static-network",
         "laneflow-synth-generator",
+        "laneflow-synth-harness", # #1166：binary、帧输入、选择与 raw 文件的互操作 SHA-256
         "laneflow-urban-generator",
         "laneflow-urban-harness",
         "xtask",

@@ -33,3 +33,30 @@ fn matrix_collects_failed_children_without_publishing_success() {
         assert!(report["error"].is_string());
     }
 }
+
+#[test]
+fn measurement_matrix_stops_on_first_failed_fresh_process_and_preserves_it() {
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("measurement");
+    let result = Command::new(env!("CARGO_BIN_EXE_measure"))
+        .arg("matrix")
+        .arg(root.path().join("missing-inputs"))
+        .arg(root.path().join("missing-oracles"))
+        .arg("c".repeat(40))
+        .arg(root.path().join("environment.json"))
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let summary: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join("summary.json")).unwrap()).unwrap();
+    assert_eq!(summary["complete"], false);
+    assert_eq!(summary["max_concurrent_measurements"], 1);
+    assert_eq!(summary["errors"].as_array().unwrap().len(), 1);
+    assert_eq!(summary["execution_order"].as_array().unwrap().len(), 1);
+    let failed: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join("10000-W1-16-p1-r1/report.json")).unwrap())
+            .unwrap();
+    assert_eq!(failed["complete"], false);
+    assert!(failed["error"].is_string());
+}

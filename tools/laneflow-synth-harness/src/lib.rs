@@ -1,7 +1,8 @@
-//! LF-SYNTH-v2 语义消费验证；不采集性能或发布产品认证。
+//! LF-SYNTH-v2 语义验证与表现测量；结果不直接构成产品认证。
 
 mod burst;
 mod install;
+pub mod measurement;
 mod observe;
 
 use std::fs::{self, File};
@@ -165,9 +166,17 @@ fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result
         total,
     ];
     let mut checkpoints = Vec::new();
+    let ranks = sample
+        .handles
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(rank, handle)| (handle, rank))
+        .collect();
+    let mut events = measurement::events::Recorder::new(total + 1, plan.identity.scale);
     for tick in 0..=total {
-        let arrivals_empty = if tick == 0 {
-            true
+        let outcome = if tick == 0 {
+            None
         } else {
             let result = sample
                 .world
@@ -178,9 +187,15 @@ fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result
                     && result.time_ms() == tick * u64::from(plan.identity.fixed_delta_ms),
                 || format!("step time at {tick}"),
             )?;
-            result.parking_arrivals().is_empty()
+            Some(result)
         };
-        let digest = sample.observe(tick, arrivals_empty)?;
+        let digest = sample.observe(
+            tick,
+            outcome
+                .as_ref()
+                .is_none_or(|o| o.parking_arrivals().is_empty()),
+        )?;
+        events.record(&sample.world, &ranks, outcome.as_ref())?;
         trace.write_all(&tick.to_le_bytes())?;
         trace.write_all(digest.as_bytes())?;
         stream.update(&tick.to_le_bytes());
@@ -197,6 +212,7 @@ fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result
         }
     }
     trace.flush()?;
+    events.write(&output.join("events.bin"))?;
     require(
         sample
             .crossed
@@ -216,7 +232,8 @@ fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result
         "gate_crossings":sample.transitions,"completion_count":0,"parking_arrival_count":0,
         "max_observed_deceleration_mm_s2":sample.max_deceleration_mm_s2,
         "deceleration_above_profile_count":sample.deceleration_above_profile_count,
-        "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints}))
+        "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints,
+        "ordered_events_digest":events.digest()}))
 }
 
 pub(crate) fn write_json(path: &Path, value: &Value) -> Result<(), Error> {
