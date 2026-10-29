@@ -1,0 +1,7 @@
+{
+  "complete": false,
+  "status": "stopped",
+  "implementation_commit": "65dfce5ee22d50b52a582f5c0239a1903c09bf06",
+  "reason": "Switch semantic-only matrix dispatch to four concurrent fresh processes; retain completed and partial rows without certification.",
+  "completed_rows": 4
+}

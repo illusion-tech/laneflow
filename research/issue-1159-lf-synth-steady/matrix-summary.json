@@ -1,0 +1,946 @@
+{
+  "complete": true,
+  "errors": [],
+  "format": "lf-synth-semantic-matrix-1",
+  "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+  "max_concurrent_processes": 4,
+  "rows": [
+    {
+      "fresh_process_rounds": 2,
+      "identity": "10000-W1-16",
+      "report": {
+        "active": 7500,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "882d81db4d068bce68c66c56b11110b8961276cdd0f3db2974397cd625b2b107",
+            "state_digest": "37034724ee899b4eff94837ba409b16a487918332f3f2caf253048ef0e526604",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "9c7df49b3d8861046a8c1e910691ae672caf59c2dfbb4c69d0ca22ce011c54a0",
+            "state_digest": "24548be3f9e7b6d6dfee1af61e7f4cf83e4afa7e12b67f59a62e4665fa69b77c",
+            "tick": 14508,
+            "time_ms": 232128,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "60e43f7276fbadf673ffb7929daf23f4459ed09383da24a8178f96f336b99536",
+            "state_digest": "7fdf53a76433aea094d9fc31daae9631d452d8296416d4c1a06c961f17d008f9",
+            "tick": 15532,
+            "time_ms": 248512,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "7aa70e131c40e555c5c3c0b5e2ea9ded9d4040996310cb35775d4a7a3cc67b52",
+            "state_digest": "03bb0525956cca7761cb4f76926ce4c25a3bd56d8c6b9634d9afb55ea6c12833",
+            "tick": 16556,
+            "time_ms": 264896,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "35a6d0e7cbbb6732d57e15c3d854e9bd917c0a181f57cb1dec016548893ef7d8",
+            "state_digest": "7efb9201f1886a269a8b1e7f798fdc902158e17dd841d7ece89f72547d2acf18",
+            "tick": 18604,
+            "time_ms": 297664,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "0a494e57d1ead17b3d20c5f689bc10a902a6c0aac25c6c7dfaae49fb2485f007",
+            "state_digest": "5c2fdb713765cb753482132d14b9d269a014e13119433dab45ad2cb18908a808",
+            "tick": 43524,
+            "time_ms": 696384,
+            "transitions": 7500
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 267274,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 7500,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "ca1d9d10f64a9887ccf9946a59fad474b8e2217826ce07fefe227f7c780156d8",
+          "counts": {
+            "active": 7500,
+            "cells": 100,
+            "controllers": 100,
+            "edges": 800,
+            "facilities": 100,
+            "gates": 400,
+            "geometry_points": 41600,
+            "groups": 400,
+            "individuals": 10000,
+            "junctions": 400,
+            "maneuver_paths": 400,
+            "movements": 400,
+            "parked": 2500,
+            "routes": 400,
+            "spaces": 10000,
+            "stop_lines": 400
+          },
+          "files": [
+            {
+              "byte_length": 882,
+              "digest": "8f46c797de6fd89d9dc73f64b4396fedff5a899536a88af62c2033816a4515b6",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 14271543,
+              "digest": "2f826d4bdb4e1fb0a904be621e4974004a0f6726c10554576511116aaf17b080",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 2099395,
+              "digest": "6afb1d7a7c63b3bd20b83f8a64e65f897398c9f37ac81b0568fd6b3301a36726",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W1",
+            "fixed_delta_ms": 16,
+            "scale": 10000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 868750,
+        "observation_ticks": 29016,
+        "parked": 2500,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "0a494e57d1ead17b3d20c5f689bc10a902a6c0aac25c6c7dfaae49fb2485f007",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 43525,
+        "warm_up_ticks": 14508
+      },
+      "reports_equal": true,
+      "trace_byte_length": 1741024,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "10000-W1-33",
+      "report": {
+        "active": 7500,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "882d81db4d068bce68c66c56b11110b8961276cdd0f3db2974397cd625b2b107",
+            "state_digest": "e475c9d54cb94eadaf1a40dd6c7be56b30b84facafe6f71c1fd9f0bb6c2f0917",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "6290874ccb5476dca4094a3249652083f728dba0953d7330bb0b26d85ca1b63b",
+            "state_digest": "ed23946d656ee9a2360ae816ca6478145a71e2017dbc410c5fc2e4e3492a14c2",
+            "tick": 7044,
+            "time_ms": 232452,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "9b70952521c93a990b9ec42a64f4a12387500cee84b7b87de324d7fa1b3f27b5",
+            "state_digest": "376dccee7f8ddb7e43d8f41a5eb2a7460008dd1d1efb95d1c99f96a783f1a55a",
+            "tick": 8068,
+            "time_ms": 266244,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "fe6bd255499470563d418f14f48ac5225eeb4707fbfc950cd9caff9f309d1f21",
+            "state_digest": "1fef40e0c4630677f4901e4603ccbb7b5ca146b4f559b403a63c65cdafbbf839",
+            "tick": 9092,
+            "time_ms": 300036,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "473a457832b0a6ec1539c40ec3fb3d9b3ba846ac5794513c3e34c26a48882576",
+            "state_digest": "0c344e6722ecc21f23156e73265ac2e0a7c0c28ab8233510688711d247e352b4",
+            "tick": 11140,
+            "time_ms": 367620,
+            "transitions": 1193
+          },
+          {
+            "public_trace_digest": "8171c4b01a61d41a2be3190914e0e73986f1b32f4d019378ca62fb096fa45436",
+            "state_digest": "10c78dd234efd262a84e3f4724f19f48e74e96e5b3185db21b8829f0a85f2ea1",
+            "tick": 21132,
+            "time_ms": 697356,
+            "transitions": 7500
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 140132,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 7500,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "ecbf53d67e46d258fd423744784bb36d1983c08f2d2111249c1c4baadebc8b32",
+          "counts": {
+            "active": 7500,
+            "cells": 100,
+            "controllers": 100,
+            "edges": 800,
+            "facilities": 100,
+            "gates": 400,
+            "geometry_points": 41600,
+            "groups": 400,
+            "individuals": 10000,
+            "junctions": 400,
+            "maneuver_paths": 400,
+            "movements": 400,
+            "parked": 2500,
+            "routes": 400,
+            "spaces": 10000,
+            "stop_lines": 400
+          },
+          "files": [
+            {
+              "byte_length": 881,
+              "digest": "ca3953f9a402156dbb942e633dacfbcb685fe297a3b3381c9cc90e3b35208576",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 14271543,
+              "digest": "d9346e4104c682f83e388555155dcb153a8e6a37601393d109031cd9e462379b",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 2099395,
+              "digest": "5ddd2433cc9388c4a745aae4d6b7ffca6c398234c9826f635795dd510785fb28",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W1",
+            "fixed_delta_ms": 33,
+            "scale": 10000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 421213,
+        "observation_ticks": 14088,
+        "parked": 2500,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "8171c4b01a61d41a2be3190914e0e73986f1b32f4d019378ca62fb096fa45436",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 21133,
+        "warm_up_ticks": 7044
+      },
+      "reports_equal": true,
+      "trace_byte_length": 845344,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "10000-W2-16",
+      "report": {
+        "active": 10000,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "04f53bc003af1a7dc58737a1d237d38399dd932775cf395c96166df6d52f70a1",
+            "state_digest": "70b069013b1c7a5a1f78c1867719775888baf97ef47b013d5e1bf9d2f96cc28b",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "f801c9db8531e414cc236674689bbc717de4010119345e7fd487a08741252d78",
+            "state_digest": "02feb0df8fe4fd3ca617c03f167f7cf6bf8b968088ee4055ff5b18182392afe0",
+            "tick": 14508,
+            "time_ms": 232128,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "2b41d017a33236eacab80f2944fe4cbbd7a12fd5faf008660adb66a8f8b133b2",
+            "state_digest": "367041ed6b781efaa21cc1e89ef7470d6046e011fe788d7657dfef6c2de8ce1b",
+            "tick": 15532,
+            "time_ms": 248512,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "8188b1d8322440ba1cbab6a3729017aa0039cea8697627e9c7fb27ab13501ddc",
+            "state_digest": "898d89e39ce75bbcb8d67893b91c672f31fb22c0df933cd1b0ab8d357cfc8e93",
+            "tick": 16556,
+            "time_ms": 264896,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "50f1ddcab5654b16bf158d6c936ea368a3ac33645fe870a8e0f0f66e104b40c3",
+            "state_digest": "42392066bd5eda6c60c3971267b6c440883603c1e9b3fb62e464baa3cd363f46",
+            "tick": 18604,
+            "time_ms": 297664,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "6b10d128d0ba91c977db52d4c6752c312e54edd213c114a7f7c216abefcb66fe",
+            "state_digest": "f061e0d85080501027c65c602999b2d9fc9f2a82be8f7d72b11f7260d49c3581",
+            "tick": 43524,
+            "time_ms": 696384,
+            "transitions": 10000
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 363886,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 10000,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "951ef73afa7f13ef1d2fbf87570d454a009fe3ba5aacd5a7bb1f4b9d48655f5f",
+          "counts": {
+            "active": 10000,
+            "cells": 100,
+            "controllers": 100,
+            "edges": 800,
+            "facilities": 100,
+            "gates": 400,
+            "geometry_points": 41600,
+            "groups": 400,
+            "individuals": 10000,
+            "junctions": 400,
+            "maneuver_paths": 400,
+            "movements": 400,
+            "parked": 0,
+            "routes": 400,
+            "spaces": 10000,
+            "stop_lines": 400
+          },
+          "files": [
+            {
+              "byte_length": 880,
+              "digest": "7476d35c5b84f304597fae127ed97f8855f79322aff65e1677c338cc4e6e6fbc",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 14271543,
+              "digest": "1cbd02323a3554a2ae089354b7fe8d097310afbfa3a66248ebaf3d7169ebcf7e",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 2087495,
+              "digest": "1546de17ecbc567933df4dac98b3ac18f415f0b4f74d8e1c60b31a03d2072f76",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W2",
+            "fixed_delta_ms": 16,
+            "scale": 10000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 863875,
+        "observation_ticks": 29016,
+        "parked": 0,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "6b10d128d0ba91c977db52d4c6752c312e54edd213c114a7f7c216abefcb66fe",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 43525,
+        "warm_up_ticks": 14508
+      },
+      "reports_equal": true,
+      "trace_byte_length": 1741024,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "10000-W2-33",
+      "report": {
+        "active": 10000,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "04f53bc003af1a7dc58737a1d237d38399dd932775cf395c96166df6d52f70a1",
+            "state_digest": "0d011f3918e36b247580fcd036254a3aac50921129f2691cc71afe1bfcb62a79",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "a4bc787507b5a7414dc21c3f2f84bc37781045f08d5e46dd6b9a9f94b990fc3d",
+            "state_digest": "53cbe43aed29ad8df123139d42d1f7f7559d6460a021a241a68d61257df57bd7",
+            "tick": 7044,
+            "time_ms": 232452,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "12f1dd7968fbe225d84ed66cf9bb52349f240593069a76acd75da0e7f8d38372",
+            "state_digest": "c0c402b85bdc3de0729ee9ecf3dbe5a32b7d732b3bdbf3ad5a003bf2b46f1982",
+            "tick": 8068,
+            "time_ms": 266244,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "fb0226002ae13f9fe499ee571c7c9b63e08d559e1badd81eaa572e28f1e61de2",
+            "state_digest": "af40dce64ec54b1e21ee8764bfd92257559cece17bd464c9f7235ea86fdcf6b0",
+            "tick": 9092,
+            "time_ms": 300036,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "a13371da9b274e2e4a81eeb296a72c13e0978fedcf34901f1630b22ace8fe81c",
+            "state_digest": "b56a15707a8873f3db06c2133e31d49ada79348b840422e07f81e5ebab035c74",
+            "tick": 11140,
+            "time_ms": 367620,
+            "transitions": 506
+          },
+          {
+            "public_trace_digest": "d11b83ed982f99cbb0203dd9f34adf75bba89dd456c67cf2d5075e5477999378",
+            "state_digest": "f088604a8878ebd9b7a792f6d68e721a5f9bb5202978c23da9ece28238aefe3a",
+            "tick": 21132,
+            "time_ms": 697356,
+            "transitions": 10000
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 193356,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 10000,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "d19c81a5a1e3e82ee6fb77ad4fcbffa0d1d07c4ae3cc74679dd907c0419d6b1c",
+          "counts": {
+            "active": 10000,
+            "cells": 100,
+            "controllers": 100,
+            "edges": 800,
+            "facilities": 100,
+            "gates": 400,
+            "geometry_points": 41600,
+            "groups": 400,
+            "individuals": 10000,
+            "junctions": 400,
+            "maneuver_paths": 400,
+            "movements": 400,
+            "parked": 0,
+            "routes": 400,
+            "spaces": 10000,
+            "stop_lines": 400
+          },
+          "files": [
+            {
+              "byte_length": 879,
+              "digest": "90a90d927c9781e2761dd9b38255c65b20e366e713269b9ee4b9705fc2af8b5b",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 14271543,
+              "digest": "a4b4e5d72c5e8663a27ee8e183d5e5ae822ad259e42d6f3fb4b94cb1729fe674",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 2087495,
+              "digest": "e0a992fa688bba0cdb3b1dcf9685973d7fef874683ed10e1c4d0bce0588d42b6",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W2",
+            "fixed_delta_ms": 33,
+            "scale": 10000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 420091,
+        "observation_ticks": 14088,
+        "parked": 0,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "d11b83ed982f99cbb0203dd9f34adf75bba89dd456c67cf2d5075e5477999378",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 21133,
+        "warm_up_ticks": 7044
+      },
+      "reports_equal": true,
+      "trace_byte_length": 845344,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "100000-W1-16",
+      "report": {
+        "active": 75000,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "dfa342e6ca9a06f51ed90802804d57ee4c46464de0e2c8a74db5e517cd1824d2",
+            "state_digest": "20e6a1cfe7dcc96febcd15d61524c9ecafe0cb5887abc8dd9395857218bbf679",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "326c886ee10733260a2b319ba40c970b50ce36bab9965fb94ce817dd2d5ac6e0",
+            "state_digest": "135d92738872d943cf431408a03f754592af17591bdc604e0a4635e518297dca",
+            "tick": 14508,
+            "time_ms": 232128,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "e3b3e956310a241f04eb99a79cafefe99fd882ca767c98db8216d1d3d3d95f96",
+            "state_digest": "f032a580769e7cee6e016ee71a8f4d8fca0b322f310163fc7559ab539a841195",
+            "tick": 15532,
+            "time_ms": 248512,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "1de9451cb4173ec7b5779a8d54254a7d8ff55a1a777c840fb77f1637c0e60e67",
+            "state_digest": "0d5b74987ee29e4322a906e52fdc8f7e51905220717577b5b5a300ebac99b13b",
+            "tick": 16556,
+            "time_ms": 264896,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "c37bf3f23858deef4ea7f890ec9c832e7f45bda8947167c1255737fcbbc48cf7",
+            "state_digest": "6e230785af920f7f44b8dcd861557013d0228deaebe16791c513322e167170b9",
+            "tick": 18604,
+            "time_ms": 297664,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "581de5c1aecc89c678a8c6220ef01519407685baea6ee16e3db4365a4bd433d1",
+            "state_digest": "9ae7c76878e91ac68964ff73132d8019852d170c474d8d91abd82437617e1323",
+            "tick": 43524,
+            "time_ms": 696384,
+            "transitions": 75000
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 2660852,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 75000,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "6f8ba6f5454c9382c0923ec4e35fb34aa23055240d88fd3ef162054a8ea7a0de",
+          "counts": {
+            "active": 75000,
+            "cells": 1000,
+            "controllers": 1000,
+            "edges": 8000,
+            "facilities": 1000,
+            "gates": 4000,
+            "geometry_points": 416000,
+            "groups": 4000,
+            "individuals": 100000,
+            "junctions": 4000,
+            "maneuver_paths": 4000,
+            "movements": 4000,
+            "parked": 25000,
+            "routes": 4000,
+            "spaces": 100000,
+            "stop_lines": 4000
+          },
+          "files": [
+            {
+              "byte_length": 886,
+              "digest": "e0f284a14a68840f8ca1dbbfdeff2a82a415af018021277f6e027ce8e45a5a49",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 142679199,
+              "digest": "b7a11975849e5c8002835535260a2d6901d5d4e3a29ffd03d14785f43bb84c0b",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 21198896,
+              "digest": "10f876fbca029e38d16959a9381f31e908af7f21cca5acd41241249f00af609d",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W1",
+            "fixed_delta_ms": 16,
+            "scale": 100000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 868750,
+        "observation_ticks": 29016,
+        "parked": 25000,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "581de5c1aecc89c678a8c6220ef01519407685baea6ee16e3db4365a4bd433d1",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 43525,
+        "warm_up_ticks": 14508
+      },
+      "reports_equal": true,
+      "trace_byte_length": 1741024,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "100000-W1-33",
+      "report": {
+        "active": 75000,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "dfa342e6ca9a06f51ed90802804d57ee4c46464de0e2c8a74db5e517cd1824d2",
+            "state_digest": "54d83f75f0670720fd3af1474d3d61123de1248723506c79f895fe394b425945",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "bee541c2558ec3114f7d3d5dcaf03499317573018818e3aaff5e355d4468e93d",
+            "state_digest": "3034f3b75ac05009137b6f62bede3c0d15ee144181c38ca3d1db555f0e5d42c0",
+            "tick": 7044,
+            "time_ms": 232452,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "83ab4f9116aabe0407ba74203156fd4cc8de75c13d785c9421a3e9e06b925a4d",
+            "state_digest": "17984c5ba33787c00751c6a7fd04f50efcc7ed16ac7279c944742316a806d110",
+            "tick": 8068,
+            "time_ms": 266244,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "63e4ec1647054befa2e56dad51d4561d703ea700f78126153196cdb71e772179",
+            "state_digest": "c9ec4018800da7aef9ce94dceb99c2a3e9ece317148b67fae6b660aedaa1a48e",
+            "tick": 9092,
+            "time_ms": 300036,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "b6ab8c7f29875eb31220db8353bc6b09f0ead60b12a13e68f0b2f7793af32078",
+            "state_digest": "22b13b998192f0c692db4d2c25136db436a2d867399733ce08c0bb5a87aa5e04",
+            "tick": 11140,
+            "time_ms": 367620,
+            "transitions": 11979
+          },
+          {
+            "public_trace_digest": "05161607163a2ab6852298bbbfca2819571ca250d4081030bf91f49d04e844b2",
+            "state_digest": "0f6da341212817493799d5716e6abe44031e7da3674e7caeca8f6300bcaf0276",
+            "tick": 21132,
+            "time_ms": 697356,
+            "transitions": 75000
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 1391821,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 75000,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "8f241250225e0b7ace20a552f69e3522ed6b61ac9e251bd84860b35732b55ef9",
+          "counts": {
+            "active": 75000,
+            "cells": 1000,
+            "controllers": 1000,
+            "edges": 8000,
+            "facilities": 1000,
+            "gates": 4000,
+            "geometry_points": 416000,
+            "groups": 4000,
+            "individuals": 100000,
+            "junctions": 4000,
+            "maneuver_paths": 4000,
+            "movements": 4000,
+            "parked": 25000,
+            "routes": 4000,
+            "spaces": 100000,
+            "stop_lines": 4000
+          },
+          "files": [
+            {
+              "byte_length": 885,
+              "digest": "ab73e68f557ed711f775f4b18e93b2981914fe3d945199aad8de41492fe1c596",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 142679199,
+              "digest": "1ab25b732ef6975c66cb0476be101e26b824fb567f184cee588b6aeb586606b2",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 21198896,
+              "digest": "427e6efc628e2aa4402be616e97da9e5984a462f29abc17a514eab8a0fe359a0",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W1",
+            "fixed_delta_ms": 33,
+            "scale": 100000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 421213,
+        "observation_ticks": 14088,
+        "parked": 25000,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "05161607163a2ab6852298bbbfca2819571ca250d4081030bf91f49d04e844b2",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 21133,
+        "warm_up_ticks": 7044
+      },
+      "reports_equal": true,
+      "trace_byte_length": 845344,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "100000-W2-16",
+      "report": {
+        "active": 100000,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "e8750509a58d2190cabc648f7638be39045de684c96b981d30c727e4694b1aa6",
+            "state_digest": "9167c73246c6899330b88b52f0f37610a31dc8ba16596ead6db9b5b213b6ff1c",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "f7ab5a5bf3d78b056118b20c8ee5095548d3023c5bc67e66103fb767f83dba5a",
+            "state_digest": "f5feefe104a798af2f5b045eaff58796fbc42ed4b3bc4c6541beffca13348a11",
+            "tick": 14508,
+            "time_ms": 232128,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "686a92f898a6e7548c22c5595096afda56239fe23606c6fcb334c1325d9ecd67",
+            "state_digest": "b94763df075d48c003ae616f13c9a15c742ca0cd464105ed7495d1e7d54266b4",
+            "tick": 15532,
+            "time_ms": 248512,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "efb7b594d8872d6a19a0872b43afc1d7e979ba9505cb58d5f283dbeb836c130d",
+            "state_digest": "381c044abd9ac855af059378d1c58600172e911f534f566ee27b9ed2f889d7e9",
+            "tick": 16556,
+            "time_ms": 264896,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "5bc0874ebe9a1be0ff9d622eddc2f28c145096770e5c076576532506797b37b7",
+            "state_digest": "8cdb20b2ce09db48e7e5cebe13a078d77510c65204a11447e1ccef3524e4075e",
+            "tick": 18604,
+            "time_ms": 297664,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "e360eb842383ba72a4d638b9150550be943b9b44997f13f023fe1abfda39ea02",
+            "state_digest": "589b6879b38ca0bb5ec9b921fec8ed28d7b0cb628aecd99d550c44bb6a9bb83e",
+            "tick": 43524,
+            "time_ms": 696384,
+            "transitions": 100000
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 3605280,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 100000,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "c8c291e79b850045edd8fe707b3f477712dd9e31c3023794b64c311291bb9f87",
+          "counts": {
+            "active": 100000,
+            "cells": 1000,
+            "controllers": 1000,
+            "edges": 8000,
+            "facilities": 1000,
+            "gates": 4000,
+            "geometry_points": 416000,
+            "groups": 4000,
+            "individuals": 100000,
+            "junctions": 4000,
+            "maneuver_paths": 4000,
+            "movements": 4000,
+            "parked": 0,
+            "routes": 4000,
+            "spaces": 100000,
+            "stop_lines": 4000
+          },
+          "files": [
+            {
+              "byte_length": 883,
+              "digest": "a11e61c0518f6eaaeb748e055dfe2958a9c7592879f09f25b8001afe614a02f8",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 142679199,
+              "digest": "77eddd8d7e74fe3ab10fb5665467bce874d1865c994b0d0c6fcfb2e4f34bc80d",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 21079896,
+              "digest": "7bab13c2708207562c96f74ee247acc87003a2da5b3e3d3babe1f690d1861655",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W2",
+            "fixed_delta_ms": 16,
+            "scale": 100000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 863875,
+        "observation_ticks": 29016,
+        "parked": 0,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "e360eb842383ba72a4d638b9150550be943b9b44997f13f023fe1abfda39ea02",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 43525,
+        "warm_up_ticks": 14508
+      },
+      "reports_equal": true,
+      "trace_byte_length": 1741024,
+      "trace_bytes_equal": true
+    },
+    {
+      "fresh_process_rounds": 2,
+      "identity": "100000-W2-33",
+      "report": {
+        "active": 100000,
+        "caller_commands_after_initialization": 0,
+        "checkpoints": [
+          {
+            "public_trace_digest": "e8750509a58d2190cabc648f7638be39045de684c96b981d30c727e4694b1aa6",
+            "state_digest": "9a93f34f199ffd854cd2116ab814216bba7c93e18c5da8050fe1126e25fde89d",
+            "tick": 0,
+            "time_ms": 0,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "c6430843d3dd548fcbb73b54f8c8c28a8768e31e2eaac2bb6ea7eb157cbc6957",
+            "state_digest": "0bef582a1f0b79fe3bf23dc51ad1a0b81714b77f27712c4737623fd6fa682c5b",
+            "tick": 7044,
+            "time_ms": 232452,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "c4f4c71c310512f562698664b90d10b48b59f7b7045e3dccfc2662798f1396e8",
+            "state_digest": "c87202b5198ad7db80989c98f9636fe036a8b640fa0d370c9c935ea7864213bf",
+            "tick": 8068,
+            "time_ms": 266244,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "96e40a884a443f1e3918a6b62a232e8a823c858e6612ac0e2e048ab6d8e3a2dd",
+            "state_digest": "3a263faf8c5f95acde8eeb7aadb67b079a0b103070b259024920f9ad3834818f",
+            "tick": 9092,
+            "time_ms": 300036,
+            "transitions": 0
+          },
+          {
+            "public_trace_digest": "39de0577517e81f39c01cde57d9ae7a37d0cf19ebc3ea401fc5aca6d1676b1e8",
+            "state_digest": "70eb6297cf0b9c45012dff395ae731582d3b7e8e1d49d795c1f46504e3157684",
+            "tick": 11140,
+            "time_ms": 367620,
+            "transitions": 5132
+          },
+          {
+            "public_trace_digest": "5cddee8abdefdfa812d8d09fb59eedf967d8713444ee07c9c9a24253eb281823",
+            "state_digest": "8294493a08bf1d310f5385feb0114ccc7f231300acc42a09b658aa3eb09b42e1",
+            "tick": 21132,
+            "time_ms": 697356,
+            "transitions": 100000
+          }
+        ],
+        "complete": true,
+        "completion_count": 0,
+        "deceleration_above_profile_count": 1907586,
+        "format": "lf-synth-semantic-run-1",
+        "gate_crossings": 100000,
+        "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+        "input_manifest": {
+          "config_digest": "3147f0120bdd76258fe9bd734d8a979876c5fc5d229db3517bf569bca639b45c",
+          "counts": {
+            "active": 100000,
+            "cells": 1000,
+            "controllers": 1000,
+            "edges": 8000,
+            "facilities": 1000,
+            "gates": 4000,
+            "geometry_points": 416000,
+            "groups": 4000,
+            "individuals": 100000,
+            "junctions": 4000,
+            "maneuver_paths": 4000,
+            "movements": 4000,
+            "parked": 0,
+            "routes": 4000,
+            "spaces": 100000,
+            "stop_lines": 4000
+          },
+          "files": [
+            {
+              "byte_length": 882,
+              "digest": "0a1894b5545b525b2111de8f8e0f7f8496bcdc5fd42ffb3921b9a9e298b22047",
+              "name": "input-plan.json"
+            },
+            {
+              "byte_length": 142679199,
+              "digest": "49b3d567d632cddaf4afc7c3f26e214c1f639bef24fa6a0250739d0a9f92efba",
+              "name": "network.lfca"
+            },
+            {
+              "byte_length": 21079896,
+              "digest": "47a00b0ef4c79fc6e4b3c8de0d7ebd31882e82624c68cb95263b9f0f7822e705",
+              "name": "state.json"
+            }
+          ],
+          "format": "lf-synth-manifest-1",
+          "generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+          "identity": {
+            "case": "W2",
+            "fixed_delta_ms": 33,
+            "scale": 100000,
+            "seed": 0,
+            "workload_id": "LF-SYNTH-v2"
+          },
+          "source_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629"
+        },
+        "max_observed_deceleration_mm_s2": 420091,
+        "observation_ticks": 14088,
+        "parked": 0,
+        "parking_arrival_count": 0,
+        "public_trace_digest": "5cddee8abdefdfa812d8d09fb59eedf967d8713444ee07c9c9a24253eb281823",
+        "scope": "W1_W2_semantics_only_not_performance_or_product_certification",
+        "validated_boundaries": 21133,
+        "warm_up_ticks": 7044
+      },
+      "reports_equal": true,
+      "trace_byte_length": 845344,
+      "trace_bytes_equal": true
+    }
+  ],
+  "scope": "semantics_only_not_performance_or_product_certification"
+}

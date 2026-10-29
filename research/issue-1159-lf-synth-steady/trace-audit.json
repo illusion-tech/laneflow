@@ -1,0 +1,92 @@
+{
+  "format": "lf-synth-trace-audit-1",
+  "complete": true,
+  "verifier": "PowerShell Get-FileHash SHA256 and .NET BinaryReader",
+  "implementation_commit": "4c0338f949a688f651a6e446e5d030379ca7c744",
+  "successful_steps": 517248,
+  "validated_boundaries": 517264,
+  "fresh_process_rounds": 16,
+  "checkpoint_pairs": 48,
+  "rows": [
+    {
+      "identity": "10000-W1-16",
+      "rounds": 2,
+      "records_per_round": 43525,
+      "byte_length": 1741024,
+      "trace_sha256": "547b1c3b7903b9b446770bb07ec6264e884aeb599fcb49e8cf9c59b573abc6b5",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "10000-W1-33",
+      "rounds": 2,
+      "records_per_round": 21133,
+      "byte_length": 845344,
+      "trace_sha256": "3b07d66b547fff31cbb416209dab36e0a06619b4450cf0c18144d44e636b2d79",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "10000-W2-16",
+      "rounds": 2,
+      "records_per_round": 43525,
+      "byte_length": 1741024,
+      "trace_sha256": "95e73de55a52aaff1cfdb388722df778f9a362a2d4e81f389afc52f1956bce49",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "10000-W2-33",
+      "rounds": 2,
+      "records_per_round": 21133,
+      "byte_length": 845344,
+      "trace_sha256": "542e37d36105659a64dc7e094783aafa4b18d039d089cd2dcd220665444a5476",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "100000-W1-16",
+      "rounds": 2,
+      "records_per_round": 43525,
+      "byte_length": 1741024,
+      "trace_sha256": "e6f4e886192c97926575f46255294a1fe806a292136c29b1eb5ee32dfda55d2d",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "100000-W1-33",
+      "rounds": 2,
+      "records_per_round": 21133,
+      "byte_length": 845344,
+      "trace_sha256": "18515dfbf6688ed1690204e3303dc7bf5b63e069db917af35725f69befac1444",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "100000-W2-16",
+      "rounds": 2,
+      "records_per_round": 43525,
+      "byte_length": 1741024,
+      "trace_sha256": "be40ea817c360b3a8320572e181a4b29f1ea395e2884a92c8b48bedc7ce0b954",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    },
+    {
+      "identity": "100000-W2-33",
+      "rounds": 2,
+      "records_per_round": 21133,
+      "byte_length": 845344,
+      "trace_sha256": "c86270fce751c9cf042f8085996f80ca9b3657f7fbaf011bdbfc2cbcf9af2c43",
+      "header_verified": true,
+      "contiguous_ticks_verified": true,
+      "pair_sha256_equal": true
+    }
+  ]
+}
