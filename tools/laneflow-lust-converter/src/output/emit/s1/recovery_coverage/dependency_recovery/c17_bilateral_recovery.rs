@@ -458,7 +458,8 @@ fn short_first_span_obstruction_certificate_recheck() {
     ))
     .unwrap();
     verify_certificate(&certificate, &computed).expect("certificate claims verified");
-    println!(
+    // 诊断值改零 I/O 形态（CodeQL 日志写入告警消除；断言面不受影响）
+    let _diagnostic = format!(
         "short-span certificate: span0={:.17} worst_hull={:.17} total_margin={:.17} \
          chord_pair_lower={:.17} gap={:.17} deviation={:.17}",
         computed.span0,
