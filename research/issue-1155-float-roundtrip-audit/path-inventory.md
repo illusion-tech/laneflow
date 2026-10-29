@@ -1,6 +1,7 @@
-# JSON 浮点解析精度缺口生产路径审计 — 路径清单初稿（#1155 交付物 ①）
+# JSON 浮点解析精度缺口生产路径审计 — 路径清单（#1155 交付物 ①）
 
-- 状态：**初稿，待 lead 审**。本文件只含路径清单；位级往返测试、耗时对照与修复实施（②③④）另行交付。
+- 状态：**定稿归档**（维护者 2026-10-29 审定通过；与 [`audit-conclusion.md`](audit-conclusion.md) 同批入库）。
+  本文件只含路径清单；位级往返测试、耗时对照与修复实施（②③④）见同目录各文件与 `float_roundtrip.rs`。
 - 工作树：`E:/projects/worktrees/float-roundtrip-audit/laneflow`，分支 `research/1155-float-roundtrip-audit`，基线 `47be29a5`（origin/main）。
 - 缺陷口径（严格照 Issue #1155）：serde_json 1.0.154 默认解析对 17 位十进制浮点误舍入 1 ULP
   （`"10.220051765441895"` → bits …313，`float_roundtrip` 下正确为 …312）。**尚未证明 Runtime 快照受影响**，
@@ -62,23 +63,26 @@
 | `research/issue-762-post-p3-hotspots` | float_roundtrip 已启用的唯一样本（研究 crate，workspace 成员） |
 | population 迁移 JSON（`convert/population/migration.rs:29`） | `departSeconds` 以 `to_string()` **文本**写出 —— 文本域保真先例 |
 
-## 2. 初步影响面判定（终稿随"审计结论"里程碑）
+## 2. 影响面判定（定稿见 [audit-conclusion.md](audit-conclusion.md) §1）
 
 1. **生产持久化/验收路径已实际丢位：未发现** → 不触发提级条件。LFRS/确定性摘要/LFCA/wire 无 JSON、
-   无浮点文本；生产 JSON 判定谓词（stub 授权门控身份匹配、timing verify、caller/checkpoint 摘要）
-   不含浮点解析值。
+   无浮点文本；已列举的生产 JSON 判定路径（stub 授权门控身份匹配、timing verify、caller/checkpoint 摘要）
+   不含浮点解析值（不作全称断言）。
 2. 「浮点解析→判定」形态集中于 integrity_soak 墙钟会计（含无容差比较与 `active ≥ requested_seconds`
    阈值形态）：未发现实际丢位或判定翻转，浮点判定路径**仍需验证**（逐谓词边界余量见
    [audit-conclusion.md](audit-conclusion.md) §1.2，缺论证项一律记待验证），不作零影响结论。
-3. 实际丢位史证仅出现在研究导出工具（issue-1140 重锚），非生产路径，且已有文本拼接硬门钉版。
+3. 丢位实证分列：既有事故记录（限定：已记录实际丢位事故仅在研究导出工具 issue-1140，已文本拼接硬门
+   钉版）+ 合成输入实证（soak 同款 Duration 时长链 1,444/10,000 默认解析丢位，见 §1.3）；真实运行产物
+   是否丢位、验收判定是否翻转**分别待验证**。
 4. **Feature 合并陷阱确认**：workspace 测试构建统一 float_roundtrip、单包生产构建无 → 修复验收必须
    单包正常构建验证 feature 生效（issue ② 要求，防测试构建合并掩盖）。
 
-## 3. 待 lead 确认 / 补料
+## 3. 已确认事项（lead / 维护者答复入档）
 
-1. 必读清单中 `docs/reference/snapshot-format.md` **不存在**（本 worktree 与主检出均无此文件）；
-   快照容器/字段事实以 `docs/design/traffic-runtime-snapshot.md` 为准（schema 在私有 wire package，
-   `schemas/runtime-snapshot/v7` 不在本仓）。请确认口径或补正确路径。
-2. E 的 `json_leaf_mismatch` 助手与 C 的 `compare-anchor-bits.ps1` **不在 origin/main 树**
-   （仅 issue-1139 README 提及）。请提供所在路径，或按 README 描述语义执行
-   （`f64::from_str` 正确舍入 / 文本 token 域位级比较）。
+1. `docs/reference/snapshot-format.md` 系派工笔误、仓库无此文件——**以
+   `docs/design/traffic-runtime-snapshot.md` 为准**（lead 2026-10-29 确认；schema 在私有 wire
+   package，`schemas/runtime-snapshot/v7` 不在本仓）。
+2. E 的 `json_leaf_tokens`/`json_leaf_mismatch` 位于 **PR #1153**（分支
+   `research/1140-shared-baseline-hard-gates`，`calibration/shared_baseline.rs`），本切片已合并该分支
+   复用（合并提交 `3105a57d`）；C 的 `compare-anchor-bits.ps1` 系本机证据工具**不入库**，入库交付物
+   用 Rust `cfg(test)` 形态（lead 2026-10-29 答复）。
