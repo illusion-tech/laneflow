@@ -10,6 +10,7 @@ mod float_roundtrip;
 pub(super) mod shared_baseline;
 mod signal_diag_1;
 mod signal_diag_2;
+mod witness_guided_search;
 
 #[test]
 #[ignore = "requires fresh GRID_CALIBRATION_OUTPUT_DIR"]
