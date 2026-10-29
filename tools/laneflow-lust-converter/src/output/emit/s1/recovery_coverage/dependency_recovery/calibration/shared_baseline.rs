@@ -1,10 +1,10 @@
 //! #1140：六路共同基线（11 边 92 份候选池）与最小公共测试助手（E0 交付）。
 //!
 //! 执行口径冻结于 `research/issue-1140-shared-baseline/plan.md`，共同口径沿六路协调
-//! 章程 v2 与基线包合并需求单（Issue #1140 评论，含 A 路消费形状澄清）：包布局
-//! `pool.json`（与历史候选来源同构的行形状，`experiment::pool` 可直接消费）+
-//! `results-anchor.json`（结果对照锚）+ `MANIFEST.json`（`files.<name>.sha256/bytes`
-//! + `merge_order` 六项链），读取经 `SIX_STREAMS_BASELINE_DIR`，旧 9/10 边池禁用。
+//! 章程 v2 与基线包合并需求单（Issue #1140 评论，含 A 路消费形状澄清）：包布局为
+//! `pool.json`（与历史候选来源同构的行形状，`experiment::pool` 可直接消费）、
+//! `results-anchor.json`（结果对照锚）与 `MANIFEST.json`（`files.<name>.sha256/bytes`
+//! 与 `merge_order` 六项链），读取经 `SIX_STREAMS_BASELINE_DIR`，旧 9/10 边池禁用。
 //! 合并语义逐字沿 `dependency_recovery::experiment::{pool, merge}`（规范 f32 点位
 //! 去重、先到先留、每边上限 16）。本模块只新增研究入口与公共助手再导出，不改生产
 //! 采样、compiler、阈值与原成功几何；计划与冻结实现不一致时停止执行并重新授权
@@ -457,19 +457,12 @@ fn shared_baseline_merge_dedups_canonical_points_in_frozen_order() {
 fn shared_baseline_facade_exposes_required_helper_set() {
     // 需求单最小集门面冒烟 + 契约签名钉版（语义由既有 coverage/cohort2 单测覆盖）：
     // 词汇映射、网格节点、载体三层链三构件与 SpanControl 结果形态。
-    let _contract: (
-        fn(&Value, u64) -> &'static str,
-        fn(f64) -> bool,
-        fn(&Value, usize) -> Option<[[f64; 3]; 6]>,
-        fn(&observe::EdgeInput) -> BTreeMap<usize, [[f64; 3]; 6]>,
-        fn(&BTreeMap<String, Value>, &Value, &str, usize, &observe::EdgeInput) -> SpanControl,
-    ) = (
-        plan_stop_label,
-        grid_node_member,
-        find_span_control,
-        replay_span_controls,
-        span_control,
-    );
+    let _: fn(&Value, u64) -> &'static str = plan_stop_label;
+    let _: fn(f64) -> bool = grid_node_member;
+    let _: fn(&Value, usize) -> Option<[[f64; 3]; 6]> = find_span_control;
+    let _: fn(&observe::EdgeInput) -> BTreeMap<usize, [[f64; 3]; 6]> = replay_span_controls;
+    let _: fn(&BTreeMap<String, Value>, &Value, &str, usize, &observe::EdgeInput) -> SpanControl =
+        span_control;
 }
 
 #[test]
