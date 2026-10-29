@@ -1,0 +1,25 @@
+[package]
+name = "laneflow-synth-harness"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+blake3 = "1.8"
+laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format" }
+laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
+laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
+laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
+laneflow-synth-generator = { version = "0.0.0", path = "../laneflow-synth-generator" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints]
+workspace = true

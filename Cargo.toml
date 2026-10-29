@@ -18,6 +18,7 @@ members = [
     "tools/laneflow-junction-generator",
     "tools/laneflow-lust-converter",
     "tools/laneflow-synth-generator",
+    "tools/laneflow-synth-harness",
     "tools/laneflow-urban-generator",
     "tools/laneflow-urban-harness",
     "xtask",

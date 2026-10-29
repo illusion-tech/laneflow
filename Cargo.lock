@@ -3302,6 +3302,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-synth-harness"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "laneflow-format",
+ "laneflow-runtime",
+ "laneflow-static-contract",
+ "laneflow-static-network",
+ "laneflow-synth-generator",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "laneflow-urban-generator"
 version = "0.0.0"
 dependencies = [
