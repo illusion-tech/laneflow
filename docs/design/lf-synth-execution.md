@@ -22,8 +22,12 @@ Traffic Runtime 生产代码不感知 workload ID。
   75/25 Active/Parked，W2 全 Active，Completed 为零；command cursor 不变。
 - Parked 的整个 `VehicleState`、Occupied 绑定和泊位占用者不变；停车 arrival 为空。
 - route occurrence 只允许 entry→exit 一次；进度与微米余数合法、绝对进度不倒退、
-  速度不超过 13900 mm/s、位移不超过该速度的一拍距离、加减速符合冻结 profile。
-  速度检查容许毫米量化的 1 mm/s，位移检查容许 1 µm；这不放宽闯灯或重叠。
+  速度不超过 13900 mm/s、位移不超过该速度的一拍距离、正加速度不超过冻结 profile。
+  正加速度检查容许毫米量化的 1 mm/s，位移检查容许 1 µm；这不放宽闯灯或重叠。
+  速度/位置为有界整数，固定步长非零，派生加速度有限。
+  [整数几何 §1/§5](traffic-runtime-integer-geometry.md) 允许硬停止投影直接清速度，
+  因此不能把 `emergency_decel` 强加为已提交速度差的上限。回执单独记录观察到的
+  最大减速度（mm/s²，向上取整）和超出 profile 紧急减速度的拍/车计数，不隐藏硬停。
 - 同一 route 的 Active 按初始 slot 顺序不超车，车身区间不重叠；Parked 不占车道。
 - 每个信号组与冻结六阶段及 `(cell*997)%cycle` 独立计算的灯态完全一致。
   entry→exit 必须在调用 step 前的已提交绿灯下发生；成功 step 后验证新时刻灯态。

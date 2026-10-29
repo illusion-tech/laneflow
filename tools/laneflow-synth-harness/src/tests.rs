@@ -63,7 +63,8 @@ fn motion_guard_rejects_backwards_overspeed_and_impossible_acceleration() {
     assert!(!motion_valid(0, 222_402, 13_900, 13_900, 16));
     assert!(!motion_valid(0, 0, 13_900, 13_901, 16));
     assert!(!motion_valid(0, 0, 0, 100, 16));
-    assert!(!motion_valid(0, 0, 1_000, 0, 16));
+    // #1159：整数硬停止投影清速度；emergency_decel 不是已提交速度差的绝对上限。
+    assert!(motion_valid(0, 0, 1_000, 0, 16));
 }
 
 #[test]

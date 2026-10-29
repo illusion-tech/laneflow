@@ -207,6 +207,8 @@ fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result
         "validated_boundaries":total+1,"caller_commands_after_initialization":0,
         "active":bundle.manifest().counts["active"],"parked":bundle.manifest().counts["parked"],
         "gate_crossings":sample.transitions,"completion_count":0,"parking_arrival_count":0,
+        "max_observed_deceleration_mm_s2":sample.max_deceleration_mm_s2,
+        "deceleration_above_profile_count":sample.deceleration_above_profile_count,
         "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints}))
 }
 

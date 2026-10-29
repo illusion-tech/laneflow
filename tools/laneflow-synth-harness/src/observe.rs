@@ -45,7 +45,6 @@ pub(crate) fn motion_valid(
         && new_position - old_position <= 13_900 * u64::from(dt) + 1
         && new_speed <= 13_900
         && new_speed.saturating_sub(old_speed) <= (1_400 * dt).div_ceil(1_000) + 1
-        && old_speed.saturating_sub(new_speed) <= 6 * dt + 1
 }
 
 impl Sample {
@@ -124,6 +123,11 @@ impl Sample {
                 )?;
             } else {
                 let next_position = position(state);
+                let drop = old.speed_mm_s().saturating_sub(state.speed_mm_s());
+                self.max_deceleration_mm_s2 = self
+                    .max_deceleration_mm_s2
+                    .max((u64::from(drop) * 1_000).div_ceil(u64::from(dt)));
+                self.deceleration_above_profile_count += u64::from(drop > 6 * dt + 1);
                 require(
                     motion_valid(
                         position(old),
