@@ -54,8 +54,9 @@ const STREAM_A_RESULTS_SHA256: &str =
     "17d6bdce48e63cb26116ea6fc9882225a1aa95d7f67bb248bacfa15ac3b37786";
 
 /// 读取钉版基线输入并在代码内断言 SHA-256 与 plan §5 钉版值一致（发行资产可验证为
-/// 冻结输入）；写入什么字节即校验与解析什么字节。
-fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
+/// 冻结输入）；写入什么字节即校验与解析什么字节。（#1140：仅可见性放宽供
+/// `calibration::shared_baseline` 复用，语义逐字不变。）
+pub(super) fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
     let bytes = fs::read(path).expect("pinned baseline input present");
     assert_eq!(
         hex_sha256(&bytes),
