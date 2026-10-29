@@ -15,6 +15,8 @@ C17 单条完整路径 `sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_
 
 共同基线（E0 冻结交付 `research-evidence-1140-shared-baseline`，`SIX_STREAMS_BASELINE_DIR` + `shared_baseline::shared_pools()` 三资产 SHA 钉版/顺序/份数断言读取）：11 边 92 份；结果对照锚 = `evidence/run-03/results.json#variants.new`（**92 池行**代际，`comparison_only`，三元组代码内钉版）。
 
+**生成物外置**：搜索/运行生成物压缩挂 [Research Evidence: #1137](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-1137-c17-bilateral) 预发布（`c17-bilateral-evidence.zip`，424,659 字节，SHA-256 `88a6a9640d2bd4833132577f10aaea11bb0b1e51d68af5394e0c3a3f4bed9b8c`，内含候选冻结产物、四轮 `c17-searches`/`c17-results`/对照列/冻结输入、189 组比较记录与 `MANIFEST.json` 来源链（逐文件 SHA-256 / 冻结 HEAD `fdca716e` / 基线代际）；全量回归快照与接受分量 LFCA 本地留存，与 #1105 基线逐字节断言，未入包）；仓库只留计划、入口与本摘要。
+
 ## 逐配置执行记录（新族 547 列明 + 旧族 148 对照列）
 
 每配置内：回折拒绝 → 双向来源拟合筛选（64 区间/弦，不劣于原参考两向估计）→ 划分族外层（等 t 先、512 步累计切向角后）n=2..96 内层、每族首程序 → sink（0.1 m/1.95° 量化预检）/存在钳制端 0.95° 端弦 / 0.01 m 逐区间。负对照照常走管线（证书预判不提前截断）：
