@@ -31,7 +31,7 @@
 |---|---|---|---|---|---|
 | LFRS 快照 `encode_lfrs` / `restore_lfrs` | 二进制 FlatBuffers（**非 JSON**） | 无：一维数值全整数 mm/µm/`u32` mm/s | 不适用（无 serde_json） | 持久化（存档） | `docs/design/traffic-runtime-snapshot.md` §3"无浮点字段"、§4 容器（size-prefixed FlatBuffers、`LFRS`）；cargo tree 无 serde_json → **无影响** |
 | 确定性状态摘要 `deterministic_state_digest` | 二进制规范前像（**非 JSON**） | 无：全整数小端 + `StableId128` | 不适用 | 验收判定（检查点对拍三元组） | 同上 §6 前像布局（u8/u16/u32/u64/16 字节 ID），BLAKE3-256 → **无影响** |
-| LFCA / 共享静态路网 / wire（LFSM/LFSD/LFCP） | 二进制 FlatBuffers（**非 JSON**） | 浮点为二进制位编码（u64 位三元组） | 不适用 | 静态数据 / 发布链 | 各 crate `Cargo.toml` 无 serde_json（`laneflow-static-network` 生产 deps 仅 format/static-contract/sha2）；位编码旁证：lust-converter 测试读 `control_f64_bits`、`points: Vec<[u64; 3]>`（`calibration.rs`、`measurement.rs`）→ **无影响** |
+| LFCA / LFSM / LFSD / LFCP 规范制品（及 LFCA 构建的共享静态路网） | 二进制（LaneFlow 自有封闭节目录格式，**非 FlatBuffers、非 JSON**） | 浮点 f32/f64 以 **IEEE 754 小端位编码** 写入（`to_bits()` u32/u64 LE） | 不适用 | 静态数据 / 发布链 | 格式规范 `docs/design/portable-canonical-artifact.md:50-53`（FlatBuffers 仅为 LFRS 快照容器与未发布 Road Editing 编制输入，:53）；生产读写 `laneflow-format/src/writer.rs:1116-1117`（`FieldWriteValue::F32/F64 => cursor.u32/u64(value.to_bits())`）、`object.rs:495-500`（`from_bits` 解码）、`table.rs:720-743`（拒 NaN/inf/−0.0）；各 crate `Cargo.toml` 无 serde_json；不经十进制文本 → **无影响**。（原稿「FlatBuffers/u64 三元组」系误写，维护者复审更正：u64 三元组是研究 JSON `*_f64_bits` 惯例、非 LFCA 编码形态） |
 | `laneflow-static-network` `page_injection_tests.rs` | JSON 读写 | `serde_json::Value`（状态/计数，无浮点语义） | default（dev-dependency） | 仅测试 | `crates/laneflow-static-network/Cargo.toml:24-29` serde_json 在 `[dev-dependencies]`；`src/lib.rs:28-29` `#[cfg(test)] mod page_injection_tests` → **生产无 JSON** |
 
 ### B. 生产工具 JSON 读写路径
