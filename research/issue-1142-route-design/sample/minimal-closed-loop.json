@@ -1,0 +1,294 @@
+{
+  "meta": {
+    "id": "issue-1142-minimal-closed-loop",
+    "version": 1,
+    "kind": "synthetic-pinned-input",
+    "purpose": "#806 路线展开与 #237 最小换道边界的最小闭环样本（设计材料，不是运行结果）",
+    "basis": {
+      "topology_pattern": "A0/A1 夹具拓扑同构：A(1 lane) - B(2 lanes) - C(1 lane)，P1=[A0,I1,B0]、P2=[B1,I2,C0]，连续对照 P0=[B0,I0,C0]",
+      "a0_reference": "target/issue-790-806-handoff-20261026/kimi-806-a0/report.md",
+      "a1_reference": "target/issue-790-806-handoff-20261026/kimi-806-a1/report.md",
+      "geometry_delta": "本样本为发射友好的合成几何（过渡段 9 m 缓斜、J2 内部边 6 m），刻意不沿用 A0 夹具的 5 m 陡斜内部边"
+    },
+    "frame": {
+      "coordinates": "canonical 米制 (x, z)，精确十进制；语义与 real-road-workloads.md §3.2 canonical frame 一致",
+      "lengths": "整数毫米（mm），编译提交权威；米制坐标仅为编制输入",
+      "speeds": "mm/s"
+    },
+    "expressibility_legend": {
+      "route-expansion-today": "现行严格展开合同可表达/可验证（converter 侧）",
+      "registration-today": "register_route 静态序列与出现项合同可表达（不代表安全）",
+      "needs-237-subcontract": "需要 #237 最小子合同的运行时能力，当前不存在",
+      "needs-g1": "需要对应切片 G1 冻结后才能定形"
+    },
+    "known_hazards": [
+      "A1 实测（kimi-806-a1/report.md §5）：连续夹具几何修复失败——lane edge \"sumo::J2_0_0\": span 1/1 (chord 5.0000 m) is not emittable: repaired curve sampling exhausted: 9 pieces breach the quantized weld budget under uniform and tangent-angle partitions at (34, 0, 0); last error: repaired curve curvature is infeasible under the quantized weld budget: 2 pieces (chord floor) each turn 3.75 deg > 1.90 deg。实现切片必须实测发射或如实记录失败，不得修绿几何代码或改写为路线失败。"
+    ],
+    "non_goals": [
+      "不是运行结果、不含计时字段、不构成任何执行结论",
+      "不表达潮汐/可逆车道、自由在线选道、任意位置换道或全量 ResolvedLanePlan",
+      "不改生产采样、生产几何预算、阈值或控制锚点"
+    ]
+  },
+  "network": {
+    "roads": [
+      { "id": "A", "lanes": [["A0"]] },
+      { "id": "B", "lanes": [["B0_up", "S00", "B0_down"], ["B1_up", "S11", "B1_down"]], "note": "双车道；上游/过渡区/下游三段必要分段，同段两 lane 纵向共延伸" },
+      { "id": "C", "lanes": [["C0"]] }
+    ],
+    "edges": [
+      { "id": "A0", "role": "external", "length_mm": 20000, "shape_m": [[-20.0, 0.0], [0.0, 0.0]] },
+      { "id": "I1", "role": "junction-internal", "owner": "J1", "length_mm": 10000, "shape_m": [[0.0, 0.0], [10.0, 0.0]] },
+      { "id": "B0_up", "role": "external", "length_mm": 8000, "shape_m": [[10.0, 0.0], [18.0, 0.0]] },
+      { "id": "B1_up", "role": "external", "length_mm": 8000, "shape_m": [[10.0, 3.0], [18.0, 3.0]] },
+      { "id": "S00", "role": "external", "length_mm": 9000, "shape_m": [[18.0, 0.0], [27.0, 0.0]], "note": "过渡区 lane 0 直行段" },
+      { "id": "S11", "role": "external", "length_mm": 9000, "shape_m": [[18.0, 3.0], [27.0, 3.0]], "note": "过渡区 lane 1 直行段" },
+      { "id": "T01", "role": "external", "length_mm": 9487, "shape_m": [[18.0, 0.0], [27.0, 3.0]], "note": "固定预制过渡（0→1），chord ≈ 9.487 m，转角 ≈ 18.4°，发射友好几何" },
+      { "id": "B0_down", "role": "external", "length_mm": 9000, "shape_m": [[27.0, 0.0], [36.0, 0.0]] },
+      { "id": "B1_down", "role": "external", "length_mm": 9000, "shape_m": [[27.0, 3.0], [36.0, 3.0]] },
+      { "id": "I0", "role": "junction-internal", "owner": "J2", "length_mm": 6000, "shape_m": [[36.0, 0.0], [42.0, 0.0]] },
+      { "id": "I2", "role": "junction-internal", "owner": "J2", "length_mm": 6708, "shape_m": [[36.0, 3.0], [42.0, 0.0]], "note": "chord ≈ 6.708 m，转角 ≈ 26.6°" },
+      { "id": "C0", "role": "external", "length_mm": 20000, "shape_m": [[42.0, 0.0], [62.0, 0.0]] },
+      { "id": "R0", "role": "external", "length_mm": 82000, "shape_m": [[62.0, 0.0], [-20.0, 0.0]], "note": "合成回环返回边（仅服务重复 occurrence 场景），显式连接 C0→R0→A0" }
+    ],
+    "maneuver_paths": [
+      { "id": "P1", "junction": "J1", "entry": "A0", "internal": ["I1"], "exit": "B0_up" },
+      { "id": "P0", "junction": "J2", "entry": "B0_down", "internal": ["I0"], "exit": "C0" },
+      { "id": "P2", "junction": "J2", "entry": "B1_down", "internal": ["I2"], "exit": "C0" }
+    ],
+    "ordinary_connections": [
+      ["B0_up", "S00"], ["B0_up", "T01"], ["S00", "B0_down"],
+      ["T01", "B1_down"], ["B1_up", "S11"], ["S11", "B1_down"],
+      ["C0", "R0"], ["R0", "A0"]
+    ],
+    "road_sections": [
+      { "id": "A", "lanes_ordered": ["A0"] },
+      { "id": "B-up", "lanes_ordered": ["B0_up", "B1_up"] },
+      { "id": "TZ", "lanes_ordered": ["S00", "S11"] },
+      { "id": "B-down", "lanes_ordered": ["B0_down", "B1_down"] },
+      { "id": "C", "lanes_ordered": ["C0"] }
+    ],
+    "signal": {
+      "controller": "sig-j2",
+      "type": "fixed-time",
+      "phases_ms": [30000, 30000],
+      "phase_states": [["green", "green"], ["red", "red"]],
+      "note": "J2 两个入口门同相位；验证过渡前后停止线与门 occurrence"
+    },
+    "gates": [
+      { "id": "g0", "path": "P0", "transition_index": 0, "stop_line": "sl0", "control": "sig-j2" },
+      { "id": "g2", "path": "P2", "transition_index": 0, "stop_line": "sl2", "control": "sig-j2" }
+    ],
+    "stop_lines": [
+      { "id": "sl0", "edge": "B0_down", "position": "edge-end" },
+      { "id": "sl2", "edge": "B1_down", "position": "edge-end" }
+    ]
+  },
+  "transition_material": {
+    "t01": {
+      "id": "t01",
+      "kind": "fixed-premade-transition",
+      "direction": "0 -> 1",
+      "boundary_anchor": { "section": "TZ", "lane_pair": [0, 1], "kind": "section-internal-whole-boundary" },
+      "adjacency_fact_source": "RoadSection ordered lanes（cross-section-access.md §3.2/§14）；不得按 ID 或空间接近猜邻接",
+      "permission": {
+        "layer": "policy",
+        "rule": "允许 ParticipantClass=passenger 在全时段跨越；未知/缺失/拒绝一律失败关闭",
+        "physical_marking": "虚线（物理标线事实，不承载许可语义）",
+        "note": "标线事实与许可 policy 分层（cross-section-access.md §14 第 4 条）"
+      },
+      "entry": { "stop_line": "sl-t01", "on_edge": "B0_up", "position": "edge-end", "arbitration": "硬停进入点：进入前原子取得源/目标所需资源；同拍竞争按稳定顺序裁决" },
+      "edge_chain": ["T01"],
+      "full_traversal": ["B0_up", "T01", "B1_down"],
+      "source_lane_chain": ["B0_up", "S00", "B0_down"],
+      "target_lane_chain": ["B1_up", "S11", "B1_down"],
+      "occupancy_projection": {
+        "mode": "conservative-dual-projection",
+        "requirement": "换道期间同一车辆、同一位姿在源与目标车道均有明确占用投影；车身扫掠区保守包含；不重复计数车辆",
+        "detail": "精确投影公式属 #237 G1（needs-g1）；本样本只钉要求与映射对象"
+      },
+      "safety_contracts": {
+        "target_leader": "进入前证明目标 lane leader 领先间隙、制动与最小间距",
+        "target_follower": "进入前证明目标 lane 快速接近后车的滞后间隙；考虑尚未进入共享边的接近车辆",
+        "source_follower": "保护源 lane 后车直到本车车尾清空",
+        "entry_arbitration": "与 Following/Signal/Waiting/Conflict/Parking 同一安全求解顺序；普通 successor 不得充当换道准入",
+        "atomic_commit": "车辆状态、资源持有与事件同一提交生效；拒绝时保留已提交旧状态",
+        "rear_clearance": "源/目标资源保持到真实车尾清空（rear >= clearance），不得在车头离开时释放"
+      },
+      "persistence": {
+        "requirement": "过渡阶段、路线位置、资源预约、等待、清空事实用稳定引用完整保存/重建；恢复不重复 grant/事件；重放得到相同状态摘要",
+        "detail": "快照形状/版本影响属对应切片 G1（needs-g1）"
+      },
+      "expressibility": "needs-237-subcontract"
+    }
+  },
+  "profiles": {
+    "car": { "length_mm": 4500, "max_speed_mm_s": 13900, "min_gap_mm": 2500 },
+    "truck-long": { "length_mm": 12000, "max_speed_mm_s": 11100, "min_gap_mm": 3000 }
+  },
+  "scenarios": [
+    {
+      "id": "s1-materialization-boundary",
+      "group": "反例与对照",
+      "purpose": "钉住边界：同一道路级需求 A B C，展开器只消费存在的过渡材料",
+      "variants": {
+        "with-transition": { "expected": "v-change-1 路线物化为 [A0, I1, B0_up, T01, B1_down, I2, C0]", "expressibility": "route-expansion-today" },
+        "without-transition": { "expected": "移除 T01 后同一需求在 B→C 处 lane-continuity-gap（可达 {0}，所需 {1}）失败关闭；不得改选 lane 或拼接无连接边链", "expressibility": "route-expansion-today" }
+      },
+      "actors": []
+    },
+    {
+      "id": "s2-single-transition-baseline",
+      "group": "单车与位姿",
+      "purpose": "一辆车使用固定过渡完成闭环；直行车对照",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-straight-0", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 2000 }, "route": ["B0_up", "S00", "B0_down", "I0", "C0"], "initial_speed_mm_s": 10000, "role": "straight-lane0" }
+      ],
+      "expected": [
+        "v-change-1 沿完整最终边链到达，中心线/长度/进度连续，无凭空换 lane、无重复距离",
+        "J2 的 sl2/g2 与 P2 route occurrence 正确绑定；红灯在 sl2 前停住",
+        "直行车 v-straight-0 不受过渡影响，保持原车道连续流语义",
+        "不以单车成功验收换道安全"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s3-target-leader-gap",
+      "group": "目标与源车道安全",
+      "purpose": "目标前车间隙不足时进入前停让，安全后前进",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-target-leader", "profile": "car", "spawn": { "edge": "B1_down", "progress_mm": 1000, "speed_mm_s": 3000 }, "route": ["B1_down", "I2", "C0"], "initial_speed_mm_s": 3000, "role": "target-leader" }
+      ],
+      "expected": [
+        "目标领先间隙不足时 v-change-1 在 sl-t01 前停让，不进入 T01",
+        "v-target-leader 拉开间隙后 v-change-1 可进入并完成",
+        "不得只检查目标前车"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s4-target-follower-gap",
+      "group": "目标与源车道安全",
+      "purpose": "目标快速后车滞后间隙不足时进入前停让",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-target-follower", "profile": "car", "spawn": { "edge": "B1_up", "progress_mm": 5500 }, "route": ["B1_up", "S11", "B1_down", "I2", "C0"], "initial_speed_mm_s": 13900, "role": "target-fast-follower" }
+      ],
+      "expected": [
+        "快速接近的目标后车未形成安全滞后间隙时 v-change-1 在进入点前停让",
+        "后车通过或间隙满足后进入；目标后车不被迫紧急制动",
+        "不得进入共享边后才首次感知目标后车"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s5-source-follower-protection",
+      "group": "目标与源车道安全",
+      "purpose": "源车道后车受保护直到过渡车车尾清空",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-source-follower", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 1500 }, "route": ["B0_up", "S00", "B0_down", "I0", "C0"], "initial_speed_mm_s": 12000, "role": "source-follower" }
+      ],
+      "expected": [
+        "v-change-1 车身尚覆盖源 lane 区域时 v-source-follower 按占用/跟车约束减速或等待，不发生物理重叠",
+        "v-change-1 车尾清空后源侧资源释放、跟随恢复正常",
+        "不得以同一 tick 未提交位移充当其他车的实际位置"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s6-same-tick-competition",
+      "group": "同拍与多车",
+      "purpose": "斜向过渡与目标 lane 直行同拍进入，确定性裁决",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-lane1-straight", "profile": "car", "spawn": { "edge": "B1_up", "progress_mm": 2000 }, "route": ["B1_up", "S11", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "straight-lane1" }
+      ],
+      "expected": [
+        "两车在同一 tick 竞争过渡区资源时按稳定顺序裁决，资源不足者等待，恢复后继续",
+        "连续两辆过渡车先后进入同样有确定性结果",
+        "不得以遍历先后或 worker 调度决定结果；不得出现物理重叠"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s7-downstream-blocked",
+      "group": "车尾与下游",
+      "purpose": "下游阻塞时不进入过渡，释放后无残留",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-block", "profile": "car", "spawn": { "edge": "C0", "progress_mm": 2000, "speed_mm_s": 0 }, "route": ["C0"], "initial_speed_mm_s": 0, "role": "downstream-block" },
+        { "id": "v-target-leader", "profile": "car", "spawn": { "edge": "B1_down", "progress_mm": 2000 }, "route": ["B1_down", "I2", "C0"], "initial_speed_mm_s": 8000, "role": "target-leader" }
+      ],
+      "expected": [
+        "下游清空预检不满足时 v-change-1 不进入 T01（下游阻塞不传导为进入）",
+        "v-block 离开、下游恢复后进入并完成；释放后无残留占用/预约",
+        "正常等待不记为非法路线"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s8-long-vehicle",
+      "group": "车尾与下游",
+      "purpose": "长车过渡的占用投影与车尾清空",
+      "actors": [
+        { "id": "v-long", "profile": "truck-long", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 8000, "role": "transition-long" },
+        { "id": "v-source-follower", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 1500 }, "route": ["B0_up", "S00", "B0_down", "I0", "C0"], "initial_speed_mm_s": 10000, "role": "source-follower" }
+      ],
+      "expected": [
+        "12 m 车身过渡期间源/目标占用投影覆盖整车扫掠区",
+        "资源保持到真实车尾清空（rear >= clearance），不得在车头离开时释放",
+        "重复 occurrence 不串用资源"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s9-repeated-occurrence",
+      "group": "同拍与多车",
+      "purpose": "同一路径/过渡在有限 route 中重复出现时资源与出现项不串用",
+      "actors": [
+        { "id": "v-repeat", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0", "R0", "A0", "I1", "B0_up", "S00", "B0_down", "I0", "C0"], "initial_speed_mm_s": 10000, "role": "repeated-occurrence" }
+      ],
+      "expected": [
+        "A0/I1/C0 与 P1 的重复出现项由 route_edge_index 区分，资源预约不跨 occurrence 串用",
+        "第二次通过 J2 走 P0，P0/P2 出现项各自正确",
+        "显式回环合法（route-system.md D3）；不在完成目标外自动循环"
+      ],
+      "expressibility": "route-expansion-today（物化）/ needs-237-subcontract（T01 执行）"
+    },
+    {
+      "id": "s10-snapshot-restore-replay",
+      "group": "持久化与确定性",
+      "purpose": "过渡前/过渡中/清空期保存恢复与重放一致",
+      "capture_points": ["pre-entry", "mid-transition", "clearing"],
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-lane1-straight", "profile": "car", "spawn": { "edge": "B1_up", "progress_mm": 2000 }, "route": ["B1_up", "S11", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "straight-lane1" }
+      ],
+      "expected": [
+        "三个捕获点恢复后与连续运行、重放的规范状态摘要和事件一致",
+        "不丢失横向阶段、不重复 grant/事件、不使用旧 ordinal/修订",
+        "恢复后无残留或提前释放资源；不同 worker 配置下规范结果一致"
+      ],
+      "expressibility": "needs-237-subcontract"
+    },
+    {
+      "id": "s11-structural-negatives",
+      "group": "结构负例",
+      "purpose": "缺失材料一律失败关闭，不得靠放宽使夹具通过",
+      "variants": {
+        "unknown-adjacency": "移除 T01 或其许可：lane-continuity-gap 保持失败，不生成替代边链",
+        "missing-permission": "policy 拒绝/缺失：过渡不可用，车辆在进入点前停让或路线不可交付",
+        "control-misbinding": "sl2/g2 错绑边或 transition_index：注册/加载拒绝",
+        "unprovable-clearance": "无法证明制动/车尾清空的输入：不可交付"
+      },
+      "expected": [
+        "不得通过放宽注册、安全距离、几何检查或冲突覆盖使夹具通过",
+        "不得把 unknown/internal 引用归类为换道缺口"
+      ],
+      "expressibility": "route-expansion-today（缺口类）/ needs-237-subcontract（安全类）"
+    }
+  ]
+}
