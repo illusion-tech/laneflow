@@ -8,9 +8,16 @@
 //! 见证变体候选不回写标准族池；不预期恢复 C24 或任何分量（plan §5）。
 
 use super::coverage::{edge_input, plan_stop_label, replay_span_controls};
+use super::shared_baseline::json_leaf_mismatch;
 use super::*;
+use crate::output::digest::hex_sha256;
 use sampler::grid::{Injection, InjectionKind, WorkBudget};
 use std::collections::BTreeSet;
+
+/// P2-3：锚原文文本钉版（results-anchor.json 312,453 字节；数值对照一律走文本
+/// token 域，不经解析域）。
+const RESULTS_ANCHOR_RAW_SHA256: &str =
+    "d025c4bf6cd2a6c815e9586124034d21c8232d6c9cb46266ad0a5727e658847b";
 
 /// plan §3：注入搜索调用上限 = 清单条数 × 2（每见证首弦/末弦形态各至多一次）。
 const INJECTION_CALLS_PER_WITNESS: usize = 2;
@@ -71,10 +78,6 @@ struct WitnessCandidate {
     variant: &'static str,
     program: re::RoadEditingCurveProgram,
     arc_m: f64,
-}
-
-fn normalized(value: &Value) -> Value {
-    serde_json::from_str(&value.to_string()).unwrap()
 }
 
 impl EdgeBudget {
@@ -328,6 +331,24 @@ fn pinned_lust_witness_guided_search_experiment() {
         comparison["source"]["comparison_only"], true,
         "comparison-only anchor"
     );
+    // P2-3 前置：保锚原文文本（钉版哈希断言），数值对照一律走文本 token 域。
+    let anchor_text = fs::read_to_string(
+        PathBuf::from(std::env::var("SIX_STREAMS_BASELINE_DIR").unwrap())
+            .join("results-anchor.json"),
+    )
+    .unwrap();
+    assert_eq!(
+        hex_sha256(anchor_text.as_bytes()),
+        RESULTS_ANCHOR_RAW_SHA256,
+        "anchor raw text identity"
+    );
+    let components_raw = raw_json_member_text(&anchor_text, "components");
+    // P2-2 修复（Codex 评审）：见证涉及口径 = 冻结见证清单边集合（执行前确定；
+    // 饿死/跳过执行的边仍在统计集并单独报出），不从执行后 map 派生。
+    let frozen_witness_edges: BTreeSet<String> = witness_rows(&inventory())
+        .iter()
+        .map(|row| row["edge"].as_str().unwrap().to_owned())
+        .collect();
     let originals = original_programs(&observation);
     snapshot(&out, &observation, &originals);
     let traffic = observation.traffic.as_ref().unwrap();
@@ -344,10 +365,11 @@ fn pinned_lust_witness_guided_search_experiment() {
         drive_witness_guided_searches(&observation, &order);
     timing["witness_searches"] = search_timing;
     recovery::write_json(&out, "witness-guided-searches.json", &search_evidence);
-    // (a) 候选资格验证：搜索内接受（实际长度/sink 转角/0.01 m）+ 双向拟合
-    // （复核域独立计费；`quality::fit` 同算法双向估计 ≤ 原参考）+ 编译/LFCA/锚点
-    // 全量验证。原参考 = 该边原修复曲线逐 span 六点控制；候选 = 发射折线逐弦退化
-    // cubic（fit 仅取前四点，线性插值即直线弦）。复核域计数独立报出（lead 裁决）。
+    // (a) 候选资格验证（P2-1 修复后口径）：搜索内接受（实际长度/sink 转角/0.01 m）
+    // + 双向拟合（复核域独立计费）+ 编译/LFCA/锚点全量验证。全 span 参考（独立于
+    // 发射成败、覆盖断言）；**正式判定 = 同表示 B 口径**（候选折线 vs 原参考发射
+    // 折线，同一估计函数；维护者裁定 2026-10-30），跨表示（vs 参考曲线）仅作表示
+    // 伪影证据列。复核域计数独立报出（lead 裁决）。
     let mut qualification_rows = Vec::new();
     let mut witness_pool: combinations::Pools = BTreeMap::new();
     let mut review_fit_calls = 0_u64;
@@ -356,15 +378,23 @@ fn pinned_lust_witness_guided_search_experiment() {
     for (edge, cands) in &witness_candidates {
         let input = edge_input(&observation, edge);
         let mut review_handle = WorkBudget::per_edge_default();
-        let reference_controls: Vec<[[f64; 3]; 6]> =
-            replay_span_controls(input).into_values().collect();
+        let reference_controls = full_reference_controls(input);
+        let reference_polyline = reference_emitted_polyline(&reference_controls);
+        let reference_polyline_controls = polyline_as_controls(&reference_polyline);
         review_fit_calls += 1;
-        let reference_fit = sampler::reshape::quality::fit_with_handle(
+        let reference_curve_fit = sampler::reshape::quality::fit_with_handle(
             &reference_controls,
             &input.points,
             &mut review_handle,
         )
-        .expect("bounded reference fit");
+        .expect("bounded reference curve fit");
+        review_fit_calls += 1;
+        let reference_polyline_fit = sampler::reshape::quality::fit_with_handle(
+            &reference_polyline_controls,
+            &input.points,
+            &mut review_handle,
+        )
+        .expect("bounded reference polyline fit");
         let component = components
             .iter()
             .find(|c| c.missing_edges.iter().any(|m| m == edge))
@@ -373,36 +403,39 @@ fn pinned_lust_witness_guided_search_experiment() {
         let path = &part.maneuver_paths[0];
         for cand in cands {
             let points = program_points(&cand.program);
-            let candidate_controls: Vec<[[f64; 3]; 6]> = points
-                .windows(2)
-                .map(|w| {
-                    let (a, b) = (w[0], w[1]);
-                    let lerp = |t: f64| {
-                        [
-                            a[0] + t * (b[0] - a[0]),
-                            a[1] + t * (b[1] - a[1]),
-                            a[2] + t * (b[2] - a[2]),
-                        ]
-                    };
-                    [a, lerp(1.0 / 3.0), lerp(2.0 / 3.0), b, [0.0; 3], [0.0; 3]]
-                })
-                .collect();
+            let candidate_controls = polyline_as_controls(&points);
             review_fit_calls += 1;
             let candidate_fit = sampler::reshape::quality::fit_with_handle(
                 &candidate_controls,
                 &input.points,
                 &mut review_handle,
             );
-            let fit_row = match candidate_fit {
-                Some(fit) => json!({"status":"executed",
-                    "pass":fit.within(reference_fit),
-                    "candidate":{"curve_to_source_estimate_m":fit.curve_to_source_estimate_m,
-                        "source_to_curve_estimate_m":fit.source_to_curve_estimate_m},
-                    "reference":{"curve_to_source_estimate_m":reference_fit.curve_to_source_estimate_m,
-                        "source_to_curve_estimate_m":reference_fit.source_to_curve_estimate_m},
-                    "screen":"both directional upper estimates <= original reference (same algorithm)"}),
-                None => json!({"status":"not_executed",
-                    "reason":"review_domain_fit_budget_exhausted"}),
+            let (fit_row, fit_pass) = match candidate_fit {
+                Some(fit) => {
+                    let same_pass = fit.within(reference_polyline_fit);
+                    let cross_pass = fit.within(reference_curve_fit);
+                    (
+                        json!({"status":"executed",
+                        "same_representation":{"pass":same_pass,
+                            "screen":"candidate polyline not worse than reference emitted polyline (same estimator; maintainer ruling 2026-10-30 B)",
+                            "candidate":{"curve_to_source_estimate_m":fit.curve_to_source_estimate_m,
+                                "source_to_curve_estimate_m":fit.source_to_curve_estimate_m},
+                            "reference_emitted_polyline":{
+                                "curve_to_source_estimate_m":reference_polyline_fit.curve_to_source_estimate_m,
+                                "source_to_curve_estimate_m":reference_polyline_fit.source_to_curve_estimate_m,
+                                "points":reference_polyline.len()}},
+                        "cross_representation_artifact":{"pass":cross_pass,
+                            "reference_curves":{
+                                "curve_to_source_estimate_m":reference_curve_fit.curve_to_source_estimate_m,
+                                "source_to_curve_estimate_m":reference_curve_fit.source_to_curve_estimate_m}}}),
+                        same_pass,
+                    )
+                }
+                None => (
+                    json!({"status":"not_executed",
+                        "reason":"review_domain_fit_budget_exhausted"}),
+                    false,
+                ),
             };
             let mut programs = originals.clone();
             programs.insert(edge.clone(), cand.program.clone());
@@ -416,11 +449,11 @@ fn pinned_lust_witness_guided_search_experiment() {
             };
             let outcome = match (
                 fit_row["status"].as_str().unwrap(),
-                fit_row["pass"].as_bool(),
+                fit_pass,
                 compile_outcome,
             ) {
-                (_, Some(false), _) => "fit_rejected",
                 ("not_executed", _, _) => "not_executed",
+                (_, false, _) => "fit_rejected",
                 (_, _, "geometry_rejected") => "geometry_rejected",
                 (_, _, "not_executed") => "not_executed",
                 _ => "qualified",
@@ -495,12 +528,23 @@ fn pinned_lust_witness_guided_search_experiment() {
                 .map(|total| total - result["trials"].as_array().unwrap().len() as u64);
             result["unvisited_assignments"] = json!(unvisited);
             if variant == "baseline" {
-                let prior = &comparison["components"][index];
-                assert_eq!(prior["component"], json!(component.id));
+                // P2-3 修复（Codex 评审）：锚原文文本按字节切片、文本 token 域比较
+                // （`json_leaf_mismatch`，数字叶 f64::from_str 位级），不双侧 normalize
+                // 进解析域（serde 1 ULP 坑）。组件行比 `result` 成员原文（行内 `cohort`
+                // 标记随各路冻结分量不同，属行级元数据不入对照）。
+                let prior_row_text = raw_json_array_element(components_raw, index);
                 assert_eq!(
-                    normalized(&result),
-                    prior["result"],
-                    "baseline component matches the result comparison anchor"
+                    raw_json_value_text(raw_json_member_text(prior_row_text, "component")),
+                    json!(component.id).to_string(),
+                    "baseline component id matches the result comparison anchor (text domain)"
+                );
+                assert_eq!(
+                    json_leaf_mismatch(
+                        raw_json_value_text(raw_json_member_text(prior_row_text, "result")),
+                        &result.to_string()
+                    ),
+                    None,
+                    "baseline component matches the result comparison anchor (text token domain)"
                 );
             }
             if result["status"] == "accepted" {
@@ -517,7 +561,7 @@ fn pinned_lust_witness_guided_search_experiment() {
             let affected = component
                 .missing_edges
                 .iter()
-                .any(|m| witness_candidates.contains_key(m));
+                .any(|m| frozen_witness_edges.contains(m));
             rows.push(json!({"component":component.id,"result":result,
                 "witness_affected":affected}));
         }
@@ -574,10 +618,22 @@ fn pinned_lust_witness_guided_search_experiment() {
         .filter(|c| {
             c.missing_edges
                 .iter()
-                .any(|m| witness_candidates.contains_key(m))
+                .any(|m| frozen_witness_edges.contains(m))
         })
         .flat_map(|c| c.paths.iter().cloned())
         .collect::<BTreeSet<_>>();
+    // P2-2：跳过执行单独报出（饿死/域外跳过的冻结边，仍在统计集）。
+    let executed_injection_edges: BTreeSet<String> = search_evidence["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["status"] == "executed" && row["variant"] != "standard_grid")
+        .map(|row| row["edge"].as_str().unwrap().to_owned())
+        .collect();
+    let skipped_execution: Vec<&String> = frozen_witness_edges
+        .iter()
+        .filter(|edge| !executed_injection_edges.contains(*edge))
+        .collect();
     let affected_rows = witness_result["components"]
         .as_array()
         .unwrap()
@@ -608,7 +664,10 @@ fn pinned_lust_witness_guided_search_experiment() {
                 "original_targets_84":{"baseline_accepted":baseline_result["path_counts"]["accepted"],
                     "witness_accepted":witness_result["path_counts"]["accepted"]},
                 "witness_affected_paths":{"paths":affected_paths.len(),
-                    "note":"见证涉及关联路径口径（含分量完整路径）；两口径分列、新增收益不并入基线"}},
+                    "note":"见证涉及关联路径口径（含分量完整路径）；成员资格取冻结见证清单；两口径分列、新增收益不并入基线"}},
+            "witness_statistics_set":{"frozen_edges":frozen_witness_edges.len(),
+                "skipped_execution_edges":skipped_execution,
+                "note":"P2-2：成员资格取冻结见证清单（执行前确定，不从执行后 map 派生）；跳过执行（饿死/域外）单独报出、仍在统计集"},
             "variants":results,
             "stop_line_note":"D 冻结 26 行三情形口径复用；见证涉及停止线边本轮结果归情形；依赖不齐记未执行",
             "all_original_geometry_and_controls_equal":true,"production_g1_accepted":false}),
@@ -620,13 +679,14 @@ fn pinned_lust_witness_guided_search_experiment() {
 }
 
 /// 口径修订复算（维护者裁定 2026-10-30，B 同表示基准；plan §4 修订记录）：**只重算
-/// (a) 列双向拟合资格**——候选折线 vs 原参考的**发射折线**（原参考曲线逐 span 取
-/// cubic、513 节点均匀网格采样后 f32 规范化链接；同一 `quality::fit` 估计函数、
-/// 折线对折线同表示公平比较），"不劣于原参考" = `within`（双向上界估计均 ≤ 原参考
-/// 发射折线）。不重跑搜索（8 份候选几何证据外置直接复算）；原跨表示 8/8 拒绝
-/// （折线 vs 曲线，参考反向值受曲线控制多边形项污染）作为表示伪影证据随输入原样
-/// 保留。复核域独立计费同 plan §4。若出现 qualified → (a) 入池 → (c) 终验 → 两口径
-/// 收益更新；池空则 (c) 记 not_triggered。
+/// (a) 列双向拟合资格**——候选折线 vs 原参考的**发射折线**（全 span 参考经 513 节点
+/// 均匀网格采样后 f32 规范化链接；同一 `quality::fit` 估计函数、折线对折线同表示
+/// 公平比较），"不劣于原参考" = `within`（双向上界估计均 ≤ 原参考发射折线）。不重跑
+/// 搜索。历史注记：原跨表示 8/8 拒绝及参考反向 125.19 m 为**截断参考**所致（P2-1：
+/// `replay_span_controls` 遇发射失败即截断，`--30266_0` 失败于 span 0/6 只捕获
+/// span 0），作历史证据随输入原样保留（`cross_representation_artifact` 列）。复核域
+/// 独立计费同 plan §4。若出现 qualified → (a) 入池 → (c) 终验 → 两口径收益更新；
+/// 池空则 (c) 记 not_triggered。
 #[test]
 #[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, SIX_STREAMS_BASELINE_DIR, WITNESS_GUIDED_RECOMPUTE_INPUT (run-00 evidence dir), fresh WITNESS_GUIDED_RECOMPUTE_OUTPUT"]
 fn recompute_witness_qualification_same_representation() {
@@ -648,21 +708,10 @@ fn recompute_witness_qualification_same_representation() {
         let variant = prior_row["variant"].as_str().unwrap().to_owned();
         let input = edge_input(&observation, edge);
         let mut review_handle = WorkBudget::per_edge_default();
-        // 原参考的发射折线：逐 span 六点控制取前四点（cubic），513 节点均匀参数
-        // 网格采样（grid 族基网格）、f32 规范化、跨 span 去重链接。
-        let mut reference_points: Vec<[f64; 3]> = Vec::new();
-        let controls = replay_span_controls(input);
-        let mut keys: Vec<usize> = controls.keys().copied().collect();
-        keys.sort_unstable();
-        for key in keys {
-            let c = controls[&key];
-            for k in 0..=512 {
-                let p = quantize_f32(cubic_bezier(c[0], c[1], c[2], c[3], k as f64 / 512.0));
-                if reference_points.last() != Some(&p) {
-                    reference_points.push(p);
-                }
-            }
-        }
+        // 原参考的发射折线（P2-1 修复后）：全 span 参考（独立于发射成败、覆盖断言）
+        // 经 513 网格采样 f32 规范化（`reference_emitted_polyline`，与主入口同一基元）。
+        let reference_controls = full_reference_controls(input);
+        let reference_points = reference_emitted_polyline(&reference_controls);
         // 候选折线：规范程序点位（start + 各 line 段 end；见证候选全为直线段，
         // canvas_selection 为 null——断言保持该形态）。
         let mut candidate_points = vec![from_bits3(prior_row["program"]["start"].clone())];
@@ -816,6 +865,110 @@ fn recompute_witness_qualification_same_representation() {
     println!("same-representation recompute saved={}", out.display());
 }
 
+/// P2-3 原文切片基元：值尾定位（字符串感知的括号配平；标量截到分隔符）。不经解析域，
+/// 数字拼写逐字保留（serde 1 ULP 坑免疫）。
+fn raw_json_value_end(bytes: &[u8], start: usize) -> usize {
+    match bytes[start] {
+        b'"' => {
+            let mut i = start + 1;
+            while bytes[i] != b'"' {
+                if bytes[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i + 1
+        }
+        b'{' | b'[' => {
+            let mut i = start;
+            let mut depth = 0_i32;
+            loop {
+                match bytes[i] {
+                    b'"' => {
+                        i += 1;
+                        while bytes[i] != b'"' {
+                            if bytes[i] == b'\\' {
+                                i += 1;
+                            }
+                            i += 1;
+                        }
+                    }
+                    b'{' | b'[' => depth += 1,
+                    b'}' | b']' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return i + 1;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+        _ => {
+            let mut i = start;
+            while i < bytes.len()
+                && !matches!(bytes[i], b',' | b'}' | b']')
+                && !bytes[i].is_ascii_whitespace()
+            {
+                i += 1;
+            }
+            i
+        }
+    }
+}
+
+/// 键成员值原文切片（`"key":` 后的完整值域）。
+fn raw_json_member_text<'a>(text: &'a str, key: &str) -> &'a str {
+    let pattern = format!("\"{key}\":");
+    let start = text
+        .find(&pattern)
+        .unwrap_or_else(|| panic!("member {key} in anchor text"))
+        + pattern.len();
+    let bytes = text.as_bytes();
+    let mut i = start;
+    while bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    &text[i..raw_json_value_end(bytes, i)]
+}
+
+/// 值原文收紧（容器整体保留；标量截到值尾）。
+fn raw_json_value_text(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    match bytes[0] {
+        b'{' | b'[' => value,
+        _ => &value[..raw_json_value_end(bytes, 0)],
+    }
+}
+
+/// 数组第 index 个元素原文切片（顶层元素序）。
+fn raw_json_array_element(array_text: &str, index: usize) -> &str {
+    let bytes = array_text.as_bytes();
+    assert_eq!(bytes[0], b'[', "array text");
+    let mut i = 1;
+    let mut current = 0_usize;
+    loop {
+        while bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if bytes[i] == b']' {
+            panic!("array element {index} out of range");
+        }
+        let end = raw_json_value_end(bytes, i);
+        if current == index {
+            return &array_text[i..end];
+        }
+        current += 1;
+        i = end;
+        while bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        assert_eq!(bytes[i], b',', "array element separator");
+        i += 1;
+    }
+}
+
 fn cubic_bezier(a: [f64; 3], c1: [f64; 3], c2: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
     let u = 1.0 - t;
     let mut p = [0.0; 3];
@@ -859,6 +1012,29 @@ fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
             [a, lerp(1.0 / 3.0), lerp(2.0 / 3.0), b, [0.0; 3], [0.0; 3]]
         })
         .collect()
+}
+
+/// P2-1 修复（Codex 评审）：**全 span 参考重建**——独立于发射成败（reshape 观察模式
+/// 全链构建，starts-at-source / ends-at-source / chain-continuity 三断言钉覆盖完整）。
+/// `replay_span_controls` 为逐 span 控制点载体链（诊断 span = 原失败 span 必然被捕获），
+/// 但**遇发射失败即截断**（`--30266_0` 失败于 span 0/6 只捕获 span 0），不得用作全边参考。
+fn full_reference_controls(input: &observe::EdgeInput) -> Vec<[[f64; 3]; 6]> {
+    sampler::reshape::reference(input)
+}
+
+/// B 口径基准（原参考的发射折线）：全 span 六点控制取前四点（cubic），513 节点均匀
+/// 参数网格采样（grid 族基网格）、f32 规范化、跨 span 去重链接。
+fn reference_emitted_polyline(controls: &[[[f64; 3]; 6]]) -> Vec<[f64; 3]> {
+    let mut points: Vec<[f64; 3]> = Vec::new();
+    for c in controls {
+        for k in 0..=512 {
+            let p = quantize_f32(cubic_bezier(c[0], c[1], c[2], c[3], k as f64 / 512.0));
+            if points.last() != Some(&p) {
+                points.push(p);
+            }
+        }
+    }
+    points
 }
 
 #[test]
