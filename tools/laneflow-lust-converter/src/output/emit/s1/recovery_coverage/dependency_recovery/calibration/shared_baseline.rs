@@ -217,7 +217,7 @@ fn json_numeric_literals(text: &[u8]) -> Vec<&[u8]> {
 const POOL_JSON_SHA256: &str = "31fca69617e2fd5d818aafc64b6704451475e05bf3aa3918391e1a2f9feb1bb3";
 const RESULTS_ANCHOR_SHA256: &str =
     "d025c4bf6cd2a6c815e9586124034d21c8232d6c9cb46266ad0a5727e658847b";
-const MANIFEST_SHA256: &str = "7bb522c5a228b4fec0cce8f793297119a1cc03a832758fc043c18f3aa0b7d33a";
+const MANIFEST_SHA256: &str = "656fb97e66f0b8829664082a9e231c8eef35cb129d5496ddc3262de2375a2bcc";
 
 /// 来源⑥钉版（#1134 冻结四轮 ABBA 逐字节一致的 run-03 输出；两文件各 157,603 /
 /// 1,313,285 字节）。
@@ -225,6 +225,120 @@ const RUN3_OLD_SEARCHES_SHA256: &str =
     "011db49fad061d945ab7d21858d73961d8234e2955450fd4f040269d04309dba";
 const RUN3_GRID_SEARCHES_SHA256: &str =
     "7b8b2e1f28f1d7e47aed6ff5222086971a1ae2838dad07559ff03efd94513fe9";
+
+/// program 对象 u64 位逐个提取（lead ④ 裁决硬门 1：几何/判定唯一权威输入的位级断言）。
+/// 入参为 `{"start":[…],"segments":[{"end":[…]}]}` 形态的 program 对象。
+fn program_u64_bits(program_value: &Value) -> Vec<u64> {
+    let mut bits = Vec::new();
+    for value in program_value["start"].as_array().unwrap() {
+        bits.push(value.as_u64().unwrap());
+    }
+    for segment in program_value["segments"].as_array().unwrap() {
+        for value in segment["end"].as_array().unwrap() {
+            bits.push(value.as_u64().unwrap());
+        }
+    }
+    bits
+}
+
+/// JSON 文本叶 token（文本 token 域位级比较原语；serde_json 1.0.154 默认解析对 17 位
+/// 十进制存在 1 ULP 误舍入，解析域位比较对忠实锚误报、对折叠对漏报——数值比较一律
+/// 走本域）。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(in super::super) enum JsonLeafToken<'a> {
+    /// 字符串字面量原文（含引号；键同此形态，逐字比较）。
+    Str(&'a [u8]),
+    /// 数字 token 原文。
+    Number(&'a [u8]),
+    /// `true`/`false`/`null` 原文。
+    Literal(&'a [u8]),
+}
+
+/// 逐叶提取 JSON 文本 token（文档序；结构字符与空白忽略）。
+pub(in super::super) fn json_leaf_tokens(text: &[u8]) -> Vec<JsonLeafToken<'_>> {
+    let mut tokens = Vec::new();
+    let mut pos = 0;
+    while pos < text.len() {
+        match text[pos] {
+            b'"' => {
+                let start = pos;
+                skip_json_value(text, &mut pos);
+                tokens.push(JsonLeafToken::Str(&text[start..pos]));
+            }
+            b'-' | b'0'..=b'9' => {
+                let start = pos;
+                skip_json_value(text, &mut pos);
+                tokens.push(JsonLeafToken::Number(&text[start..pos]));
+            }
+            b't' | b'f' | b'n' => {
+                let start = pos;
+                skip_json_value(text, &mut pos);
+                tokens.push(JsonLeafToken::Literal(&text[start..pos]));
+            }
+            _ => pos += 1,
+        }
+    }
+    tokens
+}
+
+/// 文本 token 域位级比较（lead 插队规格）：数字 token 以 `f64::from_str`（标准库正确
+/// 舍入）→ `to_bits` 比较（整数叶 u64 逐位）、字符串/字面量逐字比较；两文本叶流按文档
+/// 序逐叶对齐，返回首个不匹配描述（`None` = 全等）。锚 vs 源切片、重算值 vs 锚统一走
+/// 本域（全路复用）。
+pub(in super::super) fn json_leaf_mismatch(expected: &str, actual: &str) -> Option<String> {
+    let left = json_leaf_tokens(expected.as_bytes());
+    let right = json_leaf_tokens(actual.as_bytes());
+    if left.len() != right.len() {
+        return Some(format!("leaf count {} vs {}", left.len(), right.len()));
+    }
+    for (index, (l, r)) in left.iter().zip(right.iter()).enumerate() {
+        match (l, r) {
+            (JsonLeafToken::Str(a), JsonLeafToken::Str(b))
+            | (JsonLeafToken::Literal(a), JsonLeafToken::Literal(b)) => {
+                if a != b {
+                    return Some(format!(
+                        "leaf {index}: string/literal {} vs {}",
+                        String::from_utf8_lossy(a),
+                        String::from_utf8_lossy(b)
+                    ));
+                }
+            }
+            (JsonLeafToken::Number(a), JsonLeafToken::Number(b)) => {
+                if a == b {
+                    continue;
+                }
+                let av = std::str::from_utf8(a).unwrap();
+                let bv = std::str::from_utf8(b).unwrap();
+                let floats = av.contains(['.', 'e', 'E']) || bv.contains(['.', 'e', 'E']);
+                let (abits, bbits) = if floats {
+                    (
+                        av.parse::<f64>().unwrap().to_bits(),
+                        bv.parse::<f64>().unwrap().to_bits(),
+                    )
+                } else if let (Ok(x), Ok(y)) = (av.parse::<u64>(), bv.parse::<u64>()) {
+                    (x, y)
+                } else {
+                    (
+                        av.parse::<f64>().unwrap().to_bits(),
+                        bv.parse::<f64>().unwrap().to_bits(),
+                    )
+                };
+                if abits != bbits {
+                    return Some(format!(
+                        "leaf {index}: number {av} (bits {abits:#018x}) vs {bv} (bits {bbits:#018x})"
+                    ));
+                }
+            }
+            _ => return Some(format!("leaf {index}: token kind mismatch")),
+        }
+    }
+    None
+}
+
+/// 派生元数据非逐字清单（lead ④ 裁决硬门 2；来源/候选/字段级，17 组 60 条）：
+/// `pool.json` 的 `arc_m`/`spans` 经浮点再序列化相对来源存在非逐字字符串（1 ULP 家族）；
+/// `program` u64 位逐字精确。清单随 MANIFEST 发布、README 差异记录同列。
+const METADATA_DRIFT_GROUPS: &str = r#"[{"source":"1103","edge":"sumo::-10004_5_1","field":"arc_m","pool_indices":[2]},{"source":"1103","edge":"sumo::-10004_5_1","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1103","edge":"sumo::-10034_0_0","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1103","edge":"sumo::-10130_16_0","field":"arc_m","pool_indices":[1,3,4,7]},{"source":"1103","edge":"sumo::-10130_16_0","field":"spans","pool_indices":[6]},{"source":"1103","edge":"sumo::-10130_8_0","field":"arc_m","pool_indices":[5]},{"source":"1103","edge":"sumo::-10130_8_0","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1103","edge":"sumo::-29388_3_0","field":"arc_m","pool_indices":[5,6]},{"source":"1107","edge":"sumo::-7348_3_0","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1111","edge":"sumo::-10004_5_1","field":"arc_m","pool_indices":[11,13,15]},{"source":"1111","edge":"sumo::-7348_3_0","field":"arc_m","pool_indices":[15]},{"source":"1111","edge":"sumo::-7348_3_0","field":"spans","pool_indices":[8,9,10,11,12,13,14,15]},{"source":"1115","edge":"sumo::-16502_0_0","field":"spans","pool_indices":[0]},{"source":"1115","edge":"sumo::-28860_3_0","field":"spans","pool_indices":[1]},{"source":"1134-old","edge":"sumo::-25332_7_0","field":"arc_m","pool_indices":[3,6]},{"source":"1134-old","edge":"sumo::-25332_7_0","field":"spans","pool_indices":[2,3]},{"source":"1134-grid","edge":"sumo::-25332_7_0","field":"spans","pool_indices":[14]}]"#;
 
 /// 候选去重键：整程序点位的规范 f32 位串（逐字沿 `experiment::merge`）。
 fn canonical_key(program: &re::RoadEditingCurveProgram) -> Vec<[u32; 3]> {
@@ -489,9 +603,9 @@ fn assert_rebuild_matches_package(rows: &Value, sources: &[(usize, Value)]) {
         assert_eq!(candidates.len(), programs.len(), "rebuild length {id}");
         for (candidate, program) in candidates.iter().zip(programs) {
             assert_eq!(
-                candidate["program"],
-                json!(program_bits(program)),
-                "rebuild candidate order {id}"
+                program_u64_bits(&candidate["program"]),
+                program_u64_bits(&json!(program_bits(program))),
+                "rebuild candidate program u64 bits exact {id}"
             );
         }
     }
@@ -598,6 +712,11 @@ fn shared_baseline_export() {
             "per_edge":FINAL_PER_EDGE.iter().map(|(id,count)|(id.to_string(),count)).collect::<BTreeMap<String,_>>()},
         "sources":manifest_sources,
         "candidate_sources":provenance,
+        "derived_metadata":{
+            "fields":["arc_m","spans"],
+            "authority":"derived metadata, not authoritative; program u64 bits are the sole authoritative geometry input",
+            "non_verbatim_strings":serde_json::from_str::<Value>(METADATA_DRIFT_GROUPS).unwrap(),
+        },
         "anchor_source":{
             "asset":"evidence/run-03/results.json","sha256":RUN3_RESULTS_SHA256,"bytes":631650,
             "json_pointer":"#variants.new","generation":"92-池行",
@@ -644,6 +763,70 @@ fn temp_probe_dir() -> PathBuf {
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+#[test]
+fn shared_baseline_program_fields_are_bit_exact() {
+    // 硬门 1（lead ④ 裁决）：program 为几何/判定唯一权威输入，u64 位逐位精确——
+    // 大位模式（1 ULP 相邻对）经合并/池文本往返后逐位相等，锁死不经浮点化。
+    let a = json!({"program":{"start":[4624643347766747136u64,0,0],
+        "segments":[{"end":[4624643347766747137u64,0,0],"canvas_selection":null}]},
+        "arc_m":10.220051765441895,"spans":[]});
+    let source = json!({"sumo::e0-synthetic":{"candidates":[a.clone()]}});
+    let (rows, _provenance, _per_stage) = build_pool(&[(1, &source)]);
+    let reparsed: Value = serde_json::from_str(&rows.to_string()).unwrap();
+    let record = &reparsed["sumo::e0-synthetic"]["candidates"][0];
+    assert_eq!(
+        program_u64_bits(&record["program"]),
+        program_u64_bits(&a["program"]),
+        "program u64 bits exact"
+    );
+    assert_eq!(
+        program_u64_bits(&record["program"])[0],
+        4_624_643_347_766_747_136,
+        "large bit pattern"
+    );
+    assert_eq!(
+        program_u64_bits(&record["program"])[3],
+        4_624_643_347_766_747_137,
+        "1 ULP neighbour"
+    );
+}
+
+#[test]
+fn shared_baseline_text_token_domain_distinguishes_ulp_pair() {
+    // 回归（lead 插队规格 3）：17 位十进制相邻对 …895/…896 在文本 token 域必须区分
+    // （标准库正确舍入；serde_json 默认解析对二者误舍入折叠 → 漏报）。
+    let faithful = "{\"x\":10.220051765441895}";
+    assert_eq!(
+        json_leaf_mismatch(faithful, "{\"x\":10.220051765441895}"),
+        None
+    );
+    assert!(
+        json_leaf_mismatch(faithful, "{\"x\":10.220051765441896}").is_some(),
+        "ULP pair must be distinguished"
+    );
+    // 整数叶 u64 位逐位（program 位模式相邻对）。
+    assert!(
+        json_leaf_mismatch("{\"p\":4624643347766747136}", "{\"p\":4624643347766747137}").is_some()
+    );
+    assert_eq!(
+        json_leaf_mismatch("{\"p\":4624643347766747136}", "{\"p\":4624643347766747136}"),
+        None
+    );
+    // 字符串字面量逐字。
+    assert!(json_leaf_mismatch("{\"s\":\"a\"}", "{\"s\":\"b\"}").is_some());
+    assert_eq!(json_leaf_mismatch("{\"s\":\"a\"}", "{\"s\":\"a\"}"), None);
+    // 与位忠实拼接衔接：文本 token 埲与逐字域在忠实文本上同判全等。
+    let anchor_like = "{\"source\":{\"a\":1},\"k\":10.220051765441895}";
+    assert_eq!(
+        json_leaf_mismatch(
+            "{\"source\":{\"a\":1},\"k\":10.220051765441895}",
+            anchor_like
+        ),
+        None,
+        "leaf domain ties to verbatim splice"
+    );
 }
 
 fn synthetic_candidate(end_x: f64, arc_m: f64) -> Value {
