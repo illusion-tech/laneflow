@@ -1,0 +1,4239 @@
+{
+  "schema": "laneflow-1137-k2-old-family-frozen-records",
+  "purpose": "K2 旧族重放逐值一致校准的冻结对照（#1131 冻结实验 stream-a-searches.json 的逐配置状态/拒绝计数/成功分区与候选记录摘录；剔除控制点位与拟合浮点，判定口径防漂移）",
+  "source": "research/issue-1131-curve-design-c29-c17 冻结实验（stream-a-searches.json）",
+  "edges": {
+    "sumo::-10564_3_0": {
+      "geometries": [
+        {
+          "geometry": 0,
+          "description": {
+            "group": "reference"
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 5,
+            "sink": 185
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 1,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 16,
+            "sink": 174
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 2,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 19,
+            "sink": 171
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 3,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 21,
+            "sink": 169
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 4,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 5,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 6,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 7,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 8,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 18,
+            "sink": 172
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 9,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 14,
+            "sink": 176
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 10,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 15,
+            "sink": 175
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 11,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 12,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 13,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 14,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 15,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 13,
+            "sink": 177
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 16,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 7,
+            "sink": 183
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 17,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 5,
+            "sink": 185
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 18,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 19,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 20,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 21,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 22,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 7,
+            "sink": 183
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 23,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 10,
+            "sink": 180
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 24,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 25,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 26,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 27,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 28,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 29,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 30,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 31,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 32,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 33,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 34,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 35,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 36,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 37,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 38,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 39,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 40,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 41,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 42,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 43,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              0.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 44,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              0.75
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 45,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              1.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 46,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 47,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 48,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 49,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 50,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 51,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 52,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 53,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 54,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 55,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 56,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 57,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 58,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 59,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 60,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 61,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 62,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 63,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 64,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 65,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 66,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 67,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 68,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 69,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 70,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 71,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 72,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 73,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 74,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 75,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 76,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 77,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 78,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 79,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 80,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              1.0
+            ]
+          },
+          "status": "candidate_found",
+          "partition_rejections": {
+            "sampling_deviation": 36,
+            "sink": 79
+          },
+          "successful_partitions": [
+            {
+              "family": 0,
+              "n": 22
+            }
+          ]
+        },
+        {
+          "geometry": 81,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 82,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 83,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 84,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 85,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 33,
+            "sink": 157
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 86,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 87,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 88,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 89,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 90,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 91,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 92,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              0.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 93,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              0.75
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 94,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              1.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 95,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 96,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 97,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 98,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 99,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 100,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 101,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 102,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 103,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 104,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 105,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 106,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 107,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 108,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 109,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 110,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 111,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 112,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 113,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 114,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 115,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 116,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 117,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 118,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 119,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 120,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 121,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 122,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 123,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 124,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 125,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 126,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 127,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 128,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 129,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              1.0
+            ]
+          },
+          "status": "candidate_found",
+          "partition_rejections": {
+            "sampling_deviation": 36,
+            "sink": 79
+          },
+          "successful_partitions": [
+            {
+              "family": 0,
+              "n": 22
+            }
+          ]
+        },
+        {
+          "geometry": 130,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 131,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 132,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 133,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 134,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 33,
+            "sink": 157
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 135,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 136,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 137,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 138,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 139,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 140,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 141,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              0.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 142,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              0.75
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 143,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              1.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 144,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 145,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 146,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 147,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        }
+      ],
+      "candidates": [
+        {
+          "arc_m": 4.595363616943359,
+          "program": {
+            "segments": [
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877347446847948329,
+                  0,
+                  13866686423285976522
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877346486482719929,
+                  0,
+                  13866683267743502149
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877345597536996105,
+                  0,
+                  13866680208263300058
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877344775583076372,
+                  0,
+                  13866677234336767518
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877344016193260259,
+                  0,
+                  13866674335455301806
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877343314939847281,
+                  0,
+                  13866671501110300190
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877342667395136966,
+                  0,
+                  13866668720793159946
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877342069131428829,
+                  0,
+                  13866665983995278343
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877341515721022396,
+                  0,
+                  13866663280208052656
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877341002736217190,
+                  0,
+                  13866660598922880157
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877340525749312732,
+                  0,
+                  13866657929631158119
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877340080332608542,
+                  0,
+                  13866655261824283813
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877339662058404142,
+                  0,
+                  13866652584993654512
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877339266498999056,
+                  0,
+                  13866649888630667488
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877338889226692805,
+                  0,
+                  13866647162226720016
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877338525813784909,
+                  0,
+                  13866644395273209367
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877338171832574892,
+                  0,
+                  13866641577261532812
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877337822855362274,
+                  0,
+                  13866638697683087625
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877337474454446579,
+                  0,
+                  13866635746029271078
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877337122202127327,
+                  0,
+                  13866632711791480443
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877336761670704041,
+                  0,
+                  13866629584461112995
+                ]
+              },
+              {
+                "canvas_selection": null,
+                "end": [
+                  13877336388432476242,
+                  0,
+                  13866626353529566003
+                ]
+              }
+            ],
+            "start": [
+              13877348483060381778,
+              0,
+              13866689685399325901
+            ]
+          },
+          "spans": [
+            {
+              "canonical_source_fit": {
+                "curve_to_source_estimate_m": 0.0685840722537385,
+                "source_to_curve_estimate_m": 0.06923204079117098
+              },
+              "control_f64_bits": [
+                [
+                  [
+                    13877348483060381778,
+                    0,
+                    13866689685399325901
+                  ],
+                  [
+                    13877340595239516797,
+                    0,
+                    13866665346787193197
+                  ],
+                  [
+                    13877339182927697815,
+                    0,
+                    13866650452586264485
+                  ],
+                  [
+                    13877336388432476242,
+                    0,
+                    13866626353529566003
+                  ],
+                  [
+                    4605307063872131583,
+                    0,
+                    4603676713425315769
+                  ],
+                  [
+                    4601251624040798569,
+                    0,
+                    4606346236788486668
+                  ]
+                ]
+              ],
+              "geometry": 80,
+              "parameter_f64_bits": [
+                [
+                  0,
+                  4586711511402878790,
+                  4591215111030249286,
+                  4594081038065848692,
+                  4595718710657619782,
+                  4597356383249390871,
+                  4598584637693219188,
+                  4599403473989104733,
+                  4600222310284990278,
+                  4601041146580875823,
+                  4601859982876761367,
+                  4602678819172646912,
+                  4603088237320589684,
+                  4603497655468532457,
+                  4603907073616475229,
+                  4604316491764418001,
+                  4604725909912360774,
+                  4605135328060303546,
+                  4605544746208246319,
+                  4605954164356189091,
+                  4606363582504131863,
+                  4606773000652074636,
+                  4607182418800017408
+                ]
+              ],
+              "partition": "uniform",
+              "pieces_per_cubic": 22,
+              "reference_length_estimates": {
+                "certified_continuous_bound": false,
+                "chord_estimate_m": 4.595499722477271,
+                "control_polygon_estimate_m": 4.59549972897409,
+                "intervals_per_cubic": 4096
+              },
+              "source_fit": {
+                "curve_to_source_estimate_m": 0.06924599444643532,
+                "source_to_curve_estimate_m": 0.06963738612638654
+              }
+            }
+          ]
+        }
+      ],
+      "candidate_programs": 1
+    },
+    "sumo::-10564_6_0": {
+      "geometries": [
+        {
+          "geometry": 0,
+          "description": {
+            "group": "reference"
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sink": 190
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 1,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 10,
+            "sink": 180
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 2,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 6,
+            "sink": 184
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 3,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 4,
+            "sink": 186
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 4,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              1.25
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 3,
+            "sink": 187
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 5,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 6,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 7,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 8,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 9,
+            "sink": 181
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 9,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 3,
+            "sink": 187
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 10,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 1,
+            "sink": 189
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 11,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              1.25
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sink": 190
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 12,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 13,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 14,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              0.75,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 15,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 3,
+            "sink": 187
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 16,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 1,
+            "sink": 189
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 17,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sink": 190
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 18,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 19,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 20,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 21,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 22,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 4,
+            "sink": 186
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 23,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 24,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 25,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 26,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 27,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 28,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.25,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 29,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 30,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 31,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 32,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 33,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 34,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 35,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              1.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 36,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 37,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 38,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 39,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 40,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 41,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 42,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              2.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 43,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              0.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 44,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              0.75
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 45,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              1.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 46,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 47,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 48,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 49,
+          "description": {
+            "group": "keep",
+            "handle_factors": [
+              3.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 50,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 11,
+            "sink": 179
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 51,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              0.75
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 12,
+            "sink": 178
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 52,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              1.0
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 12,
+            "sink": 178
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 53,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 54,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 55,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 56,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 57,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              0.5
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 11,
+            "sink": 179
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 58,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 59,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 60,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 61,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 62,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 63,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              0.75,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 64,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 65,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 66,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 67,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 68,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 69,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 70,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 71,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 72,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 73,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 74,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 75,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 76,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 77,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.25,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 78,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 79,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 80,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 81,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 82,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 83,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 84,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              1.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 85,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 86,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 87,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 88,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 89,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 90,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 91,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              2.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 92,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              0.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 93,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              0.75
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 94,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              1.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 95,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 96,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 97,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 98,
+          "description": {
+            "group": "pair",
+            "handle_factors": [
+              3.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 99,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 100,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 101,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 102,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              1.25
+            ]
+          },
+          "status": "no_partition_in_family",
+          "partition_rejections": {
+            "sampling_deviation": 16,
+            "sink": 174
+          },
+          "successful_partitions": []
+        },
+        {
+          "geometry": 103,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 104,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 105,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 106,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 107,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 108,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 109,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 110,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 111,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 112,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              0.75,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 113,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 114,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 115,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 116,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 117,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 118,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 119,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 120,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 121,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 122,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 123,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 124,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 125,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              2.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 126,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.25,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 127,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 128,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 129,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 130,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 131,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              1.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 132,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 133,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              1.5,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 134,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 135,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              0.75
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 136,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              1.0
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 137,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              1.25
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 138,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 139,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 140,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              2.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 141,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              0.5
+            ]
+          },
+          "status": "source_fit_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 142,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              0.75
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 143,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              1.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 144,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              1.25
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 145,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              1.5
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 146,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              2.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        },
+        {
+          "geometry": 147,
+          "description": {
+            "group": "whole",
+            "handle_factors": [
+              3.0,
+              3.0
+            ]
+          },
+          "status": "backtracking_control_rejected",
+          "partition_rejections": {},
+          "successful_partitions": []
+        }
+      ],
+      "candidates": [],
+      "candidate_programs": 0
+    }
+  }
+}

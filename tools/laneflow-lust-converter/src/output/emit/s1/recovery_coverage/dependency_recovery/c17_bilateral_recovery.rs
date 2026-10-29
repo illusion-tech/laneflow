@@ -275,10 +275,10 @@ fn certificate_recompute() -> CertificateComputed {
 fn verify_certificate(
     certificate: &serde_json::Value,
     computed: &CertificateComputed,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     let constants = &certificate["constants"];
     let claims = &certificate["claims"];
-    let number = |value: &serde_json::Value, label: &str| -> Result<f64, String> {
+    let number = |value: &serde_json::Value, label: &str| -> std::result::Result<f64, String> {
         let parsed = value
             .as_f64()
             .ok_or_else(|| format!("{label}: missing numeric claim"))?;
@@ -288,19 +288,19 @@ fn verify_certificate(
             Err(format!("{label}: non-finite numeric claim"))
         }
     };
-    let eq = |claim: f64, used: f64, label: &str| -> Result<(), String> {
+    let eq = |claim: f64, used: f64, label: &str| -> std::result::Result<(), String> {
         if claim.to_bits() != used.to_bits() {
             return Err(format!("{label}: claim {claim} != used {used}"));
         }
         Ok(())
     };
-    let upper = |claim: f64, value: f64, label: &str| -> Result<(), String> {
+    let upper = |claim: f64, value: f64, label: &str| -> std::result::Result<(), String> {
         if claim < value {
             return Err(format!("{label}: upper bound {claim} < computed {value}"));
         }
         Ok(())
     };
-    let lower = |claim: f64, value: f64, label: &str| -> Result<(), String> {
+    let lower = |claim: f64, value: f64, label: &str| -> std::result::Result<(), String> {
         if claim > value {
             return Err(format!("{label}: lower bound {claim} > computed {value}"));
         }
@@ -362,7 +362,7 @@ fn verify_certificate(
         return Err("gap lower bound must stay above 2 mm".to_owned());
     }
     // 展示值（仅供阅读，宽松核对，不参与证明）。
-    let display = |claim: f64, value: f64, label: &str| -> Result<(), String> {
+    let display = |claim: f64, value: f64, label: &str| -> std::result::Result<(), String> {
         if (claim - value).abs() > 1e-6 {
             return Err(format!("{label}: display {claim} too far from {value}"));
         }
@@ -540,4 +540,378 @@ fn c17_cohort_and_capacities_match_the_frozen_sample() {
     assert_eq!(PRIOR_CANDIDATE_EDGE, "sumo::-10564_3_0");
     assert_eq!(PRIOR_CANDIDATE_GEOMETRY, 80);
     assert_eq!(PRIOR_CANDIDATE_PIECES_PER_CUBIC, 22);
+}
+
+// ---------------------------------------------------------------------------
+// K1–K4 正例校准（冻结方案 §6；阶段 2 第一闸，全绿后才启动正式 ABBA）
+// ---------------------------------------------------------------------------
+
+use super::*;
+
+/// 冻结输入（#1107 钉版捕获；含 C17 两边缘与 #1115 两正例边的完整输入——
+/// 点位/钳制/钳制来源；K1「绑定完整输入」即取材于此）。
+fn frozen_calibration_inputs() -> serde_json::Value {
+    serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    ))
+    .unwrap()
+}
+
+/// K2 冻结对照（#1131 旧族逐配置记录摘录；判定口径防漂移）。
+fn k2_frozen_records() -> serde_json::Value {
+    serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1137-c17-bilateral-recovery/k2-old-family-frozen.json"
+    ))
+    .unwrap()
+}
+
+/// 用完整冻结输入跑旧族搜索（判定链：构造→回折→双向拟合→划分→sink/端弦/
+/// 0.01 m→去重），返回（几何行, 候选）。
+fn replay_old_family(
+    input: &observe::EdgeInput,
+    s: usize,
+) -> (serde_json::Value, serde_json::Value) {
+    let search = sampler::reshape::search_with_curve_cap(input, s);
+    (
+        search.report["geometries"].clone(),
+        recovery::candidates(&search),
+    )
+}
+
+/// 候选投影：只保留判定链的离散身份（程序位、几何/划分/片数、控制与参数位）与
+/// 微米级弧长；浮点拟合/长度观察不参与投影（防序列化往返噪声，判定口径逐值由
+/// 几何行的整数/字符串字段精确核对）。
+fn candidate_projection(candidates: &serde_json::Value) -> serde_json::Value {
+    serde_json::Value::Array(
+        candidates
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                let span = &c["spans"][0];
+                serde_json::json!({
+                    "program": c["program"],
+                    "arc_micrometers": (c["arc_m"].as_f64().unwrap() * 1e6).round() as i64,
+                    "geometry": span["geometry"],
+                    "partition": span["partition"],
+                    "pieces_per_cubic": span["pieces_per_cubic"],
+                    "control_f64_bits": span["control_f64_bits"],
+                    "parameter_f64_bits": span["parameter_f64_bits"],
+                })
+            })
+            .collect(),
+    )
+}
+
+/// K1 已知候选全链重放（绑定完整输入）：#1131 几何 80（`-10564_3_0`）与 #1115
+/// 两正例边（`-16502_0_0` 1 份、`-28860_3_0` 2 份）经判定链必须复现接受状态。
+#[test]
+fn k1_known_candidates_replay_with_frozen_inputs() {
+    let inputs = frozen_calibration_inputs();
+    // #1131 几何 80（pair 合段、因子 [1.5, 1]、等 t 22 片）。
+    let (rows, candidates) = replay_old_family(&measurement::input(&inputs["sumo::-10564_3_0"]), 2);
+    assert_eq!(
+        candidates.as_array().unwrap().len(),
+        1,
+        "prior candidate reproduced"
+    );
+    let span = &candidates[0]["spans"][0];
+    assert_eq!(span["geometry"], serde_json::json!(80));
+    assert_eq!(span["partition"], serde_json::json!("uniform"));
+    assert_eq!(span["pieces_per_cubic"], serde_json::json!(22));
+    let frozen = k2_frozen_records();
+    assert_eq!(
+        candidate_projection(&candidates),
+        candidate_projection(&frozen["edges"]["sumo::-10564_3_0"]["candidates"]),
+        "prior candidate identity"
+    );
+    assert_eq!(rows.as_array().unwrap().len(), 148);
+    // #1115 两正例：候选与入库冻结记录逐值一致（同 #1115 冻结重放口径）。
+    let frozen_1115: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+    ))
+    .unwrap();
+    for (id, s) in [("sumo::-16502_0_0", 4), ("sumo::-28860_3_0", 6)] {
+        let (_, replayed) = replay_old_family(&measurement::input(&inputs[id]), s);
+        let expected = &frozen_1115[id]["candidates"];
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&replayed.to_string()).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&expected.to_string()).unwrap(),
+            "known positive replay {id}"
+        );
+    }
+}
+
+/// K2 旧族重放逐值一致（防判定器漂移）：C17 两边缘 148 配置的逐配置状态、
+/// 拒绝计数、成功分区与候选身份与 #1131 冻结记录逐值一致。
+#[test]
+fn k2_old_family_replay_matches_frozen_records() {
+    let inputs = frozen_calibration_inputs();
+    let frozen = k2_frozen_records();
+    for (id, s) in [("sumo::-10564_3_0", 2), ("sumo::-10564_6_0", 3)] {
+        let (rows, candidates) = replay_old_family(&measurement::input(&inputs[id]), s);
+        let expected = &frozen["edges"][id];
+        let rows = rows.as_array().unwrap();
+        let expected_rows = expected["geometries"].as_array().unwrap();
+        assert_eq!(rows.len(), expected_rows.len(), "geometry row count {id}");
+        for (row, want) in rows.iter().zip(expected_rows) {
+            for key in [
+                "geometry",
+                "description",
+                "status",
+                "partition_rejections",
+                "successful_partitions",
+            ] {
+                assert_eq!(row[key], want[key], "{id} geometry row {key}");
+            }
+        }
+        assert_eq!(
+            candidate_projection(&candidates),
+            candidate_projection(&expected["candidates"]),
+            "candidate identity {id}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S1 切向扰动构造（冻结方案 §S1；构造属使用方模块，不属共享机器）
+// ---------------------------------------------------------------------------
+
+type Vec3f = [f64; 3];
+
+fn v_sub(a: Vec3f, b: Vec3f) -> Vec3f {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+fn v_add(a: Vec3f, b: Vec3f) -> Vec3f {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+fn v_scale(a: Vec3f, k: f64) -> Vec3f {
+    [a[0] * k, a[1] * k, a[2] * k]
+}
+fn v_dot(a: Vec3f, b: Vec3f) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn v_norm(a: Vec3f) -> f64 {
+    v_dot(a, a).sqrt()
+}
+fn v_unit(a: Vec3f) -> Vec3f {
+    v_scale(a, 1.0 / v_norm(a))
+}
+
+/// 单位向量 `d` 对 `t` 的正交分量；模 < 1e-9 视为退化。
+fn orthogonal_component(d: Vec3f, t: Vec3f) -> Option<Vec3f> {
+    let w = v_sub(d, v_scale(t, v_dot(d, t)));
+    (v_norm(w) >= 1e-9).then(|| v_unit(w))
+}
+
+/// S1 旋转平面（冻结方案 §S1 三路回退）：中央弦正交分量（CR 结点必然退化）→
+/// 前一弦正交分量 → 后一弦正交分量；全退化返回 `None`（δ 强制 0 并记
+/// `tangent_rotation_degenerate`）。
+fn s1_rotation_plane(
+    t: Vec3f,
+    central_chord: Vec3f,
+    previous_chord: Vec3f,
+    next_chord: Vec3f,
+) -> Option<Vec3f> {
+    orthogonal_component(v_unit(central_chord), t)
+        .or_else(|| orthogonal_component(v_unit(previous_chord), t))
+        .or_else(|| orthogonal_component(v_unit(next_chord), t))
+}
+
+/// 切向旋转 t' = t·cos δ + w·sin δ（w 已单位化；δ=0 时与 t 逐位一致）。
+fn rotate_tangent(t: Vec3f, w: Vec3f, delta_deg: f64) -> Vec3f {
+    let radians = delta_deg.to_radians();
+    v_add(v_scale(t, radians.cos()), v_scale(w, radians.sin()))
+}
+
+/// keep 分段的 S1 控制点构造：柄 = 各 cubic 自身弦长 / 3（不乘因子），
+/// 两端切向取（已扰动）结点切向。
+fn s1_keep_controls(knots: &[Vec3f], tangents: &[Vec3f]) -> Vec<[Vec3f; 6]> {
+    assert_eq!(tangents.len(), knots.len());
+    knots
+        .windows(2)
+        .enumerate()
+        .map(|(i, w)| {
+            let chord = v_norm(v_sub(w[1], w[0])) / 3.0;
+            [
+                w[0],
+                v_add(w[0], v_scale(tangents[i], chord)),
+                v_sub(w[1], v_scale(tangents[i + 1], chord)),
+                w[1],
+                tangents[i],
+                tangents[i + 1],
+            ]
+        })
+        .collect()
+}
+
+/// K3 边界自检：旋转平面三路回退与全退化分支、δ=0 逐位对照、s=2 分组退化。
+#[test]
+fn k3_tangent_rotation_boundary_self_checks() {
+    // CR 中心差分切向与中央弦同向 ⇒ 第一层正交分量必然退化。
+    let t = v_unit([1.0, 0.0, 0.0]);
+    let central = v_unit([2.0, 0.0, 0.0]);
+    assert!(orthogonal_component(central, t).is_none());
+    // 前一弦正交分量为正常路径；全共线时三路全退化 → None。
+    let previous = v_unit([1.0, 1.0, 0.0]);
+    assert!(s1_rotation_plane(t, central, previous, central).is_some());
+    assert!(s1_rotation_plane(t, central, central, central).is_none());
+    // δ=0 逐位对照：与未扰动构造逐位一致。
+    let knots = [[0.0, 0.0, 0.0], [1.0, 0.2, 0.0], [2.0, 0.5, 0.0]];
+    let tangents = [
+        v_unit([1.0, 0.1, 0.0]),
+        v_unit([1.0, 0.2, 0.0]),
+        v_unit([1.0, 0.3, 0.0]),
+    ];
+    let w = s1_rotation_plane(
+        tangents[1],
+        v_unit([1.0, 0.3, 0.0]),
+        v_unit([1.0, 0.2, 0.0]),
+        v_unit([1.0, 0.3, 0.0]),
+    )
+    .expect("rotation plane");
+    let rotated_zero = [
+        tangents[0],
+        rotate_tangent(tangents[1], w, 0.0),
+        tangents[2],
+    ];
+    let unrotated = s1_keep_controls(&knots, &tangents);
+    let zeroed = s1_keep_controls(&knots, &rotated_zero);
+    for (a, b) in unrotated.iter().zip(&zeroed) {
+        for i in 0..6 {
+            assert_eq!(
+                a[i].map(f64::to_bits),
+                b[i].map(f64::to_bits),
+                "delta=0 bitwise"
+            );
+        }
+    }
+    // s=2 分组退化：pair/whole 均为单组合并（#1131 已证），组数断言。
+    let group_count = |mode: &str, s: usize| match mode {
+        "keep" => s,
+        "pair" => s.div_ceil(2),
+        "whole" => 1,
+        other => panic!("unknown mode {other}"),
+    };
+    assert_eq!(group_count("pair", 2), group_count("whole", 2));
+}
+
+// ---------------------------------------------------------------------------
+// K4 合成正反例（冻结方案 §6 K4；特定标签用例钉完整输入与报告字段，
+// R2/R3 的判定器直调入口待 E 公共扩展落地，现以全链报告字段交叉断言）
+// ---------------------------------------------------------------------------
+
+fn synthetic_input(points: Vec<Vec3f>) -> observe::EdgeInput {
+    observe::EdgeInput {
+        points,
+        clamps: [None, None],
+        clamp_sources: [None, None],
+    }
+}
+
+/// 旧族报告中指定分组（keep/reference 为短首段证书覆盖的形态）的行。
+fn rows_of_group<'a>(rows: &'a [serde_json::Value], group: &str) -> Vec<&'a serde_json::Value> {
+    rows.iter()
+        .filter(|row| row["description"]["group"] == group)
+        .collect()
+}
+
+#[test]
+fn k4_synthetic_positive_and_negative_cases() {
+    // P1 预期通过：三点共线直线链（0.5 m/段）经全链筛选必有完整程序。
+    let straight = synthetic_input(vec![[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.0, 0.0]]);
+    let (rows, candidates) = replay_old_family(&straight, 2);
+    assert!(
+        !candidates.as_array().unwrap().is_empty(),
+        "P1 straight chain accepted"
+    );
+    assert_eq!(rows.as_array().unwrap().len(), 148);
+    // R1 预期拒绝（短首段复刻，证书覆盖形态）：keep/reference 行零合法程序、
+    // 采样偏离 0（该形态首 cubic 只可能死在 sink 层，与证书一致）。
+    let short_span = synthetic_input(vec![
+        [0.0, 0.0, 0.0],
+        [0.196_977_156_035_898_77, 0.0, 0.0],
+        [2.5, 0.0, 0.0],
+    ]);
+    let (rows, candidates) = replay_old_family(&short_span, 2);
+    let keep_rows = rows_of_group(rows.as_array().unwrap(), "keep")
+        .into_iter()
+        .chain(rows_of_group(rows.as_array().unwrap(), "reference"))
+        .collect::<Vec<_>>();
+    assert!(!keep_rows.is_empty(), "R1 keep/reference rows present");
+    for row in keep_rows {
+        // 冻结口径：零合法程序、最早拒绝阶段如实记录，不钉特定标签。
+        assert!(
+            row["successful_partitions"].as_array().unwrap().is_empty(),
+            "R1 zero legal programs in certified scope"
+        );
+        assert_ne!(row["status"], "candidate_found", "R1 no accepted status");
+        let rejections = &row["partition_rejections"];
+        if !rejections.as_object().unwrap().is_empty() {
+            // 到达划分层的配置与证书反例锚交叉一致：偏离检查先过、拒于 sink
+            // （因子 ≠1 的配置可能先被双向拟合的弦近似误差项拒绝，如实记录）。
+            assert!(
+                rejections["sampling_deviation"].as_u64().unwrap_or(0) == 0
+                    && rejections["sink"].as_u64().unwrap_or(0) > 0,
+                "R1 reached-layer rows reject at sink; row={:?}",
+                row
+            );
+        }
+    }
+    // 合并形态（pair/whole）如实记录各自阶段（不受证书覆盖，不预设）。
+    let _ = candidates;
+    // R2 预期拒绝（weld_turn 口径；直调入口待 E 扩展，交叉断言 sink 路径到达）：
+    // 半径 3 m、圆心角 20° 合成弧——窗弦转角 L/r 超 1.95° 的 n 区间存在。
+    let arc = synthetic_input(vec![
+        [0.0, 0.0, 0.0],
+        [
+            3.0 * (10.0_f64.to_radians()).sin(),
+            0.0,
+            3.0 * (1.0 - (10.0_f64.to_radians()).cos()),
+        ],
+        [
+            3.0 * (20.0_f64.to_radians()).sin(),
+            0.0,
+            3.0 * (1.0 - (20.0_f64.to_radians()).cos()),
+        ],
+    ]);
+    let (rows, _) = replay_old_family(&arc, 2);
+    let sink_seen = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["partition_rejections"]["sink"].as_u64().unwrap_or(0) > 0);
+    assert!(sink_seen, "R2 sink path reached (weld_turn expected mid-n)");
+    // R3 预期拒绝（degenerate_chord 口径）：相邻点距 0.09 m 合成折线，量化弦
+    // 必 ≤ 0.1 m → sink（退化）拒绝；交叉断言 sink 路径到达。
+    let short_chords = synthetic_input(vec![[0.0, 0.0, 0.0], [0.09, 0.0, 0.0], [0.18, 0.0, 0.0]]);
+    let (rows, _) = replay_old_family(&short_chords, 2);
+    let sink_seen = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["partition_rejections"]["sink"].as_u64().unwrap_or(0) > 0);
+    assert!(sink_seen, "R3 sink path reached (degenerate expected)");
+    // R4 预期拒绝（回折）：L 形输入下回折配置被 backtracking_control_rejected。
+    // 90° 折角经修复生成倒圆弧（line+arc+line，s=3）。
+    let zigzag = synthetic_input(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]);
+    let (rows, _) = replay_old_family(&zigzag, 3);
+    let fold_rows = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["status"] == "backtracking_control_rejected")
+        .count();
+    assert!(fold_rows > 0, "R4 backtracking rejection recorded");
+    // R5 预期拒绝（source_fit）：浅弧源（矢高 0.1 m 量级）下外摆整边合段被
+    // 双向来源拟合筛选拒绝（判定在划分前）。
+    let shallow_arc = synthetic_input(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.1], [2.0, 0.0, 0.0]]);
+    let (rows, _) = replay_old_family(&shallow_arc, 2);
+    let fit_rows = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["status"] == "source_fit_rejected")
+        .count();
+    assert!(fit_rows > 0, "R5 source-fit rejection recorded");
 }
