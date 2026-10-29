@@ -83,6 +83,49 @@ fn normalized_artifact(value: &Value) -> Value {
     }
 }
 
+/// plan §6.1 数值字段 f64 位级硬门（统筹补维，2026-10-29）：逐叶子比较——浮点叶按
+/// `to_bits` 相等、整数叶按值且形态一致、字符串按字面、键序逐项一致；±1 ULP 漂移必须
+/// 显形（不只比较解析值）。失配即 panic 首个失配路径与两侧位串，按 §7 停机口径处理。
+fn assert_bits_equal(left: &Value, right: &Value, path: &str) {
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => {
+            let equal = if a.is_f64() || b.is_f64() {
+                a.is_f64()
+                    && b.is_f64()
+                    && a.as_f64().unwrap().to_bits() == b.as_f64().unwrap().to_bits()
+            } else {
+                a.as_u64() == b.as_u64() && a.as_i64() == b.as_i64()
+            };
+            assert!(
+                equal,
+                "bit mismatch at {path}: {a:?} vs {b:?} (f64 bits {} vs {})",
+                a.as_f64().map(f64::to_bits).unwrap_or(u64::MAX),
+                b.as_f64().map(f64::to_bits).unwrap_or(u64::MAX)
+            );
+        }
+        (Value::String(a), Value::String(b)) => assert!(a == b, "string mismatch at {path}"),
+        (Value::Bool(a), Value::Bool(b)) => assert!(a == b, "bool mismatch at {path}"),
+        (Value::Null, Value::Null) => {}
+        (Value::Array(a), Value::Array(b)) => {
+            assert!(a.len() == b.len(), "array length mismatch at {path}");
+            for (index, (x, y)) in a.iter().zip(b).enumerate() {
+                assert_bits_equal(x, y, &format!("{path}[{index}]"));
+            }
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            assert!(
+                a.len() == b.len(),
+                "object key count mismatch at {path}: {a:?} vs {b:?}"
+            );
+            for ((k1, v1), (k2, v2)) in a.iter().zip(b) {
+                assert!(k1 == k2, "object key order mismatch at {path}");
+                assert_bits_equal(v1, v2, &format!("{path}.{k1}"));
+            }
+        }
+        _ => panic!("type mismatch at {path}: {left:?} vs {right:?}"),
+    }
+}
+
 fn cohort() -> Value {
     serde_json::from_str(include_str!(
         "../../../../../../../../../research/issue-1138-signal-diag-1/edges.json"
@@ -589,11 +632,7 @@ fn pinned_lust_signal_diag_1_experiment() {
             if variant == "baseline" {
                 let prior = &variant_anchor["components"][index];
                 assert_eq!(prior["component"], json!(component.id));
-                assert_eq!(
-                    normalized(&result),
-                    prior["result"],
-                    "baseline component matches the shared result anchor"
-                );
+                assert_bits_equal(&result, &prior["result"], "components[].result");
                 assert_eq!(
                     normalized_artifact(&json!(artifact)),
                     normalized_artifact(&prior["artifact"]),
@@ -631,11 +670,7 @@ fn pinned_lust_signal_diag_1_experiment() {
             }
         }
         if variant == "baseline" {
-            assert_eq!(
-                normalized(&json!(paths)),
-                variant_anchor["paths"],
-                "baseline target evidence matches the shared result anchor"
-            );
+            assert_bits_equal(&json!(paths), &variant_anchor["paths"], "paths");
         }
         let counts = paths
             .iter()
