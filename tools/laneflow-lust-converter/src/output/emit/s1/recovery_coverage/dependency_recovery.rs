@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 mod c12_curve_design;
+mod c17_bilateral_recovery;
 mod calibration;
 mod combinations;
 mod components;
