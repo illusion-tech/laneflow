@@ -1,13 +1,16 @@
 use std::fs::{self, File};
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
+use laneflow_runtime::ExecutionConfig;
 use laneflow_synth_harness::{Error, run};
 use serde_json::{Value, json};
 
 mod retry;
+mod workers;
 
 fn write(path: &Path, value: &Value) -> Result<(), Error> {
     let mut bytes = serde_json::to_vec_pretty(value)?;
@@ -166,7 +169,7 @@ fn execute() -> Result<(), Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 1 && args[0] == "--help" {
         println!(
-            "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <normal-matrix-output> <new-output-root>"
+            "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <normal-matrix-output> <new-output-root>\nlaneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>\nlaneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>"
         );
         return Ok(());
     }
@@ -182,6 +185,32 @@ fn execute() -> Result<(), Error> {
             Path::new(&args[5]),
         );
     }
+    if args.len() == 5 && (args[0] == "worker-run" || args[0] == "worker-matrix") {
+        let implementation = args[2]
+            .to_str()
+            .ok_or_else(|| Error::Invalid("提交必须为 UTF-8".into()))?;
+        if args[0] == "worker-matrix" {
+            return workers::matrix(
+                Path::new(&args[1]),
+                implementation,
+                Path::new(&args[3]),
+                Path::new(&args[4]),
+            );
+        }
+        let count: NonZeroU32 = args[3]
+            .to_str()
+            .ok_or_else(|| Error::Invalid("worker 数必须为 UTF-8".into()))?
+            .parse()
+            .map_err(|_| Error::Invalid("worker 数必须是非零 u32".into()))?;
+        let report = run(
+            Path::new(&args[1]),
+            implementation,
+            ExecutionConfig::new(count),
+            Path::new(&args[4]),
+        )?;
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
     if args.len() != 4 {
         return Err(Error::Invalid("参数错误；使用 --help 查看正式入口".into()));
     }
@@ -189,7 +218,12 @@ fn execute() -> Result<(), Error> {
         .to_str()
         .ok_or_else(|| Error::Invalid("提交必须为 UTF-8".into()))?;
     if args[0] == "run" {
-        let result = run(Path::new(&args[1]), implementation, Path::new(&args[3]))?;
+        let result = run(
+            Path::new(&args[1]),
+            implementation,
+            ExecutionConfig::new(NonZeroU32::MIN),
+            Path::new(&args[3]),
+        )?;
         println!("{}", serde_json::to_string(&result)?);
     } else if args[0] == "matrix" || args[0] == "burst-matrix" {
         let cases = if args[0] == "matrix" {

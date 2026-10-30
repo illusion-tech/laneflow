@@ -39,13 +39,15 @@ W1/W2 每拍检查：
   每个 Active 恰好过门一次，Parked 从未过门。
 
 这是冻结 workload 的行为核验，不是对任意 Traffic Runtime 场景的通用验证器。
-只运行当前单 worker exact 路径；worker/schedule permutation 需后续单独证据。
+`run` / `matrix` / `burst-matrix` 固定单 worker exact 路径；显式 worker 入口见
+第 7 节。worker 扫描不等于穷尽 schedule permutation。
 
 ## 2. W1/W2 证据与摘要编码
 
 `report.json` 的域为 `lf-synth-semantic-run-1`；矩阵为
 `lf-synth-semantic-matrix-1`。结果保留完整输入 manifest（含其来源提交）、调用者
 声明的实际实现提交、窗口、计数和检查点。无 wall-clock percentile 或产品 Pass。
+回执的 `workers` 来自已安装世界的执行配置，不进入交通输入身份或状态摘要。
 创建新目录先写 `complete=false`，只有全窗口及末态检查通过后才标记完成；失败或
 中断保留已写轨迹与日志。矩阵只有八行全部两轮一致后才标记完成。
 
@@ -172,5 +174,42 @@ B1。W3/W4 均在前两条观察拍结束后停止本 guardrail，完整 W3 窗�
 的失败/正常两世界；正式身份仍是单世界规模，不聚合两个世界的吞吐。任何失败或轨迹不一致均使
 矩阵不完整，不能以另一次成功覆盖原始失败记录。两轮语义对照不替代性能协议三轮。
 
-表现选择/60 Hz 外层帧/追赶、性能与资源、快照恢复、Routing、
-五轴认证均由后续切片承载；本结果不能解除这些缺口或转化为 Product Pass。
+表现选择/60 Hz 外层帧/追赶、性能与资源由独立的
+[测量入口](lf-synth-measurement.md)承载；本语义入口不认证快照恢复、Routing 或
+完整五轴，不将语义对照转化为 Product Pass。
+
+## 7. 标称矩阵的跨 worker 对照
+
+`worker-run` 显式接收非零 worker 数，将 `ExecutionConfig` 传给同一安装与 W1–W4
+核验路径。支持范围由 [执行配置合同](traffic-runtime-execution-config.md)规定；
+不按 CPU 数推断、不静默降级，不改变正式输入、交通配置、命令计划或窗口。
+成功回执记录世界实际使用的 worker 数；失败回执保留请求值与错误。
+
+`worker-matrix` 只覆盖一万/16 ms、十万/33 ms 的 W1–W4 八个标称身份。
+每个身份使用 1/2/4/8/16 worker，各运行三个全新进程，共 120 次。配置按规模、
+场景、worker 排序，每轮将四十项配置顺序左移 `7 * (round - 1)` 项。最多四个
+子进程并发，运行中的配置 worker 数之和最多 32；这只是宿主进程调度限制，
+不表示总 OS 线程数、CPU 使用率或多世界吞吐预算。
+
+每个身份以第一轮单 worker 运行作为参考；其余十四次运行均须匹配，共 112 对。
+比较前核对实际 worker、实现提交、完整输入 manifest、正式窗口长度和必需状态
+检查点。完整 JSON 回执只排除 `workers`，其余字段全部精确比较；`ticks.bin` 与
+完整有序 `events.bin` 逐字节相等，W3/W4 另比较 `commands.bin` 和 `batches.json`。
+这是同实现的成功路径确定性对照；公开轨迹与检查点的覆盖边界仍按前文解释。
+
+矩阵域为 `lf-synth-worker-matrix-1`，保留完整回执、输入身份、配置/轮次、进程启动
+次序、比较结果、实际可执行文件的字节数/SHA-256，以及各运行文件的字节数/SHA-256。
+SHA-256 供外部通用工具重算，属于 ADR 0033 的互操作摘要；原有 BLAKE3 编码不变。
+执行前后重新核对同一个 binary 文件身份。环境 JSON 是调用者声明，必须含相同
+`implementation_commit`、`source_clean=true` 及非空 `rustc_vv`、`cargo_version`、
+`target`、`build_command`；其余硬件/OS 字段原样保存。工具不据这些声明认证源码与
+binary 的关联，执行者仍须提供干净检出、构建日志和冻结二进制。
+
+输出目录必须全新，开始即写 `complete=false`。首个运行或比较失败后不再启动新
+进程，收集已启动运行并保留所有材料；父进程因 I/O 错误或展开退出时回收其仍持有
+的子进程。不自动补跑、跳过或拼接失败矩阵。只有 120 次运行和 112 对比较全部成功
+才标记完成；成功后也不产生性能或产品通过声明。
+
+非标称交叉组合、强制调度/完成置换、跨 worker failpoint 的首错与 retry/fresh、
+快照解码恢复、Routing、Spatial/Adapter 的跨 worker 接线和完整五轴均不由本入口
+证明。两轮单 worker 旧证据与本次三轮矩阵分别保留各自源码身份，不能拼成同一验收。

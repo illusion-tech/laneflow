@@ -12,7 +12,7 @@ use bevy_transform::components::Transform;
 use laneflow_bevy::{
     LaneFlowFixed, LaneFlowFixedSet, LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig,
 };
-use laneflow_runtime::TickInput;
+use laneflow_runtime::{ExecutionConfig, TickInput};
 use laneflow_spatial::{FramePlacementToken, SpatialSession};
 use laneflow_synth_generator::{Case, verify_directory};
 use serde::Serialize;
@@ -272,7 +272,7 @@ fn run_inner(
         "observation_extra_full_population_audit_inside_frame":false,"environment":environment,
         "oracle_report_sha256":hash(&fs::read(oracle_path.join("report.json"))?)});
     write_json(&output.join("manifest.json"), &manifest)?;
-    let sample = Sample::new(&bundle)?;
+    let sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN))?;
     drop(bundle);
     let mut driver = Driver::new(&sample, &plan)?;
     driver.observe(&sample.world, None)?;
@@ -615,10 +615,10 @@ pub fn guardrail(input: &Path, output: &Path) -> Result<Value, Error> {
     })?;
     fs::create_dir(output)?;
     write_json(&output.join("report.json"), &json!({"complete":false}))?;
-    let sample = Sample::new(&bundle)?;
+    let sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN))?;
     let mut driver = Driver::new(&sample, &plan)?;
     driver.observe(&sample.world, None)?;
-    let mut oracle = Sample::new(&bundle)?.world;
+    let mut oracle = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN))?.world;
     let mut oracle_events = super::events::Recorder::new(16, plan.identity.scale);
     oracle_events.record(&oracle, &driver.ranks, None)?;
     let mut app = create_app(
@@ -695,7 +695,10 @@ mod tests {
             },
         )
         .unwrap();
-        (Sample::new(&bundle).unwrap(), Plan::read(&bundle).unwrap())
+        (
+            Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap(),
+            Plan::read(&bundle).unwrap(),
+        )
     }
 
     #[test]

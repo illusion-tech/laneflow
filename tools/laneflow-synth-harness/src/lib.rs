@@ -9,7 +9,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use laneflow_runtime::{TickInput, deterministic_state_digest};
+use laneflow_runtime::{ExecutionConfig, TickInput, deterministic_state_digest};
 use laneflow_synth_generator::{Bundle, Case, Identity, verify_directory};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -118,9 +118,14 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
 /// 消费一个正式输入目录，在全新目录保存逐拍轨迹与完整回执。
 ///
 /// # Errors
-/// 输入不符合生成合同、提交格式非法、输出已存在、I/O、安装/步进或逐拍
+/// 输入不符合生成合同、提交格式非法、输出已存在、I/O、执行配置不受支持、安装/步进或逐拍
 /// 语义核验失败时返回错误。失败目录保留 complete=false 和已写轨迹，不能当成完成结果。
-pub fn run(input: &Path, implementation_commit: &str, output: &Path) -> Result<Value, Error> {
+pub fn run(
+    input: &Path,
+    implementation_commit: &str,
+    execution: ExecutionConfig,
+    output: &Path,
+) -> Result<Value, Error> {
     require(
         implementation_commit.len() == 40
             && implementation_commit
@@ -129,9 +134,10 @@ pub fn run(input: &Path, implementation_commit: &str, output: &Path) -> Result<V
         || "实现提交须为完整小写 Git SHA".into(),
     )?;
     fs::create_dir(output)?;
-    let mut status = json!({"format":"lf-synth-semantic-run-1","complete":false,"implementation_commit":implementation_commit});
+    let mut status = json!({"format":"lf-synth-semantic-run-1","complete":false,
+        "implementation_commit":implementation_commit,"workers":execution.worker_count().get()});
     write_json(&output.join("report.json"), &status)?;
-    let result = run_inner(input, implementation_commit, output);
+    let result = run_inner(input, implementation_commit, execution, output);
     match result {
         Ok(report) => {
             write_json(&output.join("report.json"), &report)?;
@@ -145,13 +151,18 @@ pub fn run(input: &Path, implementation_commit: &str, output: &Path) -> Result<V
     }
 }
 
-fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result<Value, Error> {
+fn run_inner(
+    input: &Path,
+    implementation_commit: &str,
+    execution: ExecutionConfig,
+    output: &Path,
+) -> Result<Value, Error> {
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
     if matches!(plan.identity.case, Case::W3 | Case::W4) {
-        return burst::run(&bundle, &plan, implementation_commit, output);
+        return burst::run(&bundle, &plan, implementation_commit, execution, output);
     }
-    let mut sample = install::Sample::new(&bundle)?;
+    let mut sample = install::Sample::new(&bundle, execution)?;
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
     trace.write_all(b"lf-synth-public-ticks-1\0")?;
     let mut stream = blake3::Hasher::new();
@@ -226,6 +237,7 @@ fn run_inner(input: &Path, implementation_commit: &str, output: &Path) -> Result
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
         "scope":"W1_W2_semantics_only_not_performance_or_product_certification",
         "implementation_commit":implementation_commit,"input_manifest":bundle.manifest(),
+        "workers":sample.world.execution_config().worker_count().get(),
         "warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,
         "validated_boundaries":total+1,"caller_commands_after_initialization":0,
         "active":bundle.manifest().counts["active"],"parked":bundle.manifest().counts["parked"],

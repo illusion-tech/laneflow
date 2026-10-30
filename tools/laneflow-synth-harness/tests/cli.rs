@@ -2,6 +2,81 @@ use std::fs;
 use std::process::Command;
 
 #[test]
+fn worker_cli_rejects_zero_and_invalid_counts_without_overwriting_output() {
+    let root = tempfile::tempdir().unwrap();
+    for count in ["0", "not-a-number", "4294967296"] {
+        let output = root.path().join(count);
+        let result = Command::new(env!("CARGO_BIN_EXE_laneflow-synth-harness"))
+            .args(["worker-run", "missing", &"c".repeat(40), count])
+            .arg(&output)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn worker_matrix_stops_launching_after_failure_and_collects_started_processes() {
+    let root = tempfile::tempdir().unwrap();
+    let environment = root.path().join("environment.json");
+    fs::write(
+        &environment,
+        serde_json::to_vec(&serde_json::json!({
+            "implementation_commit":"c".repeat(40),"source_clean":true,"rustc_vv":"fixture",
+            "cargo_version":"fixture","target":"fixture","build_command":"fixture"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = root.path().join("workers");
+    let result = Command::new(env!("CARGO_BIN_EXE_laneflow-synth-harness"))
+        .arg("worker-matrix")
+        .arg(root.path().join("missing-inputs"))
+        .arg("c".repeat(40))
+        .arg(&environment)
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let summary: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join("summary.json")).unwrap()).unwrap();
+    assert_eq!(summary["complete"], false);
+    assert_eq!(summary["max_concurrent_processes"], 4);
+    assert_eq!(summary["max_configured_workers"], 32);
+    assert!(summary["runs"].as_array().unwrap().is_empty());
+    assert!(summary["comparisons"].as_array().unwrap().is_empty());
+    let started = summary["execution_order"].as_array().unwrap();
+    assert!(!started.is_empty() && started.len() <= 4);
+    assert_eq!(summary["errors"].as_array().unwrap().len(), started.len());
+    for job in started {
+        let report: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                output
+                    .join(job["run"].as_str().unwrap())
+                    .join("report.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["complete"], false);
+        assert_eq!(report["workers"], job["workers"]);
+        assert!(report["error"].is_string());
+    }
+    let before = fs::read(output.join("summary.json")).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_laneflow-synth-harness"))
+        .arg("worker-matrix")
+        .arg(root.path())
+        .arg("c".repeat(40))
+        .arg(environment)
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert_eq!(fs::read(output.join("summary.json")).unwrap(), before);
+}
+
+#[test]
 fn matrix_collects_failed_children_without_publishing_success() {
     let root = tempfile::tempdir().unwrap();
     let output = root.path().join("results");

@@ -1,5 +1,3 @@
-use std::num::NonZeroU32;
-
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::*;
 use laneflow_static_contract::*;
@@ -27,7 +25,7 @@ pub(crate) struct Sample {
 }
 
 impl Sample {
-    pub fn new(bundle: &Bundle) -> Result<Self, Error> {
+    pub fn new(bundle: &Bundle, execution: ExecutionConfig) -> Result<Self, Error> {
         let input = check_canonical_network_input(
             bundle.files()["network.lfca"].as_slice(),
             FormatLimits::HARD,
@@ -68,7 +66,7 @@ impl Sample {
                 0,
                 u64::from(state.identity.fixed_delta_ms),
             ),
-            ExecutionConfig::new(NonZeroU32::MIN),
+            execution,
             CommittedNetworkSource::Published { reference: source },
             0,
             WorldPolicySelection::Pinned(PolicyPin {
