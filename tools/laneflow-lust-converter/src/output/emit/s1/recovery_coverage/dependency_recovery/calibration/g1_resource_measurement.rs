@@ -33,7 +33,8 @@ fn measure_production_key_paths() {
     fs::create_dir_all(&out).unwrap();
     // 前置段（源校验/读入/未测阶段）不计入本阶段计时。
     let prepared = prepare_verified_lust_inputs(&root).expect("verified pinned source");
-    let mut timing = json!({"phase":phase,"accounting":"#1113 原始计时口径；无空闲门槛；描述性限定"});
+    let mut timing =
+        json!({"phase":phase,"accounting":"#1113 原始计时口径；无空闲门槛；描述性限定"});
     let mut detail = json!({});
     if phase == "parse" {
         let started = Instant::now();
