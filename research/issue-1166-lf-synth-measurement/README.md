@@ -39,6 +39,11 @@
 见 [build-provenance.json](build-provenance.json)、[source-files.json](source-files.json)
 和 [post-run-source-verification.json](post-run-source-verification.json)。
 
+采集后主分支在同一 manifest 启用了 `serde_json/float_roundtrip`。为解决实际合并
+冲突，本 PR 随后对齐该 feature，同时保留新增测量依赖；被测提交仍作为祖先保留，
+没有重写或把结果换标为新提交。该 manifest 组合另做回归，83 个完整窗口没有在
+冲突修复后的组合上重跑，不能把本报告当作最终合并结果的性能认证。
+
 Rust 1.99.1 / LLVM 23.1.1，`x86_64-pc-windows-msvc`；普通 release、独立分配诊断和
 语义 oracle 二进制分别归档并核对 SHA-256，见
 [binary-verification.json](binary-verification.json)。本切片固定单 worker，测量
