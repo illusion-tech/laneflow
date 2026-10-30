@@ -23,11 +23,11 @@
 //!   （±1 ULP 双向），启用 `float_roundtrip` 后 **0/10,000**；三个代表样本已入
 //!   [`CORRECT_BITS`] / [`DEFAULT_PARSE_BITS`] 语料。
 //!
-//! 证明力边界（维护者 2026-10-29 审定）：本模块双态自适应断言只构成**双态差异实证 +
-//! 自适应对照**，不构成修复生效证明——feature 缺失时误舍入分支同样通过。修复阶段
-//! （Cargo.toml 启用 `float_roundtrip`，排六路收口后）须启用
-//! [`fix_gate_mandatory_correctly_rounded_bits`]（无条件正确位值断言）并在单包正常
-//! 构建下核验通过；充分性论证归该阶段。
+//! 证明力边界（维护者 2026-10-29 审定）：双态自适应断言只构成**双态差异实证 + 自适应
+//! 对照**，不构成修复生效证明——feature 缺失时误舍入分支同样通过。修复生效的充分性
+//! 证据是 [`fix_gate_mandatory_correctly_rounded_bits`]（无条件正确位值断言，#1173 已
+//! 启用）：本 crate 各 Cargo.toml 均请求 `float_roundtrip` 后，单包正常构建下它必须
+//! 通过，防测试构建 feature 合并掩盖。
 
 use super::shared_baseline::{JsonLeafToken, json_leaf_mismatch, json_leaf_tokens};
 
@@ -173,12 +173,10 @@ fn counterexample_pairs_never_collapse_in_text_domain() {
     }
 }
 
-/// 修复阶段强制检查面（维护者 2026-10-29 审定）：无条件断言全部已知反例解析为正确
-/// 舍入位值——feature 缺失时本测试必失败，是 `float_roundtrip` 修复生效的充分性证据。
-/// 修复 PR 启用（去掉 `#[ignore]`）后须在**单包正常构建**下运行通过，防测试构建
-/// feature 合并掩盖。
+/// 修复阶段强制检查面（维护者 2026-10-29 审定，#1173 启用）：无条件断言全部已知反例
+/// 解析为正确舍入位值——feature 缺失时本测试必失败，是 `float_roundtrip` 修复生效的
+/// 充分性证据；须在**单包正常构建**下运行通过，防测试构建 feature 合并掩盖。
 #[test]
-#[ignore = "#1155 修复阶段启用：无条件正确位值断言（float_roundtrip 生效证明）"]
 fn fix_gate_mandatory_correctly_rounded_bits() {
     assert!(float_roundtrip_active(), "float_roundtrip must be active");
     for (text, bits) in CORRECT_BITS {

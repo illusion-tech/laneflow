@@ -15,7 +15,7 @@ laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-st
 laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
 laneflow-synth-generator = { version = "0.0.0", path = "../laneflow-synth-generator" }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 thiserror = "2.0"
 
 [dev-dependencies]
