@@ -73,3 +73,16 @@ C12（`sumo::-10100_1_0`）已完成为基准形态；本批为其余 7 个单�
 - 冻结提交构建 `laneflow-lust-converter` release lib test（Rust 1.99.1），`--exact --ignored --nocapture --test-threads=1`。
 - 环境变量（#1136 同款 + E0 基线接口）：`LUST_SOURCE_DIR`、`DIRECT_SUCCESSOR_BASELINE_DIR`、`SIX_STREAMS_BASELINE_DIR`、`CURVE_DESIGN_OUTPUT_DIR`（每次必须为不存在的新目录）、`CURVE_DESIGN_ORDER`（ABBA 序）、`CURVE_DESIGN_FROZEN_RESULT`；输出目录、结果文件与测试模块命名以本批 `single_edge_reuse` 区分（模块名待实现定稿，带 #1174 语义）。
 - 输入、样本与预算由冻结源码与本目录 `edges.json` 固定（样本 ID 程序化回读 #1134 冻结记录断言），不得换样后沿用结论。
+- 精确测试名（实现定稿补录）：正式实验入口
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::pinned_lust_single_edge_reuse_experiment`；
+  候选冻结入口（其 `single-edge-searches.json` 作 `CURVE_DESIGN_FROZEN_RESULT`）
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::fixed_single_edge_design_reuse`；
+  常规（非 ignore）单测
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::reuse_cohort_matches_frozen_1134_records`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::fillet_knot_crossing_uses_the_frozen_knot_table`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::qualification_polyline_semantics_match_the_pinned_rule`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::raw_top_level_value_extracts_faithful_subtrees`、
+  `output::emit::s1::recovery_coverage::dependency_recovery::single_edge_design_reuse::curve_capacity_parameterization_keeps_the_frozen_six_default`。
+  共同基线经 `SIX_STREAMS_BASELINE_DIR` + `calibration::shared_baseline::shared_pools()` /
+  `results_anchor_pinned()` 读取（E0 #1140 冻结交付）；执行中出现的实现缺陷、口径澄清与授权记录见
+  `README.md`「结论边界与差异记录」（复核域计费裁定 A、文本 token 域对照形态、锚行运行专属标记）。
