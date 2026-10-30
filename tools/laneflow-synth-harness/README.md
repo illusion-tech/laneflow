@@ -63,6 +63,7 @@ W1/W2 初始化后只调用 `step` 和只读查询。W3/W4 按受检计划执行
 ```text
 laneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>
 laneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
+laneflow-synth-harness worker-retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
 ```
 
 `worker-run` 走同一完整语义窗口，将显式配置传给真实 `TrafficWorld`，成功回执的
@@ -87,6 +88,29 @@ worker 之和不超过 32。它只核验语义，不采集延迟或加速比。
 该矩阵只覆盖标称输入和成功路径。非标称交叉组合、强制调度置换、跨 worker
 失败/重试、快照恢复、Routing、表现接线与完整五轴仍需各自证据，不能把相等结果
 写成产品认证。具体比较与证据边界见[执行设计 §7](../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照)。
+
+`worker-retry-matrix` 覆盖一万/16 ms、十万/33 ms 的 W3/W4 四个标称身份。
+它先由普通工具二进制生成四个完整单 worker 正常参考，再调用同一实现的 optimized
+Runtime 测试二进制，执行 1/2/4/8/16 worker、三轮独立进程，共 60 次失败重试。
+每次保留完整预热与前两拍 guardrail，注入点固定为 `AfterTransitions`。
+失败/fresh 两世界均显式安装请求的 worker，确认失败零发布，只重试原 step 输入。
+
+每身份与第一轮单 worker 比较，共 56 对；比较完整语义回执（仅排除 `workers`）、
+七个规范快照及失败/重试边界的实际事件、信号与结果。跨 worker 结果也须与同源
+正常参考的命令、游标和状态检查点匹配。正常参考全部完成后才启动失败重试；
+最多四个进程，全部活动世界（含 fresh）的配置 worker 总和不超过 32。
+
+环境 JSON 除前述字段外还必须含 `test_build_command`。构建测试二进制的命令为：
+
+```text
+cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --message-format=json
+```
+
+从 Cargo 的 compiler-artifact 记录提取实际测试 executable，与普通工具二进制一起
+从干净冻结检出构建、复制至仓库外并记录身份；不根据文件名猜测构建来源。
+两类二进制都在矩阵前后核对 SHA-256。输出目录必须全新；首错停止新启动并保留
+已启动材料，不补跑拼接。此入口不采集性能，不证明其他 failpoint、多错误首错、
+强制调度置换或快照解码恢复；详见[执行设计 §8](../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试)。
 
 ## 表现与测量
 
@@ -180,10 +204,11 @@ laneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root
 ```
 
 八行各启动一个新测试进程，最多两进程并发；每个测试独立安装两个世界，先走完整
-预热，保存命令前后规范快照，在 `AfterTransitions` 注入一次失败，然后只重试相同
+预热。宿主显式设置 `LF_SYNTH_WORKERS=1`；直接调用测试程序也必须显式提供该值。
+保存命令前后规范快照，在 `AfterTransitions` 注入一次失败，然后只重试相同
 step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常矩阵证明。
 
-输出包含 `report.json`、七份 `.lfrs` 捕获及测试日志。矩阵比较失败前后、独立世界
+输出包含 `report.json`、七份 `.lfrs` 捕获、`observations.json` 及测试日志。矩阵比较失败前后、独立世界
 的命令后状态和 retry/fresh 快照字节，还将输入、批次摘要、游标和最终状态与正常
 矩阵对应检查点比较。原始快照用于本次逐值/字节比较，不代表恢复认证；测试构建
 耗时不作 latency/tail 结论。失败保留 `complete=false` 及已写材料。

@@ -2,6 +2,57 @@ use std::fs;
 use std::process::Command;
 
 #[test]
+fn worker_retry_matrix_stops_at_failed_normal_references_and_preserves_output() {
+    let root = tempfile::tempdir().unwrap();
+    let environment = root.path().join("environment.json");
+    fs::write(
+        &environment,
+        serde_json::to_vec(&serde_json::json!({"implementation_commit":"c".repeat(40),
+        "source_clean":true,"rustc_vv":"fixture","cargo_version":"fixture","target":"fixture",
+        "build_command":"fixture","test_build_command":"fixture"}))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = root.path().join("retry");
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_laneflow-synth-harness"))
+            .arg("worker-retry-matrix")
+            .arg(env!("CARGO_BIN_EXE_laneflow-synth-harness"))
+            .arg(root.path().join("missing-inputs"))
+            .arg("c".repeat(40))
+            .arg(&environment)
+            .arg(&output)
+            .output()
+            .unwrap()
+    };
+    assert!(!run().status.success());
+    let bytes = fs::read(output.join("summary.json")).unwrap();
+    let summary: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(summary["complete"], false);
+    assert!(summary["normal_runs"].as_array().unwrap().is_empty());
+    assert!(summary["runs"].as_array().unwrap().is_empty());
+    assert!(summary["comparisons"].as_array().unwrap().is_empty());
+    let started = summary["execution_order"].as_array().unwrap();
+    assert!(!started.is_empty() && started.len() <= 4);
+    assert_eq!(summary["errors"].as_array().unwrap().len(), started.len());
+    assert!(started.iter().all(|row| row["normal"] == true));
+    for task in started {
+        let report: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                output
+                    .join(task["run"].as_str().unwrap())
+                    .join("report.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["complete"], false);
+    }
+    assert!(!run().status.success());
+    assert_eq!(bytes, fs::read(output.join("summary.json")).unwrap());
+}
+
+#[test]
 fn worker_cli_rejects_zero_and_invalid_counts_without_overwriting_output() {
     let root = tempfile::tempdir().unwrap();
     for count in ["0", "not-a-number", "4294967296"] {

@@ -14,24 +14,24 @@ const MAX_PROCESSES: usize = 4;
 const MAX_CONFIGURED_WORKERS: u32 = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Job {
-    scale: u32,
-    case: &'static str,
-    dt: u32,
-    workers: u32,
-    round: u32,
+pub(super) struct Job {
+    pub(super) scale: u32,
+    pub(super) case: &'static str,
+    pub(super) dt: u32,
+    pub(super) workers: u32,
+    pub(super) round: u32,
 }
 
 impl Job {
-    fn identity(self) -> String {
+    pub(super) fn identity(self) -> String {
         format!("{}-{}-{}", self.scale, self.case, self.dt)
     }
 
-    fn key(self) -> String {
+    pub(super) fn key(self) -> String {
         format!("{}-w{}-r{}", self.identity(), self.workers, self.round)
     }
 
-    fn baseline(self) -> Self {
+    pub(super) fn baseline(self) -> Self {
         Self {
             workers: 1,
             round: 1,
@@ -39,7 +39,7 @@ impl Job {
         }
     }
 
-    fn files(self) -> &'static [&'static str] {
+    pub(super) fn files(self) -> &'static [&'static str] {
         if matches!(self.case, "W3" | "W4") {
             &["ticks.bin", "events.bin", "commands.bin", "batches.json"]
         } else {
@@ -47,7 +47,7 @@ impl Job {
         }
     }
 
-    fn windows(self) -> (u64, u64) {
+    pub(super) fn windows(self) -> (u64, u64) {
         let warm = if self.dt == 16 { 14_508 } else { 7_044 };
         (warm, if self.case == "W4" { 2 } else { warm * 2 })
     }
@@ -81,7 +81,7 @@ fn invalid(message: impl Into<String>) -> Error {
     Error::Invalid(message.into())
 }
 
-fn check_report(
+pub(super) fn check_report(
     job: Job,
     report: &Value,
     input: &Value,
@@ -172,7 +172,7 @@ fn compare(output: &Path, job: Job, baseline: &Value, candidate: &Value) -> Resu
         "semantic_report_equal":true,"exact_files":job.files()}))
 }
 
-fn file_identity(path: &Path) -> Result<Value, Error> {
+pub(super) fn file_identity(path: &Path) -> Result<Value, Error> {
     let bytes = fs::read(path)?;
     let digest: String = Sha256::digest(&bytes)
         .iter()

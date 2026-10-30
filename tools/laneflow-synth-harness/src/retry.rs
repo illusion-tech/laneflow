@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 
 use crate::write;
 
-const TEST: &str = "kernel::lf_synth_contract::formal_retry::formal_input_failed_step_retry";
+pub(super) const TEST: &str =
+    "kernel::lf_synth_contract::formal_retry::formal_input_failed_step_retry";
 
 pub(crate) fn matrix(
     binary: &Path,
@@ -108,6 +109,7 @@ fn run_process(
         .env("LF_SYNTH_INPUT", input.join(format!("{label}-a")))
         .env("LF_SYNTH_OUTPUT", &target)
         .env("LF_SYNTH_IMPLEMENTATION", implementation)
+        .env("LF_SYNTH_WORKERS", "1")
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log))
         .status()?;
@@ -115,7 +117,7 @@ fn run_process(
     let report: Value = serde_json::from_slice(&fs::read(target.join("report.json"))?)?;
     let normal_report: Value =
         serde_json::from_slice(&fs::read(normal.join(format!("{label}-a/report.json")))?)?;
-    verify_reports(&report, &normal_report, implementation, label)?;
+    verify_reports(&report, &normal_report, implementation, label, 1)?;
     for (first, second) in [
         ("post-command.lfrs", "failed.lfrs"),
         ("post-command.lfrs", "fresh-post-command.lfrs"),
@@ -137,11 +139,12 @@ fn ensure(valid: bool, message: &str) -> Result<(), Error> {
     }
 }
 
-fn verify_reports(
+pub(super) fn verify_reports(
     retry: &Value,
     normal: &Value,
     implementation: &str,
     label: &str,
+    workers: u32,
 ) -> Result<(), Error> {
     let identity = &retry["input_manifest"]["identity"];
     let actual = format!(
@@ -155,6 +158,8 @@ fn verify_reports(
             && normal["complete"] == true
             && retry["format"] == "lf-synth-retry-run-1"
             && normal["format"] == "lf-synth-burst-run-1"
+            && retry["workers"] == workers
+            && normal["workers"] == 1
             && actual == label
             && retry["implementation_commit"] == implementation
             && normal["implementation_commit"] == implementation
@@ -166,6 +171,9 @@ fn verify_reports(
         "failed_snapshot_values_equal",
         "failed_events_equal",
         "failed_cursor_equal",
+        "failed_signals_equal",
+        "failpoint_consumed",
+        "fresh_execution_config_matches",
         "fresh_post_command_values_equal",
         "retry_fresh_values_equal",
         "retry_fresh_outcome_and_events_equal",
@@ -223,9 +231,9 @@ mod tests {
     #[test]
     fn retry_comparison_rejects_absent_or_mismatched_evidence() {
         let implementation = "a".repeat(40);
-        assert!(verify_reports(&json!({}), &json!({}), &implementation, "10000-W4-33").is_err());
+        assert!(verify_reports(&json!({}), &json!({}), &implementation, "10000-W4-33", 1).is_err());
         let identity = json!({"scale":10000,"case":"W4","fixed_delta_ms":33});
-        let mut retry = json!({"format":"lf-synth-retry-run-1","complete":true,"input_manifest":{"identity":identity},
+        let mut retry = json!({"format":"lf-synth-retry-run-1","complete":true,"workers":1,"input_manifest":{"identity":identity},
             "implementation_commit":implementation,"step_input_digest":"step","failure_boundary":10,"final_tick":12,
             "command_batch_digest":"batch","pre_command_state_digest":"pre","post_command_state_digest":"post",
             "failpoint":"AfterTransitions","error":"ParkingObservationAllocFailed","failed_calls":1,
@@ -234,25 +242,32 @@ mod tests {
             "failed_snapshot_values_equal",
             "failed_events_equal",
             "failed_cursor_equal",
+            "failed_signals_equal",
+            "failpoint_consumed",
+            "fresh_execution_config_matches",
             "fresh_post_command_values_equal",
             "retry_fresh_values_equal",
             "retry_fresh_outcome_and_events_equal",
         ] {
             retry[flag] = true.into();
         }
-        let normal = json!({"format":"lf-synth-burst-run-1","complete":true,"input_manifest":retry["input_manifest"],"implementation_commit":implementation,"step_input_digest":"step","warm_up_ticks":10,
+        let normal = json!({"format":"lf-synth-burst-run-1","complete":true,"workers":1,"input_manifest":retry["input_manifest"],"implementation_commit":implementation,"step_input_digest":"step","warm_up_ticks":10,
             "command_batches":[{"boundary":10,"input_digest":"batch","pre_command_state_digest":"pre","post_command_state_digest":"post","cursor_before":1,"cursor_after":3}],
             "checkpoints":[{"tick":11,"state_digest":"retry"},{"tick":12,"state_digest":"final"}]});
-        verify_reports(&retry, &normal, &implementation, "10000-W4-33").unwrap();
+        verify_reports(&retry, &normal, &implementation, "10000-W4-33", 1).unwrap();
         for (field, replacement) in [
             ("command_batch_digest", json!("other")),
             ("post_command_state_digest", json!("other")),
             ("cursor_after_retry", json!(4)),
             ("retry_state_digest", json!("other")),
+            ("workers", json!(2)),
+            ("failpoint_consumed", json!(false)),
+            ("failed_signals_equal", json!(false)),
+            ("fresh_execution_config_matches", json!(false)),
         ] {
             let mut changed = retry.clone();
             changed[field] = replacement;
-            assert!(verify_reports(&changed, &normal, &implementation, "10000-W4-33").is_err());
+            assert!(verify_reports(&changed, &normal, &implementation, "10000-W4-33", 1).is_err());
         }
     }
 }

@@ -145,6 +145,8 @@ despawn=3、spawn=4、atomic replace=5。批次摘要为 ASCII
 
 Runtime 内 `formal_input_failed_step_retry` 是显式 ignored 测试，只允许 optimized
 test binary。普通生产二进制不包含 failpoint，不新增生产 feature 或调试入口。
+调用者必须通过 `LF_SYNTH_WORKERS` 显式提供 1–16 worker；失败与 fresh 两个世界均
+使用该配置并核对安装后的实际值，回执记录实际 `workers`。`retry-matrix` 显式传 1。
 该测试独立读取和校验两次正式输入，各自受检构建修订、安装世界并推进完整预热；
 按相同计划在两个独立世界应用一次命令。W3 注入点是第一批 atomic replacements
 后的 step，W4 是 B0 的 step。
@@ -162,6 +164,10 @@ B1。W3/W4 均在前两条观察拍结束后停止本 guardrail，完整 W3 窗�
 命令前后状态和游标、重试及最终状态与相同实现的正常矩阵比较，并逐字节比较应相等
 的快照文件。回执域分别为 `lf-synth-retry-run-1`、`lf-synth-retry-matrix-1`。
 测试构建的运行耗时不进入 latency/tail 或 Product Pass/Fail。
+
+第 8 节的跨 worker 核验另保存 `observations.json`：命令前、命令后、fresh 命令后、
+失败后、retry、fresh 和最终边界的 tick、时间、命令游标、有序事件、信号及可用的
+完整 `StepOutcome`。失败点须实际消耗，失败边界不能伪造成功 outcome。
 
 ## 6. 独立进程与后续范围
 
@@ -213,3 +219,49 @@ binary 的关联，执行者仍须提供干净检出、构建日志和冻结二�
 非标称交叉组合、强制调度/完成置换、跨 worker failpoint 的首错与 retry/fresh、
 快照解码恢复、Routing、Spatial/Adapter 的跨 worker 接线和完整五轴均不由本入口
 证明。两轮单 worker 旧证据与本次三轮矩阵分别保留各自源码身份，不能拼成同一验收。
+
+## 8. 标称 W3/W4 的跨 worker 失败与重试
+
+`worker-retry-matrix` 先使用当前普通工具二进制，为一万/16 ms、十万/33 ms 的
+W3/W4 四个身份分别生成一个完整单 worker 正常窗口。四个参考全部通过第 7 节的
+来源、正式输入、窗口与检查点校验后，才启动 optimized Runtime 测试二进制。
+正常参考和测试构建绑定同一干净实现提交，不能读取旧提交的矩阵拼接验收。
+
+失败矩阵为四身份 × 1/2/4/8/16 worker × 三个全新进程，共 60 次。每轮二十项配置
+按规模、场景、worker 排序，再左移 `7 * (round - 1)` 项；已启动运行可跨轮交叠。
+每个进程独立安装失败/fresh 两世界，推进完整预热和第 5 节的前两拍 guardrail。
+W3 的完整观察窗口由正常参考证明，不把失败 guardrail 写成完整 W3 窗口重试。
+
+最多四个子进程并发，所有已启动世界（含 fresh 世界）的配置 worker 总和不超过
+32。两世界交替同步步进；上述限制不是 OS 总线程、CPU 使用率或多世界吞吐预算。
+失败点仍限定在 `AfterTransitions`，预期错误为 `ParkingObservationAllocFailed`。
+失败后不重放生命周期命令，只重试原 `TickInput`；W4 成功后才进入 B1。
+
+每次回执先与同源正常参考核对命令批次、step 输入、失败边界、游标、重试检查点和
+最终检查点，并核验实际 worker、失败零发布、信号保持、注入点消耗及 retry/fresh
+等价标记。随后核对本次三对规范快照字节与实际边界观测。每身份以第一轮单 worker
+为参考，其余十四次只排除回执 `workers` 字段后精确比较所有其他字段，再逐字节
+比较七个 LFRS 文件和 `observations.json`；共 56 对。
+
+边界观测域为 `lf-synth-retry-observations-1`。事件数组按原顺序保存十一项：tick、
+车辆逻辑 rank、更新序号、路线逻辑 rank、maneuver occurrence、hop、edge occurrence、
+进度毫米、carry 微米、事件种类、payload。种类 1 是 GateCrossed（payload 为 gate
+ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence）；其他
+种类拒绝。信号数组保存原序 group ordinal 与灯态（Red=0、Yellow=1、Green=2）。
+成功 outcome 保存 tick、时间和有序 parking arrivals（车辆逻辑 rank、space ordinal）；
+无成功 step 的边界为 null。这些字段用于本次有限边界的公开观测比较，不是每拍完整
+内部状态、所有并发错误或调度置换的证明。
+
+矩阵域为 `lf-synth-worker-retry-matrix-1`。环境声明沿用第 7 节，另必填非空
+`test_build_command`；执行者提供两个二进制的同源构建记录。矩阵记录两类二进制与
+运行文件的长度/SHA-256，前后核对二进制身份；SHA-256 由 PowerShell `Get-FileHash`
+独立复算，属 ADR 0033 的互操作摘要，原有 BLAKE3 状态及命令编码不变。
+
+输出目录必须全新。首个启动、运行或比较错误后停止新启动并收集已启动材料；父进程
+因 I/O 错误或展开退出时回收持有的子进程。只有四个完整正常参考、60 次失败重试和
+56 对比较均通过才设置 `complete=true`，不以补跑、跳过或拼接替换失败矩阵。
+大体量原件留仓库外，仓库只保存结论、复现说明和小型结果摘要。
+
+本入口不证明多错误逻辑首错裁决、所有失败点、强制调度/完成置换、非标称组合、
+快照解码恢复、Routing、Spatial/Adapter 跨 worker 接线、性能或完整五轴认证。
+`Product TBD / Uncertified` 与既有负面测量结果保持。

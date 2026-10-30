@@ -10,6 +10,7 @@ use laneflow_synth_harness::{Error, run};
 use serde_json::{Value, json};
 
 mod retry;
+mod worker_retry;
 mod workers;
 
 fn write(path: &Path, value: &Value) -> Result<(), Error> {
@@ -169,9 +170,21 @@ fn execute() -> Result<(), Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 1 && args[0] == "--help" {
         println!(
-            "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <normal-matrix-output> <new-output-root>\nlaneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>\nlaneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>"
+            "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <normal-matrix-output> <new-output-root>\nlaneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>\nlaneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>\nlaneflow-synth-harness worker-retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>"
         );
         return Ok(());
+    }
+    if args.len() == 6 && args[0] == "worker-retry-matrix" {
+        let implementation = args[3]
+            .to_str()
+            .ok_or_else(|| Error::Invalid("提交必须为 UTF-8".into()))?;
+        return worker_retry::matrix(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            implementation,
+            Path::new(&args[4]),
+            Path::new(&args[5]),
+        );
     }
     if args.len() == 6 && args[0] == "retry-matrix" {
         let implementation = args[3]
