@@ -992,17 +992,17 @@ fn quantize_f32(p: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-fn from_bits3(value: Value) -> [f64; 3] {
+pub(super) fn from_bits3(value: Value) -> [f64; 3] {
     let bits: [u64; 3] = serde_json::from_value(value).unwrap();
     bits.map(f64::from_bits)
 }
 
-fn point3(p: [f64; 3]) -> re::RoadEditingPoint3 {
+pub(super) fn point3(p: [f64; 3]) -> re::RoadEditingPoint3 {
     re::RoadEditingPoint3::try_new(p[0], p[1], p[2]).unwrap()
 }
 
 /// 折线 → 逐弦退化 cubic（`quality::fit` 仅取前四点；两端点线性插值即直线弦）。
-fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
+pub(super) fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
     points
         .windows(2)
         .map(|w| {
