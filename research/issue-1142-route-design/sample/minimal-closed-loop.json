@@ -1,9 +1,10 @@
 {
   "meta": {
     "id": "issue-1142-minimal-closed-loop",
-    "version": 4,
+    "version": 5,
     "kind": "synthetic-pinned-input",
     "changelog": [
+      { "version": 5, "date": "2026-10-31", "reason": "PR #1190 评审修复（R1b 可达性）：断言分层——层①前摄安全证明/优先裁决（tick 0，双方 19/27 m 可让行前提下 live 序恰一优先、无 crossing 不建预约）、层②实际进入（到达拍，每 crossing 拍恰一进入）；新增 reachability 钉定本拍位移上界 1.39 m，「恰一进入」仅在 crossing 拍断言" },
       { "version": 4, "date": "2026-10-31", "reason": "PR #1190 评审修复（R1b 让行前提）：s12 双方均改位至 d_stop 之后（A0@19000 / A0@11000，距 T01 入口 19 m / 27 m ≥ 15.61 m；v-change-2 较旧构型后移 ≥ 16 m，v-change-1 同步后移满足同一前提），双方均可安全让行前提下保留同拍申请与 live 序裁决、每拍恰一授予；R1b 断言补前提与前提不成立时的退回语义" },
       { "version": 3, "date": "2026-10-31", "reason": "#1185 冻结裁定修订（R1/R2 确定化）：新增 fixed_delta_time_ms=100 与 safety_proof（反应窗口 r=2 拍、停止距离公式、MotionReach 本拍上界口径）；profiles 补具名制动参数 service_decel/emergency_decel；s4 钉关键拍（换道车本拍可进入、后车区外 8 m、d_stop≈26.75 m 不可让行）；s6 改 R1a 断言（直行不进 P4 候选队列、换道让行）；新增 s12（R1b 两换道车稳定序竞争）" },
       { "version": 2, "date": "2026-10-29", "reason": "PR #1144 评审修复：s1 拆分 gap / continuous-control / transition 三拓扑（gap 与 transition 变体移除 I0/P0，消除 lane-continuous 替代路线）；s5/s8 源后车改位到过渡车后方；s3/s4/s6 同类位置重排防止断言空转；新增 actor_conventions（route_edge_index 与 tick 0 激活基准）" }
@@ -326,16 +327,18 @@
     {
       "id": "s12-two-changer-stable-order",
       "group": "同拍与多车",
-      "purpose": "R1b 两换道车同拍申请：双方均可安全让行前提下恰一方本拍进入，先后由 live 序稳定裁决确定",
+      "purpose": "R1b 两换道车竞争：前摄安全证明/优先裁决与实际进入分层断言（双方均可安全让行、live 序定序、每 crossing 拍恰一进入）",
       "actors": [
         { "id": "v-change-1", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 19000, "route_edge_index": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
         { "id": "v-change-2", "profile": "car", "spawn": { "edge": "A0", "progress_mm": 11000, "route_edge_index": 0 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" }
       ],
-      "yieldability": "「恰一方本拍进入」前提 = 双方均可安全让行：距 T01 入口 19 m / 27 m 均 ≥ d_stop = 10*0.2 + 10^2/(2*4.5) + 2.5 ≈ 15.61 m（v-change-2 较旧构型后移 ≥ 16 m；v-change-1 同步后移以满足同一前提——否则尾车证明仍被头车阻塞）",
+      "reachability": "本拍位移上界 = 13.9 m/s × 0.1 s = 1.39 m；双方初始距 T01 入口 19 m / 27 m，均不可能本拍进入——断言分层：层①前摄证明/优先裁决（tick 0）、层②实际进入（到达拍）；「恰一进入」仅在 crossing 拍断言",
+      "yieldability": "双方均可安全让行：距 T01 入口 19 m / 27 m 均 ≥ d_stop = 10*0.2 + 10^2/(2*4.5) + 2.5 ≈ 15.61 m（v-change-2 较 v2 构型后移 ≥ 16 m；v-change-1 同步后移满足同一前提——否则尾车证明仍被头车阻塞）",
       "expected": [
-        "前提成立（双方均可安全让行）下两车同拍提交过渡申请、P4 证明均通过；T01 独占资源冲突按 live 序稳定裁决，每拍恰一授予",
-        "恰一方本拍进入；败者保持可让行状态在 sl-t01 前等待，随后拍次进入；重放与不同 worker 配置结果一致",
-        "不得以遍历先后或 worker 调度决定结果；两车不得同入；败者不得被跳过或补位；前提不成立（任一方 d_stop > 距离）时不得硬套本断言，应退回证明先行语义"
+        "层①（前摄安全证明与优先裁决，tick 0）：双方均可安全让行前提下 P4 证明均通过；T01 独占冲突按 live 序稳定裁决恰一优先；不建立预约（§5.1 撤销分支：无实际 crossing 即到期）",
+        "层②（实际进入）：优先方到达入口拍实际 crossing 恰一次并建立预约；败者同拍申请 no-grant、在 sl-t01 前等待，待 rear >= clearance 后取得授予进入；每一 crossing 拍恰一车进入 T01",
+        "全程无物理重叠；重放与不同 worker 配置结果一致；不得以遍历先后或 worker 调度定序；两车不得同 crossing 拍进入；败者不得被跳过或补位",
+        "不得在距 T01 超过本拍位移上界（1.39 m）时断言本拍进入；前提不成立（任一方 d_stop > 距离）时不得硬套断言，应退回证明先行语义"
       ],
       "expressibility": "needs-237-subcontract"
     }
