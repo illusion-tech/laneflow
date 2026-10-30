@@ -1,0 +1,17 @@
+[
+  {
+    "binary": "<evidence-root>/bin/measure.exe",
+    "sha256": "90e618ee213804c6a00325e3fa0722d198dad6b30c786a0dec548b4ce984af2c",
+    "matches_clean_build": true
+  },
+  {
+    "binary": "<evidence-root>/bin/laneflow-synth-harness.exe",
+    "sha256": "a366048f4b44a823d375668ac97080c63f3df2918bce4880d08c11e95d3a9c90",
+    "matches_clean_build": true
+  },
+  {
+    "binary": "<evidence-root>/bin/measure-allocation.exe",
+    "sha256": "3c0f946444bd018191bfd16e2058b2ec05bba3d5d9882f52dbd7d92328d7045c",
+    "matches_clean_build": true
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "tree": "72437ef7e26e0f10b6f8e91e3fbc8111e1d2acc4",
+  "clean": true,
+  "normal_command": "cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bins",
+  "diagnostic_command": "cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin measure --features allocation --target-dir target/synth-allocation",
+  "captured_utc": "2026-10-29T18:51:49.2999736Z"
+}

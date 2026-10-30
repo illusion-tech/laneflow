@@ -1,0 +1,13 @@
+{
+  "format": "lf-synth-post-run-source-verification-1",
+  "captured_utc": "2026-10-30T06:02:52.4768747Z",
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "tree": "72437ef7e26e0f10b6f8e91e3fbc8111e1d2acc4",
+  "source_clean": true,
+  "source_inventory_files_rehashed": 24,
+  "source_inventory_equal": true,
+  "final_environment_present": true,
+  "active_measurement_processes": 0,
+  "completed_runs": 83,
+  "scope": "Recorded after collection and before adding evidence documentation; raw audit is separate."
+}

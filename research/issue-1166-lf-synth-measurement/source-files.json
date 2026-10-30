@@ -1,0 +1,125 @@
+{
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "3b163d2533b8b293d1b11e2636d9b1eb82379218c1b58ca08c1425f59dc18731",
+      "bytes": 146419
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "45818199185ed0f16a4c107ff730cdee5b16bfc155e882378b4950938a3e53f9",
+      "bytes": 4129
+    },
+    {
+      "path": "deny.toml",
+      "sha256": "7acde8694a5f9b47bfc6c3eadb38bd8a5b79d4aaa69d39026cd8fa54260b6f35",
+      "bytes": 4721
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "sha256": "43831f4d2cdff869c23b29c2fe163635af9be565f2d55892d35a25dbd6854732",
+      "bytes": 331
+    },
+    {
+      "path": "tools/laneflow-synth-harness/Cargo.toml",
+      "sha256": "20376eee1cf85062e95c127ad7acd418831a12ac8072f3ec249186c1a373c1d2",
+      "bytes": 1639
+    },
+    {
+      "path": "tools/laneflow-synth-harness/README.md",
+      "sha256": "ead324afc7d0c18d53c2bba241c2812706bcb89a23242d31f159465dc8d490af",
+      "bytes": 10027
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/bin/measure.rs",
+      "sha256": "ccf82c5e35086514cd3174e4d59d3863a21671965dc7247de15ab639176ded1b",
+      "bytes": 2674
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/burst.rs",
+      "sha256": "9d7b6d487f733c16f7bd0f6e4318e63232f27d520b125c668aad05474e1e3465",
+      "bytes": 28244
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/burst/observe.rs",
+      "sha256": "c3a3eaf859fff0ee9f624029530050d01e8021917be43d515851e8cd402d93d1",
+      "bytes": 18867
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/install.rs",
+      "sha256": "53066b913b462a6920ed1cc669daf881f491493f1d61b87736a24c3e71503077",
+      "bytes": 7564
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/lib.rs",
+      "sha256": "6e6b02a764268e16e05e7031d5ef13a84fddb64c1cb983ad3fb0f81980eca08e",
+      "bytes": 8930
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/main.rs",
+      "sha256": "96f278dbc50e64fcebf32bf92322e9cc03f8a625d12ddd68f244f1088e91dcd6",
+      "bytes": 9515
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/driver.rs",
+      "sha256": "537d9711f9a1905ab2aeb66bd380acdd23324c3634ee339edffc3834e0760fb1",
+      "bytes": 15079
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/events.rs",
+      "sha256": "10b96153d8ac7e298d030704a510a248a9b22fa9fdf5a67988414089ab06150f",
+      "bytes": 4083
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/frames.rs",
+      "sha256": "0a76f83fda5ca67de487c70e994c9326805388252c701d6faabe99ca02516868",
+      "bytes": 6791
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/matrix.rs",
+      "sha256": "4f53ed1460cf887b705abae7f8ab9a8fa7c0285e7e7770cd9e064547e67da1b1",
+      "bytes": 14834
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/mod.rs",
+      "sha256": "b788baaa6974c813c0d801643f03de4467e7919f49e043390beac352d88268ab",
+      "bytes": 283
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/presentation.rs",
+      "sha256": "d7be903a0c010920434880ff50a0bebfd7a258a79e2a2317448aaa201095c270",
+      "bytes": 4608
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/resources.rs",
+      "sha256": "24af9b43f166f647fdbe94ba32d2e0e7e3f431e7e0991e3ffec3b6a70af9c4e9",
+      "bytes": 3003
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/measurement/runner.rs",
+      "sha256": "4dcba7a66e64a0b64231cf7dac30d81ee4a1a90ef6e18b12f565a11892fa1273",
+      "bytes": 34725
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/observe.rs",
+      "sha256": "e173dc11809735bcd6c3abcbdafcd92ddb9d0c54a83684659e7e94cf95fd947c",
+      "bytes": 9561
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/retry.rs",
+      "sha256": "c8119fae745a91f7c6f81c263e452b0ae5191f36bb57b66464e5295a6aa3159a",
+      "bytes": 10494
+    },
+    {
+      "path": "tools/laneflow-synth-harness/src/tests.rs",
+      "sha256": "98b4711c055b4732e33b78e78913e57c517345a0463de561b187499c613e8cb6",
+      "bytes": 5540
+    },
+    {
+      "path": "tools/laneflow-synth-harness/tests/cli.rs",
+      "sha256": "2e9b10de44ac9dbccb72de1fe64a2b41c30d214420299897c7abfdee13fbca17",
+      "bytes": 2502
+    }
+  ]
+}

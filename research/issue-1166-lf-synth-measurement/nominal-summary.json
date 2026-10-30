@@ -1,0 +1,6023 @@
+{
+  "aggregates": [
+    {
+      "rounds": 3,
+      "row": "100000-W2-33-p0",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 35583400,
+          "p50_ns": 14448600,
+          "p95_ns": 18701000,
+          "p99_ns": 21154900,
+          "samples": 14088
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W3-33-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 58249900,
+          "p50_ns": 7844300,
+          "p95_ns": 11262700,
+          "p99_ns": 14905900,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 14308400,
+              "p50_ns": 8772800,
+              "p95_ns": 11597400,
+              "p99_ns": 11597400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1706900,
+              "p50_ns": 1145500,
+              "p95_ns": 1329800,
+              "p99_ns": 1329800,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 3383016100,
+              "p50_ns": 19678200,
+              "p95_ns": 2860665800,
+              "p99_ns": 2860665800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1388300,
+              "p50_ns": 1155900,
+              "p95_ns": 1371400,
+              "p99_ns": 1371400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 61637400,
+              "p50_ns": 9065300,
+              "p95_ns": 12651500,
+              "p99_ns": 16529000,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 7151700,
+              "p50_ns": 1144000,
+              "p95_ns": 1502100,
+              "p99_ns": 1725900,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 3922100,
+              "p50_ns": 326000,
+              "p95_ns": 512900,
+              "p99_ns": 749600,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 3877100,
+              "p50_ns": 313200,
+              "p95_ns": 492600,
+              "p99_ns": 720700,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W3-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 51033400,
+          "p50_ns": 7844800,
+          "p95_ns": 10170800,
+          "p99_ns": 12407900,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 20999700,
+              "p50_ns": 16015200,
+              "p95_ns": 20290500,
+              "p99_ns": 20290500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9709800,
+              "p50_ns": 7810600,
+              "p95_ns": 8617600,
+              "p99_ns": 8617600,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 3325793300,
+              "p50_ns": 29414100,
+              "p95_ns": 2939743700,
+              "p99_ns": 2939743700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9689800,
+              "p50_ns": 7392800,
+              "p95_ns": 9384600,
+              "p99_ns": 9384600,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 81128400,
+              "p50_ns": 16171900,
+              "p95_ns": 19241600,
+              "p99_ns": 22179900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 29954600,
+              "p50_ns": 8185300,
+              "p95_ns": 9572700,
+              "p99_ns": 10754200,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 31906300,
+              "p50_ns": 5447700,
+              "p95_ns": 7871500,
+              "p99_ns": 9910700,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 31844900,
+              "p50_ns": 5427800,
+              "p95_ns": 7839800,
+              "p99_ns": 9877100,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W3-33-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 47484700,
+          "p50_ns": 7992800,
+          "p95_ns": 10600800,
+          "p99_ns": 12373400,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 50150700,
+              "p50_ns": 31787000,
+              "p95_ns": 46898400,
+              "p99_ns": 46898400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 37844100,
+              "p50_ns": 24066200,
+              "p95_ns": 33953000,
+              "p99_ns": 33953000,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 3513807200,
+              "p50_ns": 45751900,
+              "p95_ns": 2939316300,
+              "p99_ns": 2939316300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 28405200,
+              "p50_ns": 22935500,
+              "p95_ns": 26684700,
+              "p99_ns": 26684700,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 172236100,
+              "p50_ns": 32515900,
+              "p95_ns": 40379000,
+              "p99_ns": 49574500,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 124586900,
+              "p50_ns": 24385600,
+              "p95_ns": 30948500,
+              "p99_ns": 35569200,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 127611000,
+              "p50_ns": 24935300,
+              "p95_ns": 31767100,
+              "p99_ns": 37059700,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 127548600,
+              "p50_ns": 24910200,
+              "p95_ns": 31742900,
+              "p99_ns": 37028200,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W3-33-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 35085100,
+          "p50_ns": 7723200,
+          "p95_ns": 10013600,
+          "p99_ns": 11849300,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 61061300,
+              "p50_ns": 48091700,
+              "p95_ns": 55506500,
+              "p99_ns": 55506500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 49157600,
+              "p50_ns": 40482100,
+              "p95_ns": 46849700,
+              "p99_ns": 46849700,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2951448100,
+              "p50_ns": 61447900,
+              "p95_ns": 2939373000,
+              "p99_ns": 2939373000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 42368500,
+              "p50_ns": 37355000,
+              "p95_ns": 41902800,
+              "p99_ns": 41902800,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 166442900,
+              "p50_ns": 46872800,
+              "p95_ns": 55406300,
+              "p99_ns": 65408900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 145835800,
+              "p50_ns": 39039600,
+              "p95_ns": 46409000,
+              "p99_ns": 55673600,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 145411900,
+              "p50_ns": 40550400,
+              "p95_ns": 47570800,
+              "p99_ns": 56563800,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 145373400,
+              "p50_ns": 40526000,
+              "p95_ns": 47542700,
+              "p99_ns": 56540400,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W4-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "burst_max": {
+          "core_ns": {
+            "median_ns": 14337400,
+            "worst_ns": 15185700
+          },
+          "integrated_ns": {
+            "median_ns": 3503350900,
+            "worst_ns": 4295314100
+          },
+          "spatial_adapter_ns": {
+            "median_ns": 6999700,
+            "worst_ns": 7464700
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W1-16-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 5161200,
+          "p50_ns": 1111200,
+          "p95_ns": 1305900,
+          "p99_ns": 1843300,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1847300,
+              "p50_ns": 1103500,
+              "p95_ns": 1329600,
+              "p99_ns": 1329600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 35100,
+              "p50_ns": 22300,
+              "p95_ns": 34200,
+              "p99_ns": 34200,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 8637200,
+              "p50_ns": 2252200,
+              "p95_ns": 2619200,
+              "p99_ns": 3765100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 315600,
+              "p50_ns": 24900,
+              "p95_ns": 40000,
+              "p99_ns": 54500,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 3330800,
+              "p50_ns": 1139600,
+              "p95_ns": 1343300,
+              "p99_ns": 1908400,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 1102000,
+              "p50_ns": 24000,
+              "p95_ns": 34100,
+              "p99_ns": 43600,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W1-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 21879800,
+          "p50_ns": 1162700,
+          "p95_ns": 1736700,
+          "p99_ns": 2106600,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 3038100,
+              "p50_ns": 1331600,
+              "p95_ns": 1891800,
+              "p99_ns": 1891800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 868900,
+              "p50_ns": 213900,
+              "p95_ns": 293300,
+              "p99_ns": 293300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 33258500,
+              "p50_ns": 2624000,
+              "p95_ns": 3765200,
+              "p99_ns": 4819000,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 10126700,
+              "p50_ns": 223400,
+              "p95_ns": 524000,
+              "p99_ns": 874800,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 22140300,
+              "p50_ns": 1420400,
+              "p95_ns": 2031100,
+              "p99_ns": 2827300,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 19609000,
+              "p50_ns": 221100,
+              "p95_ns": 393500,
+              "p99_ns": 714300,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W1-16-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 13074100,
+          "p50_ns": 1115500,
+          "p95_ns": 1447600,
+          "p99_ns": 2066700,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 4745800,
+              "p50_ns": 2060500,
+              "p95_ns": 2156100,
+              "p99_ns": 2156100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2293200,
+              "p50_ns": 983000,
+              "p95_ns": 1064900,
+              "p99_ns": 1064900,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 10629100,
+              "p50_ns": 3307200,
+              "p95_ns": 4630000,
+              "p99_ns": 6292500,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 4970900,
+              "p50_ns": 1048500,
+              "p95_ns": 1613200,
+              "p99_ns": 2494500,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 17458000,
+              "p50_ns": 2161100,
+              "p95_ns": 2850200,
+              "p99_ns": 4291700,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 8701900,
+              "p50_ns": 1031800,
+              "p95_ns": 1425300,
+              "p99_ns": 2304400,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W1-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 5419300,
+          "p50_ns": 1189800,
+          "p95_ns": 1821200,
+          "p99_ns": 1982300,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 4226700,
+              "p50_ns": 2967100,
+              "p95_ns": 4138900,
+              "p99_ns": 4138900,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2563700,
+              "p50_ns": 1968800,
+              "p95_ns": 2528500,
+              "p99_ns": 2528500,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 19547000,
+              "p50_ns": 4644600,
+              "p95_ns": 6400500,
+              "p99_ns": 7112600,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 14097500,
+              "p50_ns": 2207600,
+              "p95_ns": 2866700,
+              "p99_ns": 3348000,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 13257500,
+              "p50_ns": 3364500,
+              "p95_ns": 4608900,
+              "p99_ns": 5004900,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 10694600,
+              "p50_ns": 2150900,
+              "p95_ns": 2803500,
+              "p99_ns": 3093400,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W2-16-p0",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 3706000,
+          "p50_ns": 1508300,
+          "p95_ns": 2235900,
+          "p99_ns": 2390400,
+          "samples": 29016
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W3-16-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 1715700,
+          "p50_ns": 535000,
+          "p95_ns": 821800,
+          "p99_ns": 878900,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 855100,
+              "p50_ns": 585400,
+              "p95_ns": 704400,
+              "p99_ns": 704400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 41300,
+              "p50_ns": 30500,
+              "p95_ns": 39900,
+              "p99_ns": 39900,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 2601800,
+              "p50_ns": 1117600,
+              "p95_ns": 1695000,
+              "p99_ns": 1824900,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 644500,
+              "p50_ns": 28700,
+              "p95_ns": 41700,
+              "p99_ns": 52900,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 35168000,
+              "p50_ns": 1181100,
+              "p95_ns": 34125000,
+              "p99_ns": 34125000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 141000,
+              "p50_ns": 38400,
+              "p95_ns": 123900,
+              "p99_ns": 123900,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 1874100,
+              "p50_ns": 568600,
+              "p95_ns": 869100,
+              "p99_ns": 925700,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 459800,
+              "p50_ns": 28200,
+              "p95_ns": 40000,
+              "p99_ns": 48600,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W3-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 2020700,
+          "p50_ns": 530900,
+          "p95_ns": 815800,
+          "p99_ns": 913700,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1008600,
+              "p50_ns": 778900,
+              "p95_ns": 982700,
+              "p99_ns": 982700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 317500,
+              "p50_ns": 254300,
+              "p95_ns": 275000,
+              "p99_ns": 275000,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 3177000,
+              "p50_ns": 1339500,
+              "p95_ns": 1938900,
+              "p99_ns": 2066100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 907900,
+              "p50_ns": 251100,
+              "p95_ns": 329100,
+              "p99_ns": 344600,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 36865700,
+              "p50_ns": 1616800,
+              "p95_ns": 33544200,
+              "p99_ns": 33544200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 816000,
+              "p50_ns": 277600,
+              "p95_ns": 757000,
+              "p99_ns": 757000,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 2792700,
+              "p50_ns": 795200,
+              "p95_ns": 1148700,
+              "p99_ns": 1249900,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 1390300,
+              "p50_ns": 250200,
+              "p95_ns": 328300,
+              "p99_ns": 342400,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W3-16-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 1668400,
+          "p50_ns": 473300,
+          "p95_ns": 573200,
+          "p99_ns": 672600,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 2229800,
+              "p50_ns": 1647500,
+              "p95_ns": 1790600,
+              "p99_ns": 1790600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1500700,
+              "p50_ns": 1138100,
+              "p95_ns": 1184800,
+              "p99_ns": 1184800,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 4658400,
+              "p50_ns": 2069400,
+              "p95_ns": 2303300,
+              "p99_ns": 2660300,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 2680900,
+              "p50_ns": 1110600,
+              "p95_ns": 1253800,
+              "p99_ns": 1451900,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 32301900,
+              "p50_ns": 2382600,
+              "p95_ns": 31607200,
+              "p99_ns": 31607200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2313200,
+              "p50_ns": 1249200,
+              "p95_ns": 2203500,
+              "p99_ns": 2203500,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 4370000,
+              "p50_ns": 1588800,
+              "p95_ns": 1754400,
+              "p99_ns": 2006000,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 3137800,
+              "p50_ns": 1104000,
+              "p95_ns": 1227800,
+              "p99_ns": 1375500,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W3-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 5681400,
+          "p50_ns": 505400,
+          "p95_ns": 640100,
+          "p99_ns": 816500,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 3740300,
+              "p50_ns": 2832600,
+              "p95_ns": 3055500,
+              "p99_ns": 3055500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2997400,
+              "p50_ns": 2230800,
+              "p95_ns": 2466300,
+              "p99_ns": 2466300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 8426100,
+              "p50_ns": 3306600,
+              "p95_ns": 3873500,
+              "p99_ns": 4751100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 5280000,
+              "p50_ns": 2298300,
+              "p95_ns": 2735600,
+              "p99_ns": 3268800,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 42025800,
+              "p50_ns": 4014900,
+              "p95_ns": 39760600,
+              "p99_ns": 39760600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 3920400,
+              "p50_ns": 2513500,
+              "p95_ns": 3756400,
+              "p99_ns": 3756400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 11442300,
+              "p50_ns": 2776600,
+              "p95_ns": 3274800,
+              "p99_ns": 3864500,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 8096200,
+              "p50_ns": 2257500,
+              "p95_ns": 2648800,
+              "p99_ns": 3151400,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "10000-W4-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "burst_max": {
+          "core_ns": {
+            "median_ns": 1430900,
+            "worst_ns": 1618400
+          },
+          "integrated_ns": {
+            "median_ns": 37099600,
+            "worst_ns": 46827500
+          },
+          "spatial_adapter_ns": {
+            "median_ns": 2977500,
+            "worst_ns": 3142700
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W1-33-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 70292000,
+          "p50_ns": 13377500,
+          "p95_ns": 20184200,
+          "p99_ns": 22361000,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 19224000,
+              "p50_ns": 13646500,
+              "p95_ns": 16355200,
+              "p99_ns": 16355200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1255500,
+              "p50_ns": 1065500,
+              "p95_ns": 1188900,
+              "p99_ns": 1188900,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 77509500,
+              "p50_ns": 14568100,
+              "p95_ns": 21529500,
+              "p99_ns": 23755200,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 25223700,
+              "p50_ns": 947500,
+              "p95_ns": 1397500,
+              "p99_ns": 1500600,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 6920700,
+              "p50_ns": 289300,
+              "p95_ns": 442700,
+              "p99_ns": 555800,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 6848200,
+              "p50_ns": 275800,
+              "p95_ns": 422200,
+              "p99_ns": 534100,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W1-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 27931200,
+          "p50_ns": 11736500,
+          "p95_ns": 14457000,
+          "p99_ns": 15523900,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 26589000,
+              "p50_ns": 19538100,
+              "p95_ns": 21859000,
+              "p99_ns": 21859000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9371300,
+              "p50_ns": 7089200,
+              "p95_ns": 8085300,
+              "p99_ns": 8085300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 41176100,
+              "p50_ns": 19215700,
+              "p95_ns": 22313800,
+              "p99_ns": 23964400,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 17264100,
+              "p50_ns": 7393100,
+              "p95_ns": 8342800,
+              "p99_ns": 8992000,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 17789400,
+              "p50_ns": 3852200,
+              "p95_ns": 6655100,
+              "p99_ns": 8093100,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 17737000,
+              "p50_ns": 3837400,
+              "p95_ns": 6635500,
+              "p99_ns": 8071200,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W1-33-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 29598500,
+          "p50_ns": 12183200,
+          "p95_ns": 14431700,
+          "p99_ns": 15471200,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 37681800,
+              "p50_ns": 32391700,
+              "p95_ns": 34773600,
+              "p99_ns": 34773600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 23329200,
+              "p50_ns": 20168800,
+              "p95_ns": 21056300,
+              "p99_ns": 21056300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 72863600,
+              "p50_ns": 33978100,
+              "p95_ns": 38159800,
+              "p99_ns": 42142100,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 53771600,
+              "p50_ns": 21446000,
+              "p95_ns": 25253600,
+              "p99_ns": 28512800,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 55821100,
+              "p50_ns": 22374100,
+              "p95_ns": 26554100,
+              "p99_ns": 30212900,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 55802700,
+              "p50_ns": 22350900,
+              "p95_ns": 26525600,
+              "p99_ns": 30181900,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "rounds": 3,
+      "row": "100000-W1-33-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 57955500,
+          "p50_ns": 12745800,
+          "p95_ns": 16297500,
+          "p99_ns": 17745000,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 68479700,
+              "p50_ns": 45321900,
+              "p95_ns": 55542300,
+              "p99_ns": 55542300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 53147700,
+              "p50_ns": 33352400,
+              "p95_ns": 37803900,
+              "p99_ns": 37803900,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 308062200,
+              "p50_ns": 48449100,
+              "p95_ns": 59207000,
+              "p99_ns": 65600700,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 269552900,
+              "p50_ns": 35553200,
+              "p95_ns": 43858500,
+              "p99_ns": 49497300,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 225036600,
+              "p50_ns": 37304900,
+              "p95_ns": 45712600,
+              "p99_ns": 50747000,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 225005500,
+              "p50_ns": 37281400,
+              "p95_ns": 45676400,
+              "p99_ns": 50717000,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    }
+  ],
+  "binary_sha256": "90e618ee213804c6a00325e3fa0722d198dad6b30c786a0dec548b4ce984af2c",
+  "complete": true,
+  "errors": [],
+  "execution_order": [
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "1",
+        "<evidence-root>/nominal/10000-W1-16-p1-r1"
+      ],
+      "label": "10000-W1-16-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "1",
+        "<evidence-root>/nominal/10000-W1-16-p10-r1"
+      ],
+      "label": "10000-W1-16-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "1",
+        "<evidence-root>/nominal/10000-W1-16-p50-r1"
+      ],
+      "label": "10000-W1-16-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "1",
+        "<evidence-root>/nominal/10000-W1-16-p100-r1"
+      ],
+      "label": "10000-W1-16-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W2-16-a",
+        "<evidence-root>/oracles/10000-W2-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "0",
+        "1",
+        "<evidence-root>/nominal/10000-W2-16-p0-r1"
+      ],
+      "label": "10000-W2-16-p0-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "1",
+        "<evidence-root>/nominal/10000-W3-16-p1-r1"
+      ],
+      "label": "10000-W3-16-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "1",
+        "<evidence-root>/nominal/10000-W3-16-p10-r1"
+      ],
+      "label": "10000-W3-16-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "1",
+        "<evidence-root>/nominal/10000-W3-16-p50-r1"
+      ],
+      "label": "10000-W3-16-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "1",
+        "<evidence-root>/nominal/10000-W3-16-p100-r1"
+      ],
+      "label": "10000-W3-16-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W4-16-a",
+        "<evidence-root>/oracles/10000-W4-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "1",
+        "<evidence-root>/nominal/10000-W4-16-p100-r1"
+      ],
+      "label": "10000-W4-16-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "1",
+        "<evidence-root>/nominal/100000-W1-33-p1-r1"
+      ],
+      "label": "100000-W1-33-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "1",
+        "<evidence-root>/nominal/100000-W1-33-p10-r1"
+      ],
+      "label": "100000-W1-33-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "1",
+        "<evidence-root>/nominal/100000-W1-33-p50-r1"
+      ],
+      "label": "100000-W1-33-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "1",
+        "<evidence-root>/nominal/100000-W1-33-p100-r1"
+      ],
+      "label": "100000-W1-33-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W2-33-a",
+        "<evidence-root>/oracles/100000-W2-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "0",
+        "1",
+        "<evidence-root>/nominal/100000-W2-33-p0-r1"
+      ],
+      "label": "100000-W2-33-p0-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "1",
+        "<evidence-root>/nominal/100000-W3-33-p1-r1"
+      ],
+      "label": "100000-W3-33-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "1",
+        "<evidence-root>/nominal/100000-W3-33-p10-r1"
+      ],
+      "label": "100000-W3-33-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "1",
+        "<evidence-root>/nominal/100000-W3-33-p50-r1"
+      ],
+      "label": "100000-W3-33-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "1",
+        "<evidence-root>/nominal/100000-W3-33-p100-r1"
+      ],
+      "label": "100000-W3-33-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W4-33-a",
+        "<evidence-root>/oracles/100000-W4-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "1",
+        "<evidence-root>/nominal/100000-W4-33-p10-r1"
+      ],
+      "label": "100000-W4-33-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "2",
+        "<evidence-root>/nominal/10000-W3-16-p50-r2"
+      ],
+      "label": "10000-W3-16-p50-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "2",
+        "<evidence-root>/nominal/10000-W3-16-p100-r2"
+      ],
+      "label": "10000-W3-16-p100-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W4-16-a",
+        "<evidence-root>/oracles/10000-W4-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "2",
+        "<evidence-root>/nominal/10000-W4-16-p100-r2"
+      ],
+      "label": "10000-W4-16-p100-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "2",
+        "<evidence-root>/nominal/100000-W1-33-p1-r2"
+      ],
+      "label": "100000-W1-33-p1-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "2",
+        "<evidence-root>/nominal/100000-W1-33-p10-r2"
+      ],
+      "label": "100000-W1-33-p10-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "2",
+        "<evidence-root>/nominal/100000-W1-33-p50-r2"
+      ],
+      "label": "100000-W1-33-p50-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "2",
+        "<evidence-root>/nominal/100000-W1-33-p100-r2"
+      ],
+      "label": "100000-W1-33-p100-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W2-33-a",
+        "<evidence-root>/oracles/100000-W2-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "0",
+        "2",
+        "<evidence-root>/nominal/100000-W2-33-p0-r2"
+      ],
+      "label": "100000-W2-33-p0-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "2",
+        "<evidence-root>/nominal/100000-W3-33-p1-r2"
+      ],
+      "label": "100000-W3-33-p1-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "2",
+        "<evidence-root>/nominal/100000-W3-33-p10-r2"
+      ],
+      "label": "100000-W3-33-p10-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "2",
+        "<evidence-root>/nominal/100000-W3-33-p50-r2"
+      ],
+      "label": "100000-W3-33-p50-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "2",
+        "<evidence-root>/nominal/100000-W3-33-p100-r2"
+      ],
+      "label": "100000-W3-33-p100-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W4-33-a",
+        "<evidence-root>/oracles/100000-W4-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "2",
+        "<evidence-root>/nominal/100000-W4-33-p10-r2"
+      ],
+      "label": "100000-W4-33-p10-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "2",
+        "<evidence-root>/nominal/10000-W1-16-p1-r2"
+      ],
+      "label": "10000-W1-16-p1-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "2",
+        "<evidence-root>/nominal/10000-W1-16-p10-r2"
+      ],
+      "label": "10000-W1-16-p10-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "2",
+        "<evidence-root>/nominal/10000-W1-16-p50-r2"
+      ],
+      "label": "10000-W1-16-p50-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "2",
+        "<evidence-root>/nominal/10000-W1-16-p100-r2"
+      ],
+      "label": "10000-W1-16-p100-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W2-16-a",
+        "<evidence-root>/oracles/10000-W2-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "0",
+        "2",
+        "<evidence-root>/nominal/10000-W2-16-p0-r2"
+      ],
+      "label": "10000-W2-16-p0-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "2",
+        "<evidence-root>/nominal/10000-W3-16-p1-r2"
+      ],
+      "label": "10000-W3-16-p1-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "2",
+        "<evidence-root>/nominal/10000-W3-16-p10-r2"
+      ],
+      "label": "10000-W3-16-p10-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W2-33-a",
+        "<evidence-root>/oracles/100000-W2-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "0",
+        "3",
+        "<evidence-root>/nominal/100000-W2-33-p0-r3"
+      ],
+      "label": "100000-W2-33-p0-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "3",
+        "<evidence-root>/nominal/100000-W3-33-p1-r3"
+      ],
+      "label": "100000-W3-33-p1-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "3",
+        "<evidence-root>/nominal/100000-W3-33-p10-r3"
+      ],
+      "label": "100000-W3-33-p10-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "3",
+        "<evidence-root>/nominal/100000-W3-33-p50-r3"
+      ],
+      "label": "100000-W3-33-p50-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "3",
+        "<evidence-root>/nominal/100000-W3-33-p100-r3"
+      ],
+      "label": "100000-W3-33-p100-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W4-33-a",
+        "<evidence-root>/oracles/100000-W4-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "3",
+        "<evidence-root>/nominal/100000-W4-33-p10-r3"
+      ],
+      "label": "100000-W4-33-p10-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "3",
+        "<evidence-root>/nominal/10000-W1-16-p1-r3"
+      ],
+      "label": "10000-W1-16-p1-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "3",
+        "<evidence-root>/nominal/10000-W1-16-p10-r3"
+      ],
+      "label": "10000-W1-16-p10-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "3",
+        "<evidence-root>/nominal/10000-W1-16-p50-r3"
+      ],
+      "label": "10000-W1-16-p50-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "3",
+        "<evidence-root>/nominal/10000-W1-16-p100-r3"
+      ],
+      "label": "10000-W1-16-p100-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W2-16-a",
+        "<evidence-root>/oracles/10000-W2-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "0",
+        "3",
+        "<evidence-root>/nominal/10000-W2-16-p0-r3"
+      ],
+      "label": "10000-W2-16-p0-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "3",
+        "<evidence-root>/nominal/10000-W3-16-p1-r3"
+      ],
+      "label": "10000-W3-16-p1-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "3",
+        "<evidence-root>/nominal/10000-W3-16-p10-r3"
+      ],
+      "label": "10000-W3-16-p10-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "3",
+        "<evidence-root>/nominal/10000-W3-16-p50-r3"
+      ],
+      "label": "10000-W3-16-p50-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "3",
+        "<evidence-root>/nominal/10000-W3-16-p100-r3"
+      ],
+      "label": "10000-W3-16-p100-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W4-16-a",
+        "<evidence-root>/oracles/10000-W4-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "3",
+        "<evidence-root>/nominal/10000-W4-16-p100-r3"
+      ],
+      "label": "10000-W4-16-p100-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "1",
+        "3",
+        "<evidence-root>/nominal/100000-W1-33-p1-r3"
+      ],
+      "label": "100000-W1-33-p1-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "10",
+        "3",
+        "<evidence-root>/nominal/100000-W1-33-p10-r3"
+      ],
+      "label": "100000-W1-33-p10-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "50",
+        "3",
+        "<evidence-root>/nominal/100000-W1-33-p50-r3"
+      ],
+      "label": "100000-W1-33-p50-r3"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-normal.json",
+        "100",
+        "3",
+        "<evidence-root>/nominal/100000-W1-33-p100-r3"
+      ],
+      "label": "100000-W1-33-p100-r3"
+    }
+  ],
+  "format": "lf-synth-measurement-matrix-1",
+  "fresh_process_rounds": 3,
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "instrumented": false,
+  "max_concurrent_measurements": 1,
+  "runs": [
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 49.4608649,
+      "label": "10000-W1-16-p1-r1",
+      "report_sha256": "1935279fd76eee5d8c2ac5fc9a70f143786e889581cebd0413971cfcd1d1f78d",
+      "statistics": {
+        "core": {
+          "max_ns": 2979900,
+          "p50_ns": 1022300,
+          "p95_ns": 1287700,
+          "p99_ns": 1843300,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1040800,
+              "p50_ns": 1024300,
+              "p95_ns": 1040800,
+              "p99_ns": 1040800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 25700,
+              "p50_ns": 21800,
+              "p95_ns": 25700,
+              "p99_ns": 25700,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 3348500,
+              "p50_ns": 2128100,
+              "p95_ns": 2463400,
+              "p99_ns": 3076800,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 315600,
+              "p50_ns": 24900,
+              "p95_ns": 40000,
+              "p99_ns": 52500,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 3007500,
+              "p50_ns": 1051400,
+              "p95_ns": 1322500,
+              "p99_ns": 1948000,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 1102000,
+              "p50_ns": 22700,
+              "p95_ns": 31200,
+              "p99_ns": 43600,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 59.8796578,
+      "label": "10000-W1-16-p10-r1",
+      "report_sha256": "d22428675d1f44e57ff920511028f34fb5eab79a3a9c39b8edf4979db0172a4a",
+      "statistics": {
+        "core": {
+          "max_ns": 4969800,
+          "p50_ns": 1065400,
+          "p95_ns": 1529200,
+          "p99_ns": 2106600,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1310700,
+              "p50_ns": 1258100,
+              "p95_ns": 1310700,
+              "p99_ns": 1310700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 214500,
+              "p50_ns": 213900,
+              "p95_ns": 214500,
+              "p99_ns": 214500,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 6416000,
+              "p50_ns": 2372400,
+              "p95_ns": 3549300,
+              "p99_ns": 4819000,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 1554600,
+              "p50_ns": 221000,
+              "p95_ns": 524000,
+              "p99_ns": 874800,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 6565500,
+              "p50_ns": 1285400,
+              "p95_ns": 1903900,
+              "p99_ns": 2827300,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 1685100,
+              "p50_ns": 215500,
+              "p95_ns": 393500,
+              "p99_ns": 714300,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 90.477188,
+      "label": "10000-W1-16-p50-r1",
+      "report_sha256": "674f32e5802e9d5fa861a708708787999e3de764e27de0243eaea4c6d9aabe9e",
+      "statistics": {
+        "core": {
+          "max_ns": 3211200,
+          "p50_ns": 1024400,
+          "p95_ns": 1266100,
+          "p99_ns": 1608000,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 2119500,
+              "p50_ns": 1928200,
+              "p95_ns": 2119500,
+              "p99_ns": 2119500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1013000,
+              "p50_ns": 931600,
+              "p95_ns": 1013000,
+              "p99_ns": 1013000,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 5361600,
+              "p50_ns": 3071400,
+              "p95_ns": 3757700,
+              "p99_ns": 4324600,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 2142600,
+              "p50_ns": 1016800,
+              "p95_ns": 1315700,
+              "p99_ns": 1632500,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 4642200,
+              "p50_ns": 2019400,
+              "p95_ns": 2442400,
+              "p99_ns": 3012900,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 2629500,
+              "p50_ns": 981100,
+              "p95_ns": 1208100,
+              "p99_ns": 1497200,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 130.8369807,
+      "label": "10000-W1-16-p100-r1",
+      "report_sha256": "2e2f4898f0eaf7cce1fa022a1fd14f5d91af07b222a2c6af681f8b3940faae51",
+      "statistics": {
+        "core": {
+          "max_ns": 3006300,
+          "p50_ns": 1037200,
+          "p95_ns": 1250100,
+          "p99_ns": 1490000,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 3087400,
+              "p50_ns": 2967100,
+              "p95_ns": 3087400,
+              "p99_ns": 3087400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1978400,
+              "p50_ns": 1968800,
+              "p95_ns": 1978400,
+              "p99_ns": 1978400,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 6015700,
+              "p50_ns": 4111300,
+              "p95_ns": 4754800,
+              "p99_ns": 5114200,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 3199900,
+              "p50_ns": 1990800,
+              "p95_ns": 2433900,
+              "p99_ns": 2696100,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 5999800,
+              "p50_ns": 3005200,
+              "p95_ns": 3490300,
+              "p99_ns": 3995500,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 3861800,
+              "p50_ns": 1945100,
+              "p95_ns": 2289000,
+              "p99_ns": 2664500,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 59.4122065,
+      "label": "10000-W2-16-p0-r1",
+      "report_sha256": "03154a44aa09fba94dba9f1c4f97eb475924508222538b3a86d1ee3c07197ca4",
+      "statistics": {
+        "core": {
+          "max_ns": 3308800,
+          "p50_ns": 1332900,
+          "p95_ns": 1512400,
+          "p99_ns": 1789800,
+          "samples": 29016
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 25.2934184,
+      "label": "10000-W3-16-p1-r1",
+      "report_sha256": "75f49b8b7fa308c6c9fde85410503fe1b13020975192fc520ec06437cfdd2c88",
+      "statistics": {
+        "core": {
+          "max_ns": 1651800,
+          "p50_ns": 491200,
+          "p95_ns": 612500,
+          "p99_ns": 761800,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 621100,
+              "p50_ns": 526500,
+              "p95_ns": 621100,
+              "p99_ns": 621100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 39900,
+              "p50_ns": 27300,
+              "p95_ns": 39900,
+              "p99_ns": 39900,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 2199600,
+              "p50_ns": 1021600,
+              "p95_ns": 1257900,
+              "p99_ns": 1571700,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 644500,
+              "p50_ns": 28700,
+              "p95_ns": 45000,
+              "p99_ns": 61300,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 28363500,
+              "p50_ns": 1123300,
+              "p95_ns": 28363500,
+              "p99_ns": 28363500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 123900,
+              "p50_ns": 46900,
+              "p95_ns": 123900,
+              "p99_ns": 123900,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 1634800,
+              "p50_ns": 523200,
+              "p95_ns": 651500,
+              "p99_ns": 804300,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 459800,
+              "p50_ns": 27000,
+              "p95_ns": 39100,
+              "p99_ns": 48800,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 33.7330583,
+      "label": "10000-W3-16-p10-r1",
+      "report_sha256": "5d48d1438620ceef8221079c1902e124c23ac9bcef4b330fdc0f2c5f9d2a5619",
+      "statistics": {
+        "core": {
+          "max_ns": 2020700,
+          "p50_ns": 477500,
+          "p95_ns": 569000,
+          "p99_ns": 715600,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 857900,
+              "p50_ns": 743600,
+              "p95_ns": 857900,
+              "p99_ns": 857900,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 264300,
+              "p50_ns": 240000,
+              "p95_ns": 264300,
+              "p99_ns": 264300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 2672000,
+              "p50_ns": 1195000,
+              "p95_ns": 1378400,
+              "p99_ns": 1647100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 539800,
+              "p50_ns": 235500,
+              "p95_ns": 262500,
+              "p99_ns": 323900,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 28273100,
+              "p50_ns": 1920300,
+              "p95_ns": 28273100,
+              "p99_ns": 28273100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 745600,
+              "p50_ns": 277600,
+              "p95_ns": 745600,
+              "p99_ns": 745600,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 2492000,
+              "p50_ns": 717400,
+              "p95_ns": 825100,
+              "p99_ns": 1006500,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 1390300,
+              "p50_ns": 235400,
+              "p95_ns": 259300,
+              "p99_ns": 313500,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 70.6434743,
+      "label": "10000-W3-16-p50-r1",
+      "report_sha256": "bd3ac0740620c8af763afe511f40274e796cbd8849e8c19401be56cd5ac89cc7",
+      "statistics": {
+        "core": {
+          "max_ns": 1605200,
+          "p50_ns": 472500,
+          "p95_ns": 565100,
+          "p99_ns": 663300,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1790600,
+              "p50_ns": 1647500,
+              "p95_ns": 1790600,
+              "p99_ns": 1790600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1184800,
+              "p50_ns": 1138100,
+              "p95_ns": 1184800,
+              "p99_ns": 1184800,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 3881200,
+              "p50_ns": 2052800,
+              "p95_ns": 2289000,
+              "p99_ns": 2660300,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 2312000,
+              "p50_ns": 1100800,
+              "p95_ns": 1227900,
+              "p99_ns": 1451900,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 32301900,
+              "p50_ns": 2587200,
+              "p95_ns": 32301900,
+              "p99_ns": 32301900,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2313200,
+              "p50_ns": 1144500,
+              "p95_ns": 2313200,
+              "p99_ns": 2313200,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 3609100,
+              "p50_ns": 1579400,
+              "p95_ns": 1734300,
+              "p99_ns": 2006000,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 2877300,
+              "p50_ns": 1097200,
+              "p95_ns": 1190000,
+              "p99_ns": 1375500,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 121.6673086,
+      "label": "10000-W3-16-p100-r1",
+      "report_sha256": "4adc02badf2e8151a694244c621d3a84af42465601ed1d2dc18441826699d200",
+      "statistics": {
+        "core": {
+          "max_ns": 1810300,
+          "p50_ns": 505400,
+          "p95_ns": 640100,
+          "p99_ns": 816500,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 3055500,
+              "p50_ns": 2832600,
+              "p95_ns": 3055500,
+              "p99_ns": 3055500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2466300,
+              "p50_ns": 2230800,
+              "p95_ns": 2466300,
+              "p99_ns": 2466300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 8426100,
+              "p50_ns": 3306600,
+              "p95_ns": 3873500,
+              "p99_ns": 4751100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 5280000,
+              "p50_ns": 2298300,
+              "p95_ns": 2735600,
+              "p99_ns": 3268800,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 31647600,
+              "p50_ns": 3684500,
+              "p95_ns": 31647600,
+              "p99_ns": 31647600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 3382000,
+              "p50_ns": 2513500,
+              "p95_ns": 3382000,
+              "p99_ns": 3382000,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 7417900,
+              "p50_ns": 2776600,
+              "p95_ns": 3274800,
+              "p99_ns": 3864500,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 5654400,
+              "p50_ns": 2257500,
+              "p95_ns": 2648800,
+              "p99_ns": 3151400,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 42.8585266,
+      "label": "10000-W4-16-p100-r1",
+      "report_sha256": "4d09c135676f43e0ed1084c1f55c0198ea131e44aff846feed515cfd8ef870b4",
+      "statistics": {
+        "burst_max": {
+          "core_ns": 1402000,
+          "integrated_ns": 35969500,
+          "spatial_adapter_ns": 2889500
+        },
+        "raw": [
+          {
+            "burst": 0,
+            "core_ns": 1402000,
+            "integrated_ns": 23821000,
+            "spatial_adapter_ns": 2799500
+          },
+          {
+            "burst": 1,
+            "core_ns": 1247900,
+            "integrated_ns": 35969500,
+            "spatial_adapter_ns": 2889500
+          }
+        ]
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 290.4819508,
+      "label": "100000-W1-33-p1-r1",
+      "report_sha256": "92bf573d160badab921b39cc66e67ffc1ac712f49de62e3111f51023bd863c1d",
+      "statistics": {
+        "core": {
+          "max_ns": 22084400,
+          "p50_ns": 11790400,
+          "p95_ns": 14571300,
+          "p99_ns": 15881400,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 15168900,
+              "p50_ns": 13345000,
+              "p95_ns": 15168900,
+              "p99_ns": 15168900,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1188900,
+              "p50_ns": 1065500,
+              "p95_ns": 1188900,
+              "p99_ns": 1188900,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 23537100,
+              "p50_ns": 12737300,
+              "p95_ns": 15765600,
+              "p99_ns": 17177300,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 2111200,
+              "p50_ns": 947500,
+              "p95_ns": 1217900,
+              "p99_ns": 1354900,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 1418600,
+              "p50_ns": 277300,
+              "p95_ns": 367900,
+              "p99_ns": 487900,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 1388600,
+              "p50_ns": 267200,
+              "p95_ns": 350100,
+              "p99_ns": 464800,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 486.5047977,
+      "label": "100000-W1-33-p10-r1",
+      "report_sha256": "3bb0dea78dfc8cf00ead4f122901c2d5c0d19781f64bb86f7e8081ba2670e836",
+      "statistics": {
+        "core": {
+          "max_ns": 27883500,
+          "p50_ns": 11586900,
+          "p95_ns": 13836600,
+          "p99_ns": 14680300,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 20217400,
+              "p50_ns": 17767700,
+              "p95_ns": 20217400,
+              "p99_ns": 20217400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 7108700,
+              "p50_ns": 6333800,
+              "p95_ns": 7108700,
+              "p99_ns": 7108700,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 41176100,
+              "p50_ns": 18535100,
+              "p95_ns": 21131900,
+              "p99_ns": 22832000,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 17264100,
+              "p50_ns": 6871200,
+              "p95_ns": 7850800,
+              "p99_ns": 8777900,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 15732100,
+              "p50_ns": 3852200,
+              "p95_ns": 6126100,
+              "p99_ns": 8093100,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 15673700,
+              "p50_ns": 3837400,
+              "p95_ns": 6108300,
+              "p99_ns": 8071200,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1169.4027406,
+      "label": "100000-W1-33-p50-r1",
+      "report_sha256": "5d1b61596f68b464d25b4a752f79917081c6732ed94ea54aaed07fd425b75572",
+      "statistics": {
+        "core": {
+          "max_ns": 23087400,
+          "p50_ns": 12183200,
+          "p95_ns": 14431700,
+          "p99_ns": 15471200,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 34773600,
+              "p50_ns": 32391700,
+              "p95_ns": 34773600,
+              "p99_ns": 34773600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 21056300,
+              "p50_ns": 20168800,
+              "p95_ns": 21056300,
+              "p99_ns": 21056300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 69593500,
+              "p50_ns": 33475400,
+              "p95_ns": 37761200,
+              "p99_ns": 42030500,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 50273400,
+              "p50_ns": 20971200,
+              "p95_ns": 24297800,
+              "p99_ns": 27789900,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 47627600,
+              "p50_ns": 21816400,
+              "p95_ns": 25614400,
+              "p99_ns": 29104600,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 47590800,
+              "p50_ns": 21791800,
+              "p95_ns": 25584000,
+              "p99_ns": 29073200,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1900.6974969,
+      "label": "100000-W1-33-p100-r1",
+      "report_sha256": "28734b5677fb53d5514eec6f61337cfe56a9815dac54e24a30b5f3e6fd7bb814",
+      "statistics": {
+        "core": {
+          "max_ns": 57955500,
+          "p50_ns": 12907900,
+          "p95_ns": 17669200,
+          "p99_ns": 24999000,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 68479700,
+              "p50_ns": 52283300,
+              "p95_ns": 68479700,
+              "p99_ns": 68479700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 53147700,
+              "p50_ns": 37335600,
+              "p95_ns": 53147700,
+              "p99_ns": 53147700,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 308062200,
+              "p50_ns": 49803400,
+              "p95_ns": 73492000,
+              "p99_ns": 112495800,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 269552900,
+              "p50_ns": 36566300,
+              "p95_ns": 56488300,
+              "p99_ns": 89110100,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 225036600,
+              "p50_ns": 38282600,
+              "p95_ns": 57614700,
+              "p99_ns": 91487200,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 225005500,
+              "p50_ns": 38256200,
+              "p95_ns": 57586500,
+              "p99_ns": 91451600,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 306.7048534,
+      "label": "100000-W2-33-p0-r1",
+      "report_sha256": "b1c3329a87fb0a9e0cf3ef9855ee2a22de8dac914d26dbd994ef501310313c7f",
+      "statistics": {
+        "core": {
+          "max_ns": 21471200,
+          "p50_ns": 13953000,
+          "p95_ns": 16391700,
+          "p99_ns": 17124400,
+          "samples": 14088
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 209.3479878,
+      "label": "100000-W3-33-p1-r1",
+      "report_sha256": "cf4480cc45952163f49ebc9391ae1358146e2eaa29c4f4c548d702c5fe3150b5",
+      "statistics": {
+        "core": {
+          "max_ns": 14895400,
+          "p50_ns": 7450900,
+          "p95_ns": 9355600,
+          "p99_ns": 10423100,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 11597400,
+              "p50_ns": 8772800,
+              "p95_ns": 11597400,
+              "p99_ns": 11597400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1252500,
+              "p50_ns": 1145500,
+              "p95_ns": 1252500,
+              "p99_ns": 1252500,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2860665800,
+              "p50_ns": 20844300,
+              "p95_ns": 2860665800,
+              "p99_ns": 2860665800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1371400,
+              "p50_ns": 1093400,
+              "p95_ns": 1371400,
+              "p99_ns": 1371400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 16228700,
+              "p50_ns": 8642000,
+              "p95_ns": 10638400,
+              "p99_ns": 11700100,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 2451500,
+              "p50_ns": 1144000,
+              "p95_ns": 1408900,
+              "p99_ns": 1575400,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 1467300,
+              "p50_ns": 305800,
+              "p95_ns": 477500,
+              "p99_ns": 676000,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 1439200,
+              "p50_ns": 293700,
+              "p95_ns": 461200,
+              "p99_ns": 655800,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 467.0713268,
+      "label": "100000-W3-33-p10-r1",
+      "report_sha256": "9913389ec72538d4c20a4f0bcdd006d297b2fba9c337f0df2c57a54d7403d39c",
+      "statistics": {
+        "core": {
+          "max_ns": 20130500,
+          "p50_ns": 7821000,
+          "p95_ns": 10170800,
+          "p99_ns": 11656300,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 19678200,
+              "p50_ns": 15540000,
+              "p95_ns": 19678200,
+              "p99_ns": 19678200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 8126500,
+              "p50_ns": 7810600,
+              "p95_ns": 8126500,
+              "p99_ns": 8126500,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2841617100,
+              "p50_ns": 29414100,
+              "p95_ns": 2841617100,
+              "p99_ns": 2841617100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9384600,
+              "p50_ns": 7284000,
+              "p95_ns": 9384600,
+              "p99_ns": 9384600,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 35117500,
+              "p50_ns": 15818500,
+              "p95_ns": 18587100,
+              "p99_ns": 20610900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 14851100,
+              "p50_ns": 7903100,
+              "p95_ns": 9066400,
+              "p99_ns": 9860100,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 15675500,
+              "p50_ns": 5447700,
+              "p95_ns": 7690600,
+              "p99_ns": 9180500,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 15640100,
+              "p50_ns": 5427800,
+              "p95_ns": 7659800,
+              "p99_ns": 9166000,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1242.5339166,
+      "label": "100000-W3-33-p50-r1",
+      "report_sha256": "272dceb02c6ffb5ae4dd5f43596f105d436da68a7040e4f576dd4a48a21880d7",
+      "statistics": {
+        "core": {
+          "max_ns": 16627000,
+          "p50_ns": 7992800,
+          "p95_ns": 10600800,
+          "p99_ns": 12373400,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 38407600,
+              "p50_ns": 31630000,
+              "p95_ns": 38407600,
+              "p99_ns": 38407600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 26617000,
+              "p50_ns": 24066200,
+              "p95_ns": 26617000,
+              "p99_ns": 26617000,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2908413500,
+              "p50_ns": 48581900,
+              "p95_ns": 2908413500,
+              "p99_ns": 2908413500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 26684700,
+              "p50_ns": 22935500,
+              "p95_ns": 26684700,
+              "p99_ns": 26684700,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 70547400,
+              "p50_ns": 32515900,
+              "p95_ns": 38035400,
+              "p99_ns": 43466800,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 56503800,
+              "p50_ns": 24385600,
+              "p95_ns": 28554000,
+              "p99_ns": 32791200,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 83678400,
+              "p50_ns": 25088200,
+              "p95_ns": 29584400,
+              "p99_ns": 33713300,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 83646000,
+              "p50_ns": 25060500,
+              "p95_ns": 29551800,
+              "p99_ns": 33681800,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1918.0546544,
+      "label": "100000-W3-33-p100-r1",
+      "report_sha256": "d0275c2f11c7a3ade671a964b7606d865cf9650a786cd801dd1d262f9fa64a5f",
+      "statistics": {
+        "core": {
+          "max_ns": 35085100,
+          "p50_ns": 7716400,
+          "p95_ns": 10013600,
+          "p99_ns": 11849300,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 61061300,
+              "p50_ns": 47469800,
+              "p95_ns": 61061300,
+              "p99_ns": 61061300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 49157600,
+              "p50_ns": 40415600,
+              "p95_ns": 49157600,
+              "p99_ns": 49157600,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2939373000,
+              "p50_ns": 61447900,
+              "p95_ns": 2939373000,
+              "p99_ns": 2939373000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 41902800,
+              "p50_ns": 36995200,
+              "p95_ns": 41902800,
+              "p99_ns": 41902800,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 151314600,
+              "p50_ns": 46872800,
+              "p95_ns": 55406300,
+              "p99_ns": 65408900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 126633100,
+              "p50_ns": 39039600,
+              "p95_ns": 46409000,
+              "p99_ns": 55673600,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 143787700,
+              "p50_ns": 40550400,
+              "p95_ns": 47570800,
+              "p99_ns": 56563800,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 143735300,
+              "p50_ns": 40526000,
+              "p95_ns": 47542700,
+              "p99_ns": 56540400,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 212.9421886,
+      "label": "100000-W4-33-p10-r1",
+      "report_sha256": "8cb1ac68d252f3110e7f167e792a50bec3c70078f4c231a32f2bfda3b61b44e7",
+      "statistics": {
+        "burst_max": {
+          "core_ns": 13922900,
+          "integrated_ns": 3503350900,
+          "spatial_adapter_ns": 6926100
+        },
+        "raw": [
+          {
+            "burst": 0,
+            "core_ns": 13922900,
+            "integrated_ns": 2056133000,
+            "spatial_adapter_ns": 6926100
+          },
+          {
+            "burst": 1,
+            "core_ns": 13561900,
+            "integrated_ns": 3503350900,
+            "spatial_adapter_ns": 6550100
+          }
+        ]
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 70.0915073,
+      "label": "10000-W3-16-p50-r2",
+      "report_sha256": "4cd489fe2ff98f3ff46ec14214bb66a0741a22cd474f33ca7605ff4e9525534d",
+      "statistics": {
+        "core": {
+          "max_ns": 1311200,
+          "p50_ns": 473300,
+          "p95_ns": 573200,
+          "p99_ns": 672600,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1641600,
+              "p50_ns": 1540600,
+              "p95_ns": 1641600,
+              "p99_ns": 1641600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1146900,
+              "p50_ns": 1091300,
+              "p95_ns": 1146900,
+              "p99_ns": 1146900,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 3811400,
+              "p50_ns": 2069400,
+              "p95_ns": 2303300,
+              "p99_ns": 2559800,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 2668200,
+              "p50_ns": 1110600,
+              "p95_ns": 1253800,
+              "p99_ns": 1365700,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 29192300,
+              "p50_ns": 2376500,
+              "p95_ns": 29192300,
+              "p99_ns": 29192300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2126600,
+              "p50_ns": 1249200,
+              "p95_ns": 2126600,
+              "p99_ns": 2126600,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 3297400,
+              "p50_ns": 1588800,
+              "p95_ns": 1754400,
+              "p99_ns": 1940000,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 2351200,
+              "p50_ns": 1104000,
+              "p95_ns": 1227800,
+              "p99_ns": 1363300,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 115.8948235,
+      "label": "10000-W3-16-p100-r2",
+      "report_sha256": "9fba2ce4602317725750fbccd833121916201b264ab79aeb3534a19d63a82e75",
+      "statistics": {
+        "core": {
+          "max_ns": 1305500,
+          "p50_ns": 475900,
+          "p95_ns": 576900,
+          "p99_ns": 665900,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 2905800,
+              "p50_ns": 2657600,
+              "p95_ns": 2905800,
+              "p99_ns": 2905800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2372700,
+              "p50_ns": 2163500,
+              "p95_ns": 2372700,
+              "p99_ns": 2372700,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 4927000,
+              "p50_ns": 3133800,
+              "p95_ns": 3412100,
+              "p99_ns": 3761800,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 3479800,
+              "p50_ns": 2166200,
+              "p95_ns": 2367600,
+              "p99_ns": 2598100,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 39760600,
+              "p50_ns": 4806200,
+              "p95_ns": 39760600,
+              "p99_ns": 39760600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 3920400,
+              "p50_ns": 2398000,
+              "p95_ns": 3920400,
+              "p99_ns": 3920400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 5296500,
+              "p50_ns": 2644000,
+              "p95_ns": 2887100,
+              "p99_ns": 3166100,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 4240900,
+              "p50_ns": 2152200,
+              "p95_ns": 2350100,
+              "p99_ns": 2571700,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 41.6863004,
+      "label": "10000-W4-16-p100-r2",
+      "report_sha256": "9ea63b956204122e6161a2022c5b95eff727cfdf884e7a549276a09cf3914ed2",
+      "statistics": {
+        "burst_max": {
+          "core_ns": 1618400,
+          "integrated_ns": 37099600,
+          "spatial_adapter_ns": 2977500
+        },
+        "raw": [
+          {
+            "burst": 0,
+            "core_ns": 1618400,
+            "integrated_ns": 24315500,
+            "spatial_adapter_ns": 2909900
+          },
+          {
+            "burst": 1,
+            "core_ns": 1335300,
+            "integrated_ns": 37099600,
+            "spatial_adapter_ns": 2977500
+          }
+        ]
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 326.9589402,
+      "label": "100000-W1-33-p1-r2",
+      "report_sha256": "b7f0071c5c3bb9acbbf5333254c33f6ead25f3c099187f5e7a49a7dbc59bb0d4",
+      "statistics": {
+        "core": {
+          "max_ns": 70292000,
+          "p50_ns": 13377500,
+          "p95_ns": 22588500,
+          "p99_ns": 31980300,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 16355200,
+              "p50_ns": 13646500,
+              "p95_ns": 16355200,
+              "p99_ns": 16355200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1255500,
+              "p50_ns": 1124600,
+              "p95_ns": 1255500,
+              "p99_ns": 1255500,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 77509500,
+              "p50_ns": 14644300,
+              "p95_ns": 24334200,
+              "p99_ns": 34155500,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 25223700,
+              "p50_ns": 1201700,
+              "p95_ns": 1713800,
+              "p99_ns": 2210600,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 6920700,
+              "p50_ns": 311900,
+              "p95_ns": 1041200,
+              "p99_ns": 1733900,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 6848200,
+              "p50_ns": 295400,
+              "p95_ns": 1007400,
+              "p99_ns": 1691600,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 522.1049705,
+      "label": "100000-W1-33-p10-r2",
+      "report_sha256": "a790b02ac3d701736de0bec5413355422ec50948f6fd48d58781b9fc8ff259c0",
+      "statistics": {
+        "core": {
+          "max_ns": 21570000,
+          "p50_ns": 11736500,
+          "p95_ns": 14457000,
+          "p99_ns": 15523900,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 21859000,
+              "p50_ns": 19538100,
+              "p95_ns": 21859000,
+              "p99_ns": 21859000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 8085300,
+              "p50_ns": 7089200,
+              "p95_ns": 8085300,
+              "p99_ns": 8085300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 35331300,
+              "p50_ns": 19215700,
+              "p95_ns": 22313800,
+              "p99_ns": 23964400,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 15088500,
+              "p50_ns": 7393100,
+              "p95_ns": 8342800,
+              "p99_ns": 8992000,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 12298800,
+              "p50_ns": 4605300,
+              "p95_ns": 6655100,
+              "p99_ns": 7993300,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 12256200,
+              "p50_ns": 4588600,
+              "p95_ns": 6635500,
+              "p99_ns": 7972900,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1199.9867414,
+      "label": "100000-W1-33-p50-r2",
+      "report_sha256": "2fcbdc227a89d4b79465fe4db241ef07ec57e6dd8658180b9e97cec552d00a02",
+      "statistics": {
+        "core": {
+          "max_ns": 23552300,
+          "p50_ns": 12121100,
+          "p95_ns": 14345400,
+          "p99_ns": 15208500,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 34122500,
+              "p50_ns": 31993500,
+              "p95_ns": 34122500,
+              "p99_ns": 34122500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 20929300,
+              "p50_ns": 19926100,
+              "p95_ns": 20929300,
+              "p99_ns": 20929300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 72863600,
+              "p50_ns": 33978100,
+              "p95_ns": 38159800,
+              "p99_ns": 42142100,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 53771600,
+              "p50_ns": 21446000,
+              "p95_ns": 25253600,
+              "p99_ns": 28512800,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 46958600,
+              "p50_ns": 22374100,
+              "p95_ns": 26554100,
+              "p99_ns": 30212900,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 46918000,
+              "p50_ns": 22350900,
+              "p95_ns": 26525600,
+              "p99_ns": 30181900,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1753.2803336,
+      "label": "100000-W1-33-p100-r2",
+      "report_sha256": "94b88e3c9ee55939a90f49c63f897360935464274013121872b78f2a9c1c4620",
+      "statistics": {
+        "core": {
+          "max_ns": 26163900,
+          "p50_ns": 12040600,
+          "p95_ns": 15095300,
+          "p99_ns": 16174400,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 52597700,
+              "p50_ns": 45048800,
+              "p95_ns": 52597700,
+              "p99_ns": 52597700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 37792600,
+              "p50_ns": 32950600,
+              "p95_ns": 37792600,
+              "p99_ns": 37792600,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 103494800,
+              "p50_ns": 46910200,
+              "p95_ns": 54803900,
+              "p99_ns": 63281400,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 89188800,
+              "p50_ns": 34483600,
+              "p95_ns": 41022700,
+              "p99_ns": 48564800,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 75772800,
+              "p50_ns": 35961300,
+              "p95_ns": 42661300,
+              "p99_ns": 49556900,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 75740200,
+              "p50_ns": 35936000,
+              "p95_ns": 42634700,
+              "p99_ns": 49529700,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 320.8875415,
+      "label": "100000-W2-33-p0-r2",
+      "report_sha256": "c82fd1c2e4780a25933fd81b9a342d0e81ea6585f3a043b2484b18144a07d728",
+      "statistics": {
+        "core": {
+          "max_ns": 35583400,
+          "p50_ns": 14448600,
+          "p95_ns": 18701000,
+          "p99_ns": 21154900,
+          "samples": 14088
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 217.8681577,
+      "label": "100000-W3-33-p1-r2",
+      "report_sha256": "c73b0cf15e40451c639dbc57f33c769b9848f7fe1b584ed3dd6a3f6da3c65d9a",
+      "statistics": {
+        "core": {
+          "max_ns": 58249900,
+          "p50_ns": 7844300,
+          "p95_ns": 11262700,
+          "p99_ns": 14974600,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 11589300,
+              "p50_ns": 9554500,
+              "p95_ns": 11589300,
+              "p99_ns": 11589300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1329800,
+              "p50_ns": 1195100,
+              "p95_ns": 1329800,
+              "p99_ns": 1329800,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2773175400,
+              "p50_ns": 19678200,
+              "p95_ns": 2773175400,
+              "p99_ns": 2773175400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1312100,
+              "p50_ns": 1241400,
+              "p95_ns": 1312100,
+              "p99_ns": 1312100,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 61637400,
+              "p50_ns": 9065300,
+              "p95_ns": 12651500,
+              "p99_ns": 16999900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 7151700,
+              "p50_ns": 1198100,
+              "p95_ns": 1502100,
+              "p99_ns": 1886300,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 3922100,
+              "p50_ns": 326000,
+              "p95_ns": 512900,
+              "p99_ns": 1161800,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 3877100,
+              "p50_ns": 313200,
+              "p95_ns": 492600,
+              "p99_ns": 1118600,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 492.8959868,
+      "label": "100000-W3-33-p10-r2",
+      "report_sha256": "2f9961d6c37956981b26021a09fdcd08e84565779078eb51b845e711635c78e9",
+      "statistics": {
+        "core": {
+          "max_ns": 51033400,
+          "p50_ns": 7844800,
+          "p95_ns": 10142800,
+          "p99_ns": 12407900,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 20999700,
+              "p50_ns": 16268500,
+              "p95_ns": 20999700,
+              "p99_ns": 20999700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9709800,
+              "p50_ns": 8641800,
+              "p95_ns": 9709800,
+              "p99_ns": 9709800,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2939743700,
+              "p50_ns": 27147100,
+              "p95_ns": 2939743700,
+              "p99_ns": 2939743700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 8301800,
+              "p50_ns": 7392800,
+              "p95_ns": 8301800,
+              "p99_ns": 8301800,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 81128400,
+              "p50_ns": 16171900,
+              "p95_ns": 19241600,
+              "p99_ns": 22179900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 29954600,
+              "p50_ns": 8185300,
+              "p95_ns": 9572700,
+              "p99_ns": 10754200,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 31906300,
+              "p50_ns": 5599200,
+              "p95_ns": 8523100,
+              "p99_ns": 10281300,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 31844900,
+              "p50_ns": 5575800,
+              "p95_ns": 8497400,
+              "p99_ns": 10246000,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1324.1964238,
+      "label": "100000-W3-33-p50-r2",
+      "report_sha256": "2cee48125cde7c38549b871f34df5d0c402713e7fd6a6bc0ae41ed1e8621b9c1",
+      "statistics": {
+        "core": {
+          "max_ns": 26632800,
+          "p50_ns": 8861100,
+          "p95_ns": 13246500,
+          "p99_ns": 15708000,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 50150700,
+              "p50_ns": 31787000,
+              "p95_ns": 50150700,
+              "p99_ns": 50150700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 33953000,
+              "p50_ns": 23896700,
+              "p95_ns": 33953000,
+              "p99_ns": 33953000,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 3513807200,
+              "p50_ns": 45751900,
+              "p95_ns": 3513807200,
+              "p99_ns": 3513807200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 28405200,
+              "p50_ns": 22532900,
+              "p95_ns": 28405200,
+              "p99_ns": 28405200,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 69188300,
+              "p50_ns": 34353400,
+              "p95_ns": 45269000,
+              "p99_ns": 49774500,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 51229500,
+              "p50_ns": 25287900,
+              "p95_ns": 32264300,
+              "p99_ns": 35569200,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 54200400,
+              "p50_ns": 24427700,
+              "p95_ns": 33648600,
+              "p99_ns": 37059700,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 54166900,
+              "p50_ns": 24400200,
+              "p95_ns": 33616100,
+              "p99_ns": 37028200,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1876.1084962,
+      "label": "100000-W3-33-p100-r2",
+      "report_sha256": "280be6f2666b0b83283c99e9e346bd075b83c866fe1040f098e692278d6bfd29",
+      "statistics": {
+        "core": {
+          "max_ns": 20530900,
+          "p50_ns": 7723200,
+          "p95_ns": 9661200,
+          "p99_ns": 10762300,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 52205600,
+              "p50_ns": 48091700,
+              "p95_ns": 52205600,
+              "p99_ns": 52205600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 44080600,
+              "p50_ns": 40482100,
+              "p95_ns": 44080600,
+              "p99_ns": 44080600,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2827785400,
+              "p50_ns": 58146000,
+              "p95_ns": 2827785400,
+              "p99_ns": 2827785400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 39019400,
+              "p50_ns": 37355000,
+              "p95_ns": 39019400,
+              "p99_ns": 39019400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 166442900,
+              "p50_ns": 46192000,
+              "p95_ns": 53258900,
+              "p99_ns": 64788200,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 145835800,
+              "p50_ns": 38304100,
+              "p95_ns": 44486000,
+              "p99_ns": 55460300,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 140743800,
+              "p50_ns": 39805000,
+              "p95_ns": 45829200,
+              "p99_ns": 55699800,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 140708700,
+              "p50_ns": 39784100,
+              "p95_ns": 45802100,
+              "p99_ns": 55669700,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 192.6837998,
+      "label": "100000-W4-33-p10-r2",
+      "report_sha256": "c9a8d77b45c5604f20c6fe98bf819b10fb1793a885996dc9ceeaf91f35e66b25",
+      "statistics": {
+        "burst_max": {
+          "core_ns": 14337400,
+          "integrated_ns": 3482504200,
+          "spatial_adapter_ns": 7464700
+        },
+        "raw": [
+          {
+            "burst": 0,
+            "core_ns": 14337400,
+            "integrated_ns": 2165739500,
+            "spatial_adapter_ns": 7464700
+          },
+          {
+            "burst": 1,
+            "core_ns": 13608200,
+            "integrated_ns": 3482504200,
+            "spatial_adapter_ns": 7030300
+          }
+        ]
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 53.8178661,
+      "label": "10000-W1-16-p1-r2",
+      "report_sha256": "68f9189c1387f0e8e236fda456a187bfde468f26af283a99ae3f4e51f61382c2",
+      "statistics": {
+        "core": {
+          "max_ns": 5161200,
+          "p50_ns": 1111200,
+          "p95_ns": 1305900,
+          "p99_ns": 1797500,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1329600,
+              "p50_ns": 1103500,
+              "p95_ns": 1329600,
+              "p99_ns": 1329600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 34200,
+              "p50_ns": 22300,
+              "p95_ns": 34200,
+              "p99_ns": 34200,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 8637200,
+              "p50_ns": 2252200,
+              "p95_ns": 2619200,
+              "p99_ns": 3779700,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 144100,
+              "p50_ns": 24800,
+              "p95_ns": 46200,
+              "p99_ns": 96400,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 2897500,
+              "p50_ns": 1139600,
+              "p95_ns": 1343300,
+              "p99_ns": 1863800,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 309700,
+              "p50_ns": 24000,
+              "p95_ns": 34100,
+              "p99_ns": 66300,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 75.4285346,
+      "label": "10000-W1-16-p10-r2",
+      "report_sha256": "6c36af3eed837c8a4c0e993e15a4f6dcb537db8f5107cad7e47533f9aea0e0fd",
+      "statistics": {
+        "core": {
+          "max_ns": 21879800,
+          "p50_ns": 1162700,
+          "p95_ns": 2364100,
+          "p99_ns": 3178300,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 3038100,
+              "p50_ns": 1331600,
+              "p95_ns": 3038100,
+              "p99_ns": 3038100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 868900,
+              "p50_ns": 205200,
+              "p95_ns": 868900,
+              "p99_ns": 868900,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 33258500,
+              "p50_ns": 2624000,
+              "p95_ns": 5802300,
+              "p99_ns": 7670700,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 10126700,
+              "p50_ns": 302200,
+              "p95_ns": 1120100,
+              "p99_ns": 1630900,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 22140300,
+              "p50_ns": 1421200,
+              "p95_ns": 3467600,
+              "p99_ns": 4834600,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 19609000,
+              "p50_ns": 254400,
+              "p95_ns": 1028200,
+              "p99_ns": 1399900,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 125.2178172,
+      "label": "10000-W1-16-p50-r2",
+      "report_sha256": "a6c16997db844d4e70946025e513a0749a0eabda9ad6fe7670cea73649fb0a5e",
+      "statistics": {
+        "core": {
+          "max_ns": 13074100,
+          "p50_ns": 1115500,
+          "p95_ns": 1447600,
+          "p99_ns": 2364400,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 2156100,
+              "p50_ns": 2060500,
+              "p95_ns": 2156100,
+              "p99_ns": 2156100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1064900,
+              "p50_ns": 983000,
+              "p95_ns": 1064900,
+              "p99_ns": 1064900,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 10629100,
+              "p50_ns": 3307200,
+              "p95_ns": 4630000,
+              "p99_ns": 7129300,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 4813700,
+              "p50_ns": 1048500,
+              "p95_ns": 1613200,
+              "p99_ns": 2905700,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 17458000,
+              "p50_ns": 2161100,
+              "p95_ns": 2850200,
+              "p99_ns": 4855400,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 8701900,
+              "p50_ns": 1031800,
+              "p95_ns": 1425300,
+              "p99_ns": 2543100,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 150.1680919,
+      "label": "10000-W1-16-p100-r2",
+      "report_sha256": "660055ca91545ab20f27de057f5222ea532ffd3ca5fe87575e28ea5e5bf6ec2b",
+      "statistics": {
+        "core": {
+          "max_ns": 5419300,
+          "p50_ns": 1189800,
+          "p95_ns": 1981800,
+          "p99_ns": 2445800,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 4138900,
+              "p50_ns": 2850800,
+              "p95_ns": 4138900,
+              "p99_ns": 4138900,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2528500,
+              "p50_ns": 1792500,
+              "p95_ns": 2528500,
+              "p99_ns": 2528500,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 19547000,
+              "p50_ns": 4644600,
+              "p95_ns": 7410700,
+              "p99_ns": 8843900,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 14097500,
+              "p50_ns": 2207600,
+              "p95_ns": 3643300,
+              "p99_ns": 4647100,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 13257500,
+              "p50_ns": 3364500,
+              "p95_ns": 5498300,
+              "p99_ns": 6830800,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 10694600,
+              "p50_ns": 2150900,
+              "p95_ns": 3542700,
+              "p99_ns": 4450500,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 72.6717247,
+      "label": "10000-W2-16-p0-r2",
+      "report_sha256": "51f5810601b9e9d0c0783e01e10f33993439f2d464aa18acf17f79219b3cf98e",
+      "statistics": {
+        "core": {
+          "max_ns": 3706000,
+          "p50_ns": 1508300,
+          "p95_ns": 2242700,
+          "p99_ns": 2417800,
+          "samples": 29016
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 29.4276261,
+      "label": "10000-W3-16-p1-r2",
+      "report_sha256": "8dc73b49910c177d61e647519155f6f896b886f833c36ac66c37146eec67f679",
+      "statistics": {
+        "core": {
+          "max_ns": 1715700,
+          "p50_ns": 535000,
+          "p95_ns": 821800,
+          "p99_ns": 878900,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 855100,
+              "p50_ns": 589400,
+              "p95_ns": 855100,
+              "p99_ns": 855100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 39500,
+              "p50_ns": 30500,
+              "p95_ns": 39500,
+              "p99_ns": 39500,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 2421900,
+              "p50_ns": 1117600,
+              "p95_ns": 1695000,
+              "p99_ns": 1824900,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 148100,
+              "p50_ns": 28400,
+              "p95_ns": 41000,
+              "p99_ns": 52900,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 34125000,
+              "p50_ns": 1181100,
+              "p95_ns": 34125000,
+              "p99_ns": 34125000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 119100,
+              "p50_ns": 35300,
+              "p95_ns": 119100,
+              "p99_ns": 119100,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 1865600,
+              "p50_ns": 568600,
+              "p95_ns": 869100,
+              "p99_ns": 925700,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 218900,
+              "p50_ns": 28200,
+              "p95_ns": 40000,
+              "p99_ns": 45600,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 40.6825821,
+      "label": "10000-W3-16-p10-r2",
+      "report_sha256": "c8cfeb159bce0cc922efcd663ac771c56f984827c003c8413ec0cfcfa3a9e424",
+      "statistics": {
+        "core": {
+          "max_ns": 1937300,
+          "p50_ns": 560100,
+          "p95_ns": 837800,
+          "p99_ns": 931200,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 982700,
+              "p50_ns": 778900,
+              "p95_ns": 982700,
+              "p99_ns": 982700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 275000,
+              "p50_ns": 254300,
+              "p95_ns": 275000,
+              "p99_ns": 275000,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 3177000,
+              "p50_ns": 1421000,
+              "p95_ns": 1990300,
+              "p99_ns": 2197300,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 741400,
+              "p50_ns": 260500,
+              "p95_ns": 336200,
+              "p99_ns": 416200,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 36865700,
+              "p50_ns": 1616800,
+              "p95_ns": 36865700,
+              "p99_ns": 36865700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 757000,
+              "p50_ns": 341400,
+              "p95_ns": 757000,
+              "p99_ns": 757000,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 2792700,
+              "p50_ns": 838400,
+              "p95_ns": 1176300,
+              "p99_ns": 1312300,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 1204300,
+              "p50_ns": 260300,
+              "p95_ns": 334600,
+              "p99_ns": 367000,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 371.2725885,
+      "label": "100000-W2-33-p0-r3",
+      "report_sha256": "98d79b3b3e4a4d19796dcd1c0491b21824c9138c32a62399e8aca37d9a87ade5",
+      "statistics": {
+        "core": {
+          "max_ns": 31254800,
+          "p50_ns": 16379700,
+          "p95_ns": 23429600,
+          "p99_ns": 26424300,
+          "samples": 14088
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 235.7648267,
+      "label": "100000-W3-33-p1-r3",
+      "report_sha256": "52f31dc2df1ad4e314ea2d27d8e791494c4f580317db97bb5763d01dfdb2b18c",
+      "statistics": {
+        "core": {
+          "max_ns": 34221700,
+          "p50_ns": 9202500,
+          "p95_ns": 13037700,
+          "p99_ns": 14905900,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 14308400,
+              "p50_ns": 7618500,
+              "p95_ns": 14308400,
+              "p99_ns": 14308400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1706900,
+              "p50_ns": 658800,
+              "p95_ns": 1706900,
+              "p99_ns": 1706900,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 3383016100,
+              "p50_ns": 19124300,
+              "p95_ns": 3383016100,
+              "p99_ns": 3383016100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1388300,
+              "p50_ns": 1155900,
+              "p95_ns": 1388300,
+              "p99_ns": 1388300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 35886600,
+              "p50_ns": 10282200,
+              "p95_ns": 14605000,
+              "p99_ns": 16529000,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 3371500,
+              "p50_ns": 1015400,
+              "p95_ns": 1574200,
+              "p99_ns": 1725900,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 2722200,
+              "p50_ns": 386600,
+              "p95_ns": 522300,
+              "p99_ns": 749600,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 2691400,
+              "p50_ns": 372100,
+              "p95_ns": 500300,
+              "p99_ns": 720700,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 534.3549428,
+      "label": "100000-W3-33-p10-r3",
+      "report_sha256": "fc8652504307afb0d8ef8797468ad66c303c8102b4ebd8366c5b172d3b6efd2d",
+      "statistics": {
+        "core": {
+          "max_ns": 20933900,
+          "p50_ns": 9384600,
+          "p95_ns": 13059200,
+          "p99_ns": 14620100,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 20290500,
+              "p50_ns": 16015200,
+              "p95_ns": 20290500,
+              "p99_ns": 20290500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 8617600,
+              "p50_ns": 7690000,
+              "p95_ns": 8617600,
+              "p99_ns": 8617600,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 3325793300,
+              "p50_ns": 29453600,
+              "p95_ns": 3325793300,
+              "p99_ns": 3325793300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9689800,
+              "p50_ns": 7695100,
+              "p95_ns": 9689800,
+              "p99_ns": 9689800,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 38985200,
+              "p50_ns": 17886000,
+              "p95_ns": 23281600,
+              "p99_ns": 25397900,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 18364700,
+              "p50_ns": 8424200,
+              "p95_ns": 10458800,
+              "p99_ns": 11338900,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 18666400,
+              "p50_ns": 4592900,
+              "p95_ns": 7871500,
+              "p99_ns": 9910700,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 18603000,
+              "p50_ns": 4567300,
+              "p95_ns": 7839800,
+              "p99_ns": 9877100,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1280.7334968,
+      "label": "100000-W3-33-p50-r3",
+      "report_sha256": "955bba6ec9c34c5971f936ab7de22ad8761b3ddc076e24f8f9cefed0722e0d56",
+      "statistics": {
+        "core": {
+          "max_ns": 47484700,
+          "p50_ns": 7958000,
+          "p95_ns": 10164100,
+          "p99_ns": 12230500,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 46898400,
+              "p50_ns": 33861700,
+              "p95_ns": 46898400,
+              "p99_ns": 46898400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 37844100,
+              "p50_ns": 25667000,
+              "p95_ns": 37844100,
+              "p99_ns": 37844100,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2939316300,
+              "p50_ns": 44227500,
+              "p95_ns": 2939316300,
+              "p99_ns": 2939316300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 25712600,
+              "p50_ns": 23326200,
+              "p95_ns": 25712600,
+              "p99_ns": 25712600,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 172236100,
+              "p50_ns": 32323300,
+              "p95_ns": 40379000,
+              "p99_ns": 49574500,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 124586900,
+              "p50_ns": 24146600,
+              "p95_ns": 30948500,
+              "p99_ns": 38833300,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 127611000,
+              "p50_ns": 24935300,
+              "p95_ns": 31767100,
+              "p99_ns": 39404100,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 127548600,
+              "p50_ns": 24910200,
+              "p95_ns": 31742900,
+              "p99_ns": 39373800,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 2005.8973484,
+      "label": "100000-W3-33-p100-r3",
+      "report_sha256": "ef10cb92fae9ef016f3a94914f654ad21d229f6dcba754f884842209e752be57",
+      "statistics": {
+        "core": {
+          "max_ns": 19405300,
+          "p50_ns": 8150500,
+          "p95_ns": 11960800,
+          "p99_ns": 13500800,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 55506500,
+              "p50_ns": 50928000,
+              "p95_ns": 55506500,
+              "p99_ns": 55506500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 46849700,
+              "p50_ns": 41110500,
+              "p95_ns": 46849700,
+              "p99_ns": 46849700,
+              "samples": 4
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 2951448100,
+              "p50_ns": 62428800,
+              "p95_ns": 2951448100,
+              "p99_ns": 2951448100,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 42368500,
+              "p50_ns": 41286300,
+              "p95_ns": 42368500,
+              "p99_ns": 42368500,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 153705500,
+              "p50_ns": 48968300,
+              "p95_ns": 65886300,
+              "p99_ns": 73933800,
+              "samples": 14080
+            },
+            "spatial_adapter": {
+              "max_ns": 140544200,
+              "p50_ns": 40469800,
+              "p95_ns": 54101700,
+              "p99_ns": 62196500,
+              "samples": 14080
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 145411900,
+              "p50_ns": 42111800,
+              "p95_ns": 56165100,
+              "p99_ns": 64771500,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 145373400,
+              "p50_ns": 42084100,
+              "p95_ns": 56134500,
+              "p99_ns": 64743100,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 203.1685626,
+      "label": "100000-W4-33-p10-r3",
+      "report_sha256": "69e300dcde8c0221cd419079cda1ff9d1c397474bd8693532440f247c423d67c",
+      "statistics": {
+        "burst_max": {
+          "core_ns": 15185700,
+          "integrated_ns": 4295314100,
+          "spatial_adapter_ns": 6999700
+        },
+        "raw": [
+          {
+            "burst": 0,
+            "core_ns": 14853900,
+            "integrated_ns": 2909505700,
+            "spatial_adapter_ns": 6808300
+          },
+          {
+            "burst": 1,
+            "core_ns": 15185700,
+            "integrated_ns": 4295314100,
+            "spatial_adapter_ns": 6999700
+          }
+        ]
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 60.6153199,
+      "label": "10000-W1-16-p1-r3",
+      "report_sha256": "d1e7a160340c6bff156ff247f3fe585d369f4a596732febda2f12729103798da",
+      "statistics": {
+        "core": {
+          "max_ns": 3169100,
+          "p50_ns": 1189400,
+          "p95_ns": 1747200,
+          "p99_ns": 1866100,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1847300,
+              "p50_ns": 1600400,
+              "p95_ns": 1847300,
+              "p99_ns": 1847300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 35100,
+              "p50_ns": 32800,
+              "p95_ns": 35100,
+              "p99_ns": 35100,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 4416900,
+              "p50_ns": 2451800,
+              "p95_ns": 3513100,
+              "p99_ns": 3765100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 135500,
+              "p50_ns": 27100,
+              "p95_ns": 38100,
+              "p99_ns": 54500,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 3330800,
+              "p50_ns": 1221900,
+              "p95_ns": 1791000,
+              "p99_ns": 1908400,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 291300,
+              "p50_ns": 26300,
+              "p95_ns": 36200,
+              "p99_ns": 42500,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 70.4276491,
+      "label": "10000-W1-16-p10-r3",
+      "report_sha256": "c9c6ca1b476e95f7b76e4afb820756f7cbda8195b0e4314fb4e629ed02812dd7",
+      "statistics": {
+        "core": {
+          "max_ns": 2771600,
+          "p50_ns": 1187100,
+          "p95_ns": 1736700,
+          "p99_ns": 1898200,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1891800,
+              "p50_ns": 1337900,
+              "p95_ns": 1891800,
+              "p99_ns": 1891800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 293300,
+              "p50_ns": 216800,
+              "p95_ns": 293300,
+              "p99_ns": 293300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 5197700,
+              "p50_ns": 2671500,
+              "p95_ns": 3765200,
+              "p99_ns": 4178200,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 983400,
+              "p50_ns": 223400,
+              "p95_ns": 296400,
+              "p99_ns": 447700,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 3574000,
+              "p50_ns": 1420400,
+              "p95_ns": 2031100,
+              "p99_ns": 2277700,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 999600,
+              "p50_ns": 221100,
+              "p95_ns": 292500,
+              "p99_ns": 331200,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 108.242673,
+      "label": "10000-W1-16-p50-r3",
+      "report_sha256": "da4bacf8eb8959d2adf7d65a61e9602410e37b44cbff8fe70d663e9e4a22327b",
+      "statistics": {
+        "core": {
+          "max_ns": 3464000,
+          "p50_ns": 1225900,
+          "p95_ns": 1796300,
+          "p99_ns": 2066700,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 4745800,
+              "p50_ns": 2418100,
+              "p95_ns": 4745800,
+              "p99_ns": 4745800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2293200,
+              "p50_ns": 1071800,
+              "p95_ns": 2293200,
+              "p99_ns": 2293200,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 10062000,
+              "p50_ns": 3666500,
+              "p95_ns": 5076600,
+              "p99_ns": 6292500,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 4970900,
+              "p50_ns": 1118000,
+              "p95_ns": 1686000,
+              "p99_ns": 2494500,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 8469200,
+              "p50_ns": 2365000,
+              "p95_ns": 3296500,
+              "p99_ns": 4291700,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 4885200,
+              "p50_ns": 1100000,
+              "p95_ns": 1543900,
+              "p99_ns": 2304400,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 155.3738669,
+      "label": "10000-W1-16-p100-r3",
+      "report_sha256": "939d4fd9ab27aa49f636c62c6b79cfcf920e116f92fe082114b81391aeae0b09",
+      "statistics": {
+        "core": {
+          "max_ns": 3072000,
+          "p50_ns": 1252300,
+          "p95_ns": 1821200,
+          "p99_ns": 1982300,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 4226700,
+              "p50_ns": 3692700,
+              "p95_ns": 4226700,
+              "p99_ns": 4226700,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2563700,
+              "p50_ns": 2355700,
+              "p95_ns": 2563700,
+              "p99_ns": 2563700,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 8410600,
+              "p50_ns": 4803400,
+              "p95_ns": 6400500,
+              "p99_ns": 7112600,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 4099300,
+              "p50_ns": 2211000,
+              "p95_ns": 2866700,
+              "p99_ns": 3348000,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 7111900,
+              "p50_ns": 3507400,
+              "p95_ns": 4608900,
+              "p99_ns": 5004900,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 5007600,
+              "p50_ns": 2209300,
+              "p95_ns": 2803500,
+              "p99_ns": 3093400,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 74.3458865,
+      "label": "10000-W2-16-p0-r3",
+      "report_sha256": "edab0a1bd7cec1cd9d272f936fd6b7ce9f828cd0bba9b42185b0f96dbc36cbe8",
+      "statistics": {
+        "core": {
+          "max_ns": 3430400,
+          "p50_ns": 1581800,
+          "p95_ns": 2235900,
+          "p99_ns": 2390400,
+          "samples": 29016
+        },
+        "frame_groups": {}
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 31.4013305,
+      "label": "10000-W3-16-p1-r3",
+      "report_sha256": "65a3050e22ce9c7b7c042fc09fe3ee418aba76c9556396f6d63a7fae00ebdfad",
+      "statistics": {
+        "core": {
+          "max_ns": 1704500,
+          "p50_ns": 580800,
+          "p95_ns": 884200,
+          "p99_ns": 1002800,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 704400,
+              "p50_ns": 585400,
+              "p95_ns": 704400,
+              "p99_ns": 704400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 41300,
+              "p50_ns": 30800,
+              "p95_ns": 41300,
+              "p99_ns": 41300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 2601800,
+              "p50_ns": 1236700,
+              "p95_ns": 1806300,
+              "p99_ns": 2033200,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 212800,
+              "p50_ns": 32600,
+              "p95_ns": 41700,
+              "p99_ns": 46600,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 35168000,
+              "p50_ns": 1209500,
+              "p95_ns": 35168000,
+              "p99_ns": 35168000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 141000,
+              "p50_ns": 38400,
+              "p95_ns": 141000,
+              "p99_ns": 141000,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 1874100,
+              "p50_ns": 621200,
+              "p95_ns": 929900,
+              "p99_ns": 1055000,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 266400,
+              "p50_ns": 31000,
+              "p95_ns": 40900,
+              "p99_ns": 48600,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 40.7435409,
+      "label": "10000-W3-16-p10-r3",
+      "report_sha256": "bfede534787ebb661380d77f177638fbb47824df38b944721cfc3fcdae414d85",
+      "statistics": {
+        "core": {
+          "max_ns": 1745600,
+          "p50_ns": 530900,
+          "p95_ns": 815800,
+          "p99_ns": 913700,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 1008600,
+              "p50_ns": 832000,
+              "p95_ns": 1008600,
+              "p99_ns": 1008600,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 317500,
+              "p50_ns": 289100,
+              "p95_ns": 317500,
+              "p99_ns": 317500,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 2757300,
+              "p50_ns": 1339500,
+              "p95_ns": 1938900,
+              "p99_ns": 2066100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 907900,
+              "p50_ns": 251100,
+              "p95_ns": 329100,
+              "p99_ns": 344600,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 33544200,
+              "p50_ns": 1454900,
+              "p95_ns": 33544200,
+              "p99_ns": 33544200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 816000,
+              "p50_ns": 262300,
+              "p95_ns": 816000,
+              "p99_ns": 816000,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 2779700,
+              "p50_ns": 795200,
+              "p95_ns": 1148700,
+              "p99_ns": 1249900,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 1253100,
+              "p50_ns": 250200,
+              "p95_ns": 328300,
+              "p99_ns": 342400,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 85.0594954,
+      "label": "10000-W3-16-p50-r3",
+      "report_sha256": "065fea88b38258aa4cbf59dfe49762339748e770503b5524def298f2578fe5d9",
+      "statistics": {
+        "core": {
+          "max_ns": 1668400,
+          "p50_ns": 563200,
+          "p95_ns": 832700,
+          "p99_ns": 946400,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 2229800,
+              "p50_ns": 1717200,
+              "p95_ns": 2229800,
+              "p99_ns": 2229800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1500700,
+              "p50_ns": 1172600,
+              "p95_ns": 1500700,
+              "p99_ns": 1500700,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 4658400,
+              "p50_ns": 2445500,
+              "p95_ns": 3250100,
+              "p99_ns": 3738500,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 2680900,
+              "p50_ns": 1273700,
+              "p95_ns": 1591400,
+              "p99_ns": 1854700,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 31607200,
+              "p50_ns": 2382600,
+              "p95_ns": 31607200,
+              "p99_ns": 31607200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2203500,
+              "p50_ns": 1438100,
+              "p95_ns": 2203500,
+              "p99_ns": 2203500,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 4370000,
+              "p50_ns": 1846400,
+              "p95_ns": 2402900,
+              "p99_ns": 2702100,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 3137800,
+              "p50_ns": 1258700,
+              "p95_ns": 1584300,
+              "p99_ns": 1753400,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 138.65931,
+      "label": "10000-W3-16-p100-r3",
+      "report_sha256": "9ff4f5a1e6947502d36e74b68f389f08ef5d0aa2cf7c62e28db23c0b446b2463",
+      "statistics": {
+        "core": {
+          "max_ns": 5681400,
+          "p50_ns": 564300,
+          "p95_ns": 865600,
+          "p99_ns": 1094900,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 3740300,
+              "p50_ns": 3167900,
+              "p95_ns": 3740300,
+              "p99_ns": 3740300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 2997400,
+              "p50_ns": 2594600,
+              "p95_ns": 2997400,
+              "p99_ns": 2997400,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 6192500,
+              "p50_ns": 3688600,
+              "p95_ns": 4816100,
+              "p99_ns": 5485800,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 4386900,
+              "p50_ns": 2516900,
+              "p95_ns": 3185100,
+              "p99_ns": 3628500,
+              "samples": 1157
+            }
+          },
+          "lifecycle_burst": {
+            "integrated": {
+              "max_ns": 42025800,
+              "p50_ns": 4014900,
+              "p95_ns": 42025800,
+              "p99_ns": 42025800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 3756400,
+              "p50_ns": 3020000,
+              "p95_ns": 3756400,
+              "p99_ns": 3756400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 11442300,
+              "p50_ns": 3125600,
+              "p95_ns": 3979000,
+              "p99_ns": 4547400,
+              "samples": 26694
+            },
+            "spatial_adapter": {
+              "max_ns": 8096200,
+              "p50_ns": 2526000,
+              "p95_ns": 3136300,
+              "p99_ns": 3534000,
+              "samples": 26694
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 52.4540029,
+      "label": "10000-W4-16-p100-r3",
+      "report_sha256": "b17bf4035dd64ec201bfd416fe92cf432d406c38d7c653bd65203666d269f23f",
+      "statistics": {
+        "burst_max": {
+          "core_ns": 1430900,
+          "integrated_ns": 46827500,
+          "spatial_adapter_ns": 3142700
+        },
+        "raw": [
+          {
+            "burst": 0,
+            "core_ns": 1430900,
+            "integrated_ns": 25628700,
+            "spatial_adapter_ns": 3086300
+          },
+          {
+            "burst": 1,
+            "core_ns": 1317100,
+            "integrated_ns": 46827500,
+            "spatial_adapter_ns": 3142700
+          }
+        ]
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 347.5434617,
+      "label": "100000-W1-33-p1-r3",
+      "report_sha256": "0a10d9ad15e5e08bd05677aa23ff723a94c2dff1305e8cb2531a21a3c7ffb249",
+      "statistics": {
+        "core": {
+          "max_ns": 27934400,
+          "p50_ns": 13589600,
+          "p95_ns": 20184200,
+          "p99_ns": 22361000,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 19224000,
+              "p50_ns": 14072900,
+              "p95_ns": 19224000,
+              "p99_ns": 19224000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 1138400,
+              "p50_ns": 827600,
+              "p95_ns": 1138400,
+              "p99_ns": 1138400,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 29554000,
+              "p50_ns": 14568100,
+              "p95_ns": 21529500,
+              "p99_ns": 23755200,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 2207200,
+              "p50_ns": 926100,
+              "p95_ns": 1397500,
+              "p99_ns": 1500600,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 1552900,
+              "p50_ns": 289300,
+              "p95_ns": 442700,
+              "p99_ns": 555800,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 1518300,
+              "p50_ns": 275800,
+              "p95_ns": 422200,
+              "p99_ns": 534100,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 558.9056537,
+      "label": "100000-W1-33-p10-r3",
+      "report_sha256": "620b8a0cea021b1b54f973a5810b9db05a23dc2290e9d192d372174890ba7624",
+      "statistics": {
+        "core": {
+          "max_ns": 27931200,
+          "p50_ns": 13712900,
+          "p95_ns": 20359300,
+          "p99_ns": 23206400,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 26589000,
+              "p50_ns": 21109600,
+              "p95_ns": 26589000,
+              "p99_ns": 26589000,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 9371300,
+              "p50_ns": 7955300,
+              "p95_ns": 9371300,
+              "p99_ns": 9371300,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 40609200,
+              "p50_ns": 21120000,
+              "p95_ns": 29393300,
+              "p99_ns": 33072200,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 15898600,
+              "p50_ns": 7437400,
+              "p95_ns": 9343500,
+              "p99_ns": 10053700,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 17789400,
+              "p50_ns": 3846300,
+              "p95_ns": 6995500,
+              "p99_ns": 8849600,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 17737000,
+              "p50_ns": 3825100,
+              "p95_ns": 6972800,
+              "p99_ns": 8817900,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1281.361758,
+      "label": "100000-W1-33-p50-r3",
+      "report_sha256": "3d5fae36a171fd62a64f3a4f76e242bd66247979eca4da60faae772d44be3765",
+      "statistics": {
+        "core": {
+          "max_ns": 29598500,
+          "p50_ns": 12922700,
+          "p95_ns": 16411700,
+          "p99_ns": 18004700,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 37681800,
+              "p50_ns": 34680300,
+              "p95_ns": 37681800,
+              "p99_ns": 37681800,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 23329200,
+              "p50_ns": 22696300,
+              "p95_ns": 23329200,
+              "p99_ns": 23329200,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 68937300,
+              "p50_ns": 36215500,
+              "p95_ns": 44449500,
+              "p99_ns": 48734400,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 52729900,
+              "p50_ns": 23069900,
+              "p95_ns": 28968300,
+              "p99_ns": 32572700,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 55821100,
+              "p50_ns": 24241200,
+              "p95_ns": 30617300,
+              "p99_ns": 34063900,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 55802700,
+              "p50_ns": 24215900,
+              "p95_ns": 30590900,
+              "p99_ns": 34029400,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1885.9358063,
+      "label": "100000-W1-33-p100-r3",
+      "report_sha256": "9cb2530bdf041c2f8a34e8239f4405dd7d712187aeef7a95b8ba76b59ff8bd49",
+      "statistics": {
+        "core": {
+          "max_ns": 30272600,
+          "p50_ns": 12745800,
+          "p95_ns": 16297500,
+          "p99_ns": 17745000,
+          "samples": 14088
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 55542300,
+              "p50_ns": 45321900,
+              "p95_ns": 55542300,
+              "p99_ns": 55542300,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 37803900,
+              "p50_ns": 33352400,
+              "p95_ns": 37803900,
+              "p99_ns": 37803900,
+              "samples": 4
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 140939800,
+              "p50_ns": 48449100,
+              "p95_ns": 59207000,
+              "p99_ns": 65600700,
+              "samples": 14084
+            },
+            "spatial_adapter": {
+              "max_ns": 110248000,
+              "p50_ns": 35553200,
+              "p95_ns": 43858500,
+              "p99_ns": 49497300,
+              "samples": 14084
+            }
+          },
+          "ordinary_zero_tick": {
+            "integrated": {
+              "max_ns": 90070700,
+              "p50_ns": 37304900,
+              "p95_ns": 45712600,
+              "p99_ns": 50747000,
+              "samples": 13809
+            },
+            "spatial_adapter": {
+              "max_ns": 90035500,
+              "p50_ns": 37281400,
+              "p95_ns": 45676400,
+              "p99_ns": 50717000,
+              "samples": 13809
+            }
+          }
+        }
+      }
+    }
+  ],
+  "stretch_observation": false
+}

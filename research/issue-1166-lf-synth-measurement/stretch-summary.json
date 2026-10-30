@@ -1,0 +1,327 @@
+{
+  "aggregates": [
+    {
+      "rounds": 3,
+      "row": "100000-W1-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core": {
+          "max_ns": 44611600,
+          "p50_ns": 12883900,
+          "p95_ns": 15446200,
+          "p99_ns": 17180700,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 21521500,
+              "p50_ns": 18848900,
+              "p95_ns": 19933200,
+              "p99_ns": 19933200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 8681300,
+              "p50_ns": 7424700,
+              "p95_ns": 7645600,
+              "p99_ns": 7645600,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 84977700,
+              "p50_ns": 33728600,
+              "p95_ns": 39467000,
+              "p99_ns": 43280700,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 19456300,
+              "p50_ns": 7891800,
+              "p95_ns": 9478500,
+              "p99_ns": 10680900,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 73155300,
+              "p50_ns": 20894400,
+              "p95_ns": 24438000,
+              "p99_ns": 26299300,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 38759600,
+              "p50_ns": 7853300,
+              "p95_ns": 9395800,
+              "p99_ns": 10295100,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    }
+  ],
+  "binary_sha256": "90e618ee213804c6a00325e3fa0722d198dad6b30c786a0dec548b4ce984af2c",
+  "complete": true,
+  "errors": [],
+  "execution_order": [
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-16-a",
+        "<evidence-root>/oracles/100000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-stretch.json",
+        "10",
+        "1",
+        "<evidence-root>/stretch/100000-W1-16-p10-r1"
+      ],
+      "label": "100000-W1-16-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-16-a",
+        "<evidence-root>/oracles/100000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-stretch.json",
+        "10",
+        "2",
+        "<evidence-root>/stretch/100000-W1-16-p10-r2"
+      ],
+      "label": "100000-W1-16-p10-r2"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-16-a",
+        "<evidence-root>/oracles/100000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-stretch.json",
+        "10",
+        "3",
+        "<evidence-root>/stretch/100000-W1-16-p10-r3"
+      ],
+      "label": "100000-W1-16-p10-r3"
+    }
+  ],
+  "format": "lf-synth-measurement-matrix-1",
+  "fresh_process_rounds": 3,
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "instrumented": false,
+  "max_concurrent_measurements": 1,
+  "runs": [
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 890.3306674,
+      "label": "100000-W1-16-p10-r1",
+      "report_sha256": "13c5b575e00e0717f1caaeba17432d1252a491048cf2a1f5966cca1abe79284a",
+      "statistics": {
+        "core": {
+          "max_ns": 34329800,
+          "p50_ns": 12883900,
+          "p95_ns": 15446200,
+          "p99_ns": 16799200,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 19234400,
+              "p50_ns": 18844300,
+              "p95_ns": 19234400,
+              "p99_ns": 19234400,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 7185600,
+              "p50_ns": 7071400,
+              "p95_ns": 7185600,
+              "p99_ns": 7185600,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 64082100,
+              "p50_ns": 33728600,
+              "p95_ns": 39467000,
+              "p99_ns": 42757100,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 19456300,
+              "p50_ns": 7891800,
+              "p95_ns": 9509100,
+              "p99_ns": 10742600,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 73155300,
+              "p50_ns": 20894400,
+              "p95_ns": 24438000,
+              "p99_ns": 26299300,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 38759600,
+              "p50_ns": 7853300,
+              "p95_ns": 9395800,
+              "p99_ns": 10295100,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 890.2040478,
+      "label": "100000-W1-16-p10-r2",
+      "report_sha256": "7fe4bece1ec1454d0ed732726608b0988b33f80a33b0ac21ee8f410b3abd4855",
+      "statistics": {
+        "core": {
+          "max_ns": 40412600,
+          "p50_ns": 12193300,
+          "p95_ns": 15008700,
+          "p99_ns": 17180700,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 21521500,
+              "p50_ns": 18848900,
+              "p95_ns": 21521500,
+              "p99_ns": 21521500,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 8681300,
+              "p50_ns": 7521300,
+              "p95_ns": 8681300,
+              "p99_ns": 8681300,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 84977700,
+              "p50_ns": 32213200,
+              "p95_ns": 37779700,
+              "p99_ns": 43280700,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 17087900,
+              "p50_ns": 7647700,
+              "p95_ns": 9059100,
+              "p99_ns": 9750600,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 49101200,
+              "p50_ns": 20022200,
+              "p95_ns": 23224800,
+              "p99_ns": 26145700,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 19155300,
+              "p50_ns": 7636600,
+              "p95_ns": 8913600,
+              "p99_ns": 9623000,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 909.0576395,
+      "label": "100000-W1-16-p10-r3",
+      "report_sha256": "ba083e924bd1e8f8cfcc24ead25e8fe1ed08f3245259d40924493cdef0857dff",
+      "statistics": {
+        "core": {
+          "max_ns": 44611600,
+          "p50_ns": 13013700,
+          "p95_ns": 16325300,
+          "p99_ns": 18101200,
+          "samples": 29016
+        },
+        "frame_groups": {
+          "boundary": {
+            "integrated": {
+              "max_ns": 19933200,
+              "p50_ns": 19263700,
+              "p95_ns": 19933200,
+              "p99_ns": 19933200,
+              "samples": 4
+            },
+            "spatial_adapter": {
+              "max_ns": 7645600,
+              "p50_ns": 7424700,
+              "p95_ns": 7645600,
+              "p99_ns": 7645600,
+              "samples": 4
+            }
+          },
+          "catch_up": {
+            "integrated": {
+              "max_ns": 81591400,
+              "p50_ns": 34190100,
+              "p95_ns": 40681400,
+              "p99_ns": 44244200,
+              "samples": 1157
+            },
+            "spatial_adapter": {
+              "max_ns": 14322000,
+              "p50_ns": 8019600,
+              "p95_ns": 9478500,
+              "p99_ns": 10680900,
+              "samples": 1157
+            }
+          },
+          "ordinary_one_tick": {
+            "integrated": {
+              "max_ns": 66202600,
+              "p50_ns": 21217100,
+              "p95_ns": 25364300,
+              "p99_ns": 27834700,
+              "samples": 26698
+            },
+            "spatial_adapter": {
+              "max_ns": 22645300,
+              "p50_ns": 7990800,
+              "p95_ns": 9544600,
+              "p99_ns": 10675100,
+              "samples": 26698
+            }
+          }
+        }
+      }
+    }
+  ],
+  "stretch_observation": true
+}

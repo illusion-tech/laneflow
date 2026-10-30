@@ -1,0 +1,754 @@
+{
+  "format": "lf-synth-measurement-report-data-1",
+  "complete": true,
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "counts": {
+    "nominal": {
+      "runs": 60,
+      "ticks": 1810380,
+      "observation_ticks": 1163820,
+      "frames": 2090808
+    },
+    "stretch": {
+      "runs": 3,
+      "ticks": 130572,
+      "observation_ticks": 87048,
+      "frames": 125361
+    },
+    "allocation": {
+      "runs": 20,
+      "ticks": 603460,
+      "observation_ticks": 387940,
+      "frames": 696936
+    }
+  },
+  "elapsed_seconds_by_stage": {
+    "nominal": 27412.3243837,
+    "stretch": 2689.5923547,
+    "allocation": 9023.3954173
+  },
+  "numeric_reference_comparisons": [
+    {
+      "row": "10000-W1-16-p100",
+      "component": "core",
+      "actual": {
+        "max_ns": 5419300,
+        "p50_ns": 1189800,
+        "p95_ns": 1821200,
+        "p99_ns": 1982300,
+        "samples": 29016
+      },
+      "reference_limits_ns": {
+        "p95_ns": 2000000,
+        "p99_ns": 3000000,
+        "max_ns": 4000000
+      },
+      "numeric_violations": [
+        "max_ns"
+      ],
+      "core_within_quantum": true
+    },
+    {
+      "row": "10000-W1-16-p100",
+      "component": "ordinary_spatial_adapter",
+      "actual": {
+        "samples": 26698,
+        "max_ns": 10694600,
+        "p50_ns": 2150900,
+        "p95_ns": 2803500,
+        "p99_ns": 3093400
+      },
+      "reference_limits_ns": {
+        "p95_ns": 4000000,
+        "p99_ns": 6000000,
+        "max_ns": 8000000
+      },
+      "numeric_violations": [
+        "max_ns"
+      ],
+      "core_within_quantum": null
+    },
+    {
+      "row": "10000-W1-16-p100",
+      "component": "ordinary_one_tick_integrated",
+      "actual": {
+        "max_ns": 13257500,
+        "p50_ns": 3364500,
+        "p95_ns": 4608900,
+        "p99_ns": 5004900,
+        "samples": 26698
+      },
+      "reference_limits_ns": {
+        "p95_ns": 6000000,
+        "p99_ns": 9000000,
+        "max_ns": 12000000
+      },
+      "numeric_violations": [
+        "max_ns"
+      ],
+      "core_within_quantum": null
+    },
+    {
+      "row": "100000-W1-33-p10",
+      "component": "core",
+      "actual": {
+        "max_ns": 27931200,
+        "p50_ns": 11736500,
+        "p95_ns": 14457000,
+        "p99_ns": 15523900,
+        "samples": 14088
+      },
+      "reference_limits_ns": {
+        "p95_ns": 16000000,
+        "p99_ns": 24000000,
+        "max_ns": 32000000
+      },
+      "numeric_violations": [],
+      "core_within_quantum": true
+    },
+    {
+      "row": "100000-W1-33-p10",
+      "component": "ordinary_spatial_adapter",
+      "actual": {
+        "samples": 27893,
+        "max_ns": 17737000,
+        "p50_ns": 6216400,
+        "p95_ns": 8136500,
+        "p99_ns": 8786100
+      },
+      "reference_limits_ns": {
+        "p95_ns": 4000000,
+        "p99_ns": 6000000,
+        "max_ns": 8000000
+      },
+      "numeric_violations": [
+        "p95_ns",
+        "p99_ns",
+        "max_ns"
+      ],
+      "core_within_quantum": null
+    }
+  ],
+  "product_status": "TBD / Uncertified",
+  "integrated_p100_ordinary": {
+    "samples": 27893,
+    "max_ns": 41176100,
+    "p50_ns": 16899900,
+    "p95_ns": 21641100,
+    "p99_ns": 23271900
+  },
+  "w4_lifecycle_intervals": [
+    {
+      "label": "10000-W4-16-p100-r1",
+      "burst": 0,
+      "lifecycle_ns": 19570400,
+      "lifecycle_commands": 200,
+      "integrated_ns": 23821000,
+      "remaining_interval_ns": 49100,
+      "lifecycle_fraction": 0.8215608076906931
+    },
+    {
+      "label": "10000-W4-16-p100-r1",
+      "burst": 1,
+      "lifecycle_ns": 31762200,
+      "lifecycle_commands": 200,
+      "integrated_ns": 35969500,
+      "remaining_interval_ns": 69900,
+      "lifecycle_fraction": 0.8830314572068002
+    },
+    {
+      "label": "100000-W4-33-p10-r1",
+      "burst": 0,
+      "lifecycle_ns": 2035226900,
+      "lifecycle_commands": 2000,
+      "integrated_ns": 2056133000,
+      "remaining_interval_ns": 57100,
+      "lifecycle_fraction": 0.9898323211582131
+    },
+    {
+      "label": "100000-W4-33-p10-r1",
+      "burst": 1,
+      "lifecycle_ns": 3482946700,
+      "lifecycle_commands": 2000,
+      "integrated_ns": 3503350900,
+      "remaining_interval_ns": 292200,
+      "lifecycle_fraction": 0.9941758046560508
+    },
+    {
+      "label": "10000-W4-16-p100-r2",
+      "burst": 0,
+      "lifecycle_ns": 19738700,
+      "lifecycle_commands": 200,
+      "integrated_ns": 24315500,
+      "remaining_interval_ns": 48500,
+      "lifecycle_fraction": 0.8117743825954638
+    },
+    {
+      "label": "10000-W4-16-p100-r2",
+      "burst": 1,
+      "lifecycle_ns": 32721900,
+      "lifecycle_commands": 200,
+      "integrated_ns": 37099600,
+      "remaining_interval_ns": 64900,
+      "lifecycle_fraction": 0.8820014231959374
+    },
+    {
+      "label": "100000-W4-33-p10-r2",
+      "burst": 0,
+      "lifecycle_ns": 2143880400,
+      "lifecycle_commands": 2000,
+      "integrated_ns": 2165739500,
+      "remaining_interval_ns": 57000,
+      "lifecycle_fraction": 0.9899068655302266
+    },
+    {
+      "label": "100000-W4-33-p10-r2",
+      "burst": 1,
+      "lifecycle_ns": 3461563300,
+      "lifecycle_commands": 2000,
+      "integrated_ns": 3482504200,
+      "remaining_interval_ns": 302400,
+      "lifecycle_fraction": 0.9939868270654203
+    },
+    {
+      "label": "100000-W4-33-p10-r3",
+      "burst": 0,
+      "lifecycle_ns": 2887784500,
+      "lifecycle_commands": 2000,
+      "integrated_ns": 2909505700,
+      "remaining_interval_ns": 59000,
+      "lifecycle_fraction": 0.992534401977628
+    },
+    {
+      "label": "100000-W4-33-p10-r3",
+      "burst": 1,
+      "lifecycle_ns": 4272820200,
+      "lifecycle_commands": 2000,
+      "integrated_ns": 4295314100,
+      "remaining_interval_ns": 308500,
+      "lifecycle_fraction": 0.9947631536422447
+    },
+    {
+      "label": "10000-W4-16-p100-r3",
+      "burst": 0,
+      "lifecycle_ns": 21062400,
+      "lifecycle_commands": 200,
+      "integrated_ns": 25628700,
+      "remaining_interval_ns": 49100,
+      "lifecycle_fraction": 0.8218286530335132
+    },
+    {
+      "label": "10000-W4-16-p100-r3",
+      "burst": 1,
+      "lifecycle_ns": 42299500,
+      "lifecycle_commands": 200,
+      "integrated_ns": 46827500,
+      "remaining_interval_ns": 68200,
+      "lifecycle_fraction": 0.9033046820778389
+    }
+  ],
+  "numeric_220_threshold_exceeded": true,
+  "allocation_rows": [
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W2-16-p0",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 292944,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 265696,
+          "deallocations": 0,
+          "reallocations": 37
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W4-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 5,
+          "bytes_allocated": 955920,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 950352,
+          "deallocations": 0,
+          "reallocations": 28
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2027,
+          "bytes_allocated": 572286,
+          "bytes_deallocated": 219328,
+          "bytes_reallocated": 320878,
+          "deallocations": 1908,
+          "reallocations": 30
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W2-33-p0",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 2395792,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2142704,
+          "deallocations": 0,
+          "reallocations": 52
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W4-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 5,
+          "bytes_allocated": 9280672,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 9239104,
+          "deallocations": 0,
+          "reallocations": 40
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 20027,
+          "bytes_allocated": 2854014,
+          "bytes_deallocated": 2166528,
+          "bytes_reallocated": 356206,
+          "deallocations": 19008,
+          "reallocations": 39
+        }
+      }
+    }
+  ],
+  "process_maxima": {
+    "nominal": {
+      "working_set_bytes": 189120512,
+      "private_bytes": 284442624,
+      "peak_working_set_bytes": 1362583552,
+      "commit_peak_bytes": 1369649152
+    },
+    "stretch": {
+      "working_set_bytes": 155947008,
+      "private_bytes": 239636480,
+      "peak_working_set_bytes": 1361649664,
+      "commit_peak_bytes": 1368809472
+    },
+    "allocation": {
+      "working_set_bytes": 192131072,
+      "private_bytes": 282243072,
+      "peak_working_set_bytes": 1368612864,
+      "commit_peak_bytes": 1369407488
+    }
+  },
+  "note": "Numeric reference comparisons on R0 are not Product certification. Architecture-trigger prerequisites are verified separately."
+}

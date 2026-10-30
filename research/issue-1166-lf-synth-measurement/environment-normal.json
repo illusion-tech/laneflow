@@ -1,0 +1,284 @@
+{
+  "format": "lf-synth-measurement-environment-1",
+  "captured_utc": "2026-10-29T19:09:31.2161485Z",
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "target": "x86_64-pc-windows-msvc",
+  "source_tree": "72437ef7e26e0f10b6f8e91e3fbc8111e1d2acc4",
+  "source_clean_at_capture": true,
+  "normal_build": "cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bins",
+  "allocation_build": "cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin measure --features allocation --target-dir target/synth-allocation",
+  "normal_binary_sha256": "90e618ee213804c6a00325e3fa0722d198dad6b30c786a0dec548b4ce984af2c",
+  "diagnostic_binary_sha256": "3c0f946444bd018191bfd16e2058b2ec05bba3d5d9882f52dbd7d92328d7045c",
+  "semantic_binary_sha256": "a366048f4b44a823d375668ac97080c63f3df2918bce4880d08c11e95d3a9c90",
+  "rustflags": null,
+  "cargo_encoded_rustflags": null,
+  "cargo_build_target": null,
+  "hardware_identity_scheme": "laneflow-p100-hardware-identity-v2",
+  "hardware_identity_sha256": "be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20",
+  "reference_machine_id": "LF-P100-REF-01",
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29695",
+    "BuildNumber": "29695",
+    "TotalVisibleMemorySize": 64680184
+  },
+  "system": {
+    "Manufacturer": "MECHREVO",
+    "Model": "JIAOLONG Series",
+    "TotalPhysicalMemory": 66232508416,
+    "NumberOfLogicalProcessors": 32
+  },
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32,
+    "MaxClockSpeed": 2500
+  },
+  "memory": [
+    {
+      "Capacity": 34359738368,
+      "ConfiguredClockSpeed": 5600,
+      "Speed": 5600,
+      "Manufacturer": "SK Hynix",
+      "PartNumber": "HMCG88AGBSA092N               "
+    },
+    {
+      "Capacity": 34359738368,
+      "ConfiguredClockSpeed": 5600,
+      "Speed": 5600,
+      "Manufacturer": "SK Hynix",
+      "PartNumber": "HMCG88AGBSA092N               "
+    }
+  ],
+  "bios": {
+    "SMBIOSBIOSVersion": "N.1.09MRO07",
+    "ReleaseDate": "2025-04-08T09:00:00+09:00"
+  },
+  "ac": [
+    {
+      "PowerOnline": true,
+      "Charging": false,
+      "Discharging": false
+    }
+  ],
+  "power_plan": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "vendor_performance_mode": "not_available_from_read_only_standard_OS_interfaces; unchanged",
+  "background_process_sample_seconds": 2.0062268,
+  "background_processes": [
+    {
+      "name": "formal",
+      "pid": 54788,
+      "cpu_core_percent": 101.247,
+      "working_set_bytes": 277786624,
+      "private_bytes": 280846336
+    },
+    {
+      "name": "pwsh",
+      "pid": 42100,
+      "cpu_core_percent": 38.941,
+      "working_set_bytes": 168992768,
+      "private_bytes": 72945664
+    },
+    {
+      "name": "msedge",
+      "pid": 55420,
+      "cpu_core_percent": 21.807,
+      "working_set_bytes": 406953984,
+      "private_bytes": 382693376
+    },
+    {
+      "name": "msedge",
+      "pid": 62852,
+      "cpu_core_percent": 12.461,
+      "working_set_bytes": 112459776,
+      "private_bytes": 349601792
+    },
+    {
+      "name": "expressvpn-client",
+      "pid": 19608,
+      "cpu_core_percent": 10.904,
+      "working_set_bytes": 174604288,
+      "private_bytes": 338731008
+    },
+    {
+      "name": "ChatGPT",
+      "pid": 6488,
+      "cpu_core_percent": 7.009,
+      "working_set_bytes": 163176448,
+      "private_bytes": 317931520
+    },
+    {
+      "name": "btm",
+      "pid": 3396,
+      "cpu_core_percent": 4.673,
+      "working_set_bytes": 28684288,
+      "private_bytes": 37212160
+    },
+    {
+      "name": "ChatGPT",
+      "pid": 34508,
+      "cpu_core_percent": 3.894,
+      "working_set_bytes": 1131012096,
+      "private_bytes": 1220001792
+    },
+    {
+      "name": "zellij",
+      "pid": 3088,
+      "cpu_core_percent": 3.115,
+      "working_set_bytes": 50073600,
+      "private_bytes": 66318336
+    },
+    {
+      "name": "Feishu",
+      "pid": 41768,
+      "cpu_core_percent": 2.336,
+      "working_set_bytes": 264089600,
+      "private_bytes": 216907776
+    },
+    {
+      "name": "Grok Bot",
+      "pid": 48472,
+      "cpu_core_percent": 1.558,
+      "working_set_bytes": 163115008,
+      "private_bytes": 102711296
+    },
+    {
+      "name": "msedge",
+      "pid": 43100,
+      "cpu_core_percent": 1.558,
+      "working_set_bytes": 484163584,
+      "private_bytes": 245039104
+    },
+    {
+      "name": "explorer",
+      "pid": 13844,
+      "cpu_core_percent": 1.558,
+      "working_set_bytes": 273760256,
+      "private_bytes": 739106816
+    },
+    {
+      "name": "Grok Bot",
+      "pid": 48200,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 213471232,
+      "private_bytes": 152895488
+    },
+    {
+      "name": "ShellExperienceHost",
+      "pid": 30972,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 128811008,
+      "private_bytes": 61157376
+    },
+    {
+      "name": "wetype_update",
+      "pid": 14064,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 114663424,
+      "private_bytes": 375353344
+    },
+    {
+      "name": "snipaste",
+      "pid": 19928,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 86253568,
+      "private_bytes": 61153280
+    },
+    {
+      "name": "pwsh",
+      "pid": 27408,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 113704960,
+      "private_bytes": 47054848
+    },
+    {
+      "name": "msedge",
+      "pid": 55308,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 71720960,
+      "private_bytes": 42713088
+    },
+    {
+      "name": "ChatGPT",
+      "pid": 7108,
+      "cpu_core_percent": 0.779,
+      "working_set_bytes": 53440512,
+      "private_bytes": 37253120
+    },
+    {
+      "name": "svchost",
+      "pid": 2724,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 52744192,
+      "private_bytes": 21635072
+    },
+    {
+      "name": "RadeonSoftware",
+      "pid": 21080,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 26497024,
+      "private_bytes": 299364352
+    },
+    {
+      "name": "pwsh",
+      "pid": 51980,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 94453760,
+      "private_bytes": 26939392
+    },
+    {
+      "name": "pwsh",
+      "pid": 51376,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 129867776,
+      "private_bytes": 51253248
+    },
+    {
+      "name": "pwsh",
+      "pid": 51060,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 154386432,
+      "private_bytes": 67100672
+    },
+    {
+      "name": "svchost",
+      "pid": 3440,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 19357696,
+      "private_bytes": 8577024
+    },
+    {
+      "name": "svchost",
+      "pid": 3508,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 26812416,
+      "private_bytes": 12664832
+    },
+    {
+      "name": "pwahelper",
+      "pid": 59472,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 16224256,
+      "private_bytes": 3399680
+    },
+    {
+      "name": "svchost",
+      "pid": 3536,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 11685888,
+      "private_bytes": 3403776
+    },
+    {
+      "name": "PushNotificationsLongRunningTask",
+      "pid": 22408,
+      "cpu_core_percent": 0.0,
+      "working_set_bytes": 18399232,
+      "private_bytes": 2342912
+    }
+  ],
+  "max_concurrent_measurements": 1,
+  "runtime_workers": 1,
+  "classification": "research_measurement; Product TBD / Uncertified; P10 unbound; P100 release OS/memory limits TBD"
+}
