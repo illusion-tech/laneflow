@@ -13,10 +13,10 @@
 - `cross-section-access.md`（相邻事实源与整边界锚点，#237 消费契约）
 - `road-junction-model.md`（ManeuverPath/Gate；merge/diverge 边界）
 - `research/issue-1142-route-design/design.md`（边界设计与最小闭环样本）
-- `research/production-g1-decision-package/g1-decision-package.md` §七（维护者裁定）
+- 裁定记录双源：#237 冻结提案（issuecomment-6529967139，立时可解析）与 `research/production-g1-decision-package/g1-decision-package.md` §七（维护者 2026-10-31 裁定，随 PR #1183 合入后入库）——两者同载 A1–A6 裁定原文
 
 本文是 #237 首版 G1 冻结对象，将维护者 A1–A3/A4/A6 裁定（2026-10-31，G1
-决策包 §七）落为正式合同文本；A5（持久化与版本轴）的权威定义在
+裁定记录双源）落为正式合同文本；A5（持久化与版本轴）的权威定义在
 `traffic-runtime-snapshot.md` 衔接注记，本文 §9 只列要点与指向。
 
 ## 1. 目标与边界
