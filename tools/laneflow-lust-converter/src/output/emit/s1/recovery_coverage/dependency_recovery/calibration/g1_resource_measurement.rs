@@ -2,7 +2,7 @@
 //!
 //! 三阶段口径（本切片定义，随 G1 章交付）：`parse` = pinned LuST 源校验读入后的
 //! 网络/信号灯/车型解析与画像转换；`convert` = 拓扑转换 + 全网曲线发射（观察捕获）；
-//! `replay` = 全网成功程序回放核验（16,265 程序 `program_bits` 规范点位重放）。阶段经
+//! `replay` = **真实回放核验**（第二次发射 + 两次程序输出逐程序位级比对；P2-3 修复）。阶段经
 //! `G1_MEASURE_PHASE` 选择、单进程单阶段以便内存归因；双形态（debug/release）与轮次
 //! 由本机测量脚本驱动。计时口径对齐 #1113 账目：原始计时入 measurements、条件入
 //! environment、无空闲门槛注明、描述性限定；测量仅取证不调优、不改生产。
@@ -74,18 +74,42 @@ fn measure_production_key_paths() {
             detail = json!({"lane_edges":observation.edges.len(),
                 "maneuver_paths":observation.traffic.as_ref().unwrap().maneuver_paths.len()});
         } else {
-            // replay：全网成功程序回放核验（程序位规范点位重放，逐程序核对）。
+            // replay（P2-3 修复）：**真实回放核验**——第二次发射 + 两次程序输出逐
+            // 程序位级比对（重放发射语义，非克隆空转）；断言按 >=2 点位修正
+            // （`program_points` 含起点，非空断言恒真）。
             let started = Instant::now();
+            let (second, second_observation) = observe::capture(|| {
+                convert_network_topology_with_tll_and_profiles(
+                    &network,
+                    &tll,
+                    &profiles,
+                    &options,
+                    prepared.report_source().clone(),
+                )
+            });
+            let second = second.unwrap();
             let programs = original_programs(&observation);
-            let mut replayed = 0_usize;
+            let replayed_programs = original_programs(&second_observation);
+            assert_eq!(
+                programs.len(),
+                replayed_programs.len(),
+                "replay program count"
+            );
+            let mut replayed_points = 0_usize;
             for (id, program) in &programs {
                 let points = program_points(program);
-                assert!(!points.is_empty(), "replay program points for {id}");
-                replayed += points.len();
+                assert!(points.len() >= 2, "replay program points for {id}");
+                assert_eq!(
+                    program_bits(program),
+                    program_bits(&replayed_programs[id]),
+                    "replay program bits for {id}"
+                );
+                replayed_points += points.len();
             }
             timing["phase_seconds"] = json!(started.elapsed().as_secs_f64());
-            detail = json!({"programs":programs.len(),"replayed_points":replayed});
-            let _ = original;
+            detail = json!({"programs":programs.len(),"replayed_points":replayed_points,
+                "replay_semantics":"second emission + per-program bit comparison"});
+            let _ = (original, second);
         }
     }
     let record = json!({"measurement":timing,"detail":detail,
