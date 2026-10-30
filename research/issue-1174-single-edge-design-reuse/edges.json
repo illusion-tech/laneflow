@@ -1,0 +1,391 @@
+{
+  "schema": "laneflow-round5-single-edge-design-reuse-cohort",
+  "lane": "A-2",
+  "baseline_main": "d26abb76",
+  "method_sources": [
+    "research/issue-1115-failed-curve-design/design.md",
+    "research/issue-1136-c12-curve-design/plan.md",
+    "#1154 maintainer ruling B (same-representation: candidate polyline vs reference emitted polyline)"
+  ],
+  "sample_discipline": "样本 ID 程序化提取自 research/issue-1134-cohort2-coverage-diagnosis/edges.json（2026-10-30 纪律条）；诊断注记取自 #1134 README 诊断表，t 的 f64 位程序化换算",
+  "shared_baseline": {
+    "charter": "research/six-streams-20261029/coordination.md",
+    "candidate_pool": "11 edges 92 candidates",
+    "acceptance_comparison": "28/84",
+    "result_anchor": "E0 results-anchor.json#variants.new (generation 92-池行)",
+    "delivery": "SIX_STREAMS_BASELINE_DIR + shared_baseline::shared_pools()/results_anchor_pinned()"
+  },
+  "qualification": {
+    "rule": "#1154 maintainer ruling 2026-10-30 B: candidate polyline vs reference emitted polyline (same estimator, same representation)",
+    "reference_emitted_polyline_sampling": "per-span cubic first-four-points at 513 uniform parameter nodes, f32 canonicalized, chained (grid-family base emission form)"
+  },
+  "two_accounting_gains": "each component 1 complete associated path <-> 1 original target",
+  "fan_out_neighbors": {
+    "note": "C20/C21 fan-out 钳制邻居关系（钳制冻结）：两缺边互为 fan-out 成员，钳制方向不随曲线改变；候选按各自分量独立验收，互不吸收",
+    "pairs": [
+      "sumo:-31916_0->sumo::-1426_1_0",
+      "sumo:-31916_0->sumo::-1426_2_0"
+    ]
+  },
+  "components": [
+    {
+      "code": "C09",
+      "id": "sumo:-10034:-30306#1_0-to---30592#6_0::-10034_4_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-10034_4_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    },
+    {
+      "code": "C11",
+      "id": "sumo:-10046:--30616#0_0-to--32414#2_0::-10046_0_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-10046_0_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    },
+    {
+      "code": "C20",
+      "id": "sumo:-1426:-31916_0-to---32280#1_0::-1426_1_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-1426_1_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    },
+    {
+      "code": "C21",
+      "id": "sumo:-1426:-31916_0-to--32280#2_0::-1426_2_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-1426_2_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    },
+    {
+      "code": "C28",
+      "id": "sumo:-19726:-32068#1_0-to--32668#0_0::-19726_2_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-19726_2_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    },
+    {
+      "code": "C37",
+      "id": "sumo:-22042:-32280#2_0-to--30608#6_2::-22042_7_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-22042_7_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    },
+    {
+      "code": "C41",
+      "id": "sumo:-25490:--31516_0-to---32668#0_0::-25490_4_0",
+      "path_count": 1,
+      "missing_edges": "sumo::-25490_4_0",
+      "two_accounting_gains": {
+        "complete_associated_paths": 1,
+        "original_targets_84": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "code": "C09",
+      "id": "sumo::-10034_4_0",
+      "component": "sumo:-10034:-30306#1_0-to---30592#6_0::-10034_4_0",
+      "source_length_m": 5.04,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "segment_capacity": {
+        "reference_cubics": 4,
+        "temp_program_points_max": 385
+      },
+      "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:-30306#1_0->sumo::-10034_4_0, sumo:-30306#1_0->sumo::-10034_5_0])",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "entry_basis": {
+        "entry_basis": {
+          "problem_kind": "first_chord",
+          "status": "local_witness",
+          "direction_source": "start_boundary_clamp",
+          "span_index_zero_based": 0,
+          "witness_t": 0.125,
+          "witness_t_f64_bits": 4593671619917905920,
+          "witness_chord_m": 0.1747,
+          "note": "replay_fallback 载体"
+        }
+      },
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-old",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "retained_family_exhausted",
+          "candidate_count": 0
+        }
+      ]
+    },
+    {
+      "code": "C11",
+      "id": "sumo::-10046_0_0",
+      "component": "sumo:-10046:--30616#0_0-to--32414#2_0::-10046_0_0",
+      "source_length_m": 9.88,
+      "tangent_mechanism": "interior_or_mixed",
+      "segment_capacity": {
+        "reference_cubics": 4,
+        "temp_program_points_max": 385
+      },
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "entry_basis": {
+        "entry_basis": {
+          "problem_kind": "endpoint_not_selected",
+          "status": "endpoint_diagnosis_not_selected",
+          "note": "两端 interior CR，不诊断；不是端点必要条件不适用"
+        }
+      },
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1103-expanded",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-old",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "work",
+          "candidate_count": 0
+        }
+      ]
+    },
+    {
+      "code": "C20",
+      "id": "sumo::-1426_1_0",
+      "component": "sumo:-1426:-31916_0-to---32280#1_0::-1426_1_0",
+      "source_length_m": 4.92,
+      "tangent_mechanism": "boundary_clamp_involved",
+      "segment_capacity": {
+        "reference_cubics": 4,
+        "temp_program_points_max": 385
+      },
+      "start_tangent": "boundary clamp (fan-out mean over maneuver boundary pairs [sumo:-31916_0->sumo::-1426_1_0, sumo:-31916_0->sumo::-1426_2_0])",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "entry_basis": {
+        "entry_basis": {
+          "problem_kind": "first_chord",
+          "status": "local_witness",
+          "direction_source": "start_boundary_clamp",
+          "span_index_zero_based": 0,
+          "witness_t": 0.125,
+          "witness_t_f64_bits": 4593671619917905920,
+          "witness_chord_m": 0.1668,
+          "note": "replay_fallback 载体"
+        }
+      },
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-old",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "retained_family_exhausted",
+          "candidate_count": 0
+        }
+      ]
+    },
+    {
+      "code": "C21",
+      "id": "sumo::-1426_2_0",
+      "component": "sumo:-1426:-31916_0-to--32280#2_0::-1426_2_0",
+      "source_length_m": 7.57,
+      "tangent_mechanism": "interior_or_mixed",
+      "segment_capacity": {
+        "reference_cubics": 5,
+        "temp_program_points_max": 481
+      },
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "entry_basis": {
+        "entry_basis": {
+          "problem_kind": "last_chord",
+          "status": "local_witness",
+          "direction_source": "fillet_not_a_direction_condition",
+          "span_index_zero_based": 2,
+          "witness_t": 0.5,
+          "witness_t_f64_bits": 4602678819172646912,
+          "witness_chord_m": 0.4811
+        }
+      },
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-old",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "work",
+          "candidate_count": 0
+        }
+      ]
+    },
+    {
+      "code": "C28",
+      "id": "sumo::-19726_2_0",
+      "component": "sumo:-19726:-32068#1_0-to--32668#0_0::-19726_2_0",
+      "source_length_m": 5.1,
+      "tangent_mechanism": "interior_or_mixed",
+      "segment_capacity": {
+        "reference_cubics": 5,
+        "temp_program_points_max": 481
+      },
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "entry_basis": {
+        "entry_basis": {
+          "problem_kind": "last_chord",
+          "status": "local_witness",
+          "direction_source": "fillet_not_a_direction_condition",
+          "span_index_zero_based": 1,
+          "witness_t": 0.5,
+          "witness_t_f64_bits": 4602678819172646912,
+          "witness_chord_m": 0.3165
+        }
+      },
+      "history": [
+        {
+          "experiment": "1107-old",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "retained_family_exhausted",
+          "candidate_count": 0
+        }
+      ]
+    },
+    {
+      "code": "C37",
+      "id": "sumo::-22042_7_0",
+      "component": "sumo:-22042:-32280#2_0-to--30608#6_2::-22042_7_0",
+      "source_length_m": 15.99,
+      "tangent_mechanism": "fillet_both_ends",
+      "segment_capacity": {
+        "reference_cubics": 5,
+        "temp_program_points_max": 481
+      },
+      "start_tangent": "fillet arc tangent (prescribed)",
+      "finish_tangent": "fillet arc tangent (prescribed)",
+      "entry_basis": [
+        {
+          "entry_basis": {
+            "problem_kind": "first_chord",
+            "status": "local_witness",
+            "direction_source": "fillet_not_a_direction_condition",
+            "span_index_zero_based": 3,
+            "witness_t": 0.25,
+            "witness_t_f64_bits": 4598175219545276416,
+            "witness_chord_m": 0.1795
+          }
+        },
+        {
+          "entry_basis": {
+            "problem_kind": "last_chord",
+            "status": "unresolved",
+            "direction_source": "fillet_not_a_direction_condition",
+            "span_index_zero_based": 3,
+            "note": "32,000,000 盒、深度 48"
+          }
+        }
+      ],
+      "history": [
+        {
+          "experiment": "1103-base",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-old",
+          "stop_reason": "partitions",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "work",
+          "candidate_count": 0
+        }
+      ]
+    },
+    {
+      "code": "C41",
+      "id": "sumo::-25490_4_0",
+      "component": "sumo:-25490:--31516_0-to---32668#0_0::-25490_4_0",
+      "source_length_m": 5.01,
+      "tangent_mechanism": "interior_or_mixed",
+      "segment_capacity": {
+        "reference_cubics": 4,
+        "temp_program_points_max": 385
+      },
+      "start_tangent": "interior Catmull-Rom tangent",
+      "finish_tangent": "interior Catmull-Rom tangent",
+      "entry_basis": {
+        "entry_basis": {
+          "problem_kind": "endpoint_not_selected",
+          "status": "endpoint_diagnosis_not_selected",
+          "note": "两端 interior CR，不诊断；不是端点必要条件不适用"
+        }
+      },
+      "history": [
+        {
+          "experiment": "1107-old",
+          "stop_reason": "finite_family_exhausted",
+          "candidate_count": 0
+        },
+        {
+          "experiment": "1107-grid",
+          "stop_reason": "retained_family_exhausted",
+          "candidate_count": 0
+        }
+      ]
+    }
+  ]
+}
