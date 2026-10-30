@@ -1,0 +1,16 @@
+{
+  "format": "lf-synth-workers-post-run-source-verification-1",
+  "complete": true,
+  "captured_utc": "2026-10-30T20:06:47.8839330Z",
+  "implementation_commit": "d81204adb8318e1521d064f9364002b6bd64fec2",
+  "source_tree": "1fb6731fedf51307692cf69e96814c5d07e09909",
+  "source_clean": true,
+  "verified_source_files": 527,
+  "source_manifest_sha256": "6d33ecffebc11f6f09dd65e43fdc4acb4b8aa9bc78813503eb0632dfbad51cc9",
+  "mismatches": [],
+  "binary_bytes": 8058368,
+  "binary_sha256": "12764da12cde4631e61fbef6bea7fd36b250d311e5920208b3e6f82b0cd39ba3",
+  "matrix_summary_sha256": "84c0a29751a7d753c59febb69bb5a77d7047eee8f9c52e3795bd8b9766232aad",
+  "audit_script_sha256": "b1ebb51865576fc125ca8464b5ddb0883de2324c271c8be9ff9d4e07c4bf837f",
+  "powershell_version": "7.6.5"
+}
