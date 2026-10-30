@@ -1,9 +1,10 @@
 {
   "meta": {
     "id": "issue-1142-minimal-closed-loop",
-    "version": 2,
+    "version": 3,
     "kind": "synthetic-pinned-input",
     "changelog": [
+      { "version": 3, "date": "2026-10-31", "reason": "#1185 冻结裁定修订（R1/R2 确定化）：新增 fixed_delta_time_ms=100 与 safety_proof（反应窗口 r=2 拍、停止距离公式、MotionReach 本拍上界口径）；profiles 补具名制动参数 service_decel/emergency_decel；s4 钉关键拍（换道车本拍可进入、后车区外 8 m、d_stop≈26.75 m 不可让行）；s6 改 R1a 断言（直行不进 P4 候选队列、换道让行）；新增 s12（R1b 两换道车稳定序竞争）" },
       { "version": 2, "date": "2026-10-29", "reason": "PR #1144 评审修复：s1 拆分 gap / continuous-control / transition 三拓扑（gap 与 transition 变体移除 I0/P0，消除 lane-continuous 替代路线）；s5/s8 源后车改位到过渡车后方；s3/s4/s6 同类位置重排防止断言空转；新增 actor_conventions（route_edge_index 与 tick 0 激活基准）" }
     ],
     "purpose": "#806 路线展开与 #237 最小换道边界的最小闭环样本（设计材料，不是运行结果）",
@@ -76,6 +77,13 @@
       { "id": "B-down", "lanes_ordered": ["B0_down", "B1_down"] },
       { "id": "C", "lanes_ordered": ["C0"] }
     ],
+    "fixed_delta_time_ms": 100,
+    "safety_proof": {
+      "reaction_window_ticks": 2,
+      "stopping_distance_formula": "d_stop = v * (r * dt) + v^2 / (2 * a_service) + min_gap",
+      "binding": "制动参数取 profile 具名值 service_decel_mm_s2 / emergency_decel_mm_s2（禁止笼统引用 profile 制动能力）；MotionReach 仅为本拍位移上界，当拍跳过查询不免除预约存续期义务，存续期每拍重证",
+      "note": "R1/R2 验收数值前提：r=2 拍 = 0.2 s（fixed_delta_time_ms=100）"
+    },
     "signal": {
       "controller": "sig-j2",
       "type": "fixed-time",
@@ -131,8 +139,8 @@
     }
   },
   "profiles": {
-    "car": { "length_mm": 4500, "max_speed_mm_s": 13900, "min_gap_mm": 2500 },
-    "truck-long": { "length_mm": 12000, "max_speed_mm_s": 11100, "min_gap_mm": 3000 }
+    "car": { "length_mm": 4500, "max_speed_mm_s": 13900, "min_gap_mm": 2500, "service_decel_mm_s2": 4500, "emergency_decel_mm_s2": 9000 },
+    "truck-long": { "length_mm": 12000, "max_speed_mm_s": 11100, "min_gap_mm": 3000, "service_decel_mm_s2": 3500, "emergency_decel_mm_s2": 7000 }
   },
   "scenarios": [
     {
@@ -195,13 +203,15 @@
       "group": "目标与源车道安全",
       "purpose": "目标快速后车滞后间隙不足时进入前停让",
       "actors": [
-        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 0, "route_edge_index": 2 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 7000, "route_edge_index": 2 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
         { "id": "v-target-follower", "profile": "car", "spawn": { "edge": "B1_up", "progress_mm": 0 }, "route": ["B1_up", "S11", "B1_down", "I2", "C0"], "initial_speed_mm_s": 13900, "role": "target-fast-follower" }
       ],
+      "critical_tick": "tick 0（换道车首次提交 P4 申请、本拍可进入）：目标后车区外（距被预约区间入口 8 m）但停止距离 13.9*0.2 + 13.9^2/(2*4.5) + 2.5 ≈ 26.75 m > 8 m，不可安全让行",
       "expected": [
-        "快速接近的目标后车未形成安全滞后间隙时 v-change-1 在进入点前停让",
-        "后车通过或间隙满足后进入；目标后车不被迫紧急制动",
-        "不得进入共享边后才首次感知目标后车"
+        "关键拍 P4 no-grant（制动证明失败：26.75 m > 8 m），v-change-1 在 sl-t01 前停让，不进入 T01",
+        "后车通过后（MotionReach 当拍跳过各拍在预约存续期重证）v-change-1 进入并完成；目标后车不被迫紧急制动",
+        "对照分支：后车处于 d_stop + min_gap 之外且存续期各拍均可让行时申请可授予（防证明过保守恒拒绝）",
+        "不得进入共享边后才首次感知目标后车；不得笼统引用 profile 制动能力"
       ],
       "expressibility": "needs-237-subcontract"
     },
@@ -229,9 +239,9 @@
         { "id": "v-lane1-straight", "profile": "car", "spawn": { "edge": "B1_up", "progress_mm": 0 }, "route": ["B1_up", "S11", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "straight-lane1" }
       ],
       "expected": [
-        "两车在同一 tick 竞争过渡区资源时按稳定顺序裁决，资源不足者等待，恢复后继续",
-        "连续两辆过渡车先后进入同样有确定性结果",
-        "不得以遍历先后或 worker 调度决定结果；不得出现物理重叠"
+        "R1a 仲裁模型：v-lane1-straight 不进入 P4 候选队列（不提交过渡预约 bundle），经潜在进入者证明 + P5 遵守两条路径约束",
+        "v-change-1 的 P4 证明覆盖直行车（停止距离 10*0.2 + 10^2/(2*4.5) + 2.5 ≈ 15.6 m > 8 m，不可安全让行）→ no-grant、换道让行；直行通过后换道进入",
+        "全程无物理重叠；不得以拍初为空放行两车；不得以遍历先后或 worker 调度决定结果；结果与事件确定（不同 worker 配置一致）"
       ],
       "expressibility": "needs-237-subcontract"
     },
@@ -311,6 +321,21 @@
         "不得把 unknown/internal 引用归类为换道缺口"
       ],
       "expressibility": "route-expansion-today（缺口类）/ needs-237-subcontract（安全类）"
+    },
+    {
+      "id": "s12-two-changer-stable-order",
+      "group": "同拍与多车",
+      "purpose": "R1b 两换道车同拍申请：恰一方本拍进入，先后由冻结仲裁模型确定（证明先行、可证平手按 live 序稳定裁决）",
+      "actors": [
+        { "id": "v-change-1", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 7000, "route_edge_index": 2 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" },
+        { "id": "v-change-2", "profile": "car", "spawn": { "edge": "B0_up", "progress_mm": 0, "route_edge_index": 2 }, "route": ["A0", "I1", "B0_up", "T01", "B1_down", "I2", "C0"], "initial_speed_mm_s": 10000, "role": "transition" }
+      ],
+      "expected": [
+        "两车同拍提交过渡申请：恰一方本拍进入 T01，另一方在 sl-t01 前等待，其后进入",
+        "先后由冻结模型确定（前方车辆为不可让行潜在进入者时后方申请失败；可证安全的资源冲突按 live 序稳定裁决）；重放与不同 worker 配置结果一致",
+        "不得以遍历先后或 worker 调度决定结果；两车不得同入；败者不得被跳过或补位"
+      ],
+      "expressibility": "needs-237-subcontract"
     }
   ]
 }
