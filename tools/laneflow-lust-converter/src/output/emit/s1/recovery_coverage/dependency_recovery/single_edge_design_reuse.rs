@@ -8,7 +8,6 @@
 //! 只作记录不引用旧结论；零恢复为有效结论（plan §1/§6）。
 
 use super::*;
-use calibration::shared_baseline::replay_span_controls;
 use experiment::{merge, pool};
 
 /// plan §1/§6 冻结样本与段容量表（程序化提取自 #1134 冻结记录，逐值见本目录 edges.json）。
@@ -222,15 +221,15 @@ fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
         .collect()
 }
 
-/// 原参考的发射折线：逐 span 六点控制取前四点（cubic），513 节点均匀参数网格采样
-/// （grid 族基网格）、f32 规范化、跨 span 去重链接（#1154 钉版语义）。
-fn reference_emitted_polyline(input: &observe::EdgeInput) -> Vec<[f64; 3]> {
-    let controls = replay_span_controls(input);
-    let mut keys = controls.keys().copied().collect::<Vec<_>>();
-    keys.sort_unstable();
+/// 原参考的发射折线（同表示基准，**完整参考链**）：逐 span 六点控制取前四点（cubic），
+/// 513 节点均匀参数网格采样（grid 族基网格）、f32 规范化、跨 span 去重链接（#1154
+/// 钉版语义）。基准用 `reference_with_curve_cap` 全 span 重建（#1171 全边参考口径，
+/// 观察模式全 span 构建 + 三断言）——`replay_span_controls` 为失败截断前缀，按其
+/// 文档「不可用作全边参考」（#1180 P2-2 修正）。
+fn reference_emitted_polyline(input: &observe::EdgeInput, max_curves: usize) -> Vec<[f64; 3]> {
+    let controls = sampler::reshape::reference_with_curve_cap(input, max_curves);
     let mut points = Vec::new();
-    for key in keys {
-        let c = controls[&key];
+    for c in &controls {
         for k in 0..=512 {
             let p = quantize_f32(cubic_bezier(c[0], c[1], c[2], c[3], k as f64 / 512.0));
             if points.last() != Some(&p) {
@@ -310,7 +309,7 @@ fn run_searches(inputs: &Value) -> (Value, Value) {
         }
         // plan §3/§4：#1154 裁定 B 同表示资格闸——候选发射折线 vs 原参考发射折线
         // （同估计器同表示；跨表示比较已证伪影，不采用）。复核域评估独立记账不占池。
-        let reference_points = reference_emitted_polyline(&input);
+        let reference_points = reference_emitted_polyline(&input, max_curves);
         let reference_controls = polyline_as_controls(&reference_points);
         let mut reference_review = review_handle();
         let reference_fit = sampler::reshape::quality::fit_with_handle(
