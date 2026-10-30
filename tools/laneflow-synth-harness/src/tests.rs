@@ -1,4 +1,6 @@
-use laneflow_runtime::TickInput;
+use std::num::NonZeroU32;
+
+use laneflow_runtime::{ExecutionConfig, TickInput};
 use laneflow_static_contract::SignalAspect;
 use laneflow_synth_generator::{Case, Identity, Provenance, generate};
 
@@ -17,6 +19,42 @@ fn bundle(case: Case, dt: u32) -> laneflow_synth_generator::Bundle {
         },
     )
     .unwrap()
+}
+
+#[test]
+fn installed_worker_counts_preserve_initial_and_stepped_public_state() {
+    let bundle = bundle(Case::W1, 16);
+    let mut reference = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap();
+    let mut parallel = [2, 4, 8, 16].map(|workers| {
+        let execution = ExecutionConfig::new(NonZeroU32::new(workers).unwrap());
+        let sample = Sample::new(&bundle, execution).unwrap();
+        assert_eq!(sample.world.execution_config(), execution);
+        sample
+    });
+    for tick in 0..=8 {
+        if tick != 0 {
+            reference.world.step(TickInput::new(16)).unwrap();
+            for sample in &mut parallel {
+                sample.world.step(TickInput::new(16)).unwrap();
+            }
+        }
+        let expected = reference.observe(tick, true).unwrap();
+        let snapshot = reference.world.capture_snapshot().unwrap();
+        let digest = laneflow_runtime::deterministic_state_digest(&snapshot).unwrap();
+        for sample in &mut parallel {
+            assert_eq!(sample.observe(tick, true).unwrap(), expected);
+            assert_eq!(
+                sample.world.latest_transition_events(),
+                reference.world.latest_transition_events()
+            );
+            let snapshot = sample.world.capture_snapshot().unwrap();
+            assert_eq!(
+                laneflow_runtime::deterministic_state_digest(&snapshot).unwrap(),
+                digest
+            );
+        }
+    }
+    assert!(Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::new(17).unwrap())).is_err());
 }
 
 #[test]
@@ -75,7 +113,7 @@ fn canonical_initialization_and_guard_negative_controls() {
         (plan.warm_up_ticks, plan.observation_ticks),
         (14_508, 29_016)
     );
-    let mut sample = Sample::new(&bundle).unwrap();
+    let mut sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap();
     assert_eq!(
         sample.observe(0, true).unwrap().to_hex().as_str(),
         "ebb35b54634106fdc227b7b3f86712232ad4e30c75512e556aa538771cf73a7e"
@@ -111,11 +149,27 @@ fn invalid_input_and_existing_output_are_preserved() {
     let output = root.path().join("output");
     bundle.write_new(&input).unwrap();
     std::fs::write(input.join("input-plan.json"), b"{}").unwrap();
-    assert!(crate::run(&input, &"c".repeat(40), &output).is_err());
+    assert!(
+        crate::run(
+            &input,
+            &"c".repeat(40),
+            ExecutionConfig::new(NonZeroU32::MIN),
+            &output
+        )
+        .is_err()
+    );
     let before = std::fs::read(output.join("report.json")).unwrap();
     let report: serde_json::Value = serde_json::from_slice(&before).unwrap();
     assert_eq!(report["complete"], false);
-    assert!(crate::run(&input, &"c".repeat(40), &output).is_err());
+    assert!(
+        crate::run(
+            &input,
+            &"c".repeat(40),
+            ExecutionConfig::new(NonZeroU32::MIN),
+            &output
+        )
+        .is_err()
+    );
     assert_eq!(std::fs::read(output.join("report.json")).unwrap(), before);
 }
 
@@ -127,7 +181,7 @@ fn w2_is_fully_active_and_shortened_plan_is_rejected() {
         (plan.warm_up_ticks, plan.observation_ticks),
         (7_044, 14_088)
     );
-    let mut sample = Sample::new(&bundle).unwrap();
+    let mut sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap();
     sample.observe(0, true).unwrap();
     assert!(
         sample
@@ -149,6 +203,14 @@ fn w2_is_fully_active_and_shortened_plan_is_rejected() {
     bytes.push(b'\n');
     std::fs::write(input.join("input-plan.json"), bytes).unwrap();
     let output = root.path().join("output");
-    assert!(crate::run(&input, &"c".repeat(40), &output).is_err());
+    assert!(
+        crate::run(
+            &input,
+            &"c".repeat(40),
+            ExecutionConfig::new(NonZeroU32::MIN),
+            &output
+        )
+        .is_err()
+    );
     assert!(!output.join("ticks.bin").exists());
 }

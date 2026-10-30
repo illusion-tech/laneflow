@@ -48,14 +48,45 @@ laneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-comm
 W1/W2 初始化后只调用 `step` 和只读查询。W3/W4 按受检计划执行停车和生命周期
 命令，实际收据写入 `commands.bin`，批次前后状态写入 `batches.json`；矩阵同时
 逐字节比较这些文件。W3 保留到达屏障与单拍入位，W4 在 B1 后立即结束。
-所有运行固定单 worker，不隐式回收、替换或缩短窗口。
+上述 `run` / `matrix` / `burst-matrix` 固定单 worker，不隐式回收、替换或缩短窗口。
 每拍检查人口/身份、停车占用、精确整数运动、重叠、信号与事件因果。
 完整状态摘要只在检查点生成；逐拍轨迹覆盖设计列出的公开字段，不宣称逐拍内部状态
 全部受检。完整窗口执行会较长，进度每 1024 拍写入 stderr。
 
 上述入口包含大量宿主核验，只用于语义对照。两轮不能替代性能合同的三轮；
-表现与测量使用下述独立 `measure` 入口。worker 排列、快照恢复、Routing 与五轴
-认证均不在本工具范围内。`Product TBD / Uncertified` 保持不变。
+表现与测量使用下述独立 `measure` 入口。跨 worker 成功路径对照使用下一节的
+独立矩阵；快照恢复、Routing 与完整五轴认证不在这些入口的范围内。
+`Product TBD / Uncertified` 保持不变。
+
+## 跨 worker 确定性
+
+```text
+laneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>
+laneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
+```
+
+`worker-run` 走同一完整语义窗口，将显式配置传给真实 `TrafficWorld`，成功回执的
+`workers` 从安装后的世界读取。当前支持 1–16，不自动降级；普通 `run` 仍固定为 1。
+
+`worker-matrix` 固定一万/16 ms 与十万/33 ms，各 W1–W4，使用 1/2/4/8/16 worker
+各三个全新进程，共 120 次。每轮配置顺序左移七项，最多四个进程且运行中的配置
+worker 之和不超过 32。它只核验语义，不采集延迟或加速比。
+
+每个身份与第一轮单 worker 参考作十四次对照，共 112 对。回执核对实际 worker、
+源码、完整输入 manifest、窗口和检查点，再只排除 `workers` 比较全部其他字段。
+轨迹、有序事件逐字节比较；W3/W4 另比较命令收据与批次。任一失败停止启动新进程，
+收集已经启动的运行；不覆盖旧目录，不自动补跑。`summary.json` 保留每次完整回执、
+启动次序、binary/运行文件 SHA-256、环境与比较结果，全部完成才有 `complete=true`。
+
+从冻结提交的干净检出构建并复制二进制到工作树外。`environment.json` 至少包含
+`implementation_commit`（与参数相同）、`source_clean`（true）、`rustc_vv`、
+`cargo_version`、`target`、`build_command`，并附 OS、CPU、内存与采集时间。
+这些是执行者声明；工具记录实际可执行文件的 SHA-256 并核对运行前后身份，不能
+替代源码到二进制的构建证明。正式采集期间不修改源码、二进制或输入。
+
+该矩阵只覆盖标称输入和成功路径。非标称交叉组合、强制调度置换、跨 worker
+失败/重试、快照恢复、Routing、表现接线与完整五轴仍需各自证据，不能把相等结果
+写成产品认证。具体比较与证据边界见[执行设计 §7](../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照)。
 
 ## 表现与测量
 

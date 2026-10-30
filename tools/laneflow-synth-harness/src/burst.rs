@@ -150,8 +150,8 @@ struct Burst {
 }
 
 impl Burst {
-    fn new(bundle: &Bundle, plan: &Plan) -> Result<Self, Error> {
-        let sample = Sample::new(bundle)?;
+    fn new(bundle: &Bundle, plan: &Plan, execution: ExecutionConfig) -> Result<Self, Error> {
+        let sample = Sample::new(bundle, execution)?;
         let spaces = sample
             .state
             .vehicles
@@ -541,6 +541,7 @@ pub(super) fn run(
     bundle: &Bundle,
     plan: &Plan,
     implementation: &str,
+    execution: ExecutionConfig,
     output: &Path,
 ) -> Result<Value, Error> {
     let scheduled: Vec<Scheduled> = plan
@@ -549,7 +550,7 @@ pub(super) fn run(
         .cloned()
         .map(serde_json::from_value)
         .collect::<Result<_, _>>()?;
-    let mut burst = Burst::new(bundle, plan)?;
+    let mut burst = Burst::new(bundle, plan, execution)?;
     let initial_cursor = burst.sample.cursor;
     let mut journal = Journal::new(&output.join("commands.bin"))?;
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
@@ -658,6 +659,7 @@ pub(super) fn run(
     Ok(json!({"format":"lf-synth-burst-run-1","complete":true,
         "scope":"W3_W4_semantics_only_not_retry_or_performance_or_product_certification",
         "implementation_commit":implementation,"input_manifest":bundle.manifest(),
+        "workers":burst.sample.world.execution_config().worker_count().get(),
         "warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,"validated_boundaries":total+1,
         "caller_commands_after_initialization":burst.sample.cursor-initial_cursor,
         "command_attempts":journal.count,"blocked_attempts":journal.blocked,
@@ -689,7 +691,12 @@ mod tests {
         )
         .unwrap();
         let plan = Plan::read(&bundle).unwrap();
-        let mut burst = Burst::new(&bundle, &plan).unwrap();
+        let mut burst = Burst::new(
+            &bundle,
+            &plan,
+            ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap();
         let scheduled = plan
             .scheduled
             .iter()
