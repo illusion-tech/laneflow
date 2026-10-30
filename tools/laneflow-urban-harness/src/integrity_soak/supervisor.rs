@@ -495,13 +495,24 @@ mod float_judgment_tests {
         // :332/:334 `is_finite`：**漂移不敏感（翻转不可达）**——输入域上界为
         // u64::MAX 秒 ≈ 1.85×10¹⁹ ≪ f64::MAX，±1 ULP 保持有限。
         for value in [5e-324, 1.7743044000000001, 1e19, u64::MAX as f64] {
-            assert!(next_up(value).is_finite(), "finite preserved up for {value}");
-            assert!(next_down(value).is_finite(), "finite preserved down for {value}");
+            assert!(
+                next_up(value).is_finite(),
+                "finite preserved up for {value}"
+            );
+            assert!(
+                next_down(value).is_finite(),
+                "finite preserved down for {value}"
+            );
         }
         assert!(next_up(0.0).is_finite(), "finite preserved up for 0.0");
         // :335 `paused >= 0.0`：**漂移不敏感（翻转不可达）**——token 域为非负
         // Duration 的 zmij 字面量，解析按量级舍入不引入符号，可达结果恒 ≥ +0.0。
-        for text in ["0.0", "5e-324", "0.009999999999999787", "1.7743044000000001"] {
+        for text in [
+            "0.0",
+            "5e-324",
+            "0.009999999999999787",
+            "1.7743044000000001",
+        ] {
             let parsed: f64 = serde_json::from_str(text).unwrap();
             assert!(parsed >= 0.0, "non-negative parse for {text}");
         }
