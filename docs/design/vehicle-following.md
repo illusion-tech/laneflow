@@ -288,6 +288,12 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Core 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
+**过渡投影衔接注记（#237，权威定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §4）**：
+换道期间的整边保守投影记录（同区共横向边全长、带投影标记、不重复计车辆或
+容量）与实际车体记录同表参与跟车/准入占用查询；重叠分类沿用本节分档（本车
+自排除、实际↔实际与投影↔实际按本节阈值分档、投影↔投影保守重叠合法），
+**非一律完整性违例**。
+
 ### 6.5 状态参与
 
 当前 `TrafficWorld`：`Active` 进入车道占用。`Parked` 与 `Completed` 不进入。Snapshot 开始时仍为 Active、但本 tick 将完成 route 的车辆，在本 tick 仍可作为 leader；提交为 `Completed` 后，从下一 tick occupancy 消失。
