@@ -59,6 +59,10 @@ W1/W2 初始化后只调用 `step` 和只读查询。W3/W4 按受检计划执行
 
 ## 表现与测量
 
+完整矩阵、独立原始数据复核、数值预算缺口与资源口径见
+[LF-SYNTH-v2 表现与测量报告](../../research/issue-1166-lf-synth-measurement/README.md)。
+该报告是冻结源码的研究结果，保留产品未认证边界。
+
 接线遵循 [LF-SYNTH 测量设计](../../docs/design/lf-synth-measurement.md)。同一提交的
 `measure` 使用真实 Bevy Session/Plugin、Spatial 与 Transform；W2 只调用 Core。
 固定选择绑定 logical rank，Completed 暂时没有来源，despawn/spawn 与原子替换

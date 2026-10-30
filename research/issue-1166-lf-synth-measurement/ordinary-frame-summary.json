@@ -1,0 +1,1421 @@
+{
+  "format": "lf-synth-ordinary-frame-supplement-1",
+  "complete": true,
+  "scope": "supplemental same-run union of ordinary_zero_tick and ordinary_one_tick; no catch-up, lifecycle or boundary frames; original separate groups retained",
+  "aggregation": "per-round nearest-rank percentiles then round medians; worst of round maxima; no pooling across rounds",
+  "runs": [
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p1",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 3007500,
+          "p50_ns": 1051400,
+          "p95_ns": 1322500,
+          "p99_ns": 1948000
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 1102000,
+          "p50_ns": 22700,
+          "p95_ns": 31200,
+          "p99_ns": 43600
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p10",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 6565500,
+          "p50_ns": 1285400,
+          "p95_ns": 1903900,
+          "p99_ns": 2827300
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 1685100,
+          "p50_ns": 215500,
+          "p95_ns": 393500,
+          "p99_ns": 714300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p50",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 4642200,
+          "p50_ns": 2019400,
+          "p95_ns": 2442400,
+          "p99_ns": 3012900
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 2629500,
+          "p50_ns": 981100,
+          "p95_ns": 1208100,
+          "p99_ns": 1497200
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p100",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 5999800,
+          "p50_ns": 3005200,
+          "p95_ns": 3490300,
+          "p99_ns": 3995500
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 3861800,
+          "p50_ns": 1945100,
+          "p95_ns": 2289000,
+          "p99_ns": 2664500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p1",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 1634800,
+          "p50_ns": 523200,
+          "p95_ns": 651500,
+          "p99_ns": 804300
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 459800,
+          "p50_ns": 27000,
+          "p95_ns": 39100,
+          "p99_ns": 48800
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p10",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 2492000,
+          "p50_ns": 717400,
+          "p95_ns": 825100,
+          "p99_ns": 1006500
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 1390300,
+          "p50_ns": 235400,
+          "p95_ns": 259300,
+          "p99_ns": 313500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p50",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 3609100,
+          "p50_ns": 1579400,
+          "p95_ns": 1734300,
+          "p99_ns": 2006000
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 2877300,
+          "p50_ns": 1097200,
+          "p95_ns": 1190000,
+          "p99_ns": 1375500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p100",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 7417900,
+          "p50_ns": 2776600,
+          "p95_ns": 3274800,
+          "p99_ns": 3864500
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 5654400,
+          "p50_ns": 2257500,
+          "p95_ns": 2648800,
+          "p99_ns": 3151400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p1",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 23537100,
+          "p50_ns": 11102700,
+          "p95_ns": 15139100,
+          "p99_ns": 16598600
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 2111200,
+          "p50_ns": 579000,
+          "p95_ns": 1163200,
+          "p99_ns": 1288500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p10",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 41176100,
+          "p50_ns": 16658900,
+          "p95_ns": 20569200,
+          "p99_ns": 21998200
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 17264100,
+          "p50_ns": 6041100,
+          "p95_ns": 7617200,
+          "p99_ns": 8613500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p50",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 69593500,
+          "p50_ns": 30688600,
+          "p95_ns": 36319900,
+          "p99_ns": 40247000
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 50273400,
+          "p50_ns": 21307800,
+          "p95_ns": 25042900,
+          "p99_ns": 28460900
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p100",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 308062200,
+          "p50_ns": 45739600,
+          "p95_ns": 68178100,
+          "p99_ns": 103388300
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 269552900,
+          "p50_ns": 37452500,
+          "p95_ns": 57094300,
+          "p99_ns": 90896700
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p1",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 16228700,
+          "p50_ns": 7303700,
+          "p95_ns": 9962000,
+          "p99_ns": 11309800
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 2451500,
+          "p50_ns": 829900,
+          "p95_ns": 1334900,
+          "p99_ns": 1507500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p10",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 35117500,
+          "p50_ns": 13979600,
+          "p95_ns": 17637600,
+          "p99_ns": 19732100
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 15640100,
+          "p50_ns": 7207700,
+          "p95_ns": 8832400,
+          "p99_ns": 9643700
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p50",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 83678400,
+          "p50_ns": 29863300,
+          "p95_ns": 36469800,
+          "p99_ns": 41082100
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 83646000,
+          "p50_ns": 24726000,
+          "p95_ns": 29130500,
+          "p99_ns": 33324500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p100",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 151314600,
+          "p50_ns": 44449500,
+          "p95_ns": 53051000,
+          "p99_ns": 62547100
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 143735300,
+          "p50_ns": 39829000,
+          "p95_ns": 47099700,
+          "p99_ns": 56222400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p50",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 3297400,
+          "p50_ns": 1588800,
+          "p95_ns": 1754400,
+          "p99_ns": 1940000
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 2351200,
+          "p50_ns": 1104000,
+          "p95_ns": 1227800,
+          "p99_ns": 1363300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p100",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 5296500,
+          "p50_ns": 2644000,
+          "p95_ns": 2887100,
+          "p99_ns": 3166100
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 4240900,
+          "p50_ns": 2152200,
+          "p95_ns": 2350100,
+          "p99_ns": 2571700
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p1",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 77509500,
+          "p50_ns": 12204700,
+          "p95_ns": 17239500,
+          "p99_ns": 30664000
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 25223700,
+          "p50_ns": 1037400,
+          "p95_ns": 1542200,
+          "p99_ns": 2044300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p10",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 35331300,
+          "p50_ns": 17455800,
+          "p95_ns": 21641100,
+          "p99_ns": 23271900
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 15088500,
+          "p50_ns": 6821400,
+          "p95_ns": 8136500,
+          "p99_ns": 8786100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p50",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 72863600,
+          "p50_ns": 30710700,
+          "p95_ns": 36907300,
+          "p99_ns": 40294100
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 53771600,
+          "p50_ns": 21857700,
+          "p95_ns": 25981400,
+          "p99_ns": 29394300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p100",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 103494800,
+          "p50_ns": 43397200,
+          "p95_ns": 52739800,
+          "p99_ns": 59621100
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 89188800,
+          "p50_ns": 35297900,
+          "p95_ns": 41901600,
+          "p99_ns": 49251500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p1",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 61637400,
+          "p50_ns": 6678600,
+          "p95_ns": 11882300,
+          "p99_ns": 14087500
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 7151700,
+          "p50_ns": 587500,
+          "p95_ns": 1418500,
+          "p99_ns": 1717200
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p10",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 81128400,
+          "p50_ns": 13865500,
+          "p95_ns": 18337200,
+          "p99_ns": 20917800
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 31844900,
+          "p50_ns": 7530200,
+          "p95_ns": 9345300,
+          "p99_ns": 10605900
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p50",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 69188300,
+          "p50_ns": 30781800,
+          "p95_ns": 42688400,
+          "p99_ns": 48017600
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 54166900,
+          "p50_ns": 24925200,
+          "p95_ns": 32986900,
+          "p99_ns": 36424500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p100",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 166442900,
+          "p50_ns": 43435800,
+          "p95_ns": 51350600,
+          "p99_ns": 61370700
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 145835800,
+          "p50_ns": 39066300,
+          "p95_ns": 45234900,
+          "p99_ns": 55621100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p1",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 2897500,
+          "p50_ns": 1139600,
+          "p95_ns": 1343300,
+          "p99_ns": 1863800
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 309700,
+          "p50_ns": 24000,
+          "p95_ns": 34100,
+          "p99_ns": 66300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p10",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 22140300,
+          "p50_ns": 1421200,
+          "p95_ns": 3467600,
+          "p99_ns": 4834600
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 19609000,
+          "p50_ns": 254400,
+          "p95_ns": 1028200,
+          "p99_ns": 1399900
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p50",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 17458000,
+          "p50_ns": 2161100,
+          "p95_ns": 2850200,
+          "p99_ns": 4855400
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 8701900,
+          "p50_ns": 1031800,
+          "p95_ns": 1425300,
+          "p99_ns": 2543100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p100",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 13257500,
+          "p50_ns": 3364500,
+          "p95_ns": 5498300,
+          "p99_ns": 6830800
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 10694600,
+          "p50_ns": 2150900,
+          "p95_ns": 3542700,
+          "p99_ns": 4450500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p1",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 1865600,
+          "p50_ns": 568600,
+          "p95_ns": 869100,
+          "p99_ns": 925700
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 218900,
+          "p50_ns": 28200,
+          "p95_ns": 40000,
+          "p99_ns": 45600
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p10",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 2792700,
+          "p50_ns": 838400,
+          "p95_ns": 1176300,
+          "p99_ns": 1312300
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 1204300,
+          "p50_ns": 260300,
+          "p95_ns": 334600,
+          "p99_ns": 367000
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p1",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 35886600,
+          "p50_ns": 6686200,
+          "p95_ns": 13561700,
+          "p99_ns": 15752000
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 3371500,
+          "p50_ns": 567400,
+          "p95_ns": 1497800,
+          "p99_ns": 1662300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p10",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 38985200,
+          "p50_ns": 13401700,
+          "p95_ns": 22318600,
+          "p99_ns": 24545600
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 18603000,
+          "p50_ns": 7128500,
+          "p95_ns": 10130800,
+          "p99_ns": 11025000
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p50",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 172236100,
+          "p50_ns": 29378300,
+          "p95_ns": 37912900,
+          "p99_ns": 46468600
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 127548600,
+          "p50_ns": 24512900,
+          "p95_ns": 31377600,
+          "p99_ns": 39094700
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p100",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 153705500,
+          "p50_ns": 46485000,
+          "p95_ns": 62414100,
+          "p99_ns": 71400700
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 145373400,
+          "p50_ns": 41373700,
+          "p95_ns": 55274000,
+          "p99_ns": 63450100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p1",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 3330800,
+          "p50_ns": 1221900,
+          "p95_ns": 1791000,
+          "p99_ns": 1908400
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 291300,
+          "p50_ns": 26300,
+          "p95_ns": 36200,
+          "p99_ns": 42500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p10",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 3574000,
+          "p50_ns": 1420400,
+          "p95_ns": 2031100,
+          "p99_ns": 2277700
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 999600,
+          "p50_ns": 221100,
+          "p95_ns": 292500,
+          "p99_ns": 331200
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p50",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 8469200,
+          "p50_ns": 2365000,
+          "p95_ns": 3296500,
+          "p99_ns": 4291700
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 4885200,
+          "p50_ns": 1100000,
+          "p95_ns": 1543900,
+          "p99_ns": 2304400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p100",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 7111900,
+          "p50_ns": 3507400,
+          "p95_ns": 4608900,
+          "p99_ns": 5004900
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 5007600,
+          "p50_ns": 2209300,
+          "p95_ns": 2803500,
+          "p99_ns": 3093400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p1",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 1874100,
+          "p50_ns": 621200,
+          "p95_ns": 929900,
+          "p99_ns": 1055000
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 266400,
+          "p50_ns": 31000,
+          "p95_ns": 40900,
+          "p99_ns": 48600
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p10",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 2779700,
+          "p50_ns": 795200,
+          "p95_ns": 1148700,
+          "p99_ns": 1249900
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 1253100,
+          "p50_ns": 250200,
+          "p95_ns": 328300,
+          "p99_ns": 342400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p50",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 4370000,
+          "p50_ns": 1846400,
+          "p95_ns": 2402900,
+          "p99_ns": 2702100
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 3137800,
+          "p50_ns": 1258700,
+          "p95_ns": 1584300,
+          "p99_ns": 1753400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p100",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 11442300,
+          "p50_ns": 3125600,
+          "p95_ns": 3979000,
+          "p99_ns": 4547400
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 8096200,
+          "p50_ns": 2526000,
+          "p95_ns": 3136300,
+          "p99_ns": 3534000
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p1",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 29554000,
+          "p50_ns": 11463100,
+          "p95_ns": 20008200,
+          "p99_ns": 22859600
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 2207200,
+          "p50_ns": 605800,
+          "p95_ns": 1336700,
+          "p99_ns": 1462100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p10",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 40609200,
+          "p50_ns": 16899900,
+          "p95_ns": 27516600,
+          "p99_ns": 31217200
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 17737000,
+          "p50_ns": 6216400,
+          "p95_ns": 9052500,
+          "p99_ns": 9852900
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p50",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 68937300,
+          "p50_ns": 31815100,
+          "p95_ns": 42394700,
+          "p99_ns": 47091000
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 55802700,
+          "p50_ns": 23615100,
+          "p95_ns": 29910700,
+          "p99_ns": 33393100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p100",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 140939800,
+          "p50_ns": 44125000,
+          "p95_ns": 56526500,
+          "p99_ns": 62852000
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 110248000,
+          "p50_ns": 36428600,
+          "p95_ns": 44935500,
+          "p99_ns": 50122800
+        }
+      }
+    },
+    {
+      "stage": "stretch",
+      "row": "100000-W1-16-p10",
+      "round": 1,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 73155300,
+          "p50_ns": 20894400,
+          "p95_ns": 24438000,
+          "p99_ns": 26299300
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 38759600,
+          "p50_ns": 7853300,
+          "p95_ns": 9395800,
+          "p99_ns": 10295100
+        }
+      }
+    },
+    {
+      "stage": "stretch",
+      "row": "100000-W1-16-p10",
+      "round": 2,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 49101200,
+          "p50_ns": 20022200,
+          "p95_ns": 23224800,
+          "p99_ns": 26145700
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 19155300,
+          "p50_ns": 7636600,
+          "p95_ns": 8913600,
+          "p99_ns": 9623000
+        }
+      }
+    },
+    {
+      "stage": "stretch",
+      "row": "100000-W1-16-p10",
+      "round": 3,
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 66202600,
+          "p50_ns": 21217100,
+          "p95_ns": 25364300,
+          "p99_ns": 27834700
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 22645300,
+          "p50_ns": 7990800,
+          "p95_ns": 9544600,
+          "p99_ns": 10675100
+        }
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p1",
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 3330800,
+          "p50_ns": 1139600,
+          "p95_ns": 1343300,
+          "p99_ns": 1908400
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 1102000,
+          "p50_ns": 24000,
+          "p95_ns": 34100,
+          "p99_ns": 43600
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p10",
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 22140300,
+          "p50_ns": 1420400,
+          "p95_ns": 2031100,
+          "p99_ns": 2827300
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 19609000,
+          "p50_ns": 221100,
+          "p95_ns": 393500,
+          "p99_ns": 714300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p100",
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 13257500,
+          "p50_ns": 3364500,
+          "p95_ns": 4608900,
+          "p99_ns": 5004900
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 10694600,
+          "p50_ns": 2150900,
+          "p95_ns": 2803500,
+          "p99_ns": 3093400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W1-16-p50",
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 17458000,
+          "p50_ns": 2161100,
+          "p95_ns": 2850200,
+          "p99_ns": 4291700
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 8701900,
+          "p50_ns": 1031800,
+          "p95_ns": 1425300,
+          "p99_ns": 2304400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p1",
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 1874100,
+          "p50_ns": 568600,
+          "p95_ns": 869100,
+          "p99_ns": 925700
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 459800,
+          "p50_ns": 28200,
+          "p95_ns": 40000,
+          "p99_ns": 48600
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p10",
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 2792700,
+          "p50_ns": 795200,
+          "p95_ns": 1148700,
+          "p99_ns": 1249900
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 1390300,
+          "p50_ns": 250200,
+          "p95_ns": 328300,
+          "p99_ns": 342400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p100",
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 11442300,
+          "p50_ns": 2776600,
+          "p95_ns": 3274800,
+          "p99_ns": 3864500
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 8096200,
+          "p50_ns": 2257500,
+          "p95_ns": 2648800,
+          "p99_ns": 3151400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "10000-W3-16-p50",
+      "statistics": {
+        "integrated": {
+          "samples": 26694,
+          "max_ns": 4370000,
+          "p50_ns": 1588800,
+          "p95_ns": 1754400,
+          "p99_ns": 2006000
+        },
+        "spatial_adapter": {
+          "samples": 26694,
+          "max_ns": 3137800,
+          "p50_ns": 1104000,
+          "p95_ns": 1227800,
+          "p99_ns": 1375500
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p1",
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 77509500,
+          "p50_ns": 11463100,
+          "p95_ns": 17239500,
+          "p99_ns": 22859600
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 25223700,
+          "p50_ns": 605800,
+          "p95_ns": 1336700,
+          "p99_ns": 1462100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p10",
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 41176100,
+          "p50_ns": 16899900,
+          "p95_ns": 21641100,
+          "p99_ns": 23271900
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 17737000,
+          "p50_ns": 6216400,
+          "p95_ns": 8136500,
+          "p99_ns": 8786100
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p100",
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 308062200,
+          "p50_ns": 44125000,
+          "p95_ns": 56526500,
+          "p99_ns": 62852000
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 269552900,
+          "p50_ns": 36428600,
+          "p95_ns": 44935500,
+          "p99_ns": 50122800
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W1-33-p50",
+      "statistics": {
+        "integrated": {
+          "samples": 27893,
+          "max_ns": 72863600,
+          "p50_ns": 30710700,
+          "p95_ns": 36907300,
+          "p99_ns": 40294100
+        },
+        "spatial_adapter": {
+          "samples": 27893,
+          "max_ns": 55802700,
+          "p50_ns": 21857700,
+          "p95_ns": 25981400,
+          "p99_ns": 29394300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p1",
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 61637400,
+          "p50_ns": 6686200,
+          "p95_ns": 11882300,
+          "p99_ns": 14087500
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 7151700,
+          "p50_ns": 587500,
+          "p95_ns": 1418500,
+          "p99_ns": 1662300
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p10",
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 81128400,
+          "p50_ns": 13865500,
+          "p95_ns": 18337200,
+          "p99_ns": 20917800
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 31844900,
+          "p50_ns": 7207700,
+          "p95_ns": 9345300,
+          "p99_ns": 10605900
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p100",
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 166442900,
+          "p50_ns": 44449500,
+          "p95_ns": 53051000,
+          "p99_ns": 62547100
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 145835800,
+          "p50_ns": 39829000,
+          "p95_ns": 47099700,
+          "p99_ns": 56222400
+        }
+      }
+    },
+    {
+      "stage": "nominal",
+      "row": "100000-W3-33-p50",
+      "statistics": {
+        "integrated": {
+          "samples": 27889,
+          "max_ns": 172236100,
+          "p50_ns": 29863300,
+          "p95_ns": 37912900,
+          "p99_ns": 46468600
+        },
+        "spatial_adapter": {
+          "samples": 27889,
+          "max_ns": 127548600,
+          "p50_ns": 24726000,
+          "p95_ns": 31377600,
+          "p99_ns": 36424500
+        }
+      }
+    },
+    {
+      "stage": "stretch",
+      "row": "100000-W1-16-p10",
+      "statistics": {
+        "integrated": {
+          "samples": 26698,
+          "max_ns": 73155300,
+          "p50_ns": 20894400,
+          "p95_ns": 24438000,
+          "p99_ns": 26299300
+        },
+        "spatial_adapter": {
+          "samples": 26698,
+          "max_ns": 38759600,
+          "p50_ns": 7853300,
+          "p95_ns": 9395800,
+          "p99_ns": 10295100
+        }
+      }
+    }
+  ]
+}

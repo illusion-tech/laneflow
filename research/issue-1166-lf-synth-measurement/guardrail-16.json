@@ -1,0 +1,106 @@
+{
+  "complete": true,
+  "format": "lf-synth-scheduler-guardrail-1",
+  "identity": {
+    "case": "W1",
+    "fixed_delta_ms": 16,
+    "scale": 10000,
+    "seed": 0,
+    "workload_id": "LF-SYNTH-v2"
+  },
+  "ordered_events_equal": true,
+  "rows": [
+    {
+      "backlog_ns": 0,
+      "delta_ns": 0,
+      "frame": 0,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "37034724ee899b4eff94837ba409b16a487918332f3f2caf253048ef0e526604",
+      "steps": 0,
+      "tick": 0
+    },
+    {
+      "backlog_ns": 8000000,
+      "delta_ns": 8000000,
+      "frame": 1,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "37034724ee899b4eff94837ba409b16a487918332f3f2caf253048ef0e526604",
+      "steps": 0,
+      "tick": 0
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 8000000,
+      "frame": 2,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "b51c49b0bf376d93e34cfd1ed90c6264f72490edeb00659d58249d0b4cfa48da",
+      "steps": 1,
+      "tick": 1
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 16000000,
+      "frame": 3,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "b57c4864f95abbce436b034879f117de9372dc47d12d8a40d233d2211ed7b1fa",
+      "steps": 1,
+      "tick": 2
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 32000000,
+      "frame": 4,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "99f1ed4ef565b860220bb9d2ca6c6d37bfb4c88edec37ee5df94793a912a5d68",
+      "steps": 2,
+      "tick": 4
+    },
+    {
+      "backlog_ns": 32000000,
+      "delta_ns": 64000000,
+      "frame": 5,
+      "limit_reached": true,
+      "replay_equal": true,
+      "state_digest": "ccff1c74d2c5be1ea5f90484974dcc982aea385091afb413ae281eeb588cdab4",
+      "steps": 2,
+      "tick": 6
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 0,
+      "frame": 6,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "c7c854b4b4b13127e76c21534d94dcba284f121576b9adec55ce0169a6aa0cf2",
+      "steps": 2,
+      "tick": 8
+    },
+    {
+      "backlog_ns": 8000000,
+      "delta_ns": 8000000,
+      "frame": 7,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "c7c854b4b4b13127e76c21534d94dcba284f121576b9adec55ce0169a6aa0cf2",
+      "steps": 0,
+      "tick": 8
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 8000000,
+      "frame": 8,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "d7a9f486586ab3123cc7c50e66b8239677dcec5b8e75ff11216d9c57b6bd3e1b",
+      "steps": 1,
+      "tick": 9
+    }
+  ],
+  "scope": "independent_semantic_guardrail_not_latency",
+  "two_quantum_backlog_recovery_frames": 1
+}

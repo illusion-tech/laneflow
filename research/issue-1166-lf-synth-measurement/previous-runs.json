@@ -1,0 +1,17 @@
+[
+  {
+    "path": "<previous-evidence-parent>/issue-1166-smoke-v1",
+    "classification": "dirty_source_smoke",
+    "counted_in_formal_results": false,
+    "reason": "development wiring validation before source freeze"
+  },
+  {
+    "path": "<previous-evidence-parent>/issue-1166-c85cd289",
+    "classification": "superseded_source_oracles_only",
+    "implementation_commit": "c85cd289025cca78d75c99473c07447dfc93a1aa",
+    "oracle_rows_complete": 9,
+    "nominal_latency_runs": 0,
+    "counted_in_formal_results": false,
+    "reason": "default-feature Clippy unit-type correction required new freeze; all artifacts retained"
+  }
+]

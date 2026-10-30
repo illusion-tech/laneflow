@@ -1,0 +1,106 @@
+{
+  "complete": true,
+  "format": "lf-synth-scheduler-guardrail-1",
+  "identity": {
+    "case": "W1",
+    "fixed_delta_ms": 33,
+    "scale": 10000,
+    "seed": 0,
+    "workload_id": "LF-SYNTH-v2"
+  },
+  "ordered_events_equal": true,
+  "rows": [
+    {
+      "backlog_ns": 0,
+      "delta_ns": 0,
+      "frame": 0,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "e475c9d54cb94eadaf1a40dd6c7be56b30b84facafe6f71c1fd9f0bb6c2f0917",
+      "steps": 0,
+      "tick": 0
+    },
+    {
+      "backlog_ns": 16500000,
+      "delta_ns": 16500000,
+      "frame": 1,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "e475c9d54cb94eadaf1a40dd6c7be56b30b84facafe6f71c1fd9f0bb6c2f0917",
+      "steps": 0,
+      "tick": 0
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 16500000,
+      "frame": 2,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "0c05c101b9001fc6e75684702493295c15fba2fb31b61f767921b6fadad525a8",
+      "steps": 1,
+      "tick": 1
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 33000000,
+      "frame": 3,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "1c12fe2039c1f008eb50570a990ba7935ce388f39b44ef37b31546063b0edc87",
+      "steps": 1,
+      "tick": 2
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 66000000,
+      "frame": 4,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "915eafb977d54fbd1e24afa2fa36831997710170dabf56d53baad8e099a16665",
+      "steps": 2,
+      "tick": 4
+    },
+    {
+      "backlog_ns": 66000000,
+      "delta_ns": 132000000,
+      "frame": 5,
+      "limit_reached": true,
+      "replay_equal": true,
+      "state_digest": "6d8fad498c130e5b81ac371e45413824fa005088b4ca3bace45880ea28fd1bd7",
+      "steps": 2,
+      "tick": 6
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 0,
+      "frame": 6,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "59bf500a3770a22ec427bf536e2ec289d025bd5dc0ede2ccf35d362d0b111b69",
+      "steps": 2,
+      "tick": 8
+    },
+    {
+      "backlog_ns": 16500000,
+      "delta_ns": 16500000,
+      "frame": 7,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "59bf500a3770a22ec427bf536e2ec289d025bd5dc0ede2ccf35d362d0b111b69",
+      "steps": 0,
+      "tick": 8
+    },
+    {
+      "backlog_ns": 0,
+      "delta_ns": 16500000,
+      "frame": 8,
+      "limit_reached": false,
+      "replay_equal": true,
+      "state_digest": "c3122b965e2377eb7d5cc63dedf851c2be0775c22f219b630e4768926617f47e",
+      "steps": 1,
+      "tick": 9
+    }
+  ],
+  "scope": "independent_semantic_guardrail_not_latency",
+  "two_quantum_backlog_recovery_frames": 1
+}

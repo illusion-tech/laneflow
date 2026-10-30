@@ -1,0 +1,1661 @@
+{
+  "aggregates": [
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W1-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W2-16-p0",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 292944,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 265696,
+          "deallocations": 0,
+          "reallocations": 37
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W3-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "10000-W4-16-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 5,
+          "bytes_allocated": 955920,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 950352,
+          "deallocations": 0,
+          "reallocations": 28
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2027,
+          "bytes_allocated": 572286,
+          "bytes_deallocated": 219328,
+          "bytes_reallocated": 320878,
+          "deallocations": 1908,
+          "reallocations": 30
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W1-33-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W2-33-p0",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 2395792,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2142704,
+          "deallocations": 0,
+          "reallocations": 52
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p1",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p50",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W3-33-p100",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "rounds": 1,
+      "row": "100000-W4-33-p10",
+      "semantics_equal_across_rounds": true,
+      "statistics": {
+        "core_allocations": {
+          "allocations": 5,
+          "bytes_allocated": 9280672,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 9239104,
+          "deallocations": 0,
+          "reallocations": 40
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 20027,
+          "bytes_allocated": 2854014,
+          "bytes_deallocated": 2166528,
+          "bytes_reallocated": 356206,
+          "deallocations": 19008,
+          "reallocations": 39
+        }
+      }
+    }
+  ],
+  "binary_sha256": "3c0f946444bd018191bfd16e2058b2ec05bba3d5d9882f52dbd7d92328d7045c",
+  "complete": true,
+  "errors": [],
+  "execution_order": [
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "1",
+        "1",
+        "<evidence-root>/allocation/10000-W1-16-p1-r1"
+      ],
+      "label": "10000-W1-16-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "10",
+        "1",
+        "<evidence-root>/allocation/10000-W1-16-p10-r1"
+      ],
+      "label": "10000-W1-16-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "50",
+        "1",
+        "<evidence-root>/allocation/10000-W1-16-p50-r1"
+      ],
+      "label": "10000-W1-16-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W1-16-a",
+        "<evidence-root>/oracles/10000-W1-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "100",
+        "1",
+        "<evidence-root>/allocation/10000-W1-16-p100-r1"
+      ],
+      "label": "10000-W1-16-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W2-16-a",
+        "<evidence-root>/oracles/10000-W2-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "0",
+        "1",
+        "<evidence-root>/allocation/10000-W2-16-p0-r1"
+      ],
+      "label": "10000-W2-16-p0-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "1",
+        "1",
+        "<evidence-root>/allocation/10000-W3-16-p1-r1"
+      ],
+      "label": "10000-W3-16-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "10",
+        "1",
+        "<evidence-root>/allocation/10000-W3-16-p10-r1"
+      ],
+      "label": "10000-W3-16-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "50",
+        "1",
+        "<evidence-root>/allocation/10000-W3-16-p50-r1"
+      ],
+      "label": "10000-W3-16-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W3-16-a",
+        "<evidence-root>/oracles/10000-W3-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "100",
+        "1",
+        "<evidence-root>/allocation/10000-W3-16-p100-r1"
+      ],
+      "label": "10000-W3-16-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/10000-W4-16-a",
+        "<evidence-root>/oracles/10000-W4-16",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "100",
+        "1",
+        "<evidence-root>/allocation/10000-W4-16-p100-r1"
+      ],
+      "label": "10000-W4-16-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "1",
+        "1",
+        "<evidence-root>/allocation/100000-W1-33-p1-r1"
+      ],
+      "label": "100000-W1-33-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "10",
+        "1",
+        "<evidence-root>/allocation/100000-W1-33-p10-r1"
+      ],
+      "label": "100000-W1-33-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "50",
+        "1",
+        "<evidence-root>/allocation/100000-W1-33-p50-r1"
+      ],
+      "label": "100000-W1-33-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W1-33-a",
+        "<evidence-root>/oracles/100000-W1-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "100",
+        "1",
+        "<evidence-root>/allocation/100000-W1-33-p100-r1"
+      ],
+      "label": "100000-W1-33-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W2-33-a",
+        "<evidence-root>/oracles/100000-W2-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "0",
+        "1",
+        "<evidence-root>/allocation/100000-W2-33-p0-r1"
+      ],
+      "label": "100000-W2-33-p0-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "1",
+        "1",
+        "<evidence-root>/allocation/100000-W3-33-p1-r1"
+      ],
+      "label": "100000-W3-33-p1-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "10",
+        "1",
+        "<evidence-root>/allocation/100000-W3-33-p10-r1"
+      ],
+      "label": "100000-W3-33-p10-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "50",
+        "1",
+        "<evidence-root>/allocation/100000-W3-33-p50-r1"
+      ],
+      "label": "100000-W3-33-p50-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W3-33-a",
+        "<evidence-root>/oracles/100000-W3-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "100",
+        "1",
+        "<evidence-root>/allocation/100000-W3-33-p100-r1"
+      ],
+      "label": "100000-W3-33-p100-r1"
+    },
+    {
+      "arguments": [
+        "run",
+        "<input-root>/100000-W4-33-a",
+        "<evidence-root>/oracles/100000-W4-33",
+        "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+        "<evidence-root>/environment-allocation.json",
+        "10",
+        "1",
+        "<evidence-root>/allocation/100000-W4-33-p10-r1"
+      ],
+      "label": "100000-W4-33-p10-r1"
+    }
+  ],
+  "format": "lf-synth-measurement-matrix-1",
+  "fresh_process_rounds": 1,
+  "implementation_commit": "6abba87cf85f04bad398826740ce5cd9c7aa0671",
+  "instrumented": true,
+  "max_concurrent_measurements": 1,
+  "runs": [
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 128,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 128,
+          "pose-adapter.input_len": 100,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 128,
+          "pose-adapter.output_len": 100,
+          "pose-adapter.seen_cap": 112,
+          "pose-adapter.seen_len": 100,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 100,
+          "pose-spatial.output_len": 100,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 100,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 59.7291756,
+      "label": "10000-W1-16-p1-r1",
+      "report_sha256": "9577dc6361c90b35b2ffabb62b1ce67bb03b6fe0523547ffdc3ad9af2c30c3a2",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 1024,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 1024,
+          "pose-adapter.input_len": 1000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 1024,
+          "pose-adapter.output_len": 1000,
+          "pose-adapter.seen_cap": 1792,
+          "pose-adapter.seen_len": 1000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 1000,
+          "pose-spatial.output_len": 1000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 1000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 66.7802176,
+      "label": "10000-W1-16-p10-r1",
+      "report_sha256": "ab87ff2fc56ce168d38ab4c8b9d3052c063220bafbfdccd687438562c934a91b",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 8192,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 8192,
+          "pose-adapter.input_len": 5000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 8192,
+          "pose-adapter.output_len": 5000,
+          "pose-adapter.seen_cap": 7168,
+          "pose-adapter.seen_len": 5000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 5000,
+          "pose-spatial.output_len": 5000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 5000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 100.9099932,
+      "label": "10000-W1-16-p50-r1",
+      "report_sha256": "0dc8dcf123d8fd80be504903c4d8bc506ce70d67e41f8c339992980bd9450f96",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 16384,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 16384,
+          "pose-adapter.input_len": 10000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 16384,
+          "pose-adapter.output_len": 10000,
+          "pose-adapter.seen_cap": 14336,
+          "pose-adapter.seen_len": 10000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 10000,
+          "pose-spatial.output_len": 10000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 10000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 150.8294104,
+      "label": "10000-W1-16-p100-r1",
+      "report_sha256": "b7e2b61423551239b9ba0a67442b9ecf7e49c72950026dd570cf8dfc7f18eff4",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 225344,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 216216,
+          "deallocations": 0,
+          "reallocations": 39
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 60.1412374,
+      "label": "10000-W2-16-p0-r1",
+      "report_sha256": "5f386b7de62145e4a5a4bcb4b754fce02684e01e9074b96cda8052d743b22959",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 292944,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 265696,
+          "deallocations": 0,
+          "reallocations": 37
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 128,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 128,
+          "pose-adapter.input_len": 100,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 128,
+          "pose-adapter.output_len": 100,
+          "pose-adapter.seen_cap": 112,
+          "pose-adapter.seen_len": 100,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 100,
+          "pose-spatial.output_len": 100,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 100,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 32.1283224,
+      "label": "10000-W3-16-p1-r1",
+      "report_sha256": "6f619aca8a666a70eabc5b738a17bd0cf9463f38a69f1d7f0d17c8b0749cd99f",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 1024,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 1024,
+          "pose-adapter.input_len": 1000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 1024,
+          "pose-adapter.output_len": 1000,
+          "pose-adapter.seen_cap": 1792,
+          "pose-adapter.seen_len": 1000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 1000,
+          "pose-spatial.output_len": 1000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 1000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 40.8661776,
+      "label": "10000-W3-16-p10-r1",
+      "report_sha256": "5eca630d833bafcf4b8ecb36160ccb42cb5be51a7f6dc945a05435c37551d6b5",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 8192,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 8192,
+          "pose-adapter.input_len": 5000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 8192,
+          "pose-adapter.output_len": 5000,
+          "pose-adapter.seen_cap": 7168,
+          "pose-adapter.seen_len": 5000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 5000,
+          "pose-spatial.output_len": 5000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 5000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 79.7820079,
+      "label": "10000-W3-16-p50-r1",
+      "report_sha256": "3c128ce35d5989a34747bf1820bbb2a48341256be0b29977bbbdcd01169489be",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 16384,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 16384,
+          "pose-adapter.input_len": 10000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 16384,
+          "pose-adapter.output_len": 10000,
+          "pose-adapter.seen_cap": 14336,
+          "pose-adapter.seen_len": 10000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 10000,
+          "pose-spatial.output_len": 10000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 10000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 126.4708748,
+      "label": "10000-W3-16-p100-r1",
+      "report_sha256": "9edbe3829318b6faa2da590486e4387e3bb618b7907cf463fb5b7c81cfc56c8c",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 75,
+          "bytes_allocated": 305088,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 273568,
+          "deallocations": 0,
+          "reallocations": 44
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2263,
+          "bytes_allocated": 318349,
+          "bytes_deallocated": 195120,
+          "bytes_reallocated": 82804,
+          "deallocations": 1822,
+          "reallocations": 415
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 16384,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 16384,
+          "pose-adapter.input_len": 10000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 16384,
+          "pose-adapter.output_len": 10000,
+          "pose-adapter.seen_cap": 14336,
+          "pose-adapter.seen_len": 10000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 10000,
+          "pose-spatial.output_len": 10000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 10000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 48.2532052,
+      "label": "10000-W4-16-p100-r1",
+      "report_sha256": "033c73a0939d2af7420cc6302c5357d77ca5207f177838015f3f751132f59d15",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 5,
+          "bytes_allocated": 955920,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 950352,
+          "deallocations": 0,
+          "reallocations": 28
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 2027,
+          "bytes_allocated": 572286,
+          "bytes_deallocated": 219328,
+          "bytes_reallocated": 320878,
+          "deallocations": 1908,
+          "reallocations": 30
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 1024,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 1024,
+          "pose-adapter.input_len": 1000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 1024,
+          "pose-adapter.output_len": 1000,
+          "pose-adapter.seen_cap": 1792,
+          "pose-adapter.seen_len": 1000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 1000,
+          "pose-spatial.output_len": 1000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 1000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 310.4214317,
+      "label": "100000-W1-33-p1-r1",
+      "report_sha256": "5efa6bdee2bf6eff5769cde054729f8088e7181aa50bf82fcbb95f552744ed63",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 16384,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 16384,
+          "pose-adapter.input_len": 10000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 16384,
+          "pose-adapter.output_len": 10000,
+          "pose-adapter.seen_cap": 14336,
+          "pose-adapter.seen_len": 10000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 10000,
+          "pose-spatial.output_len": 10000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 10000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 531.4855466,
+      "label": "100000-W1-33-p10-r1",
+      "report_sha256": "a82a365c72385cafed145bad40115be875aecf5b692c44f9ba2b577444db6d6b",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 65536,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 65536,
+          "pose-adapter.input_len": 50000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 65536,
+          "pose-adapter.output_len": 50000,
+          "pose-adapter.seen_cap": 57344,
+          "pose-adapter.seen_len": 50000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 50000,
+          "pose-spatial.output_len": 50000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 50000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1232.4995785,
+      "label": "100000-W1-33-p50-r1",
+      "report_sha256": "4be6ada58751cf84968fff2189b332c9b5d51fe029b7b7dcabc6b46f67a35300",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 131072,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 131072,
+          "pose-adapter.input_len": 100000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 131072,
+          "pose-adapter.output_len": 100000,
+          "pose-adapter.seen_cap": 114688,
+          "pose-adapter.seen_len": 100000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 100000,
+          "pose-spatial.output_len": 100000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 100000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1835.0074277,
+      "label": "100000-W1-33-p100-r1",
+      "report_sha256": "9b89399806f53b9378deb715e93e4a125f3334a824e6ebcaf95bca1bb368672c",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 1841392,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 1773064,
+          "deallocations": 0,
+          "reallocations": 55
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {},
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 314.5943186,
+      "label": "100000-W2-33-p0-r1",
+      "report_sha256": "b92e7bedd78a36854a0b1bcc597d09caa797f0a7f5ff37b5ca5ced93a9dbc131",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 7,
+          "bytes_allocated": 2395792,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2142704,
+          "deallocations": 0,
+          "reallocations": 52
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 0,
+          "bytes_allocated": 0,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 0,
+          "deallocations": 0,
+          "reallocations": 0
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 1024,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 1024,
+          "pose-adapter.input_len": 1000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 1024,
+          "pose-adapter.output_len": 1000,
+          "pose-adapter.seen_cap": 1792,
+          "pose-adapter.seen_len": 1000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 1000,
+          "pose-spatial.output_len": 1000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 1000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 213.1313539,
+      "label": "100000-W3-33-p1-r1",
+      "report_sha256": "0630129bb0b165f318a42b271e3f16a2bffd5704247a8550035bda73d432a154",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 16384,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 16384,
+          "pose-adapter.input_len": 10000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 16384,
+          "pose-adapter.output_len": 10000,
+          "pose-adapter.seen_cap": 14336,
+          "pose-adapter.seen_len": 10000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 10000,
+          "pose-spatial.output_len": 10000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 10000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 459.8027844,
+      "label": "100000-W3-33-p10-r1",
+      "report_sha256": "83db93abee9cf671b11131880fd8ed332e41c167a152c49ceeb76daa038874ea",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 65536,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 65536,
+          "pose-adapter.input_len": 50000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 65536,
+          "pose-adapter.output_len": 50000,
+          "pose-adapter.seen_cap": 57344,
+          "pose-adapter.seen_len": 50000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 50000,
+          "pose-spatial.output_len": 50000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 50000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1218.6807981,
+      "label": "100000-W3-33-p50-r1",
+      "report_sha256": "d7740b42b50157b5c9af45df79c43dd8241d593d6076ac2e34ba7ee503ebb5c1",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 131072,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 131072,
+          "pose-adapter.input_len": 100000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 131072,
+          "pose-adapter.output_len": 100000,
+          "pose-adapter.seen_cap": 114688,
+          "pose-adapter.seen_len": 100000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 100000,
+          "pose-spatial.output_len": 100000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 100000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 1948.0250245,
+      "label": "100000-W3-33-p100-r1",
+      "report_sha256": "1a5234814107c398be635c2ab201f456ae66c6a4a8ca34dd16fe577ec31a16f1",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 371,
+          "bytes_allocated": 2495616,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 2218912,
+          "deallocations": 0,
+          "reallocations": 81
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 22062,
+          "bytes_allocated": 2924333,
+          "bytes_deallocated": 1912720,
+          "bytes_reallocated": 608052,
+          "deallocations": 18022,
+          "reallocations": 3547
+        }
+      }
+    },
+    {
+      "capacity_high_water": {
+        "fields": {
+          "pose-adapter.candidate_cap": 16384,
+          "pose-adapter.candidate_len": 0,
+          "pose-adapter.input_cap": 16384,
+          "pose-adapter.input_len": 10000,
+          "pose-adapter.input_size": 16,
+          "pose-adapter.logical_copy_bytes": 0,
+          "pose-adapter.output_cap": 16384,
+          "pose-adapter.output_len": 10000,
+          "pose-adapter.seen_cap": 14336,
+          "pose-adapter.seen_len": 10000,
+          "pose-adapter.vehicle_size": 8,
+          "pose-spatial.logical_copy_bytes": 0,
+          "pose-spatial.output_cap": 10000,
+          "pose-spatial.output_len": 10000,
+          "pose-spatial.record_size": 40,
+          "pose-spatial.scratch_cap": 10000,
+          "pose-spatial.scratch_len": 0
+        },
+        "method": "maximum_of_existing_pose_profiling_capacity_counters",
+        "scope": "capacity_is_retained_storage_not_process_heap_peak"
+      },
+      "elapsed_s": 193.8565312,
+      "label": "100000-W4-33-p10-r1",
+      "report_sha256": "0660c5d9fdd6b3d787d9a6e3bcadfc2f86efc03ad855ec4ac78e5cf3cf4d7429",
+      "statistics": {
+        "core_allocations": {
+          "allocations": 5,
+          "bytes_allocated": 9280672,
+          "bytes_deallocated": 0,
+          "bytes_reallocated": 9239104,
+          "deallocations": 0,
+          "reallocations": 40
+        },
+        "latency_excluded": true,
+        "lifecycle_allocations": {
+          "allocations": 20027,
+          "bytes_allocated": 2854014,
+          "bytes_deallocated": 2166528,
+          "bytes_reallocated": 356206,
+          "deallocations": 19008,
+          "reallocations": 39
+        }
+      }
+    }
+  ],
+  "stretch_observation": false
+}
