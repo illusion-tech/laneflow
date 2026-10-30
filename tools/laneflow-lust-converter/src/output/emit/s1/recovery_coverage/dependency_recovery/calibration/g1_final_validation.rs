@@ -184,6 +184,7 @@ fn g1_candidates_final_validation() {
         )
         .expect("bounded candidate fit");
         let fit_pass = candidate_fit.within(reference_fit);
+        let fit_status = if fit_pass { "validated" } else { "failed" };
         // 已终验②：程序位核对（位级回环：bits → 程序 → bits 逐位一致）。
         // 注：「规范端点（canonical f32）」属**发射/编译域**属性（编译后规范多段线），
         // 与编译后长度同类随依赖链阻断——如实归入 blocked_items（预案把「规范端点/
@@ -255,7 +256,7 @@ fn g1_candidates_final_validation() {
             "candidate_index":index,"edge":edge,
             "arc_m":prior["arc_m"],
             "validated_items":{
-                "same_representation_fit":{"status":"validated","pass":fit_pass,
+                "same_representation_fit":{"status":fit_status,"pass":fit_pass,
                     "candidate":{"curve_to_source_estimate_m":candidate_fit.curve_to_source_estimate_m,
                         "source_to_curve_estimate_m":candidate_fit.source_to_curve_estimate_m},
                     "reference_emitted_polyline":{"curve_to_source_estimate_m":reference_fit.curve_to_source_estimate_m,
@@ -272,7 +273,13 @@ fn g1_candidates_final_validation() {
                     "stage":demonstration["stage"],
                     "missing_real_programs":demonstration["missing_real_programs"]}},
             "dependency_paths":dependency_paths,
-            "outcome":"validated_four_items_pending_dependency"}));
+            // P2-2 修复（评审）：结论由四项**合取**导出——任一失败即该候选未过
+            // 对应项，分列记录，不合并记 pending。
+            "outcome":if fit_pass && round_trip_ok && edge_end_ok && gate_ok {
+                "validated_four_items_pending_dependency"
+            } else {
+                "failed_items_present_pending_dependency"
+            }}));
     }
     recovery::write_json(
         &out,
@@ -294,6 +301,8 @@ fn g1_cross_edge_scope_records() {
     fs::create_dir_all(&out).unwrap();
     let (observation, _source, _timing) = capture_lust();
     let reference = reference();
+    let originals = original_programs(&observation);
+    let pool = super::shared_baseline::shared_pools();
     let mut rows = Vec::new();
     for target in reference["baseline_paths"]
         .as_array()
@@ -339,31 +348,111 @@ fn g1_cross_edge_scope_records() {
             }
         };
         let (left_id, right_id) = (to_edge(&left_key), to_edge(&right_key));
+        // —— P2-1 重推（评审）：范围判断以**发射边界方向**为据——编译器比较编译后
+        // 几何的首/末弦（`hir/spatial.rs:1219–1235`：predecessor 末弦 outgoing vs
+        // successor 首弦 incoming），源切向非判据（仅作背景记录）。固定侧 = 原成功
+        // 程序（不可改）；候选侧 = 池内候选发射。判定基元 = 固定侧边界弦 × 池内候选
+        // 发射弦的转角谱（程序点位边界弦；直线段程序=编译弦精确，弧段为顶点弦近似）。
+        let frozen_angle = angle_deg(dot, lhs, rhs);
+        let left_fixed = originals.contains_key(&left_id);
+        let right_fixed = originals.contains_key(&right_id);
+        let scope;
+        let scope_note;
+        let emission_row;
+        if left_fixed && right_fixed {
+            // 两侧均固定：编译后边界弦对为原成功固定曲线的固有事实——**属固定曲线**
+            //（排除是这两条固定曲线的属性；候选空间不存在，恢复侧不可修复）。P2-1
+            // 重推修正：撤回原「一般性质（源几何固有、任何发射均拒）」表述。
+            scope = "fixed_curve_property";
+            scope_note = "两侧均为原成功固定曲线，编译后边界弦对不可改——排除属固定曲线（非源几何「任何发射均拒」类一般性质；P2-1 重推修正）".to_owned();
+            let lpts = program_points(&originals[&left_id]);
+            let rpts = program_points(&originals[&right_id]);
+            let (d, l, r) =
+                scaled_direction_check(chord_direction(&lpts), first_chord_direction(&rpts));
+            emission_row = json!({"basis":"编译后几何首/末弦（spatial.rs:1219-1235）",
+                "fixed_pair":true,
+                "fixed_sides":[left_id,right_id],
+                "program_chord_turn_deg":angle_deg(d,l,r),
+                "program_chord_note":"程序点位边界弦转角（发射域口径；弧段为顶点弦近似），与冻结编译弦角互证"});
+        } else if !left_fixed && !right_fixed {
+            scope = "both_candidate_sides";
+            scope_note = "两侧均为候选发射（联合候选空间，未穷尽）；不外推普遍拒".to_owned();
+            emission_row = json!({"basis":"编译后几何首/末弦（spatial.rs:1219-1235）",
+                "candidate_pair":true});
+        } else {
+            let (fixed_id, candidate_id, fixed_is_left) = if left_fixed {
+                (left_id.clone(), right_id.clone(), true)
+            } else {
+                (right_id.clone(), left_id.clone(), false)
+            };
+            let fixed_points = program_points(&originals[&fixed_id]);
+            let fixed_chord = if fixed_is_left {
+                chord_direction(&fixed_points)
+            } else {
+                first_chord_direction(&fixed_points)
+            };
+            let candidates = pool.get(&candidate_id).cloned().unwrap_or_default();
+            let mut turns: Vec<f64> = candidates
+                .iter()
+                .map(|cand| {
+                    let pts = program_points(cand);
+                    let cand_chord = if fixed_is_left {
+                        first_chord_direction(&pts)
+                    } else {
+                        chord_direction(&pts)
+                    };
+                    let (d, l, r) = scaled_direction_check(fixed_chord, cand_chord);
+                    angle_deg(d, l, r)
+                })
+                .collect();
+            turns.sort_by(|a, b| a.total_cmp(b));
+            match turns.first().copied() {
+                Some(min) if min <= 2.0 => {
+                    scope = "candidate_dependent";
+                    scope_note = format!(
+                        "池内存在边界弦转角 <= 2° 的候选发射（min={min:.3}°）——拒绝系具体候选发射所致，非边界固有；固定侧边界弦不可改"
+                    );
+                }
+                Some(min) => {
+                    scope = "pool_universal_reject";
+                    scope_note = format!(
+                        "候选池内所有发射弦转角均 > 2°（min={min:.3}°，池 n={}）；池外候选空间未测，不外推「任何发射均拒」",
+                        candidates.len()
+                    );
+                }
+                None => {
+                    scope = "no_candidate_evidence";
+                    scope_note = "候选侧池内无候选（发射空间无证据）".to_owned();
+                }
+            }
+            emission_row = json!({"basis":"编译后几何首/末弦（spatial.rs:1219-1235）；程序点位边界弦为发射域口径",
+                "fixed_side":fixed_id,"candidate_side":candidate_id,
+                "fixed_boundary_chord":fixed_chord,
+                "pool_candidates":candidates.len(),
+                "candidate_chord_turns_deg":turns,
+                "threshold_deg":2.0});
+        }
+        // 源边界弦向转角仅作背景记录（非编译判据；P2-1 修正）。
         let left_input = edge_input(&observation, &left_id);
         let right_input = edge_input(&observation, &right_id);
         let source_check = scaled_direction_check(
             chord_direction(&left_input.points),
             first_chord_direction(&right_input.points),
         );
-        let frozen_angle = angle_deg(dot, lhs, rhs);
         let source_angle = angle_deg(source_check.0, source_check.1, source_check.2);
-        let scope = if source_angle >= 2.0 {
-            "general_boundary_property"
-        } else {
-            "fixed_curve_scope"
-        };
         rows.push(json!({"target":target["path"],
             "diagnostic":diagnostic,
             "boundary":{"lane_edge_key":left_key,"related_lane_edge_key":right_key,
                 "left_edge":left_id,"right_edge":right_id},
             "frozen_check":{"dot_bits":field("dot_bits"),"lhs_bits":field("lhs_bits"),
                 "rhs_bits":field("rhs_bits"),"angle_deg":frozen_angle,
-                "margin":"lhs<rhs 阈值边缘超限（ADR 0022 固定逐运算图）"},
-            "source_boundary_check":{"dot":source_check.0,"lhs":source_check.1,
-                "rhs":source_check.2,"angle_deg":source_angle,
-                "threshold_deg":2.0,"profile":"Balanced2Deg"},
+                "note":"编译后边界弦权威证据（lhs=dot²、rhs=cos²θmax·‖L‖²·‖R‖²，ADR 0022 固定逐运算图）"},
+            "emission_boundary_recheck":emission_row,
             "scope_judgment":scope,
-            "scope_note":"判定判据=源边界弦向转角对冻结阈值：源转角>=2° 为源几何边界固有（一般性质）；源转角<2° 为发射弦量化/参数化超限（固定曲线范围，候选相关）。编译判定不重开，只补证。"}));
+            "scope_note":scope_note,
+            "source_boundary_background":{"angle_deg":source_angle,
+                "threshold_deg":2.0,"profile":"Balanced2Deg",
+                "note":"源边界弦向转角仅作背景记录，非编译判据（编译器比较编译后几何首/末弦）"}}));
     }
     recovery::write_json(
         &out,
