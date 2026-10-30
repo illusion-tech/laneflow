@@ -11,6 +11,7 @@ mod combinations;
 mod components;
 mod experiment;
 mod reshape;
+mod single_edge_design_reuse;
 mod stream_a_curve_design_c29_c17;
 
 fn reference() -> Value {
