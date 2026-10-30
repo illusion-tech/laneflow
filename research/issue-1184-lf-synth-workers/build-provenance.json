@@ -1,0 +1,17 @@
+{
+  "format": "lf-synth-workers-build-provenance-1",
+  "implementation_commit": "d81204adb8318e1521d064f9364002b6bd64fec2",
+  "source_tag": "evidence/issue-1184-worker-source",
+  "source_tree": "1fb6731fedf51307692cf69e96814c5d07e09909",
+  "source_clean_before_build": true,
+  "source_clean_after_build": true,
+  "build_command": "cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin laneflow-synth-harness",
+  "build_exit_code": 0,
+  "build_log_sha256": "49ac5bf1a06f44787a634fcd7ed1557f03f938a85cd8eab7c987bac60b39c51a",
+  "source_files_manifest_sha256": "6d33ecffebc11f6f09dd65e43fdc4acb4b8aa9bc78813503eb0632dfbad51cc9",
+  "binary_sha256": "12764da12cde4631e61fbef6bea7fd36b250d311e5920208b3e6f82b0cd39ba3",
+  "binary_bytes": 8058368,
+  "source_files": 527,
+  "matrix_start_environment_captured_utc": "2026-10-30T18:27:35.1427958Z",
+  "note": "Cargo release build invoked on the clean frozen commit; existing valid Cargo artifacts may be reused. The archived executable is the file actually executed by the matrix."
+}
