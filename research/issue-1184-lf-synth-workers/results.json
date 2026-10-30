@@ -1,0 +1,82 @@
+{
+  "format": "lf-synth-worker-results-1",
+  "implementation_commit": "d81204adb8318e1521d064f9364002b6bd64fec2",
+  "input_generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+  "workers": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "rounds": 3,
+  "completed_runs": 120,
+  "equal_comparisons": 112,
+  "errors": 0,
+  "rows": [
+    {
+      "scale": 10000,
+      "case": "W1",
+      "fixed_delta_ms": 16,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W2",
+      "fixed_delta_ms": 16,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W3",
+      "fixed_delta_ms": 16,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W4",
+      "fixed_delta_ms": 16,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W1",
+      "fixed_delta_ms": 33,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W2",
+      "fixed_delta_ms": 33,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W3",
+      "fixed_delta_ms": 33,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W4",
+      "fixed_delta_ms": 33,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    }
+  ]
+}
