@@ -279,6 +279,13 @@ VehicleState
 - route removal 需要 route-in-use、stale handle、unknown route；**没有**
   Runtime 级 duplicate route ID 错误路径。
 
+**换道能力拒绝衔接注记（#237，权威定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §6）**：
+含固定预制过渡的路线在运行时不支持过渡执行时，`register_route`、车辆准入与
+恢复入口按该合同结构化拒绝（`TransitionUnsupported` 类、失败关闭、注册表
+不变/零部分恢复）；换道支持能力属实现能力，不新增配置字段（不加
+`WorldConfig`、不扩义 `ExecutionConfig`）。静态序列合同与失败原子（D4/D5）
+不变。
+
 ## 6. Data Format 影响
 
 #30 data format 应至少能表达：

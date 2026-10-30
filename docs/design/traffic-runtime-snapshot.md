@@ -112,6 +112,16 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 快照局部标识只在单个快照内稳定，恢复经 `SharedIdentityIndex` 与局部标识表
 重建。一维数值全部整数毫米 / 微米 / `u32` mm/s，无浮点字段。
 
+**过渡状态衔接注记（#237，权威定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §9）**：
+固定预制过渡的车辆 tagged 过渡状态（`PreEntry | InTransition | Clearing`）与
+过渡预约 wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间
+并集、route occurrence 证明）按上表同一原则持久化；完整预约只装运行时权威、
+出现项不入档照旧。**版本轴三轴分别升级并核对编号**：LFRS 7→8（容器：过渡
+状态/预约行槽位）、runtime state 5→6（状态形状扩展）、digest 8→9（规范前像
+扩展过渡记录段）；容器与被绑定事实的版本不混用单号（§2）。**首版限制**：
+活动过渡或持预约世界拒绝跨修订切换（保留旧世界、零部分提交），迁移为后续
+设计并登记能力限制（缺口 G-E）。
+
 arrival 不保存独立布尔值。恢复后只从同一 Reserved binding 与已保存车辆状态派生：
 route handle 必须是该 binding 所属 route，`route_edge_index` 必须等于 exact entry
 occurrence，`progress_mm` 必须精确等于解析后的整数毫米 anchor，且
