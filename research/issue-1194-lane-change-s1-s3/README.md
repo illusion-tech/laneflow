@@ -25,6 +25,15 @@
 5. routes.rs 严格规则放宽必须声明门控（空声明=原规则逐字节）；S3/S4 验收
    边界按 PR #1188 条目（S3 只验注册面，准入/恢复复核留 S4）。
 
+### 实现差异记录（统筹 2026-10-31 复核接受）
+
+- **裁定③夹具载体**：原字面「converter 合成夹具」→ 实现为**合成编制夹具**
+  （`laneflow-compiler` `SyntheticModuleBuilder`，即 SyntheticDsl 合成来源
+  原生声明）。理由：横断面叠层（B-up/TZ/B-down 双 lane 链）与 uncovered
+  过渡段只有合成编制输入可表达（converter 发射为单 lane section/边，无法
+  承载多 lane 走廊与过渡段身份）；裁定③的样本结构（v5 派生 B-up/TZ/B-down
+  + T01）完整保留；LuST 全量发射仍归 S6。
+
 ## 等值与验证（结果如实记录，失败不修绿）
 
 - **A0/A1 硬等值基线**（S1 核心落码后）：converter **318 通过 / 0 失败 / 49
