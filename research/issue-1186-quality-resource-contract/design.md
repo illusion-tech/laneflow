@@ -268,14 +268,25 @@ consumed 不占搜索池，lead B 案）。**全转换聚合的选择范围与�
 291.0 / 287.6 MB；工作计数差不作内存增量解读，原「双口径」表述删除）。
 
 **内存指标**：仅**进程工作集采样峰值**（整管线口径注明：含 LuST 捕获/解析一次性
-加载，200ms 采样）两轮 291.0 / 287.6 MB。**耗时**：45.1 / 47.0s 每轮（捕获 ~41s
-主导；结果 JSON 零计时键，域耗时入 `four-domain-timing.json`）。**预期调用频率**
-（生产每转换）：成功边 16,265 编译、失败边 12×搜索+复核、53 分量×赋值 ≤256 试
-编译、1 次终验/分量。**证据制品（可访问冻结）**：Release
+加载，200ms 采样）**v2 权威值两轮 303.8 / 306.6 MB**。**耗时**：**v2 权威值
+73.8 / 69.7s 每轮**（捕获 ~41s 主导；结果 JSON 零计时键，域耗时含独立分列的
+`2_qualification_review_regeneration` 入 `four-domain-timing.json`）。**版本链
+（测量值随执行轮次为描述性统计，计数/非计时面不变）**：修订 3 复跑 45.1/47.0s
+（291.0/287.6MB）→ 计时分离修复后本机跑 62.7/59.4s（295.1/303.3MB，维护者引用
+版）→ **v2 公开重跑 73.8/69.7s（303.8/306.6MB，权威）**；三轮**非计时结果
+SHA-256 全等 `292c3fb9…`**。**修复前后数据差异 = 计时口径分离（候选再生独立
+分列），非算法变化；非计时结果 SHA 一致**。**执行/合入对应**：v2 执行提交
+`9fffd189`（构建自 research/1193-evidence-update 工作树干净态）⊃ 合入提交
+`071a7f0c`（#1195）⊃ 执行分支 `02f865a6`——资源边界代码面三方逐字节同一
+（`git diff` 为空）。**预期调用频率**（生产每转换）：成功边 16,265 编译、失败边
+12×搜索+复核、53 分量×赋值 ≤256 试编译、1 次终验/分量。**证据制品（可访问
+冻结）**：Release
+[`research-evidence-1193-resource-boundary-v2`](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-1193-resource-boundary-v2)
+（round-0/1 测量与计时、process-measurement.json、MANIFEST 绑执行/合入提交/
+工具链/重跑命令）；v1
 [`research-evidence-1193-resource-boundary`](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-1193-resource-boundary)
-（round-0/1 测量与计时、process-measurement.json、MANIFEST 绑提交/工具链/重跑
-命令）；测试入口 `calibration/resource_boundary.rs`（公式验证 + 配额边界 + 四域
-证据）。
+（绑 `0e6da2a8`，45.1/47.0s 版）**保留为历史证据不删**；测试入口
+`calibration/resource_boundary.rs`（公式验证 + 配额边界 + 四域证据）。
 
 ### 7.4 差异记录（过程 fix-forward）
 
