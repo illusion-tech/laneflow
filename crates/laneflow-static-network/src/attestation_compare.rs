@@ -832,6 +832,14 @@ fn compare_traffic(
     cmp_column!(component, expected, actual, successors, whole);
     cmp_column!(component, expected, actual, predecessor_ranges, cmp_range);
     cmp_column!(component, expected, actual, predecessors, whole);
+    // #1194：横向过渡段派生表纳入根证明比较面（位被清/损不得静默通过）。
+    cmp_column!(
+        component,
+        expected,
+        actual,
+        lateral_transition_segments,
+        whole
+    );
     compare_maneuvers(expected.maneuvers(), actual.maneuvers())?;
     compare_relations(expected.relations(), actual.relations())
 }
@@ -1284,4 +1292,61 @@ fn compare_lane_pose(
     cmp_column!(component, expected, actual, segment_ranges, cmp_range);
     cmp_column!(component, expected, actual, segments, cmp_segment);
     Ok(())
+}
+
+/// #1194 P2-2：派生表全覆盖根证明比较面的负例——位翻转 → 证明不一致。
+#[cfg(test)]
+mod transition_segment_tests {
+    use laneflow_static_contract::EntityKind;
+
+    use super::compare_traffic;
+    use crate::relations::empty_for_tests;
+    use crate::traffic::{EntityCounts, RangeU32, SharedManeuverNetwork, SharedTrafficNetwork};
+
+    /// 最小两 LaneEdge 共享交通路网；`flip_transition_bit` 伪造/损坏横向
+    /// 过渡段派生表（对应评审场景：位被清/损后 compile_route 放行未支持过渡）。
+    fn minimal_traffic(flip_transition_bit: bool) -> SharedTrafficNetwork {
+        let lane_count = 2_u32;
+        let mut counts = [0; EntityKind::ALL.len()];
+        counts[(EntityKind::LaneEdge.code() - 1) as usize] = lane_count;
+        let empty_ranges = || vec![RangeU32::new(0, 0); lane_count as usize].into_boxed_slice();
+        let maneuvers = SharedManeuverNetwork::new(
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            empty_ranges(),
+            Box::new([]),
+        );
+        let lateral_transition_segments: Box<[u64]> = if flip_transition_bit {
+            vec![1_u64].into_boxed_slice()
+        } else {
+            vec![0_u64].into_boxed_slice()
+        };
+        SharedTrafficNetwork {
+            entity_counts: EntityCounts::new(counts),
+            lane_lengths_millimetres: vec![1_000_u32; lane_count as usize].into_boxed_slice(),
+            lane_speed_limits_millimetres_per_second: vec![1_000_u32; lane_count as usize]
+                .into_boxed_slice(),
+            successor_ranges: empty_ranges(),
+            successors: Box::new([]),
+            predecessor_ranges: empty_ranges(),
+            predecessors: Box::new([]),
+            maneuvers,
+            relations: empty_for_tests(lane_count),
+            lateral_transition_segments,
+        }
+    }
+
+    #[test]
+    fn transition_segment_bit_flip_makes_root_comparison_inconsistent() {
+        let expected = minimal_traffic(false);
+        // 基线：同构造一致 → 证明一致。
+        assert!(compare_traffic(&expected, &minimal_traffic(false)).is_ok());
+        // 负例：位翻转（派生表被清/损）→ 证明不一致，不得静默通过。
+        assert!(compare_traffic(&expected, &minimal_traffic(true)).is_err());
+    }
 }
