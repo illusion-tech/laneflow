@@ -201,7 +201,11 @@ fn four_domain_resource_evidence() {
     // 既有候选（edge3）。
     let mut generation = BTreeMap::new();
     for (id, s, label) in [
-        ("sumo::-10564_6_0", 3_usize, "finite_completion_zero_candidate"),
+        (
+            "sumo::-10564_6_0",
+            3_usize,
+            "finite_completion_zero_candidate",
+        ),
         ("sumo::-30306#2_0", 3, "budget_stopped_sample"),
         ("sumo::-10564_3_0", 2, "candidate_found_sample"),
     ] {
