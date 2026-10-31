@@ -209,6 +209,12 @@ fail closed 回到 #224 G1。
   registration-time compiler 必须在每个 junction occurrence 唯一匹配同一
   ManeuverPath。无完整路径、零/多 path 匹配、incomplete/overlap、未知 edge 或
   ambiguous normalization 都是 fatal error；不能跳过已选 record。
+- **边内换道语义修订（#237 G1，2026-10-31 冻结）**：车道级展开**仅在声明过渡
+  材料处允许来源 lane 转移**——转移只消费声明的最终边链，不产生横向转移；
+  声明转移为**次选**，仅在严格语义（`from_lane == 到达 lane`）失败时启用，
+  不改变既有成功选择与上条 lexicographic 顺序；无声明处语义与旧合同逐字一致
+  （旧输入零新拒绝）。过渡材料的承载形式、占用投影与能力检查见
+  [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md)。
 - 相同 lane occurrence sequence 可归一化为同一个 route catalog entry，但 source
   record 仍保存自己的 stable `population_rank`、profile 和 route reference。
 
