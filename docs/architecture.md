@@ -268,7 +268,8 @@ Traffic/Core 中显式声明的 ParticipantStream/ConflictZone 关系拥有行�
 并复用 current Traffic v0.10 的 ParticipantClass/AccessRegistry 静态准入结果；
 Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
 `design/waiting-zone-conflict-right-of-way.md`；其中 #281 static/Data 已生产化，
-#282–#285 的 runtime/Conflict/policy/组合验证仍不构成 current API 声称。
+#282–#285 已交付 Waiting 运行时、Conflict 出现项与仲裁、路权策略及复杂路口组合验证，
+现行执行合同见 `crates/laneflow-runtime/README.md`。
 
 ## 5. LaneFlow 交通运行时
 
@@ -350,8 +351,8 @@ committed/earlier-staged claim 冲突时 fail closed。candidate proposal 可以
 但线程调度/锁竞争不能决定 winner。
 SignalController、Adapter、JunctionGroup 与二维几何均不拥有最终通行权；任何
 grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该设计已
-通过 G1，但仍须由后续独立 implementation slices 生产化；每个切片走完 G0–G2
-人流程，并通过合并门禁（PR 合入、Issue 关闭）才算完成。
+通过 G1，并已由 #282–#285 生产化：正式 fixed tick 组合 Gate policy、Waiting
+entitlement、gap、Conflict reservation 与 downstream claim，以 single-writer 顺序提交。
 
 Parking runtime 由私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与
 exact Occupied binding 一致，Parked vehicle 保留 live identity 但不进入 travel-lane

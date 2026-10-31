@@ -102,8 +102,9 @@
 - `example-scenarios.md`、`signalized-corridor-protected-turning.md`、
   `signalized-corridor-population.md`：信号化走廊几何、转向 profile 与人口策略。
 - `bevy-reference-adapter.md`：Bevy 0.20 Reference Adapter。
-- [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285 G1
-  提案，复杂路口精确机动门定位、借用式领域观测、参考场景和跨层验证；尚未接受或实现。
+- [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285
+  Accepted，复杂路口精确机动门定位、借用式领域观测、参考场景和跨层验证；已提供
+  `TrafficWorld::route_gate`、`LaneFlowSession::junction_observation` 与 `junction_debug` 示例。
 - `core-runtime-performance-baseline.md`：一万 / 十万产品目标与一百万研究包络。
 - `lf-synth-input-bundle.md`：LF-SYNTH-v2 正式规模生成、规范输入编码与受检交付。
 - `lf-synth-execution.md`：W1/W2 完整窗口消费、逐拍语义核验与独立进程证据编码。
