@@ -1,0 +1,197 @@
+{
+  "format": "lf-synth-restore-results-1",
+  "implementation_commit": "5b4ab48c26c08970bd187e6e0f31bb5ee38f7633",
+  "source_tree": "598b4b35d9ac86351e3aa1dd4601fe3cab2bb1ed",
+  "input_generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+  "binary_sha256": "ca3d24b41894ceed3e8711202d05d729d23edd24ab372b86158b1b790de3457b",
+  "workers": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "rounds": 3,
+  "normal_runs": 8,
+  "captured_checkpoints": 16,
+  "restore_runs": 240,
+  "errors": 0,
+  "matrix_seconds": 6696.7288346,
+  "reference_steps": 215524,
+  "restored_steps": 3232830,
+  "successful_world_steps": 3448354,
+  "verified_run_files": 1520,
+  "exact_suffix_comparisons": 720,
+  "final_state_comparisons": 240,
+  "ordered_transition_events_compared": 8593230,
+  "parking_arrivals_compared": 33000,
+  "saved_tick_parking_arrivals": 0,
+  "probe": {
+    "classification": "nonformal_budget_probe",
+    "normal_runs": 8,
+    "restore_runs": 32,
+    "seconds": 313.7707088
+  },
+  "rows": [
+    {
+      "scale": 10000,
+      "case": "W1",
+      "fixed_delta_ms": 16,
+      "checkpoint_ticks": [
+        14508,
+        29016
+      ],
+      "after_commands": [
+        false,
+        false
+      ],
+      "saved_tick_transition_events": [
+        0,
+        4
+      ],
+      "final_tick": 43524,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W2",
+      "fixed_delta_ms": 16,
+      "checkpoint_ticks": [
+        14508,
+        29016
+      ],
+      "after_commands": [
+        false,
+        false
+      ],
+      "saved_tick_transition_events": [
+        0,
+        8
+      ],
+      "final_tick": 43524,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W3",
+      "fixed_delta_ms": 16,
+      "checkpoint_ticks": [
+        14509,
+        14509
+      ],
+      "after_commands": [
+        false,
+        true
+      ],
+      "saved_tick_transition_events": [
+        0,
+        0
+      ],
+      "final_tick": 43524,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W4",
+      "fixed_delta_ms": 16,
+      "checkpoint_ticks": [
+        14508,
+        14509
+      ],
+      "after_commands": [
+        false,
+        false
+      ],
+      "saved_tick_transition_events": [
+        0,
+        0
+      ],
+      "final_tick": 14510,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W1",
+      "fixed_delta_ms": 33,
+      "checkpoint_ticks": [
+        7044,
+        14088
+      ],
+      "after_commands": [
+        false,
+        false
+      ],
+      "saved_tick_transition_events": [
+        0,
+        30
+      ],
+      "final_tick": 21132,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W2",
+      "fixed_delta_ms": 33,
+      "checkpoint_ticks": [
+        7044,
+        14088
+      ],
+      "after_commands": [
+        false,
+        false
+      ],
+      "saved_tick_transition_events": [
+        0,
+        60
+      ],
+      "final_tick": 21132,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W3",
+      "fixed_delta_ms": 33,
+      "checkpoint_ticks": [
+        7045,
+        7045
+      ],
+      "after_commands": [
+        false,
+        true
+      ],
+      "saved_tick_transition_events": [
+        0,
+        0
+      ],
+      "final_tick": 21132,
+      "restores": 30,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W4",
+      "fixed_delta_ms": 33,
+      "checkpoint_ticks": [
+        7044,
+        7045
+      ],
+      "after_commands": [
+        false,
+        false
+      ],
+      "saved_tick_transition_events": [
+        0,
+        0
+      ],
+      "final_tick": 7046,
+      "restores": 30,
+      "equal": true
+    }
+  ]
+}
