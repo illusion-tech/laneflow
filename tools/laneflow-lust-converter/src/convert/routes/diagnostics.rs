@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    BoundPopulationRecord, HopOption, RouteObserver, RoutePopulationBundle,
+    BoundPopulationRecord, HopOption, RouteObserver, RoutePopulationBundle, TransitionIndex,
     build_external_lanes_by_edge, build_hop_index, build_routes_and_bind_population,
     expand_road_route_with_observer, validate_known_edges,
 };
@@ -229,11 +229,14 @@ fn diagnose_record(
         );
     }
     trace.expansion_calls += 1;
+    // A1 诊断保持严格语义（空过渡索引）：诊断分类描述既有合同下的缺口；
+    // 声明转移感知的诊断不在本切片（S1 只扩展正式展开入口）。
     let result = expand_road_route_with_observer(
         network,
         lanes_by_edge,
         hops,
         &population.road_edge_ids,
+        &TransitionIndex::empty(),
         &mut trace,
     );
     let injected = trace.inject_materialize_failure && trace.materialize_calls > 0;

@@ -37,11 +37,197 @@ pub(crate) struct RoutePopulationBundle {
     pub records: Vec<BoundPopulationRecord>,
 }
 
-/// Expand selected population road routes and dedupe identical lane sequences.
+/// #237 最小换道（S1）：过渡材料来源保真。经授权规则派生的编制材料必须携带
+/// 来源映射与构造依据，不得冒充原 SUMO connection。
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub(crate) enum TransitionProvenance {
+    /// 合成来源原生声明。
+    Native,
+    /// 派生材料（来源映射 + 构造依据，两项均非空）。
+    Derived {
+        source_mapping: String,
+        construction_basis: String,
+    },
+}
+
+/// 声明的固定预制过渡：**仅声明边界**允许来源 lane 转移（§3.1 契约）。
+/// 空声明集下展开行为与既有严格规则逐字节一致（旧输入零新拒绝）。
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub(crate) struct TransitionDeclaration {
+    pub id: String,
+    pub from_road: String,
+    pub to_road: String,
+    pub from_lane: u32,
+    pub to_lane: u32,
+    /// 最终拓扑中的真实过渡边链（如 `["sumo::T01"]`）；物化时插在来源 lane
+    /// 段与目标 lane 段之间。
+    pub final_edge_chain: Vec<String>,
+    pub provenance: TransitionProvenance,
+}
+
+/// 已校验的过渡声明索引（校验失败关闭）。
+#[derive(Default)]
+pub(crate) struct TransitionIndex {
+    by_boundary: HashMap<(String, String, u32, u32), TransitionDeclaration>,
+}
+
+impl TransitionIndex {
+    pub(crate) fn empty() -> Self {
+        Self::default()
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn build(
+        declarations: &[TransitionDeclaration],
+        network: &SumoNetwork,
+    ) -> Result<Self> {
+        let mut index = Self::empty();
+        // 材质化拓扑基础索引（P2-3）：已知 lane id 全集 + 连接相邻对。
+        // wire id 公式对 external 与 internal lane 统一（internal 边 id 自带
+        // ':' 前缀，形成 "sumo::…" 形态，与物化输出一致）。
+        let wire_id =
+            |edge_id: &str, lane_index: u32| format!("{SUMO_ID_PREFIX}{edge_id}_{lane_index}");
+        let mut known = std::collections::HashSet::new();
+        for lane in &network.lanes {
+            known.insert(wire_id(&lane.edge_id, lane.index));
+        }
+        let mut connected = std::collections::HashSet::new();
+        for connection in &network.connections {
+            connected.insert((
+                wire_id(&connection.from_edge_id, connection.from_lane),
+                wire_id(&connection.to_edge_id, connection.to_lane),
+            ));
+        }
+        for declaration in declarations {
+            if declaration.from_lane == declaration.to_lane {
+                return Err(Error::SumoModel(format!(
+                    "transition {} must transfer between distinct lanes",
+                    declaration.id
+                )));
+            }
+            if declaration.final_edge_chain.is_empty() {
+                return Err(Error::SumoModel(format!(
+                    "transition {} must declare a non-empty final edge chain",
+                    declaration.id
+                )));
+            }
+            let derived_incomplete = match &declaration.provenance {
+                TransitionProvenance::Derived {
+                    source_mapping,
+                    construction_basis,
+                } => source_mapping.trim().is_empty() || construction_basis.trim().is_empty(),
+                TransitionProvenance::Native => false,
+            };
+            if derived_incomplete {
+                return Err(Error::SumoModel(format!(
+                    "derived transition {} must record source mapping and construction basis",
+                    declaration.id
+                )));
+            }
+            // 材质化拓扑校验（存在性 + 连通性含两侧桥接）：声明链必须真实落在
+            // 最终拓扑上；未知或不连通的命名不得被视为可用（P2-3 失败关闭）。
+            let from_id = lane_laneflow_id(network, &declaration.from_road, declaration.from_lane)
+                .map_err(|_| {
+                    Error::SumoModel(format!(
+                        "transition {} source lane {}/{} is unknown in the materialized topology",
+                        declaration.id, declaration.from_road, declaration.from_lane
+                    ))
+                })?;
+            let to_id = lane_laneflow_id(network, &declaration.from_road, declaration.to_lane)
+                .map_err(|_| {
+                    Error::SumoModel(format!(
+                        "transition {} target lane {}/{} is unknown in the materialized topology",
+                        declaration.id, declaration.from_road, declaration.to_lane
+                    ))
+                })?;
+            let mut previous = from_id.clone();
+            for edge in &declaration.final_edge_chain {
+                if !known.contains(edge.as_str()) {
+                    return Err(Error::SumoModel(format!(
+                        "transition {} final edge chain references unknown lane {:?}",
+                        declaration.id, edge
+                    )));
+                }
+                if !connected.contains(&(previous.clone(), edge.clone())) {
+                    return Err(Error::SumoModel(format!(
+                        "transition {} final edge chain is not connected: {:?} -> {:?}",
+                        declaration.id, previous, edge
+                    )));
+                }
+                previous = edge.clone();
+            }
+            if !connected.contains(&(previous.clone(), to_id.clone())) {
+                return Err(Error::SumoModel(format!(
+                    "transition {} final edge chain is not connected to target lane: {:?} -> {:?}",
+                    declaration.id, previous, to_id
+                )));
+            }
+            let key = (
+                declaration.from_road.clone(),
+                declaration.to_road.clone(),
+                declaration.from_lane,
+                declaration.to_lane,
+            );
+            if index.by_boundary.insert(key, declaration.clone()).is_some() {
+                return Err(Error::SumoModel(format!(
+                    "duplicate transition declaration {:?} at road pair {:?} -> {:?} lane {} -> {}",
+                    declaration.id,
+                    declaration.from_road,
+                    declaration.to_road,
+                    declaration.from_lane,
+                    declaration.to_lane
+                )));
+            }
+        }
+        Ok(index)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.by_boundary.is_empty()
+    }
+
+    /// 声明边界处允许「当前 lane `current_lane` 转移到 hop 出发 lane
+    /// `hop_from_lane` 后继续该 hop」；无声明返回 `None`（严格规则）。
+    fn allows(
+        &self,
+        from_road: &str,
+        to_road: &str,
+        current_lane: u32,
+        hop_from_lane: u32,
+    ) -> Option<&TransitionDeclaration> {
+        self.by_boundary.get(&(
+            from_road.to_owned(),
+            to_road.to_owned(),
+            current_lane,
+            hop_from_lane,
+        ))
+    }
+}
+
+/// 展开入选人口道路路线并按相同 lane 序列去重（无过渡声明；旧行为不变）。
 pub(crate) fn build_routes_and_bind_population(
     network: &SumoNetwork,
     topology: &NormalizedTopology,
     population: &[PopulationRecord],
+) -> Result<RoutePopulationBundle> {
+    build_routes_and_bind_population_with_transitions(
+        network,
+        topology,
+        population,
+        &TransitionIndex::empty(),
+    )
+}
+
+/// 过渡感知展开入口（S1）：仅声明边界允许来源 lane 转移；声明为转移路径的
+/// **次选**——严格语义失败时才启用（不引入新偏好，旧结论不变）。
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn build_routes_and_bind_population_with_transitions(
+    network: &SumoNetwork,
+    topology: &NormalizedTopology,
+    population: &[PopulationRecord],
+    transitions: &TransitionIndex,
 ) -> Result<RoutePopulationBundle> {
     let hops = build_hop_index(topology);
     let lanes_by_edge = build_external_lanes_by_edge(network);
@@ -52,8 +238,13 @@ pub(crate) fn build_routes_and_bind_population(
 
     for record in population {
         validate_known_edges(network, &record.road_edge_ids, &record.vehicle_id)?;
-        let lane_edge_ids =
-            expand_road_route(network, &lanes_by_edge, &hops, &record.road_edge_ids)?;
+        let lane_edge_ids = expand_road_route(
+            network,
+            &lanes_by_edge,
+            &hops,
+            &record.road_edge_ids,
+            transitions,
+        )?;
         let route_id = if let Some(existing) = route_id_by_lane_seq.get(&lane_edge_ids) {
             existing.clone()
         } else {
@@ -85,6 +276,8 @@ trait RouteObserver {
     fn state(&mut self, _occurrence: usize, _lane: u32, _result: bool, _cached: bool) {}
     fn hop(&mut self, _occurrence: usize, _hop: &HopOption) {}
     fn materialize_entry(&mut self, _start_lane: u32) {}
+    /// S1 新增观察点（只增不改）：经声明边界的转移 hop。
+    fn transition_hop(&mut self, _occurrence: usize, _declaration: &TransitionDeclaration) {}
     #[cfg(test)]
     fn inject_materialize_failure(&mut self) -> bool {
         false
@@ -100,21 +293,27 @@ fn expand_road_route(
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
+    transitions: &TransitionIndex,
 ) -> Result<Vec<String>> {
     expand_road_route_with_observer(
         network,
         lanes_by_edge,
         hops,
         road_edge_ids,
+        transitions,
         &mut NoopObserver,
     )
 }
 
+/// 两相展开（S1 选择语义，裁定②）：相 1 严格语义（空过渡索引，与既有行为
+/// 逐字节一致、旧结论不变）；仅当相 1 失败且存在声明时启用相 2（声明转移）。
+/// 相 2 失败仍返回相 1 的错误文本（错误语义保持）。
 fn expand_road_route_with_observer(
     network: &SumoNetwork,
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
+    transitions: &TransitionIndex,
     observer: &mut impl RouteObserver,
 ) -> Result<Vec<String>> {
     if road_edge_ids.is_empty() {
@@ -133,7 +332,42 @@ fn expand_road_route_with_observer(
         })?;
     observer.start_lanes(start_lanes);
 
+    let strict = TransitionIndex::empty();
+    match search_and_materialize(
+        network,
+        lanes_by_edge,
+        hops,
+        road_edge_ids,
+        &strict,
+        observer,
+    ) {
+        Ok(chain) => Ok(chain),
+        Err(strict_error) if !transitions.is_empty() => search_and_materialize(
+            network,
+            lanes_by_edge,
+            hops,
+            road_edge_ids,
+            transitions,
+            observer,
+        )
+        .map_err(|_| strict_error),
+        Err(strict_error) => Err(strict_error),
+    }
+}
+
+fn search_and_materialize(
+    network: &SumoNetwork,
+    lanes_by_edge: &HashMap<&str, Vec<u32>>,
+    hops: &HashMap<(String, String), Vec<HopOption>>,
+    road_edge_ids: &[String],
+    transitions: &TransitionIndex,
+    observer: &mut impl RouteObserver,
+) -> Result<Vec<String>> {
     let mut memo: HashMap<(usize, u32), bool> = HashMap::new();
+    let start_lanes = lanes_by_edge
+        .get(road_edge_ids[0].as_str())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     for &start_lane in start_lanes {
         if can_complete_with_observer(
             lanes_by_edge,
@@ -141,6 +375,7 @@ fn expand_road_route_with_observer(
             road_edge_ids,
             0,
             start_lane,
+            transitions,
             &mut memo,
             observer,
         ) {
@@ -150,6 +385,7 @@ fn expand_road_route_with_observer(
                 hops,
                 road_edge_ids,
                 start_lane,
+                transitions,
                 &mut memo,
                 observer,
             );
@@ -175,7 +411,13 @@ pub(super) fn population_route_failures(
         .filter_map(|record| {
             validate_known_edges(network, &record.road_edge_ids, &record.vehicle_id)
                 .and_then(|()| {
-                    expand_road_route(network, &lanes_by_edge, &hops, &record.road_edge_ids)
+                    expand_road_route(
+                        network,
+                        &lanes_by_edge,
+                        &hops,
+                        &record.road_edge_ids,
+                        &TransitionIndex::empty(),
+                    )
                 })
                 .err()
                 .map(|error| (record.vehicle_id.clone(), error.to_string()))
@@ -183,12 +425,14 @@ pub(super) fn population_route_failures(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn can_complete_with_observer(
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
     edge_index: usize,
     lane_index: u32,
+    transitions: &TransitionIndex,
     memo: &mut HashMap<(usize, u32), bool>,
     observer: &mut impl RouteObserver,
 ) -> bool {
@@ -206,7 +450,12 @@ fn can_complete_with_observer(
         hops.get(&(from.clone(), to.clone()))
             .into_iter()
             .flatten()
-            .filter(|hop| hop.from_lane == lane_index)
+            .filter(|hop| {
+                hop.from_lane == lane_index
+                    || transitions
+                        .allows(from, to, lane_index, hop.from_lane)
+                        .is_some()
+            })
             .any(|hop| {
                 observer.hop(edge_index, hop);
                 can_complete_with_observer(
@@ -215,6 +464,7 @@ fn can_complete_with_observer(
                     road_edge_ids,
                     edge_index + 1,
                     hop.to_lane,
+                    transitions,
                     memo,
                     &mut *observer,
                 )
@@ -225,12 +475,14 @@ fn can_complete_with_observer(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn materialize_path_with_observer(
     network: &SumoNetwork,
     lanes_by_edge: &HashMap<&str, Vec<u32>>,
     hops: &HashMap<(String, String), Vec<HopOption>>,
     road_edge_ids: &[String],
     start_lane: u32,
+    transitions: &TransitionIndex,
     memo: &mut HashMap<(usize, u32), bool>,
     observer: &mut impl RouteObserver,
 ) -> Result<Vec<String>> {
@@ -251,7 +503,9 @@ fn materialize_path_with_observer(
             ))
         })?;
 
-        let mut chosen: Option<&HopOption> = None;
+        // 选择语义（裁定②）：严格 hop 优先；仅严格候选全部不可完成时才尝试
+        // 声明转移 hop——不引入新偏好，旧结论不变。
+        let mut chosen: Option<(&HopOption, Option<&TransitionDeclaration>)> = None;
         for hop in options.iter().filter(|hop| hop.from_lane == current_lane) {
             if can_complete_with_observer(
                 lanes_by_edge,
@@ -259,19 +513,50 @@ fn materialize_path_with_observer(
                 road_edge_ids,
                 edge_index + 1,
                 hop.to_lane,
+                transitions,
                 memo,
                 &mut *observer,
             ) {
-                chosen = Some(hop);
+                chosen = Some((hop, None));
                 break;
             }
         }
-        let hop = chosen.ok_or_else(|| {
+        if chosen.is_none() {
+            for hop in options.iter().filter(|hop| hop.from_lane != current_lane) {
+                let Some(declaration) = transitions.allows(from, to, current_lane, hop.from_lane)
+                else {
+                    continue;
+                };
+                if can_complete_with_observer(
+                    lanes_by_edge,
+                    hops,
+                    road_edge_ids,
+                    edge_index + 1,
+                    hop.to_lane,
+                    transitions,
+                    memo,
+                    &mut *observer,
+                ) {
+                    chosen = Some((hop, Some(declaration)));
+                    break;
+                }
+            }
+        }
+        let (hop, transition) = chosen.ok_or_else(|| {
             Error::SumoModel(format!(
                 "ambiguous or incomplete ManeuverPath expansion at {from:?} lane {current_lane} -> {to:?}"
             ))
         })?;
 
+        if let Some(declaration) = transition {
+            observer.transition_hop(edge_index, declaration);
+            // 声明转移的物化段：真实过渡边链 + 目标 lane 段（来源保真由
+            // 声明 provenance 承担；不得冒充原 SUMO connection）。
+            for edge in &declaration.final_edge_chain {
+                lane_edge_ids.push(edge.clone());
+            }
+            lane_edge_ids.push(lane_laneflow_id(network, from, hop.from_lane)?);
+        }
         for internal in &hop.path.internal_edge_ids {
             lane_edge_ids.push(internal.clone());
         }
@@ -739,5 +1024,230 @@ mod tests {
                 message: NO_COMPLETE_ROUTE_ERROR.to_owned(),
             }
         );
+    }
+
+    // ---- S1（#1194）：过渡声明与边界转移（只增不改） ----
+
+    /// Gap 网络 + 固定预制过渡段（`T01` 0→1、`T10` 1→0）与真实连接
+    /// （`B→T01→B`、`B→T10→B`）：声明链的材质化拓扑校验（存在性 + 连通性
+    /// 含两侧桥接）以此为基（P2-3）。`include_p0` 提供严格成功对照。
+    fn transition_net_xml(include_p0: bool) -> String {
+        let i0_edge = if include_p0 {
+            "  <edge id=\":J2_1\" function=\"internal\"><lane id=\":J2_1_0\" index=\"0\" speed=\"13.89\" length=\"4.00\" shape=\"6836.88,5727.52 6840.88,5727.52\"/></edge>\n"
+        } else {
+            ""
+        };
+        let j2_int = if include_p0 {
+            ":J2_0_0 :J2_1_0"
+        } else {
+            ":J2_0_0"
+        };
+        let p0_connections = if include_p0 {
+            "  <connection from=\"B\" to=\"C\" fromLane=\"0\" toLane=\"0\" via=\":J2_1_0\"/>\n  <connection from=\":J2_1\" to=\"C\" fromLane=\"0\" toLane=\"0\"/>\n"
+        } else {
+            ""
+        };
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<net version="1.16">
+  <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04"/>
+  <edge id="A" from="X" to="J1"><lane id="A_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/></edge>
+  <edge id="B" from="J1" to="J2"><lane id="B_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="B_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
+  <edge id="C" from="J2" to="Z"><lane id="C_0" index="0" speed="13.89" length="20.00" shape="6840.88,5727.52 6860.88,5727.52"/></edge>
+  <edge id="T01" from="J2" to="J1"><lane id="T01_0" index="0" speed="13.89" length="9.49" shape="6836.88,5727.52 6845.88,5730.52"/></edge>
+  <edge id="T10" from="J2" to="J1"><lane id="T10_0" index="0" speed="13.89" length="9.49" shape="6836.88,5730.52 6845.88,5727.52"/></edge>
+  <edge id=":J1_0" function="internal"><lane id=":J1_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
+  <edge id=":J2_0" function="internal"><lane id=":J2_0_0" index="0" speed="13.89" length="5.00" shape="6836.88,5730.52 6840.88,5727.52"/></edge>
+{i0_edge}  <junction id="X" type="dead_end" incLanes="" intLanes=""/>
+  <junction id="Z" type="dead_end" incLanes="C_0" intLanes=""/>
+  <junction id="J1" type="priority" incLanes="A_0 T01_0 T10_0" intLanes=":J1_0_0"/>
+  <junction id="J2" type="priority" incLanes="B_0 B_1" intLanes="{j2_int}"/>
+  <connection from="A" to="B" fromLane="0" toLane="0" via=":J1_0_0"/>
+  <connection from=":J1_0" to="B" fromLane="0" toLane="0"/>
+  <connection from="B" to="C" fromLane="1" toLane="0" via=":J2_0_0"/>
+  <connection from=":J2_0" to="C" fromLane="0" toLane="0"/>
+{p0_connections}  <connection from="B" to="T01" fromLane="0" toLane="0"/>
+  <connection from="T01" to="B" fromLane="0" toLane="1"/>
+  <connection from="B" to="T10" fromLane="1" toLane="0"/>
+  <connection from="T10" to="B" fromLane="0" toLane="0"/>
+</net>
+"#
+        )
+    }
+
+    fn transition_fixture(include_p0: bool) -> (SumoNetwork, NormalizedTopology) {
+        let network = parse_sumo_network_xml(&transition_net_xml(include_p0))
+            .expect("parse transition fixture");
+        let topology = normalize_junctions(
+            &network,
+            &crate::convert::junction::StubWeldGate::Unrestricted,
+        )
+        .expect("normalize transition fixture");
+        (network, topology)
+    }
+
+    fn s1_transition_declaration() -> TransitionDeclaration {
+        TransitionDeclaration {
+            id: "t01".to_owned(),
+            from_road: "B".to_owned(),
+            to_road: "C".to_owned(),
+            from_lane: 0,
+            to_lane: 1,
+            final_edge_chain: vec!["sumo:T01_0".to_owned()],
+            provenance: TransitionProvenance::Native,
+        }
+    }
+
+    fn s1_expected_transition_chain() -> Vec<String> {
+        [
+            "sumo:A_0",
+            "sumo::J1_0_0",
+            "sumo:B_0",
+            "sumo:T01_0",
+            "sumo:B_1",
+            "sumo::J2_0_0",
+            "sumo:C_0",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    }
+
+    #[test]
+    fn s1_empty_declaration_index_allows_no_transfer() {
+        let empty = TransitionIndex::empty();
+        assert!(empty.is_empty());
+        assert!(empty.allows("B", "C", 0, 1).is_none());
+    }
+
+    #[test]
+    fn s1_transition_declaration_validation_fails_closed() {
+        let (network, _) = transition_fixture(false);
+        let same_lane = TransitionDeclaration {
+            from_lane: 1,
+            to_lane: 1,
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&same_lane), &network).is_err());
+
+        let empty_chain = TransitionDeclaration {
+            final_edge_chain: Vec::new(),
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&empty_chain), &network).is_err());
+
+        let derived_missing = TransitionDeclaration {
+            provenance: TransitionProvenance::Derived {
+                source_mapping: String::new(),
+                construction_basis: "construction basis".to_owned(),
+            },
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&derived_missing), &network).is_err());
+
+        let derived_full = TransitionDeclaration {
+            provenance: TransitionProvenance::Derived {
+                source_mapping: "sumo connection (B,0)->(C,1) 映射说明".to_owned(),
+                construction_basis: "授权规则派生：合成来源原生声明".to_owned(),
+            },
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&derived_full), &network).is_ok());
+
+        let duplicate = vec![s1_transition_declaration(), s1_transition_declaration()];
+        assert!(TransitionIndex::build(&duplicate, &network).is_err());
+
+        // P2-3 负例：未知链边、断链、桥接不连通均失败关闭。
+        let unknown_chain = TransitionDeclaration {
+            final_edge_chain: vec!["sumo::T99".to_owned()],
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&unknown_chain), &network).is_err());
+
+        let broken_chain = TransitionDeclaration {
+            final_edge_chain: vec!["sumo:T01_0".to_owned(), "sumo:T10_0".to_owned()],
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&broken_chain), &network).is_err());
+
+        let wrong_bridge = TransitionDeclaration {
+            final_edge_chain: vec!["sumo:T10_0".to_owned()],
+            ..s1_transition_declaration()
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&wrong_bridge), &network).is_err());
+    }
+
+    #[test]
+    fn s1_declared_transition_materializes_crossing_chain() {
+        let (network, topology) = transition_fixture(false);
+        let population = vec![population_record("selected-z", &["A", "B", "C"])];
+        let transitions =
+            TransitionIndex::build(std::slice::from_ref(&s1_transition_declaration()), &network)
+                .expect("valid declaration");
+        let bundle = build_routes_and_bind_population_with_transitions(
+            &network,
+            &topology,
+            &population,
+            &transitions,
+        )
+        .expect("declared transition materializes the crossing chain");
+        assert_eq!(bundle.routes.len(), 1);
+        assert_eq!(bundle.routes[0].edge_ids, s1_expected_transition_chain());
+    }
+
+    #[test]
+    fn s1_undeclared_boundary_keeps_strict_failure_and_error_text() {
+        let (network, topology) = transition_fixture(false);
+        let population = vec![population_record("selected-z", &["A", "B", "C"])];
+        let strict = build_routes_and_bind_population(&network, &topology, &population)
+            .expect_err("gap without declarations fails exactly as before");
+        // 有效但无关的声明（B→C 1->0，经 T10）：B→C 缺口仍失败，错误文本不变。
+        let elsewhere = TransitionIndex::build(
+            std::slice::from_ref(&TransitionDeclaration {
+                id: "t10".to_owned(),
+                from_road: "B".to_owned(),
+                to_road: "C".to_owned(),
+                from_lane: 1,
+                to_lane: 0,
+                final_edge_chain: vec!["sumo:T10_0".to_owned()],
+                provenance: TransitionProvenance::Native,
+            }),
+            &network,
+        )
+        .expect("valid declaration");
+        let with_elsewhere = build_routes_and_bind_population_with_transitions(
+            &network,
+            &topology,
+            &population,
+            &elsewhere,
+        )
+        .expect_err("lane gap at B->C persists with unrelated declarations");
+        let strict_evidence = error_evidence(strict);
+        let elsewhere_evidence = error_evidence(with_elsewhere);
+        assert_eq!(strict_evidence, elsewhere_evidence);
+        assert_eq!(
+            strict_evidence,
+            ErrorEvidence {
+                variant: "SumoModel",
+                message: NO_COMPLETE_ROUTE_ERROR.to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn s1_declaration_never_changes_strict_success() {
+        let (network, topology) = transition_fixture(true);
+        let population = vec![population_record("selected-z", &["A", "B", "C"])];
+        let transitions =
+            TransitionIndex::build(std::slice::from_ref(&s1_transition_declaration()), &network)
+                .expect("valid declaration");
+        let bundle = build_routes_and_bind_population_with_transitions(
+            &network,
+            &topology,
+            &population,
+            &transitions,
+        )
+        .expect("strict success must remain reachable with declarations present");
+        assert_eq!(bundle.routes[0].edge_ids, expected_final_chain());
     }
 }
