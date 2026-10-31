@@ -297,11 +297,19 @@ pub struct SharedTrafficNetwork {
     pub(crate) lateral_transition_segments: Box<[u64]>,
 }
 
-/// 横向过渡段派生分类（#1194，P2 性能修正：构建期一次计算，注册期 O(1)
-/// 查表，替代逐边重扫）。判据：uncovered 非 junction 边的 uncovered 连通
-/// 分量，其两侧 covered 边界（lane 覆盖边）同走廊且 section 内 lane 横向
-/// 序数跨度 ≥ 2 ——纵向 uncovered 连接（同横向序数）不判过渡（P2-2）；
-/// 分类与路线窗口无关（段级，P1-1）。
+/// 横向过渡段派生分类（#1194；判据整体重设计——接缝矩阵与正反例测试见运行时
+/// `compile_route_tests::s3_lane_change::p0_transition_classification_matrix`）：
+/// 构建期一次计算（分量单遍分类），注册期 O(1) 查表。
+///
+/// 判定谓词：`candidate` 未被 lane 覆盖且非 junction internal 时，求其
+/// uncovered 连通分量（后继前向 + 前驱后向）；分量两侧 covered 边界的
+/// **横向坐标** =（其 section 在走廊 elements 中的横断面位置，section 内
+/// lane 横向序数）；**同走廊 且 横向坐标跨度 ≥ 2 → 横向过渡段**。
+///
+/// 接缝矩阵（正=过渡段，负=非过渡）：异 lane 横移（同 section 不同 lane
+/// 序数）→ 正；跨 section 横向接缝（相邻单 lane section 元素位不同）→ 正
+/// （P1 补全）；多段链 / 起止于过渡 → 正（段级分类，与路线窗口无关）；
+/// 纵向连接（两侧不同走廊）→ 负（P2-2 排除）；同横向坐标续接 → 负。
 fn compute_lateral_transition_segments(
     successor_ranges: &[RangeU32],
     successors: &[LaneEdgeOrdinal],
@@ -314,11 +322,18 @@ fn compute_lateral_transition_segments(
         relations.lane_edge_authoring_lane(edge).is_none()
             && relations.lane_edge_junction(edge).is_none()
     };
-    let lateral_index = |edge: LaneEdgeOrdinal| -> Option<usize> {
+    // 横向坐标 =（section 在走廊 elements 中的横断面位置，section 内 lane 序数）。
+    let lateral_coordinate = |edge: LaneEdgeOrdinal| -> Option<(usize, usize)> {
         let lane = relations.lane_edge_authoring_lane(edge)?;
         let section = relations.authoring_section(lane)?;
+        let corridor = relations.section_corridor(section)?;
+        let elements = relations.corridor_elements(corridor)?;
+        let element_position = elements
+            .iter()
+            .position(|element| *element == crate::CorridorElement::RoadSection(section))?;
         let lanes = relations.section_lanes(section)?;
-        lanes.iter().position(|member| *member == lane)
+        let lane_index = lanes.iter().position(|member| *member == lane)?;
+        Some((element_position, lane_index))
     };
     let successors_of = |edge: LaneEdgeOrdinal| -> &[LaneEdgeOrdinal] {
         successor_ranges
@@ -334,36 +349,37 @@ fn compute_lateral_transition_segments(
     };
     let capacity = edge_count as usize;
     let mut words = vec![0_u64; capacity.div_ceil(64)];
+    // 分量单遍分类（P2 性能）：processed 兼任 visited 与完成态，每个连通
+    // 分量只求解并分类一次，无逐候选重扫。
+    let mut processed = vec![false; capacity];
     for raw in 0..edge_count {
         let candidate = LaneEdgeOrdinal::from_raw(raw);
-        if !uncovered_non_junction(candidate) {
+        if !uncovered_non_junction(candidate) || processed[candidate.index()] {
             continue;
         }
-        // uncovered 非 junction 连通分量（后继前向 + 前驱后向）。
         let mut component = vec![candidate];
-        let mut visited = vec![false; capacity];
-        visited[candidate.index()] = true;
+        processed[candidate.index()] = true;
         let mut cursor = 0;
         while cursor < component.len() {
             let edge = component[cursor];
             cursor += 1;
             for successor in successors_of(edge) {
-                if uncovered_non_junction(*successor) && !visited[successor.index()] {
-                    visited[successor.index()] = true;
+                if uncovered_non_junction(*successor) && !processed[successor.index()] {
+                    processed[successor.index()] = true;
                     component.push(*successor);
                 }
             }
             for predecessor in predecessors_of(edge) {
-                if uncovered_non_junction(*predecessor) && !visited[predecessor.index()] {
-                    visited[predecessor.index()] = true;
+                if uncovered_non_junction(*predecessor) && !processed[predecessor.index()] {
+                    processed[predecessor.index()] = true;
                     component.push(*predecessor);
                 }
             }
         }
-        // 分量两侧 covered 边界的横向序数与走廊集合。
-        let mut lateral_indices: std::collections::HashSet<usize> =
-            std::collections::HashSet::new();
+        // 分量两侧 covered 边界的走廊集合与横向坐标集合。
         let mut corridors: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut coordinates: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
         for member in component.clone() {
             let mut boundaries = successors_of(member).to_vec();
             boundaries.extend_from_slice(predecessors_of(member));
@@ -371,10 +387,10 @@ fn compute_lateral_transition_segments(
                 if uncovered_non_junction(boundary) {
                     continue;
                 }
-                let Some(index) = lateral_index(boundary) else {
+                let Some(coordinate) = lateral_coordinate(boundary) else {
                     continue;
                 };
-                lateral_indices.insert(index);
+                coordinates.insert(coordinate);
                 let Some(lane) = relations.lane_edge_authoring_lane(boundary) else {
                     continue;
                 };
@@ -386,8 +402,10 @@ fn compute_lateral_transition_segments(
                 }
             }
         }
-        if corridors.len() == 1 && lateral_indices.len() >= 2 {
-            words[raw as usize / 64] |= 1_u64 << (raw % 64);
+        if corridors.len() == 1 && coordinates.len() >= 2 {
+            for member in &component {
+                words[member.index() / 64] |= 1_u64 << (member.index() % 64);
+            }
         }
     }
     words.into_boxed_slice()
