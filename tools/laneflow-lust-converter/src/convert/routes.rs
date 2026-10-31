@@ -85,20 +85,32 @@ impl TransitionIndex {
     ) -> Result<Self> {
         let mut index = Self::empty();
         // 材质化拓扑基础索引（P2-3）：已知 lane id 全集 + 连接相邻对。
-        // wire id 公式对 external 与 internal lane 统一（internal 边 id 自带
-        // ':' 前缀，形成 "sumo::…" 形态，与物化输出一致）。
-        let wire_id =
-            |edge_id: &str, lane_index: u32| format!("{SUMO_ID_PREFIX}{edge_id}_{lane_index}");
+        // lane wire id 一律**解析声明 lane id**（`SumoLane::laneflow_id()`，
+        // 与静态发射/物化同源）；不得合成 `{edge}_{index}`——SUMO 声明
+        // lane id 可任意（如 `TURN`），合成形态与权威 id 分歧（P2 修正）。
+        let endpoint_wire_id = |edge_id: &str, lane_index: u32| -> Result<String> {
+            network
+                .lanes
+                .iter()
+                .find(|lane| lane.edge_id == edge_id && lane.index == lane_index)
+                .map(crate::sumo::SumoLane::laneflow_id)
+                .ok_or_else(|| {
+                    Error::SumoModel(format!(
+                        "missing lane for connection endpoint edge={edge_id:?} index={lane_index}"
+                    ))
+                })
+        };
         let mut known = std::collections::HashSet::new();
         for lane in &network.lanes {
-            known.insert(wire_id(&lane.edge_id, lane.index));
+            known.insert(lane.laneflow_id());
         }
         let mut connected = std::collections::HashSet::new();
         for connection in &network.connections {
             // 连通索引按完整链（含 via 段）构建（P2-1）：带 via 的连接记
             // from→via…→to 逐段相邻对、不记直连对——含 via 边的声明按链
-            // 校验通过，漏 via 边的声明判不连通（失败关闭）。
-            let mut previous = wire_id(&connection.from_edge_id, connection.from_lane);
+            // 校验通过，漏 via 边的声明判不连通（失败关闭）。via 引用声明
+            // lane id，前缀即 wire id（与 `SumoLane::laneflow_id` 一致）。
+            let mut previous = endpoint_wire_id(&connection.from_edge_id, connection.from_lane)?;
             for via in &connection.via_lane_ids {
                 let via_id = format!("{SUMO_ID_PREFIX}{via}");
                 connected.insert((previous.clone(), via_id.clone()));
@@ -106,7 +118,7 @@ impl TransitionIndex {
             }
             connected.insert((
                 previous,
-                wire_id(&connection.to_edge_id, connection.to_lane),
+                endpoint_wire_id(&connection.to_edge_id, connection.to_lane)?,
             ));
         }
         for declaration in declarations {
@@ -1064,13 +1076,13 @@ mod tests {
   <edge id="B" from="J1" to="J2"><lane id="B_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/><lane id="B_1" index="1" speed="13.89" length="20.00" shape="6816.88,5730.52 6836.88,5730.52"/></edge>
   <edge id="C" from="J2" to="Z"><lane id="C_0" index="0" speed="13.89" length="20.00" shape="6840.88,5727.52 6860.88,5727.52"/></edge>
   <edge id="T01" from="J2" to="J1"><lane id="T01_0" index="0" speed="13.89" length="9.49" shape="6836.88,5727.52 6845.88,5730.52"/></edge>
-  <edge id="T10" from="J2" to="J1"><lane id="T10_0" index="0" speed="13.89" length="9.49" shape="6836.88,5730.52 6845.88,5727.52"/></edge>
+  <edge id="T10" from="J2" to="J1"><lane id="TURN" index="0" speed="13.89" length="9.49" shape="6836.88,5730.52 6845.88,5727.52"/></edge>
   <edge id=":J1_0" function="internal"><lane id=":J1_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
   <edge id=":J2_0" function="internal"><lane id=":J2_0_0" index="0" speed="13.89" length="5.00" shape="6836.88,5730.52 6840.88,5727.52"/></edge>
   <edge id=":JT" function="internal"><lane id=":JT_0" index="0" speed="13.89" length="5.00" shape="6836.88,5730.52 6841.88,5728.22"/></edge>
 {i0_edge}  <junction id="X" type="dead_end" incLanes="" intLanes=""/>
   <junction id="Z" type="dead_end" incLanes="C_0" intLanes=""/>
-  <junction id="J1" type="priority" incLanes="A_0 T01_0 T10_0" intLanes=":J1_0_0"/>
+  <junction id="J1" type="priority" incLanes="A_0 T01_0 TURN" intLanes=":J1_0_0"/>
   <junction id="J2" type="priority" incLanes="B_0 B_1" intLanes="{j2_int}"/>
   <connection from="A" to="B" fromLane="0" toLane="0" via=":J1_0_0"/>
   <connection from=":J1_0" to="B" fromLane="0" toLane="0"/>
@@ -1176,13 +1188,13 @@ mod tests {
         assert!(TransitionIndex::build(std::slice::from_ref(&unknown_chain), &network).is_err());
 
         let broken_chain = TransitionDeclaration {
-            final_edge_chain: vec!["sumo:T01_0".to_owned(), "sumo:T10_0".to_owned()],
+            final_edge_chain: vec!["sumo:T01_0".to_owned(), "sumo:TURN".to_owned()],
             ..s1_transition_declaration()
         };
         assert!(TransitionIndex::build(std::slice::from_ref(&broken_chain), &network).is_err());
 
         let wrong_bridge = TransitionDeclaration {
-            final_edge_chain: vec!["sumo:T10_0".to_owned()],
+            final_edge_chain: vec!["sumo:TURN".to_owned()],
             ..s1_transition_declaration()
         };
         assert!(TransitionIndex::build(std::slice::from_ref(&wrong_bridge), &network).is_err());
@@ -1192,22 +1204,31 @@ mod tests {
     fn s1_transition_chain_via_connectivity_requires_full_chain() {
         let (network, _) = transition_fixture(false);
         // 含 via 边声明：按完整链（source→via→destination）校验，应通过（P2-1 正例）。
+        // 链命名**声明 lane id**（`T10` 的 lane 声明 id 为 `TURN`，非
+        // `{edge}_{index}` 形态）——声明解析语义与静态发射/物化同源（P2 修正）。
         let with_via = TransitionDeclaration {
             id: "t10".to_owned(),
             from_road: "B".to_owned(),
             to_road: "C".to_owned(),
             from_lane: 1,
             to_lane: 0,
-            final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:T10_0".to_owned()],
+            final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:TURN".to_owned()],
             provenance: TransitionProvenance::Native,
         };
         assert!(TransitionIndex::build(std::slice::from_ref(&with_via), &network).is_ok());
         // 漏 via 边声明：直连对不在链索引中，应失败关闭（P2-1 负例）。
         let missing_via = TransitionDeclaration {
-            final_edge_chain: vec!["sumo:T10_0".to_owned()],
-            ..with_via
+            final_edge_chain: vec!["sumo:TURN".to_owned()],
+            ..with_via.clone()
         };
         assert!(TransitionIndex::build(std::slice::from_ref(&missing_via), &network).is_err());
+        // 合成 wire id 形态（`sumo:T10_0`）不是声明 id：必须失败关闭——
+        // 索引与物化/发射同源（`SumoLane::laneflow_id`），不接受合成歧义。
+        let synthesized = TransitionDeclaration {
+            final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:T10_0".to_owned()],
+            ..with_via
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&synthesized), &network).is_err());
     }
 
     #[test]
@@ -1242,7 +1263,7 @@ mod tests {
                 to_road: "C".to_owned(),
                 from_lane: 1,
                 to_lane: 0,
-                final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:T10_0".to_owned()],
+                final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:TURN".to_owned()],
                 provenance: TransitionProvenance::Native,
             }),
             &network,
