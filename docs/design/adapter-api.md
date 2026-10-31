@@ -9,7 +9,7 @@
 **关联文档**:
 
 - [`committed-pose-extraction.md`](committed-pose-extraction.md)：#681 来源缓冲、
-  成功批次交换与按需提取的已接受设计；尚未实施，本文现行全量合同继续有效。
+  成功批次交换与按需提取的已接受设计，已由 #711、#712 实施；全量与选择两种入口见 §6。
 
 - [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285
   领域观测与跨层验证；Accepted。阶段一新增两个只读补充入口：Runtime
