@@ -660,45 +660,120 @@ pub(crate) fn compile_route(
     };
     compiled.refresh_hops(lengths, speeds)?;
     // 能力拒绝（A6 选项 3，S3 侧注册面）：置于全部静态出现项编译完成之后
-    // ——静态序列验证独立完整（错误类型不因能力检查提前截断），含横向过渡
-    // 段的路线在能力不支持时结构化拒绝。派生规则识别横向过渡段：未被任何
-    // lane 覆盖、非 junction internal、且路线前后邻边分属同一走廊不同 lane
-    // 链的边（固定预制过渡，如 `T01`）。换道执行支持是**实现能力**（非配置）：
-    // 本构建不支持过渡执行（S4 交付前），注册失败关闭、注册表不变（失败
-    // 原子）。仅声明材料化的过渡段可达本检查（旧输入无此类结构 → 零新拒绝）。
+    // ——静态序列验证独立完整（错误类型不因能力检查提前截断）。**段级检测**
+    // （P1-1 修正）：按边分类横向过渡段，不依赖路线三边窗口——多段过渡链与
+    // 起/止于过渡的路线（含单边）同样命中；**横向判据**（P2-2 修正）：以
+    // section 内 lane 横向序数为依据，两侧 covered 边界横向序数跨度 ≥ 2 且
+    // 同走廊才是横向过渡，纵向 uncovered 连接（同横向序数）不误判。换道执行
+    // 支持是**实现能力**（非配置）：本构建不支持过渡执行（S4 交付前），注册
+    // 失败关闭、注册表不变（失败原子）。仅声明材料化的过渡段可达本检查
+    // （旧输入无此类结构 → 零新拒绝）。
     if !transition_execution_supported() {
-        for window in edges.windows(3) {
-            let (previous, candidate, next) = (window[0], window[1], window[2]);
-            let relations = traffic.relations();
-            let uncovered_non_junction = relations.lane_edge_authoring_lane(candidate).is_none()
-                && relations.lane_edge_junction(candidate).is_none();
-            if !uncovered_non_junction {
-                continue;
-            }
-            let (Some(previous_lane), Some(next_lane)) = (
-                relations.lane_edge_authoring_lane(previous),
-                relations.lane_edge_authoring_lane(next),
-            ) else {
-                continue;
-            };
-            if previous_lane == next_lane {
-                continue;
-            }
-            let (Some(previous_section), Some(next_section)) = (
-                relations.authoring_section(previous_lane),
-                relations.authoring_section(next_lane),
-            ) else {
-                continue;
-            };
-            let previous_corridor = relations.section_corridor(previous_section);
-            if previous_corridor.is_some()
-                && previous_corridor == relations.section_corridor(next_section)
-            {
+        for edge in edges {
+            if is_lateral_transition_segment(traffic, *edge) {
                 return Err(RouteError::TransitionUnsupported);
             }
         }
     }
     Ok(compiled)
+}
+
+/// 横向过渡段派生分类（P1-1/P2-2）：`candidate` 未被 lane 覆盖且非 junction
+/// internal 时，沿 successors/前驱求其 uncovered 连通分量，取分量两侧 covered
+/// 边界的**横向序数集合**（section 内 lane 序数 = 顺序拓扑中的横向位置）与
+/// 走廊集合；同走廊且序数跨度 ≥ 2 → 横向过渡段（固定预制过渡，如 `T01`、
+/// `T0a…T0b`）。纵向 uncovered 连接两侧同横向序数 → 不判过渡（P2-2）；分类
+/// 与路线窗口无关（P1-1）。
+fn is_lateral_transition_segment(
+    traffic: &SharedTrafficNetwork,
+    candidate: LaneEdgeOrdinal,
+) -> bool {
+    let relations = traffic.relations();
+    let uncovered_non_junction = |edge: LaneEdgeOrdinal| {
+        relations.lane_edge_authoring_lane(edge).is_none()
+            && relations.lane_edge_junction(edge).is_none()
+    };
+    if !uncovered_non_junction(candidate) {
+        return false;
+    }
+    let lateral_index = |edge: LaneEdgeOrdinal| -> Option<usize> {
+        let lane = relations.lane_edge_authoring_lane(edge)?;
+        let section = relations.authoring_section(lane)?;
+        let lanes = relations.section_lanes(section)?;
+        lanes.iter().position(|member| *member == lane)
+    };
+    // 前驱反向表：仅在出现 uncovered 候选时按需构建（covered 路线零成本）。
+    let mut predecessors: std::collections::HashMap<u32, Vec<LaneEdgeOrdinal>> =
+        std::collections::HashMap::new();
+    for raw in 0..traffic.lane_edge_count() {
+        let edge = LaneEdgeOrdinal::from_raw(raw);
+        if let Some(successors) = traffic.successors(edge) {
+            for successor in successors {
+                predecessors.entry(successor.raw()).or_default().push(edge);
+            }
+        }
+    }
+    // uncovered 非 junction 连通分量（successors 前向 + 前驱后向）。
+    let mut component = vec![candidate];
+    let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    visited.insert(candidate.raw());
+    let mut cursor = 0;
+    while cursor < component.len() {
+        let edge = component[cursor];
+        cursor += 1;
+        let successors = traffic
+            .successors(edge)
+            .map(|successors| successors.to_vec())
+            .unwrap_or_default();
+        for successor in successors {
+            if uncovered_non_junction(successor) && visited.insert(successor.raw()) {
+                component.push(successor);
+            }
+        }
+        if let Some(back) = predecessors.get(&edge.raw()).cloned() {
+            for predecessor in back {
+                if uncovered_non_junction(predecessor) && visited.insert(predecessor.raw()) {
+                    component.push(predecessor);
+                }
+            }
+        }
+    }
+    // 分量两侧 covered 边界的横向序数与走廊集合。
+    let mut lateral_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut corridors: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut record_boundary = |boundary: LaneEdgeOrdinal| {
+        if uncovered_non_junction(boundary) {
+            return;
+        }
+        let Some(index) = lateral_index(boundary) else {
+            return;
+        };
+        lateral_indices.insert(index);
+        let Some(lane) = relations.lane_edge_authoring_lane(boundary) else {
+            return;
+        };
+        let Some(section) = relations.authoring_section(lane) else {
+            return;
+        };
+        if let Some(corridor) = relations.section_corridor(section) {
+            corridors.insert(corridor.raw());
+        }
+    };
+    for member in component.clone() {
+        let successors = traffic
+            .successors(member)
+            .map(|successors| successors.to_vec())
+            .unwrap_or_default();
+        for successor in successors {
+            record_boundary(successor);
+        }
+        if let Some(back) = predecessors.get(&member.raw()).cloned() {
+            for predecessor in back {
+                record_boundary(predecessor);
+            }
+        }
+    }
+    corridors.len() == 1 && lateral_indices.len() >= 2
 }
 
 fn compile_waiting_maneuver_bits(
@@ -2124,7 +2199,9 @@ mod compile_route_tests {
         use laneflow_format::{FormatLimits, check_post_emission_bundle};
 
         /// sample v5 钉版长度（米）与中心线端点（米，(x0, z0) → (x1, z1)）。
-        const EDGES: [(&str, f64, f32, f32, f32, f32); 13] = [
+        /// 另含评审补充段：`T0a…T0b` 多段过渡链（P1-1）、`X`/`C1` 纵向
+        /// uncovered 连接（P2-2 负例）。
+        const EDGES: [(&str, f64, f32, f32, f32, f32); 17] = [
             ("A0", 20.0, -20.0, 0.0, 0.0, 0.0),
             ("I1", 10.0, 0.0, 0.0, 10.0, 0.0),
             ("B0_up", 8.0, 10.0, 0.0, 18.0, 0.0),
@@ -2132,11 +2209,15 @@ mod compile_route_tests {
             ("S00", 9.0, 18.0, 0.0, 27.0, 0.0),
             ("S11", 9.0, 18.0, 3.0, 27.0, 3.0),
             ("T01", 9.487, 18.0, 0.0, 27.0, 3.0),
+            ("T0a", 4.272, 18.0, 0.0, 22.0, 1.5),
+            ("T0b", 5.22, 22.0, 1.5, 27.0, 3.0),
             ("B0_down", 9.0, 27.0, 0.0, 36.0, 0.0),
             ("B1_down", 9.0, 27.0, 3.0, 36.0, 3.0),
             ("I0", 6.0, 36.0, 0.0, 42.0, 0.0),
             ("I2", 6.708, 36.0, 3.0, 42.0, 0.0),
             ("C0", 20.0, 42.0, 0.0, 62.0, 0.0),
+            ("X", 5.0, 62.0, 0.0, 67.0, 0.0),
+            ("C1", 12.0, 67.0, 0.0, 79.0, 0.0),
             ("R0", 82.0, 62.0, 0.0, -20.0, 0.0),
         ];
 
@@ -2178,16 +2259,20 @@ mod compile_route_tests {
             let successors: std::collections::HashMap<&str, Vec<&str>> = [
                 ("A0", vec!["I1"]),
                 ("I1", vec!["B0_up"]),
-                ("B0_up", vec!["S00", "T01"]),
+                ("B0_up", vec!["S00", "T01", "T0a"]),
                 ("B1_up", vec!["S11"]),
                 ("S00", vec!["B0_down"]),
                 ("S11", vec!["B1_down"]),
                 ("T01", vec!["B1_down"]),
+                ("T0a", vec!["T0b"]),
+                ("T0b", vec!["B1_down"]),
                 ("B0_down", vec!["I0"]),
                 ("B1_down", vec!["I2"]),
                 ("I0", vec!["C0"]),
                 ("I2", vec!["C0"]),
-                ("C0", vec!["R0"]),
+                ("C0", vec!["R0", "X"]),
+                ("X", vec!["C1"]),
+                ("C1", vec![]),
                 ("R0", vec!["A0"]),
             ]
             .into_iter()
@@ -2214,6 +2299,7 @@ mod compile_route_tests {
                 ("lane-B0down", vec!["B0_down"]),
                 ("lane-B1down", vec!["B1_down"]),
                 ("lane-C0", vec!["C0"]),
+                ("lane-C1", vec!["C1"]),
             ]
             .into_iter()
             .map(|(key, edges)| {
@@ -2297,6 +2383,16 @@ mod compile_route_tests {
                 }],
             })
             .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-C2",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-C1",
+                    edge_chain: &chains["lane-C1"],
+                    lane_group: None,
+                }],
+            })
+            .unwrap();
             b.add_road_corridor(RoadCorridorInput {
                 road_corridor_key: "corridor-A",
                 reference_section: RoadSectionReference::local("sec-A"),
@@ -2308,9 +2404,10 @@ mod compile_route_tests {
             b.add_road_corridor(RoadCorridorInput {
                 road_corridor_key: "corridor-C",
                 reference_section: RoadSectionReference::local("sec-C"),
-                elements: &[CorridorElementReference::road_section(
-                    RoadSectionReference::local("sec-C"),
-                )],
+                elements: &[
+                    CorridorElementReference::road_section(RoadSectionReference::local("sec-C")),
+                    CorridorElementReference::road_section(RoadSectionReference::local("sec-C2")),
+                ],
             })
             .unwrap();
             b.add_road_corridor(RoadCorridorInput {
@@ -2431,6 +2528,10 @@ mod compile_route_tests {
                 (6_000, "I0"),
                 (6_708, "I2"),
                 (82_000, "R0"),
+                (5_000, "X"),
+                (12_000, "C1"),
+                (4_272, "T0a"),
+                (5_220, "T0b"),
             ];
             for raw in 0..traffic.lane_edge_count() {
                 let ord = LaneEdgeOrdinal::from_raw(raw);
@@ -2465,10 +2566,11 @@ mod compile_route_tests {
                 }
             }
             let b0_up = *named.get("B0_up").unwrap();
-            let t01 = *named.get("T01").unwrap();
             for raw in 0..traffic.lane_edge_count() {
                 let ord = LaneEdgeOrdinal::from_raw(raw);
-                if ord != t01 && route_pair_connected(traffic, b0_up, ord) {
+                if traffic.relations().lane_edge_authoring_lane(ord).is_some()
+                    && route_pair_connected(traffic, b0_up, ord)
+                {
                     named.insert("S00", ord);
                 }
             }
@@ -2566,6 +2668,75 @@ mod compile_route_tests {
                 compile_route(revision.as_ref(), &straight, 0, u64::MAX),
                 Err(RouteError::TransitionUnsupported)
             );
+        }
+
+        #[test]
+        fn p1_multi_segment_and_route_end_transitions_are_detected() {
+            let revision = revision();
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
+            // 多段过渡链（T0a→T0b）：段级分类命中——无"两侧 covered 三边窗口"
+            // 也拒绝（P1-1）。
+            let multi = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("T0a"),
+                edge("T0b"),
+                edge("B1_down"),
+                edge("I2"),
+                edge("C0"),
+            ];
+            assert_eq!(
+                compile_route(revision.as_ref(), &multi, 0, u64::MAX),
+                Err(RouteError::TransitionUnsupported)
+            );
+            // 起/止于过渡的路线（含单边 [T01]）：不进旧三边窗口也要拒绝（P1-1）。
+            assert_eq!(
+                compile_route(revision.as_ref(), &[edge("T01")], 0, u64::MAX),
+                Err(RouteError::TransitionUnsupported)
+            );
+            assert_eq!(
+                compile_route(
+                    revision.as_ref(),
+                    &[edge("B0_up"), edge("T01")],
+                    0,
+                    u64::MAX
+                ),
+                Err(RouteError::TransitionUnsupported)
+            );
+            assert_eq!(
+                compile_route(
+                    revision.as_ref(),
+                    &[edge("T01"), edge("B1_down")],
+                    0,
+                    u64::MAX
+                ),
+                Err(RouteError::TransitionUnsupported)
+            );
+        }
+
+        #[test]
+        fn p2_longitudinal_uncovered_connector_is_not_misclassified() {
+            let revision = revision();
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
+            // 纵向 uncovered 连接（C0→X→C1，两侧同横向序数 0、同走廊）：
+            // 不是横向过渡，编译通过（P2-2）。
+            let longitudinal = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("S00"),
+                edge("B0_down"),
+                edge("I0"),
+                edge("C0"),
+                edge("X"),
+                edge("C1"),
+            ];
+            let compiled = compile_route(revision.as_ref(), &longitudinal, 0, u64::MAX)
+                .expect("longitudinal uncovered connector must not be rejected as a transition");
+            assert_eq!(compiled.edges.len(), longitudinal.len());
         }
     }
 
