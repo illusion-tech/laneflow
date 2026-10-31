@@ -24,20 +24,20 @@ Skill 标识符（Skill ID）`laneflow-core-design` 沿用历史名称，仅作�
 下表是条件导航：只读取与本次修改相关的合同；算法、格式版本与验收数字以合同为准，
 不在本 Skill 复制。
 
-| 修改内容 | 按需读取 |
-|---|---|
-| fixed tick、阶段顺序、内部模块归属 | `docs/design/traffic-runtime-phase-protocol.md`、`docs/design/traffic-runtime-module-boundary.md` |
-| worker、调度、执行资源、首错与 join | `docs/adr/0030-single-world-parallel-execution.md`、`docs/design/traffic-runtime-execution-config.md`、`docs/design/traffic-runtime-parallel-execution.md` |
-| 运动存储、批量计算、SIMD | `docs/adr/0031-columnar-motion-authority.md`、`docs/design/traffic-runtime-columnar-execution.md`、`crates/laneflow-motion-kernel/README.md` |
-| 修订认证、状态完整性、失真处置 | `docs/adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md`、`docs/design/traffic-runtime-state-integrity.md` |
-| Waiting、Conflict 与路权策略 | `docs/design/waiting-zone-conflict-right-of-way.md`、`docs/design/traffic-runtime-waiting-zone.md`、`docs/design/traffic-runtime-right-of-way-policy.md` |
-| spawn/replace 等新鲜摆放 | `docs/design/traffic-runtime-vehicle-placement.md` |
-| 保存、恢复、修订切换、编辑来源 | `docs/design/traffic-runtime-snapshot.md`、`docs/design/traffic-runtime-revision-cutover.md`、`docs/design/committed-road-editing-state.md` |
-| 摘要、指纹和算法选择 | `docs/adr/0033-digest-role-and-algorithm-selection-authority.md` |
-| 静态路网编译、共享静态路网与 Runtime 消费路径 | `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、`docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、`docs/design/network-compiler.md`、`docs/design/shared-static-network.md`、`docs/design/traffic-runtime-shared-consumption.md` |
-| 编译器基础设施、官方前端受检模块、已验证规范 LIR | `docs/design/compiler-foundation.md`；复核生产编译性能时读取 `docs/reference/v0.10-compiler-production-baseline.md` |
-| 道路编辑状态、候选道路替换或来源权威 | `docs/adr/0023-road-editing-state-and-phased-network-replacement.md`、`docs/design/road-editing-source-and-geometry-frontend.md` |
-| 已关闭的编译器预算校准（#308） | 只读 `docs/design/compiler-budget-calibration.md` 的短结论；当时制品见精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310 |
+| 修改内容                                         | 按需读取                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fixed tick、阶段顺序、内部模块归属               | `docs/design/traffic-runtime-phase-protocol.md`、`docs/design/traffic-runtime-module-boundary.md`                                                                                                                                                                         |
+| worker、调度、执行资源、首错与 join              | `docs/adr/0030-single-world-parallel-execution.md`、`docs/design/traffic-runtime-execution-config.md`、`docs/design/traffic-runtime-parallel-execution.md`                                                                                                                |
+| 运动存储、批量计算、SIMD                         | `docs/adr/0031-columnar-motion-authority.md`、`docs/design/traffic-runtime-columnar-execution.md`、`crates/laneflow-motion-kernel/README.md`                                                                                                                              |
+| 修订认证、状态完整性、失真处置                   | `docs/adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md`、`docs/design/traffic-runtime-state-integrity.md`                                                                                                                                         |
+| Waiting、Conflict 与路权策略                     | `docs/design/waiting-zone-conflict-right-of-way.md`、`docs/design/traffic-runtime-waiting-zone.md`、`docs/design/traffic-runtime-right-of-way-policy.md`                                                                                                                  |
+| spawn/replace 等新鲜摆放                         | `docs/design/traffic-runtime-vehicle-placement.md`                                                                                                                                                                                                                        |
+| 保存、恢复、修订切换、编辑来源                   | `docs/design/traffic-runtime-snapshot.md`、`docs/design/traffic-runtime-revision-cutover.md`、`docs/design/committed-road-editing-state.md`                                                                                                                               |
+| 摘要、指纹和算法选择                             | `docs/adr/0033-digest-role-and-algorithm-selection-authority.md`                                                                                                                                                                                                          |
+| 静态路网编译、共享静态路网与 Runtime 消费路径    | `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、`docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、`docs/design/network-compiler.md`、`docs/design/shared-static-network.md`、`docs/design/traffic-runtime-shared-consumption.md` |
+| 编译器基础设施、官方前端受检模块、已验证规范 LIR | `docs/design/compiler-foundation.md`；复核生产编译性能时读取 `docs/reference/v0.10-compiler-production-baseline.md`                                                                                                                                                       |
+| 道路编辑状态、候选道路替换或来源权威             | `docs/adr/0023-road-editing-state-and-phased-network-replacement.md`、`docs/design/road-editing-source-and-geometry-frontend.md`                                                                                                                                          |
+| 已关闭的编译器预算校准（#308）                   | 只读 `docs/design/compiler-budget-calibration.md` 的短结论；当时制品见精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310                                                                                                                              |
 
 若所需 design 文档尚不存在，在对 Traffic Runtime 做高影响变更前，应先创建或提出
 最小设计基线。1.0 前同时阅读 `.agents/skills/laneflow-pre-1-0/SKILL.md`。

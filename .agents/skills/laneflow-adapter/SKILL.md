@@ -25,12 +25,12 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
 
 ## 按任务读取
 
-| 修改内容 | 按需读取 |
-|---|---|
-| Bevy 插件、Session、示例与宿主生命周期 | `docs/design/bevy-reference-adapter.md`、`crates/laneflow-bevy/README.md` |
-| 位姿批量提取、按需选择与表现优化 | `docs/design/committed-pose-extraction.md` |
-| 存档恢复、修订切换后的实体绑定 | `docs/design/traffic-runtime-snapshot.md`、`docs/design/traffic-runtime-revision-cutover.md` |
-| 复杂路口观测与调试可视化 | `docs/design/junction-observation-and-validation.md` |
+| 修改内容                               | 按需读取                                                                                     |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Bevy 插件、Session、示例与宿主生命周期 | `docs/design/bevy-reference-adapter.md`、`crates/laneflow-bevy/README.md`                    |
+| 位姿批量提取、按需选择与表现优化       | `docs/design/committed-pose-extraction.md`                                                   |
+| 存档恢复、修订切换后的实体绑定         | `docs/design/traffic-runtime-snapshot.md`、`docs/design/traffic-runtime-revision-cutover.md` |
+| 复杂路口观测与调试可视化               | `docs/design/junction-observation-and-validation.md`                                         |
 
 几条容易出错的约束（完整校验顺序以上述合同与 `adapter-api.md` 为准）：
 
