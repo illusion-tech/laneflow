@@ -293,6 +293,104 @@ pub struct SharedTrafficNetwork {
     pub(crate) predecessors: Box<[LaneEdgeOrdinal]>,
     pub(crate) maneuvers: SharedManeuverNetwork,
     pub(crate) relations: crate::SharedRelationClosure,
+    /// 横向过渡段派生分类位集（#1194）：构建期一次计算，注册期查表。
+    pub(crate) lateral_transition_segments: Box<[u64]>,
+}
+
+/// 横向过渡段派生分类（#1194，P2 性能修正：构建期一次计算，注册期 O(1)
+/// 查表，替代逐边重扫）。判据：uncovered 非 junction 边的 uncovered 连通
+/// 分量，其两侧 covered 边界（lane 覆盖边）同走廊且 section 内 lane 横向
+/// 序数跨度 ≥ 2 ——纵向 uncovered 连接（同横向序数）不判过渡（P2-2）；
+/// 分类与路线窗口无关（段级，P1-1）。
+fn compute_lateral_transition_segments(
+    successor_ranges: &[RangeU32],
+    successors: &[LaneEdgeOrdinal],
+    predecessor_ranges: &[RangeU32],
+    predecessors: &[LaneEdgeOrdinal],
+    relations: &crate::SharedRelationClosure,
+    edge_count: u32,
+) -> Box<[u64]> {
+    let uncovered_non_junction = |edge: LaneEdgeOrdinal| {
+        relations.lane_edge_authoring_lane(edge).is_none()
+            && relations.lane_edge_junction(edge).is_none()
+    };
+    let lateral_index = |edge: LaneEdgeOrdinal| -> Option<usize> {
+        let lane = relations.lane_edge_authoring_lane(edge)?;
+        let section = relations.authoring_section(lane)?;
+        let lanes = relations.section_lanes(section)?;
+        lanes.iter().position(|member| *member == lane)
+    };
+    let successors_of = |edge: LaneEdgeOrdinal| -> &[LaneEdgeOrdinal] {
+        successor_ranges
+            .get(edge.index())
+            .map(|range| range.slice(successors))
+            .unwrap_or_default()
+    };
+    let predecessors_of = |edge: LaneEdgeOrdinal| -> &[LaneEdgeOrdinal] {
+        predecessor_ranges
+            .get(edge.index())
+            .map(|range| range.slice(predecessors))
+            .unwrap_or_default()
+    };
+    let capacity = edge_count as usize;
+    let mut words = vec![0_u64; capacity.div_ceil(64)];
+    for raw in 0..edge_count {
+        let candidate = LaneEdgeOrdinal::from_raw(raw);
+        if !uncovered_non_junction(candidate) {
+            continue;
+        }
+        // uncovered 非 junction 连通分量（后继前向 + 前驱后向）。
+        let mut component = vec![candidate];
+        let mut visited = vec![false; capacity];
+        visited[candidate.index()] = true;
+        let mut cursor = 0;
+        while cursor < component.len() {
+            let edge = component[cursor];
+            cursor += 1;
+            for successor in successors_of(edge) {
+                if uncovered_non_junction(*successor) && !visited[successor.index()] {
+                    visited[successor.index()] = true;
+                    component.push(*successor);
+                }
+            }
+            for predecessor in predecessors_of(edge) {
+                if uncovered_non_junction(*predecessor) && !visited[predecessor.index()] {
+                    visited[predecessor.index()] = true;
+                    component.push(*predecessor);
+                }
+            }
+        }
+        // 分量两侧 covered 边界的横向序数与走廊集合。
+        let mut lateral_indices: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+        let mut corridors: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for member in component.clone() {
+            let mut boundaries = successors_of(member).to_vec();
+            boundaries.extend_from_slice(predecessors_of(member));
+            for boundary in boundaries {
+                if uncovered_non_junction(boundary) {
+                    continue;
+                }
+                let Some(index) = lateral_index(boundary) else {
+                    continue;
+                };
+                lateral_indices.insert(index);
+                let Some(lane) = relations.lane_edge_authoring_lane(boundary) else {
+                    continue;
+                };
+                let Some(section) = relations.authoring_section(lane) else {
+                    continue;
+                };
+                if let Some(corridor) = relations.section_corridor(section) {
+                    corridors.insert(corridor.raw());
+                }
+            }
+        }
+        if corridors.len() == 1 && lateral_indices.len() >= 2 {
+            words[raw as usize / 64] |= 1_u64 << (raw % 64);
+        }
+    }
+    words.into_boxed_slice()
 }
 
 impl SharedTrafficNetwork {
@@ -309,6 +407,14 @@ impl SharedTrafficNetwork {
         maneuvers: SharedManeuverNetwork,
         relations: crate::SharedRelationClosure,
     ) -> Self {
+        let lateral_transition_segments = compute_lateral_transition_segments(
+            &successor_ranges,
+            &successors,
+            &predecessor_ranges,
+            &predecessors,
+            &relations,
+            entity_counts.count(EntityKind::LaneEdge),
+        );
         Self {
             entity_counts,
             lane_lengths_millimetres,
@@ -319,7 +425,19 @@ impl SharedTrafficNetwork {
             predecessors,
             maneuvers,
             relations,
+            lateral_transition_segments,
         }
+    }
+
+    /// 横向过渡段（固定预制过渡，如 `T01`）派生分类查表（#1194）：构建期
+    /// 一次计算（`compute_lateral_transition_segments`），注册期 O(1) 查询。
+    #[must_use]
+    pub fn is_lateral_transition_segment(&self, lane_edge: LaneEdgeOrdinal) -> bool {
+        let raw = lane_edge.index();
+        let Some(word) = self.lateral_transition_segments.get(raw / 64) else {
+            return false;
+        };
+        (word >> (raw % 64)) & 1 == 1
     }
 
     /// 全部实体种类的基数表。
@@ -381,6 +499,7 @@ impl SharedTrafficNetwork {
             + logical_bytes::<LaneEdgeOrdinal>(self.successors.len())
             + logical_bytes::<RangeU32>(self.predecessor_ranges.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.predecessors.len())
+            + logical_bytes::<u64>(self.lateral_transition_segments.len())
             + self.maneuvers.retained_logical_bytes()
             + self.relations.retained_logical_bytes()
     }

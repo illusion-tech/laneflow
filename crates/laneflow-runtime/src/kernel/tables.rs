@@ -664,116 +664,19 @@ pub(crate) fn compile_route(
     // （P1-1 修正）：按边分类横向过渡段，不依赖路线三边窗口——多段过渡链与
     // 起/止于过渡的路线（含单边）同样命中；**横向判据**（P2-2 修正）：以
     // section 内 lane 横向序数为依据，两侧 covered 边界横向序数跨度 ≥ 2 且
-    // 同走廊才是横向过渡，纵向 uncovered 连接（同横向序数）不误判。换道执行
-    // 支持是**实现能力**（非配置）：本构建不支持过渡执行（S4 交付前），注册
-    // 失败关闭、注册表不变（失败原子）。仅声明材料化的过渡段可达本检查
-    // （旧输入无此类结构 → 零新拒绝）。
+    // 同走廊才是横向过渡，纵向 uncovered 连接（同横向序数）不误判。分类表
+    // **构建期一次计算**（`SharedTrafficNetwork::is_lateral_transition_segment`
+    // 查表，P2 性能修正），注册期 O(1)。换道执行支持是**实现能力**（非配置）：
+    // 本构建不支持过渡执行（S4 交付前），注册失败关闭、注册表不变（失败
+    // 原子）。仅声明材料化的过渡段可达本检查（旧输入无此类结构 → 零新拒绝）。
     if !transition_execution_supported() {
         for edge in edges {
-            if is_lateral_transition_segment(traffic, *edge) {
+            if traffic.is_lateral_transition_segment(*edge) {
                 return Err(RouteError::TransitionUnsupported);
             }
         }
     }
     Ok(compiled)
-}
-
-/// 横向过渡段派生分类（P1-1/P2-2）：`candidate` 未被 lane 覆盖且非 junction
-/// internal 时，沿 successors/前驱求其 uncovered 连通分量，取分量两侧 covered
-/// 边界的**横向序数集合**（section 内 lane 序数 = 顺序拓扑中的横向位置）与
-/// 走廊集合；同走廊且序数跨度 ≥ 2 → 横向过渡段（固定预制过渡，如 `T01`、
-/// `T0a…T0b`）。纵向 uncovered 连接两侧同横向序数 → 不判过渡（P2-2）；分类
-/// 与路线窗口无关（P1-1）。
-fn is_lateral_transition_segment(
-    traffic: &SharedTrafficNetwork,
-    candidate: LaneEdgeOrdinal,
-) -> bool {
-    let relations = traffic.relations();
-    let uncovered_non_junction = |edge: LaneEdgeOrdinal| {
-        relations.lane_edge_authoring_lane(edge).is_none()
-            && relations.lane_edge_junction(edge).is_none()
-    };
-    if !uncovered_non_junction(candidate) {
-        return false;
-    }
-    let lateral_index = |edge: LaneEdgeOrdinal| -> Option<usize> {
-        let lane = relations.lane_edge_authoring_lane(edge)?;
-        let section = relations.authoring_section(lane)?;
-        let lanes = relations.section_lanes(section)?;
-        lanes.iter().position(|member| *member == lane)
-    };
-    // 前驱反向表：仅在出现 uncovered 候选时按需构建（covered 路线零成本）。
-    let mut predecessors: std::collections::HashMap<u32, Vec<LaneEdgeOrdinal>> =
-        std::collections::HashMap::new();
-    for raw in 0..traffic.lane_edge_count() {
-        let edge = LaneEdgeOrdinal::from_raw(raw);
-        if let Some(successors) = traffic.successors(edge) {
-            for successor in successors {
-                predecessors.entry(successor.raw()).or_default().push(edge);
-            }
-        }
-    }
-    // uncovered 非 junction 连通分量（successors 前向 + 前驱后向）。
-    let mut component = vec![candidate];
-    let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    visited.insert(candidate.raw());
-    let mut cursor = 0;
-    while cursor < component.len() {
-        let edge = component[cursor];
-        cursor += 1;
-        let successors = traffic
-            .successors(edge)
-            .map(|successors| successors.to_vec())
-            .unwrap_or_default();
-        for successor in successors {
-            if uncovered_non_junction(successor) && visited.insert(successor.raw()) {
-                component.push(successor);
-            }
-        }
-        if let Some(back) = predecessors.get(&edge.raw()).cloned() {
-            for predecessor in back {
-                if uncovered_non_junction(predecessor) && visited.insert(predecessor.raw()) {
-                    component.push(predecessor);
-                }
-            }
-        }
-    }
-    // 分量两侧 covered 边界的横向序数与走廊集合。
-    let mut lateral_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    let mut corridors: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    let mut record_boundary = |boundary: LaneEdgeOrdinal| {
-        if uncovered_non_junction(boundary) {
-            return;
-        }
-        let Some(index) = lateral_index(boundary) else {
-            return;
-        };
-        lateral_indices.insert(index);
-        let Some(lane) = relations.lane_edge_authoring_lane(boundary) else {
-            return;
-        };
-        let Some(section) = relations.authoring_section(lane) else {
-            return;
-        };
-        if let Some(corridor) = relations.section_corridor(section) {
-            corridors.insert(corridor.raw());
-        }
-    };
-    for member in component.clone() {
-        let successors = traffic
-            .successors(member)
-            .map(|successors| successors.to_vec())
-            .unwrap_or_default();
-        for successor in successors {
-            record_boundary(successor);
-        }
-        if let Some(back) = predecessors.get(&member.raw()).cloned() {
-            for predecessor in back {
-                record_boundary(predecessor);
-            }
-        }
-    }
-    corridors.len() == 1 && lateral_indices.len() >= 2
 }
 
 fn compile_waiting_maneuver_bits(
