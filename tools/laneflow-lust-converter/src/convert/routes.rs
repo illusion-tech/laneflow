@@ -95,8 +95,17 @@ impl TransitionIndex {
         }
         let mut connected = std::collections::HashSet::new();
         for connection in &network.connections {
+            // 连通索引按完整链（含 via 段）构建（P2-1）：带 via 的连接记
+            // from→via…→to 逐段相邻对、不记直连对——含 via 边的声明按链
+            // 校验通过，漏 via 边的声明判不连通（失败关闭）。
+            let mut previous = wire_id(&connection.from_edge_id, connection.from_lane);
+            for via in &connection.via_lane_ids {
+                let via_id = format!("{SUMO_ID_PREFIX}{via}");
+                connected.insert((previous.clone(), via_id.clone()));
+                previous = via_id;
+            }
             connected.insert((
-                wire_id(&connection.from_edge_id, connection.from_lane),
+                previous,
                 wire_id(&connection.to_edge_id, connection.to_lane),
             ));
         }
@@ -1038,9 +1047,9 @@ mod tests {
             ""
         };
         let j2_int = if include_p0 {
-            ":J2_0_0 :J2_1_0"
+            ":J2_0_0 :J2_1_0 :JT_0"
         } else {
-            ":J2_0_0"
+            ":J2_0_0 :JT_0"
         };
         let p0_connections = if include_p0 {
             "  <connection from=\"B\" to=\"C\" fromLane=\"0\" toLane=\"0\" via=\":J2_1_0\"/>\n  <connection from=\":J2_1\" to=\"C\" fromLane=\"0\" toLane=\"0\"/>\n"
@@ -1058,6 +1067,7 @@ mod tests {
   <edge id="T10" from="J2" to="J1"><lane id="T10_0" index="0" speed="13.89" length="9.49" shape="6836.88,5730.52 6845.88,5727.52"/></edge>
   <edge id=":J1_0" function="internal"><lane id=":J1_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6816.88,5727.52"/></edge>
   <edge id=":J2_0" function="internal"><lane id=":J2_0_0" index="0" speed="13.89" length="5.00" shape="6836.88,5730.52 6840.88,5727.52"/></edge>
+  <edge id=":JT" function="internal"><lane id=":JT_0" index="0" speed="13.89" length="5.00" shape="6836.88,5730.52 6841.88,5728.22"/></edge>
 {i0_edge}  <junction id="X" type="dead_end" incLanes="" intLanes=""/>
   <junction id="Z" type="dead_end" incLanes="C_0" intLanes=""/>
   <junction id="J1" type="priority" incLanes="A_0 T01_0 T10_0" intLanes=":J1_0_0"/>
@@ -1068,7 +1078,8 @@ mod tests {
   <connection from=":J2_0" to="C" fromLane="0" toLane="0"/>
 {p0_connections}  <connection from="B" to="T01" fromLane="0" toLane="0"/>
   <connection from="T01" to="B" fromLane="0" toLane="1"/>
-  <connection from="B" to="T10" fromLane="1" toLane="0"/>
+  <connection from="B" to="T10" fromLane="1" toLane="0" via=":JT_0"/>
+  <connection from=":JT" to="T10" fromLane="0" toLane="0"/>
   <connection from="T10" to="B" fromLane="0" toLane="0"/>
 </net>
 "#
@@ -1178,6 +1189,28 @@ mod tests {
     }
 
     #[test]
+    fn s1_transition_chain_via_connectivity_requires_full_chain() {
+        let (network, _) = transition_fixture(false);
+        // 含 via 边声明：按完整链（source→via→destination）校验，应通过（P2-1 正例）。
+        let with_via = TransitionDeclaration {
+            id: "t10".to_owned(),
+            from_road: "B".to_owned(),
+            to_road: "C".to_owned(),
+            from_lane: 1,
+            to_lane: 0,
+            final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:T10_0".to_owned()],
+            provenance: TransitionProvenance::Native,
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&with_via), &network).is_ok());
+        // 漏 via 边声明：直连对不在链索引中，应失败关闭（P2-1 负例）。
+        let missing_via = TransitionDeclaration {
+            final_edge_chain: vec!["sumo:T10_0".to_owned()],
+            ..with_via
+        };
+        assert!(TransitionIndex::build(std::slice::from_ref(&missing_via), &network).is_err());
+    }
+
+    #[test]
     fn s1_declared_transition_materializes_crossing_chain() {
         let (network, topology) = transition_fixture(false);
         let population = vec![population_record("selected-z", &["A", "B", "C"])];
@@ -1209,7 +1242,7 @@ mod tests {
                 to_road: "C".to_owned(),
                 from_lane: 1,
                 to_lane: 0,
-                final_edge_chain: vec!["sumo:T10_0".to_owned()],
+                final_edge_chain: vec!["sumo::JT_0".to_owned(), "sumo:T10_0".to_owned()],
                 provenance: TransitionProvenance::Native,
             }),
             &network,
