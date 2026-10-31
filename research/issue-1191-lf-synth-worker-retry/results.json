@@ -1,0 +1,61 @@
+{
+  "format": "lf-synth-worker-retry-results-1",
+  "implementation_commit": "346e5c5f477d6e4248574bba4f90da5b76982650",
+  "input_generator_commit": "9029c021d1f10a7506eedbf5f2fae3b5a7d57629",
+  "binary_sha256": "5b740debc5116b037123178d8ca55f6c5d89873eecca55b1e105e138456a56b6",
+  "test_binary_sha256": "dc8796624ef1469175e251e8f00883cdbe5e40872e0fc0ae108f95979e12adf8",
+  "workers": [1, 2, 4, 8, 16],
+  "rounds": 3,
+  "normal_runs": 4,
+  "retry_runs": 60,
+  "equal_comparisons": 56,
+  "errors": 0,
+  "successful_world_steps": 1379572,
+  "injected_failed_calls": 60,
+  "captured_snapshot_files": 420,
+  "boundary_observations": 420,
+  "boundary_event_records": 33000,
+  "boundary_arrival_records": 0,
+  "rows": [
+    {
+      "scale": 10000,
+      "case": "W3",
+      "fixed_delta_ms": 16,
+      "failure_boundary": 14509,
+      "final_tick": 14510,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 10000,
+      "case": "W4",
+      "fixed_delta_ms": 16,
+      "failure_boundary": 14508,
+      "final_tick": 14510,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W3",
+      "fixed_delta_ms": 33,
+      "failure_boundary": 7045,
+      "final_tick": 7046,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    },
+    {
+      "scale": 100000,
+      "case": "W4",
+      "fixed_delta_ms": 33,
+      "failure_boundary": 7044,
+      "final_tick": 7046,
+      "runs": 15,
+      "comparisons": 14,
+      "equal": true
+    }
+  ]
+}
