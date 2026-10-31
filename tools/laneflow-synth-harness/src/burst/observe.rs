@@ -380,7 +380,7 @@ impl Burst {
                 format!("逻辑身份代次 rank={rank}")
             })?;
             let expected_crossings = if case == Case::W3 {
-                u32::from(self.sample.initial[rank].status() == VehicleStatus::Active)
+                u32::from(self.sample.state.vehicles[rank].status == "active")
             } else {
                 u32::from(rank % 100 == 61)
             };

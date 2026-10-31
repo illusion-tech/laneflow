@@ -213,7 +213,32 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
 矩阵对应检查点比较。原始快照用于本次逐值/字节比较，不代表恢复认证；测试构建
 耗时不作 latency/tail 结论。失败保留 `complete=false` 及已写材料。
 
-## 回归
+## 快照恢复与继续运行
+
+```text
+laneflow-synth-harness restore-probe <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
+laneflow-synth-harness restore-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
+laneflow-synth-harness restore-reference <input-directory> <implementation-commit> <new-output-directory>
+laneflow-synth-harness restore-run <input-directory> <implementation-commit> <workers> <reference-directory> <checkpoint-0-or-1> <new-output-directory>
+```
+
+先执行非正式 `restore-probe`：八个单 worker 短程参考，每个两个检查点分别以
+1/16 worker 恢复，共 32 个新进程。输入与预热不缩短，W1/W2 检查点为预热结束和
+随后第 128 拍，继续运行段最多 256 拍；W3 保留真实替换批次前后，W4 保留 B0 前后
+并到 B1 结束。分阶段耗时只用于正式运行预算，不产生恢复性能认证。
+
+正式 `restore-matrix` 生成八个完整单 worker 参考与十六个检查点，随后执行
+1/2/4/8/16 worker × 三轮，共 240 次新进程恢复。每次重新读取、验证和构建输入，
+认证共享路网修订后从 LFRS 恢复，重建宿主身份映射，精确比较下一拍起至原终点的
+全部轨迹、事件、命令收据、检查点与末态。最大四个并发进程、配置 worker 合计 32。
+
+环境声明与来源冻结沿用跨 worker 入口，必填 `implementation_commit`、
+`source_clean=true`、`rustc_vv`、`cargo_version`、`target`、`build_command`。
+目录必须全新；首错停止新启动、收集已启动进程，不自动补跑。输出保留两份 LFRS、
+两份宿主检查点、完整参考与恢复后缀、分阶段耗时、SHA-256 文件身份及汇总。
+原始材料与副本留仓库外。完整规则见[执行设计 §9](../../docs/design/lf-synth-execution.md)。
+
+## 回归命令
 
 ```powershell
 cargo +1.99.1 test --locked -p laneflow-synth-harness

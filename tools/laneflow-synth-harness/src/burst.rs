@@ -1,4 +1,5 @@
 mod observe;
+pub mod restore;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -8,12 +9,12 @@ use std::path::Path;
 use laneflow_runtime::*;
 use laneflow_static_contract::{ParkingSpaceId, ParkingSpaceOrdinal};
 use laneflow_synth_generator::{Bundle, Case};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{Error, Plan, failure, install::Sample, require};
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Operation {
     ReserveParking,
@@ -37,7 +38,7 @@ impl Operation {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Command {
     pub operation: Operation,

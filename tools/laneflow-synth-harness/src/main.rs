@@ -9,6 +9,7 @@ use laneflow_runtime::ExecutionConfig;
 use laneflow_synth_harness::{Error, run};
 use serde_json::{Value, json};
 
+mod restore_matrix;
 mod retry;
 mod worker_retry;
 mod workers;
@@ -168,7 +169,13 @@ fn compare(output: &Path, label: &str, a: &Value, b: &Value) -> Result<Value, Er
 
 fn execute() -> Result<(), Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let Some(result) = restore_matrix::dispatch(&args) {
+        return result;
+    }
     if args.len() == 1 && args[0] == "--help" {
+        println!(
+            "laneflow-synth-harness restore-reference <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness restore-run <input-directory> <implementation-commit> <workers> <reference-directory> <checkpoint-0-or-1> <new-output-directory>\nlaneflow-synth-harness restore-probe <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>\nlaneflow-synth-harness restore-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>"
+        );
         println!(
             "laneflow-synth-harness run <input-directory> <implementation-commit> <new-output-directory>\nlaneflow-synth-harness matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-commit> <new-output-root>\nlaneflow-synth-harness retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <normal-matrix-output> <new-output-root>\nlaneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>\nlaneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>\nlaneflow-synth-harness worker-retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>"
         );

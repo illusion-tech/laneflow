@@ -77,9 +77,9 @@ runtime-only 世界 = `PublishedLfcaReference`；编辑来源绑定形状见
 route、route edge occurrence 与 route conflict occurrence 四项目标容量分别不得小于
 保存容量，即使当前 live state 放得下也不能缩容。允许放大，但**精确回放的对拍
 前提是语义容量一致**；容量差异会改变后续生命周期命令的成功条件，也进入摘要。
-`ExecutionConfig` 由宿主另行显式提供，不从旧快照读取，不按 CPU 数猜测；当前只支持
-worker 1，更大的请求在完整交通恢复后返回执行能力错误。未来合法的执行配置差异
-仍不得改变精确交通结果（ADR 0021、0030）。
+`ExecutionConfig` 由宿主另行显式提供，不从旧快照读取，不按 CPU 数猜测；当前支持
+worker 1–16，超出后端能力的请求在完整交通恢复后返回执行能力错误。合法的执行配置
+差异不得改变精确交通结果（ADR 0021、0030；执行配置合同 §2）。
 
 `route_edge_occurrence_capacity` 与 `route_conflict_occurrence_capacity` 都是行为语义
 容量：前者统计全部存活动态路线边序列 occurrence，后者统计路线重编译所得全部

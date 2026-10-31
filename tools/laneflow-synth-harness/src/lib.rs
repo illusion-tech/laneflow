@@ -4,6 +4,7 @@ mod burst;
 mod install;
 pub mod measurement;
 mod observe;
+pub use burst::restore;
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
