@@ -52,11 +52,25 @@ cargo +1.99.1 test --workspace --locked
 | ------------------ | ------------------------------------------------------------- |
 | 静态路网工具链     | 编译并检查 LFCA，构建可跨世界共享的 `SharedNetworkRevision`   |
 | Traffic Runtime    | 固定步进推进跟驰与信号；停车状态转换由宿主命令驱动            |
+| 交通规则           | Waiting/Conflict 联合裁决与显式路权策略                       |
+| 世界生命周期       | 快照保存与恢复、路网修订切换                                  |
+| 宿主集成           | 已提交交通观测、候选路线接入、按需位姿提取                    |
+| 执行方式           | 单世界多 worker 执行，与单 worker 结果确定性等价              |
 | Spatial            | 可选地将规范进度采样为引擎无关位姿                            |
-| Reference Adapter  | 提供 Bevy 0.20 接入、无窗口测试与信号化走廊集成夹具           |
+| Reference Adapter  | 提供 Bevy 0.20 接入、无窗口测试、持续车流与复杂路口诊断示例   |
 | Reference Scenario | 提供 catalog 0.4 与 prepare 绑定；要求显式 `policy_selection` |
 
-宿主负责交通需求、出发计划、路线选择策略，以及引擎生命周期与最终表现。
+宿主负责交通需求、出发计划、路线选择策略与 Routing 算法，以及引擎生命周期与最终表现。
+
+### 选择示例
+
+| 示例               | 适合场景                     | 行为                                 |
+| ------------------ | ---------------------------- | ------------------------------------ |
+| `quickstart`       | 最小接入、车辆绑定与位姿同步 | 两辆车，有限路线，完成后不回流       |
+| `corridor_traffic` | 持续车流与宿主生命周期       | 默认 100 车，支持 50–200，完成后回流 |
+| `junction_debug`   | 复杂路口领域观测与可视诊断   | 确定性场景，F2 开关只读诊断 overlay  |
+
+参数与完整命令见 [`laneflow-bevy` 示例](crates/laneflow-bevy/README.md#示例)。
 
 ## 架构
 
@@ -82,7 +96,7 @@ SharedNetworkRevision
 
 - 当前唯一可运行特化是道路机动车。
 - 当前唯一已交付 Adapter 是 Bevy 0.20 Reference Adapter。
-- 原生示例提供最小可视入门与复杂路口诊断。
+- 原生示例提供最小可视入门、持续车流与复杂路口诊断。
 - LaneFlow 不内置交通需求、路线选择或专业交通工程分析。
 
 > 交通参与单元与交通执行域是长期抽象方向，不代表已经支持其他执行域，
@@ -93,6 +107,10 @@ SharedNetworkRevision
 [文档索引](docs/README.md) ·
 [架构说明](docs/architecture.md) ·
 [定位与宿主边界](docs/adr/0021-traffic-infrastructure-and-host-boundary.md) ·
+[Runtime 集成与生命周期](crates/laneflow-runtime/README.md) ·
+[编译器](crates/laneflow-compiler/README.md) ·
+[共享静态路网](crates/laneflow-static-network/README.md) ·
+[参考场景](crates/laneflow-scenario/README.md) ·
 [`laneflow-bevy` 接入](crates/laneflow-bevy/README.md) ·
 [贡献指南](CONTRIBUTING.md) ·
 [品牌标记](assets/brand/README.md) ·
