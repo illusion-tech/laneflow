@@ -33,36 +33,10 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features nati
 ```
 
 窗口中可以看到两辆车沿车道移动，浅色车头标记显示行驶朝向；关闭窗口结束。
-车道来自同一共享路网修订的 Spatial 中心线，车辆通过 Session 绑定并同步完整位姿。
+车道来自同一共享路网修订的空间中心线，车辆通过 Session 绑定并同步完整位姿。
 这是有限路线夹具：车辆会等待信号，行程结束后不回流；重新运行可重播。
 
-<details>
-<summary>无窗口验证与完整 workspace 检查</summary>
-
-```powershell
-cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
-cargo +1.99.1 test --workspace --locked
-```
-
-</details>
-
-## 当前能力
-
-| 组件               | 已交付能力                                                    |
-| ------------------ | ------------------------------------------------------------- |
-| 静态路网工具链     | 编译并检查 LFCA，构建可跨世界共享的 `SharedNetworkRevision`   |
-| Traffic Runtime    | 固定步进推进跟驰与信号；停车状态转换由宿主命令驱动            |
-| 交通规则           | Waiting/Conflict 联合裁决与显式路权策略                       |
-| 世界生命周期       | 快照保存与恢复、路网修订切换                                  |
-| 宿主集成           | 已提交交通观测、候选路线接入、按需位姿提取                    |
-| 执行方式           | 单世界多 worker 执行，与单 worker 结果确定性等价              |
-| Spatial            | 可选地将规范进度采样为引擎无关位姿                            |
-| Reference Adapter  | 提供 Bevy 0.20 接入、无窗口测试、持续车流与复杂路口诊断示例   |
-| Reference Scenario | 提供 catalog 0.4 与 prepare 绑定；要求显式 `policy_selection` |
-
-宿主负责交通需求、出发计划、路线选择策略与 Routing 算法，以及引擎生命周期与最终表现。
-
-### 选择示例
+想看持续车流或复杂路口，可以换用其他示例：
 
 | 示例               | 适合场景                     | 行为                                 |
 | ------------------ | ---------------------------- | ------------------------------------ |
@@ -72,49 +46,76 @@ cargo +1.99.1 test --workspace --locked
 
 参数与完整命令见 [`laneflow-bevy` 示例](crates/laneflow-bevy/README.md#示例)。
 
-## 架构
+<details>
+<summary>无窗口验证</summary>
 
-```text
-Authoring Sources
-        ↓
-laneflow-compiler
-        ↓
-LFCA / Format Check
-        ↓
-SharedNetworkRevision
-    ├─→ TrafficWorld ────────────┐
-    └─→ SpatialSession（可选）───┴─→ Adapter / Presentation
+不打开窗口，确认最小示例的装配、绑定与位姿同步链路：
+
+```powershell
+cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
 ```
 
-- `TrafficWorld` 与 `SpatialSession` 消费同一份共享路网修订。
-- 路线不写入静态制品；每个世界通过 `TrafficWorld::register_route` 注册路线。
+参与开发时的完整工作区检查见[贡献指南 · 测试与验证](CONTRIBUTING.md#8-测试与验证)。
+
+</details>
+
+## 能力与职责边界
+
+| 能力           | 当前支持                                                           |
+| -------------- | ------------------------------------------------------------------ |
+| 静态路网       | 编译与检查静态制品，构建可跨世界共享的路网修订                     |
+| 交通推进       | 跟驰、信号遵守、等待区与冲突区联合裁决、显式路权策略和停车生命周期 |
+| 世界管理       | 快照保存与恢复、路网修订切换                                       |
+| 宿主接口       | 已提交交通观测、候选路线接入，以及由宿主控制的生命周期操作         |
+| 空间与表现接入 | 可选位姿采样、按需位姿提取和引擎适配                               |
+| 执行方式       | 确定性固定步进，支持单世界多 worker 执行                           |
+| 参考集成       | Bevy 0.20 适配，以及最小入门、持续车流和复杂路口诊断示例           |
+
+宿主负责交通需求、出发计划、路线选择策略与 Routing 算法，以及引擎生命周期与最终
+表现；LaneFlow 不内置专业交通工程分析。
+
+当前只交付道路机动车特化和 Bevy 0.20 Reference Adapter。交通参与单元与交通执行域
+是长期抽象方向，不代表已经支持其他执行域，也不构成交付时间承诺。
+
+## 架构概览
+
+下图展示静态路网的编制、共享消费及宿主集成关系。虚线表示可选的空间与表现路径。
+
+```mermaid
+flowchart TD
+    Source["道路编制输入"] --> Build["编译与校验"]
+    Build -->|由受检 LFCA 构建| Revision["SharedNetworkRevision"]
+
+    Revision -->|交通数据| Runtime["TrafficWorld"]
+    Revision -.->|空间几何| Spatial["SpatialSession（可选）"]
+
+    Runtime -->|已提交交通状态| Host["宿主接入 / Adapter"]
+    Spatial -.->|规范位姿| Host
+
+    Host -.-> Presentation["引擎表现（可选）"]
+```
+
+- `TrafficWorld` 与 `SpatialSession` 绑定同一份共享路网修订；无窗口运行可以只使用
+  Runtime。
+- 位姿采样由宿主或 Adapter 编排：读取 Runtime 的已提交位姿来源，交给 Spatial 采样，
+  再应用到引擎实体。Runtime 与 Spatial 互不依赖，图中省略具体调用与返回过程。
+- 路线由宿主提供，在每个世界中通过 `TrafficWorld::register_route` 注册，不写入静态
+  路网制品。
 
 详细职责与依赖方向见[架构说明](docs/architecture.md)和
 [Traffic Runtime 共享静态路网消费契约](docs/design/traffic-runtime-shared-consumption.md)。
 
-## 当前边界
+## 接入与文档
 
-- 当前唯一可运行特化是道路机动车。
-- 当前唯一已交付 Adapter 是 Bevy 0.20 Reference Adapter。
-- 原生示例提供最小可视入门、持续车流与复杂路口诊断。
-- LaneFlow 不内置交通需求、路线选择或专业交通工程分析。
-
-> 交通参与单元与交通执行域是长期抽象方向，不代表已经支持其他执行域，
-> 也不构成交付时间承诺。
-
-## 继续阅读
-
-[文档索引](docs/README.md) ·
-[架构说明](docs/architecture.md) ·
-[定位与宿主边界](docs/adr/0021-traffic-infrastructure-and-host-boundary.md) ·
-[Runtime 集成与生命周期](crates/laneflow-runtime/README.md) ·
-[编译器](crates/laneflow-compiler/README.md) ·
-[共享静态路网](crates/laneflow-static-network/README.md) ·
-[参考场景](crates/laneflow-scenario/README.md) ·
-[`laneflow-bevy` 接入](crates/laneflow-bevy/README.md) ·
-[贡献指南](CONTRIBUTING.md) ·
-[品牌标记](assets/brand/README.md) ·
-[Issue Tracker](https://github.com/illusion-tech/laneflow/issues)
+| 我想做什么             | 阅读入口                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 运行示例或接入 Bevy    | [`laneflow-bevy`](crates/laneflow-bevy/README.md)                                                                                |
+| 嵌入无窗口交通运行时   | [`laneflow-runtime`](crates/laneflow-runtime/README.md)                                                                          |
+| 编制路网、了解静态制品 | [`laneflow-compiler`](crates/laneflow-compiler/README.md)、[`laneflow-static-network`](crates/laneflow-static-network/README.md) |
+| 组织参考场景与车辆生成 | [`laneflow-scenario`](crates/laneflow-scenario/README.md)                                                                        |
+| 理解架构和宿主职责     | [架构说明](docs/architecture.md)、[定位与宿主边界](docs/adr/0021-traffic-infrastructure-and-host-boundary.md)                    |
+| 参与开发               | [贡献指南](CONTRIBUTING.md)、[Agent 说明](AGENTS.md)                                                                             |
+| 查找完整资料或反馈问题 | [文档索引](docs/README.md)、[Issue Tracker](https://github.com/illusion-tech/laneflow/issues)                                    |
 
 ## 许可证
 

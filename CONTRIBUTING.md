@@ -150,6 +150,17 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用门禁。
 
+本地完整工作区检查：
+
+```powershell
+cargo +1.99.1 fmt --all -- --check
+cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.99.1 test --workspace --locked
+```
+
+CI 的 workspace 测试使用 cargo-nextest，doctest 单独运行；精确命令与其余专用 job 以
+`docs/governance/github-workflow.md` §8 为准。
+
 PR 中必须记录实际运行的检查。无法运行时，应说明原因和风险。
 
 ### 8.1 本地调试与构建产物体积（#802）
