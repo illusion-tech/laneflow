@@ -7,12 +7,12 @@
 
 ## 交付物
 
-| 交付物 | 位置 | 内容 |
-| --- | --- | --- |
-| 实现方案 | [plan.md](plan.md) | S1/S3/能力拒绝设计、A0/A1 等值计划、发射实测四口径、R1–R3 引用不实现 |
-| S1 过渡感知扩展 | `tools/laneflow-lust-converter/src/convert/routes.rs` | `TransitionDeclaration`/`TransitionIndex`（校验失败关闭）；两相展开（相 1 严格=逐字节旧行为，相 2 声明转移仅严格失败时启用）；物化插入过渡边链 + 目标 lane 段；`build_routes_and_bind_population_with_transitions` 新入口（旧入口委托空声明，调用点零改动） |
-| 能力拒绝 | `crates/laneflow-runtime/src/kernel/{error.rs,tables.rs}` | `RouteError::TransitionUnsupported`（结构化/失败关闭/注册表不变）；`compile_route` 过渡段派生规则（uncovered 非 junction 边 + 前后邻边同走廊不同 lane 链）；能力谓词 `transition_execution_supported`（实现能力，非配置） |
-| 契约回写 | `docs/design/lane-change-minimal-contract.md`、`docs/design/real-road-workloads.md` | 合同状态 → **Accepted**（#237 G1 冻结，2026-10-31）；§3.1 边内换道语义修订（仅声明边界转移、次选语义、旧输入零新拒绝） |
+| 交付物          | 位置                                                                                | 内容                                                                                                                                                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 实现方案        | [plan.md](plan.md)                                                                  | S1/S3/能力拒绝设计、A0/A1 等值计划、发射实测四口径、R1–R3 引用不实现                                                                                                                                                                                        |
+| S1 过渡感知扩展 | `tools/laneflow-lust-converter/src/convert/routes.rs`                               | `TransitionDeclaration`/`TransitionIndex`（校验失败关闭）；两相展开（相 1 严格=逐字节旧行为，相 2 声明转移仅严格失败时启用）；物化插入过渡边链 + 目标 lane 段；`build_routes_and_bind_population_with_transitions` 新入口（旧入口委托空声明，调用点零改动） |
+| 能力拒绝        | `crates/laneflow-runtime/src/kernel/{error.rs,tables.rs}`                           | `RouteError::TransitionUnsupported`（结构化/失败关闭/注册表不变）；`compile_route` 过渡段派生规则（uncovered 非 junction 边 + 前后邻边同走廊不同 lane 链）；能力谓词 `transition_execution_supported`（实现能力，非配置）                                   |
+| 契约回写        | `docs/design/lane-change-minimal-contract.md`、`docs/design/real-road-workloads.md` | 合同状态 → **Accepted**（#237 G1 冻结，2026-10-31）；§3.1 边内换道语义修订（仅声明边界转移、次选语义、旧输入零新拒绝）                                                                                                                                      |
 
 ## 裁定护栏（2026-10-31 统筹四点 + 硬护栏）
 
@@ -27,17 +27,30 @@
 
 ## 等值与验证（结果如实记录，失败不修绿）
 
-- **A0/A1 硬等值基线**（S1 核心落码后、全部改动前）：converter 包级
-  **318 通过 / 0 失败 / 49 ignored**（含 A0 五组 + A1 十组）。
-- 终态复验、S1 新增五测试、S3 发射实测、能力拒绝断言：随实现执行后在此更新。
+- **A0/A1 硬等值基线**（S1 核心落码后）：converter **318 通过 / 0 失败 / 49
+  ignored**（含 A0 五组 + A1 十组）。
+- **终态全量**：converter **323 通过 / 0 失败**（318 基线 + S1 新增五测试，
+  既有测试文件零改动、旧入口零签名变更）；runtime **641 通过 / 0 失败**
+  （639 基线 + S3/能力拒绝两测试）——**旧输入零新拒绝**（硬护栏）实证。
+- **S3 发射预算实测**：合成样本网络（v5 派生 13 边）经 SyntheticModuleBuilder
+  → Compiler → `emit_portable_candidate` → `check_post_emission_bundle`
+  （`FormatLimits::HARD`，**零放宽**）→ `build_shared_network_revision` 全链
+  通过；逐边长度多重集与 sample v5 钉版值逐项相等。
+- **静态序列验证 + 能力拒绝**：直行链编译通过（能力门放行）；过渡链
+  `[A0,I1,B0_up,T01,B1_down,I2,C0]` 返回 `TransitionUnsupported`（错误类型即
+  证明静态序列合同完整通过）；拒绝纯度/可重复、注册失败原子（D5）、无过渡
+  结构路线永不触发（护栏断言）。
+- **常规检查**：`clippy -D warnings`（两 crate 全 targets）、`fmt --check`、
+  `git diff --check` 全部通过。
 
 ## 验收对照（Issue #1194）
 
-- [ ] A0/A1 硬等值三项口径全绿（旧入口旧结论逐值不变 + 旧输入零新拒绝）。
-- [ ] S1 静态序列验证 + 能力拒绝断言（S3 侧注册面；准入/恢复留 S4）。
-- [ ] S3 发射预算实测四口径 + 失败留档纪律。
+- [x] A0/A1 硬等值三项口径全绿（旧入口旧结论逐值不变 + 旧输入零新拒绝）。
+- [x] S1 静态序列验证 + 能力拒绝断言（S3 侧注册面；准入/恢复留 S4）。
+- [x] S3 发射预算实测四口径 + 失败留档纪律（合成样本全链 HARD 零放宽；
+  逐边证据 = 长度多重集断言；无失败需留档）。
 - [x] 合同状态转 Accepted；§3.1 契约同步。
-- [ ] 常规检查与九项必需检查随 PR。
+- [ ] 常规检查与九项必需检查随 PR（本地 clippy/fmt/diff 已全绿）。
 
 ## 未执行 / 不做（引用验收形态不实现）
 
