@@ -1,6 +1,6 @@
 ---
 name: laneflow-development
-description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现、缺陷修复、测试更新、当前 Core/目标 Traffic Runtime 代码变更、数据格式修改或准备实现 PR。
+description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现、缺陷修复、测试更新、Traffic Runtime 代码变更、数据格式修改或准备实现 PR。
 ---
 
 # LaneFlow 开发
@@ -43,7 +43,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 13. 新增、更换或复核摘要、指纹，或新增摘要算法依赖时，读取
     `docs/adr/0033-digest-role-and-algorithm-selection-authority.md`
 
-若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，
+若任务涉及 Traffic Runtime API、数据格式或 Adapter API，
 但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。
 
 ## 工作流
@@ -58,10 +58,10 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    未解决 review conversation 由 GitHub 原生规则阻断。全部 success 后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
    Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
    最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
-   队列 live Ruleset 必须保留 required checks，并关闭 `strict_required_status_checks_policy`；集成结果由
-   GitHub 为最新目标分支组合生成的 `H_mg` 承载。`H_pr` 与真实 `H_mg` 都必须完成
-   `Commit message`、`Rust checks`、`Placement fixture tests`、`Urban harness tests`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；
-   CodeQL 两项必须来自 GitHub Actions App `integration_id=15368`，不得用原生 CodeQL rule 或其他 SHA 补足。
+   集成结果由 GitHub 为最新目标分支组合生成的 `H_mg` 承载，`H_pr` 与真实 `H_mg` 都必须完成全部
+   required checks。检查名称清单、CodeQL 来源与队列 live Ruleset 要求以
+   `docs/governance/development-gates.md` §6 为唯一事实源，本 Skill 不复制；执行合并前通过 GitHub
+   API 核对实时 Ruleset。
 
 ### Rust 语义导航
 
@@ -84,7 +84,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   的代码语言立项审查。研究、测试、CI 和嵌入脚本均按该单一事实源执行，Agent 不得自行豁免。
 
 - 1.0 正式发布前遵守 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
-- 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
+- 不要把引擎相关依赖引入 Traffic Runtime。
 - 可运行世界使用中文规范名“LaneFlow 交通运行时”及精确标识符
   `laneflow-runtime` / `TrafficWorld`。`laneflow-core` / `CoreWorld` 与 current
   JSON 入口已拆除，不得再当作正式入口。契约见
@@ -122,7 +122,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 完成实现工作后，应汇报：
 
 - 变更摘要
-- 对当前态 Core API、目标态 Traffic Runtime API、数据格式、Adapter API 的影响
+- 对 Traffic Runtime API、数据格式、Adapter API 的影响
 - 已运行的验证
 - 文档是否更新或为何无需更新
 - 剩余风险或后续 Issue

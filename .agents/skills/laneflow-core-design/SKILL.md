@@ -1,13 +1,12 @@
 ---
 name: laneflow-core-design
-description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）与目标态交通运行时（Target Traffic Runtime）设计。适用于当前道路机动车的车辆状态（Vehicle State）、车道图（Lane Graph）、路线（Route）、跟车（Vehicle Following）、信号（Signal）、路口规则（Intersection Rules）与停车（Parking），以及目标交通参与单元（Traffic Participant Unit）、交通执行域（Traffic Execution Domain）、确定性固定步进（Tick）/并行、路网修订、快照/回放、路径规划接入和 Core/Runtime API 变更。
+description: 处理 LaneFlow 交通运行时（Traffic Runtime）设计。适用于当前 `TrafficWorld` 道路机动车特化的车辆状态（Vehicle State）、车道图（Lane Graph）、路线（Route）、跟车（Vehicle Following）、信号（Signal）、路口规则（Intersection Rules）与停车（Parking），确定性固定步进（Tick）与单世界并行、列式运动、状态完整性、路网修订与切换、快照/恢复、路径规划接入和 Runtime API 变更，以及交通参与单元（Traffic Participant Unit）与交通执行域（Traffic Execution Domain）的长期方向。
 ---
 
 # LaneFlow 交通运行时设计（Traffic Runtime Design）
 
-Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate 删除后
-短暂保留，作为 Traffic Runtime 的发现入口；它不表示目标态继续命名为 Core。crate
-拆除由 #301 完成。
+Skill 标识符（Skill ID）`laneflow-core-design` 沿用历史名称，仅作为 Traffic Runtime
+设计任务的发现入口，说明见 `.agents/README.md`。
 
 ## 先读这些
 
@@ -16,35 +15,38 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
 3. `docs/design/README.md`
 4. `docs/governance/development-gates.md`
 5. `docs/reference/glossary.md`
-6. 已存在的相关 Core / Traffic Runtime design 文档
-7. 涉及 #291 静态路网编译、#300 共享静态路网或 #301 消费路径与 Core 入口拆除时，读取
-   `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
-   `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
-   `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
-   `docs/design/traffic-runtime-shared-consumption.md`
-8. 涉及已关闭的 #308 编译器预算校准时，只读
-   `docs/design/compiler-budget-calibration.md` 的短结论。查阅当时制品使用 G4
-   精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310
-9. 涉及 #292/#315/#296/#297 编译器基础设施、官方前端共同受检模块接入、current JSON
-   退役、已验证规范 LIR 或集成专用投影时，额外读取
-   `docs/design/compiler-foundation.md`；
-   #296 的道路编辑状态、候选道路替换或来源权威还须读取
-   `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
-   `docs/design/road-editing-source-and-geometry-frontend.md`；
-   复核生产编译性能时读取
-   `docs/reference/v0.10-compiler-production-baseline.md`
-10. 涉及公开组件定位与宿主边界、出行编排、Routing、路网修订、存档/回放、并行或
+6. `crates/laneflow-runtime/README.md`
+7. 涉及公开组件定位与宿主边界、出行编排、Routing、路网修订、存档/回放、并行或
    fidelity 时，读取 `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
-若所需 design 文档尚不存在，在对当前 Core 或目标 Traffic Runtime 做高影响变更
-前，应先创建或提出最小设计基线。1.0 前同时阅读
-`.agents/skills/laneflow-pre-1-0/SKILL.md`。
+## 按任务读取
 
-## 当前态与目标态命名边界
+下表是条件导航：只读取与本次修改相关的合同；算法、格式版本与验收数字以合同为准，
+不在本 Skill 复制。
+
+| 修改内容 | 按需读取 |
+|---|---|
+| fixed tick、阶段顺序、内部模块归属 | `docs/design/traffic-runtime-phase-protocol.md`、`docs/design/traffic-runtime-module-boundary.md` |
+| worker、调度、执行资源、首错与 join | `docs/adr/0030-single-world-parallel-execution.md`、`docs/design/traffic-runtime-execution-config.md`、`docs/design/traffic-runtime-parallel-execution.md` |
+| 运动存储、批量计算、SIMD | `docs/adr/0031-columnar-motion-authority.md`、`docs/design/traffic-runtime-columnar-execution.md`、`crates/laneflow-motion-kernel/README.md` |
+| 修订认证、状态完整性、失真处置 | `docs/adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md`、`docs/design/traffic-runtime-state-integrity.md` |
+| Waiting、Conflict 与路权策略 | `docs/design/waiting-zone-conflict-right-of-way.md`、`docs/design/traffic-runtime-waiting-zone.md`、`docs/design/traffic-runtime-right-of-way-policy.md` |
+| spawn/replace 等新鲜摆放 | `docs/design/traffic-runtime-vehicle-placement.md` |
+| 保存、恢复、修订切换、编辑来源 | `docs/design/traffic-runtime-snapshot.md`、`docs/design/traffic-runtime-revision-cutover.md`、`docs/design/committed-road-editing-state.md` |
+| 摘要、指纹和算法选择 | `docs/adr/0033-digest-role-and-algorithm-selection-authority.md` |
+| 静态路网编译、共享静态路网与 Runtime 消费路径 | `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、`docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、`docs/design/network-compiler.md`、`docs/design/shared-static-network.md`、`docs/design/traffic-runtime-shared-consumption.md` |
+| 编译器基础设施、官方前端受检模块、已验证规范 LIR | `docs/design/compiler-foundation.md`；复核生产编译性能时读取 `docs/reference/v0.10-compiler-production-baseline.md` |
+| 道路编辑状态、候选道路替换或来源权威 | `docs/adr/0023-road-editing-state-and-phased-network-replacement.md`、`docs/design/road-editing-source-and-geometry-frontend.md` |
+| 已关闭的编译器预算校准（#308） | 只读 `docs/design/compiler-budget-calibration.md` 的短结论；当时制品见精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310 |
+
+若所需 design 文档尚不存在，在对 Traffic Runtime 做高影响变更前，应先创建或提出
+最小设计基线。1.0 前同时阅读 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
+
+## 命名边界
 
 - 可运行世界：中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”，
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
-- `laneflow-core` / `CoreWorld` 已拆除。目标设计不得把 `Core` 当成终态名称。
+- `laneflow-core` / `CoreWorld` 已拆除。新设计不得重新引入 `Core` 作为运行时名称。
 - 中文术语和中文定义以 `docs/reference/glossary.md` 为权威，英文只作辅助理解。
 
 ## 动态执行层边界
@@ -52,10 +54,11 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
 当前 `TrafficWorld` 只实现道路机动车车辆特化，负责：
 
 - `VehicleState`、车道图遍历、Route 跟随与前车避让
-- 信号遵守、路口规则和停车行为
+- 信号遵守、路口规则、Waiting/Conflict 联合裁决与显式路权策略
+- 停车行为
 - 引擎无关的固定步进（Fixed Tick）行为
 
-目标 Traffic Runtime 使用交通参与单元（Traffic Participant Unit）作为长期通用
+长期方向上，Traffic Runtime 以交通参与单元（Traffic Participant Unit）作为通用
 抽象，并按交通执行域（Traffic Execution Domain）分离网络、运动/安全求解和生命
 周期。它负责已实现执行域的参与单元、动态通行定义、每世界可变状态、运行时执行
 计划和路网修订绑定。当前车辆能力不能被写成终态唯一参与者模型，通用术语也不能
@@ -72,9 +75,9 @@ Traffic Runtime 不得依赖：
 
 ## 设计检查
 
-对当前 Core / 目标 Traffic Runtime 变更，必须显式确认：
+对 Traffic Runtime 变更，必须显式确认：
 
-- 是否改变当前 Core API 或目标 Traffic Runtime API？
+- 是否改变 Traffic Runtime API？
 - 是否改变数据格式假设？
 - 是否影响 Adapter API？
 - 是否需要确定性行为测试？
@@ -99,9 +102,9 @@ Traffic Runtime 不得依赖：
 
 ## 交付说明
 
-当前 Core / 目标 Traffic Runtime 相关工作应汇报：
+Traffic Runtime 相关工作应汇报：
 
-- 当前 Core 或目标 Traffic Runtime 行为变更
+- Traffic Runtime 行为变更
 - API 或数据格式影响
 - 已运行的测试或验证
 - 文档或 ADR 是否更新

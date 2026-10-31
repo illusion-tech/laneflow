@@ -1,6 +1,6 @@
 ---
 name: laneflow-adapter
-description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用于 Unity、Unreal、Godot、O3DE、Web、当前 Core/目标 Traffic Runtime 集成、变换（Transform）同步、引擎生命周期、当前车辆/目标交通参与单元表现、调试可视化、细节层次（LOD）与 Adapter API 变更。
+description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用于当前 Bevy 参考适配器（Bevy Reference Adapter）及 Unity、Unreal、Godot、O3DE、Web 等引擎接入、Traffic Runtime 集成、变换（Transform）同步与已提交位姿提取、引擎生命周期（含恢复与修订切换）、当前车辆与未来交通参与单元表现、调试可视化、细节层次（LOD）与 Adapter API 变更。
 ---
 
 # LaneFlow 引擎适配器（Engine Adapter）
@@ -11,20 +11,35 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
 2. `docs/adr/0001-project-scope.md`
 3. `docs/governance/development-gates.md`
 4. `docs/governance/agent-development-guide.md`
-5. `docs/design/adapter-api.md`（若已存在）
+5. `docs/design/adapter-api.md`
 6. `docs/reference/glossary.md`
 7. 涉及 #291/#300 共享静态路网或交通运行时（Traffic Runtime）时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
    `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
-8. 涉及 #301 目标 Runtime/Spatial 绑定、最小 Bevy 或 Adapter 目标接线时，读取
+8. 涉及 Runtime/Spatial 绑定与共享消费时，读取
    `docs/design/traffic-runtime-shared-consumption.md`。Spatial 只 bind 根 `Arc`，
    不依赖 Runtime；pose 使用 `PoseRecordId`。
 9. 涉及宿主应用集成、存档/回放、路网切换或 fidelity 时，读取
    `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
-若 Adapter API 设计尚不存在，且任务会改变当前 Core / 目标 Traffic Runtime 与
-Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。
+## 按任务读取
+
+| 修改内容 | 按需读取 |
+|---|---|
+| Bevy 插件、Session、示例与宿主生命周期 | `docs/design/bevy-reference-adapter.md`、`crates/laneflow-bevy/README.md` |
+| 位姿批量提取、按需选择与表现优化 | `docs/design/committed-pose-extraction.md` |
+| 存档恢复、修订切换后的实体绑定 | `docs/design/traffic-runtime-snapshot.md`、`docs/design/traffic-runtime-revision-cutover.md` |
+| 复杂路口观测与调试可视化 | `docs/design/junction-observation-and-validation.md` |
+
+几条容易出错的约束（完整校验顺序以上述合同与 `adapter-api.md` 为准）：
+
+- 选择集合或本批位姿中缺席不等于 despawn；宿主只依据生命周期结果隐藏或回收实体。
+- 批内 `PoseRecordId` 只是本批连续序号，不能充当持久实体身份。
+- 修订切换成功后，此前的 Adapter 消费上下文过期，必须重新取得并复核。
+
+若任务会改变 Traffic Runtime 与 Adapter 的契约，而 `adapter-api.md` 尚未覆盖，
+应先提出 G1 设计缺口。
 
 ## 命名与术语
 
@@ -42,7 +57,7 @@ Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。
 Adapter 负责：
 
 - 引擎生命周期集成
-- 调用当前 Core / 目标 Traffic Runtime 的固定步进（Fixed Tick）
+- 调用 Traffic Runtime 的固定步进（Fixed Tick）
 - actor、entity、prefab 或 scene object 绑定
 - transform 同步
 - 当前车辆模型与动画绑定，以及未来已实现执行域的参与单元表现绑定
@@ -52,8 +67,8 @@ Adapter 负责：
 
 Adapter 不得：
 
-- 把 Core / Traffic Runtime 交通规则搬进引擎专用代码。
-- 把引擎依赖引入 Core / Traffic Runtime。
+- 把 Traffic Runtime 交通规则搬进引擎专用代码。
+- 把引擎依赖引入 Traffic Runtime。
 - 定义未文档化的数据格式语义。
 - 在不更新 design 文档的情况下改变 Adapter API。
 - 用 LOD、可见性或帧预算静默改变 Traffic Runtime safety、通行权、fixed tick 或
@@ -73,7 +88,7 @@ Adapter 变更应记录：
 - 手工场景或示例验证
 - transform 同步验证
 - 调试可视化验证（若相关）
-- Core / Traffic Runtime API 与 Adapter API 影响
+- Traffic Runtime API 与 Adapter API 影响
 
 ## 交付说明
 
@@ -81,6 +96,6 @@ Adapter 相关工作应汇报：
 
 - 影响的引擎
 - Adapter 行为变更
-- Core / Traffic Runtime API 或 Adapter API 影响
+- Traffic Runtime API 或 Adapter API 影响
 - 已运行的验证
 - 文档是否更新或后续待办
