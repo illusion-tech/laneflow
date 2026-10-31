@@ -463,6 +463,12 @@ fn record_occurrence(
     claim_internal_coverage(coverage, entry_index, exit_index, path)
 }
 
+/// A6 选项 3：换道执行支持是**实现能力**（非配置，不新增配置字段）。S4 交付
+/// 过渡执行前置 `false`；翻转属 S4 实现切片。
+fn transition_execution_supported() -> bool {
+    false
+}
+
 /// 注册期唯一出现项编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
 /// 不上 `u64`，不冻当前红灯。
 pub(crate) fn compile_route(
@@ -653,6 +659,45 @@ pub(crate) fn compile_route(
         hops: Vec::new(),
     };
     compiled.refresh_hops(lengths, speeds)?;
+    // 能力拒绝（A6 选项 3，S3 侧注册面）：置于全部静态出现项编译完成之后
+    // ——静态序列验证独立完整（错误类型不因能力检查提前截断），含横向过渡
+    // 段的路线在能力不支持时结构化拒绝。派生规则识别横向过渡段：未被任何
+    // lane 覆盖、非 junction internal、且路线前后邻边分属同一走廊不同 lane
+    // 链的边（固定预制过渡，如 `T01`）。换道执行支持是**实现能力**（非配置）：
+    // 本构建不支持过渡执行（S4 交付前），注册失败关闭、注册表不变（失败
+    // 原子）。仅声明材料化的过渡段可达本检查（旧输入无此类结构 → 零新拒绝）。
+    if !transition_execution_supported() {
+        for window in edges.windows(3) {
+            let (previous, candidate, next) = (window[0], window[1], window[2]);
+            let relations = traffic.relations();
+            let uncovered_non_junction = relations.lane_edge_authoring_lane(candidate).is_none()
+                && relations.lane_edge_junction(candidate).is_none();
+            if !uncovered_non_junction {
+                continue;
+            }
+            let (Some(previous_lane), Some(next_lane)) = (
+                relations.lane_edge_authoring_lane(previous),
+                relations.lane_edge_authoring_lane(next),
+            ) else {
+                continue;
+            };
+            if previous_lane == next_lane {
+                continue;
+            }
+            let (Some(previous_section), Some(next_section)) = (
+                relations.authoring_section(previous_lane),
+                relations.authoring_section(next_lane),
+            ) else {
+                continue;
+            };
+            let previous_corridor = relations.section_corridor(previous_section);
+            if previous_corridor.is_some()
+                && previous_corridor == relations.section_corridor(next_section)
+            {
+                return Err(RouteError::TransitionUnsupported);
+            }
+        }
+    }
     Ok(compiled)
 }
 
@@ -2068,6 +2113,460 @@ mod compile_route_tests {
             ),
         )
         .unwrap()
+    }
+
+    /// S3（#1194）：合成样本网络（`sample/minimal-closed-loop.json` v5 派生）。
+    /// 来源保真：合成来源原生声明（SyntheticDsl）；`T01` 为 uncovered 非 junction
+    /// 过渡段（前后邻边分属同走廊不同 lane 链），不冒充 SUMO connection。
+    mod s3_lane_change {
+        use super::*;
+        use laneflow_compiler::*;
+        use laneflow_format::{FormatLimits, check_post_emission_bundle};
+
+        /// sample v5 钉版长度（米）与中心线端点（米，(x0, z0) → (x1, z1)）。
+        const EDGES: [(&str, f64, f32, f32, f32, f32); 13] = [
+            ("A0", 20.0, -20.0, 0.0, 0.0, 0.0),
+            ("I1", 10.0, 0.0, 0.0, 10.0, 0.0),
+            ("B0_up", 8.0, 10.0, 0.0, 18.0, 0.0),
+            ("B1_up", 8.0, 10.0, 3.0, 18.0, 3.0),
+            ("S00", 9.0, 18.0, 0.0, 27.0, 0.0),
+            ("S11", 9.0, 18.0, 3.0, 27.0, 3.0),
+            ("T01", 9.487, 18.0, 0.0, 27.0, 3.0),
+            ("B0_down", 9.0, 27.0, 0.0, 36.0, 0.0),
+            ("B1_down", 9.0, 27.0, 3.0, 36.0, 3.0),
+            ("I0", 6.0, 36.0, 0.0, 42.0, 0.0),
+            ("I2", 6.708, 36.0, 3.0, 42.0, 0.0),
+            ("C0", 20.0, 42.0, 0.0, 62.0, 0.0),
+            ("R0", 82.0, 62.0, 0.0, -20.0, 0.0),
+        ];
+
+        pub(super) fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+            let limits = CompileLimits::p100_initial_v1();
+            let header = SourceModuleHeader::new(
+                SourceModuleHeaderInput {
+                    authoring_namespace_id: "lane-change-s1s3",
+                    source_document_key: "lane-change-s1s3.document",
+                    generator_build_id: "lane-change-s1s3-probe",
+                    parameters_and_inputs_digest: [0x11; 32],
+                    frontend_options_digest: [0x22; 32],
+                    random_seed: Some(0),
+                    provenance: "repository:laneflow-test",
+                },
+                &limits,
+            )
+            .unwrap();
+            let mut b = SyntheticModuleBuilder::new(header, &limits).unwrap();
+            b.add_participant_class(ParticipantClassInput {
+                participant_class_key: "car",
+                extends: None,
+            })
+            .unwrap();
+            b.add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "car",
+                participant_class: ParticipantClassReference::local("car"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 4.5,
+                    desired_speed_meters_per_second: 13.9,
+                    min_gap_meters: 2.5,
+                    time_headway_seconds: 1.5,
+                    max_acceleration_meters_per_second_squared: 1.4,
+                    comfortable_deceleration_meters_per_second_squared: 4.5,
+                    emergency_deceleration_meters_per_second_squared: 9.0,
+                },
+            })
+            .unwrap();
+            let successors: std::collections::HashMap<&str, Vec<&str>> = [
+                ("A0", vec!["I1"]),
+                ("I1", vec!["B0_up"]),
+                ("B0_up", vec!["S00", "T01"]),
+                ("B1_up", vec!["S11"]),
+                ("S00", vec!["B0_down"]),
+                ("S11", vec!["B1_down"]),
+                ("T01", vec!["B1_down"]),
+                ("B0_down", vec!["I0"]),
+                ("B1_down", vec!["I2"]),
+                ("I0", vec!["C0"]),
+                ("I2", vec!["C0"]),
+                ("C0", vec!["R0"]),
+                ("R0", vec!["A0"]),
+            ]
+            .into_iter()
+            .collect();
+            for (key, length, ..) in EDGES {
+                let refs: Vec<_> = successors[key]
+                    .iter()
+                    .map(|target| LaneEdgeReference::local(target))
+                    .collect();
+                b.add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: key,
+                    length_meters: length,
+                    speed_limit_meters_per_second: 13.9,
+                    successors: &refs,
+                })
+                .unwrap();
+            }
+            let chains: std::collections::HashMap<&str, Vec<LaneEdgeReference<'static>>> = [
+                ("lane-A0", vec!["A0"]),
+                ("lane-B0up", vec!["B0_up"]),
+                ("lane-B1up", vec!["B1_up"]),
+                ("lane-S00", vec!["S00"]),
+                ("lane-S11", vec!["S11"]),
+                ("lane-B0down", vec!["B0_down"]),
+                ("lane-B1down", vec!["B1_down"]),
+                ("lane-C0", vec!["C0"]),
+            ]
+            .into_iter()
+            .map(|(key, edges)| {
+                (
+                    key,
+                    edges
+                        .into_iter()
+                        .map(LaneEdgeReference::local)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-A",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-A0",
+                    edge_chain: &chains["lane-A0"],
+                    lane_group: None,
+                }],
+            })
+            .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-B-up",
+                kind_id: "motorLane",
+                lanes: &[
+                    AuthoringLaneInput {
+                        authoring_lane_key: "lane-B0up",
+                        edge_chain: &chains["lane-B0up"],
+                        lane_group: None,
+                    },
+                    AuthoringLaneInput {
+                        authoring_lane_key: "lane-B1up",
+                        edge_chain: &chains["lane-B1up"],
+                        lane_group: None,
+                    },
+                ],
+            })
+            .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-TZ",
+                kind_id: "motorLane",
+                lanes: &[
+                    AuthoringLaneInput {
+                        authoring_lane_key: "lane-S00",
+                        edge_chain: &chains["lane-S00"],
+                        lane_group: None,
+                    },
+                    AuthoringLaneInput {
+                        authoring_lane_key: "lane-S11",
+                        edge_chain: &chains["lane-S11"],
+                        lane_group: None,
+                    },
+                ],
+            })
+            .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-B-down",
+                kind_id: "motorLane",
+                lanes: &[
+                    AuthoringLaneInput {
+                        authoring_lane_key: "lane-B0down",
+                        edge_chain: &chains["lane-B0down"],
+                        lane_group: None,
+                    },
+                    AuthoringLaneInput {
+                        authoring_lane_key: "lane-B1down",
+                        edge_chain: &chains["lane-B1down"],
+                        lane_group: None,
+                    },
+                ],
+            })
+            .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-C",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-C0",
+                    edge_chain: &chains["lane-C0"],
+                    lane_group: None,
+                }],
+            })
+            .unwrap();
+            b.add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-A",
+                reference_section: RoadSectionReference::local("sec-A"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("sec-A"),
+                )],
+            })
+            .unwrap();
+            b.add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-C",
+                reference_section: RoadSectionReference::local("sec-C"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("sec-C"),
+                )],
+            })
+            .unwrap();
+            b.add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-B",
+                reference_section: RoadSectionReference::local("sec-B-up"),
+                elements: &[
+                    CorridorElementReference::road_section(RoadSectionReference::local("sec-B-up")),
+                    CorridorElementReference::road_section(RoadSectionReference::local("sec-TZ")),
+                    CorridorElementReference::road_section(RoadSectionReference::local(
+                        "sec-B-down",
+                    )),
+                ],
+            })
+            .unwrap();
+            let mut maneuver = |junction: &str,
+                                movement: &str,
+                                path: &str,
+                                entry: &str,
+                                internal: &[&str],
+                                exit: &str| {
+                b.add_junction(JunctionInput {
+                    junction_key: junction,
+                })
+                .unwrap();
+                b.add_movement(MovementInput {
+                    movement_key: movement,
+                    junction: JunctionReference::local(junction),
+                    directed_entry_approach_key: entry,
+                    directed_exit_approach_key: exit,
+                    turn_direction: None,
+                })
+                .unwrap();
+                let internal_refs: Vec<_> = internal
+                    .iter()
+                    .map(|edge| LaneEdgeReference::local(edge))
+                    .collect();
+                b.add_maneuver_path(ManeuverPathInput {
+                    maneuver_path_key: path,
+                    movement: MovementReference::local(movement),
+                    entry_edge: LaneEdgeReference::local(entry),
+                    internal_edges: &internal_refs,
+                    exit_edge: LaneEdgeReference::local(exit),
+                })
+                .unwrap();
+            };
+            maneuver("J1", "mv-P1", "P1", "A0", &["I1"], "B0_up");
+            maneuver("J2", "mv-P0", "P0", "B0_down", &["I0"], "C0");
+            maneuver("J2b", "mv-P2", "P2", "B1_down", &["I2"], "C0");
+            let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = EDGES
+                .iter()
+                .map(|(_, _, x0, z0, x1, z1)| {
+                    [
+                        CanonicalPoint3F32Input {
+                            x: *x0,
+                            y: 0.0,
+                            z: *z0,
+                        },
+                        CanonicalPoint3F32Input {
+                            x: *x1,
+                            y: 0.0,
+                            z: *z1,
+                        },
+                    ]
+                })
+                .collect();
+            let geometries: Vec<_> = EDGES
+                .iter()
+                .zip(point_pairs.iter())
+                .map(|((key, ..), centerline_points)| LaneEdgeGeometryInput {
+                    lane_edge: LaneEdgeReference::local(key),
+                    centerline_points,
+                })
+                .collect();
+            b.add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "lane-change-s1s3-frame",
+                lane_edge_geometries: &geometries,
+            })
+            .unwrap();
+            let mut unit = CompilationUnitBuilder::new(limits);
+            unit.add_synthetic_module(b.finish().unwrap()).unwrap();
+            let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+            let candidate = emit_portable_candidate(
+                &output,
+                &PortableEmissionProvenance::try_new("lane-change-s1s3-probe").unwrap(),
+                FormatLimits::HARD,
+                PortableDiffBase::Genesis,
+            )
+            .unwrap();
+            let checked = check_post_emission_bundle(
+                candidate.canonical_artifact().bytes(),
+                candidate.source_map().bytes(),
+                candidate.semantic_diff().bytes(),
+                candidate.expected_semantic_diff_base(),
+                FormatLimits::HARD,
+            )
+            .unwrap();
+            build_shared_network_revision(
+                checked.canonical_network_input(),
+                SharedNetworkBuildOptions::new(
+                    SpatialBuildOption::Omit,
+                    SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+                ),
+            )
+            .unwrap()
+        }
+
+        /// 按机动路径长度签名与唯一长度推导命名 ordinal（声明顺序 ≠ ordinal
+        /// 顺序，身份规范化重排；推导顺序无关）。
+        pub(super) fn named_ordinals(
+            revision: &laneflow_static_network::SharedNetworkRevision,
+        ) -> std::collections::HashMap<&'static str, LaneEdgeOrdinal> {
+            let traffic = revision.traffic();
+            let lengths = traffic.lane_lengths_millimetres();
+            let mut named = std::collections::HashMap::new();
+            let unique = [
+                (10_000, "I1"),
+                (9_487, "T01"),
+                (6_000, "I0"),
+                (6_708, "I2"),
+                (82_000, "R0"),
+            ];
+            for raw in 0..traffic.lane_edge_count() {
+                let ord = LaneEdgeOrdinal::from_raw(raw);
+                let mm = *lengths.get(ord.index()).unwrap();
+                for (expected, name) in unique {
+                    if mm == expected {
+                        named.insert(name, ord);
+                    }
+                }
+            }
+            let maneuvers = traffic.maneuvers();
+            let mut paths: Vec<_> = (0..8)
+                .filter_map(|raw| maneuvers.maneuver_path(ManeuverPathOrdinal::from_raw(raw)))
+                .collect();
+            paths.sort_by_key(|path| path.edges().len());
+            for path in &paths {
+                let edges = path.edges();
+                let marker = *lengths.get(edges[1].index()).unwrap();
+                match marker {
+                    10_000 => {
+                        named.insert("A0", edges[0]);
+                        named.insert("B0_up", edges[2]);
+                    }
+                    6_708 => {
+                        named.insert("B1_down", edges[0]);
+                        named.insert("C0", edges[2]);
+                    }
+                    6_000 => {
+                        named.insert("B0_down", edges[0]);
+                    }
+                    _ => {}
+                }
+            }
+            let b0_up = *named.get("B0_up").unwrap();
+            let t01 = *named.get("T01").unwrap();
+            for raw in 0..traffic.lane_edge_count() {
+                let ord = LaneEdgeOrdinal::from_raw(raw);
+                if ord != t01 && route_pair_connected(traffic, b0_up, ord) {
+                    named.insert("S00", ord);
+                }
+            }
+            named
+        }
+
+        #[test]
+        fn s3_sample_emits_with_zero_budget_relaxation_and_validates_static_sequences() {
+            let revision = revision();
+            let traffic = revision.traffic();
+            // 发射预算零放宽：构建全程 FormatLimits::HARD；逐边长度多重集断言
+            // （毫米，顺序无关）。
+            let mut lengths: Vec<u32> = (0..traffic.lane_edge_count())
+                .map(|raw| {
+                    *traffic
+                        .lane_lengths_millimetres()
+                        .get(LaneEdgeOrdinal::from_raw(raw).index())
+                        .unwrap()
+                })
+                .collect();
+            lengths.sort_unstable();
+            let mut expected: Vec<u32> = EDGES
+                .iter()
+                .map(|(_, meters, ..)| (*meters * 1000.0).round() as u32)
+                .collect();
+            expected.sort_unstable();
+            assert_eq!(lengths, expected, "sample v5 pinned edge lengths");
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
+            // 直行链（连续对照）：静态序列验证 + 能力门放行（无过渡段）。
+            let straight = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("S00"),
+                edge("B0_down"),
+                edge("I0"),
+                edge("C0"),
+            ];
+            let compiled = compile_route(revision.as_ref(), &straight, 0, u64::MAX)
+                .expect("straight chain passes static validation and capability gate");
+            assert_eq!(compiled.edges.len(), straight.len());
+            // 过渡链：静态序列验证完整通过后由能力门结构化拒绝——错误类型即证明
+            // 静态合同已过（若静态失败应先得到 Disconnected/ManeuverMismatch）。
+            let crossing = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("T01"),
+                edge("B1_down"),
+                edge("I2"),
+                edge("C0"),
+            ];
+            assert_eq!(
+                compile_route(revision.as_ref(), &crossing, 0, u64::MAX),
+                Err(RouteError::TransitionUnsupported)
+            );
+        }
+
+        #[test]
+        fn capability_rejection_is_pure_and_registry_semantics_unchanged() {
+            let revision = revision();
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
+            let straight = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("S00"),
+                edge("B0_down"),
+                edge("I0"),
+                edge("C0"),
+            ];
+            let crossing = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("T01"),
+                edge("B1_down"),
+                edge("I2"),
+                edge("C0"),
+            ];
+            // 拒绝前后同一修订可重复编译、结果稳定：register_route 在编译失败时
+            // 不触碰注册表（失败原子，D5）；能力拒绝不留下部分状态。
+            let before = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
+            assert_eq!(
+                compile_route(revision.as_ref(), &crossing, 0, u64::MAX),
+                Err(RouteError::TransitionUnsupported)
+            );
+            let after = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
+            assert_eq!(before.edges, after.edges);
+            assert_eq!(before.maneuvers.len(), after.maneuvers.len());
+            // 旧输入零新拒绝（硬护栏）：无过渡段结构的路线永不触发该错误。
+            assert_ne!(
+                compile_route(revision.as_ref(), &straight, 0, u64::MAX),
+                Err(RouteError::TransitionUnsupported)
+            );
+        }
     }
 
     #[test]

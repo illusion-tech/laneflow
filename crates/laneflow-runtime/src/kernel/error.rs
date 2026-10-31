@@ -229,6 +229,11 @@ pub enum RouteError {
     /// 走到机动入口，但剩余边序列对不上任何一条完整机动路径。
     #[error("路线对不上完整机动路径")]
     ManeuverMismatch,
+    /// 路线跨越横向过渡段（固定预制过渡），但本运行时构建不支持过渡执行
+    /// （A6 选项 3：换道执行支持是实现能力，非配置；注册失败关闭、注册表
+    /// 不变）。
+    #[error("运行时构建不支持过渡执行")]
+    TransitionUnsupported,
     /// WaitingZone entry/release 的本地存储跨度不能证明为有限 `u32` 毫米。
     #[error("WaitingZone 本地存储跨度超出有限 u32 毫米范围")]
     WaitingStorageSpanUnbounded,
