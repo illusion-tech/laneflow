@@ -190,3 +190,27 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
   变化、phase 等值 5/5 回绿。**S5 审计要点（升级）**：凡进入摘要/轨迹预映像
   的 `{:?}` 输出都是格式面——结构重命名/字段调整/derive→manual 切换都会
   漂移指纹；digest 9/前像扩展须把 **Debug 形状**列入显式审计清单。
+
+## 8. 增量2a 执行简报（裁定 B；供即刻执行，零再推导）
+
+- **流绑定规则（B）**：过渡出现项 = `ConflictPassageOccurrence { resource:
+  ConflictResource::Transition(edge), stream: <跨越流>, passage_local_index: 0, … }`；
+  跨越流 = 该路线中过渡段**之后首个 maneuver 出现项的 stream**（无后继时取
+  前驱 maneuver 流，确定性钉死）；独占由 zone-head 所有权承担
+  （`zone_owned_by_other`；s12"恰一优先"即该语义，多 cell 形态正确性集中）。
+- **站点清单**（`ConflictPassageOccurrence.zone` 资源化；注意与
+  `WaitingOccurrence.zone: WaitingZoneOrdinal` 同名干扰项区分，后者勿动）：
+  tables.rs 结构/`address()`/发射点 :835/:1100/测试构 :2952/:3060/:3304；
+  conflict_tick.rs :1244/:4111（`occurrence.zone.raw()` →
+  `resource_order_raw(occurrence.resource)`）/:6894/:6912（静态校验比较 →
+  `ConflictResource::Zone(z)`/`static_zone` 语义）；tick.rs :2669/:2692 同。
+  **Debug 纪律（B 教训）**：改结构前先查 checkpoint/{outcome:?} 预映像是否
+  含 occurrence Debug；若有 → 手工 Debug 复原历史形状再改。
+- **不变量验收（lead 附条）**：两不同流争同段 → 恰一 staged 授予、败者
+  no-grant、同拍至多一 claim；与 R1b s12 两层断言互证（zone 级独占承载）。
+- **P4 具名判据接线**：潜在进入者枚举（实际车体记录）×
+  `yieldable_by_stopping`（具名四项）× MotionReach 本拍上界跳拍重证（存续期
+  重证）；任一不可证 → no-grant。撤销分支 = staged 无 crossing 到期（§5.1）；
+  清空 = `rear >= clearance`（ConflictClearOutcome 现成语义）。
+- **能力翻转次序**：P3-P7 接线全绿后方可翻 `transition_execution_supported`
+  （防无预约穿越——翻转与预约路径同切片落）。
