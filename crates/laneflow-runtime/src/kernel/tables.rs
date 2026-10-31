@@ -2103,8 +2103,9 @@ mod compile_route_tests {
 
         /// sample v5 钉版长度（米）与中心线端点（米，(x0, z0) → (x1, z1)）。
         /// 另含评审补充段：`T0a…T0b` 多段过渡链（P1-1）、`X`/`C1` 纵向
-        /// uncovered 连接（P2-2 负例）。
-        const EDGES: [(&str, f64, f32, f32, f32, f32); 17] = [
+        /// uncovered 连接（P2-2 负例，跨走廊）、`P0/SP/Q0` 相邻单 lane section
+        /// 横向接缝（P1 补全正例）。
+        const EDGES: [(&str, f64, f32, f32, f32, f32); 20] = [
             ("A0", 20.0, -20.0, 0.0, 0.0, 0.0),
             ("I1", 10.0, 0.0, 0.0, 10.0, 0.0),
             ("B0_up", 8.0, 10.0, 0.0, 18.0, 0.0),
@@ -2121,6 +2122,9 @@ mod compile_route_tests {
             ("C0", 20.0, 42.0, 0.0, 62.0, 0.0),
             ("X", 5.0, 62.0, 0.0, 67.0, 0.0),
             ("C1", 12.0, 67.0, 0.0, 79.0, 0.0),
+            ("P0", 7.5, 79.0, 5.0, 86.5, 5.0),
+            ("SP", 3.0, 86.5, 5.0, 89.5, 5.0),
+            ("Q0", 8.5, 89.5, 5.0, 98.0, 5.0),
             ("R0", 82.0, 62.0, 0.0, -20.0, 0.0),
         ];
 
@@ -2176,6 +2180,9 @@ mod compile_route_tests {
                 ("C0", vec!["R0", "X"]),
                 ("X", vec!["C1"]),
                 ("C1", vec![]),
+                ("P0", vec!["SP"]),
+                ("SP", vec!["Q0"]),
+                ("Q0", vec![]),
                 ("R0", vec!["A0"]),
             ]
             .into_iter()
@@ -2203,6 +2210,8 @@ mod compile_route_tests {
                 ("lane-B1down", vec!["B1_down"]),
                 ("lane-C0", vec!["C0"]),
                 ("lane-C1", vec!["C1"]),
+                ("lane-P", vec!["P0"]),
+                ("lane-Q", vec!["Q0"]),
             ]
             .into_iter()
             .map(|(key, edges)| {
@@ -2296,6 +2305,26 @@ mod compile_route_tests {
                 }],
             })
             .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-P",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-P",
+                    edge_chain: &chains["lane-P"],
+                    lane_group: None,
+                }],
+            })
+            .unwrap();
+            b.add_road_section(RoadSectionInput {
+                road_section_key: "sec-Q",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-Q",
+                    edge_chain: &chains["lane-Q"],
+                    lane_group: None,
+                }],
+            })
+            .unwrap();
             b.add_road_corridor(RoadCorridorInput {
                 road_corridor_key: "corridor-A",
                 reference_section: RoadSectionReference::local("sec-A"),
@@ -2307,9 +2336,25 @@ mod compile_route_tests {
             b.add_road_corridor(RoadCorridorInput {
                 road_corridor_key: "corridor-C",
                 reference_section: RoadSectionReference::local("sec-C"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("sec-C"),
+                )],
+            })
+            .unwrap();
+            b.add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-C2",
+                reference_section: RoadSectionReference::local("sec-C2"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("sec-C2"),
+                )],
+            })
+            .unwrap();
+            b.add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-S",
+                reference_section: RoadSectionReference::local("sec-P"),
                 elements: &[
-                    CorridorElementReference::road_section(RoadSectionReference::local("sec-C")),
-                    CorridorElementReference::road_section(RoadSectionReference::local("sec-C2")),
+                    CorridorElementReference::road_section(RoadSectionReference::local("sec-P")),
+                    CorridorElementReference::road_section(RoadSectionReference::local("sec-Q")),
                 ],
             })
             .unwrap();
@@ -2435,6 +2480,9 @@ mod compile_route_tests {
                 (12_000, "C1"),
                 (4_272, "T0a"),
                 (5_220, "T0b"),
+                (7_500, "P0"),
+                (3_000, "SP"),
+                (8_500, "Q0"),
             ];
             for raw in 0..traffic.lane_edge_count() {
                 let ord = LaneEdgeOrdinal::from_raw(raw);
@@ -2640,6 +2688,106 @@ mod compile_route_tests {
             let compiled = compile_route(revision.as_ref(), &longitudinal, 0, u64::MAX)
                 .expect("longitudinal uncovered connector must not be rejected as a transition");
             assert_eq!(compiled.edges.len(), longitudinal.len());
+        }
+
+        /// 接缝分类矩阵（判据整体重设计，统筹 2026-10-31「停止打补丁」指令）：
+        /// 表驱动，每行 = 一种接缝形态 + 判定谓词结论 + 正反例；全矩阵绿才交审。
+        /// 判据（`SharedTrafficNetwork::is_lateral_transition_segment`，构建期
+        /// 分类表）：uncovered 非 junction 连通分量，两侧 covered 边界**横向
+        /// 坐标 =（section 走廊元素位, section 内 lane 序数）**；同走廊且坐标
+        /// 跨度 ≥ 2 → 横向过渡段。
+        #[test]
+        fn p0_transition_classification_matrix() {
+            let revision = revision();
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
+            let cases: Vec<(&str, Vec<LaneEdgeOrdinal>, bool)> = vec![
+                (
+                    "异 lane 横移（同走廊跨 lane 序数，T01）",
+                    vec![
+                        edge("A0"),
+                        edge("I1"),
+                        edge("B0_up"),
+                        edge("T01"),
+                        edge("B1_down"),
+                        edge("I2"),
+                        edge("C0"),
+                    ],
+                    true,
+                ),
+                (
+                    "多段链（分量多边，T0a→T0b）",
+                    vec![
+                        edge("A0"),
+                        edge("I1"),
+                        edge("B0_up"),
+                        edge("T0a"),
+                        edge("T0b"),
+                        edge("B1_down"),
+                        edge("I2"),
+                        edge("C0"),
+                    ],
+                    true,
+                ),
+                ("起止过渡（单边路线 [T01]）", vec![edge("T01")], true),
+                (
+                    "起止过渡（首过渡 [B0_up,T01]）",
+                    vec![edge("B0_up"), edge("T01")],
+                    true,
+                ),
+                (
+                    "起止过渡（尾过渡 [T01,B1_down]）",
+                    vec![edge("T01"), edge("B1_down")],
+                    true,
+                ),
+                (
+                    "跨 section 横向接缝（相邻单 lane section，SP）",
+                    vec![edge("P0"), edge("SP"), edge("Q0")],
+                    true,
+                ),
+                (
+                    "纵向连接（跨走廊 uncovered，X）",
+                    vec![
+                        edge("A0"),
+                        edge("I1"),
+                        edge("B0_up"),
+                        edge("S00"),
+                        edge("B0_down"),
+                        edge("I0"),
+                        edge("C0"),
+                        edge("X"),
+                        edge("C1"),
+                    ],
+                    false,
+                ),
+                (
+                    "直行链（covered + junction internal）",
+                    vec![
+                        edge("A0"),
+                        edge("I1"),
+                        edge("B0_up"),
+                        edge("S00"),
+                        edge("B0_down"),
+                        edge("I0"),
+                        edge("C0"),
+                    ],
+                    false,
+                ),
+                (
+                    "同横向坐标续接（covered 段链）",
+                    vec![edge("B0_up"), edge("S00"), edge("B0_down")],
+                    false,
+                ),
+                ("单 covered 边路线（[P0]）", vec![edge("P0")], false),
+            ];
+            for (name, route, expect_rejected) in cases {
+                let result = compile_route(revision.as_ref(), &route, 0, u64::MAX);
+                if expect_rejected {
+                    assert_eq!(result, Err(RouteError::TransitionUnsupported), "{name}");
+                } else {
+                    assert!(result.is_ok(), "{name} 必须编译通过：{result:?}");
+                }
+            }
         }
     }
 
