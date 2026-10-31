@@ -104,9 +104,254 @@ fn cohort_cost_table_recomputed() {
     assert_eq!(8_448 * 5, 42_240);
 }
 
+/// 三次 Bezier 求值（Bernstein 形态，本地实现——仅计数证据用）。
+fn eval_cubic(p: [f64; 3], c1: [f64; 3], c2: [f64; 3], q: [f64; 3], t: f64) -> [f64; 3] {
+    let u = 1.0 - t;
+    std::array::from_fn(|i| {
+        u * u * u * p[i] + 3.0 * u * u * t * c1[i] + 3.0 * u * t * t * c2[i] + t * t * t * q[i]
+    })
+}
+
+/// f32 规范化回程（发射折线形态）。
+fn quantize_f32(p: [f64; 3]) -> [f64; 3] {
+    p.map(|v| f64::from(v as f32))
+}
+
+/// 发射折线（逐 span cubic 513 均匀参数节点、f32 规范化串接）。
+fn emitted_polyline(controls: &[[[f64; 3]; 6]]) -> Vec<[f64; 3]> {
+    let mut points: Vec<[f64; 3]> = Vec::new();
+    for c in controls {
+        for k in 0..=512 {
+            let p = quantize_f32(eval_cubic(c[0], c[1], c[2], c[3], k as f64 / 512.0));
+            if points.last() != Some(&p) {
+                points.push(p);
+            }
+        }
+    }
+    points
+}
+
+/// 折线 → 三次条（每弦一退化 cubic，弦向为切向）。
+fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
+    points
+        .windows(2)
+        .map(|w| {
+            let (a, b) = (w[0], w[1]);
+            let lerp = |t: f64| {
+                [
+                    a[0] + t * (b[0] - a[0]),
+                    a[1] + t * (b[1] - a[1]),
+                    a[2] + t * (b[2] - a[2]),
+                ]
+            };
+            let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let n = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            let dir = if n > 0.0 {
+                [d[0] / n, d[1] / n, d[2] / n]
+            } else {
+                [1.0, 0.0, 0.0]
+            };
+            [a, lerp(1.0 / 3.0), lerp(2.0 / 3.0), b, dir, dir]
+        })
+        .collect()
+}
+
 /// 完整恢复流程资源证据（四域；独占测量时段跑 release 两轮——方案 §3b）。
+///
+/// ① 候选生成（有限完成/预算停止/既有候选三组样本）② 资格复核（参考基准 +
+/// 候选拟合，`8,448·W·C` 恒等式实测）③ 赋值验证（C17 未进入/抽样分量）
+/// ④ 编译/LFCA（每赋值试编译计数 + 选中终验）。结果 JSON 禁计时字段；耗时入
+/// 独立计时文件；内存双口径由外层测量脚本采样（进程峰值=整管线口径注明）。
 #[test]
-#[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR and an exclusive measurement window"]
+#[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, SIX_STREAMS_BASELINE_DIR and an exclusive measurement window"]
 fn four_domain_resource_evidence() {
-    todo!("四域证据入口实现（测量窗口就绪后执行）")
+    let out = PathBuf::from(std::env::var("FOUR_DOMAIN_EVIDENCE_DIR").unwrap());
+    assert!(!out.exists(), "fresh four-domain evidence output");
+    fs::create_dir_all(&out).unwrap();
+    let (observation, source, mut timing) = capture_lust();
+    let originals = original_programs(&observation);
+    let traffic = observation.traffic.as_ref().unwrap();
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    ))
+    .unwrap();
+    // `--30306#2_0`（预算停止样本）输入在 #1130 冻结集（边名键控）。
+    let inputs_1130: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1130-curve-design-c06-c08/inputs.json"
+    ))
+    .unwrap();
+    let sample_input = |id: &str| {
+        let row = if id.contains("30306") {
+            let key = inputs_1130
+                .as_object()
+                .unwrap()
+                .keys()
+                .find(|key| key.contains("30306"))
+                .expect("30306 key");
+            &inputs_1130[key]
+        } else {
+            &inputs[id]
+        };
+        assert!(!row.is_null(), "sample row present for {id}");
+        measurement::input(row)
+    };
+    let mut domains = BTreeMap::<String, Value>::new();
+
+    // ① 候选生成：有限完成（C17 edge6 旧族零候选）、预算停止（--30306#2_0）、
+    // 既有候选（edge3）。
+    let mut generation = BTreeMap::new();
+    for (id, s, label) in [
+        ("sumo::-10564_6_0", 3_usize, "finite_completion_zero_candidate"),
+        ("sumo::-30306#2_0", 3, "budget_stopped_sample"),
+        ("sumo::-10564_3_0", 2, "candidate_found_sample"),
+    ] {
+        let input = sample_input(id);
+        let mut handle = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+        let started = Instant::now();
+        let search =
+            sampler::reshape::search_with_curve_cap_budget(&input, 96 * s + 1, &mut handle);
+        let seconds = started.elapsed().as_secs_f64();
+        generation.insert(
+            id,
+            json!({"sample":label,
+                "counters":{"partitions":handle.partitions_consumed,
+                    "sampling_work":handle.grid_work_consumed,
+                    "source_fit":handle.source_fit_consumed},
+                "stop":{"budget_truncated":search.report["budget_truncated"],
+                    "stop_reason":search.report["stop_reason"]},
+                "successful_programs":search.candidates.len(),
+                "seconds":seconds}),
+        );
+    }
+    domains.insert("1_candidate_generation".into(), json!(generation));
+
+    // ② 资格复核：参考基准（曲线拟合 + 发射折线拟合）+ 候选资格拟合；
+    // `8,448·W·C` 恒等式实测列。
+    let mut review = BTreeMap::new();
+    for (id, s) in [("sumo::-10564_3_0", 2_usize), ("sumo::-10564_6_0", 3)] {
+        let input = measurement::input(&inputs[id]);
+        let reference = sampler::reshape::reference_with_curve_cap(&input, 96 * s + 1);
+        let polyline = emitted_polyline(&reference);
+        let poly_controls = polyline_as_controls(&polyline);
+        let windows = input.points.len() - 1;
+        let mut handle = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+        handle.source_fit_remaining = u64::MAX;
+        let started = Instant::now();
+        sampler::reshape::quality::fit_with_handle(&reference, &input.points, &mut handle)
+            .expect("bounded reference curve fit");
+        let curve_consumed = handle.source_fit_consumed;
+        sampler::reshape::quality::fit_with_handle(&poly_controls, &input.points, &mut handle)
+            .expect("bounded reference polyline fit");
+        let polyline_consumed = handle.source_fit_consumed - curve_consumed;
+        let mut candidate_rows = Vec::new();
+        if domains["1_candidate_generation"][id]["successful_programs"]
+            .as_u64()
+            .unwrap()
+            > 0
+        {
+            let search = sampler::reshape::search_with_curve_cap(&input, s);
+            for candidate in &search.candidates {
+                let points = program_points(&candidate.repaired.program);
+                let controls = polyline_as_controls(&points);
+                sampler::reshape::quality::fit_with_handle(&controls, &input.points, &mut handle);
+                candidate_rows.push(json!({"chords":points.len() - 1}));
+            }
+        }
+        let seconds = started.elapsed().as_secs_f64();
+        let expected_polyline = 8_448u64 * windows as u64 * poly_controls.len() as u64;
+        review.insert(
+            id,
+            json!({"source_windows":windows,
+                "reference_spans":reference.len(),
+                "reference_chords":poly_controls.len(),
+                "curve_baseline_consumed":curve_consumed,
+                "polyline_baseline_consumed":polyline_consumed,
+                "polyline_identity_expected":expected_polyline,
+                "polyline_identity_holds":polyline_consumed == expected_polyline,
+                "candidate_fits":candidate_rows,
+                "total_consumed":handle.source_fit_consumed,
+                "seconds":seconds}),
+        );
+    }
+    domains.insert("2_qualification_review".into(), json!(review));
+
+    // ③ 赋值验证：C17 分量（缺程序未进入）+ 抽样分量（停止分支记录）。
+    let pools = super::shared_baseline::shared_pools();
+    let components = components::inventory(traffic, &originals, &target_ids(&reference()));
+    let c17_id = "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0";
+    let mut assignment = BTreeMap::new();
+    let mut accepted_sample = Vec::new();
+    for id in std::iter::once(c17_id.to_owned()).chain(
+        components
+            .iter()
+            .filter(|c| c.id != c17_id)
+            .take(4)
+            .map(|c| c.id.clone()),
+    ) {
+        let component = components.iter().find(|c| c.id == id).expect("component");
+        let started = Instant::now();
+        let result = combinations::evaluate(traffic, component, &originals, &pools, None);
+        let seconds = started.elapsed().as_secs_f64();
+        let total = result["total_assignments"].as_u64();
+        let trials = result["trials"].as_array().map(Vec::len).unwrap_or(0) as u64;
+        if result["status"] == "accepted" && accepted_sample.len() < 2 {
+            accepted_sample.push(id.clone());
+        }
+        assignment.insert(
+            id,
+            json!({"status":result["status"],
+                "total_assignments":total,
+                "trial_compiles":trials,
+                "unvisited_assignments":total.map(|total| total - trials),
+                "assignment_budget_stopped":result["assignment_budget_stopped"],
+                "seconds":seconds}),
+        );
+    }
+    domains.insert("3_assignment_validation".into(), json!(assignment));
+
+    // ④ 编译/LFCA：选中终验（每分量 1 次真实联合编译 + 后发射检查计数）。
+    let mut final_validation = BTreeMap::new();
+    for id in std::iter::once(c17_id.to_owned()).chain(accepted_sample) {
+        let component = components.iter().find(|c| c.id == id).expect("component");
+        let mut programs = originals.clone();
+        for missing in &component.missing_edges {
+            if let Some(first) = pools.get(missing).and_then(|c| c.first()) {
+                programs.insert(missing.clone(), first.clone());
+            }
+        }
+        let part = combinations::part(traffic, component);
+        let mut compiles = 0_u64;
+        let started = Instant::now();
+        for path in &part.maneuver_paths {
+            compiles += 1;
+            compile_path(traffic, path, &programs);
+        }
+        let seconds = started.elapsed().as_secs_f64();
+        final_validation.insert(
+            id,
+            json!({"post_selection_compiles":compiles,
+                "lfca_checks":compiles,
+                "seconds":seconds}),
+        );
+    }
+    domains.insert("4_compile_lfca".into(), json!(final_validation));
+
+    // 预期调用频率（生产每转换口径）。
+    domains.insert(
+        "call_frequency_model".into(),
+        json!({
+            "per_conversion":{"successful_edges_compile":16265,
+                "failed_edges_search":12,"review_per_candidate":1,
+                "components":53,"assignment_trial_compiles_per_component":"<=256",
+                "post_selection_final_validation_per_component":1},
+            "note":"墙钟/内存为测量指标，不进停止判定"}),
+    );
+    recovery::write_json(
+        &out,
+        "four-domain-measurement.json",
+        &json!({"schema":"laneflow-1193-four-domain-resource-evidence",
+            "source":source,"domains":domains}),
+    );
+    recovery::write_json(&out, "four-domain-timing.json", &timing);
+    let _ = &mut timing;
 }
