@@ -156,12 +156,79 @@ fn polyline_as_controls(points: &[[f64; 3]]) -> Vec<[[f64; 3]; 6]> {
         .collect()
 }
 
+/// 维护者修订 2：准入配额边界三档（充足 / 恰好够用 / 少一单位）+ 全转换聚合
+/// 耗尽用例；断言未完成复核的候选不入池（`review_budget_stopped` 语义实测）。
+///
+/// 全转换聚合的选择范围与依据：**每转换 12 条失败边 = 冻结样本口径**（#1105/
+/// #1107 缺口清单：全网 84 目标 / 53 分量 / 183 关联路径中的 12 条失败边），
+/// 为冻结研究队列、**非生产比例投影**；全转换预算以此为聚合建模基准。
+#[test]
+fn review_quota_boundary_tiers() {
+    let windows = 2_usize;
+    let chords = 8_usize;
+    let per_candidate = fit_count_closed_form(windows as u64, chords as u64).2;
+    let candidates = 3_u64;
+    let need = per_candidate * candidates;
+    for (label, quota, expect_completed, expect_stopped) in [
+        ("sufficient_quota", need + 1, 3_u64, false),
+        ("exactly_enough_quota", need, 3, false),
+        ("one_unit_short_quota", need - 1, 2, true),
+    ] {
+        let mut handle = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+        handle.source_fit_remaining = quota;
+        let mut pool = Vec::new();
+        let mut stopped = false;
+        for candidate in 0..candidates {
+            let controls = synthetic_cubics(chords);
+            let source = synthetic_source(windows);
+            match sampler::reshape::quality::fit_with_handle(&controls, &source, &mut handle) {
+                Some(_) => pool.push(candidate),
+                None => {
+                    // review_budget_stopped：未完成复核的候选不入池。
+                    stopped = true;
+                    break;
+                }
+            }
+        }
+        assert_eq!(pool.len() as u64, expect_completed, "{label} 复核完成数");
+        assert_eq!(stopped, expect_stopped, "{label} review_budget_stopped");
+    }
+    // 全转换聚合耗尽：两邻边共享聚合句柄，总额少一单位——末边末候选复核
+    // 未完成不入池并记 review_budget_stopped。
+    let per_edge_need = per_candidate * 2;
+    let mut aggregate = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
+    aggregate.source_fit_remaining = per_edge_need * 2 - 1;
+    let mut pooled = Vec::new();
+    let mut stopped_at = None;
+    'edges: for edge in 0..2_u64 {
+        for candidate in 0..2_u64 {
+            let controls = synthetic_cubics(chords);
+            let source = synthetic_source(windows);
+            match sampler::reshape::quality::fit_with_handle(&controls, &source, &mut aggregate) {
+                Some(_) => pooled.push((edge, candidate)),
+                None => {
+                    stopped_at = Some((edge, candidate));
+                    break 'edges;
+                }
+            }
+        }
+    }
+    assert_eq!(pooled.len(), 3, "聚合少一单位仅完成三份复核");
+    assert_eq!(stopped_at, Some((1, 1)), "聚合耗尽于末边末候选");
+    assert_eq!(
+        aggregate.source_fit_consumed,
+        per_edge_need * 2 - 1,
+        "实耗 = 3 份完整 + 失败尝试的部分工作（如实计账）= 总配额"
+    );
+}
+
 /// 完整恢复流程资源证据（四域；独占测量时段跑 release 两轮——方案 §3b）。
 ///
 /// ① 候选生成（有限完成/预算停止/既有候选三组样本）② 资格复核（参考基准 +
 /// 候选拟合，`8,448·W·C` 恒等式实测）③ 赋值验证（C17 未进入/抽样分量）
 /// ④ 编译/LFCA（每赋值试编译计数 + 选中终验）。结果 JSON 禁计时字段；耗时入
-/// 独立计时文件；内存双口径由外层测量脚本采样（进程峰值=整管线口径注明）。
+/// 独立计时文件；内存仅记**进程工作集采样峰值**（唯一内存指标，整管线口径
+/// 注明；工作计数差不作内存增量解读）。
 #[test]
 #[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, SIX_STREAMS_BASELINE_DIR and an exclusive measurement window"]
 fn four_domain_resource_evidence() {
@@ -200,6 +267,7 @@ fn four_domain_resource_evidence() {
     // ① 候选生成：有限完成（C17 edge6 旧族零候选）、预算停止（--30306#2_0）、
     // 既有候选（edge3）。
     let mut generation = BTreeMap::new();
+    let mut generation_seconds = BTreeMap::new();
     for (id, s, label) in [
         (
             "sumo::-10564_6_0",
@@ -214,7 +282,7 @@ fn four_domain_resource_evidence() {
         let started = Instant::now();
         let search =
             sampler::reshape::search_with_curve_cap_budget(&input, 96 * s + 1, &mut handle);
-        let seconds = started.elapsed().as_secs_f64();
+        generation_seconds.insert(id, started.elapsed().as_secs_f64());
         generation.insert(
             id,
             json!({"sample":label,
@@ -223,15 +291,16 @@ fn four_domain_resource_evidence() {
                     "source_fit":handle.source_fit_consumed},
                 "stop":{"budget_truncated":search.report["budget_truncated"],
                     "stop_reason":search.report["stop_reason"]},
-                "successful_programs":search.candidates.len(),
-                "seconds":seconds}),
+                "successful_programs":search.candidates.len()}),
         );
     }
     domains.insert("1_candidate_generation".into(), json!(generation));
+    timing["domain_seconds"]["1_candidate_generation"] = json!(generation_seconds);
 
     // ② 资格复核：参考基准（曲线拟合 + 发射折线拟合）+ 候选资格拟合；
     // `8,448·W·C` 恒等式实测列。
     let mut review = BTreeMap::new();
+    let mut review_seconds = BTreeMap::new();
     for (id, s) in [("sumo::-10564_3_0", 2_usize), ("sumo::-10564_6_0", 3)] {
         let input = measurement::input(&inputs[id]);
         let reference = sampler::reshape::reference_with_curve_cap(&input, 96 * s + 1);
@@ -261,7 +330,7 @@ fn four_domain_resource_evidence() {
                 candidate_rows.push(json!({"chords":points.len() - 1}));
             }
         }
-        let seconds = started.elapsed().as_secs_f64();
+        review_seconds.insert(id, started.elapsed().as_secs_f64());
         let expected_polyline = 8_448u64 * windows as u64 * poly_controls.len() as u64;
         review.insert(
             id,
@@ -273,18 +342,22 @@ fn four_domain_resource_evidence() {
                 "polyline_identity_expected":expected_polyline,
                 "polyline_identity_holds":polyline_consumed == expected_polyline,
                 "candidate_fits":candidate_rows,
-                "total_consumed":handle.source_fit_consumed,
-                "seconds":seconds}),
+                "total_consumed":handle.source_fit_consumed}),
         );
     }
     domains.insert("2_qualification_review".into(), json!(review));
+    timing["domain_seconds"]["2_qualification_review"] = json!(review_seconds);
 
-    // ③ 赋值验证：C17 分量（缺程序未进入）+ 抽样分量（停止分支记录）。
+    // ③ 赋值验证 + ④ 编译/LFCA 计账合一（维护者修订 1：按实际阶段执行计数、
+    // 保存返回状态、统一选中赋值与终验路径——evaluate 内部每赋值 1 次
+    // `compile_part` 试编译、选中后 1 次带 save 的终验；缺程序检查早返零执行，
+    // 不另行臆造编译）。耗时入计时文件（修订 3：结果 JSON 禁计时字段）。
     let pools = super::shared_baseline::shared_pools();
     let components = components::inventory(traffic, &originals, &target_ids(&reference()));
     let c17_id = "sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0";
     let mut assignment = BTreeMap::new();
-    let mut accepted_sample = Vec::new();
+    let mut compile_accounting = BTreeMap::new();
+    let mut assignment_seconds = BTreeMap::new();
     for id in std::iter::once(c17_id.to_owned()).chain(
         components
             .iter()
@@ -295,50 +368,45 @@ fn four_domain_resource_evidence() {
         let component = components.iter().find(|c| c.id == id).expect("component");
         let started = Instant::now();
         let result = combinations::evaluate(traffic, component, &originals, &pools, None);
-        let seconds = started.elapsed().as_secs_f64();
+        assignment_seconds.insert(id.clone(), started.elapsed().as_secs_f64());
         let total = result["total_assignments"].as_u64();
-        let trials = result["trials"].as_array().map(Vec::len).unwrap_or(0) as u64;
-        if result["status"] == "accepted" && accepted_sample.len() < 2 {
-            accepted_sample.push(id.clone());
-        }
+        let trials = result["trials"].as_array().cloned().unwrap_or_default();
+        let trial_compiles = trials.len() as u64;
+        let accepted_trials = trials
+            .iter()
+            .filter(|trial| trial["result"]["status"] == "accepted")
+            .count() as u64;
+        // 选中终验：evaluate 内部对选中赋值再执行 1 次 `compile_part`（带 save
+        // 路径），返回状态保存于 `selected_result`；缺程序早返时两者皆为零/空。
+        let final_validation_compiles = u64::from(result["selected_result"].is_object());
         assignment.insert(
-            id,
+            id.clone(),
             json!({"status":result["status"],
                 "total_assignments":total,
-                "trial_compiles":trials,
-                "unvisited_assignments":total.map(|total| total - trials),
-                "assignment_budget_stopped":result["assignment_budget_stopped"],
-                "seconds":seconds}),
+                "trial_compiles":trial_compiles,
+                "unvisited_assignments":total.map(|total| total - trials.len() as u64),
+                "assignment_budget_stopped":result["assignment_budget_stopped"]}),
+        );
+        compile_accounting.insert(
+            id.clone(),
+            json!({"status":result["status"],
+                "trial_compile_part_calls":trial_compiles,
+                "trial_accepted":accepted_trials,
+                "trial_rejected":trial_compiles - accepted_trials,
+                "post_selection_compile_part_calls":final_validation_compiles,
+                "post_emit_checks":accepted_trials + final_validation_compiles,
+                "selected_assignment":result["selected_assignment"],
+                "selected_result_status":result["selected_result"]
+                    .get("status")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "not_executed":(trial_compiles == 0 && final_validation_compiles == 0)
+                    .then_some("missing_real_programs_early_return")}),
         );
     }
     domains.insert("3_assignment_validation".into(), json!(assignment));
-
-    // ④ 编译/LFCA：选中终验（每分量 1 次真实联合编译 + 后发射检查计数）。
-    let mut final_validation = BTreeMap::new();
-    for id in std::iter::once(c17_id.to_owned()).chain(accepted_sample) {
-        let component = components.iter().find(|c| c.id == id).expect("component");
-        let mut programs = originals.clone();
-        for missing in &component.missing_edges {
-            if let Some(first) = pools.get(missing).and_then(|c| c.first()) {
-                programs.insert(missing.clone(), first.clone());
-            }
-        }
-        let part = combinations::part(traffic, component);
-        let mut compiles = 0_u64;
-        let started = Instant::now();
-        for path in &part.maneuver_paths {
-            compiles += 1;
-            compile_path(traffic, path, &programs);
-        }
-        let seconds = started.elapsed().as_secs_f64();
-        final_validation.insert(
-            id,
-            json!({"post_selection_compiles":compiles,
-                "lfca_checks":compiles,
-                "seconds":seconds}),
-        );
-    }
-    domains.insert("4_compile_lfca".into(), json!(final_validation));
+    domains.insert("4_compile_lfca".into(), json!(compile_accounting));
+    timing["domain_seconds"]["3_assignment_validation"] = json!(assignment_seconds);
 
     // 预期调用频率（生产每转换口径）。
     domains.insert(
