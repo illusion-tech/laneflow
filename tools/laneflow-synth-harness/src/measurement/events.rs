@@ -16,14 +16,22 @@ pub(crate) struct Recorder {
 
 impl Recorder {
     pub(crate) fn new(ticks: u64, scale: u32) -> Self {
+        Self::from_tick(ticks, scale, 0)
+    }
+
+    pub(crate) fn from_tick(ticks: u64, scale: u32, next_tick: u64) -> Self {
         let mut bytes = Vec::with_capacity(ticks as usize * 32 + scale as usize * 100);
         bytes.extend_from_slice(b"lf-synth-ordered-events-1\0");
         Self {
             bytes,
-            next_tick: 0,
+            next_tick,
             transitions: 0,
             arrivals: 0,
         }
+    }
+
+    pub(crate) fn byte_length(&self) -> usize {
+        self.bytes.len()
     }
 
     pub(crate) fn record(
