@@ -28,15 +28,11 @@ use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig};
 use laneflow_runtime::TrafficWorld;
 use laneflow_spatial::SpatialSession;
 
-# fn install(
-#     app: &mut App,
-#     world: TrafficWorld,
-#     spatial: Option<SpatialSession>,
-# ) {
-let config = LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"));
-app.add_plugins((TimePlugin, LaneFlowPlugin));
-app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired session"));
-# }
+fn install(app: &mut App, world: TrafficWorld, spatial: Option<SpatialSession>) {
+    let config = LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"));
+    app.add_plugins((TimePlugin, LaneFlowPlugin));
+    app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired session"));
+}
 ```
 
 campus / `native_reference` 的 Core 入口已删除。各示例都消费检入的 LFCA：
