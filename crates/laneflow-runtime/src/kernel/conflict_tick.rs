@@ -1241,7 +1241,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Ok(ConflictOccurrenceJournalLocator {
             route,
             stream: occurrence.stream.raw(),
-            zone: occurrence.zone.raw(),
+            zone: crate::kernel::conflict::resource_order_raw(occurrence.resource),
             passage_local_index: occurrence.passage_local_index,
             entry_route_edge_index: occurrence.entry.route_edge_index,
             entry_progress_mm: occurrence.entry.progress_mm,
@@ -4108,7 +4108,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                 let locator = ConflictOccurrenceJournalLocator {
                     route: range.route(),
                     stream: occurrence.stream.raw(),
-                    zone: occurrence.zone.raw(),
+                    zone: crate::kernel::conflict::resource_order_raw(occurrence.resource),
                     passage_local_index: occurrence.passage_local_index,
                     entry_route_edge_index: occurrence.entry.route_edge_index,
                     entry_progress_mm: occurrence.entry.progress_mm,
@@ -6891,7 +6891,7 @@ impl ConflictTaskView<'_> {
         let (zone, targets) = policy
             .yield_targets(occurrence.stream, class, occurrence.passage_local_index)
             .ok_or(StepError::ConflictInvariantViolation)?;
-        if zone != occurrence.zone {
+        if Some(zone) != occurrence.static_zone() {
             return Err(StepError::ConflictInvariantViolation);
         }
         let Some(gap_index) = stream.gap_profile_index() else {
@@ -6908,8 +6908,8 @@ impl ConflictTaskView<'_> {
             .get(gap_index as usize)
             .ok_or(StepError::ConflictInvariantViolation)?;
         for target in targets {
-            let address = crate::ConflictPassageAddress::new(
-                occurrence.zone,
+            let address = crate::ConflictPassageAddress::from_resource(
+                occurrence.resource,
                 target.stream(),
                 target.passage_local_index(),
             );

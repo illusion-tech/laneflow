@@ -2441,7 +2441,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         index = occurrence_index;
         while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop {
-            let zone = compiled.conflicts[index].zone.index();
+            let zone = compiled.conflicts[index]
+                .static_zone()
+                .map_or(usize::MAX, |z| z.index());
             if self.derived.spawn_contenders.best.get(zone).is_none() {
                 return AdmissionPreview::Unprovable;
             }
@@ -2666,7 +2668,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             ) else {
                 return YieldAdmission::Unprovable;
             };
-            if zone != occurrence.zone {
+            if Some(zone) != occurrence.static_zone() {
                 return YieldAdmission::Unprovable;
             }
             let Some(stream) = policy.stream(occurrence.stream, state.class) else {
@@ -2688,8 +2690,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return YieldAdmission::Unprovable;
             };
             for target in targets {
-                let address = crate::ConflictPassageAddress::new(
-                    occurrence.zone,
+                let address = crate::ConflictPassageAddress::from_resource(
+                    occurrence.resource,
                     target.stream(),
                     target.passage_local_index(),
                 );
@@ -3554,7 +3556,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     && compiled.conflicts[index..]
                         .iter()
                         .take_while(|entry| entry.admission_hop == hop)
-                        .any(|entry| entry.zone.index() == *zone)
+                        .any(|entry| entry.static_zone().map_or(usize::MAX, |z| z.index()) == *zone)
                     && self
                         .derived
                         .spawn_contenders
@@ -6985,7 +6987,9 @@ mod barrier_query_tests {
         ConflictPassageOccurrence {
             stream: ParticipantStreamOrdinal::from_raw(0),
             passage_local_index: admission_hop,
-            zone: ConflictZoneOrdinal::from_raw(0),
+            resource: crate::kernel::conflict::ConflictResource::Zone(
+                ConflictZoneOrdinal::from_raw(0),
+            ),
             maneuver_index: 0,
             admission_hop,
             entry: RoutePosition {
