@@ -301,12 +301,31 @@ fn four_domain_resource_evidence() {
     // `8,448·W·C` 恒等式实测列。
     let mut review = BTreeMap::new();
     let mut review_seconds = BTreeMap::new();
+    let mut regeneration_seconds = BTreeMap::new();
     for (id, s) in [("sumo::-10564_3_0", 2_usize), ("sumo::-10564_6_0", 3)] {
         let input = measurement::input(&inputs[id]);
         let reference = sampler::reshape::reference_with_curve_cap(&input, 96 * s + 1);
         let polyline = emitted_polyline(&reference);
         let poly_controls = polyline_as_controls(&polyline);
         let windows = input.points.len() - 1;
+        // 候选再生预生成（Codex 4429983498：再生工作不混入资格计时；再生耗时
+        // 独立分列 `2_qualification_review_regeneration`，其搜索域工作归域①）。
+        let regen_started = Instant::now();
+        let regen_points: Vec<Vec<[f64; 3]>> =
+            if domains["1_candidate_generation"][id]["successful_programs"]
+                .as_u64()
+                .unwrap()
+                > 0
+            {
+                sampler::reshape::search_with_curve_cap(&input, s)
+                    .candidates
+                    .iter()
+                    .map(|candidate| program_points(&candidate.repaired.program))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+        regeneration_seconds.insert(id, regen_started.elapsed().as_secs_f64());
         let mut handle = crate::output::geom::s1::grid::WorkBudget::per_edge_default();
         handle.source_fit_remaining = u64::MAX;
         let started = Instant::now();
@@ -317,18 +336,10 @@ fn four_domain_resource_evidence() {
             .expect("bounded reference polyline fit");
         let polyline_consumed = handle.source_fit_consumed - curve_consumed;
         let mut candidate_rows = Vec::new();
-        if domains["1_candidate_generation"][id]["successful_programs"]
-            .as_u64()
-            .unwrap()
-            > 0
-        {
-            let search = sampler::reshape::search_with_curve_cap(&input, s);
-            for candidate in &search.candidates {
-                let points = program_points(&candidate.repaired.program);
-                let controls = polyline_as_controls(&points);
-                sampler::reshape::quality::fit_with_handle(&controls, &input.points, &mut handle);
-                candidate_rows.push(json!({"chords":points.len() - 1}));
-            }
+        for points in &regen_points {
+            let controls = polyline_as_controls(points);
+            sampler::reshape::quality::fit_with_handle(&controls, &input.points, &mut handle);
+            candidate_rows.push(json!({"chords":points.len() - 1}));
         }
         review_seconds.insert(id, started.elapsed().as_secs_f64());
         let expected_polyline = 8_448u64 * windows as u64 * poly_controls.len() as u64;
@@ -347,6 +358,7 @@ fn four_domain_resource_evidence() {
     }
     domains.insert("2_qualification_review".into(), json!(review));
     timing["domain_seconds"]["2_qualification_review"] = json!(review_seconds);
+    timing["domain_seconds"]["2_qualification_review_regeneration"] = json!(regeneration_seconds);
 
     // ③ 赋值验证 + ④ 编译/LFCA 计账合一（维护者修订 1：按实际阶段执行计数、
     // 保存返回状态、统一选中赋值与终验路径——evaluate 内部每赋值 1 次
