@@ -22,18 +22,18 @@ Issue #1194 范围与验收标准
 
 ## 2. 现状勘察（实现点）
 
-| 位置 | 现状 | 本切片触点 |
-| ---- | ---- | ---------- |
-| `convert/routes.rs:186-226` `can_complete_with_observer` | 递归搜索；`:209` 严格规则 `hop.from_lane == lane_index`（memo 键 `(edge_index, lane)`） | **S1 扩展点**：声明边界处允许来源 lane 转移 |
-| `convert/routes.rs:228-282` `materialize_path_with_observer` | `:255` 同一严格规则选 hop，`:279` `current_lane = hop.to_lane` | **S1 扩展点**：转移处物化过渡最终边链 |
-| `convert/routes.rs:289` `build_hop_index` | `topology.path_by_connection` → `HopOption{from_lane,to_lane}` | hop 增加可选过渡引用 |
-| `convert/routes.rs:41` `build_routes_and_bind_population` | 生产展开入口（人口绑定） | 签名加可选过渡声明输入（缺省空 = 行为不变） |
-| `convert/routes/test_support.rs` | A0 夹具构造器（缺口/连续/缺失 hop/未知 lane） | 扩展过渡夹具（sample s1 三拓扑 + s12/s4 构型） |
-| `convert/routes.rs` tests | **A0 五组**：`a0_fixture_proves_real_lane_gap_and_continuous_control`、`a0_lane_gap_fails_at_route_expansion_with_exact_error`、`a0_continuous_path_materializes_and_binds_population_deterministically`、`a0_source_reference_failures_are_stage_specific`、`a0_missing_road_hop_shares_current_lane_gap_error` | **等值只读** |
-| `convert/routes/diagnostics.rs` tests + `diagnostics/tests/evidence.rs` + `acceptance.rs` | **A1 十组**：`a1_gap_and_missing_hop…`、`a1_branch_success…`、`a1_all_failed_start_lanes…`、`a1_repeated_occurrence…`、`a1_source_errors…`、`a1_unsupported_normalization…`、`a1_materialization_failure…`、`a1_stability…`、`a1_diagnostic_cost…`、`a1_route_evidence`（+ `a1_continuous_combined_static_result_is_recorded`） | **等值只读** |
-| `crates/laneflow-runtime/src/kernel/tables.rs:468` `compile_route` + `crate::RouteError` | 注册期出现项编译；错误变体 `EmptySequence/UnknownEdge/Disconnected/ManeuverMismatch/AmbiguousManeuver/AllocationFailed/…` | **能力拒绝点**：新变体 `TransitionUnsupported` |
-| `output/emit.rs` + `output/geom/*` | 发射 + 几何修复（量化焊接预算） | **S3 发射预算实测**（只测量不改预算） |
-| `output/provenance.rs` | 来源出处机制 | S3 来源保真挂点 |
+| 位置                                                                                      | 现状                                                                                                                                                                                                                                                                                                                            | 本切片触点                                     |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `convert/routes.rs:186-226` `can_complete_with_observer`                                  | 递归搜索；`:209` 严格规则 `hop.from_lane == lane_index`（memo 键 `(edge_index, lane)`）                                                                                                                                                                                                                                         | **S1 扩展点**：声明边界处允许来源 lane 转移    |
+| `convert/routes.rs:228-282` `materialize_path_with_observer`                              | `:255` 同一严格规则选 hop，`:279` `current_lane = hop.to_lane`                                                                                                                                                                                                                                                                  | **S1 扩展点**：转移处物化过渡最终边链          |
+| `convert/routes.rs:289` `build_hop_index`                                                 | `topology.path_by_connection` → `HopOption{from_lane,to_lane}`                                                                                                                                                                                                                                                                  | hop 增加可选过渡引用                           |
+| `convert/routes.rs:41` `build_routes_and_bind_population`                                 | 生产展开入口（人口绑定）                                                                                                                                                                                                                                                                                                        | 签名加可选过渡声明输入（缺省空 = 行为不变）    |
+| `convert/routes/test_support.rs`                                                          | A0 夹具构造器（缺口/连续/缺失 hop/未知 lane）                                                                                                                                                                                                                                                                                   | 扩展过渡夹具（sample s1 三拓扑 + s12/s4 构型） |
+| `convert/routes.rs` tests                                                                 | **A0 五组**：`a0_fixture_proves_real_lane_gap_and_continuous_control`、`a0_lane_gap_fails_at_route_expansion_with_exact_error`、`a0_continuous_path_materializes_and_binds_population_deterministically`、`a0_source_reference_failures_are_stage_specific`、`a0_missing_road_hop_shares_current_lane_gap_error`                | **等值只读**                                   |
+| `convert/routes/diagnostics.rs` tests + `diagnostics/tests/evidence.rs` + `acceptance.rs` | **A1 十组**：`a1_gap_and_missing_hop…`、`a1_branch_success…`、`a1_all_failed_start_lanes…`、`a1_repeated_occurrence…`、`a1_source_errors…`、`a1_unsupported_normalization…`、`a1_materialization_failure…`、`a1_stability…`、`a1_diagnostic_cost…`、`a1_route_evidence`（+ `a1_continuous_combined_static_result_is_recorded`） | **等值只读**                                   |
+| `crates/laneflow-runtime/src/kernel/tables.rs:468` `compile_route` + `crate::RouteError`  | 注册期出现项编译；错误变体 `EmptySequence/UnknownEdge/Disconnected/ManeuverMismatch/AmbiguousManeuver/AllocationFailed/…`                                                                                                                                                                                                       | **能力拒绝点**：新变体 `TransitionUnsupported` |
+| `output/emit.rs` + `output/geom/*`                                                        | 发射 + 几何修复（量化焊接预算）                                                                                                                                                                                                                                                                                                 | **S3 发射预算实测**（只测量不改预算）          |
+| `output/provenance.rs`                                                                    | 来源出处机制                                                                                                                                                                                                                                                                                                                    | S3 来源保真挂点                                |
 
 ## 3. S1 实现设计
 
@@ -126,13 +126,13 @@ TransitionDeclaration {
 
 ## 7. 测试与等值计划
 
-| 组 | 内容 | 判据 |
-| -- | ---- | ---- |
-| **A0/A1 硬等值** | A0 五组 + A1 十组 + 既有包级全部测试 | 逐项通过；`git diff` 确认既有测试文件只增不改；旧入口（生产签名缺省空声明）旧结论逐值不变 |
-| S1 新增 | sample `s1` 三拓扑（gap/continuous-control/transition）+「无声明即转移」负例 + 声明校验负例 | gap 失败关闭且无替代链；transition 物化 `[A0,I1,B0_up,T01,B1_down,I2,C0]`；负例失败关闭 |
-| S3 新增 | 样本夹具静态序列验证（过渡/直行路线）+ 单一拓扑两次归一化逐值相等 + 发射预算实测证据 | 静态合同全过；发射结果逐边入档 |
-| 能力拒绝 | 过渡路线注册 → `TransitionUnsupported` 且注册表不变（前后快照逐值相等）；非过渡路线注册不受影响 | 结构化错误 + 失败原子 |
-| 持久化/运行时 | R1a/R1b/R2/R3：**引用验收形态不实现**（slice-s1-s3.md §4 矩阵 + 合同 §7），测试面留 S4/S5 | 本切片不产出 |
+| 组               | 内容                                                                                            | 判据                                                                                      |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **A0/A1 硬等值** | A0 五组 + A1 十组 + 既有包级全部测试                                                            | 逐项通过；`git diff` 确认既有测试文件只增不改；旧入口（生产签名缺省空声明）旧结论逐值不变 |
+| S1 新增          | sample `s1` 三拓扑（gap/continuous-control/transition）+「无声明即转移」负例 + 声明校验负例     | gap 失败关闭且无替代链；transition 物化 `[A0,I1,B0_up,T01,B1_down,I2,C0]`；负例失败关闭   |
+| S3 新增          | 样本夹具静态序列验证（过渡/直行路线）+ 单一拓扑两次归一化逐值相等 + 发射预算实测证据            | 静态合同全过；发射结果逐边入档                                                            |
+| 能力拒绝         | 过渡路线注册 → `TransitionUnsupported` 且注册表不变（前后快照逐值相等）；非过渡路线注册不受影响 | 结构化错误 + 失败原子                                                                     |
+| 持久化/运行时    | R1a/R1b/R2/R3：**引用验收形态不实现**（slice-s1-s3.md §4 矩阵 + 合同 §7），测试面留 S4/S5       | 本切片不产出                                                                              |
 
 ## 8. 风险与待统筹确认
 
