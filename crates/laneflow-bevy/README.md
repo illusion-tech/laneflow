@@ -39,8 +39,9 @@ app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired 
 # }
 ```
 
-campus / `native_reference` 的 Core 入口已删除。各示例使用检入的 catalog 与 LFCA，
-prepare 绑到已安装共享路网修订。历史 Bevy debug gizmos 占位 API 已删除
+campus / `native_reference` 的 Core 入口已删除。各示例都消费检入的 LFCA：
+`corridor_traffic` 与 `junction_debug` 使用各自的 catalog，经 prepare 绑到已安装共享路网修订；
+`quickstart` 直接装配最小 LFCA 夹具并注册路线，不经 catalog。历史 Bevy debug gizmos 占位 API 已删除
 （[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭），现行可视诊断入口是
 `junction_debug`（见下文“示例”）。
 

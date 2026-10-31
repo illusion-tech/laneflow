@@ -63,9 +63,10 @@ area 标签且无 blocker 才能进入 `Ready`；G2 记录并有 assignee 后进
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-- required checks（PR 与 `merge_group` 同名）的名称清单与 CodeQL 来源以
-  `docs/governance/development-gates.md` §6.2 为唯一事实源，本 Skill 不复制；执行合并前通过
-  GitHub API 核对实时 Ruleset。
+- required checks（PR 与 `merge_group` 同名）的名称清单以
+  `docs/governance/development-gates.md` §6.2 为准；CodeQL 来源（`integration_id`）与队列
+  live Ruleset 配置以 `docs/governance/github-workflow.md` §7 为准，本 Skill 不复制；执行合并前
+  通过 GitHub API 核对实时 Ruleset。
 - 禁止日常 `--admin`。owner bypass 的终态由 #493 独立治理。
 
 ## 提交说明
