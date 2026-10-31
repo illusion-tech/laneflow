@@ -1936,7 +1936,10 @@ fn append_gate_targets(
                 ) else {
                     return Err(StepError::ConflictInvariantViolation);
                 };
-                if zone != occurrence.zone() {
+                let Some(occurrence_zone) = occurrence.static_zone() else {
+                    return Err(StepError::ConflictInvariantViolation);
+                };
+                if zone != occurrence_zone {
                     return Err(StepError::ConflictInvariantViolation);
                 }
                 targets.len()
@@ -1956,8 +1959,11 @@ fn append_gate_targets(
                     let Some(target) = targets.get(target_index) else {
                         return Err(StepError::ConflictInvariantViolation);
                     };
+                    let Some(occurrence_zone) = occurrence.static_zone() else {
+                        return Err(StepError::ConflictInvariantViolation);
+                    };
                     ConflictPassageAddress::new(
-                        occurrence.zone(),
+                        occurrence_zone,
                         target.stream(),
                         target.passage_local_index(),
                     )

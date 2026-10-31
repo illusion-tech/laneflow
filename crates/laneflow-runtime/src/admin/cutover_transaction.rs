@@ -1327,8 +1327,12 @@ fn apply_conflict_tick_deltas(
         let target_stream = rebinding
             .participant_stream(delta.address.stream())
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let source_zone = delta
+            .address
+            .static_zone()
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let target_zone = rebinding
-            .conflict_zone(delta.address.zone())
+            .conflict_zone(source_zone)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let target_address = candidate
             .conflict_read()

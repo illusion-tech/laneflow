@@ -2992,7 +2992,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 .revision
                 .identity()
                 .stable_id(address.stream())?,
-            self.binding.revision.identity().stable_id(address.zone())?,
+            self.binding
+                .revision
+                .identity()
+                .stable_id(address.static_zone()?)?,
         ))
     }
 

@@ -3204,9 +3204,13 @@ impl crate::kernel::state::WorldState {
             self.push_waiting_entrants(zone, &mut handles)?;
         }
         for (address, _) in &notes.cells {
-            let filled = self.materialize_zone(address.zone().index());
+            let zone_slot = self
+                .read_view()
+                .conflict_read()
+                .resource_slot_index(address.resource());
+            let filled = self.materialize_zone(zone_slot);
             self.materialized(filled)?;
-            self.push_zone_contenders(address.zone().index(), &mut handles)?;
+            self.push_zone_contenders(zone_slot, &mut handles)?;
             let Some(index) = self.read_view().conflict_read().cell_index_of(*address) else {
                 continue;
             };

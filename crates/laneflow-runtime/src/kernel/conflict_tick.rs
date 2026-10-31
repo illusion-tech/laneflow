@@ -328,7 +328,7 @@ fn sort_staged_decisions(decisions: &mut [ConflictDecision], order: &mut Vec<Can
         let (present, zone, stream, local) = address.map_or((0, 0, 0, 0), |address| {
             (
                 1_u128,
-                address.zone().raw(),
+                crate::kernel::conflict::resource_order_raw(address.resource()),
                 address.stream().raw(),
                 address.passage_local_index(),
             )

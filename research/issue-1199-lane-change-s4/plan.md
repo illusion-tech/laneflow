@@ -162,3 +162,31 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
   × `yieldable_by_stopping`（具名四项）× MotionReach 本拍上界跳拍重证；仲裁
   = 证明先行 + live 序（`committed.live_order`）；§5.1 撤销分支复用 staged
   到期语义；车尾清空复用 `ConflictClearOutcome` 清空条件（`rear >= clearance`）。
+
+## 7. 差异记录 / 发现记录
+
+- **隐式布局/代码形态敏感摘要面（发现记录，S5 版本轴域地雷）**：S4 增量1
+  诊断中，phase 等值 digest 的 `conflict=`/`conflict-journal=` 两分量对**行为
+  逐值等价**的代码改动持续漂移（fixture `phase-protocol-e011745e.txt` 钉死），
+  而全部显式预映像路径（`canonical_state_preimage`/`push_conflict_locator`/
+  稳定 ID 序列化）逐行审查与布局/形态无关；两项首嫌均已实验排除——
+  ① `zone_span` 结构字段改懒派生（零结构增量）后仍漂；② `ConflictPassageAddress`
+  布局 12→16B 后复原（32 位身份编码实验 A）仍漂，且 digest 值随等价改动
+  变化（d835→3e27）——**存在未定位的隐式摘要面**（size_of/retained/原始
+  内存核算或哈希形态类）。**S5 布局/格式变更（digest 9/前像扩展）必须显式
+  审计该面**，勿以"逐值等价"推定 digest 稳定。
+- **A 实验（布局保持身份编码，裁定批准并执行）**：地址身份 32 位编码
+  `raw = z.raw()` / `0x8000_0000 | edge.raw()`（与 `resource_order_raw` 同
+  编码），accessor 解码保真、身份来源 = 分类表派生不变、结构 12B 复原。
+  **容量注记**：编码假定 `edge.raw() < 2^31`（网络规模上限保证）；突破须换
+  64 位身份并走 S5 版本轴。A 后等值仍红 → 按裁定转 B 深挖（未提交、不猜）。
+- **B 深挖定位结果（根因已锁定并修复）**：byte-diff 探针证明 `canonical_state_
+  preimage` 全时点（k=0…640）与 restore+续跑指纹**逐字节全同**——状态序列化
+  无恙；泄漏面 = **`{:?}` Debug 形状即摘要面**：phase 轨迹摘要以
+  `checkpoint`/`{outcome:?}` 的 Debug 串为预映像（`latest_conflict_decisions`
+  等含 `ConflictPassageAddress`），其派生 Debug 形状随字段改名漂移
+  （zone/resource/raw 三形状 = 三指纹，全部观察闭合）。修复：手工 `Debug`
+  **逐字复原历史形状**（`zone` 字段名 + Ordinal Debug 值），零 digest/fixture
+  变化、phase 等值 5/5 回绿。**S5 审计要点（升级）**：凡进入摘要/轨迹预映像
+  的 `{:?}` 输出都是格式面——结构重命名/字段调整/derive→manual 切换都会
+  漂移指纹；digest 9/前像扩展须把 **Debug 形状**列入显式审计清单。

@@ -1098,7 +1098,7 @@ fn mapped_conflict_address(
     source_address: crate::ConflictPassageAddress,
 ) -> Option<crate::ConflictPassageAddress> {
     let stream = rebinding.participant_stream(source_address.stream())?;
-    let zone = rebinding.conflict_zone(source_address.zone())?;
+    let zone = rebinding.conflict_zone(source_address.static_zone()?)?;
     target.conflict_read().unique_address(zone, stream)
 }
 
@@ -3803,7 +3803,11 @@ pub(crate) mod tests {
                 .stable_id(source_address.stream())
                 .expect("source stream identity"),
             base.identity()
-                .stable_id(source_address.zone())
+                .stable_id(
+                    source_address
+                        .static_zone()
+                        .expect("static zone (S4: transition 不入迁移域)"),
+                )
                 .expect("source zone identity"),
         );
         let descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -3849,7 +3853,11 @@ pub(crate) mod tests {
                     .expect("target stream identity"),
                 target
                     .identity()
-                    .stable_id(target_address.zone())
+                    .stable_id(
+                        target_address
+                            .static_zone()
+                            .expect("static zone (S4: transition 不入迁移域)"),
+                    )
                     .expect("target zone identity"),
             ),
             source_locator,
