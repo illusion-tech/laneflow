@@ -1163,7 +1163,7 @@ mod tests {
             let revision = world.revision();
             let conflict = revision.conflict();
             let stream = conflict
-                .conflict_zone(address.zone())
+                .conflict_zone(address.static_zone().unwrap())
                 .unwrap()
                 .participant_streams()
                 .iter()
@@ -1175,10 +1175,10 @@ mod tests {
                 .unwrap()
                 .passages()
                 .iter()
-                .position(|passage| passage.conflict_zone() == address.zone())
+                .position(|passage| passage.conflict_zone() == address.static_zone().unwrap())
                 .unwrap();
             wanted.push(ConflictPassageAddress::new(
-                address.zone(),
+                address.static_zone().unwrap(),
                 stream,
                 local as u32,
             ));
@@ -2061,8 +2061,11 @@ mod tests {
         let mut expected = None;
         for workers in [1, 4, 16] {
             let (mut world, mut wanted) = cached_world(workers);
-            let invalid =
-                ConflictPassageAddress::new(wanted[0].zone(), wanted[0].stream(), u32::MAX);
+            let invalid = ConflictPassageAddress::new(
+                wanted[0].static_zone().unwrap(),
+                wanted[0].stream(),
+                u32::MAX,
+            );
             wanted.push(invalid);
             wanted.sort_unstable();
             let earlier = world.state.committed.live_order[14];
