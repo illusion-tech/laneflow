@@ -39,9 +39,10 @@ app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired 
 # }
 ```
 
-campus / `native_reference` 的 Core 入口已删除。现行走廊 Bevy 最小路径使用检入的
-catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
-[#475](https://github.com/illusion-tech/laneflow/issues/475)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
+campus / `native_reference` 的 Core 入口已删除。各示例使用检入的 catalog 与 LFCA，
+prepare 绑到已安装共享路网修订。历史 Bevy debug gizmos 占位 API 已删除
+（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭），现行可视诊断入口是
+`junction_debug`（见下文“示例”）。
 
 ## 按宿主选择提取位姿
 
@@ -65,6 +66,14 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 
 二者均在 `deny.toml` 允许的 SPDX 分支内，无 copyleft，不新增 crates.io 之外的来源。已知漏洞由 CI `Dependency policy`（cargo-deny advisories）把关。
 
+## 示例
+
+| 示例               | 作用                           | 行为边界                                                  |
+| ------------------ | ------------------------------ | --------------------------------------------------------- |
+| `quickstart`       | 最小接入、车辆绑定与位姿同步   | 两辆车，有限路线，完成后不回流                            |
+| `corridor_traffic` | 持续车流与宿主生命周期         | 默认 `100` 车，支持 `50..=200`，完成后在同一 Entity 回流 |
+| `junction_debug`   | 复杂路口领域观测与可视诊断     | 四车确定性场景，F2 开关只读 overlay（mesh/文本）          |
+
 最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
 `examples/support/quickstart_scene.rs`，从同一带策略的空间夹具显式绑定
 `runtime-fixture-policy / fixture-policy`，再创建车辆和配对 Spatial session。
@@ -77,6 +86,9 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 Lifecycle → Step → Observe 在同一 Entity 回流；灯具读取 Runtime 已提交信号组，
 HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移、右键绕焦点旋转。
 启动、人口链、整批位姿、静态绑定和摘要与 headless 共用；旧走廊 target 不保留别名。
+复杂路口诊断入口是 `junction_debug`：检入 catalog 0.1 与 LFCA 的四车确定性场景，默认
+关闭的 F2 overlay 只读 `LaneFlowSession`，并写入独立 ECS 实体，不触碰 Runtime 状态；
+开关 overlay 时的 Runtime 摘要一致性由无窗口 smoke 对拍检查。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
@@ -85,6 +97,8 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --feature
 cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
 cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
 cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --example corridor_traffic --features native-example
+cargo +1.99.1 run --locked -p laneflow-bevy --example junction_debug --features native-example
+cargo +1.99.1 test --locked -p laneflow-bevy --test junction_debug_smoke
 ```
 
 完整 C01–C13 验收、确定性出图与独立 headless 摘要对照见
