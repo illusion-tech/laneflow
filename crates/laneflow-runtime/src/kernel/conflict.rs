@@ -306,6 +306,22 @@ impl ConflictPassageAddress {
         }
     }
 
+    /// 由资源身份构造规范地址（#1199 增量2a：过渡出现项发射统一入口）。
+    pub(crate) const fn from_resource(
+        resource: ConflictResource,
+        stream: ParticipantStreamOrdinal,
+        passage_local_index: u32,
+    ) -> Self {
+        Self {
+            raw: match resource {
+                ConflictResource::Zone(zone) => zone.raw(),
+                ConflictResource::Transition(edge) => 0x8000_0000 | edge.raw(),
+            },
+            stream,
+            passage_local_index,
+        }
+    }
+
     /// 由横向过渡段（分类表派生）构造规范地址（#1199 S4；增量2 P3-P7 接线）。
     #[allow(dead_code)]
     pub(crate) const fn new_transition(

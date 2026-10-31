@@ -1635,7 +1635,7 @@ impl crate::kernel::state::WorldState {
                 {
                     note_reserve(&mut zones, 1)?;
                     note_reserve(&mut streams, 1)?;
-                    zones.push(entry.zone.index());
+                    zones.push(entry.static_zone().map_or(usize::MAX, |z| z.index()));
                     streams.push(entry.stream);
                 }
                 let waiting_here = compiled.waiting.iter().find(|entry| entry.entry_hop == hop);
@@ -2114,7 +2114,9 @@ impl crate::kernel::state::WorldState {
                 continue;
             };
             for entry in &compiled.conflicts {
-                let Some(count) = offsets.get_mut(entry.zone.index()) else {
+                let Some(count) =
+                    offsets.get_mut(entry.static_zone().map_or(usize::MAX, |z| z.index()))
+                else {
                     return false;
                 };
                 if total as u64 >= limit {
@@ -2144,7 +2146,7 @@ impl crate::kernel::state::WorldState {
                 return false;
             };
             for entry in &compiled.conflicts {
-                let cursor = &mut offsets[entry.zone.index()];
+                let cursor = &mut offsets[entry.static_zone().map_or(usize::MAX, |z| z.index())];
                 zone_routes[*cursor as usize] = route;
                 *cursor += 1;
             }

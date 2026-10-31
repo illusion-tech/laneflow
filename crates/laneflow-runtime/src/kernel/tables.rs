@@ -60,7 +60,7 @@ pub(crate) struct RoutePosition {
 pub(crate) struct ConflictPassageOccurrence {
     pub stream: ParticipantStreamOrdinal,
     pub passage_local_index: u32,
-    pub zone: ConflictZoneOrdinal,
+    pub resource: crate::kernel::conflict::ConflictResource,
     pub maneuver_index: u32,
     pub admission_hop: u32,
     pub entry: RoutePosition,
@@ -68,9 +68,28 @@ pub(crate) struct ConflictPassageOccurrence {
 }
 
 impl ConflictPassageOccurrence {
+    /// 静态面访问（S4 规则：`Transition` 失败关闭）：取静态冲突区 ordinal。
+    pub(crate) const fn static_zone(self) -> Option<ConflictZoneOrdinal> {
+        match self.resource {
+            crate::kernel::conflict::ConflictResource::Zone(zone) => Some(zone),
+            crate::kernel::conflict::ConflictResource::Transition(_) => None,
+        }
+    }
+
     /// 该出现项的规范 passage 地址。
     pub(crate) const fn address(self) -> crate::ConflictPassageAddress {
-        crate::ConflictPassageAddress::new(self.zone, self.stream, self.passage_local_index)
+        match self.resource {
+            crate::kernel::conflict::ConflictResource::Zone(zone) => {
+                crate::ConflictPassageAddress::new(zone, self.stream, self.passage_local_index)
+            }
+            crate::kernel::conflict::ConflictResource::Transition(edge) => {
+                crate::ConflictPassageAddress::new_transition(
+                    edge,
+                    self.stream,
+                    self.passage_local_index,
+                )
+            }
+        }
     }
 }
 
@@ -1101,7 +1120,9 @@ fn compile_conflicts(
                     stream: *stream,
                     passage_local_index: u32::try_from(passage_local_index)
                         .map_err(|_| RouteError::AllocationFailed)?,
-                    zone: passage.conflict_zone(),
+                    resource: crate::kernel::conflict::ConflictResource::Zone(
+                        passage.conflict_zone(),
+                    ),
                     maneuver_index: u32::try_from(maneuver_index)
                         .map_err(|_| RouteError::AllocationFailed)?,
                     admission_hop,
@@ -2952,7 +2973,9 @@ mod compile_route_tests {
                           clearance_mm: u32| ConflictPassageOccurrence {
             stream: ParticipantStreamOrdinal::from_raw(stream),
             passage_local_index,
-            zone: ConflictZoneOrdinal::from_raw(passage_local_index),
+            resource: crate::kernel::conflict::ConflictResource::Zone(
+                ConflictZoneOrdinal::from_raw(passage_local_index),
+            ),
             maneuver_index,
             admission_hop,
             entry: RoutePosition {
@@ -3060,7 +3083,9 @@ mod compile_route_tests {
             conflicts: vec![ConflictPassageOccurrence {
                 stream: ParticipantStreamOrdinal::from_raw(7),
                 passage_local_index: 3,
-                zone: ConflictZoneOrdinal::from_raw(5),
+                resource: crate::kernel::conflict::ConflictResource::Zone(
+                    ConflictZoneOrdinal::from_raw(5),
+                ),
                 maneuver_index: 0,
                 admission_hop: 0,
                 entry: RoutePosition {
@@ -3305,7 +3330,9 @@ mod compile_route_tests {
         ConflictPassageOccurrence {
             stream: ParticipantStreamOrdinal::from_raw(0),
             passage_local_index: 0,
-            zone: ConflictZoneOrdinal::from_raw(0),
+            resource: crate::kernel::conflict::ConflictResource::Zone(
+                ConflictZoneOrdinal::from_raw(0),
+            ),
             maneuver_index: 0,
             admission_hop,
             entry: RoutePosition {
