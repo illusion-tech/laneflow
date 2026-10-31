@@ -215,6 +215,9 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
 
 ## 快照恢复与继续运行
 
+正式矩阵、独立文件复核与覆盖边界见
+[LF-SYNTH-v2 快照恢复核验报告](../../research/issue-1197-lf-synth-restore/README.md)。
+
 ```text
 laneflow-synth-harness restore-probe <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
 laneflow-synth-harness restore-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
