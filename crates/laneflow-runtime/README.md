@@ -1,12 +1,14 @@
 # laneflow-runtime
 
-目标交通运行时。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
+LaneFlow 交通运行时（Traffic Runtime）。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
 可变状态；热路径借用共享静态路网静态 accessor，并读本世界已提交表。`WorldConfig` 只含
 四类容量和固定步长，安装/恢复还须显式传入 `ExecutionConfig::new(NonZeroU32::MIN)`。
 执行配置不进入快照、逻辑摘要或交通身份；支持 worker 1–16，完整交通准备后才
 拒绝不支持的执行请求。活动 facade 独占私有执行资源；候选只拥有 `WorldState`
-和目标计划，恢复/切换失败不发布半个世界。P2 运动/前视预览按 worker 数真实分发，
-P3/P5 仍由协调器串行（#706）。执行器 panic 在 join 后使世界失效，宿主捕获 panic
+和目标计划，恢复/切换失败不发布半个世界。P2 运动/前视预览、P3 候选字段求值与 P5
+逐车最终运动在满足分发条件时按 worker 真实分发，协调器保序组装；frontier 归约、P4
+联合裁决、P5 资源转移与 P7 发布仍由协调器串行，边界见
+[`traffic-runtime-parallel-execution.md`](../../docs/design/traffic-runtime-parallel-execution.md)。执行器 panic 在 join 后使世界失效，宿主捕获 panic
 后只能销毁或重建，不能继续交通查询、命令或管理操作。
 
 私有实现分为 `kernel/`、`admin/`、`facade/`；格式读取集中于
@@ -73,7 +75,7 @@ dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapsh
 
 Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
 `encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
-预算，再执行版本、v6 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车、
+预算，再执行版本、v7 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车、
 Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
 经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
 重建，Conflict occupant/cleared 从 reservation、车辆整车位置和 passage 锚点派生；完全
@@ -82,7 +84,8 @@ Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
 locator 与车辆位置合法而恢复为已提交资格。
 `deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、
 局部 ID、Published 审计地址或 worker 计划；容量、tick/时间/双游标与 live 顺序仍进入
-SHA-256 状态身份。
+摘要前像。该摘要是 [ADR 0033](../../docs/adr/0033-digest-role-and-algorithm-selection-authority.md)
+定义的内部完整性摘要（BLAKE3-256），用于宿主检查点对拍与审计重放，不承担发布身份。
 检查点宿主可从不可变 `CapturedRoute` / `CapturedVehicle` 读取局部 ID 与逻辑字段，
 恢复后从 `RestoredSnapshot::route_mappings` / `vehicle_mappings` 取得按局部 ID 排序的
 完整新句柄表；检查点后的实体继续由宿主命令自带耐久 ID，Runtime 不接管输入日志。
