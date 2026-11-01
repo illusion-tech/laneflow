@@ -6165,6 +6165,7 @@ mod preview {
             maneuvers: Vec::new(),
             hop_gate: vec![None, None],
             gate_hops: Vec::new(),
+            conflict_dispatch_hops: Vec::new(),
             remaining_to_end: vec![
                 BoundedDistance::Finite(75_266),
                 BoundedDistance::Finite(1_000),
