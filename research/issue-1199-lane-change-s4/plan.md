@@ -248,14 +248,14 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
 
 ### 组合规则矩阵（证据定位）
 
-| # | 规则 | 证据 | 对构造的影响 |
-|---|---|---|---|
-| R-1 | **owner 同模块**：声明 owner 链（junction/movement/path/gate/stream/section/lane/zone）须与声明同模块；imported owner = `InvalidCombination`（"roadEditingSource.owner"） | builder.rs:560-573（owner_is_imported 分类表逐 kind） | **混合单元死因**（探针 verdict）：冲突声明不能挂合成侧 owner；同层声明须同模块 |
-| R-2 | **走廊成员几何 = 对齐参考线横向偏移曲线**（width 剖面→offset 区间；derive_member_offset_endpoints） | compile_geometry.rs:827-884 | lane/band 几何**派生自走廊对齐**不得另定；lane 边 LaneEdgeInput 几何=None（recipe entry/exit=None、internal=显式恰为此制） |
-| R-3 | **多 lane section = 同对齐同 station 并行偏移**：lane 序 = offset 序 = 横断面横向位置 | compile_geometry.rs:830-834 | 双 lane 横坐标 (元素位, lane 序) 与接缝矩阵同构 ✓ 判据直证 |
-| R-4 | **过渡边 T**：独立 LaneEdge（显式几何）、无 lane 覆盖、lane-graph successors 连两侧 | s3 分类判据（既有） | T 不参与偏移几何 ✓ 显式几何合法 |
-| R-5 | **对齐唯一消费**：走廊对齐须在编译对齐表；悬空/未编译对齐 → `GeometryTopologyMismatch` | compile_geometry.rs:785-803 | v2 五对齐四悬空即死因；对齐数=走廊消费数 |
-| R-6 | LaneEdge 显式几何按边唯一产出（防重守卫） | compile_geometry.rs:767-771 | 显式几何边不得重复登记 |
+| #   | 规则                                                                                                                                                                      | 证据                                                  | 对构造的影响                                                                                                               |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| R-1 | **owner 同模块**：声明 owner 链（junction/movement/path/gate/stream/section/lane/zone）须与声明同模块；imported owner = `InvalidCombination`（"roadEditingSource.owner"） | builder.rs:560-573（owner_is_imported 分类表逐 kind） | **混合单元死因**（探针 verdict）：冲突声明不能挂合成侧 owner；同层声明须同模块                                             |
+| R-2 | **走廊成员几何 = 对齐参考线横向偏移曲线**（width 剖面→offset 区间；derive_member_offset_endpoints）                                                                       | compile_geometry.rs:827-884                           | lane/band 几何**派生自走廊对齐**不得另定；lane 边 LaneEdgeInput 几何=None（recipe entry/exit=None、internal=显式恰为此制） |
+| R-3 | **多 lane section = 同对齐同 station 并行偏移**：lane 序 = offset 序 = 横断面横向位置                                                                                     | compile_geometry.rs:830-834                           | 双 lane 横坐标 (元素位, lane 序) 与接缝矩阵同构 ✓ 判据直证                                                                 |
+| R-4 | **过渡边 T**：独立 LaneEdge（显式几何）、无 lane 覆盖、lane-graph successors 连两侧                                                                                       | s3 分类判据（既有）                                   | T 不参与偏移几何 ✓ 显式几何合法                                                                                            |
+| R-5 | **对齐唯一消费**：走廊对齐须在编译对齐表；悬空/未编译对齐 → `GeometryTopologyMismatch`                                                                                    | compile_geometry.rs:785-803                           | v2 五对齐四悬空即死因；对齐数=走廊消费数                                                                                   |
+| R-6 | LaneEdge 显式几何按边唯一产出（防重守卫）                                                                                                                                 | compile_geometry.rs:767-771                           | 显式几何边不得重复登记                                                                                                     |
 
 ### 合法构造例（v3 设计，一次成型）
 
