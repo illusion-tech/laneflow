@@ -449,6 +449,101 @@ fn e1_formal_three_edge_diagnosis() {
     );
 }
 
+/// 见证注入阶段（v3.1 §3）：重跑三边诊断取见证 → 按冻结形态构造 `Injection`
+/// （P1-T→`FirstPair`；seamLo→`Seam` 双侧绑定同一见证）→ `search_injected_with_budget`
+/// 共享句柄（每边一个 `per_edge_default`，**不按见证续杯**）、每边 ≤4 次注入调用
+/// → `injection-results.json`（无计时字段；含单弦未决 0.01m_filter/sink_real_check
+/// 细分与见证尝试/使用/共同出现记录）。
+#[test]
+#[ignore = "requires COHORT2_RUN_DIR and E1_INJECTION_OUTPUT_DIR"]
+fn e1_witness_injection_stage() {
+    let run = PathBuf::from(std::env::var("COHORT2_RUN_DIR").expect("COHORT2_RUN_DIR"));
+    let inputs = super::cohort2_coverage::read_pinned_json(
+        &run.join("inputs.json"),
+        "3f831c631e8eca8cb070b695c28a8dc4ffe1c46735355e87fd2ec2e7c64ccffd",
+    );
+    let out = PathBuf::from(std::env::var("E1_INJECTION_OUTPUT_DIR").expect("output dir"));
+    assert!(!out.exists(), "fresh output directory");
+    fs::create_dir_all(&out).unwrap();
+    let mut results = Vec::new();
+    for (id, span, total) in [
+        ("sumo::-10046_0_0", 2usize, 4usize),
+        ("sumo::-8018_4_0", 1, 3),
+        ("sumo::-25490_4_0", 1, 4),
+    ] {
+        let input = measurement::input(&inputs[id]);
+        let chain = sampler::reshape::reference(&input);
+        assert_eq!(chain.len(), total, "{id} 原参考曲线 span 总数");
+        let control = chain[span];
+        let bits = control.map(|p| p.map(f64::to_bits));
+        let mut handle = sampler::grid::WorkBudget::per_edge_default();
+        let mut calls = 0u32;
+        let mut records = Vec::new();
+        // P1-T 见证 → FirstPair 注入（[0,u,v] 形态；参数 = witness [0,u,v] 的 u,v）。
+        let first = diagnose_first_two_chords(control);
+        if first["status"] == "local_witness" {
+            let params: [u64; 3] =
+                serde_json::from_value(first["witness"]["parameters_f64_bits"].clone()).unwrap();
+            let injection = sampler::grid::Injection {
+                control: bits,
+                kind: sampler::grid::InjectionKind::FirstPair {
+                    u: f64::from_bits(params[1]),
+                    v: f64::from_bits(params[2]),
+                },
+            };
+            let search = sampler::grid::search_injected_with_budget(&input, injection, &mut handle);
+            calls += 1;
+            records.push(json!({"problem":"first_two_chords",
+                "witness_parameters_f64_bits":first["witness"]["parameters_f64_bits"],
+                "search":{"candidate_programs":search.report["candidate_programs"],
+                    "stop_reason":search.report["stop_reason"],
+                    "search_work":search.report["search_work"],
+                    "witness_injection_records":search.report["witness_injection_records"]}}));
+        }
+        // seamLo 见证 → Seam 双侧注入（左 = chain[span-1] 并入 s，右 = chain[span] 并入 t）。
+        let lo = chain[span - 1];
+        let seam_lo = diagnose_seam_pair(
+            [lo[0], lo[1], lo[2], lo[3]],
+            [control[0], control[1], control[2], control[3]],
+        );
+        if seam_lo["pair"]["status"] == "local_witness" {
+            let params: [u64; 2] =
+                serde_json::from_value(seam_lo["pair"]["witness"]["parameters_f64_bits"].clone())
+                    .unwrap();
+            let injection = sampler::grid::Injection {
+                control: lo.map(|p| p.map(f64::to_bits)),
+                kind: sampler::grid::InjectionKind::Seam {
+                    right_control: bits,
+                    s: f64::from_bits(params[0]),
+                    t: f64::from_bits(params[1]),
+                },
+            };
+            let search = sampler::grid::search_injected_with_budget(&input, injection, &mut handle);
+            calls += 1;
+            records.push(json!({"problem":"seam_pair_lo",
+                "witness_parameters_f64_bits":seam_lo["pair"]["witness"]["parameters_f64_bits"],
+                "search":{"candidate_programs":search.report["candidate_programs"],
+                    "stop_reason":search.report["stop_reason"],
+                    "search_work":search.report["search_work"],
+                    "witness_injection_records":search.report["witness_injection_records"]}}));
+        }
+        assert!(calls <= 4, "{id} 注入调用上限 4");
+        let single = diagnose_single_chord(control);
+        results.push(json!({"edge":id,"injection_calls":calls,"records":records,
+            "single_chord_status":single["status"],
+            "single_chord_unresolved_reason":single["unresolved_reason"],
+            "budget":{"grid_work_consumed":handle.grid_work_consumed,
+                "grid_work_remaining":handle.grid_work_remaining}}));
+    }
+    recovery::write_json(
+        &out,
+        "injection-results.json",
+        &json!({"schema":"laneflow-1141-injection-results",
+            "budget_semantics":"per-edge shared WorkBudget, no witness top-up; per-call caps per plan",
+            "results":results}),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
