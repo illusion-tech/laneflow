@@ -7149,6 +7149,45 @@ impl ConflictTaskView<'_> {
                 let Some(other_compiled) = self.read.compiled_route(other.route) else {
                     return Some(unprovable);
                 };
+                // §5.2 枚举含可达性：路径被前车遮挡的上游车辆非潜在进入者
+                // （其到区间不可达——占用遮挡跳过，防互锁）。
+                let other_edge_index = other.route_edge_index as usize;
+                let interval_distance = boundary_targets(&other_compiled.edges)
+                    .into_iter()
+                    .filter_map(|(target_index, target_progress)| {
+                        match crate::kernel::tables::distance_to_occurrence_progress(
+                            &other_compiled.occurrence_segments,
+                            &other_compiled.occurrence_offsets,
+                            &other_compiled.segment_totals,
+                            other_edge_index,
+                            other.progress_mm,
+                            target_index,
+                            target_progress,
+                        ) {
+                            Some(BoundedDistance::Finite(mm)) => Some(mm),
+                            _ => None,
+                        }
+                    })
+                    .min();
+                if let (Some(interval_distance), Some(leader_gap_mm)) = (
+                    interval_distance,
+                    self.read.derived.occupancy.leader_gap(
+                        handle,
+                        &other_compiled.edges,
+                        other_edge_index,
+                        other.progress_mm,
+                        self.read
+                            .binding
+                            .revision
+                            .traffic()
+                            .lane_lengths_millimetres(),
+                        crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
+                    ),
+                ) && i64::from(interval_distance) > leader_gap_mm
+                {
+                    // 前车遮挡其到区间路径——非潜在进入者。
+                    continue;
+                }
                 let other_edge = other_compiled
                     .edges
                     .get(other.route_edge_index as usize)
