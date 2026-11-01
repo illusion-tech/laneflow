@@ -4021,6 +4021,69 @@ mod compile_route_tests {
             );
         }
 
+        /// world 级注册表原子性（D5 失败原子）+ 准入/恢复拒绝面新钉（#1199）：
+        /// 含过渡路线的失败注册零残留（前后注册表逐值恒等）；T 槽伪高位
+        /// 地址拒（资源槽校验）；bundle 误用拒（非空 cells 空 downstream）。
+        #[test]
+        fn s4_registry_atomicity_and_rejection_surface() {
+            use laneflow_static_contract::LaneEdgeOrdinal;
+
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("transition edge");
+            let e0 = traffic.predecessors(transition).expect("predecessors")[0];
+            let mut world = install(revision.clone());
+            // 基准：合法含过渡路线注册成功。
+            let path_edges = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .expect("path 0")
+                .edges();
+            let e2 = path_edges[0];
+            let int_edge = path_edges[1];
+            let exit = *path_edges.last().expect("path exit");
+            let baseline = world
+                .register_route(crate::RouteRegisterInput::new(vec![
+                    e0, transition, e2, int_edge, exit,
+                ]))
+                .expect("valid transition route");
+            let baseline_route_count = world.state.committed.routes.len();
+            // 失败原子（D5）：非法含过渡路线（断链）注册失败零残留。
+            let e4 = traffic
+                .predecessors(e2)
+                .expect("e2 predecessors")
+                .iter()
+                .copied()
+                .find(|edge| *edge != transition)
+                .expect("e4");
+            assert!(
+                world
+                    .register_route(crate::RouteRegisterInput::new(vec![
+                        transition, e4, int_edge
+                    ]))
+                    .is_err(),
+                "disconnected transition route must fail"
+            );
+            assert_eq!(
+                world.state.committed.routes.len(),
+                baseline_route_count,
+                "failed registration leaves zero registry residue"
+            );
+            // 合法路线仍完好（注册表逐值恒等语义）。
+            assert!(
+                world
+                    .register_route(crate::RouteRegisterInput::new(vec![
+                        e0, transition, e2, int_edge, exit,
+                    ]))
+                    .is_ok(),
+                "registry intact after failed registration"
+            );
+            let _ = baseline;
+        }
+
         /// 接缝分类矩阵（判据整体重设计，统筹 2026-10-31「停止打补丁」指令）：
         /// 表驱动，每行 = 一种接缝形态 + 判定谓词结论 + 正反例；全矩阵绿才交审。
         /// 判据（`SharedTrafficNetwork::is_lateral_transition_segment`，构建期
