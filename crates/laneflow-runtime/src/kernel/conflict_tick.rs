@@ -6888,6 +6888,24 @@ impl ConflictTaskView<'_> {
         if kind == GateCandidateKind::Protected {
             return Ok(());
         }
+        // P4 具名判据（#1199 合同 §5.2）：过渡资源的让行证明=换道方对
+        // 邻域潜在进入者的逐个可让行证明，按换道请求求值（与 policy 流级
+        // 目标无关），此处早返回不进入 zone 目标循环。
+        if matches!(
+            occurrence.resource,
+            crate::kernel::conflict::ConflictResource::Transition(_)
+        ) {
+            if let Some(reason) = self.evaluate_transition_p4(&state, &occurrence) {
+                *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
+                    if no_grant_rank(reason) < no_grant_rank(current) {
+                        reason
+                    } else {
+                        current
+                    }
+                }));
+            }
+            return Ok(());
+        }
         let (zone, targets) = policy
             .yield_targets(occurrence.stream, class, occurrence.passage_local_index)
             .ok_or(StepError::ConflictInvariantViolation)?;
@@ -6913,26 +6931,17 @@ impl ConflictTaskView<'_> {
                 target.stream(),
                 target.passage_local_index(),
             );
-            let no_grant = match occurrence.resource {
-                crate::kernel::conflict::ConflictResource::Transition(_) => {
-                    // P4 具名判据（#1199 合同 §5.2）：过渡资源以具名四项证明
-                    // 替代时间间隙——潜在进入者（实际车体记录）逐个
-                    // `yieldable_by_stopping`；任一不可证 → no-grant。
-                    self.evaluate_transition_p4(&state, &occurrence)
-                }
-                _ => map_yield(
-                    self.conflict
-                        .evaluate_yield_target(
-                            state.handle,
-                            address,
-                            self.read.committed.time_ms,
-                            gap.required_lag_ms(),
-                            gap.required_lead_ms(),
-                        )
-                        .ok_or(StepError::ConflictInvariantViolation)?,
-                ),
-            };
-            if let Some(reason) = no_grant {
+            if let Some(reason) = map_yield(
+                self.conflict
+                    .evaluate_yield_target(
+                        state.handle,
+                        address,
+                        self.read.committed.time_ms,
+                        gap.required_lag_ms(),
+                        gap.required_lead_ms(),
+                    )
+                    .ok_or(StepError::ConflictInvariantViolation)?,
+            ) {
                 *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
                     if no_grant_rank(reason) < no_grant_rank(current) {
                         reason
