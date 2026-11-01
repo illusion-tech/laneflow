@@ -141,6 +141,9 @@ pub(crate) struct CompiledRoute {
     pub hop_gate: Vec<Option<ManeuverGateOrdinal>>,
     /// 按 route order 排列的实际 Gate hops；稀疏路线不逐车扫描空 hop 后缀。
     pub gate_hops: Vec<u32>,
+    /// 候选派发 hop 并集（#1199 修形①）：gate hop ∪ 带冲突范围的 hop（含
+    /// 无 gate 的过渡资源 hop），升序去重——注册期预计算，tick 零分配。
+    pub conflict_dispatch_hops: Vec<u32>,
     pub remaining_to_end: Vec<BoundedDistance>,
     pub occurrence_segments: Vec<u32>,
     pub occurrence_offsets: Vec<u32>,
@@ -168,6 +171,7 @@ impl CompiledRoute {
             maneuvers,
             hop_gate,
             gate_hops,
+            conflict_dispatch_hops,
             remaining_to_end,
             occurrence_segments,
             occurrence_offsets,
@@ -186,6 +190,7 @@ impl CompiledRoute {
             + crate::kernel::state::vec_bytes(maneuvers)
             + crate::kernel::state::vec_bytes(hop_gate)
             + crate::kernel::state::vec_bytes(gate_hops)
+            + crate::kernel::state::vec_bytes(conflict_dispatch_hops)
             + crate::kernel::state::vec_bytes(remaining_to_end)
             + crate::kernel::state::vec_bytes(occurrence_segments)
             + crate::kernel::state::vec_bytes(occurrence_offsets)
@@ -658,12 +663,40 @@ pub(crate) fn compile_route(
     let mut compiled_edges = try_route_vec(edges.len())?;
     compiled_edges.extend_from_slice(edges);
     let waiting_maneuver_bits = compile_waiting_maneuver_bits(edges.len(), &maneuvers, &waiting)?;
+    // 修形①（#1199）：候选派发 hop 并集注册期预计算——gate hop ∪ **含
+    // Transition 出现项**的 hop（T 候选仅在过渡出现项时派生，非任意冲突
+    // hop——旧输入零新结论保持）。tick 侧零分配消费。
+    let mut conflict_dispatch_hops = gate_hops.clone();
+    for (hop, range) in conflict_gate_ranges.iter().enumerate() {
+        if range.len == 0 {
+            continue;
+        }
+        let start = range.start as usize;
+        let has_transition =
+            conflicts[start..start + range.len as usize]
+                .iter()
+                .any(|occurrence| {
+                    matches!(
+                        occurrence.resource,
+                        crate::kernel::conflict::ConflictResource::Transition(_)
+                    )
+                });
+        if !has_transition {
+            continue;
+        }
+        let hop = hop as u32;
+        if !conflict_dispatch_hops.contains(&hop) {
+            conflict_dispatch_hops.push(hop);
+        }
+    }
+    conflict_dispatch_hops.sort_unstable();
 
     let mut compiled = CompiledRoute {
         edges: compiled_edges,
         maneuvers,
         hop_gate,
         gate_hops,
+        conflict_dispatch_hops,
         remaining_to_end,
         occurrence_segments,
         occurrence_offsets,
@@ -1148,7 +1181,10 @@ fn compile_conflicts(
             resource: crate::kernel::conflict::ConflictResource::Transition(edge),
             maneuver_index: u32::try_from(maneuver_index)
                 .map_err(|_| RouteError::AllocationFailed)?,
-            admission_hop: route_edge_index,
+            // 准入 hop=穿越拍（hop N=边 N 末端进入边 N+1）：过渡格须在
+            // 进入 T 之前准入（#1199 合同 §5.2）——发射侧存穿越 hop（T
+            // 边下标-1；路线首边过渡退饱和至 0，入场由 spawn 准入承担）。
+            admission_hop: route_edge_index.saturating_sub(1),
             entry: RoutePosition {
                 route_edge_index,
                 progress_mm: 0,
@@ -3523,7 +3559,9 @@ mod compile_route_tests {
                 .register_route(crate::RouteRegisterInput::new(changer_route_edges.clone()))
                 .unwrap();
             let follower_route = world
-                .register_route(crate::RouteRegisterInput::new(follower_route_edges.clone()))
+                .register_route(crate::RouteRegisterInput::new(
+                    follower_route_edges.repeat(2),
+                ))
                 .unwrap();
             let changer = world
                 .spawn_vehicle(
@@ -3593,9 +3631,10 @@ mod compile_route_tests {
                 } else {
                     0
                 };
-                if follower_distance_mm < 26_750 && changer_state.route_edge_index == 0 {
-                    assert!(
-                        changer_state.progress_mm < 30_000,
+                if follower_distance_mm < 26_750 && !follower_passed {
+                    // 停让=驻留 T 入口之前（含入口点），不得进入 T。
+                    assert_eq!(
+                        changer_state.route_edge_index, 0,
                         "changer must wait while follower within d_stop"
                     );
                 }
@@ -4014,6 +4053,7 @@ mod compile_route_tests {
             maneuvers: Vec::new(),
             hop_gate: Vec::new(),
             gate_hops: Vec::new(),
+            conflict_dispatch_hops: Vec::new(),
             remaining_to_end: Vec::new(),
             occurrence_segments: Vec::new(),
             occurrence_offsets: Vec::new(),

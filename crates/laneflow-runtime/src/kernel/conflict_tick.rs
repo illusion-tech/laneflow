@@ -375,11 +375,15 @@ fn evaluate_gate_hop(
         |entry| entry.exit_route_edge_index <= gate_hop
     });
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
-    if compiled
-        .maneuvers
-        .get(maneuver_index)
-        .filter(|entry| entry.entry_route_edge_index <= gate_hop)
-        .is_none()
+    // 门 hop 须落在某 maneuver occurrence 内；无 gate 的冲突 hop（过渡
+    // 资源 hop，#1199 修形①②）位于其穿越 maneuver 起点之前——锚定首个
+    // 后续 maneuver（partition_point 的首个 exit > hop 者），不作容含检查。
+    if compiled.hop_gate[gate_hop as usize].is_some()
+        && compiled
+            .maneuvers
+            .get(maneuver_index)
+            .filter(|entry| entry.entry_route_edge_index <= gate_hop)
+            .is_none()
     {
         return Err(StepError::ConflictInvariantViolation);
     }
@@ -397,8 +401,19 @@ fn evaluate_gate_hop(
     } else {
         None
     };
-    let gate = compiled.hop_gate[gate_hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
-    let decision = read.gate_policy_decision(gate, state.profile);
+    let gate = compiled.hop_gate[gate_hop as usize];
+    let decision = match gate {
+        Some(gate) => read.gate_policy_decision(gate, state.profile),
+        None => {
+            // 修形①②（#1199）：无 gate 的冲突 hop（如过渡边 T 的资源格
+            // 准入）——资源候选形态、Uncontrolled 法规；准入判据=P4 具名
+            // 证明（collect_occurrence_fields 的 Transition 分支）。
+            if range.len == 0 {
+                return Err(StepError::ConflictInvariantViolation);
+            }
+            GatePolicyDecision::Candidate(GateCandidateKind::Uncontrolled)
+        }
+    };
     let outcome = match decision {
         GatePolicyDecision::DenyAndStop => Some(ConflictDecisionOutcome::NotEvaluated),
         GatePolicyDecision::Candidate(_) => {
@@ -2851,7 +2866,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             first_hop as usize + 1,
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
-        let gate_count = compiled.gate_hops.len();
+        let _gate_count = compiled.gate_hops.len();
         if let Some(entry) = self
             .workspace
             .motion_cache
@@ -2905,8 +2920,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 );
             }
         }
-        for gate_index in first_gate..gate_count {
-            let gate_hop = compiled.gate_hops[gate_index];
+        // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
+        // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
+        for &gate_hop in compiled
+            .conflict_dispatch_hops
+            .iter()
+            .skip_while(|hop| **hop < first_possible_hop)
+        {
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress =
                 self.binding.revision.traffic().lane_lengths_millimetres()[gate_edge.index()];
@@ -7307,7 +7327,7 @@ impl ConflictTaskView<'_> {
             Some(distance) => distance,
             None => return failed(cache, StepError::ConflictInvariantViolation),
         };
-        let gate_count = compiled.gate_hops.len();
+        let _gate_count = compiled.gate_hops.len();
         // §2 #7：horizon 在门距早退之前已算出，回报待落缓存。
         cache.horizon = Some(horizon);
         if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
@@ -7345,8 +7365,13 @@ impl ConflictTaskView<'_> {
         // §2 #11：preview 在 Gate 循环之前已算出，回报待落缓存。
         cache.preview = Some(motion);
         let preview = motion.next;
-        for gate_index in first_gate..gate_count {
-            let gate_hop = compiled.gate_hops[gate_index];
+        // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
+        // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
+        for &gate_hop in compiled
+            .conflict_dispatch_hops
+            .iter()
+            .skip_while(|hop| **hop < first_possible_hop)
+        {
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress = self
                 .read
