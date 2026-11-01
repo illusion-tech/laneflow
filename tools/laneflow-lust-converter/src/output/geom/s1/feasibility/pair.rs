@@ -155,23 +155,40 @@ fn diagnose_pair(kind: PairKind, control: [Vec3; 6]) -> Value {
         "scope":"fixed planar cubic two-chord local necessary condition (E1 v3.1); witness is local existence only"})
 }
 
-/// 零维单弦分支 `[0,1]`（P1-S/P2-S 共享、只执行一次；v3.1 执行条款 1）：
-/// 单点域——按允许判据证实不可能 ⇒ 排除该分支；通过真实检查 ⇒ 见证；仅 0.01 m
-/// 筛选失败 ⇒ 未决（`unresolved_reason = 0.01m_filter`，不生成排除叶）。
+/// 零维单弦判定（v3.1 执行条款 1 三分写）：允许判据证实不可能 ⇒ 排除该分支
+/// （本分支允许判据仅量化弦长下限 0.099999；单弦无内部转角条件）；通过真实检查 ⇒
+/// 见证；仅 0.01 m 筛选失败 ⇒ 未决（`0.01m_filter`）；sink 真实检查失败而未违
+/// 排除余量 ⇒ 未决（`sink_real_check`，§0：真实失败不得回填排除叶）。
+fn single_chord_verdict(c: [Vec3; 4]) -> Value {
+    let q0 = quantize_vec3(c[0]);
+    let q3 = quantize_vec3(c[3]);
+    let chord_m = quantized_chord_meters(q0, q3);
+    if chord_m <= QUANTIZED_MIN_SEGMENT_METERS {
+        return json!({"status":"necessary_condition_excluded","reason":"minimum_chord",
+            "chord_meters":chord_m,
+            "scope":"zero-dimensional single chord; exclusion margin criterion only"});
+    }
+    let deviation = grid::deviation_for_probe(c, 0.0, 1.0, q0.map(f64::from), q3.map(f64::from));
+    if deviation > 0.01 {
+        return json!({"status":"unresolved","unresolved_reason":"0.01m_filter",
+            "chord_meters":chord_m,"deviation_m":deviation});
+    }
+    match witness(c, &[0.0, 1.0], None) {
+        Some(w) => json!({"status":"local_witness","witness":w,
+            "chord_meters":chord_m,"deviation_m":deviation}),
+        None => json!({"status":"unresolved","unresolved_reason":"sink_real_check",
+            "chord_meters":chord_m,"deviation_m":deviation}),
+    }
+}
+
+/// 零维单弦分支 `[0,1]`（P1-S/P2-S 共享、只执行一次；v3.1 执行条款 1 三分写）。
 #[allow(dead_code)]
 pub(crate) fn diagnose_single_chord(control: [Vec3; 6]) -> Value {
     let c = [control[0], control[1], control[2], control[3]];
-    let verdict = witness(c, &[0.0, 1.0], None);
-    let status = if verdict.is_some() {
-        "local_witness"
-    } else {
-        "unresolved"
-    };
-    json!({"control_f64_bits":control.map(|p|p.map(f64::to_bits)),"kind":"single_chord",
-        "status":status,"witness":verdict,
-        "unresolved_reason":if verdict.is_none(){Some("0.01m_filter_or_sink")}else{None},
-        "single_chord_deviation_m":grid::deviation_for_probe(c,0.0,1.0,quantize_vec3(c[0]).map(f64::from),quantize_vec3(c[3]).map(f64::from)),
-        "scope":"zero-dimensional single-chord branch (E1 v3.1 execution clause 1)"})
+    let mut result = single_chord_verdict(c);
+    result["control_f64_bits"] = json!(control.map(|p| p.map(f64::to_bits)));
+    result["kind"] = json!("single_chord");
+    result
 }
 
 /// P1-T 首两弦 `[0,u],[u,v]`（域 `0<u<v≤1`）。
@@ -199,5 +216,123 @@ pub(crate) fn branch_verdict(single: &Value, pair: &Value) -> &'static str {
         "unresolved_blocks_full_domain_exclusion"
     } else {
         "branch_partial_record_only"
+    }
+}
+
+/// P3 跨 cubic 接缝对 `[s,1]│[0,t]`（v3.1）：两侧弦同时合法的必要条件。沿
+/// `seam::diagnose` 模型（缝点一致性**直接核对**共同端点与规范量化点由其
+/// `assert_eq!(left[3], right[0])` + `quantize_vec3(joint)` 承担，不用区间包含
+/// 判定）；边界分支**单列记录**（s=0 左侧整 cubic 单弦 / t=1 右侧整 cubic 单弦，
+/// 零维语义按执行条款 1 三分写）；汇总按执行条款 3。
+#[allow(dead_code)]
+pub(crate) fn diagnose_seam_pair(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
+    let pair = super::seam::diagnose(left, right);
+    let boundaries = json!({
+        "s0_left_single_chord": single_chord_verdict(left),
+        "t1_right_single_chord": single_chord_verdict(right),
+    });
+    let pair_excluded = pair["status"] == "necessary_condition_excluded";
+    let pair_unresolved = pair["status"] == "unresolved";
+    let boundary_unresolved = boundaries["s0_left_single_chord"]["status"] == "unresolved"
+        || boundaries["t1_right_single_chord"]["status"] == "unresolved";
+    let boundary_excluded = boundaries["s0_left_single_chord"]["status"]
+        == "necessary_condition_excluded"
+        && boundaries["t1_right_single_chord"]["status"] == "necessary_condition_excluded";
+    let verdict = if pair_unresolved || boundary_unresolved {
+        "unresolved_blocks_full_domain_exclusion"
+    } else if pair_excluded && boundary_excluded {
+        "complete_emission_negated_by_necessary_condition"
+    } else {
+        "branch_partial_record_only"
+    };
+    json!({"kind":"seam_pair","pair":pair,"boundaries":boundaries,"branch_verdict":verdict,
+        "scope":"fixed adjacent planar cubics seam pair (E1 v3.1); s=0/t=1 boundary single-chord branches recorded separately"})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn straight() -> [Vec3; 6] {
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ]
+    }
+
+    #[test]
+    fn straight_cubic_must_witness_all_branches() {
+        // 必证正例（lead 批 2 规格）：合成直线 cubic——单弦 [0,1]、首两弦/末两弦
+        // 边界 [0,0.5,1] 形态均须出见证（不误杀 + 必证）。
+        let control = straight();
+        assert_eq!(diagnose_single_chord(control)["status"], "local_witness");
+        assert_eq!(
+            diagnose_first_two_chords(control)["status"],
+            "local_witness"
+        );
+        assert_eq!(diagnose_last_two_chords(control)["status"], "local_witness");
+        let left = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+        ];
+        let right = [
+            [3.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [5.0, 0.0, 0.0],
+            [6.0, 0.0, 0.0],
+        ];
+        let out = diagnose_seam_pair(left, right);
+        assert_eq!(out["pair"]["status"], "local_witness");
+        assert_eq!(
+            out["boundaries"]["s0_left_single_chord"]["status"],
+            "local_witness"
+        );
+        assert_eq!(
+            out["boundaries"]["t1_right_single_chord"]["status"],
+            "local_witness"
+        );
+    }
+
+    #[test]
+    fn branch_verdict_blocks_exclusion_when_unresolved() {
+        // 执行条款 3：任一必要分支未决即禁标全参数域排除。
+        let excluded = json!({"status":"necessary_condition_excluded"});
+        let witness = json!({"status":"local_witness"});
+        let unresolved = json!({"status":"unresolved"});
+        assert_eq!(
+            branch_verdict(&excluded, &excluded),
+            "complete_emission_negated_by_necessary_condition"
+        );
+        assert_eq!(
+            branch_verdict(&unresolved, &excluded),
+            "unresolved_blocks_full_domain_exclusion"
+        );
+        assert_eq!(
+            branch_verdict(&witness, &excluded),
+            "branch_partial_record_only"
+        );
+    }
+
+    #[test]
+    fn short_single_chord_is_excluded_only_by_margin() {
+        // 执行条款 1 三分写：量化弦长 ≤ 0.099999（排除余量）⇒ 排除该分支。
+        let tiny = [
+            [0.0, 0.0, 0.0],
+            [0.01, 0.0, 0.0],
+            [0.02, 0.0, 0.0],
+            [0.03, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+        assert_eq!(
+            diagnose_single_chord(tiny)["status"],
+            "necessary_condition_excluded"
+        );
     }
 }
