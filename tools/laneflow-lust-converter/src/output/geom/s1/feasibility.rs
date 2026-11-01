@@ -5,6 +5,8 @@ use interval::{Interval, angle_excluded, curve, difference, point, short};
 
 mod certificate;
 mod interval;
+/// E1 #1141：首两弦/末两弦/单弦分支诊断（v3.1 冻结方案）。
+pub(crate) mod pair;
 mod seam;
 
 pub(crate) use seam::diagnose as diagnose_seam;
