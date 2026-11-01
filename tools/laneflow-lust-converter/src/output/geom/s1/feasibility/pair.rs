@@ -9,7 +9,7 @@
 use super::*;
 
 /// 双弦问题族（P1-T 首两弦 / P2-T 末两弦）。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PairKind {
     /// 首两弦 `[0,u]`、`[u,v]`；域 `0<u<v≤1`（`u=0` 零长出域，`v=1` 合法剖分）。
     FirstTwo,
@@ -291,7 +291,7 @@ pub(crate) fn recovered_split_params(
             });
             table.map(|table| split_params(&table, pieces))
         }
-        "even" | "uniform" => Some(
+        "even" | "uniform" | "uniform_t" => Some(
             (0..=pieces)
                 .map(|i| f64::from(i) / f64::from(pieces))
                 .collect(),
@@ -300,7 +300,26 @@ pub(crate) fn recovered_split_params(
     }
 }
 
-/// 重建切分点的规范量化 f32 位（逐位核对用；修正③冻结算法重建 → eval → 量化）。
+/// 给定切分参数求规范量化 f32 位点（逐位核对统一入口；三路径参数皆经此求点）。
+#[allow(dead_code)]
+pub(crate) fn quantized_points_at(control: [[f64; 3]; 6], params: &[f64]) -> Vec<[u32; 3]> {
+    let c = [control[0], control[1], control[2], control[3]];
+    params
+        .iter()
+        .map(|t| {
+            let p = if *t == 0.0 {
+                c[0]
+            } else if *t == 1.0 {
+                c[3]
+            } else {
+                cubic_at(c[0], c[1], c[2], c[3], *t)
+            };
+            quantize_vec3(p).map(f32::to_bits)
+        })
+        .collect()
+}
+
+/// 重建切分点的规范量化 f32 位（路径③重建参数 → 求点）。
 #[allow(dead_code)]
 pub(crate) fn rebuilt_quantized_points(
     control: [Vec3; 6],
@@ -308,22 +327,7 @@ pub(crate) fn rebuilt_quantized_points(
     pieces: u32,
 ) -> Option<Vec<[u32; 3]>> {
     let params = recovered_split_params(control, partition, pieces)?;
-    let c = [control[0], control[1], control[2], control[3]];
-    Some(
-        params
-            .iter()
-            .map(|t| {
-                let p = if *t == 0.0 {
-                    c[0]
-                } else if *t == 1.0 {
-                    c[3]
-                } else {
-                    cubic_at(c[0], c[1], c[2], c[3], *t)
-                };
-                quantize_vec3(p).map(f32::to_bits)
-            })
-            .collect(),
-    )
+    Some(quantized_points_at(control, &params))
 }
 
 #[cfg(test)]
