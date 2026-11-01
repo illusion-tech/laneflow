@@ -7007,7 +7007,9 @@ impl ConflictTaskView<'_> {
         let relations = self.read.binding.revision.traffic().relations();
         let profile = relations.vehicle_profile(state.profile)?;
         let delta_ms = self.read.binding.config.fixed_delta_time_ms();
-        let service = profile.comfort_decel().max(0.0) as u64;
+        // 单位换算（#1199 评审 P1-1）：comfort_decel() 为 m/s²、判据期望
+        // mm/s²——×1000 入判据（4.5m/s²→4500mm/s²，d_stop=26.75m 钉版）。
+        let service = (profile.comfort_decel().max(0.0) * 1_000.0) as u64;
         let min_gap = u64::from(profile.min_gap_mm());
         let interval_edge = *compiled
             .edges
