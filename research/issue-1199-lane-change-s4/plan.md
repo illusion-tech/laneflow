@@ -214,3 +214,32 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
   清空 = `rear >= clearance`（ConflictClearOutcome 现成语义）。
 - **能力翻转次序**：P3-P7 接线全绿后方可翻 `transition_execution_supported`
   （防无预约穿越——翻转与预约路径同切片落）。
+
+## 9. 流-bearing 集成夹具施工规格（配方勘察 100% 就位，下轮一次成型）
+
+- **API 面**（`pub mod road_editing`，runtime 测试可达）：
+  `RoadEditingModuleHeader::try_new(ns, doc, Vec::new(), Provenance::direct(...))`
+  → `RoadEditingSourceModuleBuilder::new(header, Balanced5Cm, Balanced2Deg,
+  limits)`；声明链：`CanonicalFrame`/`LaneEdge(key,len,vec![],geometry)`/
+  `add_alignment(RoadAlignmentInput(key, frame, curve))`/`RoadCorridor(key,
+  alignment, 0.0, StationEnd::AlignmentEnd, section, lane, vec![Element::
+  RoadSection(section)])`/`RoadSection(key,"motorLane",vec![lane],corridor)`/
+  `AuthoringLane(key, edge, Forward, LinearWidthProfile(3.5,3.5), None,
+  section)`/`Junction(key,inc,int)`/`ConflictZone::try_new(zone,junction)`
+  （owner_scoped）/`Movement(key,junction,approach_entry,approach_exit)`/
+  `ManeuverPath(key,movement,entry,internal,exit)`/`StopLine(key,edge)`/
+  `ManeuverGate("admission",path,0,stop,SignalControl::None)`/
+  `ParticipantStream(key,junction,path,vec![ConflictPassageInput::new(zone,
+  PathAnchorInput::gate(gate), PathAnchorInput::edge_boundary(2))])` +
+  `add_conflict_zone_region(ConflictZoneRegionInput(zone,frame,-1.0,1.0,pts))`。
+  **装配**：`RoadEditingSourceWriter::new(limits).write(builder.finish())` →
+  `CompilationUnitBuilder::new(limits).add_synthetic_module(类/型).add_
+  road_editing_module(RoadEditingModuleInput::try_new(doc, bytes, None))` →
+  `build()` → s3 管线（Compiler→emit→check→build_shared_network_revision）。
+- **拓扑最小形**：双 lane section（lane_0 链=[E0]、lane_1 链=[E2]）+
+  uncovered 过渡边 T（E0→T→E2，坐标 (elem0,idx0)→(elem0,idx1) 判过渡）+
+  junction J 双 movement/path（stream×2 + passage）；路线 [E0,T,E2,内部边,
+  出口]（P 后继绑定）与镜像（前驱回退）。
+- **断言**：①编译路线 conflicts 含 Transition 出现项、stream==P 流（后继）/
+  前驱回退形态；②P4 判据经该场景接入（`evaluate_transition_entry` 用例）；
+  ③s3 静默跳过对照（无流夹具仍 None）。
