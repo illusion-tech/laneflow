@@ -1058,6 +1058,41 @@ fn map_conflict_anchor(
     Ok(position)
 }
 
+/// §8 流绑定（#1199 增量2a）：过渡段的跨越流 = **后继** maneuver 出现项的
+/// 首 stream（无后继取**前驱**末条；同 entry 先出现者优先，确定性钉死）；
+/// 绑定候选无 participant stream 时返回 `None`（调用方跳过发射——能力拒绝
+/// 语义保持，显式覆盖不留静默盲区）。
+fn bind_transition_stream<'a>(
+    maneuvers: &[ManeuverOccurrence],
+    edge_index: usize,
+    streams_of: impl Fn(ManeuverPathOrdinal) -> Option<&'a [ParticipantStreamOrdinal]>,
+) -> Option<(usize, ParticipantStreamOrdinal)> {
+    let next = maneuvers
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, occurrence)| {
+            usize::try_from(occurrence.entry_route_edge_index).expect("route edge index fits usize")
+                > edge_index
+        })
+        .min_by_key(|(_, occurrence)| occurrence.entry_route_edge_index);
+    let bound = next.or_else(|| {
+        maneuvers
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, occurrence)| {
+                usize::try_from(occurrence.entry_route_edge_index)
+                    .expect("route edge index fits usize")
+                    <= edge_index
+            })
+            .max_by_key(|(_, occurrence)| occurrence.entry_route_edge_index)
+    })?;
+    let (maneuver_index, bound_occurrence) = bound;
+    let stream = streams_of(bound_occurrence.path)?.first().copied()?;
+    Some((maneuver_index, stream))
+}
+
 type CompiledConflicts = (
     Vec<ConflictPassageOccurrence>,
     Vec<ConflictGateRange>,
@@ -1088,38 +1123,13 @@ fn compile_conflicts(
         if !traffic.is_lateral_transition_segment(edge) {
             continue;
         }
-        let next = maneuvers
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(_, occurrence)| {
-                usize::try_from(occurrence.entry_route_edge_index)
-                    .expect("route edge index fits usize")
-                    > edge_index
+        let Some((maneuver_index, stream)) =
+            bind_transition_stream(maneuvers, edge_index, |path| {
+                conflict.maneuver_path_participant_streams(path)
             })
-            .min_by_key(|(_, occurrence)| occurrence.entry_route_edge_index);
-        let bound = next.or_else(|| {
-            maneuvers
-                .iter()
-                .copied()
-                .enumerate()
-                .filter(|(_, occurrence)| {
-                    usize::try_from(occurrence.entry_route_edge_index)
-                        .expect("route edge index fits usize")
-                        <= edge_index
-                })
-                .max_by_key(|(_, occurrence)| occurrence.entry_route_edge_index)
-        });
-        let Some((maneuver_index, bound_occurrence)) = bound else {
-            continue;
-        };
-        let Some(stream) = conflict
-            .maneuver_path_participant_streams(bound_occurrence.path)
-            .and_then(|streams| streams.first())
-            .copied()
         else {
-            // §8 流绑定：候选 maneuver 无 participant stream 时不绑定（能力
-            // 拒绝语义保持；流绑定覆盖随 P4 流-bearing 夹具接线）。
+            // §8 流绑定：无候选或候选无 participant stream 时不绑定（能力
+            // 拒绝语义保持；显式覆盖见 `bind_transition_stream` 测试）。
             continue;
         };
         let length = *traffic
@@ -2782,6 +2792,55 @@ mod compile_route_tests {
             let compiled = compile_route(revision.as_ref(), &longitudinal, 0, u64::MAX)
                 .expect("longitudinal uncovered connector must not be rejected as a transition");
             assert_eq!(compiled.edges.len(), longitudinal.len());
+        }
+
+        /// §8 流绑定三规则显式覆盖（#1199；S3 夹具静默跳过盲区封口）：后继
+        /// 优先、前驱回退、确定性（同 entry 先出现者优先）、无流候选显式
+        /// `None`（调用方跳过发射，能力拒绝语义保持）。
+        #[test]
+        fn s4_bind_transition_stream_covers_successor_predecessor_determinism() {
+            let maneuver = |path: u32, entry: u32| ManeuverOccurrence {
+                path: ManeuverPathOrdinal::from_raw(path),
+                entry_route_edge_index: entry,
+                exit_route_edge_index: entry + 2,
+            };
+            let stream_of =
+                |path: ManeuverPathOrdinal| -> Option<&'static [ParticipantStreamOrdinal]> {
+                    static S100: [ParticipantStreamOrdinal; 1] =
+                        [ParticipantStreamOrdinal::from_raw(100)];
+                    static S200: [ParticipantStreamOrdinal; 1] =
+                        [ParticipantStreamOrdinal::from_raw(200)];
+                    match path.raw() {
+                        10 => Some(&S100),
+                        11 => Some(&S200),
+                        _ => None,
+                    }
+                };
+            let two = [maneuver(10, 0), maneuver(11, 4)];
+            // 后继优先：edge 3 前有后继 maneuver（@4）→ 绑定其流 200。
+            assert_eq!(
+                bind_transition_stream(&two, 3, stream_of),
+                Some((1, ParticipantStreamOrdinal::from_raw(200)))
+            );
+            // 前驱回退：仅一个 maneuver 时，其后 edge 绑定前驱流 100。
+            let one = [maneuver(10, 0)];
+            assert_eq!(
+                bind_transition_stream(&one, 3, stream_of),
+                Some((0, ParticipantStreamOrdinal::from_raw(100)))
+            );
+            // 确定性：同 entry 双 maneuver 时先出现者优先，且重复调用恒同。
+            let tied = [maneuver(10, 4), maneuver(11, 4)];
+            assert_eq!(
+                bind_transition_stream(&tied, 1, stream_of),
+                bind_transition_stream(&tied, 1, stream_of)
+            );
+            assert_eq!(
+                bind_transition_stream(&tied, 1, stream_of),
+                Some((0, ParticipantStreamOrdinal::from_raw(100)))
+            );
+            // 无流候选（静默跳过项显式化）：绑定候选无 participant stream → None。
+            let streamless = [maneuver(12, 4)];
+            assert_eq!(bind_transition_stream(&streamless, 1, stream_of), None);
         }
 
         /// 接缝分类矩阵（判据整体重设计，统筹 2026-10-31「停止打补丁」指令）：
