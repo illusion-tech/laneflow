@@ -6945,12 +6945,14 @@ impl ConflictTaskView<'_> {
         Ok(())
     }
 
-    /// P4 潜在进入者证明（#1199 合同 §5.2）：潜在进入者=区间边及其
-    /// lane-graph 两侧邻域车辆（实际车体记录，A2 整边投影邻域）；逐个以
+    /// P4 潜在进入者证明（#1199 合同 §5.2）：潜在进入者=过渡区（T 边）及
+    /// 其上/下游邻域车辆（实际车体记录，2-hop 邻域=A2 投影邻域）；逐个以
     /// 具名四项停止距离判据评估让行可证性（`yieldable_by_stopping`，A4
     /// 命名参数：profile 制动/间隙 + config 步长），任一不可证 → no-grant
-    /// （`ApproachUnprovable`）。MotionReach 本拍不可达的跳拍重证由上层
-    /// 候选推进语义承担（§5.2 不卸除存续期义务）。
+    /// （`ApproachUnprovable`）。进入者到区间距离=其路线到 T 边界的最短
+    /// 路线空间距离（T 在其路线则到 T 入口；否则经 T 的前/后继边界边）。
+    /// MotionReach 本拍不可达的跳拍重证由上层候选推进语义承担（§5.2 不
+    /// 卸除存续期义务）。
     fn evaluate_transition_p4(
         &self,
         state: &VehicleState,
@@ -6962,17 +6964,58 @@ impl ConflictTaskView<'_> {
         let delta_ms = self.read.binding.config.fixed_delta_time_ms();
         let service = profile.comfort_decel().max(0.0) as u64;
         let min_gap = u64::from(profile.min_gap_mm());
-        let interval_edge = compiled
+        let interval_edge = *compiled
             .edges
             .get(occurrence.entry.route_edge_index as usize)?;
         let traffic = self.read.binding.revision.traffic();
-        let mut neighborhood = vec![*interval_edge];
-        if let Some(successors) = traffic.successors(*interval_edge) {
-            neighborhood.extend_from_slice(successors);
+        // 2-hop 邻域（上/下游当前车辆）。
+        let mut first_ring = vec![interval_edge];
+        if let Some(successors) = traffic.successors(interval_edge) {
+            first_ring.extend_from_slice(successors);
         }
-        if let Some(predecessors) = traffic.predecessors(*interval_edge) {
-            neighborhood.extend_from_slice(predecessors);
+        if let Some(predecessors) = traffic.predecessors(interval_edge) {
+            first_ring.extend_from_slice(predecessors);
         }
+        let mut neighborhood = first_ring.clone();
+        for edge in &first_ring {
+            if let Some(successors) = traffic.successors(*edge) {
+                neighborhood.extend_from_slice(successors);
+            }
+            if let Some(predecessors) = traffic.predecessors(*edge) {
+                neighborhood.extend_from_slice(predecessors);
+            }
+        }
+        // 区间边界目标（进入者路线到 T 的最短路线空间距离）。
+        let boundary_targets = |route_edges: &[laneflow_static_contract::LaneEdgeOrdinal]| {
+            let mut targets = Vec::new();
+            if let Some(index) = route_edges.iter().position(|edge| *edge == interval_edge) {
+                targets.push((index, occurrence.entry.progress_mm));
+            } else {
+                for edge in &first_ring {
+                    if *edge == interval_edge {
+                        continue;
+                    }
+                    let Some(index) = route_edges.iter().position(|candidate| candidate == edge)
+                    else {
+                        continue;
+                    };
+                    let progress = if traffic
+                        .successors(interval_edge)
+                        .is_some_and(|list| list.contains(edge))
+                    {
+                        0
+                    } else {
+                        traffic
+                            .lane_lengths_millimetres()
+                            .get(edge.index())
+                            .copied()
+                            .unwrap_or(u32::MAX)
+                    };
+                    targets.push((index, progress));
+                }
+            }
+            targets
+        };
         for edge in neighborhood {
             for handle in self.read.derived.occupancy.edge_vehicles(edge.index()) {
                 if handle == state.handle {
@@ -6980,23 +7023,24 @@ impl ConflictTaskView<'_> {
                 }
                 let other = self.read.committed.vehicles.state(handle)?;
                 let other_compiled = self.read.compiled_route(other.route)?;
-                let Some(target_index) = other_compiled
-                    .edges
-                    .iter()
-                    .position(|candidate| *candidate == edge)
-                else {
-                    continue;
-                };
-                let distance = crate::kernel::tables::distance_to_occurrence_progress(
-                    &other_compiled.occurrence_segments,
-                    &other_compiled.occurrence_offsets,
-                    &other_compiled.segment_totals,
-                    other.route_edge_index as usize,
-                    other.progress_mm,
-                    target_index,
-                    occurrence.entry.progress_mm,
-                );
-                let Some(BoundedDistance::Finite(distance_mm)) = distance else {
+                let mut best: Option<u32> = None;
+                for (target_index, target_progress) in boundary_targets(&other_compiled.edges) {
+                    if let Some(BoundedDistance::Finite(distance_mm)) =
+                        crate::kernel::tables::distance_to_occurrence_progress(
+                            &other_compiled.occurrence_segments,
+                            &other_compiled.occurrence_offsets,
+                            &other_compiled.segment_totals,
+                            other.route_edge_index as usize,
+                            other.progress_mm,
+                            target_index,
+                            target_progress,
+                        )
+                    {
+                        best =
+                            Some(best.map_or(distance_mm, |current: u32| current.min(distance_mm)));
+                    }
+                }
+                let Some(distance_mm) = best else {
                     return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
                 };
                 if !crate::kernel::lane_change::yieldable_by_stopping(
