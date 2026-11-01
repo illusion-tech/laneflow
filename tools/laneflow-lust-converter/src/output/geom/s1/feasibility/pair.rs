@@ -249,6 +249,40 @@ pub(crate) fn diagnose_seam_pair(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
         "scope":"fixed adjacent planar cubics seam pair (E1 v3.1); s=0/t=1 boundary single-chord branches recorded separately"})
 }
 
+/// 原采样参数恢复（v3.1 修正③：f32 量化多对一，「由规范点位反解」不成立）：
+/// 原族控制点 + `partition` + `pieces` 调**冻结算法**重建切分参数（tangent_angle_512
+/// → `scan` 累计切向表 + `split_params`；等分族 → (0..=n)/n）；`scan` 仅用 4 点位
+/// （dir 不参与），重建仅需 `control_f64_bits`。零转角（直线）无切向表 ⇒ `None`
+/// （对应 `angle_partition_unavailable`）。重建后须与候选程序生成规范点**逐位核对**
+/// （调用方断言）。
+#[allow(dead_code)]
+pub(crate) fn recovered_split_params(
+    control: [Vec3; 6],
+    partition: &str,
+    pieces: u32,
+) -> Option<Vec<f64>> {
+    let c = [control[0], control[1], control[2], control[3]];
+    match partition {
+        "tangent_angle_512" => {
+            let (table, _) = scan(&BezierSpan {
+                a: c[0],
+                c1: c[1],
+                c2: c[2],
+                b: c[3],
+                dir_a: control[4],
+                dir_b: control[5],
+            });
+            table.map(|table| split_params(&table, pieces))
+        }
+        "even" | "uniform" => Some(
+            (0..=pieces)
+                .map(|i| f64::from(i) / f64::from(pieces))
+                .collect(),
+        ),
+        other => panic!("unknown frozen partition {other}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,6 +367,31 @@ mod tests {
         assert_eq!(
             diagnose_single_chord(tiny)["status"],
             "necessary_condition_excluded"
+        );
+    }
+
+    #[test]
+    fn recovered_split_params_rebuilds_frozen_families() {
+        // 参数恢复（修正③）：tangent_angle_512 经 scan/split_params 冻结算法重建、
+        // 端点 0/1 保持且严格递增；等分族 (0..=n)/n；直线（零转角）无切向表 ⇒ None。
+        let curved = [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+        let params = recovered_split_params(curved, "tangent_angle_512", 5).unwrap();
+        assert_eq!(params.len(), 6);
+        assert_eq!(params[0], 0.0);
+        assert_eq!(params[5], 1.0);
+        assert!(params.windows(2).all(|w| w[0] < w[1]), "strictly increasing");
+        let even = recovered_split_params(straight(), "even", 4).unwrap();
+        assert_eq!(even, vec![0.0, 0.25, 0.5, 0.75, 1.0]);
+        assert!(
+            recovered_split_params(straight(), "tangent_angle_512", 5).is_none(),
+            "零转角无切向表"
         );
     }
 }
