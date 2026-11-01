@@ -6913,17 +6913,26 @@ impl ConflictTaskView<'_> {
                 target.stream(),
                 target.passage_local_index(),
             );
-            let outcome = self
-                .conflict
-                .evaluate_yield_target(
-                    state.handle,
-                    address,
-                    self.read.committed.time_ms,
-                    gap.required_lag_ms(),
-                    gap.required_lead_ms(),
-                )
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            if let Some(reason) = map_yield(outcome) {
+            let no_grant = match occurrence.resource {
+                crate::kernel::conflict::ConflictResource::Transition(_) => {
+                    // P4 具名判据（#1199 合同 §5.2）：过渡资源以具名四项证明
+                    // 替代时间间隙——潜在进入者（实际车体记录）逐个
+                    // `yieldable_by_stopping`；任一不可证 → no-grant。
+                    self.evaluate_transition_p4(&state, &occurrence)
+                }
+                _ => map_yield(
+                    self.conflict
+                        .evaluate_yield_target(
+                            state.handle,
+                            address,
+                            self.read.committed.time_ms,
+                            gap.required_lag_ms(),
+                            gap.required_lead_ms(),
+                        )
+                        .ok_or(StepError::ConflictInvariantViolation)?,
+                ),
+            };
+            if let Some(reason) = no_grant {
                 *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
                     if no_grant_rank(reason) < no_grant_rank(current) {
                         reason
@@ -6934,6 +6943,74 @@ impl ConflictTaskView<'_> {
             }
         }
         Ok(())
+    }
+
+    /// P4 潜在进入者证明（#1199 合同 §5.2）：潜在进入者=区间边及其
+    /// lane-graph 两侧邻域车辆（实际车体记录，A2 整边投影邻域）；逐个以
+    /// 具名四项停止距离判据评估让行可证性（`yieldable_by_stopping`，A4
+    /// 命名参数：profile 制动/间隙 + config 步长），任一不可证 → no-grant
+    /// （`ApproachUnprovable`）。MotionReach 本拍不可达的跳拍重证由上层
+    /// 候选推进语义承担（§5.2 不卸除存续期义务）。
+    fn evaluate_transition_p4(
+        &self,
+        state: &VehicleState,
+        occurrence: &crate::kernel::tables::ConflictPassageOccurrence,
+    ) -> Option<crate::ConflictNoGrantReason> {
+        let compiled = self.read.compiled_route(state.route)?;
+        let relations = self.read.binding.revision.traffic().relations();
+        let profile = relations.vehicle_profile(state.profile)?;
+        let delta_ms = self.read.binding.config.fixed_delta_time_ms();
+        let service = profile.comfort_decel().max(0.0) as u64;
+        let min_gap = u64::from(profile.min_gap_mm());
+        let interval_edge = compiled
+            .edges
+            .get(occurrence.entry.route_edge_index as usize)?;
+        let traffic = self.read.binding.revision.traffic();
+        let mut neighborhood = vec![*interval_edge];
+        if let Some(successors) = traffic.successors(*interval_edge) {
+            neighborhood.extend_from_slice(successors);
+        }
+        if let Some(predecessors) = traffic.predecessors(*interval_edge) {
+            neighborhood.extend_from_slice(predecessors);
+        }
+        for edge in neighborhood {
+            for handle in self.read.derived.occupancy.edge_vehicles(edge.index()) {
+                if handle == state.handle {
+                    continue;
+                }
+                let other = self.read.committed.vehicles.state(handle)?;
+                let other_compiled = self.read.compiled_route(other.route)?;
+                let Some(target_index) = other_compiled
+                    .edges
+                    .iter()
+                    .position(|candidate| *candidate == edge)
+                else {
+                    continue;
+                };
+                let distance = crate::kernel::tables::distance_to_occurrence_progress(
+                    &other_compiled.occurrence_segments,
+                    &other_compiled.occurrence_offsets,
+                    &other_compiled.segment_totals,
+                    other.route_edge_index as usize,
+                    other.progress_mm,
+                    target_index,
+                    occurrence.entry.progress_mm,
+                );
+                let Some(BoundedDistance::Finite(distance_mm)) = distance else {
+                    return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
+                };
+                if !crate::kernel::lane_change::yieldable_by_stopping(
+                    u64::from(distance_mm),
+                    u64::from(other.speed_mm_s),
+                    delta_ms,
+                    service,
+                    min_gap,
+                ) {
+                    return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
+                }
+            }
+        }
+        None
     }
 
     /// 共用领域段（#706 R3-3a）：downstream 前置计划检查（F4 之前）——
