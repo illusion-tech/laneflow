@@ -9,8 +9,9 @@
 use super::shared_baseline::shared_pool_records;
 use super::*;
 use sampler::feasibility::pair::{
-    PairKind, diagnose_first_two_chords, diagnose_last_two_chords, diagnose_seam_pair,
-    diagnose_single_chord, quantized_points_at, recovered_split_params, replay_pair_witness,
+    PairKind, branch_verdict, diagnose_first_two_chords, diagnose_last_two_chords,
+    diagnose_seam_pair, diagnose_single_chord, quantized_points_at, recovered_split_params,
+    replay_pair_witness,
 };
 
 fn control_from_bits(bits: &Value) -> [[f64; 3]; 6] {
@@ -314,7 +315,10 @@ fn e1_calibration_a_and_aprime() {
     let aprime = calibration_aprime(&rows, &list);
     assert!(a["records"].as_array().unwrap().len() > 200, "覆盖面");
     assert_eq!(aprime["entries_checked"], 711);
-    save_result("calibration-a-aprime.json", &json!({"A":a,"A_prime":aprime}));
+    save_result(
+        "calibration-a-aprime.json",
+        &json!({"A":a,"A_prime":aprime}),
+    );
 }
 
 /// 校准 B（不翻转，绑定**原参考曲线**）：`-16502_0_0` 原参考曲线第 2/3 cubic 接缝
@@ -387,6 +391,62 @@ fn e1_calibration_b_and_c() {
     let c = calibration_c_labels();
     assert_eq!(c["labels"].as_array().unwrap().len(), 3);
     save_result("calibration-b-c.json", &json!({"B":b,"C":c}));
+}
+
+/// 正式三边诊断（v3.1 阶段 2 主跑）：三边诊断 span 绑定**原修复参考曲线**对应
+/// cubic（零候选边无候选曲线，§1 统一前提），逐边 P1-S（=P2-S 一次）/P1-T/P2-T/
+/// P3×2（诊断 span 两个相邻接缝）+ 分支完备汇总。输入钉版 = #1134 run-03
+/// `inputs.json`（34,688 字节，SHA-256 3f831c63…ccffd）。见证注入阶段（每边 ≤4
+/// 次，§3 构造）随后按本跑见证清单执行。
+#[test]
+#[ignore = "requires COHORT2_RUN_DIR (pinned run-03 inputs.json) and E1_DIAGNOSIS_OUTPUT_DIR"]
+fn e1_formal_three_edge_diagnosis() {
+    let run = PathBuf::from(std::env::var("COHORT2_RUN_DIR").expect("COHORT2_RUN_DIR"));
+    let inputs = super::cohort2_coverage::read_pinned_json(
+        &run.join("inputs.json"),
+        "3f831c631e8eca8cb070b695c28a8dc4ffe1c46735355e87fd2ec2e7c64ccffd",
+    );
+    let out = PathBuf::from(std::env::var("E1_DIAGNOSIS_OUTPUT_DIR").expect("output dir"));
+    assert!(!out.exists(), "fresh output directory");
+    fs::create_dir_all(&out).unwrap();
+    let mut results = Vec::new();
+    for (id, span, total) in [
+        ("sumo::-10046_0_0", 2usize, 4usize),
+        ("sumo::-8018_4_0", 1, 3),
+        ("sumo::-25490_4_0", 1, 4),
+    ] {
+        let input = measurement::input(&inputs[id]);
+        let chain = sampler::reshape::reference(&input);
+        assert_eq!(chain.len(), total, "{id} 原参考曲线 span 总数");
+        let control = chain[span];
+        let single = diagnose_single_chord(control);
+        let first = diagnose_first_two_chords(control);
+        let last = diagnose_last_two_chords(control);
+        let lo = chain[span - 1];
+        let hi = chain[span + 1];
+        let seam_lo = diagnose_seam_pair(
+            [lo[0], lo[1], lo[2], lo[3]],
+            [control[0], control[1], control[2], control[3]],
+        );
+        let seam_hi = diagnose_seam_pair(
+            [control[0], control[1], control[2], control[3]],
+            [hi[0], hi[1], hi[2], hi[3]],
+        );
+        results.push(
+            json!({"edge":id,"span_index_zero_based":span,"span_total":total,
+            "single_chord":single,"first_two":first,"last_two":last,
+            "seam_pair_lo":seam_lo,"seam_pair_hi":seam_hi,
+            "branch_verdict_first":branch_verdict(&single, &first),
+            "branch_verdict_last":branch_verdict(&single, &last)}),
+        );
+    }
+    recovery::write_json(
+        &out,
+        "three-edge-diagnosis.json",
+        &json!({"schema":"laneflow-1141-three-edge-diagnosis",
+            "binding":"original repaired reference curve cubic (zero-candidate edges)",
+            "results":results}),
+    );
 }
 
 #[cfg(test)]
