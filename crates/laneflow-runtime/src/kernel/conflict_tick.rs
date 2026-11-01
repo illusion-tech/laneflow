@@ -7150,8 +7150,16 @@ impl ConflictTaskView<'_> {
                     return Some(unprovable);
                 };
                 // §5.2 枚举含可达性：路径被前车遮挡的上游车辆非潜在进入者
-                // （其到区间不可达——占用遮挡跳过，防互锁）。
+                // （占用遮挡跳过，防互锁）——但**区间内者不豁免**（遮挡者
+                // 本身在 T/投影上时必拦）。
                 let other_edge_index = other.route_edge_index as usize;
+                let other_edge_now = other_compiled.edges.get(other_edge_index).copied();
+                let in_interval = other_edge_now == Some(interval_edge)
+                    || other_edge_now.is_some_and(|edge| {
+                        traffic
+                            .successors(interval_edge)
+                            .is_some_and(|list| list.contains(&edge))
+                    });
                 let interval_distance = boundary_targets(&other_compiled.edges)
                     .into_iter()
                     .filter_map(|(target_index, target_progress)| {
@@ -7184,8 +7192,9 @@ impl ConflictTaskView<'_> {
                         crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
                     ),
                 ) && i64::from(interval_distance) > leader_gap_mm
+                    && !in_interval
                 {
-                    // 前车遮挡其到区间路径——非潜在进入者。
+                    // 前车遮挡其到区间路径且不在区间内——非潜在进入者。
                     continue;
                 }
                 let other_edge = other_compiled
