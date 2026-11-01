@@ -3221,7 +3221,10 @@ mod compile_route_tests {
                         "car",
                         editing::ParticipantClassReference::local("car-class").unwrap(),
                         editing::IidmVehicleProfileInput::try_new(
-                            4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0,
+                            // 钉版红线（样本 v5）：desired ≥13.9 实落 15.0、
+                            // min_gap 2.5、comfort 4.5（a_service）、emergency
+                            // 9.0——d_stop(13.9)=26.75m 合同权威口径。
+                            4.5, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0,
                         )
                         .unwrap(),
                     )
@@ -3553,6 +3556,26 @@ mod compile_route_tests {
                 world.state.prepare_waiting_step(0.1).unwrap();
                 world.step(crate::TickInput::new(100)).unwrap();
                 let follower_state = world.state.committed.vehicles.state(follower).unwrap();
+                std::eprintln!(
+                    "R2 tick {tick}: follower edge={} progress={} speed={} | changer edge={} progress={}",
+                    follower_state.route_edge_index,
+                    follower_state.progress_mm,
+                    follower_state.speed_mm_s,
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .state(changer)
+                        .unwrap()
+                        .route_edge_index,
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .state(changer)
+                        .unwrap()
+                        .progress_mm,
+                );
                 let changer_state = world.state.committed.vehicles.state(changer).unwrap();
                 // 后车不被迫急停（s4 失败面"换道抢行迫使直行急刹"反证）：
                 // 通过区间前不得完全停车（闸口正常减速允许）。
