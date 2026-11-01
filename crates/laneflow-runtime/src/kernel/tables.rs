@@ -3269,6 +3269,19 @@ mod compile_route_tests {
                     .unwrap(),
                 ))
                 .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::VehicleProfile(
+                    editing::VehicleProfileInput::try_new(
+                        "truck-long",
+                        editing::ParticipantClassReference::local("car-class").unwrap(),
+                        editing::IidmVehicleProfileInput::try_new(
+                            // s8 钉版：12m 长车（整车扫过投影 R3 载体）。
+                            12.0, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
                 .add_declaration(editing::RoadEditingDeclaration::RightOfWayPolicySet(
                     editing::RightOfWayPolicySetInput::try_new(
                         "policy",
@@ -3886,6 +3899,125 @@ mod compile_route_tests {
             assert!(
                 leader_tick < follower_tick,
                 "live-order priority: leader first ({leader_tick}) then follower ({follower_tick})"
+            );
+        }
+
+        /// R3 验收（s8 钉版）：长车（12m truck-long 剖面）整车扫过——
+        /// rear≥clearance 才释放（车尾过 T 才放行跟随车）、清空前跟随车
+        /// 不得进入、清空后跟随车进入、世界状态自洽（预约生命周期闭合）。
+        #[test]
+        fn r3_s8_pinned_long_vehicle_rear_clearance() {
+            use laneflow_static_contract::LaneEdgeOrdinal;
+
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("transition edge");
+            let path_edges = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .expect("path 0")
+                .edges();
+            let e2 = path_edges[0];
+            let int_edge = path_edges[1];
+            let exit = *path_edges.last().expect("path exit");
+            let e0 = traffic.predecessors(transition).expect("predecessors")[0];
+            let e5 = traffic.successors(exit).expect("exit successors")[0];
+            let mut world = install(revision.clone());
+            let route = world
+                .register_route(crate::RouteRegisterInput::new(vec![
+                    e0, transition, e2, int_edge, exit, e5,
+                ]))
+                .unwrap();
+            // 钉版映射（s8）：长车 B0_up@6000=距 T01 2m、跟随 A0@18000=距
+            // T01 20m（后车在长车后 18m），8m/s（800mm/拍）。
+            let long_vehicle = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(1),
+                        route,
+                        0,
+                        28_000,
+                        8_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            let follower = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        10_000,
+                        8_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            world.state.rebuild_occupancy_index().unwrap();
+            let long_length_mm = 12_000_u32;
+            let mut long_entered = None;
+            let mut long_rear_cleared = None;
+            let mut follower_entered = None;
+            for tick in 1_u64..=100 {
+                world.state.prepare_waiting_step(0.1).unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+                let long_state = world.state.committed.vehicles.state(long_vehicle).unwrap();
+                let follower_state = world.state.committed.vehicles.state(follower).unwrap();
+                std::eprintln!(
+                    "R3 tick {tick}: long edge={} progress={} | follower edge={} progress={} | reservation={:?}",
+                    long_state.route_edge_index,
+                    long_state.progress_mm,
+                    follower_state.route_edge_index,
+                    follower_state.progress_mm,
+                    world.conflict_reservation(long_vehicle).is_some(),
+                );
+                if long_state.route_edge_index >= 1 && long_entered.is_none() {
+                    long_entered = Some(tick);
+                }
+                // rear≥clearance：车尾过 T 末端——长车前头须进 E2 满 12m
+                // （T 长 5m：绝对位 ≥ 30m+5m+12m）。
+                if long_entered.is_some()
+                    && (long_state.route_edge_index > 2
+                        || (long_state.route_edge_index == 2
+                            && long_state.progress_mm >= long_length_mm))
+                    && long_rear_cleared.is_none()
+                {
+                    long_rear_cleared = Some(tick);
+                }
+                // 清空前跟随车不得进入（整车扫过投影 R3）。
+                if long_rear_cleared.is_none() {
+                    assert!(
+                        follower_state.route_edge_index == 0,
+                        "follower must not enter before the long vehicle rear clears"
+                    );
+                }
+                if follower_state.route_edge_index >= 1 && follower_entered.is_none() {
+                    follower_entered = Some(tick);
+                }
+                if long_rear_cleared.is_some() && follower_entered.is_some() {
+                    break;
+                }
+            }
+            let cleared = long_rear_cleared.expect("long vehicle rear clears T");
+            let entered = follower_entered.expect("follower enters after rear clear");
+            assert!(
+                entered >= cleared,
+                "follower enters only at/after rear clearance ({entered} vs {cleared})"
+            );
+            // 生命周期闭合：全清空后预约释放、世界自洽（多拍后核验——
+            // 释放=后车过全区投影，晚于入 T 拍）。
+            for _ in 0..60 {
+                world.state.prepare_waiting_step(0.1).unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+            }
+            assert!(
+                world.conflict_reservation(long_vehicle).is_none()
+                    && world.conflict_reservation(follower).is_none(),
+                "reservations released after full clear"
             );
         }
 
