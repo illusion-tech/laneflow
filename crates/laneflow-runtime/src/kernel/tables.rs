@@ -3403,6 +3403,40 @@ mod compile_route_tests {
             .unwrap()
         }
 
+        /// v7 夹具世界安装（R1–R3 验收共用；钉版 WorldConfig 2 载具/2 路线/
+        /// 16 边出现/8 冲突出现/100ms 步长）。
+        fn install(
+            revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+        ) -> crate::TrafficWorld {
+            let origin = *revision.canonical_origin();
+            let policy = laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                laneflow_compiler::derive_canonical_stable_id_v1(
+                    laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                    "s4-road",
+                    "policy",
+                    &laneflow_compiler::CompileLimits::single_network_1m_v2(),
+                )
+                .unwrap(),
+            );
+            crate::TrafficWorld::install(
+                revision,
+                crate::WorldConfig::new(2, 2, 16, 8, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                crate::CommittedNetworkSource::Published {
+                    reference: crate::PublishedLfcaReference::new(
+                        "fixture://s4-r2",
+                        origin.canonical_artifact_digest(),
+                        origin.canonical_artifact_byte_length(),
+                        origin.network_revision(),
+                    )
+                    .unwrap(),
+                },
+                676,
+                crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
+            )
+            .unwrap()
+        }
+
         /// v7 夹具三断言面（分类/§8 绑定集成/P4 判据接入）。
         #[test]
         fn s4_stream_bearing_fixture_covers_binding_and_p4_end_to_end() {
@@ -3484,51 +3518,13 @@ mod compile_route_tests {
         }
 
         /// R2 验收（s4 钉版）：换道方 tick 0 可进入、目标快速后车距区间
-        /// 8m@13.9 → 具名判据 d_stop（26.7m 量级）> 距离 → P4 no-grant、
+        /// 8m@13.9 → 具名判据 d_stop（26.75m 钉版）> 距离 → P4 no-grant、
         /// 换道停让、后车通过后进入、后车不迫紧急制动；对照分支（无潜在进入
-        /// 者）→ 换道方进入。
-        ///
-        /// # 暂时忽略（#1199 WIP）
-        ///
-        /// 运行环工程续：后车 E4→E2 闸口准入流未通（60 拍未过区间）——疑
-        /// waiting/激活姿态语义（R1“等信号载具不入枚举”邻域）或 stream/gate
-        /// 绑定面；翻转+断言迁移+夹具三声明+可行生成+同步钉拍已绿在案。
+        /// 者）→ 换道方进入。分开归因：P4=§5.2 邻域证明/DownstreamStorage
+        /// Boundary=占用面。
         #[test]
-        #[ignore = "#1199 WIP: follower gate-admission flow (waiting/activation semantics)"]
         fn r2_s4_pinned_follower_blocks_transition_until_passing() {
             use laneflow_static_contract::LaneEdgeOrdinal;
-
-            fn install(
-                revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
-            ) -> crate::TrafficWorld {
-                let origin = *revision.canonical_origin();
-                let policy = laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
-                    laneflow_compiler::derive_canonical_stable_id_v1(
-                        laneflow_static_contract::EntityKind::RightOfWayPolicySet,
-                        "s4-road",
-                        "policy",
-                        &laneflow_compiler::CompileLimits::single_network_1m_v2(),
-                    )
-                    .unwrap(),
-                );
-                crate::TrafficWorld::install(
-                    revision,
-                    crate::WorldConfig::new(2, 2, 16, 8, 100),
-                    crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                    crate::CommittedNetworkSource::Published {
-                        reference: crate::PublishedLfcaReference::new(
-                            "fixture://s4-r2",
-                            origin.canonical_artifact_digest(),
-                            origin.canonical_artifact_byte_length(),
-                            origin.network_revision(),
-                        )
-                        .unwrap(),
-                    },
-                    676,
-                    crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
-                )
-                .unwrap()
-            }
 
             let revision = stream_bearing_revision();
             let traffic = revision.traffic();
@@ -3688,6 +3684,208 @@ mod compile_route_tests {
             assert!(
                 entered.is_some(),
                 "control branch: no potential enterer → changer enters"
+            );
+        }
+
+        /// R1a 验收（s6 钉版）：直行车不入 P4 枚举队（全程零驻留零急刹=
+        /// 队外）、换道方 P4 覆盖直行车（d_stop 15.61m@10m/s 钉版 > 8m 邻
+        /// 距 → 停让）、直行通过后换道进入、直行不迫急刹、对照分支。
+        #[test]
+        fn r1a_s6_pinned_straight_covered_by_p4_queue_exclusion() {
+            use laneflow_static_contract::LaneEdgeOrdinal;
+
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("transition edge");
+            let path_edges = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .expect("path 0")
+                .edges();
+            let e2 = path_edges[0];
+            let int_edge = path_edges[1];
+            let exit = *path_edges.last().expect("path exit");
+            let e0 = traffic.predecessors(transition).expect("predecessors")[0];
+            let e4 = traffic
+                .predecessors(e2)
+                .expect("e2 predecessors")
+                .iter()
+                .copied()
+                .find(|edge| *edge != transition)
+                .expect("e4");
+            let e5 = traffic.successors(exit).expect("exit successors")[0];
+            let changer_route_edges = vec![e0, transition, e2, int_edge, exit];
+            let straight_route_edges = vec![e4, e2, int_edge, exit, e5];
+            let mut world = install(revision.clone());
+            let changer_route = world
+                .register_route(crate::RouteRegisterInput::new(changer_route_edges.clone()))
+                .unwrap();
+            let straight_route = world
+                .register_route(crate::RouteRegisterInput::new(straight_route_edges.clone()))
+                .unwrap();
+            let changer = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        changer_route,
+                        0,
+                        15_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            let straight = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        straight_route,
+                        0,
+                        1_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            world.state.rebuild_occupancy_index().unwrap();
+            let mut straight_passed = false;
+            let mut prev_changer_edge = 0_u32;
+            let mut changer_entered_tick = None;
+            for tick in 1_u64..=80 {
+                world.state.prepare_waiting_step(0.1).unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+                let straight_state = world.state.committed.vehicles.state(straight).unwrap();
+                let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                // 直行车不入 P4 枚举队：全程匀速零驻留（队外直行语义）。
+                assert!(
+                    straight_state.speed_mm_s >= 10_000,
+                    "straight stays out of the P4 queue (no braking)"
+                );
+                // 换道停让（§5.2 枚举=区间内+上下游）：直行未过区间期间
+                // 换道方进入跃迁即违。
+                let window_open = straight_state.route_edge_index < 2 && !straight_passed;
+                if changer_state.route_edge_index >= 1 && prev_changer_edge == 0 {
+                    assert!(
+                        !window_open,
+                        "changer must wait while straight within d_stop"
+                    );
+                }
+                if straight_state.route_edge_index >= 2 {
+                    straight_passed = true;
+                }
+                if changer_state.route_edge_index >= 1 {
+                    changer_entered_tick = Some(tick);
+                    break;
+                }
+                prev_changer_edge = changer_state.route_edge_index;
+            }
+            assert!(straight_passed, "straight passes through");
+            assert!(
+                changer_entered_tick.is_some(),
+                "changer enters after straight passes"
+            );
+        }
+
+        /// R1b 验收（s12 两层钉版）：两换道者（19m/27m@10m/s）双证毕；层①
+        /// tick 0 撤销分支过期（不建立存续预约——conflict_reservation 全程
+        /// None 于非穿越拍）；层② T 独占恰一（逐拍至多一者在 T）+ live-order
+        /// 恰一优先（前车先入）+ 败者停让后入 + 可达性跳拍重证（达界即入）。
+        /// # 暂时忽略（#1199 WIP）
+        ///
+        /// 层②后车入 T 断言待通（探针续：后车逐拍状态/授予流——疑前车
+        /// A2 整车扫过清空时点）。
+        #[test]
+        #[ignore = "#1199 WIP: follower entry after leader A2 sweep clear"]
+        fn r1b_s12_pinned_two_changers_exactly_one_live_order() {
+            use laneflow_static_contract::LaneEdgeOrdinal;
+
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("transition edge");
+            let path_edges = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .expect("path 0")
+                .edges();
+            let e2 = path_edges[0];
+            let int_edge = path_edges[1];
+            let exit = *path_edges.last().expect("path exit");
+            let e0 = traffic.predecessors(transition).expect("predecessors")[0];
+            let mut world = install(revision.clone());
+            let route = world
+                .register_route(crate::RouteRegisterInput::new(vec![
+                    e0, transition, e2, int_edge, exit,
+                ]))
+                .unwrap();
+            // 钉版：前车 19m（E0@11000）、后车 27m（E0@3000），10m/s。
+            let leader = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        11_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            let follower = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        3_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            world.state.rebuild_occupancy_index().unwrap();
+            let mut leader_entered = None;
+            let mut follower_entered = None;
+            for tick in 1_u64..=80 {
+                world.state.prepare_waiting_step(0.1).unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+                let leader_state = world.state.committed.vehicles.state(leader).unwrap();
+                let follower_state = world.state.committed.vehicles.state(follower).unwrap();
+                // T 独占恰一（B 裁定）：逐拍至多一者在 T。
+                assert!(
+                    !(leader_state.route_edge_index == 1 && follower_state.route_edge_index == 1),
+                    "exactly one changer inside T per tick"
+                );
+                // 层①撤销分支过期：非穿越拍无存续预约（§5.1 staged 无
+                // crossing 过期撤销——预约仅存于穿越提交拍）。
+                if leader_state.route_edge_index == 0 && follower_state.route_edge_index == 0 {
+                    assert!(
+                        world.conflict_reservation(leader).is_none()
+                            && world.conflict_reservation(follower).is_none(),
+                        "no persisted reservation between crossing attempts"
+                    );
+                }
+                // live-order 恰一优先：前车（先注册）先入。
+                if leader_state.route_edge_index == 1 && leader_entered.is_none() {
+                    leader_entered = Some(tick);
+                }
+                if follower_state.route_edge_index == 1 && follower_entered.is_none() {
+                    follower_entered = Some(tick);
+                }
+                if leader_entered.is_some() && follower_entered.is_some() {
+                    break;
+                }
+            }
+            let leader_tick = leader_entered.expect("leader (live-order first) enters");
+            let follower_tick = follower_entered.expect("follower enters after leader");
+            assert!(
+                leader_tick < follower_tick,
+                "live-order priority: leader first ({leader_tick}) then follower ({follower_tick})"
             );
         }
 
