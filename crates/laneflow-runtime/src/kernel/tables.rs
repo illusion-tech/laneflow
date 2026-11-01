@@ -2843,12 +2843,11 @@ mod compile_route_tests {
             assert_eq!(bind_transition_stream(&streamless, 1, stream_of), None);
         }
 
-        /// 混合 v7 流-bearing 夹具（R-1…R-16 全约束）：合成侧=全部边+覆盖
-        /// +帧几何（R-11/R-12）+ successor 链内闭合；road-editing=纯冲突声明
-        /// （R-1 owner 同模块；R-13 双流双 path；R-14 gate 入锚；R-16 stop 边
-        /// 无朴素后继）。三断言面：分类+§8 绑定集成、P4 判据、s3 静默跳过对照。
-        #[test]
-        fn s4_stream_bearing_fixture_covers_binding_and_p4_end_to_end() {
+        /// 混合 v7 流-bearing 夹具构造（R-1…R-16 全约束）：合成侧=全部边+
+        /// 覆盖+帧几何+successor 链内闭合；road-editing=纯冲突声明。返回
+        /// 共享静态路网修订（R1–R3 验收与绑定集成共用载体）。
+        fn stream_bearing_revision()
+        -> std::sync::Arc<laneflow_static_network::SharedNetworkRevision> {
             use laneflow_compiler::road_editing as editing;
             use laneflow_compiler::{
                 GeometryAccuracyProfile, GeometryDirectionProfile, PortableDiffBase,
@@ -2882,6 +2881,7 @@ mod compile_route_tests {
                 ("s4-int", 8.0, vec![]),
                 ("s4-exit", 10.0, vec![]),
                 ("s4-e3", 30.0, vec![]),
+                ("s4-e4", 30.0, vec!["s4-e2"]),
             ] {
                 let refs: Vec<_> = successors
                     .iter()
@@ -2898,7 +2898,7 @@ mod compile_route_tests {
             }
             let chains: std::collections::HashMap<&str, Vec<LaneEdgeReference<'static>>> = [
                 ("s4-lane-0", vec!["s4-e0"]),
-                ("s4-lane-1", vec!["s4-e2"]),
+                ("s4-lane-1", vec!["s4-e4", "s4-e2"]),
                 ("s4-exit-lane", vec!["s4-exit"]),
                 ("s4-lane-2", vec!["s4-e3"]),
             ]
@@ -2965,7 +2965,8 @@ mod compile_route_tests {
                     )],
                 })
                 .unwrap();
-            let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = [
+            // 帧几何点对由下方 frame_spans 派生（此旧块保留为坐标单源弃名）。
+            let _superseded_point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = [
                 (0.0_f32, 30.0_f32),
                 (30.0, 35.0),
                 (35.0, 65.0),
@@ -2997,7 +2998,35 @@ mod compile_route_tests {
                 ]
             })
             .collect();
-            let frame_edges = ["s4-e0", "s4-t", "s4-e2", "s4-int", "s4-exit", "s4-e3"];
+            let frame_edges = [
+                "s4-e0", "s4-t", "s4-e2", "s4-int", "s4-exit", "s4-e3", "s4-e4",
+            ];
+            let frame_spans = [
+                ((0.0_f32, 30.0_f32), (0.0_f32, 0.0_f32)),
+                ((30.0, 35.0), (0.0, 0.0)),
+                ((35.0, 65.0), (0.0, 0.0)),
+                ((65.0, 73.0), (0.0, 0.0)),
+                ((73.0, 83.0), (0.0, 0.0)),
+                ((35.0, 65.0), (0.0, 0.0)),
+                ((5.0, 35.0), (0.0, 0.0)),
+            ];
+            let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = frame_spans
+                .iter()
+                .map(|((x0, x1), (y0, y1))| {
+                    [
+                        CanonicalPoint3F32Input {
+                            x: *x0,
+                            y: *y0,
+                            z: 0.0,
+                        },
+                        CanonicalPoint3F32Input {
+                            x: *x1,
+                            y: *y1,
+                            z: 0.0,
+                        },
+                    ]
+                })
+                .collect();
             let geometries: Vec<_> = frame_edges
                 .iter()
                 .zip(point_pairs.iter())
@@ -3241,14 +3270,20 @@ mod compile_route_tests {
                 FormatLimits::HARD,
             )
             .unwrap();
-            let revision = build_shared_network_revision(
+            build_shared_network_revision(
                 checked.canonical_network_input(),
                 SharedNetworkBuildOptions::new(
                     SpatialBuildOption::Omit,
                     SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
                 ),
             )
-            .unwrap();
+            .unwrap()
+        }
+
+        /// v7 夹具三断言面（分类/§8 绑定集成/P4 判据接入）。
+        #[test]
+        fn s4_stream_bearing_fixture_covers_binding_and_p4_end_to_end() {
+            let revision = stream_bearing_revision();
             let traffic = revision.traffic();
             let conflict = revision.conflict();
             let transition = (0..traffic.lane_edge_count())
