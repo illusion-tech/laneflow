@@ -269,9 +269,21 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
 
 ### 考古补注（第二轮；证据定位）
 
-| #    | 规则                                                                                                                                                                    | 证据                                                          |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| R-7  | junction 边集三规则：approach 须 section 派生（车道链成员）；internal 须**不**派生；internal 无 successors 亦不被引用（连通性全由 maneuver path 定义）                  | diagnostic.rs:503-535；hir/junction.rs:356/388                |
-| R-8  | frame 解析：covered 由对齐赋值；junction internal 继承路径 entry frame（豁免显式检查）；其余显式几何边须帧绑定否则 `MissingCanonicalFrame`；无几何 `MissingEdgeBinding` | hir/spatial.rs:456-484、542-612、617-644                      |
-| R-9  | **T（过渡边）合法出口 = 帧绑定几何声明**：帧 `lane_edge_geometries` 通道（与合成侧 `add_canonical_frame` 同构）；internal 豁免不适用（T 须非 junction——分类判据）       | hir/spatial.rs:305-348；model.rs:2676（canonical_frame 字段） |
-| R-10 | recipe internal 边语义位：不覆盖+显式几何+无对齐（首循环仅覆盖 entry/exit、次循环仅声明 LaneEdge）——先前"矛盾"系两循环误读                                              | portable_fixture_tests.rs:410-415 vs 477-491                  |
+| #    | 规则                                                                                                                                                                                              | 证据                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| R-7  | junction 边集三规则：approach 须 section 派生（车道链成员）；internal 须**不**派生；internal 无 successors 亦不被引用（连通性全由 maneuver path 定义）                                            | diagnostic.rs:503-535；hir/junction.rs:356/388                |
+| R-8  | frame 解析：covered 由对齐赋值；junction internal 继承路径 entry frame（豁免显式检查）；其余显式几何边须帧绑定否则 `MissingCanonicalFrame`；无几何 `MissingEdgeBinding`                           | hir/spatial.rs:456-484、542-612、617-644                      |
+| R-9  | **T（过渡边）合法出口 = 帧绑定几何声明**：帧 `lane_edge_geometries` 通道（与合成侧 `add_canonical_frame` 同构）；internal 豁免不适用（T 须非 junction——分类判据）                                 | hir/spatial.rs:305-348；model.rs:2676（canonical_frame 字段） |
+| R-10 | recipe internal 边语义位：不覆盖+显式几何+无对齐（首循环仅覆盖 entry/exit、次循环仅声明 LaneEdge）——先前"矛盾"系两循环误读                                                                        | portable_fixture_tests.rs:410-415 vs 477-491                  |
+| R-11 | **road-editing 非 internal 显式几何边不可表达**：显式曲线编译硬编码 `canonical_frame: None`；帧几何通道只吃合成侧 `add_canonical_frame(lane_edge_geometries)`；internal 豁免+继承路径 entry frame | compile_geometry.rs:760-783；hir/spatial.rs:305-348、456-484  |
+
+### 终形构造（混合 v4；lead 2026-11-02 批准一击成型）
+
+- **合成侧（最小）**：T 的 LaneEdge + `add_canonical_frame(lane_edge_geometries)`
+  帧绑定几何（R-11 合法出口；T 无覆盖、非 junction ✓ 分类成立）；
+- **road-editing 侧**：E0/E2 覆盖+None（R-2/R-3）、INT 不覆盖+显式+路径内部
+  （R-7/8/10）、EXIT 覆盖+None、junction/movement/path/gate/zone/stream/
+  passage（owner 全同模块 R-1）；E0 successors=[T(imported)]、T successors
+  声明于合成侧指向 E2(imported)（R-1 仅限 owner，successor 为数据引用可用
+  imported）；
+- 三断言面照旧（分类+§8 绑定集成 / P4 判据 / s3 静默跳过对照）。
