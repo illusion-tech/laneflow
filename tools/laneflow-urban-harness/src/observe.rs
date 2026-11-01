@@ -563,7 +563,7 @@ fn passage_fields(
         p.maneuver_occurrence_index(),
         p.admission_gate_hop(),
         p.conflict_occurrence_index(),
-        p.address().zone().raw(),
+        p.address().static_zone().map_or(u32::MAX, |z| z.raw()),
         p.address().stream().raw(),
         p.address().passage_local_index(),
     )
@@ -621,7 +621,7 @@ fn occupied_yield_pulse(
         let address = passage.address();
         let (zone, targets) =
             policy.yield_targets(address.stream(), class, address.passage_local_index())?;
-        if zone != address.zone() {
+        if Some(zone) != address.static_zone() {
             return None;
         }
         let pulse = h
@@ -907,7 +907,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                     if h.claims
                         .insert(
                             (id, h.route_table.index(r.route()), index),
-                            p.address().zone().raw(),
+                            p.address().static_zone().map_or(u32::MAX, |z| z.raw()),
                         )
                         .is_some()
                     {
@@ -919,7 +919,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 if h.in_step_observation(e.tick())
                     && let Some(witness) = &mut h.evidence[id.tile as usize].right_of_way
                     && witness.pulse == id
-                    && witness.zone == p.address().zone().raw()
+                    && witness.zone == p.address().static_zone().map_or(u32::MAX, |z| z.raw())
                 {
                     witness
                         .pulse_cleared
