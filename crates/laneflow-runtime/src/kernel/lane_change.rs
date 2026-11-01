@@ -50,9 +50,57 @@ pub(crate) fn yieldable_by_stopping(
         >= stop_distance_millimetres(speed_mm_s, delta_ms, service_decel_mm_s2, min_gap_mm)
 }
 
+/// P4 进入裁决（#1199 P4 接线；合同 §5.2）。`MotionReach` 仅为本拍位移
+/// 上界——当拍判定不可达只可跳过当拍、存续期逐拍重证（`ReachabilityDeferred`
+/// 不得卸除存续期义务）；任一潜在进入者不可安全让行 → 申请 no-grant。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TransitionEntryVerdict {
+    /// 本拍位移上界内不可达（MotionReach）：跳过当拍，存续期重证。
+    ReachabilityDeferred,
+    /// 潜在进入者存在不可安全让行（具名四项判据失败）→ no-grant。
+    NoGrantUnyieldable,
+    /// 可达且全部潜在进入者可证让行。
+    Enter,
+}
+
+/// P4 潜在进入者证明（#1199 P4 接线；§5.2 具名判据 + MotionReach 跳拍重证）。
+///
+/// `potential_enterers` =（距被预约区间毫米、当前速度毫米/秒）实际车体记录；
+/// 判据为具名四项停止距离（`stop_distance_millimetres`，A4 冻结），不引用
+/// 笼统 profile 制动能力（§7-R2 失败面）。申请人本拍可达性 = 距进入点 ≤
+/// 本拍位移上界（速度 × 步长），不可达即 `ReachabilityDeferred`（跳拍重证）。
+pub(crate) fn evaluate_transition_entry(
+    applicant_distance_to_entry_mm: u64,
+    applicant_speed_mm_s: u64,
+    potential_enterers: &[(u64, u64)],
+    delta_ms: u64,
+    service_decel_mm_s2: u64,
+    min_gap_mm: u64,
+) -> TransitionEntryVerdict {
+    let reach_mm = u128::from(applicant_speed_mm_s) * u128::from(delta_ms) / 1_000;
+    if u128::from(applicant_distance_to_entry_mm) > reach_mm {
+        return TransitionEntryVerdict::ReachabilityDeferred;
+    }
+    for &(distance_mm, speed_mm_s) in potential_enterers {
+        if !yieldable_by_stopping(
+            distance_mm,
+            speed_mm_s,
+            delta_ms,
+            service_decel_mm_s2,
+            min_gap_mm,
+        ) {
+            return TransitionEntryVerdict::NoGrantUnyieldable;
+        }
+    }
+    TransitionEntryVerdict::Enter
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{TRANSITION_REACTION_TICKS, stop_distance_millimetres, yieldable_by_stopping};
+    use super::{
+        TRANSITION_REACTION_TICKS, TransitionEntryVerdict, evaluate_transition_entry,
+        stop_distance_millimetres, yieldable_by_stopping,
+    };
 
     /// 钉版参数（sample v5 `safety_proof`/`profiles`）：固定步长 100 ms、
     /// 服务减速度 4500 mm/s²、最小间隙 2500 mm、r = 2 拍。
@@ -108,6 +156,56 @@ mod tests {
             SERVICE_DECEL_MM_S2,
             MIN_GAP_MM
         ));
+    }
+
+    #[test]
+    fn p4_s4_critical_tick_no_grants_on_unyieldable_follower() {
+        // §7-R2 关键拍钉版（s4 tick 0）：换道车 B0_up@7000（边长 8000，距
+        // 进入点 1000 mm）本拍可达（上界 1000 mm）；目标后车距被预约区间
+        // 8 m、13.9 m/s 不可安全让行 → no-grant。
+        assert_eq!(
+            evaluate_transition_entry(
+                1_000,
+                10_000,
+                &[(8_000, 13_900)],
+                DELTA_MS,
+                SERVICE_DECEL_MM_S2,
+                MIN_GAP_MM,
+            ),
+            TransitionEntryVerdict::NoGrantUnyieldable
+        );
+    }
+
+    #[test]
+    fn p4_s12_reachability_defers_and_proofs_revalidate_per_tick() {
+        // s12 tick 0 钉版：距 T01 入口 19 m/27 m，本拍位移上界 1.39 m
+        // （13.9 m/s × 0.1 s 上界口径）→ 双方均不可能本拍进入，跳拍重证；
+        // 前提层（双方均可安全让行）下证明均通过 → 到达拍才进入（层②）。
+        for distance in [19_000_u64, 27_000] {
+            assert_eq!(
+                evaluate_transition_entry(
+                    distance,
+                    10_000,
+                    &[(27_000, 10_000), (19_000, 10_000)],
+                    DELTA_MS,
+                    SERVICE_DECEL_MM_S2,
+                    MIN_GAP_MM,
+                ),
+                TransitionEntryVerdict::ReachabilityDeferred
+            );
+        }
+        // 到达拍（进入点 ≤ 上界）前提成立时 Enter（两层断言的层②铺垫）。
+        assert_eq!(
+            evaluate_transition_entry(
+                1_000,
+                10_000,
+                &[(27_000, 10_000), (19_000, 10_000)],
+                DELTA_MS,
+                SERVICE_DECEL_MM_S2,
+                MIN_GAP_MM,
+            ),
+            TransitionEntryVerdict::Enter
+        );
     }
 
     #[test]
