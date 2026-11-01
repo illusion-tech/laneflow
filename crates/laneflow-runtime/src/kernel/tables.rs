@@ -482,10 +482,11 @@ fn record_occurrence(
     claim_internal_coverage(coverage, entry_index, exit_index, path)
 }
 
-/// A6 选项 3：换道执行支持是**实现能力**（非配置，不新增配置字段）。S4 交付
-/// 过渡执行前置 `false`；翻转属 S4 实现切片。
+/// A6 选项 3：换道执行支持是**实现能力**（非配置，不新增配置字段）。S4
+/// 切片翻转为 `true`（预约路径全绿后经 lead 裁定授权；#1199 合同 §6）。含
+/// 过渡段路线可注册可执行——授权语义演化见 PR「行为变化」清单。
 fn transition_execution_supported() -> bool {
-    false
+    true
 }
 
 /// 注册期唯一出现项编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
@@ -2668,8 +2669,8 @@ mod compile_route_tests {
             let compiled = compile_route(revision.as_ref(), &straight, 0, u64::MAX)
                 .expect("straight chain passes static validation and capability gate");
             assert_eq!(compiled.edges.len(), straight.len());
-            // 过渡链：静态序列验证完整通过后由能力门结构化拒绝——错误类型即证明
-            // 静态合同已过（若静态失败应先得到 Disconnected/ManeuverMismatch）。
+            // 过渡链（能力翻转后正断言）：静态序列验证 + 能力门放行，路线
+            // 物化含过渡段（#1199 授权语义演化——PR 行为变化清单第 1 条）。
             let crossing = [
                 edge("A0"),
                 edge("I1"),
@@ -2679,10 +2680,9 @@ mod compile_route_tests {
                 edge("I2"),
                 edge("C0"),
             ];
-            assert_eq!(
-                compile_route(revision.as_ref(), &crossing, 0, u64::MAX),
-                Err(RouteError::TransitionUnsupported)
-            );
+            let compiled_crossing =
+                compile_route(revision.as_ref(), &crossing, 0, u64::MAX).expect("crossing");
+            assert_eq!(compiled_crossing.edges.len(), crossing.len());
         }
 
         #[test]
@@ -2708,21 +2708,18 @@ mod compile_route_tests {
                 edge("I2"),
                 edge("C0"),
             ];
-            // 拒绝前后同一修订可重复编译、结果稳定：register_route 在编译失败时
-            // 不触碰注册表（失败原子，D5）；能力拒绝不留下部分状态。
+            // 翻转后同一修订可重复编译、结果稳定：register_route 在编译失败时
+            // 不触碰注册表（失败原子，D5）；翻转不改变注册表语义。
             let before = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
-            assert_eq!(
-                compile_route(revision.as_ref(), &crossing, 0, u64::MAX),
-                Err(RouteError::TransitionUnsupported)
-            );
+            let crossing_compiled = compile_route(revision.as_ref(), &crossing, 0, u64::MAX)
+                .expect("crossing compiles post-flip");
+            assert_eq!(crossing_compiled.edges.len(), crossing.len());
             let after = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
             assert_eq!(before.edges, after.edges);
             assert_eq!(before.maneuvers.len(), after.maneuvers.len());
-            // 旧输入零新拒绝（硬护栏）：无过渡段结构的路线永不触发该错误。
-            assert_ne!(
-                compile_route(revision.as_ref(), &straight, 0, u64::MAX),
-                Err(RouteError::TransitionUnsupported)
-            );
+            // 旧输入零新拒绝（硬护栏）：无过渡段结构的路线编译结果稳定不变。
+            let straight_again = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
+            assert_eq!(before.edges, straight_again.edges);
         }
 
         #[test]
@@ -2730,8 +2727,8 @@ mod compile_route_tests {
             let revision = revision();
             let named = named_ordinals(revision.as_ref());
             let edge = |name: &str| *named.get(name).unwrap();
-            // 多段过渡链（T0a→T0b）：段级分类命中——无"两侧 covered 三边窗口"
-            // 也拒绝（P1-1）。
+            // 多段过渡链（T0a→T0b）：段级分类命中（P1-1 纯层钉版 p0/p1 保持）；
+            // 能力翻转后正断言（PR 行为变化清单第 2 条）。
             let multi = [
                 edge("A0"),
                 edge("I1"),
@@ -2742,33 +2739,29 @@ mod compile_route_tests {
                 edge("I2"),
                 edge("C0"),
             ];
-            assert_eq!(
-                compile_route(revision.as_ref(), &multi, 0, u64::MAX),
-                Err(RouteError::TransitionUnsupported)
-            );
-            // 起/止于过渡的路线（含单边 [T01]）：不进旧三边窗口也要拒绝（P1-1）。
-            assert_eq!(
-                compile_route(revision.as_ref(), &[edge("T01")], 0, u64::MAX),
-                Err(RouteError::TransitionUnsupported)
-            );
-            assert_eq!(
-                compile_route(
-                    revision.as_ref(),
-                    &[edge("B0_up"), edge("T01")],
-                    0,
-                    u64::MAX
-                ),
-                Err(RouteError::TransitionUnsupported)
-            );
-            assert_eq!(
-                compile_route(
-                    revision.as_ref(),
-                    &[edge("T01"), edge("B1_down")],
-                    0,
-                    u64::MAX
-                ),
-                Err(RouteError::TransitionUnsupported)
-            );
+            let multi_compiled =
+                compile_route(revision.as_ref(), &multi, 0, u64::MAX).expect("multi");
+            assert_eq!(multi_compiled.edges.len(), multi.len());
+            // 起/止于过渡的路线（含单边 [T01]）：翻转后可注册（第 3 条）。
+            let single = compile_route(revision.as_ref(), &[edge("T01")], 0, u64::MAX)
+                .expect("single transition route");
+            assert_eq!(single.edges.len(), 1);
+            let ending = compile_route(
+                revision.as_ref(),
+                &[edge("B0_up"), edge("T01")],
+                0,
+                u64::MAX,
+            )
+            .expect("transition-ending route");
+            assert_eq!(ending.edges.len(), 2);
+            let starting = compile_route(
+                revision.as_ref(),
+                &[edge("T01"), edge("B1_down")],
+                0,
+                u64::MAX,
+            )
+            .expect("transition-starting route");
+            assert_eq!(starting.edges.len(), 2);
         }
 
         #[test]
@@ -3141,7 +3134,7 @@ mod compile_route_tests {
                         path,
                         vec![editing::ConflictPassageInput::new(
                             zone.clone(),
-                            editing::PathAnchorInput::gate(admission_gate),
+                            editing::PathAnchorInput::gate(admission_gate.clone()),
                             editing::PathAnchorInput::edge_boundary(2),
                         )],
                     )
@@ -3211,9 +3204,98 @@ mod compile_route_tests {
                         path2,
                         vec![editing::ConflictPassageInput::new(
                             zone.clone(),
-                            editing::PathAnchorInput::gate(admission_gate2),
+                            editing::PathAnchorInput::gate(admission_gate2.clone()),
                             editing::PathAnchorInput::edge_boundary(2),
                         )],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::ParticipantClass(
+                    editing::ParticipantClassInput::try_new("car-class").unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::VehicleProfile(
+                    editing::VehicleProfileInput::try_new(
+                        "car",
+                        editing::ParticipantClassReference::local("car-class").unwrap(),
+                        editing::IidmVehicleProfileInput::try_new(
+                            4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::RightOfWayPolicySet(
+                    editing::RightOfWayPolicySetInput::try_new(
+                        "policy",
+                        laneflow_compiler::RegulationIdentity::try_new("engineering", "fixture-1")
+                            .unwrap()
+                            .with_source("repository:laneflow-test")
+                            .unwrap(),
+                        vec![],
+                        vec![
+                            editing::PolicyGapProfileInput::try_new(
+                                "calibration-gap",
+                                "fixture-1",
+                                500,
+                                500,
+                                100,
+                            )
+                            .unwrap(),
+                        ],
+                        vec![
+                            editing::PolicyStreamRuleInput::try_new(
+                                "stream",
+                                editing::ParticipantStreamReference::owner_scoped(
+                                    vec!["s4-junction".to_owned()],
+                                    "s4-stream",
+                                )
+                                .unwrap(),
+                                None,
+                                0,
+                                vec![],
+                                None,
+                                vec![],
+                            )
+                            .unwrap(),
+                            editing::PolicyStreamRuleInput::try_new(
+                                "stream-2",
+                                editing::ParticipantStreamReference::owner_scoped(
+                                    vec!["s4-junction".to_owned()],
+                                    "s4-stream-2",
+                                )
+                                .unwrap(),
+                                None,
+                                0,
+                                vec![],
+                                None,
+                                vec![],
+                            )
+                            .unwrap(),
+                        ],
+                        vec![
+                            editing::PolicyGateRuleInput::try_new(
+                                "admission",
+                                admission_gate,
+                                None,
+                                laneflow_compiler::GateInterpretation::Uncontrolled,
+                                laneflow_compiler::GateProhibition::None,
+                                vec![],
+                            )
+                            .unwrap(),
+                            editing::PolicyGateRuleInput::try_new(
+                                "admission-2",
+                                admission_gate2,
+                                None,
+                                laneflow_compiler::GateInterpretation::Uncontrolled,
+                                laneflow_compiler::GateProhibition::None,
+                                vec![],
+                            )
+                            .unwrap(),
+                        ],
                     )
                     .unwrap(),
                 ))
@@ -3360,6 +3442,196 @@ mod compile_route_tests {
             );
         }
 
+        /// R2 验收（s4 钉版）：换道方 tick 0 可进入、目标快速后车距区间
+        /// 8m@13.9 → 具名判据 d_stop（26.7m 量级）> 距离 → P4 no-grant、
+        /// 换道停让、后车通过后进入、后车不迫紧急制动；对照分支（无潜在进入
+        /// 者）→ 换道方进入。
+        ///
+        /// # 暂时忽略（#1199 WIP）
+        ///
+        /// 运行环工程续：后车 E4→E2 闸口准入流未通（60 拍未过区间）——疑
+        /// waiting/激活姿态语义（R1“等信号载具不入枚举”邻域）或 stream/gate
+        /// 绑定面；翻转+断言迁移+夹具三声明+可行生成+同步钉拍已绿在案。
+        #[test]
+        #[ignore = "#1199 WIP: follower gate-admission flow (waiting/activation semantics)"]
+        fn r2_s4_pinned_follower_blocks_transition_until_passing() {
+            use laneflow_static_contract::LaneEdgeOrdinal;
+
+            fn install(
+                revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+            ) -> crate::TrafficWorld {
+                let origin = *revision.canonical_origin();
+                let policy = laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                    laneflow_compiler::derive_canonical_stable_id_v1(
+                        laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                        "s4-road",
+                        "policy",
+                        &laneflow_compiler::CompileLimits::single_network_1m_v2(),
+                    )
+                    .unwrap(),
+                );
+                crate::TrafficWorld::install(
+                    revision,
+                    crate::WorldConfig::new(2, 2, 16, 8, 100),
+                    crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                    crate::CommittedNetworkSource::Published {
+                        reference: crate::PublishedLfcaReference::new(
+                            "fixture://s4-r2",
+                            origin.canonical_artifact_digest(),
+                            origin.canonical_artifact_byte_length(),
+                            origin.network_revision(),
+                        )
+                        .unwrap(),
+                    },
+                    676,
+                    crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
+                )
+                .unwrap()
+            }
+
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("transition edge");
+            let path_edges = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .expect("path 0")
+                .edges();
+            let e2 = path_edges[0];
+            let int_edge = path_edges[1];
+            let exit = *path_edges.last().expect("path exit");
+            let e0 = traffic.predecessors(transition).expect("predecessors")[0];
+            let e4 = traffic
+                .predecessors(e2)
+                .expect("e2 predecessors")
+                .iter()
+                .copied()
+                .find(|edge| *edge != transition)
+                .expect("e4");
+            let changer_route_edges = vec![e0, transition, e2, int_edge, exit];
+            let follower_route_edges = vec![e4, e2, int_edge, exit];
+
+            // 主分支：后车 8m@13.9 → P4 no-grant。
+            let mut world = install(revision.clone());
+            let changer_route = world
+                .register_route(crate::RouteRegisterInput::new(changer_route_edges.clone()))
+                .unwrap();
+            let follower_route = world
+                .register_route(crate::RouteRegisterInput::new(follower_route_edges.clone()))
+                .unwrap();
+            let changer = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        changer_route,
+                        0,
+                        15_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            let follower = world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        follower_route,
+                        0,
+                        1_300,
+                        13_900,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            world.state.rebuild_occupancy_index().unwrap();
+            let mut follower_passed = false;
+            let mut changer_entered_tick = None;
+            for tick in 1_u64..=60 {
+                world.state.prepare_waiting_step(0.1).unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+                let follower_state = world.state.committed.vehicles.state(follower).unwrap();
+                let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                // 后车不被迫急停（s4 失败面"换道抢行迫使直行急刹"反证）：
+                // 通过区间前不得完全停车（闸口正常减速允许）。
+                if follower_state.route_edge_index < 2 {
+                    assert!(
+                        follower_state.speed_mm_s > 0,
+                        "follower must not be forced to a stop before passing"
+                    );
+                }
+                // 换道停让：后车在 d_stop 停止距离内（26.75m 量级）时换道方
+                // 不得进入 T（钉拍：后车 8m@13.9 与换道方 1m 于 tick 15±2
+                // 会合——s4 钉版关键刻）。
+                let follower_distance_mm = if follower_state.route_edge_index == 0 {
+                    30_000 - follower_state.progress_mm
+                } else {
+                    0
+                };
+                if follower_distance_mm < 26_750 && changer_state.route_edge_index == 0 {
+                    assert!(
+                        changer_state.progress_mm < 30_000,
+                        "changer must wait while follower within d_stop"
+                    );
+                }
+                if !follower_passed
+                    && (follower_state.route_edge_index >= 2
+                        || !world.live_vehicles().contains(&follower))
+                {
+                    follower_passed = true;
+                }
+                if changer_state.route_edge_index >= 1 {
+                    changer_entered_tick = Some(tick);
+                    break;
+                }
+            }
+            assert!(follower_passed, "follower passes through");
+            let entered = changer_entered_tick.expect("changer enters after follower passes");
+            assert!(entered >= 1, "changer waits while follower within d_stop");
+
+            // 对照分支：无潜在进入者 → 换道方迅速进入。
+            let mut control = install(revision.clone());
+            let changer_route = control
+                .register_route(crate::RouteRegisterInput::new(changer_route_edges))
+                .unwrap();
+            let _ = control
+                .register_route(crate::RouteRegisterInput::new(follower_route_edges))
+                .unwrap();
+            let control_changer = control
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        changer_route,
+                        0,
+                        15_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
+                .unwrap();
+            control.state.rebuild_occupancy_index().unwrap();
+            let mut entered = None;
+            for tick in 1_u64..=30 {
+                control.step(crate::TickInput::new(100)).unwrap();
+                let state = control
+                    .state
+                    .committed
+                    .vehicles
+                    .state(control_changer)
+                    .unwrap();
+                if state.route_edge_index >= 1 {
+                    entered = Some(tick);
+                    break;
+                }
+            }
+            assert!(
+                entered.is_some(),
+                "control branch: no potential enterer → changer enters"
+            );
+        }
+
         /// 接缝分类矩阵（判据整体重设计，统筹 2026-10-31「停止打补丁」指令）：
         /// 表驱动，每行 = 一种接缝形态 + 判定谓词结论 + 正反例；全矩阵绿才交审。
         /// 判据（`SharedTrafficNetwork::is_lateral_transition_segment`，构建期
@@ -3450,13 +3722,10 @@ mod compile_route_tests {
                 ),
                 ("单 covered 边路线（[P0]）", vec![edge("P0")], false),
             ];
-            for (name, route, expect_rejected) in cases {
+            for (name, route, _historically_rejected) in cases {
                 let result = compile_route(revision.as_ref(), &route, 0, u64::MAX);
-                if expect_rejected {
-                    assert_eq!(result, Err(RouteError::TransitionUnsupported), "{name}");
-                } else {
-                    assert!(result.is_ok(), "{name} 必须编译通过：{result:?}");
-                }
+                // 能力翻转后全迁移为正断言（PR 行为变化清单第 4 条）。
+                assert!(result.is_ok(), "{name} 翻转后须编译通过：{result:?}");
             }
         }
     }
