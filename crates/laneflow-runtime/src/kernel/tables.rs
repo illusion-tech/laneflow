@@ -1077,10 +1077,82 @@ fn compile_conflicts(
     hop_gate: &[Option<ManeuverGateOrdinal>],
     expected_count: u64,
 ) -> Result<CompiledConflicts, RouteError> {
-    let capacity = usize::try_from(expected_count).map_err(|_| RouteError::AllocationFailed)?;
-    let mut conflicts = try_conflict_occurrence_vec(capacity)?;
     let traffic = revision.traffic();
     let conflict = revision.conflict();
+    // 过渡出现项预构建（#1199 增量2a；§8 流绑定）：分类表命中的路线边各发一条
+    // 出现项；流 = 后继 maneuver 出现项的首 stream（无后继取前驱末条，确定性
+    // 钉死）；独占由 zone-head 所有权承担（B 裁定）。无 maneuver 的纯过渡路线
+    // 此处不绑定（能力拒绝错误类型保持；预约绑定留翻转切片）。
+    let mut transition_occurrences: Vec<ConflictPassageOccurrence> = Vec::new();
+    for (edge_index, edge) in route_edges.iter().copied().enumerate() {
+        if !traffic.is_lateral_transition_segment(edge) {
+            continue;
+        }
+        let next = maneuvers
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, occurrence)| {
+                usize::try_from(occurrence.entry_route_edge_index)
+                    .expect("route edge index fits usize")
+                    > edge_index
+            })
+            .min_by_key(|(_, occurrence)| occurrence.entry_route_edge_index);
+        let bound = next.or_else(|| {
+            maneuvers
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(_, occurrence)| {
+                    usize::try_from(occurrence.entry_route_edge_index)
+                        .expect("route edge index fits usize")
+                        <= edge_index
+                })
+                .max_by_key(|(_, occurrence)| occurrence.entry_route_edge_index)
+        });
+        let Some((maneuver_index, bound_occurrence)) = bound else {
+            continue;
+        };
+        let Some(stream) = conflict
+            .maneuver_path_participant_streams(bound_occurrence.path)
+            .and_then(|streams| streams.first())
+            .copied()
+        else {
+            // §8 流绑定：候选 maneuver 无 participant stream 时不绑定（能力
+            // 拒绝语义保持；流绑定覆盖随 P4 流-bearing 夹具接线）。
+            continue;
+        };
+        let length = *traffic
+            .lane_lengths_millimetres()
+            .get(edge.index())
+            .ok_or(RouteError::ManeuverMismatch)?;
+        if length == 0 {
+            return Err(RouteError::ManeuverMismatch);
+        }
+        let route_edge_index =
+            u32::try_from(edge_index).map_err(|_| RouteError::AllocationFailed)?;
+        transition_occurrences.push(ConflictPassageOccurrence {
+            stream,
+            passage_local_index: 0,
+            resource: crate::kernel::conflict::ConflictResource::Transition(edge),
+            maneuver_index: u32::try_from(maneuver_index)
+                .map_err(|_| RouteError::AllocationFailed)?,
+            admission_hop: route_edge_index,
+            entry: RoutePosition {
+                route_edge_index,
+                progress_mm: 0,
+            },
+            clearance: RoutePosition {
+                route_edge_index,
+                progress_mm: length,
+            },
+        });
+    }
+    let capacity = usize::try_from(expected_count)
+        .map_err(|_| RouteError::AllocationFailed)?
+        .checked_add(transition_occurrences.len())
+        .ok_or(RouteError::AllocationFailed)?;
+    let mut conflicts = try_conflict_occurrence_vec(capacity)?;
     for (maneuver_index, occurrence) in maneuvers.iter().copied().enumerate() {
         let streams = conflict
             .maneuver_path_participant_streams(occurrence.path)
@@ -1132,6 +1204,7 @@ fn compile_conflicts(
             }
         }
     }
+    conflicts.extend(transition_occurrences);
     if conflicts.len() != capacity {
         return Err(RouteError::ManeuverMismatch);
     }
