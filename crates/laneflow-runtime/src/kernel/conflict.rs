@@ -5033,6 +5033,58 @@ mod tests {
         Ok(claims)
     }
 
+    /// #1199 不变量验收（B 裁定附条；与 R1b s12 两层断言互证）：两不同流争
+    /// 同一横向过渡段（zone-head 独占承载）→ 同拍恰一 staged 授予、败者
+    /// `NoGrant(ConflictOccupied)`、同拍至多一 claim。
+    #[test]
+    fn transition_zone_head_grants_exactly_one_staged_claim_across_streams() {
+        let cell_stream_a = ConflictPassageAddress::new_transition(
+            LaneEdgeOrdinal::from_raw(7),
+            ParticipantStreamOrdinal::from_raw(0),
+            0,
+        );
+        let cell_stream_b = ConflictPassageAddress::new_transition(
+            LaneEdgeOrdinal::from_raw(7),
+            ParticipantStreamOrdinal::from_raw(1),
+            0,
+        );
+        let mut arbiter =
+            ConflictArbiter::new(vec![cell_stream_a, cell_stream_b], 2).expect("arbiter");
+        arbiter
+            .try_acquire(
+                1,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    follower_min_gap_mm: 2_500,
+                    cells: &[cell_stream_a],
+                    downstream: &[DownstreamInterval::new(LaneEdgeOrdinal::from_raw(2), 0, 10)
+                        .expect("claim")],
+                    waiting_entitlement: None,
+                },
+            )
+            .expect("first claim granted");
+        let rejected = arbiter.try_acquire(
+            1,
+            GrantResourceBundle {
+                owner: vehicle(2),
+                follower_min_gap_mm: 2_500,
+                cells: &[cell_stream_b],
+                downstream: &[
+                    DownstreamInterval::new(LaneEdgeOrdinal::from_raw(2), 0, 10).expect("claim")
+                ],
+                waiting_entitlement: None,
+            },
+        );
+        assert!(matches!(
+            rejected,
+            Err(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::ConflictOccupied
+            ))
+        ));
+        // 同拍至多一 staged claim：zone-head 所有权即独占承载（B 裁定）。
+        assert_eq!(arbiter.read().staged_owner_count(), 1);
+    }
+
     #[test]
     fn sparse_frontier_clear_resets_every_written_cell() {
         let addresses: Vec<_> = (0..64).map(|index| address(index, index, 0)).collect();
