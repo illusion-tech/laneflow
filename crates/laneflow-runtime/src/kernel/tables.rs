@@ -2843,6 +2843,488 @@ mod compile_route_tests {
             assert_eq!(bind_transition_stream(&streamless, 1, stream_of), None);
         }
 
+        /// 混合 v7 流-bearing 夹具（R-1…R-16 全约束）：合成侧=全部边+覆盖
+        /// +帧几何（R-11/R-12）+ successor 链内闭合；road-editing=纯冲突声明
+        /// （R-1 owner 同模块；R-13 双流双 path；R-14 gate 入锚；R-16 stop 边
+        /// 无朴素后继）。三断言面：分类+§8 绑定集成、P4 判据、s3 静默跳过对照。
+        #[test]
+        fn s4_stream_bearing_fixture_covers_binding_and_p4_end_to_end() {
+            use laneflow_compiler::road_editing as editing;
+            use laneflow_compiler::{
+                GeometryAccuracyProfile, GeometryDirectionProfile, PortableDiffBase,
+                PortableEmissionProvenance, emit_portable_candidate,
+            };
+            use laneflow_format::{FormatLimits, check_post_emission_bundle};
+            use laneflow_static_network::{
+                SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+                build_shared_network_revision,
+            };
+
+            let limits = CompileLimits::p100_initial_v1();
+            let synth_header = SourceModuleHeader::new(
+                SourceModuleHeaderInput {
+                    authoring_namespace_id: "s4-synth",
+                    source_document_key: "s4-synth.document",
+                    generator_build_id: "s4-synth-probe",
+                    parameters_and_inputs_digest: [0x11; 32],
+                    frontend_options_digest: [0x22; 32],
+                    random_seed: Some(0),
+                    provenance: "repository:laneflow-test",
+                },
+                &limits,
+            )
+            .unwrap();
+            let mut synth = SyntheticModuleBuilder::new(synth_header, &limits).unwrap();
+            for (key, length, successors) in [
+                ("s4-e0", 30.0_f64, vec!["s4-t"]),
+                ("s4-t", 5.0, vec!["s4-e2"]),
+                ("s4-e2", 30.0, vec![]),
+                ("s4-int", 8.0, vec![]),
+                ("s4-exit", 10.0, vec![]),
+                ("s4-e3", 30.0, vec![]),
+            ] {
+                let refs: Vec<_> = successors
+                    .iter()
+                    .map(|target| LaneEdgeReference::local(target))
+                    .collect();
+                synth
+                    .add_lane_edge(LaneEdgeInput {
+                        lane_edge_key: key,
+                        length_meters: length,
+                        speed_limit_meters_per_second: 13.9,
+                        successors: &refs,
+                    })
+                    .unwrap();
+            }
+            let chains: std::collections::HashMap<&str, Vec<LaneEdgeReference<'static>>> = [
+                ("s4-lane-0", vec!["s4-e0"]),
+                ("s4-lane-1", vec!["s4-e2"]),
+                ("s4-exit-lane", vec!["s4-exit"]),
+                ("s4-lane-2", vec!["s4-e3"]),
+            ]
+            .into_iter()
+            .map(|(key, edges)| {
+                (
+                    key,
+                    edges
+                        .into_iter()
+                        .map(LaneEdgeReference::local)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+            synth
+                .add_road_section(RoadSectionInput {
+                    road_section_key: "s4-section",
+                    kind_id: "motorLane",
+                    lanes: &[
+                        AuthoringLaneInput {
+                            authoring_lane_key: "s4-lane-0",
+                            edge_chain: &chains["s4-lane-0"],
+                            lane_group: None,
+                        },
+                        AuthoringLaneInput {
+                            authoring_lane_key: "s4-lane-1",
+                            edge_chain: &chains["s4-lane-1"],
+                            lane_group: None,
+                        },
+                        AuthoringLaneInput {
+                            authoring_lane_key: "s4-lane-2",
+                            edge_chain: &chains["s4-lane-2"],
+                            lane_group: None,
+                        },
+                    ],
+                })
+                .unwrap();
+            synth
+                .add_road_section(RoadSectionInput {
+                    road_section_key: "s4-exit-section",
+                    kind_id: "motorLane",
+                    lanes: &[AuthoringLaneInput {
+                        authoring_lane_key: "s4-exit-lane",
+                        edge_chain: &chains["s4-exit-lane"],
+                        lane_group: None,
+                    }],
+                })
+                .unwrap();
+            synth
+                .add_road_corridor(RoadCorridorInput {
+                    road_corridor_key: "s4-corridor",
+                    reference_section: RoadSectionReference::local("s4-section"),
+                    elements: &[CorridorElementReference::road_section(
+                        RoadSectionReference::local("s4-section"),
+                    )],
+                })
+                .unwrap();
+            synth
+                .add_road_corridor(RoadCorridorInput {
+                    road_corridor_key: "s4-exit-corridor",
+                    reference_section: RoadSectionReference::local("s4-exit-section"),
+                    elements: &[CorridorElementReference::road_section(
+                        RoadSectionReference::local("s4-exit-section"),
+                    )],
+                })
+                .unwrap();
+            let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = [
+                (0.0_f32, 30.0_f32),
+                (30.0, 35.0),
+                (35.0, 65.0),
+                (65.0, 73.0),
+                (73.0, 83.0),
+                (35.0, 65.0),
+            ]
+            .iter()
+            .zip([
+                (0.0_f32, 0.0_f32),
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (0.0, 0.0),
+            ])
+            .map(|((x0, x1), (y0, y1))| {
+                [
+                    CanonicalPoint3F32Input {
+                        x: *x0,
+                        y: y0,
+                        z: 0.0,
+                    },
+                    CanonicalPoint3F32Input {
+                        x: *x1,
+                        y: y1,
+                        z: 0.0,
+                    },
+                ]
+            })
+            .collect();
+            let frame_edges = ["s4-e0", "s4-t", "s4-e2", "s4-int", "s4-exit", "s4-e3"];
+            let geometries: Vec<_> = frame_edges
+                .iter()
+                .zip(point_pairs.iter())
+                .map(|(key, centerline_points)| LaneEdgeGeometryInput {
+                    lane_edge: LaneEdgeReference::local(key),
+                    centerline_points,
+                })
+                .collect();
+            synth
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: "s4-t-frame",
+                    lane_edge_geometries: &geometries,
+                })
+                .unwrap();
+            let header = editing::RoadEditingModuleHeader::try_new(
+                "s4-road",
+                "s4-road.document",
+                vec!["s4-synth".to_owned()],
+                editing::RoadEditingProvenance::direct("s4 stream-bearing v7").unwrap(),
+            )
+            .unwrap();
+            let mut builder = editing::RoadEditingSourceModuleBuilder::new(
+                header,
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                &limits,
+            )
+            .unwrap();
+            let edge = |key: &str| {
+                editing::LaneEdgeReference::imported("s4-synth", Vec::new(), key).unwrap()
+            };
+            let junction = editing::JunctionReference::local("s4-junction").unwrap();
+            let zone = editing::ConflictZoneReference::owner_scoped(
+                vec!["s4-junction".to_owned()],
+                "s4-zone",
+            )
+            .unwrap();
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::Junction(
+                    editing::JunctionInput::try_new(
+                        "s4-junction",
+                        vec![edge("s4-e0"), edge("s4-e2"), edge("s4-e3"), edge("s4-exit")],
+                        vec![edge("s4-int")],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ConflictZone(
+                    editing::ConflictZoneInput::try_new("s4-zone", junction.clone()).unwrap(),
+                ))
+                .unwrap();
+            let movement = editing::MovementReference::owner_scoped(
+                vec!["s4-junction".to_owned()],
+                "s4-movement",
+            )
+            .unwrap();
+            let path = editing::ManeuverPathReference::owner_scoped(
+                vec!["s4-junction".to_owned(), "s4-movement".to_owned()],
+                "s4-path",
+            )
+            .unwrap();
+            let admission_gate = editing::ManeuverGateReference::owner_scoped(
+                vec![
+                    "s4-junction".to_owned(),
+                    "s4-movement".to_owned(),
+                    "s4-path".to_owned(),
+                ],
+                "s4-admission",
+            )
+            .unwrap();
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::Movement(
+                    editing::MovementInput::try_new(
+                        "s4-movement",
+                        junction.clone(),
+                        "s4-e2".to_owned(),
+                        "s4-exit".to_owned(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
+                    editing::ManeuverPathInput::try_new(
+                        "s4-path",
+                        movement,
+                        edge("s4-e2"),
+                        vec![edge("s4-int")],
+                        edge("s4-exit"),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::StopLine(
+                    editing::StopLineInput::try_new("s4-stop", edge("s4-e2")).unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
+                    editing::ManeuverGateInput::try_new(
+                        "s4-admission",
+                        path.clone(),
+                        0,
+                        editing::StopLineReference::local("s4-stop").unwrap(),
+                        editing::RoadEditingSignalControl::None,
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
+                    editing::ParticipantStreamInput::try_new(
+                        "s4-stream",
+                        junction.clone(),
+                        path,
+                        vec![editing::ConflictPassageInput::new(
+                            zone.clone(),
+                            editing::PathAnchorInput::gate(admission_gate),
+                            editing::PathAnchorInput::edge_boundary(2),
+                        )],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            let movement2 = editing::MovementReference::owner_scoped(
+                vec!["s4-junction".to_owned()],
+                "s4-movement-2",
+            )
+            .unwrap();
+            let path2 = editing::ManeuverPathReference::owner_scoped(
+                vec!["s4-junction".to_owned(), "s4-movement-2".to_owned()],
+                "s4-path-2",
+            )
+            .unwrap();
+            let admission_gate2 = editing::ManeuverGateReference::owner_scoped(
+                vec![
+                    "s4-junction".to_owned(),
+                    "s4-movement-2".to_owned(),
+                    "s4-path-2".to_owned(),
+                ],
+                "s4-admission-2",
+            )
+            .unwrap();
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::Movement(
+                    editing::MovementInput::try_new(
+                        "s4-movement-2",
+                        junction.clone(),
+                        "s4-e3".to_owned(),
+                        "s4-exit".to_owned(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
+                    editing::ManeuverPathInput::try_new(
+                        "s4-path-2",
+                        movement2,
+                        edge("s4-e3"),
+                        vec![edge("s4-int")],
+                        edge("s4-exit"),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::StopLine(
+                    editing::StopLineInput::try_new("s4-stop-2", edge("s4-e3")).unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
+                    editing::ManeuverGateInput::try_new(
+                        "s4-admission-2",
+                        path2.clone(),
+                        0,
+                        editing::StopLineReference::local("s4-stop-2").unwrap(),
+                        editing::RoadEditingSignalControl::None,
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
+                    editing::ParticipantStreamInput::try_new(
+                        "s4-stream-2",
+                        junction.clone(),
+                        path2,
+                        vec![editing::ConflictPassageInput::new(
+                            zone.clone(),
+                            editing::PathAnchorInput::gate(admission_gate2),
+                            editing::PathAnchorInput::edge_boundary(2),
+                        )],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            builder
+                .add_conflict_zone_region(
+                    editing::ConflictZoneRegionInput::try_new(
+                        zone,
+                        editing::CanonicalFrameReference::imported(
+                            "s4-synth",
+                            Vec::new(),
+                            "s4-t-frame",
+                        )
+                        .unwrap(),
+                        -1.0,
+                        1.0,
+                        vec![
+                            editing::RoadEditingPoint2::try_new(0.0, -2.0).unwrap(),
+                            editing::RoadEditingPoint2::try_new(30.0, -2.0).unwrap(),
+                            editing::RoadEditingPoint2::try_new(30.0, 2.0).unwrap(),
+                            editing::RoadEditingPoint2::try_new(0.0, 2.0).unwrap(),
+                        ],
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let source = editing::RoadEditingSourceWriter::new(&limits)
+                .write(builder.finish().unwrap())
+                .unwrap();
+            let mut unit = CompilationUnitBuilder::new(limits.clone());
+            unit.add_synthetic_module(synth.finish().unwrap()).unwrap();
+            unit.add_road_editing_module(
+                editing::RoadEditingModuleInput::try_new(
+                    "s4-road.document",
+                    source.as_bytes(),
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+            let candidate = emit_portable_candidate(
+                &output,
+                &PortableEmissionProvenance::try_new("s4-stream-bearing").unwrap(),
+                FormatLimits::HARD,
+                PortableDiffBase::Genesis,
+            )
+            .unwrap();
+            let checked = check_post_emission_bundle(
+                candidate.canonical_artifact().bytes(),
+                candidate.source_map().bytes(),
+                candidate.semantic_diff().bytes(),
+                candidate.expected_semantic_diff_base(),
+                FormatLimits::HARD,
+            )
+            .unwrap();
+            let revision = build_shared_network_revision(
+                checked.canonical_network_input(),
+                SharedNetworkBuildOptions::new(
+                    SpatialBuildOption::Omit,
+                    SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+                ),
+            )
+            .unwrap();
+            let traffic = revision.traffic();
+            let conflict = revision.conflict();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("过渡边 T 被分类表识别（双 lane 横坐标跨度≥2）");
+            let path0 = laneflow_static_contract::ManeuverPathOrdinal::from_raw(0);
+            let stream_view = conflict
+                .participant_stream(laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0))
+                .expect("participant stream");
+            let gate = stream_view
+                .passages()
+                .first()
+                .expect("passage")
+                .admission_gate();
+            let e0 = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| {
+                    traffic
+                        .relations()
+                        .lane_edge_authoring_lane(*edge)
+                        .is_some_and(|lane| {
+                            traffic
+                                .relations()
+                                .authoring_edge_chain(lane)
+                                .is_some_and(|chain| chain.len() == 1)
+                        })
+                })
+                .unwrap_or(transition);
+            let mut route_edges = vec![e0, transition];
+            route_edges.extend(
+                (0..traffic.lane_edge_count())
+                    .map(LaneEdgeOrdinal::from_raw)
+                    .filter(|edge| *edge != e0 && *edge != transition)
+                    .take(3),
+            );
+            let maneuvers = [ManeuverOccurrence {
+                path: path0,
+                entry_route_edge_index: 2,
+                exit_route_edge_index: 4,
+            }];
+            let mut hop_gate = vec![None; route_edges.len()];
+            hop_gate[2] = Some(gate);
+            let (conflicts, _, _) =
+                compile_conflicts(revision.as_ref(), &route_edges, &maneuvers, &hop_gate, 1)
+                    .expect("compile_conflicts 以真实流通过");
+            let transition_occurrence = conflicts
+                .iter()
+                .find(|occurrence| {
+                    matches!(
+                        occurrence.resource,
+                        crate::kernel::conflict::ConflictResource::Transition(_)
+                    )
+                })
+                .expect("Transition 出现项发射");
+            assert_eq!(
+                Some(transition_occurrence.stream),
+                bind_transition_stream(&maneuvers, 1, |path| {
+                    conflict.maneuver_path_participant_streams(path)
+                })
+                .map(|(_, stream)| stream),
+                "发射流 == §8 绑定流（后继优先）"
+            );
+            assert_eq!(
+                crate::kernel::lane_change::evaluate_transition_entry(
+                    1_000,
+                    10_000,
+                    &[(8_000, 13_900)],
+                    100,
+                    4_500,
+                    2_500,
+                ),
+                crate::kernel::lane_change::TransitionEntryVerdict::NoGrantUnyieldable
+            );
+        }
+
         /// 接缝分类矩阵（判据整体重设计，统筹 2026-10-31「停止打补丁」指令）：
         /// 表驱动，每行 = 一种接缝形态 + 判定谓词结论 + 正反例；全矩阵绿才交审。
         /// 判据（`SharedTrafficNetwork::is_lateral_transition_segment`，构建期
