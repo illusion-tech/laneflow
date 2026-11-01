@@ -67,16 +67,24 @@ pub(super) fn gate_may_be_reached_on_route(
         state.route_edge_index
     };
     let Some(hop) = route
-        .gate_hops
-        .get(route.gate_hops.partition_point({
+        .conflict_dispatch_hops
+        .get(route.conflict_dispatch_hops.partition_point({
             #[cfg(test)]
             super::route_query_research::note_search("conflict_tick:45");
             |hop| *hop < cursor
         }))
         .copied()
     else {
+        std::eprintln!(
+            "near-gate: NONE cursor={cursor} edge={}",
+            state.route_edge_index
+        );
         return false;
     };
+    std::eprintln!(
+        "near-gate: hop={hop} cursor={cursor} edge={}",
+        state.route_edge_index
+    );
     if hop < state.route_edge_index {
         return true;
     }
@@ -102,8 +110,23 @@ pub(super) fn gate_may_be_reached_on_route(
         state.progress_mm,
         hop as usize + 1,
     ) {
-        Some(BoundedDistance::Finite(distance)) => !reach.excludes(distance),
-        Some(BoundedDistance::BeyondFinite) | None => true,
+        Some(BoundedDistance::Finite(distance)) => {
+            let verdict = !reach.excludes(distance);
+            std::eprintln!(
+                "gate-reach: edge={} progress={} hop={hop} dist={distance} verdict={verdict}",
+                state.route_edge_index,
+                state.progress_mm
+            );
+            verdict
+        }
+        Some(BoundedDistance::BeyondFinite) | None => {
+            std::eprintln!(
+                "gate-reach: edge={} progress={} hop={hop} dist=UNBOUNDED verdict=true",
+                state.route_edge_index,
+                state.progress_mm
+            );
+            true
+        }
     }
 }
 
@@ -374,6 +397,10 @@ fn evaluate_gate_hop(
         super::route_query_research::note_search("conflict_tick:249");
         |entry| entry.exit_route_edge_index <= gate_hop
     });
+    std::eprintln!(
+        "gate_hop eval: vehicle={:?} hop={gate_hop} maneuver_index={maneuver_index}",
+        state.handle
+    );
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
     // 门 hop 须落在某 maneuver occurrence 内；无 gate 的冲突 hop（过渡
     // 资源 hop，#1199 修形①②）位于其穿越 maneuver 起点之前——锚定首个
@@ -2449,6 +2476,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         resource: CandidateResource,
         scratch: &CandidateScratch,
     ) -> Result<(), StepError> {
+        std::eprintln!(
+            "T-cand consume: vehicle={:?} stage={:?}",
+            vehicle,
+            std::mem::discriminant(&resource.stage)
+        );
         {
             self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize] =
                 Some(resource.motion_plan);
@@ -2824,6 +2856,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let compiled =
             crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, state.route)
                 .ok_or(StepError::ConflictInvariantViolation)?;
+        std::eprintln!(
+            "eval: vehicle={:?} edge={} progress={}",
+            state.handle,
+            state.route_edge_index,
+            state.progress_mm
+        );
         // Route cursor 将上一条边终点规范化为下一条边零点；该位置仍然位于
         // admission Gate boundary，不能因此跳过上一 hop 的正式仲裁。
         let first_possible_hop = if state.progress_mm == 0 && state.carry_um == 0 {
@@ -2831,12 +2869,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         } else {
             state.route_edge_index
         };
-        let first_gate = compiled.gate_hops.partition_point({
+        let first_gate = compiled.conflict_dispatch_hops.partition_point({
             #[cfg(test)]
             super::route_query_research::note_search("conflict_tick:1482");
             |hop| *hop < first_possible_hop
         });
-        let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
+        let Some(first_hop) = compiled.conflict_dispatch_hops.get(first_gate).copied() else {
             return Ok(());
         };
         let profile = self
@@ -2867,6 +2905,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
         let _gate_count = compiled.gate_hops.len();
+        std::eprintln!(
+            "eval-horizon: vehicle={:?} distance={distance:?} front_query={}",
+            state.handle,
+            horizon.front_query_mm
+        );
         if let Some(entry) = self
             .workspace
             .motion_cache
@@ -2922,11 +2965,24 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
         // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
         // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
+        // 生命周期守卫读面（#1199）：已持冲突权威（B 裁定一 owner 一权威）
+        // =穿越进行中——不再发起新候选（跨界后边界规范化使上一 hop 仍在
+        // 可行集，防再申请炸束）。
+        let lifecycle_read = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
+            contender_frontier: None,
+        };
         for &gate_hop in compiled
             .conflict_dispatch_hops
             .iter()
             .skip_while(|hop| **hop < first_possible_hop)
         {
+            if lifecycle_read.conflict_reservation(state.handle).is_some() {
+                std::eprintln!("eval-guard: vehicle={:?} HELD break", state.handle);
+                break;
+            }
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress =
                 self.binding.revision.traffic().lane_lengths_millimetres()[gate_edge.index()];
@@ -3013,6 +3069,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             waiting_zone,
         } = gate;
         let gate_hop = anchor.hop;
+        std::eprintln!("T-cand create: vehicle={:?} hop={gate_hop}", state.handle);
         let maneuver_index = anchor.maneuver_occurrence_index;
         self.workspace.conflict_motion_by_vehicle[state.handle.index() as usize] =
             Some(ConflictMotionPlan {
@@ -3380,9 +3437,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             } else if occupied {
                 Some(ConflictNoGrantReason::ConflictOccupied)
             } else {
+                std::eprintln!(
+                    "T-arb: vehicle={:?} hop={} GRANT",
+                    candidate.vehicle,
+                    candidate.anchor.hop
+                );
                 candidate.preflight_no_grant
             };
             let outcome = if let Some(reason) = reason {
+                std::eprintln!(
+                    "T-arb: vehicle={:?} hop={} NOGRANT {:?}",
+                    candidate.vehicle,
+                    candidate.anchor.hop,
+                    reason
+                );
                 self.workspace.waiting_dependencies.rollback();
                 ConflictDecisionOutcome::NoGrant(reason)
             } else {
@@ -3430,6 +3498,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         ConflictDecisionOutcome::Granted
                     }
                     Err(error) => {
+                        std::eprintln!(
+                            "T-acquire ERR: vehicle={:?} error={error:?} cells={} downstream={}",
+                            candidate.vehicle,
+                            self.workspace.conflict_candidate_cells
+                                [candidate.cells_start..candidate.cells_end]
+                                .len(),
+                            self.workspace.conflict_candidate_downstream
+                                [candidate.downstream_start..candidate.downstream_end]
+                                .len(),
+                        );
                         self.workspace.waiting_dependencies.rollback();
                         ConflictDecisionOutcome::NoGrant(map_acquire_error(error)?)
                     }
@@ -6996,6 +7074,11 @@ impl ConflictTaskView<'_> {
         occurrence: &crate::kernel::tables::ConflictPassageOccurrence,
     ) -> Option<crate::ConflictNoGrantReason> {
         // fail-closed（#1199）：任何证明前提不可得即 no-grant，不静默放行。
+        std::eprintln!(
+            "P4 branch: vehicle={:?} entry={:?}",
+            state.handle,
+            occurrence.entry
+        );
         let unprovable = crate::ConflictNoGrantReason::ApproachUnprovable;
         let compiled = self.read.compiled_route(state.route)?;
         let relations = self.read.binding.revision.traffic().relations();
@@ -7066,25 +7149,51 @@ impl ConflictTaskView<'_> {
                 let Some(other_compiled) = self.read.compiled_route(other.route) else {
                     return Some(unprovable);
                 };
+                let other_edge = other_compiled
+                    .edges
+                    .get(other.route_edge_index as usize)
+                    .copied();
+                // §5.2 进入者枚举含"过渡区内"：处于 T 自身边或下游投影边
+                // （E2 侧）的进入者=区间内（距 0 不可让）——必拦；上游接近者
+                // 走停止距离证明；已过区间者（投影下游之外）跳过。
+                if other_edge == Some(interval_edge) {
+                    return Some(unprovable);
+                }
+                if other_edge.is_some_and(|edge| {
+                    traffic
+                        .successors(interval_edge)
+                        .is_some_and(|list| list.contains(&edge))
+                }) {
+                    return Some(unprovable);
+                }
                 let mut best: Option<u32> = None;
                 for (target_index, target_progress) in boundary_targets(&other_compiled.edges) {
-                    if let Some(BoundedDistance::Finite(distance_mm)) =
-                        crate::kernel::tables::distance_to_occurrence_progress(
-                            &other_compiled.occurrence_segments,
-                            &other_compiled.occurrence_offsets,
-                            &other_compiled.segment_totals,
-                            other.route_edge_index as usize,
-                            other.progress_mm,
-                            target_index,
-                            target_progress,
-                        )
-                    {
-                        best =
-                            Some(best.map_or(distance_mm, |current: u32| current.min(distance_mm)));
+                    match crate::kernel::tables::distance_to_occurrence_progress(
+                        &other_compiled.occurrence_segments,
+                        &other_compiled.occurrence_offsets,
+                        &other_compiled.segment_totals,
+                        other.route_edge_index as usize,
+                        other.progress_mm,
+                        target_index,
+                        target_progress,
+                    ) {
+                        Some(BoundedDistance::Finite(distance_mm)) => {
+                            best = Some(
+                                best.map_or(distance_mm, |current: u32| current.min(distance_mm)),
+                            );
+                        }
+                        Some(BoundedDistance::BeyondFinite) => {
+                            best = Some(best.unwrap_or(u32::MAX));
+                        }
+                        // 身后目标（已越过该边界）不构成到达。
+                        None => {}
                     }
                 }
                 let Some(distance_mm) = best else {
-                    return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
+                    // 全部区间边界目标均在该进入者身后（或其路线不达区间）：
+                    // 已过区间/不可达——非 §5.2 潜在进入者，跳过（数据前提
+                    // 缺失的 fail-closed 由上方 state/compiled 分支承担）。
+                    continue;
                 };
                 if !crate::kernel::lane_change::yieldable_by_stopping(
                     u64::from(distance_mm),
@@ -7282,9 +7391,9 @@ impl ConflictTaskView<'_> {
             state.route_edge_index
         };
         let first_gate = compiled
-            .gate_hops
+            .conflict_dispatch_hops
             .partition_point(|hop| *hop < first_possible_hop);
-        let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
+        let Some(first_hop) = compiled.conflict_dispatch_hops.get(first_gate).copied() else {
             return CandidateReport::None {
                 cache,
                 scratch: core::mem::take(scratch),
@@ -7328,6 +7437,11 @@ impl ConflictTaskView<'_> {
             None => return failed(cache, StepError::ConflictInvariantViolation),
         };
         let _gate_count = compiled.gate_hops.len();
+        std::eprintln!(
+            "eval-horizon: vehicle={:?} distance={distance:?} front_query={}",
+            state.handle,
+            horizon.front_query_mm
+        );
         // §2 #7：horizon 在门距早退之前已算出，回报待落缓存。
         cache.horizon = Some(horizon);
         if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
@@ -7372,6 +7486,10 @@ impl ConflictTaskView<'_> {
             .iter()
             .skip_while(|hop| **hop < first_possible_hop)
         {
+            // 生命周期守卫（#1199）：已持权威=穿越进行中，不再发起新候选。
+            if self.read.conflict_reservation(state.handle).is_some() {
+                break;
+            }
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress = self
                 .read
@@ -7476,6 +7594,7 @@ impl ConflictTaskView<'_> {
             waiting_zone,
         } = gate;
         let gate_hop = anchor.hop;
+        std::eprintln!("T-cand create: vehicle={:?} hop={gate_hop}", state.handle);
         let motion_plan = ConflictMotionPlan {
             gate_hop,
             outcome: ConflictDecisionOutcome::NotEvaluated,

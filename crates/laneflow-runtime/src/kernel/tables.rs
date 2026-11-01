@@ -2908,9 +2908,10 @@ mod compile_route_tests {
                 ("s4-t", 5.0, vec!["s4-e2"]),
                 ("s4-e2", 30.0, vec![]),
                 ("s4-int", 8.0, vec![]),
-                ("s4-exit", 10.0, vec![]),
+                ("s4-exit", 10.0, vec!["s4-e5"]),
                 ("s4-e3", 30.0, vec![]),
                 ("s4-e4", 30.0, vec!["s4-e2"]),
+                ("s4-e5", 30.0, vec![]),
             ] {
                 let refs: Vec<_> = successors
                     .iter()
@@ -2928,7 +2929,7 @@ mod compile_route_tests {
             let chains: std::collections::HashMap<&str, Vec<LaneEdgeReference<'static>>> = [
                 ("s4-lane-0", vec!["s4-e0"]),
                 ("s4-lane-1", vec!["s4-e4", "s4-e2"]),
-                ("s4-exit-lane", vec!["s4-exit"]),
+                ("s4-exit-lane", vec!["s4-exit", "s4-e5"]),
                 ("s4-lane-2", vec!["s4-e3"]),
             ]
             .into_iter()
@@ -3028,7 +3029,7 @@ mod compile_route_tests {
             })
             .collect();
             let frame_edges = [
-                "s4-e0", "s4-t", "s4-e2", "s4-int", "s4-exit", "s4-e3", "s4-e4",
+                "s4-e0", "s4-t", "s4-e2", "s4-int", "s4-exit", "s4-e3", "s4-e4", "s4-e5",
             ];
             let frame_spans = [
                 ((0.0_f32, 30.0_f32), (0.0_f32, 0.0_f32)),
@@ -3038,6 +3039,7 @@ mod compile_route_tests {
                 ((73.0, 83.0), (0.0, 0.0)),
                 ((35.0, 65.0), (0.0, 0.0)),
                 ((5.0, 35.0), (0.0, 0.0)),
+                ((83.0, 113.0), (0.0, 0.0)),
             ];
             let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = frame_spans
                 .iter()
@@ -3550,8 +3552,9 @@ mod compile_route_tests {
                 .copied()
                 .find(|edge| *edge != transition)
                 .expect("e4");
+            let e5 = traffic.successors(exit).expect("exit successors")[0];
             let changer_route_edges = vec![e0, transition, e2, int_edge, exit];
-            let follower_route_edges = vec![e4, e2, int_edge, exit];
+            let follower_route_edges = vec![e4, e2, int_edge, exit, e5];
 
             // 主分支：后车 8m@13.9 → P4 no-grant。
             let mut world = install(revision.clone());
@@ -3559,9 +3562,7 @@ mod compile_route_tests {
                 .register_route(crate::RouteRegisterInput::new(changer_route_edges.clone()))
                 .unwrap();
             let follower_route = world
-                .register_route(crate::RouteRegisterInput::new(
-                    follower_route_edges.repeat(2),
-                ))
+                .register_route(crate::RouteRegisterInput::new(follower_route_edges.clone()))
                 .unwrap();
             let changer = world
                 .spawn_vehicle(
@@ -3589,65 +3590,61 @@ mod compile_route_tests {
                 .unwrap();
             world.state.rebuild_occupancy_index().unwrap();
             let mut follower_passed = false;
+            let mut prev_changer_edge = 0_u32;
             let mut changer_entered_tick = None;
             for tick in 1_u64..=60 {
                 world.state.prepare_waiting_step(0.1).unwrap();
                 world.step(crate::TickInput::new(100)).unwrap();
-                let follower_state = world.state.committed.vehicles.state(follower).unwrap();
-                std::eprintln!(
-                    "R2 tick {tick}: follower edge={} progress={} speed={} | changer edge={} progress={}",
-                    follower_state.route_edge_index,
-                    follower_state.progress_mm,
-                    follower_state.speed_mm_s,
-                    world
-                        .state
-                        .committed
-                        .vehicles
-                        .state(changer)
-                        .unwrap()
-                        .route_edge_index,
-                    world
-                        .state
-                        .committed
-                        .vehicles
-                        .state(changer)
-                        .unwrap()
-                        .progress_mm,
-                );
-                let changer_state = world.state.committed.vehicles.state(changer).unwrap();
-                // 后车不被迫急停（s4 失败面"换道抢行迫使直行急刹"反证）：
-                // 通过区间前不得完全停车（闸口正常减速允许）。
-                if follower_state.route_edge_index < 2 {
-                    assert!(
-                        follower_state.speed_mm_s > 0,
-                        "follower must not be forced to a stop before passing"
-                    );
-                }
-                // 换道停让：后车在 d_stop 停止距离内（26.75m 量级）时换道方
-                // 不得进入 T（钉拍：后车 8m@13.9 与换道方 1m 于 tick 15±2
-                // 会合——s4 钉版关键刻）。
-                let follower_distance_mm = if follower_state.route_edge_index == 0 {
-                    30_000 - follower_state.progress_mm
+                let live = world.live_vehicles().contains(&follower);
+                let follower_state = if live {
+                    Some(world.state.committed.vehicles.state(follower).unwrap())
                 } else {
-                    0
+                    None
                 };
-                if follower_distance_mm < 26_750 && !follower_passed {
-                    // 停让=驻留 T 入口之前（含入口点），不得进入 T。
-                    assert_eq!(
-                        changer_state.route_edge_index, 0,
-                        "changer must wait while follower within d_stop"
-                    );
-                }
-                if !follower_passed
-                    && (follower_state.route_edge_index >= 2
-                        || !world.live_vehicles().contains(&follower))
-                {
+                let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                std::eprintln!(
+                    "R2 tick {tick}: follower={follower_state:?} | changer edge={} progress={}",
+                    changer_state.route_edge_index,
+                    changer_state.progress_mm,
+                );
+                if let Some(follower_state) = follower_state {
+                    // 后车不被迫急停（s4 失败面"换道抢行迫使直行急刹"反证）：
+                    // 通过区间前不得完全停车（闸口正常减速允许）。
+                    if follower_state.route_edge_index < 2 {
+                        assert!(
+                            follower_state.speed_mm_s > 0,
+                            "follower must not be forced to a stop before passing"
+                        );
+                    }
+                    // 换道停让（P4 窗=边界前接近段）：钉**进入跃迁拍**——
+                    // 换道方由 E0 跨入 T 的那一拍若后车在 d_stop 窗内即违
+                    // （进入后不可回退，不重复钉；过界后由占用面接管）。
+                    let follower_distance_mm = if follower_state.route_edge_index == 0 {
+                        30_000 - follower_state.progress_mm
+                    } else {
+                        0
+                    };
+                    let window_open = follower_distance_mm > 0
+                        && follower_distance_mm < 26_750
+                        && !follower_passed;
+                    if changer_state.route_edge_index >= 1 && prev_changer_edge == 0 {
+                        assert!(
+                            !window_open,
+                            "changer must wait while follower within d_stop"
+                        );
+                    }
+                    if follower_state.route_edge_index >= 2 {
+                        // 后车完成通过（s4 语义）：区间下游清空（其续行 E5）。
+                        follower_passed = true;
+                    }
+                } else {
                     follower_passed = true;
                 }
                 if changer_state.route_edge_index >= 1 {
                     changer_entered_tick = Some(tick);
                     break;
                 }
+                prev_changer_edge = changer_state.route_edge_index;
             }
             assert!(follower_passed, "follower passes through");
             let entered = changer_entered_tick.expect("changer enters after follower passes");

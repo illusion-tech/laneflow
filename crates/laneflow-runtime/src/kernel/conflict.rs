@@ -1903,6 +1903,11 @@ impl ConflictCellLookup {
         u32::try_from(addresses.len()).map_err(|_| ConflictInstallError::CapacityOverflow)?;
         let mut offsets = Self::allocate_column(offset_count, 0)?;
         for address in addresses {
+            // 过渡格不入 (stream, local) 径向表（#1199）：其寻址走资源槽解码
+            // （cell_index 双路），stream/local 仅为地址表占位。
+            if matches!(address.resource(), ConflictResource::Transition(_)) {
+                continue;
+            }
             let end_index = address
                 .stream
                 .index()
@@ -1922,6 +1927,9 @@ impl ConflictCellLookup {
         }
         let mut cells = Self::allocate_column(addresses.len(), u32::MAX)?;
         for (cell, address) in addresses.iter().enumerate() {
+            if matches!(address.resource(), ConflictResource::Transition(_)) {
+                continue;
+            }
             let start = offsets[address.stream.index()];
             let end = offsets[address.stream.index() + 1];
             if address.passage_local_index >= end - start {
@@ -2193,6 +2201,22 @@ impl ConflictArbiter {
                     stream,
                     u32::try_from(passage_local_index)
                         .map_err(|_| ConflictInstallError::CapacityOverflow)?,
+                ));
+            }
+        }
+        addresses.sort_unstable();
+        if addresses.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ConflictInstallError::InvalidNetwork);
+        }
+        // 过渡格入列（#1199）：每横向过渡段一格（B 裁定恰一、跨流共享）
+        // ——地址 stream/local 为表占位（T 寻址走资源槽解码，见 cell_index）。
+        for raw in 0..revision.traffic().lane_edge_count() {
+            let edge = laneflow_static_contract::LaneEdgeOrdinal::from_raw(raw);
+            if revision.traffic().is_lateral_transition_segment(edge) {
+                addresses.push(ConflictPassageAddress::new_transition(
+                    edge,
+                    ParticipantStreamOrdinal::from_raw(0),
+                    0,
                 ));
             }
         }
@@ -3434,10 +3458,23 @@ impl<'a> ConflictRead<'a> {
         self,
         address: ConflictPassageAddress,
     ) -> Result<usize, ConflictAcquireError> {
-        self.derived
-            .cell_lookup
-            .get(&self.derived.addresses, address)
-            .ok_or(ConflictAcquireError::InvalidBundle)
+        match address.resource() {
+            // 过渡格=资源槽解码（#1199）：一资源一格、跨流共享（B 裁定恰一
+            // ——两流同过渡边竞一格）；stream/local 不参与寻址。槽不存在
+            // （未安装的过渡资源/伪地址）拒绝——与表搜 None 同轴。
+            ConflictResource::Transition(_) => {
+                let index = self.resource_index(address.resource());
+                if index >= self.derived.addresses.len() {
+                    return Err(ConflictAcquireError::InvalidBundle);
+                }
+                Ok(index)
+            }
+            ConflictResource::Zone(_) => self
+                .derived
+                .cell_lookup
+                .get(&self.derived.addresses, address)
+                .ok_or(ConflictAcquireError::InvalidBundle),
+        }
     }
 
     fn resource_index(self, resource: ConflictResource) -> usize {
@@ -3795,6 +3832,13 @@ impl<'world> ConflictWrite<'world> {
         tick: u64,
         bundle: GrantResourceBundle<'_>,
     ) -> Result<ConflictGrant, ConflictAcquireError> {
+        std::eprintln!(
+            "T-acquire probe: owner={:?} authority_pre={:?} cells={} downstream={}",
+            bundle.owner,
+            self.owner_authority(bundle.owner).is_some(),
+            bundle.cells.len(),
+            bundle.downstream.len(),
+        );
         if (bundle.cells.is_empty()
             && (bundle.waiting_entitlement.is_none() || !bundle.downstream.is_empty()))
             || (!bundle.cells.is_empty() && bundle.downstream.is_empty())
