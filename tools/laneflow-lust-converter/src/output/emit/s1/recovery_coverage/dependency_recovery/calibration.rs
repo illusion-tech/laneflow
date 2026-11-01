@@ -5,6 +5,7 @@ use super::*;
 mod closure;
 mod cohort2_coverage;
 mod coverage;
+mod e1_diagnosis;
 mod experiment;
 mod float_roundtrip;
 mod g1_final_validation;
