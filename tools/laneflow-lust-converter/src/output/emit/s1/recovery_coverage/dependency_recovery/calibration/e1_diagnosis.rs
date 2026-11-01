@@ -9,8 +9,8 @@
 use super::shared_baseline::shared_pool_records;
 use super::*;
 use sampler::feasibility::pair::{
-    PairKind, diagnose_first_two_chords, diagnose_last_two_chords, diagnose_single_chord,
-    quantized_points_at, recovered_split_params, replay_pair_witness,
+    PairKind, diagnose_first_two_chords, diagnose_last_two_chords, diagnose_seam_pair,
+    diagnose_single_chord, quantized_points_at, recovered_split_params, replay_pair_witness,
 };
 
 fn control_from_bits(bits: &Value) -> [[f64; 3]; 6] {
@@ -184,6 +184,209 @@ fn e1_a_prime_list_derivation() {
     let rows = shared_pool_records();
     let list = derive_entries(&rows);
     recovery::write_json(&out, "a-prime-list.json", &list);
+}
+
+/// 校准 A（不误杀）：92 份候选**逐份用自己的**候选曲线跑 P1-S/P1-T/P2-T/P3——
+/// 全部出见证或未决；**任何排除 = 校准失败**（v3.1 §4 A 行）。相邻 span 接缝
+/// 不存在（单 span 候选）记 `not_applicable`。
+fn calibration_a(rows: &Value) -> Value {
+    let mut records = Vec::new();
+    for (edge, row) in rows.as_object().unwrap() {
+        for (pool_index, candidate) in row["candidates"].as_array().unwrap().iter().enumerate() {
+            let controls: Vec<[[f64; 3]; 6]> = candidate["spans"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|span| control_from_bits(&span["control_f64_bits"]))
+                .collect();
+            for (span_index, control) in controls.iter().enumerate() {
+                for (problem, status) in [
+                    (
+                        "single_chord",
+                        diagnose_single_chord(*control)["status"].clone(),
+                    ),
+                    (
+                        "first_two_chords",
+                        diagnose_first_two_chords(*control)["status"].clone(),
+                    ),
+                    (
+                        "last_two_chords",
+                        diagnose_last_two_chords(*control)["status"].clone(),
+                    ),
+                ] {
+                    assert_ne!(
+                        status, "necessary_condition_excluded",
+                        "校准 A 失败：{edge}#{pool_index} span {span_index} {problem} 被排除"
+                    );
+                    records.push(json!({"edge":edge,"pool_index":pool_index,
+                        "span":span_index,"problem":problem,"status":status}));
+                }
+            }
+            for pair in controls.windows(2) {
+                let out = diagnose_seam_pair(
+                    [pair[0][0], pair[0][1], pair[0][2], pair[0][3]],
+                    [pair[1][0], pair[1][1], pair[1][2], pair[1][3]],
+                );
+                assert_ne!(
+                    out["pair"]["status"], "necessary_condition_excluded",
+                    "校准 A 失败：{edge}#{pool_index} 接缝被排除"
+                );
+                records.push(json!({"edge":edge,"pool_index":pool_index,
+                    "problem":"seam_pair","status":out["pair"]["status"]}));
+            }
+            if controls.len() == 1 {
+                records.push(json!({"edge":edge,"pool_index":pool_index,
+                    "problem":"seam_pair","status":"not_applicable"}));
+            }
+        }
+    }
+    json!({"calibration":"A_no_false_kill","records":records})
+}
+
+/// 校准 A′（冻结清单复验）：711 项逐项按类必证——「参数重放」重放必过、「搜索命中」
+/// 搜索必得见证（v3.1 §4 A′ 行；清单已冻结于 `a-prime-list.json`）。
+fn calibration_aprime(rows: &Value, list: &Value) -> Value {
+    for entry in list["entries"].as_array().unwrap() {
+        if entry["edge"] == "synthetic:line" {
+            continue;
+        }
+        let candidate = &rows[entry["edge"].as_str().unwrap()]["candidates"]
+            .as_array()
+            .unwrap()[entry["pool_index"].as_u64().unwrap() as usize];
+        let mut control = None;
+        for span in candidate["spans"].as_array().unwrap() {
+            if span["span_index_zero_based"] == entry["span_index_zero_based"]
+                || (span["geometry"] == entry["geometry"]
+                    && entry["span_index_zero_based"].is_null())
+            {
+                control = Some(control_from_bits(&span["control_f64_bits"]));
+                break;
+            }
+        }
+        let control = control.expect("A′ 条目 span 可定位");
+        let bits: [u64; 2] = serde_json::from_value(entry["parameters_f64_bits"].clone()).unwrap();
+        let (u, v) = (f64::from_bits(bits[0]), f64::from_bits(bits[1]));
+        let kind = if entry["problem"] == "first_two_chords" {
+            PairKind::FirstTwo
+        } else {
+            PairKind::LastTwo
+        };
+        match entry["class"].as_str().unwrap() {
+            "参数重放" => assert!(
+                replay_pair_witness(kind, control, u, v).is_some(),
+                "A′ 参数重放失败：{:?}",
+                entry
+            ),
+            "搜索命中" => {
+                let out = match kind {
+                    PairKind::FirstTwo => diagnose_first_two_chords(control),
+                    PairKind::LastTwo => diagnose_last_two_chords(control),
+                };
+                assert_eq!(
+                    out["status"], "local_witness",
+                    "A′ 搜索命中失败：{:?}",
+                    entry
+                );
+            }
+            other => panic!("unknown A′ class {other}"),
+        }
+    }
+    json!({"calibration":"A_prime_must_witness","entries_checked":list["entries"].as_array().unwrap().len()})
+}
+
+/// 结果留痕（防后台作业注册表丢失；`E1_CALIBRATION_OUTPUT_DIR` 可选、须已存在）。
+fn save_result(name: &str, value: &Value) {
+    if let Ok(dir) = std::env::var("E1_CALIBRATION_OUTPUT_DIR") {
+        recovery::write_json(&PathBuf::from(dir), name, value);
+    }
+}
+
+/// 校准入口（A/A′ 先行；B/C 批随后）。
+#[test]
+#[ignore = "requires SIX_STREAMS_BASELINE_DIR and E1_APRIME_LIST (frozen)"]
+fn e1_calibration_a_and_aprime() {
+    let rows = shared_pool_records();
+    let list: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1141-internal-diagnosis/a-prime-list.json"
+    ))
+    .unwrap();
+    let a = calibration_a(&rows);
+    let aprime = calibration_aprime(&rows, &list);
+    assert!(a["records"].as_array().unwrap().len() > 200, "覆盖面");
+    assert_eq!(aprime["entries_checked"], 711);
+    save_result("calibration-a-aprime.json", &json!({"A":a,"A_prime":aprime}));
+}
+
+/// 校准 B（不翻转，绑定**原参考曲线**）：`-16502_0_0` 原参考曲线第 2/3 cubic 接缝
+/// 固定冲突须被 P3 复现为排除（附叶复核）；#1113 末两弦见证
+/// （380923/2^19, 453299/2^19）须被 P2-T 复现为见证。双向不翻转。
+fn calibration_b() -> Value {
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    ))
+    .unwrap();
+    let input = measurement::input(&inputs["sumo::-16502_0_0"]);
+    let chain = sampler::reshape::reference(&input);
+    assert!(chain.len() >= 3, "原参考曲线含第 2/3 cubic 接缝");
+    let left = chain[1];
+    let right = chain[2];
+    let seam = diagnose_seam_pair(
+        [left[0], left[1], left[2], left[3]],
+        [right[0], right[1], right[2], right[3]],
+    );
+    assert_eq!(
+        seam["pair"]["status"], "necessary_condition_excluded",
+        "B 必排除：2/3 缝固定冲突须复现"
+    );
+    assert_eq!(seam["pair"]["certificate_verified"], true, "B 排除叶复核");
+    let endpoints: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
+    ))
+    .unwrap();
+    let control = control_from_bits(&endpoints["sumo::-16502_0_0"]["control_f64_bits"]);
+    let u = 380923_f64 / 524_288.0;
+    let v = 453_299_f64 / 524_288.0;
+    assert!(
+        replay_pair_witness(PairKind::LastTwo, control, u, v).is_some(),
+        "B 必见证：#1113 末两弦见证参数须复现"
+    );
+    json!({"calibration":"B_no_flip","seam_status":seam["pair"]["status"],
+        "certificate_verified":seam["pair"]["certificate_verified"],
+        "witness_parameters_f64_bits":[u.to_bits(),v.to_bits()]})
+}
+
+/// 校准 C（等值回归，行为面）：三边 `endpoint_diagnosis_not_selected` 标签逐值不变
+/// （冻结问题表 `edges.json`）；既有诊断器（`diagnose_end_chord`/`diagnose_seam`/
+/// 证书复核器）代码未改动，其单测为「旧入口/旧输入/既有结论」逐值不变的回归面。
+fn calibration_c_labels() -> Value {
+    let cohort: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1134-cohort2-coverage-diagnosis/edges.json"
+    ))
+    .unwrap();
+    let mut labels = Vec::new();
+    for edge in cohort["edges"].as_array().unwrap() {
+        if edge["diagnosis_status"] == "endpoint_diagnosis_not_selected" {
+            labels.push(edge["id"].clone());
+        }
+    }
+    let expected = ["sumo::-10046_0_0", "sumo::-8018_4_0", "sumo::-25490_4_0"];
+    let actual: Vec<&str> = labels.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(
+        expected.iter().all(|id| actual.contains(id)),
+        "C 等值回归：三边标签逐值不变"
+    );
+    json!({"calibration":"C_equivalence_labels","labels":labels})
+}
+
+/// 校准 B/C 入口（A/A′ 见 `e1_calibration_a_and_aprime`）。
+#[test]
+#[ignore = "no external env; run with A/A′ for full calibration gate"]
+fn e1_calibration_b_and_c() {
+    let b = calibration_b();
+    assert_eq!(b["certificate_verified"], true);
+    let c = calibration_c_labels();
+    assert_eq!(c["labels"].as_array().unwrap().len(), 3);
+    save_result("calibration-b-c.json", &json!({"B":b,"C":c}));
 }
 
 #[cfg(test)]
