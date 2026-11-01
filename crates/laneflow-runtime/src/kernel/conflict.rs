@@ -3832,13 +3832,6 @@ impl<'world> ConflictWrite<'world> {
         tick: u64,
         bundle: GrantResourceBundle<'_>,
     ) -> Result<ConflictGrant, ConflictAcquireError> {
-        std::eprintln!(
-            "T-acquire probe: owner={:?} authority_pre={:?} cells={} downstream={}",
-            bundle.owner,
-            self.owner_authority(bundle.owner).is_some(),
-            bundle.cells.len(),
-            bundle.downstream.len(),
-        );
         if (bundle.cells.is_empty()
             && (bundle.waiting_entitlement.is_none() || !bundle.downstream.is_empty()))
             || (!bundle.cells.is_empty() && bundle.downstream.is_empty())
