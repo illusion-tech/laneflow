@@ -18,7 +18,7 @@ pub(crate) enum PairKind {
 }
 
 impl PairKind {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             PairKind::FirstTwo => "first_two_chords",
             PairKind::LastTwo => "last_two_chords",
@@ -204,6 +204,23 @@ pub(crate) fn diagnose_last_two_chords(control: [Vec3; 6]) -> Value {
     diagnose_pair(PairKind::LastTwo, control)
 }
 
+/// 已知参数重放（v3.1 §4 A′「参数重放」类）：给定 (u,v) 直接按真实接受口径验两弦
+/// 见证（`witness` 内建 0.01 筛选 + sink 真实检查 + 相邻转角），不经搜索；
+/// 出域退化（P1-T `u=0` / P2-T `v=1`）返回 `None`。
+#[allow(dead_code)]
+pub(crate) fn replay_pair_witness(
+    kind: PairKind,
+    control: [Vec3; 6],
+    u: f64,
+    v: f64,
+) -> Option<Value> {
+    if kind.out_of_domain(u, v) {
+        return None;
+    }
+    let c = [control[0], control[1], control[2], control[3]];
+    witness(c, &kind.params(u, v), None)
+}
+
 /// 问题汇总规则（v3.1 执行条款 3）：单弦分支 + 对应两弦分支均排除才记
 /// 「该固定 cubic 的完整发射被该必要条件否定」；任一必要分支未决即禁标全参数域排除。
 #[allow(dead_code)]
@@ -281,6 +298,32 @@ pub(crate) fn recovered_split_params(
         ),
         other => panic!("unknown frozen partition {other}"),
     }
+}
+
+/// 重建切分点的规范量化 f32 位（逐位核对用；修正③冻结算法重建 → eval → 量化）。
+#[allow(dead_code)]
+pub(crate) fn rebuilt_quantized_points(
+    control: [Vec3; 6],
+    partition: &str,
+    pieces: u32,
+) -> Option<Vec<[u32; 3]>> {
+    let params = recovered_split_params(control, partition, pieces)?;
+    let c = [control[0], control[1], control[2], control[3]];
+    Some(
+        params
+            .iter()
+            .map(|t| {
+                let p = if *t == 0.0 {
+                    c[0]
+                } else if *t == 1.0 {
+                    c[3]
+                } else {
+                    cubic_at(c[0], c[1], c[2], c[3], *t)
+                };
+                quantize_vec3(p).map(f32::to_bits)
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -386,7 +429,10 @@ mod tests {
         assert_eq!(params.len(), 6);
         assert_eq!(params[0], 0.0);
         assert_eq!(params[5], 1.0);
-        assert!(params.windows(2).all(|w| w[0] < w[1]), "strictly increasing");
+        assert!(
+            params.windows(2).all(|w| w[0] < w[1]),
+            "strictly increasing"
+        );
         let even = recovered_split_params(straight(), "even", 4).unwrap();
         assert_eq!(even, vec![0.0, 0.25, 0.5, 0.75, 1.0]);
         assert!(
