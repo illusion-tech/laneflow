@@ -257,13 +257,21 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
 | R-5 | **对齐唯一消费**：走廊对齐须在编译对齐表；悬空/未编译对齐 → `GeometryTopologyMismatch`                                                                                    | compile_geometry.rs:785-803                           | v2 五对齐四悬空即死因；对齐数=走廊消费数                                                                                   |
 | R-6 | LaneEdge 显式几何按边唯一产出（防重守卫）                                                                                                                                 | compile_geometry.rs:767-771                           | 显式几何边不得重复登记                                                                                                     |
 
-### 合法构造例（v3 设计，一次成型）
+### 合法构造例（v3 终形，第二轮考古修正）
 
-- 单对齐（0→43）+ 单走廊（消费该对齐，start=0.0/AlignmentEnd）；
-- 单 section 双 lane：lane_0/lane_1 同对齐并行偏移（R-3；**实证点**：双 lane
-  的 LinearWidthProfile 横向基线/offset 定序形制待一轮实证——若同宽剖面即同
-  offset，改用不同宽度基线或 lane_group 定序）；
-- 边形制：lane 边（E0/E2）几何=None（R-2 派生）；T/INT/EXIT 显式几何（R-4/6）；
-- **owner 全同模块**（R-1）：拓扑层一并入 road-editing（混合单元废弃）；
-- fallback：R-3 形制受阻 → 每边自洽走廊 + 对齐消费闭合（R-5）的多 element
-  组合（v2 修正版）。
+- 单对齐（0→30）+ 单走廊（消费该对齐）；单 section 双 lane（E0/E2，
+  lane 边几何=None 派生，R-2/R-3）；
+- **T=帧绑定几何声明**（R-9：帧 `lane_edge_geometries` 通道，lane_edge+
+  centerline+frame_key 直接绑定；无需覆盖/对齐/路径内部性）；
+- INT=不覆盖+显式几何+无对齐+**maneuver path 内部位**（R-7/R-8/R-10；
+  frame 由路径 entry 继承）；EXIT=覆盖+None；
+- owner 全同模块（R-1）；junction 边集三规则（R-7）全约束入形。
+
+### 考古补注（第二轮；证据定位）
+
+| #    | 规则                                                                                                                                                                    | 证据                                                          |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| R-7  | junction 边集三规则：approach 须 section 派生（车道链成员）；internal 须**不**派生；internal 无 successors 亦不被引用（连通性全由 maneuver path 定义）                  | diagnostic.rs:503-535；hir/junction.rs:356/388                |
+| R-8  | frame 解析：covered 由对齐赋值；junction internal 继承路径 entry frame（豁免显式检查）；其余显式几何边须帧绑定否则 `MissingCanonicalFrame`；无几何 `MissingEdgeBinding` | hir/spatial.rs:456-484、542-612、617-644                      |
+| R-9  | **T（过渡边）合法出口 = 帧绑定几何声明**：帧 `lane_edge_geometries` 通道（与合成侧 `add_canonical_frame` 同构）；internal 豁免不适用（T 须非 junction——分类判据）       | hir/spatial.rs:305-348；model.rs:2676（canonical_frame 字段） |
+| R-10 | recipe internal 边语义位：不覆盖+显式几何+无对齐（首循环仅覆盖 entry/exit、次循环仅声明 LaneEdge）——先前"矛盾"系两循环误读                                              | portable_fixture_tests.rs:410-415 vs 477-491                  |
