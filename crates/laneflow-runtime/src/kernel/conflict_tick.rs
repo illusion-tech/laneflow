@@ -75,16 +75,8 @@ pub(super) fn gate_may_be_reached_on_route(
         }))
         .copied()
     else {
-        std::eprintln!(
-            "near-gate: NONE cursor={cursor} edge={}",
-            state.route_edge_index
-        );
         return false;
     };
-    std::eprintln!(
-        "near-gate: hop={hop} cursor={cursor} edge={}",
-        state.route_edge_index
-    );
     if hop < state.route_edge_index {
         return true;
     }
@@ -110,23 +102,8 @@ pub(super) fn gate_may_be_reached_on_route(
         state.progress_mm,
         hop as usize + 1,
     ) {
-        Some(BoundedDistance::Finite(distance)) => {
-            let verdict = !reach.excludes(distance);
-            std::eprintln!(
-                "gate-reach: edge={} progress={} hop={hop} dist={distance} verdict={verdict}",
-                state.route_edge_index,
-                state.progress_mm
-            );
-            verdict
-        }
-        Some(BoundedDistance::BeyondFinite) | None => {
-            std::eprintln!(
-                "gate-reach: edge={} progress={} hop={hop} dist=UNBOUNDED verdict=true",
-                state.route_edge_index,
-                state.progress_mm
-            );
-            true
-        }
+        Some(BoundedDistance::Finite(distance)) => !reach.excludes(distance),
+        Some(BoundedDistance::BeyondFinite) | None => true,
     }
 }
 
@@ -397,10 +374,6 @@ fn evaluate_gate_hop(
         super::route_query_research::note_search("conflict_tick:249");
         |entry| entry.exit_route_edge_index <= gate_hop
     });
-    std::eprintln!(
-        "gate_hop eval: vehicle={:?} hop={gate_hop} maneuver_index={maneuver_index}",
-        state.handle
-    );
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
     // 门 hop 须落在某 maneuver occurrence 内；无 gate 的冲突 hop（过渡
     // 资源 hop，#1199 修形①②）位于其穿越 maneuver 起点之前——锚定首个
@@ -2476,11 +2449,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         resource: CandidateResource,
         scratch: &CandidateScratch,
     ) -> Result<(), StepError> {
-        std::eprintln!(
-            "T-cand consume: vehicle={:?} stage={:?}",
-            vehicle,
-            std::mem::discriminant(&resource.stage)
-        );
         {
             self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize] =
                 Some(resource.motion_plan);
@@ -2856,12 +2824,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let compiled =
             crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, state.route)
                 .ok_or(StepError::ConflictInvariantViolation)?;
-        std::eprintln!(
-            "eval: vehicle={:?} edge={} progress={}",
-            state.handle,
-            state.route_edge_index,
-            state.progress_mm
-        );
         // Route cursor 将上一条边终点规范化为下一条边零点；该位置仍然位于
         // admission Gate boundary，不能因此跳过上一 hop 的正式仲裁。
         let first_possible_hop = if state.progress_mm == 0 && state.carry_um == 0 {
@@ -2905,11 +2867,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
         let _gate_count = compiled.gate_hops.len();
-        std::eprintln!(
-            "eval-horizon: vehicle={:?} distance={distance:?} front_query={}",
-            state.handle,
-            horizon.front_query_mm
-        );
         if let Some(entry) = self
             .workspace
             .motion_cache
@@ -2980,7 +2937,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .skip_while(|hop| **hop < first_possible_hop)
         {
             if lifecycle_read.conflict_reservation(state.handle).is_some() {
-                std::eprintln!("eval-guard: vehicle={:?} HELD break", state.handle);
                 break;
             }
             let gate_edge = compiled.edges[gate_hop as usize];
@@ -3069,7 +3025,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             waiting_zone,
         } = gate;
         let gate_hop = anchor.hop;
-        std::eprintln!("T-cand create: vehicle={:?} hop={gate_hop}", state.handle);
         let maneuver_index = anchor.maneuver_occurrence_index;
         self.workspace.conflict_motion_by_vehicle[state.handle.index() as usize] =
             Some(ConflictMotionPlan {
@@ -3437,20 +3392,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             } else if occupied {
                 Some(ConflictNoGrantReason::ConflictOccupied)
             } else {
-                std::eprintln!(
-                    "T-arb: vehicle={:?} hop={} GRANT",
-                    candidate.vehicle,
-                    candidate.anchor.hop
-                );
                 candidate.preflight_no_grant
             };
             let outcome = if let Some(reason) = reason {
-                std::eprintln!(
-                    "T-arb: vehicle={:?} hop={} NOGRANT {:?}",
-                    candidate.vehicle,
-                    candidate.anchor.hop,
-                    reason
-                );
                 self.workspace.waiting_dependencies.rollback();
                 ConflictDecisionOutcome::NoGrant(reason)
             } else {
@@ -3498,16 +3442,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         ConflictDecisionOutcome::Granted
                     }
                     Err(error) => {
-                        std::eprintln!(
-                            "T-acquire ERR: vehicle={:?} error={error:?} cells={} downstream={}",
-                            candidate.vehicle,
-                            self.workspace.conflict_candidate_cells
-                                [candidate.cells_start..candidate.cells_end]
-                                .len(),
-                            self.workspace.conflict_candidate_downstream
-                                [candidate.downstream_start..candidate.downstream_end]
-                                .len(),
-                        );
                         self.workspace.waiting_dependencies.rollback();
                         ConflictDecisionOutcome::NoGrant(map_acquire_error(error)?)
                     }
@@ -6990,12 +6924,6 @@ impl ConflictTaskView<'_> {
             crate::kernel::conflict::ConflictResource::Transition(_)
         ) {
             let p4 = self.evaluate_transition_p4(&state, &occurrence);
-            std::eprintln!(
-                "P4 branch: vehicle={:?} occurrence={:?} verdict={:?}",
-                state.handle,
-                occurrence.resource,
-                p4
-            );
             if let Some(reason) = p4 {
                 *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
                     if no_grant_rank(reason) < no_grant_rank(current) {
@@ -7074,11 +7002,6 @@ impl ConflictTaskView<'_> {
         occurrence: &crate::kernel::tables::ConflictPassageOccurrence,
     ) -> Option<crate::ConflictNoGrantReason> {
         // fail-closed（#1199）：任何证明前提不可得即 no-grant，不静默放行。
-        std::eprintln!(
-            "P4 branch: vehicle={:?} entry={:?}",
-            state.handle,
-            occurrence.entry
-        );
         let unprovable = crate::ConflictNoGrantReason::ApproachUnprovable;
         let compiled = self.read.compiled_route(state.route)?;
         let relations = self.read.binding.revision.traffic().relations();
@@ -7485,11 +7408,6 @@ impl ConflictTaskView<'_> {
             None => return failed(cache, StepError::ConflictInvariantViolation),
         };
         let _gate_count = compiled.gate_hops.len();
-        std::eprintln!(
-            "eval-horizon: vehicle={:?} distance={distance:?} front_query={}",
-            state.handle,
-            horizon.front_query_mm
-        );
         // §2 #7：horizon 在门距早退之前已算出，回报待落缓存。
         cache.horizon = Some(horizon);
         if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
@@ -7642,7 +7560,6 @@ impl ConflictTaskView<'_> {
             waiting_zone,
         } = gate;
         let gate_hop = anchor.hop;
-        std::eprintln!("T-cand create: vehicle={:?} hop={gate_hop}", state.handle);
         let motion_plan = ConflictMotionPlan {
             gate_hop,
             outcome: ConflictDecisionOutcome::NotEvaluated,
