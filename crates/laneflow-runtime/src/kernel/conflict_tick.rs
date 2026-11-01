@@ -6883,19 +6883,22 @@ impl ConflictTaskView<'_> {
         *priority = Some(priority.map_or(stream.priority(), |current: i32| {
             current.min(stream.priority())
         }));
-        // Protected 候选仍解析规则并收集全部冲突资源，只跳过让行间隙求值。
-        // 占用、预留、下游净空和运动安全继续走共同的仲裁路径。
-        if kind == GateCandidateKind::Protected {
-            return Ok(());
-        }
         // P4 具名判据（#1199 合同 §5.2）：过渡资源的让行证明=换道方对
         // 邻域潜在进入者的逐个可让行证明，按换道请求求值（与 policy 流级
-        // 目标无关），此处早返回不进入 zone 目标循环。
+        // 目标及 gate 保护位无关——§5.2 换道方义务），先于 Protected 早
+        // 返回执行。
         if matches!(
             occurrence.resource,
             crate::kernel::conflict::ConflictResource::Transition(_)
         ) {
-            if let Some(reason) = self.evaluate_transition_p4(&state, &occurrence) {
+            let p4 = self.evaluate_transition_p4(&state, &occurrence);
+            std::eprintln!(
+                "P4 branch: vehicle={:?} occurrence={:?} verdict={:?}",
+                state.handle,
+                occurrence.resource,
+                p4
+            );
+            if let Some(reason) = p4 {
                 *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
                     if no_grant_rank(reason) < no_grant_rank(current) {
                         reason
@@ -6904,6 +6907,11 @@ impl ConflictTaskView<'_> {
                     }
                 }));
             }
+            return Ok(());
+        }
+        // Protected 候选仍解析规则并收集全部冲突资源，只跳过让行间隙求值。
+        // 占用、预留、下游净空和运动安全继续走共同的仲裁路径。
+        if kind == GateCandidateKind::Protected {
             return Ok(());
         }
         let (zone, targets) = policy
@@ -6967,6 +6975,8 @@ impl ConflictTaskView<'_> {
         state: &VehicleState,
         occurrence: &crate::kernel::tables::ConflictPassageOccurrence,
     ) -> Option<crate::ConflictNoGrantReason> {
+        // fail-closed（#1199）：任何证明前提不可得即 no-grant，不静默放行。
+        let unprovable = crate::ConflictNoGrantReason::ApproachUnprovable;
         let compiled = self.read.compiled_route(state.route)?;
         let relations = self.read.binding.revision.traffic().relations();
         let profile = relations.vehicle_profile(state.profile)?;
@@ -7030,8 +7040,12 @@ impl ConflictTaskView<'_> {
                 if handle == state.handle {
                     continue;
                 }
-                let other = self.read.committed.vehicles.state(handle)?;
-                let other_compiled = self.read.compiled_route(other.route)?;
+                let Some(other) = self.read.committed.vehicles.state(handle) else {
+                    return Some(unprovable);
+                };
+                let Some(other_compiled) = self.read.compiled_route(other.route) else {
+                    return Some(unprovable);
+                };
                 let mut best: Option<u32> = None;
                 for (target_index, target_progress) in boundary_targets(&other_compiled.edges) {
                     if let Some(BoundedDistance::Finite(distance_mm)) =
