@@ -6,20 +6,80 @@
 //! `replay_pair_witness` 真实口径通过）/ **「搜索命中」**（重放未过但诊断搜索找到
 //! 见证）/ 不入清单（均未过——留 A 不误杀集，如 `-10130_8_0`/`-10130_18_0` 反例）。
 
-use super::*;
 use super::shared_baseline::shared_pool_records;
+use super::*;
 use sampler::feasibility::pair::{
     PairKind, diagnose_first_two_chords, diagnose_last_two_chords, diagnose_single_chord,
-    rebuilt_quantized_points, recovered_split_params, replay_pair_witness,
+    quantized_points_at, recovered_split_params, replay_pair_witness,
 };
 
-fn control_from_bits(bits: &Value) -> [Vec3; 6] {
-    let pts: [[u64; 3]; 4] = serde_json::from_value(bits.clone()).unwrap();
-    let p = pts.map(|p| p.map(f64::from_bits));
-    [p[0], p[1], p[2], p[3], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
+fn control_from_bits(bits: &Value) -> [[f64; 3]; 6] {
+    let outer = bits.as_array().unwrap();
+    // 形态③（#1131 曲线设计）：`control_f64_bits` = `[<6 点控制>]`（外层 cubic 列表）；
+    // 其余形态直接为点列表（4 点或 6 点）。
+    let list = if outer[0][0].is_array() {
+        outer[0].as_array().unwrap()
+    } else {
+        outer
+    };
+    let pts: Vec<[f64; 3]> = list
+        .iter()
+        .map(|p| {
+            let triple: [u64; 3] = serde_json::from_value(p.clone()).unwrap();
+            triple.map(f64::from_bits)
+        })
+        .collect();
+    match pts.len() {
+        4 => [
+            pts[0],
+            pts[1],
+            pts[2],
+            pts[3],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        6 => [pts[0], pts[1], pts[2], pts[3], pts[4], pts[5]],
+        other => panic!("unexpected control width {other}"),
+    }
 }
 
-/// 逐候选派生（纯函数，可合成单测）：重建参数 + 逐位核对 + 两类分类。
+/// span 参数恢复（v3.1 修正③ 三路径，按来源记录形态实证）：
+/// ① `parameter_f64_bits` 直载参数（#1131 曲线设计候选，`pieces_per_cubic` 形态）；
+/// ② `parameter_indices / 512` 网格索引（校准网格候选）；
+/// ③ `pieces`/`pieces_per_cubic` + `partition` 冻结算法重建（原族候选）。
+fn recovered_params_for_span(span: &Value) -> Option<Vec<f64>> {
+    if let Some(bits) = span["parameter_f64_bits"].as_array() {
+        // 形态（实证）：`parameter_f64_bits` = `[<参数位列表>]`（外层 cubic 列表）。
+        let list = if bits[0].is_array() {
+            bits[0].as_array().unwrap()
+        } else {
+            bits
+        };
+        return Some(
+            list.iter()
+                .map(|b| f64::from_bits(b.as_u64().unwrap()))
+                .collect(),
+        );
+    }
+    if let Some(indices) = span["parameter_indices"].as_array() {
+        return Some(
+            indices
+                .iter()
+                .map(|i| i.as_f64().unwrap() / 512.0)
+                .collect(),
+        );
+    }
+    let pieces = span["pieces"]
+        .as_u64()
+        .or_else(|| span["pieces_per_cubic"].as_u64())?;
+    recovered_split_params(
+        control_from_bits(&span["control_f64_bits"]),
+        span["partition"].as_str()?,
+        pieces as u32,
+    )
+}
+
+/// 逐候选派生（纯函数，可合成单测）：参数恢复（三路径）+ 逐位核对 + 两类分类。
 fn derive_entries(rows: &Value) -> Value {
     let mut entries = Vec::new();
     for (edge, row) in rows.as_object().unwrap() {
@@ -27,25 +87,14 @@ fn derive_entries(rows: &Value) -> Value {
             let mut rebuilt = Vec::new();
             for span in candidate["spans"].as_array().unwrap() {
                 let control = control_from_bits(&span["control_f64_bits"]);
-                let params = recovered_split_params(
-                    control,
-                    span["partition"].as_str().unwrap(),
-                    span["pieces"].as_u64().unwrap() as u32,
-                );
+                let params = recovered_params_for_span(span);
                 rebuilt.push((span, control, params));
             }
-            // 逐位核对（修正③）：重建切分点量化后与候选程序规范点逐位一致。
+            // 逐位核对（修正③）：三路径参数求点量化后与候选程序规范点逐位一致。
             let mut points = Vec::new();
-            for (span, _, params) in &rebuilt {
+            for (_, control, params) in &rebuilt {
                 if let Some(params) = params {
-                    let _ = params;
-                    let quantized = rebuilt_quantized_points(
-                        control_from_bits(&span["control_f64_bits"]),
-                        span["partition"].as_str().unwrap(),
-                        span["pieces"].as_u64().unwrap() as u32,
-                    )
-                    .unwrap();
-                    for q in quantized {
+                    for q in quantized_points_at(*control, params) {
                         if points.last() != Some(&q) {
                             points.push(q);
                         }
@@ -67,14 +116,18 @@ fn derive_entries(rows: &Value) -> Value {
                 let Some(params) = params else {
                     continue;
                 };
-                let windows = [(PairKind::FirstTwo, params[1], params[2]),
-                    (PairKind::LastTwo, params[params.len() - 3], params[params.len() - 2])];
+                if params.len() < 3 {
+                    continue;
+                }
+                let windows = [
+                    (PairKind::FirstTwo, params[1], params[2]),
+                    (
+                        PairKind::LastTwo,
+                        params[params.len() - 3],
+                        params[params.len() - 2],
+                    ),
+                ];
                 for (kind, u, v) in windows {
-                    if (kind == PairKind::FirstTwo && params.len() < 3)
-                        || (kind == PairKind::LastTwo && params.len() < 3)
-                    {
-                        continue;
-                    }
                     let class = if replay_pair_witness(kind, *control, u, v).is_some() {
                         Some("参数重放")
                     } else {
@@ -87,6 +140,7 @@ fn derive_entries(rows: &Value) -> Value {
                     if let Some(class) = class {
                         entries.push(json!({"edge":edge,"pool_index":pool_index,
                             "span_index_zero_based":span["span_index_zero_based"],
+                            "geometry":span["geometry"],
                             "problem":kind.label(),"class":class,
                             "parameters_f64_bits":[u.to_bits(),v.to_bits()]}));
                     }
@@ -104,11 +158,15 @@ fn derive_entries(rows: &Value) -> Value {
         [1.0, 0.0, 0.0],
     ];
     assert_eq!(diagnose_single_chord(straight)["status"], "local_witness");
-    for (kind, label) in [(PairKind::FirstTwo, "first_two_chords"), (PairKind::LastTwo, "last_two_chords")]
-    {
-        assert!(replay_pair_witness(kind, straight, 0.5, 1.0).is_some()
-            || replay_pair_witness(kind, straight, 0.0, 0.5).is_some(),
-            "边界正例 [0,0.5,1] 必证");
+    for (kind, label) in [
+        (PairKind::FirstTwo, "first_two_chords"),
+        (PairKind::LastTwo, "last_two_chords"),
+    ] {
+        assert!(
+            replay_pair_witness(kind, straight, 0.5, 1.0).is_some()
+                || replay_pair_witness(kind, straight, 0.0, 0.5).is_some(),
+            "边界正例 [0,0.5,1] 必证"
+        );
         entries.push(json!({"edge":"synthetic:line","pool_index":null,
             "span_index_zero_based":0,"problem":label,"class":"参数重放",
             "parameters_f64_bits":[0.5_f64.to_bits(),1.0_f64.to_bits()]}));
@@ -134,13 +192,13 @@ mod tests {
 
     #[test]
     fn derive_entries_classifies_replay_and_search_hits() {
-        // 合成单 span 曲率候选：切向族重建参数 → 首/末两弦已知参数重放必过
-        // （「参数重放」类）；逐位核对内建断言。
+        // 合成浅弯 span（偏离 ~0.004 m ≪ 0.01 筛选，贴近真实候选量级）：切向族重建
+        // 参数 → 首/末两弦已知参数重放必过（「参数重放」类）；逐位核对内建断言。
         let c = [
             [0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0],
+            [4.0, 0.005, 0.0],
+            [8.0, 0.005, 0.0],
+            [12.0, 0.0, 0.0],
         ];
         let rows = json!({"sumo::e0-synthetic":{"candidates":[{"program":{},
             "spans":[{"control_f64_bits":c.map(|p|p.map(f64::to_bits)),
@@ -148,16 +206,26 @@ mod tests {
                 "span_index_zero_based":0}]}]}});
         // 注：合成 program 为空时不走逐位核对分支（见实现注记），只验分类面。
         let mut probe = Vec::new();
-        let control = control_from_bits(&rows["sumo::e0-synthetic"]["candidates"][0]["spans"][0]["control_f64_bits"]);
+        let control = control_from_bits(
+            &rows["sumo::e0-synthetic"]["candidates"][0]["spans"][0]["control_f64_bits"],
+        );
         let params = recovered_split_params(control, "tangent_angle_512", 2).unwrap();
         for (kind, u, v) in [
             (PairKind::FirstTwo, params[1], params[2]),
-            (PairKind::LastTwo, params[params.len() - 3], params[params.len() - 2]),
+            (
+                PairKind::LastTwo,
+                params[params.len() - 3],
+                params[params.len() - 2],
+            ),
         ] {
             if replay_pair_witness(kind, control, u, v).is_some() {
                 probe.push("参数重放");
             }
         }
-        assert_eq!(probe, vec!["参数重放", "参数重放"], "曲率 span 两类均重放通过");
+        assert_eq!(
+            probe,
+            vec!["参数重放", "参数重放"],
+            "曲率 span 两类均重放通过"
+        );
     }
 }
