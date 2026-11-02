@@ -393,7 +393,7 @@ fn supervisor_cleans_observed_grandchild_on_timeout() {
     let tree = read(&output.join("fixture-tree.json"));
     let result = read(&output.join("supervisor.result.json"));
     assert_eq!(result["cleanup"], "observed descendants terminated");
-    let mut system = sysinfo::System::new();
+    let mut system = sysinfo::System::new().unwrap();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     for key in ["parent_pid", "child_pid"] {
         let process = system.process(sysinfo::Pid::from_u32(tree[key].as_u64().unwrap() as u32));
@@ -436,7 +436,7 @@ fn supervisor_pipe_disconnect_stops_a_paused_resident() {
         .stderr(fs::File::create(output.join("resident.stderr.log")).unwrap())
         .spawn()
         .unwrap();
-    let mut guard = supervisor::ChildGuard::new(child);
+    let mut guard = supervisor::ChildGuard::new(child, sysinfo::System::new().unwrap());
     wait_status(&output, "Running");
     control::issue(&output, "pause").unwrap();
     wait_status(&output, "Paused");

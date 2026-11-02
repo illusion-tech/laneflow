@@ -87,11 +87,11 @@ pub(super) struct ChildGuard {
 }
 
 impl ChildGuard {
-    pub(super) fn new(child: Child) -> Self {
+    pub(super) fn new(child: Child, system: System) -> Self {
         let root = Pid::from_u32(child.id());
         let mut guard = Self {
             child,
-            system: System::new(),
+            system,
             known: BTreeMap::new(),
             root,
             root_start: None,
@@ -240,7 +240,9 @@ pub(super) fn watch(
             .stderr(Stdio::from(fs::File::create(
                 output.join("resident.stderr.log"),
             )?));
-        let mut guard = ChildGuard::new(command.spawn()?);
+        let system =
+            System::new().map_err(|error| invalid(format!("初始化进程观测失败：{error}")))?;
+        let mut guard = ChildGuard::new(command.spawn()?, system);
         let mut samples = Vec::new();
         let mut ordinal = 0_u64;
         let mut peak: Option<u64> = None;
