@@ -129,21 +129,33 @@ fn derive_entries(rows: &Value) -> Value {
                     ),
                 ];
                 for (kind, u, v) in windows {
-                    let class = if replay_pair_witness(kind, *control, u, v).is_some() {
-                        Some("参数重放")
+                    // P2 修正：「搜索命中」存**发现参数**（成功搜索见证参数），
+                    // 不得存重放失败的原参数 (u,v)。
+                    let classified = if replay_pair_witness(kind, *control, u, v).is_some() {
+                        Some(("参数重放", [u.to_bits(), v.to_bits()]))
                     } else {
                         let out = match kind {
                             PairKind::FirstTwo => diagnose_first_two_chords(*control),
                             PairKind::LastTwo => diagnose_last_two_chords(*control),
                         };
-                        (out["status"] == "local_witness").then_some("搜索命中")
+                        (out["status"] == "local_witness").then(|| {
+                            let p: [u64; 3] = serde_json::from_value(
+                                out["witness"]["parameters_f64_bits"].clone(),
+                            )
+                            .unwrap();
+                            let stored = match kind {
+                                PairKind::FirstTwo => [p[1], p[2]],
+                                PairKind::LastTwo => [p[0], p[1]],
+                            };
+                            ("搜索命中", stored)
+                        })
                     };
-                    if let Some(class) = class {
+                    if let Some((class, parameters_f64_bits)) = classified {
                         entries.push(json!({"edge":edge,"pool_index":pool_index,
                             "span_index_zero_based":span["span_index_zero_based"],
                             "geometry":span["geometry"],
                             "problem":kind.label(),"class":class,
-                            "parameters_f64_bits":[u.to_bits(),v.to_bits()]}));
+                            "parameters_f64_bits":parameters_f64_bits}));
                     }
                 }
             }
@@ -285,6 +297,12 @@ fn calibration_aprime(rows: &Value, list: &Value) -> Value {
                 entry
             ),
             "搜索命中" => {
+                // P2 修正回归守卫：存储的**发现参数**须可重放验证（非重放失败原参数）。
+                assert!(
+                    replay_pair_witness(kind, control, u, v).is_some(),
+                    "A′ 搜索命中的存储参数不可重放（存参错误回归）：{:?}",
+                    entry
+                );
                 let out = match kind {
                     PairKind::FirstTwo => diagnose_first_two_chords(control),
                     PairKind::LastTwo => diagnose_last_two_chords(control),
