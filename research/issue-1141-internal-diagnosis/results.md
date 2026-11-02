@@ -7,8 +7,9 @@
 
 ## 1. A′ 必证清单（冻结件，首校准前完成）
 
-- `a-prime-list.json`（206,963 字节，SHA-256
-  `2fbd8f7eab93be76daf3c7b9c98252383a6cdf4135cf214158e810be5d240e40`）：**711 项 =
+- `a-prime-list.json`（206,945 字节，SHA-256
+  `3361f2c7e3adcefc34848ea55d54af08ea1d7f9ecdc76028767ee2a7f2949ab4`，P2-3 修正后
+  再冻结）：**711 项 =
   「参数重放」703 +「搜索命中」8**；first_two 357 / last_two 354；11 边全覆盖。
 - 参数恢复三路径（`parameter_f64_bits` 直载 / `parameter_indices ÷ 512` /
   `pieces|pieces_per_cubic` + `partition` 冻结算法重建）+ **逐位核对全过**
