@@ -378,7 +378,9 @@ fn replay_entry(request: &Path, timeout: Duration, entry: &str) -> Result<Respon
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let mut child = supervisor::ChildGuard::new(command.spawn()?);
+    let system =
+        sysinfo::System::new().map_err(|error| invalid(format!("初始化进程观测失败：{error}")))?;
+    let mut child = supervisor::ChildGuard::new(command.spawn()?, system);
     let child_pid = child.child.id();
     let started = Instant::now();
     loop {
