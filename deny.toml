@@ -11,17 +11,7 @@ targets = [
 [advisories]
 unmaintained = "workspace"
 unsound = "all"
-ignore = [
-    # #935 ruzstd 0.8.3 解压炸弹（仅 DoS）。来源：laneflow-bevy `native-example` → bevy 0.20
-    # `3d_api` 固定启用的 `zstd_rust` → bevy_image 0.20.0（仍要求 ruzstd ^0.8，#912 升级时复核）。只用于解码
-    # Bevy 编译进二进制的 KTX2 LUT；LaneFlow 不经 AssetServer 加载外部资源，默认特性不含该依赖。
-    # 替代方案（改用 zstd_c、放弃 3d_api、patch 上游）代价高于收益。
-    # 机器约束：[bans] 只允许 bevy_image 直接依赖 ruzstd，新增依赖路径即失败。依赖图中不再有
-    # 受影响 ruzstd 时会出现 advisory-not-detected 警告（fuzz manifest 共用本配置且不含 Bevy，
-    # 不能设为 deny），见到即删除本条。cargo-deny 0.20.2 不支持 ignore 的 `expiry`/`allow`，
-    # 人工到期：每次 Bevy 升级 PR 复核，最迟 2027-01-13。owner @wangzishi。
-    { id = "RUSTSEC-2026-0344", reason = "#935: ruzstd 只解码 Bevy 内嵌的可信 KTX2 资产；等待 bevy_image 支持 ruzstd >= 0.9.1" },
-]
+ignore = []
 
 [licenses]
 allow = [
@@ -54,7 +44,7 @@ wildcards = "deny"
 highlight = "all"
 allow = []
 deny = [
-    # #935 RUSTSEC-2026-0344 例外只覆盖 bevy_image 的 KTX2 解码路径；其他 crate 直接依赖 ruzstd 须重新审查。
+    # #935：ruzstd 仅用于 bevy_image 的 KTX2 解码路径；其他 crate 直接依赖 ruzstd 须重新审查。
     { crate = "ruzstd", wrappers = ["bevy_image"], reason = "#935: ruzstd 仅允许经 bevy_image 解码 Bevy 内嵌的可信 KTX2 资产" },
     # #1022 ADR 0033：摘要算法直接依赖方的唯一登记名单。新增直接依赖方须在同一变更中更新此处，
     # 并在 Issue 或设计文档中写明新增摘要的角色与验证方。bevy_animation、bevy_asset 是 Bevy
