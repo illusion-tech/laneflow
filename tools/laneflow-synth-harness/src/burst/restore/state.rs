@@ -395,6 +395,22 @@ pub(super) fn restore(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let bindings = handles.iter().map(|&h| world.parking_binding(h)).collect();
+    let profile = revision
+        .identity()
+        .ordinal(
+            state
+                .vehicle_profile_id
+                .parse::<VehicleProfileId>()
+                .map_err(|e| failure("profile id", e))?,
+        )
+        .ok_or_else(|| failure("profile", "missing"))?;
+    let max_accel_mm_s2 = revision
+        .traffic()
+        .relations()
+        .vehicle_profile(profile)
+        .ok_or_else(|| failure("profile view", "missing"))?
+        .max_accel();
+    let max_accel_mm_s2 = (f64::from(max_accel_mm_s2) * 1_000.0).round().max(0.0) as u32;
     let sample = Sample {
         cursor: world.command_cursor(),
         world,
@@ -413,6 +429,7 @@ pub(super) fn restore(
         transitions: host.transitions,
         max_deceleration_mm_s2: host.max_deceleration,
         deceleration_above_profile_count: host.excessive_decelerations,
+        max_accel_mm_s2,
         trace_bytes: Vec::new(),
     };
     require(

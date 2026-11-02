@@ -28,6 +28,9 @@ pub(crate) struct Sample {
     pub transitions: u64,
     pub max_deceleration_mm_s2: u64,
     pub deceleration_above_profile_count: u64,
+    /// 车型最大加速度（毫米/秒²）：由共享路网 profile 视图派生，运动学语义
+    /// 检查按车型上界判定（W 族 1.4、L 族 1.5，#1218）。
+    pub max_accel_mm_s2: u32,
     pub cursor: u64,
     pub trace_bytes: Vec<u8>,
 }
@@ -57,6 +60,13 @@ impl Sample {
                     .map_err(|e| failure("profile id", e))?,
             )
             .ok_or_else(|| failure("profile", "missing"))?;
+        let max_accel_mm_s2 = revision
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+            .ok_or_else(|| failure("profile view", "missing"))?
+            .max_accel();
+        let max_accel_mm_s2 = (f64::from(max_accel_mm_s2) * 1_000.0).round().max(0.0) as u32;
         let origin = *revision.canonical_origin();
         let source = PublishedLfcaReference::new(
             "fixture://lf-synth-harness",
@@ -216,6 +226,7 @@ impl Sample {
             transitions: 0,
             max_deceleration_mm_s2: 0,
             deceleration_above_profile_count: 0,
+            max_accel_mm_s2,
             cursor,
         })
     }
