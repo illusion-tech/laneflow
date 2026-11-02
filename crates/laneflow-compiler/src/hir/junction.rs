@@ -747,10 +747,23 @@ pub(crate) fn build_junction_hir(
         diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
         diagnostics.push(diagnostic);
     }
+    // D②（#1199 4438203317）：路径成员索引——stable_key→含该边路径集
+    // （构建期一次、查询 O(1)，弃规则环内 O(N²) 扫描）。
+    let mut member_index: std::collections::HashMap<String, Vec<HirManeuverPathKey>> =
+        std::collections::HashMap::new();
+    for (path_key, path) in paths.iter() {
+        for member in &path_edges[path.edges.as_usize_range()] {
+            if member.target.index() >= lane_edges.len() {
+                continue;
+            }
+            member_index
+                .entry(lane_edges.get(member.target).stable_key.to_string())
+                .or_default()
+                .push(path_key);
+        }
+    }
     for declared in &declared_internal_edges {
         let edge = lane_edges.get(declared.edge);
-        // R-7 精化（#1199 评审裁定）：internal 的 lane 后继 ⊆ 路径边集
-        // （路径自身续边✓——车道链形合法）；路径外后继仍拒（防隐式连通）。
         // R-7 精化（#1199 评审裁定）：internal 的 lane 后继 ⊆ 路径全边集
         // （路径自身续边✓）；路径外后继仍拒（防隐式连通）。成员比较用
         // stable_key（ArenaKey 同边双键空间分歧——S5/S6 资产：跨空间比较
@@ -809,31 +822,23 @@ pub(crate) fn build_junction_hir(
             let Some(claim) = internal_claims[successor.target.index()].as_ref() else {
                 continue;
             };
-            // R-7 精化：引用边 ∈ 目标 internal 的声明路径全边集（edges=
-            // entry+internal+exit——路径自身人口与续边✓）时合法；路径外引用
-            // 仍拒。
-            // R-7 精化（stable_key 稳健版）：引用边 ∈ **含目标 internal 的
-            // 路径**全边集时合法（直搜承载路径、弃 claims 索引——claims 切片
-            // 错位免疫）；路径外引用仍拒。
-            let same_path_member = paths.iter().any(|(_, candidate)| {
-                let members = &path_edges[candidate.edges.as_usize_range()];
-                let target_stable = lane_edges.get(successor.target).stable_key.to_string();
-                let edge_stable = edge.stable_key.to_string();
-                let contains_internal = members.iter().any(|member| {
-                    lane_edges.get(member.target).stable_key.to_string() == target_stable
-                });
-                let contains_edge = members.iter().any(|member| {
-                    lane_edges.get(member.target).stable_key.to_string() == edge_stable
-                });
-                contains_internal && contains_edge
-            });
-            std::eprintln!(
-                "R7-emit: same={:?} edge={:?} successor_target={:?} paths={}",
-                same_path_member,
-                edge.stable_key,
-                lane_edges.get(successor.target).stable_key,
-                paths.len()
-            );
+            // R-7 精化（stable_key 稳健版+D② 索引）：引用边 ∈ **含目标
+            // internal 的路径**全边集时合法（成员索引 O(1) 查候选路径集、
+            // claims 切片错位免疫）；路径外引用仍拒。
+            let same_path_member =
+                member_index
+                    .get(&edge.stable_key.to_string())
+                    .is_some_and(|candidates| {
+                        candidates.iter().any(|candidate_key| {
+                            let path = paths.get(*candidate_key);
+                            path_edges[path.edges.as_usize_range()]
+                                .iter()
+                                .any(|member| {
+                                    lane_edges.get(member.target).stable_key.to_string()
+                                        == lane_edges.get(successor.target).stable_key.to_string()
+                                })
+                        })
+                    });
             if same_path_member {
                 continue;
             }
