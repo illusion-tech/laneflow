@@ -12,6 +12,8 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
     let (warm, observation) = job.windows();
     let ticks = if case == "W4" {
         vec![0, warm, warm + 1, warm + 2]
+    } else if case == "L1" {
+        vec![0, warm, 2 * warm, warm + observation]
     } else {
         vec![
             0,
@@ -24,7 +26,15 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
     };
     let points: Vec<_> = ticks
         .into_iter()
-        .map(|tick| json!({"tick":tick,"state_digest":"a".repeat(64)}))
+        .map(|tick| {
+            if case == "L1" && tick == warm + observation {
+                // 面 B：终态拍（T 历史）结构化拒绝 + 真实身份投影（双向钉边）。
+                json!({"tick":tick,"state_digest":null,"persistence_refused":"AdmissionHopWithoutGate",
+                    "t_state":{"vehicles":[],"journal":[]}})
+            } else {
+                json!({"tick":tick,"state_digest":"a".repeat(64)})
+            }
+        })
         .collect();
     let format = if matches!(case, "W3" | "W4") {
         "lf-synth-burst-run-1"
@@ -40,40 +50,43 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
 #[test]
 fn nominal_jobs_have_three_fresh_rounds_and_rotated_worker_order() {
     let jobs = jobs();
-    assert_eq!(jobs.len(), 120);
+    assert_eq!(jobs.len(), 150);
     let unique: std::collections::BTreeSet<_> = jobs.iter().map(|job| job.key()).collect();
-    assert_eq!(unique.len(), 120);
+    assert_eq!(unique.len(), 150);
     assert!(
         jobs.iter()
             .all(|job| matches!((job.scale, job.dt), (10_000, 16) | (100_000, 33)))
     );
     for round in 1..=3 {
         let rows: Vec<_> = jobs.iter().filter(|job| job.round == round).collect();
-        assert_eq!(rows.len(), 40);
+        assert_eq!(rows.len(), 50);
         for workers in WORKERS {
-            assert_eq!(rows.iter().filter(|job| job.workers == workers).count(), 8);
+            assert_eq!(rows.iter().filter(|job| job.workers == workers).count(), 10);
         }
     }
     assert_eq!(
-        jobs[40],
+        jobs[50],
         Job {
             round: 2,
             ..jobs[7]
         }
     );
     assert_eq!(
-        jobs[80],
+        jobs[100],
         Job {
             round: 3,
             ..jobs[14]
         }
     );
-    assert_eq!(jobs.iter().filter(|job| **job == job.baseline()).count(), 8);
+    assert_eq!(
+        jobs.iter().filter(|job| **job == job.baseline()).count(),
+        10
+    );
 }
 
 #[test]
 fn receipts_reject_wrong_source_identity_workers_and_incomplete_windows() {
-    for case in ["W1", "W2", "W3", "W4"] {
+    for case in ["W1", "W2", "W3", "W4", "L1"] {
         let (job, input, report) = fixture(case);
         let implementation = "c".repeat(40);
         check_report(job, &report, &input, &implementation).unwrap();

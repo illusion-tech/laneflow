@@ -160,6 +160,8 @@ impl Burst {
             .map(|vehicle| {
                 let id = vehicle
                     .parking_space_id
+                    .as_deref()
+                    .ok_or_else(|| failure("parking id", "missing"))?
                     .parse::<ParkingSpaceId>()
                     .map_err(|e| failure("parking id", e))?;
                 sample

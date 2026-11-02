@@ -3,6 +3,8 @@
 mod fixture;
 #[path = "lf_synth_contract/formal_retry.rs"]
 mod formal_retry;
+#[path = "lf_synth_contract/lane_change_retry.rs"]
+mod lane_change_retry;
 
 use crate::kernel::tick::{STEP_FAILPOINT, StepFailpoint};
 use crate::*;

@@ -29,6 +29,10 @@ pub(super) struct Host {
     pub transitions: u64,
     pub max_deceleration: u64,
     pub excessive_decelerations: u64,
+    /// L 族换道预约生命周期史（#1218 面 B）：恢复端由宿主记录续接，
+    /// 使参考/恢复末态投影同跨度可比。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_change_journal: Vec<(u64, u8, u32, u32)>,
     pub burst: Option<BurstHost>,
 }
 
@@ -228,6 +232,7 @@ pub(super) fn capture(
             transitions: sample.transitions,
             max_deceleration: sample.max_deceleration_mm_s2,
             excessive_decelerations: sample.deceleration_above_profile_count,
+            lane_change_journal: sample.lane_change_journal.clone(),
             burst,
         },
         encode_lfrs(&snapshot),
@@ -299,13 +304,7 @@ pub(super) fn restore(
         bytes,
         Arc::clone(&revision),
         CommittedNetworkSource::Published { reference },
-        WorldConfig::new(
-            state.identity.scale,
-            state.routes.len() as u32,
-            state.routes.len() as u64 * 2,
-            0,
-            u64::from(state.identity.fixed_delta_ms),
-        ),
+        crate::install::world_config(&state),
         execution,
         SnapshotRestoreLimits::new(512 * 1_024 * 1_024, 4 * 1_024),
     )
@@ -359,11 +358,16 @@ pub(super) fn restore(
     let mut groups = Vec::new();
     let mut gates = Vec::new();
     for route in &state.routes {
+        let Some(group_id) = route.signal_group_id.as_deref() else {
+            // L 族无信号准入路线（换道簇/背景）。
+            groups.push(None);
+            gates.push(None);
+            continue;
+        };
         let group = revision
             .identity()
             .ordinal(
-                route
-                    .signal_group_id
+                group_id
                     .parse::<SignalGroupId>()
                     .map_err(|e| failure("group", e))?,
             )
@@ -374,9 +378,14 @@ pub(super) fn restore(
             .signal_group(group)
             .ok_or_else(|| failure("group view", "missing"))?;
         require(view.gates().len() == 1, || "Gate 数量不符".into())?;
-        groups.push(group);
-        gates.push(view.gates()[0]);
+        groups.push(Some(group));
+        gates.push(Some(view.gates()[0]));
     }
+    let lane_change_route = state
+        .routes
+        .iter()
+        .position(|route| route.edge_ids.len() > 2);
+    let route_offsets = crate::install::route_position_offsets(&state, &revision)?;
     let initial = handles
         .iter()
         .map(|&h| {
@@ -394,6 +403,9 @@ pub(super) fn restore(
         routes,
         groups,
         gates,
+        lane_change_route,
+        lane_change_journal: host.lane_change_journal.clone(),
+        route_offsets,
         previous: initial.clone(),
         initial,
         bindings,
@@ -429,6 +441,8 @@ pub(super) fn restore(
                     .identity()
                     .ordinal(
                         v.parking_space_id
+                            .as_deref()
+                            .ok_or_else(|| failure("space", "missing"))?
                             .parse::<ParkingSpaceId>()
                             .map_err(|e| failure("space", e))?,
                     )

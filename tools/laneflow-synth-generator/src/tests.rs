@@ -119,6 +119,7 @@ fn state_and_plans_freeze_population_windows_and_command_order() {
                 Case::W1 | Case::W4 => 150,
                 Case::W2 => 200,
                 Case::W3 => 50,
+                Case::L1 => unreachable!("L1 另有换道探针冻结"),
             };
             assert_eq!(
                 state
@@ -173,6 +174,7 @@ fn state_and_plans_freeze_population_windows_and_command_order() {
                     assert_eq!(scheduled[2]["boundary"], warm + 1);
                     assert_eq!(scheduled[2]["commands"][1]["progress_mm"], 5_129_900);
                 }
+                Case::L1 => assert!(scheduled.is_empty()),
             }
         }
     }
@@ -382,7 +384,14 @@ pub(crate) fn assert_runtime_consumption(bundle: &Bundle) {
         } else {
             let space = revision
                 .identity()
-                .ordinal(vehicle.parking_space_id.parse::<ParkingSpaceId>().unwrap())
+                .ordinal(
+                    vehicle
+                        .parking_space_id
+                        .as_ref()
+                        .unwrap()
+                        .parse::<ParkingSpaceId>()
+                        .unwrap(),
+                )
                 .unwrap();
             world
                 .spawn_parked_vehicle(
@@ -465,6 +474,255 @@ fn verifier_rejects_rehashed_state_order_and_preserves_existing_output() {
             .to_string()
             .contains("恰有四个")
     );
+}
+
+#[test]
+fn lane_change_lifecycle_probe_freezes_window_pinning() {
+    // L1 探针（#1218 D3）：钉版换道生命周期拍号并冻结窗口不变量——
+    // 检查点（16/32 拍）必须早于首 crossing；生命周期收束必须早于窗口终点；
+    // 两换道者路线完成必须晚于窗口终点（观察窗内无 Completed）。
+    for dt in [16_u32, 33] {
+        let identity = probe(2, Case::L1, dt);
+        let bundle = generate_inputs(identity.clone(), provenance()).unwrap();
+        let again = generate_inputs(identity.clone(), provenance()).unwrap();
+        assert_eq!(bundle.files(), again.files(), "L1 规范重建逐字节确定");
+        let (warm, observation) = identity.lane_change_window();
+        let end = warm + observation;
+        let input = check_canonical_network_input(
+            bundle.files()["network.lfca"].as_slice(),
+            FormatLimits::HARD,
+        )
+        .unwrap();
+        let revision = build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(2 * 1_024 * 1_024 * 1_024, 2 * 1_024 * 1_024),
+            ),
+        )
+        .unwrap();
+        let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+        let edge_occurrences: u64 = state.routes.iter().map(|r| r.edge_ids.len() as u64).sum();
+        let origin = *revision.canonical_origin();
+        let profile = revision
+            .identity()
+            .ordinal(
+                state
+                    .vehicle_profile_id
+                    .parse::<VehicleProfileId>()
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut world = TrafficWorld::install(
+            revision.clone(),
+            WorldConfig::new(
+                state.vehicles.len() as u32,
+                state.routes.len() as u32,
+                edge_occurrences,
+                16,
+                u64::from(identity.fixed_delta_ms),
+            ),
+            ExecutionConfig::new(NonZeroU32::MIN),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "fixture://lf-synth-generator",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .unwrap(),
+            },
+            0,
+            WorldPolicySelection::Pinned(PolicyPin {
+                policy: state.policy_id.parse::<RightOfWayPolicySetId>().unwrap(),
+            }),
+        )
+        .unwrap();
+        let routes: Vec<_> = state
+            .routes
+            .iter()
+            .map(|route| {
+                let edges: Vec<_> = route
+                    .edge_ids
+                    .iter()
+                    .map(|id| {
+                        revision
+                            .identity()
+                            .ordinal(id.parse::<LaneEdgeId>().unwrap())
+                            .unwrap()
+                    })
+                    .collect();
+                world
+                    .register_route(RouteRegisterInput::new(edges))
+                    .unwrap()
+            })
+            .collect();
+        let mut changers = Vec::new();
+        for vehicle in &state.vehicles {
+            let route = routes[vehicle.route_rank as usize];
+            let lane_change_route =
+                vehicle.route_rank == state.routes.len() as u32 - 1 && identity.case == Case::L1;
+            let handle = if vehicle.status == "active" {
+                let spawn = VehicleSpawnInput::new(
+                    profile,
+                    route,
+                    vehicle.edge_occurrence,
+                    vehicle.progress_mm,
+                    vehicle.speed_mm_per_s,
+                );
+                world
+                    .spawn_vehicle(if lane_change_route {
+                        spawn.with_open_entrance()
+                    } else {
+                        spawn
+                    })
+                    .unwrap()
+            } else {
+                let space = revision
+                    .identity()
+                    .ordinal(
+                        vehicle
+                            .parking_space_id
+                            .as_ref()
+                            .unwrap()
+                            .parse::<ParkingSpaceId>()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                world
+                    .spawn_parked_vehicle(
+                        ParkedVehicleSpawnInput::new(
+                            profile,
+                            route,
+                            vehicle.edge_occurrence,
+                            vehicle.progress_mm,
+                        ),
+                        ParkingTarget::ExplicitSpace(space),
+                    )
+                    .unwrap()
+                    .vehicle
+            };
+            if lane_change_route {
+                changers.push(handle);
+            }
+        }
+        assert_eq!(changers.len(), 2);
+        let mut leader_enter = None;
+        let mut follower_enter = None;
+        let mut follower_release = None;
+        let mut refusal_onset = None;
+        let mut completed = None;
+        let mut checkpoints_capturable = Vec::new();
+        let mut leader_release = None;
+        let mut leader_exit_t = None;
+        let mut follower_exit_t = None;
+        let mut leader_completed = None;
+        let mut follower_completed = None;
+        for tick in 1..=1_200 {
+            world
+                .step(TickInput::new(u64::from(identity.fixed_delta_ms)))
+                .unwrap();
+            let leader = world.vehicle(changers[0]).unwrap();
+            let follower = world.vehicle(changers[1]).unwrap();
+            if leader.route_edge_index() >= 1 && leader_enter.is_none() {
+                leader_enter = Some(tick);
+            }
+            if follower.route_edge_index() >= 1 && follower_enter.is_none() {
+                follower_enter = Some(tick);
+            }
+            if leader.route_edge_index() >= 2 && leader_exit_t.is_none() {
+                leader_exit_t = Some(tick);
+            }
+            if follower.route_edge_index() >= 2 {
+                follower_exit_t.get_or_insert(tick);
+            }
+            if leader.status() == VehicleStatus::Completed {
+                leader_completed.get_or_insert(tick);
+            }
+            if follower.status() == VehicleStatus::Completed {
+                follower_completed.get_or_insert(tick);
+            }
+            if tick <= end
+                && (leader.status() == VehicleStatus::Completed
+                    || follower.status() == VehicleStatus::Completed)
+                && completed.is_none()
+            {
+                completed = Some(tick);
+            }
+            match world.capture_snapshot() {
+                Ok(_) => {
+                    if tick == warm || tick == 2 * warm {
+                        checkpoints_capturable.push(tick);
+                    }
+                }
+                Err(_) => {
+                    refusal_onset.get_or_insert(tick);
+                }
+            };
+            for event in world.latest_transition_events() {
+                let released = matches!(
+                    event.kind(),
+                    TrafficTransitionKind::ReservationReleased { .. }
+                );
+                if released && event.vehicle() == changers[0] {
+                    leader_release.get_or_insert(tick);
+                }
+                if released && event.vehicle() == changers[1] {
+                    follower_release.get_or_insert(tick);
+                }
+            }
+        }
+        eprintln!(
+            "L1 probe dt={dt}: warm={warm} planned_end={end}\n  leader: enter={leader_enter:?} \
+             exit_t={leader_exit_t:?} release={leader_release:?} completed={leader_completed:?}\n  \
+             follower: enter={follower_enter:?} exit_t={follower_exit_t:?} \
+             release={follower_release:?} completed={follower_completed:?}\n  \
+             refusal_onset={refusal_onset:?} checkpoints={checkpoints_capturable:?} \
+             first_completion={completed:?}"
+        );
+        let leader_enter = leader_enter.expect("leader enters T");
+        let follower_enter = follower_enter.expect("follower enters T");
+        assert!(
+            leader_enter < follower_enter,
+            "live-order: leader first ({leader_enter}) then follower ({follower_enter})"
+        );
+        assert!(
+            follower_enter > 2 * warm,
+            "checkpoints 16/32 must precede any crossing: follower {follower_enter}"
+        );
+        assert_eq!(
+            checkpoints_capturable,
+            vec![warm, 2 * warm],
+            "面 A：T-free 检查点可捕获"
+        );
+        assert_eq!(
+            refusal_onset,
+            Some(leader_enter),
+            "面 B：拒绝面恰在首个 T 权威拍开始"
+        );
+        let leader_release = leader_release.expect("leader releases T");
+        let follower_release = follower_release.expect("follower releases T");
+        assert!(
+            follower_enter > leader_release,
+            "败者在前车预约释放后进入（R1b 层②）：{follower_enter} > {leader_release}"
+        );
+        assert!(
+            follower_release > follower_enter,
+            "败者进入后须自行释放预约"
+        );
+        assert!(
+            leader_release < end,
+            "前车完整生命周期须收束在窗口内：{leader_release} < {end}"
+        );
+        assert!(
+            follower_enter < end,
+            "败者清空后进入拍须落在窗口内：{follower_enter} < {end}"
+        );
+        assert!(
+            completed.is_none(),
+            "窗口内不得出现换道者路线完成（完成拍 {completed:?} 须晚于终点 {end}）"
+        );
+    }
 }
 
 mod full_scale;

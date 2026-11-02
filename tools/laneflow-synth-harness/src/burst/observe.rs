@@ -75,10 +75,19 @@ impl Burst {
             || format!("step outcome tick={tick}"),
         )?;
         let signals = self.sample.world.committed_signal_groups();
-        require(signals.as_slice().len() == self.sample.groups.len(), || {
+        let signalized = self
+            .sample
+            .groups
+            .iter()
+            .filter(|group| group.is_some())
+            .count();
+        require(signals.as_slice().len() == signalized, || {
             format!("signal count tick={tick}")
         })?;
-        for (rank, &group) in self.sample.groups.iter().enumerate() {
+        for (rank, group) in self.sample.groups.iter().enumerate() {
+            let Some(group) = group else {
+                continue;
+            };
             let index = signals
                 .as_slice()
                 .binary_search_by_key(&group.raw(), |(g, _)| g.raw())
@@ -254,7 +263,7 @@ impl Burst {
             }
             for kind in [
                 TrafficTransitionKind::GateCrossed {
-                    gate: self.sample.gates[rank / 25],
+                    gate: self.sample.gates[rank / 25].expect("W 族唯一信号 Gate"),
                 },
                 TrafficTransitionKind::ManeuverTraversalCompleted {
                     maneuver_occurrence_index: 0,

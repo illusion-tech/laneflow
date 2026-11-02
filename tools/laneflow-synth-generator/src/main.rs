@@ -2,7 +2,7 @@ use std::path::Path;
 
 use laneflow_synth_generator::{Case, Error, Identity, Provenance, generate, verify_directory};
 
-const USAGE: &str = "用法：\n  laneflow-synth-generator generate <10000|100000> <W1|W2|W3|W4> <16|33> <source-commit> <generator-commit> <new-directory>\n  laneflow-synth-generator verify <directory>";
+const USAGE: &str = "用法：\n  laneflow-synth-generator generate <10000|100000> <W1|W2|W3|W4|L1> <16|33> <source-commit> <generator-commit> <new-directory>\n  laneflow-synth-generator verify <directory>";
 
 fn run(args: &[String]) -> Result<(), Error> {
     let bundle = match args {
@@ -12,6 +12,7 @@ fn run(args: &[String]) -> Result<(), Error> {
                 "W2" => Case::W2,
                 "W3" => Case::W3,
                 "W4" => Case::W4,
+                "L1" => Case::L1,
                 _ => return Err(Error::Invalid(USAGE.into())),
             };
             let identity = Identity::new(

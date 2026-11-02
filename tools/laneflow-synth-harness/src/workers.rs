@@ -48,6 +48,9 @@ impl Job {
     }
 
     pub(super) fn windows(self) -> (u64, u64) {
+        if self.case == "L1" {
+            return (16, if self.dt == 16 { 304 } else { 144 });
+        }
         let warm = if self.dt == 16 { 14_508 } else { 7_044 };
         (warm, if self.case == "W4" { 2 } else { warm * 2 })
     }
@@ -56,7 +59,7 @@ impl Job {
 fn jobs() -> Vec<Job> {
     let mut configs = Vec::new();
     for (scale, dt) in [(10_000, 16), (100_000, 33)] {
-        for case in ["W1", "W2", "W3", "W4"] {
+        for case in ["W1", "W2", "W3", "W4", "L1"] {
             for workers in WORKERS {
                 configs.push(Job {
                     scale,
@@ -116,6 +119,8 @@ pub(super) fn check_report(
         .ok_or_else(|| invalid(format!("缺少状态检查点：{}", job.key())))?;
     let ticks = if job.case == "W4" {
         vec![0, warm, warm + 1, warm + 2]
+    } else if job.case == "L1" {
+        vec![0, warm, 2 * warm, warm + observation]
     } else {
         vec![
             0,
@@ -127,15 +132,33 @@ pub(super) fn check_report(
         ]
     };
     for tick in ticks {
-        if !checkpoints.iter().any(|point| {
-            point["tick"] == tick
-                && point["state_digest"].as_str().is_some_and(|digest| {
-                    digest.len() == 64
-                        && digest
-                            .bytes()
-                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                })
-        }) {
+        let point = checkpoints
+            .iter()
+            .find(|point| point["tick"] == tick)
+            .ok_or_else(|| invalid(format!("状态检查点缺失：{} tick={tick}", job.key())))?;
+        let has_digest = point["state_digest"].as_str().is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        });
+        let refusal = point["persistence_refused"].as_str();
+        if job.case == "L1" {
+            // 双向钉边（#1218 面 A/面 B）：T-free 检查点必须成功捕获并携带
+            // 64-hex 摘要；终态拍（T 历史）必须结构化拒绝并携带真实身份投影。
+            let face_b = tick == warm + observation;
+            let valid = if face_b {
+                refusal.is_some() && point["t_state"].is_object() && point["state_digest"].is_null()
+            } else {
+                refusal.is_none() && point["t_state"].is_null() && has_digest
+            };
+            if !valid {
+                return Err(invalid(format!(
+                    "换道族检查点面不符（双向钉边）：{} tick={tick}",
+                    job.key()
+                )));
+            }
+        } else if refusal.is_some() || !has_digest {
             return Err(invalid(format!(
                 "状态检查点缺失或非法：{} tick={tick}",
                 job.key()
@@ -326,7 +349,7 @@ fn run_matrix(
                 .sort_by(|a, b| a["run"].as_str().cmp(&b["run"].as_str()));
             super::write(&output.join("summary.json"), summary)?;
             eprintln!(
-                "worker matrix {}/{} completed, {}/112 compared, {} errors",
+                "worker matrix {}/{} completed, {}/140 compared, {} errors",
                 completed.len(),
                 jobs.len(),
                 comparisons.len(),
@@ -341,7 +364,7 @@ fn run_matrix(
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-    if stopped || completed.len() != 120 || comparisons.len() != 112 {
+    if stopped || completed.len() != 150 || comparisons.len() != 140 {
         return Err(invalid(
             "worker 矩阵未完整通过；不启动替代轮次，保留全部已运行材料",
         ));
@@ -360,10 +383,10 @@ pub(super) fn matrix(
 ) -> Result<(), Error> {
     fs::create_dir(output)?;
     let mut summary = json!({"format":"lf-synth-worker-matrix-1","complete":false,
-        "scope":"nominal_W1_to_W4_success_path_workers_only_not_performance_or_product_certification",
+        "scope":"nominal_W1_to_W4_and_L1_success_path_workers_only_not_performance_or_product_certification",
         "implementation_commit":implementation,"workers":WORKERS,"fresh_process_rounds":ROUNDS,
         "max_concurrent_processes":MAX_PROCESSES,"max_configured_workers":MAX_CONFIGURED_WORKERS,
-        "expected_identities":8,"expected_runs":120,"expected_comparisons":112,
+        "expected_identities":10,"expected_runs":150,"expected_comparisons":140,
         "execution_order":[],"runs":[],"comparisons":[],"errors":[]});
     super::write(&output.join("summary.json"), &summary)?;
     if let Err(error) = run_matrix(input, implementation, environment, output, &mut summary) {

@@ -51,6 +51,8 @@ impl Driver {
             .map(|v| {
                 let id = v
                     .parking_space_id
+                    .as_deref()
+                    .ok_or_else(|| failure("parking id", "missing"))?
                     .parse::<ParkingSpaceId>()
                     .map_err(|e| failure("parking id", e))?;
                 sample
