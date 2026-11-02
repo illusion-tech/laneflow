@@ -615,6 +615,16 @@ fn pinned_baseline_dir() -> PathBuf {
     PathBuf::from(std::env::var("SIX_STREAMS_BASELINE_DIR").expect("SIX_STREAMS_BASELINE_DIR"))
 }
 
+/// 池原始记录读取（E1 A′ 派生等研究用途）：含 `spans`（`control_f64_bits`/
+/// `partition`/`pieces`）供参数恢复逐位核对；钉版断言同 `shared_pools`。
+pub(in super::super) fn shared_pool_records() -> Value {
+    let dir = pinned_baseline_dir();
+    let rows = read_pinned_json(&dir.join("pool.json"), POOL_JSON_SHA256);
+    let manifest = read_pinned_json(&dir.join("MANIFEST.json"), MANIFEST_SHA256);
+    assert_frozen_chain(&rows, &manifest);
+    rows
+}
+
 /// 需求单「池读取/断言」入口：A–D 唯一基线读取点。三资产 SHA-256 钉版断言 + 代码内
 /// 哈希/合并顺序/逐边份数断言 + 逐份往返校验后返回 `combinations::Pools`
 /// （旧 9/10 边池禁用）。

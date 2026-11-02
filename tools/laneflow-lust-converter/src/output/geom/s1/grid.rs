@@ -103,10 +103,23 @@ pub(crate) enum InjectionKind {
     FirstChord { t: f64 },
     /// 末弦见证 `[t,1]`：保留原网格中严格小于 t 的节点，再接 t、1。
     LastChord { t: f64 },
+    /// E1 v3.1 §3：首两弦见证 `[0,u,v]`：节点 0、u、v，再接原网格严格大于 v 的节点。
+    FirstPair { u: f64, v: f64 },
+    /// E1 v3.1 §3：末两弦见证 `[u,v,1]`：原网格严格小于 u，再接 u、v、1。
+    LastPair { u: f64, v: f64 },
+    /// E1 v3.1 §3：接缝见证 `(s,t)`——左 cubic（= `Injection.control`）网格 ∪ {s}、
+    /// 右 cubic（= `right_control`）网格 ∪ {t}，各自排序去重保端点（**并集非截断**）。
+    /// 两侧绑定同一份见证；`Seam` 非 `Copy` 所在变体含数组，`Injection` 保持 `Clone`。
+    Seam {
+        right_control: [[u64; 3]; 6],
+        s: f64,
+        t: f64,
+    },
 }
 
 impl Injection {
-    fn parameters(&self) -> Vec<f64> {
+    /// 注入网格（E1 三形态按**匹配 cubic** 分派；Seam 左右各自并集网格）。
+    fn parameters(&self, matched: &[[u64; 3]; 6]) -> Vec<f64> {
         let uniform = (0..=STEPS).map(|i| i as f64 / STEPS as f64);
         match self.kind {
             InjectionKind::FirstChord { t } => {
@@ -124,15 +137,74 @@ impl Injection {
                     .chain(std::iter::once(1.0))
                     .collect()
             }
+            InjectionKind::FirstPair { u, v } => {
+                assert!(u > 0.0 && u < v && v <= 1.0);
+                let mut grid = vec![0.0, u, v];
+                grid.extend(uniform.filter(move |&x| x > v));
+                grid
+            }
+            InjectionKind::LastPair { u, v } => {
+                assert!((0.0..1.0).contains(&u) && u < v && v < 1.0);
+                let mut grid: Vec<f64> = uniform.filter(|&x| x < u).collect();
+                grid.push(u);
+                grid.push(v);
+                grid.push(1.0);
+                grid
+            }
+            InjectionKind::Seam {
+                right_control,
+                s,
+                t,
+            } => {
+                let at = if matched == &self.control {
+                    s
+                } else {
+                    assert_eq!(matched, &right_control, "seam side cubic");
+                    t
+                };
+                assert!((0.0..1.0).contains(&at));
+                let mut grid: Vec<f64> = (0..=STEPS)
+                    .map(|i| i as f64 / STEPS as f64)
+                    .filter(|&x| x != at)
+                    .collect();
+                grid.push(at);
+                grid.sort_by(f64::total_cmp);
+                grid.dedup();
+                grid
+            }
         }
     }
 
-    fn witness_pair(&self) -> [usize; 2] {
+    fn witness_pair(&self, matched: &[[u64; 3]; 6]) -> [usize; 2] {
         match self.kind {
             InjectionKind::FirstChord { .. } => [0, 1],
             InjectionKind::LastChord { .. } => {
-                let last = self.parameters().len() - 1;
+                let last = self.parameters(matched).len() - 1;
                 [last - 1, last]
+            }
+            InjectionKind::FirstPair { .. } => [1, 2],
+            InjectionKind::LastPair { .. } => {
+                let last = self.parameters(matched).len() - 1;
+                [last - 2, last - 1]
+            }
+            InjectionKind::Seam {
+                right_control,
+                s,
+                t,
+            } => {
+                let (at, left) = if matched == &self.control {
+                    (s, true)
+                } else {
+                    assert_eq!(matched, &right_control, "seam side cubic");
+                    (t, false)
+                };
+                let grid = self.parameters(matched);
+                let idx = grid.iter().position(|x| *x == at).unwrap();
+                if left {
+                    [idx, grid.len() - 1]
+                } else {
+                    [0, idx]
+                }
             }
         }
     }
@@ -141,6 +213,9 @@ impl Injection {
         match self.kind {
             InjectionKind::FirstChord { .. } => "grid_injected_first_chord",
             InjectionKind::LastChord { .. } => "grid_injected_last_chord",
+            InjectionKind::FirstPair { .. } => "grid_injected_first_pair",
+            InjectionKind::LastPair { .. } => "grid_injected_last_pair",
+            InjectionKind::Seam { .. } => "grid_injected_seam",
         }
     }
 
@@ -155,8 +230,9 @@ impl Injection {
         selected: Option<usize>,
         stage: &'static str,
     ) -> Value {
-        let [a, b] = self.witness_pair();
-        let grid = self.parameters();
+        let bits = control.map(|p| p.map(f64::to_bits));
+        let [a, b] = self.witness_pair(&bits);
+        let grid = self.parameters(&bits);
         let witness = [grid[a], grid[b]];
         let point_at = |t: f64| {
             if t == 1.0 {
@@ -177,8 +253,10 @@ impl Injection {
         );
         let deviation_ok = deviation_m <= DEVIATION_METERS;
         let uses = |path: &[usize]| path.windows(2).any(|w| w == [a, b]);
-        json!({"kind":match self.kind{InjectionKind::FirstChord{..}=>"first_chord",InjectionKind::LastChord{..}=>"last_chord"},
-            "t_f64_bits":match self.kind{InjectionKind::FirstChord{t}|InjectionKind::LastChord{t}=>t.to_bits()},
+        json!({"kind":match self.kind{InjectionKind::FirstChord{..}=>"first_chord",InjectionKind::LastChord{..}=>"last_chord",InjectionKind::FirstPair{..}=>"first_pair",InjectionKind::LastPair{..}=>"last_pair",InjectionKind::Seam{..}=>"seam"},
+            "t_f64_bits":match self.kind{InjectionKind::FirstChord{t}|InjectionKind::LastChord{t}=>json!(t.to_bits()),
+                InjectionKind::FirstPair{u,v}|InjectionKind::LastPair{u,v}=>json!([u.to_bits(),v.to_bits()]),
+                InjectionKind::Seam{s,t,..}=>json!([s.to_bits(),t.to_bits()])},
             "record_stage":stage,
             "witness_pair_node_indices":[a,b],
             "witness_chord_parameters_f64_bits":witness.map(f64::to_bits),
@@ -206,7 +284,12 @@ impl GridSearch {
     ) -> Option<Value> {
         let bits = control.map(|p| p.map(f64::to_bits));
         let injection = self.injection.as_ref()?;
-        if injection.control != bits {
+        // E1 Seam 注入：右 cubic（`right_control`）同样留痕（P2-1 证据右裁修复）。
+        let seam_right = matches!(
+            &injection.kind,
+            InjectionKind::Seam { right_control, .. } if right_control == &bits
+        );
+        if injection.control != bits && !seam_right {
             return None;
         }
         let evidence = injection.evidence(control, paths, selected, stage);
@@ -382,9 +465,10 @@ fn parameter_override(state: &GridSearch, control: [Vec3; 6]) -> Option<(Vec<f64
         return Some((guide.parameters(), "grid_prefix_with_witness_tail"));
     }
     if let Some(injection) = &state.injection
-        && injection.control == bits
+        && (injection.control == bits
+            || matches!(&injection.kind, InjectionKind::Seam { right_control, .. } if right_control == &bits))
     {
-        return Some((injection.parameters(), injection.label()));
+        return Some((injection.parameters(&bits), injection.label()));
     }
     None
 }
@@ -788,27 +872,78 @@ fn witness_injection_parameters_follow_frozen_shapes() {
         control,
         kind: InjectionKind::FirstChord { t: 0.3 },
     };
-    let params = first.parameters();
+    let params = first.parameters(&control);
     assert_eq!(&params[..2], &[0.0, 0.3]);
     assert!(params.windows(2).all(|w| w[0] < w[1]));
     assert_eq!(params.last(), Some(&1.0));
     assert!(params[2..].iter().all(|&x| x > 0.3));
-    assert_eq!(first.witness_pair(), [0, 1]);
+    assert_eq!(first.witness_pair(&control), [0, 1]);
     let last = Injection {
         control,
         kind: InjectionKind::LastChord { t: 0.7 },
     };
-    let params = last.parameters();
+    let params = last.parameters(&control);
     assert_eq!(&params[params.len() - 2..], &[0.7, 1.0]);
     assert!(params.windows(2).all(|w| w[0] < w[1]));
     assert!(params[..params.len() - 2].iter().all(|&x| x < 0.7));
-    assert_eq!(last.witness_pair(), [params.len() - 2, params.len() - 1]);
+    assert_eq!(
+        last.witness_pair(&control),
+        [params.len() - 2, params.len() - 1]
+    );
     for (kind, expected) in [
         (InjectionKind::FirstChord { t: 1.0 }, vec![0.0, 1.0]),
         (InjectionKind::LastChord { t: 0.0 }, vec![0.0, 1.0]),
     ] {
-        assert_eq!(Injection { control, kind }.parameters(), expected);
+        assert_eq!(Injection { control, kind }.parameters(&control), expected);
     }
+}
+
+#[test]
+fn e1_pair_and_seam_injection_shapes_follow_frozen_plan() {
+    // E1 v3.1 §3 形态：FirstPair [0,u,v]→0,u,v,>v；LastPair [u,v,1]→<u,u,v,1；
+    // Seam 左右各自并集网格（∪{s}/∪{t}，排序去重保端点）；见证对下标按侧分派。
+    let control = [[0_u64; 3]; 6];
+    let right = [[1_u64; 3]; 6];
+    let first = Injection {
+        control,
+        kind: InjectionKind::FirstPair { u: 0.25, v: 0.5 },
+    };
+    let params = first.parameters(&control);
+    assert_eq!(&params[..3], &[0.0, 0.25, 0.5]);
+    assert!(params.windows(2).all(|w| w[0] < w[1]));
+    assert!(params[3..].iter().all(|&x| x > 0.5));
+    assert_eq!(first.witness_pair(&control), [1, 2]);
+    let last = Injection {
+        control,
+        kind: InjectionKind::LastPair { u: 0.25, v: 0.5 },
+    };
+    let params = last.parameters(&control);
+    assert_eq!(&params[params.len() - 3..], &[0.25, 0.5, 1.0]);
+    assert!(params.windows(2).all(|w| w[0] < w[1]));
+    assert_eq!(
+        last.witness_pair(&control),
+        [params.len() - 3, params.len() - 2]
+    );
+    let seam = Injection {
+        control,
+        kind: InjectionKind::Seam {
+            right_control: right,
+            s: 0.25,
+            t: 0.5,
+        },
+    };
+    let left_grid = seam.parameters(&control);
+    assert!(left_grid.contains(&0.25), "左网格并入 s");
+    assert_eq!(left_grid.last(), Some(&1.0), "保端点");
+    assert!(left_grid.windows(2).all(|w| w[0] < w[1]), "排序去重");
+    let [a, b] = seam.witness_pair(&control);
+    assert_eq!([left_grid[a], left_grid[b]], [0.25, 1.0], "左见证弦 [s,1]");
+    let right_grid = seam.parameters(&right);
+    assert!(right_grid.contains(&0.5), "右网格并入 t");
+    assert_eq!(right_grid[0], 0.0, "保端点");
+    let [c, d] = seam.witness_pair(&right);
+    assert_eq!([right_grid[c], right_grid[d]], [0.0, 0.5], "右见证弦 [0,t]");
+    assert_eq!(seam.label(), "grid_injected_seam");
 }
 
 #[test]
@@ -825,8 +960,8 @@ fn witness_evidence_uses_full_grid_and_records_every_outcome() {
         control: control.map(|p| p.map(f64::to_bits)),
         kind: InjectionKind::LastChord { t: 0.5 },
     };
-    let grid = injection.parameters();
-    let [a, b] = injection.witness_pair();
+    let grid = injection.parameters(&injection.control);
+    let [a, b] = injection.witness_pair(&injection.control);
     // 返回路径跳过网格节点：局部下标与见证节点下标不同，见证弦仍取完整网格参数。
     let short_path = vec![vec![0_usize, 5, a, b]];
     let value = injection.evidence(control, &short_path, Some(0), "selected_path");
