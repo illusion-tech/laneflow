@@ -2874,6 +2874,15 @@ impl<'a> ConflictRead<'a> {
             .is_some_and(|cell| cell.reservation == Some(owner))
     }
 
+    /// E域②（#1199 P2-7）：指定 cell 是否存在任何 committed 预约/占用
+    /// （spawn 前 handle 未定——任一持约即阻断的 fail-closed 判据）。
+    pub(crate) fn cell_reserved(self, address: ConflictPassageAddress) -> bool {
+        self.cell_index(address)
+            .ok()
+            .and_then(|index| self.committed.cells.get(index))
+            .is_some_and(|cell| cell.reservation.is_some() || cell.occupant.is_some())
+    }
+
     /// 查询 owner 在指定 cell 上的阶段；无 reservation 时返回 `None`。
     pub(crate) fn passage_stage(
         self,

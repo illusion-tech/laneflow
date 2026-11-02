@@ -2987,9 +2987,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !self.conflict_read().contains_address(address) {
             return None;
         }
-        // P1-8（#1199）：Transition 资源格无 static_zone——经其 stream
-        // passage 取 (stream, zone) 稳定对（S4 边界=不炸+失败关闭；与
-        // occurrence locator 同 fallback 形制）。lag 行序列化零炸。
+        // 域 A（#1199 总设计）：Transition 资源格无 static_zone——经其
+        // stream passage 取 (stream, zone) 稳定对。**身份双层**：本体=
+        // 资源格地址（resource 编码三面同源）、(stream,zone)=passage 归属
+        // 派生（非身份本体——不得串成静态 passage 身份）；S4 口径=不炸+
+        // 失败关闭、S5=unique_address 重绑定域。
         let zone = address.static_zone().or_else(|| {
             self.binding
                 .revision

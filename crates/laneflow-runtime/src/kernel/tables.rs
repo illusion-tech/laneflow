@@ -601,7 +601,19 @@ pub(crate) fn compile_route(
         }
     }
 
-    let conflict_occurrence_count = count_conflict_occurrences(revision, &maneuvers)?;
+    // P2-6（#1199）：注册容量预检计数含过渡出现项（每横向过渡边恰 1 条）
+    // ——但 compile_conflicts 的 expected_count 只承流通道数（其自身另加
+    // transition_occurrences 到 capacity（1213）并以等式校验（1268）——
+    // 二分定位：过渡计入 expected=双计引爆 ManeuverMismatch）。分层：容量
+    // 检查含 T、发射 expected 仅流。
+    let transition_count = edges
+        .iter()
+        .filter(|edge| revision.traffic().is_lateral_transition_segment(**edge))
+        .count();
+    let stream_occurrence_count = count_conflict_occurrences(revision, &maneuvers)?;
+    let conflict_occurrence_count = stream_occurrence_count
+        .checked_add(u64::try_from(transition_count).map_err(|_| RouteError::AllocationFailed)?)
+        .ok_or(RouteError::AllocationFailed)?;
     checked_conflict_occurrence_total(
         live_conflict_occurrence_count,
         conflict_occurrence_count,
@@ -612,7 +624,7 @@ pub(crate) fn compile_route(
         edges,
         &maneuvers,
         &hop_gate,
-        conflict_occurrence_count,
+        stream_occurrence_count,
     )?;
 
     let mut next_controlled = try_route_vec_filled(hop_count, None)?;
@@ -3583,7 +3595,9 @@ mod compile_route_tests {
             );
             crate::TrafficWorld::install(
                 revision,
-                crate::WorldConfig::new(2, 2, 16, 8, 100),
+                // 夹具容量（#1199 P2-6 后计数含过渡出现项——旧 8 为欠计基
+                // 线钉小；测试夹具参数、非生产 digest 形制）。
+                crate::WorldConfig::new(2, 2, 16, 16, 100),
                 crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 crate::CommittedNetworkSource::Published {
                     reference: crate::PublishedLfcaReference::new(
