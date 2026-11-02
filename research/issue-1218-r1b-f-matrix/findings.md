@@ -195,3 +195,27 @@
 > 注意：生成器 schema 扩展（`VehicleRecord.parking_space_id`/`RouteRecord.signal_group_id`
 > 改 `Option`、`edge_ids` 改 `Vec`）是 W 字节等价的（W 族 probe-vectors 冻结摘要原样通过），
 > 但**编译期面**触及 runtime 测试消费方 `formal_retry.rs`（Option 解引用适配，行为零变化）。
+
+## 9. 正式矩阵首错与修复（2026-11-03）
+
+**首错事实**：F1 `worker-matrix` 全新目录重跑至 **43/150** 时按协议首错停止：
+`100000-L1-33-w1-r1`、`100000-L1-33-w2-r1` 子进程退出码 1，日志均为
+`语义验证失败：进度/速度/加减速 tick=1 rank=24`；此时已完成 **34/140** 对比较全部相等。
+失败与 worker 数无关（w1/w2 同点位复现）；材料保留于 `lf1218-formal2/F1`，不拼接、
+不补跑。
+
+**根因**：L 族生成器车型 `max_acceleration_meters_per_second_squared = 1.5`
+（`tools/laneflow-synth-generator/src/network_lane_change.rs`），而观测器
+`motion_valid` 把加速度上界硬编码为 `1_400`（1.4 m/s²，沿用 W 族口径）。dt=33 ms
+时合法加速产生 Δv=49 mm/s，超过硬上限 `ceil(1400×33/1000)+1 = 48`；dt=16 ms 时
+Δv=24 恰等于上限，故 dev 态 `10000-L1-16` 切片未暴露，`100000-L1-33`（§7.4 遗留
+2）首次运行即命中。
+
+**修法**：`Sample` 新增 `max_accel_mm_s2`，安装与恢复两条路径均从共享路网
+`vehicle_profile(profile).max_accel()` 派生（米/秒²→毫米/秒²）；`motion_valid`
+改收车型上界，两处调用点（W/L）与 burst 观测同步传入；新增单元测试钉住
+1.4/1.5 m/s² × dt=16/33 的边界组合。修复后 debug 单跑 `100000-L1-33` w1
+`complete=true`（面 A/B 检查点齐备，仅实现验证、不作正式证据）。
+
+**证据处置**：d28a8fbc 冻结运行的局部/首错材料全部保留；本修复提交为新的实现提交，
+随后按该提交重建冻结构建并**全新目录**重跑 F1/F2/F3。

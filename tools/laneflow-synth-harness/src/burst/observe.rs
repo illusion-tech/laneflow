@@ -198,6 +198,7 @@ impl Burst {
                         position(state),
                         previous.speed_mm_s(),
                         state.speed_mm_s(),
+                        self.sample.max_accel_mm_s2,
                         dt,
                     ),
                     || format!("motion tick={tick} rank={rank}: {previous:?} -> {state:?}"),

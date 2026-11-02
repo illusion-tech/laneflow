@@ -40,12 +40,14 @@ pub(crate) fn motion_valid(
     new_position: u64,
     old_speed: u32,
     new_speed: u32,
+    max_accel_mm_s2: u32,
     dt: u32,
 ) -> bool {
     new_position >= old_position
         && new_position - old_position <= 13_900 * u64::from(dt) + 1
         && new_speed <= 13_900
-        && new_speed.saturating_sub(old_speed) <= (1_400 * dt).div_ceil(1_000) + 1
+        && u64::from(new_speed.saturating_sub(old_speed))
+            <= (u64::from(max_accel_mm_s2) * u64::from(dt)).div_ceil(1_000) + 1
 }
 
 impl Sample {
@@ -142,6 +144,7 @@ impl Sample {
                         next_position,
                         old.speed_mm_s(),
                         state.speed_mm_s(),
+                        self.max_accel_mm_s2,
                         dt,
                     ),
                     || format!("进度/速度/加减速 tick={tick} rank={rank}: {old:?} -> {state:?}"),
@@ -295,9 +298,19 @@ impl Sample {
                         pos(state),
                         old.speed_mm_s(),
                         state.speed_mm_s(),
+                        self.max_accel_mm_s2,
                         dt,
                     ),
-                    || format!("进度/速度/加减速 tick={tick} rank={rank}"),
+                    || {
+                        format!(
+                            "进度/速度/加减速 tick={tick} rank={rank}: pos {} -> {} speed {} -> {} dt={}",
+                            pos(old),
+                            pos(state),
+                            old.speed_mm_s(),
+                            state.speed_mm_s(),
+                            dt
+                        )
+                    },
                 )?;
             }
             let edge_changed = state.route_edge_index() != old.route_edge_index();
@@ -431,5 +444,26 @@ impl Sample {
         }
         bytes.extend_from_slice(&(events.len() as u32).to_le_bytes());
         Ok(blake3::hash(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::motion_valid;
+
+    #[test]
+    fn motion_valid_uses_profile_max_acceleration_bound() {
+        // #1218：加速度上界按车型 profile 派生，不再全局写死 1.4 m/s²。
+        // dt=33 ms：1.5 m/s² 允许 ceil(49.5)+1=51 mm/s；1.4 m/s² 允许 48 mm/s。
+        assert!(motion_valid(0, 49_000, 0, 49, 1_500, 33));
+        assert!(!motion_valid(0, 49_000, 0, 49, 1_400, 33));
+        assert!(motion_valid(0, 48_000, 0, 48, 1_400, 33));
+        // dt=16 ms：两种车型均允许 24 mm/s；1.4 m/s² 下 25 mm/s 仍拒。
+        assert!(motion_valid(0, 24_000, 0, 24, 1_400, 16));
+        assert!(motion_valid(0, 24_000, 0, 24, 1_500, 16));
+        assert!(!motion_valid(0, 25_000, 0, 25, 1_400, 16));
+        // 位置与速度硬上界不随车型变化。
+        assert!(!motion_valid(0, 13_900 * 33 + 2, 0, 0, 1_500, 33));
+        assert!(!motion_valid(0, 1, 0, 13_901, 1_500, 33));
     }
 }
