@@ -284,7 +284,12 @@ impl GridSearch {
     ) -> Option<Value> {
         let bits = control.map(|p| p.map(f64::to_bits));
         let injection = self.injection.as_ref()?;
-        if injection.control != bits {
+        // E1 Seam 注入：右 cubic（`right_control`）同样留痕（P2-1 证据右裁修复）。
+        let seam_right = matches!(
+            &injection.kind,
+            InjectionKind::Seam { right_control, .. } if right_control == &bits
+        );
+        if injection.control != bits && !seam_right {
             return None;
         }
         let evidence = injection.evidence(control, paths, selected, stage);
