@@ -2950,8 +2950,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .iter()
             .skip_while(|hop| **hop < first_possible_hop)
         {
-            if lifecycle_read.conflict_reservation(state.handle).is_some() {
-                break;
+            // 生命周期守卫（#1199 P1-5）：持权威=穿越进行中——仅跳过**同
+            // 资源**再申请（防重复获取）；相邻过渡链（T0a→T0b）异资源请求
+            // 放行（进链前获取相邻过渡资源——链式预取语义）。
+            if let Some(reservation) = lifecycle_read.conflict_reservation(state.handle) {
+                let range = reservation.passage_range();
+                let held_resource = compiled
+                    .conflicts
+                    .get(range.first_conflict_occurrence_index() as usize)
+                    .map(|occurrence| occurrence.resource);
+                let hop_resource = compiled
+                    .conflicts
+                    .get(compiled.conflict_gate_ranges[gate_hop as usize].start as usize)
+                    .map(|occurrence| occurrence.resource);
+                if held_resource.is_some() && held_resource == hop_resource {
+                    continue;
+                }
             }
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress =
