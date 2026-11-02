@@ -759,6 +759,10 @@ pub(crate) fn build_junction_hir(
             .as_ref()
             .map(|claim| paths.get(claim.source_path));
         let edge_stable = &edge.stable_key;
+        let _ = edge_stable;
+        // R-7 成员检修正（#1199 评审 4438135047）：排除自身后判外后继——
+        // 前形 any() 首侧含自身致路径含自身恒真、判永否（fail-open）；正
+        // 判=后继 ∈ 路径全边集（entry+internal+exit）✓、路径外后继仍拒。
         let outside_path_successor = lane_edge_references[edge.successors.as_usize_range()]
             .iter()
             .find(|successor| {
@@ -766,9 +770,8 @@ pub(crate) fn build_junction_hir(
                     path_edges[path.edges.as_usize_range()]
                         .iter()
                         .any(|member| {
-                            lane_edges.get(member.target).stable_key == *edge_stable
-                                || lane_edges.get(member.target).stable_key
-                                    == lane_edges.get(successor.target).stable_key
+                            lane_edges.get(member.target).stable_key.to_string()
+                                == lane_edges.get(successor.target).stable_key.to_string()
                         })
                 })
             });
