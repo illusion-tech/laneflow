@@ -1213,9 +1213,8 @@ fn compile_conflicts(
             resource: crate::kernel::conflict::ConflictResource::Transition(edge),
             maneuver_index: u32::try_from(maneuver_index)
                 .map_err(|_| RouteError::AllocationFailed)?,
-            // 准入 hop=穿越拍（hop N=边 N 末端进入边 N+1）：过渡格须在
-            // 进入 T 之前准入（#1199 合同 §5.2）——发射侧存穿越 hop（T
-            // 边下标-1；路线首边过渡退饱和至 0，入场由 spawn 准入承担）。
+            // T 的准入 hop 在前驱边末。首段 T 没有前驱，归入范围 0；
+            // 冷准入按 entry 识别首段，不把 hop 0 的出口当成入口。
             admission_hop: route_edge_index.saturating_sub(1),
             entry: RoutePosition {
                 route_edge_index,
@@ -1631,6 +1630,18 @@ pub(crate) fn check_conflict_capability(
         };
         if cleared {
             continue;
+        }
+        // 首段 T 没有可供下一拍申请预约的上游 hop；整车清空前不能无权威放置。
+        if gate_hop == 0
+            && occurrences.iter().any(|occurrence| {
+                occurrence.entry.route_edge_index == 0
+                    && matches!(
+                        occurrence.resource,
+                        crate::kernel::conflict::ConflictResource::Transition(_)
+                    )
+            })
+        {
+            return Err(ConflictCapabilityError::AuthorityRequired);
         }
         let gate_edge = *compiled
             .edges
@@ -3716,6 +3727,54 @@ mod compile_route_tests {
                 ),
                 crate::kernel::lane_change::TransitionEntryVerdict::NoGrantUnyieldable
             );
+        }
+
+        #[test]
+        fn leading_transition_spawn_requires_authority_until_rear_clearance() {
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .unwrap();
+            let path = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .unwrap();
+            let mut edges = vec![transition];
+            edges.extend_from_slice(path.edges());
+            let transition_length = traffic.lane_lengths_millimetres()[transition.index()];
+            let car = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
+            let car_length = traffic
+                .relations()
+                .vehicle_profile(car)
+                .unwrap()
+                .length_mm();
+            assert!(car_length < transition_length);
+            let mut world = install(revision);
+            let route = world
+                .register_route(crate::RouteRegisterInput::new(edges))
+                .unwrap();
+            let spawn =
+                |hop, progress| crate::VehicleSpawnInput::new(car, route, hop, progress, 1_000);
+            let cursor = world.command_cursor();
+            for (hop, progress) in [
+                (0, car_length),
+                (0, transition_length),
+                (1, 0),
+                (1, car_length - 1),
+            ] {
+                assert_eq!(
+                    world.spawn_vehicle(spawn(hop, progress)),
+                    Err(crate::SpawnError::ConflictAuthorityRequired),
+                    "unauthorized placement at {hop}:{progress}",
+                );
+                assert!(world.live_vehicles().is_empty());
+                assert_eq!(world.command_cursor(), cursor);
+            }
+            world
+                .spawn_vehicle(spawn(1, car_length))
+                .expect("rear exactly clears T");
         }
 
         /// 同一真实 T 预约：远处的后车正常前进；到入口才按服务率减速。
