@@ -3,8 +3,10 @@
 //! 判据语义（§0）：0.099999 m 量化弦长下限与 0.0341 sink 正切上界**仅作排除余量**，
 //! 不得用于接受见证；真实见证沿实际量化长度、sink 转角与适用 0.01 m 筛选口径
 //! （`witness` 内建）；见证重放失败 ≠ 排除证据。执行条款（v3.1 三分写）内建于
-//! `branch_verdict` 汇总：零维单弦单点域、一维边界随二维盒证书核验、任一必要分支
-//! 未决即禁标全参数域排除。
+//! `branch_verdict` 汇总：零维单弦单点域、任一必要分支未决即禁标全参数域排除。
+//! **证书纪律（维护者分级裁定）**：本层为探索性诊断层**免验证器**——排除以叶子表
+//! 证据留存（`exclusion_certificate`）并如实标注（`certificate_verified` 恒 `null`），
+//! 不夸大为证书承重结论；seam 既有证书纪律（`certificate::verify`）属决策承重面不动。
 
 use super::*;
 
@@ -153,10 +155,13 @@ fn diagnose_pair(kind: PairKind, control: [Vec3; 6]) -> Value {
         "status":if found.is_some(){"local_witness"}else if excluded{"necessary_condition_excluded"}else{"unresolved"},
         "witness":found,"visited_boxes":visited,"deepest":deepest,"excluded_boxes":counts,
         "pending_boxes":stack.len(),"first_unresolved_boxes":unresolved,
+        "exclusion_certificate":if excluded{Some(&leaves)}else{None},
+        "certificate_verified":Value::Null,
+        "verification":"leaf_table_evidence_only; exploratory layer without verifier (tiered ruling)",
         "policy":{"box_limit":BOX_LIMIT,"depth_limit":DEPTH_LIMIT,"certificate_leaf_limit":certificate::LIMIT,
             "length_exclusion_m":0.099_999,"turn_tangent_upper":0.0341,
             "direction_and_length_exclusion_are_relaxed":true,"deviation_omitted_from_exclusion":true},
-        "scope":"fixed planar cubic two-chord local necessary condition (E1 v3.1); witness is local existence only"})
+        "scope":"fixed planar cubic two-chord local necessary condition (E1 v3.1); witness is local existence only; exclusion is evidence-tier leaf table, not verifier-backed"})
 }
 
 /// 零维单弦判定（v3.1 执行条款 1 三分写）：允许判据证实不可能 ⇒ 排除该分支
@@ -422,6 +427,26 @@ mod tests {
             "区间内不判排除"
         );
         assert_eq!(out["unresolved_reason"], json!("sink_real_check"));
+    }
+
+    #[test]
+    fn pair_exclusion_retains_leaf_table_without_verifier() {
+        // ② 分级裁定：探索性诊断层免验证器——排除标注为叶子表证据级
+        // （certificate_verified 恒 null），不夸大为证书承重结论。
+        let tiny = [
+            [0.0, 0.0, 0.0],
+            [0.01, 0.0, 0.0],
+            [0.02, 0.0, 0.0],
+            [0.03, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+        let out = diagnose_first_two_chords(tiny);
+        assert_eq!(out["status"], "necessary_condition_excluded");
+        assert!(out["exclusion_certificate"]
+            .as_array()
+            .is_some_and(|v| !v.is_empty()));
+        assert!(out["certificate_verified"].is_null());
     }
 
     #[test]
