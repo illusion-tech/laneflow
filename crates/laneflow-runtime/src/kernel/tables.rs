@@ -2271,6 +2271,11 @@ mod compile_route_tests {
     /// 来源保真：合成来源原生声明（SyntheticDsl）；`T01` 为 uncovered 非 junction
     /// 过渡段（前后邻边分属同走廊不同 lane 链），不冒充 SUMO connection。
     mod s3_lane_change {
+        // R 断言链式注记（#1199 评审 P1 4438941172）：R 群（R1a/R1b/R2/R3）
+        // 的 P4 面以链式让行证明为准——遮挡跳过已演化为「能在前车投影停点
+        // 之后停住」证明（各车自身 profile）；证不了→potential enterer
+        // 保守不无证排除。R1b 的 s12 消解=链式证明自然结果（双方可停→
+        // 仲裁推进）。四钉版断言语义不变（钉值不变、判定面更新）。
         use super::*;
         use laneflow_compiler::*;
         use laneflow_format::{FormatLimits, check_post_emission_bundle};
