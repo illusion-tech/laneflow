@@ -48,30 +48,25 @@ impl PairKind {
     }
 }
 
-/// 两弦必要条件盒排除谓词（排除余量口径；点盒常量化时直接重放真实检查）。
+/// 两弦必要条件盒排除谓词（排除余量口径）。③ 区间剪枝：转角排除**直接作用于
+/// 区间包围**（同 seam 机器口径，非点盒亦可剪枝）；常点盒再补量化弦长常量拒绝。
 fn pair_reject(
     kind: PairKind,
     a: interval::Box2,
     b: interval::Box2,
     c: interval::Box2,
 ) -> Option<&'static str> {
-    let (Some(a), Some(b), Some(c)) = (constant_point(a), constant_point(b), constant_point(c))
-    else {
-        return None;
-    };
-    if quantized_chord_meters(quantize_vec3(a), quantize_vec3(b)) <= EXCLUSION_MARGIN_METERS {
-        return Some("constant_quantized_rejection");
+    if let (Some(a), Some(b), Some(c)) = (constant_point(a), constant_point(b), constant_point(c)) {
+        if quantized_chord_meters(quantize_vec3(a), quantize_vec3(b)) <= EXCLUSION_MARGIN_METERS {
+            return Some("constant_quantized_rejection");
+        }
+        if quantized_chord_meters(quantize_vec3(b), quantize_vec3(c)) <= EXCLUSION_MARGIN_METERS {
+            return Some("constant_quantized_rejection");
+        }
     }
-    if quantized_chord_meters(quantize_vec3(b), quantize_vec3(c)) <= EXCLUSION_MARGIN_METERS {
-        return Some("constant_quantized_rejection");
-    }
-    let first = unit(sub(b, a)).unwrap();
-    let second = unit(sub(c, b)).unwrap();
-    if angle_excluded(
-        [Interval::point(first[0]), Interval::point(first[2])],
-        [Interval::point(second[0]), Interval::point(second[2])],
-        0.0341,
-    ) {
+    let incoming = difference(b, a);
+    let outgoing = difference(c, b);
+    if angle_excluded(incoming, outgoing, 0.0341) {
         return Some("terminal_turn");
     }
     let _ = kind;
@@ -430,6 +425,19 @@ mod tests {
     }
 
     #[test]
+    fn pair_interval_angle_pruning_excludes_right_angle_boxes() {
+        // ③ 区间剪枝：非点盒的转角排除直接作用于区间包围（同 seam 机器口径）——
+        // 直角弯的 (x,y) 区间盒在见证探查前即剪枝。
+        let a = [Interval { lo: 0.0, hi: 0.1 }, Interval { lo: 0.0, hi: 0.0 }];
+        let b = [Interval { lo: 1.0, hi: 1.1 }, Interval { lo: 0.0, hi: 0.1 }];
+        let c = [Interval { lo: 1.0, hi: 1.1 }, Interval { lo: 1.0, hi: 1.1 }];
+        assert_eq!(
+            pair_reject(PairKind::FirstTwo, a, b, c),
+            Some("terminal_turn")
+        );
+    }
+
+    #[test]
     fn pair_exclusion_retains_leaf_table_without_verifier() {
         // ② 分级裁定：探索性诊断层免验证器——排除标注为叶子表证据级
         // （certificate_verified 恒 null），不夸大为证书承重结论。
@@ -443,9 +451,11 @@ mod tests {
         ];
         let out = diagnose_first_two_chords(tiny);
         assert_eq!(out["status"], "necessary_condition_excluded");
-        assert!(out["exclusion_certificate"]
-            .as_array()
-            .is_some_and(|v| !v.is_empty()));
+        assert!(
+            out["exclusion_certificate"]
+                .as_array()
+                .is_some_and(|v| !v.is_empty())
+        );
         assert!(out["certificate_verified"].is_null());
     }
 
