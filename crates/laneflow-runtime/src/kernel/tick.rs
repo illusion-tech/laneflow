@@ -4130,9 +4130,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    /// P5 域 C①（#1199）：T 预约障碍停距——路线周邻 transition 边（T 自身
-    /// 或投影邻接边）上存在他人 committed T-cell 预约时，返回至投影区间的
-    /// 停距约束（预约期+占用期统一于 cell 态查询）。
+    /// P5 域 C①（#1199）：T 预约障碍停距——P2-2 预计算邻域（transition_
+    /// neighborhood_hops，O(过渡数) 非 O(路线长)）上存在他人 committed
+    /// T-cell 预约时返回停距约束（预约期+占用期统一于 cell 态查询）。
     fn transition_reservation_stop(
         &self,
         state: &VehicleState,
@@ -4140,31 +4140,23 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         lengths: &[u32],
     ) -> Option<crate::kernel::waiting::WaitingStopConstraint> {
         let traffic = self.binding.revision.traffic();
-        for (edge_index, edge) in compiled.edges.iter().enumerate() {
-            let is_transition_neighborhood = traffic.is_lateral_transition_segment(*edge)
-                || traffic.predecessors(*edge).is_some_and(|list| {
-                    list.iter()
-                        .any(|pred| traffic.is_lateral_transition_segment(*pred))
-                })
-                || traffic.successors(*edge).is_some_and(|list| {
-                    list.iter()
-                        .any(|succ| traffic.is_lateral_transition_segment(*succ))
-                });
-            if !is_transition_neighborhood {
+        for &hop in &compiled.transition_neighborhood_hops {
+            let edge_index = hop as usize;
+            let Some(edge) = compiled.edges.get(edge_index).copied() else {
                 continue;
-            }
-            let transition_edge = if traffic.is_lateral_transition_segment(*edge) {
-                *edge
+            };
+            let transition_edge = if traffic.is_lateral_transition_segment(edge) {
+                edge
             } else {
                 traffic
-                    .predecessors(*edge)
+                    .predecessors(edge)
                     .and_then(|list| {
                         list.iter()
                             .copied()
                             .find(|pred| traffic.is_lateral_transition_segment(*pred))
                     })
                     .or_else(|| {
-                        traffic.successors(*edge).and_then(|list| {
+                        traffic.successors(edge).and_then(|list| {
                             list.iter()
                                 .copied()
                                 .find(|succ| traffic.is_lateral_transition_segment(*succ))
@@ -6271,6 +6263,7 @@ mod preview {
             final_conflict_clearance: None,
             nearest_motion_barriers: Vec::new(),
             waiting_maneuver_bits: Box::default(),
+            transition_neighborhood_hops: Vec::new(),
             hops: Vec::new(),
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.

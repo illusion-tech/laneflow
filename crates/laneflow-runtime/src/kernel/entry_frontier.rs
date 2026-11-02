@@ -3436,7 +3436,8 @@ mod tests {
             .conflicts
             .first()
             .expect("the stem crosses the junction")
-            .zone
+            .static_zone()
+            .expect("junction occurrence zone")
             .index();
         let listed = |world: &crate::kernel::state::WorldState| {
             world
@@ -3503,7 +3504,8 @@ mod tests {
             .conflicts
             .first()
             .expect("the stem crosses the junction")
-            .zone
+            .static_zone()
+            .expect("junction occurrence zone")
             .index();
         crate::reset_deferred_counts();
         world

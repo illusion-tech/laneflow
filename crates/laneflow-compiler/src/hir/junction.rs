@@ -632,16 +632,7 @@ pub(crate) fn build_junction_hir(
         (0..lane_edges.len()).map(|_| None).collect();
     for (path_key, path) in paths.iter() {
         let edge_range = path.edges.as_usize_range();
-        let edges = &path_edges[edge_range.clone()];
-        std::eprintln!(
-            "R7-slice: path={:?} range={:?} members={:?}",
-            path.stable_key,
-            edge_range,
-            edges
-                .iter()
-                .map(|m| lane_edges.get(m.target).stable_key.to_string())
-                .collect::<Vec<_>>()
-        );
+        let edges = &path_edges[edge_range];
         let junction = movements.get(path.movement).junction;
         for (local_index, edge) in edges.iter().enumerate() {
             let is_boundary = local_index == 0 || local_index + 1 == edges.len();
@@ -747,17 +738,24 @@ pub(crate) fn build_junction_hir(
         diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
         diagnostics.push(diagnostic);
     }
-    // D②（#1199 4438203317）：路径成员索引——stable_key→含该边路径集
-    // （构建期一次、查询 O(1)，弃规则环内 O(N²) 扫描）。
-    let mut member_index: std::collections::HashMap<String, Vec<HirManeuverPathKey>> =
-        std::collections::HashMap::new();
+    // D②（#1199 4438203317）：路径成员索引——完整边身份（module+stable_key，
+    // P2-1 修正：stable_key 显式 module-local、跨模块同名边不得混键）→
+    // 含该边路径集（构建期一次、查询 O(1)，弃规则环内 O(N²) 扫描）。
+    // 容量预置（会计钉：min-headless 零重分配——HashMap 增长即重分配）。
+    let member_total: usize = paths
+        .iter()
+        .map(|(_, path)| path.edges.as_usize_range().len())
+        .sum();
+    let mut member_index: std::collections::HashMap<(u32, String), Vec<HirManeuverPathKey>> =
+        std::collections::HashMap::with_capacity(member_total);
     for (path_key, path) in paths.iter() {
         for member in &path_edges[path.edges.as_usize_range()] {
             if member.target.index() >= lane_edges.len() {
                 continue;
             }
+            let member_edge = lane_edges.get(member.target);
             member_index
-                .entry(lane_edges.get(member.target).stable_key.to_string())
+                .entry((member_edge.module.raw(), member_edge.stable_key.to_string()))
                 .or_default()
                 .push(path_key);
         }
@@ -822,23 +820,23 @@ pub(crate) fn build_junction_hir(
             let Some(claim) = internal_claims[successor.target.index()].as_ref() else {
                 continue;
             };
-            // R-7 精化（stable_key 稳健版+D② 索引）：引用边 ∈ **含目标
-            // internal 的路径**全边集时合法（成员索引 O(1) 查候选路径集、
-            // claims 切片错位免疫）；路径外引用仍拒。
-            let same_path_member =
-                member_index
-                    .get(&edge.stable_key.to_string())
-                    .is_some_and(|candidates| {
-                        candidates.iter().any(|candidate_key| {
-                            let path = paths.get(*candidate_key);
-                            path_edges[path.edges.as_usize_range()]
-                                .iter()
-                                .any(|member| {
-                                    lane_edges.get(member.target).stable_key.to_string()
-                                        == lane_edges.get(successor.target).stable_key.to_string()
-                                })
-                        })
-                    });
+            // R-7 精化（stable_key 稳健版+D② 索引+P2-1 全身份键）：引用边
+            // ∈ **含目标 internal 的路径**全边集时合法（成员索引 O(1) 查
+            // 候选路径集、claims 切片错位免疫、module+stable_key 全身份）；
+            // 路径外引用仍拒。
+            let same_path_member = member_index
+                .get(&(edge.module.raw(), edge.stable_key.to_string()))
+                .is_some_and(|candidates| {
+                    candidates.iter().any(|candidate_key| {
+                        let path = paths.get(*candidate_key);
+                        path_edges[path.edges.as_usize_range()]
+                            .iter()
+                            .any(|member| {
+                                lane_edges.get(member.target).stable_key.to_string()
+                                    == lane_edges.get(successor.target).stable_key.to_string()
+                            })
+                    })
+                });
             if same_path_member {
                 continue;
             }

@@ -160,6 +160,9 @@ pub(crate) struct CompiledRoute {
     pub waiting_maneuver_bits: Box<[u64]>,
     /// 与 `edges` 等长的逐游标运动输入；为空时由 [`route_hop`] 从源数组逐项读取。
     pub hops: Vec<RouteHop>,
+    /// P2-2（#1199）：过渡邻域边下标预计算（T 自身/投影邻接——注册期
+    /// 一次、运动计算 O(过渡数) 非 O(路线长)；D 域派生族精神）。
+    pub transition_neighborhood_hops: Vec<u32>,
 }
 
 #[cfg(any(test, feature = "execution-evidence"))]
@@ -184,6 +187,7 @@ impl CompiledRoute {
             final_conflict_clearance: _,
             nearest_motion_barriers,
             waiting_maneuver_bits,
+            transition_neighborhood_hops,
             hops,
         } = self;
         crate::kernel::state::vec_bytes(edges)
@@ -202,6 +206,7 @@ impl CompiledRoute {
             + crate::kernel::state::vec_bytes(conflict_gate_ranges)
             + crate::kernel::state::vec_bytes(nearest_motion_barriers)
             + crate::kernel::state::slice_bytes(waiting_maneuver_bits)
+            + crate::kernel::state::vec_bytes(transition_neighborhood_hops)
             + crate::kernel::state::vec_bytes(hops)
     }
 }
@@ -611,6 +616,20 @@ pub(crate) fn compile_route(
         .filter(|edge| revision.traffic().is_lateral_transition_segment(**edge))
         .count();
     let stream_occurrence_count = count_conflict_occurrences(revision, &maneuvers)?;
+    // P2-2（#1199）：过渡邻域边下标预计算（T 自身/投影邻接）。
+    let transition_neighborhood_hops: Vec<u32> = (0..edges.len())
+        .filter(|index| {
+            let edge = edges[*index];
+            traffic.is_lateral_transition_segment(edge)
+                || index
+                    .checked_sub(1)
+                    .is_some_and(|prev| traffic.is_lateral_transition_segment(edges[prev]))
+                || edges
+                    .get(index + 1)
+                    .is_some_and(|next| traffic.is_lateral_transition_segment(*next))
+        })
+        .filter_map(|index| u32::try_from(index).ok())
+        .collect();
     let conflict_occurrence_count = stream_occurrence_count
         .checked_add(u64::try_from(transition_count).map_err(|_| RouteError::AllocationFailed)?)
         .ok_or(RouteError::AllocationFailed)?;
@@ -721,6 +740,7 @@ pub(crate) fn compile_route(
         final_conflict_clearance,
         nearest_motion_barriers,
         waiting_maneuver_bits,
+        transition_neighborhood_hops,
         hops: Vec::new(),
     };
     compiled.refresh_hops(lengths, speeds)?;
@@ -4641,6 +4661,7 @@ mod compile_route_tests {
             final_conflict_clearance: Some((final_clearance, 0)),
             nearest_motion_barriers: Vec::new(),
             waiting_maneuver_bits: Box::default(),
+            transition_neighborhood_hops: Vec::new(),
             hops: Vec::new(),
         };
         assert_eq!(
