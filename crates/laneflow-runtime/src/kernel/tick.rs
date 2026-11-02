@@ -2441,7 +2441,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         index = occurrence_index;
         while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop {
-            let zone = compiled.conflicts[index].zone.index();
+            let occurrence = &compiled.conflicts[index];
+            // P5（#1199）：Transition 出现项查 T-cell 占用（cells_unavailable
+            // 上段已查）——不走 zone contenders 面（static_zone 空≠不可证）。
+            if matches!(
+                occurrence.resource,
+                crate::kernel::conflict::ConflictResource::Transition(_)
+            ) {
+                index = index.saturating_add(1);
+                continue;
+            }
+            let zone = occurrence.static_zone().map_or(usize::MAX, |z| z.index());
             if self.derived.spawn_contenders.best.get(zone).is_none() {
                 return AdmissionPreview::Unprovable;
             }
@@ -2666,7 +2676,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             ) else {
                 return YieldAdmission::Unprovable;
             };
-            if zone != occurrence.zone {
+            if Some(zone) != occurrence.static_zone() {
                 return YieldAdmission::Unprovable;
             }
             let Some(stream) = policy.stream(occurrence.stream, state.class) else {
@@ -2688,8 +2698,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return YieldAdmission::Unprovable;
             };
             for target in targets {
-                let address = crate::ConflictPassageAddress::new(
-                    occurrence.zone,
+                let address = crate::ConflictPassageAddress::from_resource(
+                    occurrence.resource,
                     target.stream(),
                     target.passage_local_index(),
                 );
@@ -3554,7 +3564,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     && compiled.conflicts[index..]
                         .iter()
                         .take_while(|entry| entry.admission_hop == hop)
-                        .any(|entry| entry.zone.index() == *zone)
+                        .any(|entry| entry.static_zone().map_or(usize::MAX, |z| z.index()) == *zone)
                     && self
                         .derived
                         .spawn_contenders
@@ -4120,6 +4130,75 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// P5 域 C①（#1199）：T 预约障碍停距——路线周邻 transition 边（T 自身
+    /// 或投影邻接边）上存在他人 committed T-cell 预约时，返回至投影区间的
+    /// 停距约束（预约期+占用期统一于 cell 态查询）。
+    fn transition_reservation_stop(
+        &self,
+        state: &VehicleState,
+        compiled: &crate::kernel::tables::CompiledRoute,
+        lengths: &[u32],
+    ) -> Option<crate::kernel::waiting::WaitingStopConstraint> {
+        let traffic = self.binding.revision.traffic();
+        for (edge_index, edge) in compiled.edges.iter().enumerate() {
+            let is_transition_neighborhood = traffic.is_lateral_transition_segment(*edge)
+                || traffic.predecessors(*edge).is_some_and(|list| {
+                    list.iter()
+                        .any(|pred| traffic.is_lateral_transition_segment(*pred))
+                })
+                || traffic.successors(*edge).is_some_and(|list| {
+                    list.iter()
+                        .any(|succ| traffic.is_lateral_transition_segment(*succ))
+                });
+            if !is_transition_neighborhood {
+                continue;
+            }
+            let transition_edge = if traffic.is_lateral_transition_segment(*edge) {
+                *edge
+            } else {
+                traffic
+                    .predecessors(*edge)
+                    .and_then(|list| {
+                        list.iter()
+                            .copied()
+                            .find(|pred| traffic.is_lateral_transition_segment(*pred))
+                    })
+                    .or_else(|| {
+                        traffic.successors(*edge).and_then(|list| {
+                            list.iter()
+                                .copied()
+                                .find(|succ| traffic.is_lateral_transition_segment(*succ))
+                        })
+                    })?
+            };
+            let address = crate::ConflictPassageAddress::new_transition(
+                transition_edge,
+                laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
+                0,
+            );
+            if self
+                .conflict_read()
+                .cells_unavailable(state.handle, std::slice::from_ref(&address))
+            {
+                let distance = crate::kernel::tables::distance_to_occurrence_start(
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                    state.route_edge_index as usize,
+                    state.progress_mm,
+                    edge_index,
+                )?;
+                return Some(crate::kernel::waiting::WaitingStopConstraint {
+                    distance,
+                    hop: u32::try_from(edge_index).ok()?,
+                });
+            }
+        }
+        let _ = lengths;
+        None
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn calculate_active_vehicle_motion(
         self,
         mut state: VehicleState,
@@ -4182,6 +4261,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     Some(current)
                 }
                 Some(_) | None => Some(conflict.distance),
+            };
+        }
+        // P5 域 C①（#1199 总设计）：普通运动穿越投影边以 committed T-cell
+        // 预约为障碍（I-C1 升格：预约或占用期投影为障碍）——T 预约停距并入
+        // movement_stop（与 waiting/conflict stops 同合并面）。
+        if let Some(stop) = self.transition_reservation_stop(&state, compiled, lengths) {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(stop.distance, current) => Some(current),
+                Some(_) | None => Some(stop.distance),
             };
         }
         let proposal = inputs.raw_proposal(delta_s)?;
@@ -6163,6 +6251,7 @@ mod preview {
             maneuvers: Vec::new(),
             hop_gate: vec![None, None],
             gate_hops: Vec::new(),
+            conflict_dispatch_hops: Vec::new(),
             remaining_to_end: vec![
                 BoundedDistance::Finite(75_266),
                 BoundedDistance::Finite(1_000),
@@ -6985,7 +7074,9 @@ mod barrier_query_tests {
         ConflictPassageOccurrence {
             stream: ParticipantStreamOrdinal::from_raw(0),
             passage_local_index: admission_hop,
-            zone: ConflictZoneOrdinal::from_raw(0),
+            resource: crate::kernel::conflict::ConflictResource::Zone(
+                ConflictZoneOrdinal::from_raw(0),
+            ),
             maneuver_index: 0,
             admission_hop,
             entry: RoutePosition {

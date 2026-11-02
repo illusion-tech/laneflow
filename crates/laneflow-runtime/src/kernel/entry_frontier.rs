@@ -1243,12 +1243,12 @@ fn gate_distance_mm(compiled: &super::tables::CompiledRoute, state: &VehicleStat
     } else {
         state.route_edge_index
     };
-    let first = compiled.gate_hops.partition_point({
+    let first = compiled.conflict_dispatch_hops.partition_point({
         #[cfg(test)]
         super::route_query_research::note_search("entry_frontier:916");
         |hop| *hop < cursor
     });
-    let Some(gate_hop) = compiled.gate_hops.get(first).copied() else {
+    let Some(gate_hop) = compiled.conflict_dispatch_hops.get(first).copied() else {
         return NO_DISTANCE_MM;
     };
     if gate_hop < state.route_edge_index {
@@ -1805,14 +1805,18 @@ fn collect_vehicle_targets(
                 state.route_edge_index
             };
             let first = compiled
-                .gate_hops
+                .conflict_dispatch_hops
                 .partition_point({
                     #[cfg(test)]
                     super::route_query_research::note_search("entry_frontier:1242");
                     |hop| *hop < cursor
                 })
                 .max(gate_list_index);
-            for (offset, gate_hop) in compiled.gate_hops[first..].iter().copied().enumerate() {
+            for (offset, gate_hop) in compiled.conflict_dispatch_hops[first..]
+                .iter()
+                .copied()
+                .enumerate()
+            {
                 let in_reach = if !reach.is_finite() || gate_hop < state.route_edge_index {
                     true
                 } else {
@@ -1846,16 +1850,26 @@ fn collect_vehicle_targets(
                     gate_list_index = first + offset;
                     break;
                 }
-                let Some(gate) = compiled
+                let gate = compiled
                     .hop_gate
                     .get(
                         usize::try_from(gate_hop)
                             .map_err(|_| StepError::ConflictInvariantViolation)?,
                     )
                     .copied()
-                    .flatten()
-                else {
-                    return Err(StepError::ConflictInvariantViolation);
+                    .flatten();
+                let Some(gate) = gate else {
+                    // 无 gate 的冲突 hop（T hop，#1199）：资源候选——其冲突
+                    // 出现项地址直接作为近门目标发射（append_gate_targets 按
+                    // range 出现项收集），不走 gate 法规。
+                    if compiled.conflict_gate_ranges[usize::try_from(gate_hop)
+                        .map_err(|_| StepError::ConflictInvariantViolation)?]
+                    .len != 0
+                    {
+                        hops[hop_count] = gate_hop;
+                        hop_count += 1;
+                    }
+                    continue;
                 };
                 let GatePolicyDecision::Candidate(kind) =
                     read.gate_policy_decision(gate, state.profile)
@@ -1925,6 +1939,16 @@ fn append_gate_targets(
             break;
         }
         for occurrence in occurrences[..batch].iter().copied() {
+            // T 出现项（#1199）：无 zone/无流级 yield targets——其近门目标
+            // =自身资源格地址（P4 具名判据在候选面把关，前沿仅登记接近），
+            // 不走 zone yield-targets 发射。
+            if matches!(
+                occurrence.resource(),
+                crate::kernel::conflict::ConflictResource::Transition(_)
+            ) {
+                emit(occurrence)?;
+                continue;
+            }
             let target_len = {
                 let Some(policy) = read.policy() else {
                     return Err(StepError::ConflictInvariantViolation);
@@ -1936,7 +1960,10 @@ fn append_gate_targets(
                 ) else {
                     return Err(StepError::ConflictInvariantViolation);
                 };
-                if zone != occurrence.zone() {
+                let Some(occurrence_zone) = occurrence.static_zone() else {
+                    return Err(StepError::ConflictInvariantViolation);
+                };
+                if zone != occurrence_zone {
                     return Err(StepError::ConflictInvariantViolation);
                 }
                 targets.len()
@@ -1956,8 +1983,11 @@ fn append_gate_targets(
                     let Some(target) = targets.get(target_index) else {
                         return Err(StepError::ConflictInvariantViolation);
                     };
+                    let Some(occurrence_zone) = occurrence.static_zone() else {
+                        return Err(StepError::ConflictInvariantViolation);
+                    };
                     ConflictPassageAddress::new(
-                        occurrence.zone(),
+                        occurrence_zone,
                         target.stream(),
                         target.passage_local_index(),
                     )

@@ -600,6 +600,12 @@ impl crate::kernel::state::WorldState {
         ) {
             return Err(FreshAdmissionFailure::DownstreamSpeed);
         }
+        // E域②（#1199 P2-7）：fresh-motion 准入含过渡资源——spawn 位周邻
+        // transition 边存在 committed T-cell 预约（他人持约）时拒绝（无门
+        // hop 的 T-cell 约束；fail-closed）。
+        if self.fresh_transition_reservation_blocks(input) {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        }
         if self.yield_occupancy_rebuild() {
             return Err(FreshAdmissionFailure::OccupancyYield);
         }
@@ -612,6 +618,38 @@ impl crate::kernel::state::WorldState {
         self.admit_own_motion(input, profile, vehicle_length_mm, delta_s, update_sequence)?;
         self.admit_nearest_leader(input, profile, vehicle_length_mm, delta_s, update_sequence)?;
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
+    }
+
+    /// E域②（#1199 P2-7）：spawn 位周邻 transition 边的 committed T-cell
+    /// 预约检查（任一预约持有该 T 即阻断——spawn 前 handle 未定、以"存在
+    /// 预约即拒"fail-closed 保守判）。
+    fn fresh_transition_reservation_blocks(&self, input: VehicleSpawnInput) -> bool {
+        let traffic = self.binding.revision.traffic();
+        let Some(edges) = self.route_edges(input.route()) else {
+            return true;
+        };
+        let cursor = input.route_edge_index() as usize;
+        let start = cursor.saturating_sub(1);
+        let end = (cursor + 2).min(edges.len());
+        let read = crate::kernel::conflict::ConflictRead::new(
+            &self.committed.conflict,
+            &self.derived.conflict,
+            &self.workspace.conflict,
+        );
+        for edge in &edges[start..end] {
+            if !traffic.is_lateral_transition_segment(*edge) {
+                continue;
+            }
+            let address = crate::ConflictPassageAddress::new_transition(
+                *edge,
+                laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
+                0,
+            );
+            if read.cell_reserved(address) {
+                return true;
+            }
+        }
+        false
     }
 
     /// 索引脏时只在这一批的第一次生成补齐，后面的车走已经建好的树。
@@ -1635,7 +1673,7 @@ impl crate::kernel::state::WorldState {
                 {
                     note_reserve(&mut zones, 1)?;
                     note_reserve(&mut streams, 1)?;
-                    zones.push(entry.zone.index());
+                    zones.push(entry.static_zone().map_or(usize::MAX, |z| z.index()));
                     streams.push(entry.stream);
                 }
                 let waiting_here = compiled.waiting.iter().find(|entry| entry.entry_hop == hop);
@@ -2114,7 +2152,9 @@ impl crate::kernel::state::WorldState {
                 continue;
             };
             for entry in &compiled.conflicts {
-                let Some(count) = offsets.get_mut(entry.zone.index()) else {
+                let Some(count) =
+                    offsets.get_mut(entry.static_zone().map_or(usize::MAX, |z| z.index()))
+                else {
                     return false;
                 };
                 if total as u64 >= limit {
@@ -2144,7 +2184,7 @@ impl crate::kernel::state::WorldState {
                 return false;
             };
             for entry in &compiled.conflicts {
-                let cursor = &mut offsets[entry.zone.index()];
+                let cursor = &mut offsets[entry.static_zone().map_or(usize::MAX, |z| z.index())];
                 zone_routes[*cursor as usize] = route;
                 *cursor += 1;
             }
@@ -3204,9 +3244,13 @@ impl crate::kernel::state::WorldState {
             self.push_waiting_entrants(zone, &mut handles)?;
         }
         for (address, _) in &notes.cells {
-            let filled = self.materialize_zone(address.zone().index());
+            let zone_slot = self
+                .read_view()
+                .conflict_read()
+                .resource_slot_index(address.resource());
+            let filled = self.materialize_zone(zone_slot);
             self.materialized(filled)?;
-            self.push_zone_contenders(address.zone().index(), &mut handles)?;
+            self.push_zone_contenders(zone_slot, &mut handles)?;
             let Some(index) = self.read_view().conflict_read().cell_index_of(*address) else {
                 continue;
             };

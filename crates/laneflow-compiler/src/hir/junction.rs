@@ -632,7 +632,16 @@ pub(crate) fn build_junction_hir(
         (0..lane_edges.len()).map(|_| None).collect();
     for (path_key, path) in paths.iter() {
         let edge_range = path.edges.as_usize_range();
-        let edges = &path_edges[edge_range];
+        let edges = &path_edges[edge_range.clone()];
+        std::eprintln!(
+            "R7-slice: path={:?} range={:?} members={:?}",
+            path.stable_key,
+            edge_range,
+            edges
+                .iter()
+                .map(|m| lane_edges.get(m.target).stable_key.to_string())
+                .collect::<Vec<_>>()
+        );
         let junction = movements.get(path.movement).junction;
         for (local_index, edge) in edges.iter().enumerate() {
             let is_boundary = local_index == 0 || local_index + 1 == edges.len();
@@ -738,9 +747,48 @@ pub(crate) fn build_junction_hir(
         diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
         diagnostics.push(diagnostic);
     }
+    // D②（#1199 4438203317）：路径成员索引——stable_key→含该边路径集
+    // （构建期一次、查询 O(1)，弃规则环内 O(N²) 扫描）。
+    let mut member_index: std::collections::HashMap<String, Vec<HirManeuverPathKey>> =
+        std::collections::HashMap::new();
+    for (path_key, path) in paths.iter() {
+        for member in &path_edges[path.edges.as_usize_range()] {
+            if member.target.index() >= lane_edges.len() {
+                continue;
+            }
+            member_index
+                .entry(lane_edges.get(member.target).stable_key.to_string())
+                .or_default()
+                .push(path_key);
+        }
+    }
     for declared in &declared_internal_edges {
         let edge = lane_edges.get(declared.edge);
-        let Some(successor) = lane_edge_references[edge.successors.as_usize_range()].first() else {
+        // R-7 精化（#1199 评审裁定）：internal 的 lane 后继 ⊆ 路径全边集
+        // （路径自身续边✓）；路径外后继仍拒（防隐式连通）。成员比较用
+        // stable_key（ArenaKey 同边双键空间分歧——S5/S6 资产：跨空间比较
+        // 一律 stable_key）。
+        let claiming_path = internal_claims[declared.edge.index()]
+            .as_ref()
+            .map(|claim| paths.get(claim.source_path));
+        let edge_stable = &edge.stable_key;
+        let _ = edge_stable;
+        // R-7 成员检修正（#1199 评审 4438135047）：排除自身后判外后继——
+        // 前形 any() 首侧含自身致路径含自身恒真、判永否（fail-open）；正
+        // 判=后继 ∈ 路径全边集（entry+internal+exit）✓、路径外后继仍拒。
+        let outside_path_successor = lane_edge_references[edge.successors.as_usize_range()]
+            .iter()
+            .find(|successor| {
+                !claiming_path.is_some_and(|path| {
+                    path_edges[path.edges.as_usize_range()]
+                        .iter()
+                        .any(|member| {
+                            lane_edges.get(member.target).stable_key.to_string()
+                                == lane_edges.get(successor.target).stable_key.to_string()
+                        })
+                })
+            });
+        let Some(successor) = outside_path_successor else {
             continue;
         };
         let path_key = internal_claims[declared.edge.index()]
@@ -766,14 +814,34 @@ pub(crate) fn build_junction_hir(
                         .is_some()
                 });
         if owner_is_explicit_internal {
-            // The owner-side check above already rejects every successor on an explicit internal
-            // edge. Avoid producing a second diagnostic when its target is also internal.
+            // The owner-side check above already rejects every out-of-path successor on an explicit
+            // internal edge. Avoid producing a second diagnostic when its target is also internal.
             continue;
         }
         for successor in &lane_edge_references[edge.successors.as_usize_range()] {
             let Some(claim) = internal_claims[successor.target.index()].as_ref() else {
                 continue;
             };
+            // R-7 精化（stable_key 稳健版+D② 索引）：引用边 ∈ **含目标
+            // internal 的路径**全边集时合法（成员索引 O(1) 查候选路径集、
+            // claims 切片错位免疫）；路径外引用仍拒。
+            let same_path_member =
+                member_index
+                    .get(&edge.stable_key.to_string())
+                    .is_some_and(|candidates| {
+                        candidates.iter().any(|candidate_key| {
+                            let path = paths.get(*candidate_key);
+                            path_edges[path.edges.as_usize_range()]
+                                .iter()
+                                .any(|member| {
+                                    lane_edges.get(member.target).stable_key.to_string()
+                                        == lane_edges.get(successor.target).stable_key.to_string()
+                                })
+                        })
+                    });
+            if same_path_member {
+                continue;
+            }
             let Some(declared) = find_declared_junction_edge(
                 &declared_internal_edges,
                 claim.junction,

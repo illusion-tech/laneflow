@@ -979,8 +979,12 @@ impl MigrationDeltaJournal {
         if self.open_tick_count_at.is_none() || !self.ensure(CONFLICT_LAG_DELTA_BYTES) {
             return;
         }
+        let Some(zone) = address.static_zone() else {
+            // S4 规则：过渡资源不入迁移日志（G2③ 持久边界失败关闭）。
+            return;
+        };
         put_u32(&mut self.bytes, address.stream().raw());
-        put_u32(&mut self.bytes, address.zone().raw());
+        put_u32(&mut self.bytes, zone.raw());
         put_u32(&mut self.bytes, address.passage_local_index());
         match reference {
             crate::ConflictLagReference::NoHistory => {

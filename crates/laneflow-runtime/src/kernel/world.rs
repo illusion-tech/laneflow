@@ -2987,12 +2987,26 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !self.conflict_read().contains_address(address) {
             return None;
         }
+        // 域 A（#1199 总设计）：Transition 资源格无 static_zone——经其
+        // stream passage 取 (stream, zone) 稳定对。**身份双层**：本体=
+        // 资源格地址（resource 编码三面同源）、(stream,zone)=passage 归属
+        // 派生（非身份本体——不得串成静态 passage 身份）；S4 口径=不炸+
+        // 失败关闭、S5=unique_address 重绑定域。
+        let zone = address.static_zone().or_else(|| {
+            self.binding
+                .revision
+                .conflict()
+                .participant_stream(address.stream())?
+                .passages()
+                .get(usize::try_from(address.passage_local_index()).ok()?)
+                .map(|passage| passage.conflict_zone())
+        })?;
         Some(crate::ConflictPassageLocator::new(
             self.binding
                 .revision
                 .identity()
                 .stable_id(address.stream())?,
-            self.binding.revision.identity().stable_id(address.zone())?,
+            self.binding.revision.identity().stable_id(zone)?,
         ))
     }
 
@@ -3010,7 +3024,26 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let occurrence = *compiled
             .conflicts
             .get(usize::try_from(conflict_occurrence_index).ok()?)?;
-        let stable_locator = self.conflict_passage_locator(occurrence.address())?;
+        // T 出现项 locator（#1199）：locator 语义=passage 身份 (stream, zone)
+        // （conflict.rs 文档义，与资源种类无关）——Transition 资源格无
+        // static_zone，经其 stream passage 取 (stream, zone) 稳定对（零格式
+        // 变化：locator 类型与持久形制不动）。
+        let zone = occurrence.static_zone().or_else(|| {
+            self.binding
+                .revision
+                .conflict()
+                .participant_stream(occurrence.stream)?
+                .passages()
+                .get(usize::try_from(occurrence.passage_local_index).ok()?)
+                .map(|passage| passage.conflict_zone())
+        })?;
+        let stable_locator = crate::ConflictPassageLocator::new(
+            self.binding
+                .revision
+                .identity()
+                .stable_id(occurrence.stream)?,
+            self.binding.revision.identity().stable_id(zone)?,
+        );
         compiled.conflict_occurrence_locator(route, conflict_occurrence_index, stable_locator)
     }
 

@@ -1860,6 +1860,13 @@ fn explicit_junction_internal_unit(
             successors: &[],
         })
         .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "outside",
+            length_meters: 3.0,
+            speed_limit_meters_per_second: 5.0,
+            successors: &[],
+        })
+        .unwrap()
         .add_road_section(RoadSectionInput {
             road_section_key: "section",
             kind_id: "motorLane",
@@ -1930,11 +1937,38 @@ fn explicit_junction_internal_edge_without_successors_uses_path_authority() {
 }
 
 #[test]
-fn explicit_junction_internal_edge_rejects_successors() {
-    let unit = explicit_junction_internal_unit(true, false);
+fn explicit_junction_internal_edge_accepts_path_own_successor() {
+    // R-7 精化（#1199 评审裁定）：internal 的 lane 后继 ⊆ 路径全边集（路径
+    // 自身续边✓——(a) 车道链形合法）；本夹具 internal→exit 为路径自身续边。
+    let hir = build_hir(&explicit_junction_internal_unit(true, false))
+        .expect("path-own successor is the (a) lane-chain form");
+    assert_eq!(hir.junction_internal_edges.len(), 1);
+}
 
+#[test]
+fn explicit_junction_internal_edge_rejects_out_of_path_successor() {
+    // R-7 护栏：路径外后继仍拒（防隐式连通意图保持）。
+    let mut unit = explicit_junction_internal_unit(false, false);
+    let internal_edge = unit.modules[0]
+        .declarations
+        .iter_mut()
+        .find_map(|declaration| match declaration {
+            TypedAstDeclaration::LaneEdge(edge)
+                if edge.header.stable_key.as_ref() == "internal" =>
+            {
+                Some(edge)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let namespace = Arc::<str>::from("city/junction-successors");
+    internal_edge.successors = Box::new([OwnedEntityReference::new(
+        Arc::clone(&namespace),
+        Arc::from("outside"),
+        SourceSpan::point(namespace, 1, 9),
+    )]);
     let diagnostics = match build_hir(&unit) {
-        Ok(_) => panic!("junction-internal successors must fail"),
+        Ok(_) => panic!("out-of-path junction-internal successors must fail"),
         Err(diagnostics) => diagnostics,
     };
     assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
@@ -1948,11 +1982,36 @@ fn explicit_junction_internal_edge_rejects_successors() {
 }
 
 #[test]
-fn explicit_junction_internal_edge_rejects_inbound_successor_authority() {
-    let unit = explicit_junction_internal_unit(false, true);
+fn explicit_junction_internal_edge_accepts_path_own_inbound_reference() {
+    // R-7 精化同步（InternalReferencedBySuccessor）：引用边 ∈ 路径全边集
+    // （路径自身人口✓）时合法；本夹具 entry→internal 为路径自身引用。
+    let hir = build_hir(&explicit_junction_internal_unit(false, true))
+        .expect("path-own inbound reference is the (a) lane-chain form");
+    assert_eq!(hir.junction_internal_edges.len(), 1);
+}
 
+#[test]
+fn explicit_junction_internal_edge_rejects_out_of_path_inbound_reference() {
+    // R-7 护栏：路径外引用仍拒。
+    let mut unit = explicit_junction_internal_unit(false, false);
+    let outside_edge = unit.modules[0]
+        .declarations
+        .iter_mut()
+        .find_map(|declaration| match declaration {
+            TypedAstDeclaration::LaneEdge(edge) if edge.header.stable_key.as_ref() == "outside" => {
+                Some(edge)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let namespace = Arc::<str>::from("city/junction-successors");
+    outside_edge.successors = Box::new([OwnedEntityReference::new(
+        Arc::clone(&namespace),
+        Arc::from("internal"),
+        SourceSpan::point(namespace, 1, 9),
+    )]);
     let diagnostics = match build_hir(&unit) {
-        Ok(_) => panic!("successor references into junction-internal edges must fail"),
+        Ok(_) => panic!("out-of-path successor references must fail"),
         Err(diagnostics) => diagnostics,
     };
     assert!(
