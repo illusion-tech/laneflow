@@ -621,12 +621,11 @@ pub(crate) fn compile_route(
         .filter(|index| {
             let edge = edges[*index];
             traffic.is_lateral_transition_segment(edge)
-                || index
-                    .checked_sub(1)
-                    .is_some_and(|prev| traffic.is_lateral_transition_segment(edges[prev]))
-                || edges
-                    .get(index + 1)
-                    .is_some_and(|next| traffic.is_lateral_transition_segment(*next))
+                || [traffic.predecessors(edge), traffic.successors(edge)]
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .any(|&neighbor| traffic.is_lateral_transition_segment(neighbor))
         })
         .filter_map(|index| u32::try_from(index).ok())
         .collect();
@@ -3719,11 +3718,189 @@ mod compile_route_tests {
             );
         }
 
+        /// 同一真实 T 预约：远处的后车正常前进；到入口才按服务率减速。
+        /// 拍初位置由夹具指定，以独立触发 P5 的正剩余空间和零剩余空间。
+        #[test]
+        fn r_p5_reservation_service_decel_no_instant_stop() {
+            use laneflow_static_contract::LaneEdgeOrdinal;
+
+            let revision = stream_bearing_revision();
+            let traffic = revision.traffic();
+            let transition = (0..traffic.lane_edge_count())
+                .map(LaneEdgeOrdinal::from_raw)
+                .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                .expect("transition edge");
+            let path_edges = traffic
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+                .expect("path 0")
+                .edges();
+            let e2 = path_edges[0];
+            let int_edge = path_edges[1];
+            let exit = *path_edges.last().expect("path exit");
+            let e0 = traffic.predecessors(transition).expect("predecessors")[0];
+            let e5 = traffic.successors(exit).expect("exit successors")[0];
+            let changer_route_edges = vec![e0, transition, e2, int_edge, exit];
+            let e4 = traffic
+                .predecessors(e2)
+                .unwrap()
+                .iter()
+                .copied()
+                .find(|edge| *edge != transition)
+                .unwrap();
+            for direct in [true, false] {
+                let rear_route_edges = if direct {
+                    vec![e0, transition, e2, int_edge, exit, e5]
+                } else {
+                    vec![e4, e2, int_edge, exit, e5]
+                };
+                let mut world = install(revision.clone());
+                let changer_route = world
+                    .register_route(crate::RouteRegisterInput::new(changer_route_edges.clone()))
+                    .unwrap();
+                let rear_route = world
+                    .register_route(crate::RouteRegisterInput::new(rear_route_edges))
+                    .unwrap();
+                let changer = world
+                    .spawn_vehicle(
+                        crate::VehicleSpawnInput::new(
+                            laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                            changer_route,
+                            0,
+                            25_000,
+                            13_900,
+                        )
+                        .with_open_entrance(),
+                    )
+                    .unwrap();
+                let rear = world
+                    .spawn_vehicle(
+                        crate::VehicleSpawnInput::new(
+                            laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                            rear_route,
+                            0,
+                            5_000,
+                            10_000,
+                        )
+                        .with_open_entrance(),
+                    )
+                    .unwrap();
+                world.state.rebuild_occupancy_index().unwrap();
+                let address = crate::ConflictPassageAddress::new_transition(
+                    transition,
+                    laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
+                    0,
+                );
+                let mut saw_approach = false;
+                for _ in 0..20 {
+                    let before = world.vehicle(rear).unwrap();
+                    let held = world
+                        .state
+                        .conflict_read()
+                        .cells_unavailable(rear, &[address]);
+                    let owner = world.vehicle(changer).unwrap();
+                    // 直行路线在 T 仍被占用时测试其投影；同路线则等前车让出足够间隙。
+                    if held
+                        && saw_approach
+                        && (!direct || (owner.route_edge_index == 2 && owner.progress_mm >= 2_500))
+                    {
+                        break;
+                    }
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    if held {
+                        let after = world.vehicle(rear).unwrap();
+                        assert_eq!(after.route_edge_index, 0);
+                        assert!(
+                            after.progress_mm > before.progress_mm,
+                            "the predecessor start is not the stop"
+                        );
+                        assert!(before.speed_mm_s.saturating_sub(after.speed_mm_s) <= 450);
+                        saw_approach = true;
+                    }
+                }
+                assert!(saw_approach);
+                assert!(
+                    world
+                        .state
+                        .conflict_read()
+                        .cells_unavailable(rear, &[address])
+                );
+                let approach = if direct { e0 } else { e4 };
+                let length = world.traffic().lane_lengths_millimetres()[approach.index()];
+                let (room, speed, expected_speed) = if direct {
+                    (20, 1_000, 550)
+                } else {
+                    (100, 10_000, 9_550)
+                };
+                let mut before = world.vehicle(rear).unwrap();
+                before.progress_mm = length - room;
+                before.speed_mm_s = speed;
+                world
+                    .state
+                    .committed
+                    .vehicles
+                    .slot_mut(rear.index() as usize)
+                    .state = Some(before);
+                world.state.rebuild_occupancy_index().unwrap();
+
+                let view = world.state.read_view();
+                for mm in [room / 2, room] {
+                    let ordinary = crate::kernel::waiting::WaitingStopConstraint {
+                        distance: laneflow_static_network::BoundedDistance::Finite(mm),
+                        hop: 0,
+                    };
+                    let stopped = view
+                        .advance_active_vehicle_with_waiting_stop(before, 0.1, Some(ordinary), None)
+                        .unwrap();
+                    assert_eq!(
+                        (stopped.progress_mm, stopped.speed_mm_s),
+                        (before.progress_mm + mm, 0),
+                        "a nearer or equally restrictive waiting stop keeps its stop semantics"
+                    );
+                }
+                let projected = view
+                    .advance_active_vehicle_with_waiting_stop(before, 0.1, None, None)
+                    .unwrap();
+                let zero_room = view
+                    .advance_active_vehicle_with_waiting_stop(
+                        crate::VehicleState {
+                            progress_mm: length,
+                            ..before
+                        },
+                        0.1,
+                        None,
+                        None,
+                    )
+                    .unwrap();
+                let motion = |s: crate::VehicleState| {
+                    (s.route_edge_index, s.progress_mm, s.speed_mm_s, s.carry_um)
+                };
+                let expected = (0, length, expected_speed, 0);
+                assert_eq!(
+                    motion(zero_room),
+                    expected,
+                    "the entry stays closed at zero room"
+                );
+                assert_eq!(
+                    motion(projected),
+                    expected,
+                    "reference speed at the reserved entry"
+                );
+                world.step(crate::TickInput::new(100)).unwrap();
+                assert_eq!(
+                    motion(world.vehicle(rear).unwrap()),
+                    expected,
+                    "committed columns at the reserved entry"
+                );
+            }
+        }
+
         /// R2 验收（s4 钉版）：换道方 tick 0 可进入、目标快速后车距区间
         /// 8m@13.9 → 具名判据 d_stop（26.75m 钉版）> 距离 → P4 no-grant、
         /// 换道停让、后车通过后进入、后车不迫紧急制动；对照分支（无潜在进入
         /// 者）→ 换道方进入。分开归因：P4=§5.2 邻域证明/DownstreamStorage
         /// Boundary=占用面。
+
         #[test]
         fn r2_s4_pinned_follower_blocks_transition_until_passing() {
             use laneflow_static_contract::LaneEdgeOrdinal;

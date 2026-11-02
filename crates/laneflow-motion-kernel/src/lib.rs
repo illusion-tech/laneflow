@@ -107,6 +107,8 @@ pub struct Input<'a> {
     pub progress_mm: &'a [u32],
     pub carry_um: &'a [u16],
     pub hard_room_mm: &'a [u32],
+    /// 仅在硬空间耗尽时叠加到投影速度的上限；零表示停稳。
+    pub exhausted_speed_cap_mm_s: &'a [u32],
     pub committed_limit_mm_s: &'a [u32],
     pub leader_m: &'a [f32],
     pub has_leader: &'a [bool],
@@ -454,6 +456,7 @@ impl Kernel {
             input.progress_mm.len(),
             input.carry_um.len(),
             input.hard_room_mm.len(),
+            input.exhausted_speed_cap_mm_s.len(),
             input.committed_limit_mm_s.len(),
             input.leader_m.len(),
             input.has_leader.len(),
@@ -815,9 +818,10 @@ fn finish_values(
         return;
     }
     let room = input.hard_room_mm[row];
+    let projected_speed = (rounded_speed as u32).min(input.committed_limit_mm_s[row]);
     if room == 0 {
         output.travel_mm[row] = 0;
-        output.speed_mm_s[row] = 0;
+        output.speed_mm_s[row] = projected_speed.min(input.exhausted_speed_cap_mm_s[row]);
         output.carry_um[row] = 0;
         output.progress_mm[row] = input.progress_mm[row];
         output.exhausted[row] = true;
@@ -836,9 +840,9 @@ fn finish_values(
     output.travel_mm[row] = travel_mm;
     output.progress_mm[row] = input.progress_mm[row].saturating_add(travel_mm);
     output.speed_mm_s[row] = if exhausted {
-        0
+        projected_speed.min(input.exhausted_speed_cap_mm_s[row])
     } else {
-        (rounded_speed as u32).min(input.committed_limit_mm_s[row])
+        projected_speed
     };
     output.carry_um[row] = if exhausted { 0 } else { (um % 1_000) as u16 };
     output.exhausted[row] = exhausted;
