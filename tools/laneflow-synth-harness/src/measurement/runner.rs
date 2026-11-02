@@ -221,6 +221,19 @@ fn checkpoint(
     )
 }
 
+// oracle 预检（#1170 测量入口，#1219）：完成标记、有序事件、输入身份与实现提交
+// 必须同时相符；实现提交不等值（含只改 oracle 的 `implementation_commit`）必须
+// 拒绝，防止换实现静默复用旧 oracle。
+fn check_oracle(oracle: &Value, input_manifest: &Value, implementation: &str) -> Result<(), Error> {
+    require(
+        oracle["complete"] == true
+            && oracle["input_manifest"] == *input_manifest
+            && oracle["ordered_events_digest"].is_string()
+            && oracle["implementation_commit"] == implementation,
+        || "oracle 未完成、缺少事件、实现提交或输入身份不符".into(),
+    )
+}
+
 fn run_inner(
     input: &Path,
     oracle_path: &Path,
@@ -249,11 +262,10 @@ fn run_inner(
         || "表现比例不符合 workload".into(),
     )?;
     let oracle: Value = serde_json::from_slice(&fs::read(oracle_path.join("report.json"))?)?;
-    require(
-        oracle["complete"] == true
-            && oracle["input_manifest"] == serde_json::to_value(bundle.manifest())?
-            && oracle["ordered_events_digest"].is_string(),
-        || "oracle 未完成、缺少事件或输入身份不符".into(),
+    check_oracle(
+        &oracle,
+        &serde_json::to_value(bundle.manifest())?,
+        implementation,
     )?;
     let environment: Value = serde_json::from_slice(&fs::read(environment)?)?;
     let inputs = frames::inputs(&plan);
@@ -822,6 +834,37 @@ mod tests {
         assert_eq!(group(&input, 2, true, 1), "boundary");
         input.burst = Some(0);
         assert_eq!(group(&input, 1, false, 1), "synchronized_burst");
+    }
+
+    #[test]
+    fn oracle_identity_rejects_only_changed_implementation_commit() {
+        let input_manifest = json!({"identity":{"scale":10_000,"case":"W1","fixed_delta_ms":16}});
+        let implementation = "c".repeat(40);
+        let oracle = json!({"complete":true,"implementation_commit":implementation,
+            "input_manifest":input_manifest,"ordered_events_digest":"a".repeat(64)});
+        check_oracle(&oracle, &input_manifest, &implementation).unwrap();
+        // 负测试（#1219）：只改 oracle SHA，其余字段不动，必须拒绝。
+        let mut only_sha_changed = oracle.clone();
+        only_sha_changed["implementation_commit"] = json!("d".repeat(40));
+        assert!(
+            check_oracle(&only_sha_changed, &input_manifest, &implementation).is_err(),
+            "oracle implementation_commit mismatch must reject"
+        );
+        for (field, value) in [
+            ("complete", json!(false)),
+            ("ordered_events_digest", Value::Null),
+            (
+                "input_manifest",
+                json!({"identity":{"scale":100_000,"case":"W1","fixed_delta_ms":16}}),
+            ),
+        ] {
+            let mut changed = oracle.clone();
+            changed[field] = value;
+            assert!(
+                check_oracle(&changed, &input_manifest, &implementation).is_err(),
+                "invalid oracle field {field}"
+            );
+        }
     }
 
     #[test]

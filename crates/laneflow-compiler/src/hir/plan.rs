@@ -412,6 +412,14 @@ fn junction_budget(
             .saturating_add(requested_bytes::<
                 Option<(HirManeuverPathKey, SourceLocation)>,
             >(lane_edge_count))
+            // 路径成员索引 CSR（#1219 P2-6）：starts(N+1) + 构造游标(N) + 连续
+            // 路径键；路径键按成员出现项上界（maneuver_path_edges）入账，越界
+            // 成员跳过时只高估，宁可高估不低估。
+            .saturating_add(requested_bytes::<usize>(lane_edge_count.saturating_add(1)))
+            .saturating_add(requested_bytes::<usize>(lane_edge_count))
+            .saturating_add(requested_bytes::<HirManeuverPathKey>(
+                counts.maneuver_path_edges,
+            ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
     DomainBudget {
@@ -1467,6 +1475,48 @@ mod tests {
         assert_eq!(
             empty.scratch_bytes, 0,
             "absent conflict domain allocates no lookup tables"
+        );
+    }
+
+    #[test]
+    fn junction_budget_accounts_member_index_layout() {
+        // P2-6（#1219）：成员索引 CSR 三笔全入 scratch（starts(N+1) + 构造游标(N) +
+        // 路径键(M)）；边际增量钉住"不得低估"，M 按出现项上界入账。
+        let unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1())
+            .build()
+            .unwrap();
+        let counts = JunctionCounts {
+            junctions: 1,
+            movements: 1,
+            maneuver_paths: 2,
+            maneuver_path_edges: 5,
+            declared_approach_edges: 2,
+            declared_internal_edges: 1,
+        };
+        let base = junction_budget(&unit, 1, 3, &counts);
+        let more_members = JunctionCounts {
+            junctions: 1,
+            movements: 1,
+            maneuver_paths: 2,
+            maneuver_path_edges: counts.maneuver_path_edges + 1,
+            declared_approach_edges: 2,
+            declared_internal_edges: 1,
+        };
+        assert_eq!(
+            junction_budget(&unit, 1, 3, &more_members).scratch_bytes - base.scratch_bytes,
+            requested_bytes::<HirManeuverPathKey>(1),
+            "path_keys 按成员出现项入账"
+        );
+        let n_terms = requested_bytes::<u8>(1)
+            .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(1))
+            .saturating_add(requested_bytes::<
+                Option<(HirManeuverPathKey, SourceLocation)>,
+            >(1))
+            .saturating_add(requested_bytes::<usize>(2));
+        assert_eq!(
+            junction_budget(&unit, 1, 4, &counts).scratch_bytes - base.scratch_bytes,
+            n_terms,
+            "starts+游标随车道边数入账"
         );
     }
 }

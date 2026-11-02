@@ -156,13 +156,20 @@ impl Injection {
                 s,
                 t,
             } => {
-                let at = if matched == &self.control {
-                    s
+                let (at, left) = if matched == &self.control {
+                    (s, true)
                 } else {
                     assert_eq!(matched, &right_control, "seam side cubic");
-                    t
+                    (t, false)
                 };
-                assert!((0.0..1.0).contains(&at));
+                // P3 参数域合同（#1141，#1207）：接缝对 `[s,1]│[0,t]` 自由域
+                // `[0,1)×(0,1]`——左 `s∈[0,1)`、右 `t∈(0,1]`，两侧不对称是该侧弦
+                // 非零长的必要条件；`s=0`/`t=1` 为该侧整 cubic 单弦边界情形，合法。
+                if left {
+                    assert!((0.0..1.0).contains(&at), "seam left s in [0,1)");
+                } else {
+                    assert!(at > 0.0 && at <= 1.0, "seam right t in (0,1]");
+                }
                 let mut grid: Vec<f64> = (0..=STEPS)
                     .map(|i| i as f64 / STEPS as f64)
                     .filter(|&x| x != at)
@@ -944,6 +951,88 @@ fn e1_pair_and_seam_injection_shapes_follow_frozen_plan() {
     let [c, d] = seam.witness_pair(&right);
     assert_eq!([right_grid[c], right_grid[d]], [0.0, 0.5], "右见证弦 [0,t]");
     assert_eq!(seam.label(), "grid_injected_seam");
+}
+
+// Seam 参数域四端点（#1207）：左 s∈[0,1)——s=0 合法、s=1 拒；右 t∈(0,1]——
+// t=0 拒、t=1 合法。合法端点是该侧整 cubic 单弦边界情形（见证弦 [0,1]）。
+#[test]
+fn seam_left_endpoint_zero_is_legal_single_chord_boundary() {
+    let control = [[0_u64; 3]; 6];
+    let right = [[1_u64; 3]; 6];
+    let seam = Injection {
+        control,
+        kind: InjectionKind::Seam {
+            right_control: right,
+            s: 0.0,
+            t: 0.5,
+        },
+    };
+    let left_grid = seam.parameters(&control);
+    assert_eq!(left_grid.first(), Some(&0.0), "s=0 保端点并入");
+    assert_eq!(left_grid.last(), Some(&1.0), "保端点");
+    assert!(left_grid.windows(2).all(|w| w[0] < w[1]), "排序去重");
+    let [a, b] = seam.witness_pair(&control);
+    assert_eq!(
+        [left_grid[a], left_grid[b]],
+        [0.0, 1.0],
+        "左见证弦 [s,1] = [0,1]"
+    );
+}
+
+#[test]
+#[should_panic(expected = "seam left s in [0,1)")]
+fn seam_left_endpoint_one_is_rejected() {
+    let control = [[0_u64; 3]; 6];
+    let right = [[1_u64; 3]; 6];
+    Injection {
+        control,
+        kind: InjectionKind::Seam {
+            right_control: right,
+            s: 1.0,
+            t: 0.5,
+        },
+    }
+    .parameters(&control);
+}
+
+#[test]
+#[should_panic(expected = "seam right t in (0,1]")]
+fn seam_right_endpoint_zero_is_rejected() {
+    let control = [[0_u64; 3]; 6];
+    let right = [[1_u64; 3]; 6];
+    Injection {
+        control,
+        kind: InjectionKind::Seam {
+            right_control: right,
+            s: 0.5,
+            t: 0.0,
+        },
+    }
+    .parameters(&right);
+}
+
+#[test]
+fn seam_right_endpoint_one_is_legal_single_chord_boundary() {
+    let control = [[0_u64; 3]; 6];
+    let right = [[1_u64; 3]; 6];
+    let seam = Injection {
+        control,
+        kind: InjectionKind::Seam {
+            right_control: right,
+            s: 0.5,
+            t: 1.0,
+        },
+    };
+    let right_grid = seam.parameters(&right);
+    assert_eq!(right_grid.first(), Some(&0.0), "保端点");
+    assert_eq!(right_grid.last(), Some(&1.0), "t=1 保端点并入");
+    assert!(right_grid.windows(2).all(|w| w[0] < w[1]), "排序去重");
+    let [c, d] = seam.witness_pair(&right);
+    assert_eq!(
+        [right_grid[c], right_grid[d]],
+        [0.0, 1.0],
+        "右见证弦 [0,t] = [0,1]"
+    );
 }
 
 #[test]

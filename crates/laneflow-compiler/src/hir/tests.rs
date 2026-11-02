@@ -2032,6 +2032,226 @@ fn explicit_junction_internal_edge_rejects_out_of_path_inbound_reference() {
     );
 }
 
+// P2-5 反例夹具（#1219）：双模块同名边（A::exit 与 B::exit、A::internal 与
+// B::internal 均同 stable_key）。声明集合挂在 A 的路口上（approach 须 section 派生、
+// internal 不得 section 派生），B 侧为合成路口（无显式集合）。
+fn declare_junction_edge_sets(unit: &mut CompilationUnit, namespace: &str) {
+    let namespace = Arc::<str>::from(namespace);
+    let location = |column| SourceSpan::point(Arc::clone(&namespace), 1, column);
+    let junction = unit
+        .modules
+        .iter_mut()
+        .filter(|module| module.descriptor().authoring_namespace_id() == namespace.as_ref())
+        .find_map(|module| {
+            module
+                .declarations
+                .iter_mut()
+                .find_map(|declaration| match declaration {
+                    TypedAstDeclaration::Junction(junction) => Some(junction),
+                    _ => None,
+                })
+        })
+        .unwrap();
+    junction.approach_edges = Box::new([
+        OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("entry"), location(1)),
+        OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("exit"), location(2)),
+    ]);
+    junction.internal_edges = Box::new([OwnedEntityReference::new(
+        Arc::clone(&namespace),
+        Arc::from("internal"),
+        location(3),
+    )]);
+}
+
+fn junction_path_module(
+    namespace: &str,
+    imports: &[&str],
+    entry_successors: &[LaneEdgeReference<'_>],
+    internal_successors: &[LaneEdgeReference<'_>],
+) -> SyntheticModule {
+    let limits = CompileLimits::p100_initial_v1();
+    let mut builder = SyntheticModuleBuilder::new(header(namespace), &limits).unwrap();
+    for import in imports {
+        builder.add_import(import).unwrap();
+    }
+    let entry_chain = [LaneEdgeReference::local("entry")];
+    let exit_chain = [LaneEdgeReference::local("exit")];
+    let approach_lanes = [
+        AuthoringLaneInput {
+            authoring_lane_key: "lane-entry",
+            edge_chain: &entry_chain,
+            lane_group: None,
+        },
+        AuthoringLaneInput {
+            authoring_lane_key: "lane-exit",
+            edge_chain: &exit_chain,
+            lane_group: None,
+        },
+    ];
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "entry",
+            length_meters: 10.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: entry_successors,
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "internal",
+            length_meters: 5.0,
+            speed_limit_meters_per_second: 5.0,
+            successors: internal_successors,
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "exit",
+            length_meters: 10.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_road_section(RoadSectionInput {
+            road_section_key: "section",
+            kind_id: "motorLane",
+            lanes: &approach_lanes,
+        })
+        .unwrap()
+        .add_road_corridor(RoadCorridorInput {
+            road_corridor_key: "corridor",
+            reference_section: RoadSectionReference::local("section"),
+            elements: &[CorridorElementReference::road_section(
+                RoadSectionReference::local("section"),
+            )],
+        })
+        .unwrap()
+        .add_junction(JunctionInput {
+            junction_key: "junction",
+        })
+        .unwrap()
+        .add_movement(MovementInput {
+            turn_direction: None,
+            movement_key: "movement",
+            junction: JunctionReference::local("junction"),
+            directed_entry_approach_key: "entry",
+            directed_exit_approach_key: "exit",
+        })
+        .unwrap()
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "path",
+            movement: MovementReference::local("movement"),
+            entry_edge: LaneEdgeReference::local("entry"),
+            internal_edges: &[LaneEdgeReference::local("internal")],
+            exit_edge: LaneEdgeReference::local("exit"),
+        })
+        .unwrap();
+    builder.finish().unwrap()
+}
+
+#[test]
+fn explicit_junction_internal_edge_rejects_cross_module_same_name_successor() {
+    // P2-5 反例（#1219）：A::internal 的后继 B::exit 与路径成员 A::exit stable_key
+    // 同为 "exit"，但不同模块、不同实体——typed 身份必须判路径外后继并拒绝。
+    let base = module("city/junction-cross-base", &[], &[("exit", &[])]);
+    let internal_successors = [LaneEdgeReference::imported(
+        "city/junction-cross-base",
+        "exit",
+    )];
+    let app = junction_path_module(
+        "city/junction-cross",
+        &["city/junction-cross-base"],
+        &[],
+        &internal_successors,
+    );
+    let mut unit = unit([app, base]);
+    declare_junction_edge_sets(&mut unit, "city/junction-cross");
+    let diagnostics = match build_hir(&unit) {
+        Ok(_) => panic!("cross-module same-name successor must stay out of path"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::JunctionEdgeSetMismatch {
+            edge_key,
+            violation: JunctionEdgeSetViolation::InternalHasSuccessors,
+            ..
+        } if edge_key.as_ref() == "internal"
+    )));
+}
+
+#[test]
+fn explicit_junction_internal_edge_rejects_cross_module_same_name_inbound_reference() {
+    // P2-5 对称反例（#1219）：B 路径成员 B::internal 与目标 A::internal 同为
+    // "internal"，但不同实体——候选路径不含目标 internal，路径外入向引用仍拒。
+    let entry_successors = [
+        LaneEdgeReference::imported("city/inbound-a", "internal"),
+        LaneEdgeReference::local("internal"),
+    ];
+    let internal_successors = [LaneEdgeReference::local("exit")];
+    let base = junction_path_module(
+        "city/inbound-b",
+        &["city/inbound-a"],
+        &entry_successors,
+        &internal_successors,
+    );
+    let app = junction_path_module("city/inbound-a", &[], &[], &[]);
+    let mut unit = unit([app, base]);
+    declare_junction_edge_sets(&mut unit, "city/inbound-a");
+    let diagnostics = match build_hir(&unit) {
+        Ok(_) => panic!("cross-module same-name inbound reference must stay out of path"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(
+        diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::JunctionEdgeSetMismatch {
+                edge_key,
+                violation: JunctionEdgeSetViolation::InternalReferencedBySuccessor,
+                ..
+            } if edge_key.as_ref() == "internal"
+        )),
+        "unexpected diagnostics: {:?}",
+        diagnostics
+            .diagnostics()
+            .iter()
+            .map(crate::Diagnostic::payload)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn junction_scratch_budget_is_exact_at_the_limit_boundary() {
+    // P2-6 资源边界（#1219）：stage scratch 计划值刚好够；差一单位即 fail closed。
+    let mut unit = explicit_junction_internal_unit(false, false);
+    let plan = HirBuildPlan::analyze(&unit);
+    let exact = u32::try_from(plan.memory.stage_scratch_bytes).expect("scratch fits u32");
+    assert!(exact > 0, "junction fixture must carry scratch budget");
+    unit.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
+        u32::MAX,
+        u32::MAX,
+        exact,
+        u32::MAX,
+    );
+    build_hir(&unit).expect("exact stage scratch budget is just enough");
+    unit.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
+        u32::MAX,
+        u32::MAX,
+        exact - 1,
+        u32::MAX,
+    );
+    let failure = match build_hir(&unit) {
+        Ok(_) => panic!("one byte short must fail closed"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(failure.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::StageScratchBytes,
+            limit,
+            observed,
+        } if *limit == u64::from(exact - 1) && *observed == u64::from(exact)
+    )));
+}
+
 #[test]
 fn hir_checks_record_scratch_and_live_byte_limits_before_stage_allocation() {
     let mut unit = unit([module("city/a", &[], &[("edge-a", &[])])]);
