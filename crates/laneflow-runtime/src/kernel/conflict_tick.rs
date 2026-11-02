@@ -7033,32 +7033,45 @@ impl ConflictTaskView<'_> {
         let unprovable = crate::ConflictNoGrantReason::ApproachUnprovable;
         let compiled = self.read.compiled_route(state.route)?;
         let relations = self.read.binding.revision.traffic().relations();
-        let profile = relations.vehicle_profile(state.profile)?;
         let delta_ms = self.read.binding.config.fixed_delta_time_ms();
-        // 单位换算（#1199 评审 P1-1）：comfort_decel() 为 m/s²、判据期望
-        // mm/s²——×1000 入判据（4.5m/s²→4500mm/s²，d_stop=26.75m 钉版）。
-        let service = (profile.comfort_decel().max(0.0) * 1_000.0) as u64;
-        let min_gap = u64::from(profile.min_gap_mm());
         let interval_edge = *compiled
             .edges
             .get(occurrence.entry.route_edge_index as usize)?;
         let traffic = self.read.binding.revision.traffic();
-        // 2-hop 邻域（上/下游当前车辆）。
+        // 域 B（#1199 总设计三段式）：②停止距离可达域枚举——弃固定两跳
+        // 上限，沿 lane-graph 上/下游游走至停止距离半径（I-B1 枚举域 ⊇
+        // d_stop 可达域；半径=250m 包络任意档案最坏 d_stop；边集含环游标
+        // 重复段——共享边天然覆盖 I-B3）。
+        const MAX_STOP_REACH_MM: u32 = 250_000;
         let mut first_ring = vec![interval_edge];
-        if let Some(successors) = traffic.successors(interval_edge) {
-            first_ring.extend_from_slice(successors);
-        }
-        if let Some(predecessors) = traffic.predecessors(interval_edge) {
-            first_ring.extend_from_slice(predecessors);
-        }
-        let mut neighborhood = first_ring.clone();
-        for edge in &first_ring {
-            if let Some(successors) = traffic.successors(*edge) {
-                neighborhood.extend_from_slice(successors);
+        let mut neighborhood = vec![interval_edge];
+        let mut reached = vec![interval_edge];
+        let mut depth_mm = 0_u32;
+        while depth_mm < MAX_STOP_REACH_MM && !reached.is_empty() {
+            let mut next = Vec::new();
+            for edge in &reached {
+                for neighbor in [traffic.successors(*edge), traffic.predecessors(*edge)]
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                {
+                    if !neighborhood.contains(neighbor) {
+                        neighborhood.push(*neighbor);
+                        next.push(*neighbor);
+                        depth_mm = depth_mm.saturating_add(
+                            traffic
+                                .lane_lengths_millimetres()
+                                .get(neighbor.index())
+                                .copied()
+                                .unwrap_or(u32::MAX),
+                        );
+                    }
+                }
             }
-            if let Some(predecessors) = traffic.predecessors(*edge) {
-                neighborhood.extend_from_slice(predecessors);
+            if first_ring.len() == 1 {
+                first_ring.extend(neighborhood.iter().copied().skip(1));
             }
+            reached = next;
         }
         // 区间边界目标（进入者路线到 T 的最短路线空间距离）。
         let boundary_targets = |route_edges: &[laneflow_static_contract::LaneEdgeOrdinal]| {
@@ -7196,12 +7209,19 @@ impl ConflictTaskView<'_> {
                     // 缺失的 fail-closed 由上方 state/compiled 分支承担）。
                     continue;
                 };
+                let Some(other_profile) = relations.vehicle_profile(other.profile) else {
+                    return Some(unprovable);
+                };
+                // 域 B③（#1199 ⑩档位归属）：逐进入者自身 profile 具名参数
+                // 做停车证明（comfort_decel/min_gap 取进入者档案、非申请者）。
+                let other_service = (other_profile.comfort_decel().max(0.0) * 1_000.0) as u64;
+                let other_min_gap = u64::from(other_profile.min_gap_mm());
                 if !crate::kernel::lane_change::yieldable_by_stopping(
                     u64::from(distance_mm),
                     u64::from(other.speed_mm_s),
                     delta_ms,
-                    service,
-                    min_gap,
+                    other_service,
+                    other_min_gap,
                 ) {
                     return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
                 }
