@@ -725,6 +725,12 @@ pub(super) fn restore_lfrs(
     })
 }
 
+/// 把 wire 的 `(stream, zone)` 定位对解析为当前修订内的静态 passage 地址。
+///
+/// 归属≠身份（#1217 P1-4 残余边界）：v7 行内没有资源种类字段，旧构建/外来
+/// 制品中的过渡资源行与真实静态格行不可区分——本版本 writer 由保存侧结构化
+/// 拒绝保证不再产出此类行；此类历史行的身份问题归 S5 #1200 完整格式与迁移
+/// 处置，此处不做猜测式拒绝（不得误伤真实静态格历史）。
 fn decode_conflict_locator(
     world: &WorldState,
     binding: wire::ConflictPassageLocatorBinding<'_>,
@@ -833,6 +839,20 @@ fn restore_conflict_aggregate(
                     snapshot_vehicle_id,
                 },
             )?;
+            // 归属≠身份（#1217 P1-4 恢复面）：过渡出现项的持久行表达不了资源
+            // 种类与 T 稳定边身份（混合 hop 下归属派生对还恰与静态格重合），
+            // 按资源种类 fail closed，不得把归属对重绑成静态 passage 身份。
+            if !matches!(
+                compiled
+                    .conflicts
+                    .get(usize::try_from(binding.conflict_occurrence_index()).unwrap_or(usize::MAX))
+                    .map(|occurrence| occurrence.resource),
+                Some(crate::kernel::conflict::ConflictResource::Zone(_))
+            ) {
+                return Err(SnapshotRestoreError::InvalidConflictAuthority {
+                    snapshot_vehicle_id,
+                });
+            }
             let maneuver = compiled
                 .maneuvers
                 .get(locator.maneuver_occurrence_index() as usize)
@@ -1061,6 +1081,17 @@ fn restore_conflict_aggregate(
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 })?;
+            // 归属≠身份（#1217 P1-4 恢复面）：覆盖过渡出现项的持久行表达不了
+            // 资源种类与 T 稳定边身份，fail closed；混合 hop 下归属派生对恰与
+            // 静态格重合，必须按资源种类拦截，不得重绑到静态 Zone 格。
+            if !matches!(
+                occurrence.resource,
+                crate::kernel::conflict::ConflictResource::Zone(_)
+            ) {
+                return Err(SnapshotRestoreError::InvalidConflictAuthority {
+                    snapshot_vehicle_id,
+                });
+            }
             if occurrence.entry.route_edge_index != row.entry_route_edge_index()
                 || occurrence.entry.progress_mm != row.entry_progress_mm()
                 || occurrence.clearance.route_edge_index != row.clearance_route_edge_index()

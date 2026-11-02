@@ -1954,11 +1954,21 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             for (slot, next) in updates.iter(&self.committed.vehicles) {
                 let previous = self.committed.vehicles.slot(slot).state;
                 if !previous.as_ref().is_some_and(|old| *old == next) {
-                    let delta = VehicleDelta::from_state(
-                        &next,
-                        self.read_view().compiled_route(next.route),
-                    );
-                    journal.tick_entry(&delta);
+                    // 迁移日志入口级拒绝（#1217 D4）：无法忠实编码的过渡态
+                    // 增量不得进入日志（不得以巧合 Gate 顶替、不得静默丢弃），
+                    // 粘性终止日志使事务按结构化失败整体放弃；世界照常提交。
+                    if VehicleDelta::journalable(&next, self.read_view().compiled_route(next.route))
+                    {
+                        let delta = VehicleDelta::from_state(
+                            &next,
+                            self.read_view().compiled_route(next.route),
+                        );
+                        journal.tick_entry(&delta);
+                    } else {
+                        journal.refuse_unsupported_transition_state(
+                            crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
+                        );
+                    }
                 }
             }
             for claims in self

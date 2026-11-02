@@ -10,6 +10,7 @@ use laneflow_static_contract::{
     ParticipantStreamId, ParticipantStreamOrdinal, SignalAspect, WaitingZoneOrdinal,
 };
 use laneflow_static_network::ResolvedGatePolicy;
+use thiserror::Error;
 
 use crate::{RouteHandle, VehicleHandle};
 
@@ -235,6 +236,35 @@ pub enum ConflictResource {
     Zone(ConflictZoneOrdinal),
     /// 横向过渡段（分类表派生）。
     Transition(LaneEdgeOrdinal),
+}
+
+/// 持久/迁移形制无法忠实表达的过渡状态种类（#1217；按检查位点语义归口，
+/// 与 S5 #1200 翻转点一一对应）。
+///
+/// 层级归属：本类型是 **kernel 域概念**——描述 [`ConflictResource::Transition`]
+/// 资源在当前持久/迁移形制下的可表达性，与过渡资源同域；由 admin 持久化边界
+/// （保存/摘要/恢复/迁移）反向消费（kernel 不依赖 admin）。
+///
+/// v7 持久形制的冲突身份槽只有 `(participant_stream, conflict_zone)` 定位对与
+/// Gate 稳定身份，表达不了「资源种类 + 横向过渡段稳定边身份」；在 S5 按合同 §9
+/// 版本轴交付完整格式之前，保存/摘要/迁移入口对这些状态整入口结构化拒绝——
+/// 不替换身份（不得以归属 `(stream, zone)` 冒充静态 passage 身份）、不静默
+/// 丢弃历史（G2③ 持久边界拒绝同向）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum UnsupportedTransitionState {
+    /// 准入 hop 解析位点（traversal / reservation / eligibility 的准入身份槽）
+    /// 落在过渡资源出现项上（无真实 Gate，混合 hop 同样拒绝）。
+    ///
+    /// 归口本变体的理由：错绑风险来自准入身份槽本身——混合 hop 可能巧合解析到
+    /// 其他机动的 Gate，按「能否解析」放行即写入错误的准入身份。
+    #[error("过渡准入 hop 无真实 Gate，当前持久形制无法忠实表达")]
+    AdmissionHopWithoutGate,
+    /// 持久 passage / occurrence 行覆盖 `ConflictResource::Transition` 出现项。
+    #[error("过渡资源出现项缺资源种类与稳定边身份，当前持久形制无法忠实表达")]
+    TransitionPassageRow,
+    /// `ConflictResource::Transition` 资源格携带非 `NoHistory` 清空历史。
+    #[error("过渡资源清空历史缺资源种类与稳定边身份，当前持久形制无法忠实表达")]
+    TransitionLagHistory,
 }
 
 /// 冲突资源密排槽位（微1 裁定）：静态区 = ordinal 密排；过渡段 =

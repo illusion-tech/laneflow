@@ -575,6 +575,12 @@ pub enum CutoverError {
     /// 迁移增量日志溢出（粘性失败；事务放弃，旧世界不受影响）。
     #[error("迁移增量日志溢出")]
     JournalOverflow,
+    /// 迁移/日志域无法忠实表达的过渡状态（#1217 D3/D4：静态面遇
+    /// `Transition` 失败关闭）。与 `JournalOverflow`、
+    /// `ConflictRevalidationFailed` 严格区分——健康世界的正常运行态，
+    /// 不是容量或证明失败；事务整体放弃，旧世界照常可运行。
+    #[error(transparent)]
+    UnsupportedTransitionState(crate::UnsupportedTransitionState),
     /// 追赶滞后（tick 距离）超过上限。
     #[error("追赶滞后 {lag} tick 超过上限 {limit}")]
     CatchUpLagExceeded {

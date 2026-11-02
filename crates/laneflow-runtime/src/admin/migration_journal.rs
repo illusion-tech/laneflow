@@ -219,7 +219,55 @@ std::thread_local! {
 crate::kernel::execution::carry_hooks!(carry_test_hooks: VEHICLE_DELTA_MATERIALIZATIONS);
 
 impl VehicleDelta {
+    /// 迁移日志增量是否可忠实编码（#1217 D4 入口级拒绝判据）。
+    ///
+    /// 与 [`Self::from_state`] 的前置条件同界，并多一层归属≠身份拦截：
+    /// traversal 存在时其 occurrence 必须存在、phase hop 必须解析到真实
+    /// Gate，且该 hop 不得覆盖过渡资源出现项（含混合 hop）——迁移日志的
+    /// `phase_gate` 槽表达不了资源种类与 T 稳定边身份，巧合解析到的其他
+    /// 机动 Gate 不是本遍历的身份。Waiting membership 的 entry/release hop
+    /// 属等待域（注册期编译校验的真实 Gate），不涉过渡资源。
+    pub(crate) fn journalable(state: &VehicleState, compiled: Option<&CompiledRoute>) -> bool {
+        let Some(traversal) = state.maneuver_traversal else {
+            return true;
+        };
+        let Some(compiled) = compiled else {
+            return false;
+        };
+        if compiled
+            .maneuvers
+            .get(traversal.maneuver_occurrence_index as usize)
+            .is_none()
+        {
+            return false;
+        }
+        let phase_hop = match traversal.phase {
+            ManeuverTraversalPhase::PreGate { next_gate_hop } => next_gate_hop,
+            ManeuverTraversalPhase::Committed {
+                last_crossed_gate_hop,
+            } => last_crossed_gate_hop,
+            ManeuverTraversalPhase::Waiting { release_gate_hop } => release_gate_hop,
+            ManeuverTraversalPhase::Clearing { admission_gate_hop } => admission_gate_hop,
+        };
+        if compiled.admission_hop_transition_covered(traversal.maneuver_occurrence_index, phase_hop)
+        {
+            return false;
+        }
+        compiled
+            .hop_gate
+            .get(usize::try_from(phase_hop).unwrap_or(usize::MAX))
+            .copied()
+            .flatten()
+            .is_some()
+    }
+
     /// 从已提交车辆状态提取增量。
+    ///
+    /// # Panics
+    ///
+    /// 前置条件（入口级保证，#1217 D4）：全部调用方先过 [`Self::journalable`]，
+    /// 无法忠实编码的过渡态增量不得进入本函数；命中前置条件破坏（traversal
+    /// occurrence / phase Gate 无法解析、Waiting membership 形状破坏）即 panic。
     pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
         #[cfg(test)]
         VEHICLE_DELTA_MATERIALIZATIONS.with(|count| count.set(count.get() + 1));
@@ -237,12 +285,14 @@ impl VehicleDelta {
                 ManeuverTraversalPhase::Waiting { release_gate_hop } => (3, release_gate_hop),
                 ManeuverTraversalPhase::Clearing { admission_gate_hop } => (4, admission_gate_hop),
             };
+            // 入口级拒绝保证（`Self::journalable`）：过渡资源 hop（含混合
+            // hop）已在迁移域入口结构化拒绝，此处只是前置断言。
             let phase_gate = compiled
                 .hop_gate
                 .get(phase_hop as usize)
                 .copied()
                 .flatten()
-                .expect("Waiting phase hop resolves Gate");
+                .expect("journalable traversal phase hop resolves Gate");
             (
                 maneuver.entry_route_edge_index,
                 maneuver.path,
@@ -663,6 +713,9 @@ pub(crate) struct MigrationDeltaJournal {
     bytes: Vec<u8>,
     byte_bound: u64,
     overflowed: bool,
+    /// 粘性拒绝（#1217 D4）：增量含无法忠实编码的过渡状态（迁移日志的
+    /// `phase_gate` 槽表达不了资源种类与 T 稳定边身份），日志自此不可解码。
+    unsupported_transition_state: Option<crate::UnsupportedTransitionState>,
     record_count: u64,
     first_tick: Option<u64>,
     last_tick: Option<u64>,
@@ -689,6 +742,7 @@ impl MigrationDeltaJournal {
             bytes,
             byte_bound: _,
             overflowed: _,
+            unsupported_transition_state: _,
             record_count: _,
             first_tick: _,
             last_tick: _,
@@ -729,6 +783,7 @@ impl MigrationDeltaJournal {
             bytes,
             byte_bound,
             overflowed: false,
+            unsupported_transition_state: None,
             record_count: 0,
             first_tick: None,
             last_tick: None,
@@ -749,6 +804,25 @@ impl MigrationDeltaJournal {
     /// 是否已溢出（粘性）。
     pub(crate) const fn overflowed(&self) -> bool {
         self.overflowed
+    }
+
+    /// 已拒绝的过渡状态种类（粘性；#1217 D4）。`Some` 即日志不可解码，
+    /// 事务按失败整体放弃，旧世界不受影响。
+    pub(crate) const fn unsupported_transition_state(
+        &self,
+    ) -> Option<crate::UnsupportedTransitionState> {
+        self.unsupported_transition_state
+    }
+
+    /// 粘性拒绝一条无法忠实编码的过渡状态增量（#1217 D4）：不写任何替代
+    /// 行（不得以巧合 Gate 顶替、不得静默丢弃），日志自此终止、不可解码。
+    pub(crate) fn refuse_unsupported_transition_state(
+        &mut self,
+        kind: crate::UnsupportedTransitionState,
+    ) {
+        if self.unsupported_transition_state.is_none() {
+            self.unsupported_transition_state = Some(kind);
+        }
     }
 
     /// 已写入字节数。
@@ -777,6 +851,12 @@ impl MigrationDeltaJournal {
     }
 
     /// 宿主可观测统计快照：滞后、字节占用、溢出与覆盖区间下界。
+    ///
+    /// 形状契约（#1217 红线事件记录）：本结构的 `Debug` 形状是等值轨迹摘要
+    /// 冻结面（`phase_equivalence` → `tests/fixtures/phase-protocol-e011745e.txt`），
+    /// **不得新增可观测字段**；粘性过渡态拒绝经
+    /// [`Self::unsupported_transition_state`] 与事务失败路径
+    /// （`CutoverError::UnsupportedTransitionState`）观测。
     #[must_use]
     pub fn stats(&self) -> MigrationJournalStats {
         MigrationJournalStats {
@@ -798,6 +878,10 @@ impl MigrationDeltaJournal {
             "overflowed migration journal must be abandoned, not decoded"
         );
         assert!(
+            self.unsupported_transition_state.is_none(),
+            "transition-refused migration journal must be abandoned, not decoded"
+        );
+        assert!(
             offset <= self.bytes.len(),
             "resumed offset beyond written journal bytes"
         );
@@ -813,7 +897,7 @@ impl MigrationDeltaJournal {
 
     /// 预检并粘性置位溢出。返回 `false` 时调用方必须丢弃本条记录。
     fn ensure(&mut self, needed: usize) -> bool {
-        if self.overflowed {
+        if self.overflowed || self.unsupported_transition_state.is_some() {
             return false;
         }
         if self.remaining() < needed {

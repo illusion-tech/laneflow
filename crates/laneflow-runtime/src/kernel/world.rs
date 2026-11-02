@@ -476,6 +476,8 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
+    ///
+    /// 过渡资源格（`Transition`）返回 `None`（#1217 归属≠身份切断）。
     #[must_use]
     pub fn conflict_passage_locator(
         &self,
@@ -1241,9 +1243,20 @@ impl crate::kernel::state::WorldState {
         );
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
         self.note_inserted_vehicle(handle, previous_sequence, update_sequence);
-        let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
-        if let Some(journal) = self.admin.migration_journal.as_mut() {
-            journal.record_vehicle_spawned(next_command_cursor, delta);
+        // 迁移日志入口级拒绝（#1217 D4）：增量只在日志武装时物化；无法忠实
+        // 编码的过渡态粘性终止日志，不得让 `from_state` 触发 panic。
+        if self.admin.migration_journal.is_some() {
+            let compiled = self.compiled_route(state.route);
+            if VehicleDelta::journalable(&state, compiled) {
+                let delta = VehicleDelta::from_state(&state, compiled);
+                if let Some(journal) = self.admin.migration_journal.as_mut() {
+                    journal.record_vehicle_spawned(next_command_cursor, delta);
+                }
+            } else if let Some(journal) = self.admin.migration_journal.as_mut() {
+                journal.refuse_unsupported_transition_state(
+                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
+                );
+            }
         }
         self.workspace
             .frontier_maintenance
@@ -1736,14 +1749,25 @@ impl crate::kernel::state::WorldState {
         let new_state = self
             .vehicle_state(new)
             .expect("freshly committed replacement vehicle");
-        let new_delta = VehicleDelta::from_state(&new_state, self.compiled_route(new_state.route));
-        if let Some(journal) = self.admin.migration_journal.as_mut() {
-            journal.record_vehicle_replaced(
-                next_command_cursor,
-                old,
-                u32::try_from(order_index).expect("live order index fits u32"),
-                new_delta,
-            );
+        // 迁移日志入口级拒绝（#1217 D4）：替换可携带 T-`Clearing` 遍历，
+        // 增量只在日志武装时物化；无法忠实编码时粘性终止日志。
+        if self.admin.migration_journal.is_some() {
+            let compiled = self.compiled_route(new_state.route);
+            if VehicleDelta::journalable(&new_state, compiled) {
+                let new_delta = VehicleDelta::from_state(&new_state, compiled);
+                if let Some(journal) = self.admin.migration_journal.as_mut() {
+                    journal.record_vehicle_replaced(
+                        next_command_cursor,
+                        old,
+                        u32::try_from(order_index).expect("live order index fits u32"),
+                        new_delta,
+                    );
+                }
+            } else if let Some(journal) = self.admin.migration_journal.as_mut() {
+                journal.refuse_unsupported_transition_state(
+                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
+                );
+            }
         }
         self.workspace.frontier_maintenance.note_active_source(new);
         Ok(VehicleReplaceRecord { old, new })
@@ -2312,6 +2336,9 @@ impl TrafficWorld {
     }
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
+    ///
+    /// 过渡资源格（`Transition`）返回 `None`（#1217 归属≠身份切断：其归属派生
+    /// 对不是身份本体，v7 也表达不了资源种类与 T 稳定边身份）。
     ///
     /// # Panics
     ///
@@ -2979,6 +3006,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
+    ///
+    /// 归属≠身份（#1217 P1-4 切断）：过渡资源格（`Transition`）没有忠实的
+    /// 持久 locator——v7 的 `(stream, zone)` 对表达不了资源种类与 T 稳定边
+    /// 身份，且其 stream passage 派生对只是**归属**、不是身份本体，串成静态
+    /// passage 身份即错绑。因此过渡资源格一律返回 `None`，由调用方按持久化
+    /// 边界拒绝（S5 #1200 交付完整格式后在此按资源种类 tagged 身份重绑定）。
     #[must_use]
     pub(crate) fn conflict_passage_locator(
         self,
@@ -2987,20 +3020,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !self.conflict_read().contains_address(address) {
             return None;
         }
-        // 域 A（#1199 总设计）：Transition 资源格无 static_zone——经其
-        // stream passage 取 (stream, zone) 稳定对。**身份双层**：本体=
-        // 资源格地址（resource 编码三面同源）、(stream,zone)=passage 归属
-        // 派生（非身份本体——不得串成静态 passage 身份）；S4 口径=不炸+
-        // 失败关闭、S5=unique_address 重绑定域。
-        let zone = address.static_zone().or_else(|| {
-            self.binding
-                .revision
-                .conflict()
-                .participant_stream(address.stream())?
-                .passages()
-                .get(usize::try_from(address.passage_local_index()).ok()?)
-                .map(|passage| passage.conflict_zone())
-        })?;
+        let zone = address.static_zone()?;
         Some(crate::ConflictPassageLocator::new(
             self.binding
                 .revision

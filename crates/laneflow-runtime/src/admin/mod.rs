@@ -19,3 +19,9 @@ pub(crate) mod snapshot_digest;
 pub(crate) mod snapshot_restore;
 /// 每世界管理数据的唯一所有者。
 pub(crate) mod state;
+
+/// #1217 持久化边界封闭场景集（审计 P1-3/P1-4）：过渡状态保存/摘要结构化拒绝、
+/// 归属≠身份通道切断与含 T 网络跨修订迁移 fail closed 的回归。
+#[cfg(test)]
+#[path = "tests/transition_persistence_boundary.rs"]
+mod transition_persistence_boundary;

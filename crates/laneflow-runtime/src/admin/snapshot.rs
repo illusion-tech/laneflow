@@ -11,6 +11,7 @@ use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
 use thiserror::Error;
 
+use crate::kernel::conflict::UnsupportedTransitionState;
 use crate::{
     CommittedNetworkSource, ParkingBinding, ParkingTarget, TrafficWorld, VehicleStatus, WorldConfig,
 };
@@ -38,6 +39,14 @@ pub enum SnapshotCaptureError {
     /// capture 路径预算无限，不会产生本变体）。
     #[error("直算摘要归一化 scratch 超出限额")]
     LimitExceeded,
+    /// 当前持久形制（LFRS 7 / runtime state 5）无法忠实表达的过渡状态
+    /// （#1217 持久化边界封闭；完整格式归 S5 #1200）。
+    ///
+    /// 与 [`Self::ConflictInvariantViolation`] 严格区分：过渡状态是健康世界的
+    /// 正常运行态，不是 C(T) 失真；宿主不得按不变量破坏的停用/隔离处置处理，
+    /// 只应记录该检查点不可保存/不可摘要并继续使用世界。
+    #[error(transparent)]
+    UnsupportedTransitionState(#[from] UnsupportedTransitionState),
 }
 
 #[cfg(test)]
@@ -121,6 +130,33 @@ where
     }
     map.try_reserve(capacity)
         .map_err(|_| SnapshotCaptureError::ReservationFailed)
+}
+
+/// 准入 hop → Gate 的持久化前统一解析（#1217；traversal / reservation /
+/// eligibility 三个准入身份槽共用一个口径）。
+///
+/// 判定键是**覆盖该 hop 的出现项的资源种类**，不是「hop 能否解析出 Gate」：
+/// 横向过渡段（T）出现项的 admission hop 是前驱边下标（`tables.rs` 出现项发射
+/// 注释），无真实 Gate；混合 hop（同一 hop 同时覆盖 T 与静态出现项）还可能巧合
+/// 解析到其他机动的 Gate——按解析结果放行即写入错误准入身份。含 `Transition`
+/// 覆盖（含混合）一律 [`UnsupportedTransitionState::AdmissionHopWithoutGate`]；
+/// 只覆盖静态出现项而 hop 无 Gate 属编译期已排除的真不变量破坏，保留
+/// [`SnapshotCaptureError::ConflictInvariantViolation`] 语义（宿主处置不同，
+/// 不得与过渡拒绝混同）。解析为纯读、零分配。
+fn persisted_admission_gate(
+    compiled: &crate::kernel::tables::CompiledRoute,
+    maneuver_occurrence_index: u32,
+    admission_hop: u32,
+) -> Result<laneflow_static_contract::ManeuverGateOrdinal, SnapshotCaptureError> {
+    if compiled.admission_hop_transition_covered(maneuver_occurrence_index, admission_hop) {
+        return Err(UnsupportedTransitionState::AdmissionHopWithoutGate.into());
+    }
+    compiled
+        .hop_gate
+        .get(usize::try_from(admission_hop).unwrap_or(usize::MAX))
+        .copied()
+        .flatten()
+        .ok_or(SnapshotCaptureError::ConflictInvariantViolation)
 }
 
 /// 快照点已捕获的逻辑状态：编码无关的绑定集 + 全部每世界可变状态。
@@ -597,10 +633,13 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 全部输出缓冲按计数可失败预留：任一预留失败返回
+    /// 失败族三类：全部输出缓冲按计数可失败预留，任一预留失败返回
     /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
     /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
-    /// [`SnapshotCaptureError::ConflictInvariantViolation`]。
+    /// [`SnapshotCaptureError::ConflictInvariantViolation`]；当前持久形制无法
+    /// 忠实表达的过渡状态（#1217：准入 hop 无真实 Gate、过渡出现项/清空历史行）
+    /// 返回 [`SnapshotCaptureError::UnsupportedTransitionState`]——整入口拒绝、
+    /// 零部分产物，世界照常可运行、可重试，且**不得**按不变量破坏处置。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
         let identity = self.binding.revision.identity();
         let mut capture_budget = crate::admin::snapshot_digest::NormalizationBudget::unlimited();
@@ -725,9 +764,19 @@ impl crate::kernel::state::WorldState {
         let mut conflict_lag_states = Vec::new();
         capture_try_reserve_exact(&mut conflict_lag_states, conflict_lag_count)?;
         for (address, reference) in self.conflict_read().persisted_lag_rows() {
+            // 归属≠身份（#1217 P1-4）：过渡资源格的清空历史在 v7 表达不了资源
+            // 种类与 T 稳定边身份，整入口结构化拒绝——不替换身份、不静默丢历史。
+            if matches!(
+                address.resource(),
+                crate::kernel::conflict::ConflictResource::Transition(_)
+            ) {
+                return Err(SnapshotCaptureError::UnsupportedTransitionState(
+                    UnsupportedTransitionState::TransitionLagHistory,
+                ));
+            }
             let locator = self
                 .conflict_passage_locator(address)
-                .expect("installed conflict address resolves stable locator");
+                .ok_or(SnapshotCaptureError::ConflictInvariantViolation)?;
             conflict_lag_states.push(CapturedConflictLagState {
                 passage: CapturedConflictPassageLocator {
                     participant_stream: *locator.participant_stream_stable_id().as_untyped(),
@@ -812,12 +861,16 @@ impl crate::kernel::state::WorldState {
     /// 从 live 车辆槽位构造单条捕获记录（`capture_snapshot` 与直算摘要共用；
     /// 局部 ID 由调用方按 live 槽位序分配，`route_id_for` 解析所属路线的局部 ID，
     /// 其命中语义由调用方保证）。槽位无车辆时返回 `Ok(None)`；Conflict
-    /// authority 不变量破坏原样透传 [`SnapshotCaptureError::ConflictInvariantViolation`]。
+    /// authority 不变量破坏原样透传 [`SnapshotCaptureError::ConflictInvariantViolation`]；
+    /// 过渡状态（#1217）返回 [`SnapshotCaptureError::UnsupportedTransitionState`]，
+    /// 与不变量破坏严格区分。
     ///
     /// # Panics
     ///
     /// 与 `capture_snapshot` 相同：live 状态引用的路线 / 路由 / 稳定标识无法解析时 panic
     /// （capture 合同的前提，直算摘要入口以 `catch_unwind` 捕获该 panic 并报告不变量破坏）。
+    /// 过渡状态不经 panic：准入 hop 无真实 Gate、过渡出现项行与过渡清空历史均以
+    /// 结构化错误返回（#1217，`catch_unwind` 只兜真 unwind）。
     pub(crate) fn captured_vehicle_at(
         &self,
         identity: &laneflow_static_network::SharedIdentityIndex,
@@ -890,50 +943,56 @@ impl crate::kernel::state::WorldState {
                 },
             }
         });
-        let maneuver_traversal = state.maneuver_traversal.map(|traversal| {
-            let compiled = self
-                .compiled_route(state.route)
-                .expect("live traversal route exists");
-            let maneuver = compiled
-                .maneuvers
-                .get(traversal.maneuver_occurrence_index as usize)
-                .expect("live traversal occurrence exists");
-            let (phase, phase_hop) = match traversal.phase {
-                crate::ManeuverTraversalPhase::PreGate { next_gate_hop } => {
-                    (CapturedManeuverTraversalPhase::PreGate, next_gate_hop)
-                }
-                crate::ManeuverTraversalPhase::Committed {
-                    last_crossed_gate_hop,
-                } => (
-                    CapturedManeuverTraversalPhase::Committed,
-                    last_crossed_gate_hop,
-                ),
-                crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
-                    (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
-                }
-                crate::ManeuverTraversalPhase::Clearing { admission_gate_hop } => {
-                    (CapturedManeuverTraversalPhase::Clearing, admission_gate_hop)
-                }
-            };
-            let gate = compiled
-                .hop_gate
-                .get(phase_hop as usize)
-                .copied()
-                .flatten()
-                .expect("traversal phase hop resolves Gate");
-            CapturedManeuverTraversal {
-                maneuver_occurrence_index: traversal.maneuver_occurrence_index,
-                maneuver_path: *identity
-                    .stable_id(maneuver.path)
-                    .expect("maneuver path resolves stable id")
-                    .as_untyped(),
-                phase,
-                phase_gate: *identity
-                    .stable_id(gate)
-                    .expect("maneuver Gate resolves stable id")
-                    .as_untyped(),
-            }
-        });
+        let maneuver_traversal = state
+            .maneuver_traversal
+            .map(
+                |traversal| -> Result<CapturedManeuverTraversal, SnapshotCaptureError> {
+                    let compiled = self
+                        .compiled_route(state.route)
+                        .expect("live traversal route exists");
+                    let maneuver = compiled
+                        .maneuvers
+                        .get(traversal.maneuver_occurrence_index as usize)
+                        .expect("live traversal occurrence exists");
+                    let (phase, phase_hop) = match traversal.phase {
+                        crate::ManeuverTraversalPhase::PreGate { next_gate_hop } => {
+                            (CapturedManeuverTraversalPhase::PreGate, next_gate_hop)
+                        }
+                        crate::ManeuverTraversalPhase::Committed {
+                            last_crossed_gate_hop,
+                        } => (
+                            CapturedManeuverTraversalPhase::Committed,
+                            last_crossed_gate_hop,
+                        ),
+                        crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
+                            (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
+                        }
+                        crate::ManeuverTraversalPhase::Clearing { admission_gate_hop } => {
+                            (CapturedManeuverTraversalPhase::Clearing, admission_gate_hop)
+                        }
+                    };
+                    // 准入身份槽统一口径（#1217）：过渡资源 hop 无真实 Gate，
+                    // 结构化拒绝而非 panic 或错绑（混合 hop 同拒）。
+                    let gate = persisted_admission_gate(
+                        compiled,
+                        traversal.maneuver_occurrence_index,
+                        phase_hop,
+                    )?;
+                    Ok(CapturedManeuverTraversal {
+                        maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                        maneuver_path: *identity
+                            .stable_id(maneuver.path)
+                            .expect("maneuver path resolves stable id")
+                            .as_untyped(),
+                        phase,
+                        phase_gate: *identity
+                            .stable_id(gate)
+                            .expect("maneuver Gate resolves stable id")
+                            .as_untyped(),
+                    })
+                },
+            )
+            .transpose()?;
         let waiting_membership = state.waiting_membership.map(|membership| {
             let traversal = state
                 .maneuver_traversal
@@ -982,33 +1041,37 @@ impl crate::kernel::state::WorldState {
             .get(slot_index)
             .copied()
             .flatten()
-            .map(|eligibility| {
-                let locator = eligibility.locator();
-                let compiled = self
-                    .compiled_route(state.route)
-                    .expect("eligible vehicle route exists");
-                let maneuver = compiled
-                    .maneuvers
-                    .get(locator.maneuver_occurrence_index() as usize)
-                    .expect("eligible maneuver occurrence exists");
-                let gate = compiled
-                    .hop_gate
-                    .get(locator.admission_gate_hop() as usize)
-                    .copied()
-                    .flatten()
-                    .expect("eligible admission hop resolves Gate");
-                CapturedConflictEligibility {
-                    maneuver_occurrence_index: locator.maneuver_occurrence_index(),
-                    maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
-                    admission_gate: *identity
-                        .stable_id(gate)
-                        .expect("eligible Gate resolves stable id")
-                        .as_untyped(),
-                    conflict_occurrence_index: locator.conflict_occurrence_index(),
-                    passage: stable_passage(locator.stable_locator()),
-                    first_eligible_tick: eligibility.first_eligible_tick(),
-                }
-            });
+            .map(
+                |eligibility| -> Result<CapturedConflictEligibility, SnapshotCaptureError> {
+                    let locator = eligibility.locator();
+                    let compiled = self
+                        .compiled_route(state.route)
+                        .expect("eligible vehicle route exists");
+                    let maneuver = compiled
+                        .maneuvers
+                        .get(locator.maneuver_occurrence_index() as usize)
+                        .expect("eligible maneuver occurrence exists");
+                    // 准入身份槽统一口径（#1217 D2 防御）：与 traversal/reservation 同一
+                    // 解析器，过渡资源 hop 一律结构化拒绝。
+                    let gate = persisted_admission_gate(
+                        compiled,
+                        locator.maneuver_occurrence_index(),
+                        locator.admission_gate_hop(),
+                    )?;
+                    Ok(CapturedConflictEligibility {
+                        maneuver_occurrence_index: locator.maneuver_occurrence_index(),
+                        maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
+                        admission_gate: *identity
+                            .stable_id(gate)
+                            .expect("eligible Gate resolves stable id")
+                            .as_untyped(),
+                        conflict_occurrence_index: locator.conflict_occurrence_index(),
+                        passage: stable_passage(locator.stable_locator()),
+                        first_eligible_tick: eligibility.first_eligible_tick(),
+                    })
+                },
+            )
+            .transpose()?;
         let conflict_reservation = match conflict_view.authority(state.handle) {
             None => None,
             Some(authority) => {
@@ -1021,12 +1084,13 @@ impl crate::kernel::state::WorldState {
                     .maneuvers
                     .get(range.maneuver_occurrence_index() as usize)
                     .expect("reservation maneuver occurrence exists");
-                let gate = compiled
-                    .hop_gate
-                    .get(range.admission_gate_hop() as usize)
-                    .copied()
-                    .flatten()
-                    .expect("reservation admission hop resolves Gate");
+                // 准入身份槽统一口径（#1217）：T 预约的 admission hop 是前驱边下标、
+                // 无真实 Gate，结构化拒绝（混合 hop 同拒）。
+                let gate = persisted_admission_gate(
+                    compiled,
+                    range.maneuver_occurrence_index(),
+                    range.admission_gate_hop(),
+                )?;
                 let mut passages = Vec::new();
                 budget
                     .charge_bytes_for_reserve(
@@ -1049,6 +1113,16 @@ impl crate::kernel::state::WorldState {
                         .conflicts
                         .get(conflict_occurrence_index as usize)
                         .expect("reservation occurrence exists");
+                    // 归属≠身份（#1217 P1-4）：过渡出现项的持久行表达不了资源种类
+                    // 与 T 稳定边身份，整入口拒绝，不得以归属 (stream, zone) 顶替。
+                    if matches!(
+                        occurrence.resource,
+                        crate::kernel::conflict::ConflictResource::Transition(_)
+                    ) {
+                        return Err(SnapshotCaptureError::UnsupportedTransitionState(
+                            UnsupportedTransitionState::TransitionPassageRow,
+                        ));
+                    }
                     let locator = self
                         .conflict_passage_occurrence_locator(state.route, conflict_occurrence_index)
                         .expect("reservation occurrence resolves locator");
@@ -1181,10 +1255,12 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 全部输出缓冲按计数可失败预留：任一预留失败返回
+    /// 失败族三类：全部输出缓冲按计数可失败预留，任一预留失败返回
     /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
     /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
-    /// [`SnapshotCaptureError::ConflictInvariantViolation`]。
+    /// [`SnapshotCaptureError::ConflictInvariantViolation`]；当前持久形制无法
+    /// 忠实表达的过渡状态（#1217）返回 [`SnapshotCaptureError::UnsupportedTransitionState`]，
+    /// 整入口拒绝、零部分产物，世界照常可运行，且**不得**按不变量破坏处置。
     ///
     /// # Panics
     ///

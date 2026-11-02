@@ -1188,10 +1188,21 @@ impl crate::kernel::state::WorldState {
         let state = self
             .vehicle_state(vehicle)
             .expect("committed parking update keeps vehicle live");
-        let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
-        let parking = self.parking_binding_delta(vehicle);
-        if let Some(journal) = self.admin.migration_journal.as_mut() {
-            journal.record_vehicle_parking_updated(command_cursor, delta, parking);
+        // 迁移日志入口级拒绝（#1217 D4）：增量只在日志武装时物化；无法忠实
+        // 编码的过渡态粘性终止日志，不得让 `from_state` 触发 panic。
+        if self.admin.migration_journal.is_some() {
+            let compiled = self.compiled_route(state.route);
+            if VehicleDelta::journalable(&state, compiled) {
+                let delta = VehicleDelta::from_state(&state, compiled);
+                let parking = self.parking_binding_delta(vehicle);
+                if let Some(journal) = self.admin.migration_journal.as_mut() {
+                    journal.record_vehicle_parking_updated(command_cursor, delta, parking);
+                }
+            } else if let Some(journal) = self.admin.migration_journal.as_mut() {
+                journal.refuse_unsupported_transition_state(
+                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
+                );
+            }
         }
     }
 
@@ -1925,10 +1936,21 @@ impl crate::kernel::state::WorldState {
         self.commit_route_ref_increment(input.route(), route_ref);
         self.committed.parking.insert_occupied(vehicle, target);
         self.committed.command_cursor = command_cursor;
-        let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
-        let parking = self.parking_binding_delta(vehicle);
-        if let Some(journal) = self.admin.migration_journal.as_mut() {
-            journal.record_vehicle_parking_spawned(command_cursor, delta, parking);
+        // 迁移日志入口级拒绝（#1217 D4）：parked spawn 无 traversal、判据恒真，
+        // 仍统一走入口判据；无法忠实编码时粘性终止日志。
+        if self.admin.migration_journal.is_some() {
+            let compiled = self.compiled_route(state.route);
+            if VehicleDelta::journalable(&state, compiled) {
+                let delta = VehicleDelta::from_state(&state, compiled);
+                let parking = self.parking_binding_delta(vehicle);
+                if let Some(journal) = self.admin.migration_journal.as_mut() {
+                    journal.record_vehicle_parking_spawned(command_cursor, delta, parking);
+                }
+            } else if let Some(journal) = self.admin.migration_journal.as_mut() {
+                journal.refuse_unsupported_transition_state(
+                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
+                );
+            }
         }
         Ok(ParkedVehicleSpawnRecord { vehicle, target })
     }
