@@ -529,6 +529,32 @@ fn e1_witness_injection_stage() {
                     "search_work":search.report["search_work"],
                     "witness_injection_records":search.report["witness_injection_records"]}}));
         }
+        // P2-T 见证 → LastPair 注入（[u,v,1] 形态；参数 = witness [u,v,1] 的 u,v；
+        // P2 修正：区间剪枝后的 P2-T 见证须独立注入，不得跳过）。
+        let last = diagnose_last_two_chords(control);
+        if last["status"] == "local_witness" {
+            let params: [u64; 3] =
+                serde_json::from_value(last["witness"]["parameters_f64_bits"].clone()).unwrap();
+            let injection = sampler::grid::Injection {
+                control: bits,
+                kind: sampler::grid::InjectionKind::LastPair {
+                    u: f64::from_bits(params[0]),
+                    v: f64::from_bits(params[1]),
+                },
+            };
+            let mut handle = sampler::grid::WorkBudget::per_call_default();
+            let search = sampler::grid::search_injected_with_budget(&input, injection, &mut handle);
+            calls += 1;
+            call_budgets.push(json!({"problem":"last_two_chords",
+                "grid_work_consumed":handle.grid_work_consumed,
+                "grid_work_remaining":handle.grid_work_remaining}));
+            records.push(json!({"problem":"last_two_chords",
+                "witness_parameters_f64_bits":last["witness"]["parameters_f64_bits"],
+                "search":{"candidate_programs":search.report["candidate_programs"],
+                    "stop_reason":search.report["stop_reason"],
+                    "search_work":search.report["search_work"],
+                    "witness_injection_records":search.report["witness_injection_records"]}}));
+        }
         // seamLo 见证 → Seam 双侧注入（左 = chain[span-1] 并入 s，右 = chain[span] 并入 t）。
         let lo = chain[span - 1];
         let seam_lo = diagnose_seam_pair(
