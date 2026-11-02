@@ -277,6 +277,71 @@ PR #1188 S3/S4 验收边界条目、#237 G1 冻结包（A1–A6 裁定）。
 | R-10 | recipe internal 边语义位：不覆盖+显式几何+无对齐（首循环仅覆盖 entry/exit、次循环仅声明 LaneEdge）——先前"矛盾"系两循环误读                                                                        | portable_fixture_tests.rs:410-415 vs 477-491                  |
 | R-11 | **road-editing 非 internal 显式几何边不可表达**：显式曲线编译硬编码 `canonical_frame: None`；帧几何通道只吃合成侧 `add_canonical_frame(lane_edge_geometries)`；internal 豁免+继承路径 entry frame | compile_geometry.rs:760-783；hir/spatial.rs:305-348、456-484  |
 
+## 11. 评审十线程五域总设计（2026-11-02 维护者令：整体方案先行）
+
+> 按子系统分域、统一模型与不变量、一次成型；S4 红线=digest/state 零变化；
+> S5 边界标注（unique_address 重绑定/身份跨修订不入 S4）。
+
+### 域 A 过渡身份/定位器跨面一致性（P1-8 修正+新 P1 4438203305）
+
+- **统一模型**：过渡资源身份=**双层**——本体=资源格地址（`ConflictPassageAddress`
+  resource 高位编码+passage 局部）、**passage 归属**=(stream, zone) 稳定对。
+  三面同源：运行态=地址（resource 编码）、持久化=地址序列化（resource raw
+  保留）、decode=resource_slot 解码回址。`ConflictPassageLocator` 的
+  (stream,zone) 对**仅为 passage 归属查询结果**（非身份本体）——stream-passage
+  fallback 保留但显式标注为归属派生，不得串成静态 passage 身份（身份腐败面）。
+- **不变量**：I-A1 运行态地址 resource() 判定与持久化 decode 一致（同一编码）；
+  I-A2 lag 行序列化以运行态地址为准、decode 按 resource_slot 还原；I-A3 S4
+  口径=不炸+失败关闭（归属派生缺位→None→行省略+审计计数）；I-A4
+  unique_address 重绑定域=S5 边界（跨修订重绑定不入 S4）。
+
+### 域 B 潜在进入者枚举与证明（⑩档位+⑪可达域+游标相对出现项 4438203311）
+
+- **统一模型**：一次通过三段式——①**游标相对出现项发现**（route 游标+出现项
+  序扫描，含显式环游标后出现项=循环路线重复段）；②**停止距离可达域枚举**
+  （弃固定两跳上限——以 MotionReach/判据距离口径：图上/下游至 d_stop 半径）；
+  ③**逐进入者自身 profile 证明**（comfort_decel/min_gap 取进入者自身具名
+  参数、非申请者）。
+- **不变量**：I-B1 枚举域 ⊇ d_stop 可达域；I-B2 每进入者用自身具名参数；
+  I-B3 游标相对发现含环游标后出现项；I-B4 区间内者（T/投影边）不豁免；
+  I-B5（#1199 评审 P1 4438941172 链式证明更新）：**遮挡跳过→链式让行
+  证明**——有前车的跟随者资格=证明「能在前车投影停点之后停住」（各车
+  自身 profile、前车 d_stop 其自身具名参数）；证不了→potential enterer
+  （保守、不无证排除——动态反转覆盖）；链式成立排除（前车投影停点在
+  区间前且本车可停其后）；s12 互锁自然消解。
+
+### 域 C P5 强制模型（⑥ 4437754398）
+
+- **统一模型**：过渡预约=B 裁定 cell=**A2 投影物理障碍**——两面强制：
+  ①运动障碍集（求解器约束集）纳入过渡预约 cell（投影边物理障碍）；
+  ②`conflict_hop_admission` Transition 分支查 T-cell 占用（cells_unavailable）
+  非 zone contenders（static_zone 空≠不可证）。
+- **不变量**：I-C1 普通运动穿越投影边以 T-cell 预约为障碍（P5 义务）；
+  I-C2 门缺位 hop 准入查 cell 占用（fail-closed）；I-C3 持约者同格跳过、
+  异格放行（P1-5 链式预取保持）。
+
+### 域 D 安装期派生索引族（⑦zone_span 缓存+路径成员索引 4438203317）
+
+- **统一模型**：`ConflictDerivedIndexes` 扩展为派生索引族——zone_span 缓存
+  （安装期常量 ✓已落）、**路径成员索引**（stable_key→含该边路径集，O(1) 查、
+  弃 O(N²) 扫描）——安装期一次性构建、查询零扫描。
+- **不变量**：I-D1 派生索引与地址列同装同卸；I-D2 查询面 O(1)；I-D3
+  zone_span=安装期常量（普通 zone 流零成本）。
+
+### 域 E 校验面（⑧注册预检+⑨fresh-motion+R-7 成员检修正 4438135047）
+
+- **统一模型**：三校验统一为"绑定完整性"面——①注册容量预检计数含过渡出现项
+  （count_conflict_occurrences 入 T）；②fresh-motion 准入含过渡资源（无门
+  hop 的 T-cell 约束）；③R-7 成员检修正（**排除自身后**判外后继——路径含
+  自身恒真的首侧因）。
+- **不变量**：I-E1 注册容量预检 ≥ 实际出现项（含过渡）；I-E2 fresh-motion
+  对过渡资源同约束；I-E3 R-7=排除自身后路径外后继仍拒。
+
+### 全局红线与边界
+
+- S4：digest/state 零变化（locator 类型/持久形制/快照面不动）。
+- S5 边界：unique_address 重绑定、身份跨修订、lag 行跨修订语义。
+
 ### 终形构造（混合 v4；lead 2026-11-02 批准一击成型）
 
 - **合成侧（最小）**：T 的 LaneEdge + `add_canonical_frame(lane_edge_geometries)`
