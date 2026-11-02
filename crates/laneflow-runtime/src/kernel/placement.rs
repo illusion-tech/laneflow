@@ -2152,9 +2152,13 @@ impl crate::kernel::state::WorldState {
                 continue;
             };
             for entry in &compiled.conflicts {
-                let Some(count) =
-                    offsets.get_mut(entry.static_zone().map_or(usize::MAX, |z| z.index()))
-                else {
+                // P2-1（#1199）：过渡出现项不入静态 zone 路线索引（static_
+                // zone 空→usize::MAX 污染查表→ensure 恒 false→materialize
+                // 退化）——索引只收静态 zone 出现项。
+                let Some(zone) = entry.static_zone() else {
+                    continue;
+                };
+                let Some(count) = offsets.get_mut(zone.index()) else {
                     return false;
                 };
                 if total as u64 >= limit {
@@ -2184,7 +2188,11 @@ impl crate::kernel::state::WorldState {
                 return false;
             };
             for entry in &compiled.conflicts {
-                let cursor = &mut offsets[entry.static_zone().map_or(usize::MAX, |z| z.index())];
+                // P2-1：过渡出现项不入索引（同上）。
+                let Some(zone) = entry.static_zone() else {
+                    continue;
+                };
+                let cursor = &mut offsets[zone.index()];
                 zone_routes[*cursor as usize] = route;
                 *cursor += 1;
             }

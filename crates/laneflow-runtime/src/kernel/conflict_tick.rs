@@ -2945,11 +2945,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             derived: &self.derived,
             contender_frontier: None,
         };
-        for &gate_hop in compiled
+        // P2-2（#1199）：派发迭代从计算分区点起（恢复 first_gate 直起语义
+        // ——skip_while 每次全扫已过 hop；分区点一次计算、迭代 O(剩余)）。
+        let dispatch_start = compiled
             .conflict_dispatch_hops
-            .iter()
-            .skip_while(|hop| **hop < first_possible_hop)
-        {
+            .partition_point(|hop| *hop < first_possible_hop);
+        for &gate_hop in &compiled.conflict_dispatch_hops[dispatch_start..] {
             // 生命周期守卫（#1199 P1-5）：持权威=穿越进行中——仅跳过**同
             // 资源**再申请（防重复获取）；相邻过渡链（T0a→T0b）异资源请求
             // 放行（进链前获取相邻过渡资源——链式预取语义）。
@@ -7497,11 +7498,12 @@ impl ConflictTaskView<'_> {
         let preview = motion.next;
         // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
         // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
-        for &gate_hop in compiled
+        // P2-2（#1199）：派发迭代从计算分区点起（恢复 first_gate 直起语义
+        // ——skip_while 每次全扫已过 hop；分区点一次计算、迭代 O(剩余)）。
+        let dispatch_start = compiled
             .conflict_dispatch_hops
-            .iter()
-            .skip_while(|hop| **hop < first_possible_hop)
-        {
+            .partition_point(|hop| *hop < first_possible_hop);
+        for &gate_hop in &compiled.conflict_dispatch_hops[dispatch_start..] {
             // 生命周期守卫（#1199）：已持权威=穿越进行中，不再发起新候选。
             if self.read.conflict_reservation(state.handle).is_some() {
                 break;
