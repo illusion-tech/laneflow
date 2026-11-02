@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::Path, process::Command};
 
 const TARGET: &str = "x86_64-pc-windows-msvc";
 // 记录并校验解析工具链的 cc 版本；升级 cc 时必须与 Cargo.toml 的精确 pin 同步。
-const RESOLVER: &str = "cc 1.9.0";
+const RESOLVER: &str = "cc 1.10.0";
 const ROLES: [&str; 4] = ["compiler", "archiver", "assembler", "linker"];
 const NAMES: [&str; 4] = ["cl.exe", "lib.exe", "ml64.exe", "link.exe"];
 
