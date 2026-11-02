@@ -8523,8 +8523,8 @@
       "class": "参数重放",
       "edge": "synthetic:line",
       "parameters_f64_bits": [
-        4602678819172646912,
-        4607182418800017408
+        0,
+        4602678819172646912
       ],
       "pool_index": null,
       "problem": "last_two_chords",

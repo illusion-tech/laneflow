@@ -8,6 +8,10 @@
 
 use super::*;
 
+/// 排除余量（v3.1 §0：量化弦长下限**放宽** 0.099999 m 仅作排除判据；真实 sink
+/// 阈值 0.1 m 是接受口径，(0.099999, 0.1] 区间不得判排除——P2-2 口径修复）。
+const EXCLUSION_MARGIN_METERS: f32 = 0.099_999;
+
 /// 双弦问题族（P1-T 首两弦 / P2-T 末两弦）。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PairKind {
@@ -53,10 +57,10 @@ fn pair_reject(
     else {
         return None;
     };
-    if quantized_chord_meters(quantize_vec3(a), quantize_vec3(b)) <= QUANTIZED_MIN_SEGMENT_METERS {
+    if quantized_chord_meters(quantize_vec3(a), quantize_vec3(b)) <= EXCLUSION_MARGIN_METERS {
         return Some("constant_quantized_rejection");
     }
-    if quantized_chord_meters(quantize_vec3(b), quantize_vec3(c)) <= QUANTIZED_MIN_SEGMENT_METERS {
+    if quantized_chord_meters(quantize_vec3(b), quantize_vec3(c)) <= EXCLUSION_MARGIN_METERS {
         return Some("constant_quantized_rejection");
     }
     let first = unit(sub(b, a)).unwrap();
@@ -163,7 +167,7 @@ fn single_chord_verdict(c: [Vec3; 4]) -> Value {
     let q0 = quantize_vec3(c[0]);
     let q3 = quantize_vec3(c[3]);
     let chord_m = quantized_chord_meters(q0, q3);
-    if chord_m <= QUANTIZED_MIN_SEGMENT_METERS {
+    if chord_m <= EXCLUSION_MARGIN_METERS {
         return json!({"status":"necessary_condition_excluded","reason":"minimum_chord",
             "chord_meters":chord_m,
             "scope":"zero-dimensional single chord; exclusion margin criterion only"});
@@ -398,6 +402,26 @@ mod tests {
             branch_verdict(&witness, &excluded),
             "branch_partial_record_only"
         );
+    }
+
+    #[test]
+    fn margin_gap_is_not_excluded_but_unresolved() {
+        // P2-2 回归：(0.099999, 0.1] 区间——真实 sink 拒绝（0.1 接受口径）但排除
+        // 余量未达（0.099999），不得判排除，归未决细分 sink_real_check。
+        let endpoint = [
+            [0.0, 0.0, 0.0],
+            [0.033, 0.0, 0.0],
+            [0.067, 0.0, 0.0],
+            [0.1, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+        let out = diagnose_single_chord(endpoint);
+        assert_ne!(
+            out["status"], "necessary_condition_excluded",
+            "区间内不判排除"
+        );
+        assert_eq!(out["unresolved_reason"], json!("sink_real_check"));
     }
 
     #[test]

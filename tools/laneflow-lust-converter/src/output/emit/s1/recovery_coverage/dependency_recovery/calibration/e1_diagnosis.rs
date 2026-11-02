@@ -163,14 +163,20 @@ fn derive_entries(rows: &Value) -> Value {
         (PairKind::FirstTwo, "first_two_chords"),
         (PairKind::LastTwo, "last_two_chords"),
     ] {
-        assert!(
-            replay_pair_witness(kind, straight, 0.5, 1.0).is_some()
-                || replay_pair_witness(kind, straight, 0.0, 0.5).is_some(),
-            "边界正例 [0,0.5,1] 必证"
-        );
+        // P2-3：存储**实际通过断言**的参数——FirstTwo 域 v=1 合法取 (0.5,1.0)；
+        // LastTwo 域 v=1 出域，取备选 (0.0,0.5)。不得恒存 (0.5,1.0)。
+        let (u, v): (f64, f64) = if replay_pair_witness(kind, straight, 0.5, 1.0).is_some() {
+            (0.5, 1.0)
+        } else {
+            assert!(
+                replay_pair_witness(kind, straight, 0.0, 0.5).is_some(),
+                "边界正例 [0,0.5,1] 必证"
+            );
+            (0.0, 0.5)
+        };
         entries.push(json!({"edge":"synthetic:line","pool_index":null,
             "span_index_zero_based":0,"problem":label,"class":"参数重放",
-            "parameters_f64_bits":[0.5_f64.to_bits(),1.0_f64.to_bits()]}));
+            "parameters_f64_bits":[u.to_bits(),v.to_bits()]}));
     }
     json!({"schema":"laneflow-1141-a-prime-list","entries":entries})
 }
