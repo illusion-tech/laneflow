@@ -1162,9 +1162,10 @@ fn compile_conflicts(
                 conflict.maneuver_path_participant_streams(path)
             })
         else {
-            // §8 流绑定：无候选或候选无 participant stream 时不绑定（能力
-            // 拒绝语义保持；显式覆盖见 `bind_transition_stream` 测试）。
-            continue;
+            // §8 流绑定（#1199 评审 P1-2）：无候选或候选无 participant
+            // stream 时**结构化拒绝**——无绑定资源出现项的过渡路线不得
+            // 免检注册（能力翻转后 fail-open 封堵）。
+            return Err(RouteError::ManeuverMismatch);
         };
         let length = *traffic
             .lane_lengths_millimetres()
@@ -2542,9 +2543,11 @@ mod compile_route_tests {
                 })
                 .unwrap();
             };
-            maneuver("J1", "mv-P1", "P1", "A0", &["I1"], "B0_up");
+            // 路径唯一居所（#1199 P1-2 流绑定载体）：J1/J2b 移 road-editing
+            // 侧声明（流挂接载体；合成侧 add_maneuver_path 删除——全局路径
+            // 序列唯一规则下两处同形声明=DuplicateManeuverPathSequence）。
             maneuver("J2", "mv-P0", "P0", "B0_down", &["I0"], "C0");
-            maneuver("J2b", "mv-P2", "P2", "B1_down", &["I2"], "C0");
+
             let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = EDGES
                 .iter()
                 .map(|(_, _, x0, z0, x1, z1)| {
@@ -2575,8 +2578,153 @@ mod compile_route_tests {
                 lane_edge_geometries: &geometries,
             })
             .unwrap();
+            // s3 夹具冲突声明侧（#1199 P1-2 流绑定载体）：v7 模板精简——
+            // J1/J2b 两 movement/path + zone/双流/双 passage（R-13 ≥2 流）；
+            // 边引用 imported s3-synth 侧（R-1 仅限 owner ✓ 数据引用可用）。
+            use laneflow_compiler::road_editing as editing;
+            use laneflow_compiler::{GeometryAccuracyProfile, GeometryDirectionProfile};
+            let header = editing::RoadEditingModuleHeader::try_new(
+                "s3-road",
+                "s3-road.document",
+                vec!["lane-change-s1s3".to_owned()],
+                editing::RoadEditingProvenance::direct("s3 conflict side").unwrap(),
+            )
+            .unwrap();
+            let mut rb = editing::RoadEditingSourceModuleBuilder::new(
+                header,
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                &limits,
+            )
+            .unwrap();
+            let edge = |key: &str| {
+                editing::LaneEdgeReference::imported("lane-change-s1s3", Vec::new(), key).unwrap()
+            };
+            let junction = editing::JunctionReference::local("s3-junction").unwrap();
+            let zone = editing::ConflictZoneReference::owner_scoped(
+                vec!["s3-junction".to_owned()],
+                "s3-zone",
+            )
+            .unwrap();
+            rb.add_declaration(editing::RoadEditingDeclaration::Junction(
+                editing::JunctionInput::try_new(
+                    "s3-junction",
+                    vec![edge("A0"), edge("B0_up"), edge("B1_down"), edge("C0")],
+                    vec![edge("I1"), edge("I2")],
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::ConflictZone(
+                editing::ConflictZoneInput::try_new("s3-zone", junction.clone()).unwrap(),
+            ))
+            .unwrap();
+            for (movement_key, from, to, path_key, internal, exit, stop_key, stream_key) in [
+                (
+                    "s3-movement-j1",
+                    "A0",
+                    "B0_up",
+                    "s3-path-j1",
+                    "I1",
+                    "B0_up",
+                    "s3-stop-j1",
+                    "s3-stream-j1",
+                ),
+                (
+                    "s3-movement-j2b",
+                    "B1_down",
+                    "C0",
+                    "s3-path-j2b",
+                    "I2",
+                    "C0",
+                    "s3-stop-j2b",
+                    "s3-stream-j2b",
+                ),
+            ] {
+                let movement = editing::MovementReference::owner_scoped(
+                    vec!["s3-junction".to_owned()],
+                    movement_key,
+                )
+                .unwrap();
+                let path = editing::ManeuverPathReference::owner_scoped(
+                    vec!["s3-junction".to_owned(), movement_key.to_owned()],
+                    path_key,
+                )
+                .unwrap();
+                let gate = editing::ManeuverGateReference::owner_scoped(
+                    vec![
+                        "s3-junction".to_owned(),
+                        movement_key.to_owned(),
+                        path_key.to_owned(),
+                    ],
+                    "gate",
+                )
+                .unwrap();
+                rb.add_declaration(editing::RoadEditingDeclaration::Movement(
+                    editing::MovementInput::try_new(
+                        movement_key,
+                        junction.clone(),
+                        from.to_owned(),
+                        to.to_owned(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
+                    editing::ManeuverPathInput::try_new(
+                        path_key,
+                        movement,
+                        edge(from),
+                        vec![edge(internal)],
+                        edge(exit),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::StopLine(
+                    editing::StopLineInput::try_new(stop_key, edge(from)).unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
+                    editing::ManeuverGateInput::try_new(
+                        "gate",
+                        path.clone(),
+                        0,
+                        editing::StopLineReference::local(stop_key).unwrap(),
+                        editing::RoadEditingSignalControl::None,
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
+                    editing::ParticipantStreamInput::try_new(
+                        stream_key,
+                        junction.clone(),
+                        path,
+                        vec![editing::ConflictPassageInput::new(
+                            zone.clone(),
+                            editing::PathAnchorInput::gate(gate),
+                            editing::PathAnchorInput::edge_boundary(2),
+                        )],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            }
+            let source = editing::RoadEditingSourceWriter::new(&limits)
+                .write(rb.finish().unwrap())
+                .unwrap();
             let mut unit = CompilationUnitBuilder::new(limits);
             unit.add_synthetic_module(b.finish().unwrap()).unwrap();
+            unit.add_road_editing_module(
+                editing::RoadEditingModuleInput::try_new(
+                    "s3-road.document",
+                    source.as_bytes(),
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
             let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
             let candidate = emit_portable_candidate(
                 &output,
@@ -2763,8 +2911,9 @@ mod compile_route_tests {
             let revision = revision();
             let named = named_ordinals(revision.as_ref());
             let edge = |name: &str| *named.get(name).unwrap();
-            // 多段过渡链（T0a→T0b）：段级分类命中（P1-1 纯层钉版 p0/p1 保持）；
-            // 能力翻转后正断言（PR 行为变化清单第 2 条）。
+            // 多段过渡链（T0a→T0b）：段级分类命中（P1-1 纯层钉版保持）；
+            // 路线级=夹具补流后合法编译（P1-2 拒绝针对无绑定路线——本夹具
+            // J1/J2b 流绑定齐、正断言）。
             let multi = [
                 edge("A0"),
                 edge("I1"),
@@ -2778,26 +2927,27 @@ mod compile_route_tests {
             let multi_compiled =
                 compile_route(revision.as_ref(), &multi, 0, u64::MAX).expect("multi");
             assert_eq!(multi_compiled.edges.len(), multi.len());
-            // 起/止于过渡的路线（含单边 [T01]）：翻转后可注册（第 3 条）。
-            let single = compile_route(revision.as_ref(), &[edge("T01")], 0, u64::MAX)
-                .expect("single transition route");
-            assert_eq!(single.edges.len(), 1);
-            let ending = compile_route(
-                revision.as_ref(),
-                &[edge("B0_up"), edge("T01")],
-                0,
-                u64::MAX,
-            )
-            .expect("transition-ending route");
-            assert_eq!(ending.edges.len(), 2);
-            let starting = compile_route(
-                revision.as_ref(),
-                &[edge("T01"), edge("B1_down")],
-                0,
-                u64::MAX,
-            )
-            .expect("transition-starting route");
-            assert_eq!(starting.edges.len(), 2);
+            // 起/止于过渡的单边/双边路线：无 maneuver 绑定→P1-2 结构化拒
+            // （ManeuverMismatch）——拒绝新钉。
+            assert!(compile_route(revision.as_ref(), &[edge("T01")], 0, u64::MAX).is_err());
+            assert!(
+                compile_route(
+                    revision.as_ref(),
+                    &[edge("B0_up"), edge("T01")],
+                    0,
+                    u64::MAX
+                )
+                .is_err()
+            );
+            assert!(
+                compile_route(
+                    revision.as_ref(),
+                    &[edge("T01"), edge("B1_down")],
+                    0,
+                    u64::MAX
+                )
+                .is_err()
+            );
         }
 
         #[test]
@@ -4107,7 +4257,7 @@ mod compile_route_tests {
                         edge("I2"),
                         edge("C0"),
                     ],
-                    true,
+                    false,
                 ),
                 (
                     "多段链（分量多边，T0a→T0b）",
@@ -4121,7 +4271,7 @@ mod compile_route_tests {
                         edge("I2"),
                         edge("C0"),
                     ],
-                    true,
+                    false,
                 ),
                 ("起止过渡（单边路线 [T01]）", vec![edge("T01")], true),
                 (
@@ -4174,10 +4324,18 @@ mod compile_route_tests {
                 ),
                 ("单 covered 边路线（[P0]）", vec![edge("P0")], false),
             ];
-            for (name, route, _historically_rejected) in cases {
+            for (name, route, expect_reject) in cases {
                 let result = compile_route(revision.as_ref(), &route, 0, u64::MAX);
-                // 能力翻转后全迁移为正断言（PR 行为变化清单第 4 条）。
-                assert!(result.is_ok(), "{name} 翻转后须编译通过：{result:?}");
+                // 逐例真值（P1-2 语义）：有 maneuver 绑定（J1/J2b 覆盖）→
+                // 编译通过；无绑定（单边/双边/SP 链）→ 结构化拒。
+                if expect_reject {
+                    assert!(
+                        result.is_err(),
+                        "{name} 无绑定资源出现项须拒（P1-2）：{result:?}"
+                    );
+                } else {
+                    assert!(result.is_ok(), "{name} 须编译通过：{result:?}");
+                }
             }
         }
     }
