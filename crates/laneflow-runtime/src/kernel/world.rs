@@ -2987,15 +2987,24 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !self.conflict_read().contains_address(address) {
             return None;
         }
+        // P1-8（#1199）：Transition 资源格无 static_zone——经其 stream
+        // passage 取 (stream, zone) 稳定对（S4 边界=不炸+失败关闭；与
+        // occurrence locator 同 fallback 形制）。lag 行序列化零炸。
+        let zone = address.static_zone().or_else(|| {
+            self.binding
+                .revision
+                .conflict()
+                .participant_stream(address.stream())?
+                .passages()
+                .get(usize::try_from(address.passage_local_index()).ok()?)
+                .map(|passage| passage.conflict_zone())
+        })?;
         Some(crate::ConflictPassageLocator::new(
             self.binding
                 .revision
                 .identity()
                 .stable_id(address.stream())?,
-            self.binding
-                .revision
-                .identity()
-                .stable_id(address.static_zone()?)?,
+            self.binding.revision.identity().stable_id(zone)?,
         ))
     }
 
